@@ -203,6 +203,24 @@ TEST_F(RangeTombstoneFragmenterTest, OverlapAndRepeatedStartKeyWithSnapshot) {
       {{"a", 0}, {"c", 8}, {"e", 8}, {"i", 0}, {"j", 4}, {"m", 4}});
 }
 
+TEST_F(RangeTombstoneFragmenterTest, OverlapAndRepeatedStartKeyUnordered) {
+  auto range_del_iter = MakeRangeDelIter({{"a", "e", 10},
+                                          {"j", "n", 4},
+                                          {"c", "i", 6},
+                                          {"c", "g", 8},
+                                          {"j", "l", 2}});
+
+  FragmentedRangeTombstoneIterator iter(std::move(range_del_iter),
+                                        bytewise_icmp, 9);
+  VerifyFragmentedRangeDels(&iter, {{"c", "g", 8},
+                                    {"g", "i", 6},
+                                    {"j", "l", 4},
+                                    {"l", "n", 4}});
+  VerifyMaxCoveringTombstoneSeqnum(
+      &iter, bytewise_icmp.user_comparator(),
+      {{"a", 0}, {"c", 8}, {"e", 8}, {"i", 0}, {"j", 4}, {"m", 4}});
+}
+
 TEST_F(RangeTombstoneFragmenterTest, SeekForPrevStartKey) {
   // Same tombstones as OverlapAndRepeatedStartKey.
   auto range_del_iter = MakeRangeDelIter({{"a", "e", 10},

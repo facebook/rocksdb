@@ -88,10 +88,12 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
   pinned_iters_mgr_.StartPinning();
 
   bool no_tombstones = true;
+  std::vector<RangeTombstone> ordered_tombstones;
   for (unfragmented_tombstones->SeekToFirst(); unfragmented_tombstones->Valid();
        unfragmented_tombstones->Next()) {
     const Slice& ikey = unfragmented_tombstones->key();
     Slice tombstone_start_key = ExtractUserKey(ikey);
+    Slice tombstone_end_key = unfragmented_tombstones->value();
     SequenceNumber tombstone_seq = GetInternalKeySeqno(ikey);
     if (tombstone_seq > snapshot) {
       // The tombstone is not visible by this snapshot.
@@ -99,27 +101,32 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
     }
     no_tombstones = false;
 
-    Slice tombstone_end_key = unfragmented_tombstones->value();
+    if (!unfragmented_tombstones->IsKeyPinned()) {
+      pinned_slices_.emplace_back(tombstone_start_key.data(),
+                                  tombstone_start_key.size());
+      tombstone_start_key = pinned_slices_.back();
+    }
     if (!unfragmented_tombstones->IsValuePinned()) {
       pinned_slices_.emplace_back(tombstone_end_key.data(),
                                   tombstone_end_key.size());
       tombstone_end_key = pinned_slices_.back();
     }
-    if (!cur_end_keys.empty() && icmp.user_comparator()->Compare(
-                                     cur_start_key, tombstone_start_key) != 0) {
-      // The start key has changed. Flush all tombstones that start before this
-      // new start key.
-      flush_current_tombstones(tombstone_start_key);
-    }
-    if (unfragmented_tombstones->IsKeyPinned()) {
-      cur_start_key = tombstone_start_key;
-    } else {
-      pinned_slices_.emplace_back(tombstone_start_key.data(),
-                                  tombstone_start_key.size());
-      cur_start_key = pinned_slices_.back();
-    }
+    ordered_tombstones.emplace_back(tombstone_start_key, tombstone_end_key,
+                                    tombstone_seq);
+  }
+  std::sort(ordered_tombstones.begin(), ordered_tombstones.end(), tombstone_cmp_);
 
-    cur_end_keys.emplace(tombstone_end_key, tombstone_seq, kTypeRangeDeletion);
+  for (const auto& tombstone : ordered_tombstones) {
+    if (!cur_end_keys.empty() &&
+        icmp.user_comparator()->Compare(cur_start_key, tombstone.start_key_) !=
+            0) {
+      // The start key has changed. Flush all tombstones that start before
+      // this new start key.
+      flush_current_tombstones(tombstone.start_key_);
+    }
+    cur_start_key = tombstone.start_key_;
+    cur_end_keys.emplace(tombstone.end_key_, tombstone.seq_,
+                         kTypeRangeDeletion);
   }
   if (!cur_end_keys.empty()) {
     ParsedInternalKey last_end_key = *std::prev(cur_end_keys.end());
