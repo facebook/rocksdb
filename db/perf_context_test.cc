@@ -10,6 +10,7 @@
 
 #include "monitoring/histogram.h"
 #include "monitoring/instrumented_mutex.h"
+#include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
@@ -579,18 +580,18 @@ TEST_F(PerfContextTest, SeekKeyComparison) {
 
 TEST_F(PerfContextTest, DBMutexLockCounter) {
   int stats_code[] = {0, static_cast<int>(DB_MUTEX_WAIT_MICROS)};
-  for (PerfLevel perf_level :
+  for (PerfLevel perf_level_test :
        {PerfLevel::kEnableTimeExceptForMutex, PerfLevel::kEnableTime}) {
     for (int c = 0; c < 2; ++c) {
     InstrumentedMutex mutex(nullptr, Env::Default(), stats_code[c]);
     mutex.Lock();
     rocksdb::port::Thread child_thread([&] {
-      SetPerfLevel(perf_level);
+      SetPerfLevel(perf_level_test);
       get_perf_context()->Reset();
       ASSERT_EQ(get_perf_context()->db_mutex_lock_nanos, 0);
       mutex.Lock();
       mutex.Unlock();
-      if (perf_level == PerfLevel::kEnableTimeExceptForMutex ||
+      if (perf_level_test == PerfLevel::kEnableTimeExceptForMutex ||
           stats_code[c] != DB_MUTEX_WAIT_MICROS) {
         ASSERT_EQ(get_perf_context()->db_mutex_lock_nanos, 0);
       } else {
@@ -686,7 +687,34 @@ TEST_F(PerfContextTest, MergeOperatorTime) {
 
   delete db;
 }
+
+TEST_F(PerfContextTest, PerfContextByLevelGetSet) {
+  get_perf_context()->Reset();
+  get_perf_context()->EnablePerLevelPerfContext();
+  PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_positive, 1, 0);
+  PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 5);
+  PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 7);
+  PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 7);
+  PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_true_positive, 1, 2);
+  ASSERT_EQ(
+      0, (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+  ASSERT_EQ(
+      1, (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
+  ASSERT_EQ(
+      2, (*(get_perf_context()->level_to_perf_context))[7].bloom_filter_useful);
+  ASSERT_EQ(1, (*(get_perf_context()->level_to_perf_context))[0]
+                   .bloom_filter_full_positive);
+  ASSERT_EQ(1, (*(get_perf_context()->level_to_perf_context))[2]
+                   .bloom_filter_full_true_positive);
+  std::string zero_excluded = get_perf_context()->ToString(true);
+  ASSERT_NE(std::string::npos,
+            zero_excluded.find("bloom_filter_useful = 1@level5, 2@level7"));
+  ASSERT_NE(std::string::npos,
+            zero_excluded.find("bloom_filter_full_positive = 1@level0"));
+  ASSERT_NE(std::string::npos,
+            zero_excluded.find("bloom_filter_full_true_positive = 1@level2"));
 }
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

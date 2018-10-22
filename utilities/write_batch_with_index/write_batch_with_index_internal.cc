@@ -85,6 +85,20 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
   return Status::OK();
 }
 
+// If both of `entry1` and `entry2` point to real entry in write batch, we
+// compare the entries as following:
+// 1. first compare the column family, the one with larger CF will be larger;
+// 2. Inside the same CF, we first decode the entry to find the key of the entry
+//    and the entry with larger key will be larger;
+// 3. If two entries are of the same CF and offset, the one with larger offset
+//    will be larger.
+// Some times either `entry1` or `entry2` is dummy entry, which is actually
+// a search key. In this case, in step 2, we don't go ahead and decode the
+// entry but use the value in WriteBatchIndexEntry::search_key.
+// One special case is WriteBatchIndexEntry::key_size is kFlagMinInCf.
+// This indicate that we are going to seek to the first of the column family.
+// Once we see this, this entry will be smaller than all the real entries of
+// the column family.
 int WriteBatchEntryComparator::operator()(
     const WriteBatchIndexEntry* entry1,
     const WriteBatchIndexEntry* entry2) const {
@@ -94,9 +108,10 @@ int WriteBatchEntryComparator::operator()(
     return -1;
   }
 
-  if (entry1->offset == WriteBatchIndexEntry::kFlagMin) {
+  // Deal with special case of seeking to the beginning of a column family
+  if (entry1->is_min_in_cf()) {
     return -1;
-  } else if (entry2->offset == WriteBatchIndexEntry::kFlagMin) {
+  } else if (entry2->is_min_in_cf()) {
     return 1;
   }
 

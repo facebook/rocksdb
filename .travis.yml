@@ -90,7 +90,7 @@ script:
       OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=full_filter_block_test make -j4 check_some
       ;;
     2)
-      OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=full_filter_block_test ROCKSDBTESTS_END=write_batch_with_index_test make -j4 check_some
+      OPT=-DTRAVIS V=1 make -j4 tools && OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=full_filter_block_test ROCKSDBTESTS_END=write_batch_with_index_test make -j4 check_some
       ;;
     3)
       OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=write_batch_with_index_test ROCKSDBTESTS_END=write_prepared_transaction_test make -j4 check_some

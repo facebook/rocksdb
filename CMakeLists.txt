@@ -683,12 +683,10 @@ set(SOURCES
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
         $<TARGET_OBJECTS:build_version>)
 
-if(HAVE_SSE42 AND NOT FORCE_SSE42)
-  if(NOT MSVC)
-set_source_files_properties(
-  util/crc32c.cc
-      PROPERTIES COMPILE_FLAGS "-msse4.2 -mpclmul")
-  endif()
+if(HAVE_SSE42 AND NOT MSVC)
+  set_source_files_properties(
+    util/crc32c.cc
+    PROPERTIES COMPILE_FLAGS "-msse4.2 -mpclmul")
 endif()
 
 if(HAVE_POWER8)
