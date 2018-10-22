@@ -5538,11 +5538,11 @@ void Java_org_rocksdb_DBOptions_setDbWriteBufferSize(
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_DBOptions_setWriteBufferManager(JNIEnv* /*env*/, jobject /*jobj*/,
-                                                      jlong joptions_handle,
+                                                      jlong jdb_options_handle,
                                                       jlong jwrite_buffer_manager_handle) {
 auto* write_buffer_manager =
         reinterpret_cast<std::shared_ptr<rocksdb::WriteBufferManager> *>(jwrite_buffer_manager_handle);
-reinterpret_cast<rocksdb::DBOptions*>(joptions_handle)->write_buffer_manager =
+reinterpret_cast<rocksdb::DBOptions*>(jdb_options_handle)->write_buffer_manager =
         *write_buffer_manager;
 }
 
