@@ -220,8 +220,8 @@ PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS ${CXXFLAGS}"
 JAVA_LDFLAGS="$PLATFORM_LDFLAGS"
 JAVA_STATIC_LDFLAGS="$PLATFORM_LDFLAGS"
 
-$CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
-    struct alignas(1024) t {};
+$CXX $PLATFORM_CXXFLAGS -faligned-new -x c++ - -o /dev/null 2>/dev/null <<EOF
+    struct alignas(1024) t {int a;};
     int main() {}
 EOF
 if [ "$?" = 0 ]; then
