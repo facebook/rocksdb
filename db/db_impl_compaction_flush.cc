@@ -322,11 +322,23 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     s = SyncClosedLogs(job_context);
   }
 
+  // exec_status stores the execution status of flush_jobs as
+  // <bool /* executed */, Status /* status code */>
+  autovector<std::pair<bool, Status>> exec_status;
+  for (int i = 0; i != num_cfs; ++i) {
+    // Initially all jobs are not executed, with status OK.
+    std::pair<bool, Status> elem(false, Status::OK());
+    exec_status.emplace_back(elem);
+  }
+
   if (s.ok()) {
     // TODO (yanqin): parallelize jobs with threads.
     for (int i = 0; i != num_cfs; ++i) {
-      s = jobs[i].Run(&logs_with_prep_tracker_, &file_meta[i]);
-      if (!s.ok()) {
+      exec_status[i].second =
+          jobs[i].Run(&logs_with_prep_tracker_, &file_meta[i]);
+      exec_status[i].first = true;
+      if (!exec_status[i].second.ok()) {
+        s = exec_status[i].second;
         break;
       }
     }
@@ -405,12 +417,19 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   }
 
   if (!s.ok()) {
+    // Have to cancel the flush jobs that have NOT executed because we need to
+    // unref the versions.
     for (int i = 0; i != num_cfs; ++i) {
-      auto& mems = jobs[i].GetMemTables();
-      cfds[i]->imm()->RollbackMemtableFlush(mems, file_meta[i].fd.GetNumber());
-      jobs[i].Cancel();
+      if (!exec_status[i].first) {
+        jobs[i].Cancel();
+      }
     }
     if (!s.IsShutdownInProgress()) {
+      for (int i = 0; i != num_cfs; ++i) {
+        auto& mems = jobs[i].GetMemTables();
+        cfds[i]->imm()->RollbackMemtableFlush(mems,
+                                              file_meta[i].fd.GetNumber());
+      }
       Status new_bg_error = s;
       error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
     }
