@@ -1005,7 +1005,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   T setWriteBufferManager(final WriteBufferManager writeBufferManager);
 
   /**
-   * Reference to WriteBufferManager used by it. <br>
+   * Reference to {@link WriteBufferManager} used by it. <br>
    *
    * Default: null (Disabled)
    *
