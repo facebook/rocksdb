@@ -46,6 +46,7 @@ public class DBOptions
     this.numShardBits_ = other.numShardBits_;
     this.rateLimiter_ = other.rateLimiter_;
     this.rowCache_ = other.rowCache_;
+    this.writeBufferManager_ = other.writeBufferManager_;
   }
 
   /**
@@ -671,6 +672,7 @@ public class DBOptions
   public DBOptions setWriteBufferManager(final WriteBufferManager writeBufferManager) {
     assert(isOwningHandle());
     setWriteBufferManager(nativeHandle_, writeBufferManager.nativeHandle_);
+    this.writeBufferManager_ = writeBufferManager;
     return this;
   }
 
@@ -1167,4 +1169,5 @@ public class DBOptions
   private int numShardBits_;
   private RateLimiter rateLimiter_;
   private Cache rowCache_;
+  private WriteBufferManager writeBufferManager_;
 }

@@ -70,6 +70,7 @@ public class Options extends RocksObject
     this.compactionOptionsFIFO_ = other.compactionOptionsFIFO_;
     this.compressionOptions_ = other.compressionOptions_;
     this.rowCache_ = other.rowCache_;
+    this.writeBufferManager_ = other.writeBufferManager_;
   }
 
   @Override
@@ -727,6 +728,7 @@ public class Options extends RocksObject
   public Options setWriteBufferManager(final WriteBufferManager writeBufferManager) {
     assert(isOwningHandle());
     setWriteBufferManager(nativeHandle_, writeBufferManager.nativeHandle_);
+    this.writeBufferManager_ = writeBufferManager;
     return this;
   }
 
@@ -1918,4 +1920,5 @@ public class Options extends RocksObject
   private CompactionOptionsFIFO compactionOptionsFIFO_;
   private CompressionOptions compressionOptions_;
   private Cache rowCache_;
+  private WriteBufferManager writeBufferManager_;
 }
