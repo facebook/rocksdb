@@ -121,7 +121,7 @@ endif
 # if we're compiling for release, compile without debug code (-DNDEBUG)
 ifeq ($(DEBUG_LEVEL),0)
 OPT += -DNDEBUG
-USE_RTTI=1
+
 ifneq ($(USE_RTTI), 1)
 	CXXFLAGS += -fno-rtti
 else
