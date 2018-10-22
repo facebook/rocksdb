@@ -220,6 +220,32 @@ TEST_F(DBFlushTest, FlushError) {
   ASSERT_NE(s, Status::OK());
 }
 
+TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = GetParam();
+  options.write_buffer_size = 64 << 20;
+
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  WriteOptions wopts;
+  wopts.disableWAL = true;
+  for (size_t i = 0; i != num_cfs; ++i) {
+    ASSERT_OK(Put(static_cast<int>(i) /*cf*/, "key", "value", wopts));
+  }
+  std::vector<int> cf_ids;
+  for (size_t i = 0; i != num_cfs; ++i) {
+    cf_ids.emplace_back(static_cast<int>(i));
+  }
+  ASSERT_OK(Flush(cf_ids));
+  for (size_t i = 0; i != num_cfs; ++i) {
+    auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+    ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
+    ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
+  }
+}
+
 TEST_P(DBAtomicFlushTest, AtomicFlushTriggeredByMemTableFull) {
   Options options = CurrentOptions();
   options.create_if_missing = true;

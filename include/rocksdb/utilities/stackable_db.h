@@ -278,6 +278,11 @@ class StackableDB : public DB {
                        ColumnFamilyHandle* column_family) override {
     return db_->Flush(fopts, column_family);
   }
+  virtual Status Flush(
+      const FlushOptions& fopts,
+      const std::vector<ColumnFamilyHandle*>& column_families) override {
+    return db_->Flush(fopts, column_families);
+  }
 
   virtual Status SyncWAL() override {
     return db_->SyncWAL();

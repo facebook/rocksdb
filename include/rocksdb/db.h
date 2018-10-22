@@ -905,6 +905,9 @@ class DB {
   virtual Status Flush(const FlushOptions& options) {
     return Flush(options, DefaultColumnFamily());
   }
+  virtual Status Flush(
+      const FlushOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families) = 0;
 
   // Flush the WAL memory buffer to the file. If sync is true, it calls SyncWAL
   // afterwards.

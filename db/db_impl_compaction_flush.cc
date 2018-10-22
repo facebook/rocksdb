@@ -1169,11 +1169,59 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Manual flush start.",
                  cfh->GetName().c_str());
-  Status s =
-      FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
+  Status s;
+  if (atomic_flush_) {
+    s = AtomicFlushMemTables({cfh->cfd()}, flush_options,
+                             FlushReason::kManualFlush);
+  } else {
+    s = FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
+  }
+
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "[%s] Manual flush finished, status: %s\n",
                  cfh->GetName().c_str(), s.ToString().c_str());
+  return s;
+}
+
+Status DBImpl::Flush(const FlushOptions& flush_options,
+                     const std::vector<ColumnFamilyHandle*>& column_families) {
+  Status s;
+  if (!atomic_flush_) {
+    for (auto cfh : column_families) {
+      s = Flush(flush_options, cfh);
+      if (!s.ok()) {
+        break;
+      }
+    }
+  } else {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Manual atomic flush start.\n"
+                   "=====Column families:=====");
+    for (auto cfh : column_families) {
+      auto cfhi = static_cast<ColumnFamilyHandleImpl*>(cfh);
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "%s",
+                     cfhi->GetName().c_str());
+    }
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "=====End of column families list=====");
+    autovector<ColumnFamilyData*> cfds;
+    std::for_each(column_families.begin(), column_families.end(),
+                  [&cfds](ColumnFamilyHandle* elem) {
+                    auto cfh = static_cast<ColumnFamilyHandleImpl*>(elem);
+                    cfds.emplace_back(cfh->cfd());
+                  });
+    s = AtomicFlushMemTables(cfds, flush_options, FlushReason::kManualFlush);
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Manual atomic flush finished, status: %s\n",
+                   "=====Column families:=====", s.ToString().c_str());
+    for (auto cfh : column_families) {
+      auto cfhi = static_cast<ColumnFamilyHandleImpl*>(cfh);
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "%s",
+                     cfhi->GetName().c_str());
+    }
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "=====End of column families list=====");
+  }
   return s;
 }
 
