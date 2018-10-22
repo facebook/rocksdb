@@ -220,14 +220,6 @@ PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS ${CXXFLAGS}"
 JAVA_LDFLAGS="$PLATFORM_LDFLAGS"
 JAVA_STATIC_LDFLAGS="$PLATFORM_LDFLAGS"
 
-$CXX $PLATFORM_CXXFLAGS -faligned-new -x c++ - -o /dev/null 2>/dev/null <<EOF
-    struct alignas(1024) t {int a;};
-    int main() {}
-EOF
-if [ "$?" = 0 ]; then
-    PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS -faligned-new -DHAVE_ALIGNED_NEW"
-fi
-
 if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Cross-compiling; do not try any compilation tests.
     # Also don't need any compilation tests if compiling on fbcode
@@ -480,6 +472,17 @@ EOF
 EOF
         if [ "$?" = 0 ]; then
             COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_SCHED_GETCPU_PRESENT"
+        fi
+    fi
+
+    if ! test $ROCKSDB_DISABLE_ALIGNED_NEW; then
+        # Test whether c++17 aligned-new is supported
+        $CXX $PLATFORM_CXXFLAGS -faligned-new -x c++ - -o /dev/null 2>/dev/null <<EOF
+            struct alignas(1024) t {int a;};
+            int main() {}
+EOF
+        if [ "$?" = 0 ]; then
+            PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS -faligned-new -DHAVE_ALIGNED_NEW"
         fi
     fi
 fi
