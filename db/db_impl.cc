@@ -237,7 +237,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   table_cache_ = NewLRUCache(table_cache_size,
                              immutable_db_options_.table_cache_numshardbits);
 
-  versions_.reset(new VersionSet(dbname_, &immutable_db_options_, &mutable_db_options_, env_options_,
+  versions_.reset(new VersionSet(dbname_, &immutable_db_options_, env_options_,
                                  table_cache_.get(), write_buffer_manager_,
                                  &write_controller_));
   column_family_memtables_.reset(
@@ -395,15 +395,11 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   // before grabbing db mutex because the actual worker function
   // `DBImpl::DumpStats()` also holds db mutex
   if (thread_dump_stats_ != nullptr) {
-    mutex_.Unlock();
-    thread_dump_stats_->cancel();
-    mutex_.Lock();
+    thread_dump_stats_->cancel(&mutex_);
     thread_dump_stats_.reset();
   }
   if (thread_persist_stats_ != nullptr) {
-    mutex_.Unlock();
-    thread_persist_stats_->cancel();
-    mutex_.Lock();
+    thread_persist_stats_->cancel(&mutex_);
     thread_persist_stats_.reset();
   }
   if (!shutting_down_.load(std::memory_order_acquire) &&
@@ -649,8 +645,8 @@ void DBImpl::StartTimedTasks() {
     if (stats_persist_period_sec > 0) {
       if (!thread_persist_stats_) {
         thread_persist_stats_.reset(new rocksdb::RepeatableThread(
-          [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
-          stats_persist_period_sec * 1000000));
+            [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
+            stats_persist_period_sec * 1000000));
       }
     }
   }
@@ -688,18 +684,16 @@ void DBImpl::PersistStats() {
     }
   }
   TEST_SYNC_POINT("DBImpl::PersistStats:2");
-  ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                 "------- PERSISTING STATS -------");
   WriteOptions wo;
   ColumnFamilyOptions cf_options;
   const uint64_t now_micros = env_->NowMicros();
-  std::string now_micros_string = std::to_string(now_micros);
+  std::string now_micros_string = ToString(now_micros);
   int keycount = 0;
   for (auto iter = stats_map.begin(); iter != stats_map.end(); ++iter) {
     // TODO(Zhongyi) use more readable timestamp?
     std::string key = iter->first + now_micros_string;
-    Status s = DB::Put(wo, persist_stats_cf_handle_, key,
-            iter->second);
+    // TODO(Zhongyi): add counters for failed writes
+    Status s = DB::Put(wo, persist_stats_cf_handle_, key, iter->second);
     keycount++;
   }
 #endif  // !ROCKSDB_LITE
@@ -878,9 +872,7 @@ Status DBImpl::SetDBOptions(
       if (new_options.stats_dump_period_sec !=
           mutable_db_options_.stats_dump_period_sec) {
           if (thread_dump_stats_) {
-            mutex_.Unlock();
-            thread_dump_stats_->cancel();
-            mutex_.Lock();
+            thread_dump_stats_->cancel(&mutex_);
           }
           if (new_options.stats_dump_period_sec > 0) {
             thread_dump_stats_.reset(new rocksdb::RepeatableThread(
@@ -893,19 +885,16 @@ Status DBImpl::SetDBOptions(
       }
       if (new_options.stats_persist_period_sec !=
           mutable_db_options_.stats_persist_period_sec) {
-          if (thread_persist_stats_) {
-            mutex_.Unlock();
-            thread_persist_stats_->cancel();
-            mutex_.Lock();
-          }
-          if (new_options.stats_persist_period_sec > 0) {
-            thread_persist_stats_.reset(new rocksdb::RepeatableThread(
-                [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
-                new_options.stats_persist_period_sec * 1000000));
-          }
-          else {
-            thread_persist_stats_.reset();
-          }
+        if (thread_persist_stats_) {
+          thread_persist_stats_->cancel(&mutex_);
+        }
+        if (new_options.stats_persist_period_sec > 0) {
+          thread_persist_stats_.reset(new rocksdb::RepeatableThread(
+              [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
+              new_options.stats_persist_period_sec * 1000000));
+        } else {
+          thread_persist_stats_.reset();
+        }
       }
       write_controller_.set_max_delayed_write_rate(
           new_options.delayed_write_rate);

@@ -1045,7 +1045,8 @@ DEFINE_bool(identity_as_first_hash, false, "the first hash function of cuckoo "
 DEFINE_bool(dump_malloc_stats, true, "Dump malloc stats in LOG ");
 DEFINE_uint64(stats_dump_period_sec, rocksdb::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
-DEFINE_uint64(stats_persist_period_sec, rocksdb::Options().stats_persist_period_sec,
+DEFINE_uint64(stats_persist_period_sec,
+              rocksdb::Options().stats_persist_period_sec,
               "Gap between persisting stats in seconds");
 
 enum RepFactory {

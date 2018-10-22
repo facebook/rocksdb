@@ -943,7 +943,7 @@ void DumpManifestFile(std::string file, bool verbose, bool hex, bool json) {
   WriteBufferManager wb(options.db_write_buffer_size);
   ImmutableDBOptions immutable_db_options(options);
   MutableDBOptions mutable_db_options(options);
-  VersionSet versions(dbname, &immutable_db_options, &mutable_db_options, sopt, tc.get(), &wb, &wc);
+  VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc);
   Status s = versions.DumpManifest(options, file, verbose, hex, json);
   if (!s.ok()) {
     printf("Error in processing file %s %s\n", file.c_str(),
@@ -1651,7 +1651,7 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
   const InternalKeyComparator cmp(opt.comparator);
   WriteController wc(opt.delayed_write_rate);
   WriteBufferManager wb(opt.db_write_buffer_size);
-  VersionSet versions(db_path_, &db_options, &mutable_db_options, soptions, tc.get(), &wb, &wc);
+  VersionSet versions(db_path_, &db_options, soptions, tc.get(), &wb, &wc);
   std::vector<ColumnFamilyDescriptor> dummy;
   ColumnFamilyDescriptor dummy_descriptor(kDefaultColumnFamilyName,
                                           ColumnFamilyOptions(opt));
@@ -1659,7 +1659,7 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
   // We rely the VersionSet::Recover to tell us the internal data structures
   // in the db. And the Recover() should never do any change
   // (like LogAndApply) to the manifest file.
-  Status st = versions.Recover(dummy);
+  Status st = versions.Recover(dummy, &mutable_db_options);
   if (!st.ok()) {
     return st;
   }

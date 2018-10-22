@@ -179,14 +179,8 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
       new BlobIndexCompactionFilterFactory(this, env_, statistics_));
 
   // Open base db.
-  std::vector<ColumnFamilyDescriptor> v_cfd;
   ColumnFamilyDescriptor cf_descriptor(kDefaultColumnFamilyName, cf_options_);
-  v_cfd.push_back(cf_descriptor);
-  if (db_options_.stats_persist_period_sec != 0) {
-    ColumnFamilyDescriptor cf_descriptor2(kPersistentStatsColumnFamilyName, cf_options_);
-    v_cfd.push_back(cf_descriptor2);
-  }
-  s = DB::Open(db_options_, dbname_, v_cfd, handles, &db_);
+  s = DB::Open(db_options_, dbname_, {cf_descriptor}, handles, &db_);
   if (!s.ok()) {
     return s;
   }

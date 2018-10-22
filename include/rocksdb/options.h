@@ -668,9 +668,9 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   unsigned int stats_dump_period_sec = 600;
 
-  // if not zero, dump rocksdb.stats to LOG every stats_persist_period_sec
+  // if not zero, dump rocksdb.stats to RocksDB every stats_persist_period_sec
   // Default: 0 (Disabled)
-  unsigned int stats_persist_period_sec = 600;
+  unsigned int stats_persist_period_sec = 0;
 
   // If set true, will hint the underlying file system that the file
   // access pattern is random, when a sst file is opened.

@@ -201,25 +201,13 @@ Status TransactionDB::Open(const Options& options,
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.push_back(
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
-  if (db_options.stats_persist_period_sec != 0) {
-    column_families.push_back(
-        ColumnFamilyDescriptor(kPersistentStatsColumnFamilyName, cf_options));
-  }
   std::vector<ColumnFamilyHandle*> handles;
   Status s = TransactionDB::Open(db_options, txn_db_options, dbname,
                                  column_families, &handles, dbptr);
   if (s.ok()) {
-    if (db_options.stats_persist_period_sec != 0) {
-      assert(handles.size() == 2);
-    }
-    else {
-      assert(handles.size() == 1);
-    }
+    assert(handles.size() == 1);
     // i can delete the handle since DBImpl is always holding a reference to
     // default column family
-    if (db_options.stats_persist_period_sec != 0) {
-      delete handles[1];
-    }
     delete handles[0];
   }
 

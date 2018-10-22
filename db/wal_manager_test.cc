@@ -34,7 +34,6 @@ class WalManagerTest : public testing::Test {
       : env_(new MockEnv(Env::Default())),
         dbname_(test::PerThreadDBPath("wal_manager_test")),
         db_options_(),
-        mutable_db_options_(),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
         current_log_number_(0) {
@@ -49,7 +48,7 @@ class WalManagerTest : public testing::Test {
     db_options_.wal_dir = dbname_;
     db_options_.env = env_.get();
 
-    versions_.reset(new VersionSet(dbname_, &db_options_, &mutable_db_options_, env_options_,
+    versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
                                    table_cache_.get(), &write_buffer_manager_,
                                    &write_controller_));
 
@@ -105,7 +104,6 @@ class WalManagerTest : public testing::Test {
   std::unique_ptr<MockEnv> env_;
   std::string dbname_;
   ImmutableDBOptions db_options_;
-  MutableDBOptions mutable_db_options_;
   WriteController write_controller_;
   EnvOptions env_options_;
   std::shared_ptr<Cache> table_cache_;

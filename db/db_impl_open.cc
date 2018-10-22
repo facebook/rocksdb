@@ -385,7 +385,9 @@ Status DBImpl::Recover(
     }
   }
 
-  Status s = versions_->Recover(column_families, read_only);
+  // mutex held, see beginning
+  Status s =
+      versions_->Recover(column_families, &mutable_db_options_, read_only);
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
   }
@@ -414,8 +416,8 @@ Status DBImpl::Recover(
     default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
     if (mutable_db_options_.stats_persist_period_sec != 0) {
       persist_stats_cf_handle_ = new ColumnFamilyHandleImpl(
-          versions_->GetColumnFamilySet()->
-              GetColumnFamily(kPersistentStatsColumnFamilyName),
+          versions_->GetColumnFamilySet()->GetColumnFamily(
+              kPersistentStatsColumnFamilyName),
           this, &mutex_);
     }
     single_column_family_mode_ =
@@ -1060,8 +1062,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   if (s.ok()) {
     if (db_options.stats_persist_period_sec != 0) {
       assert(handles.size() == 2);
-    }
-    else {
+    } else {
       assert(handles.size() == 1);
     }
     // i can delete the handle since DBImpl is always holding a reference to
