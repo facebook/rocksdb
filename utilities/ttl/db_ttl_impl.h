@@ -73,6 +73,8 @@ class DBWithTTLImpl : public DBWithTTL {
 
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
+  virtual Status WriteWithTTL(const WriteOptions& opts, WriteBatch* updates, int expire_ts) override;
+
   using StackableDB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& opts,
                                 ColumnFamilyHandle* column_family) override;
@@ -82,6 +84,7 @@ class DBWithTTLImpl : public DBWithTTL {
   static bool IsStale(const Slice& value, int32_t ttl, Env* env);
 
   static Status AppendTS(const Slice& val, std::string* val_with_ts, Env* env);
+  static Status AppendTS(const Slice& val, std::string* val_with_ts, int expire_ts);
 
   static Status SanityCheckTimestamp(const Slice& str);
 

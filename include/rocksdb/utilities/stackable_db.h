@@ -144,6 +144,13 @@ class StackableDB : public DB {
       return db_->Write(opts, updates);
   }
 
+  virtual Status WriteWithTTL(const WriteOptions& opts, WriteBatch* updates, int expire_ts)
+    override {
+      (void)expire_ts;
+      return db_->Write(opts, updates);
+  }
+
+
   using DB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& opts,
                                 ColumnFamilyHandle* column_family) override {

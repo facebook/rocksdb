@@ -99,6 +99,15 @@ class DBImpl : public DB {
   virtual Status Write(const WriteOptions& options,
                        WriteBatch* updates) override;
 
+  using DB::WriteWithTTL;
+  virtual Status WriteWithTTL(const WriteOptions& options,
+                       WriteBatch* updates,
+                       int expire_ts)
+  {
+      (void)expire_ts;
+      return Write(options, updates);
+  }
+
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,

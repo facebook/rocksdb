@@ -141,6 +141,17 @@ Status DBWithTTLImpl::AppendTS(const Slice& val, std::string* val_with_ts,
   return st;
 }
 
+Status DBWithTTLImpl::AppendTS(const Slice& val, std::string* val_with_ts,
+                               int expire_ts) {
+  val_with_ts->reserve(kTSLength + val.size());
+  char ts_string[kTSLength];
+  EncodeFixed32(ts_string, (int32_t)expire_ts);
+  val_with_ts->append(val.data(), val.size());
+  val_with_ts->append(ts_string, kTSLength);
+  return Status::OK();
+}
+
+
 // Returns corruption if the length of the string is lesser than timestamp, or
 // timestamp refers to a time lesser than ttl-feature release time
 Status DBWithTTLImpl::SanityCheckTimestamp(const Slice& str) {
@@ -303,6 +314,45 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
     return db_->Write(opts, &(handler.updates_ttl));
   }
 }
+
+Status DBWithTTLImpl::WriteWithTTL(const WriteOptions& opts, WriteBatch* updates, int expire_ts) {
+  class Handler : public WriteBatch::Handler {
+   public:
+    explicit Handler(int expire_ts) : expire_ts_(expire_ts) {}
+    WriteBatch updates_ttl;
+    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
+                         const Slice& value) override {
+      std::string value_with_ts;
+      AppendTS(value, &value_with_ts, expire_ts_);
+      WriteBatchInternal::Put(&updates_ttl, column_family_id, key,
+                                value_with_ts);
+      return Status::OK();
+    }
+    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
+                           const Slice& value) override {
+      std::string value_with_ts;
+      AppendTS(value, &value_with_ts, expire_ts_);
+      WriteBatchInternal::Merge(&updates_ttl, column_family_id, key,
+                                  value_with_ts);
+      return Status::OK();
+    }
+    virtual Status DeleteCF(uint32_t column_family_id,
+                            const Slice& key) override {
+      WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
+      return Status::OK();
+    }
+    virtual void LogData(const Slice& blob) override {
+      updates_ttl.PutLogData(blob);
+    }
+
+   private:
+     int expire_ts_;
+  };
+  Handler handler(expire_ts);
+  updates->Iterate(&handler);
+  return db_->Write(opts, &(handler.updates_ttl));
+}
+
 
 Iterator* DBWithTTLImpl::NewIterator(const ReadOptions& opts,
                                      ColumnFamilyHandle* column_family) {
