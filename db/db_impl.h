@@ -53,6 +53,7 @@
 #include "util/autovector.h"
 #include "util/event_logger.h"
 #include "util/hash.h"
+#include "util/repeatable_thread.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
 #include "util/trace_replay.h"
@@ -464,6 +465,8 @@ class DBImpl : public DB {
 
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
+  size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
+  void TEST_WaitForTimedTaskRun(std::function<void()> callback) const;
 
 #endif  // NDEBUG
 
@@ -544,7 +547,8 @@ class DBImpl : public DB {
   ColumnFamilyHandle* GetColumnFamilyHandle(uint32_t column_family_id);
 
   // Same as above, should called without mutex held and not on write thread.
-  ColumnFamilyHandle* GetColumnFamilyHandleUnlocked(uint32_t column_family_id);
+  std::unique_ptr<ColumnFamilyHandle> GetColumnFamilyHandleUnlocked(
+      uint32_t column_family_id);
 
   // Returns the number of currently running flushes.
   // REQUIREMENT: mutex_ must be held when calling this function.
@@ -731,6 +735,11 @@ class DBImpl : public DB {
                               const MutableCFOptions& mutable_cf_options,
                               int job_id, TableProperties prop);
 
+  void NotifyOnCompactionBegin(ColumnFamilyData* cfd,
+                               Compaction *c, const Status &st,
+                               const CompactionJobStats& job_stats,
+                               int job_id);
+
   void NotifyOnCompactionCompleted(ColumnFamilyData* cfd,
                                    Compaction *c, const Status &st,
                                    const CompactionJobStats& job_stats,
@@ -812,6 +821,7 @@ class DBImpl : public DB {
   friend struct SuperVersion;
   friend class CompactedDBImpl;
   friend class DBTest_ConcurrentFlushWAL_Test;
+  friend class DBTest_MixedSlowdownOptionsStop_Test;
 #ifndef NDEBUG
   friend class DBTest2_ReadCallbackTest_Test;
   friend class WriteCallbackTest_WriteWithCallbackTest_Test;
@@ -898,18 +908,18 @@ class DBImpl : public DB {
   // Argument required by background flush thread.
   struct BGFlushArg {
     BGFlushArg()
-        : cfd_(nullptr), memtable_id_(0), superversion_context_(nullptr) {}
-    BGFlushArg(ColumnFamilyData* cfd, uint64_t memtable_id,
+        : cfd_(nullptr), max_memtable_id_(0), superversion_context_(nullptr) {}
+    BGFlushArg(ColumnFamilyData* cfd, uint64_t max_memtable_id,
                SuperVersionContext* superversion_context)
         : cfd_(cfd),
-          memtable_id_(memtable_id),
+          max_memtable_id_(max_memtable_id),
           superversion_context_(superversion_context) {}
 
     // Column family to flush.
     ColumnFamilyData* cfd_;
     // Maximum ID of memtable to flush. In this column family, memtables with
     // IDs smaller than this value must be flushed before this flush completes.
-    uint64_t memtable_id_;
+    uint64_t max_memtable_id_;
     // Pointer to a SuperVersionContext object. After flush completes, RocksDB
     // installs a new superversion for the column family. This operation
     // requires a SuperVersionContext object (currently embedded in JobContext).
@@ -919,6 +929,10 @@ class DBImpl : public DB {
   // Flush the memtables of (multiple) column families to multiple files on
   // persistent storage.
   Status FlushMemTablesToOutputFiles(
+      const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
+      JobContext* job_context, LogBuffer* log_buffer);
+
+  Status AtomicFlushMemTablesToOutputFiles(
       const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
       JobContext* job_context, LogBuffer* log_buffer);
 
@@ -933,6 +947,12 @@ class DBImpl : public DB {
   // concurrent flush memtables to storage.
   Status WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                                      MemTable* mem, VersionEdit* edit);
+
+  // Restore alive_log_files_ and total_log_size_ after recovery.
+  // It needs to run only when there's no flush during recovery
+  // (e.g. avoid_flush_during_recovery=true). May also trigger flush
+  // in case total_log_size > max_total_wal_size.
+  Status RestoreAliveLogFiles(const std::vector<uint64_t>& log_numbers);
 
   // num_bytes: for slowdown case, delay time is calculated based on
   //            `num_bytes` going through.
@@ -1055,10 +1075,13 @@ class DBImpl : public DB {
                                const std::vector<CompactionInputFiles>& inputs,
                                bool* sfm_bookkeeping, LogBuffer* log_buffer);
 
+  // Schedule background tasks
+  void StartTimedTasks();
+
   void PrintStatistics();
 
   // dump rocksdb.stats to LOG
-  void MaybeDumpStats();
+  void DumpStats();
 
   // Return the minimum empty level that could hold the total data in the
   // input level. Return the input level, if such level could not be found.
@@ -1461,6 +1484,10 @@ class DBImpl : public DB {
   // Only to be set during initialization
   std::unique_ptr<PreReleaseCallback> recoverable_state_pre_release_callback_;
 
+  // handle for scheduling jobs at fixed intervals
+  // REQUIRES: mutex locked
+  std::unique_ptr<rocksdb::RepeatableThread> thread_dump_stats_;
+
   // No copying allowed
   DBImpl(const DBImpl&);
   void operator=(const DBImpl&);
@@ -1540,7 +1567,7 @@ class DBImpl : public DB {
   // error recovery from going on in parallel. The latter, shutting_down_,
   // is set a little later during the shutdown after scheduling memtable
   // flushes
-  bool shutdown_initiated_;
+  std::atomic<bool> shutdown_initiated_;
   // Flag to indicate whether sst_file_manager object was allocated in
   // DB::Open() or passed to us
   bool own_sfm_;
@@ -1556,6 +1583,16 @@ class DBImpl : public DB {
   bool closed_;
 
   ErrorHandler error_handler_;
+
+  // True if the DB is committing atomic flush.
+  // TODO (yanqin) the current impl assumes that the entire DB belongs to
+  // a single atomic flush group. In the future we need to add a new class
+  // (struct) similar to the following to make it more general.
+  // struct AtomicFlushGroup {
+  //   bool commit_in_progress_;
+  //   std::vector<MemTableList*> imm_lists;
+  // };
+  bool atomic_flush_commit_in_progress_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

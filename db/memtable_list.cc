@@ -11,6 +11,7 @@
 
 #include <inttypes.h>
 #include <limits>
+#include <queue>
 #include <string>
 #include "db/db_impl.h"
 #include "db/memtable.h"
@@ -269,10 +270,232 @@ void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete) {
   }
 }
 
+// Try to record multiple successful flush to the MANIFEST as an atomic unit.
+// This function may just return Status::OK if there has already been
+// a concurrent thread performing actual recording.
+Status MemTableList::TryInstallMemtableFlushResults(
+    autovector<MemTableList*>& imm_lists,
+    const autovector<ColumnFamilyData*>& cfds,
+    const autovector<const MutableCFOptions*>& mutable_cf_options_list,
+    const autovector<const autovector<MemTable*>*>& mems_list,
+    bool* atomic_flush_commit_in_progress, LogsWithPrepTracker* prep_tracker,
+    VersionSet* vset, InstrumentedMutex* mu,
+    const autovector<FileMetaData>& file_metas,
+    autovector<MemTable*>* to_delete, Directory* db_directory,
+    LogBuffer* log_buffer) {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
+  mu->AssertHeld();
+
+  for (size_t k = 0; k != mems_list.size(); ++k) {
+    for (size_t i = 0; i != mems_list[k]->size(); ++i) {
+      assert(i == 0 || (*mems_list[k])[i]->GetEdits()->NumEntries() == 0);
+      (*mems_list[k])[i]->flush_completed_ = true;
+      (*mems_list[k])[i]->file_number_ = file_metas[k].fd.GetNumber();
+    }
+  }
+
+  assert(atomic_flush_commit_in_progress != nullptr);
+  Status s;
+  if (*atomic_flush_commit_in_progress) {
+    // If the function reaches here, there must be a concurrent thread that
+    // have already started recording to MANIFEST. Therefore we should just
+    // return Status::OK and let the othe thread finish writing to MANIFEST on
+    // our behalf.
+    return s;
+  }
+
+  // If the function reaches here, the current thread will start writing to
+  // MANIFEST. It may record to MANIFEST the flush results of other flushes.
+  *atomic_flush_commit_in_progress = true;
+
+  auto comp = [&imm_lists](size_t lh, size_t rh) {
+    const auto& memlist1 = imm_lists[lh]->current_->memlist_;
+    const auto& memlist2 = imm_lists[rh]->current_->memlist_;
+    auto it1 = memlist1.rbegin();
+    auto it2 = memlist2.rbegin();
+    return (*it1)->atomic_flush_seqno_ > (*it2)->atomic_flush_seqno_;
+  };
+  // The top of the heap is the memtable with smallest atomic_flush_seqno_.
+  std::priority_queue<size_t, std::vector<size_t>, decltype(comp)> heap(comp);
+  // Sequence number of the oldest unfinished atomic flush.
+  SequenceNumber min_unfinished_seqno = kMaxSequenceNumber;
+  // Populate the heap with first element of each imm iff. it has been
+  // flushed to storage, i.e. flush_completed_ is true.
+  size_t num = imm_lists.size();
+  assert(num == cfds.size());
+  for (size_t i = 0; i != num; ++i) {
+    std::list<MemTable*>& memlist = imm_lists[i]->current_->memlist_;
+    if (memlist.empty()) {
+      continue;
+    }
+    auto it = memlist.rbegin();
+    if ((*it)->flush_completed_) {
+      heap.emplace(i);
+    } else if (min_unfinished_seqno > (*it)->atomic_flush_seqno_) {
+      min_unfinished_seqno = (*it)->atomic_flush_seqno_;
+    }
+  }
+
+  while (s.ok() && !heap.empty()) {
+    autovector<size_t> batch;
+    SequenceNumber seqno = kMaxSequenceNumber;
+    // Pop from the heap the memtables that belong to the same atomic flush,
+    // namely their atomic_flush_seqno_ are equal.
+    do {
+      size_t pos = heap.top();
+      const auto& memlist = imm_lists[pos]->current_->memlist_;
+      MemTable* mem = *(memlist.rbegin());
+      if (seqno == kMaxSequenceNumber) {
+        // First mem in this batch.
+        seqno = mem->atomic_flush_seqno_;
+        batch.emplace_back(pos);
+        heap.pop();
+      } else if (mem->atomic_flush_seqno_ == seqno) {
+        // mem has the same atomic_flush_seqno_, thus in the same atomic flush.
+        batch.emplace_back(pos);
+        heap.pop();
+      } else if (mem->atomic_flush_seqno_ > seqno) {
+        // mem belongs to another atomic flush with higher seqno, break the
+        // loop.
+        break;
+      }
+    } while (!heap.empty());
+    if (seqno >= min_unfinished_seqno) {
+      // If there is an older, unfinished atomic flush, then we should not
+      // proceed.
+      TEST_SYNC_POINT_CALLBACK(
+          "MemTableList::TryInstallMemtableFlushResults:"
+          "HasOlderUnfinishedAtomicFlush:0",
+          nullptr);
+      break;
+    }
+
+    // Found the earliest, complete atomic flush. No earlier atomic flush is
+    // pending. Therefore ready to record it to the MANIFEST.
+    uint32_t num_entries = 0;
+    autovector<ColumnFamilyData*> tmp_cfds;
+    autovector<const MutableCFOptions*> tmp_mutable_cf_options_list;
+    std::vector<autovector<MemTable*>> memtables_to_flush;
+    autovector<autovector<VersionEdit*>> edit_lists;
+    for (auto pos : batch) {
+      tmp_cfds.emplace_back(cfds[pos]);
+      tmp_mutable_cf_options_list.emplace_back(mutable_cf_options_list[pos]);
+      const auto& memlist = imm_lists[pos]->current_->memlist_;
+      uint64_t batch_file_number = 0;
+      autovector<MemTable*> tmp_mems;
+      autovector<VersionEdit*> edits;
+      for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
+        MemTable* m = *it;
+        if (!m->flush_completed_ ||
+            (it != memlist.rbegin() && m->file_number_ != batch_file_number)) {
+          break;
+        }
+        if (it == memlist.rbegin()) {
+          batch_file_number = m->file_number_;
+          edits.push_back(m->GetEdits());
+          ++num_entries;
+        }
+        tmp_mems.push_back(m);
+      }
+      edit_lists.push_back(edits);
+      memtables_to_flush.push_back(tmp_mems);
+    }
+    TEST_SYNC_POINT_CALLBACK(
+        "MemTableList::TryInstallMemtableFlushResults:FoundBatchToCommit:0",
+        &num_entries);
+
+    // Mark the version edits as an atomic group
+    uint32_t remaining = num_entries;
+    for (auto& edit_list : edit_lists) {
+      assert(edit_list.size() == 1);
+      edit_list[0]->MarkAtomicGroup(--remaining);
+    }
+    assert(remaining == 0);
+
+    size_t batch_sz = batch.size();
+    assert(batch_sz > 0);
+    assert(batch_sz == memtables_to_flush.size());
+    assert(batch_sz == tmp_cfds.size());
+    assert(batch_sz == edit_lists.size());
+
+    if (vset->db_options()->allow_2pc) {
+      for (size_t i = 0; i != batch_sz; ++i) {
+        auto& edit_list = edit_lists[i];
+        assert(!edit_list.empty());
+        edit_list.back()->SetMinLogNumberToKeep(
+            PrecomputeMinLogNumberToKeep(vset, *tmp_cfds[i], edit_list,
+                                         memtables_to_flush[i], prep_tracker));
+      }
+    }
+    // this can release and reacquire the mutex.
+    s = vset->LogAndApply(tmp_cfds, tmp_mutable_cf_options_list, edit_lists, mu,
+                          db_directory);
+
+    for (const auto pos : batch) {
+      imm_lists[pos]->InstallNewVersion();
+    }
+
+    if (s.ok()) {
+      for (size_t i = 0; i != batch_sz; ++i) {
+        if (tmp_cfds[i]->IsDropped()) {
+          continue;
+        }
+        size_t pos = batch[i];
+        for (auto m : memtables_to_flush[i]) {
+          assert(m->file_number_ > 0);
+          uint64_t mem_id = m->GetID();
+          ROCKS_LOG_BUFFER(log_buffer,
+                           "[%s] Level-0 commit table #%" PRIu64
+                           ": memtable #%" PRIu64 " done",
+                           tmp_cfds[i]->GetName().c_str(), m->file_number_,
+                           mem_id);
+          imm_lists[pos]->current_->Remove(m, to_delete);
+        }
+      }
+    } else {
+      for (size_t i = 0; i != batch_sz; ++i) {
+        size_t pos = batch[i];
+        for (auto m : memtables_to_flush[i]) {
+          uint64_t mem_id = m->GetID();
+          ROCKS_LOG_BUFFER(log_buffer,
+                           "[%s] Level-0 commit table #%" PRIu64
+                           ": memtable #%" PRIu64 " failed",
+                           tmp_cfds[i]->GetName().c_str(), m->file_number_,
+                           mem_id);
+          m->flush_completed_ = false;
+          m->flush_in_progress_ = false;
+          m->edit_.Clear();
+          m->file_number_ = 0;
+          imm_lists[pos]->num_flush_not_started_++;
+        }
+        imm_lists[pos]->imm_flush_needed.store(true, std::memory_order_release);
+      }
+    }
+    // Adjust the heap AFTER installing new MemTableListVersions because the
+    // compare function 'comp' needs to capture the most up-to-date state of
+    // imm_lists.
+    for (auto pos : batch) {
+      const auto& memlist = imm_lists[pos]->current_->memlist_;
+      if (!memlist.empty()) {
+        MemTable* mem = *(memlist.rbegin());
+        if (mem->flush_completed_) {
+          heap.emplace(pos);
+        } else if (min_unfinished_seqno > mem->atomic_flush_seqno_) {
+          min_unfinished_seqno = mem->atomic_flush_seqno_;
+        }
+      }
+    }
+  }
+
+  *atomic_flush_commit_in_progress = false;
+  return s;
+}
+
 // Returns true if there is at least one memtable on which flush has
 // not yet started.
 bool MemTableList::IsFlushPending() const {
-  if ((flush_requested_ && num_flush_not_started_ >= 1) ||
+  if ((flush_requested_ && num_flush_not_started_ > 0) ||
       (num_flush_not_started_ >= min_write_buffer_number_to_merge_)) {
     assert(imm_flush_needed.load(std::memory_order_relaxed));
     return true;
@@ -281,12 +504,16 @@ bool MemTableList::IsFlushPending() const {
 }
 
 // Returns the memtables that need to be flushed.
-void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* ret) {
+void MemTableList::PickMemtablesToFlush(const uint64_t* max_memtable_id,
+                                        autovector<MemTable*>* ret) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_PICK_MEMTABLES_TO_FLUSH);
   const auto& memlist = current_->memlist_;
   for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
     MemTable* m = *it;
+    if (max_memtable_id != nullptr && m->GetID() > *max_memtable_id) {
+      break;
+    }
     if (!m->flush_in_progress_) {
       assert(!m->flush_completed_);
       num_flush_not_started_--;
@@ -320,8 +547,9 @@ void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
   imm_flush_needed.store(true, std::memory_order_release);
 }
 
-// Record a successful flush in the manifest file
-Status MemTableList::InstallMemtableFlushResults(
+// Try record a successful flush in the manifest file. It might just return
+// Status::OK letting a concurrent flush to do actual the recording..
+Status MemTableList::TryInstallMemtableFlushResults(
     ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
     const autovector<MemTable*>& mems, LogsWithPrepTracker* prep_tracker,
     VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,
@@ -331,7 +559,9 @@ Status MemTableList::InstallMemtableFlushResults(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
 
-  // flush was successful
+  // Flush was successful
+  // Record the status on the memtable object. Either this call or a call by a
+  // concurrent flush thread will read the status and write it to manifest.
   for (size_t i = 0; i < mems.size(); ++i) {
     // All the edits are associated with the first memtable of this batch.
     assert(i == 0 || mems[i]->GetEdits()->NumEntries() == 0);
@@ -343,7 +573,7 @@ Status MemTableList::InstallMemtableFlushResults(
   // if some other thread is already committing, then return
   Status s;
   if (commit_in_progress_) {
-    TEST_SYNC_POINT("MemTableList::InstallMemtableFlushResults:InProgress");
+    TEST_SYNC_POINT("MemTableList::TryInstallMemtableFlushResults:InProgress");
     return s;
   }
 
@@ -354,11 +584,16 @@ Status MemTableList::InstallMemtableFlushResults(
   // while the current thread is writing manifest where mutex is released.
   while (s.ok()) {
     auto& memlist = current_->memlist_;
+    // The back is the oldest; if flush_completed_ is not set to it, it means
+    // that we were assigned a more recent memtable. The memtables' flushes must
+    // be recorded in manifest in order. A concurrent flush thread, who is
+    // assigned to flush the oldest memtable, will later wake up and does all
+    // the pending writes to manifest, in order.
     if (memlist.empty() || !memlist.back()->flush_completed_) {
       break;
     }
     // scan all memtables from the earliest, and commit those
-    // (in that order) that have finished flushing. Memetables
+    // (in that order) that have finished flushing. Memtables
     // are always committed in the order that they were created.
     uint64_t batch_file_number = 0;
     size_t batch_count = 0;
@@ -381,6 +616,7 @@ Status MemTableList::InstallMemtableFlushResults(
       batch_count++;
     }
 
+    // TODO(myabandeh): Not sure how batch_count could be 0 here.
     if (batch_count > 0) {
       if (vset->db_options()->allow_2pc) {
         assert(edit_list.size() > 0);
@@ -406,7 +642,7 @@ Status MemTableList::InstallMemtableFlushResults(
       // The reason is as follows (refer to
       // ColumnFamilyTest.FlushAndDropRaceCondition).
       // If the column family is dropped, then according to LogAndApply, its
-      // corrresponding flush operation is NOT written to the MANIFEST. This
+      // corresponding flush operation is NOT written to the MANIFEST. This
       // means the DB is not aware of the L0 files generated from the flush.
       // By committing the new state, we remove the memtable from the memtable
       // list. Creating an iterator on this column family will not be able to

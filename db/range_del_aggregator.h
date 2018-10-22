@@ -40,6 +40,35 @@ enum class RangeDelPositioningMode {
   kBinarySearch,
 };
 
+// TruncatedRangeTombstones are a slight generalization of regular
+// RangeTombstones that can represent truncations caused by SST boundaries.
+// Instead of using user keys to represent the start and end keys, they instead
+// use internal keys, whose sequence number indicates the sequence number of
+// the smallest/largest SST key (in the case where a tombstone is untruncated,
+// the sequence numbers will be kMaxSequenceNumber for both start and end
+// keys). Like RangeTombstones, TruncatedRangeTombstone are also
+// end-key-exclusive.
+struct TruncatedRangeTombstone {
+  TruncatedRangeTombstone(const ParsedInternalKey& sk,
+                          const ParsedInternalKey& ek, SequenceNumber s)
+      : start_key_(sk), end_key_(ek), seq_(s) {}
+
+  RangeTombstone Tombstone() const {
+    // The RangeTombstone returned here can cover less than the
+    // TruncatedRangeTombstone when its end key has a seqnum that is not
+    // kMaxSequenceNumber. Since this method is only used by RangeDelIterators
+    // (which in turn are only used during flush/compaction), we avoid this
+    // problem by using truncation boundaries spanning multiple SSTs, which
+    // are selected in a way that guarantee a clean break at the end key.
+    assert(end_key_.sequence == kMaxSequenceNumber);
+    return RangeTombstone(start_key_.user_key, end_key_.user_key, seq_);
+  }
+
+  ParsedInternalKey start_key_;
+  ParsedInternalKey end_key_;
+  SequenceNumber seq_;
+};
+
 // A RangeDelIterator iterates over range deletion tombstones.
 class RangeDelIterator {
  public:
@@ -47,7 +76,9 @@ class RangeDelIterator {
 
   virtual bool Valid() const = 0;
   virtual void Next() = 0;
+  // NOTE: the Slice passed to this method must be a user key.
   virtual void Seek(const Slice& target) = 0;
+  virtual void Seek(const ParsedInternalKey& target) = 0;
   virtual RangeTombstone Tombstone() const = 0;
 };
 
@@ -62,13 +93,14 @@ class RangeDelMap {
 
   virtual bool ShouldDelete(const ParsedInternalKey& parsed,
                             RangeDelPositioningMode mode) = 0;
-  virtual bool IsRangeOverlapped(const Slice& start, const Slice& end) = 0;
+  virtual bool IsRangeOverlapped(const ParsedInternalKey& start,
+                                 const ParsedInternalKey& end) = 0;
   virtual void InvalidatePosition() = 0;
 
   virtual size_t Size() const = 0;
   bool IsEmpty() const { return Size() == 0; }
 
-  virtual void AddTombstone(RangeTombstone tombstone) = 0;
+  virtual void AddTombstone(TruncatedRangeTombstone tombstone) = 0;
   virtual std::unique_ptr<RangeDelIterator> NewIterator() = 0;
 };
 
@@ -168,10 +200,15 @@ class RangeDelAggregator {
 
  private:
   // Maps snapshot seqnum -> map of tombstones that fall in that stripe, i.e.,
-  // their seqnums are greater than the next smaller snapshot's seqnum.
-  typedef std::map<SequenceNumber, std::unique_ptr<RangeDelMap>> StripeMap;
+  // their seqnums are greater than the next smaller snapshot's seqnum, and the
+  // corresponding index into the list of snapshots. Each entry is lazily
+  // initialized.
+  typedef std::map<SequenceNumber,
+                   std::pair<std::unique_ptr<RangeDelMap>, size_t>>
+      StripeMap;
 
   struct Rep {
+    std::vector<SequenceNumber> snapshots_;
     StripeMap stripe_map_;
     PinnedIteratorsManager pinned_iters_mgr_;
     std::list<std::string> pinned_slices_;
@@ -183,6 +220,7 @@ class RangeDelAggregator {
   void InitRep(const std::vector<SequenceNumber>& snapshots);
 
   std::unique_ptr<RangeDelMap> NewRangeDelMap();
+  RangeDelMap* GetRangeDelMapIfExists(SequenceNumber seq);
   RangeDelMap& GetRangeDelMap(SequenceNumber seq);
 
   SequenceNumber upper_bound_;

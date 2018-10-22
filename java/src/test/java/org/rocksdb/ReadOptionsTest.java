@@ -145,15 +145,33 @@ public class ReadOptionsTest {
   }
 
   @Test
+  public void iterateLowerBound() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      Slice lowerBound = buildRandomSlice();
+      opt.setIterateLowerBound(lowerBound);
+      assertThat(Arrays.equals(lowerBound.data(), opt.iterateLowerBound().data())).isTrue();
+    }
+  }
+
+  @Test
+  public void iterateLowerBoundNull() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      assertThat(opt.iterateLowerBound()).isNull();
+    }
+  }
+
+  @Test
   public void copyConstructor() {
     try (final ReadOptions opt = new ReadOptions()) {
       opt.setVerifyChecksums(false);
       opt.setFillCache(false);
       opt.setIterateUpperBound(buildRandomSlice());
+      opt.setIterateLowerBound(buildRandomSlice());
       ReadOptions other = new ReadOptions(opt);
       assertThat(opt.verifyChecksums()).isEqualTo(other.verifyChecksums());
       assertThat(opt.fillCache()).isEqualTo(other.fillCache());
       assertThat(Arrays.equals(opt.iterateUpperBound().data(), other.iterateUpperBound().data())).isTrue();
+      assertThat(Arrays.equals(opt.iterateLowerBound().data(), other.iterateLowerBound().data())).isTrue();
     }
   }
 
@@ -234,6 +252,22 @@ public class ReadOptionsTest {
     try (final ReadOptions readOptions =
              setupUninitializedReadOptions(exception)) {
       readOptions.iterateUpperBound();
+    }
+  }
+
+  @Test
+  public void failSetIterateLowerBoundUninitialized() {
+    try (final ReadOptions readOptions =
+             setupUninitializedReadOptions(exception)) {
+      readOptions.setIterateLowerBound(null);
+    }
+  }
+
+  @Test
+  public void failIterateLowerBoundUninitialized() {
+    try (final ReadOptions readOptions =
+             setupUninitializedReadOptions(exception)) {
+      readOptions.iterateLowerBound();
     }
   }
 

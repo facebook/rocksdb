@@ -16,6 +16,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <algorithm>
+#include <list>
 #include <map>
 #include <set>
 #include <string>
@@ -62,20 +63,12 @@ int FindFileInRange(const InternalKeyComparator& icmp,
     const Slice& key,
     uint32_t left,
     uint32_t right) {
-  while (left < right) {
-    uint32_t mid = (left + right) / 2;
-    const FdWithKeyRange& f = file_level.files[mid];
-    if (icmp.InternalKeyComparator::Compare(f.largest_key, key) < 0) {
-      // Key at "mid.largest" is < "target".  Therefore all
-      // files at or before "mid" are uninteresting.
-      left = mid + 1;
-    } else {
-      // Key at "mid.largest" is >= "target".  Therefore all files
-      // after "mid" are uninteresting.
-      right = mid;
-    }
-  }
-  return right;
+  auto cmp = [&](const FdWithKeyRange& f, const Slice& k) -> bool {
+    return icmp.InternalKeyComparator::Compare(f.largest_key, k) < 0;
+  };
+  const auto &b = file_level.files;
+  return static_cast<int>(std::lower_bound(b + left,
+                                           b + right, key, cmp) - b);
 }
 
 Status OverlapWithIterator(const Comparator* ucmp,
@@ -458,6 +451,7 @@ bool SomeFileOverlapsRange(
 }
 
 namespace {
+
 class LevelIterator final : public InternalIterator {
  public:
   LevelIterator(TableCache* table_cache, const ReadOptions& read_options,
@@ -466,7 +460,9 @@ class LevelIterator final : public InternalIterator {
                 const LevelFilesBrief* flevel,
                 const SliceTransform* prefix_extractor, bool should_sample,
                 HistogramImpl* file_read_hist, bool for_compaction,
-                bool skip_filters, int level, RangeDelAggregator* range_del_agg)
+                bool skip_filters, int level, RangeDelAggregator* range_del_agg,
+                const std::vector<AtomicCompactionUnitBoundary>*
+                    compaction_boundaries = nullptr)
       : table_cache_(table_cache),
         read_options_(read_options),
         env_options_(env_options),
@@ -480,7 +476,8 @@ class LevelIterator final : public InternalIterator {
         file_index_(flevel_->num_files),
         level_(level),
         range_del_agg_(range_del_agg),
-        pinned_iters_mgr_(nullptr) {
+        pinned_iters_mgr_(nullptr),
+        compaction_boundaries_(compaction_boundaries) {
     // Empty level is not supported.
     assert(flevel_ != nullptr && flevel_->num_files > 0);
   }
@@ -547,12 +544,18 @@ class LevelIterator final : public InternalIterator {
       sample_file_read_inc(file_meta.file_metadata);
     }
 
+    const InternalKey* smallest_compaction_key = nullptr;
+    const InternalKey* largest_compaction_key = nullptr;
+    if (compaction_boundaries_ != nullptr) {
+      smallest_compaction_key = (*compaction_boundaries_)[file_index_].smallest;
+      largest_compaction_key = (*compaction_boundaries_)[file_index_].largest;
+    }
     return table_cache_->NewIterator(
         read_options_, env_options_, icomparator_, *file_meta.file_metadata,
         range_del_agg_, prefix_extractor_,
         nullptr /* don't need reference to table */,
         file_read_hist_, for_compaction_, nullptr /* arena */, skip_filters_,
-        level_);
+        level_, smallest_compaction_key, largest_compaction_key);
   }
 
   TableCache* table_cache_;
@@ -572,6 +575,10 @@ class LevelIterator final : public InternalIterator {
   RangeDelAggregator* range_del_agg_;
   IteratorWrapper file_iter_;  // May be nullptr
   PinnedIteratorsManager* pinned_iters_mgr_;
+
+  // To be propagated to RangeDelAggregator in order to safely truncate range
+  // tombstones.
+  const std::vector<AtomicCompactionUnitBoundary>* compaction_boundaries_;
 };
 
 void LevelIterator::Seek(const Slice& target) {
@@ -759,7 +766,11 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   // By setting the magic number to kInvalidTableMagicNumber, we can by
   // pass the magic number check in the footer.
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(file), file_name));
+      new RandomAccessFileReader(
+          std::move(file), file_name, nullptr /* env */, nullptr /* stats */,
+          0 /* hist_type */, nullptr /* file_read_hist */,
+          nullptr /* rate_limiter */, false /* for_compaction*/,
+          ioptions->listeners));
   s = ReadTableProperties(
       file_reader.get(), file_meta->fd.GetFileSize(),
       Footer::kInvalidTableMagicNumber /* table's magic number */, *ioptions,
@@ -2035,13 +2046,29 @@ bool VersionStorageInfo::OverlapInLevel(int level,
 void VersionStorageInfo::GetOverlappingInputs(
     int level, const InternalKey* begin, const InternalKey* end,
     std::vector<FileMetaData*>* inputs, int hint_index, int* file_index,
-    bool expand_range) const {
+    bool expand_range, InternalKey** next_smallest) const {
   if (level >= num_non_empty_levels_) {
     // this level is empty, no overlapping inputs
     return;
   }
 
   inputs->clear();
+  if (file_index) {
+    *file_index = -1;
+  }
+  const Comparator* user_cmp = user_comparator_;
+  if (level > 0) {
+    GetOverlappingInputsRangeBinarySearch(level, begin, end, inputs, hint_index,
+                                          file_index, false, next_smallest);
+    return;
+  }
+
+  if (next_smallest) {
+    // next_smallest key only makes sense for non-level 0, where files are
+    // non-overlapping
+    *next_smallest = nullptr;
+  }
+
   Slice user_begin, user_end;
   if (begin != nullptr) {
     user_begin = begin->user_key();
@@ -2049,42 +2076,51 @@ void VersionStorageInfo::GetOverlappingInputs(
   if (end != nullptr) {
     user_end = end->user_key();
   }
-  if (file_index) {
-    *file_index = -1;
-  }
-  const Comparator* user_cmp = user_comparator_;
-  if (level > 0) {
-    GetOverlappingInputsRangeBinarySearch(level, begin, end, inputs,
-                                          hint_index, file_index);
-    return;
+
+  // index stores the file index need to check.
+  std::list<size_t> index;
+  for (size_t i = 0; i < level_files_brief_[level].num_files; i++) {
+    index.emplace_back(i);
   }
 
-  for (size_t i = 0; i < level_files_brief_[level].num_files; ) {
-    FdWithKeyRange* f = &(level_files_brief_[level].files[i++]);
-    const Slice file_start = ExtractUserKey(f->smallest_key);
-    const Slice file_limit = ExtractUserKey(f->largest_key);
-    if (begin != nullptr && user_cmp->Compare(file_limit, user_begin) < 0) {
-      // "f" is completely before specified range; skip it
-    } else if (end != nullptr && user_cmp->Compare(file_start, user_end) > 0) {
-      // "f" is completely after specified range; skip it
-    } else {
-      inputs->push_back(files_[level][i-1]);
-      if (level == 0 && expand_range) {
-        // Level-0 files may overlap each other.  So check if the newly
-        // added file has expanded the range.  If so, restart search.
-        if (begin != nullptr && user_cmp->Compare(file_start, user_begin) < 0) {
-          user_begin = file_start;
-          inputs->clear();
-          i = 0;
-        } else if (end != nullptr
-            && user_cmp->Compare(file_limit, user_end) > 0) {
-          user_end = file_limit;
-          inputs->clear();
-          i = 0;
+  while (!index.empty()) {
+    bool found_overlapping_file = false;
+    auto iter = index.begin();
+    while (iter != index.end()) {
+      FdWithKeyRange* f = &(level_files_brief_[level].files[*iter]);
+      const Slice file_start = ExtractUserKey(f->smallest_key);
+      const Slice file_limit = ExtractUserKey(f->largest_key);
+      if (begin != nullptr && user_cmp->Compare(file_limit, user_begin) < 0) {
+        // "f" is completely before specified range; skip it
+        iter++;
+      } else if (end != nullptr &&
+                 user_cmp->Compare(file_start, user_end) > 0) {
+        // "f" is completely after specified range; skip it
+        iter++;
+      } else {
+        // if overlap
+        inputs->emplace_back(files_[level][*iter]);
+        found_overlapping_file = true;
+        // record the first file index.
+        if (file_index && *file_index == -1) {
+          *file_index = static_cast<int>(*iter);
         }
-      } else if (file_index) {
-        *file_index = static_cast<int>(i) - 1;
+        // the related file is overlap, erase to avoid checking again.
+        iter = index.erase(iter);
+        if (expand_range) {
+          if (begin != nullptr &&
+              user_cmp->Compare(file_start, user_begin) < 0) {
+            user_begin = file_start;
+          }
+          if (end != nullptr && user_cmp->Compare(file_limit, user_end) > 0) {
+            user_end = file_limit;
+          }
+        }
       }
+    }
+    // if all the files left are not overlap, break
+    if (!found_overlapping_file) {
+      break;
     }
   }
 }
@@ -2122,60 +2158,6 @@ void VersionStorageInfo::GetCleanInputsWithinInterval(
                                         true /* within_interval */);
 }
 
-namespace {
-
-const uint64_t kRangeTombstoneSentinel =
-    PackSequenceAndType(kMaxSequenceNumber, kTypeRangeDeletion);
-
-// Utility for comparing sstable boundary keys. Returns -1 if either a or b is
-// null which provides the property that a==null indicates a key that is less
-// than any key and b==null indicates a key that is greater than any key. Note
-// that the comparison is performed primarily on the user-key portion of the
-// key. If the user-keys compare equal, an additional test is made to sort
-// range tombstone sentinel keys before other keys with the same user-key. The
-// result is that 2 user-keys will compare equal if they differ purely on
-// their sequence number and value, but the range tombstone sentinel for that
-// user-key will compare not equal. This is necessary because the range
-// tombstone sentinel key is set as the largest key for an sstable even though
-// that key never appears in the database. We don't want adjacent sstables to
-// be considered overlapping if they are separated by the range tombstone
-// sentinel.
-int sstableKeyCompare(const Comparator* user_cmp,
-                      const InternalKey& a, const InternalKey& b) {
-  auto c = user_cmp->Compare(a.user_key(), b.user_key());
-  if (c != 0) {
-    return c;
-  }
-  auto a_footer = ExtractInternalKeyFooter(a.Encode());
-  auto b_footer = ExtractInternalKeyFooter(b.Encode());
-  if (a_footer == kRangeTombstoneSentinel) {
-    if (b_footer != kRangeTombstoneSentinel) {
-      return -1;
-    }
-  } else if (b_footer == kRangeTombstoneSentinel) {
-    return 1;
-  }
-  return 0;
-}
-
-int sstableKeyCompare(const Comparator* user_cmp,
-                      const InternalKey* a, const InternalKey& b) {
-  if (a == nullptr) {
-    return -1;
-  }
-  return sstableKeyCompare(user_cmp, *a, b);
-}
-
-int sstableKeyCompare(const Comparator* user_cmp,
-                      const InternalKey& a, const InternalKey* b) {
-  if (b == nullptr) {
-    return -1;
-  }
-  return sstableKeyCompare(user_cmp, a, *b);
-}
-
-} // namespace
-
 // Store in "*inputs" all files in "level" that overlap [begin,end]
 // Employ binary search to find at least one file that overlaps the
 // specified range. From that file, iterate backwards and
@@ -2186,7 +2168,7 @@ int sstableKeyCompare(const Comparator* user_cmp,
 void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
     int level, const InternalKey* begin, const InternalKey* end,
     std::vector<FileMetaData*>* inputs, int hint_index, int* file_index,
-    bool within_interval) const {
+    bool within_interval, InternalKey** next_smallest) const {
   assert(level > 0);
   int min = 0;
   int mid = 0;
@@ -2222,6 +2204,9 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
 
   // If there were no overlapping files, return immediately.
   if (!foundOverlap) {
+    if (next_smallest) {
+      next_smallest = nullptr;
+    }
     return;
   }
   // returns the index where an overlap is found
@@ -2241,6 +2226,15 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
   // insert overlapping files into vector
   for (int i = start_index; i <= end_index; i++) {
     inputs->push_back(files_[level][i]);
+  }
+
+  if (next_smallest != nullptr) {
+    // Provide the next key outside the range covered by inputs
+    if (++end_index < static_cast<int>(files_[level].size())) {
+      **next_smallest = files_[level][end_index]->smallest;
+    } else {
+      *next_smallest = nullptr;
+    }
   }
 }
 
@@ -2914,7 +2908,8 @@ Status VersionSet::ProcessManifestWrites(
             db_options_->manifest_preallocation_size);
 
         unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-            std::move(descriptor_file), descriptor_fname, opt_env_opts));
+            std::move(descriptor_file), descriptor_fname, opt_env_opts, nullptr,
+            db_options_->listeners));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
         s = WriteSnapshot(descriptor_log_.get());
@@ -3087,9 +3082,9 @@ Status VersionSet::ProcessManifestWrites(
 // 'datas' is gramatically incorrect. We still use this notation is to indicate
 // that this variable represents a collection of column_family_data.
 Status VersionSet::LogAndApply(
-    const std::vector<ColumnFamilyData*>& column_family_datas,
-    const std::vector<MutableCFOptions>& mutable_cf_options_list,
-    const std::vector<autovector<VersionEdit*>>& edit_lists,
+    const autovector<ColumnFamilyData*>& column_family_datas,
+    const autovector<const MutableCFOptions*>& mutable_cf_options_list,
+    const autovector<autovector<VersionEdit*>>& edit_lists,
     InstrumentedMutex* mu, Directory* db_directory, bool new_descriptor_log,
     const ColumnFamilyOptions* new_cf_options) {
   mu->AssertHeld();
@@ -3121,8 +3116,8 @@ Status VersionSet::LogAndApply(
     assert(static_cast<size_t>(num_cfds) == edit_lists.size());
   }
   for (int i = 0; i < num_cfds; ++i) {
-    writers.emplace_back(mu, column_family_datas[i], mutable_cf_options_list[i],
-                         edit_lists[i]);
+    writers.emplace_back(mu, column_family_datas[i],
+                         *mutable_cf_options_list[i], edit_lists[i]);
     manifest_writers_.push_back(&writers[i]);
   }
   assert(!writers.empty());
@@ -3424,7 +3419,8 @@ Status VersionSet::Recover(
     VersionSet::LogReporter reporter;
     reporter.status = &s;
     log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
-                       true /* checksum */, 0 /* log_number */);
+                       true /* checksum */, 0 /* log_number */,
+                       false /* retry_after_eof */);
     Slice record;
     std::string scratch;
     std::vector<VersionEdit> replay_buffer;
@@ -3630,7 +3626,8 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
   VersionSet::LogReporter reporter;
   reporter.status = &s;
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
-                     true /* checksum */, 0 /* log_number */);
+                     true /* checksum */, 0 /* log_number */,
+                     false /* retry_after_eof */);
   Slice record;
   std::string scratch;
   while (reader.ReadRecord(&record, &scratch) && s.ok()) {
@@ -3790,7 +3787,8 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     VersionSet::LogReporter reporter;
     reporter.status = &s;
     log::Reader reader(nullptr, std::move(file_reader), &reporter,
-                       true /* checksum */, 0 /* log_number */);
+                       true /* checksum */, 0 /* log_number */,
+                       false /* retry_after_eof */);
     Slice record;
     std::string scratch;
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
@@ -4236,7 +4234,8 @@ InternalIterator* VersionSet::MakeInputIterator(
             false /* should_sample */,
             nullptr /* no per level latency histogram */,
             true /* for_compaction */, false /* skip_filters */,
-            static_cast<int>(which) /* level */, range_del_agg);
+            static_cast<int>(which) /* level */, range_del_agg,
+            c->boundaries(which));
       }
     }
   }

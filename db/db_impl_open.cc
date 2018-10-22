@@ -238,8 +238,9 @@ Status DBImpl::NewDB() {
     }
     file->SetPreallocationBlockSize(
         immutable_db_options_.manifest_preallocation_size);
-    unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(file), manifest, env_options));
+    unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        std::move(file), manifest, env_options, nullptr /* stats */,
+        immutable_db_options_.listeners));
     log::Writer log(std::move(file_writer), 0, false);
     std::string record;
     new_db.EncodeTo(&record);
@@ -396,6 +397,16 @@ Status DBImpl::Recover(
       }
     }
   }
+
+  // Initial max_total_in_memory_state_ before recovery logs. Log recovery
+  // may check this value to decide whether to flush.
+  max_total_in_memory_state_ = 0;
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
+    max_total_in_memory_state_ += mutable_cf_options->write_buffer_size *
+                                  mutable_cf_options->max_write_buffer_number;
+  }
+
   if (s.ok()) {
     SequenceNumber next_sequence(kMaxSequenceNumber);
     default_cf_handle_ = new ColumnFamilyHandleImpl(
@@ -466,14 +477,6 @@ Status DBImpl::Recover(
         }
       }
     }
-  }
-
-  // Initial value
-  max_total_in_memory_state_ = 0;
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
-    max_total_in_memory_state_ += mutable_cf_options->write_buffer_size *
-                                  mutable_cf_options->max_write_buffer_number;
   }
 
   return s;
@@ -605,7 +608,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     // to be skipped instead of propagating bad information (like overly
     // large sequence numbers).
     log::Reader reader(immutable_db_options_.info_log, std::move(file_reader),
-                       &reporter, true /*checksum*/, log_number);
+                       &reporter, true /*checksum*/, log_number,
+                       false /* retry_after_eof */);
 
     // Determine if we should tolerate incomplete records at the tail end of the
     // Read all the records and add to a memtable
@@ -885,24 +889,68 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     }
   }
 
-  if (data_seen && !flushed) {
-    // Mark these as alive so they'll be considered for deletion later by
-    // FindObsoleteFiles()
-    if (two_write_queues_) {
-      log_write_mutex_.Lock();
-    }
-    for (auto log_number : log_numbers) {
-      alive_log_files_.push_back(LogFileNumberSize(log_number));
-    }
-    if (two_write_queues_) {
-      log_write_mutex_.Unlock();
-    }
+  if (status.ok() && data_seen && !flushed) {
+    status = RestoreAliveLogFiles(log_numbers);
   }
 
   event_logger_.Log() << "job" << job_id << "event"
                       << "recovery_finished";
 
   return status;
+}
+
+Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& log_numbers) {
+  if (log_numbers.empty()) {
+    return Status::OK();
+  }
+  Status s;
+  mutex_.AssertHeld();
+  assert(immutable_db_options_.avoid_flush_during_recovery);
+  if (two_write_queues_) {
+    log_write_mutex_.Lock();
+  }
+  // Mark these as alive so they'll be considered for deletion later by
+  // FindObsoleteFiles()
+  total_log_size_ = 0;
+  log_empty_ = false;
+  for (auto log_number : log_numbers) {
+    LogFileNumberSize log(log_number);
+    std::string fname = LogFileName(immutable_db_options_.wal_dir, log_number);
+    // This gets the appear size of the logs, not including preallocated space.
+    s = env_->GetFileSize(fname, &log.size);
+    if (!s.ok()) {
+      break;
+    }
+    total_log_size_ += log.size;
+    alive_log_files_.push_back(log);
+    // We preallocate space for logs, but then after a crash and restart, those
+    // preallocated space are not needed anymore. It is likely only the last
+    // log has such preallocated space, so we only truncate for the last log.
+    if (log_number == log_numbers.back()) {
+      std::unique_ptr<WritableFile> last_log;
+      Status truncate_status = env_->ReopenWritableFile(
+          fname, &last_log,
+          env_->OptimizeForLogWrite(
+              env_options_,
+              BuildDBOptions(immutable_db_options_, mutable_db_options_)));
+      if (truncate_status.ok()) {
+        truncate_status = last_log->Truncate(log.size);
+      }
+      if (truncate_status.ok()) {
+        truncate_status = last_log->Close();
+      }
+      // Not a critical error if fail to truncate.
+      if (!truncate_status.ok()) {
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "Failed to truncate log #%" PRIu64 ": %s", log_number,
+                       truncate_status.ToString().c_str());
+      }
+    }
+  }
+  if (two_write_queues_) {
+    log_write_mutex_.Unlock();
+  }
+  return s;
 }
 
 Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
@@ -1098,8 +1146,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       {
         InstrumentedMutexLock wl(&impl->log_write_mutex_);
         impl->logfile_number_ = new_log_number;
-        unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-            std::move(lfile), log_fname, opt_env_options));
+        const auto& listeners = impl->immutable_db_options_.listeners;
+        unique_ptr<WritableFileWriter> file_writer(
+            new WritableFileWriter(std::move(lfile), log_fname, opt_env_options,
+                                   nullptr /* stats */, listeners));
         impl->logs_.emplace_back(
             new_log_number,
             new log::Writer(
@@ -1248,6 +1298,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           "DB::Open() failed --- Unable to persist Options file",
           persist_options_status.ToString());
     }
+  }
+  if (s.ok()) {
+    impl->StartTimedTasks();
   }
   if (!s.ok()) {
     for (auto* h : *handles) {

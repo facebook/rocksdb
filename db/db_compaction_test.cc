@@ -2477,6 +2477,7 @@ TEST_P(DBCompactionTestWithParam, ManualLevelCompactionOutputPathId) {
 
     // Compaction range overlaps files
     Compact(1, "p1", "p9", 1);
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ("0,1", FilesPerLevel(1));
     ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
     ASSERT_EQ(0, GetSstFileCount(options.db_paths[0].path));
@@ -2492,6 +2493,7 @@ TEST_P(DBCompactionTestWithParam, ManualLevelCompactionOutputPathId) {
 
     // Compact just the new range
     Compact(1, "b", "f", 1);
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ("0,2", FilesPerLevel(1));
     ASSERT_EQ(2, GetSstFileCount(options.db_paths[1].path));
     ASSERT_EQ(0, GetSstFileCount(options.db_paths[0].path));
@@ -2508,6 +2510,7 @@ TEST_P(DBCompactionTestWithParam, ManualLevelCompactionOutputPathId) {
     compact_options.target_path_id = 1;
     compact_options.exclusive_manual_compaction = exclusive_manual_compaction_;
     db_->CompactRange(compact_options, handles_[1], nullptr, nullptr);
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
     ASSERT_EQ("0,1", FilesPerLevel(1));
     ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
@@ -3957,6 +3960,50 @@ INSTANTIATE_TEST_CASE_P(
                       CompactionPri::kOldestLargestSeqFirst,
                       CompactionPri::kOldestSmallestSeqFirst,
                       CompactionPri::kMinOverlappingRatio));
+
+class NoopMergeOperator : public MergeOperator {
+ public:
+  NoopMergeOperator() {}
+
+  virtual bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
+                           MergeOperationOutput* merge_out) const override {
+    std::string val("bar");
+    merge_out->new_value = val;
+    return true;
+  }
+
+  virtual const char* Name() const override { return "Noop"; }
+};
+
+TEST_F(DBCompactionTest, PartialManualCompaction) {
+  Options opts = CurrentOptions();
+  opts.num_levels = 3;
+  opts.level0_file_num_compaction_trigger = 10;
+  opts.compression = kNoCompression;
+  opts.merge_operator.reset(new NoopMergeOperator());
+  opts.target_file_size_base = 10240;
+  DestroyAndReopen(opts);
+
+  Random rnd(301);
+  for (auto i = 0; i < 8; ++i) {
+    for (auto j = 0; j < 10; ++j) {
+      Merge("foo", RandomString(&rnd, 1024));
+    }
+    Flush();
+  }
+
+  MoveFilesToLevel(2);
+
+  std::string prop;
+  EXPECT_TRUE(dbfull()->GetProperty(DB::Properties::kLiveSstFilesSize, &prop));
+  uint64_t max_compaction_bytes = atoi(prop.c_str()) / 2;
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"max_compaction_bytes", std::to_string(max_compaction_bytes)}}));
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  dbfull()->CompactRange(cro, nullptr, nullptr);
+}
 
 #endif // !defined(ROCKSDB_LITE)
 }  // namespace rocksdb

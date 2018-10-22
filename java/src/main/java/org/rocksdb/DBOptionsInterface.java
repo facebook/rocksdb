@@ -992,6 +992,19 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   T setDbWriteBufferSize(long dbWriteBufferSize);
 
   /**
+   * Use passed {@link WriteBufferManager} to control memory usage across
+   * multiple column families and/or DB instances.
+   *
+   * Check <a href="https://github.com/facebook/rocksdb/wiki/Write-Buffer-Manager">
+   *     https://github.com/facebook/rocksdb/wiki/Write-Buffer-Manager</a>
+   * for more details on when to use it
+   *
+   * @param writeBufferManager The WriteBufferManager to use
+   * @return the reference of the current options.
+   */
+  T setWriteBufferManager(final WriteBufferManager writeBufferManager);
+
+  /**
    * Amount of data to build up in memtables across all column
    * families before writing to disk.
    *

@@ -17,8 +17,9 @@
 #include "rocksdb/env.h"
 #include "table/block.h"
 #include "table/block_based_table_reader.h"
-#include "table/persistent_cache_helper.h"
 #include "table/format.h"
+#include "table/persistent_cache_helper.h"
+#include "util/cache_allocator.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -107,9 +108,11 @@ bool BlockFetcher::TryGetCompressedBlockFromPersistentCache() {
   if (cache_options_.persistent_cache &&
       cache_options_.persistent_cache->IsCompressed()) {
     // lookup uncompressed cache mode p-cache
+    std::unique_ptr<char[]> raw_data;
     status_ = PersistentCacheHelper::LookupRawPage(
-        cache_options_, handle_, &heap_buf_, block_size_ + kBlockTrailerSize);
+        cache_options_, handle_, &raw_data, block_size_ + kBlockTrailerSize);
     if (status_.ok()) {
+      heap_buf_ = CacheAllocationPtr(raw_data.release());
       used_buf_ = heap_buf_.get();
       slice_ = Slice(heap_buf_.get(), block_size_);
       return true;
@@ -132,7 +135,7 @@ void BlockFetcher::PrepareBufferForBlockFromFile() {
     // trivially allocated stack buffer instead of needing a full malloc()
     used_buf_ = &stack_buf_[0];
   } else {
-    heap_buf_.reset(new char[block_size_ + kBlockTrailerSize]);
+    heap_buf_ = AllocateBlock(block_size_ + kBlockTrailerSize, allocator_);
     used_buf_ = heap_buf_.get();
   }
 }
@@ -170,7 +173,7 @@ void BlockFetcher::GetBlockContents() {
     // or heap provided. Refer to https://github.com/facebook/rocksdb/pull/4096
     if (got_from_prefetch_buffer_ || used_buf_ == &stack_buf_[0]) {
       assert(used_buf_ != heap_buf_.get());
-      heap_buf_.reset(new char[block_size_ + kBlockTrailerSize]);
+      heap_buf_ = AllocateBlock(block_size_ + kBlockTrailerSize, allocator_);
       memcpy(heap_buf_.get(), used_buf_, block_size_ + kBlockTrailerSize);
     }
     *contents_ = BlockContents(std::move(heap_buf_), block_size_, true,
@@ -228,9 +231,9 @@ Status BlockFetcher::ReadBlockContents() {
   if (do_uncompress_ && compression_type != kNoCompression) {
     // compressed page, uncompress, update cache
     UncompressionContext uncompression_ctx(compression_type, compression_dict_);
-    status_ =
-        UncompressBlockContents(uncompression_ctx, slice_.data(), block_size_,
-                                contents_, footer_.version(), ioptions_);
+    status_ = UncompressBlockContents(uncompression_ctx, slice_.data(),
+                                      block_size_, contents_, footer_.version(),
+                                      ioptions_, allocator_);
   } else {
     GetBlockContents();
   }

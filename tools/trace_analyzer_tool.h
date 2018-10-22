@@ -204,6 +204,7 @@ class TraceAnalyzer {
   uint64_t total_access_keys_;
   uint64_t total_gets_;
   uint64_t total_writes_;
+  uint64_t trace_create_time_;
   uint64_t begin_time_;
   uint64_t end_time_;
   uint64_t time_series_start_;

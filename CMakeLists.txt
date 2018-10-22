@@ -49,6 +49,10 @@ option(WITH_SNAPPY "build with SNAPPY" OFF)
 option(WITH_LZ4 "build with lz4" OFF)
 option(WITH_ZLIB "build with zlib" OFF)
 option(WITH_ZSTD "build with zstd" OFF)
+option(WITH_WINDOWS_UTF8_FILENAMES "use UTF8 as characterset for opening files, regardles of the system code page" OFF)
+if (WITH_WINDOWS_UTF8_FILENAMES)
+  add_definitions(-DROCKSDB_WINDOWS_UTF8_FILENAMES)
+endif()
 if(MSVC)
   # Defaults currently different for GFLAGS.
   #  We will address find_package work a little later
@@ -679,12 +683,10 @@ set(SOURCES
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
         $<TARGET_OBJECTS:build_version>)
 
-if(HAVE_SSE42 AND NOT FORCE_SSE42)
-  if(NOT MSVC)
-set_source_files_properties(
-  util/crc32c.cc
-      PROPERTIES COMPILE_FLAGS "-msse4.2 -mpclmul")
-  endif()
+if(HAVE_SSE42 AND NOT MSVC)
+  set_source_files_properties(
+    util/crc32c.cc
+    PROPERTIES COMPILE_FLAGS "-msse4.2 -mpclmul")
 endif()
 
 if(HAVE_POWER8)
@@ -946,6 +948,7 @@ if(WITH_TESTS)
         util/hash_test.cc
         util/heap_test.cc
         util/rate_limiter_test.cc
+        util/repeatable_thread_test.cc
         util/slice_transform_test.cc
         util/timer_queue_test.cc
         util/thread_list_test.cc

@@ -219,7 +219,8 @@ void CompactionPicker::GetRange(const std::vector<CompactionInputFiles>& inputs,
 
 bool CompactionPicker::ExpandInputsToCleanCut(const std::string& /*cf_name*/,
                                               VersionStorageInfo* vstorage,
-                                              CompactionInputFiles* inputs) {
+                                              CompactionInputFiles* inputs,
+                                              InternalKey** next_smallest) {
   // This isn't good compaction
   assert(!inputs->empty());
 
@@ -242,7 +243,8 @@ bool CompactionPicker::ExpandInputsToCleanCut(const std::string& /*cf_name*/,
     GetRange(*inputs, &smallest, &largest);
     inputs->clear();
     vstorage->GetOverlappingInputs(level, &smallest, &largest, &inputs->files,
-                                   hint_index, &hint_index);
+                                   hint_index, &hint_index, true,
+                                   next_smallest);
   } while (inputs->size() > old_size);
 
   // we started off with inputs non-empty and the previous loop only grew
@@ -315,13 +317,29 @@ Compaction* CompactionPicker::CompactFiles(
   // shouldn't have been released since.
   assert(!FilesRangeOverlapWithCompaction(input_files, output_level));
 
-  auto c =
-      new Compaction(vstorage, ioptions_, mutable_cf_options, input_files,
-                     output_level, compact_options.output_file_size_limit,
-                     mutable_cf_options.max_compaction_bytes, output_path_id,
-                     compact_options.compression, ioptions_.compression_opts,
-                     compact_options.max_subcompactions,
-                     /* grandparents */ {}, true);
+  CompressionType compression_type;
+  if (compact_options.compression == kDisableCompressionOption) {
+    int base_level;
+    if (ioptions_.compaction_style == kCompactionStyleLevel) {
+      base_level = vstorage->base_level();
+    } else {
+      base_level = 1;
+    }
+    compression_type =
+        GetCompressionType(ioptions_, vstorage, mutable_cf_options,
+                           output_level, base_level);
+  } else {
+    // TODO(ajkr): `CompactionOptions` offers configurable `CompressionType`
+    // without configurable `CompressionOptions`, which is inconsistent.
+    compression_type = compact_options.compression;
+  }
+  auto c = new Compaction(
+      vstorage, ioptions_, mutable_cf_options, input_files, output_level,
+      compact_options.output_file_size_limit,
+      mutable_cf_options.max_compaction_bytes, output_path_id, compression_type,
+      GetCompressionOptions(ioptions_, vstorage, output_level),
+      compact_options.max_subcompactions,
+      /* grandparents */ {}, true);
   RegisterCompaction(c);
   return c;
 }
@@ -633,7 +651,6 @@ Compaction* CompactionPicker::CompactRange(
       uint64_t s = inputs[i]->compensated_file_size;
       total += s;
       if (total >= limit) {
-        **compaction_end = inputs[i + 1]->smallest;
         covering_the_whole_range = false;
         inputs.files.resize(i + 1);
         break;
@@ -642,7 +659,10 @@ Compaction* CompactionPicker::CompactRange(
   }
   assert(output_path_id < static_cast<uint32_t>(ioptions_.cf_paths.size()));
 
-  if (ExpandInputsToCleanCut(cf_name, vstorage, &inputs) == false) {
+  InternalKey key_storage;
+  InternalKey* next_smallest = &key_storage;
+  if (ExpandInputsToCleanCut(cf_name, vstorage, &inputs, &next_smallest) ==
+      false) {
     // manual compaction is now multi-threaded, so it can
     // happen that ExpandWhileOverlapping fails
     // we handle it higher in RunManualCompaction
@@ -650,8 +670,10 @@ Compaction* CompactionPicker::CompactRange(
     return nullptr;
   }
 
-  if (covering_the_whole_range) {
+  if (covering_the_whole_range || !next_smallest) {
     *compaction_end = nullptr;
+  } else {
+    **compaction_end = *next_smallest;
   }
 
   CompactionInputFiles output_level_inputs;
@@ -921,8 +943,8 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
   // any currently-existing files.
   for (auto file_num : *input_files) {
     bool found = false;
-    for (auto level_meta : cf_meta.levels) {
-      for (auto file_meta : level_meta.files) {
+    for (const auto& level_meta : cf_meta.levels) {
+      for (const auto& file_meta : level_meta.files) {
         if (file_num == TableFileNameToNumber(file_meta.name)) {
           if (file_meta.being_compacted) {
             return Status::Aborted("Specified compaction input file " +

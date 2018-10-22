@@ -916,21 +916,13 @@ bool ForwardIterator::TEST_CheckDeletedIters(int* pdeleted_iters,
 uint32_t ForwardIterator::FindFileInRange(
     const std::vector<FileMetaData*>& files, const Slice& internal_key,
     uint32_t left, uint32_t right) {
-  while (left < right) {
-    uint32_t mid = (left + right) / 2;
-    const FileMetaData* f = files[mid];
-    if (cfd_->internal_comparator().InternalKeyComparator::Compare(
-          f->largest.Encode(), internal_key) < 0) {
-      // Key at "mid.largest" is < "target".  Therefore all
-      // files at or before "mid" are uninteresting.
-      left = mid + 1;
-    } else {
-      // Key at "mid.largest" is >= "target".  Therefore all files
-      // after "mid" are uninteresting.
-      right = mid;
-    }
-  }
-  return right;
+  auto cmp = [&](const FileMetaData* f, const Slice& key) -> bool {
+    return cfd_->internal_comparator().InternalKeyComparator::Compare(
+            f->largest.Encode(), key) < 0;
+  };
+  const auto &b = files.begin();
+  return static_cast<uint32_t>(std::lower_bound(b + left,
+                                 b + right, internal_key, cmp) - b);
 }
 
 void ForwardIterator::DeleteIterator(InternalIterator* iter, bool is_arena) {
