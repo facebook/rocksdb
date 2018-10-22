@@ -733,6 +733,12 @@ public class Options extends RocksObject
   }
 
   @Override
+  public WriteBufferManager getWriteBufferManager() {
+    assert(isOwningHandle());
+    return this.writeBufferManager_;
+  }
+
+    @Override
   public long dbWriteBufferSize() {
     assert(isOwningHandle());
     return dbWriteBufferSize(nativeHandle_);
