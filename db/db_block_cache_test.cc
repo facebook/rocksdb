@@ -389,6 +389,79 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
             filter_bytes_insert);
 }
 
+TEST_F(DBBlockCacheTest, WarmCacheWithL0Block) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(20));
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+
+  // Create a new table.
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_OK(Put("bar", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  // fiter & data blocks added to block cache during L0 table creation.
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+  ASSERT_EQ(2, /* only filter and data were added */
+            TestGetTickerCount(options, BLOCK_CACHE_ADD));
+
+  ASSERT_EQ("value", Get("foo"));
+
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+  ASSERT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_ADD));
+
+  ASSERT_EQ("NOT_FOUND", Get("baz"));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+  ASSERT_EQ(2,
+            TestGetTickerCount(options, BLOCK_CACHE_ADD));
+
+  ASSERT_OK(Put("key1", "value"));
+  ASSERT_OK(Put("key2", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+
+  // fiter & data blocks added to block cache during L0 table creation.
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+  ASSERT_EQ(4, /* only filter and data were added */
+            TestGetTickerCount(options, BLOCK_CACHE_ADD));
+
+  ASSERT_EQ("value", Get("key1"));
+
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+  ASSERT_EQ(4, TestGetTickerCount(options, BLOCK_CACHE_ADD));
+
+  ASSERT_EQ("NOT_FOUND", Get("key3"));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+  ASSERT_EQ(4,
+            TestGetTickerCount(options, BLOCK_CACHE_ADD));
+
+  for (int i = 0; i < 200; i++) {
+    ASSERT_OK(Put("key_" + ToString(i), "value"));
+    ASSERT_OK(Flush());
+
+    ASSERT_EQ("value", Get("key_" + ToString(i)));
+    ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+  }
+}
+
 namespace {
 
 // A mock cache wraps LRUCache, and record how many entries have been

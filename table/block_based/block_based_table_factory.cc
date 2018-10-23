@@ -221,7 +221,8 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
       table_builder_options.creation_time,
       table_builder_options.oldest_key_time,
       table_builder_options.target_file_size,
-      table_builder_options.file_creation_time);
+      table_builder_options.file_creation_time,
+      table_builder_options.level);
 
   return table_builder;
 }
