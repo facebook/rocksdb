@@ -566,8 +566,15 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   if (flush_needed) {
     FlushOptions fo;
     fo.allow_write_stall = options.allow_write_stall;
-    s = FlushMemTable(cfd, fo, FlushReason::kManualCompaction,
-      false /* writes_stopped*/);
+    if (atomic_flush_) {
+      autovector<ColumnFamilyData*> cfds;
+      SelectColumnFamiliesForAtomicFlush(&cfds, true);
+      s = AtomicFlushMemTables(cfds, fo, FlushReason::kManualCompaction,
+                               false /* writes_stopped */);
+    } else {
+      s = FlushMemTable(cfd, fo, FlushReason::kManualCompaction,
+                        false /* writes_stopped*/);
+    }
     if (!s.ok()) {
       LogFlush(immutable_db_options_.info_log);
       return s;
