@@ -1244,67 +1244,6 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   return s;
 }
 
-Status DBImpl::FlushAllCFs(FlushReason flush_reason) {
-  Status s;
-  WriteContext context;
-  WriteThread::Writer w;
-
-  mutex_.AssertHeld();
-  write_thread_.EnterUnbatched(&w, &mutex_);
-
-  FlushRequest flush_req;
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
-        cached_recoverable_state_empty_.load()) {
-      // Nothing to flush
-      continue;
-    }
-
-    // SwitchMemtable() will release and reacquire mutex during execution
-    s = SwitchMemtable(cfd, &context);
-    if (!s.ok()) {
-      break;
-    }
-
-    cfd->imm()->FlushRequested();
-
-    flush_req.emplace_back(cfd, cfd->imm()->GetLatestMemTableID());
-  }
-
-  // schedule flush
-  if (s.ok() && !flush_req.empty()) {
-    SchedulePendingFlush(flush_req, flush_reason);
-    MaybeScheduleFlushOrCompaction();
-  }
-
-  write_thread_.ExitUnbatched(&w);
-
-  if (s.ok()) {
-    for (auto& flush : flush_req) {
-      auto cfd = flush.first;
-      auto flush_memtable_id = flush.second;
-      while (cfd->imm()->NumNotFlushed() > 0 &&
-             cfd->imm()->GetEarliestMemTableID() <= flush_memtable_id) {
-        if (!error_handler_.GetRecoveryError().ok()) {
-          break;
-        }
-        if (cfd->IsDropped()) {
-          // FlushJob cannot flush a dropped CF, if we did not break here
-          // we will loop forever since cfd->imm()->NumNotFlushed() will never
-          // drop to zero
-          continue;
-        }
-        cfd->Ref();
-        bg_cv_.Wait();
-        cfd->Unref();
-      }
-    }
-  }
-
-  flush_req.clear();
-  return s;
-}
-
 Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                                    int output_level, uint32_t output_path_id,
                                    uint32_t max_subcompactions,
@@ -1499,7 +1438,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       cfds.push_back(iter.first);
       flush_memtable_ids.push_back(&(iter.second));
     }
-    s = WaitForFlushMemTables(cfds, flush_memtable_ids);
+    s = WaitForFlushMemTables(cfds, flush_memtable_ids,
+                              (flush_reason == FlushReason::kErrorRecovery));
   }
   TEST_SYNC_POINT("FlushMemTableFinished");
   return s;
@@ -1575,7 +1515,8 @@ Status DBImpl::AtomicFlushMemTables(
     for (auto& iter : flush_req) {
       flush_memtable_ids.push_back(&(iter.second));
     }
-    s = WaitForFlushMemTables(cfds, flush_memtable_ids);
+    s = WaitForFlushMemTables(cfds, flush_memtable_ids,
+                              (flush_reason == FlushReason::kErrorRecovery));
   }
   return s;
 }
@@ -1653,13 +1594,16 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
 // Finish waiting when ALL column families finish flushing memtables.
 Status DBImpl::WaitForFlushMemTables(
     const autovector<ColumnFamilyData*>& cfds,
-    const autovector<const uint64_t*>& flush_memtable_ids) {
+    const autovector<const uint64_t*>& flush_memtable_ids, bool in_recovery) {
   int num = static_cast<int>(cfds.size());
   // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
-  while (!error_handler_.IsDBStopped()) {
+  while (in_recovery || !error_handler_.IsDBStopped()) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();
+    }
+    if (!error_handler_.GetRecoveryError().ok()) {
+      break;
     }
     // Number of column families that have been dropped.
     int num_dropped = 0;
@@ -1686,7 +1630,7 @@ Status DBImpl::WaitForFlushMemTables(
     bg_cv_.Wait();
   }
   Status s;
-  if (error_handler_.IsDBStopped()) {
+  if (!in_recovery && error_handler_.IsDBStopped()) {
     s = error_handler_.GetBGError();
   }
   return s;

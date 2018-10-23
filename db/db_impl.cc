@@ -306,7 +306,30 @@ Status DBImpl::ResumeImpl() {
   // We cannot guarantee consistency of the WAL. So force flush Memtables of
   // all the column families
   if (s.ok()) {
-    s = FlushAllCFs(FlushReason::kErrorRecovery);
+    FlushOptions flush_opts;
+    // We allow flush to stall write since we are trying to resume from error.
+    flush_opts.allow_write_stall = true;
+    if (atomic_flush_) {
+      autovector<ColumnFamilyData*> cfds;
+      SelectColumnFamiliesForAtomicFlush(&cfds, true);
+      mutex_.Unlock();
+      s = AtomicFlushMemTables(cfds, flush_opts, FlushReason::kErrorRecovery);
+      mutex_.Lock();
+    } else {
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        if (cfd->IsDropped()) {
+          continue;
+        }
+        cfd->Ref();
+        mutex_.Unlock();
+        s = FlushMemTable(cfd, flush_opts, FlushReason::kErrorRecovery);
+        mutex_.Lock();
+        cfd->Unref();
+        if (!s.ok()) {
+          break;
+        }
+      }
+    }
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "DB resume requested but failed due to Flush failure [%s]",
