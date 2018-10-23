@@ -57,9 +57,11 @@ void VerifySeekForPrev(FragmentedRangeTombstoneIterator* iter,
       ASSERT_FALSE(iter->Valid());
     } else {
       ASSERT_TRUE(iter->Valid());
-      EXPECT_EQ(ExtractUserKey(iter->key()), testcase.expected_position.start_key_);
+      EXPECT_EQ(ExtractUserKey(iter->key()),
+                testcase.expected_position.start_key_);
       EXPECT_EQ(iter->value(), testcase.expected_position.end_key_);
-      EXPECT_EQ(GetInternalKeySeqno(iter->key()), testcase.expected_position.seq_);
+      EXPECT_EQ(GetInternalKeySeqno(iter->key()),
+                testcase.expected_position.seq_);
     }
   }
 }
@@ -70,8 +72,7 @@ struct MaxCoveringTombstoneSeqnumTestCase {
 };
 
 void VerifyMaxCoveringTombstoneSeqnum(
-    FragmentedRangeTombstoneIterator* iter,
-    const Comparator* ucmp,
+    FragmentedRangeTombstoneIterator* iter, const Comparator* ucmp,
     const std::vector<MaxCoveringTombstoneSeqnumTestCase>& cases) {
   for (const auto& testcase : cases) {
     InternalKey key_and_snapshot(testcase.user_key, kMaxSequenceNumber,
@@ -84,49 +85,41 @@ void VerifyMaxCoveringTombstoneSeqnum(
 }  // anonymous namespace
 
 TEST_F(RangeTombstoneFragmenterTest, NonOverlappingTombstones) {
-  auto range_del_iter = MakeRangeDelIter({{"a", "b", 10},
-                                          {"c", "d", 5}});
+  auto range_del_iter = MakeRangeDelIter({{"a", "b", 10}, {"c", "d", 5}});
 
   FragmentedRangeTombstoneIterator iter(std::move(range_del_iter),
                                         bytewise_icmp, kMaxSequenceNumber);
-  VerifyFragmentedRangeDels(&iter, {{"a", "b", 10},
-                                    {"c", "d", 5}});
+  VerifyFragmentedRangeDels(&iter, {{"a", "b", 10}, {"c", "d", 5}});
   VerifyMaxCoveringTombstoneSeqnum(&iter, bytewise_icmp.user_comparator(),
                                    {{"", 0}, {"a", 10}, {"b", 0}, {"c", 5}});
 }
 
 TEST_F(RangeTombstoneFragmenterTest, OverlappingTombstones) {
-  auto range_del_iter = MakeRangeDelIter({{"a", "e", 10},
-                                          {"c", "g", 15}});
+  auto range_del_iter = MakeRangeDelIter({{"a", "e", 10}, {"c", "g", 15}});
 
   FragmentedRangeTombstoneIterator iter(std::move(range_del_iter),
                                         bytewise_icmp, kMaxSequenceNumber);
-  VerifyFragmentedRangeDels(&iter, {{"a", "c", 10},
-                                    {"c", "e", 15},
-                                    {"e", "g", 15}});
+  VerifyFragmentedRangeDels(&iter,
+                            {{"a", "c", 10}, {"c", "e", 15}, {"e", "g", 15}});
   VerifyMaxCoveringTombstoneSeqnum(&iter, bytewise_icmp.user_comparator(),
                                    {{"a", 10}, {"c", 15}, {"e", 15}, {"g", 0}});
 }
 
 TEST_F(RangeTombstoneFragmenterTest, ContiguousTombstones) {
-  auto range_del_iter = MakeRangeDelIter({{"a", "c", 10},
-                                          {"c", "e", 20},
-                                          {"c", "e", 5},
-                                          {"e", "g", 15}});
+  auto range_del_iter = MakeRangeDelIter(
+      {{"a", "c", 10}, {"c", "e", 20}, {"c", "e", 5}, {"e", "g", 15}});
 
   FragmentedRangeTombstoneIterator iter(std::move(range_del_iter),
                                         bytewise_icmp, kMaxSequenceNumber);
-  VerifyFragmentedRangeDels(&iter, {{"a", "c", 10},
-                                    {"c", "e", 20},
-                                    {"e", "g", 15}});
+  VerifyFragmentedRangeDels(&iter,
+                            {{"a", "c", 10}, {"c", "e", 20}, {"e", "g", 15}});
   VerifyMaxCoveringTombstoneSeqnum(&iter, bytewise_icmp.user_comparator(),
                                    {{"a", 10}, {"c", 20}, {"e", 15}, {"g", 0}});
 }
 
 TEST_F(RangeTombstoneFragmenterTest, RepeatedStartAndEndKey) {
-  auto range_del_iter = MakeRangeDelIter({{"a", "c", 10},
-                                          {"a", "c", 7},
-                                          {"a", "c", 3}});
+  auto range_del_iter =
+      MakeRangeDelIter({{"a", "c", 10}, {"a", "c", 7}, {"a", "c", 3}});
 
   FragmentedRangeTombstoneIterator iter(std::move(range_del_iter),
                                         bytewise_icmp, kMaxSequenceNumber);
@@ -136,15 +129,13 @@ TEST_F(RangeTombstoneFragmenterTest, RepeatedStartAndEndKey) {
 }
 
 TEST_F(RangeTombstoneFragmenterTest, RepeatedStartKeyDifferentEndKeys) {
-  auto range_del_iter = MakeRangeDelIter({{"a", "e", 10},
-                                          {"a", "g", 7},
-                                          {"a", "c", 3}});
+  auto range_del_iter =
+      MakeRangeDelIter({{"a", "e", 10}, {"a", "g", 7}, {"a", "c", 3}});
 
   FragmentedRangeTombstoneIterator iter(std::move(range_del_iter),
                                         bytewise_icmp, kMaxSequenceNumber);
-  VerifyFragmentedRangeDels(&iter, {{"a", "c", 10},
-                                    {"c", "e", 10},
-                                    {"e", "g", 7}});
+  VerifyFragmentedRangeDels(&iter,
+                            {{"a", "c", 10}, {"c", "e", 10}, {"e", "g", 7}});
   VerifyMaxCoveringTombstoneSeqnum(&iter, bytewise_icmp.user_comparator(),
                                    {{"a", 10}, {"c", 10}, {"e", 7}, {"g", 0}});
 }
@@ -158,9 +149,8 @@ TEST_F(RangeTombstoneFragmenterTest, RepeatedStartKeyMixedEndKeys) {
 
   FragmentedRangeTombstoneIterator iter(std::move(range_del_iter),
                                         bytewise_icmp, kMaxSequenceNumber);
-  VerifyFragmentedRangeDels(&iter, {{"a", "c", 30},
-                                    {"c", "e", 20},
-                                    {"e", "g", 20}});
+  VerifyFragmentedRangeDels(&iter,
+                            {{"a", "c", 30}, {"c", "e", 20}, {"e", "g", 20}});
   VerifyMaxCoveringTombstoneSeqnum(&iter, bytewise_icmp.user_comparator(),
                                    {{"a", 30}, {"c", 20}, {"e", 20}, {"g", 0}});
 }
@@ -194,10 +184,8 @@ TEST_F(RangeTombstoneFragmenterTest, OverlapAndRepeatedStartKeyWithSnapshot) {
 
   FragmentedRangeTombstoneIterator iter(std::move(range_del_iter),
                                         bytewise_icmp, 9);
-  VerifyFragmentedRangeDels(&iter, {{"c", "g", 8},
-                                    {"g", "i", 6},
-                                    {"j", "l", 4},
-                                    {"l", "n", 4}});
+  VerifyFragmentedRangeDels(
+      &iter, {{"c", "g", 8}, {"g", "i", 6}, {"j", "l", 4}, {"l", "n", 4}});
   VerifyMaxCoveringTombstoneSeqnum(
       &iter, bytewise_icmp.user_comparator(),
       {{"a", 0}, {"c", 8}, {"e", 8}, {"i", 0}, {"j", 4}, {"m", 4}});
@@ -212,10 +200,8 @@ TEST_F(RangeTombstoneFragmenterTest, OverlapAndRepeatedStartKeyUnordered) {
 
   FragmentedRangeTombstoneIterator iter(std::move(range_del_iter),
                                         bytewise_icmp, 9);
-  VerifyFragmentedRangeDels(&iter, {{"c", "g", 8},
-                                    {"g", "i", 6},
-                                    {"j", "l", 4},
-                                    {"l", "n", 4}});
+  VerifyFragmentedRangeDels(
+      &iter, {{"c", "g", 8}, {"g", "i", 6}, {"j", "l", 4}, {"l", "n", 4}});
   VerifyMaxCoveringTombstoneSeqnum(
       &iter, bytewise_icmp.user_comparator(),
       {{"a", 0}, {"c", 8}, {"e", 8}, {"i", 0}, {"j", 4}, {"m", 4}});
@@ -231,9 +217,9 @@ TEST_F(RangeTombstoneFragmenterTest, SeekForPrevStartKey) {
 
   FragmentedRangeTombstoneIterator iter(std::move(range_del_iter),
                                         bytewise_icmp, kMaxSequenceNumber);
-  VerifySeekForPrev(&iter, {{"a", {"a", "c", 10}},
-                            {"e", {"e", "g", 8}},
-                            {"l", {"l", "n", 4}}});
+  VerifySeekForPrev(
+      &iter,
+      {{"a", {"a", "c", 10}}, {"e", {"e", "g", 8}}, {"l", {"l", "n", 4}}});
 }
 
 TEST_F(RangeTombstoneFragmenterTest, SeekForPrevCovered) {
@@ -246,9 +232,9 @@ TEST_F(RangeTombstoneFragmenterTest, SeekForPrevCovered) {
 
   FragmentedRangeTombstoneIterator iter(std::move(range_del_iter),
                                         bytewise_icmp, kMaxSequenceNumber);
-  VerifySeekForPrev(&iter, {{"b", {"a", "c", 10}},
-                            {"f", {"e", "g", 8}},
-                            {"m", {"l", "n", 4}}});
+  VerifySeekForPrev(
+      &iter,
+      {{"b", {"a", "c", 10}}, {"f", {"e", "g", 8}}, {"m", {"l", "n", 4}}});
 }
 
 TEST_F(RangeTombstoneFragmenterTest, SeekForPrevEndKey) {
@@ -277,8 +263,8 @@ TEST_F(RangeTombstoneFragmenterTest, SeekForPrevOutOfBounds) {
 
   FragmentedRangeTombstoneIterator iter(std::move(range_del_iter),
                                         bytewise_icmp, kMaxSequenceNumber);
-  VerifySeekForPrev(&iter, {{"", {}, true /* out of range */},
-                            {"z", {"l", "n", 4}}});
+  VerifySeekForPrev(&iter,
+                    {{"", {}, true /* out of range */}, {"z", {"l", "n", 4}}});
 }
 
 }  // namespace rocksdb

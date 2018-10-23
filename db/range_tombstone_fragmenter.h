@@ -5,14 +5,14 @@
 
 #pragma once
 
-#include <vector>
 #include <list>
-#include <string>
 #include <memory>
+#include <string>
+#include <vector>
 
-#include "rocksdb/status.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
+#include "rocksdb/status.h"
 #include "table/internal_iterator.h"
 
 namespace rocksdb {
@@ -21,15 +21,16 @@ namespace rocksdb {
 // meta block into an iterator over non-overlapping tombstone fragments. The
 // tombstone fragmentation process should be more efficient than the range
 // tombstone collapsing algorithm in RangeDelAggregator because this leverages
-// the internal key ordering already provided by the input iterator. If there
-// are few overlaps, creating a FragmentedRangeTombstoneIterator should be
-// O(n), while the RangeDelAggregator tombstone collapsing is always O(n log n).
+// the internal key ordering already provided by the input iterator, if
+// applicable (when the iterator is unsorted, a new sorted iterator is created
+// before proceeding). If there are few overlaps, creating a
+// FragmentedRangeTombstoneIterator should be O(n), while the RangeDelAggregator
+// tombstone collapsing is always O(n log n).
 class FragmentedRangeTombstoneIterator : public InternalIterator {
  public:
   FragmentedRangeTombstoneIterator(
       std::unique_ptr<InternalIterator> unfragmented_tombstones,
-      const InternalKeyComparator& icmp,
-      SequenceNumber snapshot);
+      const InternalKeyComparator& icmp, SequenceNumber snapshot);
   void SeekToFirst() override;
   void SeekToLast() override;
   void Seek(const Slice& target) override;

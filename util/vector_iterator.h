@@ -4,9 +4,9 @@
 #include <string>
 #include <vector>
 
+#include "db/dbformat.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice.h"
-#include "db/dbformat.h"
 #include "table/internal_iterator.h"
 
 namespace rocksdb {
@@ -56,8 +56,12 @@ class VectorIterator : public InternalIterator {
   virtual void Next() override { current_++; }
   virtual void Prev() override { current_--; }
 
-  virtual Slice key() const override { return Slice(keys_[indices_[current_]]); }
-  virtual Slice value() const override { return Slice(values_[indices_[current_]]); }
+  virtual Slice key() const override {
+    return Slice(keys_[indices_[current_]]);
+  }
+  virtual Slice value() const override {
+    return Slice(values_[indices_[current_]]);
+  }
 
   virtual Status status() const override { return Status::OK(); }
 

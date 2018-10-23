@@ -12,9 +12,9 @@
 #include "table/block.h"
 #include "table/block_based_table_reader.h"
 #include "table/block_builder.h"
-#include "table/table_builder.h"
 #include "table/data_block_hash_index.h"
 #include "table/get_context.h"
+#include "table/table_builder.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 

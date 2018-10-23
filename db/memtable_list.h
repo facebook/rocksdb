@@ -76,8 +76,8 @@ class MemTableListVersion {
   // writes that are also present in the SST files.
   bool GetFromHistory(const LookupKey& key, std::string* value, Status* s,
                       MergeContext* merge_context,
-                      SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
-                      const ReadOptions& read_opts,
+                      SequenceNumber* max_covering_tombstone_seq,
+                      SequenceNumber* seq, const ReadOptions& read_opts,
                       bool* is_blob_index = nullptr);
   bool GetFromHistory(const LookupKey& key, std::string* value, Status* s,
                       MergeContext* merge_context,

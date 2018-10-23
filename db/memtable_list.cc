@@ -117,8 +117,8 @@ bool MemTableListVersion::GetFromHistory(
     MergeContext* merge_context, SequenceNumber* max_covering_tombstone_seq,
     SequenceNumber* seq, const ReadOptions& read_opts, bool* is_blob_index) {
   return GetFromList(&memlist_history_, key, value, s, merge_context,
-                     max_covering_tombstone_seq, seq, read_opts, nullptr /*read_callback*/,
-                     is_blob_index);
+                     max_covering_tombstone_seq, seq, read_opts,
+                     nullptr /*read_callback*/, is_blob_index);
 }
 
 bool MemTableListVersion::GetFromList(
