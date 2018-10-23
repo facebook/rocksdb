@@ -127,8 +127,7 @@ bool PessimisticTransaction::IsExpired() const {
 WriteCommittedTxn::WriteCommittedTxn(TransactionDB* txn_db,
                                      const WriteOptions& write_options,
                                      const TransactionOptions& txn_options)
-    : PessimisticTransaction(txn_db, write_options, txn_options),
-      commited_seq_nr_(0) {};
+    : PessimisticTransaction(txn_db, write_options, txn_options) {};
 
 Status PessimisticTransaction::CommitBatch(WriteBatch* batch) {
   TransactionKeyMap keys_to_unlock;
@@ -238,7 +237,7 @@ Status WriteCommittedTxn::PrepareInternal() {
                       /*disable_memtable*/ true, &seq_used);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
-    commited_seq_nr_ = seq_used;
+    SetId(seq_used);
   }
   return s;
 }
@@ -334,7 +333,7 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
                                /*log ref*/ 0, /*disable_memtable*/ false, &seq_used);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
-    commited_seq_nr_ = seq_used;
+    SetId(seq_used);
   }
   return s;
 }
