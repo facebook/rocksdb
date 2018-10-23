@@ -127,7 +127,7 @@ bool PessimisticTransaction::IsExpired() const {
 WriteCommittedTxn::WriteCommittedTxn(TransactionDB* txn_db,
                                      const WriteOptions& write_options,
                                      const TransactionOptions& txn_options)
-    : PessimisticTransaction(txn_db, write_options, txn_options) {};
+    : PessimisticTransaction(txn_db, write_options, txn_options){};
 
 Status PessimisticTransaction::CommitBatch(WriteBatch* batch) {
   TransactionKeyMap keys_to_unlock;
@@ -230,15 +230,10 @@ Status WriteCommittedTxn::PrepareInternal() {
   WriteOptions write_options = write_options_;
   write_options.disableWAL = false;
   WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_);
-  uint64_t seq_used = kMaxSequenceNumber;
   Status s =
       db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                      /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
-                      /*disable_memtable*/ true, &seq_used);
-  assert(!s.ok() || seq_used != kMaxSequenceNumber);
-  if (s.ok()) {
-    SetId(seq_used);
-  }
+                          /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
+                          /* disable_memtable*/ true);
   return s;
 }
 
@@ -329,7 +324,7 @@ Status PessimisticTransaction::Commit() {
 Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
   uint64_t seq_used = kMaxSequenceNumber;
   auto s = db_impl_->WriteImpl(write_options_, GetWriteBatch()->GetWriteBatch(),
-                               /*callback*/ nullptr, /*log nr*/ nullptr,
+                               /*callback*/ nullptr, /*log_used*/ nullptr,
                                /*log ref*/ 0, /*disable_memtable*/ false, &seq_used);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
@@ -357,8 +352,15 @@ Status WriteCommittedTxn::CommitInternal() {
   // in non recovery mode and simply insert the values
   WriteBatchInternal::Append(working_batch, GetWriteBatch()->GetWriteBatch());
 
-  auto s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
-                               log_number_);
+  uint64_t seq_used = kMaxSequenceNumber;
+  auto s = db_impl_->WriteImpl(write_options_, working_batch, /*callback*/nullptr,
+                               /*log_used*/ nullptr, /*log ref*/ log_number_,
+                               /*disable_memtable*/ false, &seq_used);
+  
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
+  if (s.ok()) {
+    SetId(seq_used);
+  }
   return s;
 }
 

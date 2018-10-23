@@ -204,7 +204,7 @@ class WriteCommittedTxn : public PessimisticTransaction {
                     const TransactionOptions& txn_options);
 
   virtual ~WriteCommittedTxn() {}
-  
+
  private:
   Status PrepareInternal() override;
 
