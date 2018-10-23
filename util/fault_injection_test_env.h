@@ -110,6 +110,10 @@ class FaultInjectionTestEnv : public EnvWrapper {
                          unique_ptr<WritableFile>* result,
                          const EnvOptions& soptions) override;
 
+  Status ReopenWritableFile(const std::string& fname,
+                            unique_ptr<WritableFile>* result,
+                            const EnvOptions& soptions) override;
+
   Status NewRandomAccessFile(const std::string& fname,
                              std::unique_ptr<RandomAccessFile>* result,
                              const EnvOptions& soptions) override;
