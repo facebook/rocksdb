@@ -12,7 +12,7 @@
 #include <string>
 #include <inttypes.h>
 
-#include "cache/cache_allocator.h"
+#include "cache/memory_allocator.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/env.h"
@@ -280,7 +280,7 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
 Status UncompressBlockContentsForCompressionType(
     const UncompressionContext& uncompression_ctx, const char* data, size_t n,
     BlockContents* contents, uint32_t format_version,
-    const ImmutableCFOptions& ioptions, CacheAllocator* allocator) {
+    const ImmutableCFOptions& ioptions, MemoryAllocator* allocator) {
   CacheAllocationPtr ubuf;
 
   assert(uncompression_ctx.type() != kNoCompression &&
@@ -405,7 +405,7 @@ Status UncompressBlockContents(const UncompressionContext& uncompression_ctx,
                                const char* data, size_t n,
                                BlockContents* contents, uint32_t format_version,
                                const ImmutableCFOptions& ioptions,
-                               CacheAllocator* allocator) {
+                               MemoryAllocator* allocator) {
   assert(data[n] != kNoCompression);
   assert(data[n] == uncompression_ctx.type());
   return UncompressBlockContentsForCompressionType(uncompression_ctx, data, n,

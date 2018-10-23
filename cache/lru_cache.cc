@@ -462,10 +462,10 @@ std::string LRUCacheShard::GetPrintableOptions() const {
 
 LRUCache::LRUCache(size_t capacity, int num_shard_bits,
                    bool strict_capacity_limit, double high_pri_pool_ratio,
-                   std::shared_ptr<CacheAllocatorFactory> allocator_factory,
-                   std::unique_ptr<CacheAllocator> cache_allocator)
+                   std::shared_ptr<MemoryAllocatorFactory> allocator_factory,
+                   std::unique_ptr<MemoryAllocator> memory_allocator)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit,
-                   std::move(allocator_factory), std::move(cache_allocator)) {
+                   std::move(allocator_factory), std::move(memory_allocator)) {
   num_shards_ = 1 << num_shard_bits;
   shards_ = reinterpret_cast<LRUCacheShard*>(
       port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards_));
@@ -538,13 +538,13 @@ std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
   return NewLRUCache(cache_opts.capacity, cache_opts.num_shard_bits,
                      cache_opts.strict_capacity_limit,
                      cache_opts.high_pri_pool_ratio,
-                     cache_opts.cache_allocator_factory);
+                     cache_opts.memory_allocator_factory);
 }
 
 std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     double high_pri_pool_ratio,
-    std::shared_ptr<CacheAllocatorFactory> cache_allocator_factory) {
+    std::shared_ptr<MemoryAllocatorFactory> memory_allocator_factory) {
   if (num_shard_bits >= 20) {
     return nullptr;  // the cache cannot be sharded into too many fine pieces
   }
@@ -556,10 +556,10 @@ std::shared_ptr<Cache> NewLRUCache(
     num_shard_bits = GetDefaultCacheShardBits(capacity);
   }
   // Initialize cache allocator here since we need to handle error returned
-  // from CacheAllocatorFactory.
-  std::unique_ptr<CacheAllocator> cache_allocator = nullptr;
-  Status s = ShardedCache::InitCacheAllocator(cache_allocator_factory.get(),
-                                              &cache_allocator);
+  // from MemoryAllocatorFactory.
+  std::unique_ptr<MemoryAllocator> memory_allocator = nullptr;
+  Status s = ShardedCache::InitMemoryAllocator(memory_allocator_factory.get(),
+                                               &memory_allocator);
   if (!s.ok()) {
     fprintf(stderr, "Failed to initialze cache allocator: %s\n",
             s.ToString().c_str());
@@ -567,7 +567,7 @@ std::shared_ptr<Cache> NewLRUCache(
   }
   return std::make_shared<LRUCache>(
       capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
-      std::move(cache_allocator_factory), std::move(cache_allocator));
+      std::move(memory_allocator_factory), std::move(memory_allocator));
 }
 
 }  // namespace rocksdb

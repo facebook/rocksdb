@@ -47,10 +47,10 @@ class CacheShard {
 // Keys are sharded by the highest num_shard_bits bits of hash value.
 class ShardedCache : public Cache {
  public:
-  ShardedCache(
-      size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-      std::shared_ptr<CacheAllocatorFactory> cache_allocator_factory = nullptr,
-      std::unique_ptr<CacheAllocator> cache_allocator = nullptr);
+  ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
+               std::shared_ptr<MemoryAllocatorFactory>
+                   memory_allocator_factory = nullptr,
+               std::unique_ptr<MemoryAllocator> memory_allocator = nullptr);
   virtual ~ShardedCache() = default;
   virtual const char* Name() const override = 0;
   virtual CacheShard* GetShard(int shard) = 0;
@@ -83,12 +83,16 @@ class ShardedCache : public Cache {
 
   int GetNumShardBits() const { return num_shard_bits_; }
 
-  static Status InitCacheAllocator(
-      CacheAllocatorFactory* cache_allocator_factory,
-      std::unique_ptr<CacheAllocator>* cache_allocator);
+  // MemoryAllocatorFactory::NewMemoryAllocator can return error, and we don't
+  // have a way to return error code from ShardedCache constructor. We make
+  // a static method to create memory allocator and pass to the constructor.
+  static Status InitMemoryAllocator(
+      MemoryAllocatorFactory* memory_allocator_factory,
+      std::unique_ptr<MemoryAllocator>* memory_allocator);
 
-  virtual CacheAllocator* GetCacheAllocator() const override {
-    return cache_allocator_.get();
+  virtual MemoryAllocator* GetMemoryAllocator(
+      const Slice& /*key*/) const override {
+    return memory_allocator_.get();
   }
 
  private:
@@ -102,9 +106,9 @@ class ShardedCache : public Cache {
   }
 
   const int num_shard_bits_;
-  // Hold a reference to the original CacheAllocatorFactory.
-  const std::shared_ptr<CacheAllocatorFactory> cache_allocator_factory_;
-  const std::unique_ptr<CacheAllocator> cache_allocator_;
+  // Hold a reference to the original MemoryAllocatorFactory.
+  const std::shared_ptr<MemoryAllocatorFactory> memory_allocator_factory_;
+  const std::unique_ptr<MemoryAllocator> memory_allocator_;
 
   mutable port::Mutex capacity_mutex_;
   size_t capacity_;

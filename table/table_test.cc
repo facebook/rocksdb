@@ -2478,14 +2478,14 @@ TEST_P(BlockBasedTableTest, BlockCacheLeak) {
 }
 
 namespace {
-class CustomCacheAllocator : public CacheAllocator {
+class CustomMemoryAllocator : public MemoryAllocator {
  public:
-  const char* Name() const override { return "CustomCacheAllocator"; }
+  const char* Name() const override { return "CustomMemoryAllocator"; }
 
   void* Allocate(size_t size) override {
     ++numAllocations;
     auto ptr = new char[size + 16];
-    memcpy(ptr, "cache_allocator_", 16);  // mangle first 16 bytes
+    memcpy(ptr, "memory_allocator_", 16);  // mangle first 16 bytes
     return reinterpret_cast<void*>(ptr + 16);
   }
   void Deallocate(void* p) override {
@@ -2498,26 +2498,26 @@ class CustomCacheAllocator : public CacheAllocator {
   static std::atomic<int> numDeallocations;
 };
 
-std::atomic<int> CustomCacheAllocator::numAllocations{0};
-std::atomic<int> CustomCacheAllocator::numDeallocations{0};
+std::atomic<int> CustomMemoryAllocator::numAllocations{0};
+std::atomic<int> CustomMemoryAllocator::numDeallocations{0};
 
-class CustomCacheAllocatorFactory : public CacheAllocatorFactory {
+class CustomMemoryAllocatorFactory : public MemoryAllocatorFactory {
  public:
-  const char* Name() const override { return "CustomCacheAllocatorFactory"; }
+  const char* Name() const override { return "CustomMemoryAllocatorFactory"; }
 
-  Status NewCacheAllocator(
-      std::unique_ptr<CacheAllocator>* cache_allocator) override {
-    assert(cache_allocator != nullptr);
-    cache_allocator->reset(new CustomCacheAllocator());
+  Status NewMemoryAllocator(
+      std::unique_ptr<MemoryAllocator>* memory_allocator) override {
+    assert(memory_allocator != nullptr);
+    memory_allocator->reset(new CustomMemoryAllocator());
     return Status::OK();
   }
 };
 
 }  // namespace
 
-TEST_P(BlockBasedTableTest, CacheAllocator) {
-  auto custom_cache_allocator_factory =
-      std::make_shared<CustomCacheAllocatorFactory>();
+TEST_P(BlockBasedTableTest, MemoryAllocator) {
+  auto custom_memory_allocator_factory =
+      std::make_shared<CustomMemoryAllocatorFactory>();
   {
     Options opt;
     unique_ptr<InternalKeyComparator> ikc;
@@ -2526,7 +2526,7 @@ TEST_P(BlockBasedTableTest, CacheAllocator) {
     BlockBasedTableOptions table_options;
     table_options.block_size = 1024;
     LRUCacheOptions lruOptions;
-    lruOptions.cache_allocator_factory = custom_cache_allocator_factory;
+    lruOptions.memory_allocator_factory = custom_memory_allocator_factory;
     lruOptions.capacity = 16 * 1024 * 1024;
     lruOptions.num_shard_bits = 4;
     table_options.block_cache = NewLRUCache(std::move(lruOptions));
@@ -2560,10 +2560,10 @@ TEST_P(BlockBasedTableTest, CacheAllocator) {
 
   // out of scope, block cache should have been deleted, all allocations
   // deallocated
-  EXPECT_EQ(CustomCacheAllocator::numAllocations.load(),
-            CustomCacheAllocator::numDeallocations.load());
+  EXPECT_EQ(CustomMemoryAllocator::numAllocations.load(),
+            CustomMemoryAllocator::numDeallocations.load());
   // make sure that allocations actually happened through the cache allocator
-  EXPECT_GT(CustomCacheAllocator::numAllocations.load(), 0);
+  EXPECT_GT(CustomMemoryAllocator::numAllocations.load(), 0);
 }
 
 TEST_P(BlockBasedTableTest, NewIndexIteratorLeak) {

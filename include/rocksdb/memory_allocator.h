@@ -11,15 +11,15 @@
 
 namespace rocksdb {
 
-// CacheAllocator is an interface that a client can implement to supply custom
-// cache allocation and deallocation methods. See rocksdb/cache.h for more
+// MemoryAllocator is an interface that a client can implement to supply custom
+// memory allocation and deallocation methods. See rocksdb/cache.h for more
 // information.
 // All methods should be thread-safe.
-class CacheAllocator {
+class MemoryAllocator {
  public:
-  virtual ~CacheAllocator() = default;
+  virtual ~MemoryAllocator() = default;
 
-  // Name of the cache allocator, printed in the log
+  // Name of the memory allocator, printed in the log.
   virtual const char* Name() const = 0;
 
   // Allocate a block of at least size. Has to be thread-safe.
@@ -36,16 +36,16 @@ class CacheAllocator {
   }
 };
 
-// Factory interface to obtain CacheAllocator instances.
-class CacheAllocatorFactory {
+// Factory interface to obtain MemoryAllocator instances.
+class MemoryAllocatorFactory {
  public:
-  virtual ~CacheAllocatorFactory() = default;
+  virtual ~MemoryAllocatorFactory() = default;
 
-  // Name of the cache allocator factory. Printed in the log.
+  // Name of the memory allocator factory. Printed in the log.
   virtual const char* Name() const = 0;
 
-  virtual Status NewCacheAllocator(
-      std::unique_ptr<CacheAllocator>* cache_allocator) = 0;
+  virtual Status NewMemoryAllocator(
+      std::unique_ptr<MemoryAllocator>* memory_allocator) = 0;
 };
 
 }  // namespace rocksdb

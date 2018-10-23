@@ -5,14 +5,14 @@
 
 #pragma once
 
-#include "rocksdb/cache_allocator.h"
+#include "rocksdb/memory_allocator.h"
 
 #include <memory>
 
 namespace rocksdb {
 
 struct CustomDeleter {
-  CustomDeleter(CacheAllocator* a = nullptr) : allocator(a) {}
+  CustomDeleter(MemoryAllocator* a = nullptr) : allocator(a) {}
 
   void operator()(char* ptr) const {
     if (allocator) {
@@ -22,13 +22,13 @@ struct CustomDeleter {
     }
   }
 
-  CacheAllocator* allocator;
+  MemoryAllocator* allocator;
 };
 
 using CacheAllocationPtr = std::unique_ptr<char[], CustomDeleter>;
 
 inline CacheAllocationPtr AllocateBlock(size_t size,
-                                        CacheAllocator* allocator) {
+                                        MemoryAllocator* allocator) {
   if (allocator) {
     auto block = reinterpret_cast<char*>(allocator->Allocate(size));
     return CacheAllocationPtr(block, allocator);

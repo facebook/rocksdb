@@ -21,11 +21,11 @@ namespace rocksdb {
 
 ShardedCache::ShardedCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-    std::shared_ptr<CacheAllocatorFactory> cache_allocator_factory,
-    std::unique_ptr<CacheAllocator> cache_allocator)
+    std::shared_ptr<MemoryAllocatorFactory> memory_allocator_factory,
+    std::unique_ptr<MemoryAllocator> memory_allocator)
     : num_shard_bits_(num_shard_bits),
-      cache_allocator_factory_(std::move(cache_allocator_factory)),
-      cache_allocator_(std::move(cache_allocator)),
+      memory_allocator_factory_(std::move(memory_allocator_factory)),
+      memory_allocator_(std::move(memory_allocator)),
       capacity_(capacity),
       strict_capacity_limit_(strict_capacity_limit),
       last_id_(1) {}
@@ -147,21 +147,21 @@ std::string ShardedCache::GetPrintableOptions() const {
     ret.append(buffer);
   }
   snprintf(
-      buffer, kBufferSize, "    cache_allocator_factory : %s\n",
-      cache_allocator_factory_ ? cache_allocator_factory_->Name() : "None");
+      buffer, kBufferSize, "    memory_allocator_factory : %s\n",
+      memory_allocator_factory_ ? memory_allocator_factory_->Name() : "None");
   ret.append(buffer);
   ret.append(GetShard(0)->GetPrintableOptions());
   return ret;
 }
 
-Status ShardedCache::InitCacheAllocator(
-    CacheAllocatorFactory* cache_allocator_factory,
-    std::unique_ptr<CacheAllocator>* cache_allocator) {
-  assert(cache_allocator != nullptr && *cache_allocator == nullptr);
-  if (cache_allocator_factory == nullptr) {
+Status ShardedCache::InitMemoryAllocator(
+    MemoryAllocatorFactory* memory_allocator_factory,
+    std::unique_ptr<MemoryAllocator>* memory_allocator) {
+  assert(memory_allocator != nullptr && *memory_allocator == nullptr);
+  if (memory_allocator_factory == nullptr) {
     return Status::OK();
   }
-  return cache_allocator_factory->NewCacheAllocator(cache_allocator);
+  return memory_allocator_factory->NewMemoryAllocator(memory_allocator);
 }
 
 int GetDefaultCacheShardBits(size_t capacity) {

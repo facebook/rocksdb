@@ -25,7 +25,7 @@
 #include <stdint.h>
 #include <memory>
 #include <string>
-#include "rocksdb/cache_allocator.h"
+#include "rocksdb/memory_allocator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
@@ -60,19 +60,20 @@ struct LRUCacheOptions {
   double high_pri_pool_ratio = 0.0;
 
   // If non-nullptr will use allocator generate from the factory class
-  // instead of system allocator, when allocating memory for cache blocks.
-  std::shared_ptr<CacheAllocatorFactory> cache_allocator_factory;
+  // instead of system allocator (i.e. `malloc`), when allocating memory for
+  // cache blocks.
+  std::shared_ptr<MemoryAllocatorFactory> memory_allocator_factory;
 
   LRUCacheOptions() {}
-  LRUCacheOptions(
-      size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
-      double _high_pri_pool_ratio,
-      std::shared_ptr<CacheAllocatorFactory> _cache_allocator_factory = nullptr)
+  LRUCacheOptions(size_t _capacity, int _num_shard_bits,
+                  bool _strict_capacity_limit, double _high_pri_pool_ratio,
+                  std::shared_ptr<MemoryAllocatorFactory>
+                      _memory_allocator_factory = nullptr)
       : capacity(_capacity),
         num_shard_bits(_num_shard_bits),
         strict_capacity_limit(_strict_capacity_limit),
         high_pri_pool_ratio(_high_pri_pool_ratio),
-        cache_allocator_factory(std::move(_cache_allocator_factory)) {}
+        memory_allocator_factory(std::move(_memory_allocator_factory)) {}
 };
 
 // Create a new cache with a fixed size capacity. The cache is sharded
@@ -86,7 +87,7 @@ struct LRUCacheOptions {
 extern std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits = -1,
     bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.0,
-    std::shared_ptr<CacheAllocatorFactory> cache_allocator_factory = nullptr);
+    std::shared_ptr<MemoryAllocatorFactory> memory_allocator_factory = nullptr);
 
 extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
 
@@ -231,7 +232,14 @@ class Cache {
 
   virtual std::string GetPrintableOptions() const { return ""; }
 
-  virtual CacheAllocator* GetCacheAllocator() const { return nullptr; }
+  // Obtain memery allocator for a cache key. Cache implementations
+  // (e.g. LRUCache) can use the key to shard memeory allocator internally.
+  //
+  // Return nullptr if memory allocator is not used. Caller should fallback to
+  // system allocator (i.e. `malloc`) for memory allocation.
+  virtual MemoryAllocator* GetMemoryAllocator(const Slice& /*key*/) const {
+    return nullptr;
+  }
 
   // Mark the last inserted object as being a raw data block. This will be used
   // in tests. The default implementation does nothing.

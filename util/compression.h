@@ -13,7 +13,7 @@
 #include <limits>
 #include <string>
 
-#include "cache/cache_allocator.h"
+#include "cache/memory_allocator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "util/coding.h"
@@ -500,7 +500,7 @@ inline bool Zlib_Compress(const CompressionContext& ctx,
 inline CacheAllocationPtr Zlib_Uncompress(
     const UncompressionContext& ctx, const char* input_data,
     size_t input_length, int* decompress_size, uint32_t compress_format_version,
-    CacheAllocator* allocator = nullptr, int windowBits = -14) {
+    MemoryAllocator* allocator = nullptr, int windowBits = -14) {
 #ifdef ZLIB
   uint32_t output_len = 0;
   if (compress_format_version == 2) {
@@ -662,7 +662,7 @@ inline bool BZip2_Compress(const CompressionContext& /*ctx*/,
 // header in varint32 format
 inline CacheAllocationPtr BZip2_Uncompress(
     const char* input_data, size_t input_length, int* decompress_size,
-    uint32_t compress_format_version, CacheAllocator* allocator = nullptr) {
+    uint32_t compress_format_version, MemoryAllocator* allocator = nullptr) {
 #ifdef BZIP2
   uint32_t output_len = 0;
   if (compress_format_version == 2) {
@@ -818,7 +818,7 @@ inline CacheAllocationPtr LZ4_Uncompress(const UncompressionContext& ctx,
                                          size_t input_length,
                                          int* decompress_size,
                                          uint32_t compress_format_version,
-                                         CacheAllocator* allocator = nullptr) {
+                                         MemoryAllocator* allocator = nullptr) {
 #ifdef LZ4
   uint32_t output_len = 0;
   if (compress_format_version == 2) {
@@ -1029,11 +1029,10 @@ inline bool ZSTD_Compress(const CompressionContext& ctx, const char* input,
 
 // @param compression_dict Data for presetting the compression library's
 //    dictionary.
-inline CacheAllocationPtr ZSTD_Uncompress(const UncompressionContext& ctx,
-                                          const char* input_data,
-                                          size_t input_length,
-                                          int* decompress_size,
-                                          CacheAllocator* allocator = nullptr) {
+inline CacheAllocationPtr ZSTD_Uncompress(
+    const UncompressionContext& ctx, const char* input_data,
+    size_t input_length, int* decompress_size,
+    MemoryAllocator* allocator = nullptr) {
 #ifdef ZSTD
   uint32_t output_len = 0;
   if (!compression::GetDecompressedSizeInfo(&input_data, &input_length,

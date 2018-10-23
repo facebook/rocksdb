@@ -12,7 +12,7 @@
 #include <string>
 #include <inttypes.h>
 
-#include "cache/cache_allocator.h"
+#include "cache/memory_allocator.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/env.h"
