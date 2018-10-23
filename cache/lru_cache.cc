@@ -462,10 +462,9 @@ std::string LRUCacheShard::GetPrintableOptions() const {
 
 LRUCache::LRUCache(size_t capacity, int num_shard_bits,
                    bool strict_capacity_limit, double high_pri_pool_ratio,
-                   std::shared_ptr<MemoryAllocatorFactory> allocator_factory,
                    std::unique_ptr<MemoryAllocator> memory_allocator)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit,
-                   std::move(allocator_factory), std::move(memory_allocator)) {
+                   std::move(memory_allocator)) {
   num_shards_ = 1 << num_shard_bits;
   shards_ = reinterpret_cast<LRUCacheShard*>(
       port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards_));
@@ -565,9 +564,9 @@ std::shared_ptr<Cache> NewLRUCache(
             s.ToString().c_str());
     return nullptr;
   }
-  return std::make_shared<LRUCache>(
-      capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
-      std::move(memory_allocator_factory), std::move(memory_allocator));
+  return std::make_shared<LRUCache>(capacity, num_shard_bits,
+                                    strict_capacity_limit, high_pri_pool_ratio,
+                                    std::move(memory_allocator));
 }
 
 }  // namespace rocksdb

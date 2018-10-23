@@ -48,8 +48,6 @@ class CacheShard {
 class ShardedCache : public Cache {
  public:
   ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-               std::shared_ptr<MemoryAllocatorFactory>
-                   memory_allocator_factory = nullptr,
                std::unique_ptr<MemoryAllocator> memory_allocator = nullptr);
   virtual ~ShardedCache() = default;
   virtual const char* Name() const override = 0;
@@ -106,8 +104,6 @@ class ShardedCache : public Cache {
   }
 
   const int num_shard_bits_;
-  // Hold a reference to the original MemoryAllocatorFactory.
-  const std::shared_ptr<MemoryAllocatorFactory> memory_allocator_factory_;
   const std::unique_ptr<MemoryAllocator> memory_allocator_;
 
   mutable port::Mutex capacity_mutex_;
