@@ -374,6 +374,19 @@ TEST_F(BlobDBTest, GetIOError) {
   fault_injection_env_->SetFilesystemActive(true);
 }
 
+TEST_F(BlobDBTest, PutIOError) {
+  Options options;
+  options.env = fault_injection_env_.get();
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;  // Make sure value write to blob file
+  bdb_options.disable_background_tasks = true;
+  Open(bdb_options, options);
+  fault_injection_env_->SetFilesystemActive(false, Status::IOError());
+  ASSERT_TRUE(Put("foo", "v1").IsIOError());
+  fault_injection_env_->SetFilesystemActive(true, Status::IOError());
+  ASSERT_OK(Put("bar", "v1"));
+}
+
 TEST_F(BlobDBTest, WriteBatch) {
   Random rnd(301);
   BlobDBOptions bdb_options;
