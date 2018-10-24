@@ -677,7 +677,7 @@ public class DBOptions
   }
 
   @Override
-  public WriteBufferManager getWriteBufferManager() {
+  public WriteBufferManager writeBufferManager() {
     assert(isOwningHandle());
     return this.writeBufferManager_;
   }

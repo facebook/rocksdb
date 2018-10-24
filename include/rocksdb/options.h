@@ -180,7 +180,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Also, a larger write buffer will result in a longer recovery time
   // the next time the database is opened.
   //
-  // Note that write_buffer_size is enforced per column family.
+  // Note that block_cache_data_addwrite_buffer_size is enforced per column family.
   // See db_write_buffer_size for sharing memory across column families.
   //
   // Default: 64MB

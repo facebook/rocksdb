@@ -1011,7 +1011,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    *
    * @return a reference to WriteBufferManager
    */
-  WriteBufferManager getWriteBufferManager();
+  WriteBufferManager writeBufferManager();
 
   /**
    * Amount of data to build up in memtables across all column
