@@ -334,7 +334,15 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
 }
 
 Status WriteCommittedTxn::CommitBatchInternal(WriteBatch* batch, size_t) {
-  Status s = db_->Write(write_options_, batch);
+  uint64_t seq_used = kMaxSequenceNumber;
+  auto s = db_impl_->WriteImpl(write_options_, batch, /*callback*/nullptr,
+                               /*log_used*/ nullptr, /*log ref*/ 0,
+                               /*disable_memtable*/ false, &seq_used);
+  
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
+  if (s.ok()) {
+    SetId(seq_used);
+  }
   return s;
 }
 
@@ -358,7 +366,8 @@ Status WriteCommittedTxn::CommitInternal() {
                                /*disable_memtable*/ false, &seq_used);
   
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
-  if (s.ok()) {
+  // Only call SetId if it hasn't been set yet.
+  if (s.ok() && GetId() == 0) {
     SetId(seq_used);
   }
   return s;
