@@ -9,6 +9,8 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <dlfcn.h>
+
 #if defined(OS_LINUX)
 #include <linux/fs.h>
 #endif
@@ -96,6 +98,28 @@ static int LockOrUnlock(int fd, bool lock) {
 
   return value;
 }
+
+class PosixDynamicLibrary : public DynamicLibrary {
+public:
+  PosixDynamicLibrary(const std::string & name, void *handle)
+    :  name_(name), handle_(handle) {
+    }
+  ~PosixDynamicLibrary() {
+      dlclose(handle_);
+  }
+  
+  virtual FunctionPtr LoadSymbol(const std::string & sym_name) override {
+    void *symbol = dlsym(handle_, sym_name.c_str());
+    return (FunctionPtr) symbol;
+  }
+  
+  virtual const char *Name() const override {
+    return name_.c_str();
+  }
+private:
+  std::string name_;
+    void *handle_;
+};
 
 class PosixFileLock : public FileLock {
  public:
