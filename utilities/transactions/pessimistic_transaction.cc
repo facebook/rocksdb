@@ -323,9 +323,10 @@ Status PessimisticTransaction::Commit() {
 
 Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
   uint64_t seq_used = kMaxSequenceNumber;
-  auto s = db_impl_->WriteImpl(write_options_, GetWriteBatch()->GetWriteBatch(),
-                               /*callback*/ nullptr, /*log_used*/ nullptr,
-                               /*log_ref*/ 0, /*disable_memtable*/ false, &seq_used);
+  auto s =
+      db_impl_->WriteImpl(write_options_, GetWriteBatch()->GetWriteBatch(),
+                          /*callback*/ nullptr, /*log_used*/ nullptr,
+                          /*log_ref*/ 0, /*disable_memtable*/ false, &seq_used);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
     SetId(seq_used);
@@ -338,7 +339,6 @@ Status WriteCommittedTxn::CommitBatchInternal(WriteBatch* batch, size_t) {
   auto s = db_impl_->WriteImpl(write_options_, batch, /*callback*/ nullptr,
                                /*log_used*/ nullptr, /*log_ref*/ 0,
                                /*disable_memtable*/ false, &seq_used);
-  
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
     SetId(seq_used);
@@ -361,10 +361,10 @@ Status WriteCommittedTxn::CommitInternal() {
   WriteBatchInternal::Append(working_batch, GetWriteBatch()->GetWriteBatch());
 
   uint64_t seq_used = kMaxSequenceNumber;
-  auto s = db_impl_->WriteImpl(write_options_, working_batch, /*callback*/ nullptr,
-                               /*log_used*/ nullptr, /*log_ref*/ log_number_,
-                               /*disable_memtable*/ false, &seq_used);
-  
+  auto s =
+      db_impl_->WriteImpl(write_options_, working_batch, /*callback*/ nullptr,
+                          /*log_used*/ nullptr, /*log_ref*/ log_number_,
+                          /*disable_memtable*/ false, &seq_used);  
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
     SetId(seq_used);
