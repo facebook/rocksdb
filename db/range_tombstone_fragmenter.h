@@ -52,7 +52,7 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
 
  private:
   struct FragmentedRangeTombstoneComparator {
-    FragmentedRangeTombstoneComparator(const Comparator* c) : cmp(c) {}
+    explicit FragmentedRangeTombstoneComparator(const Comparator* c) : cmp(c) {}
 
     bool operator()(const RangeTombstone& a, const RangeTombstone& b) const {
       int user_key_cmp = cmp->Compare(a.start_key_, b.start_key_);

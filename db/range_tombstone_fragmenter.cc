@@ -20,7 +20,8 @@ namespace rocksdb {
 namespace {
 
 struct ParsedInternalKeyComparator {
-  ParsedInternalKeyComparator(const InternalKeyComparator* c) : cmp(c) {}
+  explicit ParsedInternalKeyComparator(const InternalKeyComparator* c)
+      : cmp(c) {}
 
   bool operator()(const ParsedInternalKey& a,
                   const ParsedInternalKey& b) const {
