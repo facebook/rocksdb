@@ -1005,6 +1005,15 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   T setWriteBufferManager(final WriteBufferManager writeBufferManager);
 
   /**
+   * Reference to {@link WriteBufferManager} used by it. <br>
+   *
+   * Default: null (Disabled)
+   *
+   * @return a reference to WriteBufferManager
+   */
+  WriteBufferManager writeBufferManager();
+
+  /**
    * Amount of data to build up in memtables across all column
    * families before writing to disk.
    *
