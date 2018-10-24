@@ -9,6 +9,8 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <dlfcn.h>
+
 #if defined(OS_LINUX)
 #include <linux/fs.h>
 #endif
@@ -96,6 +98,28 @@ static int LockOrUnlock(int fd, bool lock) {
 
   return value;
 }
+
+class PosixDynamicLibrary : public DynamicLibrary {
+public:
+  PosixDynamicLibrary(const std::string & name, void *handle)
+    :  name_(name), handle_(handle) {
+    }
+  ~PosixDynamicLibrary() {
+      dlclose(handle_);
+  }
+  
+  virtual FunctionPtr LoadSymbol(const std::string & sym_name) override {
+    void *symbol = dlsym(handle_, sym_name.c_str());
+    return (FunctionPtr) symbol;
+  }
+  
+  virtual const char *Name() const override {
+    return name_.c_str();
+  }
+private:
+  std::string name_;
+    void *handle_;
+};
 
 class PosixFileLock : public FileLock {
  public:
@@ -495,6 +519,21 @@ class PosixEnv : public Env {
     }
     return status;
   }
+
+    virtual Status LoadLibrary(
+            const std::string& libName,
+            unique_ptr<DynamicLibrary>* result) override {
+      Status status;
+      void *hndl = dlopen(libName.empty() ? NULL : libName.c_str(), RTLD_NOW);
+      if(hndl == NULL){
+          status = Status::IOError(IOErrorMsg("Failed to open shared library", libName),
+                                   dlerror());
+
+      } else {
+	result->reset(new PosixDynamicLibrary(libName, hndl));
+      }
+      return status;
+    }
 
   virtual Status NewDirectory(const std::string& name,
                               unique_ptr<Directory>* result) override {
