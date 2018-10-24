@@ -146,7 +146,9 @@ Status PessimisticTransactionDB::Initialize(
     assert(real_trx);
     real_trx->SetLogNumber(batch_info.log_number_);
     assert(seq != kMaxSequenceNumber);
-    real_trx->SetId(seq);
+    if (GetTxnDBOptions().write_policy != WRITE_COMMITTED) {
+      real_trx->SetId(seq);
+    }
 
     s = real_trx->SetName(recovered_trx->name_);
     if (!s.ok()) {
