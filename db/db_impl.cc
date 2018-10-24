@@ -1240,7 +1240,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
 
   // Prepare to store a list of merge operations if merge occurs.
   MergeContext merge_context;
-  RangeDelAggregator range_del_agg(cfd->internal_comparator(), snapshot);
+  SequenceNumber max_covering_tombstone_seq = 0;
 
   Status s;
   // First look in the memtable, then in the immutable memtable (if any).
@@ -1254,13 +1254,14 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   bool done = false;
   if (!skip_memtable) {
     if (sv->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
-                     &range_del_agg, read_options, callback, is_blob_index)) {
+                     &max_covering_tombstone_seq, read_options, callback,
+                     is_blob_index)) {
       done = true;
       pinnable_val->PinSelf();
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
                sv->imm->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
-                            &range_del_agg, read_options, callback,
+                            &max_covering_tombstone_seq, read_options, callback,
                             is_blob_index)) {
       done = true;
       pinnable_val->PinSelf();
@@ -1274,8 +1275,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(read_options, lkey, pinnable_val, &s, &merge_context,
-                     &range_del_agg, value_found, nullptr, nullptr, callback,
-                     is_blob_index);
+                     &max_covering_tombstone_seq, value_found, nullptr, nullptr,
+                     callback, is_blob_index);
     RecordTick(stats_, MEMTABLE_MISS);
   }
 
@@ -1357,8 +1358,7 @@ std::vector<Status> DBImpl::MultiGet(
 
     LookupKey lkey(keys[i], snapshot);
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family[i]);
-    RangeDelAggregator range_del_agg(cfh->cfd()->internal_comparator(),
-                                     snapshot);
+    SequenceNumber max_covering_tombstone_seq = 0;
     auto mgd_iter = multiget_cf_data.find(cfh->cfd()->GetID());
     assert(mgd_iter != multiget_cf_data.end());
     auto mgd = mgd_iter->second;
@@ -1369,11 +1369,12 @@ std::vector<Status> DBImpl::MultiGet(
     bool done = false;
     if (!skip_memtable) {
       if (super_version->mem->Get(lkey, value, &s, &merge_context,
-                                  &range_del_agg, read_options)) {
+                                  &max_covering_tombstone_seq, read_options)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       } else if (super_version->imm->Get(lkey, value, &s, &merge_context,
-                                         &range_del_agg, read_options)) {
+                                         &max_covering_tombstone_seq,
+                                         read_options)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       }
@@ -1382,7 +1383,7 @@ std::vector<Status> DBImpl::MultiGet(
       PinnableSlice pinnable_val;
       PERF_TIMER_GUARD(get_from_output_files_time);
       super_version->current->Get(read_options, lkey, &pinnable_val, &s,
-                                  &merge_context, &range_del_agg);
+                                  &merge_context, &max_covering_tombstone_seq);
       value->assign(pinnable_val.data(), pinnable_val.size());
       RecordTick(stats_, MEMTABLE_MISS);
     }
@@ -2913,8 +2914,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
                                        bool* is_blob_index) {
   Status s;
   MergeContext merge_context;
-  RangeDelAggregator range_del_agg(sv->mem->GetInternalKeyComparator(),
-                                   kMaxSequenceNumber);
+  SequenceNumber max_covering_tombstone_seq = 0;
 
   ReadOptions read_options;
   SequenceNumber current_seq = versions_->LastSequence();
@@ -2924,8 +2924,8 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   *found_record_for_key = false;
 
   // Check if there is a record for this key in the latest memtable
-  sv->mem->Get(lkey, nullptr, &s, &merge_context, &range_del_agg, seq,
-               read_options, nullptr /*read_callback*/, is_blob_index);
+  sv->mem->Get(lkey, nullptr, &s, &merge_context, &max_covering_tombstone_seq,
+               seq, read_options, nullptr /*read_callback*/, is_blob_index);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -2943,8 +2943,8 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->Get(lkey, nullptr, &s, &merge_context, &range_del_agg, seq,
-               read_options, nullptr /*read_callback*/, is_blob_index);
+  sv->imm->Get(lkey, nullptr, &s, &merge_context, &max_covering_tombstone_seq,
+               seq, read_options, nullptr /*read_callback*/, is_blob_index);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -2962,8 +2962,9 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->GetFromHistory(lkey, nullptr, &s, &merge_context, &range_del_agg,
-                          seq, read_options, is_blob_index);
+  sv->imm->GetFromHistory(lkey, nullptr, &s, &merge_context,
+                          &max_covering_tombstone_seq, seq, read_options,
+                          is_blob_index);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -2986,7 +2987,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   if (!cache_only) {
     // Check tables
     sv->current->Get(read_options, lkey, nullptr, &s, &merge_context,
-                     &range_del_agg, nullptr /* value_found */,
+                     &max_covering_tombstone_seq, nullptr /* value_found */,
                      found_record_for_key, seq, nullptr /*read_callback*/,
                      is_blob_index);
 

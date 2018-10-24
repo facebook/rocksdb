@@ -10,6 +10,7 @@
 #include "db/table_cache.h"
 
 #include "db/dbformat.h"
+#include "db/range_tombstone_fragmenter.h"
 #include "db/version_edit.h"
 #include "util/filename.h"
 
@@ -372,19 +373,19 @@ Status TableCache::Get(const ReadOptions& options,
         t = GetTableReaderFromHandle(handle);
       }
     }
-    if (s.ok() && get_context->range_del_agg() != nullptr &&
+    SequenceNumber* max_covering_tombstone_seq =
+        get_context->max_covering_tombstone_seq();
+    if (s.ok() && max_covering_tombstone_seq != nullptr &&
         !options.ignore_range_deletions) {
       std::unique_ptr<InternalIterator> range_del_iter(
           t->NewRangeTombstoneIterator(options));
-      if (range_del_iter != nullptr) {
-        s = range_del_iter->status();
-      }
-      if (s.ok()) {
-        s = get_context->range_del_agg()->AddTombstones(
-            std::move(range_del_iter),
-            &file_meta.smallest,
-            &file_meta.largest);
-      }
+      FragmentedRangeTombstoneIterator fragment_iter(std::move(range_del_iter),
+                                                     internal_comparator,
+                                                     GetInternalKeySeqno(k));
+      *max_covering_tombstone_seq = std::max(
+          *max_covering_tombstone_seq,
+          MaxCoveringTombstoneSeqnum(&fragment_iter, k,
+                                     internal_comparator.user_comparator()));
     }
     if (s.ok()) {
       get_context->SetReplayLog(row_cache_entry);  // nullptr if no cache.

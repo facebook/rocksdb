@@ -43,7 +43,7 @@ GetContext::GetContext(const Comparator* ucmp,
                        Statistics* statistics, GetState init_state,
                        const Slice& user_key, PinnableSlice* pinnable_val,
                        bool* value_found, MergeContext* merge_context,
-                       RangeDelAggregator* _range_del_agg, Env* env,
+                       SequenceNumber* _max_covering_tombstone_seq, Env* env,
                        SequenceNumber* seq,
                        PinnedIteratorsManager* _pinned_iters_mgr,
                        ReadCallback* callback, bool* is_blob_index)
@@ -56,7 +56,7 @@ GetContext::GetContext(const Comparator* ucmp,
       pinnable_val_(pinnable_val),
       value_found_(value_found),
       merge_context_(merge_context),
-      range_del_agg_(_range_del_agg),
+      max_covering_tombstone_seq_(_max_covering_tombstone_seq),
       env_(env),
       seq_(seq),
       replay_log_(nullptr),
@@ -185,7 +185,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
     auto type = parsed_key.type;
     // Key matches. Process it
     if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
-        range_del_agg_ != nullptr && range_del_agg_->ShouldDelete(parsed_key)) {
+        max_covering_tombstone_seq_ != nullptr &&
+        *max_covering_tombstone_seq_ > parsed_key.sequence) {
       type = kTypeRangeDeletion;
     }
     switch (type) {
