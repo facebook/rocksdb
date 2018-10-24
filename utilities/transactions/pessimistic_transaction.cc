@@ -232,7 +232,7 @@ Status WriteCommittedTxn::PrepareInternal() {
   WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_);
   Status s =
       db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                          /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
+                          /*callback*/ nullptr, &log_number_, /*log_ref*/ 0,
                           /* disable_memtable*/ true);
   return s;
 }
@@ -325,7 +325,7 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
   uint64_t seq_used = kMaxSequenceNumber;
   auto s = db_impl_->WriteImpl(write_options_, GetWriteBatch()->GetWriteBatch(),
                                /*callback*/ nullptr, /*log_used*/ nullptr,
-                               /*log ref*/ 0, /*disable_memtable*/ false, &seq_used);
+                               /*log_ref*/ 0, /*disable_memtable*/ false, &seq_used);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
     SetId(seq_used);
@@ -335,8 +335,8 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
 
 Status WriteCommittedTxn::CommitBatchInternal(WriteBatch* batch, size_t) {
   uint64_t seq_used = kMaxSequenceNumber;
-  auto s = db_impl_->WriteImpl(write_options_, batch, /*callback*/nullptr,
-                               /*log_used*/ nullptr, /*log ref*/ 0,
+  auto s = db_impl_->WriteImpl(write_options_, batch, /*callback*/ nullptr,
+                               /*log_used*/ nullptr, /*log_ref*/ 0,
                                /*disable_memtable*/ false, &seq_used);
   
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
@@ -361,13 +361,12 @@ Status WriteCommittedTxn::CommitInternal() {
   WriteBatchInternal::Append(working_batch, GetWriteBatch()->GetWriteBatch());
 
   uint64_t seq_used = kMaxSequenceNumber;
-  auto s = db_impl_->WriteImpl(write_options_, working_batch, /*callback*/nullptr,
-                               /*log_used*/ nullptr, /*log ref*/ log_number_,
+  auto s = db_impl_->WriteImpl(write_options_, working_batch, /*callback*/ nullptr,
+                               /*log_used*/ nullptr, /*log_ref*/ log_number_,
                                /*disable_memtable*/ false, &seq_used);
   
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
-  // Only call SetId if it hasn't been set yet.
-  if (s.ok() && GetId() == 0) {
+  if (s.ok()) {
     SetId(seq_used);
   }
   return s;
