@@ -78,6 +78,9 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
     parsed->type = kTypeRangeDeletion;
   }
 
+  // Given an ordered range tombstone iterator unfragmented_tombstones,
+  // "fragment" the tombstones into non-overlapping pieces, and store them in
+  // tombstones_.
   void FragmentTombstones(
       std::unique_ptr<InternalIterator> unfragmented_tombstones,
       SequenceNumber snapshot);

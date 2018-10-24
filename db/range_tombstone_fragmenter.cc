@@ -66,6 +66,7 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
     return;
   }
 
+  // Sort the tombstones before fragmenting them.
   std::vector<std::string> keys, values;
   keys.reserve(num_tombstones);
   values.reserve(num_tombstones);
@@ -76,6 +77,7 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
     values.emplace_back(unfragmented_tombstones->value().data(),
                         unfragmented_tombstones->value().size());
   }
+  // VectorIterator implicitly sorts by key during construction.
   auto iter = std::unique_ptr<VectorIterator>(
       new VectorIterator(std::move(keys), std::move(values), icmp_));
   FragmentTombstones(std::move(iter), snapshot);
@@ -87,14 +89,15 @@ void FragmentedRangeTombstoneIterator::FragmentTombstones(
   Slice cur_start_key(nullptr, 0);
   auto cmp = ParsedInternalKeyComparator(icmp_);
 
-  // Stores the end keys and sequence numbers of range tombstones with a
-  // start key of cur_start_key. Provides an ordering by end key for use
-  // in flush_current_tombstones.
+  // Stores the end keys and sequence numbers of range tombstones with a start
+  // key less than or equal to cur_start_key. Provides an ordering by end key
+  // for use in flush_current_tombstones.
   std::set<ParsedInternalKey, ParsedInternalKeyComparator> cur_end_keys(cmp);
 
   // Given the next start key in unfragmented_tombstones,
   // flush_current_tombstones writes every tombstone fragment that starts
-  // and ends with a key before next_start_key.
+  // and ends with a key before next_start_key, and starts with a key greater
+  // than or equal to cur_start_key.
   auto flush_current_tombstones = [&](const Slice& next_start_key) {
     auto it = cur_end_keys.begin();
     bool reached_next_start_key = false;
@@ -105,10 +108,26 @@ void FragmentedRangeTombstoneIterator::FragmentTombstones(
         continue;
       }
       if (icmp_->user_comparator()->Compare(next_start_key, cur_end_key) <= 0) {
+        // All of the end keys in [it, cur_end_keys.end()) are after
+        // next_start_key, so the tombstones they represent can be used in
+        // fragments that start with keys greater than or equal to
+        // next_start_key. However, the end keys we already passed will not be
+        // used in any more tombstone fragments.
+        //
+        // Remove the fully fragmented tombstones and stop iteration after a
+        // final round of flushing to preserve the tombstones we can create more
+        // fragments from.
         reached_next_start_key = true;
         cur_end_keys.erase(cur_end_keys.begin(), it);
         cur_end_key = next_start_key;
       }
+
+      // Flush a range tombstone fragment [cur_start_key, cur_end_key), which
+      // should not overlap with the last-flushed tombstone fragment.
+      assert(tombstones_.empty() ||
+             icmp_->user_comparator()->Compare(tombstones_.back().end_key_,
+                                               cur_start_key) <= 0);
+
       SequenceNumber max_seqnum = 0;
       for (auto flush_it = it; flush_it != cur_end_keys.end(); ++flush_it) {
         max_seqnum = std::max(max_seqnum, flush_it->sequence);
@@ -121,8 +140,9 @@ void FragmentedRangeTombstoneIterator::FragmentTombstones(
     }
     if (!reached_next_start_key) {
       // There is a gap between the last flushed tombstone fragment and
-      // the next tombstone's start key. Remove the remaining end keys in
-      // the working set.
+      // the next tombstone's start key. Remove all the end keys in
+      // the working set, since we have fully fragmented their corresponding
+      // tombstones.
       cur_end_keys.clear();
     }
     cur_start_key = next_start_key;
