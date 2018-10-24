@@ -699,7 +699,6 @@ Status DBImpl::SetOptions(
   MutableCFOptions new_options;
   Status s;
   Status persist_options_status;
-  WriteThread::Writer w;
   SuperVersionContext sv_context(/* create_superversion */ true);
   {
     InstrumentedMutexLock l(&mutex_);
@@ -761,7 +760,6 @@ Status DBImpl::SetDBOptions(
   Status s;
   Status persist_options_status;
   bool wal_changed = false;
-  WriteThread::Writer w;
   WriteContext write_context;
   {
     InstrumentedMutexLock l(&mutex_);
@@ -810,6 +808,7 @@ Status DBImpl::SetDBOptions(
           env_options_for_compaction_, immutable_db_options_);
       env_options_for_compaction_.compaction_readahead_size =
           mutable_db_options_.compaction_readahead_size;
+      WriteThread::Writer w;
       write_thread_.EnterUnbatched(&w, &mutex_);
       if (total_log_size_ > GetMaxTotalWalSize() || wal_changed) {
         Status purge_wal_status = SwitchWAL(&write_context);
