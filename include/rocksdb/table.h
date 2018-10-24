@@ -23,6 +23,7 @@
 
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
+#include "rocksdb/extensions.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
@@ -429,7 +430,7 @@ extern TableFactory* NewCuckooTableFactory(
 class RandomAccessFileReader;
 
 // A base class for table factories.
-class TableFactory {
+class TableFactory : public Extension {
  public:
   virtual ~TableFactory() {}
 
