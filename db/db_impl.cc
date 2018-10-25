@@ -1378,6 +1378,7 @@ std::vector<Status> DBImpl::MultiGet(
         }
         mgd_iter->second.super_version =
           GetAndRefSuperVersion(mgd_iter->second.cfd);
+        TEST_SYNC_POINT("DBImpl::MultiGet::AfterRefSV");
         if (read_options.snapshot != nullptr || i == num_retries - 1) {
           // If user passed a snapshot, then we don't care if a memtable is
           // sealed or compaction happens because the snapshot would ensure
