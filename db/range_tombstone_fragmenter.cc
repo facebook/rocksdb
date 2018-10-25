@@ -17,22 +17,6 @@
 
 namespace rocksdb {
 
-namespace {
-
-struct ParsedInternalKeyComparator {
-  explicit ParsedInternalKeyComparator(const InternalKeyComparator* c)
-      : cmp(c) {}
-
-  bool operator()(const ParsedInternalKey& a,
-                  const ParsedInternalKey& b) const {
-    return cmp->Compare(a, b) < 0;
-  }
-
-  const InternalKeyComparator* cmp;
-};
-
-}  // anonymous namespace
-
 FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
     std::unique_ptr<InternalIterator> unfragmented_tombstones,
     const InternalKeyComparator& icmp, SequenceNumber snapshot)

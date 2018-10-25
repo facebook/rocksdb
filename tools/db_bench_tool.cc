@@ -938,6 +938,9 @@ DEFINE_uint64(max_compaction_bytes, rocksdb::Options().max_compaction_bytes,
 
 #ifndef ROCKSDB_LITE
 DEFINE_bool(readonly, false, "Run read only benchmarks.");
+
+DEFINE_bool(print_malloc_stats, false,
+            "Print malloc stats to stdout after benchmarks finish.");
 #endif  // ROCKSDB_LITE
 
 DEFINE_bool(disable_auto_compactions, false, "Do not auto trigger compactions");
@@ -1038,9 +1041,6 @@ DEFINE_bool(identity_as_first_hash, false, "the first hash function of cuckoo "
 DEFINE_bool(dump_malloc_stats, true, "Dump malloc stats in LOG ");
 DEFINE_uint64(stats_dump_period_sec, rocksdb::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
-
-DEFINE_bool(print_malloc_stats, false,
-            "Print malloc stats to stdout after benchmarks finish.");
 
 enum RepFactory {
   kSkipList,
@@ -5809,11 +5809,13 @@ int db_bench_tool(int argc, char** argv) {
   rocksdb::Benchmark benchmark;
   benchmark.Run();
 
+#ifndef ROCKSDB_LITE
   if (FLAGS_print_malloc_stats) {
     std::string stats_string;
     rocksdb::DumpMallocStats(&stats_string);
     fprintf(stdout, "Malloc stats:\n%s\n", stats_string.c_str());
   }
+#endif  // ROCKSDB_LITE
 
   return 0;
 }

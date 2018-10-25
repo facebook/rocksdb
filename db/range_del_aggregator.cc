@@ -22,18 +22,6 @@ struct TombstoneStartKeyComparator {
   const InternalKeyComparator* cmp;
 };
 
-struct ParsedInternalKeyComparator {
-  explicit ParsedInternalKeyComparator(const InternalKeyComparator* c)
-      : cmp(c) {}
-
-  bool operator()(const ParsedInternalKey& a,
-                  const ParsedInternalKey& b) const {
-    return cmp->Compare(a, b) < 0;
-  }
-
-  const InternalKeyComparator* cmp;
-};
-
 // An UncollapsedRangeDelMap is quick to create but slow to answer ShouldDelete
 // queries.
 class UncollapsedRangeDelMap : public RangeDelMap {
