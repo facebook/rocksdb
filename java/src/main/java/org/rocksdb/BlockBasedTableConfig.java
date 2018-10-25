@@ -252,7 +252,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
 
   /**
    * Indicates if index and filter blocks will be treated as high-priority in the block cache.
-   * If not specified, defaults to false.
+   * See note below about applicability. If not specified, defaults to false.
    *
    * @return if index and filter blocks will be treated as high-priority.
    */
