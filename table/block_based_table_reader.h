@@ -116,9 +116,6 @@ class BlockBasedTable : public TableReader {
   InternalIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
 
-  InternalIterator* NewUnfragmentedRangeTombstoneIterator(
-      const ReadOptions& read_options);
-
   // @param skip_filters Disables loading/accessing the filter block
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, const SliceTransform* prefix_extractor,
@@ -388,6 +385,9 @@ class BlockBasedTable : public TableReader {
 
   friend class PartitionedFilterBlockReader;
   friend class PartitionedFilterBlockTest;
+
+  InternalIterator* NewUnfragmentedRangeTombstoneIterator(
+      const ReadOptions& read_options);
 };
 
 // Maitaning state of a two-level iteration on a partitioned index structure
