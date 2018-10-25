@@ -533,17 +533,20 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     return newTableFactoryHandle(noBlockCache_, blockCacheSize_, blockCacheNumShardBits_,
         blockCacheHandle, blockSize_, blockSizeDeviation_, blockRestartInterval_,
         wholeKeyFiltering_, filterHandle, cacheIndexAndFilterBlocks_,
-        pinL0FilterAndIndexBlocksInCache_, hashIndexAllowCollision_, blockCacheCompressedSize_,
-        blockCacheCompressedNumShardBits_, checksumType_.getValue(), indexType_.getValue(),
-        formatVersion_);
+        cacheIndexAndFilterBlocksWithHighPriority_, pinL0FilterAndIndexBlocksInCache_,
+        partitionFilters_, metadataBlockSize_, pinTopLevelIndexAndFilter_,
+        hashIndexAllowCollision_, blockCacheCompressedSize_, blockCacheCompressedNumShardBits_,
+        checksumType_.getValue(), indexType_.getValue(), formatVersion_);
   }
 
   private native long newTableFactoryHandle(boolean noBlockCache, long blockCacheSize,
       int blockCacheNumShardBits, long blockCacheHandle, long blockSize, int blockSizeDeviation,
       int blockRestartInterval, boolean wholeKeyFiltering, long filterPolicyHandle,
-      boolean cacheIndexAndFilterBlocks, boolean pinL0FilterAndIndexBlocksInCache,
-      boolean hashIndexAllowCollision, long blockCacheCompressedSize,
-      int blockCacheCompressedNumShardBits, byte checkSumType, byte indexType, int formatVersion);
+      boolean cacheIndexAndFilterBlocks, boolean cacheIndexAndFilterBlocksWithHighPriority,
+      boolean pinL0FilterAndIndexBlocksInCache, boolean partitionFilters, long metadataBlockSize,
+      boolean pinTopLevelIndexAndFilter, boolean hashIndexAllowCollision,
+      long blockCacheCompressedSize, int blockCacheCompressedNumShardBits,
+      byte checkSumType, byte indexType, int formatVersion);
 
   private boolean cacheIndexAndFilterBlocks_;
   private boolean cacheIndexAndFilterBlocksWithHighPriority_;
