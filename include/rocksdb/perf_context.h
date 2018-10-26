@@ -17,6 +17,8 @@ namespace rocksdb {
 // and transparently.
 // Use SetPerfLevel(PerfLevel::kEnableTime) to enable time stats.
 
+// Break down performance counters by level and store per-level perf context in
+// PerfContextByLevel
 struct PerfContextByLevel {
   // # of times bloom filter has avoided file reads, i.e., negatives.
   uint64_t bloom_filter_useful = 0;
@@ -25,6 +27,10 @@ struct PerfContextByLevel {
   // # of times bloom FullFilter has not avoided the reads and data actually
   // exist.
   uint64_t bloom_filter_full_true_positive = 0;
+
+  uint64_t user_key_return_count;  // total number of user key returned
+
+  uint64_t get_processing_time;  // total nanos spent on Get query
 
   void Reset(); // reset all performance counters to zero
 };
