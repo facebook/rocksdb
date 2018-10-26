@@ -5,6 +5,8 @@
 
 #pragma once
 
+namespace rocksdb {
+
 // MemoryAllocator is an interface that a client can implement to supply custom
 // memory allocation and deallocation methods. See rocksdb/cache.h for more
 // information.
@@ -27,3 +29,5 @@ class MemoryAllocator {
     return allocation_size;
   }
 };
+
+}  // namespace rocksdb
