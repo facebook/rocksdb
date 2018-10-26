@@ -21,7 +21,7 @@ namespace rocksdb {
 
 ShardedCache::ShardedCache(size_t capacity, int num_shard_bits,
                            bool strict_capacity_limit,
-                           std::shared_ptr<CacheAllocator> allocator)
+                           std::shared_ptr<MemoryAllocator> allocator)
     : Cache(std::move(allocator)),
       num_shard_bits_(num_shard_bits),
       capacity_(capacity),
@@ -144,8 +144,8 @@ std::string ShardedCache::GetPrintableOptions() const {
              strict_capacity_limit_);
     ret.append(buffer);
   }
-  snprintf(buffer, kBufferSize, "    cache_allocator : %s\n",
-           cache_allocator() ? cache_allocator()->Name() : "None");
+  snprintf(buffer, kBufferSize, "    memory_allocator : %s\n",
+           memory_allocator() ? memory_allocator()->Name() : "None");
   ret.append(buffer);
   ret.append(GetShard(0)->GetPrintableOptions());
   return ret;

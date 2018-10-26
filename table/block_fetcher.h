@@ -11,7 +11,7 @@
 #include "table/block.h"
 #include "table/format.h"
 
-#include "util/cache_allocator.h"
+#include "util/memory_allocator.h"
 
 namespace rocksdb {
 class BlockFetcher {
@@ -28,7 +28,7 @@ class BlockFetcher {
                BlockContents* contents, const ImmutableCFOptions& ioptions,
                bool do_uncompress, const Slice& compression_dict,
                const PersistentCacheOptions& cache_options,
-               CacheAllocator* allocator = nullptr,
+               MemoryAllocator* allocator = nullptr,
                const bool immortal_source = false)
       : file_(file),
         prefetch_buffer_(prefetch_buffer),
@@ -58,7 +58,7 @@ class BlockFetcher {
   const bool immortal_source_;
   const Slice& compression_dict_;
   const PersistentCacheOptions& cache_options_;
-  CacheAllocator* allocator_;
+  MemoryAllocator* allocator_;
   Status status_;
   Slice slice_;
   char* used_buf_ = nullptr;

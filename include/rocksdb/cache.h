@@ -25,7 +25,7 @@
 #include <stdint.h>
 #include <memory>
 #include <string>
-#include "rocksdb/cache_allocator.h"
+#include "rocksdb/memory_allocator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
@@ -62,17 +62,17 @@ struct LRUCacheOptions {
   // If non-nullptr will use this allocator instead of system allocator when
   // allocating memory for cache blocks. Call this method before you start using
   // the cache!
-  std::shared_ptr<CacheAllocator> cache_allocator;
+  std::shared_ptr<MemoryAllocator> memory_allocator;
 
   LRUCacheOptions() {}
   LRUCacheOptions(size_t _capacity, int _num_shard_bits,
                   bool _strict_capacity_limit, double _high_pri_pool_ratio,
-                  std::shared_ptr<CacheAllocator> _cache_allocator = nullptr)
+                  std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr)
       : capacity(_capacity),
         num_shard_bits(_num_shard_bits),
         strict_capacity_limit(_strict_capacity_limit),
         high_pri_pool_ratio(_high_pri_pool_ratio),
-        cache_allocator(std::move(_cache_allocator)) {}
+        memory_allocator(std::move(_memory_allocator)) {}
 };
 
 // Create a new cache with a fixed size capacity. The cache is sharded
@@ -86,7 +86,7 @@ struct LRUCacheOptions {
 extern std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits = -1,
     bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.0,
-    std::shared_ptr<CacheAllocator> cache_allocator = nullptr);
+    std::shared_ptr<MemoryAllocator> memory_allocator = nullptr);
 
 extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
 
@@ -105,8 +105,8 @@ class Cache {
   // likely to get evicted than low priority entries.
   enum class Priority { HIGH, LOW };
 
-  Cache(std::shared_ptr<CacheAllocator> allocator = nullptr)
-      : cache_allocator_(std::move(allocator)) {}
+  Cache(std::shared_ptr<MemoryAllocator> allocator = nullptr)
+      : memory_allocator_(std::move(allocator)) {}
 
   // Destroys all existing entries by calling the "deleter"
   // function that was passed via the Insert() function.
@@ -237,14 +237,14 @@ class Cache {
   virtual void TEST_mark_as_data_block(const Slice& /*key*/,
                                        size_t /*charge*/) {}
 
-  CacheAllocator* cache_allocator() const { return cache_allocator_.get(); }
+  MemoryAllocator* memory_allocator() const { return memory_allocator_.get(); }
 
  private:
   // No copying allowed
   Cache(const Cache&);
   Cache& operator=(const Cache&);
 
-  std::shared_ptr<CacheAllocator> cache_allocator_;
+  std::shared_ptr<MemoryAllocator> memory_allocator_;
 };
 
 }  // namespace rocksdb

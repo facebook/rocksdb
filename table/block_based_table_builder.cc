@@ -39,10 +39,10 @@
 #include "table/full_filter_block.h"
 #include "table/table_builder.h"
 
-#include "util/cache_allocator.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
+#include "util/memory_allocator.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"
@@ -656,7 +656,7 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     size_t size = block_contents.size();
 
     auto ubuf =
-        AllocateBlock(size + 1, block_cache_compressed->cache_allocator());
+        AllocateBlock(size + 1, block_cache_compressed->memory_allocator());
     memcpy(ubuf.get(), block_contents.data(), size);
     ubuf[size] = type;
 

@@ -2486,14 +2486,14 @@ TEST_P(BlockBasedTableTest, BlockCacheLeak) {
 }
 
 namespace {
-class CustomCacheAllocator : public CacheAllocator {
+class CustomMemoryAllocator : public MemoryAllocator {
  public:
-  virtual const char* Name() const override { return "CustomCacheAllocator"; }
+  virtual const char* Name() const override { return "CustomMemoryAllocator"; }
 
   void* Allocate(size_t size) override {
     ++numAllocations;
     auto ptr = new char[size + 16];
-    memcpy(ptr, "cache_allocator_", 16);  // mangle first 16 bytes
+    memcpy(ptr, "memory_allocator_", 16);  // mangle first 16 bytes
     return reinterpret_cast<void*>(ptr + 16);
   }
   void Deallocate(void* p) override {
@@ -2507,8 +2507,8 @@ class CustomCacheAllocator : public CacheAllocator {
 };
 }  // namespace
 
-TEST_P(BlockBasedTableTest, CacheAllocator) {
-  auto custom_cache_allocator = std::make_shared<CustomCacheAllocator>();
+TEST_P(BlockBasedTableTest, MemoryAllocator) {
+  auto custom_memory_allocator = std::make_shared<CustomMemoryAllocator>();
   {
     Options opt;
     unique_ptr<InternalKeyComparator> ikc;
@@ -2517,7 +2517,7 @@ TEST_P(BlockBasedTableTest, CacheAllocator) {
     BlockBasedTableOptions table_options;
     table_options.block_size = 1024;
     LRUCacheOptions lruOptions;
-    lruOptions.cache_allocator = custom_cache_allocator;
+    lruOptions.memory_allocator = custom_memory_allocator;
     lruOptions.capacity = 16 * 1024 * 1024;
     lruOptions.num_shard_bits = 4;
     table_options.block_cache = NewLRUCache(std::move(lruOptions));
@@ -2551,10 +2551,10 @@ TEST_P(BlockBasedTableTest, CacheAllocator) {
 
   // out of scope, block cache should have been deleted, all allocations
   // deallocated
-  EXPECT_EQ(custom_cache_allocator->numAllocations.load(),
-            custom_cache_allocator->numDeallocations.load());
+  EXPECT_EQ(custom_memory_allocator->numAllocations.load(),
+            custom_memory_allocator->numDeallocations.load());
   // make sure that allocations actually happened through the cache allocator
-  EXPECT_GT(custom_cache_allocator->numAllocations.load(), 0);
+  EXPECT_GT(custom_memory_allocator->numAllocations.load(), 0);
 }
 
 TEST_P(BlockBasedTableTest, NewIndexIteratorLeak) {
