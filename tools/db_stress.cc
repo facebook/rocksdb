@@ -3365,7 +3365,7 @@ class AtomicFlushStressTest : public StressTest {
       thread->stats.AddErrors(1);
     } else {
       size_t num = rand_column_families.size();
-      thread->stats.AddBytesForWrites(num, (sz + 1) * num);
+      thread->stats.AddBytesForWrites(static_cast<int>(num), (sz + 1) * num);
     }
 
     return s;
@@ -3387,7 +3387,7 @@ class AtomicFlushStressTest : public StressTest {
       fprintf(stderr, "multidel error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     } else {
-      thread->stats.AddDeletes(rand_column_families.size());
+      thread->stats.AddDeletes(static_cast<int>(rand_column_families.size()));
     }
     return s;
   }
@@ -3417,7 +3417,8 @@ class AtomicFlushStressTest : public StressTest {
       fprintf(stderr, "multi del range error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     } else {
-      thread->stats.AddRangeDeletions(rand_column_families.size());
+      thread->stats.AddRangeDeletions(
+          static_cast<int>(rand_column_families.size()));
     }
     return s;
   }
