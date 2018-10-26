@@ -146,7 +146,7 @@ bool MemTableListVersion::GetFromList(
     }
 
     if (done) {
-      assert(*seq != kMaxSequenceNumber);
+      assert(*seq != kMaxSequenceNumber || s->IsNotFound());
       return true;
     }
     if (!done && !s->ok() && !s->IsMergeInProgress() && !s->IsNotFound()) {

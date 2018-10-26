@@ -17,6 +17,37 @@
 
 namespace rocksdb {
 
+struct FragmentedRangeTombstoneList {
+ public:
+  FragmentedRangeTombstoneList(
+      std::unique_ptr<InternalIterator> unfragmented_tombstones,
+      const InternalKeyComparator& icmp, bool one_time_use,
+      SequenceNumber snapshot = kMaxSequenceNumber);
+
+  std::vector<RangeTombstone>::const_iterator begin() const {
+    return tombstones_.begin();
+  }
+
+  std::vector<RangeTombstone>::const_iterator end() const {
+    return tombstones_.end();
+  }
+
+  bool empty() const { return tombstones_.size() == 0; }
+
+ private:
+  // Given an ordered range tombstone iterator unfragmented_tombstones,
+  // "fragment" the tombstones into non-overlapping pieces, and store them in
+  // tombstones_.
+  void FragmentTombstones(
+      std::unique_ptr<InternalIterator> unfragmented_tombstones,
+      const InternalKeyComparator& icmp, bool one_time_use,
+      SequenceNumber snapshot = kMaxSequenceNumber);
+
+  std::vector<RangeTombstone> tombstones_;
+  std::list<std::string> pinned_slices_;
+  PinnedIteratorsManager pinned_iters_mgr_;
+};
+
 // FragmentedRangeTombstoneIterator converts an InternalIterator of a range-del
 // meta block into an iterator over non-overlapping tombstone fragments. The
 // tombstone fragmentation process should be more efficient than the range
@@ -29,8 +60,11 @@ namespace rocksdb {
 class FragmentedRangeTombstoneIterator : public InternalIterator {
  public:
   FragmentedRangeTombstoneIterator(
-      std::unique_ptr<InternalIterator> unfragmented_tombstones,
-      const InternalKeyComparator& icmp, SequenceNumber snapshot);
+      const FragmentedRangeTombstoneList* tombstones,
+      const InternalKeyComparator& icmp);
+  FragmentedRangeTombstoneIterator(
+      const std::shared_ptr<const FragmentedRangeTombstoneList>& tombstones,
+      const InternalKeyComparator& icmp);
   void SeekToFirst() override;
   void SeekToLast() override;
   void Seek(const Slice& target) override;
@@ -66,7 +100,7 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   };
 
   void MaybePinKey() const {
-    if (pos_ != tombstones_.end() && pinned_pos_ != pos_) {
+    if (pos_ != tombstones_->end() && pinned_pos_ != pos_) {
       current_start_key_.Set(pos_->start_key_, pos_->seq_, kTypeRangeDeletion);
       pinned_pos_ = pos_;
     }
@@ -78,18 +112,11 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
     parsed->type = kTypeRangeDeletion;
   }
 
-  // Given an ordered range tombstone iterator unfragmented_tombstones,
-  // "fragment" the tombstones into non-overlapping pieces, and store them in
-  // tombstones_.
-  void FragmentTombstones(
-      std::unique_ptr<InternalIterator> unfragmented_tombstones,
-      SequenceNumber snapshot);
-
   const FragmentedRangeTombstoneComparator tombstone_cmp_;
   const InternalKeyComparator* icmp_;
   const Comparator* ucmp_;
-  std::vector<RangeTombstone> tombstones_;
-  std::list<std::string> pinned_slices_;
+  std::shared_ptr<const FragmentedRangeTombstoneList> tombstones_ref_;
+  const FragmentedRangeTombstoneList* tombstones_;
   std::vector<RangeTombstone>::const_iterator pos_;
   mutable std::vector<RangeTombstone>::const_iterator pinned_pos_;
   mutable InternalKey current_start_key_;
