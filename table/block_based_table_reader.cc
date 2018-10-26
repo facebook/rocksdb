@@ -972,20 +972,22 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         rep->ioptions.info_log,
         "Error when seeking to range delete tombstones block from file: %s",
         s.ToString().c_str());
-  } else {
-    if (found_range_del_block && !rep->range_del_handle.IsNull()) {
-      ReadOptions read_options;
-      s = MaybeLoadDataBlockToCache(
-          prefetch_buffer.get(), rep, read_options, rep->range_del_handle,
-          Slice() /* compression_dict */, &rep->range_del_entry,
-          false /* is_index */, nullptr /* get_context */);
-      if (!s.ok()) {
-        ROCKS_LOG_WARN(
-            rep->ioptions.info_log,
-            "Encountered error while reading data from range del block %s",
-            s.ToString().c_str());
-      }
+  } else if (found_range_del_block && !rep->range_del_handle.IsNull()) {
+    ReadOptions read_options;
+    s = MaybeLoadDataBlockToCache(
+        prefetch_buffer.get(), rep, read_options, rep->range_del_handle,
+        Slice() /* compression_dict */, &rep->range_del_entry,
+        false /* is_index */, nullptr /* get_context */);
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(
+          rep->ioptions.info_log,
+          "Encountered error while reading data from range del block %s",
+          s.ToString().c_str());
     }
+    auto iter = std::unique_ptr<InternalIterator>(
+        new_table->NewUnfragmentedRangeTombstoneIterator(read_options));
+    rep->fragmented_range_dels = std::make_shared<FragmentedRangeTombstoneList>(
+        std::move(iter), internal_comparator, false /* one_time_use */);
   }
 
   bool need_upper_bound_check =
@@ -2263,6 +2265,15 @@ InternalIterator* BlockBasedTable::NewIterator(
 }
 
 InternalIterator* BlockBasedTable::NewRangeTombstoneIterator(
+    const ReadOptions& /* read_options */) {
+  if (rep_->fragmented_range_dels == nullptr) {
+    return nullptr;
+  }
+  return new FragmentedRangeTombstoneIterator(rep_->fragmented_range_dels,
+                                              rep_->internal_comparator);
+}
+
+InternalIterator* BlockBasedTable::NewUnfragmentedRangeTombstoneIterator(
     const ReadOptions& read_options) {
   if (rep_->range_del_handle.IsNull()) {
     // The block didn't exist, nullptr indicates no range tombstones.

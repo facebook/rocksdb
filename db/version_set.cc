@@ -1209,6 +1209,11 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   FdWithKeyRange* f = fp.GetNextFile();
 
   while (f != nullptr) {
+    if (*max_covering_tombstone_seq > 0) {
+      // Use empty error message for speed
+      *status = Status::NotFound();
+      return;
+    }
     if (get_context.sample()) {
       sample_file_read_inc(f->file_metadata);
     }

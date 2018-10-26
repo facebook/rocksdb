@@ -729,13 +729,20 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     // Avoiding recording stats for speed.
     return false;
   }
+  if (*max_covering_tombstone_seq > 0) {
+    *s = Status::NotFound();
+    return true;
+  }
   PERF_TIMER_GUARD(get_from_memtable_time);
 
   std::unique_ptr<InternalIterator> range_del_iter(
       NewRangeTombstoneIterator(read_opts));
   SequenceNumber snapshot = GetInternalKeySeqno(key.internal_key());
-  FragmentedRangeTombstoneIterator fragment_iter(
-      std::move(range_del_iter), comparator_.comparator, snapshot);
+  FragmentedRangeTombstoneList fragment_list(std::move(range_del_iter),
+                                             comparator_.comparator,
+                                             true /* one_time_use */, snapshot);
+  FragmentedRangeTombstoneIterator fragment_iter(&fragment_list,
+                                                 comparator_.comparator);
   *max_covering_tombstone_seq = std::max(
       *max_covering_tombstone_seq,
       MaxCoveringTombstoneSeqnum(&fragment_iter, key.internal_key(),
