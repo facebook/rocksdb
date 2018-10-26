@@ -1599,16 +1599,22 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
 //  2) if flush_memtable_ids[i] is null, then all memtables in THIS column
 //     family have to be flushed.
 // Finish waiting when ALL column families finish flushing memtables.
+// resuming_from_bg_err indicates whether the caller is trying to resume from
+// background error or in normal processing.
 Status DBImpl::WaitForFlushMemTables(
     const autovector<ColumnFamilyData*>& cfds,
-    const autovector<const uint64_t*>& flush_memtable_ids, bool in_recovery) {
+    const autovector<const uint64_t*>& flush_memtable_ids,
+    bool resuming_from_bg_err) {
   int num = static_cast<int>(cfds.size());
   // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
-  while (in_recovery || !error_handler_.IsDBStopped()) {
+  // If the caller is trying to resume from bg error, then
+  // error_handler_.IsDBStopped() is true.
+  while (resuming_from_bg_err || !error_handler_.IsDBStopped()) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();
     }
+    // If an error has occurred during resumption, then no need to wait.
     if (!error_handler_.GetRecoveryError().ok()) {
       break;
     }
@@ -1637,7 +1643,9 @@ Status DBImpl::WaitForFlushMemTables(
     bg_cv_.Wait();
   }
   Status s;
-  if (!in_recovery && error_handler_.IsDBStopped()) {
+  // If not resuming from bg error, and an error has caused the DB to stop,
+  // then report the bg error to caller.
+  if (!resuming_from_bg_err && error_handler_.IsDBStopped()) {
     s = error_handler_.GetBGError();
   }
   return s;
