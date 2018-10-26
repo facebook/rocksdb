@@ -25,8 +25,8 @@
 #include "options/cf_options.h"
 #include "port/port.h"  // noexcept
 #include "table/persistent_cache_options.h"
-#include "util/cache_allocator.h"
 #include "util/file_reader_writer.h"
+#include "util/memory_allocator.h"
 
 namespace rocksdb {
 
@@ -265,7 +265,7 @@ extern Status ReadBlockContents(
 extern Status UncompressBlockContents(
     const UncompressionContext& uncompression_ctx, const char* data, size_t n,
     BlockContents* contents, uint32_t compress_format_version,
-    const ImmutableCFOptions& ioptions, CacheAllocator* allocator = nullptr);
+    const ImmutableCFOptions& ioptions, MemoryAllocator* allocator = nullptr);
 
 // This is an extension to UncompressBlockContents that accepts
 // a specific compression type. This is used by un-wrapped blocks
@@ -273,7 +273,7 @@ extern Status UncompressBlockContents(
 extern Status UncompressBlockContentsForCompressionType(
     const UncompressionContext& uncompression_ctx, const char* data, size_t n,
     BlockContents* contents, uint32_t compress_format_version,
-    const ImmutableCFOptions& ioptions, CacheAllocator* allocator = nullptr);
+    const ImmutableCFOptions& ioptions, MemoryAllocator* allocator = nullptr);
 
 // Implementation details follow.  Clients should ignore,
 

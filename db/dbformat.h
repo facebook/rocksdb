@@ -686,5 +686,4 @@ struct ParsedInternalKeyComparator {
   const InternalKeyComparator* cmp;
 };
 
-
 }  // namespace rocksdb

@@ -19,12 +19,12 @@
 #include "table/block_based_table_reader.h"
 #include "table/block_fetcher.h"
 #include "table/persistent_cache_helper.h"
-#include "util/cache_allocator.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
 #include "util/logging.h"
+#include "util/memory_allocator.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"
@@ -280,7 +280,7 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
 Status UncompressBlockContentsForCompressionType(
     const UncompressionContext& uncompression_ctx, const char* data, size_t n,
     BlockContents* contents, uint32_t format_version,
-    const ImmutableCFOptions& ioptions, CacheAllocator* allocator) {
+    const ImmutableCFOptions& ioptions, MemoryAllocator* allocator) {
   CacheAllocationPtr ubuf;
 
   assert(uncompression_ctx.type() != kNoCompression &&
@@ -405,7 +405,7 @@ Status UncompressBlockContents(const UncompressionContext& uncompression_ctx,
                                const char* data, size_t n,
                                BlockContents* contents, uint32_t format_version,
                                const ImmutableCFOptions& ioptions,
-                               CacheAllocator* allocator) {
+                               MemoryAllocator* allocator) {
   assert(data[n] != kNoCompression);
   assert(data[n] == uncompression_ctx.type());
   return UncompressBlockContentsForCompressionType(uncompression_ctx, data, n,
