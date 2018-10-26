@@ -1209,15 +1209,28 @@ Status CompactionJob::FinishCompactionOutputFile(
     if (lower_bound != nullptr) {
       it->Seek(*lower_bound);
     }
+
+    bool has_overlapping_endpoints;
+    if (upper_bound != nullptr && meta->largest.size() > 0) {
+      has_overlapping_endpoints =
+          ucmp->Compare(meta->largest.user_key(), *upper_bound) == 0;
+    } else {
+      has_overlapping_endpoints = false;
+    }
     for (; it->Valid(); it->Next()) {
       auto tombstone = it->Tombstone();
-      if (upper_bound != nullptr &&
-          ucmp->Compare(*upper_bound, tombstone.start_key_) < 0) {
-        // Tombstones starting after upper_bound only need to be included in the
-        // next table (if the SSTs overlap, then upper_bound is contained in
-        // this SST and hence must be covered). Break because subsequent
-        // tombstones will start even later.
-        break;
+      if (upper_bound != nullptr) {
+        int cmp = ucmp->Compare(*upper_bound, tombstone.start_key_);
+        if ((has_overlapping_endpoints && cmp < 0) ||
+            (!has_overlapping_endpoints && cmp <= 0)) {
+          // Tombstones starting after upper_bound only need to be included in
+          // the next table. If the current SST ends before upper_bound, i.e.,
+          // `has_overlapping_endpoints == false`, we can also skip over range
+          // tombstones that start exactly at upper_bound. Such range tombstones
+          // will be included in the next file and are not relevant to the point
+          // keys or endpoints of the current file.
+          break;
+        }
       }
 
       if (bottommost_level_ && tombstone.seq_ <= earliest_snapshot) {
