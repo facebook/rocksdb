@@ -945,9 +945,9 @@ struct DBOptions {
   bool manual_wal_flush = false;
 
   // If true, RocksDB supports flushing multiple column families and committing
-  // their results atomically to MANIFEST. Note that it is NOT
+  // their results atomically to MANIFEST. Note that it is not
   // necessary to set atomic_flush to true if WAL is always enabled. This
-  // option is useful only when there are column families with writes NOT
+  // option is useful when there are column families with writes NOT
   // protected by WAL.
   // For manual flush, application has to specify which column families to
   // flush atomically in DB::Flush.
