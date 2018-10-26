@@ -651,6 +651,7 @@ public class OptionsTest {
          final Cache cache = new LRUCache(1 * 1024 * 1024);
          final WriteBufferManager writeBufferManager = new WriteBufferManager(2000l, cache)) {
       opt.setWriteBufferManager(writeBufferManager);
+      assertThat(opt.writeBufferManager()).isEqualTo(writeBufferManager);
     }
   }
 
@@ -660,6 +661,7 @@ public class OptionsTest {
          final Cache cache = new LRUCache(1 * 1024 * 1024);
          final WriteBufferManager writeBufferManager = new WriteBufferManager(0l, cache)) {
       opt.setWriteBufferManager(writeBufferManager);
+      assertThat(opt.writeBufferManager()).isEqualTo(writeBufferManager);
     }
   }
 

@@ -1112,6 +1112,7 @@ VersionStorageInfo::VersionStorageInfo(
       compaction_style_(compaction_style),
       files_(new std::vector<FileMetaData*>[num_levels_]),
       base_level_(num_levels_ == 1 ? -1 : 1),
+      level_multiplier_(0.0),
       files_by_compaction_pri_(num_levels_),
       level0_non_overlapping_(false),
       next_file_to_compact_by_size_(num_levels_),
@@ -1176,7 +1177,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   PinnableSlice* value, Status* status,
                   MergeContext* merge_context,
-                  RangeDelAggregator* range_del_agg, bool* value_found,
+                  SequenceNumber* max_covering_tombstone_seq, bool* value_found,
                   bool* key_exists, SequenceNumber* seq, ReadCallback* callback,
                   bool* is_blob) {
   Slice ikey = k.internal_key();
@@ -1193,8 +1194,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
-      value, value_found, merge_context, range_del_agg, this->env_, seq,
-      merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob);
+      value, value_found, merge_context, max_covering_tombstone_seq, this->env_,
+      seq, merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob);
 
   // Pin blocks that we read to hold merge operands
   if (merge_operator_) {
@@ -1974,7 +1975,9 @@ void VersionStorageInfo::GenerateBottommostFiles() {
       } else {
         l0_file_idx = -1;
       }
-      if (!RangeMightExistAfterSortedRun(f.smallest_key, f.largest_key,
+      Slice smallest_user_key = ExtractUserKey(f.smallest_key);
+      Slice largest_user_key = ExtractUserKey(f.largest_key);
+      if (!RangeMightExistAfterSortedRun(smallest_user_key, largest_user_key,
                                          static_cast<int>(level),
                                          l0_file_idx)) {
         bottommost_files_.emplace_back(static_cast<int>(level),
@@ -2379,9 +2382,12 @@ const char* VersionStorageInfo::LevelSummary(
   int len = 0;
   if (compaction_style_ == kCompactionStyleLevel && num_levels() > 1) {
     assert(base_level_ < static_cast<int>(level_max_bytes_.size()));
-    len = snprintf(scratch->buffer, sizeof(scratch->buffer),
-                   "base level %d max bytes base %" PRIu64 " ", base_level_,
-                   level_max_bytes_[base_level_]);
+    if (level_multiplier_ != 0.0) {
+      len = snprintf(
+          scratch->buffer, sizeof(scratch->buffer),
+          "base level %d level multiplier %.2f max bytes base %" PRIu64 " ",
+          base_level_, level_multiplier_, level_max_bytes_[base_level_]);
+    }
   }
   len +=
       snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, "files[");
@@ -2517,7 +2523,13 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
       // No compaction from L1+ needs to be scheduled.
       base_level_ = num_levels_ - 1;
     } else {
-      uint64_t base_bytes_max = options.max_bytes_for_level_base;
+      uint64_t l0_size = 0;
+      for (const auto& f : files_[0]) {
+        l0_size += f->fd.GetFileSize();
+      }
+
+      uint64_t base_bytes_max =
+          std::max(options.max_bytes_for_level_base, l0_size);
       uint64_t base_bytes_min = static_cast<uint64_t>(
           base_bytes_max / options.max_bytes_for_level_multiplier);
 
@@ -2557,11 +2569,33 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
         }
       }
 
+      level_multiplier_ = options.max_bytes_for_level_multiplier;
+      assert(base_level_size > 0);
+      if (l0_size > base_level_size &&
+          (l0_size > options.max_bytes_for_level_base ||
+           static_cast<int>(files_[0].size() / 2) >=
+               options.level0_file_num_compaction_trigger)) {
+        // We adjust the base level according to actual L0 size, and adjust
+        // the level multiplier accordingly, when:
+        //   1. the L0 size is larger than level size base, or
+        //   2. number of L0 files reaches twice the L0->L1 compaction trigger
+        // We don't do this otherwise to keep the LSM-tree structure stable
+        // unless the L0 compation is backlogged.
+        base_level_size = l0_size;
+        if (base_level_ == num_levels_ - 1) {
+          level_multiplier_ = 1.0;
+        } else {
+          level_multiplier_ = std::pow(
+              static_cast<double>(max_level_size) /
+                  static_cast<double>(base_level_size),
+              1.0 / static_cast<double>(num_levels_ - base_level_ - 1));
+        }
+      }
+
       uint64_t level_size = base_level_size;
       for (int i = base_level_; i < num_levels_; i++) {
         if (i > base_level_) {
-          level_size = MultiplyCheckOverflow(
-              level_size, options.max_bytes_for_level_multiplier);
+          level_size = MultiplyCheckOverflow(level_size, level_multiplier_);
         }
         // Don't set any level below base_bytes_max. Otherwise, the LSM can
         // assume an hourglass shape where L1+ sizes are smaller than L0. This
@@ -2608,8 +2642,8 @@ uint64_t VersionStorageInfo::EstimateLiveDataSize() const {
 }
 
 bool VersionStorageInfo::RangeMightExistAfterSortedRun(
-    const Slice& smallest_key, const Slice& largest_key, int last_level,
-    int last_l0_idx) {
+    const Slice& smallest_user_key, const Slice& largest_user_key,
+    int last_level, int last_l0_idx) {
   assert((last_l0_idx != -1) == (last_level == 0));
   // TODO(ajkr): this preserves earlier behavior where we considered an L0 file
   // bottommost only if it's the oldest L0 file and there are no files on older
@@ -2631,7 +2665,7 @@ bool VersionStorageInfo::RangeMightExistAfterSortedRun(
     // which overlap with [`smallest_key`, `largest_key`].
     if (files_[level].size() > 0 &&
         (last_level == 0 ||
-         OverlapInLevel(level, &smallest_key, &largest_key))) {
+         OverlapInLevel(level, &smallest_user_key, &largest_user_key))) {
       return true;
     }
   }

@@ -318,7 +318,10 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
   while (true) {
     // We need at least the minimum header size
     if (buffer_.size() < static_cast<size_t>(kHeaderSize)) {
-      int r;
+      // the default value of r is meaningless because ReadMore will overwrite
+      // it if it returns false; in case it returns true, the return value will
+      // not be used anyway
+      int r = kEof;
       if (!ReadMore(drop_size, &r)) {
         return r;
       }
@@ -339,7 +342,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
       header_size = kRecyclableHeaderSize;
       // We need enough for the larger header
       if (buffer_.size() < static_cast<size_t>(kRecyclableHeaderSize)) {
-        int r;
+        int r = kEof;
         if (!ReadMore(drop_size, &r)) {
           return r;
         }
@@ -364,7 +367,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
           return kBadHeader;
         }
       } else {
-        int r;
+        int r = kEof;
         if (!ReadMore(drop_size, &r)) {
           return r;
         }

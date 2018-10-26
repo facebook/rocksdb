@@ -170,12 +170,12 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           if (!through_db) {
             PinnableSlice value;
             MergeContext merge_context;
-            RangeDelAggregator range_del_agg(ikc, {} /* snapshots */);
+            SequenceNumber max_covering_tombstone_seq = 0;
             GetContext get_context(ioptions.user_comparator,
                                    ioptions.merge_operator, ioptions.info_log,
                                    ioptions.statistics, GetContext::kNotFound,
                                    Slice(key), &value, nullptr, &merge_context,
-                                   &range_del_agg, env);
+                                   &max_covering_tombstone_seq, env);
             s = table_reader->Get(read_options, key, &get_context, nullptr);
           } else {
             s = db->Get(read_options, key, &result);

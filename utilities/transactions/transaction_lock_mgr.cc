@@ -104,7 +104,7 @@ void DeadlockInfoBuffer::AddNewPath(DeadlockPath path) {
     return;
   }
 
-  paths_buffer_[buffer_idx_] = path;
+  paths_buffer_[buffer_idx_] = std::move(path);
   buffer_idx_ = (buffer_idx_ + 1) % paths_buffer_.size();
 }
 
@@ -494,8 +494,8 @@ bool TransactionLockMgr::IncrementWaiters(
 
         auto extracted_info = wait_txn_map_.Get(queue_values[head]);
         path.push_back({queue_values[head], extracted_info.m_cf_id,
-                        extracted_info.m_waiting_key,
-                        extracted_info.m_exclusive});
+                        extracted_info.m_exclusive,
+                        extracted_info.m_waiting_key});
         head = queue_parents[head];
       }
       env->GetCurrentTime(&deadlock_time);

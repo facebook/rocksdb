@@ -197,6 +197,27 @@ Status FaultInjectionTestEnv::NewWritableFile(const std::string& fname,
   return s;
 }
 
+Status FaultInjectionTestEnv::ReopenWritableFile(
+    const std::string& fname, unique_ptr<WritableFile>* result,
+    const EnvOptions& soptions) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+  Status s = target()->ReopenWritableFile(fname, result, soptions);
+  if (s.ok()) {
+    result->reset(new TestWritableFile(fname, std::move(*result), this));
+    // WritableFileWriter* file is opened
+    // again then it will be truncated - so forget our saved state.
+    UntrackFile(fname);
+    MutexLock l(&mutex_);
+    open_files_.insert(fname);
+    auto dir_and_name = GetDirAndName(fname);
+    auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
+    list.insert(dir_and_name.second);
+  }
+  return s;
+}
+
 Status FaultInjectionTestEnv::NewRandomAccessFile(
     const std::string& fname, std::unique_ptr<RandomAccessFile>* result,
     const EnvOptions& soptions) {

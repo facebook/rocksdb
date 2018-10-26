@@ -1368,50 +1368,110 @@ TEST_P(EnvPosixTestWithParam, WritableFileWrapper) {
       inc(1);
       return Status::OK();
     }
-    Status Truncate(uint64_t /*size*/) override { return Status::OK(); }
-    Status Close() override { inc(2); return Status::OK(); }
-    Status Flush() override { inc(3); return Status::OK(); }
-    Status Sync() override { inc(4); return Status::OK(); }
-    Status Fsync() override { inc(5); return Status::OK(); }
-    void SetIOPriority(Env::IOPriority /*pri*/) override { inc(6); }
-    uint64_t GetFileSize() override { inc(7); return 0; }
-    void GetPreallocationStatus(size_t* /*block_size*/,
-                                size_t* /*last_allocated_block*/) override {
-      inc(8);
-    }
-    size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const override {
-      inc(9);
-      return 0;
-    }
-    Status InvalidateCache(size_t /*offset*/, size_t /*length*/) override {
-      inc(10);
+
+    Status PositionedAppend(const Slice& /*data*/,
+                            uint64_t /*offset*/) override {
+      inc(2);
       return Status::OK();
     }
 
-   protected:
-    Status Allocate(uint64_t /*offset*/, uint64_t /*len*/) override {
-      inc(11);
+    Status Truncate(uint64_t /*size*/) override {
+      inc(3);
       return Status::OK();
     }
-    Status RangeSync(uint64_t /*offset*/, uint64_t /*nbytes*/) override {
+
+    Status Close() override {
+      inc(4);
+      return Status::OK();
+    }
+
+    Status Flush() override {
+      inc(5);
+      return Status::OK();
+    }
+
+    Status Sync() override {
+      inc(6);
+      return Status::OK();
+    }
+
+    Status Fsync() override {
+      inc(7);
+      return Status::OK();
+    }
+
+    bool IsSyncThreadSafe() const override {
+      inc(8);
+      return true;
+    }
+
+    bool use_direct_io() const override {
+      inc(9);
+      return true;
+    }
+
+    size_t GetRequiredBufferAlignment() const override {
+      inc(10);
+      return 0;
+    }
+
+    void SetIOPriority(Env::IOPriority /*pri*/) override { inc(11); }
+
+    Env::IOPriority GetIOPriority() override {
       inc(12);
+      return Env::IOPriority::IO_LOW;
+    }
+
+    void SetWriteLifeTimeHint(Env::WriteLifeTimeHint /*hint*/) override {
+      inc(13);
+    }
+
+    Env::WriteLifeTimeHint GetWriteLifeTimeHint() override {
+      inc(14);
+      return Env::WriteLifeTimeHint::WLTH_NOT_SET;
+    }
+
+    uint64_t GetFileSize() override {
+      inc(15);
+      return 0;
+    }
+
+    void SetPreallocationBlockSize(size_t /*size*/) override { inc(16); }
+
+    void GetPreallocationStatus(size_t* /*block_size*/,
+                                size_t* /*last_allocated_block*/) override {
+      inc(17);
+    }
+
+    size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const override {
+      inc(18);
+      return 0;
+    }
+
+    Status InvalidateCache(size_t /*offset*/, size_t /*length*/) override {
+      inc(19);
+      return Status::OK();
+    }
+
+    Status RangeSync(uint64_t /*offset*/, uint64_t /*nbytes*/) override {
+      inc(20);
+      return Status::OK();
+    }
+
+    void PrepareWrite(size_t /*offset*/, size_t /*len*/) override { inc(21); }
+
+    Status Allocate(uint64_t /*offset*/, uint64_t /*len*/) override {
+      inc(22);
       return Status::OK();
     }
 
    public:
-    ~Base() {
-      inc(13);
-    }
+    ~Base() { inc(23); }
   };
 
   class Wrapper : public WritableFileWrapper {
    public:
     explicit Wrapper(WritableFile* target) : WritableFileWrapper(target) {}
-
-    void CallProtectedMethods() {
-      Allocate(0, 0);
-      RangeSync(0, 0);
-    }
   };
 
   int step = 0;
@@ -1420,19 +1480,30 @@ TEST_P(EnvPosixTestWithParam, WritableFileWrapper) {
     Base b(&step);
     Wrapper w(&b);
     w.Append(Slice());
+    w.PositionedAppend(Slice(), 0);
+    w.Truncate(0);
     w.Close();
     w.Flush();
     w.Sync();
     w.Fsync();
+    w.IsSyncThreadSafe();
+    w.use_direct_io();
+    w.GetRequiredBufferAlignment();
     w.SetIOPriority(Env::IOPriority::IO_HIGH);
+    w.GetIOPriority();
+    w.SetWriteLifeTimeHint(Env::WriteLifeTimeHint::WLTH_NOT_SET);
+    w.GetWriteLifeTimeHint();
     w.GetFileSize();
+    w.SetPreallocationBlockSize(0);
     w.GetPreallocationStatus(nullptr, nullptr);
     w.GetUniqueId(nullptr, 0);
     w.InvalidateCache(0, 0);
-    w.CallProtectedMethods();
+    w.RangeSync(0, 0);
+    w.PrepareWrite(0, 0);
+    w.Allocate(0, 0);
   }
 
-  EXPECT_EQ(14, step);
+  EXPECT_EQ(24, step);
 }
 
 TEST_P(EnvPosixTestWithParam, PosixRandomRWFile) {
