@@ -220,6 +220,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       preserve_deletes_(options.preserve_deletes),
       closed_(false),
       error_handler_(this, immutable_db_options_, &mutex_),
+      atomic_flush_(options.atomic_flush),
       atomic_flush_commit_in_progress_(false) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
@@ -305,7 +306,30 @@ Status DBImpl::ResumeImpl() {
   // We cannot guarantee consistency of the WAL. So force flush Memtables of
   // all the column families
   if (s.ok()) {
-    s = FlushAllCFs(FlushReason::kErrorRecovery);
+    FlushOptions flush_opts;
+    // We allow flush to stall write since we are trying to resume from error.
+    flush_opts.allow_write_stall = true;
+    if (atomic_flush_) {
+      autovector<ColumnFamilyData*> cfds;
+      SelectColumnFamiliesForAtomicFlush(&cfds);
+      mutex_.Unlock();
+      s = AtomicFlushMemTables(cfds, flush_opts, FlushReason::kErrorRecovery);
+      mutex_.Lock();
+    } else {
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        if (cfd->IsDropped()) {
+          continue;
+        }
+        cfd->Ref();
+        mutex_.Unlock();
+        s = FlushMemTable(cfd, flush_opts, FlushReason::kErrorRecovery);
+        mutex_.Lock();
+        cfd->Unref();
+        if (!s.ok()) {
+          break;
+        }
+      }
+    }
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "DB resume requested but failed due to Flush failure [%s]",
@@ -377,13 +401,21 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
-        cfd->Ref();
-        mutex_.Unlock();
-        FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
-        mutex_.Lock();
-        cfd->Unref();
+    if (atomic_flush_) {
+      autovector<ColumnFamilyData*> cfds;
+      SelectColumnFamiliesForAtomicFlush(&cfds);
+      mutex_.Unlock();
+      AtomicFlushMemTables(cfds, FlushOptions(), FlushReason::kShutDown);
+      mutex_.Lock();
+    } else {
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
+          cfd->Ref();
+          mutex_.Unlock();
+          FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
+          mutex_.Lock();
+          cfd->Unref();
+        }
       }
     }
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
@@ -3099,11 +3131,21 @@ Status DBImpl::IngestExternalFile(
       TEST_SYNC_POINT_CALLBACK("DBImpl::IngestExternalFile:NeedFlush",
                                &need_flush);
       if (status.ok() && need_flush) {
-        mutex_.Unlock();
-        status = FlushMemTable(cfd, FlushOptions(),
-                               FlushReason::kExternalFileIngestion,
-                               true /* writes_stopped */);
-        mutex_.Lock();
+        if (atomic_flush_) {
+          mutex_.Unlock();
+          autovector<ColumnFamilyData*> cfds;
+          SelectColumnFamiliesForAtomicFlush(&cfds);
+          status = AtomicFlushMemTables(cfds, FlushOptions(),
+                                        FlushReason::kExternalFileIngestion,
+                                        true /* writes_stopped */);
+          mutex_.Lock();
+        } else {
+          mutex_.Unlock();
+          status = FlushMemTable(cfd, FlushOptions(),
+                                 FlushReason::kExternalFileIngestion,
+                                 true /* writes_stopped */);
+          mutex_.Lock();
+        }
       }
     }
 

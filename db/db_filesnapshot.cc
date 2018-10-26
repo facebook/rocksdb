@@ -87,19 +87,28 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   if (flush_memtable) {
     // flush all dirty data to disk.
     Status status;
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->IsDropped()) {
-        continue;
-      }
-      cfd->Ref();
+    if (atomic_flush_) {
+      autovector<ColumnFamilyData*> cfds;
+      SelectColumnFamiliesForAtomicFlush(&cfds);
       mutex_.Unlock();
-      status = FlushMemTable(cfd, FlushOptions(), FlushReason::kGetLiveFiles);
-      TEST_SYNC_POINT("DBImpl::GetLiveFiles:1");
-      TEST_SYNC_POINT("DBImpl::GetLiveFiles:2");
+      status = AtomicFlushMemTables(cfds, FlushOptions(),
+                                    FlushReason::kGetLiveFiles);
       mutex_.Lock();
-      cfd->Unref();
-      if (!status.ok()) {
-        break;
+    } else {
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        if (cfd->IsDropped()) {
+          continue;
+        }
+        cfd->Ref();
+        mutex_.Unlock();
+        status = FlushMemTable(cfd, FlushOptions(), FlushReason::kGetLiveFiles);
+        TEST_SYNC_POINT("DBImpl::GetLiveFiles:1");
+        TEST_SYNC_POINT("DBImpl::GetLiveFiles:2");
+        mutex_.Lock();
+        cfd->Unref();
+        if (!status.ok()) {
+          break;
+        }
       }
     }
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();

@@ -25,6 +25,12 @@ class DBFlushDirectIOTest : public DBFlushTest,
   DBFlushDirectIOTest() : DBFlushTest() {}
 };
 
+class DBAtomicFlushTest : public DBFlushTest,
+                          public ::testing::WithParamInterface<bool> {
+ public:
+  DBAtomicFlushTest() : DBFlushTest() {}
+};
+
 // We had issue when two background threads trying to flush at the same time,
 // only one of them get committed. The test verifies the issue is fixed.
 TEST_F(DBFlushTest, FlushWhileWritingManifest) {
@@ -214,8 +220,81 @@ TEST_F(DBFlushTest, FlushError) {
   ASSERT_NE(s, Status::OK());
 }
 
+TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = GetParam();
+  options.write_buffer_size = (static_cast<size_t>(64) << 20);
+
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  WriteOptions wopts;
+  wopts.disableWAL = true;
+  for (size_t i = 0; i != num_cfs; ++i) {
+    ASSERT_OK(Put(static_cast<int>(i) /*cf*/, "key", "value", wopts));
+  }
+  std::vector<int> cf_ids;
+  for (size_t i = 0; i != num_cfs; ++i) {
+    cf_ids.emplace_back(static_cast<int>(i));
+  }
+  ASSERT_OK(Flush(cf_ids));
+  for (size_t i = 0; i != num_cfs; ++i) {
+    auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+    ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
+    ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
+  }
+}
+
+TEST_P(DBAtomicFlushTest, AtomicFlushTriggeredByMemTableFull) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = GetParam();
+  // 4KB so that we can easily trigger auto flush.
+  options.write_buffer_size = 4096;
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCallFlush:FlushFinish:0",
+        "DBAtomicFlushTest::AtomicFlushTriggeredByMemTableFull:BeforeCheck"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  WriteOptions wopts;
+  wopts.disableWAL = true;
+  for (size_t i = 0; i != num_cfs; ++i) {
+    ASSERT_OK(Put(static_cast<int>(i) /*cf*/, "key", "value", wopts));
+  }
+  // Keep writing to one of them column families to trigger auto flush.
+  for (int i = 0; i != 4000; ++i) {
+    ASSERT_OK(Put(static_cast<int>(num_cfs) - 1 /*cf*/,
+                  "key" + std::to_string(i), "value" + std::to_string(i),
+                  wopts));
+  }
+
+  TEST_SYNC_POINT(
+      "DBAtomicFlushTest::AtomicFlushTriggeredByMemTableFull:BeforeCheck");
+  if (options.atomic_flush) {
+    for (size_t i = 0; i != num_cfs - 1; ++i) {
+      auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+      ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
+      ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
+    }
+  } else {
+    for (size_t i = 0; i != num_cfs - 1; ++i) {
+      auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+      ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
+      ASSERT_FALSE(cfh->cfd()->mem()->IsEmpty());
+    }
+  }
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
                         testing::Bool());
+
+INSTANTIATE_TEST_CASE_P(DBAtomicFlushTest, DBAtomicFlushTest, testing::Bool());
 
 }  // namespace rocksdb
 

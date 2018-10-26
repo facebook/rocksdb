@@ -283,6 +283,21 @@ class MemTableList {
     return memlist.front()->GetID();
   }
 
+  void AssignAtomicFlushSeq(const SequenceNumber& seq) {
+    const auto& memlist = current_->memlist_;
+    // Scan the memtable list from new to old
+    for (auto it = memlist.begin(); it != memlist.end(); ++it) {
+      MemTable* mem = *it;
+      if (mem->atomic_flush_seqno_ == kMaxSequenceNumber) {
+        mem->atomic_flush_seqno_ = seq;
+      } else {
+        // Earlier memtables must have been assigned a atomic flush seq, no
+        // need to continue scan.
+        break;
+      }
+    }
+  }
+
  private:
   // DB mutex held
   void InstallNewVersion();

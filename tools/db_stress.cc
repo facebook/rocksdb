@@ -133,6 +133,8 @@ DEFINE_bool(test_batches_snapshots, false,
             "\t(b) No long validation at the end (more speed up)\n"
             "\t(c) Test snapshot and atomicity of batch writes");
 
+DEFINE_bool(atomic_flush, false, "If true, the test enables atomic flush\n");
+
 DEFINE_int32(threads, 32, "Number of concurrent threads to run.");
 
 DEFINE_int32(ttl, -1,
@@ -2218,6 +2220,8 @@ class StressTest {
     fprintf(stdout, "Format version            : %d\n", FLAGS_format_version);
     fprintf(stdout, "TransactionDB             : %s\n",
             FLAGS_use_txn ? "true" : "false");
+    fprintf(stdout, "Atomic flush              : %s\n",
+            FLAGS_atomic_flush ? "true" : "false");
     fprintf(stdout, "Column families           : %d\n", FLAGS_column_families);
     if (!FLAGS_test_batches_snapshots) {
       fprintf(stdout, "Clear CFs one in          : %d\n",
@@ -2363,6 +2367,7 @@ class StressTest {
           FLAGS_universal_max_merge_width;
       options_.compaction_options_universal.max_size_amplification_percent =
           FLAGS_universal_max_size_amplification_percent;
+      options_.atomic_flush = FLAGS_atomic_flush;
     } else {
 #ifdef ROCKSDB_LITE
       fprintf(stderr, "--options_file not supported in lite mode\n");
@@ -3327,6 +3332,252 @@ class BatchedOpsStressTest : public StressTest {
   virtual void VerifyDb(ThreadState* /* thread */) const {}
 };
 
+class AtomicFlushStressTest : public StressTest {
+ public:
+  AtomicFlushStressTest() : batch_id_(0) {}
+
+  virtual ~AtomicFlushStressTest() {}
+
+  virtual Status TestPut(ThreadState* thread, WriteOptions& write_opts,
+                         const ReadOptions& /* read_opts */,
+                         const std::vector<int>& rand_column_families,
+                         const std::vector<int64_t>& rand_keys,
+                         char (&value)[100],
+                         std::unique_ptr<MutexLock>& /* lock */) {
+    std::string key_str = Key(rand_keys[0]);
+    Slice key = key_str;
+    uint64_t value_base = batch_id_.fetch_add(1);
+    size_t sz =
+        GenerateValue(static_cast<uint32_t>(value_base), value, sizeof(value));
+    Slice v(value, sz);
+    WriteBatch batch;
+    for (auto cf : rand_column_families) {
+      ColumnFamilyHandle* cfh = column_families_[cf];
+      if (FLAGS_use_merge) {
+        batch.Merge(cfh, key, v);
+      } else { /* !FLAGS_use_merge */
+        batch.Put(cfh, key, v);
+      }
+    }
+    Status s = db_->Write(write_opts, &batch);
+    if (!s.ok()) {
+      fprintf(stderr, "multi put or merge error: %s\n", s.ToString().c_str());
+      thread->stats.AddErrors(1);
+    } else {
+      size_t num = rand_column_families.size();
+      thread->stats.AddBytesForWrites(num, (sz + 1) * num);
+    }
+
+    return s;
+  }
+
+  virtual Status TestDelete(ThreadState* thread, WriteOptions& write_opts,
+                            const std::vector<int>& rand_column_families,
+                            const std::vector<int64_t>& rand_keys,
+                            std::unique_ptr<MutexLock>& /* lock */) {
+    std::string key_str = Key(rand_keys[0]);
+    Slice key = key_str;
+    WriteBatch batch;
+    for (auto cf : rand_column_families) {
+      ColumnFamilyHandle* cfh = column_families_[cf];
+      batch.Delete(cfh, key);
+    }
+    Status s = db_->Write(write_opts, &batch);
+    if (!s.ok()) {
+      fprintf(stderr, "multidel error: %s\n", s.ToString().c_str());
+      thread->stats.AddErrors(1);
+    } else {
+      thread->stats.AddDeletes(rand_column_families.size());
+    }
+    return s;
+  }
+
+  virtual Status TestDeleteRange(ThreadState* thread, WriteOptions& write_opts,
+                                 const std::vector<int>& rand_column_families,
+                                 const std::vector<int64_t>& rand_keys,
+                                 std::unique_ptr<MutexLock>& /* lock */) {
+    int64_t rand_key = rand_keys[0];
+    auto shared = thread->shared;
+    int64_t max_key = shared->GetMaxKey();
+    if (rand_key > max_key - FLAGS_range_deletion_width) {
+      rand_key =
+          thread->rand.Next() % (max_key - FLAGS_range_deletion_width + 1);
+    }
+    std::string key_str = Key(rand_key);
+    Slice key = key_str;
+    std::string end_key_str = Key(rand_key + FLAGS_range_deletion_width);
+    Slice end_key = end_key_str;
+    WriteBatch batch;
+    for (auto cf : rand_column_families) {
+      ColumnFamilyHandle* cfh = column_families_[rand_column_families[cf]];
+      batch.DeleteRange(cfh, key, end_key);
+    }
+    Status s = db_->Write(write_opts, &batch);
+    if (!s.ok()) {
+      fprintf(stderr, "multi del range error: %s\n", s.ToString().c_str());
+      thread->stats.AddErrors(1);
+    } else {
+      thread->stats.AddRangeDeletions(rand_column_families.size());
+    }
+    return s;
+  }
+
+  virtual void TestIngestExternalFile(
+      ThreadState* /* thread */,
+      const std::vector<int>& /* rand_column_families */,
+      const std::vector<int64_t>& /* rand_keys */,
+      std::unique_ptr<MutexLock>& /* lock */) {
+    assert(false);
+    fprintf(stderr,
+            "AtomicFlushStressTest does not support TestIngestExternalFile "
+            "because it's not possible to verify the result\n");
+    std::terminate();
+  }
+
+  virtual Status TestGet(ThreadState* thread, const ReadOptions& readoptions,
+                         const std::vector<int>& rand_column_families,
+                         const std::vector<int64_t>& rand_keys) {
+    std::string key_str = Key(rand_keys[0]);
+    Slice key = key_str;
+    auto cfh =
+        column_families_[rand_column_families[thread->rand.Next() %
+                                              rand_column_families.size()]];
+    std::string from_db;
+    Status s = db_->Get(readoptions, cfh, key, &from_db);
+    if (s.ok()) {
+      thread->stats.AddGets(1, 1);
+    } else if (s.IsNotFound()) {
+      thread->stats.AddGets(1, 0);
+    } else {
+      thread->stats.AddErrors(1);
+    }
+    return s;
+  }
+
+  virtual Status TestPrefixScan(ThreadState* thread,
+                                const ReadOptions& readoptions,
+                                const std::vector<int>& rand_column_families,
+                                const std::vector<int64_t>& rand_keys) {
+    std::string key_str = Key(rand_keys[0]);
+    Slice key = key_str;
+    Slice prefix = Slice(key.data(), FLAGS_prefix_size);
+
+    std::string upper_bound;
+    Slice ub_slice;
+    ReadOptions ro_copy = readoptions;
+    if (thread->rand.OneIn(2) && GetNextPrefix(prefix, &upper_bound)) {
+      ub_slice = Slice(upper_bound);
+      ro_copy.iterate_upper_bound = &ub_slice;
+    }
+    auto cfh =
+        column_families_[rand_column_families[thread->rand.Next() %
+                                              rand_column_families.size()]];
+    Iterator* iter = db_->NewIterator(ro_copy, cfh);
+    int64_t count = 0;
+    for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
+         iter->Next()) {
+      ++count;
+    }
+    assert(count <= (static_cast<int64_t>(1) << ((8 - FLAGS_prefix_size) * 8)));
+    Status s = iter->status();
+    if (s.ok()) {
+      thread->stats.AddPrefixes(1, static_cast<int>(count));
+    } else {
+      thread->stats.AddErrors(1);
+    }
+    delete iter;
+    return s;
+  }
+
+  virtual void VerifyDb(ThreadState* thread) const {
+    ReadOptions options(FLAGS_verify_checksum, true);
+    // We must set total_order_seek to true because we are doing a SeekToFirst
+    // on a column family whose memtables may support (by default) prefix-based
+    // iterator. In this case, NewIterator with options.total_order_seek being
+    // false returns a prefix-based iterator. Calling SeekToFirst using this
+    // iterator causes the iterator to become invalid. That means we cannot
+    // iterate the memtable using this iterator any more, although the memtable
+    // contains the most up-to-date key-values.
+    options.total_order_seek = true;
+    assert(thread != nullptr);
+    auto shared = thread->shared;
+    std::vector<unique_ptr<Iterator> > iters(column_families_.size());
+    for (size_t i = 0; i != column_families_.size(); ++i) {
+      iters[i].reset(db_->NewIterator(options, column_families_[i]));
+    }
+    for (auto& iter : iters) {
+      iter->SeekToFirst();
+    }
+    size_t num = column_families_.size();
+    assert(num == iters.size());
+    do {
+      size_t valid_cnt = 0;
+      for (auto& iter : iters) {
+        if (iter->Valid()) {
+          ++valid_cnt;
+        }
+      }
+      if (valid_cnt == 0) {
+        break;
+      } else if (valid_cnt != iters.size()) {
+        fprintf(stderr, "Finished iterating the following column families:\n");
+        for (size_t i = 0; i != num; ++i) {
+          if (!iters[i]->Valid()) {
+            fprintf(stderr, "%s ", column_families_[i]->GetName().c_str());
+          }
+        }
+        fprintf(stderr,
+                "\nThe following column families have data that have not been "
+                "scanned:\n");
+        for (size_t i = 0; i != num; ++i) {
+          if (iters[i]->Valid()) {
+            fprintf(stderr, "%s ", column_families_[i]->GetName().c_str());
+          }
+        }
+        fprintf(stderr, "\n");
+      }
+      // If the program reaches here, then all column families' iterators are
+      // still valid.
+      Slice key;
+      Slice value;
+      for (size_t i = 0; i != num; ++i) {
+        if (i == 0) {
+          key = iters[i]->key();
+          value = iters[i]->value();
+        } else {
+          if (key.compare(iters[i]->key()) != 0) {
+            fprintf(stderr, "Verification failed\n");
+            fprintf(stderr, "cf%s: %s => %s\n",
+                    column_families_[0]->GetName().c_str(),
+                    key.ToString(true /* hex */).c_str(),
+                    value.ToString(/* hex */).c_str());
+            fprintf(stderr, "cf%s: %s => %s\n",
+                    column_families_[i]->GetName().c_str(),
+                    iters[i]->key().ToString(true /* hex */).c_str(),
+                    iters[i]->value().ToString(true /* hex */).c_str());
+            shared->SetVerificationFailure();
+          }
+        }
+      }
+      for (auto& iter : iters) {
+        iter->Next();
+      }
+    } while (true);
+  }
+
+  virtual std::vector<int> GenerateColumnFamilies(
+      const int /* num_column_families */, int /* rand_column_family */) const {
+    std::vector<int> ret;
+    int num = static_cast<int>(column_families_.size());
+    int k = 0;
+    std::generate_n(back_inserter(ret), num, [&k]() -> int { return k++; });
+    return ret;
+  }
+
+ private:
+  std::atomic<int64_t> batch_id_;
+};
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
@@ -3428,7 +3679,9 @@ int main(int argc, char** argv) {
   rocksdb_kill_prefix_blacklist = SplitString(FLAGS_kill_prefix_blacklist);
 
   std::unique_ptr<rocksdb::StressTest> stress;
-  if (FLAGS_test_batches_snapshots) {
+  if (FLAGS_atomic_flush) {
+    stress.reset(new rocksdb::AtomicFlushStressTest());
+  } else if (FLAGS_test_batches_snapshots) {
     stress.reset(new rocksdb::BatchedOpsStressTest());
   } else {
     stress.reset(new rocksdb::NonBatchedOpsStressTest());

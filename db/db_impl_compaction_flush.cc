@@ -211,6 +211,10 @@ Status DBImpl::FlushMemTableToOutputFile(
 Status DBImpl::FlushMemTablesToOutputFiles(
     const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
     JobContext* job_context, LogBuffer* log_buffer) {
+  if (atomic_flush_) {
+    return AtomicFlushMemTablesToOutputFiles(bg_flush_args, made_progress,
+                                             job_context, log_buffer);
+  }
   Status s;
   for (auto& arg : bg_flush_args) {
     ColumnFamilyData* cfd = arg.cfd_;
@@ -318,11 +322,23 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     s = SyncClosedLogs(job_context);
   }
 
+  // exec_status stores the execution status of flush_jobs as
+  // <bool /* executed */, Status /* status code */>
+  autovector<std::pair<bool, Status>> exec_status;
+  for (int i = 0; i != num_cfs; ++i) {
+    // Initially all jobs are not executed, with status OK.
+    std::pair<bool, Status> elem(false, Status::OK());
+    exec_status.emplace_back(elem);
+  }
+
   if (s.ok()) {
     // TODO (yanqin): parallelize jobs with threads.
     for (int i = 0; i != num_cfs; ++i) {
-      s = jobs[i].Run(&logs_with_prep_tracker_, &file_meta[i]);
-      if (!s.ok()) {
+      exec_status[i].second =
+          jobs[i].Run(&logs_with_prep_tracker_, &file_meta[i]);
+      exec_status[i].first = true;
+      if (!exec_status[i].second.ok()) {
+        s = exec_status[i].second;
         break;
       }
     }
@@ -401,12 +417,19 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   }
 
   if (!s.ok()) {
+    // Have to cancel the flush jobs that have NOT executed because we need to
+    // unref the versions.
     for (int i = 0; i != num_cfs; ++i) {
-      auto& mems = jobs[i].GetMemTables();
-      cfds[i]->imm()->RollbackMemtableFlush(mems, file_meta[i].fd.GetNumber());
-      jobs[i].Cancel();
+      if (!exec_status[i].first) {
+        jobs[i].Cancel();
+      }
     }
     if (!s.IsShutdownInProgress()) {
+      for (int i = 0; i != num_cfs; ++i) {
+        auto& mems = jobs[i].GetMemTables();
+        cfds[i]->imm()->RollbackMemtableFlush(mems,
+                                              file_meta[i].fd.GetNumber());
+      }
       Status new_bg_error = s;
       error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
     }
@@ -543,8 +566,15 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   if (flush_needed) {
     FlushOptions fo;
     fo.allow_write_stall = options.allow_write_stall;
-    s = FlushMemTable(cfd, fo, FlushReason::kManualCompaction,
-      false /* writes_stopped*/);
+    if (atomic_flush_) {
+      autovector<ColumnFamilyData*> cfds;
+      SelectColumnFamiliesForAtomicFlush(&cfds);
+      s = AtomicFlushMemTables(cfds, fo, FlushReason::kManualCompaction,
+                               false /* writes_stopped */);
+    } else {
+      s = FlushMemTable(cfd, fo, FlushReason::kManualCompaction,
+                        false /* writes_stopped*/);
+    }
     if (!s.ok()) {
       LogFlush(immutable_db_options_.info_log);
       return s;
@@ -1165,72 +1195,59 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Manual flush start.",
                  cfh->GetName().c_str());
-  Status s =
-      FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
+  Status s;
+  if (atomic_flush_) {
+    s = AtomicFlushMemTables({cfh->cfd()}, flush_options,
+                             FlushReason::kManualFlush);
+  } else {
+    s = FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
+  }
+
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "[%s] Manual flush finished, status: %s\n",
                  cfh->GetName().c_str(), s.ToString().c_str());
   return s;
 }
 
-Status DBImpl::FlushAllCFs(FlushReason flush_reason) {
+Status DBImpl::Flush(const FlushOptions& flush_options,
+                     const std::vector<ColumnFamilyHandle*>& column_families) {
   Status s;
-  WriteContext context;
-  WriteThread::Writer w;
-
-  mutex_.AssertHeld();
-  write_thread_.EnterUnbatched(&w, &mutex_);
-
-  FlushRequest flush_req;
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
-        cached_recoverable_state_empty_.load()) {
-      // Nothing to flush
-      continue;
-    }
-
-    // SwitchMemtable() will release and reacquire mutex during execution
-    s = SwitchMemtable(cfd, &context);
-    if (!s.ok()) {
-      break;
-    }
-
-    cfd->imm()->FlushRequested();
-
-    flush_req.emplace_back(cfd, cfd->imm()->GetLatestMemTableID());
-  }
-
-  // schedule flush
-  if (s.ok() && !flush_req.empty()) {
-    SchedulePendingFlush(flush_req, flush_reason);
-    MaybeScheduleFlushOrCompaction();
-  }
-
-  write_thread_.ExitUnbatched(&w);
-
-  if (s.ok()) {
-    for (auto& flush : flush_req) {
-      auto cfd = flush.first;
-      auto flush_memtable_id = flush.second;
-      while (cfd->imm()->NumNotFlushed() > 0 &&
-             cfd->imm()->GetEarliestMemTableID() <= flush_memtable_id) {
-        if (!error_handler_.GetRecoveryError().ok()) {
-          break;
-        }
-        if (cfd->IsDropped()) {
-          // FlushJob cannot flush a dropped CF, if we did not break here
-          // we will loop forever since cfd->imm()->NumNotFlushed() will never
-          // drop to zero
-          continue;
-        }
-        cfd->Ref();
-        bg_cv_.Wait();
-        cfd->Unref();
+  if (!atomic_flush_) {
+    for (auto cfh : column_families) {
+      s = Flush(flush_options, cfh);
+      if (!s.ok()) {
+        break;
       }
     }
+  } else {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Manual atomic flush start.\n"
+                   "=====Column families:=====");
+    for (auto cfh : column_families) {
+      auto cfhi = static_cast<ColumnFamilyHandleImpl*>(cfh);
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "%s",
+                     cfhi->GetName().c_str());
+    }
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "=====End of column families list=====");
+    autovector<ColumnFamilyData*> cfds;
+    std::for_each(column_families.begin(), column_families.end(),
+                  [&cfds](ColumnFamilyHandle* elem) {
+                    auto cfh = static_cast<ColumnFamilyHandleImpl*>(elem);
+                    cfds.emplace_back(cfh->cfd());
+                  });
+    s = AtomicFlushMemTables(cfds, flush_options, FlushReason::kManualFlush);
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Manual atomic flush finished, status: %s\n",
+                   "=====Column families:=====", s.ToString().c_str());
+    for (auto cfh : column_families) {
+      auto cfhi = static_cast<ColumnFamilyHandleImpl*>(cfh);
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "%s",
+                     cfhi->GetName().c_str());
+    }
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "=====End of column families list=====");
   }
-
-  flush_req.clear();
   return s;
 }
 
@@ -1364,6 +1381,19 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   return manual.status;
 }
 
+void DBImpl::GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
+                                  FlushRequest* req) {
+  assert(req != nullptr);
+  for (const auto cfd : cfds) {
+    if (nullptr == cfd) {
+      // cfd may be null, see DBImpl::ScheduleFlushes
+      continue;
+    }
+    uint64_t max_memtable_id = cfd->imm()->GetLatestMemTableID();
+    req->emplace_back(cfd, max_memtable_id);
+  }
+}
+
 Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options,
                              FlushReason flush_reason, bool writes_stopped) {
@@ -1415,9 +1445,86 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       cfds.push_back(iter.first);
       flush_memtable_ids.push_back(&(iter.second));
     }
-    s = WaitForFlushMemTables(cfds, flush_memtable_ids);
+    s = WaitForFlushMemTables(cfds, flush_memtable_ids,
+                              (flush_reason == FlushReason::kErrorRecovery));
   }
   TEST_SYNC_POINT("FlushMemTableFinished");
+  return s;
+}
+
+// Flush all elments in 'column_family_datas'
+// and atomically record the result to the MANIFEST.
+Status DBImpl::AtomicFlushMemTables(
+    const autovector<ColumnFamilyData*>& column_family_datas,
+    const FlushOptions& flush_options, FlushReason flush_reason,
+    bool writes_stopped) {
+  Status s;
+  if (!flush_options.allow_write_stall) {
+    int num_cfs_to_flush = 0;
+    for (auto cfd : column_family_datas) {
+      bool flush_needed = true;
+      s = WaitUntilFlushWouldNotStallWrites(cfd, &flush_needed);
+      if (!s.ok()) {
+        return s;
+      } else if (flush_needed) {
+        ++num_cfs_to_flush;
+      }
+    }
+    if (0 == num_cfs_to_flush) {
+      return s;
+    }
+  }
+  FlushRequest flush_req;
+  autovector<ColumnFamilyData*> cfds;
+  {
+    WriteContext context;
+    InstrumentedMutexLock guard_lock(&mutex_);
+
+    WriteThread::Writer w;
+    if (!writes_stopped) {
+      write_thread_.EnterUnbatched(&w, &mutex_);
+    }
+
+    for (auto cfd : column_family_datas) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
+      if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
+          !cached_recoverable_state_empty_.load()) {
+        cfds.emplace_back(cfd);
+      }
+    }
+    for (auto cfd : cfds) {
+      cfd->Ref();
+      s = SwitchMemtable(cfd, &context);
+      cfd->Unref();
+      if (!s.ok()) {
+        break;
+      }
+    }
+    if (s.ok()) {
+      AssignAtomicFlushSeq(cfds);
+      for (auto cfd : cfds) {
+        cfd->imm()->FlushRequested();
+      }
+      GenerateFlushRequest(cfds, &flush_req);
+      SchedulePendingFlush(flush_req, flush_reason);
+      MaybeScheduleFlushOrCompaction();
+    }
+
+    if (!writes_stopped) {
+      write_thread_.ExitUnbatched(&w);
+    }
+  }
+
+  if (s.ok() && flush_options.wait) {
+    autovector<const uint64_t*> flush_memtable_ids;
+    for (auto& iter : flush_req) {
+      flush_memtable_ids.push_back(&(iter.second));
+    }
+    s = WaitForFlushMemTables(cfds, flush_memtable_ids,
+                              (flush_reason == FlushReason::kErrorRecovery));
+  }
   return s;
 }
 
@@ -1492,15 +1599,24 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
 //  2) if flush_memtable_ids[i] is null, then all memtables in THIS column
 //     family have to be flushed.
 // Finish waiting when ALL column families finish flushing memtables.
+// resuming_from_bg_err indicates whether the caller is trying to resume from
+// background error or in normal processing.
 Status DBImpl::WaitForFlushMemTables(
     const autovector<ColumnFamilyData*>& cfds,
-    const autovector<const uint64_t*>& flush_memtable_ids) {
+    const autovector<const uint64_t*>& flush_memtable_ids,
+    bool resuming_from_bg_err) {
   int num = static_cast<int>(cfds.size());
   // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
-  while (!error_handler_.IsDBStopped()) {
+  // If the caller is trying to resume from bg error, then
+  // error_handler_.IsDBStopped() is true.
+  while (resuming_from_bg_err || !error_handler_.IsDBStopped()) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();
+    }
+    // If an error has occurred during resumption, then no need to wait.
+    if (!error_handler_.GetRecoveryError().ok()) {
+      break;
     }
     // Number of column families that have been dropped.
     int num_dropped = 0;
@@ -1527,7 +1643,9 @@ Status DBImpl::WaitForFlushMemTables(
     bg_cv_.Wait();
   }
   Status s;
-  if (error_handler_.IsDBStopped()) {
+  // If not resuming from bg error, and an error has caused the DB to stop,
+  // then report the bg error to caller.
+  if (!resuming_from_bg_err && error_handler_.IsDBStopped()) {
     s = error_handler_.GetBGError();
   }
   return s;
@@ -1867,6 +1985,7 @@ void DBImpl::BackgroundCallFlush() {
       mutex_.Lock();
     }
 
+    TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:FlushFinish:0");
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
     // If flush failed, we want to delete all temporary files that we might have

@@ -799,6 +799,8 @@ class DBTestBase : public testing::Test {
 
   Status Flush(int cf = 0);
 
+  Status Flush(const std::vector<int>& cf_ids);
+
   Status Put(const Slice& k, const Slice& v, WriteOptions wo = WriteOptions());
 
   Status Put(int cf, const Slice& k, const Slice& v,

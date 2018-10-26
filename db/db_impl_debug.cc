@@ -123,7 +123,7 @@ Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
     cfd = cfh->cfd();
   }
-  return WaitForFlushMemTable(cfd);
+  return WaitForFlushMemTable(cfd, nullptr, false);
 }
 
 Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {

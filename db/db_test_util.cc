@@ -646,6 +646,13 @@ Status DBTestBase::Flush(int cf) {
   }
 }
 
+Status DBTestBase::Flush(const std::vector<int>& cf_ids) {
+  std::vector<ColumnFamilyHandle*> cfhs;
+  std::for_each(cf_ids.begin(), cf_ids.end(),
+                [&cfhs, this](int id) { cfhs.emplace_back(handles_[id]); });
+  return db_->Flush(FlushOptions(), cfhs);
+}
+
 Status DBTestBase::Put(const Slice& k, const Slice& v, WriteOptions wo) {
   if (kMergePut == option_config_) {
     return db_->Merge(wo, k, v);

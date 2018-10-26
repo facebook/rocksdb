@@ -228,6 +228,9 @@ class DBImpl : public DB {
   using DB::Flush;
   virtual Status Flush(const FlushOptions& options,
                        ColumnFamilyHandle* column_family) override;
+  virtual Status Flush(
+      const FlushOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families) override;
   virtual Status FlushWAL(bool sync) override;
   bool TEST_WALBufferIsEmpty();
   virtual Status SyncWAL() override;
@@ -965,9 +968,16 @@ class DBImpl : public DB {
 
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
+  void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds);
+
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
                        FlushReason flush_reason, bool writes_stopped = false);
+
+  Status AtomicFlushMemTables(
+      const autovector<ColumnFamilyData*>& column_family_datas,
+      const FlushOptions& options, FlushReason flush_reason,
+      bool writes_stopped = false);
 
   // Wait until flushing this column family won't stall writes
   Status WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
@@ -977,14 +987,22 @@ class DBImpl : public DB {
   // If flush_memtable_id is non-null, wait until the memtable with the ID
   // gets flush. Otherwise, wait until the column family don't have any
   // memtable pending flush.
+  // resuming_from_bg_err indicates whether the caller is attempting to resume
+  // from background error.
   Status WaitForFlushMemTable(ColumnFamilyData* cfd,
-                              const uint64_t* flush_memtable_id = nullptr) {
-    return WaitForFlushMemTables({cfd}, {flush_memtable_id});
+                              const uint64_t* flush_memtable_id = nullptr,
+                              bool resuming_from_bg_err = false) {
+    return WaitForFlushMemTables({cfd}, {flush_memtable_id},
+                                 resuming_from_bg_err);
   }
   // Wait for memtables to be flushed for multiple column families.
   Status WaitForFlushMemTables(
       const autovector<ColumnFamilyData*>& cfds,
-      const autovector<const uint64_t*>& flush_memtable_ids);
+      const autovector<const uint64_t*>& flush_memtable_ids,
+      bool resuming_from_bg_err);
+
+  // REQUIRES: mutex locked and in write thread.
+  void AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds);
 
   // REQUIRES: mutex locked
   Status SwitchWAL(WriteContext* write_context);
@@ -1049,6 +1067,9 @@ class DBImpl : public DB {
   // column families in this request, this flush is considered complete.
   typedef std::vector<std::pair<ColumnFamilyData*, uint64_t>> FlushRequest;
 
+  void GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
+                            FlushRequest* req);
+
   void SchedulePendingFlush(const FlushRequest& req, FlushReason flush_reason);
 
   void SchedulePendingCompaction(ColumnFamilyData* cfd);
@@ -1108,8 +1129,6 @@ class DBImpl : public DB {
   Directory* GetDataDir(ColumnFamilyData* cfd, size_t path_id) const;
 
   Status CloseHelper();
-
-  Status FlushAllCFs(FlushReason flush_reason);
 
   void WaitForBackgroundWork();
 
@@ -1583,6 +1602,9 @@ class DBImpl : public DB {
   bool closed_;
 
   ErrorHandler error_handler_;
+
+  // True if DB enables atomic flush.
+  bool atomic_flush_;
 
   // True if the DB is committing atomic flush.
   // TODO (yanqin) the current impl assumes that the entire DB belongs to

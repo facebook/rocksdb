@@ -2659,6 +2659,11 @@ class ModelDB : public DB {
     Status ret;
     return ret;
   }
+  virtual Status Flush(
+      const rocksdb::FlushOptions& /*options*/,
+      const std::vector<ColumnFamilyHandle*>& /*column_families*/) override {
+    return Status::OK();
+  }
 
   virtual Status SyncWAL() override { return Status::OK(); }
 
