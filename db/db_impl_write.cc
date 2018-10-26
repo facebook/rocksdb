@@ -1015,20 +1015,14 @@ Status DBImpl::WriteRecoverableState() {
 }
 
 void DBImpl::SelectColumnFamiliesForAtomicFlush(
-    autovector<ColumnFamilyData*>* cfds, bool check_immutable_memtables) {
+    autovector<ColumnFamilyData*>* cfds) {
   for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
       continue;
     }
-    if (check_immutable_memtables) {
-      if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
-          !cached_recoverable_state_empty_.load()) {
-        cfds->push_back(cfd);
-      }
-    } else {
-      if (!cfd->mem()->IsEmpty()) {
-        cfds->push_back(cfd);
-      }
+    if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
+        !cached_recoverable_state_empty_.load()) {
+      cfds->push_back(cfd);
     }
   }
 }
@@ -1092,7 +1086,7 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
   // happen while we're in the write thread
   autovector<ColumnFamilyData*> cfds;
   if (atomic_flush_) {
-    SelectColumnFamiliesForAtomicFlush(&cfds, true);
+    SelectColumnFamiliesForAtomicFlush(&cfds);
   } else {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->IsDropped()) {
@@ -1146,7 +1140,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   // happen while we're in the write thread
   autovector<ColumnFamilyData*> cfds;
   if (atomic_flush_) {
-    SelectColumnFamiliesForAtomicFlush(&cfds, false);
+    SelectColumnFamiliesForAtomicFlush(&cfds);
   } else {
     ColumnFamilyData* cfd_picked = nullptr;
     SequenceNumber seq_num_for_cf_picked = kMaxSequenceNumber;
@@ -1311,7 +1305,7 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
   autovector<ColumnFamilyData*> cfds;
   if (atomic_flush_) {
-    SelectColumnFamiliesForAtomicFlush(&cfds, false);
+    SelectColumnFamiliesForAtomicFlush(&cfds);
     for (auto cfd : cfds) {
       cfd->Ref();
     }

@@ -311,7 +311,7 @@ Status DBImpl::ResumeImpl() {
     flush_opts.allow_write_stall = true;
     if (atomic_flush_) {
       autovector<ColumnFamilyData*> cfds;
-      SelectColumnFamiliesForAtomicFlush(&cfds, true);
+      SelectColumnFamiliesForAtomicFlush(&cfds);
       mutex_.Unlock();
       s = AtomicFlushMemTables(cfds, flush_opts, FlushReason::kErrorRecovery);
       mutex_.Lock();
@@ -403,7 +403,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
       !mutable_db_options_.avoid_flush_during_shutdown) {
     if (atomic_flush_) {
       autovector<ColumnFamilyData*> cfds;
-      SelectColumnFamiliesForAtomicFlush(&cfds, true);
+      SelectColumnFamiliesForAtomicFlush(&cfds);
       mutex_.Unlock();
       AtomicFlushMemTables(cfds, FlushOptions(), FlushReason::kShutDown);
       mutex_.Lock();
@@ -3134,7 +3134,7 @@ Status DBImpl::IngestExternalFile(
         if (atomic_flush_) {
           mutex_.Unlock();
           autovector<ColumnFamilyData*> cfds;
-          SelectColumnFamiliesForAtomicFlush(&cfds, true);
+          SelectColumnFamiliesForAtomicFlush(&cfds);
           status = AtomicFlushMemTables(cfds, FlushOptions(),
                                         FlushReason::kExternalFileIngestion,
                                         true /* writes_stopped */);

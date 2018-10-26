@@ -568,7 +568,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     fo.allow_write_stall = options.allow_write_stall;
     if (atomic_flush_) {
       autovector<ColumnFamilyData*> cfds;
-      SelectColumnFamiliesForAtomicFlush(&cfds, true);
+      SelectColumnFamiliesForAtomicFlush(&cfds);
       s = AtomicFlushMemTables(cfds, fo, FlushReason::kManualCompaction,
                                false /* writes_stopped */);
     } else {

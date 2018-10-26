@@ -89,7 +89,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
     Status status;
     if (atomic_flush_) {
       autovector<ColumnFamilyData*> cfds;
-      SelectColumnFamiliesForAtomicFlush(&cfds, true);
+      SelectColumnFamiliesForAtomicFlush(&cfds);
       mutex_.Unlock();
       status = AtomicFlushMemTables(cfds, FlushOptions(),
                                     FlushReason::kGetLiveFiles);
