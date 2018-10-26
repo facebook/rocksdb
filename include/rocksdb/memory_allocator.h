@@ -6,7 +6,7 @@
 #pragma once
 
 // MemoryAllocator is an interface that a client can implement to supply custom
-// cache allocation and deallocation methods. See rocksdb/cache.h for more
+// memory allocation and deallocation methods. See rocksdb/cache.h for more
 // information.
 // All methods should be thread-safe.
 class MemoryAllocator {
