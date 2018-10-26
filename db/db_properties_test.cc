@@ -170,6 +170,8 @@ void ResetTableProperties(TableProperties* tp) {
   tp->raw_value_size = 0;
   tp->num_data_blocks = 0;
   tp->num_entries = 0;
+  tp->num_deletions = 0;
+  tp->num_merge_operands = 0;
   tp->num_range_deletions = 0;
 }
 
@@ -179,17 +181,19 @@ void ParseTablePropertiesString(std::string tp_string, TableProperties* tp) {
   std::replace(tp_string.begin(), tp_string.end(), '=', ' ');
   ResetTableProperties(tp);
   sscanf(tp_string.c_str(),
-         "# data blocks %" SCNu64 " # entries %" SCNu64
-         " # range deletions %" SCNu64 " raw key size %" SCNu64
+         "# data blocks %" SCNu64 " # entries %" SCNu64 " # deletions %" SCNu64
+         " # merge operands %" SCNu64 " # range deletions %" SCNu64
+         " raw key size %" SCNu64
          " raw average key size %lf "
          " raw value size %" SCNu64
          " raw average value size %lf "
          " data block size %" SCNu64 " index block size (user-key? %" SCNu64
          ", delta-value? %" SCNu64 ") %" SCNu64 " filter block size %" SCNu64,
-         &tp->num_data_blocks, &tp->num_entries, &tp->num_range_deletions,
-         &tp->raw_key_size, &dummy_double, &tp->raw_value_size, &dummy_double,
-         &tp->data_size, &tp->index_key_is_user_key,
-         &tp->index_value_is_delta_encoded, &tp->index_size, &tp->filter_size);
+         &tp->num_data_blocks, &tp->num_entries, &tp->num_deletions,
+         &tp->num_merge_operands, &tp->num_range_deletions, &tp->raw_key_size,
+         &dummy_double, &tp->raw_value_size, &dummy_double, &tp->data_size,
+         &tp->index_key_is_user_key, &tp->index_value_is_delta_encoded,
+         &tp->index_size, &tp->filter_size);
 }
 
 void VerifySimilar(uint64_t a, uint64_t b, double bias) {
@@ -217,28 +221,43 @@ void VerifyTableProperties(const TableProperties& base_tp,
   VerifySimilar(base_tp.filter_size, new_tp.filter_size, filter_size_bias);
   VerifySimilar(base_tp.num_data_blocks, new_tp.num_data_blocks,
                 num_data_blocks_bias);
+
   ASSERT_EQ(base_tp.raw_key_size, new_tp.raw_key_size);
   ASSERT_EQ(base_tp.raw_value_size, new_tp.raw_value_size);
   ASSERT_EQ(base_tp.num_entries, new_tp.num_entries);
+  ASSERT_EQ(base_tp.num_deletions, new_tp.num_deletions);
   ASSERT_EQ(base_tp.num_range_deletions, new_tp.num_range_deletions);
+
+  // Merge operands may become Puts, so we only have an upper bound the exact
+  // number of merge operands.
+  ASSERT_GE(base_tp.num_merge_operands, new_tp.num_merge_operands);
 }
 
 void GetExpectedTableProperties(
     TableProperties* expected_tp, const int kKeySize, const int kValueSize,
-    const int kKeysPerTable, const int kRangeDeletionsPerTable,
+    const int kPutsPerTable, const int kDeletionsPerTable,
+    const int kMergeOperandsPerTable, const int kRangeDeletionsPerTable,
     const int kTableCount, const int kBloomBitsPerKey, const size_t kBlockSize,
     const bool index_key_is_user_key, const bool value_delta_encoding) {
-  const int kKeyCount = kTableCount * kKeysPerTable;
+  const int kKeysPerTable =
+      kPutsPerTable + kDeletionsPerTable + kMergeOperandsPerTable;
+  const int kPutCount = kTableCount * kPutsPerTable;
+  const int kDeletionCount = kTableCount * kDeletionsPerTable;
+  const int kMergeCount = kTableCount * kMergeOperandsPerTable;
   const int kRangeDeletionCount = kTableCount * kRangeDeletionsPerTable;
+  const int kKeyCount = kPutCount + kDeletionCount + kMergeCount;
   const int kAvgSuccessorSize = kKeySize / 5;
   const int kEncodingSavePerKey = kKeySize / 4;
-  expected_tp->raw_key_size = (kKeyCount + kRangeDeletionCount) * (kKeySize + 8);
-  expected_tp->raw_value_size = (kKeyCount + kRangeDeletionCount) * kValueSize;
+  expected_tp->raw_key_size =
+      (kKeyCount + kRangeDeletionCount) * (kKeySize + 8);
+  expected_tp->raw_value_size =
+      (kPutCount + kMergeCount + kRangeDeletionCount) * kValueSize;
   expected_tp->num_entries = kKeyCount;
+  expected_tp->num_deletions = kDeletionCount;
+  expected_tp->num_merge_operands = kMergeCount;
   expected_tp->num_range_deletions = kRangeDeletionCount;
   expected_tp->num_data_blocks =
-      kTableCount *
-      (kKeysPerTable * (kKeySize - kEncodingSavePerKey + kValueSize)) /
+      kTableCount * (kKeysPerTable * (kKeySize - kEncodingSavePerKey + kValueSize)) /
       kBlockSize;
   expected_tp->data_size =
       kTableCount * (kKeysPerTable * (kKeySize + 8 + kValueSize));
@@ -298,8 +317,10 @@ TEST_F(DBPropertiesTest, ValidateSampleNumber) {
 
 TEST_F(DBPropertiesTest, AggregatedTableProperties) {
   for (int kTableCount = 40; kTableCount <= 100; kTableCount += 30) {
+    const int kDeletionsPerTable = 5;
+    const int kMergeOperandsPerTable = 15;
     const int kRangeDeletionsPerTable = 5;
-    const int kKeysPerTable = 100;
+    const int kPutsPerTable = 100;
     const int kKeySize = 80;
     const int kValueSize = 200;
     const int kBloomBitsPerKey = 20;
@@ -308,6 +329,8 @@ TEST_F(DBPropertiesTest, AggregatedTableProperties) {
     options.level0_file_num_compaction_trigger = 8;
     options.compression = kNoCompression;
     options.create_if_missing = true;
+    options.preserve_deletes = true;
+    options.merge_operator.reset(new TestPutOperator());
 
     BlockBasedTableOptions table_options;
     table_options.filter_policy.reset(
@@ -323,9 +346,16 @@ TEST_F(DBPropertiesTest, AggregatedTableProperties) {
 
     Random rnd(5632);
     for (int table = 1; table <= kTableCount; ++table) {
-      for (int i = 0; i < kKeysPerTable; ++i) {
+      for (int i = 0; i < kPutsPerTable; ++i) {
         db_->Put(WriteOptions(), RandomString(&rnd, kKeySize),
                  RandomString(&rnd, kValueSize));
+      }
+      for (int i = 0; i < kDeletionsPerTable; i++) {
+        db_->Delete(WriteOptions(), RandomString(&rnd, kKeySize));
+      }
+      for (int i = 0; i < kMergeOperandsPerTable; i++) {
+        db_->Merge(WriteOptions(), RandomString(&rnd, kKeySize),
+                   RandomString(&rnd, kValueSize));
       }
       for (int i = 0; i < kRangeDeletionsPerTable; i++) {
         std::string start = RandomString(&rnd, kKeySize);
@@ -343,11 +373,11 @@ TEST_F(DBPropertiesTest, AggregatedTableProperties) {
     bool value_is_delta_encoded = output_tp.index_value_is_delta_encoded > 0;
 
     TableProperties expected_tp;
-    GetExpectedTableProperties(&expected_tp, kKeySize, kValueSize,
-                               kKeysPerTable, kRangeDeletionsPerTable,
-                               kTableCount, kBloomBitsPerKey,
-                               table_options.block_size, index_key_is_user_key,
-                               value_is_delta_encoded);
+    GetExpectedTableProperties(
+        &expected_tp, kKeySize, kValueSize, kPutsPerTable, kDeletionsPerTable,
+        kMergeOperandsPerTable, kRangeDeletionsPerTable, kTableCount,
+        kBloomBitsPerKey, table_options.block_size, index_key_is_user_key,
+        value_is_delta_encoded);
 
     VerifyTableProperties(expected_tp, output_tp);
   }
@@ -469,8 +499,10 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
 
 TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   const int kTableCount = 100;
+  const int kDeletionsPerTable = 2;
+  const int kMergeOperandsPerTable = 2;
   const int kRangeDeletionsPerTable = 2;
-  const int kKeysPerTable = 10;
+  const int kPutsPerTable = 10;
   const int kKeySize = 50;
   const int kValueSize = 400;
   const int kMaxLevel = 7;
@@ -486,6 +518,8 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   options.max_bytes_for_level_multiplier = 2;
   // This ensures there no compaction happening when we call GetProperty().
   options.disable_auto_compactions = true;
+  options.preserve_deletes = true;
+  options.merge_operator.reset(new TestPutOperator());
 
   BlockBasedTableOptions table_options;
   table_options.filter_policy.reset(
@@ -503,9 +537,16 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   TableProperties level_tps[kMaxLevel];
   TableProperties tp, sum_tp, expected_tp;
   for (int table = 1; table <= kTableCount; ++table) {
-    for (int i = 0; i < kKeysPerTable; ++i) {
+    for (int i = 0; i < kPutsPerTable; ++i) {
       db_->Put(WriteOptions(), RandomString(&rnd, kKeySize),
                RandomString(&rnd, kValueSize));
+    }
+    for (int i = 0; i < kDeletionsPerTable; i++) {
+      db_->Delete(WriteOptions(), RandomString(&rnd, kKeySize));
+    }
+    for (int i = 0; i < kMergeOperandsPerTable; i++) {
+      db_->Merge(WriteOptions(), RandomString(&rnd, kKeySize),
+                 RandomString(&rnd, kValueSize));
     }
     for (int i = 0; i < kRangeDeletionsPerTable; i++) {
       std::string start = RandomString(&rnd, kKeySize);
@@ -528,6 +569,8 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
       sum_tp.raw_value_size += level_tps[level].raw_value_size;
       sum_tp.num_data_blocks += level_tps[level].num_data_blocks;
       sum_tp.num_entries += level_tps[level].num_entries;
+      sum_tp.num_deletions += level_tps[level].num_deletions;
+      sum_tp.num_merge_operands += level_tps[level].num_merge_operands;
       sum_tp.num_range_deletions += level_tps[level].num_range_deletions;
     }
     db_->GetProperty(DB::Properties::kAggregatedTableProperties, &tp_string);
@@ -541,12 +584,15 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
     ASSERT_EQ(sum_tp.raw_value_size, tp.raw_value_size);
     ASSERT_EQ(sum_tp.num_data_blocks, tp.num_data_blocks);
     ASSERT_EQ(sum_tp.num_entries, tp.num_entries);
+    ASSERT_EQ(sum_tp.num_deletions, tp.num_deletions);
+    ASSERT_EQ(sum_tp.num_merge_operands, tp.num_merge_operands);
     ASSERT_EQ(sum_tp.num_range_deletions, tp.num_range_deletions);
     if (table > 3) {
-      GetExpectedTableProperties(&expected_tp, kKeySize, kValueSize,
-                                 kKeysPerTable, kRangeDeletionsPerTable, table,
-                                 kBloomBitsPerKey, table_options.block_size,
-                                 index_key_is_user_key, value_is_delta_encoded);
+      GetExpectedTableProperties(
+          &expected_tp, kKeySize, kValueSize, kPutsPerTable, kDeletionsPerTable,
+          kMergeOperandsPerTable, kRangeDeletionsPerTable, table,
+          kBloomBitsPerKey, table_options.block_size, index_key_is_user_key,
+          value_is_delta_encoded);
       // Gives larger bias here as index block size, filter block size,
       // and data block size become much harder to estimate in this test.
       VerifyTableProperties(expected_tp, tp, 0.5, 0.4, 0.4, 0.25);

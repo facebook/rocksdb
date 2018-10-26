@@ -450,6 +450,11 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
     r->props.num_entries++;
     r->props.raw_key_size += key.size();
     r->props.raw_value_size += value.size();
+    if (value_type == kTypeDeletion || value_type == kTypeSingleDeletion) {
+      r->props.num_deletions++;
+    } else if (value_type == kTypeMerge) {
+      r->props.num_merge_operands++;
+    }
 
     r->index_builder->OnKeyAdded(key);
     NotifyCollectTableCollectorsOnAdd(key, value, r->offset,
