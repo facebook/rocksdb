@@ -1165,6 +1165,9 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   }
 
   for (const auto cfd : cfds) {
+    if (cfd->mem()->IsEmpty()) {
+      continue;
+    }
     cfd->Ref();
     status = SwitchMemtable(cfd, write_context);
     cfd->Unref();
@@ -1318,7 +1321,9 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
   }
   Status status;
   for (auto& cfd : cfds) {
-    status = SwitchMemtable(cfd, context);
+    if (!cfd->mem()->IsEmpty()) {
+      status = SwitchMemtable(cfd, context);
+    }
     if (cfd->Unref()) {
       delete cfd;
       cfd = nullptr;
