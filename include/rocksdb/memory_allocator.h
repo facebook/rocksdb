@@ -36,9 +36,24 @@ class MemoryAllocator {
   }
 };
 
+namespace jemalloc {
+
+enum class PerCPUArena : int {
+  kDisabled = 0,
+  kPerCPU = 1,
+  kPerPhysicalCPU = 2,
+};
+
+struct JemallocAllocatorOptions {
+  PerCPUArena per_cpu_arena;
+};
+
 // Generate cache allocators which allocates through Jemalloc and utilize
 // MADV_DONTDUMP through madvice to exclude cache items from core dump.
 extern Status NewJemallocNodumpAllocator(
+    const jemalloc::JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator);
+
+}  // namespace jemalloc
 
 }  // namespace rocksdb

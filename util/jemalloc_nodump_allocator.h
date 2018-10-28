@@ -6,7 +6,9 @@
 #pragma once
 
 #include <atomic>
+#include <vector>
 
+#include "port/port.h"
 #include "rocksdb/memory_allocator.h"
 
 #if defined(ROCKSDB_JEMALLOC) && defined(ROCKSDB_PLATFORM_POSIX)
@@ -18,11 +20,14 @@
 #define ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 
 namespace rocksdb {
+namespace jemalloc {
 
 class JemallocNodumpAllocator : public MemoryAllocator {
  public:
-  JemallocNodumpAllocator(unsigned arena_index, int flags,
-                          std::unique_ptr<extent_hooks_t>&& hooks);
+  JemallocNodumpAllocator(
+      PerCPUArena per_cpu_arena, unsigned num_cpus,
+      std::vector<std::unique_ptr<extent_hooks_t>>&& arena_hooks,
+      std::vector<unsigned>&& arena_indices);
   ~JemallocNodumpAllocator();
 
   const char* Name() const override { return "JemallocNodumpAllocator"; }
@@ -32,12 +37,15 @@ class JemallocNodumpAllocator : public MemoryAllocator {
 
  private:
   friend Status NewJemallocNodumpAllocator(
+      const jemalloc::JemallocAllocatorOptions& options,
       std::shared_ptr<MemoryAllocator>* memory_allocator);
 
   // Custom alloc hook to replace jemalloc default alloc.
   static void* Alloc(extent_hooks_t* extent, void* new_addr, size_t size,
                      size_t alignment, bool* zero, bool* commit,
                      unsigned arena_ind);
+
+  static Status DestroyArena(unsigned arena_index);
 
   // A function pointer to jemalloc default alloc. Use atomic to make sure
   // NewJemallocNodumpAllocator is thread-safe.
@@ -46,11 +54,14 @@ class JemallocNodumpAllocator : public MemoryAllocator {
   // alloc needs to be static to pass to jemalloc as function pointer.
   static std::atomic<extent_alloc_t*> original_alloc_;
 
-  unsigned arena_index_;
-  int flags_;
-  const std::unique_ptr<extent_hooks_t> hooks_;
+  const PerCPUArena per_cpu_arena_;
+  const unsigned num_cpus_;
+  // Custom hooks has to outlive corresponding arena.
+  const std::vector<std::unique_ptr<extent_hooks_t>> arena_hooks_;
+  const std::vector<unsigned> arena_indices_;
 };
 
+}  // namespace jemalloc
 }  // namespace rocksdb
 #endif  // (JEMALLOC_VERSION_MAJOR >= 5) && MADV_DONTDUMP
 #endif  // ROCKSDB_JEMALLOC && ROCKSDB_PLATFORM_POSIX
