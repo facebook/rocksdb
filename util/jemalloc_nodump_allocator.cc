@@ -38,7 +38,7 @@ JemallocNodumpAllocator::JemallocNodumpAllocator(
       break;
   }
   assert(arena_hooks.size() == arena_indices.size());
-  for (unsigned arena_index : arena_indices) {
+  for (unsigned __attribute__((__unused__)) arena_index : arena_indices) {
     assert(arena_index != 0);
   }
 }
