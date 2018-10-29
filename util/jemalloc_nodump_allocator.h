@@ -45,7 +45,11 @@ class JemallocNodumpAllocator : public MemoryAllocator {
                      size_t alignment, bool* zero, bool* commit,
                      unsigned arena_ind);
 
+  // Destroy arena on destruction of the allocator, or on failure.
   static Status DestroyArena(unsigned arena_index);
+
+  // Destroy tcache on destruction of the allocator, or thread exit.
+  static void DestroyThreadSpecificCache(void* ptr);
 
   // A function pointer to jemalloc default alloc. Use atomic to make sure
   // NewJemallocNodumpAllocator is thread-safe.
