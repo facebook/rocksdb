@@ -399,9 +399,6 @@ void TestInternalKeyPropertiesCollector(
     ImmutableCFOptions ioptions(options);
     GetIntTblPropCollectorFactory(ioptions, &int_tbl_prop_collector_factories);
     options.comparator = comparator;
-  } else {
-    int_tbl_prop_collector_factories.emplace_back(
-        new InternalKeyPropertiesCollectorFactory);
   }
   const ImmutableCFOptions ioptions(options);
   MutableCFOptions moptions(options);

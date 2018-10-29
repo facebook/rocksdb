@@ -11,52 +11,6 @@
 
 namespace rocksdb {
 
-Status InternalKeyPropertiesCollector::InternalAdd(const Slice& key,
-                                                   const Slice& /*value*/,
-                                                   uint64_t /*file_size*/) {
-  ParsedInternalKey ikey;
-  if (!ParseInternalKey(key, &ikey)) {
-    return Status::InvalidArgument("Invalid internal key");
-  }
-
-  // Note: We count both, deletions and single deletions here.
-  if (ikey.type == ValueType::kTypeDeletion ||
-      ikey.type == ValueType::kTypeSingleDeletion) {
-    ++deleted_keys_;
-  } else if (ikey.type == ValueType::kTypeMerge) {
-    ++merge_operands_;
-  }
-
-  return Status::OK();
-}
-
-Status InternalKeyPropertiesCollector::Finish(
-    UserCollectedProperties* properties) {
-  assert(properties);
-  assert(properties->find(TablePropertiesNames::kDeletedKeys) ==
-         properties->end());
-  assert(properties->find(TablePropertiesNames::kMergeOperands) ==
-         properties->end());
-
-  std::string val_deleted_keys;
-  PutVarint64(&val_deleted_keys, deleted_keys_);
-  properties->insert(
-      {TablePropertiesNames::kDeletedKeys, val_deleted_keys});
-
-  std::string val_merge_operands;
-  PutVarint64(&val_merge_operands, merge_operands_);
-  properties->insert(
-      {TablePropertiesNames::kMergeOperands, val_merge_operands});
-
-  return Status::OK();
-}
-
-UserCollectedProperties
-InternalKeyPropertiesCollector::GetReadableProperties() const {
-  return {{"kDeletedKeys", ToString(deleted_keys_)},
-          {"kMergeOperands", ToString(merge_operands_)}};
-}
-
 namespace {
 
 uint64_t GetUint64Property(const UserCollectedProperties& props,
