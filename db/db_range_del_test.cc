@@ -1389,6 +1389,85 @@ TEST_F(DBRangeDelTest, SnapshotPreventsDroppedKeys) {
   db_->ReleaseSnapshot(snapshot);
 }
 
+TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
+  // Adapted from
+  // https://github.com/cockroachdb/cockroach/blob/de8b3ea603dd1592d9dc26443c2cc92c356fbc2f/pkg/storage/engine/rocksdb_test.go#L1267-L1398.
+  // Regression test for issue where range tombstone was written to more files
+  // than necessary when it began exactly at the begin key in the next
+  // compaction output file.
+  const int kFileBytes = 1 << 20;
+  const int kValueBytes = 4 << 10;
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  // Have a bit of slack in the size limits since we enforce them more strictly
+  // when manually flushing/compacting.
+  options.max_compaction_bytes = 2 * kFileBytes;
+  options.target_file_size_base = 2 * kFileBytes;
+  options.write_buffer_size = 2 * kFileBytes;
+  Reopen(options);
+
+  Random rnd(301);
+  for (char first_char : {'a', 'b', 'c'}) {
+    for (int i = 0; i < kFileBytes / kValueBytes; ++i) {
+      std::string key(1, first_char);
+      key.append(Key(i));
+      std::string value = RandomString(&rnd, kValueBytes);
+      ASSERT_OK(Put(key, value));
+    }
+    db_->Flush(FlushOptions());
+    MoveFilesToLevel(2);
+  }
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(3, NumTableFilesAtLevel(2));
+
+  // Populate the memtable lightly while spanning the whole key-space. The
+  // setting of `max_compaction_bytes` will cause the L0->L1 to output multiple
+  // files to prevent a large L1->L2 compaction later.
+  ASSERT_OK(Put("a", "val"));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             "c" + Key(1), "d"));
+  ASSERT_OK(Put("c" + Key(1), "value"));
+  db_->Flush(FlushOptions());
+
+  // Ensure manual L0->L1 compaction cuts the outputs before the range tombstone
+  // and the range tombstone is only placed in the second SST.
+  std::string begin_key_storage("c" + Key(1));
+  Slice begin_key(begin_key_storage);
+  std::string end_key_storage("d");
+  Slice end_key(end_key_storage);
+  dbfull()->TEST_CompactRange(0 /* level */, &begin_key /* begin */,
+                              &end_key /* end */, nullptr /* column_family */,
+                              true /* disallow_trivial_move */);
+  ASSERT_EQ(2, NumTableFilesAtLevel(1));
+
+  TablePropertiesCollection all_table_props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&all_table_props));
+  int num_range_deletions = 0;
+  for (const auto& name_and_table_props : all_table_props) {
+    num_range_deletions += name_and_table_props.second->num_range_deletions;
+  }
+  ASSERT_EQ(1, num_range_deletions);
+
+  std::vector<LiveFileMetaData> all_metadata;
+  std::vector<LiveFileMetaData> l1_metadata;
+  db_->GetLiveFilesMetaData(&all_metadata);
+  for (const auto& metadata : all_metadata) {
+    if (metadata.level == 1) {
+      l1_metadata.push_back(metadata);
+    }
+  }
+  std::sort(l1_metadata.begin(), l1_metadata.end(),
+            [&](const LiveFileMetaData& a, const LiveFileMetaData& b) {
+              return options.comparator->Compare(a.smallestkey, b.smallestkey) <
+                     0;
+            });
+  ASSERT_EQ("a", l1_metadata[0].smallestkey);
+  ASSERT_EQ("a", l1_metadata[0].largestkey);
+  ASSERT_EQ("c" + Key(1), l1_metadata[1].smallestkey);
+  ASSERT_EQ("d", l1_metadata[1].largestkey);
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
