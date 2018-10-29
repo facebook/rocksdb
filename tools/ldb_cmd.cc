@@ -2007,9 +2007,8 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
       // bogus input, carry on as best we can
       log_number = 0;
     }
-    log::Reader reader(options.info_log, std::move(wal_file_reader), &reporter,
-                       true /* checksum */, log_number,
-                       false /* retry_after_eof */);
+    log::Reader reader(options.info_log, std::move(wal_file_reader),
+                       &reporter, true /* checksum */, log_number);
     std::string scratch;
     WriteBatch batch;
     Slice record;
