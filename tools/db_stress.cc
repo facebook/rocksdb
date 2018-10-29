@@ -792,46 +792,36 @@ class Stats {
     }
   }
 
-  void AddBytesForWrites(int nwrites, size_t nbytes) {
+  void AddBytesForWrites(long nwrites, size_t nbytes) {
     writes_ += nwrites;
     bytes_ += nbytes;
   }
 
-  void AddGets(int ngets, int nfounds) {
+  void AddGets(long ngets, long nfounds) {
     founds_ += nfounds;
     gets_ += ngets;
   }
 
-  void AddPrefixes(int nprefixes, int count) {
+  void AddPrefixes(long nprefixes, long count) {
     prefixes_ += nprefixes;
     iterator_size_sums_ += count;
   }
 
-  void AddIterations(int n) {
-    iterations_ += n;
-  }
+  void AddIterations(long n) { iterations_ += n; }
 
-  void AddDeletes(int n) {
-    deletes_ += n;
-  }
+  void AddDeletes(long n) { deletes_ += n; }
 
   void AddSingleDeletes(size_t n) { single_deletes_ += n; }
 
-  void AddRangeDeletions(int n) {
-    range_deletions_ += n;
-  }
+  void AddRangeDeletions(long n) { range_deletions_ += n; }
 
-  void AddCoveredByRangeDeletions(int n) {
-    covered_by_range_deletions_ += n;
-  }
+  void AddCoveredByRangeDeletions(long n) { covered_by_range_deletions_ += n; }
 
-  void AddErrors(int n) {
-    errors_ += n;
-  }
+  void AddErrors(long n) { errors_ += n; }
 
-  void AddNumCompactFilesSucceed(int n) { num_compact_files_succeed_ += n; }
+  void AddNumCompactFilesSucceed(long n) { num_compact_files_succeed_ += n; }
 
-  void AddNumCompactFilesFailed(int n) { num_compact_files_failed_ += n; }
+  void AddNumCompactFilesFailed(long n) { num_compact_files_failed_ += n; }
 
   void Report(const char* name) {
     std::string extra;
@@ -2738,16 +2728,15 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     Iterator* iter = db_->NewIterator(ro_copy, cfh);
-    int64_t count = 0;
+    long count = 0;
     for (iter->Seek(prefix);
         iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
       ++count;
     }
-    assert(count <=
-        (static_cast<int64_t>(1) << ((8 - FLAGS_prefix_size) * 8)));
+    assert(count <= (static_cast<long>(1) << ((8 - FLAGS_prefix_size) * 8)));
     Status s = iter->status();
     if (iter->status().ok()) {
-      thread->stats.AddPrefixes(1, static_cast<int>(count));
+      thread->stats.AddPrefixes(1, count);
     } else {
       thread->stats.AddErrors(1);
     }
@@ -3277,7 +3266,7 @@ class BatchedOpsStressTest : public StressTest {
       iters[i]->Seek(prefix_slices[i]);
     }
 
-    int count = 0;
+    long count = 0;
     while (iters[0]->Valid() && iters[0]->key().starts_with(prefix_slices[0])) {
       count++;
       std::string values[10];
@@ -3364,7 +3353,7 @@ class AtomicFlushStressTest : public StressTest {
       fprintf(stderr, "multi put or merge error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     } else {
-      size_t num = rand_column_families.size();
+      auto num = static_cast<long>(rand_column_families.size());
       thread->stats.AddBytesForWrites(num, (sz + 1) * num);
     }
 
@@ -3387,7 +3376,7 @@ class AtomicFlushStressTest : public StressTest {
       fprintf(stderr, "multidel error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     } else {
-      thread->stats.AddDeletes(rand_column_families.size());
+      thread->stats.AddDeletes(static_cast<long>(rand_column_families.size()));
     }
     return s;
   }
@@ -3417,7 +3406,8 @@ class AtomicFlushStressTest : public StressTest {
       fprintf(stderr, "multi del range error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     } else {
-      thread->stats.AddRangeDeletions(rand_column_families.size());
+      thread->stats.AddRangeDeletions(
+          static_cast<long>(rand_column_families.size()));
     }
     return s;
   }
@@ -3473,15 +3463,15 @@ class AtomicFlushStressTest : public StressTest {
         column_families_[rand_column_families[thread->rand.Next() %
                                               rand_column_families.size()]];
     Iterator* iter = db_->NewIterator(ro_copy, cfh);
-    int64_t count = 0;
+    long count = 0;
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
          iter->Next()) {
       ++count;
     }
-    assert(count <= (static_cast<int64_t>(1) << ((8 - FLAGS_prefix_size) * 8)));
+    assert(count <= (static_cast<long>(1) << ((8 - FLAGS_prefix_size) * 8)));
     Status s = iter->status();
     if (s.ok()) {
-      thread->stats.AddPrefixes(1, static_cast<int>(count));
+      thread->stats.AddPrefixes(1, count);
     } else {
       thread->stats.AddErrors(1);
     }
