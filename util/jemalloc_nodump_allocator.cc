@@ -34,7 +34,7 @@ JemallocNodumpAllocator::JemallocNodumpAllocator(
       assert(arena_indices_.size() == num_cpus_);
       break;
     case PerCPUArena::kPerPhysicalCPU:
-      assert(arena_indices_.size() == num_cpus_ / 2);
+      assert(arena_indices_.size() == (num_cpus_ + 1) / 2);
       break;
   }
   assert(arena_hooks.size() == arena_indices.size());
@@ -52,10 +52,10 @@ void* JemallocNodumpAllocator::Allocate(size_t size) {
       // Failed to get CPU id.
       arena_id = 0;
     } else if (per_cpu_arena_ == PerCPUArena::kPerCPU ||
-               static_cast<unsigned>(cpu_id) < num_cpus_ / 2) {
+               static_cast<unsigned>(cpu_id) < (num_cpus_ + 1) / 2) {
       arena_id = static_cast<unsigned>(cpu_id);
     } else {
-      arena_id = static_cast<unsigned>(cpu_id) - num_cpus_ / 2;
+      arena_id = static_cast<unsigned>(cpu_id) - (num_cpus_ + 1) / 2;
     }
   }
   assert(arena_id < arena_indices_.size());
@@ -141,7 +141,9 @@ Status NewJemallocNodumpAllocator(
       num_arenas = num_cpus;
       break;
     case PerCPUArena::kPerPhysicalCPU:
-      num_arenas = num_cpus / 2;
+      // We don't verify if num_cpus is multiple of 2 in kPerPhysicalCPU
+      // mode. We simply handle the case when it is not.
+      num_arenas = (num_cpus + 1) / 2;
       break;
   }
   std::vector<std::unique_ptr<extent_hooks_t>> arena_hooks;
