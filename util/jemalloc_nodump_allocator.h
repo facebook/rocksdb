@@ -10,6 +10,7 @@
 
 #include "port/port.h"
 #include "rocksdb/memory_allocator.h"
+#include "util/thread_local.h"
 
 #if defined(ROCKSDB_JEMALLOC) && defined(ROCKSDB_PLATFORM_POSIX)
 
@@ -25,7 +26,7 @@ namespace jemalloc {
 class JemallocNodumpAllocator : public MemoryAllocator {
  public:
   JemallocNodumpAllocator(
-      PerCPUArena per_cpu_arena, unsigned num_cpus,
+      PerCPUArena per_cpu_arena, bool enable_tcache, unsigned num_cpus,
       std::vector<std::unique_ptr<extent_hooks_t>>&& arena_hooks,
       std::vector<unsigned>&& arena_indices);
   ~JemallocNodumpAllocator();
@@ -51,6 +52,10 @@ class JemallocNodumpAllocator : public MemoryAllocator {
   // Destroy tcache on destruction of the allocator, or thread exit.
   static void DestroyThreadSpecificCache(void* ptr);
 
+  // Get or create tcache. Return flag suitable to use with `mallocx`:
+  // either MALLOCX_TCACHE_NONE or MALLOCX_TCACHE(tc).
+  int GetThreadSpecificCache();
+
   // A function pointer to jemalloc default alloc. Use atomic to make sure
   // NewJemallocNodumpAllocator is thread-safe.
   //
@@ -59,10 +64,15 @@ class JemallocNodumpAllocator : public MemoryAllocator {
   static std::atomic<extent_alloc_t*> original_alloc_;
 
   const PerCPUArena per_cpu_arena_;
+  const bool enable_tcache_;
   const unsigned num_cpus_;
   // Custom hooks has to outlive corresponding arena.
   const std::vector<std::unique_ptr<extent_hooks_t>> arena_hooks_;
   const std::vector<unsigned> arena_indices_;
+
+  // Hold thread local tcache index, and virtually, reference to the
+  // tcache object.
+  ThreadLocalPtr tcache_;
 };
 
 }  // namespace jemalloc

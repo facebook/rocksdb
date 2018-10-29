@@ -19,13 +19,15 @@ namespace jemalloc {
 std::atomic<extent_alloc_t*> JemallocNodumpAllocator::original_alloc_{nullptr};
 
 JemallocNodumpAllocator::JemallocNodumpAllocator(
-    PerCPUArena per_cpu_arena, unsigned num_cpus,
+    PerCPUArena per_cpu_arena, bool enable_tcache, unsigned num_cpus,
     std::vector<std::unique_ptr<extent_hooks_t>>&& arena_hooks,
     std::vector<unsigned>&& arena_indices)
     : per_cpu_arena_(per_cpu_arena),
+      enable_tcache_(enable_tcache),
       num_cpus_(num_cpus),
       arena_hooks_(std::move(arena_hooks)),
-      arena_indices_(std::move(arena_indices)) {
+      arena_indices_(std::move(arena_indices)),
+      tcache_(&JemallocNodumpAllocator::DestroyThreadSpecificCache) {
   switch (per_cpu_arena) {
     case PerCPUArena::kDisabled:
       assert(arena_indices_.size() == 1);
@@ -43,7 +45,31 @@ JemallocNodumpAllocator::JemallocNodumpAllocator(
   }
 }
 
+int JemallocNodumpAllocator::GetThreadSpecificCache() {
+  if (!enable_tcache_) {
+    return MALLOCX_TCACHE_NONE;
+  }
+  unsigned* tcache_index = reinterpret_cast<unsigned*>(tcache_.Get());
+  if (tcache_index == nullptr) {
+    // Instantiate tcache.
+    tcache_index = new unsigned(0);
+    size_t tcache_index_size = sizeof(unsigned);
+    int ret =
+        mallctl("tcache.create", tcache_index, &tcache_index_size, nullptr, 0);
+    if (ret != 0) {
+      // No good way to expose the error. Silently disable tcache.
+      delete tcache_index;
+      return MALLOCX_TCACHE_NONE;
+    }
+    tcache_.Reset(static_cast<void*>(tcache_index));
+  }
+  return MALLOCX_TCACHE(*tcache_index);
+}
+
 void* JemallocNodumpAllocator::Allocate(size_t size) {
+  // Obtain tcache.
+  int tcache_flag = GetThreadSpecificCache();
+
   // Choose arena.
   unsigned arena_id = 0;
   if (per_cpu_arena_ != PerCPUArena::kDisabled) {
@@ -60,16 +86,17 @@ void* JemallocNodumpAllocator::Allocate(size_t size) {
   }
   assert(arena_id < arena_indices_.size());
   assert(arena_indices_[arena_id] != 0);
-  // Disable Jemalloc thread-specified cache to avoid mixing no dump allocation
-  // with normal allocation.
-  int flags = MALLOCX_ARENA(arena_indices_[arena_id]) | MALLOCX_TCACHE_NONE;
+
+  int flags = MALLOCX_ARENA(arena_indices_[arena_id]) | tcache_flag;
   return mallocx(size, flags);
 }
 
 void JemallocNodumpAllocator::Deallocate(void* p) {
+  // Obtain tcache.
+  int tcache_flag = GetThreadSpecificCache();
   // No need to pass arena index to dallocx(). Jemalloc will find arena index
   // from its own metadata.
-  dallocx(p, MALLOCX_TCACHE_NONE);
+  dallocx(p, tcache_flag);
 }
 
 void* JemallocNodumpAllocator::Alloc(extent_hooks_t* extent, void* new_addr,
@@ -104,7 +131,25 @@ Status JemallocNodumpAllocator::DestroyArena(unsigned arena_index) {
   return Status::OK();
 }
 
+void JemallocNodumpAllocator::DestroyThreadSpecificCache(void* ptr) {
+  assert(ptr != nullptr);
+  unsigned* tcache_index = static_cast<unsigned*>(ptr);
+  size_t tcache_index_size = sizeof(unsigned);
+  int ret __attribute__((__unused__)) =
+      mallctl("tcache.destroy", tcache_index, &tcache_index_size, nullptr, 0);
+  // Silently ignore error.
+  assert(ret == 0);
+  delete tcache_index;
+}
+
 JemallocNodumpAllocator::~JemallocNodumpAllocator() {
+  // Destroy tcache before destroying arena.
+  autovector<void*> tcache_list;
+  tcache_.Scrape(&tcache_list, nullptr);
+  for (void* tcache_index : tcache_list) {
+    DestroyThreadSpecificCache(tcache_index);
+  }
+  // Destroy arena.
   for (unsigned arena_id = 0; arena_id < arena_indices_.size(); arena_id++) {
     Status s = DestroyArena(arena_indices_[arena_id]);
     if (!s.ok()) {
@@ -200,8 +245,8 @@ Status NewJemallocNodumpAllocator(
   if (s.ok()) {
     // Create cache allocator.
     memory_allocator->reset(new JemallocNodumpAllocator(
-        options.per_cpu_arena, num_cpus, std::move(arena_hooks),
-        std::move(arena_indices)));
+        options.per_cpu_arena, options.enable_tcache, num_cpus,
+        std::move(arena_hooks), std::move(arena_indices)));
   } else {
     for (unsigned arena_id = 0; arena_id < arena_indices.size(); arena_id++) {
       // Ignore status.
