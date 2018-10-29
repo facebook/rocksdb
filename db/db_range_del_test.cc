@@ -1400,7 +1400,7 @@ TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
-  // Have a bit of slack in the size limits since we enforce them more strictly
+  // Have a bit of slack in the size limits but we enforce them more strictly
   // when manually flushing/compacting.
   options.max_compaction_bytes = 2 * kFileBytes;
   options.target_file_size_base = 2 * kFileBytes;
@@ -1443,7 +1443,7 @@ TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
 
   TablePropertiesCollection all_table_props;
   ASSERT_OK(db_->GetPropertiesOfAllTables(&all_table_props));
-  int num_range_deletions = 0;
+  int64_t num_range_deletions = 0;
   for (const auto& name_and_table_props : all_table_props) {
     num_range_deletions += name_and_table_props.second->num_range_deletions;
   }
