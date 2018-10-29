@@ -53,7 +53,7 @@ class Reader {
   Reader(std::shared_ptr<Logger> info_log,
          // @lint-ignore TXT2 T25377293 Grandfathered in
          std::unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
-         bool checksum, uint64_t log_num, bool retry_after_eof);
+         bool checksum, uint64_t log_num);
 
   ~Reader();
 
@@ -66,6 +66,8 @@ class Reader {
                   WALRecoveryMode wal_recovery_mode =
                       WALRecoveryMode::kTolerateCorruptedTailRecords);
 
+  bool TryReadRecord(Slice* record, std::string* scratch);
+
   // Returns the physical offset of the last record returned by ReadRecord.
   //
   // Undefined before the first call to ReadRecord.
@@ -76,12 +78,17 @@ class Reader {
     return eof_;
   }
 
+  // returns true if the reader has encountered read error.
+  bool hasReadError() const { return read_error_; }
+
   // when we know more data has been written to the file. we can use this
   // function to force the reader to look again in the file.
   // Also aligns the file position indicator to the start of the next block
   // by reading the rest of the data from the EOF position to the end of the
   // block that was partially read.
   void UnmarkEOF();
+
+  void ForceUnmarkEOF();
 
   SequentialFileReader* file() { return file_.get(); }
 
@@ -91,6 +98,8 @@ class Reader {
   Reporter* const reporter_;
   bool const checksum_;
   char* const backing_store_;
+
+  // Internal state variables used for reading records
   Slice buffer_;
   bool eof_;   // Last Read() indicated EOF by returning < kBlockSize
   bool read_error_;   // Error occurred while reading from file
@@ -110,10 +119,8 @@ class Reader {
   // Whether this is a recycled log file
   bool recycled_;
 
-  // Whether retry after encountering EOF
-  // TODO (yanqin) add support for retry policy, e.g. sleep, max retry limit,
-  // etc.
-  const bool retry_after_eof_;
+  std::string fragments_;
+  bool in_fragmented_record_;
 
   // Extend record types with the following special values
   enum {
@@ -136,8 +143,15 @@ class Reader {
   // Return type, or one of the preceding special values
   unsigned int ReadPhysicalRecord(Slice* result, size_t* drop_size);
 
+  bool TryReadFragment(Slice* result, size_t* drop_size,
+                       unsigned int* fragment_type_or_err);
+
   // Read some more
   bool ReadMore(size_t* drop_size, int *error);
+
+  bool TryReadMore(size_t* drop_size, int* error);
+
+  void UnmarkEOFInternal();
 
   // Reports dropped bytes to the reporter.
   // buffer_ must be updated to remove the dropped bytes prior to invocation.
