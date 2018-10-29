@@ -289,6 +289,7 @@ Status CuckooTableBuilder::Finish() {
     }
   }
   properties_.num_entries = num_entries_;
+  properties_.num_deletions = num_entries_ - num_values_;
   properties_.fixed_key_len = key_size_;
   properties_.user_collected_properties[
         CuckooTablePropertyNames::kValueLength].assign(

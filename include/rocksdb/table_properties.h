@@ -218,4 +218,16 @@ struct TableProperties {
   void Add(const TableProperties& tp);
 };
 
+// Extra properties
+// Below is a list of non-basic properties that are collected by database
+// itself. Especially some properties regarding to the internal keys (which
+// is unknown to `table`).
+//
+// DEPRECATED: these properties now belong as TableProperties members. Please
+// use TableProperties::num_deletions and TableProperties::num_merge_operands,
+// respectively.
+extern uint64_t GetDeletedKeys(const UserCollectedProperties& props);
+extern uint64_t GetMergeOperands(const UserCollectedProperties& props,
+                                 bool* property_present);
+
 }  // namespace rocksdb

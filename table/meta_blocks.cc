@@ -269,6 +269,12 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
         {key, handle.offset() + iter.ValueOffset()});
 
     if (pos != predefined_uint64_properties.end()) {
+      if (key == TablePropertiesNames::kDeletedKeys ||
+          key == TablePropertiesNames::kMergeOperands) {
+        // Insert in user-collected properties for API backwards compatibility
+        new_table_properties->user_collected_properties.insert(
+            {key, raw_val.ToString()});
+      }
       // handle predefined rocksdb properties
       uint64_t val;
       if (!GetVarint64(&raw_val, &val)) {
