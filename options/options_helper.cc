@@ -215,7 +215,8 @@ std::map<CompactionStopStyle, std::string>
 std::unordered_map<std::string, ChecksumType>
     OptionsHelper::checksum_type_string_map = {{"kNoChecksum", kNoChecksum},
                                                {"kCRC32c", kCRC32c},
-                                               {"kxxHash", kxxHash}};
+                                               {"kxxHash", kxxHash},
+                                               {"kxxHash64", kxxHash64}};
 
 std::unordered_map<std::string, CompressionType>
     OptionsHelper::compression_type_string_map = {

@@ -47,6 +47,7 @@ enum ChecksumType : char {
   kNoChecksum = 0x0,
   kCRC32c = 0x1,
   kxxHash = 0x2,
+  kxxHash64 = 0x3,
 };
 
 // For advanced user only
