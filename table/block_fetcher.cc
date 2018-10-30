@@ -50,8 +50,10 @@ void BlockFetcher::CheckBlockChecksum() {
         actual = XXH32(data, static_cast<int>(block_size_) + 1, 0);
         break;
       case kxxHash64:
-        actual = static_cast<uint32_t>(
-            XXH64(data, static_cast<int>(block_size_) + 1, 0));
+        actual =static_cast<uint32_t> (
+             XXH64(data, static_cast<int>(block_size_) + 1, 0) &
+              uint64_t{0xffffffff}
+          );
         break;
       default:
         status_ = Status::Corruption(

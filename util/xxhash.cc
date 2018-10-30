@@ -48,6 +48,9 @@ You can contact the author at :
  * performance (ie GCC + ARMv6) See http://stackoverflow.com/a/32095106/646947
  * for details. Prefer these methods in priority order (0 > 1 > 2)
  */
+
+#include "util/util.h"
+
 #ifndef XXH_FORCE_MEMORY_ACCESS /* can be defined externally, on command line \
                                    for example */
 #if defined(__GNUC__) &&                                     \
@@ -568,18 +571,31 @@ U32 XXH32_digest (void* state_in)
  *  64-bit hash functions
  *********************************************************************/
 
-#if defined(_MSC_VER) /* Visual Studio */
-#define XXH_swap64 _byteswap_uint64
-#elif XXH_GCC_VERSION >= 403
-#define XXH_swap64 __builtin_bswap64
-#else
-static U64 XXH_read64(const void* memPtr) {
-  U64 val;
-  memcpy(&val, memPtr, sizeof(val));
-  return val;
-}
+ #if (defined(XXH_FORCE_MEMORY_ACCESS) && (XXH_FORCE_MEMORY_ACCESS==2))
 
-#endif /* XXH_FORCE_DIRECT_MEMORY_ACCESS */
+ /* Force direct memory access. Only works on CPU which support unaligned memory access in hardware */
+ static U64 XXH_read64(const void* memPtr) { return *(const U64*) memPtr; }
+
+ #elif (defined(XXH_FORCE_MEMORY_ACCESS) && (XXH_FORCE_MEMORY_ACCESS==1))
+
+ /* __pack instructions are safer, but compiler specific, hence potentially problematic for some compilers */
+ /* currently only defined for gcc and icc */
+ typedef union { U32 u32; U64 u64; } __attribute__((packed)) unalign64;
+ static U64 XXH_read64(const void* ptr) { return ((const unalign64*)ptr)->u64; }
+
+ #else
+
+ /* portable and safe solution. Generally efficient.
+  * see : http://stackoverflow.com/a/32095106/646947
+  */
+
+ static U64 XXH_read64(const void* memPtr)
+ {
+     U64 val;
+     memcpy(&val, memPtr, sizeof(val));
+     return val;
+ }
+#endif   /* XXH_FORCE_DIRECT_MEMORY_ACCESS */
 
 #if defined(_MSC_VER) /* Visual Studio */
 #define XXH_swap64 _byteswap_uint64
@@ -683,9 +699,11 @@ static U64 XXH64_finalize(U64 h64, const void* ptr, size_t len,
   switch (len & 31) {
     case 24:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 16:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 8:
       PROCESS8_64;
@@ -693,12 +711,15 @@ static U64 XXH64_finalize(U64 h64, const void* ptr, size_t len,
 
     case 28:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 20:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 12:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 4:
       PROCESS4_64;
@@ -706,9 +727,11 @@ static U64 XXH64_finalize(U64 h64, const void* ptr, size_t len,
 
     case 25:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 17:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 9:
       PROCESS8_64;
@@ -717,12 +740,15 @@ static U64 XXH64_finalize(U64 h64, const void* ptr, size_t len,
 
     case 29:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 21:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 13:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 5:
       PROCESS4_64;
@@ -731,9 +757,11 @@ static U64 XXH64_finalize(U64 h64, const void* ptr, size_t len,
 
     case 26:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 18:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 10:
       PROCESS8_64;
@@ -743,12 +771,15 @@ static U64 XXH64_finalize(U64 h64, const void* ptr, size_t len,
 
     case 30:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 22:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 14:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 6:
       PROCESS4_64;
@@ -758,9 +789,11 @@ static U64 XXH64_finalize(U64 h64, const void* ptr, size_t len,
 
     case 27:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 19:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 11:
       PROCESS8_64;
@@ -771,24 +804,31 @@ static U64 XXH64_finalize(U64 h64, const void* ptr, size_t len,
 
     case 31:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 23:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 15:
       PROCESS8_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 7:
       PROCESS4_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 3:
       PROCESS1_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 2:
       PROCESS1_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 1:
       PROCESS1_64;
+      FALLTHROUGH_INTENDED;
       /* fallthrough */
     case 0:
       return XXH64_avalanche(h64);
