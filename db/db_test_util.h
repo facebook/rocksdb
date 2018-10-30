@@ -705,6 +705,7 @@ class DBTestBase : public testing::Test {
     kBlockBasedTableWithPartitionedIndexFormat4,
     kPartitionedFilterWithNewTableReaderForCompactions,
     kUniversalSubcompactions,
+    kxxHash64Checksum,
     // This must be the last line
     kEnd,
   };

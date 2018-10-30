@@ -430,6 +430,10 @@ Options DBTestBase::GetOptions(
       table_options.checksum = kxxHash;
       break;
     }
+    case kxxHash64Checksum: {
+      table_options.checksum = kxxHash64;
+      break;
+    }
     case kFIFOCompaction: {
       options.compaction_style = kCompactionStyleFIFO;
       break;
