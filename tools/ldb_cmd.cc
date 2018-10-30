@@ -2871,10 +2871,6 @@ void DumpSstFile(std::string filename, bool output_hex, bool show_properties) {
     if (table_properties != nullptr) {
       std::cout << std::endl << "Table Properties:" << std::endl;
       std::cout << table_properties->ToString("\n") << std::endl;
-      std::cout << "# deleted keys: "
-                << rocksdb::GetDeletedKeys(
-                       table_properties->user_collected_properties)
-                << std::endl;
     }
   }
 }

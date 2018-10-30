@@ -14,11 +14,6 @@
 
 namespace rocksdb {
 
-struct InternalKeyTablePropertiesNames {
-  static const std::string kDeletedKeys;
-  static const std::string kMergeOperands;
-};
-
 // Base class for internal table properties collector.
 class IntTblPropCollector {
  public:
@@ -47,39 +42,6 @@ class IntTblPropCollectorFactory {
 
   // The name of the properties collector can be used for debugging purpose.
   virtual const char* Name() const = 0;
-};
-
-// Collecting the statistics for internal keys. Visible only by internal
-// rocksdb modules.
-class InternalKeyPropertiesCollector : public IntTblPropCollector {
- public:
-  virtual Status InternalAdd(const Slice& key, const Slice& value,
-                             uint64_t file_size) override;
-
-  virtual Status Finish(UserCollectedProperties* properties) override;
-
-  virtual const char* Name() const override {
-    return "InternalKeyPropertiesCollector";
-  }
-
-  UserCollectedProperties GetReadableProperties() const override;
-
- private:
-  uint64_t deleted_keys_ = 0;
-  uint64_t merge_operands_ = 0;
-};
-
-class InternalKeyPropertiesCollectorFactory
-    : public IntTblPropCollectorFactory {
- public:
-  virtual IntTblPropCollector* CreateIntTblPropCollector(
-      uint32_t /*column_family_id*/) override {
-    return new InternalKeyPropertiesCollector();
-  }
-
-  virtual const char* Name() const override {
-    return "InternalKeyPropertiesCollectorFactory";
-  }
 };
 
 // When rocksdb creates a new table, it will encode all "user keys" into
