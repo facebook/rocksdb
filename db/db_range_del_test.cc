@@ -1427,6 +1427,12 @@ TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
   ASSERT_OK(Put("a", "val"));
   ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                              "c" + Key(1), "d"));
+  // Our compaction output file cutting logic currently only considers point
+  // keys. So, in order for the range tombstone to have a chance at landing at
+  // the start of a new file, we need a point key at the range tombstone's
+  // start.
+  // TODO(ajkr): remove this `Put` after file cutting accounts for range
+  // tombstones (#3977).
   ASSERT_OK(Put("c" + Key(1), "value"));
   db_->Flush(FlushOptions());
 
@@ -1440,14 +1446,6 @@ TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
                               &end_key /* end */, nullptr /* column_family */,
                               true /* disallow_trivial_move */);
   ASSERT_EQ(2, NumTableFilesAtLevel(1));
-
-  TablePropertiesCollection all_table_props;
-  ASSERT_OK(db_->GetPropertiesOfAllTables(&all_table_props));
-  int64_t num_range_deletions = 0;
-  for (const auto& name_and_table_props : all_table_props) {
-    num_range_deletions += name_and_table_props.second->num_range_deletions;
-  }
-  ASSERT_EQ(1, num_range_deletions);
 
   std::vector<LiveFileMetaData> all_metadata;
   std::vector<LiveFileMetaData> l1_metadata;
@@ -1466,6 +1464,23 @@ TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
   ASSERT_EQ("a", l1_metadata[0].largestkey);
   ASSERT_EQ("c" + Key(1), l1_metadata[1].smallestkey);
   ASSERT_EQ("d", l1_metadata[1].largestkey);
+
+  TablePropertiesCollection all_table_props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&all_table_props));
+  int64_t num_range_deletions = 0;
+  for (const auto& name_and_table_props : all_table_props) {
+    const auto& name = name_and_table_props.first;
+    const auto& table_props = name_and_table_props.second;
+    // The range tombstone should only be output to the second L1 SST.
+    if (name.size() >= l1_metadata[1].name.size() &&
+        name.substr(name.size() - l1_metadata[1].name.size()).compare(l1_metadata[1].name) == 0) {
+      ASSERT_EQ(1, table_props->num_range_deletions);
+      ++num_range_deletions;
+    } else {
+      ASSERT_EQ(0, table_props->num_range_deletions);
+    }
+  }
+  ASSERT_EQ(1, num_range_deletions);
 }
 
 #endif  // ROCKSDB_LITE
