@@ -168,6 +168,7 @@ Status NewJemallocNodumpAllocator(
     const jemalloc::JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator) {
 #ifndef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
+  (void)options;
   *memory_allocator = nullptr;
   return Status::NotSupported(
       "JemallocNodumpAllocator only available with jemalloc version >= 5 "
