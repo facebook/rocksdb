@@ -1967,15 +1967,6 @@ class StressTest {
 
       auto column_family = column_families_[rand_column_family];
 
-      if (FLAGS_flush_one_in > 0 &&
-          thread->rand.Uniform(FLAGS_flush_one_in) == 0) {
-        FlushOptions flush_opts;
-        Status status = db_->Flush(flush_opts, column_family);
-        if (!status.ok()) {
-          fprintf(stdout, "Unable to perform Flush(): %s\n", status.ToString().c_str());
-        }
-      }
-
       if (FLAGS_compact_range_one_in > 0 &&
           thread->rand.Uniform(FLAGS_compact_range_one_in) == 0) {
         int64_t end_key_num;
@@ -1999,6 +1990,21 @@ class StressTest {
 
       std::vector<int> rand_column_families =
           GenerateColumnFamilies(FLAGS_column_families, rand_column_family);
+
+      if (FLAGS_flush_one_in > 0 &&
+          thread->rand.Uniform(FLAGS_flush_one_in) == 0) {
+        FlushOptions flush_opts;
+        std::vector<ColumnFamilyHandle*> cfhs;
+        std::for_each(
+            rand_column_families.begin(), rand_column_families.end(),
+            [this, &cfhs](int k) { cfhs.push_back(column_families_[k]); });
+        Status status = db_->Flush(flush_opts, cfhs);
+        if (!status.ok()) {
+          fprintf(stdout, "Unable to perform Flush(): %s\n",
+                  status.ToString().c_str());
+        }
+      }
+
       std::vector<int64_t> rand_keys = GenerateKeys(rand_key);
 
       if (FLAGS_ingest_external_file_one_in > 0 &&
