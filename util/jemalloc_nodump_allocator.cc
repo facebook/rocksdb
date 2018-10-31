@@ -8,6 +8,7 @@
 #include <string>
 #include <thread>
 
+#include "port/likely.h"
 #include "port/port.h"
 #include "util/string_util.h"
 
@@ -19,11 +20,10 @@ namespace jemalloc {
 std::atomic<extent_alloc_t*> JemallocNodumpAllocator::original_alloc_{nullptr};
 
 JemallocNodumpAllocator::JemallocNodumpAllocator(
-    PerCPUArena per_cpu_arena, bool enable_tcache, unsigned num_cpus,
+    PerCPUArena per_cpu_arena, unsigned num_cpus,
     std::vector<std::unique_ptr<extent_hooks_t>>&& arena_hooks,
     std::vector<unsigned>&& arena_indices)
     : per_cpu_arena_(per_cpu_arena),
-      enable_tcache_(enable_tcache),
       num_cpus_(num_cpus),
       arena_hooks_(std::move(arena_hooks)),
       arena_indices_(std::move(arena_indices)),
@@ -46,11 +46,11 @@ JemallocNodumpAllocator::JemallocNodumpAllocator(
 }
 
 int JemallocNodumpAllocator::GetThreadSpecificCache() {
-  if (!enable_tcache_) {
-    return MALLOCX_TCACHE_NONE;
-  }
+  // We always enable tcache. The only corner case is when there are a ton of
+  // threads accessing with low frequency, then it could consume a lot of
+  // memory (may reach # threads * ~1MB) without bringing too much benefit.
   unsigned* tcache_index = reinterpret_cast<unsigned*>(tcache_.Get());
-  if (tcache_index == nullptr) {
+  if (UNLIKELY(tcache_index == nullptr)) {
     // Instantiate tcache.
     tcache_index = new unsigned(0);
     size_t tcache_index_size = sizeof(unsigned);
@@ -246,7 +246,7 @@ Status NewJemallocNodumpAllocator(
   if (s.ok()) {
     // Create cache allocator.
     memory_allocator->reset(new JemallocNodumpAllocator(
-        options.per_cpu_arena, options.enable_tcache, num_cpus,
+        options.per_cpu_arena, num_cpus,
         std::move(arena_hooks), std::move(arena_indices)));
   } else {
     for (unsigned arena_id = 0; arena_id < arena_indices.size(); arena_id++) {

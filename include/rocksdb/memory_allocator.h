@@ -58,10 +58,6 @@ struct JemallocAllocatorOptions {
   // CPU. It reduces arena mutex contention and improves throughput, but
   // potentially increases memory fragmentation.
   PerCPUArena per_cpu_arena = PerCPUArena::kPerPhysicalCPU;
-
-  // Enable thread-specific cache (tcache) to reduce access to arenas,
-  // further reduce mutex contention with arena.
-  bool enable_tcache = true;
 };
 
 // Generate cache allocators which allocates through Jemalloc and utilize

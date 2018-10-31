@@ -26,7 +26,7 @@ namespace jemalloc {
 class JemallocNodumpAllocator : public MemoryAllocator {
  public:
   JemallocNodumpAllocator(
-      PerCPUArena per_cpu_arena, bool enable_tcache, unsigned num_cpus,
+      PerCPUArena per_cpu_arena, unsigned num_cpus,
       std::vector<std::unique_ptr<extent_hooks_t>>&& arena_hooks,
       std::vector<unsigned>&& arena_indices);
   ~JemallocNodumpAllocator();
@@ -64,7 +64,6 @@ class JemallocNodumpAllocator : public MemoryAllocator {
   static std::atomic<extent_alloc_t*> original_alloc_;
 
   const PerCPUArena per_cpu_arena_;
-  const bool enable_tcache_;
   const unsigned num_cpus_;
   // Custom hooks has to outlive corresponding arena.
   const std::vector<std::unique_ptr<extent_hooks_t>> arena_hooks_;
