@@ -78,7 +78,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
-    if (tracer_ && !tracer_->IsTraceFileOverMax()) {
+    if (tracer_) {
       tracer_->Write(my_batch);
     }
   }

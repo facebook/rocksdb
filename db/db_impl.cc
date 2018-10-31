@@ -1224,7 +1224,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     // TODO: This mutex should be removed later, to improve performance when
     // tracing is enabled.
     InstrumentedMutexLock lock(&trace_mutex_);
-    if (tracer_ && !tracer_->IsTraceFileOverMax()) {
+    if (tracer_) {
       tracer_->Get(column_family, key);
     }
   }
@@ -3279,8 +3279,7 @@ void DBImpl::WaitForIngestFile() {
 Status DBImpl::StartTrace(const TraceOptions& trace_options,
                           std::unique_ptr<TraceWriter>&& trace_writer) {
   InstrumentedMutexLock lock(&trace_mutex_);
-  tracer_.reset(new Tracer(env_, std::move(trace_writer),
-                           trace_options.max_trace_file_size));
+  tracer_.reset(new Tracer(env_, std::move(trace_writer), trace_options));
   return Status::OK();
 }
 
@@ -3295,7 +3294,7 @@ Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key) {
   Status s;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
-    if (tracer_ && !tracer_->IsTraceFileOverMax()) {
+    if (tracer_) {
       s = tracer_->IteratorSeek(cf_id, key);
     }
   }
@@ -3307,7 +3306,7 @@ Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id,
   Status s;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
-    if (tracer_ && !tracer_->IsTraceFileOverMax()) {
+    if (tracer_) {
       s = tracer_->IteratorSeekForPrev(cf_id, key);
     }
   }

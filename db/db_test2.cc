@@ -2688,7 +2688,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_OK(DestroyDB(dbname2, options));
 }
 
-TEST_F(DBTest2, TraceWithLimi) {
+TEST_F(DBTest2, TraceWithLimit) {
   Options options = CurrentOptions();
   options.merge_operator = MergeOperators::CreatePutOperator();
   ReadOptions ro;

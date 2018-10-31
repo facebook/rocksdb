@@ -32,16 +32,19 @@ void DecodeCFAndKey(std::string& buffer, uint32_t* cf_id, Slice* key) {
 }  // namespace
 
 Tracer::Tracer(Env* env, std::unique_ptr<TraceWriter>&& trace_writer,
-               uint64_t max_size)
+               const TraceOptions& trace_options)
     : env_(env),
       trace_writer_(std::move(trace_writer)),
-      max_trace_file_size_(max_size) {
+      trace_options_(trace_options) {
   WriteHeader();
 }
 
 Tracer::~Tracer() { trace_writer_.reset(); }
 
 Status Tracer::Write(WriteBatch* write_batch) {
+  if (IsTraceFileOverMax()) {
+    return Status::OK();
+  }
   Trace trace;
   trace.ts = env_->NowMicros();
   trace.type = kTraceWrite;
@@ -50,6 +53,9 @@ Status Tracer::Write(WriteBatch* write_batch) {
 }
 
 Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
+  if (IsTraceFileOverMax()) {
+    return Status::OK();
+  }
   Trace trace;
   trace.ts = env_->NowMicros();
   trace.type = kTraceGet;
@@ -58,6 +64,9 @@ Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
 }
 
 Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key) {
+  if (IsTraceFileOverMax()) {
+    return Status::OK();
+  }
   Trace trace;
   trace.ts = env_->NowMicros();
   trace.type = kTraceIteratorSeek;
@@ -66,6 +75,9 @@ Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key) {
 }
 
 Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
+  if (IsTraceFileOverMax()) {
+    return Status::OK();
+  }
   Trace trace;
   trace.ts = env_->NowMicros();
   trace.type = kTraceIteratorSeekForPrev;
@@ -75,7 +87,7 @@ Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
 
 bool Tracer::IsTraceFileOverMax() {
   uint64_t trace_file_size = trace_writer_->GetFileSize();
-  return (trace_file_size > max_trace_file_size_);
+  return (trace_file_size > trace_options_.max_trace_file_size);
 }
 
 Status Tracer::WriteHeader() {
