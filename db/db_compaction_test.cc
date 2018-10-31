@@ -4057,15 +4057,13 @@ TEST_F(DBCompactionTest, ManualCompactionFailsInReadOnlyMode) {
   // early trying to flush memtable.
   ASSERT_NOK(Put("key3", RandomString(&rnd, 1024)));
 
-  std::string begin_key_storage("key1");
-  std::string end_key_storage("key2");
-  Slice begin_key(begin_key_storage);
-  Slice end_key(end_key_storage);
   // In the bug scenario, the first manual compaction would fail and forget to
   // unregister itself, causing the second one to hang forever due to conflict
   // with a non-running compaction.
   CompactRangeOptions cro;
   cro.exclusive_manual_compaction = false;
+  Slice begin_key("key1");
+  Slice end_key("key2");
   ASSERT_NOK(dbfull()->CompactRange(cro, &begin_key, &end_key));
   ASSERT_NOK(dbfull()->CompactRange(cro, &begin_key, &end_key));
 
