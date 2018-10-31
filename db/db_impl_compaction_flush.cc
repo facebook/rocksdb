@@ -2170,6 +2170,10 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       manual_compaction->in_progress = false;
       manual_compaction = nullptr;
     }
+    if (c) {
+      c->ReleaseCompactionFiles(status);
+      c.reset();
+    }
     return status;
   }
 
