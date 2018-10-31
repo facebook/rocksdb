@@ -11,8 +11,6 @@
 #include "table/block.h"
 #include "table/format.h"
 
-#include "util/cache_allocator.h"
-
 namespace rocksdb {
 class BlockFetcher {
  public:
@@ -28,7 +26,6 @@ class BlockFetcher {
                BlockContents* contents, const ImmutableCFOptions& ioptions,
                bool do_uncompress, const Slice& compression_dict,
                const PersistentCacheOptions& cache_options,
-               CacheAllocator* allocator = nullptr,
                const bool immortal_source = false)
       : file_(file),
         prefetch_buffer_(prefetch_buffer),
@@ -40,8 +37,7 @@ class BlockFetcher {
         do_uncompress_(do_uncompress),
         immortal_source_(immortal_source),
         compression_dict_(compression_dict),
-        cache_options_(cache_options),
-        allocator_(allocator) {}
+        cache_options_(cache_options) {}
   Status ReadBlockContents();
 
  private:
@@ -58,12 +54,11 @@ class BlockFetcher {
   const bool immortal_source_;
   const Slice& compression_dict_;
   const PersistentCacheOptions& cache_options_;
-  CacheAllocator* allocator_;
   Status status_;
   Slice slice_;
   char* used_buf_ = nullptr;
   size_t block_size_;
-  CacheAllocationPtr heap_buf_;
+  std::unique_ptr<char[]> heap_buf_;
   char stack_buf_[kDefaultStackBufferSize];
   bool got_from_prefetch_buffer_ = false;
   rocksdb::CompressionType compression_type;
