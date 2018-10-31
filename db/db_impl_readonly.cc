@@ -39,7 +39,7 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   auto cfd = cfh->cfd();
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
-    if (tracer_) {
+    if (tracer_ && !tracer_->IsTraceFileOverMax()) {
       tracer_->Get(column_family, key);
     }
   }

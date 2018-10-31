@@ -31,8 +31,11 @@ void DecodeCFAndKey(std::string& buffer, uint32_t* cf_id, Slice* key) {
 }
 }  // namespace
 
-Tracer::Tracer(Env* env, std::unique_ptr<TraceWriter>&& trace_writer)
-    : env_(env), trace_writer_(std::move(trace_writer)) {
+Tracer::Tracer(Env* env, std::unique_ptr<TraceWriter>&& trace_writer,
+               uint64_t max_size)
+    : env_(env),
+      trace_writer_(std::move(trace_writer)),
+      max_trace_file_size_(max_size) {
   WriteHeader();
 }
 
@@ -68,6 +71,11 @@ Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
   trace.type = kTraceIteratorSeekForPrev;
   EncodeCFAndKey(&trace.payload, cf_id, key);
   return WriteTrace(trace);
+}
+
+bool Tracer::IsTraceFileOverMax() {
+  uint64_t trace_file_size = trace_writer_->GetFileSize();
+  return (trace_file_size > max_trace_file_size_);
 }
 
 Status Tracer::WriteHeader() {
