@@ -1417,6 +1417,75 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
   }
 }
 
+TEST_P(TransactionTest, TwoPhasePrepareTestLogRolling) {
+  WriteOptions write_options;
+  write_options.sync = true;
+  write_options.disableWAL = false;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+    {"PessimisticTransaction::Prepare:BeforeMark1",
+     "TransactionTest::TwoPhaseLongPrepareTestLogRolling:WriteBegin"},
+    {"DBImpl::BGWorkFlush:done",
+     "PessimisticTransaction::Prepare:BeforeMark2"},
+  });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  std::thread write_thread([&]() {
+    TEST_SYNC_POINT("TransactionTest::TwoPhaseLongPrepareTestLogRolling:WriteBegin");
+    for (int i = 0; i < 1000; i++) {
+      std::string key(i, 'k');
+      std::string val(1000, 'v');
+      auto s = db->Put(write_options, key, val);
+      ASSERT_OK(s);
+    }
+    auto s = db->Flush(FlushOptions());
+    ASSERT_OK(s);
+  });
+
+  std::string value;
+  Status s;
+
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  s = txn->SetName("bob");
+  ASSERT_OK(s);
+
+  // transaction put
+  s = txn->Put(Slice("foo"), Slice("bar"));
+  ASSERT_OK(s);
+
+  // prepare
+  s = txn->Prepare();
+  ASSERT_OK(s);
+
+  delete txn;
+
+  write_thread.join();
+
+  ReOpenNoDelete();
+
+  // commit old txn
+  txn = db->GetTransactionByName("bob");
+  ASSERT_TRUE(txn);
+  s = txn->Commit();
+  ASSERT_OK(s);
+
+  // verify data txn data
+  s = db->Get(read_options, "foo", &value);
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(value, "bar");
+
+  // verify non txn data
+  for (int i = 0; i < 1000; i++) {
+    std::string key(i, 'k');
+    std::string val(1000, 'v');
+    s = db->Get(read_options, key, &value);
+    ASSERT_EQ(s, Status::OK());
+    ASSERT_EQ(value, val);
+  }
+
+  delete txn;
+}
 TEST_P(TransactionStressTest, TwoPhaseLongPrepareTest) {
   WriteOptions write_options;
   write_options.sync = true;
