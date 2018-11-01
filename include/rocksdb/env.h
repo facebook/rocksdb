@@ -482,7 +482,7 @@ class Env {
   // file in `*result`. The file must exist prior to this call.
   virtual Status LoadLibrary(
           const std::string& /*libName*/,
-          unique_ptr<DynamicLibrary>* /*result*/) {
+          shared_ptr<DynamicLibrary>* /*result*/) {
     return Status::NotSupported("LoadLibrary is not implemented in this Env");
   }
 

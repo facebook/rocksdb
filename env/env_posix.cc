@@ -522,7 +522,7 @@ class PosixEnv : public Env {
 
     virtual Status LoadLibrary(
             const std::string& libName,
-            unique_ptr<DynamicLibrary>* result) override {
+            shared_ptr<DynamicLibrary>* result) override {
       Status status;
       void *hndl = dlopen(libName.empty() ? NULL : libName.c_str(), RTLD_NOW);
       if(hndl == NULL){
