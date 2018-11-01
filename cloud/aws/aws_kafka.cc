@@ -93,6 +93,14 @@ Status KafkaWritableFile::Close() {
   return ProduceRaw("Close", serialized_data);
 }
 
+bool KafkaWritableFile::IsSyncThreadSafe() const {
+  return true;
+}
+
+Status KafkaWritableFile::Sync() {
+  return Flush();
+}
+
 Status KafkaWritableFile::Flush() {
   std::chrono::microseconds start(env_->NowMicros());
 

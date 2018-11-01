@@ -21,6 +21,8 @@ class KafkaWritableFile : public CloudLogWritableFile {
 
   virtual Status Append(const Slice& data);
   virtual Status Close();
+  virtual bool IsSyncThreadSafe() const;
+  virtual Status Sync();
   virtual Status Flush();
   virtual Status LogDelete();
 
