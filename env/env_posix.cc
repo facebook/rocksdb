@@ -520,8 +520,28 @@ class PosixEnv : public Env {
     return status;
   }
 
+<<<<<<< HEAD
   Status NewDirectory(const std::string& name,
                       std::unique_ptr<Directory>* result) override {
+=======
+    virtual Status LoadLibrary(
+            const std::string& libName,
+            shared_ptr<DynamicLibrary>* result) override {
+      Status status;
+      void *hndl = dlopen(libName.empty() ? NULL : libName.c_str(), RTLD_NOW);
+      if(hndl == NULL){
+          status = Status::IOError(IOErrorMsg("Failed to open shared library", libName),
+                                   dlerror());
+
+      } else {
+	result->reset(new PosixDynamicLibrary(libName, hndl));
+      }
+      return status;
+    }
+
+  virtual Status NewDirectory(const std::string& name,
+                              unique_ptr<Directory>* result) override {
+>>>>>>> Add Extension and ExtensionFactory
     result->reset();
     int fd;
     int flags = cloexec_flags(0, nullptr);
