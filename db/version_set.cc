@@ -454,15 +454,14 @@ namespace {
 
 class LevelIterator final : public InternalIterator {
  public:
-  LevelIterator(TableCache* table_cache, const ReadOptions& read_options,
-                const EnvOptions& env_options,
-                const InternalKeyComparator& icomparator,
-                const LevelFilesBrief* flevel,
-                const SliceTransform* prefix_extractor, bool should_sample,
-                HistogramImpl* file_read_hist, bool for_compaction,
-                bool skip_filters, int level, RangeDelAggregator* range_del_agg,
-                const std::vector<AtomicCompactionUnitBoundary>*
-                    compaction_boundaries = nullptr)
+  LevelIterator(
+      TableCache* table_cache, const ReadOptions& read_options,
+      const EnvOptions& env_options, const InternalKeyComparator& icomparator,
+      const LevelFilesBrief* flevel, const SliceTransform* prefix_extractor,
+      bool should_sample, HistogramImpl* file_read_hist, bool for_compaction,
+      bool skip_filters, int level, RangeDelAggregatorV2* range_del_agg,
+      const std::vector<AtomicCompactionUnitBoundary>* compaction_boundaries =
+          nullptr)
       : table_cache_(table_cache),
         read_options_(read_options),
         env_options_(env_options),
@@ -572,7 +571,7 @@ class LevelIterator final : public InternalIterator {
   bool skip_filters_;
   size_t file_index_;
   int level_;
-  RangeDelAggregator* range_del_agg_;
+  RangeDelAggregatorV2* range_del_agg_;
   IteratorWrapper file_iter_;  // May be nullptr
   PinnedIteratorsManager* pinned_iters_mgr_;
 
@@ -986,7 +985,7 @@ double VersionStorageInfo::GetEstimatedCompressionRatioAtLevel(
 void Version::AddIterators(const ReadOptions& read_options,
                            const EnvOptions& soptions,
                            MergeIteratorBuilder* merge_iter_builder,
-                           RangeDelAggregator* range_del_agg) {
+                           RangeDelAggregatorV2* range_del_agg) {
   assert(storage_info_.finalized_);
 
   for (int level = 0; level < storage_info_.num_non_empty_levels(); level++) {
@@ -999,7 +998,7 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
                                    const EnvOptions& soptions,
                                    MergeIteratorBuilder* merge_iter_builder,
                                    int level,
-                                   RangeDelAggregator* range_del_agg) {
+                                   RangeDelAggregatorV2* range_del_agg) {
   assert(storage_info_.finalized_);
   if (level >= storage_info_.num_non_empty_levels()) {
     // This is an empty level
@@ -1058,7 +1057,8 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
 
   Arena arena;
   Status status;
-  RangeDelAggregator range_del_agg(icmp, {}, false);
+  RangeDelAggregatorV2 range_del_agg(&icmp,
+                                     kMaxSequenceNumber /* upper_bound */);
 
   *overlap = false;
 
@@ -4254,7 +4254,7 @@ void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
 }
 
 InternalIterator* VersionSet::MakeInputIterator(
-    const Compaction* c, RangeDelAggregator* range_del_agg,
+    const Compaction* c, RangeDelAggregatorV2* range_del_agg,
     const EnvOptions& env_options_compactions) {
   auto cfd = c->column_family_data();
   ReadOptions read_options;

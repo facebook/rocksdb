@@ -95,8 +95,12 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   FragmentedRangeTombstoneIterator(
       const std::shared_ptr<const FragmentedRangeTombstoneList>& tombstones,
       SequenceNumber snapshot, const InternalKeyComparator& icmp);
+
   void SeekToFirst() override;
   void SeekToLast() override;
+
+  void SeekToTopFirst();
+  void SeekToTopLast();
 
   // NOTE: Seek and SeekForPrev do not behave in the way InternalIterator
   // seeking should behave. This is OK because they are not currently used, but
@@ -114,6 +118,10 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
 
   void Next() override;
   void Prev() override;
+
+  void TopNext();
+  void TopPrev();
+
   bool Valid() const override;
   Slice key() const override {
     MaybePinKey();
@@ -124,9 +132,30 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   bool IsValuePinned() const override { return true; }
   Status status() const override { return Status::OK(); }
 
+  bool empty() const { return tombstones_->empty(); }
+  void Invalidate() {
+    pos_ = tombstones_->end();
+    seq_pos_ = tombstones_->seq_end();
+  }
+
+  // TODO: implement properly
+  RangeTombstone tombstone() const {
+    return RangeTombstone(start_key(), end_key(), seq());
+  }
   Slice start_key() const { return pos_->start_key; }
   Slice end_key() const { return pos_->end_key; }
   SequenceNumber seq() const { return *seq_pos_; }
+  ParsedInternalKey parsed_start_key() const {
+    return ParsedInternalKey(pos_->start_key, kMaxSequenceNumber,
+                             kTypeRangeDeletion);
+  }
+  ParsedInternalKey parsed_end_key() const {
+    return ParsedInternalKey(pos_->end_key, kMaxSequenceNumber,
+                             kTypeRangeDeletion);
+  }
+  ParsedInternalKey internal_key() const {
+    return ParsedInternalKey(pos_->start_key, *seq_pos_, kTypeRangeDeletion);
+  }
 
   SequenceNumber MaxCoveringTombstoneSeqnum(const Slice& user_key);
 
@@ -182,10 +211,8 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
 
   void SeekToCoveringTombstone(const Slice& key);
   void SeekForPrevToCoveringTombstone(const Slice& key);
-  void Invalidate() {
-    pos_ = tombstones_->end();
-    seq_pos_ = tombstones_->seq_end();
-  }
+  void ScanForwardToVisibleTombstone();
+  void ScanBackwardToVisibleTombstone();
   bool ValidPos() const {
     return Valid() && seq_pos_ != tombstones_->seq_iter(pos_->seq_end_idx);
   }

@@ -12,7 +12,7 @@
 #include <string>
 #include "db/db_impl.h"
 #include "db/dbformat.h"
-#include "db/range_del_aggregator.h"
+#include "db/range_del_aggregator_v2.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
@@ -48,7 +48,7 @@ class ArenaWrappedDBIter : public Iterator {
   // Get the arena to be used to allocate memory for DBIter to be wrapped,
   // as well as child iterators in it.
   virtual Arena* GetArena() { return &arena_; }
-  virtual RangeDelAggregator* GetRangeDelAggregator();
+  virtual RangeDelAggregatorV2* GetRangeDelAggregator();
 
   // Set the internal iterator wrapped inside the DB Iterator. Usually it is
   // a merging iterator.

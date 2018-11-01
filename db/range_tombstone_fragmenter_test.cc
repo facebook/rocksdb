@@ -42,6 +42,19 @@ void VerifyFragmentedRangeDels(
   EXPECT_FALSE(iter->Valid());
 }
 
+void VerifyVisibleTombstones(
+    FragmentedRangeTombstoneIterator* iter,
+    const std::vector<RangeTombstone>& expected_tombstones) {
+  iter->SeekToTopFirst();
+  for (size_t i = 0; i < expected_tombstones.size() && iter->Valid();
+       i++, iter->TopNext()) {
+    EXPECT_EQ(iter->start_key(), expected_tombstones[i].start_key_);
+    EXPECT_EQ(iter->value(), expected_tombstones[i].end_key_);
+    EXPECT_EQ(iter->seq(), expected_tombstones[i].seq_);
+  }
+  EXPECT_FALSE(iter->Valid());
+}
+
 struct SeekTestCase {
   Slice seek_target;
   RangeTombstone expected_position;
@@ -262,14 +275,37 @@ TEST_F(RangeTombstoneFragmenterTest, OverlapAndRepeatedStartKeyMultiUse) {
                                      {"j", "l", 2},
                                      {"l", "n", 4}});
   }
+
+  VerifyVisibleTombstones(&iter1, {{"a", "c", 10},
+                                   {"c", "e", 10},
+                                   {"e", "g", 8},
+                                   {"g", "i", 6},
+                                   {"j", "l", 4},
+                                   {"l", "n", 4}});
   VerifyMaxCoveringTombstoneSeqnum(
       &iter1, {{"a", 10}, {"c", 10}, {"e", 8}, {"i", 0}, {"j", 4}, {"m", 4}});
+
+  VerifyVisibleTombstones(&iter2, {{"c", "e", 8},
+                                   {"e", "g", 8},
+                                   {"g", "i", 6},
+                                   {"j", "l", 4},
+                                   {"l", "n", 4}});
   VerifyMaxCoveringTombstoneSeqnum(
       &iter2, {{"a", 0}, {"c", 8}, {"e", 8}, {"i", 0}, {"j", 4}, {"m", 4}});
+
+  VerifyVisibleTombstones(&iter3, {{"c", "e", 6},
+                                   {"e", "g", 6},
+                                   {"g", "i", 6},
+                                   {"j", "l", 4},
+                                   {"l", "n", 4}});
   VerifyMaxCoveringTombstoneSeqnum(
       &iter3, {{"a", 0}, {"c", 6}, {"e", 6}, {"i", 0}, {"j", 4}, {"m", 4}});
+
+  VerifyVisibleTombstones(&iter4, {{"j", "l", 4}, {"l", "n", 4}});
   VerifyMaxCoveringTombstoneSeqnum(
       &iter4, {{"a", 0}, {"c", 0}, {"e", 0}, {"i", 0}, {"j", 4}, {"m", 4}});
+
+  VerifyVisibleTombstones(&iter5, {{"j", "l", 2}});
   VerifyMaxCoveringTombstoneSeqnum(
       &iter5, {{"a", 0}, {"c", 0}, {"e", 0}, {"i", 0}, {"j", 2}, {"m", 0}});
 }

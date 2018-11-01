@@ -36,6 +36,7 @@
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
+#include "db/range_del_aggregator_v2.h"
 #include "db/version_set.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
@@ -804,10 +805,15 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact != nullptr);
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
-  std::unique_ptr<RangeDelAggregator> range_del_agg(
-      new RangeDelAggregator(cfd->internal_comparator(), existing_snapshots_));
+  RangeDelAggregatorV2 range_del_agg_v2(&cfd->internal_comparator(),
+                                        kMaxSequenceNumber /* upper_bound */);
+  auto* range_del_agg =
+      range_del_agg_v2.DelegateToRangeDelAggregator(existing_snapshots_);
+
+  // Although the v2 aggregator is what the level iterator(s) know about,
+  // the AddTombstones calls will be propagated down to the v1 aggregator.
   std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
-      sub_compact->compaction, range_del_agg.get(), env_optiosn_for_read_));
+      sub_compact->compaction, &range_del_agg_v2, env_optiosn_for_read_));
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
@@ -896,8 +902,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       input.get(), cfd->user_comparator(), &merge, versions_->LastSequence(),
       &existing_snapshots_, earliest_write_conflict_snapshot_,
       snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_), false,
-      range_del_agg.get(), sub_compact->compaction, compaction_filter,
-      shutting_down_, preserve_deletes_seqnum_));
+      range_del_agg, sub_compact->compaction, compaction_filter, shutting_down_,
+      preserve_deletes_seqnum_));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() && sub_compact->compaction->output_level() != 0) {
@@ -1034,9 +1040,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         next_key = &c_iter->key();
       }
       CompactionIterationStats range_del_out_stats;
-      status = FinishCompactionOutputFile(input_status, sub_compact,
-                                          range_del_agg.get(),
-                                          &range_del_out_stats, next_key);
+      status =
+          FinishCompactionOutputFile(input_status, sub_compact, range_del_agg,
+                                     &range_del_out_stats, next_key);
       RecordDroppedKeys(range_del_out_stats,
                         &sub_compact->compaction_job_stats);
       if (sub_compact->outputs.size() == 1) {
@@ -1096,8 +1102,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // close the output file.
   if (sub_compact->builder != nullptr) {
     CompactionIterationStats range_del_out_stats;
-    Status s = FinishCompactionOutputFile(
-        status, sub_compact, range_del_agg.get(), &range_del_out_stats);
+    Status s = FinishCompactionOutputFile(status, sub_compact, range_del_agg,
+                                          &range_del_out_stats);
     if (status.ok()) {
       status = s;
     }
