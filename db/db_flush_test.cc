@@ -220,6 +220,44 @@ TEST_F(DBFlushTest, FlushError) {
   ASSERT_NE(s, Status::OK());
 }
 
+TEST_F(DBFlushTest, ManualFlushFailsInReadOnlyMode) {
+  // Regression test for bug where manual flush hangs forever when the DB
+  // is in read-only mode. Verify it now at least returns, despite failing.
+  Options options;
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
+      new FaultInjectionTestEnv(env_));
+  options.env = fault_injection_env.get();
+  options.max_write_buffer_number = 2;
+  Reopen(options);
+
+  // Trigger a first flush but don't let it run
+  ASSERT_OK(db_->PauseBackgroundWork());
+  ASSERT_OK(Put("key1", "value1"));
+  FlushOptions flush_opts;
+  flush_opts.wait = false;
+  ASSERT_OK(db_->Flush(flush_opts));
+
+  // Write a key to the second memtable so we have something to flush later
+  // after the DB is in read-only mode.
+  ASSERT_OK(Put("key2", "value2"));
+
+  // Let the first flush continue, hit an error, and put the DB in read-only
+  // mode.
+  fault_injection_env->SetFilesystemActive(false);
+  ASSERT_OK(db_->ContinueBackgroundWork());
+  dbfull()->TEST_WaitForFlushMemTable();
+  uint64_t num_bg_errors;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBackgroundErrors,
+                                  &num_bg_errors));
+  ASSERT_GT(num_bg_errors, 0);
+
+  // In the bug scenario, triggering another flush would cause the second flush
+  // to hang forever. After the fix we expect it to return an error.
+  ASSERT_NOK(db_->Flush(FlushOptions()));
+
+  Close();
+}
+
 TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
   Options options = CurrentOptions();
   options.create_if_missing = true;

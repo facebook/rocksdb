@@ -1543,6 +1543,12 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
     WriteStallCondition write_stall_condition = WriteStallCondition::kNormal;
     do {
       if (write_stall_condition != WriteStallCondition::kNormal) {
+        // If the DB is in read-only mode and not coming back, no point waiting.
+        if (error_handler_.IsBGWorkStopped() &&
+            !error_handler_.IsRecoveryInProgress()) {
+          return error_handler_.GetBGError();
+        }
+
         TEST_SYNC_POINT("DBImpl::WaitUntilFlushWouldNotStallWrites:StallWait");
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "[%s] WaitUntilFlushWouldNotStallWrites"
