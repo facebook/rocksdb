@@ -35,6 +35,7 @@ enum TraceType : char {
   kTraceGet = 4,
   kTraceIteratorSeek = 5,
   kTraceIteratorSeekForPrev = 6,
+  kTraceIteratorIterCount = 7,
   kTraceMax,
 };
 
@@ -60,8 +61,13 @@ class Tracer {
 
   Status Write(WriteBatch* write_batch);
   Status Get(ColumnFamilyHandle* cfname, const Slice& key);
-  Status IteratorSeek(const uint32_t& cf_id, const Slice& key);
-  Status IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
+  Status IteratorSeek(const uint32_t& cf_id, const uint64_t& trace_iter_uid,
+                      const Slice& key);
+  Status IteratorSeekForPrev(const uint32_t& cf_id,
+                             const uint64_t& trace_iter_uid, const Slice& key);
+  Status IteratorIterCount(const uint32_t& cf_id,
+                           const uint64_t& trace_iter_uid,
+                           const uint64_t& count);
 
   Status Close();
 

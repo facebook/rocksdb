@@ -472,13 +472,24 @@ Status TraceAnalyzer::StartProcessing() {
     } else if (trace.type == kTraceIteratorSeek ||
                trace.type == kTraceIteratorSeekForPrev) {
       uint32_t cf_id = 0;
-      Slice key;
-      DecodeCFAndKeyFromString(trace.payload, &cf_id, &key);
+      uint64_t iter_uid;
+      Slice key, buf(trace.payload);
+      GetFixed32(&buf, &cf_id);
+      GetFixed64(&buf, &iter_uid);
+      GetLengthPrefixedSlice(&buf, &key);
       s = HandleIter(cf_id, key.ToString(), trace.ts, trace.type);
       if (!s.ok()) {
         fprintf(stderr, "Cannot process the iterator in the trace\n");
         return s;
       }
+    } else if (trace.type == kTraceIteratorIterCount) {
+      uint32_t cf_id = 0;
+      uint64_t iter_uid, count;
+      Slice buf(trace.payload);
+      GetFixed32(&buf, &cf_id);
+      GetFixed64(&buf, &iter_uid);
+      GetFixed64(&buf, &count);
+      s = HandleIterCount(cf_id, trace.ts, count);
     } else if (trace.type == kTraceEnd) {
       break;
     }
@@ -945,6 +956,49 @@ Status TraceAnalyzer::ReProcessing() {
       }
     }
 
+    // Output the iterator count distribution and average count of each second
+    if (FLAGS_analyze_iterator) {
+      if (cf_it.second.iter_len_dist_f) {
+        for (auto& iter_len_it : cf_it.second.iter_len_stats) {
+          ret = sprintf(buffer_, "%" PRIu64 " %" PRIu64 "\n",
+                        iter_len_it.first, iter_len_it.second);
+          if (ret < 0) {
+            return Status::IOError("Format the output failed");
+          }
+          std::string printout(buffer_);
+          s = cf_it.second.iter_len_dist_f->Append(printout);
+          if (!s.ok()) {
+            fprintf(
+                stderr,
+                "Write iterator Next/Prev count distribution file failed\n");
+            return s;
+          }
+        }
+      }
+
+      if (cf_it.second.ave_iter_len_sec_f) {
+        for (auto& iter_ave_it : cf_it.second.ave_iter_len_sec) {
+          uint32_t ave = 0;
+          if (iter_ave_it.second.first != 0) {
+            ave = static_cast<uint32_t>(iter_ave_it.second.second /
+                                        iter_ave_it.second.first);
+          }
+          ret = sprintf(buffer_, "%u %u\n", iter_ave_it.first, ave);
+          if (ret < 0) {
+            return Status::IOError("Format the output failed");
+          }
+          std::string printout(buffer_);
+          s = cf_it.second.ave_iter_len_sec_f->Append(printout);
+          if (!s.ok()) {
+            fprintf(stderr,
+                    "Write iterator Next/Prev count average in second file "
+                    "failed\n");
+            return s;
+          }
+        }
+      }
+    }
+
     // process the whole key space if needed
     if (!FLAGS_key_space_dir.empty()) {
       std::string whole_key_path =
@@ -1187,11 +1241,7 @@ Status TraceAnalyzer::KeyStatsInsertion(const uint32_t& type,
   }
 
   if (cfs_.find(cf_id) == cfs_.end()) {
-    CfUnit cf_unit;
-    cf_unit.cf_id = cf_id;
-    cf_unit.w_count = 0;
-    cf_unit.a_count = 0;
-    cfs_[cf_id] = cf_unit;
+    InitCFS(cf_id);
   }
 
   if (FLAGS_output_time_series) {
@@ -1204,6 +1254,39 @@ Status TraceAnalyzer::KeyStatsInsertion(const uint32_t& type,
     ta_[type].stats[cf_id].time_series.push_back(trace_u);
   }
 
+  return Status::OK();
+}
+
+// Initialize the CF level statistic unit
+Status TraceAnalyzer::InitCFS(const uint32_t& cf_id) {
+  if (cfs_.find(cf_id) != cfs_.end()) {
+    return Status::OK();
+  }
+  cfs_[cf_id].cf_id = cf_id;
+  cfs_[cf_id].w_count = 0;
+  cfs_[cf_id].a_count = 0;
+  if (FLAGS_analyze_iterator) {
+    std::string file_name;
+    file_name = output_path_ + "/" + FLAGS_output_prefix + "-" +
+                std::to_string(cf_id) + "-iterator_length_distribution.txt";
+    Status s;
+    s = env_->NewWritableFile(file_name, &(cfs_[cf_id].iter_len_dist_f),
+                              env_options_);
+    if (!s.ok()) {
+      fprintf(stderr, "Cannot open file: %s\n", file_name.c_str());
+      exit(1);
+    }
+
+    file_name = output_path_ + "/" + FLAGS_output_prefix + "-" +
+                std::to_string(cf_id) +
+                "-iterator_average_length_persecond.txt";
+    s = env_->NewWritableFile(file_name, &(cfs_[cf_id].ave_iter_len_sec_f),
+                              env_options_);
+    if (!s.ok()) {
+      fprintf(stderr, "Cannot open file: %s\n", file_name.c_str());
+      exit(1);
+    }
+  }
   return Status::OK();
 }
 
@@ -1358,6 +1441,17 @@ void TraceAnalyzer::CloseOutputFiles() {
       }
       if (stat.second.w_prefix_cut_f) {
         stat.second.w_prefix_cut_f->Close();
+      }
+    }
+  }
+
+  if (FLAGS_analyze_iterator) {
+    for (auto& cf_unit : cfs_) {
+      if (cf_unit.second.iter_len_dist_f) {
+        cf_unit.second.iter_len_dist_f->Close();
+      }
+      if (cf_unit.second.ave_iter_len_sec_f) {
+        cf_unit.second.ave_iter_len_sec_f->Close();
       }
     }
   }
@@ -1548,6 +1642,37 @@ Status TraceAnalyzer::HandleIter(uint32_t column_family_id,
     return Status::Corruption("Failed to insert key statistics");
   }
   return s;
+}
+
+// Handle the Next/Prev count of the Iterator request in the trace
+Status TraceAnalyzer::HandleIterCount(uint32_t column_family_id,
+                                      const uint64_t& ts,
+                                      const uint64_t& count) {
+  if (cfs_.find(column_family_id) == cfs_.end()) {
+    InitCFS(column_family_id);
+  }
+  if (cfs_[column_family_id].iter_len_stats.find(count) ==
+      cfs_[column_family_id].iter_len_stats.end()) {
+    cfs_[column_family_id].iter_len_stats[count] = 1;
+  } else {
+    cfs_[column_family_id].iter_len_stats[count]++;
+  }
+
+  uint32_t time_in_sec;
+  if (ts < trace_create_time_) {
+    time_in_sec = 0;
+  } else {
+    time_in_sec = static_cast<uint32_t>((ts - trace_create_time_) / 1000000);
+  }
+  auto find_ret = cfs_[column_family_id].ave_iter_len_sec.find(time_in_sec);
+  if (find_ret == cfs_[column_family_id].ave_iter_len_sec.end()) {
+    cfs_[column_family_id].ave_iter_len_sec[time_in_sec] =
+        std::make_pair(1, count);
+  } else {
+    find_ret->second.first += 1;
+    find_ret->second.second += count;
+  }
+  return Status::OK();
 }
 
 // Before the analyzer is closed, the requested general statistic results are

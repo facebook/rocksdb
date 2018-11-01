@@ -1221,6 +1221,17 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
 
+  if(tracer_.get() == nullptr) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if(tracer_.get() == nullptr) {
+      std::string trace_filename = "/home/zhichao/trace/trace." + std::to_string(env_->NowMicros());
+      EnvOptions env_opts;
+      std::unique_ptr<TraceWriter> trace_writer;
+      NewFileTraceWriter(env_, env_opts, trace_filename, &trace_writer);
+      tracer_.reset(new Tracer(env_, std::move(trace_writer)));
+    }
+  }
+
   if (tracer_) {
     // TODO: This mutex should be removed later, to improve performance when
     // tracing is enabled.
@@ -3292,29 +3303,44 @@ Status DBImpl::EndTrace() {
   return s;
 }
 
-Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key) {
+Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id,
+                                 const uint64_t& trace_iter_uid,
+                                 const Slice& key) {
   Status s;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      s = tracer_->IteratorSeek(cf_id, key);
+      s = tracer_->IteratorSeek(cf_id, trace_iter_uid, key);
     }
   }
   return s;
 }
 
 Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id,
+                                        const uint64_t& trace_iter_uid,
                                         const Slice& key) {
   Status s;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      s = tracer_->IteratorSeekForPrev(cf_id, key);
+      s = tracer_->IteratorSeekForPrev(cf_id, trace_iter_uid, key);
     }
   }
   return s;
 }
 
+Status DBImpl::TraceIteratorIterCount(const uint32_t& cf_id,
+                                      const uint64_t& trace_iter_uid,
+                                      const uint64_t& count) {
+  Status s;
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      s = tracer_->IteratorIterCount(cf_id, trace_iter_uid, count);
+    }
+  }
+  return s;
+}
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
