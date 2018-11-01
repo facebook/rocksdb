@@ -518,7 +518,7 @@ TEST_F(DBOptionsTest, SetStatsDumpPeriodSec) {
   Close();
 }
 
-TEST_F(DBOptionsTest, RunStatsDumpPeriodSec) {
+TEST_F(DBOptionsTest, DISABLED_RunStatsDumpPeriodSec) {
   Options options;
   options.create_if_missing = true;
   options.stats_dump_period_sec = 5;
@@ -811,7 +811,7 @@ static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
   job_context.Clean();
 }
 
-TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
+TEST_F(DBOptionsTest, DISABLED_DeleteObsoleteFilesPeriodChange) {
   SpecialEnv env(env_);
   env.time_elapse_only_sleep_ = true;
   Options options;
