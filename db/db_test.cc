@@ -5043,7 +5043,7 @@ class DelayedMergeOperator : public MergeOperator {
   virtual const char* Name() const override { return "DelayedMergeOperator"; }
 };
 
-TEST_F(DBTest, MergeTestTime) {
+TEST_F(DBTest, DISABLED_MergeTestTime) {
   std::string one, two, three;
   PutFixed64(&one, 1);
   PutFixed64(&two, 2);
