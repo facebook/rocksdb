@@ -206,6 +206,8 @@ Status PessimisticTransaction::Prepare() {
     if (s.ok()) {
       assert(log_number_ != 0);
       if (!wal_already_marked) {
+        TEST_SYNC_POINT("PessimisticTransaction::Prepare:BeforeMark1");
+        TEST_SYNC_POINT("PessimisticTransaction::Prepare:BeforeMark2");
         dbimpl_->logs_with_prep_tracker()->MarkLogAsContainingPrepSection(
             log_number_);
       }
