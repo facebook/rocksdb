@@ -1543,6 +1543,14 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
     WriteStallCondition write_stall_condition = WriteStallCondition::kNormal;
     do {
       if (write_stall_condition != WriteStallCondition::kNormal) {
+        // Same error handling as user writes: Don't wait if there's a
+        // background error, even if it's a soft error. We might wait here
+        // indefinitely as the pending flushes/compactions may never finish
+        // successfully, resulting in the stall condition lasting indefinitely
+        if (error_handler_.IsBGWorkStopped()) {
+          return error_handler_.GetBGError();
+        }
+
         TEST_SYNC_POINT("DBImpl::WaitUntilFlushWouldNotStallWrites:StallWait");
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "[%s] WaitUntilFlushWouldNotStallWrites"
