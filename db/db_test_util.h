@@ -747,6 +747,9 @@ class DBTestBase : public testing::Test {
   // Jump from kDefault to kFilter to kFullFilter
   bool ChangeFilterOptions();
 
+  // Switch between different DB options for file ingestion tests.
+  bool ChangeOptionsForFileIngestionTest();
+
   // Return the current option configuration.
   Options CurrentOptions(const anon::OptionsOverride& options_override =
                              anon::OptionsOverride()) const;

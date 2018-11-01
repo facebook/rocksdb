@@ -259,6 +259,47 @@ bool DBTestBase::ChangeFilterOptions() {
   return true;
 }
 
+// Switch between different DB options for file ingestion tests.
+bool DBTestBase::ChangeOptionsForFileIngestionTest() {
+  if (option_config_ == kDefault) {
+    option_config_ = kUniversalCompaction;
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    options.create_if_missing = true;
+    TryReopen(options);
+    return true;
+  } else if (option_config_ == kUniversalCompaction) {
+    option_config_ = kUniversalCompactionMultiLevel;
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    options.create_if_missing = true;
+    TryReopen(options);
+    return true;
+  } else if (option_config_ == kUniversalCompactionMultiLevel) {
+    option_config_ = kLevelSubcompactions;
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    assert(options.max_subcompactions > 1);
+    TryReopen(options);
+    return true;
+  } else if (option_config_ == kLevelSubcompactions) {
+    option_config_ = kUniversalSubcompactions;
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    assert(options.max_subcompactions > 1);
+    TryReopen(options);
+    return true;
+  } else if (option_config_ == kUniversalSubcompactions) {
+    option_config_ = kDirectIO;
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    TryReopen(options);
+    return true;
+  } else {
+    return false;
+  }
+}
+
 // Return the current option configuration.
 Options DBTestBase::CurrentOptions(
     const anon::OptionsOverride& options_override) const {
