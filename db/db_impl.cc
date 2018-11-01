@@ -1290,7 +1290,6 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
       done = true;
       pinnable_val->PinSelf();
       RecordTick(stats_, MEMTABLE_HIT);
-      PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1, 0);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
                sv->imm->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
                             &max_covering_tombstone_seq, read_options, callback,
@@ -1298,7 +1297,6 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
       done = true;
       pinnable_val->PinSelf();
       RecordTick(stats_, MEMTABLE_HIT);
-      PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1, 0);
     }
     if (!done && !s.ok() && !s.IsMergeInProgress()) {
       ReturnAndCleanupSuperVersion(cfd, sv);
@@ -1307,14 +1305,10 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   }
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    int level_found = -1;
     sv->current->Get(read_options, lkey, pinnable_val, &s, &merge_context,
-                     &level_found, &max_covering_tombstone_seq, value_found,
-                     nullptr, nullptr, callback, is_blob_index);
+                     &max_covering_tombstone_seq, value_found, nullptr, nullptr,
+                     callback, is_blob_index);
     RecordTick(stats_, MEMTABLE_MISS);
-    if (level_found != -1) {
-      PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1, level_found);
-    }
   }
 
   {
@@ -1409,27 +1403,20 @@ std::vector<Status> DBImpl::MultiGet(
                                   &max_covering_tombstone_seq, read_options)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
-        PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1, 0);
       } else if (super_version->imm->Get(lkey, value, &s, &merge_context,
                                          &max_covering_tombstone_seq,
                                          read_options)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
-        PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1, 0);
       }
     }
     if (!done) {
       PinnableSlice pinnable_val;
       PERF_TIMER_GUARD(get_from_output_files_time);
-      int level_found = -1;
       super_version->current->Get(read_options, lkey, &pinnable_val, &s,
-                                  &merge_context, &level_found,
-                                  &max_covering_tombstone_seq);
+                                  &merge_context, &max_covering_tombstone_seq);
       value->assign(pinnable_val.data(), pinnable_val.size());
       RecordTick(stats_, MEMTABLE_MISS);
-      if (level_found != -1) {
-        PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1, level_found);
-      }
     }
 
     if (s.ok()) {
@@ -3030,11 +3017,10 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   // SST files if cache_only=true?
   if (!cache_only) {
     // Check tables
-    int level_found = -1;
     sv->current->Get(read_options, lkey, nullptr, &s, &merge_context,
-                     &level_found, &max_covering_tombstone_seq,
-                     nullptr /* value_found */, found_record_for_key, seq,
-                     nullptr /*read_callback*/, is_blob_index);
+                     &max_covering_tombstone_seq, nullptr /* value_found */,
+                     found_record_for_key, seq, nullptr /*read_callback*/,
+                     is_blob_index);
 
     if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
       // unexpected error reading SST files

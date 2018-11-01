@@ -1176,7 +1176,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
 
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   PinnableSlice* value, Status* status,
-                  MergeContext* merge_context, int* level_found,
+                  MergeContext* merge_context,
                   SequenceNumber* max_covering_tombstone_seq, bool* value_found,
                   bool* key_exists, SequenceNumber* seq, ReadCallback* callback,
                   bool* is_blob) {
@@ -1218,7 +1218,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       sample_file_read_inc(f->file_metadata);
     }
 
-    StopWatchNano timer(env_, true);
+    bool timer_enabled = get_perf_context()->per_level_perf_context_enabled &&
+                        GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex;
+    StopWatchNano timer(env_, timer_enabled /* auto_start */);
     *status = table_cache_->Get(
         read_options, *internal_comparator(), *f->file_metadata, ikey,
         &get_context, mutable_cf_options_.prefix_extractor.get(),
@@ -1227,8 +1229,10 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                         fp.IsHitFileLastInLevel()),
         fp.GetCurrentLevel());
     // TODO: examine the behavior for corrupted key
-    PERF_COUNTER_BY_LEVEL_ADD(get_processing_time, timer.ElapsedNanos(),
-                              fp.GetCurrentLevel());
+    if (timer_enabled) {
+      PERF_COUNTER_BY_LEVEL_ADD(get_processing_time, timer.ElapsedNanos(),
+                                fp.GetCurrentLevel());
+    }
     if (!status->ok()) {
       return;
     }
@@ -1253,7 +1257,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         } else if (fp.GetHitFileLevel() >= 2) {
           RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
         }
-        *level_found = fp.GetHitFileLevel();
+        PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1, fp.GetHitFileLevel());
         return;
       case GetContext::kDeleted:
         // Use empty error message for speed

@@ -52,17 +52,11 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
                               &max_covering_tombstone_seq, read_options)) {
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);
-    PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1, 0);
   } else {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    int level_found = -1;
     super_version->current->Get(read_options, lkey, pinnable_val, &s,
-                                &merge_context, &level_found,
-                                &max_covering_tombstone_seq);
+                                &merge_context, &max_covering_tombstone_seq);
     RecordTick(stats_, MEMTABLE_MISS);
-    if (level_found != -1) {
-      PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1, level_found);
-    }
   }
   RecordTick(stats_, NUMBER_KEYS_READ);
   size_t size = pinnable_val->size();
