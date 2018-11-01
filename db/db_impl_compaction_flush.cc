@@ -1543,9 +1543,11 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
     WriteStallCondition write_stall_condition = WriteStallCondition::kNormal;
     do {
       if (write_stall_condition != WriteStallCondition::kNormal) {
-        // If the DB is in read-only mode and not coming back, no point waiting.
-        if (error_handler_.IsBGWorkStopped() &&
-            !error_handler_.IsRecoveryInProgress()) {
+        // Same error handling as user writes: Don't wait if there's a
+        // background error, even if it's a soft error. We might wait here
+        // indefinitely as the background compaction may never finish
+        // successfully, resulting in the stall condition lasting indefinitely
+        if (error_handler_.IsBGWorkStopped()) {
           return error_handler_.GetBGError();
         }
 
