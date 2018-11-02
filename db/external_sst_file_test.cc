@@ -1317,7 +1317,8 @@ TEST_F(ExternalSSTFileTest, IngestNonExistingFile) {
   ASSERT_OK(Flush());
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  
   // After full compaction, there should be only 1 file.
   std::vector<std::string> files;
   env_->GetChildren(dbname_, &files);
