@@ -255,7 +255,7 @@ TEST_F(BlobDBTest, Put) {
   VerifyDB(data);
 }
 
-TEST_F(BlobDBTest, PutWithTTL) {
+TEST_F(BlobDBTest, DISABLED_PutWithTTL) {
   Random rnd(301);
   Options options;
   options.env = mock_env_.get();
@@ -285,7 +285,7 @@ TEST_F(BlobDBTest, PutWithTTL) {
   VerifyDB(data);
 }
 
-TEST_F(BlobDBTest, PutUntil) {
+TEST_F(BlobDBTest, DISABLED_PutUntil) {
   Random rnd(301);
   Options options;
   options.env = mock_env_.get();
@@ -338,7 +338,7 @@ TEST_F(BlobDBTest, StackableDBGet) {
   }
 }
 
-TEST_F(BlobDBTest, GetExpiration) {
+TEST_F(BlobDBTest, DISABLED_GetExpiration) {
   Options options;
   options.env = mock_env_.get();
   BlobDBOptions bdb_options;
@@ -581,7 +581,7 @@ TEST_F(BlobDBTest, GCRelocateKeyWhileOverwriting) {
   VerifyDB({{"foo", "v2"}});
 }
 
-TEST_F(BlobDBTest, GCExpiredKeyWhileOverwriting) {
+TEST_F(BlobDBTest, DISABLED_GCExpiredKeyWhileOverwriting) {
   Random rnd(301);
   Options options;
   options.env = mock_env_.get();
@@ -817,7 +817,7 @@ TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
   }
 }
 
-TEST_F(BlobDBTest, ColumnFamilyNotSupported) {
+TEST_F(BlobDBTest, DISABLED_ColumnFamilyNotSupported) {
   Options options;
   options.env = mock_env_.get();
   mock_env_->set_current_time(0);
@@ -1033,7 +1033,7 @@ TEST_F(BlobDBTest, FIFOEviction_NoOldestFileToEvict) {
   ASSERT_EQ(0, evict_count);
 }
 
-TEST_F(BlobDBTest, FIFOEviction_NoEnoughBlobFilesToEvict) {
+TEST_F(BlobDBTest, DISABLED_FIFOEviction_NoEnoughBlobFilesToEvict) {
   BlobDBOptions bdb_options;
   bdb_options.is_fifo = true;
   bdb_options.min_blob_size = 100;
@@ -1086,7 +1086,7 @@ TEST_F(BlobDBTest, FIFOEviction_NoEnoughBlobFilesToEvict) {
 
 // Test flush or compaction will trigger FIFO eviction since they update
 // total SST file size.
-TEST_F(BlobDBTest, FIFOEviction_TriggerOnSSTSizeChange) {
+TEST_F(BlobDBTest, DISABLED_FIFOEviction_TriggerOnSSTSizeChange) {
   BlobDBOptions bdb_options;
   bdb_options.max_db_size = 1000;
   bdb_options.is_fifo = true;
@@ -1120,7 +1120,7 @@ TEST_F(BlobDBTest, FIFOEviction_TriggerOnSSTSizeChange) {
   VerifyDB(data);
 }
 
-TEST_F(BlobDBTest, InlineSmallValues) {
+TEST_F(BlobDBTest, DISABLED_InlineSmallValues) {
   constexpr uint64_t kMaxExpiration = 1000;
   Random rnd(301);
   BlobDBOptions bdb_options;
@@ -1197,7 +1197,7 @@ TEST_F(BlobDBTest, CompactionFilterNotSupported) {
 }
 
 // Test comapction filter should remove any expired blob index.
-TEST_F(BlobDBTest, FilterExpiredBlobIndex) {
+TEST_F(BlobDBTest, DISABLED_FilterExpiredBlobIndex) {
   constexpr size_t kNumKeys = 100;
   constexpr size_t kNumPuts = 1000;
   constexpr uint64_t kMaxExpiration = 1000;
@@ -1323,7 +1323,7 @@ TEST_F(BlobDBTest, FilterFileNotAvailable) {
 
 // Test compaction filter should filter any inlined TTL keys that would have
 // been dropped by last FIFO eviction if they are store out-of-line.
-TEST_F(BlobDBTest, FilterForFIFOEviction) {
+TEST_F(BlobDBTest, DISABLED_FilterForFIFOEviction) {
   Random rnd(215);
   BlobDBOptions bdb_options;
   bdb_options.min_blob_size = 100;
@@ -1407,7 +1407,7 @@ TEST_F(BlobDBTest, FilterForFIFOEviction) {
 }
 
 // File should be evicted after expiration.
-TEST_F(BlobDBTest, EvictExpiredFile) {
+TEST_F(BlobDBTest, DISABLED_EvictExpiredFile) {
   BlobDBOptions bdb_options;
   bdb_options.ttl_range_secs = 100;
   bdb_options.min_blob_size = 0;
