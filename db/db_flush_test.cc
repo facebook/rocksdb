@@ -247,8 +247,10 @@ TEST_F(DBFlushTest, ManualFlushFailsInReadOnlyMode) {
   ASSERT_OK(db_->ContinueBackgroundWork());
   dbfull()->TEST_WaitForFlushMemTable();
   uint64_t num_bg_errors;
+#ifndef ROCKSDB_LITE
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBackgroundErrors,
                                   &num_bg_errors));
+#endif  // ROCKSDB_LITE
   ASSERT_GT(num_bg_errors, 0);
 
   // In the bug scenario, triggering another flush would cause the second flush
