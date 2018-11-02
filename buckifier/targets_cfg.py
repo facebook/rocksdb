@@ -85,13 +85,13 @@ if default_allocator.startswith("jemalloc") and sanitizer == "":
 
 library_template = """
 cpp_library(
-    name = "%s",
-    srcs = [%s],
-    headers = %s,
+    name = "{name}",
+    srcs = [{srcs}],
+    {headers_attr_prefix}headers = {headers},
     arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
     compiler_flags = rocksdb_compiler_flags,
     preprocessor_flags = rocksdb_preprocessor_flags,
-    deps = [%s],
+    deps = [{deps}],
     external_deps = rocksdb_external_deps,
 )
 """
