@@ -20,12 +20,21 @@
 #include "util/sst_file_manager_impl.h"
 
 namespace rocksdb {
+
 uint64_t DBImpl::MinLogNumberToKeep() {
   if (allow_2pc()) {
     return versions_->min_log_number_to_keep_2pc();
   } else {
     return versions_->MinLogNumberWithUnflushedData();
   }
+}
+
+uint64_t DBImpl::MinObsoleteSstNumberToKeep() {
+  mutex_.AssertHeld();
+  if (!pending_outputs_.empty()) {
+    return *pending_outputs_.begin();
+  }
+  return std::numeric_limits<uint64_t>::max();
 }
 
 // * Returns the list of live files in 'sst_live'

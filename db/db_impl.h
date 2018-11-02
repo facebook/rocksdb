@@ -491,6 +491,8 @@ class DBImpl : public DB {
 
   uint64_t MinLogNumberToKeep();
 
+  uint64_t MinObsoleteSstNumberToKeep();
+
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'candidate_files'.
   // If force == false and the last call was less than
