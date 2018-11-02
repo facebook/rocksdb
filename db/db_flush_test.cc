@@ -246,10 +246,12 @@ TEST_F(DBFlushTest, ManualFlushFailsInReadOnlyMode) {
   fault_injection_env->SetFilesystemActive(false);
   ASSERT_OK(db_->ContinueBackgroundWork());
   dbfull()->TEST_WaitForFlushMemTable();
+#ifndef ROCKSDB_LITE
   uint64_t num_bg_errors;
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBackgroundErrors,
                                   &num_bg_errors));
   ASSERT_GT(num_bg_errors, 0);
+#endif  // ROCKSDB_LITE
 
   // In the bug scenario, triggering another flush would cause the second flush
   // to hang forever. After the fix we expect it to return an error.
