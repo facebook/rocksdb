@@ -15,6 +15,11 @@
 * Fix the bug that WriteBatchWithIndex's SeekForPrev() doesn't see the entries with the same key.
 * Fix the bug where user comparator was sometimes fed with InternalKey instead of the user key. The bug manifests when during GenerateBottommostFiles.
 
+## 5.17.1 (10/30/2018)
+## Unreleased
+### New Features
+* Add xxhash64 checksum support
+
 ## 5.17.0 (10/05/2018)
 ### Public API Change
 * `OnTableFileCreated` will now be called for empty files generated during compaction. In that case, `TableFileCreationInfo::file_path` will be "(nil)" and `TableFileCreationInfo::file_size` will be zero.
