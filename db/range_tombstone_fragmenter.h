@@ -24,8 +24,8 @@ struct FragmentedRangeTombstoneList {
   // The members seq_start_idx and seq_end_idx are intended to be parameters to
   // seq_iter().
   struct RangeTombstoneStack {
-    RangeTombstoneStack(const Slice& start, const Slice& end, int start_idx,
-                        int end_idx)
+    RangeTombstoneStack(const Slice& start, const Slice& end, size_t start_idx,
+                        size_t end_idx)
         : start_key(start),
           end_key(end),
           seq_start_idx(start_idx),
