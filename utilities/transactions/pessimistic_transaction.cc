@@ -575,6 +575,8 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   // an upgrade.
   if (!previously_locked || lock_upgrade) {
     s = txn_db_impl_->TryLock(this, cfh_id, key_str, exclusive);
+    if (!s.ok())
+      return s;
   }
 
   SetSnapshotIfNeeded();
