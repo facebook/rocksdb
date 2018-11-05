@@ -176,7 +176,6 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
 
   const RangeTombstoneStackStartComparator tombstone_start_cmp_;
   const RangeTombstoneStackEndComparator tombstone_end_cmp_;
-  const InternalKeyComparator* icmp_;
   const Comparator* ucmp_;
   std::shared_ptr<const FragmentedRangeTombstoneList> tombstones_ref_;
   const FragmentedRangeTombstoneList* tombstones_;

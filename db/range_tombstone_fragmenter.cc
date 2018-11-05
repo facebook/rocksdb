@@ -202,7 +202,6 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
     const InternalKeyComparator& icmp)
     : tombstone_start_cmp_(icmp.user_comparator()),
       tombstone_end_cmp_(icmp.user_comparator()),
-      icmp_(&icmp),
       ucmp_(icmp.user_comparator()),
       tombstones_(tombstones) {
   assert(tombstones_ != nullptr);
@@ -215,7 +214,6 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
     const InternalKeyComparator& icmp)
     : tombstone_start_cmp_(icmp.user_comparator()),
       tombstone_end_cmp_(icmp.user_comparator()),
-      icmp_(&icmp),
       ucmp_(icmp.user_comparator()),
       tombstones_ref_(tombstones),
       tombstones_(tombstones_ref_.get()) {
