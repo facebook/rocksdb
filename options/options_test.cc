@@ -1838,6 +1838,29 @@ TEST_F(OptionsParserTest, EscapeOptionString) {
                 "Escape \\# and # comment together   ."),
             "Escape \\# and");
 }
+
+class TestListener : public EventListener {
+public:
+  const char * Name() const override { return "testListener"; }
+};
+
+extern "C" {
+  Extension * testListenerFactory(const std::string & name, ExtensionType type) {
+    if (name == "testListener" && type == kExtensionEventListener) {
+      return new TestListener();
+    } else {
+      return nullptr;
+    }
+  }
+}
+
+TEST_F(OptionsTest, LoadExtension) {
+  DBOptions dbOptions;
+  ASSERT_TRUE(dbOptions.AddExtensionFactory("", "testListenerFactory").ok());
+  ASSERT_EQ(dbOptions.extension_factories.size(), 1);
+  ASSERT_TRUE(dbOptions.AddEventListener("testListener").ok());
+  ASSERT_EQ(dbOptions.listeners.size(), 1);
+}
 #endif  // !ROCKSDB_LITE
 }  // namespace rocksdb
 

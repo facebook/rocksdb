@@ -63,6 +63,7 @@ class Extension {
   
   class ExtensionFactory {
   public:
+    virtual const char *Name() const = 0;
     typedef Extension *(*ExtensionFactoryFunction)(const std::string & name, ExtensionType type);
     static Status LoadDynamicFactory(const std::shared_ptr<DynamicLibrary> & library, const std::string & method, std::shared_ptr<ExtensionFactory> * factory);
   public:

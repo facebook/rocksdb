@@ -18,16 +18,14 @@ namespace rocksdb {
 			    ExtensionFactoryFunction function)
       : library_(library), function_(function) {
     }
-    virtual Status LoadExtension(const std::string & name,
-				 ExtensionType type,
-				 std::shared_ptr<Extension> * result) {
+    virtual const char *Name() const override {
+      return library_->Name();
+    }
+    
+    virtual Extension * CreateExtensionObject(const std::string & name,
+					      ExtensionType type) override {
       Extension * extension = (function_)(name, type);
-      if (extension != nullptr) {
-	result->reset(extension);
-	return Status::OK();
-      } else {
-	return Status::NotFound("No factory method", name);
-      }	
+      return extension;
     }
   };
   
