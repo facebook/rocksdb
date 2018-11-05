@@ -2351,7 +2351,9 @@ TEST_F(DBTest, GroupCommitTest) {
 
     rocksdb::SyncPoint::GetInstance()->LoadDependency(
         {{"WriteThread::JoinBatchGroup:BeganWaiting",
-          "DBImpl::WriteImpl:BeforeLeaderEnters"}});
+          "DBImpl::WriteImpl:BeforeLeaderEnters"},
+          {"WriteThread::AwaitState:BlockingWaiting",
+          "WriteThread::EnterAsBatchGroupLeader:End"}});
     rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
     // Start threads
