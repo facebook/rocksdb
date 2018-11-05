@@ -166,8 +166,8 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   };
 
   void MaybePinKey() const {
-    if (pos_ != tombstones_->end() && pinned_pos_ != pos_ &&
-        seq_pos_ != tombstones_->seq_end() && pinned_seq_pos_ != seq_pos_) {
+    if (pos_ != tombstones_->end() && seq_pos_ != tombstones_->seq_end() &&
+        (pinned_pos_ != pos_ || pinned_seq_pos_ != seq_pos_)) {
       current_start_key_.Set(pos_->start_key, *seq_pos_, kTypeRangeDeletion);
       pinned_pos_ = pos_;
       pinned_seq_pos_ = seq_pos_;
