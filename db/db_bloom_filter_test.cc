@@ -499,6 +499,7 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
   } while (ChangeCompactOptions());
 }
 
+#ifndef ROCKSDB_VALGRIND_RUN
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestDefFormatVersion,
     ::testing::Values(std::make_tuple(true, false, test::kDefaultFormatVersion),
@@ -519,6 +520,7 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, true, test::kLatestFormatVersion),
                       std::make_tuple(false, false,
                                       test::kLatestFormatVersion)));
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
   while (ChangeFilterOptions()) {
