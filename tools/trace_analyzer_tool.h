@@ -140,6 +140,7 @@ struct TypeUnit {
   uint64_t total_keys;
   uint64_t total_access;
   uint64_t total_succ_access;
+  uint32_t sample_count;
   std::map<uint32_t, TraceStats> stats;
   TypeUnit() = default;
   ~TypeUnit() = default;
@@ -208,6 +209,7 @@ class TraceAnalyzer {
   uint64_t begin_time_;
   uint64_t end_time_;
   uint64_t time_series_start_;
+  uint32_t sample_max_;
   std::unique_ptr<rocksdb::WritableFile> trace_sequence_f_;  // readable trace
   std::unique_ptr<rocksdb::WritableFile> qps_f_;             // overall qps
   std::unique_ptr<rocksdb::SequentialFile> wkey_input_f_;
