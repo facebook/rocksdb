@@ -2,6 +2,7 @@
 # Unreleased
 ### Bug Fixes
 * Fix the bug that WriteBatchWithIndex's SeekForPrev() doesn't see the entries with the same key.
+* Fix a bug in WritePrepared txns where if the number of old snapshots goes beyond the snapshot cache size (128 default) the rest will not be checked when evicting a commit entry from the commit cache.
 
 ## 5.17.1 (10/16/2018)
 ### Bug Fixes
