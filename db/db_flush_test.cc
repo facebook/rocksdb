@@ -355,6 +355,52 @@ TEST_P(DBAtomicFlushTest, AtomicFlushTriggeredByMemTableFull) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_P(DBAtomicFlushTest, AtomicFlushRollbackSomeJobs) {
+  bool atomic_flush = GetParam();
+  if (!atomic_flush) {
+    return;
+  }
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
+      new FaultInjectionTestEnv(env_));
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = atomic_flush;
+  options.env = fault_injection_env.get();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::AtomicFlushMemTablesToOutputFiles:SomeFlushJobsComplete:1",
+        "DBAtomicFlushTest::AtomicFlushRollbackSomeJobs:1"},
+       {"DBAtomicFlushTest::AtomicFlushRollbackSomeJobs:2",
+        "DBImpl::AtomicFlushMemTablesToOutputFiles:SomeFlushJobsComplete:2"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  WriteOptions wopts;
+  wopts.disableWAL = true;
+  for (size_t i = 0; i != num_cfs; ++i) {
+    int cf_id = static_cast<int>(i);
+    ASSERT_OK(Put(cf_id, "key", "value", wopts));
+  }
+  FlushOptions flush_opts;
+  flush_opts.wait = false;
+  ASSERT_OK(dbfull()->Flush(flush_opts, handles_));
+  TEST_SYNC_POINT("DBAtomicFlushTest::AtomicFlushRollbackSomeJobs:1");
+  fault_injection_env->SetFilesystemActive(false);
+  TEST_SYNC_POINT("DBAtomicFlushTest::AtomicFlushRollbackSomeJobs:2");
+  for (auto* cfh : handles_) {
+    dbfull()->TEST_WaitForFlushMemTable(cfh);
+  }
+  for (size_t i = 0; i != num_cfs; ++i) {
+    auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+    ASSERT_EQ(1, cfh->cfd()->imm()->NumNotFlushed());
+    ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
+  }
+  fault_injection_env->SetFilesystemActive(true);
+  Destroy(options);
+}
+
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
                         testing::Bool());
 
