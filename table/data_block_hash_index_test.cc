@@ -542,9 +542,9 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
 void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
                   std::string& v2, InternalKey& seek_ikey,
                   GetContext& get_context, Options& options) {
-  unique_ptr<WritableFileWriter> file_writer;
-  unique_ptr<RandomAccessFileReader> file_reader;
-  unique_ptr<TableReader> table_reader;
+  std::unique_ptr<WritableFileWriter> file_writer;
+  std::unique_ptr<RandomAccessFileReader> file_reader;
+  std::unique_ptr<TableReader> table_reader;
   int level_ = -1;
 
   std::vector<std::string> keys;
@@ -557,7 +557,7 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   soptions.use_mmap_reads = ioptions.allow_mmap_reads;
   file_writer.reset(
       test::GetWritableFileWriter(new test::StringSink(), "" /* don't care */));
-  unique_ptr<TableBuilder> builder;
+  std::unique_ptr<TableBuilder> builder;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories;
   std::string column_family_name;

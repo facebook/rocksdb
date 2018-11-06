@@ -263,7 +263,7 @@ Status BlockCacheTier::InsertImpl(const Slice& key, const Slice& data) {
   return Status::OK();
 }
 
-Status BlockCacheTier::Lookup(const Slice& key, unique_ptr<char[]>* val,
+Status BlockCacheTier::Lookup(const Slice& key, std::unique_ptr<char[]>* val,
                               size_t* size) {
   StopWatchNano timer(opt_.env, /*auto_start=*/ true);
 
@@ -287,7 +287,7 @@ Status BlockCacheTier::Lookup(const Slice& key, unique_ptr<char[]>* val,
 
   assert(file->refs_);
 
-  unique_ptr<char[]> scratch(new char[lba.size_]);
+  std::unique_ptr<char[]> scratch(new char[lba.size_]);
   Slice blk_key;
   Slice blk_val;
 
@@ -369,7 +369,7 @@ bool BlockCacheTier::Reserve(const size_t size) {
 
   const double retain_fac = (100 - kEvictPct) / static_cast<double>(100);
   while (size + size_ > opt_.cache_size * retain_fac) {
-    unique_ptr<BlockCacheFile> f(metadata_.Evict());
+    std::unique_ptr<BlockCacheFile> f(metadata_.Evict());
     if (!f) {
       // nothing is evictable
       return false;

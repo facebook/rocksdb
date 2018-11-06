@@ -145,8 +145,8 @@ class LogTest : public ::testing::TestWithParam<int> {
   }
 
   Slice reader_contents_;
-  unique_ptr<WritableFileWriter> dest_holder_;
-  unique_ptr<SequentialFileReader> source_holder_;
+  std::unique_ptr<WritableFileWriter> dest_holder_;
+  std::unique_ptr<SequentialFileReader> source_holder_;
   ReportCollector report_;
   Writer writer_;
   Reader reader_;
@@ -639,7 +639,7 @@ TEST_P(LogTest, Recycle) {
   while (get_reader_contents()->size() < log::kBlockSize * 2) {
     Write("xxxxxxxxxxxxxxxx");
   }
-  unique_ptr<WritableFileWriter> dest_holder(test::GetWritableFileWriter(
+  std::unique_ptr<WritableFileWriter> dest_holder(test::GetWritableFileWriter(
       new test::OverwritingStringSink(get_reader_contents()),
       "" /* don't care */));
   Writer recycle_writer(std::move(dest_holder), 123, true);
@@ -668,16 +668,16 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
   };
 
   Slice contents_;
-  unique_ptr<WritableFileWriter> dest_holder_;
-  unique_ptr<Writer> log_writer_;
+  std::unique_ptr<WritableFileWriter> dest_holder_;
+  std::unique_ptr<Writer> log_writer_;
   Env* env_;
   EnvOptions env_options_;
   const std::string test_dir_;
   const std::string log_file_;
-  unique_ptr<WritableFileWriter> writer_;
-  unique_ptr<SequentialFileReader> reader_;
+  std::unique_ptr<WritableFileWriter> writer_;
+  std::unique_ptr<SequentialFileReader> reader_;
   ReportCollector report_;
-  unique_ptr<Reader> log_reader_;
+  std::unique_ptr<Reader> log_reader_;
 
  public:
   RetriableLogTest()
@@ -700,7 +700,7 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
 
     Status s;
     s = env_->CreateDirIfMissing(test_dir_);
-    unique_ptr<WritableFile> writable_file;
+    std::unique_ptr<WritableFile> writable_file;
     if (s.ok()) {
       s = env_->NewWritableFile(log_file_, &writable_file, env_options_);
     }
@@ -709,7 +709,7 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
                                            env_options_));
       assert(writer_ != nullptr);
     }
-    unique_ptr<SequentialFile> seq_file;
+    std::unique_ptr<SequentialFile> seq_file;
     if (s.ok()) {
       s = env_->NewSequentialFile(log_file_, &seq_file, env_options_);
     }

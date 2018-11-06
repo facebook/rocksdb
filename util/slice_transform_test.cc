@@ -24,7 +24,7 @@ TEST_F(SliceTransformTest, CapPrefixTransform) {
   std::string s;
   s = "abcdefge";
 
-  unique_ptr<const SliceTransform> transform;
+  std::unique_ptr<const SliceTransform> transform;
 
   transform.reset(NewCappedPrefixTransform(6));
   ASSERT_EQ(transform->Transform(s).ToString(), "abcdef");
@@ -115,7 +115,7 @@ TEST_F(SliceTransformDBTest, CapPrefix) {
   ASSERT_OK(db()->Put(wo, "foo3", "bar3"));
   ASSERT_OK(db()->Flush(fo));
 
-  unique_ptr<Iterator> iter(db()->NewIterator(ro));
+  std::unique_ptr<Iterator> iter(db()->NewIterator(ro));
 
   iter->Seek("foo");
   ASSERT_OK(iter->status());

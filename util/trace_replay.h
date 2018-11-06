@@ -71,7 +71,7 @@ class Tracer {
   Status WriteTrace(const Trace& trace);
 
   Env* env_;
-  unique_ptr<TraceWriter> trace_writer_;
+  std::unique_ptr<TraceWriter> trace_writer_;
 };
 
 // Replay RocksDB operations from a trace.

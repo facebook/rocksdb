@@ -48,7 +48,7 @@ struct PlainTableReaderFileInfo {
   bool is_mmap_mode;
   Slice file_data;
   uint32_t data_end_offset;
-  unique_ptr<RandomAccessFileReader> file;
+  std::unique_ptr<RandomAccessFileReader> file;
 
   PlainTableReaderFileInfo(unique_ptr<RandomAccessFileReader>&& _file,
                            const EnvOptions& storage_options,
@@ -71,8 +71,8 @@ class PlainTableReader: public TableReader {
   static Status Open(const ImmutableCFOptions& ioptions,
                      const EnvOptions& env_options,
                      const InternalKeyComparator& internal_comparator,
-                     unique_ptr<RandomAccessFileReader>&& file,
-                     uint64_t file_size, unique_ptr<TableReader>* table,
+                     std::unique_ptr<RandomAccessFileReader>&& file,
+                     uint64_t file_size, std::unique_ptr<TableReader>* table,
                      const int bloom_bits_per_key, double hash_table_ratio,
                      size_t index_sparseness, size_t huge_page_tlb_size,
                      bool full_scan_mode,
@@ -104,7 +104,7 @@ class PlainTableReader: public TableReader {
   }
 
   PlainTableReader(const ImmutableCFOptions& ioptions,
-                   unique_ptr<RandomAccessFileReader>&& file,
+                   std::unique_ptr<RandomAccessFileReader>&& file,
                    const EnvOptions& env_options,
                    const InternalKeyComparator& internal_comparator,
                    EncodingType encoding_type, uint64_t file_size,

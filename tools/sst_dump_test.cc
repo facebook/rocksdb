@@ -43,7 +43,7 @@ void createSST(const std::string& file_name,
   std::shared_ptr<rocksdb::TableFactory> tf;
   tf.reset(new rocksdb::BlockBasedTableFactory(table_options));
 
-  unique_ptr<WritableFile> file;
+  std::unique_ptr<WritableFile> file;
   Env* env = Env::Default();
   EnvOptions env_options;
   ReadOptions read_options;
@@ -51,7 +51,7 @@ void createSST(const std::string& file_name,
   const ImmutableCFOptions imoptions(opts);
   const MutableCFOptions moptions(opts);
   rocksdb::InternalKeyComparator ikc(opts.comparator);
-  unique_ptr<TableBuilder> tb;
+  std::unique_ptr<TableBuilder> tb;
 
   ASSERT_OK(env->NewWritableFile(file_name, &file, env_options));
 

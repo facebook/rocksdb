@@ -141,7 +141,7 @@ class TableCache {
                         const FileDescriptor& fd, bool sequential_mode,
                         size_t readahead, bool record_read_stats,
                         HistogramImpl* file_read_hist,
-                        unique_ptr<TableReader>* table_reader,
+                        std::unique_ptr<TableReader>* table_reader,
                         const SliceTransform* prefix_extractor = nullptr,
                         bool skip_filters = false, int level = -1,
                         bool prefetch_index_and_filter_in_cache = true,

@@ -406,8 +406,8 @@ class MemTable {
   const size_t kArenaBlockSize;
   AllocTracker mem_tracker_;
   ConcurrentArena arena_;
-  unique_ptr<MemTableRep> table_;
-  unique_ptr<MemTableRep> range_del_table_;
+  std::unique_ptr<MemTableRep> table_;
+  std::unique_ptr<MemTableRep> range_del_table_;
   bool is_range_del_table_empty_;
 
   // Total data size of all data inserted

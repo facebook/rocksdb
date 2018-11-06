@@ -126,19 +126,19 @@ const Comparator* Uint64Comparator() {
 
 WritableFileWriter* GetWritableFileWriter(WritableFile* wf,
                                           const std::string& fname) {
-  unique_ptr<WritableFile> file(wf);
+  std::unique_ptr<WritableFile> file(wf);
   return new WritableFileWriter(std::move(file), fname, EnvOptions());
 }
 
 RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf) {
-  unique_ptr<RandomAccessFile> file(raf);
+  std::unique_ptr<RandomAccessFile> file(raf);
   return new RandomAccessFileReader(std::move(file),
                                     "[test RandomAccessFileReader]");
 }
 
 SequentialFileReader* GetSequentialFileReader(SequentialFile* se,
                                               const std::string& fname) {
-  unique_ptr<SequentialFile> file(se);
+  std::unique_ptr<SequentialFile> file(se);
   return new SequentialFileReader(std::move(file), fname);
 }
 

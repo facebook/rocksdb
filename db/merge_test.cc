@@ -246,7 +246,7 @@ class MergeBasedCounters : public Counters {
 };
 
 void dumpDb(DB* db) {
-  auto it = unique_ptr<Iterator>(db->NewIterator(ReadOptions()));
+  auto it = std::unique_ptr<Iterator>(db->NewIterator(ReadOptions()));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     //uint64_t value = DecodeFixed64(it->value().data());
     //std::cout << it->key().ToString() << ": " << value << std::endl;
