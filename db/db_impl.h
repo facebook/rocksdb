@@ -491,6 +491,14 @@ class DBImpl : public DB {
 
   uint64_t MinLogNumberToKeep();
 
+  // Returns the lower bound file number for SSTs that won't be deleted, even if
+  // they're obsolete. This lower bound is used internally to prevent newly
+  // created flush/compaction output files from being deleted before they're
+  // installed. This technique avoids the need for tracking the exact numbers of
+  // files pending creation, although it prevents more files than necessary from
+  // being deleted.
+  uint64_t MinObsoleteSstNumberToKeep();
+
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'candidate_files'.
   // If force == false and the last call was less than
