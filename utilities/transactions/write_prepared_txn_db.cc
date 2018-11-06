@@ -654,9 +654,8 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
   // place before gets overwritten the reader that reads bottom-up will
   // eventully see it.
   const bool next_is_larger = true;
-  // If all the cached snapshots overlap, then the search by default continues
-  // to larger ones
-  bool search_larger_list = true;
+  // We will set to true if the border line snapshot suggests that.
+  bool search_larger_list = false;
   size_t ip1 = std::min(cnt, SNAPSHOT_CACHE_SIZE);
   for (; 0 < ip1; ip1--) {
     SequenceNumber snapshot_seq =
@@ -664,11 +663,13 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
     TEST_IDX_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:p:",
                         ++sync_i);
     TEST_IDX_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:s:", sync_i);
+    if (ip1 == SNAPSHOT_CACHE_SIZE) {  // border line snapshot
+      // snapshot_seq < commit_seq => larger_snapshot_seq <= commit_seq
+      // then later also continue the search to larger snapshots
+      search_larger_list = snapshot_seq < evicted.commit_seq;
+    }
     if (!MaybeUpdateOldCommitMap(evicted.prep_seq, evicted.commit_seq,
                                  snapshot_seq, !next_is_larger)) {
-      // snapshot_seq >= prep_seq => larger_snapshot_seq > prep_seq
-      // continue search to larger snapshots otherwise
-      search_larger_list = snapshot_seq < evicted.prep_seq;
       break;
     }
   }
