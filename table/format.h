@@ -191,30 +191,21 @@ static const size_t kBlockTrailerSize = 5;
 
 struct BlockContents {
   Slice data;     // Actual contents of data
-  bool cachable;  // True iff data can be cached
-  CompressionType compression_type;
   CacheAllocationPtr allocation;
 
-  BlockContents() : cachable(false), compression_type(kNoCompression) {}
+  BlockContents() {}
 
-  BlockContents(const Slice& _data, bool _cachable,
-                CompressionType _compression_type)
-      : data(_data), cachable(_cachable), compression_type(_compression_type) {}
+  BlockContents(const Slice& _data) : data(_data) {}
 
-  BlockContents(CacheAllocationPtr&& _data, size_t _size, bool _cachable,
-                CompressionType _compression_type)
-      : data(_data.get(), _size),
-        cachable(_cachable),
-        compression_type(_compression_type),
-        allocation(std::move(_data)) {}
+  BlockContents(CacheAllocationPtr&& _data, size_t _size)
+      : data(_data.get(), _size), allocation(std::move(_data)) {}
 
-  BlockContents(std::unique_ptr<char[]>&& _data, size_t _size, bool _cachable,
-                CompressionType _compression_type)
-      : data(_data.get(), _size),
-        cachable(_cachable),
-        compression_type(_compression_type) {
+  BlockContents(std::unique_ptr<char[]>&& _data, size_t _size)
+      : data(_data.get(), _size) {
     allocation.reset(_data.release());
   }
+
+  bool own_bytes() const { return allocation.get() != nullptr; }
 
   // The additional memory space taken by the block data.
   size_t usable_size() const {
@@ -239,8 +230,6 @@ struct BlockContents {
 
   BlockContents& operator=(BlockContents&& other) {
     data = std::move(other.data);
-    cachable = other.cachable;
-    compression_type = other.compression_type;
     allocation = std::move(other.allocation);
     return *this;
   }

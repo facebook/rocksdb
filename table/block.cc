@@ -781,47 +781,45 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
     size_ = 0;  // Error marker
   } else {
     // Should only decode restart points for uncompressed blocks
-    if (compression_type() == kNoCompression) {
-      num_restarts_ = NumRestarts();
-      switch (IndexType()) {
-        case BlockBasedTableOptions::kDataBlockBinarySearch:
-          restart_offset_ = static_cast<uint32_t>(size_) -
-                            (1 + num_restarts_) * sizeof(uint32_t);
-          if (restart_offset_ > size_ - sizeof(uint32_t)) {
-            // The size is too small for NumRestarts() and therefore
-            // restart_offset_ wrapped around.
-            size_ = 0;
-          }
+    num_restarts_ = NumRestarts();
+    switch (IndexType()) {
+      case BlockBasedTableOptions::kDataBlockBinarySearch:
+        restart_offset_ = static_cast<uint32_t>(size_) -
+                          (1 + num_restarts_) * sizeof(uint32_t);
+        if (restart_offset_ > size_ - sizeof(uint32_t)) {
+          // The size is too small for NumRestarts() and therefore
+          // restart_offset_ wrapped around.
+          size_ = 0;
+        }
+        break;
+      case BlockBasedTableOptions::kDataBlockBinaryAndHash:
+        if (size_ < sizeof(uint32_t) /* block footer */ +
+                        sizeof(uint16_t) /* NUM_BUCK */) {
+          size_ = 0;
           break;
-        case BlockBasedTableOptions::kDataBlockBinaryAndHash:
-          if (size_ < sizeof(uint32_t) /* block footer */ +
-                          sizeof(uint16_t) /* NUM_BUCK */) {
-            size_ = 0;
-            break;
-          }
+        }
 
-          uint16_t map_offset;
-          data_block_hash_index_.Initialize(
-              contents.data.data(),
-              static_cast<uint16_t>(contents.data.size() -
-                                    sizeof(uint32_t)), /*chop off
-                                                   NUM_RESTARTS*/
-              &map_offset);
+        uint16_t map_offset;
+        data_block_hash_index_.Initialize(
+            contents.data.data(),
+            static_cast<uint16_t>(contents.data.size() -
+                                  sizeof(uint32_t)), /*chop off
+                                                 NUM_RESTARTS*/
+            &map_offset);
 
-          restart_offset_ = map_offset - num_restarts_ * sizeof(uint32_t);
+        restart_offset_ = map_offset - num_restarts_ * sizeof(uint32_t);
 
-          if (restart_offset_ > map_offset) {
-            // map_offset is too small for NumRestarts() and
-            // therefore restart_offset_ wrapped around.
-            size_ = 0;
-            break;
-          }
+        if (restart_offset_ > map_offset) {
+          // map_offset is too small for NumRestarts() and
+          // therefore restart_offset_ wrapped around.
+          size_ = 0;
           break;
-        default:
-          size_ = 0;  // Error marker
-      }
+        }
+        break;
+      default:
+        size_ = 0;  // Error marker
     }
-  }
+    }
   if (read_amp_bytes_per_bit != 0 && statistics && size_ != 0) {
     read_amp_bitmap_.reset(new BlockReadAmpBitmap(
         restart_offset_, read_amp_bytes_per_bit, statistics));
@@ -834,6 +832,7 @@ DataBlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
                                   bool /*total_order_seek*/,
                                   bool /*key_includes_seq*/,
                                   bool /*value_is_full*/,
+                                  bool block_contents_pinned,
                                   BlockPrefixIndex* /*prefix_index*/) {
   DataBlockIter* ret_iter;
   if (iter != nullptr) {
@@ -852,7 +851,7 @@ DataBlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
   } else {
     ret_iter->Initialize(
         cmp, ucmp, data_, restart_offset_, num_restarts_, global_seqno_,
-        read_amp_bitmap_.get(), cachable(),
+        read_amp_bitmap_.get(), block_contents_pinned,
         data_block_hash_index_.Valid() ? &data_block_hash_index_ : nullptr);
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
@@ -870,6 +869,7 @@ IndexBlockIter* Block::NewIterator(const Comparator* cmp,
                                    const Comparator* ucmp, IndexBlockIter* iter,
                                    Statistics* /*stats*/, bool total_order_seek,
                                    bool key_includes_seq, bool value_is_full,
+                                   bool block_contents_pinned,
                                    BlockPrefixIndex* prefix_index) {
   IndexBlockIter* ret_iter;
   if (iter != nullptr) {
@@ -890,7 +890,8 @@ IndexBlockIter* Block::NewIterator(const Comparator* cmp,
         total_order_seek ? nullptr : prefix_index;
     ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
                          prefix_index_ptr, key_includes_seq, value_is_full,
-                         cachable(), nullptr /* data_block_hash_index */);
+                         block_contents_pinned,
+                         nullptr /* data_block_hash_index */);
   }
 
   return ret_iter;

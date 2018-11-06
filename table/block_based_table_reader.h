@@ -256,13 +256,13 @@ class BlockBasedTable : public TableReader {
   // @param block_entry value is set to the uncompressed block if found. If
   //    in uncompressed block cache, also sets cache_handle to reference that
   //    block.
-  static Status MaybeLoadDataBlockToCache(FilePrefetchBuffer* prefetch_buffer,
-                                          Rep* rep, const ReadOptions& ro,
-                                          const BlockHandle& handle,
-                                          Slice compression_dict,
-                                          CachableEntry<Block>* block_entry,
-                                          bool is_index = false,
-                                          GetContext* get_context = nullptr);
+  static Status LoadBlockFromCacheOrFile(FilePrefetchBuffer* prefetch_buffer,
+                                         Rep* rep, const ReadOptions& ro,
+                                         const BlockHandle& handle,
+                                         Slice compression_dict,
+                                         CachableEntry<Block>* block_entry,
+                                         bool is_index = false,
+                                         GetContext* get_context = nullptr);
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file
@@ -321,9 +321,11 @@ class BlockBasedTable : public TableReader {
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed,
       const ReadOptions& read_options, const ImmutableCFOptions& ioptions,
-      CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
-      const Slice& compression_dict, size_t read_amp_bytes_per_bit,
-      bool is_index = false, Cache::Priority pri = Cache::Priority::LOW,
+      CachableEntry<Block>* block, BlockContents* raw_block_contents,
+      CompressionType raw_block_comp_type, uint32_t format_version,
+      const Slice& compression_dict, SequenceNumber seq_no,
+      size_t read_amp_bytes_per_bit, bool is_index = false,
+      Cache::Priority pri = Cache::Priority::LOW,
       GetContext* get_context = nullptr, MemoryAllocator* allocator = nullptr);
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found

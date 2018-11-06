@@ -43,6 +43,7 @@ class BlockFetcher {
         cache_options_(cache_options),
         allocator_(allocator) {}
   Status ReadBlockContents();
+  CompressionType get_compression_type() const { return compression_type_; }
 
  private:
   static const uint32_t kDefaultStackBufferSize = 5000;
@@ -66,7 +67,7 @@ class BlockFetcher {
   CacheAllocationPtr heap_buf_;
   char stack_buf_[kDefaultStackBufferSize];
   bool got_from_prefetch_buffer_ = false;
-  rocksdb::CompressionType compression_type;
+  rocksdb::CompressionType compression_type_;
 
   // return true if found
   bool TryGetUncompressBlockFromPersistentCache();

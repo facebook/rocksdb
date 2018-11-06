@@ -175,7 +175,7 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
                       FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                       const ImmutableCFOptions& ioptions,
                       TableProperties** table_properties,
-                      bool compression_type_missing) {
+                      bool /*compression_type_missing*/) {
   assert(table_properties);
 
   Slice v = handle_value;
@@ -195,11 +195,8 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
       file, prefetch_buffer, footer, read_options, handle, &block_contents,
       ioptions, false /* decompress */, compression_dict, cache_options);
   s = block_fetcher.ReadBlockContents();
-  // override compression_type when table file is known to contain undefined
-  // value at compression type marker
-  if (compression_type_missing) {
-    block_contents.compression_type = kNoCompression;
-  }
+  // property block is never compressed. Need to add uncompress logic if we are
+  // to compress it..
 
   if (!s.ok()) {
     return s;
@@ -343,11 +340,8 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   if (!s.ok()) {
     return s;
   }
-  // override compression_type when table file is known to contain undefined
-  // value at compression type marker
-  if (compression_type_missing) {
-    metaindex_contents.compression_type = kNoCompression;
-  }
+  // property blocks are never compressed. Need to add uncompress logic if we
+  // are to compress it.
   Block metaindex_block(std::move(metaindex_contents),
                         kDisableGlobalSequenceNumber);
   std::unique_ptr<InternalIterator> meta_iter(
@@ -387,10 +381,10 @@ Status FindMetaBlock(InternalIterator* meta_index_iter,
 
 Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
                      uint64_t table_magic_number,
-                     const ImmutableCFOptions &ioptions,
+                     const ImmutableCFOptions& ioptions,
                      const std::string& meta_block_name,
                      BlockHandle* block_handle,
-                     bool compression_type_missing) {
+                     bool /*compression_type_missing*/) {
   Footer footer;
   auto s = ReadFooterFromFile(file, nullptr /* prefetch_buffer */, file_size,
                               &footer, table_magic_number);
@@ -412,11 +406,8 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
   if (!s.ok()) {
     return s;
   }
-  // override compression_type when table file is known to contain undefined
-  // value at compression type marker
-  if (compression_type_missing) {
-    metaindex_contents.compression_type = kNoCompression;
-  }
+  // meta blocks are never compressed. Need to add uncompress logic if we are to
+  // compress it.
   Block metaindex_block(std::move(metaindex_contents),
                         kDisableGlobalSequenceNumber);
 
@@ -432,7 +423,8 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
                      uint64_t table_magic_number,
                      const ImmutableCFOptions& ioptions,
                      const std::string& meta_block_name,
-                     BlockContents* contents, bool compression_type_missing) {
+                     BlockContents* contents,
+                     bool /*compression_type_missing*/) {
   Status status;
   Footer footer;
   status = ReadFooterFromFile(file, prefetch_buffer, file_size, &footer,
@@ -457,11 +449,8 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
   if (!status.ok()) {
     return status;
   }
-  // override compression_type when table file is known to contain undefined
-  // value at compression type marker
-  if (compression_type_missing) {
-    metaindex_contents.compression_type = kNoCompression;
-  }
+  // meta block is never compressed. Need to add uncompress logic if we are to
+  // compress it.
 
   // Finding metablock
   Block metaindex_block(std::move(metaindex_contents),

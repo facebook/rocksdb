@@ -677,7 +677,7 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     memcpy(ubuf.get(), block_contents.data(), size);
     ubuf[size] = type;
 
-    BlockContents results(std::move(ubuf), size, true, type);
+    BlockContents results(std::move(ubuf), size);
 
     Block* block = new Block(std::move(results), kDisableGlobalSequenceNumber);
 

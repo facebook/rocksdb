@@ -301,7 +301,7 @@ Status UncompressBlockContentsForCompressionType(
       if (!Snappy_Uncompress(data, n, ubuf.get())) {
         return Status::Corruption(snappy_corrupt_msg);
       }
-      *contents = BlockContents(std::move(ubuf), ulength, true, kNoCompression);
+      *contents = BlockContents(std::move(ubuf), ulength);
       break;
     }
     case kZlibCompression:
@@ -314,8 +314,7 @@ Status UncompressBlockContentsForCompressionType(
           "Zlib not supported or corrupted Zlib compressed block contents";
         return Status::Corruption(zlib_corrupt_msg);
       }
-      *contents =
-          BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
+      *contents = BlockContents(std::move(ubuf), decompress_size);
       break;
     case kBZip2Compression:
       ubuf = BZip2_Uncompress(
@@ -327,8 +326,7 @@ Status UncompressBlockContentsForCompressionType(
           "Bzip2 not supported or corrupted Bzip2 compressed block contents";
         return Status::Corruption(bzip2_corrupt_msg);
       }
-      *contents =
-          BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
+      *contents = BlockContents(std::move(ubuf), decompress_size);
       break;
     case kLZ4Compression:
       ubuf = LZ4_Uncompress(
@@ -340,8 +338,7 @@ Status UncompressBlockContentsForCompressionType(
           "LZ4 not supported or corrupted LZ4 compressed block contents";
         return Status::Corruption(lz4_corrupt_msg);
       }
-      *contents =
-          BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
+      *contents = BlockContents(std::move(ubuf), decompress_size);
       break;
     case kLZ4HCCompression:
       ubuf = LZ4_Uncompress(
@@ -353,8 +350,7 @@ Status UncompressBlockContentsForCompressionType(
           "LZ4HC not supported or corrupted LZ4HC compressed block contents";
         return Status::Corruption(lz4hc_corrupt_msg);
       }
-      *contents =
-          BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
+      *contents = BlockContents(std::move(ubuf), decompress_size);
       break;
     case kXpressCompression:
       // XPRESS allocates memory internally, thus no support for custom
@@ -365,8 +361,7 @@ Status UncompressBlockContentsForCompressionType(
           "XPRESS not supported or corrupted XPRESS compressed block contents";
         return Status::Corruption(xpress_corrupt_msg);
       }
-      *contents =
-        BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
+      *contents = BlockContents(std::move(ubuf), decompress_size);
       break;
     case kZSTD:
     case kZSTDNotFinalCompression:
@@ -377,8 +372,7 @@ Status UncompressBlockContentsForCompressionType(
             "ZSTD not supported or corrupted ZSTD compressed block contents";
         return Status::Corruption(zstd_corrupt_msg);
       }
-      *contents =
-          BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
+      *contents = BlockContents(std::move(ubuf), decompress_size);
       break;
     default:
       return Status::Corruption("bad block type");
