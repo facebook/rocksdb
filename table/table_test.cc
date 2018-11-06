@@ -2786,6 +2786,7 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfCompressed) {
   }
 }
 
+#ifndef ROCKSDB_VALGRIND_RUN
 // RandomizedHarnessTest is very slow for certain combination of arguments
 // Split into 8 pieces to reduce the time individual tests take.
 TEST_F(HarnessTest, Randomized1) {
@@ -2869,6 +2870,7 @@ TEST_F(HarnessTest, RandomizedLongDB) {
   ASSERT_GT(files, 0);
 }
 #endif  // ROCKSDB_LITE
+#endif  // ROCKSDB_VALGRIND_RUN
 
 class MemTableTest : public testing::Test {};
 
