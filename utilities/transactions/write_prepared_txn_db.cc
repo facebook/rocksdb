@@ -572,14 +572,16 @@ void WritePreparedTxnDB::ReleaseSnapshotInternal(
     bool need_gc = false;
     {
       WPRecordTick(TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD);
-      ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead");
+      ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead for %" PRIu64,
+                     snap_seq);
       ReadLock rl(&old_commit_map_mutex_);
       auto prep_set_entry = old_commit_map_.find(snap_seq);
       need_gc = prep_set_entry != old_commit_map_.end();
     }
     if (need_gc) {
       WPRecordTick(TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD);
-      ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead");
+      ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead for %" PRIu64,
+                     snap_seq);
       WriteLock wl(&old_commit_map_mutex_);
       old_commit_map_.erase(snap_seq);
       old_commit_map_empty_.store(old_commit_map_.empty(),
@@ -654,13 +656,20 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
   // place before gets overwritten the reader that reads bottom-up will
   // eventully see it.
   const bool next_is_larger = true;
-  SequenceNumber snapshot_seq = kMaxSequenceNumber;
+  // We will set to true if the border line snapshot suggests that.
+  bool search_larger_list = false;
   size_t ip1 = std::min(cnt, SNAPSHOT_CACHE_SIZE);
   for (; 0 < ip1; ip1--) {
-    snapshot_seq = snapshot_cache_[ip1 - 1].load(std::memory_order_acquire);
+    SequenceNumber snapshot_seq =
+        snapshot_cache_[ip1 - 1].load(std::memory_order_acquire);
     TEST_IDX_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:p:",
                         ++sync_i);
     TEST_IDX_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:s:", sync_i);
+    if (ip1 == SNAPSHOT_CACHE_SIZE) {  // border line snapshot
+      // snapshot_seq < commit_seq => larger_snapshot_seq <= commit_seq
+      // then later also continue the search to larger snapshots
+      search_larger_list = snapshot_seq < evicted.commit_seq;
+    }
     if (!MaybeUpdateOldCommitMap(evicted.prep_seq, evicted.commit_seq,
                                  snapshot_seq, !next_is_larger)) {
       break;
@@ -675,17 +684,20 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
 #endif
   TEST_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:p:end");
   TEST_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:s:end");
-  if (UNLIKELY(SNAPSHOT_CACHE_SIZE < cnt && ip1 == SNAPSHOT_CACHE_SIZE &&
-               snapshot_seq < evicted.prep_seq)) {
+  if (UNLIKELY(SNAPSHOT_CACHE_SIZE < cnt && search_larger_list)) {
     // Then access the less efficient list of snapshots_
     WPRecordTick(TXN_SNAPSHOT_MUTEX_OVERHEAD);
-    ROCKS_LOG_WARN(info_log_, "snapshots_mutex_ overhead");
+    ROCKS_LOG_WARN(info_log_,
+                   "snapshots_mutex_ overhead for <%" PRIu64 ",%" PRIu64
+                   "> with %" ROCKSDB_PRIszt " snapshots",
+                   evicted.prep_seq, evicted.commit_seq, cnt);
     ReadLock rl(&snapshots_mutex_);
     // Items could have moved from the snapshots_ to snapshot_cache_ before
     // accquiring the lock. To make sure that we do not miss a valid snapshot,
     // read snapshot_cache_ again while holding the lock.
     for (size_t i = 0; i < SNAPSHOT_CACHE_SIZE; i++) {
-      snapshot_seq = snapshot_cache_[i].load(std::memory_order_acquire);
+      SequenceNumber snapshot_seq =
+          snapshot_cache_[i].load(std::memory_order_acquire);
       if (!MaybeUpdateOldCommitMap(evicted.prep_seq, evicted.commit_seq,
                                    snapshot_seq, next_is_larger)) {
         break;
@@ -713,7 +725,10 @@ bool WritePreparedTxnDB::MaybeUpdateOldCommitMap(
   // then snapshot_seq < commit_seq
   if (prep_seq <= snapshot_seq) {  // overlapping range
     WPRecordTick(TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD);
-    ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead");
+    ROCKS_LOG_WARN(info_log_,
+                   "old_commit_map_mutex_ overhead for %" PRIu64
+                   " commit entry: <%" PRIu64 ",%" PRIu64 ">",
+                   snapshot_seq, prep_seq, commit_seq);
     WriteLock wl(&old_commit_map_mutex_);
     old_commit_map_empty_.store(false, std::memory_order_release);
     auto& vec = old_commit_map_[snapshot_seq];

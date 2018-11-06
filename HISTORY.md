@@ -15,6 +15,7 @@
 * Fix slow flush/compaction when DB contains many snapshots. The problem became noticeable to us in DBs with 100,000+ snapshots, though it will affect others at different thresholds.
 * Fix the bug that WriteBatchWithIndex's SeekForPrev() doesn't see the entries with the same key.
 * Fix the bug where user comparator was sometimes fed with InternalKey instead of the user key. The bug manifests when during GenerateBottommostFiles.
+* Fix a bug in WritePrepared txns where if the number of old snapshots goes beyond the snapshot cache size (128 default) the rest will not be checked when evicting a commit entry from the commit cache.
 
 ## 5.17.1 (10/30/2018)
 ## Unreleased
