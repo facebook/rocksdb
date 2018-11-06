@@ -654,15 +654,21 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
   // place before gets overwritten the reader that reads bottom-up will
   // eventully see it.
   const bool next_is_larger = true;
-  SequenceNumber snapshot_seq = kMaxSequenceNumber;
+  // If all the cached snapshots overlap, then the search by default continues
+  // to larger ones
+  bool search_larger_list = true;
   size_t ip1 = std::min(cnt, SNAPSHOT_CACHE_SIZE);
   for (; 0 < ip1; ip1--) {
-    snapshot_seq = snapshot_cache_[ip1 - 1].load(std::memory_order_acquire);
+    SequenceNumber snapshot_seq =
+        snapshot_cache_[ip1 - 1].load(std::memory_order_acquire);
     TEST_IDX_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:p:",
                         ++sync_i);
     TEST_IDX_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:s:", sync_i);
     if (!MaybeUpdateOldCommitMap(evicted.prep_seq, evicted.commit_seq,
                                  snapshot_seq, !next_is_larger)) {
+      // snapshot_seq >= prep_seq => larger_snapshot_seq > prep_seq
+      // continue search to larger snapshots otherwise
+      search_larger_list = snapshot_seq < evicted.prep_seq;
       break;
     }
   }
@@ -675,8 +681,7 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
 #endif
   TEST_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:p:end");
   TEST_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:s:end");
-  if (UNLIKELY(SNAPSHOT_CACHE_SIZE < cnt && ip1 == SNAPSHOT_CACHE_SIZE &&
-               snapshot_seq < evicted.prep_seq)) {
+  if (UNLIKELY(SNAPSHOT_CACHE_SIZE < cnt && search_larger_list)) {
     // Then access the less efficient list of snapshots_
     WPRecordTick(TXN_SNAPSHOT_MUTEX_OVERHEAD);
     ROCKS_LOG_WARN(info_log_, "snapshots_mutex_ overhead");
@@ -685,7 +690,8 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
     // accquiring the lock. To make sure that we do not miss a valid snapshot,
     // read snapshot_cache_ again while holding the lock.
     for (size_t i = 0; i < SNAPSHOT_CACHE_SIZE; i++) {
-      snapshot_seq = snapshot_cache_[i].load(std::memory_order_acquire);
+      SequenceNumber snapshot_seq =
+          snapshot_cache_[i].load(std::memory_order_acquire);
       if (!MaybeUpdateOldCommitMap(evicted.prep_seq, evicted.commit_seq,
                                    snapshot_seq, next_is_larger)) {
         break;
