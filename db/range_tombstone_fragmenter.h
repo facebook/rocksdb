@@ -34,7 +34,6 @@ struct FragmentedRangeTombstoneList {
     Slice start_key;
     Slice end_key;
     size_t seq_start_idx;
-    // TODO: see if seq_end_idx can be removed
     size_t seq_end_idx;
   };
   FragmentedRangeTombstoneList(
@@ -91,21 +90,26 @@ struct FragmentedRangeTombstoneList {
 class FragmentedRangeTombstoneIterator : public InternalIterator {
  public:
   FragmentedRangeTombstoneIterator(
-      const FragmentedRangeTombstoneList* tombstones,
+      const FragmentedRangeTombstoneList* tombstones, SequenceNumber snapshot,
       const InternalKeyComparator& icmp);
   FragmentedRangeTombstoneIterator(
       const std::shared_ptr<const FragmentedRangeTombstoneList>& tombstones,
-      const InternalKeyComparator& icmp);
+      SequenceNumber snapshot, const InternalKeyComparator& icmp);
   void SeekToFirst() override;
   void SeekToLast() override;
 
-  // Seeks to the range tombstone that covers target's user key at a seqnum
-  // at most target's seqnum. If no such tombstone exists, seek to the earliest
-  // tombstone that ends after target (regardless of its seqnum).
+  // NOTE: Seek and SeekForPrev do not behave in the way InternalIterator
+  // seeking should behave. This is OK because they are not currently used, but
+  // eventually FragmentedRangeTombstoneIterator should no longer implement
+  // InternalIterator.
+  //
+  // Seeks to the range tombstone that covers target at a seqnum in the
+  // snapshot. If no such tombstone exists, seek to the earliest tombstone in
+  // the snapshot that ends after target.
   void Seek(const Slice& target) override;
-  // Seeks to the range tombstone that covers target's user key at a seqnum
-  // at most target's seqnum. If no such tombstone exists, seek to the latest
-  // tombstone that starts before target (regardless of its seqnum).
+  // Seeks to the range tombstone that covers target at a seqnum in the
+  // snapshot. If no such tombstone exists, seek to the latest tombstone in the
+  // snapshot that starts before target.
   void SeekForPrev(const Slice& target) override;
 
   void Next() override;
@@ -123,6 +127,8 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   Slice start_key() const { return pos_->start_key; }
   Slice end_key() const { return pos_->end_key; }
   SequenceNumber seq() const { return *seq_pos_; }
+
+  SequenceNumber MaxCoveringTombstoneSeqnum(const Slice& user_key);
 
  private:
   using RangeTombstoneStack = FragmentedRangeTombstoneList::RangeTombstoneStack;
@@ -174,21 +180,27 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
     }
   }
 
+  void SeekToCoveringTombstone(const Slice& key);
+  void SeekForPrevToCoveringTombstone(const Slice& key);
+  void Invalidate() {
+    pos_ = tombstones_->end();
+    seq_pos_ = tombstones_->seq_end();
+  }
+  bool ValidPos() const {
+    return Valid() && seq_pos_ != tombstones_->seq_iter(pos_->seq_end_idx);
+  }
+
   const RangeTombstoneStackStartComparator tombstone_start_cmp_;
   const RangeTombstoneStackEndComparator tombstone_end_cmp_;
   const Comparator* ucmp_;
   std::shared_ptr<const FragmentedRangeTombstoneList> tombstones_ref_;
   const FragmentedRangeTombstoneList* tombstones_;
+  SequenceNumber snapshot_;
   std::vector<RangeTombstoneStack>::const_iterator pos_;
   std::vector<SequenceNumber>::const_iterator seq_pos_;
   mutable std::vector<RangeTombstoneStack>::const_iterator pinned_pos_;
   mutable std::vector<SequenceNumber>::const_iterator pinned_seq_pos_;
   mutable InternalKey current_start_key_;
-  PinnedIteratorsManager pinned_iters_mgr_;
 };
-
-SequenceNumber MaxCoveringTombstoneSeqnum(
-    FragmentedRangeTombstoneIterator* tombstone_iter, const Slice& key,
-    const Comparator* ucmp);
 
 }  // namespace rocksdb

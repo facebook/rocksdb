@@ -741,12 +741,11 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   FragmentedRangeTombstoneList fragment_list(std::move(range_del_iter),
                                              comparator_.comparator,
                                              true /* one_time_use */, snapshot);
-  FragmentedRangeTombstoneIterator fragment_iter(&fragment_list,
+  FragmentedRangeTombstoneIterator fragment_iter(&fragment_list, snapshot,
                                                  comparator_.comparator);
-  *max_covering_tombstone_seq = std::max(
-      *max_covering_tombstone_seq,
-      MaxCoveringTombstoneSeqnum(&fragment_iter, key.internal_key(),
-                                 comparator_.comparator.user_comparator()));
+  *max_covering_tombstone_seq =
+      std::max(*max_covering_tombstone_seq,
+               fragment_iter.MaxCoveringTombstoneSeqnum(key.user_key()));
 
   Slice user_key = key.user_key();
   bool found_final_value = false;
