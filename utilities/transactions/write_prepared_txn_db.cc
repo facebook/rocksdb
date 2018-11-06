@@ -572,14 +572,16 @@ void WritePreparedTxnDB::ReleaseSnapshotInternal(
     bool need_gc = false;
     {
       WPRecordTick(TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD);
-      ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead");
+      ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead for %" PRIu64,
+                     snap_seq);
       ReadLock rl(&old_commit_map_mutex_);
       auto prep_set_entry = old_commit_map_.find(snap_seq);
       need_gc = prep_set_entry != old_commit_map_.end();
     }
     if (need_gc) {
       WPRecordTick(TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD);
-      ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead");
+      ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead for %" PRIu64,
+                     snap_seq);
       WriteLock wl(&old_commit_map_mutex_);
       old_commit_map_.erase(snap_seq);
       old_commit_map_empty_.store(old_commit_map_.empty(),
@@ -685,7 +687,10 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
   if (UNLIKELY(SNAPSHOT_CACHE_SIZE < cnt && search_larger_list)) {
     // Then access the less efficient list of snapshots_
     WPRecordTick(TXN_SNAPSHOT_MUTEX_OVERHEAD);
-    ROCKS_LOG_WARN(info_log_, "snapshots_mutex_ overhead");
+    ROCKS_LOG_WARN(info_log_,
+                   "snapshots_mutex_ overhead for <%" PRIu64 ",%" PRIu64
+                   "> with %" ROCKSDB_PRIszt " snapshots",
+                   evicted.prep_seq, evicted.commit_seq, cnt);
     ReadLock rl(&snapshots_mutex_);
     // Items could have moved from the snapshots_ to snapshot_cache_ before
     // accquiring the lock. To make sure that we do not miss a valid snapshot,
@@ -720,7 +725,10 @@ bool WritePreparedTxnDB::MaybeUpdateOldCommitMap(
   // then snapshot_seq < commit_seq
   if (prep_seq <= snapshot_seq) {  // overlapping range
     WPRecordTick(TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD);
-    ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead");
+    ROCKS_LOG_WARN(info_log_,
+                   "old_commit_map_mutex_ overhead for %" PRIu64
+                   " commit entry: <%" PRIu64 ",%" PRIu64 ">",
+                   snapshot_seq, prep_seq, commit_seq);
     WriteLock wl(&old_commit_map_mutex_);
     old_commit_map_empty_.store(false, std::memory_order_release);
     auto& vec = old_commit_map_[snapshot_seq];
