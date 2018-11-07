@@ -277,7 +277,8 @@ struct ExternalFileIngestionInfo {
 // in a complex way.
   class EventListener: public Extension {
   public: // Methods from Extension
-    virtual const char * Name() const { return ""; }
+    // Overrides method from Extension.  Set to empty for backwards-compatibility
+    virtual const char * Name() const override { return ""; }
  public:
   // A callback function to RocksDB which will be called whenever a
   // registered RocksDB flushes a file.  The default implementation is

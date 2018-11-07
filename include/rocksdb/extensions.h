@@ -6,8 +6,7 @@
 // All Env implementations are safe for concurrent access from
 // multiple threads without any external synchronization.
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_EXTENSION_H_
-#define STORAGE_ROCKSDB_INCLUDE_EXTENSION_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -76,4 +75,3 @@ class Extension {
 
 }  // namespace rocksdb
 
-#endif  // STORAGE_ROCKSDB_INCLUDE_EXTENSION_H_
