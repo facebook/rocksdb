@@ -158,6 +158,9 @@ DEFINE_int32(value_interval, 8,
              "To output the value distribution, we need to set the value "
              "intervals and make the statistic of the value size distribution "
              "in different intervals. The default is 8.");
+DEFINE_double(sample_ratio, 1.0,
+              "If the trace size is extremely huge or user want to sample "
+              "the trace when analyzing, sample ratio can be set (0, 1.0]");
 
 namespace rocksdb {
 
@@ -280,6 +283,12 @@ TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
   begin_time_ = 0;
   end_time_ = 0;
   time_series_start_ = 0;
+  if (FLAGS_sample_ratio > 1.0 || FLAGS_sample_ratio <= 0) {
+    sample_max_ = 1;
+  } else {
+    sample_max_ = static_cast<uint32_t>(1.0 / FLAGS_sample_ratio);
+  }
+
   ta_.resize(kTaTypeNum);
   ta_[0].type_name = "get";
   if (FLAGS_analyze_get) {
@@ -328,6 +337,9 @@ TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
     ta_[7].enabled = true;
   } else {
     ta_[7].enabled = false;
+  }
+  for (int i = 0; i < kTaTypeNum; i++) {
+    ta_[i].sample_count = 0;
   }
 }
 
@@ -1378,6 +1390,15 @@ Status TraceAnalyzer::HandleGet(uint32_t column_family_id,
     }
   }
 
+  if (ta_[TraceOperationType::kGet].sample_count >= sample_max_) {
+    ta_[TraceOperationType::kGet].sample_count = 0;
+  }
+  if (ta_[TraceOperationType::kGet].sample_count > 0) {
+    ta_[TraceOperationType::kGet].sample_count++;
+    return Status::OK();
+  }
+  ta_[TraceOperationType::kGet].sample_count++;
+
   if (!ta_[TraceOperationType::kGet].enabled) {
     return Status::OK();
   }
@@ -1405,6 +1426,15 @@ Status TraceAnalyzer::HandlePut(uint32_t column_family_id, const Slice& key,
     }
   }
 
+  if (ta_[TraceOperationType::kPut].sample_count >= sample_max_) {
+    ta_[TraceOperationType::kPut].sample_count = 0;
+  }
+  if (ta_[TraceOperationType::kPut].sample_count > 0) {
+    ta_[TraceOperationType::kPut].sample_count++;
+    return Status::OK();
+  }
+  ta_[TraceOperationType::kPut].sample_count++;
+
   if (!ta_[TraceOperationType::kPut].enabled) {
     return Status::OK();
   }
@@ -1429,6 +1459,15 @@ Status TraceAnalyzer::HandleDelete(uint32_t column_family_id,
     }
   }
 
+  if (ta_[TraceOperationType::kDelete].sample_count >= sample_max_) {
+    ta_[TraceOperationType::kDelete].sample_count = 0;
+  }
+  if (ta_[TraceOperationType::kDelete].sample_count > 0) {
+    ta_[TraceOperationType::kDelete].sample_count++;
+    return Status::OK();
+  }
+  ta_[TraceOperationType::kDelete].sample_count++;
+
   if (!ta_[TraceOperationType::kDelete].enabled) {
     return Status::OK();
   }
@@ -1452,6 +1491,15 @@ Status TraceAnalyzer::HandleSingleDelete(uint32_t column_family_id,
       return Status::Corruption("Failed to write the trace sequence to file");
     }
   }
+
+  if (ta_[TraceOperationType::kSingleDelete].sample_count >= sample_max_) {
+    ta_[TraceOperationType::kSingleDelete].sample_count = 0;
+  }
+  if (ta_[TraceOperationType::kSingleDelete].sample_count > 0) {
+    ta_[TraceOperationType::kSingleDelete].sample_count++;
+    return Status::OK();
+  }
+  ta_[TraceOperationType::kSingleDelete].sample_count++;
 
   if (!ta_[TraceOperationType::kSingleDelete].enabled) {
     return Status::OK();
@@ -1478,6 +1526,15 @@ Status TraceAnalyzer::HandleDeleteRange(uint32_t column_family_id,
     }
   }
 
+  if (ta_[TraceOperationType::kRangeDelete].sample_count >= sample_max_) {
+    ta_[TraceOperationType::kRangeDelete].sample_count = 0;
+  }
+  if (ta_[TraceOperationType::kRangeDelete].sample_count > 0) {
+    ta_[TraceOperationType::kRangeDelete].sample_count++;
+    return Status::OK();
+  }
+  ta_[TraceOperationType::kRangeDelete].sample_count++;
+
   if (!ta_[TraceOperationType::kRangeDelete].enabled) {
     return Status::OK();
   }
@@ -1503,6 +1560,15 @@ Status TraceAnalyzer::HandleMerge(uint32_t column_family_id, const Slice& key,
       return Status::Corruption("Failed to write the trace sequence to file");
     }
   }
+
+  if (ta_[TraceOperationType::kMerge].sample_count >= sample_max_) {
+    ta_[TraceOperationType::kMerge].sample_count = 0;
+  }
+  if (ta_[TraceOperationType::kMerge].sample_count > 0) {
+    ta_[TraceOperationType::kMerge].sample_count++;
+    return Status::OK();
+  }
+  ta_[TraceOperationType::kMerge].sample_count++;
 
   if (!ta_[TraceOperationType::kMerge].enabled) {
     return Status::OK();
@@ -1539,6 +1605,15 @@ Status TraceAnalyzer::HandleIter(uint32_t column_family_id,
       return Status::Corruption("Failed to write the trace sequence to file");
     }
   }
+
+  if (ta_[type].sample_count >= sample_max_) {
+    ta_[type].sample_count = 0;
+  }
+  if (ta_[type].sample_count > 0) {
+    ta_[type].sample_count++;
+    return Status::OK();
+  }
+  ta_[type].sample_count++;
 
   if (!ta_[type].enabled) {
     return Status::OK();
@@ -1705,6 +1780,8 @@ void TraceAnalyzer::PrintStatistics() {
       printf("Average QPS per second: %f Peak QPS: %u\n", qps_ave_[kTaTypeNum],
              qps_peak_[kTaTypeNum]);
     }
+    printf("The statistics related to query number need to times: %u\n",
+           sample_max_);
     printf("Total_requests: %" PRIu64 " Total_accessed_keys: %" PRIu64
            " Total_gets: %" PRIu64 " Total_write_batch: %" PRIu64 "\n",
            total_requests_, total_access_keys_, total_gets_, total_writes_);
