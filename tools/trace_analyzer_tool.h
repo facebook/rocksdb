@@ -115,12 +115,15 @@ struct TraceStats {
       top_k_qps_sec;
   std::list<TraceUnit> time_series;
   std::vector<std::pair<uint64_t, uint64_t>> correlation_output;
+  std::map<uint32_t, uint64_t> uni_key_num;
 
   std::unique_ptr<rocksdb::WritableFile> time_series_f;
   std::unique_ptr<rocksdb::WritableFile> a_key_f;
   std::unique_ptr<rocksdb::WritableFile> a_count_dist_f;
   std::unique_ptr<rocksdb::WritableFile> a_prefix_cut_f;
   std::unique_ptr<rocksdb::WritableFile> a_value_size_f;
+  std::unique_ptr<rocksdb::WritableFile> a_key_size_f;
+  std::unique_ptr<rocksdb::WritableFile> a_key_num_f;
   std::unique_ptr<rocksdb::WritableFile> a_qps_f;
   std::unique_ptr<rocksdb::WritableFile> a_top_qps_prefix_f;
   std::unique_ptr<rocksdb::WritableFile> w_key_f;
@@ -156,6 +159,7 @@ struct CfUnit {
   uint64_t a_count;  // the total keys in this cf that are accessed
   std::map<uint64_t, uint64_t> w_key_size_stats;  // whole key space key size
                                                   // statistic this cf
+  std::map<uint32_t, uint32_t> cf_qps;
 };
 
 class TraceAnalyzer {
@@ -210,8 +214,10 @@ class TraceAnalyzer {
   uint64_t end_time_;
   uint64_t time_series_start_;
   uint32_t sample_max_;
+  uint32_t cur_time_sec_;
   std::unique_ptr<rocksdb::WritableFile> trace_sequence_f_;  // readable trace
   std::unique_ptr<rocksdb::WritableFile> qps_f_;             // overall qps
+  std::unique_ptr<rocksdb::WritableFile> cf_qps_f_;  // The qps of each CF>
   std::unique_ptr<rocksdb::SequentialFile> wkey_input_f_;
   std::vector<TypeUnit> ta_;  // The main statistic collecting data structure
   std::map<uint32_t, CfUnit> cfs_;  // All the cf_id appears in this trace;
