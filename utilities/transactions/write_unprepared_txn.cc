@@ -506,7 +506,7 @@ Iterator* WriteUnpreparedTxn::GetIterator(const ReadOptions& options,
   Iterator* db_iter = wupt_db_->NewIterator(options, column_family, this);
   assert(db_iter);
 
-  return write_batch_.NewIteratorWithBase(column_family, db_iter);
+  return write_batch_.NewIteratorWithBase(options, column_family, db_iter);
 }
 
 const std::map<SequenceNumber, size_t>&

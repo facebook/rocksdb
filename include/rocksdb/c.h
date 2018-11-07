@@ -630,9 +630,11 @@ extern ROCKSDB_LIBRARY_API void rocksdb_write_writebatch_wi(
     rocksdb_writebatch_wi_t* wbwi,
     char** errptr);
 extern ROCKSDB_LIBRARY_API rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base(
+    const rocksdb_readoptions_t* options,
     rocksdb_writebatch_wi_t* wbwi,
     rocksdb_iterator_t* base_iterator);
 extern ROCKSDB_LIBRARY_API rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base_cf(
+    const rocksdb_readoptions_t* options,
     rocksdb_writebatch_wi_t* wbwi,
     rocksdb_iterator_t* base_iterator,
     rocksdb_column_family_handle_t* cf);

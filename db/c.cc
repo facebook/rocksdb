@@ -1769,20 +1769,22 @@ void rocksdb_writebatch_wi_rollback_to_save_point(rocksdb_writebatch_wi_t* b,
 }
 
 rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base(
+    const rocksdb_readoptions_t* options,
     rocksdb_writebatch_wi_t* wbwi,
     rocksdb_iterator_t* base_iterator) {
   rocksdb_iterator_t* result = new rocksdb_iterator_t;
-  result->rep = wbwi->rep->NewIteratorWithBase(base_iterator->rep);
+  result->rep = wbwi->rep->NewIteratorWithBase(options->rep, base_iterator->rep);
   delete base_iterator;
   return result;
 }
 
 rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base_cf(
+    const rocksdb_readoptions_t* options,
     rocksdb_writebatch_wi_t* wbwi,
     rocksdb_iterator_t* base_iterator,
     rocksdb_column_family_handle_t* column_family) {
   rocksdb_iterator_t* result = new rocksdb_iterator_t;
-  result->rep = wbwi->rep->NewIteratorWithBase(column_family->rep, base_iterator->rep);
+  result->rep = wbwi->rep->NewIteratorWithBase(options->rep, column_family->rep, base_iterator->rep);
   delete base_iterator;
   return result;
 }

@@ -161,10 +161,12 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // key() and value() of the iterator. This invalidation happens even before
   // the write batch update finishes. The state may recover after Next() is
   // called.
-  Iterator* NewIteratorWithBase(ColumnFamilyHandle* column_family,
+  Iterator* NewIteratorWithBase(const ReadOptions& read_options,
+                                ColumnFamilyHandle* column_family,
                                 Iterator* base_iterator);
   // default column family
-  Iterator* NewIteratorWithBase(Iterator* base_iterator);
+  Iterator* NewIteratorWithBase(const ReadOptions& read_options,
+                                Iterator* base_iterator);
 
   // Similar to DB::Get() but will only read the key from this batch.
   // If the batch does not have enough data to resolve Merge operations,
