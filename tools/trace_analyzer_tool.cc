@@ -869,7 +869,7 @@ Status TraceAnalyzer::MakeStatisticQPS() {
             cur_ratio = (static_cast<double>(find_time->second)) / cur_uni_key;
             cur_num = find_time->second;
           }
-          ret = sprintf(buffer_, "%" PRIu64 " %f\n", cur_num, cur_ratio);
+          ret = sprintf(buffer_, "%" PRIu64 " %.12f\n", cur_num, cur_ratio);
           if (ret < 0) {
             return Status::IOError("Format the output failed");
           }
