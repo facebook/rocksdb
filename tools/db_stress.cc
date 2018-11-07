@@ -3600,31 +3600,52 @@ class AtomicFlushStressTest : public StressTest {
     }
     size_t num = column_families_.size();
     assert(num == iters.size());
+    std::vector<Status> statuses(num, Status::OK());
     do {
       size_t valid_cnt = 0;
+      size_t idx = 0;
       for (auto& iter : iters) {
         if (iter->Valid()) {
           ++valid_cnt;
+        } else {
+          statuses[idx] = iter->status();
         }
+        ++idx;
       }
       if (valid_cnt == 0) {
+        Status status;
+        for (size_t i = 0; i != num; ++i) {
+          const auto& s = statuses[i];
+          if (!s.ok()) {
+            status = s;
+            fprintf(stderr, "Iterator on cf %s has error: %s\n",
+                    column_families_[i]->GetName().c_str(),
+                    s.ToString().c_str());
+            shared->SetVerificationFailure();
+          }
+        }
+        if (status.ok()) {
+          fprintf(stdout, "Finished scanning all column families.\n");
+        }
         break;
       } else if (valid_cnt != iters.size()) {
-        fprintf(stderr, "Finished iterating the following column families:\n");
         for (size_t i = 0; i != num; ++i) {
           if (!iters[i]->Valid()) {
-            fprintf(stderr, "%s ", column_families_[i]->GetName().c_str());
+            if (statuses[i].ok()) {
+              fprintf(stderr, "Finished scanning cf %s\n",
+                      column_families_[i]->GetName().c_str());
+            } else {
+              fprintf(stderr, "Iterator on cf %s has error: %s\n",
+                      column_families_[i]->GetName().c_str(),
+                      statuses[i].ToString().c_str());
+            }
+          } else {
+            fprintf(stderr, "cf %s has remaining data to scan\n",
+                    column_families_[i]->GetName().c_str());
           }
         }
-        fprintf(stderr,
-                "\nThe following column families have data that have not been "
-                "scanned:\n");
-        for (size_t i = 0; i != num; ++i) {
-          if (iters[i]->Valid()) {
-            fprintf(stderr, "%s ", column_families_[i]->GetName().c_str());
-          }
-        }
-        fprintf(stderr, "\n");
+        shared->SetVerificationFailure();
+        break;
       }
       // If the program reaches here, then all column families' iterators are
       // still valid.
