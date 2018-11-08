@@ -2187,6 +2187,18 @@ class StressTest {
     return s;
   }
 
+#ifdef ROCKSDB_LITE
+  virtual Status TestBackupRestore(
+      ThreadState* /* thread */,
+      const std::vector<int>& /* rand_column_families */,
+      const std::vector<int64_t>& /* rand_keys */) {
+    assert(false);
+    fprintf(stderr,
+            "RocksDB lite does not support "
+            "TestBackupRestore\n");
+    std::terminate();
+  }
+#else  // ROCKSDB_LITE
   virtual Status TestBackupRestore(ThreadState* thread,
                                    const std::vector<int>& rand_column_families,
                                    const std::vector<int64_t>& rand_keys) {
@@ -2273,6 +2285,7 @@ class StressTest {
     }
     return s;
   }
+#endif  // ROCKSDB_LITE
 
   void VerificationAbort(SharedState* shared, std::string msg, Status s) const {
     printf("Verification failed: %s. Status is %s\n", msg.c_str(),
