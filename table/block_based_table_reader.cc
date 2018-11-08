@@ -114,6 +114,11 @@ void DeleteCachedEntry(const Slice& /*key*/, void* value) {
   delete entry;
 }
 
+void DeleteBlockContents(const Slice& /*key*/, void* value) {
+  BlockContents* contents = reinterpret_cast<BlockContents*>(value);
+  delete contents;
+}
+
 void DeleteCachedFilterEntry(const Slice& key, void* value);
 void DeleteCachedIndexEntry(const Slice& key, void* value);
 
@@ -1180,15 +1185,14 @@ Status BlockBasedTable::ReadMetaBlock(Rep* rep,
 
 Status BlockBasedTable::GetDataBlockFromCache(
     const Slice& block_cache_key, const Slice& compressed_block_cache_key,
-    Cache* block_cache, Cache* block_cache_compressed,
-    const ImmutableCFOptions& ioptions, const ReadOptions& read_options,
-    BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version,
-    const Slice& compression_dict, size_t read_amp_bytes_per_bit, bool is_index,
-    GetContext* get_context, MemoryAllocator* allocator) {
+    Cache* block_cache, Cache* block_cache_compressed, Rep* rep,
+    const ReadOptions& read_options,
+    BlockBasedTable::CachableEntry<Block>* block, const Slice& compression_dict,
+    size_t read_amp_bytes_per_bit, bool is_index, GetContext* get_context) {
   Status s;
-  Block* compressed_block = nullptr;
+  BlockContents* compressed_block = nullptr;
   Cache::Handle* block_cache_compressed_handle = nullptr;
-  Statistics* statistics = ioptions.statistics;
+  Statistics* statistics = rep->ioptions.statistics;
 
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
@@ -1231,23 +1235,24 @@ Status BlockBasedTable::GetDataBlockFromCache(
 
   // found compressed block
   RecordTick(statistics, BLOCK_CACHE_COMPRESSED_HIT);
-  compressed_block = reinterpret_cast<Block*>(
+  compressed_block = reinterpret_cast<BlockContents*>(
       block_cache_compressed->Value(block_cache_compressed_handle));
   CompressionType compression_type = static_cast<CompressionType>(
-      compressed_block->data()[compressed_block->size()]);
+      compressed_block->data.data()[compressed_block->data.size()]);
   assert(compression_type != kNoCompression);
 
   // Retrieve the uncompressed contents into a new buffer
   BlockContents contents;
   UncompressionContext uncompresssion_ctx(compression_type, compression_dict);
-  s = UncompressBlockContents(uncompresssion_ctx, compressed_block->data(),
-                              compressed_block->size(), &contents,
-                              format_version, ioptions, allocator);
+  s = UncompressBlockContents(uncompresssion_ctx, compressed_block->data.data(),
+                              compressed_block->data.size(), &contents,
+                              rep->table_options.format_version, rep->ioptions,
+                              GetMemoryAllocator(rep->table_options));
 
   // Insert uncompressed block into block cache
   if (s.ok()) {
     block->value =
-        new Block(std::move(contents), compressed_block->global_seqno(),
+        new Block(std::move(contents), rep->get_global_seqno(is_index),
                   read_amp_bytes_per_bit,
                   statistics);  // uncompressed block
     if (block_cache != nullptr && block->value->own_bytes() &&
@@ -1256,7 +1261,9 @@ Status BlockBasedTable::GetDataBlockFromCache(
       s = block_cache->Insert(block_cache_key, block->value, charge,
                               &DeleteCachedEntry<Block>,
                               &(block->cache_handle));
+#ifndef NDEBUG
       block_cache->TEST_mark_as_data_block(block_cache_key, charge);
+#endif  // NDEBUG
       if (s.ok()) {
         if (get_context != nullptr) {
           get_context->get_context_stats_.num_cache_add++;
@@ -1339,20 +1346,20 @@ Status BlockBasedTable::PutDataBlockToCache(
   if (block_cache_compressed != nullptr &&
       raw_block_comp_type != kNoCompression && raw_block_contents != nullptr &&
       raw_block_contents->own_bytes()) {
-    Block* block_for_cache =
-        new Block(std::move(*raw_block_contents), seq_no,
-                  read_amp_bytes_per_bit, ioptions.statistics);
+    BlockContents* block_cont_for_comp_cache =
+        new BlockContents(std::move(*raw_block_contents));
     s = block_cache_compressed->Insert(
-        compressed_block_cache_key, block_for_cache,
-        block_for_cache->ApproximateMemoryUsage(), &DeleteCachedEntry<Block>);
+        compressed_block_cache_key, block_cont_for_comp_cache,
+        block_cont_for_comp_cache->ApproximateMemoryUsage(),
+        &DeleteBlockContents);
     if (s.ok()) {
       // Avoid the following code to delete this cached block.
-      block_for_cache = nullptr;
+      block_cont_for_comp_cache = nullptr;
       RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD);
     } else {
       RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD_FAILURES);
     }
-    delete block_for_cache;
+    delete block_cont_for_comp_cache;
   }
 
   // insert into uncompressed block cache
@@ -1361,7 +1368,9 @@ Status BlockBasedTable::PutDataBlockToCache(
     s = block_cache->Insert(block_cache_key, block->value, charge,
                             &DeleteCachedEntry<Block>, &(block->cache_handle),
                             priority);
+#ifndef NDEBUG
     block_cache->TEST_mark_as_data_block(block_cache_key, charge);
+#endif  // NDEBUG
     if (s.ok()) {
       assert(block->cache_handle != nullptr);
       if (get_context != nullptr) {
@@ -1803,11 +1812,10 @@ Status BlockBasedTable::LoadBlockFromCacheOrFile(
                          compressed_cache_key);
     }
 
-    s = GetDataBlockFromCache(
-        key, ckey, block_cache, block_cache_compressed, rep->ioptions, ro,
-        block_entry, rep->table_options.format_version, compression_dict,
-        rep->table_options.read_amp_bytes_per_bit, is_index, get_context,
-        GetMemoryAllocator(rep->table_options));
+    s = GetDataBlockFromCache(key, ckey, block_cache, block_cache_compressed,
+                              rep, ro, block_entry, compression_dict,
+                              rep->table_options.read_amp_bytes_per_bit,
+                              is_index, get_context);
   }
 
   // Can't find the block from the cache. If I/O is allowed, read from the file.
@@ -1831,8 +1839,7 @@ Status BlockBasedTable::LoadBlockFromCacheOrFile(
     }
 
     if (s.ok()) {
-      SequenceNumber seq_no =
-          is_index ? kDisableGlobalSequenceNumber : rep->global_seqno;
+      SequenceNumber seq_no = rep->get_global_seqno(is_index);
       // If filling cache is allowed and a cache is configured, try to put the
       // block to the cache.
       if (ro.fill_cache &&
@@ -2633,8 +2640,7 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
 
   Status s;
   s = GetDataBlockFromCache(
-      cache_key, ckey, block_cache, nullptr, rep_->ioptions, options, &block,
-      rep_->table_options.format_version,
+      cache_key, ckey, block_cache, nullptr, rep_, options, &block,
       rep_->compression_dict_block ? rep_->compression_dict_block->data
                                    : Slice(),
       0 /* read_amp_bytes_per_bit */);

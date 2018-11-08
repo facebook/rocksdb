@@ -300,12 +300,11 @@ class BlockBasedTable : public TableReader {
   //    dictionary.
   static Status GetDataBlockFromCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
-      Cache* block_cache, Cache* block_cache_compressed,
-      const ImmutableCFOptions& ioptions, const ReadOptions& read_options,
-      BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version,
+      Cache* block_cache, Cache* block_cache_compressed, Rep* rep,
+      const ReadOptions& read_options,
+      BlockBasedTable::CachableEntry<Block>* block,
       const Slice& compression_dict, size_t read_amp_bytes_per_bit,
-      bool is_index = false, GetContext* get_context = nullptr,
-      MemoryAllocator* allocator = nullptr);
+      bool is_index = false, GetContext* get_context = nullptr);
 
   // Put a raw block (maybe compressed) to the corresponding block caches.
   // This method will perform decompression against raw_block if needed and then
@@ -536,6 +535,10 @@ struct BlockBasedTable::Rep {
 
   bool closed = false;
   const bool immortal_table;
+
+  SequenceNumber get_global_seqno(bool is_index) const {
+    return is_index ? kDisableGlobalSequenceNumber : global_seqno;
+  }
 };
 
 template <class TBlockIter, typename TValue = Slice>

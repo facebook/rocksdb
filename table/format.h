@@ -224,6 +224,10 @@ struct BlockContents {
     }
   }
 
+  size_t ApproximateMemoryUsage() const {
+    return usable_size() + sizeof(*this);
+  }
+
   BlockContents(BlockContents&& other) ROCKSDB_NOEXCEPT {
     *this = std::move(other);
   }
