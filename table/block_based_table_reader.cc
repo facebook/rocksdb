@@ -80,12 +80,11 @@ Status ReadBlockFromFile(
     std::unique_ptr<Block>* result, const ImmutableCFOptions& ioptions,
     bool do_uncompress, const Slice& compression_dict,
     const PersistentCacheOptions& cache_options, SequenceNumber global_seqno,
-    size_t read_amp_bytes_per_bit, MemoryAllocator* allocator = nullptr,
-    const bool immortal_file = false) {
+    size_t read_amp_bytes_per_bit, MemoryAllocator* allocator = nullptr) {
   BlockContents contents;
-  BlockFetcher block_fetcher(
-      file, prefetch_buffer, footer, options, handle, &contents, ioptions,
-      do_uncompress, compression_dict, cache_options, allocator, immortal_file);
+  BlockFetcher block_fetcher(file, prefetch_buffer, footer, options, handle,
+                             &contents, ioptions, do_uncompress,
+                             compression_dict, cache_options, allocator);
   Status s = block_fetcher.ReadBlockContents();
   if (s.ok()) {
     result->reset(new Block(std::move(contents), global_seqno,
@@ -1683,7 +1682,6 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     FilePrefetchBuffer* prefetch_buffer) {
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
 
-  const bool no_io = (ro.read_tier == kBlockCacheTier);
   Cache* block_cache = rep->table_options.block_cache.get();
   CachableEntry<Block> block;
   Slice compression_dict;
@@ -1704,7 +1702,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   }
   // Didn't get any data and there isn't any error. Must be no_io = true
   if (s.ok() && block.value == nullptr) {
-    assert(no_io);
+    assert(ro.read_tier == kBlockCacheTier);
     // Could not read from block_cache and can't do IO
     iter->Invalidate(Status::Incomplete("no blocking io"));
     return iter;
@@ -1827,7 +1825,7 @@ Status BlockBasedTable::LoadBlockFromCacheOrFile(
           rep->file.get(), prefetch_buffer, rep->footer, ro, handle,
           &raw_block_contents, rep->ioptions, do_decompress /* do uncompress */,
           compression_dict, rep->persistent_cache_options,
-          GetMemoryAllocator(rep->table_options), rep->immortal_table);
+          GetMemoryAllocator(rep->table_options));
       s = block_fetcher.ReadBlockContents();
       raw_block_comp_type = block_fetcher.get_compression_type();
     }
