@@ -1713,7 +1713,6 @@ class StressTest {
     }
     ReadOptions ropt;
     ropt.snapshot = snap_state.snapshot;
-    ropt.total_order_seek = true;
     PinnableSlice exp_v(&snap_state.value);
     exp_v.PinSelf();
     PinnableSlice v;
@@ -1736,6 +1735,9 @@ class StressTest {
       }
     }
     if (snap_state.key_vec != nullptr) {
+      // When `prefix_extractor` is set, seeking to beginning and scanning
+      // across prefixes are only supported with `total_order_seek` set.
+      ropt.total_order_seek = true;
       std::unique_ptr<Iterator> iterator(db->NewIterator(ropt));
       std::unique_ptr<std::vector<bool>> tmp_bitvec(new std::vector<bool>(FLAGS_max_key));
       for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
@@ -2006,7 +2008,6 @@ class StressTest {
         auto snapshot = db_->GetSnapshot();
         ReadOptions ropt;
         ropt.snapshot = snapshot;
-        ropt.total_order_seek = true;
         std::string value_at;
         // When taking a snapshot, we also read a key from that snapshot. We
         // will later read the same key before releasing the snapshot and verify
@@ -2017,6 +2018,9 @@ class StressTest {
         if (FLAGS_compare_full_db_state_snapshot &&
             (thread->tid == 0)) {
           key_vec = new std::vector<bool>(FLAGS_max_key);
+          // When `prefix_extractor` is set, seeking to beginning and scanning
+          // across prefixes are only supported with `total_order_seek` set.
+          ropt.total_order_seek = true;
           std::unique_ptr<Iterator> iterator(db_->NewIterator(ropt));
           for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
             uint64_t key_val;
@@ -2210,7 +2214,6 @@ class StressTest {
     std::string restore_dir = FLAGS_db + "/.restore" + ToString(thread->tid);
     BackupableDBOptions backup_opts(backup_dir);
     BackupEngine* backup_engine = nullptr;
-    DB* restored_db = nullptr;
     Status s = BackupEngine::Open(FLAGS_env, backup_opts, &backup_engine);
     if (s.ok()) {
       s = backup_engine->CreateNewBackup(db_);
@@ -2227,6 +2230,7 @@ class StressTest {
     if (s.ok()) {
       s = backup_engine->PurgeOldBackups(0 /* num_backups_to_keep */);
     }
+    DB* restored_db = nullptr;
     std::vector<ColumnFamilyHandle*> restored_cf_handles;
     if (s.ok()) {
       Options restore_options(options_);
