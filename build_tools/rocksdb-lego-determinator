@@ -85,7 +85,6 @@ NON_SHM="TMPD=/tmp/rocksdb_test_tmp"
 GCC_481="ROCKSDB_FBCODE_BUILD_WITH_481=1"
 ASAN="COMPILE_WITH_ASAN=1"
 CLANG="USE_CLANG=1"
-LITE="OPT=\"-DROCKSDB_LITE -g\""
 TSAN="COMPILE_WITH_TSAN=1"
 UBSAN="COMPILE_WITH_UBSAN=1"
 TSAN_CRASH='CRASH_TEST_EXT_ARGS="--compression_type=zstd --log2_keys_per_lock=22"'
@@ -345,7 +344,7 @@ LITE_BUILD_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build RocksDB debug version',
-                'shell':'$LITE make J=1 all check || $CONTRUN_NAME=lite $TASK_CREATION_TOOL',
+                'shell':'make J=1 LITE=1 all check || $CONTRUN_NAME=lite $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
@@ -663,12 +662,12 @@ run_regression()
 
   # === lite build ===
   make clean
-  OPT=-DROCKSDB_LITE make -j$(nproc) static_lib
+  make LITE=1 -j$(nproc) static_lib
   send_size_to_ods static_lib_lite $(stat --printf="%s" librocksdb.a)
   strip librocksdb.a
   send_size_to_ods static_lib_lite_stripped $(stat --printf="%s" librocksdb.a)
 
-  OPT=-DROCKSDB_LITE make -j$(nproc) shared_lib
+  make LITE=1 -j$(nproc) shared_lib
   send_size_to_ods shared_lib_lite $(stat --printf="%s" `readlink -f librocksdb.so`)
   strip `readlink -f librocksdb.so`
   send_size_to_ods shared_lib_lite_stripped $(stat --printf="%s" `readlink -f librocksdb.so`)
