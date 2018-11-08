@@ -1735,6 +1735,9 @@ class StressTest {
       }
     }
     if (snap_state.key_vec != nullptr) {
+      // When `prefix_extractor` is set, seeking to beginning and scanning
+      // across prefixes are only supported with `total_order_seek` set.
+      ropt.total_order_seek = true;
       std::unique_ptr<Iterator> iterator(db->NewIterator(ropt));
       std::unique_ptr<std::vector<bool>> tmp_bitvec(new std::vector<bool>(FLAGS_max_key));
       for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
@@ -1884,27 +1887,6 @@ class StressTest {
         }
       }
 
-      if (FLAGS_backup_one_in > 0 &&
-          thread->rand.Uniform(FLAGS_backup_one_in) == 0) {
-        std::string backup_dir = FLAGS_db + "/.backup" + ToString(thread->tid);
-        BackupableDBOptions backup_opts(backup_dir);
-        BackupEngine* backup_engine = nullptr;
-        Status s = BackupEngine::Open(FLAGS_env, backup_opts, &backup_engine);
-        if (s.ok()) {
-          s = backup_engine->CreateNewBackup(db_);
-        }
-        if (s.ok()) {
-          s = backup_engine->PurgeOldBackups(0 /* num_backups_to_keep */);
-        }
-        if (!s.ok()) {
-          printf("A BackupEngine operation failed with: %s\n",
-                 s.ToString().c_str());
-        }
-        if (backup_engine != nullptr) {
-          delete backup_engine;
-        }
-      }
-
       if (FLAGS_compact_files_one_in > 0 &&
           thread->rand.Uniform(FLAGS_compact_files_one_in) == 0) {
         auto* random_cf =
@@ -2012,6 +1994,15 @@ class StressTest {
         TestIngestExternalFile(thread, rand_column_families, rand_keys, lock);
       }
 
+      if (FLAGS_backup_one_in > 0 &&
+          thread->rand.Uniform(FLAGS_backup_one_in) == 0) {
+        Status s = TestBackupRestore(thread, rand_column_families, rand_keys);
+        if (!s.ok()) {
+          VerificationAbort(shared, "Backup/restore gave inconsistent state",
+                            s);
+        }
+      }
+
       if (FLAGS_acquire_snapshot_one_in > 0 &&
           thread->rand.Uniform(FLAGS_acquire_snapshot_one_in) == 0) {
         auto snapshot = db_->GetSnapshot();
@@ -2027,6 +2018,9 @@ class StressTest {
         if (FLAGS_compare_full_db_state_snapshot &&
             (thread->tid == 0)) {
           key_vec = new std::vector<bool>(FLAGS_max_key);
+          // When `prefix_extractor` is set, seeking to beginning and scanning
+          // across prefixes are only supported with `total_order_seek` set.
+          ropt.total_order_seek = true;
           std::unique_ptr<Iterator> iterator(db_->NewIterator(ropt));
           for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
             uint64_t key_val;
@@ -2196,6 +2190,106 @@ class StressTest {
 
     return s;
   }
+
+#ifdef ROCKSDB_LITE
+  virtual Status TestBackupRestore(
+      ThreadState* /* thread */,
+      const std::vector<int>& /* rand_column_families */,
+      const std::vector<int64_t>& /* rand_keys */) {
+    assert(false);
+    fprintf(stderr,
+            "RocksDB lite does not support "
+            "TestBackupRestore\n");
+    std::terminate();
+  }
+#else  // ROCKSDB_LITE
+  virtual Status TestBackupRestore(ThreadState* thread,
+                                   const std::vector<int>& rand_column_families,
+                                   const std::vector<int64_t>& rand_keys) {
+    // Note the column families chosen by `rand_column_families` cannot be
+    // dropped while the locks for `rand_keys` are held. So we should not have
+    // to worry about accessing those column families throughout this function.
+    assert(rand_column_families.size() == rand_keys.size());
+    std::string backup_dir = FLAGS_db + "/.backup" + ToString(thread->tid);
+    std::string restore_dir = FLAGS_db + "/.restore" + ToString(thread->tid);
+    BackupableDBOptions backup_opts(backup_dir);
+    BackupEngine* backup_engine = nullptr;
+    Status s = BackupEngine::Open(FLAGS_env, backup_opts, &backup_engine);
+    if (s.ok()) {
+      s = backup_engine->CreateNewBackup(db_);
+    }
+    if (s.ok()) {
+      delete backup_engine;
+      backup_engine = nullptr;
+      s = BackupEngine::Open(FLAGS_env, backup_opts, &backup_engine);
+    }
+    if (s.ok()) {
+      s = backup_engine->RestoreDBFromLatestBackup(restore_dir /* db_dir */,
+                                                   restore_dir /* wal_dir */);
+    }
+    if (s.ok()) {
+      s = backup_engine->PurgeOldBackups(0 /* num_backups_to_keep */);
+    }
+    DB* restored_db = nullptr;
+    std::vector<ColumnFamilyHandle*> restored_cf_handles;
+    if (s.ok()) {
+      Options restore_options(options_);
+      restore_options.listeners.clear();
+      std::vector<ColumnFamilyDescriptor> cf_descriptors;
+      // TODO(ajkr): `column_family_names_` is not safe to access here when
+      // `clear_column_family_one_in != 0`. But we can't easily switch to
+      // `ListColumnFamilies` to get names because it won't necessarily give
+      // the same order as `column_family_names_`.
+      assert(FLAGS_clear_column_family_one_in == 0);
+      for (auto name : column_family_names_) {
+        cf_descriptors.emplace_back(name, ColumnFamilyOptions(restore_options));
+      }
+      s = DB::Open(DBOptions(restore_options), restore_dir, cf_descriptors,
+                   &restored_cf_handles, &restored_db);
+    }
+    // for simplicity, currently only verifies existence/non-existence of a few
+    // keys
+    for (size_t i = 0; s.ok() && i < rand_column_families.size(); ++i) {
+      std::string key_str = Key(rand_keys[i]);
+      Slice key = key_str;
+      std::string restored_value;
+      Status get_status = restored_db->Get(
+          ReadOptions(), restored_cf_handles[rand_column_families[i]], key,
+          &restored_value);
+      bool exists =
+          thread->shared->Exists(rand_column_families[i], rand_keys[i]);
+      if (get_status.ok()) {
+        if (!exists) {
+          s = Status::Corruption(
+              "key exists in restore but not in original db");
+        }
+      } else if (get_status.IsNotFound()) {
+        if (exists) {
+          s = Status::Corruption(
+              "key exists in original db but not in restore");
+        }
+      } else {
+        s = get_status;
+      }
+    }
+    if (backup_engine != nullptr) {
+      delete backup_engine;
+      backup_engine = nullptr;
+    }
+    if (restored_db != nullptr) {
+      for (auto* cf_handle : restored_cf_handles) {
+        restored_db->DestroyColumnFamilyHandle(cf_handle);
+      }
+      delete restored_db;
+      restored_db = nullptr;
+    }
+    if (!s.ok()) {
+      printf("A backup/restore operation failed with: %s\n",
+             s.ToString().c_str());
+    }
+    return s;
+  }
+#endif  // ROCKSDB_LITE
 
   void VerificationAbort(SharedState* shared, std::string msg, Status s) const {
     printf("Verification failed: %s. Status is %s\n", msg.c_str(),
@@ -3660,6 +3754,11 @@ int main(int argc, char** argv) {
   if (FLAGS_ingest_external_file_one_in > 0 && FLAGS_nooverwritepercent > 0) {
     fprintf(stderr,
             "Error: nooverwritepercent must be 0 when using file ingestion\n");
+    exit(1);
+  }
+  if (FLAGS_clear_column_family_one_in > 0 && FLAGS_backup_one_in > 0) {
+    fprintf(stderr,
+            "Error: clear_column_family_one_in must be 0 when using backup\n");
     exit(1);
   }
 
