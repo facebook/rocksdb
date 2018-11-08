@@ -768,6 +768,27 @@ void RangeLockMgr::UnLockAll(const PessimisticTransaction* txn,
 #endif
 }
 
+uint64_t RangeLockMgr::get_escalation_count()
+{
+  LTM_STATUS_S ltm_status_test;
+  ltm.get_status(&ltm_status_test);
+  
+  // psergey-todo: The below is how Toku's unit tests do it. 
+  //  why didn't Toku just make LTM_ESCALATION_COUNT constant visible?
+  TOKU_ENGINE_STATUS_ROW key_status = NULL;
+  // lookup keyname in status
+  for (int i = 0; ; i++) {
+      TOKU_ENGINE_STATUS_ROW status = &ltm_status_test.status[i];
+      if (status->keyname == NULL)
+          break;
+      if (strcmp(status->keyname, "LTM_ESCALATION_COUNT") == 0) {
+          key_status = status;
+          break;
+      }
+  }
+  assert(key_status);
+  return key_status->value.num;
+}
 
 void TransactionLockMgr::UnLock(const PessimisticTransaction* txn,
                                 const TransactionKeyMap* key_map, Env* env) {

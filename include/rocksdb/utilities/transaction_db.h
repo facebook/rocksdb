@@ -225,6 +225,13 @@ struct DeadlockPath {
   bool empty() { return path.empty() && !limit_exceeded; }
 };
 
+// Interface for controlling Range Locking manager
+class RangeLockMgrControl {
+public:
+  virtual int set_max_lock_memory(size_t max_lock_memory) = 0;
+  virtual uint64_t get_escalation_count() = 0;
+};
+
 class TransactionDB : public StackableDB {
  public:
   // Optimized version of ::Write that receives more optimization request such
@@ -300,8 +307,9 @@ class TransactionDB : public StackableDB {
   virtual void SetDeadlockInfoBufferSize(uint32_t target_size) = 0;
   
 
-  // psergey-TODO: move this elsewhere.
+  // psergey-TODO: any better interface for this?
   bool use_range_locking;
+  virtual RangeLockMgrControl* get_range_lock_manager() { return nullptr; }
 
   virtual void KillLockWait(void *cdata){};
  protected:

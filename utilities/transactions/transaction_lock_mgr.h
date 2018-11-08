@@ -82,7 +82,10 @@ using namespace toku;
 /*
   A lock manager that supports Range-based locking.
 */
-class RangeLockMgr :public BaseLockMgr {
+class RangeLockMgr :
+  public BaseLockMgr, 
+  public RangeLockMgrControl 
+{
  public:
   void AddColumnFamily(uint32_t column_family_id) override { /* do nothing */ }
   void RemoveColumnFamily(uint32_t column_family_id) override { /* do nothing */ }
@@ -121,6 +124,13 @@ class RangeLockMgr :public BaseLockMgr {
   }
 
   void KillLockWait(void *cdata);
+
+  int set_max_lock_memory(size_t max_lock_memory) override
+  {
+    return ltm.set_max_lock_memory(max_lock_memory);
+  }
+
+  uint64_t get_escalation_count() override;
 
  private:
   toku::locktree_manager ltm;

@@ -179,6 +179,11 @@ class PessimisticTransactionDB : public TransactionDB {
   TransactionLockMgr lock_mgr_;
 
   RangeLockMgr range_lock_mgr_;
+  
+  // Return Range Lock Manager if we are actually using it
+  virtual RangeLockMgrControl* get_range_lock_manager() override { 
+    return use_range_locking? &range_lock_mgr_ : nullptr; 
+  }
 
   // Must be held when adding/dropping column families.
   InstrumentedMutex column_family_mutex_;
