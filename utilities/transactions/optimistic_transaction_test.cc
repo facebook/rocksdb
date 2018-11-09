@@ -876,6 +876,12 @@ TEST_F(OptimisticTransactionTest, IteratorUpperBoundTest) {
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     EXPECT_LT(it->key().ToString(), ubKey);
   }
+  int key_count = 0;
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    EXPECT_LT(it->key().ToString(), ubKey);
+    key_count++;
+  }
+  ASSERT_EQ(key_count, 1);
   it.reset();
 
   s = txn->Commit();

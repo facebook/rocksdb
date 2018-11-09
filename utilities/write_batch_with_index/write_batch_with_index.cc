@@ -322,10 +322,13 @@ class BaseDeltaIterator : public Iterator {
           break;
         }
       }
+      current_over_upper_bound_ = IsOverUpperBound();
+      if (current_over_upper_bound_) {
+        break;
+      }
     }
 
     current_over_upper_bound_ = IsOverUpperBound();
-    // AssertInvariants();
 #endif  // __clang_analyzer__
   }
 
