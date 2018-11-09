@@ -222,13 +222,10 @@ class BaseDeltaIterator : public Iterator {
 #endif
   }
 
-  void IsOverUpperBound() {
-    if ((read_options_.iterate_upper_bound != nullptr &&
+  bool IsOverUpperBound() {
+    return read_options_.iterate_upper_bound != nullptr &&
          comparator_->Compare(key(),
-                              *read_options_.iterate_upper_bound) >= 0)) {
-      current_over_upper_bound_ = true;
-      return;
-    }
+                              *read_options_.iterate_upper_bound) >= 0;
   }
 
   void Advance() {
@@ -327,7 +324,7 @@ class BaseDeltaIterator : public Iterator {
       }
     }
 
-    IsOverUpperBound();
+    current_over_upper_bound_ = IsOverUpperBound();
     // AssertInvariants();
 #endif  // __clang_analyzer__
   }
