@@ -446,7 +446,7 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
   ASSERT_EQ(std::string::npos, prop.find("** Level 1 read latency histogram"));
   ASSERT_EQ(std::string::npos, prop.find("** Level 2 read latency histogram"));
   {
-    unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
     for (iter->Seek(Key(0)); iter->Valid(); iter->Next()) {
     }
   }

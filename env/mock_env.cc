@@ -424,7 +424,7 @@ MockEnv::~MockEnv() {
 
 // Partial implementation of the Env interface.
 Status MockEnv::NewSequentialFile(const std::string& fname,
-                                  unique_ptr<SequentialFile>* result,
+                                  std::unique_ptr<SequentialFile>* result,
                                   const EnvOptions& /*soptions*/) {
   auto fn = NormalizePath(fname);
   MutexLock lock(&mutex_);
@@ -441,7 +441,7 @@ Status MockEnv::NewSequentialFile(const std::string& fname,
 }
 
 Status MockEnv::NewRandomAccessFile(const std::string& fname,
-                                    unique_ptr<RandomAccessFile>* result,
+                                    std::unique_ptr<RandomAccessFile>* result,
                                     const EnvOptions& /*soptions*/) {
   auto fn = NormalizePath(fname);
   MutexLock lock(&mutex_);
@@ -458,7 +458,7 @@ Status MockEnv::NewRandomAccessFile(const std::string& fname,
 }
 
 Status MockEnv::NewRandomRWFile(const std::string& fname,
-                                unique_ptr<RandomRWFile>* result,
+                                std::unique_ptr<RandomRWFile>* result,
                                 const EnvOptions& /*soptions*/) {
   auto fn = NormalizePath(fname);
   MutexLock lock(&mutex_);
@@ -476,7 +476,7 @@ Status MockEnv::NewRandomRWFile(const std::string& fname,
 
 Status MockEnv::ReuseWritableFile(const std::string& fname,
                                   const std::string& old_fname,
-                                  unique_ptr<WritableFile>* result,
+                                  std::unique_ptr<WritableFile>* result,
                                   const EnvOptions& options) {
   auto s = RenameFile(old_fname, fname);
   if (!s.ok()) {
@@ -487,7 +487,7 @@ Status MockEnv::ReuseWritableFile(const std::string& fname,
 }
 
 Status MockEnv::NewWritableFile(const std::string& fname,
-                                unique_ptr<WritableFile>* result,
+                                std::unique_ptr<WritableFile>* result,
                                 const EnvOptions& env_options) {
   auto fn = NormalizePath(fname);
   MutexLock lock(&mutex_);
@@ -503,7 +503,7 @@ Status MockEnv::NewWritableFile(const std::string& fname,
 }
 
 Status MockEnv::NewDirectory(const std::string& /*name*/,
-                             unique_ptr<Directory>* result) {
+                             std::unique_ptr<Directory>* result) {
   result->reset(new MockEnvDirectory());
   return Status::OK();
 }
@@ -660,7 +660,7 @@ Status MockEnv::LinkFile(const std::string& src, const std::string& dest) {
 }
 
 Status MockEnv::NewLogger(const std::string& fname,
-                          shared_ptr<Logger>* result) {
+                          std::shared_ptr<Logger>* result) {
   auto fn = NormalizePath(fname);
   MutexLock lock(&mutex_);
   auto iter = file_map_.find(fn);

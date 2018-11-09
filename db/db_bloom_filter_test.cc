@@ -897,7 +897,7 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_OK(Put(key1, value1, WriteOptions()));
   ASSERT_OK(Put(key3, value3, WriteOptions()));
 
-  unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
+  std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
 
   // check memtable bloom stats
   iter->Seek(key1);

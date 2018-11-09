@@ -48,7 +48,7 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
   if (!s.ok()) {
     return s;
   }
-  unique_ptr<WritableFileWriter> writable;
+  std::unique_ptr<WritableFileWriter> writable;
   writable.reset(new WritableFileWriter(std::move(wf), file_name, EnvOptions(),
                                         nullptr /* statistics */));
 

@@ -70,7 +70,7 @@ class FaultInjectionTest
   std::unique_ptr<Env> base_env_;
   FaultInjectionTestEnv* env_;
   std::string dbname_;
-  shared_ptr<Cache> tiny_cache_;
+  std::shared_ptr<Cache> tiny_cache_;
   Options options_;
   DB* db_;
 

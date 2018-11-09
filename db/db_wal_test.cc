@@ -33,7 +33,8 @@ class DBWALTest : public DBTestBase {
 class EnrichedSpecialEnv : public SpecialEnv {
  public:
   explicit EnrichedSpecialEnv(Env* base) : SpecialEnv(base) {}
-  Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
+  Status NewSequentialFile(const std::string& f,
+                           std::unique_ptr<SequentialFile>* r,
                            const EnvOptions& soptions) override {
     InstrumentedMutexLock l(&env_mutex_);
     if (f == skipped_wal) {
@@ -802,12 +803,12 @@ class RecoveryTestHelper {
 
     *count = 0;
 
-    shared_ptr<Cache> table_cache = NewLRUCache(50, 0);
+    std::shared_ptr<Cache> table_cache = NewLRUCache(50, 0);
     EnvOptions env_options;
     WriteBufferManager write_buffer_manager(db_options.db_write_buffer_size);
 
-    unique_ptr<VersionSet> versions;
-    unique_ptr<WalManager> wal_manager;
+    std::unique_ptr<VersionSet> versions;
+    std::unique_ptr<WalManager> wal_manager;
     WriteController write_controller;
 
     versions.reset(new VersionSet(test->dbname_, &db_options, env_options,
@@ -821,9 +822,9 @@ class RecoveryTestHelper {
     for (size_t j = kWALFileOffset; j < wal_count + kWALFileOffset; j++) {
       uint64_t current_log_number = j;
       std::string fname = LogFileName(test->dbname_, current_log_number);
-      unique_ptr<WritableFile> file;
+      std::unique_ptr<WritableFile> file;
       ASSERT_OK(db_options.env->NewWritableFile(fname, &file, env_options));
-      unique_ptr<WritableFileWriter> file_writer(
+      std::unique_ptr<WritableFileWriter> file_writer(
           new WritableFileWriter(std::move(file), fname, env_options));
       current_log_writer.reset(
           new log::Writer(std::move(file_writer), current_log_number,

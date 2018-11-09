@@ -230,7 +230,7 @@ Status DBImpl::NewDB() {
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "Creating manifest 1 \n");
   const std::string manifest = DescriptorFileName(dbname_, 1);
   {
-    unique_ptr<WritableFile> file;
+    std::unique_ptr<WritableFile> file;
     EnvOptions env_options = env_->OptimizeForManifestWrite(env_options_);
     s = NewWritableFile(env_, manifest, &file, env_options);
     if (!s.ok()) {
@@ -238,7 +238,7 @@ Status DBImpl::NewDB() {
     }
     file->SetPreallocationBlockSize(
         immutable_db_options_.manifest_preallocation_size);
-    unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(file), manifest, env_options, nullptr /* stats */,
         immutable_db_options_.listeners));
     log::Writer log(std::move(file_writer), 0, false);
@@ -362,7 +362,7 @@ Status DBImpl::Recover(
     }
     // Verify compatibility of env_options_ and filesystem
     {
-      unique_ptr<RandomAccessFile> idfile;
+      std::unique_ptr<RandomAccessFile> idfile;
       EnvOptions customized_env(env_options_);
       customized_env.use_direct_reads |=
           immutable_db_options_.use_direct_io_for_flush_and_compaction;
@@ -573,9 +573,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       continue;
     }
 
-    unique_ptr<SequentialFileReader> file_reader;
+    std::unique_ptr<SequentialFileReader> file_reader;
     {
-      unique_ptr<SequentialFile> file;
+      std::unique_ptr<SequentialFile> file;
       status = env_->NewSequentialFile(fname, &file,
                                        env_->OptimizeForLogRead(env_options_));
       if (!status.ok()) {
@@ -1129,7 +1129,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   s = impl->Recover(column_families);
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
-    unique_ptr<WritableFile> lfile;
+    std::unique_ptr<WritableFile> lfile;
     EnvOptions soptions(db_options);
     EnvOptions opt_env_options =
         impl->immutable_db_options_.env->OptimizeForLogWrite(
@@ -1147,7 +1147,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         InstrumentedMutexLock wl(&impl->log_write_mutex_);
         impl->logfile_number_ = new_log_number;
         const auto& listeners = impl->immutable_db_options_.listeners;
-        unique_ptr<WritableFileWriter> file_writer(
+        std::unique_ptr<WritableFileWriter> file_writer(
             new WritableFileWriter(std::move(lfile), log_fname, opt_env_options,
                                    nullptr /* stats */, listeners));
         impl->logs_.emplace_back(

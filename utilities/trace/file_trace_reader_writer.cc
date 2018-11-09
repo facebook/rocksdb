@@ -86,13 +86,13 @@ Status FileTraceWriter::Write(const Slice& data) {
 Status NewFileTraceReader(Env* env, const EnvOptions& env_options,
                           const std::string& trace_filename,
                           std::unique_ptr<TraceReader>* trace_reader) {
-  unique_ptr<RandomAccessFile> trace_file;
+  std::unique_ptr<RandomAccessFile> trace_file;
   Status s = env->NewRandomAccessFile(trace_filename, &trace_file, env_options);
   if (!s.ok()) {
     return s;
   }
 
-  unique_ptr<RandomAccessFileReader> file_reader;
+  std::unique_ptr<RandomAccessFileReader> file_reader;
   file_reader.reset(
       new RandomAccessFileReader(std::move(trace_file), trace_filename));
   trace_reader->reset(new FileTraceReader(std::move(file_reader)));
@@ -102,13 +102,13 @@ Status NewFileTraceReader(Env* env, const EnvOptions& env_options,
 Status NewFileTraceWriter(Env* env, const EnvOptions& env_options,
                           const std::string& trace_filename,
                           std::unique_ptr<TraceWriter>* trace_writer) {
-  unique_ptr<WritableFile> trace_file;
+  std::unique_ptr<WritableFile> trace_file;
   Status s = env->NewWritableFile(trace_filename, &trace_file, env_options);
   if (!s.ok()) {
     return s;
   }
 
-  unique_ptr<WritableFileWriter> file_writer;
+  std::unique_ptr<WritableFileWriter> file_writer;
   file_writer.reset(new WritableFileWriter(std::move(trace_file),
                                            trace_filename, env_options));
   trace_writer->reset(new FileTraceWriter(std::move(file_writer)));

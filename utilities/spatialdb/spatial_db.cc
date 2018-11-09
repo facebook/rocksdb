@@ -473,7 +473,7 @@ class SpatialIndexCursor : public Cursor {
 
   }
 
-  unique_ptr<ValueGetter> value_getter_;
+  std::unique_ptr<ValueGetter> value_getter_;
   bool valid_;
   Status status_;
 

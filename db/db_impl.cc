@@ -2295,9 +2295,8 @@ void DBImpl::ReleaseFileNumberFromPendingOutputs(
 
 #ifndef ROCKSDB_LITE
 Status DBImpl::GetUpdatesSince(
-    SequenceNumber seq, unique_ptr<TransactionLogIterator>* iter,
+    SequenceNumber seq, std::unique_ptr<TransactionLogIterator>* iter,
     const TransactionLogIterator::ReadOptions& read_options) {
-
   RecordTick(stats_, GET_UPDATES_SINCE_CALLS);
   if (seq > versions_->LastSequence()) {
     return Status::NotFound("Requested sequence not yet written in the db");
@@ -2545,10 +2544,10 @@ Status DBImpl::CheckConsistency() {
 Status DBImpl::GetDbIdentity(std::string& identity) const {
   std::string idfilename = IdentityFileName(dbname_);
   const EnvOptions soptions;
-  unique_ptr<SequentialFileReader> id_file_reader;
+  std::unique_ptr<SequentialFileReader> id_file_reader;
   Status s;
   {
-    unique_ptr<SequentialFile> idfile;
+    std::unique_ptr<SequentialFile> idfile;
     s = env_->NewSequentialFile(idfilename, &idfile, soptions);
     if (!s.ok()) {
       return s;

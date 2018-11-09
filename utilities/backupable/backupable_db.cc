@@ -479,9 +479,9 @@ class BackupEngineImpl : public BackupEngine {
   // backup state data
   BackupID latest_backup_id_;
   BackupID latest_valid_backup_id_;
-  std::map<BackupID, unique_ptr<BackupMeta>> backups_;
-  std::map<BackupID,
-           std::pair<Status, unique_ptr<BackupMeta>>> corrupt_backups_;
+  std::map<BackupID, std::unique_ptr<BackupMeta>> backups_;
+  std::map<BackupID, std::pair<Status, std::unique_ptr<BackupMeta>>>
+      corrupt_backups_;
   std::unordered_map<std::string,
                      std::shared_ptr<FileInfo>> backuped_file_infos_;
   std::atomic<bool> stop_backup_;
@@ -492,10 +492,10 @@ class BackupEngineImpl : public BackupEngine {
   Env* backup_env_;
 
   // directories
-  unique_ptr<Directory> backup_directory_;
-  unique_ptr<Directory> shared_directory_;
-  unique_ptr<Directory> meta_directory_;
-  unique_ptr<Directory> private_directory_;
+  std::unique_ptr<Directory> backup_directory_;
+  std::unique_ptr<Directory> shared_directory_;
+  std::unique_ptr<Directory> meta_directory_;
+  std::unique_ptr<Directory> private_directory_;
 
   static const size_t kDefaultCopyFileBufferSize = 5 * 1024 * 1024LL;  // 5MB
   size_t copy_file_buffer_size_;
@@ -616,7 +616,7 @@ Status BackupEngineImpl::Initialize() {
     }
     assert(backups_.find(backup_id) == backups_.end());
     backups_.insert(std::make_pair(
-        backup_id, unique_ptr<BackupMeta>(new BackupMeta(
+        backup_id, std::unique_ptr<BackupMeta>(new BackupMeta(
                        GetBackupMetaFile(backup_id, false /* tmp */),
                        GetBackupMetaFile(backup_id, true /* tmp */),
                        &backuped_file_infos_, backup_env_))));
@@ -761,7 +761,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   }
 
   auto ret = backups_.insert(std::make_pair(
-      new_backup_id, unique_ptr<BackupMeta>(new BackupMeta(
+      new_backup_id, std::unique_ptr<BackupMeta>(new BackupMeta(
                          GetBackupMetaFile(new_backup_id, false /* tmp */),
                          GetBackupMetaFile(new_backup_id, true /* tmp */),
                          &backuped_file_infos_, backup_env_))));
@@ -869,7 +869,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     s = new_backup->StoreToFile(options_.sync);
   }
   if (s.ok() && options_.sync) {
-    unique_ptr<Directory> backup_private_directory;
+    std::unique_ptr<Directory> backup_private_directory;
     backup_env_->NewDirectory(
         GetAbsolutePath(GetPrivateFileRel(new_backup_id, false)),
         &backup_private_directory);
@@ -1188,8 +1188,8 @@ Status BackupEngineImpl::CopyOrCreateFile(
     std::function<void()> progress_callback) {
   assert(src.empty() != contents.empty());
   Status s;
-  unique_ptr<WritableFile> dst_file;
-  unique_ptr<SequentialFile> src_file;
+  std::unique_ptr<WritableFile> dst_file;
+  std::unique_ptr<SequentialFile> src_file;
   EnvOptions env_options;
   env_options.use_mmap_writes = false;
   // TODO:(gzh) maybe use direct reads/writes here if possible
@@ -1213,10 +1213,10 @@ Status BackupEngineImpl::CopyOrCreateFile(
     return s;
   }
 
-  unique_ptr<WritableFileWriter> dest_writer(
+  std::unique_ptr<WritableFileWriter> dest_writer(
       new WritableFileWriter(std::move(dst_file), dst, env_options));
-  unique_ptr<SequentialFileReader> src_reader;
-  unique_ptr<char[]> buf;
+  std::unique_ptr<SequentialFileReader> src_reader;
+  std::unique_ptr<char[]> buf;
   if (!src.empty()) {
     src_reader.reset(new SequentialFileReader(std::move(src_file), src));
     buf.reset(new char[copy_file_buffer_size_]);
@@ -1416,7 +1416,7 @@ Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
     return s;
   }
 
-  unique_ptr<SequentialFileReader> src_reader(
+  std::unique_ptr<SequentialFileReader> src_reader(
       new SequentialFileReader(std::move(src_file), src));
   std::unique_ptr<char[]> buf(new char[copy_file_buffer_size_]);
   Slice data;
@@ -1634,15 +1634,15 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
     const std::unordered_map<std::string, uint64_t>& abs_path_to_size) {
   assert(Empty());
   Status s;
-  unique_ptr<SequentialFile> backup_meta_file;
+  std::unique_ptr<SequentialFile> backup_meta_file;
   s = env_->NewSequentialFile(meta_filename_, &backup_meta_file, EnvOptions());
   if (!s.ok()) {
     return s;
   }
 
-  unique_ptr<SequentialFileReader> backup_meta_reader(
+  std::unique_ptr<SequentialFileReader> backup_meta_reader(
       new SequentialFileReader(std::move(backup_meta_file), meta_filename_));
-  unique_ptr<char[]> buf(new char[max_backup_meta_file_size_ + 1]);
+  std::unique_ptr<char[]> buf(new char[max_backup_meta_file_size_ + 1]);
   Slice data;
   s = backup_meta_reader->Read(max_backup_meta_file_size_, &data, buf.get());
 
@@ -1736,7 +1736,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
 
 Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   Status s;
-  unique_ptr<WritableFile> backup_meta_file;
+  std::unique_ptr<WritableFile> backup_meta_file;
   EnvOptions env_options;
   env_options.use_mmap_writes = false;
   env_options.use_direct_writes = false;
@@ -1745,7 +1745,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     return s;
   }
 
-  unique_ptr<char[]> buf(new char[max_backup_meta_file_size_]);
+  std::unique_ptr<char[]> buf(new char[max_backup_meta_file_size_]);
   size_t len = 0, buf_size = max_backup_meta_file_size_;
   len += snprintf(buf.get(), buf_size, "%" PRId64 "\n", timestamp_);
   len += snprintf(buf.get() + len, buf_size - len, "%" PRIu64 "\n",
@@ -1762,7 +1762,8 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     else if (len + hex_meta_strlen >= buf_size) {
       backup_meta_file->Append(Slice(buf.get(), len));
       buf.reset();
-      unique_ptr<char[]> new_reset_buf(new char[max_backup_meta_file_size_]);
+      std::unique_ptr<char[]> new_reset_buf(
+          new char[max_backup_meta_file_size_]);
       buf.swap(new_reset_buf);
       len = 0;
     }
@@ -1776,7 +1777,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
                      "%" ROCKSDB_PRIszt "\n", files_.size()) >= buf_size) {
     backup_meta_file->Append(Slice(buf.get(), len));
     buf.reset();
-    unique_ptr<char[]> new_reset_buf(new char[max_backup_meta_file_size_]);
+    std::unique_ptr<char[]> new_reset_buf(new char[max_backup_meta_file_size_]);
     buf.swap(new_reset_buf);
     len = 0;
   }
@@ -1794,7 +1795,8 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     if (newlen >= buf_size) {
       backup_meta_file->Append(Slice(buf.get(), len));
       buf.reset();
-      unique_ptr<char[]> new_reset_buf(new char[max_backup_meta_file_size_]);
+      std::unique_ptr<char[]> new_reset_buf(
+          new char[max_backup_meta_file_size_]);
       buf.swap(new_reset_buf);
       len = 0;
     }

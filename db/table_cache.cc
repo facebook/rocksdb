@@ -92,12 +92,12 @@ Status TableCache::GetTableReader(
     const EnvOptions& env_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
     bool sequential_mode, size_t readahead, bool record_read_stats,
-    HistogramImpl* file_read_hist, unique_ptr<TableReader>* table_reader,
+    HistogramImpl* file_read_hist, std::unique_ptr<TableReader>* table_reader,
     const SliceTransform* prefix_extractor, bool skip_filters, int level,
     bool prefetch_index_and_filter_in_cache, bool for_compaction) {
   std::string fname =
       TableFileName(ioptions_.cf_paths, fd.GetNumber(), fd.GetPathId());
-  unique_ptr<RandomAccessFile> file;
+  std::unique_ptr<RandomAccessFile> file;
   Status s = ioptions_.env->NewRandomAccessFile(fname, &file, env_options);
 
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
@@ -157,7 +157,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
     if (no_io) {  // Don't do IO and return a not-found status
       return Status::Incomplete("Table not found in table_cache, no_io is set");
     }
-    unique_ptr<TableReader> table_reader;
+    std::unique_ptr<TableReader> table_reader;
     s = GetTableReader(env_options, internal_comparator, fd,
                        false /* sequential mode */, 0 /* readahead */,
                        record_read_stats, file_read_hist, &table_reader,
@@ -217,7 +217,7 @@ InternalIterator* TableCache::NewIterator(
 
   auto& fd = file_meta.fd;
   if (create_new_table_reader) {
-    unique_ptr<TableReader> table_reader_unique_ptr;
+    std::unique_ptr<TableReader> table_reader_unique_ptr;
     s = GetTableReader(
         env_options, icomparator, fd, true /* sequential_mode */, readahead,
         !for_compaction /* record stats */, nullptr, &table_reader_unique_ptr,

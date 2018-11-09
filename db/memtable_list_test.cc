@@ -110,7 +110,7 @@ class MemTableListTest : public testing::Test {
     DBOptions db_options;
     ImmutableDBOptions immutable_db_options(db_options);
     EnvOptions env_options;
-    shared_ptr<Cache> table_cache(NewLRUCache(50000, 16));
+    std::shared_ptr<Cache> table_cache(NewLRUCache(50000, 16));
     WriteBufferManager write_buffer_manager(db_options.db_write_buffer_size);
     WriteController write_controller(10000000u);
 

@@ -93,7 +93,7 @@ class DBTestWithParam
 };
 
 TEST_F(DBTest, MockEnvTest) {
-  unique_ptr<MockEnv> env{new MockEnv(Env::Default())};
+  std::unique_ptr<MockEnv> env{new MockEnv(Env::Default())};
   Options options;
   options.create_if_missing = true;
   options.env = env.get();
@@ -143,7 +143,7 @@ TEST_F(DBTest, MockEnvTest) {
 // defined.
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, MemEnvTest) {
-  unique_ptr<Env> env{NewMemEnv(Env::Default())};
+  std::unique_ptr<Env> env{NewMemEnv(Env::Default())};
   Options options;
   options.create_if_missing = true;
   options.env = env.get();
@@ -2689,7 +2689,8 @@ class ModelDB : public DB {
   }
 
   virtual Status GetUpdatesSince(
-      rocksdb::SequenceNumber, unique_ptr<rocksdb::TransactionLogIterator>*,
+      rocksdb::SequenceNumber,
+      std::unique_ptr<rocksdb::TransactionLogIterator>*,
       const TransactionLogIterator::ReadOptions& /*read_options*/ =
           TransactionLogIterator::ReadOptions()) override {
     return Status::NotSupported("Not supported in Model DB");

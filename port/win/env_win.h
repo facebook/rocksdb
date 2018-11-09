@@ -109,8 +109,8 @@ public:
 
   // The returned file will only be accessed by one thread at a time.
   virtual Status NewRandomRWFile(const std::string& fname,
-    unique_ptr<RandomRWFile>* result,
-    const EnvOptions& options);
+                                 std::unique_ptr<RandomRWFile>* result,
+                                 const EnvOptions& options);
 
   virtual Status NewMemoryMappedFileBuffer(
     const std::string& fname,

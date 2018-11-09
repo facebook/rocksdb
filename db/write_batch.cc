@@ -1053,7 +1053,7 @@ class MemTableInserter : public WriteBatch::Handler {
   // a map is too expensive in the Write() path as they
   // cause memory allocations though unused.
   // Make creation optional but do not incur
-  // unique_ptr additional allocation
+  // std::unique_ptr additional allocation
   using MemPostInfoMap = std::map<MemTable*, MemTablePostProcessInfo>;
   using PostMapType = std::aligned_storage<sizeof(MemPostInfoMap)>::type;
   PostMapType mem_post_info_map_;

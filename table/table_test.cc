@@ -325,7 +325,7 @@ class TableConstructor: public Constructor {
     soptions.use_mmap_reads = ioptions.allow_mmap_reads;
     file_writer_.reset(test::GetWritableFileWriter(new test::StringSink(),
                                                    "" /* don't care */));
-    unique_ptr<TableBuilder> builder;
+    std::unique_ptr<TableBuilder> builder;
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
         int_tbl_prop_collector_factories;
     std::string column_family_name;
@@ -423,9 +423,9 @@ class TableConstructor: public Constructor {
   }
 
   uint64_t uniq_id_;
-  unique_ptr<WritableFileWriter> file_writer_;
-  unique_ptr<RandomAccessFileReader> file_reader_;
-  unique_ptr<TableReader> table_reader_;
+  std::unique_ptr<WritableFileWriter> file_writer_;
+  std::unique_ptr<RandomAccessFileReader> file_reader_;
+  std::unique_ptr<TableReader> table_reader_;
   bool convert_to_internal_key_;
   int level_;
 
@@ -508,7 +508,7 @@ class InternalIteratorFromIterator : public InternalIterator {
   virtual Status status() const override { return it_->status(); }
 
  private:
-  unique_ptr<Iterator> it_;
+  std::unique_ptr<Iterator> it_;
 };
 
 class DBConstructor: public Constructor {
@@ -1024,7 +1024,7 @@ class HarnessTest : public testing::Test {
   WriteBufferManager write_buffer_;
   bool support_prev_;
   bool only_support_prefix_seek_;
-  shared_ptr<InternalKeyComparator> internal_comparator_;
+  std::shared_ptr<InternalKeyComparator> internal_comparator_;
 };
 
 static bool Between(uint64_t val, uint64_t low, uint64_t high) {
@@ -1393,8 +1393,8 @@ void PrefetchRange(TableConstructor* c, Options* opt,
   // prefetch
   auto* table_reader = dynamic_cast<BlockBasedTable*>(c->GetTableReader());
   Status s;
-  unique_ptr<Slice> begin, end;
-  unique_ptr<InternalKey> i_begin, i_end;
+  std::unique_ptr<Slice> begin, end;
+  std::unique_ptr<InternalKey> i_begin, i_end;
   if (key_begin != nullptr) {
     if (c->ConvertToInternalKey()) {
       i_begin.reset(new InternalKey(key_begin, kMaxSequenceNumber, kTypeValue));
@@ -1425,7 +1425,7 @@ TEST_P(BlockBasedTableTest, PrefetchTest) {
   // The purpose of this test is to test the prefetching operation built into
   // BlockBasedTable.
   Options opt;
-  unique_ptr<InternalKeyComparator> ikc;
+  std::unique_ptr<InternalKeyComparator> ikc;
   ikc.reset(new test::PlainInternalKeyComparator(opt.comparator));
   opt.compression = kNoCompression;
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
@@ -2017,7 +2017,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
 
   // -- PART 1: Open with regular block cache.
   // Since block_cache is disabled, no cache activities will be involved.
-  unique_ptr<InternalIterator> iter;
+  std::unique_ptr<InternalIterator> iter;
 
   int64_t last_cache_bytes_read = 0;
   // At first, no block will be accessed.
@@ -2351,7 +2351,7 @@ TEST_P(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
               }
               // Create a table
               Options opt;
-              unique_ptr<InternalKeyComparator> ikc;
+              std::unique_ptr<InternalKeyComparator> ikc;
               ikc.reset(new test::PlainInternalKeyComparator(opt.comparator));
               opt.compression = kNoCompression;
               BlockBasedTableOptions table_options =
@@ -2427,7 +2427,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLeak) {
   // unique ID from the file.
 
   Options opt;
-  unique_ptr<InternalKeyComparator> ikc;
+  std::unique_ptr<InternalKeyComparator> ikc;
   ikc.reset(new test::PlainInternalKeyComparator(opt.comparator));
   opt.compression = kNoCompression;
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
@@ -2450,7 +2450,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLeak) {
   const MutableCFOptions moptions(opt);
   c.Finish(opt, ioptions, moptions, table_options, *ikc, &keys, &kvmap);
 
-  unique_ptr<InternalIterator> iter(
+  std::unique_ptr<InternalIterator> iter(
       c.NewIterator(moptions.prefix_extractor.get()));
   iter->SeekToFirst();
   while (iter->Valid()) {
@@ -2511,7 +2511,7 @@ TEST_P(BlockBasedTableTest, MemoryAllocator) {
   auto custom_memory_allocator = std::make_shared<CustomMemoryAllocator>();
   {
     Options opt;
-    unique_ptr<InternalKeyComparator> ikc;
+    std::unique_ptr<InternalKeyComparator> ikc;
     ikc.reset(new test::PlainInternalKeyComparator(opt.comparator));
     opt.compression = kNoCompression;
     BlockBasedTableOptions table_options;
@@ -2538,7 +2538,7 @@ TEST_P(BlockBasedTableTest, MemoryAllocator) {
     const MutableCFOptions moptions(opt);
     c.Finish(opt, ioptions, moptions, table_options, *ikc, &keys, &kvmap);
 
-    unique_ptr<InternalIterator> iter(
+    std::unique_ptr<InternalIterator> iter(
         c.NewIterator(moptions.prefix_extractor.get()));
     iter->SeekToFirst();
     while (iter->Valid()) {
@@ -2630,7 +2630,7 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
 
   PlainTableFactory factory(plain_table_options);
   test::StringSink sink;
-  unique_ptr<WritableFileWriter> file_writer(
+  std::unique_ptr<WritableFileWriter> file_writer(
       test::GetWritableFileWriter(new test::StringSink(), "" /* don't care */));
   Options options;
   const ImmutableCFOptions ioptions(options);
@@ -2659,7 +2659,7 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
 
   test::StringSink* ss =
     static_cast<test::StringSink*>(file_writer->writable_file());
-  unique_ptr<RandomAccessFileReader> file_reader(
+  std::unique_ptr<RandomAccessFileReader> file_reader(
       test::GetRandomAccessFileReader(
           new test::StringSource(ss->contents(), 72242, true)));
 
@@ -3253,7 +3253,7 @@ TEST_F(PrefixTest, PrefixAndWholeKeyTest) {
 TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   BlockBasedTableOptions bbto = GetBlockBasedTableOptions();
   test::StringSink* sink = new test::StringSink();
-  unique_ptr<WritableFileWriter> file_writer(
+  std::unique_ptr<WritableFileWriter> file_writer(
       test::GetWritableFileWriter(sink, "" /* don't care */));
   Options options;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
@@ -3291,7 +3291,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
 
   // Helper function to get version, global_seqno, global_seqno_offset
   std::function<void()> GetVersionAndGlobalSeqno = [&]() {
-    unique_ptr<RandomAccessFileReader> file_reader(
+    std::unique_ptr<RandomAccessFileReader> file_reader(
         test::GetRandomAccessFileReader(
             new test::StringSource(ss_rw.contents(), 73342, true)));
 
@@ -3320,9 +3320,9 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   };
 
   // Helper function to get the contents of the table InternalIterator
-  unique_ptr<TableReader> table_reader;
+  std::unique_ptr<TableReader> table_reader;
   std::function<InternalIterator*()> GetTableInternalIter = [&]() {
-    unique_ptr<RandomAccessFileReader> file_reader(
+    std::unique_ptr<RandomAccessFileReader> file_reader(
         test::GetRandomAccessFileReader(
             new test::StringSource(ss_rw.contents(), 73342, true)));
 
@@ -3435,7 +3435,7 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   BlockBasedTableOptions bbto = GetBlockBasedTableOptions();
   bbto.block_align = true;
   test::StringSink* sink = new test::StringSink();
-  unique_ptr<WritableFileWriter> file_writer(
+  std::unique_ptr<WritableFileWriter> file_writer(
       test::GetWritableFileWriter(sink, "" /* don't care */));
   Options options;
   options.compression = kNoCompression;
@@ -3467,7 +3467,7 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   file_writer->Flush();
 
   test::RandomRWStringSink ss_rw(sink);
-  unique_ptr<RandomAccessFileReader> file_reader(
+  std::unique_ptr<RandomAccessFileReader> file_reader(
       test::GetRandomAccessFileReader(
           new test::StringSource(ss_rw.contents(), 73342, true)));
 
@@ -3525,7 +3525,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
   BlockBasedTableOptions bbto = GetBlockBasedTableOptions();
   bbto.block_align = true;
   test::StringSink* sink = new test::StringSink();
-  unique_ptr<WritableFileWriter> file_writer(
+  std::unique_ptr<WritableFileWriter> file_writer(
       test::GetWritableFileWriter(sink, "" /* don't care */));
 
   Options options;
@@ -3560,7 +3560,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
   file_writer->Flush();
 
   test::RandomRWStringSink ss_rw(sink);
-  unique_ptr<RandomAccessFileReader> file_reader(
+  std::unique_ptr<RandomAccessFileReader> file_reader(
       test::GetRandomAccessFileReader(
           new test::StringSource(ss_rw.contents(), 73342, true)));
 
