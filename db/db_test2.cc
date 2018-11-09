@@ -2551,8 +2551,9 @@ TEST_F(DBTest2, TestNumPread) {
   ASSERT_EQ(4, env_->random_read_counter_.Read());
   ASSERT_EQ(1, env_->random_file_open_counter_.load());
 
-  // Compaction needs two input blocks, and generate a new SST file
-  // which needs 4 preads
+  // Compaction needs two input blocks, which requires 2 preads, and
+  // generate a new SST file which needs 4 preads (footer, meta block,
+  // property block and index block). In total 6.
   env_->random_file_open_counter_.store(0);
   env_->random_read_counter_.Reset();
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
