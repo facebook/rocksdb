@@ -333,7 +333,7 @@ endif
 ifeq ("$(wildcard $(LUA_LIB))", "") # LUA_LIB does not exist
 $(error $(LUA_LIB) does not exist.  Try to specify both LUA_PATH and LUA_LIB manually)
 endif
-LDFLAGS += $(LUA_LIB)
+EXEC_LDFLAGS += $(LUA_LIB)
 
 endif
 
