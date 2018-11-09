@@ -5687,20 +5687,30 @@ TEST_F(DBTest, SoftLimit) {
   // context cleanup.
   port::Mutex flush_mutex;
   port::CondVar flush_cv(&flush_mutex);
-  int flush_count = 0;
-  int prev_flush_count = 0;
-  SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCallFlush:ContextCleanedUp", [&](void*) {
-        MutexLock l(&flush_mutex);
-        flush_count++;
-        flush_cv.SignalAll();
-      });
-  auto WaitForFlush = [&]() {
-    MutexLock l(&flush_mutex);
-    while (flush_count <= prev_flush_count) {
-      flush_cv.Wait();
+  bool flush_finished = false;
+  auto InstallFlushCallback = [&]() {
+    {
+      MutexLock l(&flush_mutex);
+      flush_finished = false;
     }
-    prev_flush_count = flush_count;
+    SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::BackgroundCallFlush:ContextCleanedUp", [&](void*) {
+          {
+            MutexLock l(&flush_mutex);
+            flush_finished = true;
+          }
+          flush_cv.SignalAll();
+        });
+  };
+  auto WaitForFlush = [&]() {
+    {
+      MutexLock l(&flush_mutex);
+      while (!flush_finished) {
+        flush_cv.Wait();
+      }
+    }
+    SyncPoint::GetInstance()->ClearCallBack(
+        "DBImpl::BackgroundCallFlush:ContextCleanedUp");
   };
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
@@ -5712,7 +5722,6 @@ TEST_F(DBTest, SoftLimit) {
     Put(Key(i), std::string(5000, 'x'));
     if (i % 10 == 0) {
       dbfull()->TEST_FlushMemTable(true, true);
-      WaitForFlush();
     }
   }
   dbfull()->TEST_WaitForCompact();
@@ -5723,7 +5732,6 @@ TEST_F(DBTest, SoftLimit) {
     Put(Key(i), std::string(5000, 'x'));
     if (i % 10 == 0) {
       dbfull()->TEST_FlushMemTable(true, true);
-      WaitForFlush();
     }
   }
   dbfull()->TEST_WaitForCompact();
@@ -5742,6 +5750,7 @@ TEST_F(DBTest, SoftLimit) {
     Put(Key(i), std::string(5000, 'x'));
     Put(Key(100 - i), std::string(5000, 'x'));
     // Flush the file. File size is around 30KB.
+    InstallFlushCallback();
     dbfull()->TEST_FlushMemTable(true, true);
     WaitForFlush();
   }
@@ -5776,6 +5785,7 @@ TEST_F(DBTest, SoftLimit) {
     Put(Key(10 + i), std::string(5000, 'x'));
     Put(Key(90 - i), std::string(5000, 'x'));
     // Flush the file. File size is around 30KB.
+    InstallFlushCallback();
     dbfull()->TEST_FlushMemTable(true, true);
     WaitForFlush();
   }
@@ -5798,6 +5808,7 @@ TEST_F(DBTest, SoftLimit) {
     Put(Key(20 + i), std::string(5000, 'x'));
     Put(Key(80 - i), std::string(5000, 'x'));
     // Flush the file. File size is around 30KB.
+    InstallFlushCallback();
     dbfull()->TEST_FlushMemTable(true, true);
     WaitForFlush();
   }
