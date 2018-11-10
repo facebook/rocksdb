@@ -1354,8 +1354,8 @@ Status BlockBasedTable::PutDataBlockToCache(
   if (block_cache != nullptr && block->value->cachable()) {
     size_t charge = block->value->ApproximateMemoryUsage();
     s = block_cache->Insert(block_cache_key, block->value, charge,
-                            &DeleteCachedEntry<Block>, &(block->cache_handle),
-                            priority);
+                            is_index ? &DeleteCachedIndexEntry : &DeleteCachedEntry<Block>,
+                            &(block->cache_handle), priority);
     block_cache->TEST_mark_as_data_block(block_cache_key, charge);
     if (s.ok()) {
       assert(block->cache_handle != nullptr);
