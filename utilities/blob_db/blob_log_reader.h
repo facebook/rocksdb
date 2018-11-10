@@ -71,8 +71,6 @@ class Reader {
   Env* env_;
   Statistics* statistics_;
 
-  size_t backing_store_size_;
-  std::unique_ptr<char[]> backing_store_;
   Slice buffer_;
   char header_buf_[BlobLogRecord::kHeaderSize];
 
