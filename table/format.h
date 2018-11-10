@@ -193,7 +193,7 @@ struct BlockContents {
   Slice data;     // Actual contents of data
   CacheAllocationPtr allocation;
 
-#ifdef NDEBUG
+#ifndef NDEBUG
   bool is_raw_block = false;
 #endif  // NDEBUG
 
@@ -247,7 +247,7 @@ struct BlockContents {
   BlockContents& operator=(BlockContents&& other) {
     data = std::move(other.data);
     allocation = std::move(other.allocation);
-#ifdef NDEBUG
+#ifndef NDEBUG
     is_raw_block = other.is_raw_block;
 #endif  // NDEBUG
     return *this;
