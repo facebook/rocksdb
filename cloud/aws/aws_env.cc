@@ -1646,15 +1646,21 @@ Status AwsEnv::GetObject(const std::string& bucket_name_prefix,
     return Status::IOError(errmsg);
   }
 
-  // Paranoia. Files can never be zero size.
-  uint64_t file_size;
+  // Check if our local file is the same as S3 promised
+  uint64_t file_size{0};
   auto s = localenv->GetFileSize(tmp_destination, &file_size);
-  if (file_size == 0) {
-    s = Status::IOError(tmp_destination + "Zero size.");
+  if (!s.ok()) {
+      return s;
+  }
+  if (static_cast<int64_t>(file_size) !=
+      get_outcome.GetResult().GetContentLength()) {
+    localenv->DeleteFile(tmp_destination);
+    s = Status::IOError("Partial download of a file " + local_destination);
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[s3] GetObject bucket %s bucketpath %s size %ld. %s",
+        "[s3] GetObject bucket %s bucketpath %s local size %ld != cloud size "
+        "%ld. %s",
         s3_bucket.c_str(), bucket_object_path.c_str(), file_size,
-        s.ToString().c_str());
+        get_outcome.GetResult().GetContentLength(), s.ToString().c_str());
   }
 
   if (s.ok()) {
