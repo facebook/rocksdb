@@ -1769,6 +1769,21 @@ void rocksdb_writebatch_wi_rollback_to_save_point(rocksdb_writebatch_wi_t* b,
 }
 
 rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base(
+    rocksdb_writebatch_wi_t* wbwi,
+    rocksdb_iterator_t* base_iterator) {
+  rocksdb_readoptions_t options;
+  return rocksdb_writebatch_wi_create_iterator_with_base_and_readoptions(&options, wbwi, base_iterator);
+}
+
+rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base_cf(
+    rocksdb_writebatch_wi_t* wbwi,
+    rocksdb_iterator_t* base_iterator,
+    rocksdb_column_family_handle_t* column_family) {
+  rocksdb_readoptions_t options;
+  return rocksdb_writebatch_wi_create_iterator_with_base_cf_and_readoptions(&options, wbwi, base_iterator, column_family);
+}
+
+rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base_and_readoptions(
     const rocksdb_readoptions_t* options,
     rocksdb_writebatch_wi_t* wbwi,
     rocksdb_iterator_t* base_iterator) {
@@ -1778,7 +1793,7 @@ rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base(
   return result;
 }
 
-rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base_cf(
+rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base_cf_and_readoptions(
     const rocksdb_readoptions_t* options,
     rocksdb_writebatch_wi_t* wbwi,
     rocksdb_iterator_t* base_iterator,
