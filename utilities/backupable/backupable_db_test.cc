@@ -1692,6 +1692,11 @@ TEST_F(BackupableDBTest, WriteOnlyEngineNoSharedFileDeletion) {
 TEST_P(BackupableDBTestWithParam, BackupUsingDirectIO) {
   // Tests direct I/O on the backup engine's reads and writes on the DB env and
   // backup env
+  // We use ChrootEnv underneath so the below line checks for direct I/O support
+  // in the chroot directory, not the true filesystem root.
+  if (!test::IsDirectIOSupported(test_db_env_.get(), "/")) {
+    return;
+  }
   const int kNumKeysPerBackup = 100;
   const int kNumBackups = 3;
   options_.use_direct_reads = true;

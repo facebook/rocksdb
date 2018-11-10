@@ -665,19 +665,7 @@ Status DBTestBase::TryReopen(const Options& options) {
 }
 
 bool DBTestBase::IsDirectIOSupported() {
-  EnvOptions env_options;
-  env_options.use_mmap_writes = false;
-  env_options.use_direct_writes = true;
-  std::string tmp = TempFileName(dbname_, 999);
-  Status s;
-  {
-    std::unique_ptr<WritableFile> file;
-    s = env_->NewWritableFile(tmp, &file, env_options);
-  }
-  if (s.ok()) {
-    s = env_->DeleteFile(tmp);
-  }
-  return s.ok();
+  return test::IsDirectIOSupported(env_, dbname_);
 }
 
 bool DBTestBase::IsMemoryMappedAccessSupported() const {
