@@ -183,6 +183,9 @@ void BlockFetcher::GetBlockContents() {
     }
     *contents_ = BlockContents(std::move(heap_buf_), block_size_);
   }
+#ifdef NDEBUG
+  contents_->is_raw_block = true;
+#endif
 }
 
 Status BlockFetcher::ReadBlockContents() {

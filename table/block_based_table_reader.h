@@ -256,13 +256,11 @@ class BlockBasedTable : public TableReader {
   // @param block_entry value is set to the uncompressed block if found. If
   //    in uncompressed block cache, also sets cache_handle to reference that
   //    block.
-  static Status LoadBlockFromCacheOrFile(FilePrefetchBuffer* prefetch_buffer,
-                                         Rep* rep, const ReadOptions& ro,
-                                         const BlockHandle& handle,
-                                         Slice compression_dict,
-                                         CachableEntry<Block>* block_entry,
-                                         bool is_index = false,
-                                         GetContext* get_context = nullptr);
+  static Status ReadBlockAndMaybeLoadToCache(
+      FilePrefetchBuffer* prefetch_buffer, Rep* rep, const ReadOptions& ro,
+      const BlockHandle& handle, Slice compression_dict,
+      CachableEntry<Block>* block_entry, bool is_index = false,
+      GetContext* get_context = nullptr);
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file

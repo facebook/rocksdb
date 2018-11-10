@@ -327,9 +327,9 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
       const bool is_index = true;
       // TODO: Support counter batch update for partitioned index and
       // filter blocks
-      s = table_->LoadBlockFromCacheOrFile(prefetch_buffer.get(), rep, ro,
-                                           handle, compression_dict, &block,
-                                           is_index, nullptr /* get_context */);
+      s = table_->ReadBlockAndMaybeLoadToCache(
+          prefetch_buffer.get(), rep, ro, handle, compression_dict, &block,
+          is_index, nullptr /* get_context */);
 
       assert(s.ok() || block.value == nullptr);
       if (s.ok() && block.value != nullptr) {
@@ -980,7 +980,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         s.ToString().c_str());
   } else if (found_range_del_block && !rep->range_del_handle.IsNull()) {
     ReadOptions read_options;
-    s = LoadBlockFromCacheOrFile(
+    s = ReadBlockAndMaybeLoadToCache(
         prefetch_buffer.get(), rep, read_options, rep->range_del_handle,
         Slice() /* compression_dict */, &rep->range_del_entry,
         false /* is_index */, nullptr /* get_context */);
@@ -1237,8 +1237,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
   RecordTick(statistics, BLOCK_CACHE_COMPRESSED_HIT);
   compressed_block = reinterpret_cast<BlockContents*>(
       block_cache_compressed->Value(block_cache_compressed_handle));
-  CompressionType compression_type = static_cast<CompressionType>(
-      compressed_block->data.data()[compressed_block->data.size()]);
+  CompressionType compression_type = compressed_block->get_compression_type();
   assert(compression_type != kNoCompression);
 
   // Retrieve the uncompressed contents into a new buffer
@@ -1308,7 +1307,7 @@ Status BlockBasedTable::PutDataBlockToCache(
     const Slice& block_cache_key, const Slice& compressed_block_cache_key,
     Cache* block_cache, Cache* block_cache_compressed,
     const ReadOptions& /*read_options*/, const ImmutableCFOptions& ioptions,
-    CachableEntry<Block>* block, BlockContents* raw_block_contents,
+    CachableEntry<Block>* cached_block, BlockContents* raw_block_contents,
     CompressionType raw_block_comp_type, uint32_t format_version,
     const Slice& compression_dict, SequenceNumber seq_no,
     size_t read_amp_bytes_per_bit, bool is_index, Cache::Priority priority,
@@ -1333,12 +1332,13 @@ Status BlockBasedTable::PutDataBlockToCache(
   }
 
   if (raw_block_comp_type != kNoCompression) {
-    block->value = new Block(std::move(uncompressed_block_contents), seq_no,
-                             read_amp_bytes_per_bit,
-                             statistics);  // uncompressed block
+    cached_block->value = new Block(std::move(uncompressed_block_contents),
+                                    seq_no, read_amp_bytes_per_bit,
+                                    statistics);  // uncompressed block
   } else {
-    block->value = new Block(std::move(*raw_block_contents), seq_no,
-                             read_amp_bytes_per_bit, ioptions.statistics);
+    cached_block->value =
+        new Block(std::move(*raw_block_contents), seq_no,
+                  read_amp_bytes_per_bit, ioptions.statistics);
   }
 
   // Insert compressed block into compressed block cache.
@@ -1363,16 +1363,16 @@ Status BlockBasedTable::PutDataBlockToCache(
   }
 
   // insert into uncompressed block cache
-  if (block_cache != nullptr && block->value->own_bytes()) {
-    size_t charge = block->value->ApproximateMemoryUsage();
-    s = block_cache->Insert(block_cache_key, block->value, charge,
-                            &DeleteCachedEntry<Block>, &(block->cache_handle),
-                            priority);
+  if (block_cache != nullptr && cached_block->value->own_bytes()) {
+    size_t charge = cached_block->value->ApproximateMemoryUsage();
+    s = block_cache->Insert(block_cache_key, cached_block->value, charge,
+                            &DeleteCachedEntry<Block>,
+                            &(cached_block->cache_handle), priority);
 #ifndef NDEBUG
     block_cache->TEST_mark_as_data_block(block_cache_key, charge);
 #endif  // NDEBUG
     if (s.ok()) {
-      assert(block->cache_handle != nullptr);
+      assert(cached_block->cache_handle != nullptr);
       if (get_context != nullptr) {
         get_context->get_context_stats_.num_cache_add++;
         get_context->get_context_stats_.num_cache_bytes_write += charge;
@@ -1398,12 +1398,12 @@ Status BlockBasedTable::PutDataBlockToCache(
           RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT, charge);
         }
       }
-      assert(reinterpret_cast<Block*>(
-                 block_cache->Value(block->cache_handle)) == block->value);
+      assert(reinterpret_cast<Block*>(block_cache->Value(
+                 cached_block->cache_handle)) == cached_block->value);
     } else {
       RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
-      delete block->value;
-      block->value = nullptr;
+      delete cached_block->value;
+      cached_block->value = nullptr;
     }
   }
 
@@ -1698,9 +1698,9 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     if (rep->compression_dict_block) {
       compression_dict = rep->compression_dict_block->data;
     }
-    s = LoadBlockFromCacheOrFile(prefetch_buffer, rep, ro, handle,
-                                 compression_dict, &block, is_index,
-                                 get_context);
+    s = ReadBlockAndMaybeLoadToCache(prefetch_buffer, rep, ro, handle,
+                                     compression_dict, &block, is_index,
+                                     get_context);
   }
 
   TBlockIter* iter;
@@ -1720,13 +1720,13 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   if (s.ok()) {
     assert(block.value != nullptr);
     const bool kTotalOrderSeek = true;
-    // Block contents are pinned and can be the pinned guarantee is transferred
-    // after delegating cleanup function, when
-    // 1. block cache is going to be released in cleanup function, or
+    // Block contents are pinned and it is still pinned after the iterator
+    // is destoryed as long as cleanup functions are moved to another object,
+    // when:
+    // 1. block cache handle is set to be released in cleanup function, or
     // 2. it's pointing to immortable source. We can determine this case by
-    // checking
-    //    (1) the block doesn't own bytes itself (outside source, usually
-    //    mmapped bytes) (2) the source is immortable
+    //    checking: (1) the block doesn't own bytes itself (outside source,
+    //    usually mmapped bytes) (2) the source is immortable
     bool block_contents_pinned =
         (block.cache_handle != nullptr ||
          (!block.value->own_bytes() && rep->immortal_table));
@@ -1742,7 +1742,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
         // insert a dummy record to block cache to track the memory usage
         Cache::Handle* cache_handle;
         // There are two other types of cache keys: 1) SST cache key added in
-        // `LoadBlockFromCacheOrFile` 2) dummy cache key added in
+        // `ReadBlockAndMaybeLoadToCache` 2) dummy cache key added in
         // `write_buffer_manager`. Use longer prefix (41 bytes) to differentiate
         // from SST cache key(31 bytes), and use non-zero prefix to
         // differentiate from `write_buffer_manager`
@@ -1778,7 +1778,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   return iter;
 }
 
-Status BlockBasedTable::LoadBlockFromCacheOrFile(
+Status BlockBasedTable::ReadBlockAndMaybeLoadToCache(
     FilePrefetchBuffer* prefetch_buffer, Rep* rep, const ReadOptions& ro,
     const BlockHandle& handle, Slice compression_dict,
     CachableEntry<Block>* block_entry, bool is_index, GetContext* get_context) {

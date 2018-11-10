@@ -193,6 +193,10 @@ struct BlockContents {
   Slice data;     // Actual contents of data
   CacheAllocationPtr allocation;
 
+#ifdef NDEBUG
+  bool is_raw_block = false;
+#endif  // NDEBUG
+
   BlockContents() {}
 
   BlockContents(const Slice& _data) : data(_data) {}
@@ -206,6 +210,14 @@ struct BlockContents {
   }
 
   bool own_bytes() const { return allocation.get() != nullptr; }
+
+  // It's the caller's responsibility to make sure that this is
+  // for raw block contents, which contains the compression
+  // byte in the end.
+  CompressionType get_compression_type() const {
+    assert(is_raw_block);
+    return static_cast<CompressionType>(data.data()[data.size()]);
+  }
 
   // The additional memory space taken by the block data.
   size_t usable_size() const {
@@ -235,6 +247,9 @@ struct BlockContents {
   BlockContents& operator=(BlockContents&& other) {
     data = std::move(other.data);
     allocation = std::move(other.allocation);
+#ifdef NDEBUG
+    is_raw_block = other.is_raw_block;
+#endif  // NDEBUG
     return *this;
   }
 };

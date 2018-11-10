@@ -302,8 +302,8 @@ class BlockIter : public InternalIteratorBase<TValue> {
   Slice value_;
   Status status_;
   bool key_pinned_;
-  // whether the block data is guaranteed to outlive this iterator, and
-  // when the cleanup functions are transferred from to other classes,
+  // Whether the block data is guaranteed to outlive this iterator, and
+  // as long as the cleanup functions are transferred to another class,
   // e.g. PinnableSlice, the pointer to the bytes will still be valid.
   bool block_contents_pinned_;
   SequenceNumber global_seqno_;
