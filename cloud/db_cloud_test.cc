@@ -687,7 +687,8 @@ TEST_F(CloudTest, Encryption) {
 TEST_F(CloudTest, KeepLocalLogKafka) {
   cloud_env_options_.keep_local_log_files = false;
   cloud_env_options_.log_type = LogType::kLogKafka;
-  cloud_env_options_.kafka_log_options.broker_list = "localhost:9092";
+  cloud_env_options_.kafka_log_options.client_config_params["metadata.broker.list"]
+      = "localhost:9092";
 
   OpenDB();
 

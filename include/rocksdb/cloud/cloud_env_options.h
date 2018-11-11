@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <memory>
+#include <unordered_map>
 
 namespace rocksdb {
 
@@ -37,7 +38,12 @@ class AwsCloudAccessCredentials {
 // Defines parameters required to connect to Kafka
 class KafkaLogOptions {
  public:
-   std::string broker_list;
+   // The config parameters for the kafka client. At a bare minimum,
+   // there needs to be at least one entry in this map that lists the
+   // kafka brokers. That entry is of the type
+   //  ("metadata.broker.list", "kafka1.rockset.com,kafka2.rockset.com"
+   //
+   std::unordered_map<std::string, std::string> client_config_params;
 };
 
 enum class CloudRequestOpType {

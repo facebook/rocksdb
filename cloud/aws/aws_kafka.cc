@@ -190,19 +190,34 @@ Status KafkaController::create(AwsEnv* env, std::shared_ptr<Logger> info_log,
                                KafkaController** output) {
   Status st = Status::OK();
   std::string conf_errstr, producer_errstr, consumer_errstr;
+  const auto& kconf =
+      cloud_env_options.kafka_log_options.client_config_params;
 
   std::unique_ptr<RdKafka::Conf> conf(
       RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
 
-  if (conf->set("metadata.broker.list",
-                cloud_env_options.kafka_log_options.broker_list,
-                conf_errstr) != RdKafka::Conf::CONF_OK) {
-    st = Status::InvalidArgument("Failed adding brokers to Kafka conf",
-                                 conf_errstr.c_str());
+  if (kconf.empty()) {
+    st = Status::InvalidArgument("No configs specified to kafka client");
 
     Log(InfoLogLevel::ERROR_LEVEL, info_log,
         "[aws] NewAwsEnv Kafka conf error: %s", st.ToString().c_str());
-  } else {
+    return st;
+  }
+
+  for (auto const& item : kconf) {
+    if (conf->set(item.first,
+                  item.second,
+                  conf_errstr) != RdKafka::Conf::CONF_OK) {
+      st = Status::InvalidArgument("Failed adding specified conf to Kafka conf",
+                                   conf_errstr.c_str());
+
+      Log(InfoLogLevel::ERROR_LEVEL, info_log,
+          "[aws] NewAwsEnv Kafka conf set error: %s", st.ToString().c_str());
+      return st;
+    }
+  }
+
+  {
     std::unique_ptr<RdKafka::Producer> producer(
         RdKafka::Producer::create(conf.get(), producer_errstr));
     std::unique_ptr<RdKafka::Consumer> consumer(
