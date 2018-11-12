@@ -2888,6 +2888,65 @@ TEST_F(DBTest2, TestGetColumnFamilyHandleUnlocked) {
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(DBTest2, TestCompactFiles) {
+  // Setup sync point dependency to reproduce the race condition of
+  // DBImpl::GetColumnFamilyHandleUnlocked
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"TestCompactFiles::IngestExternalFile1",
+       "TestCompactFiles::IngestExternalFile2"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options;
+  options.num_levels = 2;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  auto* handle = db_->DefaultColumnFamily();
+  ASSERT_EQ(db_->NumberLevels(handle), 2);
+
+  rocksdb::SstFileWriter sst_file_writer{rocksdb::EnvOptions(), options};
+  std::string external_file1 = dbname_ + "/test_compact_files1.sst_t";
+  std::string external_file2 = dbname_ + "/test_compact_files2.sst_t";
+  std::string external_file3 = dbname_ + "/test_compact_files3.sst_t";
+
+  ASSERT_OK(sst_file_writer.Open(external_file1));
+  ASSERT_OK(sst_file_writer.Put("1", "1"));
+  ASSERT_OK(sst_file_writer.Put("2", "2"));
+  ASSERT_OK(sst_file_writer.Finish());
+
+  ASSERT_OK(sst_file_writer.Open(external_file2));
+  ASSERT_OK(sst_file_writer.Put("3", "3"));
+  ASSERT_OK(sst_file_writer.Put("4", "4"));
+  ASSERT_OK(sst_file_writer.Finish());
+
+  ASSERT_OK(sst_file_writer.Open(external_file3));
+  ASSERT_OK(sst_file_writer.Put("5", "5"));
+  ASSERT_OK(sst_file_writer.Put("6", "6"));
+  ASSERT_OK(sst_file_writer.Finish());
+
+  ASSERT_OK(db_->IngestExternalFile(handle, {external_file1, external_file3},
+                                    IngestExternalFileOptions()));
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), 2);
+  std::vector<std::string> files;
+  GetSstFiles(env_, dbname_, &files);
+  ASSERT_EQ(files.size(), 2);
+
+  port::Thread user_thread1(
+      [&]() { db_->CompactFiles(CompactionOptions(), handle, files, 1); });
+
+  port::Thread user_thread2([&]() {
+    ASSERT_OK(db_->IngestExternalFile(handle, {external_file2},
+                                      IngestExternalFileOptions()));
+    TEST_SYNC_POINT("TestCompactFiles::IngestExternalFile1");
+  });
+
+  user_thread1.join();
+  user_thread2.join();
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
