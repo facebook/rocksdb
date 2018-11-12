@@ -1,6 +1,6 @@
 # Rocksdb Change Log
 
-# Unreleased
+# 5.16.6 (11/24/2018)
 ### Bug Fixes
 * Fix the bug that WriteBatchWithIndex's SeekForPrev() doesn't see the entries with the same key.
 
