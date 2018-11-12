@@ -229,9 +229,17 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
     ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
                   RandomString(&rnd, 380)));
   }
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"CompactionJob::Run():Start", "DynamicLevelMaxBytesBase2:0"},
+  });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
   ASSERT_OK(dbfull()->SetOptions({
       {"disable_auto_compactions", "false"},
   }));
+
+  TEST_SYNC_POINT("DynamicLevelMaxBytesBase2:0");
   Flush();
   dbfull()->TEST_WaitForCompact();
   ASSERT_TRUE(db_->GetIntProperty("rocksdb.base-level", &int_prop));
@@ -244,8 +252,8 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
-      {"CompactionJob::Run():Start", "DynamicLevelMaxBytesBase2:0"},
-      {"DynamicLevelMaxBytesBase2:1", "CompactionJob::Run():End"},
+      {"CompactionJob::Run():Start", "DynamicLevelMaxBytesBase2:1"},
+      {"DynamicLevelMaxBytesBase2:2", "CompactionJob::Run():End"},
       {"DynamicLevelMaxBytesBase2:compact_range_finish",
        "FlushJob::WriteLevel0Table"},
   });
@@ -257,12 +265,12 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
     TEST_SYNC_POINT("DynamicLevelMaxBytesBase2:compact_range_finish");
   });
 
-  TEST_SYNC_POINT("DynamicLevelMaxBytesBase2:0");
+  TEST_SYNC_POINT("DynamicLevelMaxBytesBase2:1");
   for (int i = 0; i < 2; i++) {
     ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
                   RandomString(&rnd, 380)));
   }
-  TEST_SYNC_POINT("DynamicLevelMaxBytesBase2:1");
+  TEST_SYNC_POINT("DynamicLevelMaxBytesBase2:2");
 
   Flush();
 
