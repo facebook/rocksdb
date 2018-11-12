@@ -189,6 +189,11 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
 // 1-byte type + 32-bit crc
 static const size_t kBlockTrailerSize = 5;
 
+inline CompressionType get_block_compression_type(const char* block_data,
+                                                  size_t block_size) {
+  return static_cast<CompressionType>(block_data[block_size]);
+}
+
 struct BlockContents {
   Slice data;     // Actual contents of data
   CacheAllocationPtr allocation;
@@ -216,7 +221,7 @@ struct BlockContents {
   // byte in the end.
   CompressionType get_compression_type() const {
     assert(is_raw_block);
-    return static_cast<CompressionType>(data.data()[data.size()]);
+    return get_block_compression_type(data.data(), data.size());
   }
 
   // The additional memory space taken by the block data.

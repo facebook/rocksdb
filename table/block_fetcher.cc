@@ -233,8 +233,7 @@ Status BlockFetcher::ReadBlockContents() {
 
   PERF_TIMER_GUARD(block_decompress_time);
 
-  compression_type_ =
-      static_cast<rocksdb::CompressionType>(slice_.data()[block_size_]);
+  compression_type_ = get_block_compression_type(slice_.data(), block_size_);
 
   if (do_uncompress_ && compression_type_ != kNoCompression) {
     // compressed page, uncompress, update cache

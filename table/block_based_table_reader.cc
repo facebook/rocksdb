@@ -114,11 +114,6 @@ void DeleteCachedEntry(const Slice& /*key*/, void* value) {
   delete entry;
 }
 
-void DeleteBlockContents(const Slice& /*key*/, void* value) {
-  BlockContents* contents = reinterpret_cast<BlockContents*>(value);
-  delete contents;
-}
-
 void DeleteCachedFilterEntry(const Slice& key, void* value);
 void DeleteCachedIndexEntry(const Slice& key, void* value);
 
@@ -251,6 +246,8 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
     Statistics* kNullStats = nullptr;
     // Filters are already checked before seeking the index
     if (!partition_map_.empty()) {
+      // We don't return pinned datat from index blocks, so no need
+      // to set `block_contents_pinned`.
       return NewTwoLevelIterator(
           new BlockBasedTable::PartitionedIndexIteratorState(
               table_, &partition_map_, index_key_includes_seq_,
@@ -263,6 +260,8 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
       auto ro = ReadOptions();
       ro.fill_cache = fill_cache;
       bool kIsIndex = true;
+      // We don't return pinned datat from index blocks, so no need
+      // to set `block_contents_pinned`.
       return new BlockBasedTableIterator<IndexBlockIter, BlockHandle>(
           table_, ro, *icomparator_,
           index_block_->NewIterator<IndexBlockIter>(
@@ -284,6 +283,8 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
     IndexBlockIter biter;
     BlockHandle handle;
     Statistics* kNullStats = nullptr;
+    // We don't return pinned datat from index blocks, so no need
+    // to set `block_contents_pinned`.
     index_block_->NewIterator<IndexBlockIter>(
         icomparator_, icomparator_->user_comparator(), &biter, kNullStats, true,
         index_key_includes_seq_, index_value_is_full_,
@@ -424,6 +425,8 @@ class BinarySearchIndexReader : public IndexReader {
       IndexBlockIter* iter = nullptr, bool /*dont_care*/ = true,
       bool /*dont_care*/ = true) override {
     Statistics* kNullStats = nullptr;
+    // We don't return pinned datat from index blocks, so no need
+    // to set `block_contents_pinned`.
     return index_block_->NewIterator<IndexBlockIter>(
         icomparator_, icomparator_->user_comparator(), iter, kNullStats, true,
         index_key_includes_seq_, index_value_is_full_);
@@ -549,6 +552,8 @@ class HashIndexReader : public IndexReader {
       IndexBlockIter* iter = nullptr, bool total_order_seek = true,
       bool /*dont_care*/ = true) override {
     Statistics* kNullStats = nullptr;
+    // We don't return pinned datat from index blocks, so no need
+    // to set `block_contents_pinned`.
     return index_block_->NewIterator<IndexBlockIter>(
         icomparator_, icomparator_->user_comparator(), iter, kNullStats,
         total_order_seek, index_key_includes_seq_, index_value_is_full_,
@@ -1351,7 +1356,7 @@ Status BlockBasedTable::PutDataBlockToCache(
     s = block_cache_compressed->Insert(
         compressed_block_cache_key, block_cont_for_comp_cache,
         block_cont_for_comp_cache->ApproximateMemoryUsage(),
-        &DeleteBlockContents);
+        &DeleteCachedEntry<BlockContents>);
     if (s.ok()) {
       // Avoid the following code to delete this cached block.
       block_cont_for_comp_cache = nullptr;
@@ -1577,12 +1582,16 @@ InternalIteratorBase<BlockHandle>* BlockBasedTable::NewIndexIterator(
     GetContext* get_context) {
   // index reader has already been pre-populated.
   if (rep_->index_reader) {
+    // We don't return pinned datat from index blocks, so no need
+    // to set `block_contents_pinned`.
     return rep_->index_reader->NewIterator(
         input_iter, read_options.total_order_seek || disable_prefix_seek,
         read_options.fill_cache);
   }
   // we have a pinned index block
   if (rep_->index_entry.IsSet()) {
+    // We don't return pinned datat from index blocks, so no need
+    // to set `block_contents_pinned`.
     return rep_->index_entry.value->NewIterator(
         input_iter, read_options.total_order_seek || disable_prefix_seek,
         read_options.fill_cache);
@@ -1665,6 +1674,8 @@ InternalIteratorBase<BlockHandle>* BlockBasedTable::NewIndexIterator(
   }
 
   assert(cache_handle);
+  // We don't return pinned datat from index blocks, so no need
+  // to set `block_contents_pinned`.
   auto* iter = index_reader->NewIterator(
       input_iter, read_options.total_order_seek || disable_prefix_seek);
 
@@ -1895,6 +1906,8 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
     RecordTick(rep->ioptions.statistics, BLOCK_CACHE_BYTES_READ,
                block_cache->GetUsage(block->second.cache_handle));
     Statistics* kNullStats = nullptr;
+    // We don't return pinned datat from index blocks, so no need
+    // to set `block_contents_pinned`.
     return block->second.value->NewIterator<IndexBlockIter>(
         &rep->internal_comparator, rep->internal_comparator.user_comparator(),
         nullptr, kNullStats, true, index_key_includes_seq_, index_key_is_full_,

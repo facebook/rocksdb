@@ -156,7 +156,7 @@ class Block {
   // The additional memory space taken by the block data.
   size_t usable_size() const { return contents_.usable_size(); }
   uint32_t NumRestarts() const;
-  bool own_bytes() const { return contents_.allocation.get() != nullptr; }
+  bool own_bytes() const { return contents_.own_bytes(); }
 
   BlockBasedTableOptions::DataBlockIndexType IndexType() const;
 
