@@ -104,9 +104,9 @@ Status BuildTable(
 
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     TableBuilder* builder;
-    unique_ptr<WritableFileWriter> file_writer;
+    std::unique_ptr<WritableFileWriter> file_writer;
     {
-      unique_ptr<WritableFile> file;
+      std::unique_ptr<WritableFile> file;
 #ifndef NDEBUG
       bool use_direct_writes = env_options.use_direct_writes;
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);

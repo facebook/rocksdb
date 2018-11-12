@@ -83,7 +83,7 @@ Status SstFileReader::GetTableReader(const std::string& file_path) {
   // read table magic number
   Footer footer;
 
-  unique_ptr<RandomAccessFile> file;
+  std::unique_ptr<RandomAccessFile> file;
   uint64_t file_size = 0;
   Status s = options_.env->NewRandomAccessFile(file_path, &file, soptions_);
   if (s.ok()) {
@@ -126,7 +126,7 @@ Status SstFileReader::GetTableReader(const std::string& file_path) {
 Status SstFileReader::NewTableReader(
     const ImmutableCFOptions& /*ioptions*/, const EnvOptions& /*soptions*/,
     const InternalKeyComparator& /*internal_comparator*/, uint64_t file_size,
-    unique_ptr<TableReader>* /*table_reader*/) {
+    std::unique_ptr<TableReader>* /*table_reader*/) {
   // We need to turn off pre-fetching of index and filter nodes for
   // BlockBasedTable
   if (BlockBasedTableFactory::kName == options_.table_factory->Name()) {
@@ -148,7 +148,7 @@ Status SstFileReader::VerifyChecksum() {
 }
 
 Status SstFileReader::DumpTable(const std::string& out_filename) {
-  unique_ptr<WritableFile> out_file;
+  std::unique_ptr<WritableFile> out_file;
   Env* env = Env::Default();
   env->NewWritableFile(out_filename, &out_file, soptions_);
   Status s = table_reader_->DumpTable(out_file.get(),
@@ -159,21 +159,21 @@ Status SstFileReader::DumpTable(const std::string& out_filename) {
 
 uint64_t SstFileReader::CalculateCompressedTableSize(
     const TableBuilderOptions& tb_options, size_t block_size) {
-  unique_ptr<WritableFile> out_file;
-  unique_ptr<Env> env(NewMemEnv(Env::Default()));
+  std::unique_ptr<WritableFile> out_file;
+  std::unique_ptr<Env> env(NewMemEnv(Env::Default()));
   env->NewWritableFile(testFileName, &out_file, soptions_);
-  unique_ptr<WritableFileWriter> dest_writer;
+  std::unique_ptr<WritableFileWriter> dest_writer;
   dest_writer.reset(
       new WritableFileWriter(std::move(out_file), testFileName, soptions_));
   BlockBasedTableOptions table_options;
   table_options.block_size = block_size;
   BlockBasedTableFactory block_based_tf(table_options);
-  unique_ptr<TableBuilder> table_builder;
+  std::unique_ptr<TableBuilder> table_builder;
   table_builder.reset(block_based_tf.NewTableBuilder(
       tb_options,
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       dest_writer.get()));
-  unique_ptr<InternalIterator> iter(table_reader_->NewIterator(
+  std::unique_ptr<InternalIterator> iter(table_reader_->NewIterator(
       ReadOptions(), moptions_.prefix_extractor.get()));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     if (!iter->status().ok()) {

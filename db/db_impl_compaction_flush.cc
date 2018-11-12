@@ -820,7 +820,7 @@ Status DBImpl::CompactFilesImpl(
   // At this point, CompactFiles will be run.
   bg_compaction_scheduled_++;
 
-  unique_ptr<Compaction> c;
+  std::unique_ptr<Compaction> c;
   assert(cfd->compaction_picker());
   c.reset(cfd->compaction_picker()->CompactFiles(
       compact_options, input_files, output_level, version->storage_info(),
@@ -2016,6 +2016,7 @@ void DBImpl::BackgroundCallFlush() {
       job_context.Clean();
       mutex_.Lock();
     }
+    TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:ContextCleanedUp");
 
     assert(num_running_flushes_ > 0);
     num_running_flushes_--;
@@ -2145,7 +2146,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   TEST_SYNC_POINT("DBImpl::BackgroundCompaction:Start");
 
   bool is_manual = (manual_compaction != nullptr);
-  unique_ptr<Compaction> c;
+  std::unique_ptr<Compaction> c;
   if (prepicked_compaction != nullptr &&
       prepicked_compaction->compaction != nullptr) {
     c.reset(prepicked_compaction->compaction);

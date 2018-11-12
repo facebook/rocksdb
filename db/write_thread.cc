@@ -181,6 +181,7 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
   }
 
   if ((state & goal_mask) == 0) {
+    TEST_SYNC_POINT_CALLBACK("WriteThread::AwaitState:BlockingWaiting", w);
     state = BlockingAwaitState(w, goal_mask);
   }
 

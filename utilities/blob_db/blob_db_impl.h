@@ -348,7 +348,8 @@ class BlobDBImpl : public BlobDB {
   ColumnFamilyOptions cf_options_;
   EnvOptions env_options_;
 
-  // Raw pointer of statistic. db_options_ has a shared_ptr to hold ownership.
+  // Raw pointer of statistic. db_options_ has a std::shared_ptr to hold
+  // ownership.
   Statistics* statistics_;
 
   // by default this is "blob_dir" under dbname_

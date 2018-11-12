@@ -275,7 +275,7 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
       Status my_status = env_->NumFileLinks(path_in_trash, &num_hard_links);
       if (my_status.ok()) {
         if (num_hard_links == 1) {
-          unique_ptr<WritableFile> wf;
+          std::unique_ptr<WritableFile> wf;
           my_status =
               env_->ReopenWritableFile(path_in_trash, &wf, EnvOptions());
           if (my_status.ok()) {

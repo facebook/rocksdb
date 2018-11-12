@@ -745,9 +745,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                              const EnvOptions& env_options,
                              const BlockBasedTableOptions& table_options,
                              const InternalKeyComparator& internal_comparator,
-                             unique_ptr<RandomAccessFileReader>&& file,
+                             std::unique_ptr<RandomAccessFileReader>&& file,
                              uint64_t file_size,
-                             unique_ptr<TableReader>* table_reader,
+                             std::unique_ptr<TableReader>* table_reader,
                              const SliceTransform* prefix_extractor,
                              const bool prefetch_index_and_filter_in_cache,
                              const bool skip_filters, const int level,
@@ -826,7 +826,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   rep->internal_prefix_transform.reset(
       new InternalKeySliceTransform(prefix_extractor));
   SetupCacheKeyPrefix(rep, file_size);
-  unique_ptr<BlockBasedTable> new_table(new BlockBasedTable(rep));
+  std::unique_ptr<BlockBasedTable> new_table(new BlockBasedTable(rep));
 
   // page cache options
   rep->persistent_cache_options =
@@ -1029,7 +1029,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       bool disable_prefix_seek =
           rep->index_type == BlockBasedTableOptions::kHashSearch &&
           need_upper_bound_check;
-      unique_ptr<InternalIteratorBase<BlockHandle>> iter(
+      std::unique_ptr<InternalIteratorBase<BlockHandle>> iter(
           new_table->NewIndexIterator(ReadOptions(), disable_prefix_seek,
                                       nullptr, &index_entry));
       s = iter->status();
@@ -1948,7 +1948,7 @@ bool BlockBasedTable::PrefixMayMatch(
       // Then, try find it within each block
       // we already know prefix_extractor and prefix_extractor_name must match
       // because `CheckPrefixMayMatch` first checks `check_filter_ == true`
-      unique_ptr<InternalIteratorBase<BlockHandle>> iiter(
+      std::unique_ptr<InternalIteratorBase<BlockHandle>> iiter(
           NewIndexIterator(no_io_read_options,
                            /* need_upper_bound_check */ false));
       iiter->Seek(internal_prefix);
@@ -2730,7 +2730,7 @@ Status BlockBasedTable::CreateIndexReader(
 }
 
 uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key) {
-  unique_ptr<InternalIteratorBase<BlockHandle>> index_iter(
+  std::unique_ptr<InternalIteratorBase<BlockHandle>> index_iter(
       NewIndexIterator(ReadOptions()));
 
   index_iter->Seek(key);

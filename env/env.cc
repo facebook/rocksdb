@@ -43,7 +43,7 @@ uint64_t Env::GetThreadID() const {
 
 Status Env::ReuseWritableFile(const std::string& fname,
                               const std::string& old_fname,
-                              unique_ptr<WritableFile>* result,
+                              std::unique_ptr<WritableFile>* result,
                               const EnvOptions& options) {
   Status s = RenameFile(old_fname, fname);
   if (!s.ok()) {
@@ -242,11 +242,11 @@ void Fatal(Logger* info_log, const char* format, ...) {
   va_end(ap);
 }
 
-void LogFlush(const shared_ptr<Logger>& info_log) {
+void LogFlush(const std::shared_ptr<Logger>& info_log) {
   LogFlush(info_log.get());
 }
 
-void Log(const InfoLogLevel log_level, const shared_ptr<Logger>& info_log,
+void Log(const InfoLogLevel log_level, const std::shared_ptr<Logger>& info_log,
          const char* format, ...) {
   va_list ap;
   va_start(ap, format);
@@ -254,49 +254,49 @@ void Log(const InfoLogLevel log_level, const shared_ptr<Logger>& info_log,
   va_end(ap);
 }
 
-void Header(const shared_ptr<Logger>& info_log, const char* format, ...) {
+void Header(const std::shared_ptr<Logger>& info_log, const char* format, ...) {
   va_list ap;
   va_start(ap, format);
   Headerv(info_log.get(), format, ap);
   va_end(ap);
 }
 
-void Debug(const shared_ptr<Logger>& info_log, const char* format, ...) {
+void Debug(const std::shared_ptr<Logger>& info_log, const char* format, ...) {
   va_list ap;
   va_start(ap, format);
   Debugv(info_log.get(), format, ap);
   va_end(ap);
 }
 
-void Info(const shared_ptr<Logger>& info_log, const char* format, ...) {
+void Info(const std::shared_ptr<Logger>& info_log, const char* format, ...) {
   va_list ap;
   va_start(ap, format);
   Infov(info_log.get(), format, ap);
   va_end(ap);
 }
 
-void Warn(const shared_ptr<Logger>& info_log, const char* format, ...) {
+void Warn(const std::shared_ptr<Logger>& info_log, const char* format, ...) {
   va_list ap;
   va_start(ap, format);
   Warnv(info_log.get(), format, ap);
   va_end(ap);
 }
 
-void Error(const shared_ptr<Logger>& info_log, const char* format, ...) {
+void Error(const std::shared_ptr<Logger>& info_log, const char* format, ...) {
   va_list ap;
   va_start(ap, format);
   Errorv(info_log.get(), format, ap);
   va_end(ap);
 }
 
-void Fatal(const shared_ptr<Logger>& info_log, const char* format, ...) {
+void Fatal(const std::shared_ptr<Logger>& info_log, const char* format, ...) {
   va_list ap;
   va_start(ap, format);
   Fatalv(info_log.get(), format, ap);
   va_end(ap);
 }
 
-void Log(const shared_ptr<Logger>& info_log, const char* format, ...) {
+void Log(const std::shared_ptr<Logger>& info_log, const char* format, ...) {
   va_list ap;
   va_start(ap, format);
   Logv(info_log.get(), format, ap);
@@ -305,7 +305,7 @@ void Log(const shared_ptr<Logger>& info_log, const char* format, ...) {
 
 Status WriteStringToFile(Env* env, const Slice& data, const std::string& fname,
                          bool should_sync) {
-  unique_ptr<WritableFile> file;
+  std::unique_ptr<WritableFile> file;
   EnvOptions soptions;
   Status s = env->NewWritableFile(fname, &file, soptions);
   if (!s.ok()) {
@@ -324,7 +324,7 @@ Status WriteStringToFile(Env* env, const Slice& data, const std::string& fname,
 Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
   EnvOptions soptions;
   data->clear();
-  unique_ptr<SequentialFile> file;
+  std::unique_ptr<SequentialFile> file;
   Status s = env->NewSequentialFile(fname, &file, soptions);
   if (!s.ok()) {
     return s;

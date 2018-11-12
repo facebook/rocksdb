@@ -179,7 +179,8 @@ class TestEnv : public EnvWrapper {
     bool fail_reads_;
   };
 
-  Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
+  Status NewSequentialFile(const std::string& f,
+                           std::unique_ptr<SequentialFile>* r,
                            const EnvOptions& options) override {
     MutexLock l(&mutex_);
     if (dummy_sequential_file_) {
@@ -191,7 +192,7 @@ class TestEnv : public EnvWrapper {
     }
   }
 
-  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
+  Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& options) override {
     MutexLock l(&mutex_);
     written_files_.push_back(f);
@@ -308,7 +309,7 @@ class TestEnv : public EnvWrapper {
 
   void SetNewDirectoryFailure(bool fail) { new_directory_failure_ = fail; }
   virtual Status NewDirectory(const std::string& name,
-                              unique_ptr<Directory>* result) override {
+                              std::unique_ptr<Directory>* result) override {
     if (new_directory_failure_) {
       return Status::IOError("SimulatedFailure");
     }
@@ -427,7 +428,7 @@ class FileManager : public EnvWrapper {
   }
 
   Status WriteToFile(const std::string& fname, const std::string& data) {
-    unique_ptr<WritableFile> file;
+    std::unique_ptr<WritableFile> file;
     EnvOptions env_options;
     env_options.use_mmap_writes = false;
     Status s = EnvWrapper::NewWritableFile(fname, &file, env_options);
@@ -620,22 +621,22 @@ class BackupableDBTest : public testing::Test {
   std::shared_ptr<Logger> logger_;
 
   // envs
-  unique_ptr<Env> db_chroot_env_;
-  unique_ptr<Env> backup_chroot_env_;
-  unique_ptr<TestEnv> test_db_env_;
-  unique_ptr<TestEnv> test_backup_env_;
-  unique_ptr<FileManager> file_manager_;
+  std::unique_ptr<Env> db_chroot_env_;
+  std::unique_ptr<Env> backup_chroot_env_;
+  std::unique_ptr<TestEnv> test_db_env_;
+  std::unique_ptr<TestEnv> test_backup_env_;
+  std::unique_ptr<FileManager> file_manager_;
 
   // all the dbs!
   DummyDB* dummy_db_; // BackupableDB owns dummy_db_
-  unique_ptr<DB> db_;
-  unique_ptr<BackupEngine> backup_engine_;
+  std::unique_ptr<DB> db_;
+  std::unique_ptr<BackupEngine> backup_engine_;
 
   // options
   Options options_;
 
  protected:
-  unique_ptr<BackupableDBOptions> backupable_options_;
+  std::unique_ptr<BackupableDBOptions> backupable_options_;
 }; // BackupableDBTest
 
 void AppendPath(const std::string& path, std::vector<std::string>& v) {

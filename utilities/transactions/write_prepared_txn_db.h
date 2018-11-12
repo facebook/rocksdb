@@ -222,7 +222,6 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       // rare case and it is ok to pay the cost of mutex ReadLock for such old,
       // reading transactions.
       WPRecordTick(TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD);
-      ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead");
       ReadLock rl(&old_commit_map_mutex_);
       auto prep_set_entry = old_commit_map_.find(snapshot_seq);
       bool found = prep_set_entry != old_commit_map_.end();

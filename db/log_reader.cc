@@ -23,8 +23,9 @@ Reader::Reporter::~Reporter() {
 }
 
 Reader::Reader(std::shared_ptr<Logger> info_log,
-               unique_ptr<SequentialFileReader>&& _file, Reporter* reporter,
-               bool checksum, uint64_t log_num, bool retry_after_eof)
+               std::unique_ptr<SequentialFileReader>&& _file,
+               Reporter* reporter, bool checksum, uint64_t log_num,
+               bool retry_after_eof)
     : info_log_(info_log),
       file_(std::move(_file)),
       reporter_(reporter),

@@ -881,7 +881,7 @@ class TestEnv : public EnvWrapper {
     int GetCloseCount() { return close_count; }
 
     virtual Status NewLogger(const std::string& /*fname*/,
-                             shared_ptr<Logger>* result) {
+                             std::shared_ptr<Logger>* result) {
       result->reset(new TestLogger(this));
       return Status::OK();
     }

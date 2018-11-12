@@ -169,7 +169,7 @@ class SpecialMemTableRep : public MemTableRep {
   virtual ~SpecialMemTableRep() override {}
 
  private:
-  unique_ptr<MemTableRep> memtable_;
+  std::unique_ptr<MemTableRep> memtable_;
   int num_entries_flush_;
   int num_entries_;
 };
@@ -207,15 +207,15 @@ class SpecialEnv : public EnvWrapper {
  public:
   explicit SpecialEnv(Env* base);
 
-  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
+  Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& soptions) override {
     class SSTableFile : public WritableFile {
      private:
       SpecialEnv* env_;
-      unique_ptr<WritableFile> base_;
+      std::unique_ptr<WritableFile> base_;
 
      public:
-      SSTableFile(SpecialEnv* env, unique_ptr<WritableFile>&& base)
+      SSTableFile(SpecialEnv* env, std::unique_ptr<WritableFile>&& base)
           : env_(env), base_(std::move(base)) {}
       Status Append(const Slice& data) override {
         if (env_->table_write_callback_) {
@@ -295,7 +295,7 @@ class SpecialEnv : public EnvWrapper {
     };
     class ManifestFile : public WritableFile {
      public:
-      ManifestFile(SpecialEnv* env, unique_ptr<WritableFile>&& b)
+      ManifestFile(SpecialEnv* env, std::unique_ptr<WritableFile>&& b)
           : env_(env), base_(std::move(b)) {}
       Status Append(const Slice& data) override {
         if (env_->manifest_write_error_.load(std::memory_order_acquire)) {
@@ -322,11 +322,11 @@ class SpecialEnv : public EnvWrapper {
 
      private:
       SpecialEnv* env_;
-      unique_ptr<WritableFile> base_;
+      std::unique_ptr<WritableFile> base_;
     };
     class WalFile : public WritableFile {
      public:
-      WalFile(SpecialEnv* env, unique_ptr<WritableFile>&& b)
+      WalFile(SpecialEnv* env, std::unique_ptr<WritableFile>&& b)
           : env_(env), base_(std::move(b)) {
         env_->num_open_wal_file_.fetch_add(1);
       }
@@ -378,7 +378,7 @@ class SpecialEnv : public EnvWrapper {
 
      private:
       SpecialEnv* env_;
-      unique_ptr<WritableFile> base_;
+      std::unique_ptr<WritableFile> base_;
     };
 
     if (non_writeable_rate_.load(std::memory_order_acquire) > 0) {
@@ -420,11 +420,11 @@ class SpecialEnv : public EnvWrapper {
   }
 
   Status NewRandomAccessFile(const std::string& f,
-                             unique_ptr<RandomAccessFile>* r,
+                             std::unique_ptr<RandomAccessFile>* r,
                              const EnvOptions& soptions) override {
     class CountingFile : public RandomAccessFile {
      public:
-      CountingFile(unique_ptr<RandomAccessFile>&& target,
+      CountingFile(std::unique_ptr<RandomAccessFile>&& target,
                    anon::AtomicCounter* counter,
                    std::atomic<size_t>* bytes_read)
           : target_(std::move(target)),
@@ -439,7 +439,7 @@ class SpecialEnv : public EnvWrapper {
       }
 
      private:
-      unique_ptr<RandomAccessFile> target_;
+      std::unique_ptr<RandomAccessFile> target_;
       anon::AtomicCounter* counter_;
       std::atomic<size_t>* bytes_read_;
     };
@@ -457,11 +457,11 @@ class SpecialEnv : public EnvWrapper {
   }
 
   virtual Status NewSequentialFile(const std::string& f,
-                                   unique_ptr<SequentialFile>* r,
+                                   std::unique_ptr<SequentialFile>* r,
                                    const EnvOptions& soptions) override {
     class CountingFile : public SequentialFile {
      public:
-      CountingFile(unique_ptr<SequentialFile>&& target,
+      CountingFile(std::unique_ptr<SequentialFile>&& target,
                    anon::AtomicCounter* counter)
           : target_(std::move(target)), counter_(counter) {}
       virtual Status Read(size_t n, Slice* result, char* scratch) override {
@@ -471,7 +471,7 @@ class SpecialEnv : public EnvWrapper {
       virtual Status Skip(uint64_t n) override { return target_->Skip(n); }
 
      private:
-      unique_ptr<SequentialFile> target_;
+      std::unique_ptr<SequentialFile> target_;
       anon::AtomicCounter* counter_;
     };
 

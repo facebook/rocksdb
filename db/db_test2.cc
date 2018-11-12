@@ -61,7 +61,7 @@ TEST_P(PrefixFullBloomWithReverseComparator,
     bbto.block_cache->EraseUnRefEntries();
   }
 
-  unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
   iter->Seek("bar345");
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
@@ -2692,7 +2692,7 @@ TEST_F(DBTest2, DISABLED_IteratorPinnedMemory) {
   // Verify that iterators don't pin more than one data block in block cache
   // at each time.
   {
-    unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
     iter->SeekToFirst();
 
     for (int i = 0; i < 4; i++) {

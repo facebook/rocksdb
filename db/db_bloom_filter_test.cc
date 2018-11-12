@@ -499,6 +499,7 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
   } while (ChangeCompactOptions());
 }
 
+#ifndef ROCKSDB_VALGRIND_RUN
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestDefFormatVersion,
     ::testing::Values(std::make_tuple(true, false, test::kDefaultFormatVersion),
@@ -519,6 +520,7 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, true, test::kLatestFormatVersion),
                       std::make_tuple(false, false,
                                       test::kLatestFormatVersion)));
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
   while (ChangeFilterOptions()) {
@@ -895,7 +897,7 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_OK(Put(key1, value1, WriteOptions()));
   ASSERT_OK(Put(key3, value3, WriteOptions()));
 
-  unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
+  std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
 
   // check memtable bloom stats
   iter->Seek(key1);

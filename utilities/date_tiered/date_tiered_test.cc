@@ -132,7 +132,7 @@ class DateTieredTest : public testing::Test {
   Options options_;
   KVMap::iterator kv_it_;
   const std::string kNewValue_ = "new_value";
-  unique_ptr<CompactionFilter> test_comp_filter_;
+  std::unique_ptr<CompactionFilter> test_comp_filter_;
 };
 
 // Puts a set of values and checks its presence using Get during ttl

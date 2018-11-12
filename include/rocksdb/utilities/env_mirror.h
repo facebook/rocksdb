@@ -48,20 +48,21 @@ class EnvMirror : public EnvWrapper {
       delete b_;
   }
 
-  Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
+  Status NewSequentialFile(const std::string& f,
+                           std::unique_ptr<SequentialFile>* r,
                            const EnvOptions& options) override;
   Status NewRandomAccessFile(const std::string& f,
-                             unique_ptr<RandomAccessFile>* r,
+                             std::unique_ptr<RandomAccessFile>* r,
                              const EnvOptions& options) override;
-  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
+  Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& options) override;
   Status ReuseWritableFile(const std::string& fname,
                            const std::string& old_fname,
-                           unique_ptr<WritableFile>* r,
+                           std::unique_ptr<WritableFile>* r,
                            const EnvOptions& options) override;
   virtual Status NewDirectory(const std::string& name,
-                              unique_ptr<Directory>* result) override {
-    unique_ptr<Directory> br;
+                              std::unique_ptr<Directory>* result) override {
+    std::unique_ptr<Directory> br;
     Status as = a_->NewDirectory(name, result);
     Status bs = b_->NewDirectory(name, &br);
     assert(as == bs);

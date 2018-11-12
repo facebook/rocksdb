@@ -93,9 +93,24 @@ ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
 	DEBUG_LEVEL=0
 endif
 
+# Lite build flag.
+LITE ?= 0
+ifneq ($(LITE), 0)
+	OPT += -DROCKSDB_LITE
+endif
+
+# Figure out optimize level.
+ifneq ($(DEBUG_LEVEL), 2)
+ifeq ($(LITE), 0)
+	OPT += -O2
+else
+	OPT += -Os
+endif
+endif
+
 # compile with -O2 if debug level is not 2
 ifneq ($(DEBUG_LEVEL), 2)
-OPT += -O2 -fno-omit-frame-pointer
+OPT += -fno-omit-frame-pointer
 # Skip for archs that don't support -momit-leaf-frame-pointer
 ifeq (,$(shell $(CXX) -fsyntax-only -momit-leaf-frame-pointer -xc /dev/null 2>&1))
 OPT += -momit-leaf-frame-pointer
@@ -318,7 +333,7 @@ endif
 ifeq ("$(wildcard $(LUA_LIB))", "") # LUA_LIB does not exist
 $(error $(LUA_LIB) does not exist.  Try to specify both LUA_PATH and LUA_LIB manually)
 endif
-LDFLAGS += $(LUA_LIB)
+EXEC_LDFLAGS += $(LUA_LIB)
 
 endif
 

@@ -89,8 +89,9 @@ class BlockBasedTable : public TableReader {
                      const EnvOptions& env_options,
                      const BlockBasedTableOptions& table_options,
                      const InternalKeyComparator& internal_key_comparator,
-                     unique_ptr<RandomAccessFileReader>&& file,
-                     uint64_t file_size, unique_ptr<TableReader>* table_reader,
+                     std::unique_ptr<RandomAccessFileReader>&& file,
+                     uint64_t file_size,
+                     std::unique_ptr<TableReader>* table_reader,
                      const SliceTransform* prefix_extractor = nullptr,
                      bool prefetch_index_and_filter_in_cache = true,
                      bool skip_filters = false, int level = -1,
@@ -458,7 +459,7 @@ struct BlockBasedTable::Rep {
   const FilterPolicy* const filter_policy;
   const InternalKeyComparator& internal_comparator;
   Status status;
-  unique_ptr<RandomAccessFileReader> file;
+  std::unique_ptr<RandomAccessFileReader> file;
   char cache_key_prefix[kMaxCacheKeyPrefixSize];
   size_t cache_key_prefix_size = 0;
   char persistent_cache_key_prefix[kMaxCacheKeyPrefixSize];
@@ -474,8 +475,8 @@ struct BlockBasedTable::Rep {
   // index_reader and filter will be populated and used only when
   // options.block_cache is nullptr; otherwise we will get the index block via
   // the block cache.
-  unique_ptr<IndexReader> index_reader;
-  unique_ptr<FilterBlockReader> filter;
+  std::unique_ptr<IndexReader> index_reader;
+  std::unique_ptr<FilterBlockReader> filter;
 
   enum class FilterType {
     kNoFilter,
@@ -500,7 +501,7 @@ struct BlockBasedTable::Rep {
   // module should not be relying on db module. However to make things easier
   // and compatible with existing code, we introduce a wrapper that allows
   // block to extract prefix without knowing if a key is internal or not.
-  unique_ptr<SliceTransform> internal_prefix_transform;
+  std::unique_ptr<SliceTransform> internal_prefix_transform;
   std::shared_ptr<const SliceTransform> table_prefix_extractor;
 
   // only used in level 0 files when pin_l0_filter_and_index_blocks_in_cache is

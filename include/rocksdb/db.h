@@ -572,6 +572,11 @@ class DB {
     //      log files that should be kept.
     static const std::string kMinLogNumberToKeep;
 
+    //  "rocksdb.min-obsolete-sst-number-to-keep" - return the minimum file
+    //      number for an obsolete SST to be kept. The max value of `uint64_t`
+    //      will be returned if all obsolete files can be deleted.
+    static const std::string kMinObsoleteSstNumberToKeep;
+
     //  "rocksdb.total-sst-files-size" - returns total size (bytes) of all SST
     //      files.
     //  WARNING: may slow down online queries if there are too many files.
@@ -670,6 +675,7 @@ class DB {
   //  "rocksdb.current-super-version-number"
   //  "rocksdb.estimate-live-data-size"
   //  "rocksdb.min-log-number-to-keep"
+  //  "rocksdb.min-obsolete-sst-number-to-keep"
   //  "rocksdb.total-sst-files-size"
   //  "rocksdb.live-sst-files-size"
   //  "rocksdb.base-level"
@@ -990,9 +996,9 @@ class DB {
   // cleared aggressively and the iterator might keep getting invalid before
   // an update is read.
   virtual Status GetUpdatesSince(
-      SequenceNumber seq_number, unique_ptr<TransactionLogIterator>* iter,
-      const TransactionLogIterator::ReadOptions&
-          read_options = TransactionLogIterator::ReadOptions()) = 0;
+      SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
+      const TransactionLogIterator::ReadOptions& read_options =
+          TransactionLogIterator::ReadOptions()) = 0;
 
 // Windows API macro interference
 #undef DeleteFile

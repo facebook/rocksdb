@@ -27,7 +27,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
     return;
   }
   // Use InMemoryEnv, or it would be too slow.
-  unique_ptr<Env> env(new MockEnv(env_));
+  std::unique_ptr<Env> env(new MockEnv(env_));
 
   const int kNKeys = 1000;
   int keys[kNKeys];
