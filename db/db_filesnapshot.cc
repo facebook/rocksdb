@@ -86,7 +86,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   if (flush_memtable) {
     // flush all dirty data to disk.
     Status status;
-    if (atomic_flush_) {
+    if (immutable_db_options_.atomic_flush) {
       autovector<ColumnFamilyData*> cfds;
       SelectColumnFamiliesForAtomicFlush(&cfds);
       mutex_.Unlock();

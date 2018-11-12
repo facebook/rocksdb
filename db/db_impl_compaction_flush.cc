@@ -211,7 +211,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 Status DBImpl::FlushMemTablesToOutputFiles(
     const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
     JobContext* job_context, LogBuffer* log_buffer) {
-  if (atomic_flush_) {
+  if (immutable_db_options_.atomic_flush) {
     return AtomicFlushMemTablesToOutputFiles(bg_flush_args, made_progress,
                                              job_context, log_buffer);
   }
@@ -566,7 +566,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   if (flush_needed) {
     FlushOptions fo;
     fo.allow_write_stall = options.allow_write_stall;
-    if (atomic_flush_) {
+    if (immutable_db_options_.atomic_flush) {
       autovector<ColumnFamilyData*> cfds;
       SelectColumnFamiliesForAtomicFlush(&cfds);
       s = AtomicFlushMemTables(cfds, fo, FlushReason::kManualCompaction,
@@ -1196,7 +1196,7 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Manual flush start.",
                  cfh->GetName().c_str());
   Status s;
-  if (atomic_flush_) {
+  if (immutable_db_options_.atomic_flush) {
     s = AtomicFlushMemTables({cfh->cfd()}, flush_options,
                              FlushReason::kManualFlush);
   } else {
@@ -1212,7 +1212,7 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
 Status DBImpl::Flush(const FlushOptions& flush_options,
                      const std::vector<ColumnFamilyHandle*>& column_families) {
   Status s;
-  if (!atomic_flush_) {
+  if (!immutable_db_options_.atomic_flush) {
     for (auto cfh : column_families) {
       s = Flush(flush_options, cfh);
       if (!s.ok()) {

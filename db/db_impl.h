@@ -1611,9 +1611,6 @@ class DBImpl : public DB {
 
   ErrorHandler error_handler_;
 
-  // True if DB enables atomic flush.
-  bool atomic_flush_;
-
   // True if the DB is committing atomic flush.
   // TODO (yanqin) the current impl assumes that the entire DB belongs to
   // a single atomic flush group. In the future we need to add a new class

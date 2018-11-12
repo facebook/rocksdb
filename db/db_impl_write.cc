@@ -1029,7 +1029,7 @@ void DBImpl::SelectColumnFamiliesForAtomicFlush(
 
 // Assign sequence number for atomic flush.
 void DBImpl::AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds) {
-  assert(atomic_flush_);
+  assert(immutable_db_options_.atomic_flush);
   auto seq = versions_->LastSequence();
   for (auto cfd : cfds) {
     cfd->imm()->AssignAtomicFlushSeq(seq);
@@ -1085,7 +1085,7 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
   // no need to refcount because drop is happening in write thread, so can't
   // happen while we're in the write thread
   autovector<ColumnFamilyData*> cfds;
-  if (atomic_flush_) {
+  if (immutable_db_options_.atomic_flush) {
     SelectColumnFamiliesForAtomicFlush(&cfds);
   } else {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -1106,7 +1106,7 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
     }
   }
   if (status.ok()) {
-    if (atomic_flush_) {
+    if (immutable_db_options_.atomic_flush) {
       AssignAtomicFlushSeq(cfds);
     }
     for (auto cfd : cfds) {
@@ -1139,7 +1139,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   // no need to refcount because drop is happening in write thread, so can't
   // happen while we're in the write thread
   autovector<ColumnFamilyData*> cfds;
-  if (atomic_flush_) {
+  if (immutable_db_options_.atomic_flush) {
     SelectColumnFamiliesForAtomicFlush(&cfds);
   } else {
     ColumnFamilyData* cfd_picked = nullptr;
@@ -1176,7 +1176,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     }
   }
   if (status.ok()) {
-    if (atomic_flush_) {
+    if (immutable_db_options_.atomic_flush) {
       AssignAtomicFlushSeq(cfds);
     }
     for (const auto cfd : cfds) {
@@ -1307,7 +1307,7 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
 
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
   autovector<ColumnFamilyData*> cfds;
-  if (atomic_flush_) {
+  if (immutable_db_options_.atomic_flush) {
     SelectColumnFamiliesForAtomicFlush(&cfds);
     for (auto cfd : cfds) {
       cfd->Ref();
@@ -1333,7 +1333,7 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
     }
   }
   if (status.ok()) {
-    if (atomic_flush_) {
+    if (immutable_db_options_.atomic_flush) {
       AssignAtomicFlushSeq(cfds);
     }
     FlushRequest flush_req;

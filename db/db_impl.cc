@@ -220,7 +220,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       preserve_deletes_(options.preserve_deletes),
       closed_(false),
       error_handler_(this, immutable_db_options_, &mutex_),
-      atomic_flush_(options.atomic_flush),
       atomic_flush_commit_in_progress_(false) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
@@ -309,7 +308,7 @@ Status DBImpl::ResumeImpl() {
     FlushOptions flush_opts;
     // We allow flush to stall write since we are trying to resume from error.
     flush_opts.allow_write_stall = true;
-    if (atomic_flush_) {
+    if (immutable_db_options_.atomic_flush) {
       autovector<ColumnFamilyData*> cfds;
       SelectColumnFamiliesForAtomicFlush(&cfds);
       mutex_.Unlock();
@@ -401,7 +400,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
-    if (atomic_flush_) {
+    if (immutable_db_options_.atomic_flush) {
       autovector<ColumnFamilyData*> cfds;
       SelectColumnFamiliesForAtomicFlush(&cfds);
       mutex_.Unlock();
@@ -3130,7 +3129,7 @@ Status DBImpl::IngestExternalFile(
       TEST_SYNC_POINT_CALLBACK("DBImpl::IngestExternalFile:NeedFlush",
                                &need_flush);
       if (status.ok() && need_flush) {
-        if (atomic_flush_) {
+        if (immutable_db_options_.atomic_flush) {
           mutex_.Unlock();
           autovector<ColumnFamilyData*> cfds;
           SelectColumnFamiliesForAtomicFlush(&cfds);
