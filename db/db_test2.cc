@@ -2515,6 +2515,61 @@ TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBTest2, TestNumPread) {
+  Options options = CurrentOptions();
+  // disable block cache
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+  env_->count_random_reads_ = true;
+
+  env_->random_file_open_counter_.store(0);
+  ASSERT_OK(Put("bar", "foo"));
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+  // After flush, we'll open the file and read footer, meta block,
+  // property block and index block.
+  ASSERT_EQ(4, env_->random_read_counter_.Read());
+  ASSERT_EQ(1, env_->random_file_open_counter_.load());
+
+  // One pread per a normal data block read
+  env_->random_file_open_counter_.store(0);
+  env_->random_read_counter_.Reset();
+  ASSERT_EQ("bar", Get("foo"));
+  ASSERT_EQ(1, env_->random_read_counter_.Read());
+  // All files are already opened.
+  ASSERT_EQ(0, env_->random_file_open_counter_.load());
+
+  env_->random_file_open_counter_.store(0);
+  env_->random_read_counter_.Reset();
+  ASSERT_OK(Put("bar2", "foo2"));
+  ASSERT_OK(Put("foo2", "bar2"));
+  ASSERT_OK(Flush());
+  // After flush, we'll open the file and read footer, meta block,
+  // property block and index block.
+  ASSERT_EQ(4, env_->random_read_counter_.Read());
+  ASSERT_EQ(1, env_->random_file_open_counter_.load());
+
+  // Compaction needs two input blocks, which requires 2 preads, and
+  // generate a new SST file which needs 4 preads (footer, meta block,
+  // property block and index block). In total 6.
+  env_->random_file_open_counter_.store(0);
+  env_->random_read_counter_.Reset();
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ(6, env_->random_read_counter_.Read());
+  // All compactin input files should have already been opened.
+  ASSERT_EQ(1, env_->random_file_open_counter_.load());
+
+  // One pread per a normal data block read
+  env_->random_file_open_counter_.store(0);
+  env_->random_read_counter_.Reset();
+  ASSERT_EQ("foo2", Get("bar2"));
+  ASSERT_EQ(1, env_->random_read_counter_.Read());
+  // SST files are already opened.
+  ASSERT_EQ(0, env_->random_file_open_counter_.load());
+}
+
 TEST_F(DBTest2, TraceAndReplay) {
   Options options = CurrentOptions();
   options.merge_operator = MergeOperators::CreatePutOperator();
