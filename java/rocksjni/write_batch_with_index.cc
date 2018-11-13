@@ -463,7 +463,8 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_iteratorWithBase(JNIEnv* /*env*/,
   auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
   auto* base_iterator = reinterpret_cast<rocksdb::Iterator*>(jbi_handle);
   auto* readopt = reinterpret_cast<rocksdb::ReadOptions*>(jreadopt_handle);
-  auto* iterator = wbwi->NewIteratorWithBase(*readopt, cf_handle, base_iterator);
+  auto* iterator =
+      wbwi->NewIteratorWithBase(*readopt, cf_handle, base_iterator);
   return reinterpret_cast<jlong>(iterator);
 }
 

@@ -47,7 +47,9 @@ class BaseDeltaIterator : public Iterator {
   virtual ~BaseDeltaIterator() {}
 
   bool Valid() const override {
-    return current_over_upper_bound_ ? false : (current_at_base_ ? BaseValid() : DeltaValid());
+    return current_over_upper_bound_
+               ? false
+               : (current_at_base_ ? BaseValid() : DeltaValid());
   }
 
   void SeekToFirst() override {
@@ -224,8 +226,7 @@ class BaseDeltaIterator : public Iterator {
 
   bool IsOverUpperBound() {
     return read_options_.iterate_upper_bound != nullptr &&
-         comparator_->Compare(key(),
-                              *read_options_.iterate_upper_bound) >= 0;
+           comparator_->Compare(key(), *read_options_.iterate_upper_bound) >= 0;
   }
 
   void Advance() {
@@ -669,6 +670,12 @@ Iterator* WriteBatchWithIndex::NewIteratorWithBase(
 }
 
 Iterator* WriteBatchWithIndex::NewIteratorWithBase(
+    ColumnFamilyHandle* column_family, Iterator* base_iterator) {
+  ReadOptions read_options;
+  return NewIteratorWithBase(read_options, column_family, base_iterator);
+}
+
+Iterator* WriteBatchWithIndex::NewIteratorWithBase(
     const ReadOptions& read_options, Iterator* base_iterator) {
   if (rep->overwrite_key == false) {
     assert(false);
@@ -677,6 +684,11 @@ Iterator* WriteBatchWithIndex::NewIteratorWithBase(
   // default column family's comparator
   return new BaseDeltaIterator(read_options, base_iterator, NewIterator(),
                                rep->comparator.default_comparator());
+}
+
+Iterator* WriteBatchWithIndex::NewIteratorWithBase(Iterator* base_iterator) {
+  ReadOptions read_options;
+  return NewIteratorWithBase(read_options, base_iterator);
 }
 
 Status WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,

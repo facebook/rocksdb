@@ -613,9 +613,8 @@ TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
       }
     }
 
-    ReadOptions read_options;
     std::unique_ptr<Iterator> iter(
-        batch.NewIteratorWithBase(read_options, &cf1, new KVIter(&map)));
+        batch.NewIteratorWithBase(&cf1, new KVIter(&map)));
     std::unique_ptr<Iterator> result_iter(new KVIter(&merged_map));
 
     bool is_valid = false;
@@ -681,7 +680,6 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
   ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
   WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
-  ReadOptions read_options;
 
   {
     KVMap map;
@@ -689,7 +687,7 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
     map["c"] = "cc";
     map["e"] = "ee";
     std::unique_ptr<Iterator> iter(
-        batch.NewIteratorWithBase(read_options, &cf1, new KVIter(&map)));
+        batch.NewIteratorWithBase(&cf1, new KVIter(&map)));
 
     iter->SeekToFirst();
     AssertIter(iter.get(), "a", "aa");
@@ -727,7 +725,7 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
   {
     KVMap empty_map;
     std::unique_ptr<Iterator> iter(
-        batch.NewIteratorWithBase(read_options, &cf1, new KVIter(&empty_map)));
+        batch.NewIteratorWithBase(&cf1, new KVIter(&empty_map)));
 
     iter->SeekToFirst();
     AssertIter(iter.get(), "a", "aa");
@@ -747,7 +745,7 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
     map["cc"] = "cccc";
     map["f"] = "ff";
     std::unique_ptr<Iterator> iter(
-        batch.NewIteratorWithBase(read_options, &cf1, new KVIter(&map)));
+        batch.NewIteratorWithBase(&cf1, new KVIter(&map)));
 
     iter->SeekToFirst();
     AssertIter(iter.get(), "a", "aa");
@@ -805,7 +803,7 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
   {
     KVMap empty_map;
     std::unique_ptr<Iterator> iter(
-        batch.NewIteratorWithBase(read_options, &cf1, new KVIter(&empty_map)));
+        batch.NewIteratorWithBase(&cf1, new KVIter(&empty_map)));
 
     iter->SeekToFirst();
     AssertIter(iter.get(), "a", "aa");
@@ -845,7 +843,6 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
   ColumnFamilyHandleImplDummy cf1(6, ReverseBytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(2, ReverseBytewiseComparator());
   WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
-  ReadOptions read_options;
 
   // Test the case that there is one element in the write batch
   batch.Put(&cf2, "zoo", "bar");
@@ -853,7 +850,7 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
   {
     KVMap empty_map;
     std::unique_ptr<Iterator> iter(
-        batch.NewIteratorWithBase(read_options, &cf1, new KVIter(&empty_map)));
+        batch.NewIteratorWithBase(&cf1, new KVIter(&empty_map)));
 
     iter->SeekToFirst();
     AssertIter(iter.get(), "a", "aa");
@@ -866,7 +863,7 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
   {
     KVMap map;
     std::unique_ptr<Iterator> iter(
-        batch.NewIteratorWithBase(read_options, &cf1, new KVIter(&map)));
+        batch.NewIteratorWithBase(&cf1, new KVIter(&map)));
 
     iter->SeekToFirst();
     AssertIter(iter.get(), "c", "cc");
@@ -899,8 +896,7 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
   {
     KVMap map;
     map["b"] = "";
-    std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(read_options,
-        new KVIter(&map)));
+    std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(new KVIter(&map)));
 
     iter->SeekToFirst();
     AssertIter(iter.get(), "a", "b");
@@ -1376,14 +1372,13 @@ TEST_F(WriteBatchWithIndexTest, MutateWhileIteratingBaseCorrectnessTest) {
   }
 
   KVMap map;
-  ReadOptions read_options;
   map["aa"] = "aa";
   map["cc"] = "cc";
   map["ee"] = "ee";
   map["em"] = "me";
 
   std::unique_ptr<Iterator> iter(
-      batch.NewIteratorWithBase(read_options, new KVIter(&map)));
+      batch.NewIteratorWithBase(new KVIter(&map)));
   iter->Seek("k");
   AssertIterKey("k", iter.get());
   iter->Next();
@@ -1445,13 +1440,12 @@ TEST_F(WriteBatchWithIndexTest, MutateWhileIteratingBaseStressTest) {
   }
 
   KVMap map;
-  ReadOptions read_options;
   for (char c = 'a'; c <= 'z'; ++c) {
     map[std::string(2, c)] = std::string(2, c);
   }
 
   std::unique_ptr<Iterator> iter(
-      batch.NewIteratorWithBase(read_options, new KVIter(&map)));
+      batch.NewIteratorWithBase(new KVIter(&map)));
 
   Random rnd(301);
   for (int i = 0; i < 1000000; ++i) {
@@ -1541,11 +1535,10 @@ static std::string PrintContents(WriteBatchWithIndex* batch, KVMap* base_map,
   std::string result;
 
   Iterator* iter;
-  ReadOptions read_options;
   if (column_family == nullptr) {
-    iter = batch->NewIteratorWithBase(read_options, new KVIter(base_map));
+    iter = batch->NewIteratorWithBase(new KVIter(base_map));
   } else {
-    iter = batch->NewIteratorWithBase(read_options, column_family, new KVIter(base_map));
+    iter = batch->NewIteratorWithBase(column_family, new KVIter(base_map));
   }
 
   iter->SeekToFirst();
