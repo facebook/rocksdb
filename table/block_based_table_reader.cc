@@ -1717,7 +1717,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   } else {
     iter = new TBlockIter;
   }
-  // Didn't get any data and there isn't any error. Must be no_io = true
+  // Didn't get any data from block caches.
   if (s.ok() && block.value == nullptr) {
     if (no_io) {
       // Could not read from block_cache and can't do IO
