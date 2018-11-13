@@ -1753,9 +1753,6 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     // 2. it's pointing to immortable source. If own_bytes is true then we are
     //    not reading data from the original source, weather immortal or not.
     //    Otherwise, the block is pinned iff the source is immortal.
-    //    We can determine this case by
-    //    checking: (1) the block doesn't own bytes itself (outside source,
-    //    usually mmapped bytes) (2) the source is immortable
     bool block_contents_pinned =
         (block.cache_handle != nullptr ||
          (!block.value->own_bytes() && rep->immortal_table));

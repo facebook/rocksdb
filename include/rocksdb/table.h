@@ -138,7 +138,7 @@ struct BlockBasedTableOptions {
 
   // If non-NULL use the specified cache for compressed blocks.
   // If NULL, rocksdb will not use a compressed block cache.
-  // Note: though it looks similar too `block_cache`, RocksDB doesn't put the
+  // Note: though it looks similar to `block_cache`, RocksDB doesn't put the
   //       same type of object there.
   std::shared_ptr<Cache> block_cache_compressed = nullptr;
 
