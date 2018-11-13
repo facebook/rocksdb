@@ -220,7 +220,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       preserve_deletes_(options.preserve_deletes),
       closed_(false),
       error_handler_(this, immutable_db_options_, &mutex_),
-      atomic_flush_(options.atomic_flush),
       atomic_flush_commit_in_progress_(false) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
@@ -309,7 +308,7 @@ Status DBImpl::ResumeImpl() {
     FlushOptions flush_opts;
     // We allow flush to stall write since we are trying to resume from error.
     flush_opts.allow_write_stall = true;
-    if (atomic_flush_) {
+    if (immutable_db_options_.atomic_flush) {
       autovector<ColumnFamilyData*> cfds;
       SelectColumnFamiliesForAtomicFlush(&cfds);
       mutex_.Unlock();
@@ -401,7 +400,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
-    if (atomic_flush_) {
+    if (immutable_db_options_.atomic_flush) {
       autovector<ColumnFamilyData*> cfds;
       SelectColumnFamiliesForAtomicFlush(&cfds);
       mutex_.Unlock();
@@ -2215,16 +2214,16 @@ ColumnFamilyHandle* DBImpl::GetColumnFamilyHandle(uint32_t column_family_id) {
 // REQUIRED: mutex is NOT held.
 std::unique_ptr<ColumnFamilyHandle> DBImpl::GetColumnFamilyHandleUnlocked(
     uint32_t column_family_id) {
-  ColumnFamilyMemTables* cf_memtables = column_family_memtables_.get();
-
   InstrumentedMutexLock l(&mutex_);
 
-  if (!cf_memtables->Seek(column_family_id)) {
+  auto* cfd =
+      versions_->GetColumnFamilySet()->GetColumnFamily(column_family_id);
+  if (cfd == nullptr) {
     return nullptr;
   }
 
   return std::unique_ptr<ColumnFamilyHandleImpl>(
-      new ColumnFamilyHandleImpl(cf_memtables->current(), this, &mutex_));
+      new ColumnFamilyHandleImpl(cfd, this, &mutex_));
 }
 
 void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
@@ -2295,9 +2294,8 @@ void DBImpl::ReleaseFileNumberFromPendingOutputs(
 
 #ifndef ROCKSDB_LITE
 Status DBImpl::GetUpdatesSince(
-    SequenceNumber seq, unique_ptr<TransactionLogIterator>* iter,
+    SequenceNumber seq, std::unique_ptr<TransactionLogIterator>* iter,
     const TransactionLogIterator::ReadOptions& read_options) {
-
   RecordTick(stats_, GET_UPDATES_SINCE_CALLS);
   if (seq > versions_->LastSequence()) {
     return Status::NotFound("Requested sequence not yet written in the db");
@@ -2545,10 +2543,10 @@ Status DBImpl::CheckConsistency() {
 Status DBImpl::GetDbIdentity(std::string& identity) const {
   std::string idfilename = IdentityFileName(dbname_);
   const EnvOptions soptions;
-  unique_ptr<SequentialFileReader> id_file_reader;
+  std::unique_ptr<SequentialFileReader> id_file_reader;
   Status s;
   {
-    unique_ptr<SequentialFile> idfile;
+    std::unique_ptr<SequentialFile> idfile;
     s = env_->NewSequentialFile(idfilename, &idfile, soptions);
     if (!s.ok()) {
       return s;
@@ -3131,7 +3129,7 @@ Status DBImpl::IngestExternalFile(
       TEST_SYNC_POINT_CALLBACK("DBImpl::IngestExternalFile:NeedFlush",
                                &need_flush);
       if (status.ok() && need_flush) {
-        if (atomic_flush_) {
+        if (immutable_db_options_.atomic_flush) {
           mutex_.Unlock();
           autovector<ColumnFamilyData*> cfds;
           SelectColumnFamiliesForAtomicFlush(&cfds);

@@ -379,9 +379,9 @@ void WritePreparedTxnDB::Init(const TransactionDBOptions& /* unused */) {
   // around.
   INC_STEP_FOR_MAX_EVICTED =
       std::max(COMMIT_CACHE_SIZE / 100, static_cast<size_t>(1));
-  snapshot_cache_ = unique_ptr<std::atomic<SequenceNumber>[]>(
+  snapshot_cache_ = std::unique_ptr<std::atomic<SequenceNumber>[]>(
       new std::atomic<SequenceNumber>[SNAPSHOT_CACHE_SIZE] {});
-  commit_cache_ = unique_ptr<std::atomic<CommitEntry64b>[]>(
+  commit_cache_ = std::unique_ptr<std::atomic<CommitEntry64b>[]>(
       new std::atomic<CommitEntry64b>[COMMIT_CACHE_SIZE] {});
 }
 

@@ -605,7 +605,7 @@ class Version {
   // REQUIRES: lock is held
   // On success, *props will be populated with all SSTables' table properties.
   // The keys of `props` are the sst file name, the values of `props` are the
-  // tables' properties, represented as shared_ptr.
+  // tables' properties, represented as std::shared_ptr.
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props);
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props, int level);
   Status GetPropertiesOfTablesInRange(const Range* range, std::size_t n,
@@ -1053,7 +1053,7 @@ class VersionSet {
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
   // Opened lazily
-  unique_ptr<log::Writer> descriptor_log_;
+  std::unique_ptr<log::Writer> descriptor_log_;
 
   // generates a increasing version number for every new version
   uint64_t current_version_number_;

@@ -85,7 +85,7 @@ TEST_P(DBIteratorTest, IteratorProperty) {
   ReadOptions ropt;
   ropt.pin_data = false;
   {
-    unique_ptr<Iterator> iter(NewIterator(ropt, handles_[1]));
+    std::unique_ptr<Iterator> iter(NewIterator(ropt, handles_[1]));
     iter->SeekToFirst();
     std::string prop_value;
     ASSERT_NOK(iter->GetProperty("non_existing.value", &prop_value));
@@ -2373,7 +2373,7 @@ TEST_P(DBIteratorTest, SeekAfterHittingManyInternalKeys) {
   Delete("5");
   Put("6", "val_6");
 
-  unique_ptr<Iterator> iter(NewIterator(ropts));
+  std::unique_ptr<Iterator> iter(NewIterator(ropts));
   iter->SeekToFirst();
 
   ASSERT_TRUE(iter->Valid());
@@ -2392,7 +2392,7 @@ TEST_P(DBIteratorTest, SeekAfterHittingManyInternalKeys) {
   ASSERT_EQ("4", prop_value);
 
   // Create a new iterator to seek to the internal key.
-  unique_ptr<Iterator> iter2(NewIterator(ropts));
+  std::unique_ptr<Iterator> iter2(NewIterator(ropts));
   iter2->Seek(prop_value);
   ASSERT_TRUE(iter2->Valid());
   ASSERT_OK(iter2->status());
@@ -2420,7 +2420,7 @@ TEST_P(DBIteratorTest, NonBlockingIterationBugRepro) {
   // Create a nonblocking iterator before writing to memtable.
   ReadOptions ropt;
   ropt.read_tier = kBlockCacheTier;
-  unique_ptr<Iterator> iter(NewIterator(ropt));
+  std::unique_ptr<Iterator> iter(NewIterator(ropt));
 
   // Overwrite a key in memtable many times to hit
   // max_sequential_skip_in_iterations (which is 8 by default).
@@ -2430,7 +2430,7 @@ TEST_P(DBIteratorTest, NonBlockingIterationBugRepro) {
 
   // Load the second block in sst file into the block cache.
   {
-    unique_ptr<Iterator> iter2(NewIterator(ReadOptions()));
+    std::unique_ptr<Iterator> iter2(NewIterator(ReadOptions()));
     iter2->Seek("d");
   }
 

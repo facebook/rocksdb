@@ -58,7 +58,15 @@ It depends on successfully passing SMHasher test set.
 */
 
 #pragma once
+
 #include <stdlib.h>
+
+#if !defined(__VMS) &&       \
+    (defined(__cplusplus) || \
+     (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) /* C99 */))
+#include <stdint.h>
+#endif
+
 #if defined (__cplusplus)
 namespace rocksdb {
 #endif
@@ -196,7 +204,6 @@ XXH64_hash_t XXH64_hashFromCanonical(const XXH64_canonical_t* src);
 #if !defined(__VMS) &&       \
     (defined(__cplusplus) || \
      (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) /* C99 */))
-#include <stdint.h>
 
 struct XXH64_state_s {
   uint64_t total_len;

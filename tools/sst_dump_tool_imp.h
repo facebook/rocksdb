@@ -57,7 +57,7 @@ class SstFileReader {
                         const EnvOptions& soptions,
                         const InternalKeyComparator& internal_comparator,
                         uint64_t file_size,
-                        unique_ptr<TableReader>* table_reader);
+                        std::unique_ptr<TableReader>* table_reader);
 
   std::string file_name_;
   uint64_t read_num_;
@@ -70,13 +70,13 @@ class SstFileReader {
   Options options_;
 
   Status init_result_;
-  unique_ptr<TableReader> table_reader_;
-  unique_ptr<RandomAccessFileReader> file_;
+  std::unique_ptr<TableReader> table_reader_;
+  std::unique_ptr<RandomAccessFileReader> file_;
 
   const ImmutableCFOptions ioptions_;
   const MutableCFOptions moptions_;
   InternalKeyComparator internal_comparator_;
-  unique_ptr<TableProperties> table_properties_;
+  std::unique_ptr<TableProperties> table_properties_;
 };
 
 }  // namespace rocksdb

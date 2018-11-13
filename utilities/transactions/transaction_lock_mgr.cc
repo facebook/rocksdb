@@ -222,9 +222,9 @@ void TransactionLockMgr::RemoveColumnFamily(uint32_t column_family_id) {
   }
 }
 
-// Look up the LockMap shared_ptr for a given column_family_id.
+// Look up the LockMap std::shared_ptr for a given column_family_id.
 // Note:  The LockMap is only valid as long as the caller is still holding on
-//   to the returned shared_ptr.
+//   to the returned std::shared_ptr.
 std::shared_ptr<LockMap> TransactionLockMgr::GetLockMap(
     uint32_t column_family_id) {
   // First check thread-local cache

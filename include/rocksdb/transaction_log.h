@@ -60,7 +60,7 @@ struct BatchResult {
 
   // Add empty __ctor and __dtor for the rule of five
   // However, preserve the original semantics and prohibit copying
-  // as the unique_ptr member does not copy.
+  // as the std::unique_ptr member does not copy.
   BatchResult() {}
 
   ~BatchResult() {}

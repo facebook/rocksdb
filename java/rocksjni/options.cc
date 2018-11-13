@@ -1970,8 +1970,8 @@ jbyte Java_org_rocksdb_Options_compressionType(JNIEnv* /*env*/,
  * @param jcompression_levels A reference to a java byte array
  *     where each byte indicates a compression level
  *
- * @return A unique_ptr to the vector, or unique_ptr(nullptr) if a JNI exception
- * occurs
+ * @return A std::unique_ptr to the vector, or std::unique_ptr(nullptr) if a JNI
+ * exception occurs
  */
 std::unique_ptr<std::vector<rocksdb::CompressionType>>
 rocksdb_compression_vector_helper(JNIEnv* env, jbyteArray jcompression_levels) {

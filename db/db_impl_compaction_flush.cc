@@ -211,7 +211,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 Status DBImpl::FlushMemTablesToOutputFiles(
     const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
     JobContext* job_context, LogBuffer* log_buffer) {
-  if (atomic_flush_) {
+  if (immutable_db_options_.atomic_flush) {
     return AtomicFlushMemTablesToOutputFiles(bg_flush_args, made_progress,
                                              job_context, log_buffer);
   }
@@ -566,7 +566,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   if (flush_needed) {
     FlushOptions fo;
     fo.allow_write_stall = options.allow_write_stall;
-    if (atomic_flush_) {
+    if (immutable_db_options_.atomic_flush) {
       autovector<ColumnFamilyData*> cfds;
       SelectColumnFamiliesForAtomicFlush(&cfds);
       s = AtomicFlushMemTables(cfds, fo, FlushReason::kManualCompaction,
@@ -705,7 +705,7 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
                        immutable_db_options_.info_log.get());
 
   // Perform CompactFiles
-  SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
+  TEST_SYNC_POINT("TestCompactFiles::IngestExternalFile2");
   {
     InstrumentedMutexLock l(&mutex_);
 
@@ -713,15 +713,16 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
     // IngestExternalFile() calls to finish.
     WaitForIngestFile();
 
-    s = CompactFilesImpl(compact_options, cfd, sv->current, input_file_names,
+    // We need to get current after `WaitForIngestFile`, because
+    // `IngestExternalFile` may add files that overlap with `input_file_names`
+    auto* current = cfd->current();
+    current->Ref();
+
+    s = CompactFilesImpl(compact_options, cfd, current, input_file_names,
                          output_file_names, output_level, output_path_id,
                          &job_context, &log_buffer);
-  }
-  if (sv->Unref()) {
-    mutex_.Lock();
-    sv->Cleanup();
-    mutex_.Unlock();
-    delete sv;
+
+    current->Unref();
   }
 
   // Find and delete obsolete files
@@ -820,7 +821,7 @@ Status DBImpl::CompactFilesImpl(
   // At this point, CompactFiles will be run.
   bg_compaction_scheduled_++;
 
-  unique_ptr<Compaction> c;
+  std::unique_ptr<Compaction> c;
   assert(cfd->compaction_picker());
   c.reset(cfd->compaction_picker()->CompactFiles(
       compact_options, input_files, output_level, version->storage_info(),
@@ -1196,7 +1197,7 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Manual flush start.",
                  cfh->GetName().c_str());
   Status s;
-  if (atomic_flush_) {
+  if (immutable_db_options_.atomic_flush) {
     s = AtomicFlushMemTables({cfh->cfd()}, flush_options,
                              FlushReason::kManualFlush);
   } else {
@@ -1212,7 +1213,7 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
 Status DBImpl::Flush(const FlushOptions& flush_options,
                      const std::vector<ColumnFamilyHandle*>& column_families) {
   Status s;
-  if (!atomic_flush_) {
+  if (!immutable_db_options_.atomic_flush) {
     for (auto cfh : column_families) {
       s = Flush(flush_options, cfh);
       if (!s.ok()) {
@@ -2016,6 +2017,7 @@ void DBImpl::BackgroundCallFlush() {
       job_context.Clean();
       mutex_.Lock();
     }
+    TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:ContextCleanedUp");
 
     assert(num_running_flushes_ > 0);
     num_running_flushes_--;
@@ -2145,7 +2147,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   TEST_SYNC_POINT("DBImpl::BackgroundCompaction:Start");
 
   bool is_manual = (manual_compaction != nullptr);
-  unique_ptr<Compaction> c;
+  std::unique_ptr<Compaction> c;
   if (prepicked_compaction != nullptr &&
       prepicked_compaction->compaction != nullptr) {
     c.reset(prepicked_compaction->compaction);

@@ -168,7 +168,7 @@ class HashSkipListRep : public MemTableRep {
     Bucket* list_;
     Bucket::Iterator iter_;
     // here we track if we own list_. If we own it, we are also
-    // responsible for it's cleaning. This is a poor man's shared_ptr
+    // responsible for it's cleaning. This is a poor man's std::shared_ptr
     bool own_list_;
     std::unique_ptr<Arena> arena_;
     std::string tmp_;       // For passing to EncodeKey

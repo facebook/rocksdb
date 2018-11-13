@@ -151,14 +151,20 @@ struct rocksdb_writablefile_t    { WritableFile*     rep; };
 struct rocksdb_wal_iterator_t { TransactionLogIterator* rep; };
 struct rocksdb_wal_readoptions_t { TransactionLogIterator::ReadOptions rep; };
 struct rocksdb_filelock_t        { FileLock*         rep; };
-struct rocksdb_logger_t          { shared_ptr<Logger>  rep; };
-struct rocksdb_cache_t           { shared_ptr<Cache>   rep; };
+struct rocksdb_logger_t {
+  std::shared_ptr<Logger> rep;
+};
+struct rocksdb_cache_t {
+  std::shared_ptr<Cache> rep;
+};
 struct rocksdb_livefiles_t       { std::vector<LiveFileMetaData> rep; };
 struct rocksdb_column_family_handle_t  { ColumnFamilyHandle* rep; };
 struct rocksdb_envoptions_t      { EnvOptions        rep; };
 struct rocksdb_ingestexternalfileoptions_t  { IngestExternalFileOptions rep; };
 struct rocksdb_sstfilewriter_t   { SstFileWriter*    rep; };
-struct rocksdb_ratelimiter_t     { shared_ptr<RateLimiter>      rep; };
+struct rocksdb_ratelimiter_t {
+  std::shared_ptr<RateLimiter> rep;
+};
 struct rocksdb_perfcontext_t     { PerfContext*      rep; };
 struct rocksdb_pinnableslice_t {
   PinnableSlice rep;

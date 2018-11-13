@@ -502,19 +502,25 @@ struct AdvancedColumnFamilyOptions {
   // threshold. But it's not guaranteed.
   // Value 0 will be sanitized.
   //
-  // Default: result.target_file_size_base * 25
+  // Default: target_file_size_base * 25
+  //
+  // Dynamically changeable through SetOptions() API
   uint64_t max_compaction_bytes = 0;
 
   // All writes will be slowed down to at least delayed_write_rate if estimated
   // bytes needed to be compaction exceed this threshold.
   //
   // Default: 64GB
+  //
+  // Dynamically changeable through SetOptions() API
   uint64_t soft_pending_compaction_bytes_limit = 64 * 1073741824ull;
 
   // All writes are stopped if estimated bytes needed to be compaction exceed
   // this threshold.
   //
   // Default: 256GB
+  //
+  // Dynamically changeable through SetOptions() API
   uint64_t hard_pending_compaction_bytes_limit = 256 * 1073741824ull;
 
   // The compaction style. Default: kCompactionStyleLevel
@@ -526,13 +532,17 @@ struct AdvancedColumnFamilyOptions {
   CompactionPri compaction_pri = kByCompensatedSize;
 
   // The options needed to support Universal Style compactions
+  //
+  // Dynamically changeable through SetOptions() API
+  // Dynamic change example:
+  // SetOptions("compaction_options_universal", "{size_ratio=2;}")
   CompactionOptionsUniversal compaction_options_universal;
 
   // The options for FIFO compaction style
   //
   // Dynamically changeable through SetOptions() API
   // Dynamic change example:
-  // SetOption("compaction_options_fifo", "{max_table_files_size=100;ttl=2;}")
+  // SetOptions("compaction_options_fifo", "{max_table_files_size=100;ttl=2;}")
   CompactionOptionsFIFO compaction_options_fifo;
 
   // An iteration->Next() sequentially skips over keys with the same
@@ -602,7 +612,10 @@ struct AdvancedColumnFamilyOptions {
   bool optimize_filters_for_hits = false;
 
   // After writing every SST file, reopen it and read all the keys.
+  //
   // Default: false
+  //
+  // Dynamically changeable through SetOptions() API
   bool paranoid_file_checks = false;
 
   // In debug mode, RocksDB run consistency checks on the LSM every time the LSM
@@ -612,7 +625,10 @@ struct AdvancedColumnFamilyOptions {
   bool force_consistency_checks = false;
 
   // Measure IO stats in compactions and flushes, if true.
+  //
   // Default: false
+  //
+  // Dynamically changeable through SetOptions() API
   bool report_bg_io_stats = false;
 
   // Non-bottom-level files older than TTL will go through the compaction
