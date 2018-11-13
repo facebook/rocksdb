@@ -673,7 +673,7 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     size_t size = block_contents.size();
 
     auto ubuf =
-        AllocateBlock(size + 1, block_cache_compressed->memory_allocator());
+        AllocateBlock(size + 1, r->table_options.memory_allocator.get());
     memcpy(ubuf.get(), block_contents.data(), size);
     ubuf[size] = type;
 

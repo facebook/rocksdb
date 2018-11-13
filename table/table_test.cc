@@ -2516,8 +2516,8 @@ TEST_P(BlockBasedTableTest, MemoryAllocator) {
     opt.compression = kNoCompression;
     BlockBasedTableOptions table_options;
     table_options.block_size = 1024;
+    table_options.memory_allocator = custom_memory_allocator;
     LRUCacheOptions lruOptions;
-    lruOptions.memory_allocator = custom_memory_allocator;
     lruOptions.capacity = 16 * 1024 * 1024;
     lruOptions.num_shard_bits = 4;
     table_options.block_cache = NewLRUCache(std::move(lruOptions));

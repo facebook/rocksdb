@@ -99,6 +99,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
         /* currently not supported
           std::shared_ptr<Cache> block_cache = nullptr;
           std::shared_ptr<Cache> block_cache_compressed = nullptr;
+          std::shared_ptr<MemoryAllocator> memory_allocator = nullptr;
          */
         {"flush_block_policy_factory",
          {offsetof(struct BlockBasedTableOptions, flush_block_policy_factory),
