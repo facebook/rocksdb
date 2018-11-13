@@ -193,6 +193,9 @@ Status BlockFetcher::ReadBlockContents() {
 
   if (TryGetUncompressBlockFromPersistentCache()) {
     compression_type_ = kNoCompression;
+#ifndef NDEBUG
+    contents_->is_raw_block = true;
+#endif  // NDEBUG
     return Status::OK();
   }
   if (TryGetFromPrefetchBuffer()) {

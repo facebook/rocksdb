@@ -1348,6 +1348,10 @@ Status BlockBasedTable::PutDataBlockToCache(
   if (block_cache_compressed != nullptr &&
       raw_block_comp_type != kNoCompression && raw_block_contents != nullptr &&
       raw_block_contents->own_bytes()) {
+#ifndef NDEBUG
+    assert(raw_block_contents->is_raw_block);
+#endif  // NDEBUG
+
     // We cannot directly put raw_block_contents because this could point to
     // an object in the stack.
     BlockContents* block_cont_for_comp_cache =
