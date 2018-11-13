@@ -401,5 +401,21 @@ Status DestroyDir(Env* env, const std::string& dir) {
   return s;
 }
 
+bool IsDirectIOSupported(Env* env, const std::string& dir) {
+  EnvOptions env_options;
+  env_options.use_mmap_writes = false;
+  env_options.use_direct_writes = true;
+  std::string tmp = TempFileName(dir, 999);
+  Status s;
+  {
+    std::unique_ptr<WritableFile> file;
+    s = env->NewWritableFile(tmp, &file, env_options);
+  }
+  if (s.ok()) {
+    s = env->DeleteFile(tmp);
+  }
+  return s.ok();
+}
+
 }  // namespace test
 }  // namespace rocksdb

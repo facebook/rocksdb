@@ -11,6 +11,9 @@
 * Added "rocksdb.min-obsolete-sst-number-to-keep" DB property that reports the lower bound on SST file numbers that are being kept from deletion, even if the SSTs are obsolete.
 * Add xxhash64 checksum support
 
+### Public API Change
+* `DBOptions::use_direct_reads` now affects reads issued by `BackupEngine` on the database's SSTs.
+
 ### Bug Fixes
 * Fix corner case where a write group leader blocked due to write stall blocks other writers in queue with WriteOptions::no_slowdown set.
 * Fix in-memory range tombstone truncation to avoid erroneously covering newer keys at a lower level, and include range tombstones in compacted files whose largest key is the range tombstone's start key.

@@ -188,7 +188,14 @@ class TestEnv : public EnvWrapper {
           new TestEnv::DummySequentialFile(dummy_sequential_file_fail_reads_));
       return Status::OK();
     } else {
-      return EnvWrapper::NewSequentialFile(f, r, options);
+      Status s = EnvWrapper::NewSequentialFile(f, r, options);
+      if (s.ok()) {
+        if ((*r)->use_direct_io()) {
+          ++num_direct_seq_readers_;
+        }
+        ++num_seq_readers_;
+      }
+      return s;
     }
   }
 
@@ -200,7 +207,28 @@ class TestEnv : public EnvWrapper {
       return Status::NotSupported("Sorry, can't do this");
     }
     limit_written_files_--;
-    return EnvWrapper::NewWritableFile(f, r, options);
+    Status s = EnvWrapper::NewWritableFile(f, r, options);
+    if (s.ok()) {
+      if ((*r)->use_direct_io()) {
+        ++num_direct_writers_;
+      }
+      ++num_writers_;
+    }
+    return s;
+  }
+
+  virtual Status NewRandomAccessFile(const std::string& fname,
+                                     unique_ptr<RandomAccessFile>* result,
+                                     const EnvOptions& options) override {
+    MutexLock l(&mutex_);
+    Status s = EnvWrapper::NewRandomAccessFile(fname, result, options);
+    if (s.ok()) {
+      if ((*result)->use_direct_io()) {
+        ++num_direct_rand_readers_;
+      }
+      ++num_rand_readers_;
+    }
+    return s;
   }
 
   virtual Status DeleteFile(const std::string& fname) override {
@@ -316,6 +344,23 @@ class TestEnv : public EnvWrapper {
     return EnvWrapper::NewDirectory(name, result);
   }
 
+  void ClearFileOpenCounters() {
+    MutexLock l(&mutex_);
+    num_rand_readers_ = 0;
+    num_direct_rand_readers_ = 0;
+    num_seq_readers_ = 0;
+    num_direct_seq_readers_ = 0;
+    num_writers_ = 0;
+    num_direct_writers_ = 0;
+  }
+
+  int num_rand_readers() { return num_rand_readers_; }
+  int num_direct_rand_readers() { return num_direct_rand_readers_; }
+  int num_seq_readers() { return num_seq_readers_; }
+  int num_direct_seq_readers() { return num_direct_seq_readers_; }
+  int num_writers() { return num_writers_; }
+  int num_direct_writers() { return num_direct_writers_; }
+
  private:
   port::Mutex mutex_;
   bool dummy_sequential_file_ = false;
@@ -329,6 +374,15 @@ class TestEnv : public EnvWrapper {
   bool get_children_failure_ = false;
   bool create_dir_if_missing_failure_ = false;
   bool new_directory_failure_ = false;
+
+  // Keeps track of how many files of each type were successfully opened, and
+  // out of those, how many were opened with direct I/O.
+  std::atomic<int> num_rand_readers_;
+  std::atomic<int> num_direct_rand_readers_;
+  std::atomic<int> num_seq_readers_;
+  std::atomic<int> num_direct_seq_readers_;
+  std::atomic<int> num_writers_;
+  std::atomic<int> num_direct_writers_;
 };  // TestEnv
 
 class FileManager : public EnvWrapper {
@@ -1634,6 +1688,59 @@ TEST_F(BackupableDBTest, WriteOnlyEngineNoSharedFileDeletion) {
     AssertBackupConsistency(i + 1, 0, (i + 1) * kNumKeys);
   }
 }
+
+TEST_P(BackupableDBTestWithParam, BackupUsingDirectIO) {
+  // Tests direct I/O on the backup engine's reads and writes on the DB env and
+  // backup env
+  // We use ChrootEnv underneath so the below line checks for direct I/O support
+  // in the chroot directory, not the true filesystem root.
+  if (!test::IsDirectIOSupported(test_db_env_.get(), "/")) {
+    return;
+  }
+  const int kNumKeysPerBackup = 100;
+  const int kNumBackups = 3;
+  options_.use_direct_reads = true;
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  for (int i = 0; i < kNumBackups; ++i) {
+    FillDB(db_.get(), i * kNumKeysPerBackup /* from */,
+           (i + 1) * kNumKeysPerBackup /* to */);
+    ASSERT_OK(db_->Flush(FlushOptions()));
+
+    // Clear the file open counters and then do a bunch of backup engine ops.
+    // For all ops, files should be opened in direct mode.
+    test_backup_env_->ClearFileOpenCounters();
+    test_db_env_->ClearFileOpenCounters();
+    CloseBackupEngine();
+    OpenBackupEngine();
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
+                                              false /* flush_before_backup */));
+    ASSERT_OK(backup_engine_->VerifyBackup(i + 1));
+    CloseBackupEngine();
+    OpenBackupEngine();
+    std::vector<BackupInfo> backup_infos;
+    backup_engine_->GetBackupInfo(&backup_infos);
+    ASSERT_EQ(static_cast<size_t>(i + 1), backup_infos.size());
+
+    // Verify backup engine always opened files with direct I/O
+    ASSERT_EQ(0, test_db_env_->num_writers());
+    ASSERT_EQ(0, test_db_env_->num_rand_readers());
+    ASSERT_GT(test_db_env_->num_direct_seq_readers(), 0);
+    // Currently the DB doesn't support reading WALs or manifest with direct
+    // I/O, so subtract two.
+    ASSERT_EQ(test_db_env_->num_seq_readers() - 2,
+              test_db_env_->num_direct_seq_readers());
+    ASSERT_EQ(0, test_db_env_->num_rand_readers());
+  }
+  CloseDBAndBackupEngine();
+
+  for (int i = 0; i < kNumBackups; ++i) {
+    AssertBackupConsistency(i + 1 /* backup_id */,
+                            i * kNumKeysPerBackup /* start_exist */,
+                            (i + 1) * kNumKeysPerBackup /* end_exist */,
+                            (i + 2) * kNumKeysPerBackup /* end */);
+  }
+}
+
 }  // anon namespace
 
 } //  namespace rocksdb

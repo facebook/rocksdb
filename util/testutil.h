@@ -748,5 +748,7 @@ std::string RandomName(Random* rnd, const size_t len);
 
 Status DestroyDir(Env* env, const std::string& dir);
 
+bool IsDirectIOSupported(Env* env, const std::string& dir);
+
 }  // namespace test
 }  // namespace rocksdb
