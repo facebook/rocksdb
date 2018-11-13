@@ -254,8 +254,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
               index_value_is_full_),
           index_block_->NewIterator<IndexBlockIter>(
               icomparator_, icomparator_->user_comparator(), nullptr,
-              kNullStats, true, index_key_includes_seq_, index_value_is_full_,
-              false /* block_contents_pinned */));
+              kNullStats, true, index_key_includes_seq_, index_value_is_full_));
     } else {
       auto ro = ReadOptions();
       ro.fill_cache = fill_cache;
@@ -266,8 +265,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
           table_, ro, *icomparator_,
           index_block_->NewIterator<IndexBlockIter>(
               icomparator_, icomparator_->user_comparator(), nullptr,
-              kNullStats, true, index_key_includes_seq_, index_value_is_full_,
-              false /* block_contents_pinned */),
+              kNullStats, true, index_key_includes_seq_, index_value_is_full_),
           false, true, /* prefix_extractor */ nullptr, kIsIndex,
           index_key_includes_seq_, index_value_is_full_);
     }
@@ -287,8 +285,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
     // to set `block_contents_pinned`.
     index_block_->NewIterator<IndexBlockIter>(
         icomparator_, icomparator_->user_comparator(), &biter, kNullStats, true,
-        index_key_includes_seq_, index_value_is_full_,
-        false /* block_contents_pinned */);
+        index_key_includes_seq_, index_value_is_full_);
     // Index partitions are assumed to be consecuitive. Prefetch them all.
     // Read the first block offset
     biter.SeekToFirst();
@@ -1359,12 +1356,11 @@ Status BlockBasedTable::PutDataBlockToCache(
         &DeleteCachedEntry<BlockContents>);
     if (s.ok()) {
       // Avoid the following code to delete this cached block.
-      block_cont_for_comp_cache = nullptr;
       RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD);
     } else {
       RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD_FAILURES);
+      delete block_cont_for_comp_cache;
     }
-    delete block_cont_for_comp_cache;
   }
 
   // insert into uncompressed block cache
@@ -1910,8 +1906,7 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
     // to set `block_contents_pinned`.
     return block->second.value->NewIterator<IndexBlockIter>(
         &rep->internal_comparator, rep->internal_comparator.user_comparator(),
-        nullptr, kNullStats, true, index_key_includes_seq_, index_key_is_full_,
-        false /* block_contents_pinned */);
+        nullptr, kNullStats, true, index_key_includes_seq_, index_key_is_full_);
   }
   // Create an empty iterator
   return new IndexBlockIter();
