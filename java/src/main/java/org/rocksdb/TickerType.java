@@ -304,9 +304,9 @@ public enum TickerType {
     RATE_LIMIT_DELAY_MILLIS((byte) 0x37),
 
     /**
-     * Number of iterators currently open.
+     * Number of iterators created.
      */
-    NO_ITERATORS((byte) 0x38),
+    NO_ITERATOR_CREATED((byte) 0x38),
 
     /**
      * Number of MultiGet calls.
@@ -475,7 +475,12 @@ public enum TickerType {
      */
     NUMBER_MULTIGET_KEYS_FOUND((byte) 0x5E),
 
-    TICKER_ENUM_MAX((byte) 0x5F);
+    /**
+     * Number of iterators deleted.
+     */
+    NO_ITERATOR_DELETED((byte) 0x5F),
+
+    TICKER_ENUM_MAX((byte) 0x60);
 
 
     private final byte value;

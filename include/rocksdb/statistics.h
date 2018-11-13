@@ -155,7 +155,7 @@ enum Tickers : uint32_t {
   // Disabled by default. To enable it set stats level to kAll
   DB_MUTEX_WAIT_MICROS,
   RATE_LIMIT_DELAY_MILLIS,
-  NO_ITERATORS,  // number of iterators currently open
+  NO_ITERATOR_CREATED,  // number of iterators created
 
   // Number of MultiGet calls, keys read, and bytes read
   NUMBER_MULTIGET_CALLS,
@@ -322,6 +322,8 @@ enum Tickers : uint32_t {
   // Number of keys actually found in MultiGet calls (vs number requested by caller)
   // NUMBER_MULTIGET_KEYS_READ gives the number requested by caller
   NUMBER_MULTIGET_KEYS_FOUND,
+
+  NO_ITERATOR_DELETED,  // number of iterators deleted
   TICKER_ENUM_MAX
 };
 
@@ -392,7 +394,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {STALL_MICROS, "rocksdb.stall.micros"},
     {DB_MUTEX_WAIT_MICROS, "rocksdb.db.mutex.wait.micros"},
     {RATE_LIMIT_DELAY_MILLIS, "rocksdb.rate.limit.delay.millis"},
-    {NO_ITERATORS, "rocksdb.num.iterators"},
+    {NO_ITERATOR_CREATED, "rocksdb.num.iterator.created"},
     {NUMBER_MULTIGET_CALLS, "rocksdb.number.multiget.get"},
     {NUMBER_MULTIGET_KEYS_READ, "rocksdb.number.multiget.keys.read"},
     {NUMBER_MULTIGET_BYTES_READ, "rocksdb.number.multiget.bytes.read"},
@@ -474,6 +476,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {TXN_DUPLICATE_KEY_OVERHEAD, "rocksdb.txn.overhead.duplicate.key"},
     {TXN_SNAPSHOT_MUTEX_OVERHEAD, "rocksdb.txn.overhead.mutex.snapshot"},
     {NUMBER_MULTIGET_KEYS_FOUND, "rocksdb.number.multiget.keys.found"},
+    {NO_ITERATOR_DELETED, "rocksdb.num.iterator.deleted"},
 };
 
 /**

@@ -142,7 +142,7 @@ class DBIter final: public Iterator {
         allow_blob_(allow_blob),
         is_blob_(false),
         start_seqnum_(read_options.iter_start_seqnum) {
-    RecordTick(statistics_, NO_ITERATORS);
+    RecordTick(statistics_, NO_ITERATOR_CREATED);
     prefix_extractor_ = mutable_cf_options.prefix_extractor.get();
     max_skip_ = max_sequential_skip_in_iterations;
     max_skippable_internal_keys_ = read_options.max_skippable_internal_keys;
@@ -158,9 +158,7 @@ class DBIter final: public Iterator {
     if (pinned_iters_mgr_.PinningEnabled()) {
       pinned_iters_mgr_.ReleasePinnedData();
     }
-    // Compiler warning issue filed:
-    // https://github.com/facebook/rocksdb/issues/3013
-    RecordTick(statistics_, NO_ITERATORS, uint64_t(-1));
+    RecordTick(statistics_, NO_ITERATOR_DELETED);
     ResetInternalKeysSkippedCounter();
     local_stats_.BumpGlobalStatistics(statistics_);
     if (!arena_mode_) {
