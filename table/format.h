@@ -199,6 +199,8 @@ struct BlockContents {
   CacheAllocationPtr allocation;
 
 #ifndef NDEBUG
+  // Whether the block is a raw block, which contains compression type
+  // byte. It is only used for assertion.
   bool is_raw_block = false;
 #endif  // NDEBUG
 
