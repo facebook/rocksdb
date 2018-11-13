@@ -3550,6 +3550,18 @@ const char* rocksdb_livefiles_largestkey(
   return lf->rep[index].largestkey.data();
 }
 
+uint64_t rocksdb_livefiles_entries(
+    const rocksdb_livefiles_t* lf,
+    int index) {
+  return lf->rep[index].num_entries;
+}
+
+uint64_t rocksdb_livefiles_deletions(
+    const rocksdb_livefiles_t* lf,
+    int index) {
+  return lf->rep[index].num_deletions;
+}
+
 extern void rocksdb_livefiles_destroy(
   const rocksdb_livefiles_t* lf) {
   delete lf;
