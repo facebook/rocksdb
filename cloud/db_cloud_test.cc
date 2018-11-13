@@ -683,6 +683,44 @@ TEST_F(CloudTest, Encryption) {
   CloseDB();
 }
 
+#ifdef USE_KAFKA
+TEST_F(CloudTest, KeepLocalLogKafka) {
+  cloud_env_options_.keep_local_log_files = false;
+  cloud_env_options_.log_type = LogType::kLogKafka;
+  cloud_env_options_.kafka_log_options.client_config_params["metadata.broker.list"]
+      = "localhost:9092";
+
+  OpenDB();
+
+  ASSERT_OK(db_->Put(WriteOptions(), "Franz", "Kafka"));
+
+  // Destroy DB in memory and on local file system.
+  delete db_;
+  db_ = nullptr;
+  aenv_.reset();
+  DestroyDir(dbname_);
+  DestroyDir("/tmp/ROCKSET");
+
+  // Create new env.
+  CreateAwsEnv();
+
+  // Give env enough time to consume WALs
+  std::this_thread::sleep_for(std::chrono::seconds(3));
+
+  // Open DB.
+  cloud_env_options_.keep_local_log_files = true;
+  options_.wal_dir = static_cast<AwsEnv*>(aenv_.get())->GetWALCacheDir();
+  OpenDB();
+
+  // Test read.
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "Franz", &value));
+  ASSERT_EQ(value, "Kafka");
+
+  CloseDB();
+}
+#endif /* USE_KAFKA */
+
 // TODO(igor): determine why this fails,
 // https://github.com/rockset/rocksdb-cloud/issues/35
 TEST_F(CloudTest, DISABLED_KeepLocalLogKinesis) {
@@ -947,6 +985,25 @@ TEST_F(CloudTest, NoDestOrSrc) {
   ASSERT_OK(db_->Get(ReadOptions(), "key", &value));
   ASSERT_EQ(value, "value");
   CloseDB();
+}
+
+TEST_F(CloudTest, PreloadCloudManifest) {
+  DestroyDir(dbname_);
+  // Put one key-value
+  OpenDB();
+  std::string value;
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
+  ASSERT_TRUE(value.compare("World") == 0);
+  CloseDB();
+  value.clear();
+
+  // Reopen and validate, preload cloud manifest
+  DBCloud::PreloadCloudManifest(aenv_.get(), dbname_);
+
+  OpenDB();
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
+  ASSERT_EQ(value, "World");
 }
 
 #ifdef AWS_DO_NOT_RUN

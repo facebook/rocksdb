@@ -67,7 +67,7 @@ class CloudEnvImpl : public CloudEnv {
   // The type of cloud service e.g. AWS, Azure, Google,  etc.
   const CloudType cloud_type_;
 
-  // The type of cloud service used for WAL (Kinesis, etc.)
+  // The type of cloud service used for WAL e.g. Kinesis, Kafka, etc.
   const LogType log_type_;
 
   // The dbid of the source database that is cloned

@@ -19,9 +19,6 @@ std::string kDBPath = "/tmp/rocksdb_cloud_durable";
 std::string kBucketSuffix = "cloud.durable.example.";
 std::string kRegion = "us-west-2";
 
-static const bool flushAtEnd = true;
-static const bool disableWAL = false;
-
 int main() {
   // cloud environment config options here
   CloudEnvOptions cloud_env_options;
@@ -75,10 +72,6 @@ int main() {
   // No persistent read-cache
   std::string persistent_cache = "";
 
-  // options for each write
-  WriteOptions wopt;
-  wopt.disableWAL = disableWAL;
-
   // open DB
   DBCloud* db;
   s = DBCloud::Open(options, kDBPath, persistent_cache, 0, &db);
@@ -88,29 +81,6 @@ int main() {
     return -1;
   }
 
-  // Put key-value
-  s = db->Put(wopt, "key1", "value");
-  assert(s.ok());
-  std::string value;
-  // get value
-  s = db->Get(ReadOptions(), "key1", &value);
-  assert(s.ok());
-  assert(value == "value");
-
-  // atomically apply a set of updates
-  {
-    WriteBatch batch;
-    batch.Delete("key1");
-    batch.Put("key2", value);
-    s = db->Write(wopt, &batch);
-  }
-
-  s = db->Get(ReadOptions(), "key1", &value);
-  assert(s.IsNotFound());
-
-  db->Get(ReadOptions(), "key2", &value);
-  assert(value == "value");
-
   // print all values in the database
   rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -119,13 +89,17 @@ int main() {
   }
   delete it;
 
-  // Flush all data from main db to sst files. Release db.
-  if (flushAtEnd) {
-    db->Flush(FlushOptions());
-  }
   delete db;
 
-  fprintf(stdout, "Successfully used db at path %s in bucket %s.\n",
+  // verify that the data is somewhat sane by manaully scanning for cfs
+  std::vector<std::string> cf_names;
+  s = rocksdb::DB::ListColumnFamilies(options, kDBPath, &cf_names);
+  for (std::string cf: cf_names) {
+    std::cout << " Found Column Family " << cf;
+  }
+  std::cout << " \n";
+
+  fprintf(stdout, "Successfully read db at path %s in bucket %s.\n",
           kDBPath.c_str(), bucketName.c_str());
   return 0;
 }

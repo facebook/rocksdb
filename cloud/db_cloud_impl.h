@@ -46,7 +46,7 @@ class DBCloudImpl : public DBCloud {
                                       const std::string& dbid,
                                       const std::string& local_name);
 
-  static Status FetchCloudManifest(const Options& options,
+  static Status FetchCloudManifest(CloudEnv* cenv,
                                    const std::string& local_dbname);
 
   static Status MaybeMigrateManifestFile(Env* env,

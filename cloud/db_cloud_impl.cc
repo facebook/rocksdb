@@ -85,6 +85,26 @@ std::string generateNewEpochId(Env* env) {
 }
 };
 
+Status DBCloud::PreloadCloudManifest(CloudEnv* env, const std::string& local_dbname) {
+  CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(env);
+  Status st;
+  Env* local_env = cenv->GetBaseEnv();
+  local_env->CreateDirIfMissing(local_dbname);
+  if (cenv->GetCloudType() != CloudType::kCloudNone) {
+    st = DBCloudImpl::MaybeMigrateManifestFile(local_env, local_dbname);
+    if (st.ok()) {
+      // Init cloud manifest
+      st = DBCloudImpl::FetchCloudManifest(cenv, local_dbname);
+    }
+    if (st.ok()) {
+      // Inits CloudEnvImpl::cloud_manifest_, which will enable us to read files
+      // from the cloud
+      st = cenv->LoadLocalCloudManifest(local_dbname);
+    }
+  }
+  return st;
+}
+
 Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      const std::string& persistent_cache_path,
@@ -114,7 +134,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     st = DBCloudImpl::MaybeMigrateManifestFile(local_env, local_dbname);
     if (st.ok()) {
       // Init cloud manifest
-      st = DBCloudImpl::FetchCloudManifest(options, local_dbname);
+      st = DBCloudImpl::FetchCloudManifest(cenv, local_dbname);
     }
     if (st.ok()) {
       // Inits CloudEnvImpl::cloud_manifest_, which will enable us to read files
@@ -743,9 +763,8 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
   return Status::OK();
 }
 
-Status DBCloudImpl::FetchCloudManifest(const Options& options,
+Status DBCloudImpl::FetchCloudManifest(CloudEnv* cenv,
                                        const std::string& local_dbname) {
-  CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(options.env);
   bool dest = !cenv->GetDestBucketPrefix().empty();
   bool src = !cenv->GetSrcBucketPrefix().empty();
   bool dest_equal_src =
