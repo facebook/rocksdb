@@ -2888,6 +2888,7 @@ TEST_F(DBTest2, TestGetColumnFamilyHandleUnlocked) {
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBTest2, TestCompactFiles) {
   // Setup sync point dependency to reproduce the race condition of
   // DBImpl::GetColumnFamilyHandleUnlocked
@@ -2946,6 +2947,7 @@ TEST_F(DBTest2, TestCompactFiles) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
 
