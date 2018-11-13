@@ -32,11 +32,13 @@ namespace rocksdb {
 // * equal_keys_ <=> base_iterator == delta_iterator
 class BaseDeltaIterator : public Iterator {
  public:
-  BaseDeltaIterator(Iterator* base_iterator, WBWIIterator* delta_iterator,
-                    const Comparator* comparator)
-      : forward_(true),
+  BaseDeltaIterator(const ReadOptions& read_options, Iterator* base_iterator,
+                    WBWIIterator* delta_iterator, const Comparator* comparator)
+      : read_options_(read_options),
+        forward_(true),
         current_at_base_(true),
         equal_keys_(false),
+        current_over_upper_bound_(false),
         status_(Status::OK()),
         base_iterator_(base_iterator),
         delta_iterator_(delta_iterator),
@@ -45,7 +47,9 @@ class BaseDeltaIterator : public Iterator {
   virtual ~BaseDeltaIterator() {}
 
   bool Valid() const override {
-    return current_at_base_ ? BaseValid() : DeltaValid();
+    return current_over_upper_bound_
+               ? false
+               : (current_at_base_ ? BaseValid() : DeltaValid());
   }
 
   void SeekToFirst() override {
@@ -216,7 +220,13 @@ class BaseDeltaIterator : public Iterator {
     }
     // equal_keys_ <=> compare == 0
     assert((equal_keys_ || compare != 0) && (!equal_keys_ || compare == 0));
+
 #endif
+  }
+
+  bool IsOverUpperBound() {
+    return read_options_.iterate_upper_bound != nullptr &&
+           comparator_->Compare(key(), *read_options_.iterate_upper_bound) >= 0;
   }
 
   void Advance() {
@@ -264,32 +274,32 @@ class BaseDeltaIterator : public Iterator {
       } else if (!delta_iterator_->status().ok()) {
         // Expose the error status and stop.
         current_at_base_ = false;
-        return;
+        break;
       }
       equal_keys_ = false;
       if (!BaseValid()) {
         if (!base_iterator_->status().ok()) {
           // Expose the error status and stop.
           current_at_base_ = true;
-          return;
+          break;
         }
 
         // Base has finished.
         if (!DeltaValid()) {
           // Finished
-          return;
+          break;
         }
         if (delta_entry.type == kDeleteRecord ||
             delta_entry.type == kSingleDeleteRecord) {
           AdvanceDelta();
         } else {
           current_at_base_ = false;
-          return;
+          break;
         }
       } else if (!DeltaValid()) {
         // Delta has finished.
         current_at_base_ = true;
-        return;
+        break;
       } else {
         int compare =
             (forward_ ? 1 : -1) *
@@ -301,7 +311,7 @@ class BaseDeltaIterator : public Iterator {
           if (delta_entry.type != kDeleteRecord &&
               delta_entry.type != kSingleDeleteRecord) {
             current_at_base_ = false;
-            return;
+            break;
           }
           // Delta is less advanced and is delete.
           AdvanceDelta();
@@ -310,18 +320,24 @@ class BaseDeltaIterator : public Iterator {
           }
         } else {
           current_at_base_ = true;
-          return;
+          break;
         }
+      }
+      current_over_upper_bound_ = IsOverUpperBound();
+      if (current_over_upper_bound_) {
+        break;
       }
     }
 
-    AssertInvariants();
+    current_over_upper_bound_ = IsOverUpperBound();
 #endif  // __clang_analyzer__
   }
 
+  ReadOptions read_options_;
   bool forward_;
   bool current_at_base_;
   bool equal_keys_;
+  bool current_over_upper_bound_;
   Status status_;
   std::unique_ptr<Iterator> base_iterator_;
   std::unique_ptr<WBWIIterator> delta_iterator_;
@@ -642,23 +658,37 @@ WBWIIterator* WriteBatchWithIndex::NewIterator(
 }
 
 Iterator* WriteBatchWithIndex::NewIteratorWithBase(
-    ColumnFamilyHandle* column_family, Iterator* base_iterator) {
+    const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    Iterator* base_iterator) {
   if (rep->overwrite_key == false) {
     assert(false);
     return nullptr;
   }
-  return new BaseDeltaIterator(base_iterator, NewIterator(column_family),
+  return new BaseDeltaIterator(read_options, base_iterator,
+                               NewIterator(column_family),
                                GetColumnFamilyUserComparator(column_family));
 }
 
-Iterator* WriteBatchWithIndex::NewIteratorWithBase(Iterator* base_iterator) {
+Iterator* WriteBatchWithIndex::NewIteratorWithBase(
+    ColumnFamilyHandle* column_family, Iterator* base_iterator) {
+  ReadOptions read_options;
+  return NewIteratorWithBase(read_options, column_family, base_iterator);
+}
+
+Iterator* WriteBatchWithIndex::NewIteratorWithBase(
+    const ReadOptions& read_options, Iterator* base_iterator) {
   if (rep->overwrite_key == false) {
     assert(false);
     return nullptr;
   }
   // default column family's comparator
-  return new BaseDeltaIterator(base_iterator, NewIterator(),
+  return new BaseDeltaIterator(read_options, base_iterator, NewIterator(),
                                rep->comparator.default_comparator());
+}
+
+Iterator* WriteBatchWithIndex::NewIteratorWithBase(Iterator* base_iterator) {
+  ReadOptions read_options;
+  return NewIteratorWithBase(read_options, base_iterator);
 }
 
 Status WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,
