@@ -28,9 +28,11 @@ struct PerfContextByLevel {
   // exist.
   uint64_t bloom_filter_full_true_positive = 0;
 
-  uint64_t user_key_return_count;  // total number of user key returned
+  // total number of user key returned (only include keys that are found, does
+  // not include keys that are deleted or merged
+  uint64_t user_key_return_count;
 
-  uint64_t get_processing_time;  // total nanos spent on Get query
+  uint64_t get_from_table_nanos;  // total nanos spent on Get query
 
   void Reset(); // reset all performance counters to zero
 };
