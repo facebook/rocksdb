@@ -1348,9 +1348,8 @@ Status BlockBasedTable::PutDataBlockToCache(
   if (block_cache_compressed != nullptr &&
       raw_block_comp_type != kNoCompression && raw_block_contents != nullptr &&
       raw_block_contents->own_bytes()) {
-    // With this std::move(), the owernship of the memory pointed by
-    // `raw_block_contents` is moved to `block_cont_for_comp_cache`, which will
-    // be added to compressed block cache.
+    // We cannot directly put raw_block_contents because this could point to
+    // an object in the stack.
     BlockContents* block_cont_for_comp_cache =
         new BlockContents(std::move(*raw_block_contents));
     s = block_cache_compressed->Insert(
@@ -1846,31 +1845,32 @@ Status BlockBasedTable::ReadBlockAndMaybeLoadToCache(
                               rep, ro, block_entry, compression_dict,
                               rep->table_options.read_amp_bytes_per_bit,
                               is_index, get_context);
-  }
 
-  // Can't find the block from the cache. If I/O is allowed, read from the file.
-  if (block_entry->value == nullptr && !no_io && ro.fill_cache) {
-    Statistics* statistics = rep->ioptions.statistics;
-    bool do_decompress =
-        block_cache_compressed == nullptr && rep->blocks_maybe_compressed;
-    CompressionType raw_block_comp_type;
-    BlockContents raw_block_contents;
-    {
-      StopWatch sw(rep->ioptions.env, statistics, READ_BLOCK_GET_MICROS);
+    // Can't find the block from the cache. If I/O is allowed, read from the
+    // file.
+    if (block_entry->value == nullptr && !no_io && ro.fill_cache) {
+      Statistics* statistics = rep->ioptions.statistics;
+      bool do_decompress =
+          block_cache_compressed == nullptr && rep->blocks_maybe_compressed;
+      CompressionType raw_block_comp_type;
+      BlockContents raw_block_contents;
+      {
+        StopWatch sw(rep->ioptions.env, statistics, READ_BLOCK_GET_MICROS);
 
-      BlockFetcher block_fetcher(
-          rep->file.get(), prefetch_buffer, rep->footer, ro, handle,
-          &raw_block_contents, rep->ioptions, do_decompress /* do uncompress */,
-          compression_dict, rep->persistent_cache_options,
-          GetMemoryAllocator(rep->table_options));
-      s = block_fetcher.ReadBlockContents();
-      raw_block_comp_type = block_fetcher.get_compression_type();
-    }
+        BlockFetcher block_fetcher(
+            rep->file.get(), prefetch_buffer, rep->footer, ro, handle,
+            &raw_block_contents, rep->ioptions,
+            do_decompress /* do uncompress */, compression_dict,
+            rep->persistent_cache_options,
+            GetMemoryAllocator(rep->table_options));
+        s = block_fetcher.ReadBlockContents();
+        raw_block_comp_type = block_fetcher.get_compression_type();
+      }
 
-    if (s.ok()) {
-      SequenceNumber seq_no = rep->get_global_seqno(is_index);
-      // If filling cache is allowed and a cache is configured, try to put the
-      // block to the cache.
+      if (s.ok()) {
+        SequenceNumber seq_no = rep->get_global_seqno(is_index);
+        // If filling cache is allowed and a cache is configured, try to put the
+        // block to the cache.
         s = PutDataBlockToCache(
             key, ckey, block_cache, block_cache_compressed, ro, rep->ioptions,
             block_entry, &raw_block_contents, raw_block_comp_type,
@@ -1881,6 +1881,7 @@ Status BlockBasedTable::ReadBlockAndMaybeLoadToCache(
                 ? Cache::Priority::HIGH
                 : Cache::Priority::LOW,
             get_context, GetMemoryAllocator(rep->table_options));
+      }
     }
   }
   assert(s.ok() || block_entry->value == nullptr);

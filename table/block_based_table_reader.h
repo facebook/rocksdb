@@ -311,7 +311,7 @@ class BlockBasedTable : public TableReader {
   // uncompressed block and its cache handle.
   //
   // Allocated memory managed by raw_block_contents will be transferred to
-  // PutDataBlockToCache(). After the call, the class will be invalid.
+  // PutDataBlockToCache(). After the call, the object will be invalid.
   // @param compression_dict Data for presetting the compression library's
   //    dictionary.
   static Status PutDataBlockToCache(
