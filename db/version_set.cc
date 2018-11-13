@@ -1218,6 +1218,10 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       sample_file_read_inc(f->file_metadata);
     }
 
+    bool timer_enabled =
+        GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
+        get_perf_context()->per_level_perf_context_enabled;
+    StopWatchNano timer(env_, timer_enabled /* auto_start */);
     *status = table_cache_->Get(
         read_options, *internal_comparator(), *f->file_metadata, ikey,
         &get_context, mutable_cf_options_.prefix_extractor.get(),
@@ -1226,6 +1230,10 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                         fp.IsHitFileLastInLevel()),
         fp.GetCurrentLevel());
     // TODO: examine the behavior for corrupted key
+    if (timer_enabled) {
+      PERF_COUNTER_BY_LEVEL_ADD(get_from_table_nanos, timer.ElapsedNanos(),
+                                fp.GetCurrentLevel());
+    }
     if (!status->ok()) {
       return;
     }
@@ -1241,6 +1249,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         // Keep searching in other files
         break;
       case GetContext::kMerge:
+        // TODO: update per-level perfcontext user_key_return_count for kMerge
         break;
       case GetContext::kFound:
         if (fp.GetHitFileLevel() == 0) {
@@ -1250,6 +1259,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         } else if (fp.GetHitFileLevel() >= 2) {
           RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
         }
+        PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1, fp.GetHitFileLevel());
         return;
       case GetContext::kDeleted:
         // Use empty error message for speed
