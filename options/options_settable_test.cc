@@ -97,6 +97,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct BlockBasedTableOptions, filter_policy),
        sizeof(std::shared_ptr<const FilterPolicy>)},
+      {offsetof(struct BlockBasedTableOptions, memory_allocator),
+       sizeof(std::shared_ptr<MemoryAllocator>)},
   };
 
   // In this test, we catch a new option of BlockBasedTableOptions that is not
