@@ -95,8 +95,16 @@ endif
 
 # Lite build flag.
 LITE ?= 0
-ifneq ($(LITE), 0)
+ifeq ($(LITE), 0)
+ifneq ($(filter -DROCKSDB_LITE,$(OPT)),)
+  # Be backward compatible and support older format where OPT=-DROCKSDB_LITE is
+  # specified instead of LITE=1 on the command line.
+  LITE=1
+endif
+else ifeq ($(LITE), 1)
+ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
 	OPT += -DROCKSDB_LITE
+endif
 endif
 
 # Figure out optimize level.
