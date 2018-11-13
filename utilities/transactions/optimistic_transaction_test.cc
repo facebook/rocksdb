@@ -883,6 +883,13 @@ TEST_F(OptimisticTransactionTest, IteratorUpperBoundTest) {
     key_count++;
   }
   ASSERT_EQ(key_count, 1);
+  // Test Seek to a key equal or over upper bound
+  it->Seek("a2");
+  ASSERT_FALSE(it->Valid());
+  it->Seek("a3");
+  ASSERT_FALSE(it->Valid());
+  it->Seek("a1");
+  ASSERT_TRUE(it->Valid());
   it.reset();
 
   s = txn->Commit();
