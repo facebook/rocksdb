@@ -310,8 +310,8 @@ class BlockBasedTable : public TableReader {
   // On success, Status::OK will be returned; also @block will be populated with
   // uncompressed block and its cache handle.
   //
-  // REQUIRES: raw_block is heap-allocated. PutDataBlockToCache() will be
-  // responsible for releasing its memory if error occurs.
+  // Allocated memory managed by raw_block_contents will be transferred to
+  // PutDataBlockToCache(). After the call, the class will be invalid.
   // @param compression_dict Data for presetting the compression library's
   //    dictionary.
   static Status PutDataBlockToCache(

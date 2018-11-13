@@ -1348,6 +1348,9 @@ Status BlockBasedTable::PutDataBlockToCache(
   if (block_cache_compressed != nullptr &&
       raw_block_comp_type != kNoCompression && raw_block_contents != nullptr &&
       raw_block_contents->own_bytes()) {
+    // With this std::move(), the owernship of the memory pointed by
+    // `raw_block_contents` is moved to `block_cont_for_comp_cache`, which will
+    // be added to compressed block cache.
     BlockContents* block_cont_for_comp_cache =
         new BlockContents(std::move(*raw_block_contents));
     s = block_cache_compressed->Insert(
@@ -1748,7 +1751,10 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     // is destoryed as long as cleanup functions are moved to another object,
     // when:
     // 1. block cache handle is set to be released in cleanup function, or
-    // 2. it's pointing to immortable source. We can determine this case by
+    // 2. it's pointing to immortable source. If own_bytes is true then we are
+    //    not reading data from the original source, weather immortal or not.
+    //    Otherwise, the block is pinned iff the source is immortal.
+    //    We can determine this case by
     //    checking: (1) the block doesn't own bytes itself (outside source,
     //    usually mmapped bytes) (2) the source is immortable
     bool block_contents_pinned =
