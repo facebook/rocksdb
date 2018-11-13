@@ -325,7 +325,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
       const bool is_index = true;
       // TODO: Support counter batch update for partitioned index and
       // filter blocks
-      s = table_->ReadBlockAndMaybeLoadToCache(
+      s = table_->MaybeReadBlockAndLoadToCache(
           prefetch_buffer.get(), rep, ro, handle, compression_dict, &block,
           is_index, nullptr /* get_context */);
 
@@ -982,7 +982,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         s.ToString().c_str());
   } else if (found_range_del_block && !rep->range_del_handle.IsNull()) {
     ReadOptions read_options;
-    s = ReadBlockAndMaybeLoadToCache(
+    s = MaybeReadBlockAndLoadToCache(
         prefetch_buffer.get(), rep, read_options, rep->range_del_handle,
         Slice() /* compression_dict */, &rep->range_del_entry,
         false /* is_index */, nullptr /* get_context */);
@@ -1712,7 +1712,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     if (rep->compression_dict_block) {
       compression_dict = rep->compression_dict_block->data;
     }
-    s = ReadBlockAndMaybeLoadToCache(prefetch_buffer, rep, ro, handle,
+    s = MaybeReadBlockAndLoadToCache(prefetch_buffer, rep, ro, handle,
                                      compression_dict, &block, is_index,
                                      get_context);
   }
@@ -1772,7 +1772,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
         // insert a dummy record to block cache to track the memory usage
         Cache::Handle* cache_handle;
         // There are two other types of cache keys: 1) SST cache key added in
-        // `ReadBlockAndMaybeLoadToCache` 2) dummy cache key added in
+        // `MaybeReadBlockAndLoadToCache` 2) dummy cache key added in
         // `write_buffer_manager`. Use longer prefix (41 bytes) to differentiate
         // from SST cache key(31 bytes), and use non-zero prefix to
         // differentiate from `write_buffer_manager`
@@ -1808,7 +1808,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   return iter;
 }
 
-Status BlockBasedTable::ReadBlockAndMaybeLoadToCache(
+Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
     FilePrefetchBuffer* prefetch_buffer, Rep* rep, const ReadOptions& ro,
     const BlockHandle& handle, Slice compression_dict,
     CachableEntry<Block>* block_entry, bool is_index, GetContext* get_context) {
