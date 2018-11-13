@@ -1698,6 +1698,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     FilePrefetchBuffer* prefetch_buffer) {
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
 
+  const bool no_io = (ro.read_tier == kBlockCacheTier);
   Cache* block_cache = rep->table_options.block_cache.get();
   CachableEntry<Block> block;
   Slice compression_dict;
@@ -1718,10 +1719,26 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   }
   // Didn't get any data and there isn't any error. Must be no_io = true
   if (s.ok() && block.value == nullptr) {
-    assert(ro.read_tier == kBlockCacheTier);
-    // Could not read from block_cache and can't do IO
-    iter->Invalidate(Status::Incomplete("no blocking io"));
-    return iter;
+    if (no_io) {
+      // Could not read from block_cache and can't do IO
+      iter->Invalidate(Status::Incomplete("no blocking io"));
+      return iter;
+    }
+    std::unique_ptr<Block> block_value;
+    {
+      StopWatch sw(rep->ioptions.env, rep->ioptions.statistics,
+                   READ_BLOCK_GET_MICROS);
+      s = ReadBlockFromFile(
+          rep->file.get(), prefetch_buffer, rep->footer, ro, handle,
+          &block_value, rep->ioptions, rep->blocks_maybe_compressed,
+          compression_dict, rep->persistent_cache_options,
+          is_index ? kDisableGlobalSequenceNumber : rep->global_seqno,
+          rep->table_options.read_amp_bytes_per_bit,
+          GetMemoryAllocator(rep->table_options));
+    }
+    if (s.ok()) {
+      block.value = block_value.release();
+    }
   }
 
   if (s.ok()) {
@@ -1826,11 +1843,10 @@ Status BlockBasedTable::ReadBlockAndMaybeLoadToCache(
   }
 
   // Can't find the block from the cache. If I/O is allowed, read from the file.
-  if (block_entry->value == nullptr && !no_io) {
+  if (block_entry->value == nullptr && !no_io && ro.fill_cache) {
     Statistics* statistics = rep->ioptions.statistics;
-    bool do_decompress = rep->blocks_maybe_compressed &&
-                         (!ro.fill_cache || block_cache_compressed == nullptr);
-
+    bool do_decompress =
+        block_cache_compressed == nullptr && rep->blocks_maybe_compressed;
     CompressionType raw_block_comp_type;
     BlockContents raw_block_contents;
     {
@@ -1849,8 +1865,6 @@ Status BlockBasedTable::ReadBlockAndMaybeLoadToCache(
       SequenceNumber seq_no = rep->get_global_seqno(is_index);
       // If filling cache is allowed and a cache is configured, try to put the
       // block to the cache.
-      if (ro.fill_cache &&
-          (block_cache != nullptr || block_cache_compressed != nullptr)) {
         s = PutDataBlockToCache(
             key, ckey, block_cache, block_cache_compressed, ro, rep->ioptions,
             block_entry, &raw_block_contents, raw_block_comp_type,
@@ -1861,11 +1875,6 @@ Status BlockBasedTable::ReadBlockAndMaybeLoadToCache(
                 ? Cache::Priority::HIGH
                 : Cache::Priority::LOW,
             get_context, GetMemoryAllocator(rep->table_options));
-      } else {
-        block_entry->value =
-            new Block(std::move(raw_block_contents), seq_no,
-                      rep->table_options.read_amp_bytes_per_bit, statistics);
-      }
     }
   }
   assert(s.ok() || block_entry->value == nullptr);
