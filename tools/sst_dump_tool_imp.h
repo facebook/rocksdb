@@ -6,18 +6,15 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/sst_dump_tool.h"
+#include "table/internal_sst_file_reader.h"
 
-#include <memory>
 #include <string>
-#include "db/dbformat.h"
-#include "options/cf_options.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
-class SstFileReader {
+class SstFileDumper : public InternalSstFileReader {
  public:
-  explicit SstFileReader(const std::string& file_name, bool verify_checksum,
+  explicit SstFileDumper(const std::string& file_name, bool verify_checksum,
                          bool output_hex);
 
   Status ReadSequential(bool print_kv, uint64_t read_num, bool has_from,
@@ -30,9 +27,9 @@ class SstFileReader {
   uint64_t GetReadNumber() { return read_num_; }
   TableProperties* GetInitTableProperties() { return table_properties_.get(); }
 
-  Status VerifyChecksum();
   Status DumpTable(const std::string& out_filename);
-  Status getStatus() { return init_result_; }
+
+  virtual ~SstFileDumper() {}
 
   int ShowAllCompressionSizes(
       size_t block_size,
@@ -40,43 +37,19 @@ class SstFileReader {
           compression_types);
 
  private:
-  // Get the TableReader implementation for the sst file
-  Status GetTableReader(const std::string& file_path);
-  Status ReadTableProperties(uint64_t table_magic_number,
-                             RandomAccessFileReader* file, uint64_t file_size);
+  virtual Status SetTableOptionsByMagicNumber(
+      uint64_t table_magic_number) override;
+  virtual Status SetOldTableOptions() override;
+  virtual Status ReadTableProperties(uint64_t table_magic_number,
+                                     RandomAccessFileReader* file,
+                                     uint64_t file_size) override;
 
   uint64_t CalculateCompressedTableSize(const TableBuilderOptions& tb_options,
                                         size_t block_size);
 
-  Status SetTableOptionsByMagicNumber(uint64_t table_magic_number);
-  Status SetOldTableOptions();
-
-  // Helper function to call the factory with settings specific to the
-  // factory implementation
-  Status NewTableReader(const ImmutableCFOptions& ioptions,
-                        const EnvOptions& soptions,
-                        const InternalKeyComparator& internal_comparator,
-                        uint64_t file_size,
-                        std::unique_ptr<TableReader>* table_reader);
-
-  std::string file_name_;
-  uint64_t read_num_;
   bool verify_checksum_;
+  uint64_t read_num_;
   bool output_hex_;
-  EnvOptions soptions_;
-
-  // options_ and internal_comparator_ will also be used in
-  // ReadSequential internally (specifically, seek-related operations)
-  Options options_;
-
-  Status init_result_;
-  std::unique_ptr<TableReader> table_reader_;
-  std::unique_ptr<RandomAccessFileReader> file_;
-
-  const ImmutableCFOptions ioptions_;
-  const MutableCFOptions moptions_;
-  InternalKeyComparator internal_comparator_;
-  std::unique_ptr<TableProperties> table_properties_;
 };
 
 }  // namespace rocksdb

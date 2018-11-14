@@ -9,6 +9,7 @@
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/sst_file_reader.h"
 #include "rocksdb/sst_file_writer.h"
 #include "util/filename.h"
 #include "util/testutil.h"
@@ -453,6 +454,63 @@ TEST_F(ExternalSSTFileTest, Basic) {
     for (int k = 400; k < 500; k++) {
       std::string value = Key(k) + "_val";
       ASSERT_EQ(Get(Key(k)), value);
+    }
+    DestroyAndRecreateExternalSSTFilesDir();
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction |
+                         kRangeDelSkipConfigs));
+}
+
+TEST_F(ExternalSSTFileTest, SstFileReader) {
+  do {
+    Options options = CurrentOptions();
+
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+
+    std::string file_read = sst_files_dir_ + "file_read.sst";
+    ASSERT_OK(sst_file_writer.Open(file_read));
+    for (int k = 0; k < 100; k++) {
+      ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val_1"));
+    }
+    for (int k = 110; k < 120; k++) {
+      ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val_2"));
+    }
+    ExternalSstFileInfo file_read_info;
+    Status s = sst_file_writer.Finish(&file_read_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+
+    ASSERT_GT(sst_file_writer.FileSize(), 0);
+
+    SstFileReader sst_file_reader(file_read_info.file_path);
+    ASSERT_OK(sst_file_reader.getStatus());
+    ASSERT_OK(sst_file_reader.VerifyChecksum());
+
+    {  // test iterator
+      std::unique_ptr<SstKVIterator> iter(
+          sst_file_reader.NewIterator(true, false));
+      for (int k = 0; k < 100; k++) {
+        auto key = Key(k);
+        auto value = Key(k) + "_val_1";
+        iter->Seek(key);
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(iter->value(), value);
+        SequenceNumber number;
+        std::string str = iter->key(&number, nullptr).ToString();
+        ASSERT_EQ(number, 0);
+        ASSERT_EQ(str, key);
+      }
+      iter->Seek(Key(110));
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->value(), Key(110) + "_val_2");
+    }
+    {  // test table properties
+      std::shared_ptr<const rocksdb::TableProperties>
+          table_properties_from_reader;
+      ASSERT_OK(
+          sst_file_reader.ReadTableProperties(&table_properties_from_reader));
+      const rocksdb::TableProperties* table_properties =
+          table_properties_from_reader.get();
+      ASSERT_GE(table_properties->data_size, 0);
+      ASSERT_EQ(file_read_info.num_entries, table_properties->num_entries);
     }
     DestroyAndRecreateExternalSSTFilesDir();
   } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction |
@@ -1318,7 +1376,7 @@ TEST_F(ExternalSSTFileTest, IngestNonExistingFile) {
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
-  
+
   // After full compaction, there should be only 1 file.
   std::vector<std::string> files;
   env_->GetChildren(dbname_, &files);
