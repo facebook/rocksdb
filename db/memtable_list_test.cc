@@ -109,7 +109,6 @@ class MemTableListTest : public testing::Test {
     // Create a mock VersionSet
     DBOptions db_options;
     ImmutableDBOptions immutable_db_options(db_options);
-    MutableDBOptions mutable_db_options(db_options);
     EnvOptions env_options;
     std::shared_ptr<Cache> table_cache(NewLRUCache(50000, 16));
     WriteBufferManager write_buffer_manager(db_options.db_write_buffer_size);
@@ -122,7 +121,7 @@ class MemTableListTest : public testing::Test {
     cf_descs.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
     cf_descs.emplace_back("one", ColumnFamilyOptions());
     cf_descs.emplace_back("two", ColumnFamilyOptions());
-    EXPECT_OK(versions.Recover(cf_descs, &mutable_db_options, false));
+    EXPECT_OK(versions.Recover(cf_descs, false));
 
     // Create mock default ColumnFamilyData
 

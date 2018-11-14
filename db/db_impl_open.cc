@@ -385,14 +385,32 @@ Status DBImpl::Recover(
     }
   }
 
-  // mutex held, see beginning
-  Status s =
-      versions_->Recover(column_families, &mutable_db_options_, read_only);
+  Status s = versions_->Recover(column_families, read_only);
+  bool persistent_stats_cfd_exists = false;
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->GetName().compare(kPersistentStatsColumnFamilyName) == 0) {
+      persistent_stats_cfd_exists = true;
+    }
+  }
+  // create persistent_stats CF for the first time
+  if (mutable_db_options_.stats_persist_period_sec != 0 &&
+      !persistent_stats_cfd_exists) {
+    mutex_.Unlock();
+    ColumnFamilyHandle* handle = nullptr;
+    s = CreateColumnFamily(ColumnFamilyOptions(),
+                           kPersistentStatsColumnFamilyName, &handle);
+    persist_stats_cf_handle_ =
+        reinterpret_cast<ColumnFamilyHandleImpl*>(handle);
+    mutex_.Lock();
+  }
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
   }
   if (s.ok() && !read_only) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->GetName().compare(kPersistentStatsColumnFamilyName) == 0) {
+        continue;
+      }
       s = cfd->AddDirectories();
       if (!s.ok()) {
         return s;
@@ -414,7 +432,11 @@ Status DBImpl::Recover(
     default_cf_handle_ = new ColumnFamilyHandleImpl(
         versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
     default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
-    if (mutable_db_options_.stats_persist_period_sec != 0) {
+    // When recovering from a DB which already contains persistent stats CF,
+    // the CF is already created in VersionSet::ApplyOneVersionEdit, but
+    // column family handle was not. Need to explicitly create handle here.
+    if (mutable_db_options_.stats_persist_period_sec != 0 &&
+        persist_stats_cf_handle_ == nullptr) {
       persist_stats_cf_handle_ = new ColumnFamilyHandleImpl(
           versions_->GetColumnFamilySet()->GetColumnFamily(
               kPersistentStatsColumnFamilyName),

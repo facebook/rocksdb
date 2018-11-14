@@ -222,8 +222,7 @@ class CompactionJobTest : public testing::Test {
     cf_options_.compaction_filter = compaction_filter_.get();
     column_families.emplace_back(kDefaultColumnFamilyName, cf_options_);
 
-    MutableDBOptions mutable_db_options;
-    EXPECT_OK(versions_->Recover(column_families, &mutable_db_options, false));
+    EXPECT_OK(versions_->Recover(column_families, false));
     cfd_ = versions_->GetColumnFamilySet()->GetDefault();
   }
 

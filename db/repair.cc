@@ -100,7 +100,6 @@ class Repairer {
         env_options_(),
         db_options_(SanitizeOptions(dbname_, db_options)),
         immutable_db_options_(ImmutableDBOptions(db_options_)),
-        mutable_db_options_(db_options_),
         icmp_(default_cf_opts.comparator),
         default_cf_opts_(
             SanitizeOptions(immutable_db_options_, default_cf_opts)),
@@ -191,8 +190,8 @@ class Repairer {
     if (status.ok()) {
       mutex_.Lock();
       // Recover using the fresh manifest created by NewDB()
-      status = vset_.Recover({{kDefaultColumnFamilyName, default_cf_opts_}},
-                             &mutable_db_options_, false);
+      status =
+          vset_.Recover({{kDefaultColumnFamilyName, default_cf_opts_}}, false);
       mutex_.Unlock();
     }
     if (status.ok()) {
@@ -238,7 +237,6 @@ class Repairer {
   const EnvOptions env_options_;
   const DBOptions db_options_;
   const ImmutableDBOptions immutable_db_options_;
-  MutableDBOptions mutable_db_options_;
   const InternalKeyComparator icmp_;
   const ColumnFamilyOptions default_cf_opts_;
   const ImmutableCFOptions default_cf_iopts_;  // table_cache_ holds reference

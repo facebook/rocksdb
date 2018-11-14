@@ -50,8 +50,7 @@ class FlushJobTest : public testing::Test {
       column_families.emplace_back(cf_name, cf_options_);
     }
 
-    MutableDBOptions mutable_db_options(options_);
-    EXPECT_OK(versions_->Recover(column_families, &mutable_db_options, false));
+    EXPECT_OK(versions_->Recover(column_families, false));
   }
 
   void NewDB() {

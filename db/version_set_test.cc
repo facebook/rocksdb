@@ -611,7 +611,6 @@ class VersionSetTest : public testing::Test {
       : env_(Env::Default()),
         dbname_(test::PerThreadDBPath("version_set_test")),
         db_options_(),
-        mutable_db_options_(),
         mutable_cf_options_(cf_options_),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
@@ -692,7 +691,7 @@ class VersionSetTest : public testing::Test {
     Status s = SetCurrentFile(env_, dbname_, 1, nullptr);
     ASSERT_OK(s);
 
-    EXPECT_OK(versions_->Recover(column_families, &mutable_db_options_, false));
+    EXPECT_OK(versions_->Recover(column_families, false));
     EXPECT_EQ(column_families.size(),
               versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
   }
@@ -701,7 +700,6 @@ class VersionSetTest : public testing::Test {
   const std::string dbname_;
   EnvOptions env_options_;
   ImmutableDBOptions db_options_;
-  MutableDBOptions mutable_db_options_;
   ColumnFamilyOptions cf_options_;
   MutableCFOptions mutable_cf_options_;
   std::shared_ptr<Cache> table_cache_;
@@ -800,7 +798,7 @@ TEST_F(VersionSetTest, HandleValidAtomicGroup) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  EXPECT_OK(versions_->Recover(column_families, &mutable_db_options_, false));
+  EXPECT_OK(versions_->Recover(column_families, false));
   EXPECT_EQ(column_families.size(),
             versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
   EXPECT_TRUE(first_in_atomic_group);
@@ -857,7 +855,7 @@ TEST_F(VersionSetTest, HandleIncompleteTrailingAtomicGroup) {
                                         [&](void* /* arg */) { ++num; });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  EXPECT_OK(versions_->Recover(column_families, &mutable_db_options_, false));
+  EXPECT_OK(versions_->Recover(column_families, false));
   EXPECT_EQ(column_families.size(),
             versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
   EXPECT_TRUE(first_in_atomic_group);
@@ -906,7 +904,7 @@ TEST_F(VersionSetTest, HandleCorruptedAtomicGroup) {
         mixed = true;
       });
   SyncPoint::GetInstance()->EnableProcessing();
-  EXPECT_NOK(versions_->Recover(column_families, &mutable_db_options_, false));
+  EXPECT_NOK(versions_->Recover(column_families, false));
   EXPECT_EQ(column_families.size(),
             versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
   EXPECT_TRUE(mixed);
@@ -955,7 +953,7 @@ TEST_F(VersionSetTest, HandleIncorrectAtomicGroupSize) {
         incorrect_group_size = true;
       });
   SyncPoint::GetInstance()->EnableProcessing();
-  EXPECT_NOK(versions_->Recover(column_families, &mutable_db_options_, false));
+  EXPECT_NOK(versions_->Recover(column_families, false));
   EXPECT_EQ(column_families.size(),
             versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
   EXPECT_TRUE(incorrect_group_size);

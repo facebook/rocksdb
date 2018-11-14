@@ -3300,6 +3300,7 @@ Status VersionSet::ApplyOneVersionEdit(
       column_families_not_found.insert(
           {edit.column_family_, edit.column_family_name_});
     } else {
+      // recover persistent_stats CF from a DB that already contains it
       if (is_persistent_stats_column_family) {
         cfd = CreateColumnFamily(ColumnFamilyOptions(), &edit);
       } else {
@@ -3396,7 +3397,7 @@ Status VersionSet::ApplyOneVersionEdit(
 
 Status VersionSet::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
-    MutableDBOptions* mutable_db_options, bool read_only) {
+    bool read_only) {
   std::unordered_map<std::string, ColumnFamilyOptions> cf_name_to_options;
   for (auto cf : column_families) {
     cf_name_to_options.insert({cf.name, cf.options});
@@ -3485,17 +3486,12 @@ Status VersionSet::Recover(
     std::string scratch;
     std::vector<VersionEdit> replay_buffer;
     size_t num_entries_decoded = 0;
-    bool persistent_stats_cfd_exists = false;
+    // bool persistent_stats_cfd_exists = false;
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
       VersionEdit edit;
       s = edit.DecodeFrom(record);
       if (!s.ok()) {
         break;
-      }
-      // reopening a DB which already contains column family _persistent_stats
-      if (edit.column_family_name_.compare(kPersistentStatsColumnFamilyName) ==
-          0) {
-        persistent_stats_cfd_exists = true;
       }
 
       if (edit.is_in_atomic_group_) {
@@ -3548,26 +3544,6 @@ Status VersionSet::Recover(
       if (!s.ok()) {
         break;
       }
-    }
-    // use persistent_stats_version_edit to restore column family for the
-    // first time
-    if (mutable_db_options->stats_persist_period_sec != 0 &&
-        !persistent_stats_cfd_exists) {
-      ColumnFamilyOptions persistent_stats_options;
-      VersionEdit persistent_stats_cf_edit;
-      persistent_stats_cf_edit.AddColumnFamily(
-          kPersistentStatsColumnFamilyName);
-      uint32_t next_id = column_family_set_->GetNextColumnFamilyID();
-      persistent_stats_cf_edit.SetColumnFamily(next_id);
-      ColumnFamilyData* persistent_stats_cfd = CreateColumnFamily(
-          persistent_stats_options, &persistent_stats_cf_edit);
-      // In recovery, nobody else can access it, so it's fine to set it to be
-      // initialized earlier.
-      persistent_stats_cfd->set_initialized();
-      BaseReferencedVersionBuilder* builder =
-          new BaseReferencedVersionBuilder(persistent_stats_cfd);
-      builder->version_builder()->Apply(&persistent_stats_cf_edit);
-      builders.insert({next_id, builder});
     }
   }
 
@@ -3773,7 +3749,6 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   }
 
   ImmutableDBOptions db_options(*options);
-  MutableDBOptions mutable_db_options(*options);
   ColumnFamilyOptions cf_options(*options);
   InstrumentedMutex dummy_mutex;
   std::shared_ptr<Cache> tc(NewLRUCache(options->max_open_files - 10,
@@ -3789,7 +3764,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   dummy.push_back(dummy_descriptor);
   {
     InstrumentedMutexLock l(&dummy_mutex);
-    status = versions.Recover(dummy, &mutable_db_options);
+    status = versions.Recover(dummy);
   }
   if (!status.ok()) {
     return status;

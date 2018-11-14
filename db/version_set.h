@@ -804,7 +804,7 @@ class VersionSet {
   // are not opened
   // REQUIRES: DB mutex held
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
-                 MutableDBOptions* mutable_db_options, bool read_only = false);
+                 bool read_only = false);
 
   // Reads a manifest file and returns a list of column families in
   // column_families.

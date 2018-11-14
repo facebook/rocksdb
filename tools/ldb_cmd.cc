@@ -942,7 +942,6 @@ void DumpManifestFile(std::string file, bool verbose, bool hex, bool json) {
   WriteController wc(options.delayed_write_rate);
   WriteBufferManager wb(options.db_write_buffer_size);
   ImmutableDBOptions immutable_db_options(options);
-  MutableDBOptions mutable_db_options(options);
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc);
   Status s = versions.DumpManifest(options, file, verbose, hex, json);
   if (!s.ok()) {
@@ -1644,7 +1643,6 @@ Options ReduceDBLevelsCommand::PrepareOptionsForOpenDB() {
 Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
     int* levels) {
   ImmutableDBOptions db_options(opt);
-  MutableDBOptions mutable_db_options(opt);
   EnvOptions soptions;
   std::shared_ptr<Cache> tc(
       NewLRUCache(opt.max_open_files - 10, opt.table_cache_numshardbits));
@@ -1659,7 +1657,7 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
   // We rely the VersionSet::Recover to tell us the internal data structures
   // in the db. And the Recover() should never do any change
   // (like LogAndApply) to the manifest file.
-  Status st = versions.Recover(dummy, &mutable_db_options);
+  Status st = versions.Recover(dummy);
   if (!st.ok()) {
     return st;
   }
