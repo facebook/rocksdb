@@ -208,8 +208,9 @@ class Transaction {
   // Read this key and ensure that this transaction will only
   // be able to be committed if this key is not written outside this
   // transaction after it has first been read (or after the snapshot if a
-  // snapshot is set in this transaction).  The transaction behavior is the
-  // same regardless of whether the key exists or not.
+  // snapshot is set in this transaction and skip_validate is false).  The
+  // transaction behavior is the same regardless of whether the key exists or
+  // not.
   //
   // Note: Currently, this function will return Status::MergeInProgress
   // if the most recent write to the queried key in this batch is a Merge.
@@ -234,7 +235,8 @@ class Transaction {
   virtual Status GetForUpdate(const ReadOptions& options,
                               ColumnFamilyHandle* column_family,
                               const Slice& key, std::string* value,
-                              bool exclusive = true) = 0;
+                              bool exclusive = true,
+                              bool skip_validate = false) = 0;
 
   // An overload of the above method that receives a PinnableSlice
   // For backward compatibility a default implementation is provided

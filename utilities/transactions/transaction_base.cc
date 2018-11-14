@@ -215,8 +215,9 @@ Status TransactionBaseImpl::Get(const ReadOptions& read_options,
 Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
                                          ColumnFamilyHandle* column_family,
                                          const Slice& key, std::string* value,
-                                         bool exclusive) {
-  Status s = TryLock(column_family, key, true /* read_only */, exclusive);
+                                         bool exclusive, bool skip_validate) {
+  Status s = TryLock(column_family, key, true /* read_only */, exclusive,
+                     skip_validate);
 
   if (s.ok() && value != nullptr) {
     assert(value != nullptr);
@@ -234,11 +235,11 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
                                          ColumnFamilyHandle* column_family,
                                          const Slice& key,
                                          PinnableSlice* pinnable_val,
-                                         bool exclusive) {
+                                         bool exclusive, bool skip_validate) {
   Status s = TryLock(column_family, key, true /* read_only */, exclusive);
 
   if (s.ok() && pinnable_val != nullptr) {
-    s = Get(read_options, column_family, key, pinnable_val);
+    s = Get(read_options, column_family, key, pinnable_val, skip_validate);
   }
   return s;
 }

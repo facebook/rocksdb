@@ -36,8 +36,8 @@ class TransactionBaseImpl : public Transaction {
 
   // Called before executing Put, Merge, Delete, and GetForUpdate.  If TryLock
   // returns non-OK, the Put/Merge/Delete/GetForUpdate will be failed.
-  // skip_validate will be true if called from PutUntracked, DeleteUntracked, or
-  // MergeUntracked.
+  // skip_validate will be true if called from PutUntracked, DeleteUntracked,
+  // MergeUntracked, or GetForUpdate(skip_validate=true)
   virtual Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
                          bool read_only, bool exclusive,
                          bool skip_validate = false) = 0;
@@ -63,16 +63,19 @@ class TransactionBaseImpl : public Transaction {
   using Transaction::GetForUpdate;
   Status GetForUpdate(const ReadOptions& options,
                       ColumnFamilyHandle* column_family, const Slice& key,
-                      std::string* value, bool exclusive) override;
+                      std::string* value, bool exclusive,
+                      bool skip_validate) override;
 
   Status GetForUpdate(const ReadOptions& options,
                       ColumnFamilyHandle* column_family, const Slice& key,
-                      PinnableSlice* pinnable_val, bool exclusive) override;
+                      PinnableSlice* pinnable_val, bool exclusive,
+                      bool skip_validate) override;
 
   Status GetForUpdate(const ReadOptions& options, const Slice& key,
-                      std::string* value, bool exclusive) override {
+                      std::string* value, bool exclusive,
+                      bool skip_validate) override {
     return GetForUpdate(options, db_->DefaultColumnFamily(), key, value,
-                        exclusive);
+                        exclusive, skip_validate);
   }
 
   std::vector<Status> MultiGet(
