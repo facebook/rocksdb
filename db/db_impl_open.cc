@@ -479,6 +479,28 @@ Status DBImpl::Recover(
     }
   }
 
+  if (read_only) {
+    // If we are opening as read-only, we need to update options_file_number_
+    // to reflect the most recent OPTIONS file. It does not matter for regular
+    // read-write db instance because options_file_number_ will later be
+    // updated to versions_->NewFileNumber() in RenameTempFileToOptionsFile.
+    std::vector<std::string> file_names;
+    if (s.ok()) {
+      s = env_->GetChildren(GetName(), &file_names);
+    }
+    if (s.ok()) {
+      uint64_t number = 0;
+      uint64_t options_file_number = 0;
+      FileType type;
+      for (const auto& fname : file_names) {
+        if (ParseFileName(fname, &number, &type) && type == kOptionsFile) {
+          options_file_number = std::max(number, options_file_number);
+        }
+      }
+      versions_->options_file_number_ = options_file_number;
+    }
+  }
+
   return s;
 }
 
