@@ -654,9 +654,9 @@ Status BlockBasedTableBuilder::status() const {
   return rep_->status;
 }
 
-static void DeleteCachedBlock(const Slice& /*key*/, void* value) {
-  Block* block = reinterpret_cast<Block*>(value);
-  delete block;
+static void DeleteCachedBlockContents(const Slice& /*key*/, void* value) {
+  BlockContents* bc = reinterpret_cast<BlockContents*>(value);
+  delete bc;
 }
 
 //
@@ -677,9 +677,11 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     memcpy(ubuf.get(), block_contents.data(), size);
     ubuf[size] = type;
 
-    BlockContents results(std::move(ubuf), size, true, type);
-
-    Block* block = new Block(std::move(results), kDisableGlobalSequenceNumber);
+    BlockContents* block_contents_to_cache =
+        new BlockContents(std::move(ubuf), size);
+#ifndef NDEBUG
+    block_contents_to_cache->is_raw_block = true;
+#endif  // NDEBUG
 
     // make cache key by appending the file offset to the cache prefix id
     char* end = EncodeVarint64(
@@ -690,8 +692,10 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
               (end - r->compressed_cache_key_prefix));
 
     // Insert into compressed block cache.
-    block_cache_compressed->Insert(key, block, block->ApproximateMemoryUsage(),
-                                   &DeleteCachedBlock);
+    block_cache_compressed->Insert(
+        key, block_contents_to_cache,
+        block_contents_to_cache->ApproximateMemoryUsage(),
+        &DeleteCachedBlockContents);
 
     // Invalidate OS cache.
     r->file->InvalidateCache(static_cast<size_t>(r->offset), size);

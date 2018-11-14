@@ -172,8 +172,7 @@ inline
 void BlockFetcher::GetBlockContents() {
   if (slice_.data() != used_buf_) {
     // the slice content is not the buffer provided
-    *contents_ = BlockContents(Slice(slice_.data(), block_size_),
-                               immortal_source_, compression_type);
+    *contents_ = BlockContents(Slice(slice_.data(), block_size_));
   } else {
     // page can be either uncompressed or compressed, the buffer either stack
     // or heap provided. Refer to https://github.com/facebook/rocksdb/pull/4096
@@ -182,15 +181,21 @@ void BlockFetcher::GetBlockContents() {
       heap_buf_ = AllocateBlock(block_size_ + kBlockTrailerSize, allocator_);
       memcpy(heap_buf_.get(), used_buf_, block_size_ + kBlockTrailerSize);
     }
-    *contents_ = BlockContents(std::move(heap_buf_), block_size_, true,
-                               compression_type);
+    *contents_ = BlockContents(std::move(heap_buf_), block_size_);
   }
+#ifndef NDEBUG
+  contents_->is_raw_block = true;
+#endif
 }
 
 Status BlockFetcher::ReadBlockContents() {
   block_size_ = static_cast<size_t>(handle_.size());
 
   if (TryGetUncompressBlockFromPersistentCache()) {
+    compression_type_ = kNoCompression;
+#ifndef NDEBUG
+    contents_->is_raw_block = true;
+#endif  // NDEBUG
     return Status::OK();
   }
   if (TryGetFromPrefetchBuffer()) {
@@ -231,15 +236,16 @@ Status BlockFetcher::ReadBlockContents() {
 
   PERF_TIMER_GUARD(block_decompress_time);
 
-  compression_type =
-      static_cast<rocksdb::CompressionType>(slice_.data()[block_size_]);
+  compression_type_ = get_block_compression_type(slice_.data(), block_size_);
 
-  if (do_uncompress_ && compression_type != kNoCompression) {
+  if (do_uncompress_ && compression_type_ != kNoCompression) {
     // compressed page, uncompress, update cache
-    UncompressionContext uncompression_ctx(compression_type, compression_dict_);
+    UncompressionContext uncompression_ctx(compression_type_,
+                                           compression_dict_);
     status_ = UncompressBlockContents(uncompression_ctx, slice_.data(),
                                       block_size_, contents_, footer_.version(),
                                       ioptions_, allocator_);
+    compression_type_ = kNoCompression;
   } else {
     GetBlockContents();
   }

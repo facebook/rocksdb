@@ -189,31 +189,41 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
 // 1-byte type + 32-bit crc
 static const size_t kBlockTrailerSize = 5;
 
+inline CompressionType get_block_compression_type(const char* block_data,
+                                                  size_t block_size) {
+  return static_cast<CompressionType>(block_data[block_size]);
+}
+
 struct BlockContents {
   Slice data;     // Actual contents of data
-  bool cachable;  // True iff data can be cached
-  CompressionType compression_type;
   CacheAllocationPtr allocation;
 
-  BlockContents() : cachable(false), compression_type(kNoCompression) {}
+#ifndef NDEBUG
+  // Whether the block is a raw block, which contains compression type
+  // byte. It is only used for assertion.
+  bool is_raw_block = false;
+#endif  // NDEBUG
 
-  BlockContents(const Slice& _data, bool _cachable,
-                CompressionType _compression_type)
-      : data(_data), cachable(_cachable), compression_type(_compression_type) {}
+  BlockContents() {}
 
-  BlockContents(CacheAllocationPtr&& _data, size_t _size, bool _cachable,
-                CompressionType _compression_type)
-      : data(_data.get(), _size),
-        cachable(_cachable),
-        compression_type(_compression_type),
-        allocation(std::move(_data)) {}
+  BlockContents(const Slice& _data) : data(_data) {}
 
-  BlockContents(std::unique_ptr<char[]>&& _data, size_t _size, bool _cachable,
-                CompressionType _compression_type)
-      : data(_data.get(), _size),
-        cachable(_cachable),
-        compression_type(_compression_type) {
+  BlockContents(CacheAllocationPtr&& _data, size_t _size)
+      : data(_data.get(), _size), allocation(std::move(_data)) {}
+
+  BlockContents(std::unique_ptr<char[]>&& _data, size_t _size)
+      : data(_data.get(), _size) {
     allocation.reset(_data.release());
+  }
+
+  bool own_bytes() const { return allocation.get() != nullptr; }
+
+  // It's the caller's responsibility to make sure that this is
+  // for raw block contents, which contains the compression
+  // byte in the end.
+  CompressionType get_compression_type() const {
+    assert(is_raw_block);
+    return get_block_compression_type(data.data(), data.size());
   }
 
   // The additional memory space taken by the block data.
@@ -233,15 +243,20 @@ struct BlockContents {
     }
   }
 
+  size_t ApproximateMemoryUsage() const {
+    return usable_size() + sizeof(*this);
+  }
+
   BlockContents(BlockContents&& other) ROCKSDB_NOEXCEPT {
     *this = std::move(other);
   }
 
   BlockContents& operator=(BlockContents&& other) {
     data = std::move(other.data);
-    cachable = other.cachable;
-    compression_type = other.compression_type;
     allocation = std::move(other.allocation);
+#ifndef NDEBUG
+    is_raw_block = other.is_raw_block;
+#endif  // NDEBUG
     return *this;
   }
 };

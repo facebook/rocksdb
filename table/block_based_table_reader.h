@@ -257,13 +257,11 @@ class BlockBasedTable : public TableReader {
   // @param block_entry value is set to the uncompressed block if found. If
   //    in uncompressed block cache, also sets cache_handle to reference that
   //    block.
-  static Status MaybeLoadDataBlockToCache(FilePrefetchBuffer* prefetch_buffer,
-                                          Rep* rep, const ReadOptions& ro,
-                                          const BlockHandle& handle,
-                                          Slice compression_dict,
-                                          CachableEntry<Block>* block_entry,
-                                          bool is_index = false,
-                                          GetContext* get_context = nullptr);
+  static Status MaybeReadBlockAndLoadToCache(
+      FilePrefetchBuffer* prefetch_buffer, Rep* rep, const ReadOptions& ro,
+      const BlockHandle& handle, Slice compression_dict,
+      CachableEntry<Block>* block_entry, bool is_index = false,
+      GetContext* get_context = nullptr);
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file
@@ -301,12 +299,11 @@ class BlockBasedTable : public TableReader {
   //    dictionary.
   static Status GetDataBlockFromCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
-      Cache* block_cache, Cache* block_cache_compressed,
-      const ImmutableCFOptions& ioptions, const ReadOptions& read_options,
-      BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version,
+      Cache* block_cache, Cache* block_cache_compressed, Rep* rep,
+      const ReadOptions& read_options,
+      BlockBasedTable::CachableEntry<Block>* block,
       const Slice& compression_dict, size_t read_amp_bytes_per_bit,
-      bool is_index = false, GetContext* get_context = nullptr,
-      MemoryAllocator* allocator = nullptr);
+      bool is_index = false, GetContext* get_context = nullptr);
 
   // Put a raw block (maybe compressed) to the corresponding block caches.
   // This method will perform decompression against raw_block if needed and then
@@ -314,17 +311,19 @@ class BlockBasedTable : public TableReader {
   // On success, Status::OK will be returned; also @block will be populated with
   // uncompressed block and its cache handle.
   //
-  // REQUIRES: raw_block is heap-allocated. PutDataBlockToCache() will be
-  // responsible for releasing its memory if error occurs.
+  // Allocated memory managed by raw_block_contents will be transferred to
+  // PutDataBlockToCache(). After the call, the object will be invalid.
   // @param compression_dict Data for presetting the compression library's
   //    dictionary.
   static Status PutDataBlockToCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed,
       const ReadOptions& read_options, const ImmutableCFOptions& ioptions,
-      CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
-      const Slice& compression_dict, size_t read_amp_bytes_per_bit,
-      bool is_index = false, Cache::Priority pri = Cache::Priority::LOW,
+      CachableEntry<Block>* block, BlockContents* raw_block_contents,
+      CompressionType raw_block_comp_type, uint32_t format_version,
+      const Slice& compression_dict, SequenceNumber seq_no,
+      size_t read_amp_bytes_per_bit, bool is_index = false,
+      Cache::Priority pri = Cache::Priority::LOW,
       GetContext* get_context = nullptr, MemoryAllocator* allocator = nullptr);
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
@@ -535,6 +534,10 @@ struct BlockBasedTable::Rep {
 
   bool closed = false;
   const bool immortal_table;
+
+  SequenceNumber get_global_seqno(bool is_index) const {
+    return is_index ? kDisableGlobalSequenceNumber : global_seqno;
+  }
 };
 
 template <class TBlockIter, typename TValue = Slice>

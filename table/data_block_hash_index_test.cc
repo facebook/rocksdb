@@ -284,7 +284,6 @@ TEST(DataBlockHashIndex, BlockRestartIndexExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    contents.cachable = false;
     Block reader(std::move(contents), kDisableGlobalSequenceNumber);
 
     ASSERT_EQ(reader.IndexType(),
@@ -307,7 +306,6 @@ TEST(DataBlockHashIndex, BlockRestartIndexExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    contents.cachable = false;
     Block reader(std::move(contents), kDisableGlobalSequenceNumber);
 
     ASSERT_EQ(reader.IndexType(),
@@ -339,7 +337,6 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    contents.cachable = false;
     Block reader(std::move(contents), kDisableGlobalSequenceNumber);
 
     ASSERT_EQ(reader.IndexType(),
@@ -364,7 +361,6 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    contents.cachable = false;
     Block reader(std::move(contents), kDisableGlobalSequenceNumber);
 
     // the index type have fallen back to binary when build finish.
@@ -392,7 +388,6 @@ TEST(DataBlockHashIndex, BlockTestSingleKey) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  contents.cachable = false;
   Block reader(std::move(contents), kDisableGlobalSequenceNumber);
 
   const InternalKeyComparator icmp(BytewiseComparator());
@@ -474,7 +469,6 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  contents.cachable = false;
   Block reader(std::move(contents), kDisableGlobalSequenceNumber);
   const InternalKeyComparator icmp(BytewiseComparator());
 
