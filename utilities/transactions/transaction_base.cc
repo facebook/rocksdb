@@ -236,10 +236,11 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
                                          const Slice& key,
                                          PinnableSlice* pinnable_val,
                                          bool exclusive, bool skip_validate) {
-  Status s = TryLock(column_family, key, true /* read_only */, exclusive);
+  Status s = TryLock(column_family, key, true /* read_only */, exclusive,
+                     skip_validate);
 
   if (s.ok() && pinnable_val != nullptr) {
-    s = Get(read_options, column_family, key, pinnable_val, skip_validate);
+    s = Get(read_options, column_family, key, pinnable_val);
   }
   return s;
 }

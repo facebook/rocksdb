@@ -243,20 +243,23 @@ class Transaction {
   virtual Status GetForUpdate(const ReadOptions& options,
                               ColumnFamilyHandle* column_family,
                               const Slice& key, PinnableSlice* pinnable_val,
-                              bool exclusive = true) {
+                              bool exclusive = true,
+                              bool skip_validate = false) {
     if (pinnable_val == nullptr) {
       std::string* null_str = nullptr;
-      return GetForUpdate(options, column_family, key, null_str, exclusive);
+      return GetForUpdate(options, column_family, key, null_str, exclusive,
+                          skip_validate);
     } else {
       auto s = GetForUpdate(options, column_family, key,
-                            pinnable_val->GetSelf(), exclusive);
+                            pinnable_val->GetSelf(), exclusive, skip_validate);
       pinnable_val->PinSelf();
       return s;
     }
   }
 
   virtual Status GetForUpdate(const ReadOptions& options, const Slice& key,
-                              std::string* value, bool exclusive = true) = 0;
+                              std::string* value, bool exclusive = true,
+                              bool skip_validate = false) = 0;
 
   virtual std::vector<Status> MultiGetForUpdate(
       const ReadOptions& options,
