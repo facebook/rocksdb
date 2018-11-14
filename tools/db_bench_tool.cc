@@ -249,6 +249,10 @@ DEFINE_bool(reverse_iterator, false,
             "When true use Prev rather than Next for iterators that do "
             "Seek and then Next");
 
+DEFINE_int64(max_scan_distance, 0,
+             "Used to define iterate_upper_bound (or iterate_lower_bound "
+             "if FLAGS_reverse_iterator is set to true) when value is nonzero");
+
 DEFINE_bool(use_uint64_comparator, false, "use Uint64 user comparator");
 
 DEFINE_int64(batch_size, 1, "Batch size");
@@ -4561,9 +4565,30 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
 
+    std::unique_ptr<const char[]> upper_bound_key_guard;
+    Slice upper_bound = AllocateKey(&upper_bound_key_guard);
+    std::unique_ptr<const char[]> lower_bound_key_guard;
+    Slice lower_bound = AllocateKey(&lower_bound_key_guard);
+
     Duration duration(FLAGS_duration, reads_);
     char value_buffer[256];
     while (!duration.Done(1)) {
+      int64_t seek_pos = thread->rand.Next() % FLAGS_num;
+      GenerateKeyFromInt((uint64_t)seek_pos, FLAGS_num, &key);
+      if (FLAGS_max_scan_distance != 0) {
+        if (FLAGS_reverse_iterator) {
+          GenerateKeyFromInt(
+              (uint64_t)std::max(0l, seek_pos - FLAGS_max_scan_distance),
+              FLAGS_num, &lower_bound);
+          options.iterate_lower_bound = &lower_bound;
+        } else {
+          GenerateKeyFromInt(
+              (uint64_t)std::min(FLAGS_num, seek_pos + FLAGS_max_scan_distance),
+              FLAGS_num, &upper_bound);
+          options.iterate_upper_bound = &upper_bound;
+        }
+      }
+
       if (!FLAGS_use_tailing_iterator) {
         if (db_.db != nullptr) {
           delete single_iter;
@@ -4584,7 +4609,6 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         iter_to_use = multi_iters[thread->rand.Next() % multi_iters.size()];
       }
 
-      GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
       iter_to_use->Seek(key);
       read++;
       if (iter_to_use->Valid() && iter_to_use->key().compare(key) == 0) {
