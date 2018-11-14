@@ -433,6 +433,33 @@ public class Transaction extends RocksObject {
    * @param key the key to retrieve the value for.
    * @param exclusive true if the transaction should have exclusive access to
    *     the key, otherwise false for shared access.
+   * @param skip_validate true if it should skip validating the snapshot before doing the read
+   *
+   * @return a byte array storing the value associated with the input key if
+   *     any.  null if it does not find the specified key.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public byte[] getForUpdate(final ReadOptions readOptions,
+      final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final boolean exclusive,
+      final boolean skip_validate) throws RocksDBException {
+    assert (isOwningHandle());
+    return getForUpdate(nativeHandle_, readOptions.nativeHandle_, key, key.length,
+        columnFamilyHandle.nativeHandle_, exclusive, skip_validate);
+  }
+
+  /**
+   * Same as
+   * {@link #getForUpdate(ReadOptions, ColumnFamilyHandle, byte[], boolean, boolean)}
+   * without skip_validate option.
+   *
+   * @param readOptions Read options.
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param key the key to retrieve the value for.
+   * @param exclusive true if the transaction should have exclusive access to
+   *     the key, otherwise false for shared access.
    *
    * @return a byte array storing the value associated with the input key if
    *     any.  null if it does not find the specified key.
@@ -444,8 +471,8 @@ public class Transaction extends RocksObject {
       final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
       final boolean exclusive) throws RocksDBException {
     assert(isOwningHandle());
-    return getForUpdate(nativeHandle_, readOptions.nativeHandle_, key,
-        key.length, columnFamilyHandle.nativeHandle_, exclusive);
+    return getForUpdate(nativeHandle_, readOptions.nativeHandle_, key, key.length,
+        columnFamilyHandle.nativeHandle_, exclusive, false /*skip_validate*/);
   }
 
   /**
@@ -495,8 +522,8 @@ public class Transaction extends RocksObject {
   public byte[] getForUpdate(final ReadOptions readOptions, final byte[] key,
       final boolean exclusive) throws RocksDBException {
     assert(isOwningHandle());
-    return getForUpdate(nativeHandle_, readOptions.nativeHandle_, key,
-        key.length, exclusive);
+    return getForUpdate(nativeHandle_, readOptions.nativeHandle_, key, key.length, exclusive,
+        false /*skip_validate*/);
   }
 
   /**
@@ -1642,13 +1669,12 @@ public class Transaction extends RocksObject {
   private native byte[][] multiGet(final long handle,
       final long readOptionsHandle, final byte[][] keys)
       throws RocksDBException;
-  private native byte[] getForUpdate(final long handle,
-      final long readOptionsHandle, final byte key[], final int keyLength,
-      final long columnFamilyHandle, final boolean exclusive)
+  private native byte[] getForUpdate(final long handle, final long readOptionsHandle,
+      final byte key[], final int keyLength, final long columnFamilyHandle, final boolean exclusive,
+      final boolean skip_validate) throws RocksDBException;
+  private native byte[] getForUpdate(final long handle, final long readOptionsHandle,
+      final byte key[], final int keyLen, final boolean exclusive, final boolean skip_validate)
       throws RocksDBException;
-  private native byte[] getForUpdate(final long handle,
-      final long readOptionsHandle, final byte key[], final int keyLen,
-      final boolean exclusive) throws RocksDBException;
   private native byte[][] multiGetForUpdate(final long handle,
       final long readOptionsHandle, final byte[][] keys,
       final long[] columnFamilyHandles) throws RocksDBException;
