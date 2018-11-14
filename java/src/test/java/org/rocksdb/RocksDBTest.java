@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
+import org.junit.Assert;
 import org.junit.Assume;
 import org.junit.ClassRule;
 import org.junit.Rule;
@@ -11,6 +12,7 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.rules.TemporaryFolder;
 
+import java.nio.ByteBuffer;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -70,6 +72,57 @@ public class RocksDBTest {
           "value".getBytes());
       assertThat(db.get("key2".getBytes())).isEqualTo(
           "12345678".getBytes());
+
+
+      // put
+      Segment key3 = sliceSegment("key3");
+      Segment key4 = sliceSegment("key4");
+      Segment value0 = sliceSegment("value 0");
+      Segment value1 = sliceSegment("value 1");
+      db.put(key3.data, key3.offset, key3.len, value0.data, value0.offset, value0.len);
+      db.put(opt, key4.data, key4.offset, key4.len, value1.data, value1.offset, value1.len);
+
+      // compare
+      Assert.assertTrue(value0.isSamePayload(db.get(key3.data, key3.offset, key3.len)));
+      Assert.assertTrue(value1.isSamePayload(db.get(key4.data, key4.offset, key4.len)));
+    }
+  }
+
+  private static Segment sliceSegment(String key) {
+    ByteBuffer rawKey = ByteBuffer.allocate(key.length() + 4);
+    rawKey.put((byte)0);
+    rawKey.put((byte)0);
+    rawKey.put(key.getBytes());
+
+    return new Segment(rawKey.array(), 2, key.length());
+  }
+
+  private static class Segment {
+    final byte[] data;
+    final int offset;
+    final int len;
+
+    public boolean isSamePayload(byte[] value) {
+      if (value == null) {
+        return false;
+      }
+      if (value.length != len) {
+        return false;
+      }
+
+      for (int i = 0; i < value.length; i++) {
+        if (data[i + offset] != value[i]) {
+          return false;
+        }
+      }
+
+      return true;
+    }
+
+    public Segment(byte[] value, int offset, int len) {
+      this.data = value;
+      this.offset = offset;
+      this.len = len;
     }
   }
 
@@ -242,6 +295,18 @@ public class RocksDBTest {
       db.merge(wOpt, "key2".getBytes(), "xxxx".getBytes());
       assertThat(db.get("key2".getBytes())).isEqualTo(
           "xxxx".getBytes());
+
+      Segment key3 = sliceSegment("key3");
+      Segment key4 = sliceSegment("key4");
+      Segment value0 = sliceSegment("value 0");
+      Segment value1 = sliceSegment("value 1");
+
+      db.merge(key3.data, key3.offset, key3.len, value0.data, value0.offset, value0.len);
+      db.merge(wOpt, key4.data, key4.offset, key4.len, value1.data, value1.offset, value1.len);
+
+      // compare
+      Assert.assertTrue(value0.isSamePayload(db.get(key3.data, key3.offset, key3.len)));
+      Assert.assertTrue(value1.isSamePayload(db.get(key4.data, key4.offset, key4.len)));
     }
   }
 
@@ -259,6 +324,18 @@ public class RocksDBTest {
       db.delete(wOpt, "key2".getBytes());
       assertThat(db.get("key1".getBytes())).isNull();
       assertThat(db.get("key2".getBytes())).isNull();
+
+
+      Segment key3 = sliceSegment("key3");
+      Segment key4 = sliceSegment("key4");
+      db.put("key3".getBytes(), "key3 value".getBytes());
+      db.put("key4".getBytes(), "key4 value".getBytes());
+
+      db.delete(key3.data, key3.offset, key3.len);
+      db.delete(wOpt, key4.data, key4.offset, key4.len);
+
+      assertThat(db.get("key3".getBytes())).isNull();
+      assertThat(db.get("key4".getBytes())).isNull();
     }
   }
 
