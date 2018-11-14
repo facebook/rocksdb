@@ -4572,16 +4572,17 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     Duration duration(FLAGS_duration, reads_);
     char value_buffer[256];
     while (!duration.Done(1)) {
-      uint64_t seek_pos = thread->rand.Next() % FLAGS_num;
-      GenerateKeyFromInt(seek_pos, FLAGS_num, &key);
+      int64_t seek_pos = thread->rand.Next() % FLAGS_num;
+      GenerateKeyFromInt((uint64_t)seek_pos, FLAGS_num, &key);
       if (FLAGS_max_scan_distance != 0) {
         if (FLAGS_reverse_iterator) {
-          GenerateKeyFromInt(std::max(0ul, seek_pos - FLAGS_max_scan_distance),
-                             FLAGS_num, &lower_bound);
+          GenerateKeyFromInt(
+              (uint64_t)std::max(0l, seek_pos - FLAGS_max_scan_distance),
+              FLAGS_num, &lower_bound);
           options.iterate_lower_bound = &lower_bound;
         } else {
           GenerateKeyFromInt(
-              std::min((uint64_t)FLAGS_num, seek_pos + FLAGS_max_scan_distance),
+              (uint64_t)std::min(FLAGS_num, seek_pos + FLAGS_max_scan_distance),
               FLAGS_num, &upper_bound);
           options.iterate_upper_bound = &upper_bound;
         }
