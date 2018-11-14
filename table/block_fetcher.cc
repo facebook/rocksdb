@@ -141,7 +141,8 @@ void BlockFetcher::PrepareBufferForBlockFromFile() {
     // trivially allocated stack buffer instead of needing a full malloc()
     used_buf_ = &stack_buf_[0];
   } else {
-    heap_buf_ = AllocateBlock(block_size_ + kBlockTrailerSize, allocator_);
+    heap_buf_ =
+        AllocateBlock(block_size_ + kBlockTrailerSize, memory_allocator_);
     used_buf_ = heap_buf_.get();
   }
 }
@@ -178,7 +179,8 @@ void BlockFetcher::GetBlockContents() {
     // or heap provided. Refer to https://github.com/facebook/rocksdb/pull/4096
     if (got_from_prefetch_buffer_ || used_buf_ == &stack_buf_[0]) {
       assert(used_buf_ != heap_buf_.get());
-      heap_buf_ = AllocateBlock(block_size_ + kBlockTrailerSize, allocator_);
+      heap_buf_ =
+          AllocateBlock(block_size_ + kBlockTrailerSize, memory_allocator_);
       memcpy(heap_buf_.get(), used_buf_, block_size_ + kBlockTrailerSize);
     }
     *contents_ = BlockContents(std::move(heap_buf_), block_size_);
@@ -244,7 +246,7 @@ Status BlockFetcher::ReadBlockContents() {
                                            compression_dict_);
     status_ = UncompressBlockContents(uncompression_ctx, slice_.data(),
                                       block_size_, contents_, footer_.version(),
-                                      ioptions_, allocator_);
+                                      ioptions_, memory_allocator_);
     compression_type_ = kNoCompression;
   } else {
     GetBlockContents();

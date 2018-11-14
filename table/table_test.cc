@@ -3581,7 +3581,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
       BlockFetcher block_fetcher(file, nullptr /* prefetch_buffer */, footer,
                                  read_options, handle, contents, ioptions,
                                  false /* decompress */, compression_dict,
-                                 cache_options);
+                                 cache_options, nullptr /*memory_allocator*/);
 
       ASSERT_OK(block_fetcher.ReadBlockContents());
     };
@@ -3667,7 +3667,7 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
   BlockFetcher block_fetcher(
       table_reader.get(), nullptr /* prefetch_buffer */, footer, ReadOptions(),
       metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
-      compression_dict, pcache_opts);
+      compression_dict, pcache_opts, nullptr /*memory_allocator*/);
   ASSERT_OK(block_fetcher.ReadBlockContents());
   Block metaindex_block(std::move(metaindex_contents),
                         kDisableGlobalSequenceNumber);

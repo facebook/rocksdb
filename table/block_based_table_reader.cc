@@ -80,11 +80,11 @@ Status ReadBlockFromFile(
     std::unique_ptr<Block>* result, const ImmutableCFOptions& ioptions,
     bool do_uncompress, const Slice& compression_dict,
     const PersistentCacheOptions& cache_options, SequenceNumber global_seqno,
-    size_t read_amp_bytes_per_bit, MemoryAllocator* allocator = nullptr) {
+    size_t read_amp_bytes_per_bit, MemoryAllocator* memory_allocator) {
   BlockContents contents;
   BlockFetcher block_fetcher(file, prefetch_buffer, footer, options, handle,
                              &contents, ioptions, do_uncompress,
-                             compression_dict, cache_options, allocator);
+                             compression_dict, cache_options, memory_allocator);
   Status s = block_fetcher.ReadBlockContents();
   if (s.ok()) {
     result->reset(new Block(std::move(contents), global_seqno,
@@ -98,6 +98,13 @@ inline MemoryAllocator* GetMemoryAllocator(
     const BlockBasedTableOptions& table_options) {
   return table_options.block_cache.get()
              ? table_options.block_cache->memory_allocator()
+             : nullptr;
+}
+
+inline MemoryAllocator* GetMemoryAllocatorForCompressedBlock(
+    const BlockBasedTableOptions& table_options) {
+  return table_options.block_cache_compressed.get()
+             ? table_options.block_cache_compressed->memory_allocator()
              : nullptr;
 }
 
@@ -222,13 +229,15 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
                        IndexReader** index_reader,
                        const PersistentCacheOptions& cache_options,
                        const int level, const bool index_key_includes_seq,
-                       const bool index_value_is_full) {
+                       const bool index_value_is_full,
+                       MemoryAllocator* memory_allocator) {
     std::unique_ptr<Block> index_block;
-    auto s = ReadBlockFromFile(
-        file, prefetch_buffer, footer, ReadOptions(), index_handle,
-        &index_block, ioptions, true /* decompress */,
-        Slice() /*compression dict*/, cache_options,
-        kDisableGlobalSequenceNumber, 0 /* read_amp_bytes_per_bit */);
+    auto s =
+        ReadBlockFromFile(file, prefetch_buffer, footer, ReadOptions(),
+                          index_handle, &index_block, ioptions,
+                          true /* decompress */, Slice() /*compression dict*/,
+                          cache_options, kDisableGlobalSequenceNumber,
+                          0 /* read_amp_bytes_per_bit */, memory_allocator);
 
     if (s.ok()) {
       *index_reader = new PartitionIndexReader(
@@ -401,13 +410,15 @@ class BinarySearchIndexReader : public IndexReader {
                        IndexReader** index_reader,
                        const PersistentCacheOptions& cache_options,
                        const bool index_key_includes_seq,
-                       const bool index_value_is_full) {
+                       const bool index_value_is_full,
+                       MemoryAllocator* memory_allocator) {
     std::unique_ptr<Block> index_block;
-    auto s = ReadBlockFromFile(
-        file, prefetch_buffer, footer, ReadOptions(), index_handle,
-        &index_block, ioptions, true /* decompress */,
-        Slice() /*compression dict*/, cache_options,
-        kDisableGlobalSequenceNumber, 0 /* read_amp_bytes_per_bit */);
+    auto s =
+        ReadBlockFromFile(file, prefetch_buffer, footer, ReadOptions(),
+                          index_handle, &index_block, ioptions,
+                          true /* decompress */, Slice() /*compression dict*/,
+                          cache_options, kDisableGlobalSequenceNumber,
+                          0 /* read_amp_bytes_per_bit */, memory_allocator);
 
     if (s.ok()) {
       *index_reader = new BinarySearchIndexReader(
@@ -473,13 +484,15 @@ class HashIndexReader : public IndexReader {
       InternalIterator* meta_index_iter, IndexReader** index_reader,
       bool /*hash_index_allow_collision*/,
       const PersistentCacheOptions& cache_options,
-      const bool index_key_includes_seq, const bool index_value_is_full) {
+      const bool index_key_includes_seq, const bool index_value_is_full,
+      MemoryAllocator* memory_allocator) {
     std::unique_ptr<Block> index_block;
-    auto s = ReadBlockFromFile(
-        file, prefetch_buffer, footer, ReadOptions(), index_handle,
-        &index_block, ioptions, true /* decompress */,
-        Slice() /*compression dict*/, cache_options,
-        kDisableGlobalSequenceNumber, 0 /* read_amp_bytes_per_bit */);
+    auto s =
+        ReadBlockFromFile(file, prefetch_buffer, footer, ReadOptions(),
+                          index_handle, &index_block, ioptions,
+                          true /* decompress */, Slice() /*compression dict*/,
+                          cache_options, kDisableGlobalSequenceNumber,
+                          0 /* read_amp_bytes_per_bit */, memory_allocator);
 
     if (!s.ok()) {
       return s;
@@ -518,7 +531,7 @@ class HashIndexReader : public IndexReader {
     BlockFetcher prefixes_block_fetcher(
         file, prefetch_buffer, footer, ReadOptions(), prefixes_handle,
         &prefixes_contents, ioptions, true /* decompress */,
-        dummy_comp_dict /*compression dict*/, cache_options);
+        dummy_comp_dict /*compression dict*/, cache_options, memory_allocator);
     s = prefixes_block_fetcher.ReadBlockContents();
     if (!s.ok()) {
       return s;
@@ -527,7 +540,7 @@ class HashIndexReader : public IndexReader {
     BlockFetcher prefixes_meta_block_fetcher(
         file, prefetch_buffer, footer, ReadOptions(), prefixes_meta_handle,
         &prefixes_meta_contents, ioptions, true /* decompress */,
-        dummy_comp_dict /*compression dict*/, cache_options);
+        dummy_comp_dict /*compression dict*/, cache_options, memory_allocator);
     s = prefixes_meta_block_fetcher.ReadBlockContents();
     if (!s.ok()) {
       // TODO: log error
@@ -894,7 +907,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     if (s.ok()) {
       s = ReadProperties(meta_iter->value(), rep->file.get(),
                          prefetch_buffer.get(), rep->footer, rep->ioptions,
-                         &table_properties, false /* compression_type_missing */);
+                         &table_properties,
+                         false /* compression_type_missing */,
+                         nullptr /* memory_allocator */);
     }
 
     if (!s.ok()) {
@@ -937,9 +952,10 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     ReadOptions read_options;
     read_options.verify_checksums = false;
     BlockFetcher compression_block_fetcher(
-      rep->file.get(), prefetch_buffer.get(), rep->footer, read_options,
-      compression_dict_handle, compression_dict_cont.get(), rep->ioptions, false /* decompress */,
-      Slice() /*compression dict*/, cache_options);
+        rep->file.get(), prefetch_buffer.get(), rep->footer, read_options,
+        compression_dict_handle, compression_dict_cont.get(), rep->ioptions,
+        false /* decompress */, Slice() /*compression dict*/, cache_options,
+        GetMemoryAllocator(table_options));
     s = compression_block_fetcher.ReadBlockContents();
 
     if (!s.ok()) {
@@ -1312,8 +1328,8 @@ Status BlockBasedTable::PutDataBlockToCache(
     CachableEntry<Block>* cached_block, BlockContents* raw_block_contents,
     CompressionType raw_block_comp_type, uint32_t format_version,
     const Slice& compression_dict, SequenceNumber seq_no,
-    size_t read_amp_bytes_per_bit, bool is_index, Cache::Priority priority,
-    GetContext* get_context, MemoryAllocator* allocator) {
+    size_t read_amp_bytes_per_bit, MemoryAllocator* memory_allocator,
+    bool is_index, Cache::Priority priority, GetContext* get_context) {
   assert(raw_block_comp_type == kNoCompression ||
          block_cache_compressed != nullptr);
 
@@ -1327,7 +1343,7 @@ Status BlockBasedTable::PutDataBlockToCache(
     s = UncompressBlockContents(
         uncompression_ctx, raw_block_contents->data.data(),
         raw_block_contents->data.size(), &uncompressed_block_contents,
-        format_version, ioptions, allocator);
+        format_version, ioptions, memory_allocator);
   }
   if (!s.ok()) {
     return s;
@@ -1740,7 +1756,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
           compression_dict, rep->persistent_cache_options,
           is_index ? kDisableGlobalSequenceNumber : rep->global_seqno,
           rep->table_options.read_amp_bytes_per_bit,
-          GetMemoryAllocator(rep->table_options));
+          nullptr /* memory_allocator */);
     }
     if (s.ok()) {
       block.value = block_value.release();
@@ -1857,7 +1873,6 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
       BlockContents raw_block_contents;
       {
         StopWatch sw(rep->ioptions.env, statistics, READ_BLOCK_GET_MICROS);
-
         BlockFetcher block_fetcher(
             rep->file.get(), prefetch_buffer, rep->footer, ro, handle,
             &raw_block_contents, rep->ioptions,
@@ -1876,12 +1891,13 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
             key, ckey, block_cache, block_cache_compressed, ro, rep->ioptions,
             block_entry, &raw_block_contents, raw_block_comp_type,
             rep->table_options.format_version, compression_dict, seq_no,
-            rep->table_options.read_amp_bytes_per_bit, is_index,
+            rep->table_options.read_amp_bytes_per_bit,
+            GetMemoryAllocator(rep->table_options), is_index,
             is_index && rep->table_options
                             .cache_index_and_filter_blocks_with_high_priority
                 ? Cache::Priority::HIGH
                 : Cache::Priority::LOW,
-            get_context, GetMemoryAllocator(rep->table_options));
+            get_context);
       }
     }
   }
@@ -2608,12 +2624,11 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
     BlockHandle handle = index_iter->value();
     BlockContents contents;
     Slice dummy_comp_dict;
-    BlockFetcher block_fetcher(rep_->file.get(), nullptr /* prefetch buffer */,
-                               rep_->footer, ReadOptions(), handle, &contents,
-                               rep_->ioptions, false /* decompress */,
-                               dummy_comp_dict /*compression dict*/,
-                               rep_->persistent_cache_options,
-                               GetMemoryAllocator(rep_->table_options));
+    BlockFetcher block_fetcher(
+        rep_->file.get(), nullptr /* prefetch buffer */, rep_->footer,
+        ReadOptions(), handle, &contents, rep_->ioptions,
+        false /* decompress */, dummy_comp_dict /*compression dict*/,
+        rep_->persistent_cache_options, nullptr /*memory_allocator*/);
     s = block_fetcher.ReadBlockContents();
     if (!s.ok()) {
       break;
@@ -2635,12 +2650,11 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
     s = handle.DecodeFrom(&input);
     BlockContents contents;
     Slice dummy_comp_dict;
-    BlockFetcher block_fetcher(rep_->file.get(), nullptr /* prefetch buffer */,
-                               rep_->footer, ReadOptions(), handle, &contents,
-                               rep_->ioptions, false /* decompress */,
-                               dummy_comp_dict /*compression dict*/,
-                               rep_->persistent_cache_options,
-                               GetMemoryAllocator(rep_->table_options));
+    BlockFetcher block_fetcher(
+        rep_->file.get(), nullptr /* prefetch buffer */, rep_->footer,
+        ReadOptions(), handle, &contents, rep_->ioptions,
+        false /* decompress */, dummy_comp_dict /*compression dict*/,
+        rep_->persistent_cache_options, nullptr /*memory_allocator*/);
     s = block_fetcher.ReadBlockContents();
     if (!s.ok()) {
       break;
@@ -2729,7 +2743,8 @@ Status BlockBasedTable::CreateIndexReader(
           rep_->table_properties == nullptr ||
               rep_->table_properties->index_key_is_user_key == 0,
           rep_->table_properties == nullptr ||
-              rep_->table_properties->index_value_is_delta_encoded == 0);
+              rep_->table_properties->index_value_is_delta_encoded == 0,
+          GetMemoryAllocator(rep_->table_options));
     }
     case BlockBasedTableOptions::kBinarySearch: {
       return BinarySearchIndexReader::Create(
@@ -2738,7 +2753,8 @@ Status BlockBasedTable::CreateIndexReader(
           rep_->table_properties == nullptr ||
               rep_->table_properties->index_key_is_user_key == 0,
           rep_->table_properties == nullptr ||
-              rep_->table_properties->index_value_is_delta_encoded == 0);
+              rep_->table_properties->index_value_is_delta_encoded == 0,
+          GetMemoryAllocator(rep_->table_options));
     }
     case BlockBasedTableOptions::kHashSearch: {
       std::unique_ptr<Block> meta_guard;
@@ -2760,7 +2776,8 @@ Status BlockBasedTable::CreateIndexReader(
               rep_->table_properties == nullptr ||
                   rep_->table_properties->index_key_is_user_key == 0,
               rep_->table_properties == nullptr ||
-                  rep_->table_properties->index_value_is_delta_encoded == 0);
+                  rep_->table_properties->index_value_is_delta_encoded == 0,
+              GetMemoryAllocator(rep_->table_options));
         }
         meta_index_iter = meta_iter_guard.get();
       }
@@ -2773,7 +2790,8 @@ Status BlockBasedTable::CreateIndexReader(
           rep_->table_properties == nullptr ||
               rep_->table_properties->index_key_is_user_key == 0,
           rep_->table_properties == nullptr ||
-              rep_->table_properties->index_value_is_delta_encoded == 0);
+              rep_->table_properties->index_value_is_delta_encoded == 0,
+          GetMemoryAllocator(rep_->table_options));
     }
     default: {
       std::string error_message =
