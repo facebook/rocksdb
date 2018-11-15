@@ -570,6 +570,7 @@ Env* DBTestBase::CreateNewAwsEnv() {
                            region, // dest region
                            coptions, info_log_, &cenv);
     ((CloudEnvImpl*)cenv)->TEST_DisableCloudManifest();
+    ((AwsEnv*)cenv)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
     ROCKS_LOG_DEBUG(info_log_, "Created new aws env with empty path");
     assert(st.ok() && cenv);
     // If we are keeping wal in cloud storage, then tail it as well.
