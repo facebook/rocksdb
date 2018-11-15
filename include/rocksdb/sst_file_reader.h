@@ -19,10 +19,12 @@ class SstKVIterator : public Iterator {
   SstKVIterator() {}
   virtual ~SstKVIterator() {}
   // If `sequence` is not nullptr, it will be set as the SequenceNumber of
-  // current entry. If `type` is not nullptr, it will be set as the ValueType of
+  // current entry.
+  // If `type` is not nullptr, it will be set as the ValueType of
   // current entry.
   virtual Slice key(SequenceNumber* sequence, int* type) const = 0;
-  // key() will be implemented by key(nullptr, nullptr).
+  // key() will be implemented by key(nullptr, nullptr). This method is not
+  // recommended.
   virtual Slice key() const = 0;
 };
 
@@ -31,12 +33,14 @@ class SstKVIterator : public Iterator {
 // without external synchronization.
 class SstFileReader {
  public:
+  // Create and return the init result of SstFileReader.
   // `file_name` specifies path of the read-only sst file to be accessed.
-  // `options` to control the behavior of TableReader.
+  // `options` is used to control the behavior of TableReader.
   // `comparator` provides a total order across slices that are used as keys in
   // sstable.
-  SstFileReader(const std::string& file_name, Options options = Options(),
-                const Comparator* comparator = BytewiseComparator());
+  static Status Open(std::shared_ptr<SstFileReader>* reader,
+                     const std::string& file_name, Options options = Options(),
+                     const Comparator* comparator = BytewiseComparator());
 
   ~SstFileReader();
 
@@ -51,25 +55,10 @@ class SstFileReader {
                              const SliceTransform* prefix_extractor,
                              Arena* arena = nullptr, bool skip_filters = false,
                              bool for_compaction = false);
-  // If `verify_checksum` is true, all data read from underlying storage will be
-  // verified against corresponding checksums.
-  // If `cache` is true, the "data block"/"index block"" read for this iteration
-  // be placed in block cache. Both parameters will be used to create
-  // ReadOptions.
-  SstKVIterator* NewIterator(bool cksum, bool cache,
-                             const SliceTransform* prefix_extractor);
-
-  // If `prefix_extractor` is not specified, then will use prefix_extractor of
-  // `options` in constructor.
-  SstKVIterator* NewIterator(bool cksum, bool cache = false);
 
   // Get table properties.
   Status ReadTableProperties(
       std::shared_ptr<const TableProperties>* table_properties);
-
-  // Returns init result of SstFileReader.
-  // It can be invoked after constructor to tell whether is ready to use.
-  Status getStatus();
 
   // Check whether there is corruption in this file.
   Status VerifyChecksum();
@@ -77,6 +66,7 @@ class SstFileReader {
  private:
   struct Rep;
   std::unique_ptr<Rep> rep_;
+  SstFileReader(std::unique_ptr<Rep>& rep);
 };
 }  // namespace rocksdb
 

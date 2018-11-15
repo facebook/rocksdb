@@ -20,9 +20,6 @@ class InternalSstFileReader {
 
   virtual ~InternalSstFileReader() {}
 
-  InternalIterator* NewIterator(bool cksum, bool cache,
-                                const SliceTransform* prefix_extractor);
-  InternalIterator* NewIterator(bool cksum, bool cache);
   InternalIterator* NewIterator(const ReadOptions& read_options,
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena = nullptr,

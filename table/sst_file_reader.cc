@@ -125,16 +125,6 @@ InternalIterator* InternalSstFileReader::NewIterator(
                                     skip_filters, for_compaction);
 }
 
-InternalIterator* InternalSstFileReader::NewIterator(
-    bool cksum, bool cache, const SliceTransform* prefix_extractor) {
-  return NewIterator(ReadOptions(cksum, cache), prefix_extractor);
-}
-
-InternalIterator* InternalSstFileReader::NewIterator(bool cksum, bool cache) {
-  return NewIterator(ReadOptions(cksum, cache),
-                     moptions_.prefix_extractor.get());
-}
-
 void InternalSstFileReader::SetBlockBasedTableOptionsByMagicNumber() {
   options_.table_factory = std::make_shared<BlockBasedTableFactory>();
   auto& props = table_properties_->user_collected_properties;
@@ -289,29 +279,27 @@ struct SstFileReader::Rep : public InternalSstFileReader {
     }
     return new SstKVIteratorImpl(iter);
   }
-
-  SstKVIteratorImpl* NewIterator(bool cksum, bool cache) {
-    InternalIterator* iter = InternalSstFileReader::NewIterator(cksum, cache);
-    if (iter == nullptr) {
-      return nullptr;
-    }
-    return new SstKVIteratorImpl(iter);
-  }
-
-  SstKVIteratorImpl* NewIterator(bool cksum, bool cache,
-                                 const SliceTransform* prefix_extractor) {
-    InternalIterator* iter =
-        InternalSstFileReader::NewIterator(cksum, cache, prefix_extractor);
-    if (iter == nullptr) {
-      return nullptr;
-    }
-    return new SstKVIteratorImpl(iter);
-  }
 };
 
-SstFileReader::SstFileReader(const std::string& file_name, Options options,
-                             const Comparator* comparator)
-    : rep_(new Rep(file_name, options, comparator)) {}
+Status SstFileReader::Open(std::shared_ptr<SstFileReader>* reader,
+                           const std::string& file_name, Options options,
+                           const Comparator* comparator) {
+  if (reader == nullptr) {
+    return Status::InvalidArgument("reader should not be nullptr");
+  }
+  std::unique_ptr<SstFileReader::Rep> rep(
+      new SstFileReader::Rep(file_name, options, comparator));
+  Status status = rep->getStatus();
+  if (!status.ok()) {
+    return status;
+  } else {
+    reader->reset(new SstFileReader(rep));
+  }
+  return Status::OK();
+}
+
+SstFileReader::SstFileReader(std::unique_ptr<SstFileReader::Rep>& rep)
+    : rep_(std::move(rep)) {}
 
 SstFileReader::~SstFileReader() {}
 
@@ -322,21 +310,10 @@ SstKVIterator* SstFileReader::NewIterator(
                            for_compaction);
 }
 
-SstKVIterator* SstFileReader::NewIterator(bool cksum, bool cache) {
-  return rep_->NewIterator(cksum, cache);
-}
-
-SstKVIterator* SstFileReader::NewIterator(
-    bool cksum, bool cache, const SliceTransform* prefix_extractor) {
-  return rep_->NewIterator(cksum, cache, prefix_extractor);
-}
-
 Status SstFileReader::ReadTableProperties(
     std::shared_ptr<const TableProperties>* table_properties) {
   return rep_->ReadTableProperties(table_properties);
 }
-
-Status SstFileReader::getStatus() { return rep_->getStatus(); }
 
 Status SstFileReader::VerifyChecksum() { return rep_->VerifyChecksum(); }
 

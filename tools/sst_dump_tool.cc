@@ -201,7 +201,8 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
     return init_result_;
   }
 
-  InternalIterator* iter = NewIterator(verify_checksum_, false);
+  InternalIterator* iter = NewIterator(ReadOptions(verify_checksum_, false),
+                                       moptions_.prefix_extractor.get());
   uint64_t i = 0;
   if (has_from) {
     InternalKey ikey;
