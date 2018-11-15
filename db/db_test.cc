@@ -3512,8 +3512,14 @@ TEST_F(DBTest, SanitizeNumThreads) {
                      (i < 4) ? Env::Priority::LOW : Env::Priority::HIGH);
     }
 
-    // Wait 100 milliseconds for they are scheduled.
-    env_->SleepForMicroseconds(100000);
+    // Wait until 10s for they are scheduled.
+    for (int i = 0; i < 10000; i++) {
+      if (options.env->GetThreadPoolQueueLen(Env::Priority::LOW) <= 1 &&
+          options.env->GetThreadPoolQueueLen(Env::Priority::HIGH) <= 2) {
+        break;
+      }
+      env_->SleepForMicroseconds(1000);
+    }
 
     // pool size 3, total task 4. Queue size should be 1.
     ASSERT_EQ(1U, options.env->GetThreadPoolQueueLen(Env::Priority::LOW));
