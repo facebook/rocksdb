@@ -118,7 +118,8 @@ class Repairer {
         wc_(db_options_.delayed_write_rate),
         vset_(dbname_, &immutable_db_options_, env_options_,
               raw_table_cache_.get(), &wb_, &wc_),
-        next_file_number_(1) {
+        next_file_number_(1),
+        db_lock_(nullptr) {
     for (const auto& cfd : column_families) {
       cf_name_to_opts_[cfd.name] = cfd.options;
     }
