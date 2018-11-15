@@ -223,6 +223,10 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
     assert(value != nullptr);
     PinnableSlice pinnable_val(value);
     assert(!pinnable_val.IsPinned());
+    ReadOptions ro(read_options);
+    if (skip_validate) {
+      ro.snapshot = nullptr;
+    }
     s = Get(read_options, column_family, key, &pinnable_val);
     if (s.ok() && pinnable_val.IsPinned()) {
       value->assign(pinnable_val.data(), pinnable_val.size());
@@ -240,6 +244,10 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
                      skip_validate);
 
   if (s.ok() && pinnable_val != nullptr) {
+    ReadOptions ro(read_options);
+    if (skip_validate) {
+      ro.snapshot = nullptr;
+    }
     s = Get(read_options, column_family, key, pinnable_val);
   }
   return s;
