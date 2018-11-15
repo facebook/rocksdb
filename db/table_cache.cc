@@ -377,14 +377,14 @@ Status TableCache::Get(const ReadOptions& options,
         get_context->max_covering_tombstone_seq();
     if (s.ok() && max_covering_tombstone_seq != nullptr &&
         !options.ignore_range_deletions) {
-      std::unique_ptr<InternalIterator> range_del_iter(
-          t->NewRangeTombstoneIterator(options));
-      *max_covering_tombstone_seq =
-          std::max(*max_covering_tombstone_seq,
-                   MaxCoveringTombstoneSeqnum(
-                       static_cast<FragmentedRangeTombstoneIterator*>(
-                           range_del_iter.get()),
-                       k, internal_comparator.user_comparator()));
+      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+          static_cast<FragmentedRangeTombstoneIterator*>(
+              t->NewRangeTombstoneIterator(options)));
+      if (range_del_iter != nullptr) {
+        *max_covering_tombstone_seq = std::max(
+            *max_covering_tombstone_seq,
+            range_del_iter->MaxCoveringTombstoneSeqnum(ExtractUserKey(k)));
+      }
     }
     if (s.ok()) {
       get_context->SetReplayLog(row_cache_entry);  // nullptr if no cache.

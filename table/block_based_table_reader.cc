@@ -2314,12 +2314,16 @@ InternalIterator* BlockBasedTable::NewIterator(
 }
 
 InternalIterator* BlockBasedTable::NewRangeTombstoneIterator(
-    const ReadOptions& /* read_options */) {
+    const ReadOptions& read_options) {
   if (rep_->fragmented_range_dels == nullptr) {
     return nullptr;
   }
-  return new FragmentedRangeTombstoneIterator(rep_->fragmented_range_dels,
-                                              rep_->internal_comparator);
+  SequenceNumber snapshot = kMaxSequenceNumber;
+  if (read_options.snapshot != nullptr) {
+    snapshot = read_options.snapshot->GetSequenceNumber();
+  }
+  return new FragmentedRangeTombstoneIterator(
+      rep_->fragmented_range_dels, snapshot, rep_->internal_comparator);
 }
 
 InternalIterator* BlockBasedTable::NewUnfragmentedRangeTombstoneIterator(
