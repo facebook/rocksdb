@@ -1964,11 +1964,11 @@ void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
                  bool is_write_committed, LDBCommandExecuteResult* exec_state) {
   Env* env_ = Env::Default();
   EnvOptions soptions;
-  unique_ptr<SequentialFileReader> wal_file_reader;
+  std::unique_ptr<SequentialFileReader> wal_file_reader;
 
   Status status;
   {
-    unique_ptr<SequentialFile> file;
+    std::unique_ptr<SequentialFile> file;
     status = env_->NewSequentialFile(wal_file, &file, soptions);
     if (status.ok()) {
       wal_file_reader.reset(
@@ -1999,7 +1999,8 @@ void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
     }
     DBOptions db_options;
     log::Reader reader(db_options.info_log, std::move(wal_file_reader),
-                       &reporter, true /* checksum */, log_number);
+                       &reporter, true /* checksum */, log_number,
+                       false /* retry_after_eof */);
     std::string scratch;
     WriteBatch batch;
     Slice record;
@@ -2870,10 +2871,6 @@ void DumpSstFile(std::string filename, bool output_hex, bool show_properties) {
     if (table_properties != nullptr) {
       std::cout << std::endl << "Table Properties:" << std::endl;
       std::cout << table_properties->ToString("\n") << std::endl;
-      std::cout << "# deleted keys: "
-                << rocksdb::GetDeletedKeys(
-                       table_properties->user_collected_properties)
-                << std::endl;
     }
   }
 }

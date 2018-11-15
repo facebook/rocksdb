@@ -56,7 +56,9 @@ class TableCache {
       const SliceTransform* prefix_extractor = nullptr,
       TableReader** table_reader_ptr = nullptr,
       HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
-      Arena* arena = nullptr, bool skip_filters = false, int level = -1);
+      Arena* arena = nullptr, bool skip_filters = false, int level = -1,
+      const InternalKey* smallest_compaction_key = nullptr,
+      const InternalKey* largest_compaction_key = nullptr);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call (*handle_result)(arg, found_key, found_value) repeatedly until
@@ -139,7 +141,7 @@ class TableCache {
                         const FileDescriptor& fd, bool sequential_mode,
                         size_t readahead, bool record_read_stats,
                         HistogramImpl* file_read_hist,
-                        unique_ptr<TableReader>* table_reader,
+                        std::unique_ptr<TableReader>* table_reader,
                         const SliceTransform* prefix_extractor = nullptr,
                         bool skip_filters = false, int level = -1,
                         bool prefetch_index_and_filter_in_cache = true,

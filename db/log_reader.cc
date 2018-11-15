@@ -23,8 +23,9 @@ Reader::Reporter::~Reporter() {
 }
 
 Reader::Reader(std::shared_ptr<Logger> info_log,
-               unique_ptr<SequentialFileReader>&& _file, Reporter* reporter,
-               bool checksum, uint64_t log_num)
+               std::unique_ptr<SequentialFileReader>&& _file,
+               Reporter* reporter, bool checksum, uint64_t log_num,
+               bool retry_after_eof)
     : info_log_(info_log),
       file_(std::move(_file)),
       reporter_(reporter),
@@ -37,7 +38,8 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       last_record_offset_(0),
       end_of_buffer_offset_(0),
       log_number_(log_num),
-      recycled_(false) {}
+      recycled_(false),
+      retry_after_eof_(retry_after_eof) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
@@ -122,7 +124,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           // in clean shutdown we don't expect any error in the log files
           ReportCorruption(drop_size, "truncated header");
         }
-	FALLTHROUGH_INTENDED;
+        FALLTHROUGH_INTENDED;
 
       case kEof:
         if (in_fragmented_record) {
@@ -152,7 +154,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           }
           return false;
         }
-	FALLTHROUGH_INTENDED;
+        FALLTHROUGH_INTENDED;
 
       case kBadRecord:
         if (in_fragmented_record) {
@@ -208,7 +210,8 @@ void Reader::UnmarkEOF() {
 
   eof_ = false;
 
-  if (eof_offset_ == 0) {
+  // If retry_after_eof_ is true, we have to proceed to read anyway.
+  if (!retry_after_eof_ && eof_offset_ == 0) {
     return;
   }
 
@@ -289,8 +292,12 @@ bool Reader::ReadMore(size_t* drop_size, int *error) {
     } else if (buffer_.size() < static_cast<size_t>(kBlockSize)) {
       eof_ = true;
       eof_offset_ = buffer_.size();
+      TEST_SYNC_POINT("LogReader::ReadMore:FirstEOF");
     }
     return true;
+  } else if (retry_after_eof_ && !read_error_) {
+    UnmarkEOF();
+    return !read_error_;
   } else {
     // Note that if buffer_ is non-empty, we have a truncated header at the
     //  end of the file, which can be caused by the writer crashing in the
@@ -312,7 +319,10 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
   while (true) {
     // We need at least the minimum header size
     if (buffer_.size() < static_cast<size_t>(kHeaderSize)) {
-      int r;
+      // the default value of r is meaningless because ReadMore will overwrite
+      // it if it returns false; in case it returns true, the return value will
+      // not be used anyway
+      int r = kEof;
       if (!ReadMore(drop_size, &r)) {
         return r;
       }
@@ -333,7 +343,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
       header_size = kRecyclableHeaderSize;
       // We need enough for the larger header
       if (buffer_.size() < static_cast<size_t>(kRecyclableHeaderSize)) {
-        int r;
+        int r = kEof;
         if (!ReadMore(drop_size, &r)) {
           return r;
         }
@@ -345,16 +355,24 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
       }
     }
     if (header_size + length > buffer_.size()) {
-      *drop_size = buffer_.size();
-      buffer_.clear();
-      if (!eof_) {
-        return kBadRecordLen;
-      }
-      // If the end of the file has been reached without reading |length| bytes
-      // of payload, assume the writer died in the middle of writing the record.
-      // Don't report a corruption unless requested.
-      if (*drop_size) {
-        return kBadHeader;
+      if (!retry_after_eof_) {
+        *drop_size = buffer_.size();
+        buffer_.clear();
+        if (!eof_) {
+          return kBadRecordLen;
+        }
+        // If the end of the file has been reached without reading |length|
+        // bytes of payload, assume the writer died in the middle of writing the
+        // record. Don't report a corruption unless requested.
+        if (*drop_size) {
+          return kBadHeader;
+        }
+      } else {
+        int r = kEof;
+        if (!ReadMore(drop_size, &r)) {
+          return r;
+        }
+        continue;
       }
       return kEof;
     }

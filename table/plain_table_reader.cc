@@ -91,14 +91,13 @@ class PlainTableIterator : public InternalIterator {
 };
 
 extern const uint64_t kPlainTableMagicNumber;
-PlainTableReader::PlainTableReader(const ImmutableCFOptions& ioptions,
-                                   unique_ptr<RandomAccessFileReader>&& file,
-                                   const EnvOptions& storage_options,
-                                   const InternalKeyComparator& icomparator,
-                                   EncodingType encoding_type,
-                                   uint64_t file_size,
-                                   const TableProperties* table_properties,
-                                   const SliceTransform* prefix_extractor)
+PlainTableReader::PlainTableReader(
+    const ImmutableCFOptions& ioptions,
+    std::unique_ptr<RandomAccessFileReader>&& file,
+    const EnvOptions& storage_options, const InternalKeyComparator& icomparator,
+    EncodingType encoding_type, uint64_t file_size,
+    const TableProperties* table_properties,
+    const SliceTransform* prefix_extractor)
     : internal_comparator_(icomparator),
       encoding_type_(encoding_type),
       full_scan_mode_(false),
@@ -118,8 +117,8 @@ PlainTableReader::~PlainTableReader() {
 Status PlainTableReader::Open(
     const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
     const InternalKeyComparator& internal_comparator,
-    unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-    unique_ptr<TableReader>* table_reader, const int bloom_bits_per_key,
+    std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+    std::unique_ptr<TableReader>* table_reader, const int bloom_bits_per_key,
     double hash_table_ratio, size_t index_sparseness, size_t huge_page_tlb_size,
     bool full_scan_mode, const SliceTransform* prefix_extractor) {
   if (file_size > PlainTableIndex::kMaxFileSize) {

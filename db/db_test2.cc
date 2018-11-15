@@ -61,7 +61,7 @@ TEST_P(PrefixFullBloomWithReverseComparator,
     bbto.block_cache->EraseUnRefEntries();
   }
 
-  unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
   iter->Seek("bar345");
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
@@ -1228,7 +1228,14 @@ TEST_F(DBTest2, CompressionOptions) {
 
 class CompactionStallTestListener : public EventListener {
  public:
-  CompactionStallTestListener() : compacted_files_cnt_(0) {}
+  CompactionStallTestListener() : compacting_files_cnt_(0), compacted_files_cnt_(0) {}
+
+  void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& ci) override {
+    ASSERT_EQ(ci.cf_name, "default");
+    ASSERT_EQ(ci.base_input_level, 0);
+    ASSERT_EQ(ci.compaction_reason, CompactionReason::kLevelL0FilesNum);
+    compacting_files_cnt_ += ci.input_files.size();
+  }
 
   void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) override {
     ASSERT_EQ(ci.cf_name, "default");
@@ -1236,6 +1243,8 @@ class CompactionStallTestListener : public EventListener {
     ASSERT_EQ(ci.compaction_reason, CompactionReason::kLevelL0FilesNum);
     compacted_files_cnt_ += ci.input_files.size();
   }
+
+  std::atomic<size_t> compacting_files_cnt_;
   std::atomic<size_t> compacted_files_cnt_;
 };
 
@@ -1244,6 +1253,8 @@ TEST_F(DBTest2, CompactionStall) {
       {{"DBImpl::BGWorkCompaction", "DBTest2::CompactionStall:0"},
        {"DBImpl::BGWorkCompaction", "DBTest2::CompactionStall:1"},
        {"DBTest2::CompactionStall:2",
+        "DBImpl::NotifyOnCompactionBegin::UnlockMutex"},
+       {"DBTest2::CompactionStall:3",
         "DBImpl::NotifyOnCompactionCompleted::UnlockMutex"}});
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1285,14 +1296,18 @@ TEST_F(DBTest2, CompactionStall) {
   // Wait for another compaction to be triggered
   TEST_SYNC_POINT("DBTest2::CompactionStall:1");
 
-  // Hold NotifyOnCompactionCompleted in the unlock mutex section
+  // Hold NotifyOnCompactionBegin in the unlock mutex section
   TEST_SYNC_POINT("DBTest2::CompactionStall:2");
+
+  // Hold NotifyOnCompactionCompleted in the unlock mutex section
+  TEST_SYNC_POINT("DBTest2::CompactionStall:3");
 
   dbfull()->TEST_WaitForCompact();
   ASSERT_LT(NumTableFilesAtLevel(0),
             options.level0_file_num_compaction_trigger);
   ASSERT_GT(listener->compacted_files_cnt_.load(),
             10 - options.level0_file_num_compaction_trigger);
+  ASSERT_EQ(listener->compacting_files_cnt_.load(), listener->compacted_files_cnt_.load());
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -2500,6 +2515,61 @@ TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBTest2, TestNumPread) {
+  Options options = CurrentOptions();
+  // disable block cache
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+  env_->count_random_reads_ = true;
+
+  env_->random_file_open_counter_.store(0);
+  ASSERT_OK(Put("bar", "foo"));
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+  // After flush, we'll open the file and read footer, meta block,
+  // property block and index block.
+  ASSERT_EQ(4, env_->random_read_counter_.Read());
+  ASSERT_EQ(1, env_->random_file_open_counter_.load());
+
+  // One pread per a normal data block read
+  env_->random_file_open_counter_.store(0);
+  env_->random_read_counter_.Reset();
+  ASSERT_EQ("bar", Get("foo"));
+  ASSERT_EQ(1, env_->random_read_counter_.Read());
+  // All files are already opened.
+  ASSERT_EQ(0, env_->random_file_open_counter_.load());
+
+  env_->random_file_open_counter_.store(0);
+  env_->random_read_counter_.Reset();
+  ASSERT_OK(Put("bar2", "foo2"));
+  ASSERT_OK(Put("foo2", "bar2"));
+  ASSERT_OK(Flush());
+  // After flush, we'll open the file and read footer, meta block,
+  // property block and index block.
+  ASSERT_EQ(4, env_->random_read_counter_.Read());
+  ASSERT_EQ(1, env_->random_file_open_counter_.load());
+
+  // Compaction needs two input blocks, which requires 2 preads, and
+  // generate a new SST file which needs 4 preads (footer, meta block,
+  // property block and index block). In total 6.
+  env_->random_file_open_counter_.store(0);
+  env_->random_read_counter_.Reset();
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ(6, env_->random_read_counter_.Read());
+  // All compactin input files should have already been opened.
+  ASSERT_EQ(1, env_->random_file_open_counter_.load());
+
+  // One pread per a normal data block read
+  env_->random_file_open_counter_.store(0);
+  env_->random_read_counter_.Reset();
+  ASSERT_EQ("foo2", Get("bar2"));
+  ASSERT_EQ(1, env_->random_read_counter_.Read());
+  // SST files are already opened.
+  ASSERT_EQ(0, env_->random_file_open_counter_.load());
+}
+
 TEST_F(DBTest2, TraceAndReplay) {
   Options options = CurrentOptions();
   options.merge_operator = MergeOperators::CreatePutOperator();
@@ -2677,7 +2747,7 @@ TEST_F(DBTest2, DISABLED_IteratorPinnedMemory) {
   // Verify that iterators don't pin more than one data block in block cache
   // at each time.
   {
-    unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
     iter->SeekToFirst();
 
     for (int i = 0; i < 4; i++) {
@@ -2834,6 +2904,105 @@ TEST_F(DBTest2, TestBBTTailPrefetch) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
+
+TEST_F(DBTest2, TestGetColumnFamilyHandleUnlocked) {
+  // Setup sync point dependency to reproduce the race condition of
+  // DBImpl::GetColumnFamilyHandleUnlocked
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      { {"TestGetColumnFamilyHandleUnlocked::GetColumnFamilyHandleUnlocked1",
+         "TestGetColumnFamilyHandleUnlocked::PreGetColumnFamilyHandleUnlocked2"},
+        {"TestGetColumnFamilyHandleUnlocked::GetColumnFamilyHandleUnlocked2",
+         "TestGetColumnFamilyHandleUnlocked::ReadColumnFamilyHandle1"},
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  CreateColumnFamilies({"test1", "test2"}, Options());
+  ASSERT_EQ(handles_.size(), 2);
+
+  DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+  port::Thread user_thread1([&]() {
+    auto cfh = dbi->GetColumnFamilyHandleUnlocked(handles_[0]->GetID());
+    ASSERT_EQ(cfh->GetID(), handles_[0]->GetID());
+    TEST_SYNC_POINT("TestGetColumnFamilyHandleUnlocked::GetColumnFamilyHandleUnlocked1");
+    TEST_SYNC_POINT("TestGetColumnFamilyHandleUnlocked::ReadColumnFamilyHandle1");
+    ASSERT_EQ(cfh->GetID(), handles_[0]->GetID());
+  });
+
+  port::Thread user_thread2([&]() {
+    TEST_SYNC_POINT("TestGetColumnFamilyHandleUnlocked::PreGetColumnFamilyHandleUnlocked2");
+    auto cfh = dbi->GetColumnFamilyHandleUnlocked(handles_[1]->GetID());
+    ASSERT_EQ(cfh->GetID(), handles_[1]->GetID());
+    TEST_SYNC_POINT("TestGetColumnFamilyHandleUnlocked::GetColumnFamilyHandleUnlocked2");
+    ASSERT_EQ(cfh->GetID(), handles_[1]->GetID());
+  });
+
+  user_thread1.join();
+  user_thread2.join();
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+#ifndef ROCKSDB_LITE
+TEST_F(DBTest2, TestCompactFiles) {
+  // Setup sync point dependency to reproduce the race condition of
+  // DBImpl::GetColumnFamilyHandleUnlocked
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"TestCompactFiles::IngestExternalFile1",
+       "TestCompactFiles::IngestExternalFile2"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options;
+  options.num_levels = 2;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  auto* handle = db_->DefaultColumnFamily();
+  ASSERT_EQ(db_->NumberLevels(handle), 2);
+
+  rocksdb::SstFileWriter sst_file_writer{rocksdb::EnvOptions(), options};
+  std::string external_file1 = dbname_ + "/test_compact_files1.sst_t";
+  std::string external_file2 = dbname_ + "/test_compact_files2.sst_t";
+  std::string external_file3 = dbname_ + "/test_compact_files3.sst_t";
+
+  ASSERT_OK(sst_file_writer.Open(external_file1));
+  ASSERT_OK(sst_file_writer.Put("1", "1"));
+  ASSERT_OK(sst_file_writer.Put("2", "2"));
+  ASSERT_OK(sst_file_writer.Finish());
+
+  ASSERT_OK(sst_file_writer.Open(external_file2));
+  ASSERT_OK(sst_file_writer.Put("3", "3"));
+  ASSERT_OK(sst_file_writer.Put("4", "4"));
+  ASSERT_OK(sst_file_writer.Finish());
+
+  ASSERT_OK(sst_file_writer.Open(external_file3));
+  ASSERT_OK(sst_file_writer.Put("5", "5"));
+  ASSERT_OK(sst_file_writer.Put("6", "6"));
+  ASSERT_OK(sst_file_writer.Finish());
+
+  ASSERT_OK(db_->IngestExternalFile(handle, {external_file1, external_file3},
+                                    IngestExternalFileOptions()));
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), 2);
+  std::vector<std::string> files;
+  GetSstFiles(env_, dbname_, &files);
+  ASSERT_EQ(files.size(), 2);
+
+  port::Thread user_thread1(
+      [&]() { db_->CompactFiles(CompactionOptions(), handle, files, 1); });
+
+  port::Thread user_thread2([&]() {
+    ASSERT_OK(db_->IngestExternalFile(handle, {external_file2},
+                                      IngestExternalFileOptions()));
+    TEST_SYNC_POINT("TestCompactFiles::IngestExternalFile1");
+  });
+
+  user_thread1.join();
+  user_thread2.join();
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
 

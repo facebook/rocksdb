@@ -17,6 +17,7 @@
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
+#include "db/range_tombstone_fragmenter.h"
 #include "db/read_callback.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
@@ -101,7 +102,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       env_(ioptions.env),
       insert_with_hint_prefix_extractor_(
           ioptions.memtable_insert_with_hint_prefix_extractor),
-      oldest_key_time_(std::numeric_limits<uint64_t>::max()) {
+      oldest_key_time_(std::numeric_limits<uint64_t>::max()),
+      atomic_flush_seqno_(kMaxSequenceNumber) {
   UpdateFlushState();
   // something went wrong if we need to flush before inserting anything
   assert(!ShouldScheduleFlush());
@@ -569,7 +571,7 @@ struct Saver {
   const MergeOperator* merge_operator;
   // the merge operations encountered;
   MergeContext* merge_context;
-  RangeDelAggregator* range_del_agg;
+  SequenceNumber max_covering_tombstone_seq;
   MemTable* mem;
   Logger* logger;
   Statistics* statistics;
@@ -591,10 +593,10 @@ static bool SaveValue(void* arg, const char* entry) {
   Saver* s = reinterpret_cast<Saver*>(arg);
   assert(s != nullptr);
   MergeContext* merge_context = s->merge_context;
-  RangeDelAggregator* range_del_agg = s->range_del_agg;
+  SequenceNumber max_covering_tombstone_seq = s->max_covering_tombstone_seq;
   const MergeOperator* merge_operator = s->merge_operator;
 
-  assert(merge_context != nullptr && range_del_agg != nullptr);
+  assert(merge_context != nullptr);
 
   // entry format is:
   //    klength  varint32
@@ -622,7 +624,7 @@ static bool SaveValue(void* arg, const char* entry) {
     s->seq = seq;
 
     if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
-        range_del_agg->ShouldDelete(Slice(key_ptr, key_length))) {
+        max_covering_tombstone_seq > seq) {
       type = kTypeRangeDeletion;
     }
     switch (type) {
@@ -640,7 +642,7 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->found_final_value) = true;
           return false;
         }
-	FALLTHROUGH_INTENDED;
+        FALLTHROUGH_INTENDED;
       case kTypeValue: {
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadLock();
@@ -719,23 +721,32 @@ static bool SaveValue(void* arg, const char* entry) {
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext* merge_context,
-                   RangeDelAggregator* range_del_agg, SequenceNumber* seq,
-                   const ReadOptions& read_opts, ReadCallback* callback,
-                   bool* is_blob_index) {
+                   SequenceNumber* max_covering_tombstone_seq,
+                   SequenceNumber* seq, const ReadOptions& read_opts,
+                   ReadCallback* callback, bool* is_blob_index) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
     return false;
   }
+  if (*max_covering_tombstone_seq > 0) {
+    *s = Status::NotFound();
+    return true;
+  }
   PERF_TIMER_GUARD(get_from_memtable_time);
 
   std::unique_ptr<InternalIterator> range_del_iter(
       NewRangeTombstoneIterator(read_opts));
-  Status status = range_del_agg->AddTombstones(std::move(range_del_iter));
-  if (!status.ok()) {
-    *s = status;
-    return false;
-  }
+  SequenceNumber snapshot = GetInternalKeySeqno(key.internal_key());
+  FragmentedRangeTombstoneList fragment_list(std::move(range_del_iter),
+                                             comparator_.comparator,
+                                             true /* one_time_use */, snapshot);
+  FragmentedRangeTombstoneIterator fragment_iter(&fragment_list,
+                                                 comparator_.comparator);
+  *max_covering_tombstone_seq = std::max(
+      *max_covering_tombstone_seq,
+      MaxCoveringTombstoneSeqnum(&fragment_iter, key.internal_key(),
+                                 comparator_.comparator.user_comparator()));
 
   Slice user_key = key.user_key();
   bool found_final_value = false;
@@ -761,7 +772,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.seq = kMaxSequenceNumber;
     saver.mem = this;
     saver.merge_context = merge_context;
-    saver.range_del_agg = range_del_agg;
+    saver.max_covering_tombstone_seq = *max_covering_tombstone_seq;
     saver.merge_operator = moptions_.merge_operator;
     saver.logger = moptions_.info_log;
     saver.inplace_update_support = moptions_.inplace_update_support;

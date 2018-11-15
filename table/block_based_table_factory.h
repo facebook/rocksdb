@@ -53,8 +53,8 @@ class BlockBasedTableFactory : public TableFactory {
 
   Status NewTableReader(
       const TableReaderOptions& table_reader_options,
-      unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-      unique_ptr<TableReader>* table_reader,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table_reader,
       bool prefetch_index_and_filter_in_cache = true) const override;
 
   TableBuilder* NewTableBuilder(
@@ -99,6 +99,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
         /* currently not supported
           std::shared_ptr<Cache> block_cache = nullptr;
           std::shared_ptr<Cache> block_cache_compressed = nullptr;
+          std::shared_ptr<MemoryAllocator> memory_allocator = nullptr;
          */
         {"flush_block_policy_factory",
          {offsetof(struct BlockBasedTableOptions, flush_block_policy_factory),

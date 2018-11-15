@@ -47,7 +47,6 @@ public class WriteBatchWithIndexTest {
       try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
            final RocksIterator base = db.newIterator();
            final RocksIterator it = wbwi.newIteratorWithBase(base)) {
-
         it.seek(k1);
         assertThat(it.isValid()).isTrue();
         assertThat(it.key()).isEqualTo(k1);
@@ -421,8 +420,8 @@ public class WriteBatchWithIndexTest {
       final ReadOptions readOptions, final WriteBatchWithIndex wbwi,
       final String skey) {
     final byte[] key = skey.getBytes();
-    try(final RocksIterator baseIterator = db.newIterator(readOptions);
-        final RocksIterator iterator = wbwi.newIteratorWithBase(baseIterator)) {
+    try (final RocksIterator baseIterator = db.newIterator(readOptions);
+         final RocksIterator iterator = wbwi.newIteratorWithBase(baseIterator)) {
       iterator.seek(key);
 
       // Arrays.equals(key, iterator.key()) ensures an exact match in Rocks,

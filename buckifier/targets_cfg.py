@@ -2,8 +2,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
-rocksdb_target_header = """
-load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
+rocksdb_target_header = """load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
 
 REPO_PATH = package_name() + "/"
 
@@ -71,18 +70,28 @@ is_opt_mode = build_mode.startswith("opt")
 # doesn't harm and avoid forgetting to add it.
 if is_opt_mode:
     rocksdb_compiler_flags.append("-DNDEBUG")
+
+default_allocator = read_config("fbcode", "default_allocator")
+
+sanitizer = read_config("fbcode", "sanitizer")
+
+# Let RocksDB aware of jemalloc existence.
+# Do not enable it if sanitizer presents.
+if default_allocator.startswith("jemalloc") and sanitizer == "":
+    rocksdb_compiler_flags.append("-DROCKSDB_JEMALLOC")
+    rocksdb_external_deps.append(("jemalloc", None, "headers"))
 """
 
 
 library_template = """
 cpp_library(
-    name = "%s",
-    srcs = [%s],
-    headers = %s,
+    name = "{name}",
+    srcs = [{srcs}],
+    {headers_attr_prefix}headers = {headers},
     arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
     compiler_flags = rocksdb_compiler_flags,
     preprocessor_flags = rocksdb_preprocessor_flags,
-    deps = [%s],
+    deps = [{deps}],
     external_deps = rocksdb_external_deps,
 )
 """
@@ -121,21 +130,20 @@ if not is_opt_mode:
         ttype = "gtest" if test_cfg[2] == "parallel" else "simple"
         test_bin = test_name + "_bin"
 
-        cpp_binary (
-          name = test_bin,
-          srcs = [test_cc],
-          deps = [":rocksdb_test_lib"],
-          preprocessor_flags = rocksdb_preprocessor_flags,
-          arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
-          compiler_flags = rocksdb_compiler_flags,
-          external_deps = rocksdb_external_deps,
+        cpp_binary(
+            name = test_bin,
+            srcs = [test_cc],
+            arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
+            compiler_flags = rocksdb_compiler_flags,
+            preprocessor_flags = rocksdb_preprocessor_flags,
+            deps = [":rocksdb_test_lib"],
+            external_deps = rocksdb_external_deps,
         )
 
         custom_unittest(
-          name = test_name,
-          type = ttype,
-          deps = [":" + test_bin],
-          command = [TEST_RUNNER, BUCK_BINS + test_bin]
+            name = test_name,
+            command = [TEST_RUNNER, BUCK_BINS + test_bin],
+            type = ttype,
+            deps = [":" + test_bin],
         )
-
 """

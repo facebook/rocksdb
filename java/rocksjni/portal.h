@@ -26,6 +26,7 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksjni/compaction_filter_factory_jnicallback.h"
@@ -2251,7 +2252,7 @@ class ByteJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getByteValueMethod(JNIEnv* env) {
     jclass clazz = getJClass(env);
@@ -2264,6 +2265,39 @@ class ByteJni : public JavaClass {
     assert(mid != nullptr);
     return mid;
   }
+
+  /**
+   * Calls the Java Method: Byte#valueOf, returning a constructed Byte jobject
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return A constructing Byte object or nullptr if the class or method id could not
+   *     be retrieved, or an exception occurred
+   */
+  static jobject valueOf(JNIEnv* env, jbyte jprimitive_byte) {
+    jclass clazz = getJClass(env);
+    if (clazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetStaticMethodID(clazz, "valueOf", "(B)Ljava/lang/Byte;");
+    if (mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    const jobject jbyte_obj =
+        env->CallStaticObjectMethod(clazz, mid, jprimitive_byte);
+    if (env->ExceptionCheck()) {
+      // exception occurred
+      return nullptr;
+    }
+
+    return jbyte_obj;
+  }
+
 };
 
 // The portal class for java.lang.StringBuilder
@@ -3267,7 +3301,7 @@ class TickerTypeJni {
         return 0x36;
       case rocksdb::Tickers::RATE_LIMIT_DELAY_MILLIS:
         return 0x37;
-      case rocksdb::Tickers::NO_ITERATORS:
+      case rocksdb::Tickers::NO_ITERATOR_CREATED:
         return 0x38;
       case rocksdb::Tickers::NUMBER_MULTIGET_CALLS:
         return 0x39;
@@ -3345,8 +3379,10 @@ class TickerTypeJni {
         return 0x5D;
       case rocksdb::Tickers::NUMBER_MULTIGET_KEYS_FOUND:
         return 0x5E;
-      case rocksdb::Tickers::TICKER_ENUM_MAX:
+      case rocksdb::Tickers::NO_ITERATOR_DELETED:
         return 0x5F;
+      case rocksdb::Tickers::TICKER_ENUM_MAX:
+        return 0x60;
 
       default:
         // undefined/default
@@ -3471,7 +3507,7 @@ class TickerTypeJni {
       case 0x37:
         return rocksdb::Tickers::RATE_LIMIT_DELAY_MILLIS;
       case 0x38:
-        return rocksdb::Tickers::NO_ITERATORS;
+        return rocksdb::Tickers::NO_ITERATOR_CREATED;
       case 0x39:
         return rocksdb::Tickers::NUMBER_MULTIGET_CALLS;
       case 0x3A:
@@ -3549,6 +3585,8 @@ class TickerTypeJni {
       case 0x5E:
         return rocksdb::Tickers::NUMBER_MULTIGET_KEYS_FOUND;
       case 0x5F:
+        return rocksdb::Tickers::NO_ITERATOR_DELETED;
+      case 0x60:
         return rocksdb::Tickers::TICKER_ENUM_MAX;
 
       default:
@@ -3791,6 +3829,48 @@ class RateLimiterModeJni {
       default:
         // undefined/default
         return rocksdb::RateLimiter::Mode::kWritesOnly;
+    }
+  }
+};
+
+// The portal class for org.rocksdb.MemoryUsageType
+class MemoryUsageTypeJni {
+public:
+  // Returns the equivalent org.rocksdb.MemoryUsageType for the provided
+  // C++ rocksdb::MemoryUtil::UsageType enum
+  static jbyte toJavaMemoryUsageType(
+      const rocksdb::MemoryUtil::UsageType& usage_type) {
+    switch(usage_type) {
+      case rocksdb::MemoryUtil::UsageType::kMemTableTotal:
+        return 0x0;
+      case rocksdb::MemoryUtil::UsageType::kMemTableUnFlushed:
+        return 0x1;
+      case rocksdb::MemoryUtil::UsageType::kTableReadersTotal:
+        return 0x2;
+      case rocksdb::MemoryUtil::UsageType::kCacheTotal:
+        return 0x3;
+      default:
+        // undefined: use kNumUsageTypes
+        return 0x4;
+    }
+  }
+
+  // Returns the equivalent C++ rocksdb::MemoryUtil::UsageType enum for the
+  // provided Java org.rocksdb.MemoryUsageType
+  static rocksdb::MemoryUtil::UsageType toCppMemoryUsageType(
+      jbyte usage_type) {
+    switch(usage_type) {
+      case 0x0:
+        return rocksdb::MemoryUtil::UsageType::kMemTableTotal;
+      case 0x1:
+        return rocksdb::MemoryUtil::UsageType::kMemTableUnFlushed;
+      case 0x2:
+        return rocksdb::MemoryUtil::UsageType::kTableReadersTotal;
+      case 0x3:
+        return rocksdb::MemoryUtil::UsageType::kCacheTotal;
+      default:
+        // undefined/default: use kNumUsageTypes
+        return rocksdb::MemoryUtil::UsageType::kNumUsageTypes;
     }
   }
 };

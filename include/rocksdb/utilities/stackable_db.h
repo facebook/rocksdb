@@ -278,6 +278,11 @@ class StackableDB : public DB {
                        ColumnFamilyHandle* column_family) override {
     return db_->Flush(fopts, column_family);
   }
+  virtual Status Flush(
+      const FlushOptions& fopts,
+      const std::vector<ColumnFamilyHandle*>& column_families) override {
+    return db_->Flush(fopts, column_families);
+  }
 
   virtual Status SyncWAL() override {
     return db_->SyncWAL();
@@ -364,7 +369,7 @@ class StackableDB : public DB {
   }
 
   virtual Status GetUpdatesSince(
-      SequenceNumber seq_number, unique_ptr<TransactionLogIterator>* iter,
+      SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
       const TransactionLogIterator::ReadOptions& read_options) override {
     return db_->GetUpdatesSince(seq_number, iter, read_options);
   }

@@ -59,14 +59,16 @@ class FlushJob {
   FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
            const ImmutableDBOptions& db_options,
            const MutableCFOptions& mutable_cf_options,
-           const EnvOptions env_options, VersionSet* versions,
-           InstrumentedMutex* db_mutex, std::atomic<bool>* shutting_down,
+           const uint64_t* max_memtable_id, const EnvOptions& env_options,
+           VersionSet* versions, InstrumentedMutex* db_mutex,
+           std::atomic<bool>* shutting_down,
            std::vector<SequenceNumber> existing_snapshots,
            SequenceNumber earliest_write_conflict_snapshot,
            SnapshotChecker* snapshot_checker, JobContext* job_context,
            LogBuffer* log_buffer, Directory* db_directory,
            Directory* output_file_directory, CompressionType output_compression,
-           Statistics* stats, EventLogger* event_logger, bool measure_io_stats);
+           Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
+           const bool sync_output_directory, const bool write_manifest);
 
   ~FlushJob();
 
@@ -77,16 +79,24 @@ class FlushJob {
              FileMetaData* file_meta = nullptr);
   void Cancel();
   TableProperties GetTableProperties() const { return table_properties_; }
+  const autovector<MemTable*>& GetMemTables() const { return mems_; }
 
  private:
   void ReportStartedFlush();
   void ReportFlushInputSize(const autovector<MemTable*>& mems);
   void RecordFlushIOStats();
   Status WriteLevel0Table();
+
   const std::string& dbname_;
   ColumnFamilyData* cfd_;
   const ImmutableDBOptions& db_options_;
   const MutableCFOptions& mutable_cf_options_;
+  // Pointer to a variable storing the largest memtable id to flush in this
+  // flush job. RocksDB uses this variable to select the memtables to flush in
+  // this job. All memtables in this column family with an ID smaller than or
+  // equal to *max_memtable_id_ will be selected for flush. If null, then all
+  // memtables in the column family will be selected.
+  const uint64_t* max_memtable_id_;
   const EnvOptions env_options_;
   VersionSet* versions_;
   InstrumentedMutex* db_mutex_;
@@ -103,6 +113,23 @@ class FlushJob {
   EventLogger* event_logger_;
   TableProperties table_properties_;
   bool measure_io_stats_;
+  // True if this flush job should call fsync on the output directory. False
+  // otherwise.
+  // Usually sync_output_directory_ is true. A flush job needs to call sync on
+  // the output directory before committing to the MANIFEST.
+  // However, an individual flush job does not have to call sync on the output
+  // directory if it is part of an atomic flush. After all flush jobs in the
+  // atomic flush succeed, call sync once on each distinct output directory.
+  const bool sync_output_directory_;
+  // True if this flush job should write to MANIFEST after successfully
+  // flushing memtables. False otherwise.
+  // Usually write_manifest_ is true. A flush job commits to the MANIFEST after
+  // flushing the memtables.
+  // However, an individual flush job cannot rashly write to the MANIFEST
+  // immediately after it finishes the flush if it is part of an atomic flush.
+  // In this case, only after all flush jobs succeed in flush can RocksDB
+  // commit to the MANIFEST.
+  const bool write_manifest_;
 
   // Variables below are set by PickMemTable():
   FileMetaData meta_;

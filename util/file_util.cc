@@ -19,16 +19,16 @@ Status CopyFile(Env* env, const std::string& source,
                 const std::string& destination, uint64_t size, bool use_fsync) {
   const EnvOptions soptions;
   Status s;
-  unique_ptr<SequentialFileReader> src_reader;
-  unique_ptr<WritableFileWriter> dest_writer;
+  std::unique_ptr<SequentialFileReader> src_reader;
+  std::unique_ptr<WritableFileWriter> dest_writer;
 
   {
-    unique_ptr<SequentialFile> srcfile;
+    std::unique_ptr<SequentialFile> srcfile;
     s = env->NewSequentialFile(source, &srcfile, soptions);
     if (!s.ok()) {
       return s;
     }
-    unique_ptr<WritableFile> destfile;
+    std::unique_ptr<WritableFile> destfile;
     s = env->NewWritableFile(destination, &destfile, soptions);
     if (!s.ok()) {
       return s;
@@ -71,9 +71,9 @@ Status CreateFile(Env* env, const std::string& destination,
                   const std::string& contents, bool use_fsync) {
   const EnvOptions soptions;
   Status s;
-  unique_ptr<WritableFileWriter> dest_writer;
+  std::unique_ptr<WritableFileWriter> dest_writer;
 
-  unique_ptr<WritableFile> destfile;
+  std::unique_ptr<WritableFile> destfile;
   s = env->NewWritableFile(destination, &destfile, soptions);
   if (!s.ok()) {
     return s;

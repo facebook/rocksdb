@@ -268,6 +268,93 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicLargeLevel) {
   ASSERT_EQ(0, logger_->log_count);
 }
 
+TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_1) {
+  ioptions_.level_compaction_dynamic_level_bytes = true;
+  mutable_cf_options_.max_bytes_for_level_base = 40000;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 5;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+
+  Add(0, 1U, "1", "2", 10000U);
+  Add(0, 2U, "1", "2", 10000U);
+  Add(0, 3U, "1", "2", 10000U);
+
+  Add(5, 4U, "1", "2", 1286250U);
+  Add(4, 5U, "1", "2", 200000U);
+  Add(3, 6U, "1", "2", 40000U);
+  Add(2, 7U, "1", "2", 8000U);
+
+  vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
+  ASSERT_EQ(0, logger_->log_count);
+  ASSERT_EQ(2, vstorage_.base_level());
+  // level multiplier should be 3.5
+  ASSERT_EQ(vstorage_.level_multiplier(), 5.0);
+  // Level size should be around 30,000, 105,000, 367,500
+  ASSERT_EQ(40000U, vstorage_.MaxBytesForLevel(2));
+  ASSERT_EQ(51450U, vstorage_.MaxBytesForLevel(3));
+  ASSERT_EQ(257250U, vstorage_.MaxBytesForLevel(4));
+}
+
+TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_2) {
+  ioptions_.level_compaction_dynamic_level_bytes = true;
+  mutable_cf_options_.max_bytes_for_level_base = 10000;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 5;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+
+  Add(0, 11U, "1", "2", 10000U);
+  Add(0, 12U, "1", "2", 10000U);
+  Add(0, 13U, "1", "2", 10000U);
+
+  Add(5, 4U, "1", "2", 1286250U);
+  Add(4, 5U, "1", "2", 200000U);
+  Add(3, 6U, "1", "2", 40000U);
+  Add(2, 7U, "1", "2", 8000U);
+
+  vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
+  ASSERT_EQ(0, logger_->log_count);
+  ASSERT_EQ(2, vstorage_.base_level());
+  // level multiplier should be 3.5
+  ASSERT_LT(vstorage_.level_multiplier(), 3.6);
+  ASSERT_GT(vstorage_.level_multiplier(), 3.4);
+  // Level size should be around 30,000, 105,000, 367,500
+  ASSERT_EQ(30000U, vstorage_.MaxBytesForLevel(2));
+  ASSERT_LT(vstorage_.MaxBytesForLevel(3), 110000U);
+  ASSERT_GT(vstorage_.MaxBytesForLevel(3), 100000U);
+  ASSERT_LT(vstorage_.MaxBytesForLevel(4), 370000U);
+  ASSERT_GT(vstorage_.MaxBytesForLevel(4), 360000U);
+}
+
+TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_3) {
+  ioptions_.level_compaction_dynamic_level_bytes = true;
+  mutable_cf_options_.max_bytes_for_level_base = 10000;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 5;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+
+  Add(0, 11U, "1", "2", 5000U);
+  Add(0, 12U, "1", "2", 5000U);
+  Add(0, 13U, "1", "2", 5000U);
+  Add(0, 14U, "1", "2", 5000U);
+  Add(0, 15U, "1", "2", 5000U);
+  Add(0, 16U, "1", "2", 5000U);
+
+  Add(5, 4U, "1", "2", 1286250U);
+  Add(4, 5U, "1", "2", 200000U);
+  Add(3, 6U, "1", "2", 40000U);
+  Add(2, 7U, "1", "2", 8000U);
+
+  vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
+  ASSERT_EQ(0, logger_->log_count);
+  ASSERT_EQ(2, vstorage_.base_level());
+  // level multiplier should be 3.5
+  ASSERT_LT(vstorage_.level_multiplier(), 3.6);
+  ASSERT_GT(vstorage_.level_multiplier(), 3.4);
+  // Level size should be around 30,000, 105,000, 367,500
+  ASSERT_EQ(30000U, vstorage_.MaxBytesForLevel(2));
+  ASSERT_LT(vstorage_.MaxBytesForLevel(3), 110000U);
+  ASSERT_GT(vstorage_.MaxBytesForLevel(3), 100000U);
+  ASSERT_LT(vstorage_.MaxBytesForLevel(4), 370000U);
+  ASSERT_GT(vstorage_.MaxBytesForLevel(4), 360000U);
+}
+
 TEST_F(VersionStorageInfoTest, EstimateLiveDataSize) {
   // Test whether the overlaps are detected as expected
   Add(1, 1U, "4", "7", 1U);  // Perfect overlap with last level
@@ -518,9 +605,9 @@ TEST_F(FindLevelFileTest, LevelOverlappingFiles) {
   ASSERT_TRUE(Overlaps("600", "700"));
 }
 
-class ManifestWriterTest : public testing::Test {
+class VersionSetTest : public testing::Test {
  public:
-  ManifestWriterTest()
+  VersionSetTest()
       : env_(Env::Default()),
         dbname_(test::PerThreadDBPath("version_set_test")),
         db_options_(),
@@ -537,8 +624,12 @@ class ManifestWriterTest : public testing::Test {
                                       std::numeric_limits<uint64_t>::max());
   }
 
-  // Create DB with 3 column families.
-  void NewDB() {
+  void PrepareManifest(std::vector<ColumnFamilyDescriptor>* column_families,
+                       SequenceNumber* last_seqno,
+                       std::unique_ptr<log::Writer>* log_writer) {
+    assert(column_families != nullptr);
+    assert(last_seqno != nullptr);
+    assert(log_writer != nullptr);
     VersionEdit new_db;
     new_db.SetLogNumber(0);
     new_db.SetNextFile(2);
@@ -559,41 +650,50 @@ class ManifestWriterTest : public testing::Test {
       new_cf.SetLastSequence(last_seq++);
       new_cfs.emplace_back(new_cf);
     }
+    *last_seqno = last_seq;
 
     const std::string manifest = DescriptorFileName(dbname_, 1);
-    unique_ptr<WritableFile> file;
+    std::unique_ptr<WritableFile> file;
     Status s = env_->NewWritableFile(
         manifest, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
-    unique_ptr<WritableFileWriter> file_writer(
+    std::unique_ptr<WritableFileWriter> file_writer(
         new WritableFileWriter(std::move(file), manifest, env_options_));
     {
-      log::Writer log(std::move(file_writer), 0, false);
+      log_writer->reset(new log::Writer(std::move(file_writer), 0, false));
       std::string record;
       new_db.EncodeTo(&record);
-      s = log.AddRecord(record);
+      s = (*log_writer)->AddRecord(record);
       for (const auto& e : new_cfs) {
+        record.clear();
         e.EncodeTo(&record);
-        s = log.AddRecord(record);
+        s = (*log_writer)->AddRecord(record);
         ASSERT_OK(s);
       }
     }
     ASSERT_OK(s);
-    // Make "CURRENT" file point to the new manifest file.
-    s = SetCurrentFile(env_, dbname_, 1, nullptr);
 
-    std::vector<ColumnFamilyDescriptor> column_families;
     cf_options_.table_factory = mock_table_factory_;
     for (const auto& cf_name : cf_names) {
-      column_families.emplace_back(cf_name, cf_options_);
+      column_families->emplace_back(cf_name, cf_options_);
     }
+  }
+
+  // Create DB with 3 column families.
+  void NewDB() {
+    std::vector<ColumnFamilyDescriptor> column_families;
+    SequenceNumber last_seqno;
+    std::unique_ptr<log::Writer> log_writer;
+
+    PrepareManifest(&column_families, &last_seqno, &log_writer);
+    log_writer.reset();
+    // Make "CURRENT" file point to the new manifest file.
+    Status s = SetCurrentFile(env_, dbname_, 1, nullptr);
+    ASSERT_OK(s);
 
     EXPECT_OK(versions_->Recover(column_families, false));
-    EXPECT_EQ(kInitialNumOfCfs,
+    EXPECT_EQ(column_families.size(),
               versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      cfds_.emplace_back(cfd);
-    }
   }
 
   Env* env_;
@@ -605,25 +705,32 @@ class ManifestWriterTest : public testing::Test {
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
   WriteBufferManager write_buffer_manager_;
-  std::unique_ptr<VersionSet> versions_;
+  std::shared_ptr<VersionSet> versions_;
   InstrumentedMutex mutex_;
   std::atomic<bool> shutting_down_;
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
-  std::vector<ColumnFamilyData*> cfds_;
 };
 
-TEST_F(ManifestWriterTest, SameColumnFamilyGroupCommit) {
+TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
   NewDB();
   const int kGroupSize = 5;
-  std::vector<VersionEdit> edits(kGroupSize);
-  std::vector<ColumnFamilyData*> cfds(kGroupSize, cfds_[0]);
-  std::vector<MutableCFOptions> all_mutable_cf_options(kGroupSize,
-                                                       mutable_cf_options_);
-  std::vector<autovector<VersionEdit*>> edit_lists(kGroupSize);
+  autovector<VersionEdit> edits;
   for (int i = 0; i != kGroupSize; ++i) {
-    edit_lists[i].emplace_back(&edits[i]);
+    edits.emplace_back(VersionEdit());
+  }
+  autovector<ColumnFamilyData*> cfds;
+  autovector<const MutableCFOptions*> all_mutable_cf_options;
+  autovector<autovector<VersionEdit*>> edit_lists;
+  for (int i = 0; i != kGroupSize; ++i) {
+    cfds.emplace_back(versions_->GetColumnFamilySet()->GetDefault());
+    all_mutable_cf_options.emplace_back(&mutable_cf_options_);
+    autovector<VersionEdit*> edit_list;
+    edit_list.emplace_back(&edits[i]);
+    edit_lists.emplace_back(edit_list);
   }
 
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
   int count = 0;
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::ProcessManifestWrites:SameColumnFamily", [&](void* arg) {
@@ -638,6 +745,218 @@ TEST_F(ManifestWriterTest, SameColumnFamilyGroupCommit) {
   mutex_.Unlock();
   EXPECT_OK(s);
   EXPECT_EQ(kGroupSize - 1, count);
+}
+
+TEST_F(VersionSetTest, HandleValidAtomicGroup) {
+  std::vector<ColumnFamilyDescriptor> column_families;
+  SequenceNumber last_seqno;
+  std::unique_ptr<log::Writer> log_writer;
+  PrepareManifest(&column_families, &last_seqno, &log_writer);
+
+  // Append multiple version edits that form an atomic group
+  const int kAtomicGroupSize = 3;
+  std::vector<VersionEdit> edits(kAtomicGroupSize);
+  int remaining = kAtomicGroupSize;
+  for (size_t i = 0; i != edits.size(); ++i) {
+    edits[i].SetLogNumber(0);
+    edits[i].SetNextFile(2);
+    edits[i].MarkAtomicGroup(--remaining);
+    edits[i].SetLastSequence(last_seqno++);
+  }
+  Status s;
+  for (const auto& edit : edits) {
+    std::string record;
+    edit.EncodeTo(&record);
+    s = log_writer->AddRecord(record);
+    ASSERT_OK(s);
+  }
+  log_writer.reset();
+
+  s = SetCurrentFile(env_, dbname_, 1, nullptr);
+  ASSERT_OK(s);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  bool first_in_atomic_group = false;
+  bool last_in_atomic_group = false;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Recover:FirstInAtomicGroup", [&](void* arg) {
+        VersionEdit* e = reinterpret_cast<VersionEdit*>(arg);
+        EXPECT_EQ(edits.front().DebugString(),
+                  e->DebugString());  // compare based on value
+        first_in_atomic_group = true;
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Recover:LastInAtomicGroup", [&](void* arg) {
+        VersionEdit* e = reinterpret_cast<VersionEdit*>(arg);
+        EXPECT_EQ(edits.back().DebugString(),
+                  e->DebugString());  // compare based on value
+        EXPECT_TRUE(first_in_atomic_group);
+        last_in_atomic_group = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  EXPECT_OK(versions_->Recover(column_families, false));
+  EXPECT_EQ(column_families.size(),
+            versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
+  EXPECT_TRUE(first_in_atomic_group);
+  EXPECT_TRUE(last_in_atomic_group);
+}
+
+TEST_F(VersionSetTest, HandleIncompleteTrailingAtomicGroup) {
+  std::vector<ColumnFamilyDescriptor> column_families;
+  SequenceNumber last_seqno;
+  std::unique_ptr<log::Writer> log_writer;
+  PrepareManifest(&column_families, &last_seqno, &log_writer);
+
+  // Append multiple version edits that form an atomic group
+  const int kAtomicGroupSize = 4;
+  const int kNumberOfPersistedVersionEdits = kAtomicGroupSize - 1;
+  std::vector<VersionEdit> edits(kNumberOfPersistedVersionEdits);
+  int remaining = kAtomicGroupSize;
+  for (size_t i = 0; i != edits.size(); ++i) {
+    edits[i].SetLogNumber(0);
+    edits[i].SetNextFile(2);
+    edits[i].MarkAtomicGroup(--remaining);
+    edits[i].SetLastSequence(last_seqno++);
+  }
+  Status s;
+  for (const auto& edit : edits) {
+    std::string record;
+    edit.EncodeTo(&record);
+    s = log_writer->AddRecord(record);
+    ASSERT_OK(s);
+  }
+  log_writer.reset();
+
+  s = SetCurrentFile(env_, dbname_, 1, nullptr);
+  ASSERT_OK(s);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  bool first_in_atomic_group = false;
+  bool last_in_atomic_group = false;
+  size_t num = 0;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Recover:FirstInAtomicGroup", [&](void* arg) {
+        VersionEdit* e = reinterpret_cast<VersionEdit*>(arg);
+        EXPECT_EQ(edits.front().DebugString(),
+                  e->DebugString());  // compare based on value
+        first_in_atomic_group = true;
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Recover:LastInAtomicGroup",
+      [&](void* /* arg */) { last_in_atomic_group = true; });
+  SyncPoint::GetInstance()->SetCallBack("VersionSet::Recover:AtomicGroup",
+                                        [&](void* /* arg */) { ++num; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  EXPECT_OK(versions_->Recover(column_families, false));
+  EXPECT_EQ(column_families.size(),
+            versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
+  EXPECT_TRUE(first_in_atomic_group);
+  EXPECT_FALSE(last_in_atomic_group);
+  EXPECT_EQ(kNumberOfPersistedVersionEdits, num);
+}
+
+TEST_F(VersionSetTest, HandleCorruptedAtomicGroup) {
+  std::vector<ColumnFamilyDescriptor> column_families;
+  SequenceNumber last_seqno;
+  std::unique_ptr<log::Writer> log_writer;
+  PrepareManifest(&column_families, &last_seqno, &log_writer);
+
+  // Append multiple version edits that form an atomic group
+  const int kAtomicGroupSize = 4;
+  std::vector<VersionEdit> edits(kAtomicGroupSize);
+  int remaining = kAtomicGroupSize;
+  for (size_t i = 0; i != edits.size(); ++i) {
+    edits[i].SetLogNumber(0);
+    edits[i].SetNextFile(2);
+    if (i != (kAtomicGroupSize / 2)) {
+      edits[i].MarkAtomicGroup(--remaining);
+    }
+    edits[i].SetLastSequence(last_seqno++);
+  }
+  Status s;
+  for (const auto& edit : edits) {
+    std::string record;
+    edit.EncodeTo(&record);
+    s = log_writer->AddRecord(record);
+    ASSERT_OK(s);
+  }
+  log_writer.reset();
+
+  s = SetCurrentFile(env_, dbname_, 1, nullptr);
+  ASSERT_OK(s);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  bool mixed = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Recover:AtomicGroupMixedWithNormalEdits", [&](void* arg) {
+        VersionEdit* e = reinterpret_cast<VersionEdit*>(arg);
+        EXPECT_EQ(edits[kAtomicGroupSize / 2].DebugString(), e->DebugString());
+        mixed = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  EXPECT_NOK(versions_->Recover(column_families, false));
+  EXPECT_EQ(column_families.size(),
+            versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
+  EXPECT_TRUE(mixed);
+}
+
+TEST_F(VersionSetTest, HandleIncorrectAtomicGroupSize) {
+  std::vector<ColumnFamilyDescriptor> column_families;
+  SequenceNumber last_seqno;
+  std::unique_ptr<log::Writer> log_writer;
+  PrepareManifest(&column_families, &last_seqno, &log_writer);
+
+  // Append multiple version edits that form an atomic group
+  const int kAtomicGroupSize = 4;
+  std::vector<VersionEdit> edits(kAtomicGroupSize);
+  int remaining = kAtomicGroupSize;
+  for (size_t i = 0; i != edits.size(); ++i) {
+    edits[i].SetLogNumber(0);
+    edits[i].SetNextFile(2);
+    if (i != 1) {
+      edits[i].MarkAtomicGroup(--remaining);
+    } else {
+      edits[i].MarkAtomicGroup(remaining--);
+    }
+    edits[i].SetLastSequence(last_seqno++);
+  }
+  Status s;
+  for (const auto& edit : edits) {
+    std::string record;
+    edit.EncodeTo(&record);
+    s = log_writer->AddRecord(record);
+    ASSERT_OK(s);
+  }
+  log_writer.reset();
+
+  s = SetCurrentFile(env_, dbname_, 1, nullptr);
+  ASSERT_OK(s);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  bool incorrect_group_size = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Recover:IncorrectAtomicGroupSize", [&](void* arg) {
+        VersionEdit* e = reinterpret_cast<VersionEdit*>(arg);
+        EXPECT_EQ(edits[1].DebugString(), e->DebugString());
+        incorrect_group_size = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  EXPECT_NOK(versions_->Recover(column_families, false));
+  EXPECT_EQ(column_families.size(),
+            versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
+  EXPECT_TRUE(incorrect_group_size);
 }
 }  // namespace rocksdb
 

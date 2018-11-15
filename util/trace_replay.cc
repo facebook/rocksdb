@@ -103,7 +103,7 @@ Status Tracer::WriteTrace(const Trace& trace) {
 Status Tracer::Close() { return WriteFooter(); }
 
 Replayer::Replayer(DB* db, const std::vector<ColumnFamilyHandle*>& handles,
-                   unique_ptr<TraceReader>&& reader)
+                   std::unique_ptr<TraceReader>&& reader)
     : trace_reader_(std::move(reader)) {
   assert(db != nullptr);
   db_ = static_cast<DBImpl*>(db->GetRootDB());

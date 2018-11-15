@@ -105,9 +105,6 @@ void GetIntTblPropCollectorFactory(
     int_tbl_prop_collector_factories->emplace_back(
         new UserKeyTablePropertiesCollectorFactory(collector_factories[i]));
   }
-  // Add collector to collect internal key statistics
-  int_tbl_prop_collector_factories->emplace_back(
-      new InternalKeyPropertiesCollectorFactory);
 }
 
 Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {

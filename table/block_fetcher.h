@@ -11,6 +11,8 @@
 #include "table/block.h"
 #include "table/format.h"
 
+#include "util/memory_allocator.h"
+
 namespace rocksdb {
 class BlockFetcher {
  public:
@@ -26,7 +28,7 @@ class BlockFetcher {
                BlockContents* contents, const ImmutableCFOptions& ioptions,
                bool do_uncompress, const Slice& compression_dict,
                const PersistentCacheOptions& cache_options,
-               const bool immortal_source = false)
+               MemoryAllocator* allocator = nullptr)
       : file_(file),
         prefetch_buffer_(prefetch_buffer),
         footer_(footer),
@@ -35,10 +37,11 @@ class BlockFetcher {
         contents_(contents),
         ioptions_(ioptions),
         do_uncompress_(do_uncompress),
-        immortal_source_(immortal_source),
         compression_dict_(compression_dict),
-        cache_options_(cache_options) {}
+        cache_options_(cache_options),
+        allocator_(allocator) {}
   Status ReadBlockContents();
+  CompressionType get_compression_type() const { return compression_type_; }
 
  private:
   static const uint32_t kDefaultStackBufferSize = 5000;
@@ -51,17 +54,17 @@ class BlockFetcher {
   BlockContents* contents_;
   const ImmutableCFOptions& ioptions_;
   bool do_uncompress_;
-  const bool immortal_source_;
   const Slice& compression_dict_;
   const PersistentCacheOptions& cache_options_;
+  MemoryAllocator* allocator_;
   Status status_;
   Slice slice_;
   char* used_buf_ = nullptr;
   size_t block_size_;
-  std::unique_ptr<char[]> heap_buf_;
+  CacheAllocationPtr heap_buf_;
   char stack_buf_[kDefaultStackBufferSize];
   bool got_from_prefetch_buffer_ = false;
-  rocksdb::CompressionType compression_type;
+  rocksdb::CompressionType compression_type_;
 
   // return true if found
   bool TryGetUncompressBlockFromPersistentCache();

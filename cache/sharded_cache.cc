@@ -21,7 +21,8 @@ namespace rocksdb {
 
 ShardedCache::ShardedCache(size_t capacity, int num_shard_bits,
                            bool strict_capacity_limit)
-    : num_shard_bits_(num_shard_bits),
+    : Cache(),
+      num_shard_bits_(num_shard_bits),
       capacity_(capacity),
       strict_capacity_limit_(strict_capacity_limit),
       last_id_(1) {}
@@ -142,6 +143,7 @@ std::string ShardedCache::GetPrintableOptions() const {
              strict_capacity_limit_);
     ret.append(buffer);
   }
+  ret.append(buffer);
   ret.append(GetShard(0)->GetPrintableOptions());
   return ret;
 }

@@ -97,6 +97,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct BlockBasedTableOptions, filter_policy),
        sizeof(std::shared_ptr<const FilterPolicy>)},
+      {offsetof(struct BlockBasedTableOptions, memory_allocator),
+       sizeof(std::shared_ptr<MemoryAllocator>)},
   };
 
   // In this test, we catch a new option of BlockBasedTableOptions that is not
@@ -291,7 +293,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "concurrent_prepare=false;"
                              "two_write_queues=false;"
                              "manual_wal_flush=false;"
-                             "seq_per_batch=false;",
+                             "seq_per_batch=false;"
+                             "atomic_flush=false",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

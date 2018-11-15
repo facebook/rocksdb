@@ -104,9 +104,9 @@ Status BuildTable(
 
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     TableBuilder* builder;
-    unique_ptr<WritableFileWriter> file_writer;
+    std::unique_ptr<WritableFileWriter> file_writer;
     {
-      unique_ptr<WritableFile> file;
+      std::unique_ptr<WritableFile> file;
 #ifndef NDEBUG
       bool use_direct_writes = env_options.use_direct_writes;
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
@@ -121,8 +121,9 @@ Status BuildTable(
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
 
-      file_writer.reset(new WritableFileWriter(
-          std::move(file), fname, env_options, ioptions.statistics));
+      file_writer.reset(new WritableFileWriter(std::move(file), fname,
+                                               env_options, ioptions.statistics,
+                                               ioptions.listeners));
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,

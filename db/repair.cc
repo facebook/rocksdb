@@ -163,11 +163,18 @@ class Repairer {
   }
 
   ~Repairer() {
+    if (db_lock_ != nullptr) {
+      env_->UnlockFile(db_lock_);
+    }
     delete table_cache_;
   }
 
   Status Run() {
-    Status status = FindFiles();
+    Status status = env_->LockFile(LockFileName(dbname_), &db_lock_);
+    if (!status.ok()) {
+      return status;
+    }
+    status = FindFiles();
     if (status.ok()) {
       // Discard older manifests and start a fresh one
       for (size_t i = 0; i < manifests_.size(); i++) {
@@ -245,6 +252,9 @@ class Repairer {
   std::vector<uint64_t> logs_;
   std::vector<TableInfo> tables_;
   uint64_t next_file_number_;
+  // Lock over the persistent DB state. Non-nullptr iff successfully
+  // acquired.
+  FileLock* db_lock_;
 
   Status FindFiles() {
     std::vector<std::string> filenames;
@@ -334,13 +344,13 @@ class Repairer {
 
     // Open the log file
     std::string logname = LogFileName(db_options_.wal_dir, log);
-    unique_ptr<SequentialFile> lfile;
+    std::unique_ptr<SequentialFile> lfile;
     Status status = env_->NewSequentialFile(
         logname, &lfile, env_->OptimizeForLogRead(env_options_));
     if (!status.ok()) {
       return status;
     }
-    unique_ptr<SequentialFileReader> lfile_reader(
+    std::unique_ptr<SequentialFileReader> lfile_reader(
         new SequentialFileReader(std::move(lfile), logname));
 
     // Create the log reader.
@@ -353,7 +363,8 @@ class Repairer {
     // propagating bad information (like overly large sequence
     // numbers).
     log::Reader reader(db_options_.info_log, std::move(lfile_reader), &reporter,
-                       true /*enable checksum*/, log);
+                       true /*enable checksum*/, log,
+                       false /* retry_after_eof */);
 
     // Initialize per-column family memtables
     for (auto* cfd : *vset_.GetColumnFamilySet()) {

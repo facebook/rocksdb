@@ -239,14 +239,15 @@ class Transaction {
   // An overload of the above method that receives a PinnableSlice
   // For backward compatibility a default implementation is provided
   virtual Status GetForUpdate(const ReadOptions& options,
-                              ColumnFamilyHandle* /*column_family*/,
+                              ColumnFamilyHandle* column_family,
                               const Slice& key, PinnableSlice* pinnable_val,
-                              bool /*exclusive*/ = true) {
+                              bool exclusive = true) {
     if (pinnable_val == nullptr) {
       std::string* null_str = nullptr;
-      return GetForUpdate(options, key, null_str);
+      return GetForUpdate(options, column_family, key, null_str, exclusive);
     } else {
-      auto s = GetForUpdate(options, key, pinnable_val->GetSelf());
+      auto s = GetForUpdate(options, column_family, key,
+                            pinnable_val->GetSelf(), exclusive);
       pinnable_val->PinSelf();
       return s;
     }

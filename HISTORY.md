@@ -1,15 +1,59 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Public API Change
+* `NO_ITERATORS` is divided into two counters `NO_ITERATOR_CREATED` and `NO_ITERATOR_DELETE`. Both of them are only increasing now, just as other counters.
+
+### New Features
+* Introduced `Memoryllocator`, which lets the user specify custom memory allocator for block based table.
+
+## 5.18.0 (11/12/2018)
+### New Features
+* Introduced `PerfContextByLevel` as part of `PerfContext` which allows storing perf context at each level. Also replaced `__thread` with `thread_local` keyword for perf_context. Added per-level perf context for bloom filter and `Get` query.
+* With level_compaction_dynamic_level_bytes = true, level multiplier may be adjusted automatically when Level 0 to 1 compaction is lagged behind.
+* Introduced DB option `atomic_flush`. If true, RocksDB supports flushing multiple column families and atomically committing the result to MANIFEST. Useful when WAL is disabled.
+* Added `num_deletions` and `num_merge_operands` members to `TableProperties`.
+* Added "rocksdb.min-obsolete-sst-number-to-keep" DB property that reports the lower bound on SST file numbers that are being kept from deletion, even if the SSTs are obsolete.
+* Add xxhash64 checksum support
+
+### Public API Change
+* `DBOptions::use_direct_reads` now affects reads issued by `BackupEngine` on the database's SSTs.
+
+### Bug Fixes
+* Fix corner case where a write group leader blocked due to write stall blocks other writers in queue with WriteOptions::no_slowdown set.
+* Fix in-memory range tombstone truncation to avoid erroneously covering newer keys at a lower level, and include range tombstones in compacted files whose largest key is the range tombstone's start key.
+* Properly set the stop key for a truncated manual CompactRange
+* Fix slow flush/compaction when DB contains many snapshots. The problem became noticeable to us in DBs with 100,000+ snapshots, though it will affect others at different thresholds.
+* Fix the bug that WriteBatchWithIndex's SeekForPrev() doesn't see the entries with the same key.
+* Fix the bug where user comparator was sometimes fed with InternalKey instead of the user key. The bug manifests when during GenerateBottommostFiles.
+* Fix a bug in WritePrepared txns where if the number of old snapshots goes beyond the snapshot cache size (128 default) the rest will not be checked when evicting a commit entry from the commit cache.
+
+## 5.17.0 (10/05/2018)
+### Public API Change
 * `OnTableFileCreated` will now be called for empty files generated during compaction. In that case, `TableFileCreationInfo::file_path` will be "(nil)" and `TableFileCreationInfo::file_size` will be zero.
 * Add `FlushOptions::allow_write_stall`, which controls whether Flush calls start working immediately, even if it causes user writes to stall, or will wait until flush can be performed without causing write stall (similar to `CompactRangeOptions::allow_write_stall`). Note that the default value is false, meaning we add delay to Flush calls until stalling can be avoided when possible. This is behavior change compared to previous RocksDB versions, where Flush calls didn't check if they might cause stall or not.
 * Application using PessimisticTransactionDB is expected to rollback/commit recovered transactions before starting new ones. This assumption is used to skip concurrency control during recovery.
+* Expose column family id to `OnCompactionCompleted`.
 
 ### New Features
 * TransactionOptions::skip_concurrency_control allows pessimistic transactions to skip the overhead of concurrency control. Could be used for optimizing certain transactions or during recovery.
+
 ### Bug Fixes
 * Avoid creating empty SSTs and subsequently deleting them in certain cases during compaction.
 * Sync CURRENT file contents during checkpoint.
+
+## 5.16.3 (10/1/2018)
+### Bug Fixes
+* Fix crash caused when `CompactFiles` run with `CompactionOptions::compression == CompressionType::kDisableCompressionOption`. Now that setting causes the compression type to be chosen according to the column family-wide compression options.
+
+## 5.16.2 (9/21/2018)
+### Bug Fixes
+* Fix bug in partition filters with format_version=4.
+
+## 5.16.1 (9/17/2018)
+### Bug Fixes
+* Remove trace_analyzer_tool from rocksdb_lib target in TARGETS file.
+* Fix RocksDB Java build and tests.
+* Remove sync point in Block destructor.
 
 ## 5.16.0 (8/21/2018)
 ### Public API Change

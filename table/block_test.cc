@@ -117,7 +117,6 @@ TEST_F(BlockTest, SimpleTest) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  contents.cachable = false;
   Block reader(std::move(contents), kDisableGlobalSequenceNumber);
 
   // read contents of block sequentially
@@ -188,7 +187,6 @@ TEST_F(BlockTest, ValueDeltaEncodingTest) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  contents.cachable = false;
   Block reader(std::move(contents), kDisableGlobalSequenceNumber);
 
   const bool kTotalOrderSeek = true;
@@ -247,7 +245,6 @@ BlockContents GetBlockContents(std::unique_ptr<BlockBuilder> *builder,
 
   BlockContents contents;
   contents.data = rawblock;
-  contents.cachable = false;
 
   return contents;
 }
@@ -257,8 +254,7 @@ void CheckBlockContents(BlockContents contents, const int max_key,
                         const std::vector<std::string> &values) {
   const size_t prefix_size = 6;
   // create block reader
-  BlockContents contents_ref(contents.data, contents.cachable,
-                             contents.compression_type);
+  BlockContents contents_ref(contents.data);
   Block reader1(std::move(contents), kDisableGlobalSequenceNumber);
   Block reader2(std::move(contents_ref), kDisableGlobalSequenceNumber);
 
@@ -486,7 +482,6 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    contents.cachable = true;
     Block reader(std::move(contents), kDisableGlobalSequenceNumber,
                  kBytesPerBit, stats.get());
 
@@ -521,7 +516,6 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    contents.cachable = true;
     Block reader(std::move(contents), kDisableGlobalSequenceNumber,
                  kBytesPerBit, stats.get());
 
@@ -558,7 +552,6 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    contents.cachable = true;
     Block reader(std::move(contents), kDisableGlobalSequenceNumber,
                  kBytesPerBit, stats.get());
 

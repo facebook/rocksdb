@@ -636,7 +636,14 @@ extern ROCKSDB_LIBRARY_API rocksdb_iterator_t* rocksdb_writebatch_wi_create_iter
     rocksdb_writebatch_wi_t* wbwi,
     rocksdb_iterator_t* base_iterator,
     rocksdb_column_family_handle_t* cf);
-
+extern ROCKSDB_LIBRARY_API rocksdb_iterator_t*
+rocksdb_writebatch_wi_create_iterator_with_base_and_readoptions(
+    const rocksdb_readoptions_t* options, rocksdb_writebatch_wi_t* wbwi,
+    rocksdb_iterator_t* base_iterator);
+extern ROCKSDB_LIBRARY_API rocksdb_iterator_t*
+rocksdb_writebatch_wi_create_iterator_with_base_cf_and_readoptions(
+    const rocksdb_readoptions_t* options, rocksdb_writebatch_wi_t* wbwi,
+    rocksdb_iterator_t* base_iterator, rocksdb_column_family_handle_t* cf);
 
 /* Block based table options */
 
@@ -1422,6 +1429,10 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_livefiles_smallestkey(
     const rocksdb_livefiles_t*, int index, size_t* size);
 extern ROCKSDB_LIBRARY_API const char* rocksdb_livefiles_largestkey(
     const rocksdb_livefiles_t*, int index, size_t* size);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_livefiles_entries(
+    const rocksdb_livefiles_t*, int index);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_livefiles_deletions(
+    const rocksdb_livefiles_t*, int index);
 extern ROCKSDB_LIBRARY_API void rocksdb_livefiles_destroy(
     const rocksdb_livefiles_t*);
 

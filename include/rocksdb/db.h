@@ -572,6 +572,11 @@ class DB {
     //      log files that should be kept.
     static const std::string kMinLogNumberToKeep;
 
+    //  "rocksdb.min-obsolete-sst-number-to-keep" - return the minimum file
+    //      number for an obsolete SST to be kept. The max value of `uint64_t`
+    //      will be returned if all obsolete files can be deleted.
+    static const std::string kMinObsoleteSstNumberToKeep;
+
     //  "rocksdb.total-sst-files-size" - returns total size (bytes) of all SST
     //      files.
     //  WARNING: may slow down online queries if there are too many files.
@@ -670,6 +675,7 @@ class DB {
   //  "rocksdb.current-super-version-number"
   //  "rocksdb.estimate-live-data-size"
   //  "rocksdb.min-log-number-to-keep"
+  //  "rocksdb.min-obsolete-sst-number-to-keep"
   //  "rocksdb.total-sst-files-size"
   //  "rocksdb.live-sst-files-size"
   //  "rocksdb.base-level"
@@ -900,11 +906,22 @@ class DB {
   virtual DBOptions GetDBOptions() const = 0;
 
   // Flush all mem-table data.
+  // Flush a single column family, even when atomic flush is enabled. To flush
+  // multiple column families, use Flush(options, column_families).
   virtual Status Flush(const FlushOptions& options,
                        ColumnFamilyHandle* column_family) = 0;
   virtual Status Flush(const FlushOptions& options) {
     return Flush(options, DefaultColumnFamily());
   }
+  // Flushes multiple column families.
+  // If atomic flush is not enabled, Flush(options, column_families) is
+  // equivalent to calling Flush(options, column_family) multiple times.
+  // If atomic flush is enabled, Flush(options, column_families) will flush all
+  // column families specified in 'column_families' up to the latest sequence
+  // number at the time when flush is requested.
+  virtual Status Flush(
+      const FlushOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families) = 0;
 
   // Flush the WAL memory buffer to the file. If sync is true, it calls SyncWAL
   // afterwards.
@@ -979,9 +996,9 @@ class DB {
   // cleared aggressively and the iterator might keep getting invalid before
   // an update is read.
   virtual Status GetUpdatesSince(
-      SequenceNumber seq_number, unique_ptr<TransactionLogIterator>* iter,
-      const TransactionLogIterator::ReadOptions&
-          read_options = TransactionLogIterator::ReadOptions()) = 0;
+      SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
+      const TransactionLogIterator::ReadOptions& read_options =
+          TransactionLogIterator::ReadOptions()) = 0;
 
 // Windows API macro interference
 #undef DeleteFile

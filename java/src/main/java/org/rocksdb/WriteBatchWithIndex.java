@@ -14,8 +14,9 @@ package org.rocksdb;
  *
  * A user can call {@link org.rocksdb.WriteBatchWithIndex#newIterator()} to
  * create an iterator over the write batch or
- * {@link org.rocksdb.WriteBatchWithIndex#newIteratorWithBase(org.rocksdb.RocksIterator)}
- * to get an iterator for the database with Read-Your-Own-Writes like capability
+ * {@link org.rocksdb.WriteBatchWithIndex#newIteratorWithBase(org.rocksdb.ReadOptions, org.rocksdb.RocksIterator)}
+ * to get an iterator for the database with Read-Your-Own-Writes like
+ * capability
  */
 public class WriteBatchWithIndex extends AbstractWriteBatch {
   /**
@@ -120,6 +121,34 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * the write batch update finishes. The state may recover after Next() is
    * called.
    *
+   * @param read_opts The read options to use
+   * @param columnFamilyHandle The column family to iterate over
+   * @param baseIterator The base iterator,
+   *   e.g. {@link org.rocksdb.RocksDB#newIterator()}
+   * @return An iterator which shows a view comprised of both the database
+   * point-in-time from baseIterator and modifications made in this write batch.
+   */
+  public RocksIterator newIteratorWithBase(final ReadOptions read_opts,
+      final ColumnFamilyHandle columnFamilyHandle, final RocksIterator baseIterator) {
+    RocksIterator iterator = new RocksIterator(baseIterator.parent_,
+        iteratorWithBase(nativeHandle_, columnFamilyHandle.nativeHandle_,
+            baseIterator.nativeHandle_, read_opts.nativeHandle_));
+    //when the iterator is deleted it will also delete the baseIterator
+    baseIterator.disOwnNativeHandle();
+    return iterator;
+  }
+
+  /**
+   * Provides Read-Your-Own-Writes like functionality by
+   * creating a new Iterator that will use {@link org.rocksdb.WBWIRocksIterator}
+   * as a delta and baseIterator as a base
+   *
+   * Updating write batch with the current key of the iterator is not safe.
+   * We strongly recommand users not to do it. It will invalidate the current
+   * key() and value() of the iterator. This invalidation happens even before
+   * the write batch update finishes. The state may recover after Next() is
+   * called.
+   *
    * @param columnFamilyHandle The column family to iterate over
    * @param baseIterator The base iterator,
    *   e.g. {@link org.rocksdb.RocksDB#newIterator()}
@@ -129,14 +158,26 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   public RocksIterator newIteratorWithBase(
       final ColumnFamilyHandle columnFamilyHandle,
       final RocksIterator baseIterator) {
-    RocksIterator iterator = new RocksIterator(
-        baseIterator.parent_,
-        iteratorWithBase(nativeHandle_,
-                columnFamilyHandle.nativeHandle_,
-                baseIterator.nativeHandle_));
-    //when the iterator is deleted it will also delete the baseIterator
-    baseIterator.disOwnNativeHandle();
-    return iterator;
+    ReadOptions read_opts = new ReadOptions();
+    return newIteratorWithBase(read_opts, columnFamilyHandle, baseIterator);
+  }
+
+  /**
+   * Provides Read-Your-Own-Writes like functionality by
+   * creating a new Iterator that will use {@link org.rocksdb.WBWIRocksIterator}
+   * as a delta and baseIterator as a base. Operates on the default column
+   * family.
+   *
+   * @param read_opts The read options to use
+   * @param baseIterator The base iterator,
+   *   e.g. {@link org.rocksdb.RocksDB#newIterator()}
+   * @return An iterator which shows a view comprised of both the database
+   * point-in-timefrom baseIterator and modifications made in this write batch.
+   */
+  public RocksIterator newIteratorWithBase(
+      final ReadOptions read_opts, final RocksIterator baseIterator) {
+    return newIteratorWithBase(
+        read_opts, baseIterator.parent_.getDefaultColumnFamily(), baseIterator);
   }
 
   /**
@@ -151,8 +192,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * point-in-timefrom baseIterator and modifications made in this write batch.
    */
   public RocksIterator newIteratorWithBase(final RocksIterator baseIterator) {
-    return newIteratorWithBase(baseIterator.parent_.getDefaultColumnFamily(),
-        baseIterator);
+    ReadOptions read_opts = new ReadOptions();
+    return newIteratorWithBase(read_opts, baseIterator);
   }
 
   /**
@@ -295,8 +336,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
       final boolean overwriteKey);
   private native long iterator0(final long handle);
   private native long iterator1(final long handle, final long cfHandle);
-  private native long iteratorWithBase(final long handle,
-      final long baseIteratorHandle, final long cfHandle);
+  private native long iteratorWithBase(final long handle, final long baseIteratorHandle,
+      final long cfHandle, final long jreadopt_handle);
   private native byte[] getFromBatch(final long handle, final long optHandle,
       final byte[] key, final int keyLen);
   private native byte[] getFromBatch(final long handle, final long optHandle,

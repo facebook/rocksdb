@@ -40,7 +40,7 @@ TEST_F(DBEncryptionTest, CheckEncrypted) {
       continue;
     }
     auto filePath = dbname_ + "/" + *it;
-    unique_ptr<SequentialFile> seqFile;
+    std::unique_ptr<SequentialFile> seqFile;
     auto envOptions = EnvOptions(CurrentOptions());
     status = defaultEnv->NewSequentialFile(filePath, &seqFile, envOptions);
     ASSERT_OK(status);

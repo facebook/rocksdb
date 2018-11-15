@@ -151,14 +151,20 @@ struct rocksdb_writablefile_t    { WritableFile*     rep; };
 struct rocksdb_wal_iterator_t { TransactionLogIterator* rep; };
 struct rocksdb_wal_readoptions_t { TransactionLogIterator::ReadOptions rep; };
 struct rocksdb_filelock_t        { FileLock*         rep; };
-struct rocksdb_logger_t          { shared_ptr<Logger>  rep; };
-struct rocksdb_cache_t           { shared_ptr<Cache>   rep; };
+struct rocksdb_logger_t {
+  std::shared_ptr<Logger> rep;
+};
+struct rocksdb_cache_t {
+  std::shared_ptr<Cache> rep;
+};
 struct rocksdb_livefiles_t       { std::vector<LiveFileMetaData> rep; };
 struct rocksdb_column_family_handle_t  { ColumnFamilyHandle* rep; };
 struct rocksdb_envoptions_t      { EnvOptions        rep; };
 struct rocksdb_ingestexternalfileoptions_t  { IngestExternalFileOptions rep; };
 struct rocksdb_sstfilewriter_t   { SstFileWriter*    rep; };
-struct rocksdb_ratelimiter_t     { shared_ptr<RateLimiter>      rep; };
+struct rocksdb_ratelimiter_t {
+  std::shared_ptr<RateLimiter> rep;
+};
 struct rocksdb_perfcontext_t     { PerfContext*      rep; };
 struct rocksdb_pinnableslice_t {
   PinnableSlice rep;
@@ -1771,18 +1777,38 @@ void rocksdb_writebatch_wi_rollback_to_save_point(rocksdb_writebatch_wi_t* b,
 rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base(
     rocksdb_writebatch_wi_t* wbwi,
     rocksdb_iterator_t* base_iterator) {
+  rocksdb_readoptions_t options;
+  return rocksdb_writebatch_wi_create_iterator_with_base_and_readoptions(
+      &options, wbwi, base_iterator);
+}
+
+rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base_cf(
+    rocksdb_writebatch_wi_t* wbwi, rocksdb_iterator_t* base_iterator,
+    rocksdb_column_family_handle_t* column_family) {
+  rocksdb_readoptions_t options;
+  return rocksdb_writebatch_wi_create_iterator_with_base_cf_and_readoptions(
+      &options, wbwi, base_iterator, column_family);
+}
+
+rocksdb_iterator_t*
+rocksdb_writebatch_wi_create_iterator_with_base_and_readoptions(
+    const rocksdb_readoptions_t* options, rocksdb_writebatch_wi_t* wbwi,
+    rocksdb_iterator_t* base_iterator) {
   rocksdb_iterator_t* result = new rocksdb_iterator_t;
-  result->rep = wbwi->rep->NewIteratorWithBase(base_iterator->rep);
+  result->rep =
+      wbwi->rep->NewIteratorWithBase(options->rep, base_iterator->rep);
   delete base_iterator;
   return result;
 }
 
-rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base_cf(
-    rocksdb_writebatch_wi_t* wbwi,
+rocksdb_iterator_t*
+rocksdb_writebatch_wi_create_iterator_with_base_cf_and_readoptions(
+    const rocksdb_readoptions_t* options, rocksdb_writebatch_wi_t* wbwi,
     rocksdb_iterator_t* base_iterator,
     rocksdb_column_family_handle_t* column_family) {
   rocksdb_iterator_t* result = new rocksdb_iterator_t;
-  result->rep = wbwi->rep->NewIteratorWithBase(column_family->rep, base_iterator->rep);
+  result->rep = wbwi->rep->NewIteratorWithBase(options->rep, column_family->rep,
+                                               base_iterator->rep);
   delete base_iterator;
   return result;
 }
@@ -3542,6 +3568,18 @@ const char* rocksdb_livefiles_largestkey(
   size_t* size) {
   *size = lf->rep[index].largestkey.size();
   return lf->rep[index].largestkey.data();
+}
+
+uint64_t rocksdb_livefiles_entries(
+    const rocksdb_livefiles_t* lf,
+    int index) {
+  return lf->rep[index].num_entries;
+}
+
+uint64_t rocksdb_livefiles_deletions(
+    const rocksdb_livefiles_t* lf,
+    int index) {
+  return lf->rep[index].num_deletions;
 }
 
 extern void rocksdb_livefiles_destroy(

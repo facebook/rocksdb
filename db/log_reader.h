@@ -52,8 +52,8 @@ class Reader {
   // If "checksum" is true, verify checksums if available.
   Reader(std::shared_ptr<Logger> info_log,
          // @lint-ignore TXT2 T25377293 Grandfathered in
-         unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
-         bool checksum, uint64_t log_num);
+         std::unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
+         bool checksum, uint64_t log_num, bool retry_after_eof);
 
   ~Reader();
 
@@ -87,7 +87,7 @@ class Reader {
 
  private:
   std::shared_ptr<Logger> info_log_;
-  const unique_ptr<SequentialFileReader> file_;
+  const std::unique_ptr<SequentialFileReader> file_;
   Reporter* const reporter_;
   bool const checksum_;
   char* const backing_store_;
@@ -109,6 +109,11 @@ class Reader {
 
   // Whether this is a recycled log file
   bool recycled_;
+
+  // Whether retry after encountering EOF
+  // TODO (yanqin) add support for retry policy, e.g. sleep, max retry limit,
+  // etc.
+  const bool retry_after_eof_;
 
   // Extend record types with the following special values
   enum {

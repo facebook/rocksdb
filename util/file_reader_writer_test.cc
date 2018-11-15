@@ -71,8 +71,8 @@ TEST_F(WritableFileWriterTest, RangeSync) {
 
   EnvOptions env_options;
   env_options.bytes_per_sync = kMb;
-  unique_ptr<FakeWF> wf(new FakeWF);
-  unique_ptr<WritableFileWriter> writer(
+  std::unique_ptr<FakeWF> wf(new FakeWF);
+  std::unique_ptr<WritableFileWriter> writer(
       new WritableFileWriter(std::move(wf), "" /* don't care */, env_options));
   Random r(301);
   std::unique_ptr<char[]> large_buf(new char[10 * kMb]);
@@ -147,14 +147,14 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
     env_options.writable_file_max_buffer_size =
         (attempt < kNumAttempts / 2) ? 512 * 1024 : 700 * 1024;
     std::string actual;
-    unique_ptr<FakeWF> wf(new FakeWF(&actual,
+    std::unique_ptr<FakeWF> wf(new FakeWF(&actual,
 #ifndef ROCKSDB_LITE
-                                     attempt % 2 == 1,
+                                          attempt % 2 == 1,
 #else
-                                     false,
+                                          false,
 #endif
-                                     no_flush));
-    unique_ptr<WritableFileWriter> writer(new WritableFileWriter(
+                                          no_flush));
+    std::unique_ptr<WritableFileWriter> writer(new WritableFileWriter(
         std::move(wf), "" /* don't care */, env_options));
 
     std::string target;
@@ -206,9 +206,9 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
     bool use_direct_io_;
     bool io_error_;
   };
-  unique_ptr<FakeWF> wf(new FakeWF());
+  std::unique_ptr<FakeWF> wf(new FakeWF());
   wf->Setuse_direct_io(true);
-  unique_ptr<WritableFileWriter> writer(
+  std::unique_ptr<WritableFileWriter> writer(
       new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
 
   ASSERT_OK(writer->Append(std::string(2 * kMb, 'a')));

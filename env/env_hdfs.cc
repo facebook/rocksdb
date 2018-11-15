@@ -381,7 +381,7 @@ const std::string HdfsEnv::pathsep = "/";
 
 // open a file for sequential reading
 Status HdfsEnv::NewSequentialFile(const std::string& fname,
-                                  unique_ptr<SequentialFile>* result,
+                                  std::unique_ptr<SequentialFile>* result,
                                   const EnvOptions& options) {
   result->reset();
   HdfsReadableFile* f = new HdfsReadableFile(fileSys_, fname);
@@ -396,7 +396,7 @@ Status HdfsEnv::NewSequentialFile(const std::string& fname,
 
 // open a file for random reading
 Status HdfsEnv::NewRandomAccessFile(const std::string& fname,
-                                    unique_ptr<RandomAccessFile>* result,
+                                    std::unique_ptr<RandomAccessFile>* result,
                                     const EnvOptions& options) {
   result->reset();
   HdfsReadableFile* f = new HdfsReadableFile(fileSys_, fname);
@@ -411,7 +411,7 @@ Status HdfsEnv::NewRandomAccessFile(const std::string& fname,
 
 // create a new file for writing
 Status HdfsEnv::NewWritableFile(const std::string& fname,
-                                unique_ptr<WritableFile>* result,
+                                std::unique_ptr<WritableFile>* result,
                                 const EnvOptions& options) {
   result->reset();
   Status s;
@@ -437,7 +437,7 @@ class HdfsDirectory : public Directory {
 };
 
 Status HdfsEnv::NewDirectory(const std::string& name,
-                             unique_ptr<Directory>* result) {
+                             std::unique_ptr<Directory>* result) {
   int value = hdfsExists(fileSys_, name.c_str());
   switch (value) {
     case HDFS_EXISTS:
@@ -581,7 +581,7 @@ Status HdfsEnv::UnlockFile(FileLock* lock) {
 }
 
 Status HdfsEnv::NewLogger(const std::string& fname,
-                          shared_ptr<Logger>* result) {
+                          std::shared_ptr<Logger>* result) {
   HdfsWritableFile* f = new HdfsWritableFile(fileSys_, fname);
   if (f == nullptr || !f->isValid()) {
     delete f;
@@ -610,10 +610,10 @@ Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname) {
 // dummy placeholders used when HDFS is not available
 namespace rocksdb {
 Status HdfsEnv::NewSequentialFile(const std::string& /*fname*/,
-                                  unique_ptr<SequentialFile>* /*result*/,
+                                  std::unique_ptr<SequentialFile>* /*result*/,
                                   const EnvOptions& /*options*/) {
   return Status::NotSupported("Not compiled with hdfs support");
- }
+}
 
  Status NewHdfsEnv(Env** /*hdfs_env*/, const std::string& /*fsname*/) {
    return Status::NotSupported("Not compiled with hdfs support");

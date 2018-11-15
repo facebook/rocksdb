@@ -93,7 +93,7 @@ class DBTestWithParam
 };
 
 TEST_F(DBTest, MockEnvTest) {
-  unique_ptr<MockEnv> env{new MockEnv(Env::Default())};
+  std::unique_ptr<MockEnv> env{new MockEnv(Env::Default())};
   Options options;
   options.create_if_missing = true;
   options.env = env.get();
@@ -143,7 +143,7 @@ TEST_F(DBTest, MockEnvTest) {
 // defined.
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, MemEnvTest) {
-  unique_ptr<Env> env{NewMemEnv(Env::Default())};
+  std::unique_ptr<Env> env{NewMemEnv(Env::Default())};
   Options options;
   options.create_if_missing = true;
   options.env = env.get();
@@ -262,6 +262,196 @@ TEST_F(DBTest, SkipDelay) {
   }
 }
 
+TEST_F(DBTest, MixedSlowdownOptions) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.write_buffer_size = 100000;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  std::vector<port::Thread> threads;
+  std::atomic<int> thread_num(0);
+
+  std::function<void()> write_slowdown_func = [&]() {
+    int a = thread_num.fetch_add(1);
+    std::string key = "foo" + std::to_string(a);
+    WriteOptions wo;
+    wo.no_slowdown = false;
+    ASSERT_OK(dbfull()->Put(wo, key, "bar"));
+  };
+  std::function<void()> write_no_slowdown_func = [&]() {
+    int a = thread_num.fetch_add(1);
+    std::string key = "foo" + std::to_string(a);
+    WriteOptions wo;
+    wo.no_slowdown = true;
+    ASSERT_NOK(dbfull()->Put(wo, key, "bar"));
+  };
+  // Use a small number to ensure a large delay that is still effective
+  // when we do Put
+  // TODO(myabandeh): this is time dependent and could potentially make
+  // the test flaky
+  auto token = dbfull()->TEST_write_controler().GetDelayToken(1);
+  std::atomic<int> sleep_count(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DelayWrite:BeginWriteStallDone",
+      [&](void* /*arg*/) {
+        sleep_count.fetch_add(1);
+        if (threads.empty()) {
+          for (int i = 0; i < 2; ++i) {
+            threads.emplace_back(write_slowdown_func);
+          }
+          for (int i = 0; i < 2; ++i) {
+            threads.emplace_back(write_no_slowdown_func);
+          }
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteOptions wo;
+  wo.sync = false;
+  wo.disableWAL = false;
+  wo.no_slowdown = false;
+  dbfull()->Put(wo, "foo", "bar");
+  // We need the 2nd write to trigger delay. This is because delay is
+  // estimated based on the last write size which is 0 for the first write.
+  ASSERT_OK(dbfull()->Put(wo, "foo2", "bar2"));
+          token.reset();
+
+  for (auto& t : threads) {
+    t.join();
+  }
+  ASSERT_GE(sleep_count.load(), 1);
+
+  wo.no_slowdown = true;
+  ASSERT_OK(dbfull()->Put(wo, "foo3", "bar"));
+}
+
+TEST_F(DBTest, MixedSlowdownOptionsInQueue) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.write_buffer_size = 100000;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  std::vector<port::Thread> threads;
+  std::atomic<int> thread_num(0);
+
+  std::function<void()> write_no_slowdown_func = [&]() {
+    int a = thread_num.fetch_add(1);
+    std::string key = "foo" + std::to_string(a);
+    WriteOptions wo;
+    wo.no_slowdown = true;
+    ASSERT_NOK(dbfull()->Put(wo, key, "bar"));
+  };
+  // Use a small number to ensure a large delay that is still effective
+  // when we do Put
+  // TODO(myabandeh): this is time dependent and could potentially make
+  // the test flaky
+  auto token = dbfull()->TEST_write_controler().GetDelayToken(1);
+  std::atomic<int> sleep_count(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DelayWrite:Sleep",
+      [&](void* /*arg*/) {
+        sleep_count.fetch_add(1);
+        if (threads.empty()) {
+          for (int i = 0; i < 2; ++i) {
+            threads.emplace_back(write_no_slowdown_func);
+          }
+          // Sleep for 2s to allow the threads to insert themselves into the
+          // write queue
+          env_->SleepForMicroseconds(3000000ULL);
+        }
+      });
+  std::atomic<int> wait_count(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DelayWrite:Wait",
+      [&](void* /*arg*/) { wait_count.fetch_add(1); });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteOptions wo;
+  wo.sync = false;
+  wo.disableWAL = false;
+  wo.no_slowdown = false;
+  dbfull()->Put(wo, "foo", "bar");
+  // We need the 2nd write to trigger delay. This is because delay is
+  // estimated based on the last write size which is 0 for the first write.
+  ASSERT_OK(dbfull()->Put(wo, "foo2", "bar2"));
+          token.reset();
+
+  for (auto& t : threads) {
+    t.join();
+  }
+  ASSERT_EQ(sleep_count.load(), 1);
+  ASSERT_GE(wait_count.load(), 0);
+}
+
+TEST_F(DBTest, MixedSlowdownOptionsStop) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.write_buffer_size = 100000;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  std::vector<port::Thread> threads;
+  std::atomic<int> thread_num(0);
+
+  std::function<void()> write_slowdown_func = [&]() {
+    int a = thread_num.fetch_add(1);
+    std::string key = "foo" + std::to_string(a);
+    WriteOptions wo;
+    wo.no_slowdown = false;
+    ASSERT_OK(dbfull()->Put(wo, key, "bar"));
+  };
+  std::function<void()> write_no_slowdown_func = [&]() {
+    int a = thread_num.fetch_add(1);
+    std::string key = "foo" + std::to_string(a);
+    WriteOptions wo;
+    wo.no_slowdown = true;
+    ASSERT_NOK(dbfull()->Put(wo, key, "bar"));
+  };
+  std::function<void()> wakeup_writer = [&]() {
+    dbfull()->mutex_.Lock();
+    dbfull()->bg_cv_.SignalAll();
+    dbfull()->mutex_.Unlock();
+  };
+  // Use a small number to ensure a large delay that is still effective
+  // when we do Put
+  // TODO(myabandeh): this is time dependent and could potentially make
+  // the test flaky
+  auto token = dbfull()->TEST_write_controler().GetStopToken();
+  std::atomic<int> wait_count(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DelayWrite:Wait",
+      [&](void* /*arg*/) {
+        wait_count.fetch_add(1);
+        if (threads.empty()) {
+          for (int i = 0; i < 2; ++i) {
+            threads.emplace_back(write_slowdown_func);
+          }
+          for (int i = 0; i < 2; ++i) {
+            threads.emplace_back(write_no_slowdown_func);
+          }
+          // Sleep for 2s to allow the threads to insert themselves into the
+          // write queue
+          env_->SleepForMicroseconds(3000000ULL);
+        }
+        token.reset();
+        threads.emplace_back(wakeup_writer);
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteOptions wo;
+  wo.sync = false;
+  wo.disableWAL = false;
+  wo.no_slowdown = false;
+  dbfull()->Put(wo, "foo", "bar");
+  // We need the 2nd write to trigger delay. This is because delay is
+  // estimated based on the last write size which is 0 for the first write.
+  ASSERT_OK(dbfull()->Put(wo, "foo2", "bar2"));
+          token.reset();
+
+  for (auto& t : threads) {
+    t.join();
+  }
+  ASSERT_GE(wait_count.load(), 1);
+
+  wo.no_slowdown = true;
+  ASSERT_OK(dbfull()->Put(wo, "foo3", "bar"));
+}
 #ifndef ROCKSDB_LITE
 
 TEST_F(DBTest, LevelLimitReopen) {
@@ -2123,6 +2313,9 @@ INSTANTIATE_TEST_CASE_P(
 #endif  // ROCKSDB_LITE
 
 // Group commit test:
+#if !defined(TRAVIS) && !defined(OS_WIN)
+// Disable this test temporarily on Travis and appveyor as it fails
+// intermittently. Github issue: #4151
 namespace {
 
 static const int kGCNumThreads = 4;
@@ -2149,9 +2342,6 @@ static void GCThreadBody(void* arg) {
 
 }  // namespace
 
-#ifndef TRAVIS
-// Disable this test temporarily on Travis as it fails intermittently.
-// Github issue: #4151
 TEST_F(DBTest, GroupCommitTest) {
   do {
     Options options = CurrentOptions();
@@ -2161,7 +2351,9 @@ TEST_F(DBTest, GroupCommitTest) {
 
     rocksdb::SyncPoint::GetInstance()->LoadDependency(
         {{"WriteThread::JoinBatchGroup:BeganWaiting",
-          "DBImpl::WriteImpl:BeforeLeaderEnters"}});
+          "DBImpl::WriteImpl:BeforeLeaderEnters"},
+          {"WriteThread::AwaitState:BlockingWaiting",
+          "WriteThread::EnterAsBatchGroupLeader:End"}});
     rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
     // Start threads
@@ -2469,6 +2661,11 @@ class ModelDB : public DB {
     Status ret;
     return ret;
   }
+  virtual Status Flush(
+      const rocksdb::FlushOptions& /*options*/,
+      const std::vector<ColumnFamilyHandle*>& /*column_families*/) override {
+    return Status::OK();
+  }
 
   virtual Status SyncWAL() override { return Status::OK(); }
 
@@ -2492,7 +2689,8 @@ class ModelDB : public DB {
   }
 
   virtual Status GetUpdatesSince(
-      rocksdb::SequenceNumber, unique_ptr<rocksdb::TransactionLogIterator>*,
+      rocksdb::SequenceNumber,
+      std::unique_ptr<rocksdb::TransactionLogIterator>*,
       const TransactionLogIterator::ReadOptions& /*read_options*/ =
           TransactionLogIterator::ReadOptions()) override {
     return Status::NotSupported("Not supported in Model DB");
@@ -3314,8 +3512,14 @@ TEST_F(DBTest, SanitizeNumThreads) {
                      (i < 4) ? Env::Priority::LOW : Env::Priority::HIGH);
     }
 
-    // Wait 100 milliseconds for they are scheduled.
-    env_->SleepForMicroseconds(100000);
+    // Wait until 10s for they are scheduled.
+    for (int i = 0; i < 10000; i++) {
+      if (options.env->GetThreadPoolQueueLen(Env::Priority::LOW) <= 1 &&
+          options.env->GetThreadPoolQueueLen(Env::Priority::HIGH) <= 2) {
+        break;
+      }
+      env_->SleepForMicroseconds(1000);
+    }
 
     // pool size 3, total task 4. Queue size should be 1.
     ASSERT_EQ(1U, options.env->GetThreadPoolQueueLen(Env::Priority::LOW));
@@ -5451,41 +5655,18 @@ TEST_F(DBTest, HardLimit) {
 #if !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
 class WriteStallListener : public EventListener {
  public:
-  WriteStallListener()
-      : cond_(&mutex_),
-        condition_(WriteStallCondition::kNormal),
-        expected_(WriteStallCondition::kNormal),
-        expected_set_(false) {}
+  WriteStallListener() : condition_(WriteStallCondition::kNormal) {}
   void OnStallConditionsChanged(const WriteStallInfo& info) override {
     MutexLock l(&mutex_);
     condition_ = info.condition.cur;
-    if (expected_set_ && condition_ == expected_) {
-      cond_.Signal();
-      expected_set_ = false;
-    }
   }
   bool CheckCondition(WriteStallCondition expected) {
     MutexLock l(&mutex_);
-    if (expected != condition_) {
-      expected_ = expected;
-      expected_set_ = true;
-      while (expected != condition_) {
-        // We bail out on timeout 500 milliseconds
-        const uint64_t timeout_us = 500000;
-        if (cond_.TimedWait(timeout_us)) {
-          expected_set_ = false;
-          return false;
-        }
-      }
-    }
-    return true;
+    return expected == condition_;
   }
  private:
   port::Mutex   mutex_;
-  port::CondVar cond_;
   WriteStallCondition condition_;
-  WriteStallCondition expected_;
-  bool                expected_set_;
 };
 
 TEST_F(DBTest, SoftLimit) {
@@ -5505,6 +5686,41 @@ TEST_F(DBTest, SoftLimit) {
   options.compression = kNoCompression;
   WriteStallListener* listener = new WriteStallListener();
   options.listeners.emplace_back(listener);
+
+  // FlushMemtable with opt.wait=true does not wait for
+  // `OnStallConditionsChanged` being called. The event listener is triggered
+  // on `JobContext::Clean`, which happens after flush result is installed.
+  // We use sync point to create a custom WaitForFlush that waits for
+  // context cleanup.
+  port::Mutex flush_mutex;
+  port::CondVar flush_cv(&flush_mutex);
+  bool flush_finished = false;
+  auto InstallFlushCallback = [&]() {
+    {
+      MutexLock l(&flush_mutex);
+      flush_finished = false;
+    }
+    SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::BackgroundCallFlush:ContextCleanedUp", [&](void*) {
+          {
+            MutexLock l(&flush_mutex);
+            flush_finished = true;
+          }
+          flush_cv.SignalAll();
+        });
+  };
+  auto WaitForFlush = [&]() {
+    {
+      MutexLock l(&flush_mutex);
+      while (!flush_finished) {
+        flush_cv.Wait();
+      }
+    }
+    SyncPoint::GetInstance()->ClearCallBack(
+        "DBImpl::BackgroundCallFlush:ContextCleanedUp");
+  };
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Reopen(options);
 
@@ -5541,7 +5757,9 @@ TEST_F(DBTest, SoftLimit) {
     Put(Key(i), std::string(5000, 'x'));
     Put(Key(100 - i), std::string(5000, 'x'));
     // Flush the file. File size is around 30KB.
+    InstallFlushCallback();
     dbfull()->TEST_FlushMemTable(true, true);
+    WaitForFlush();
   }
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
   ASSERT_TRUE(listener->CheckCondition(WriteStallCondition::kDelayed));
@@ -5566,8 +5784,6 @@ TEST_F(DBTest, SoftLimit) {
                        &sleeping_task_low, Env::Priority::LOW);
       });
 
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
   sleeping_task_low.WaitUntilSleeping();
@@ -5576,7 +5792,9 @@ TEST_F(DBTest, SoftLimit) {
     Put(Key(10 + i), std::string(5000, 'x'));
     Put(Key(90 - i), std::string(5000, 'x'));
     // Flush the file. File size is around 30KB.
+    InstallFlushCallback();
     dbfull()->TEST_FlushMemTable(true, true);
+    WaitForFlush();
   }
 
   // Wake up sleep task to enable compaction to run and waits
@@ -5597,7 +5815,9 @@ TEST_F(DBTest, SoftLimit) {
     Put(Key(20 + i), std::string(5000, 'x'));
     Put(Key(80 - i), std::string(5000, 'x'));
     // Flush the file. File size is around 30KB.
+    InstallFlushCallback();
     dbfull()->TEST_FlushMemTable(true, true);
+    WaitForFlush();
   }
   // Wake up sleep task to enable compaction to run and waits
   // for it to go to sleep state again to make sure one compaction

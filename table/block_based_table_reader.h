@@ -16,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/range_tombstone_fragmenter.h"
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/persistent_cache.h"
@@ -88,8 +89,9 @@ class BlockBasedTable : public TableReader {
                      const EnvOptions& env_options,
                      const BlockBasedTableOptions& table_options,
                      const InternalKeyComparator& internal_key_comparator,
-                     unique_ptr<RandomAccessFileReader>&& file,
-                     uint64_t file_size, unique_ptr<TableReader>* table_reader,
+                     std::unique_ptr<RandomAccessFileReader>&& file,
+                     uint64_t file_size,
+                     std::unique_ptr<TableReader>* table_reader,
                      const SliceTransform* prefix_extractor = nullptr,
                      bool prefetch_index_and_filter_in_cache = true,
                      bool skip_filters = false, int level = -1,
@@ -255,13 +257,11 @@ class BlockBasedTable : public TableReader {
   // @param block_entry value is set to the uncompressed block if found. If
   //    in uncompressed block cache, also sets cache_handle to reference that
   //    block.
-  static Status MaybeLoadDataBlockToCache(FilePrefetchBuffer* prefetch_buffer,
-                                          Rep* rep, const ReadOptions& ro,
-                                          const BlockHandle& handle,
-                                          Slice compression_dict,
-                                          CachableEntry<Block>* block_entry,
-                                          bool is_index = false,
-                                          GetContext* get_context = nullptr);
+  static Status MaybeReadBlockAndLoadToCache(
+      FilePrefetchBuffer* prefetch_buffer, Rep* rep, const ReadOptions& ro,
+      const BlockHandle& handle, Slice compression_dict,
+      CachableEntry<Block>* block_entry, bool is_index = false,
+      GetContext* get_context = nullptr);
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file
@@ -299,9 +299,9 @@ class BlockBasedTable : public TableReader {
   //    dictionary.
   static Status GetDataBlockFromCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
-      Cache* block_cache, Cache* block_cache_compressed,
-      const ImmutableCFOptions& ioptions, const ReadOptions& read_options,
-      BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version,
+      Cache* block_cache, Cache* block_cache_compressed, Rep* rep,
+      const ReadOptions& read_options,
+      BlockBasedTable::CachableEntry<Block>* block,
       const Slice& compression_dict, size_t read_amp_bytes_per_bit,
       bool is_index = false, GetContext* get_context = nullptr);
 
@@ -311,18 +311,20 @@ class BlockBasedTable : public TableReader {
   // On success, Status::OK will be returned; also @block will be populated with
   // uncompressed block and its cache handle.
   //
-  // REQUIRES: raw_block is heap-allocated. PutDataBlockToCache() will be
-  // responsible for releasing its memory if error occurs.
+  // Allocated memory managed by raw_block_contents will be transferred to
+  // PutDataBlockToCache(). After the call, the object will be invalid.
   // @param compression_dict Data for presetting the compression library's
   //    dictionary.
   static Status PutDataBlockToCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed,
       const ReadOptions& read_options, const ImmutableCFOptions& ioptions,
-      CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
-      const Slice& compression_dict, size_t read_amp_bytes_per_bit,
-      bool is_index = false, Cache::Priority pri = Cache::Priority::LOW,
-      GetContext* get_context = nullptr);
+      CachableEntry<Block>* block, BlockContents* raw_block_contents,
+      CompressionType raw_block_comp_type, uint32_t format_version,
+      const Slice& compression_dict, SequenceNumber seq_no,
+      size_t read_amp_bytes_per_bit, bool is_index = false,
+      Cache::Priority pri = Cache::Priority::LOW,
+      GetContext* get_context = nullptr, MemoryAllocator* allocator = nullptr);
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
   // after a call to Seek(key), until handle_result returns false.
@@ -383,6 +385,9 @@ class BlockBasedTable : public TableReader {
 
   friend class PartitionedFilterBlockReader;
   friend class PartitionedFilterBlockTest;
+
+  InternalIterator* NewUnfragmentedRangeTombstoneIterator(
+      const ReadOptions& read_options);
 };
 
 // Maitaning state of a two-level iteration on a partitioned index structure
@@ -431,7 +436,7 @@ struct BlockBasedTable::Rep {
   Rep(const ImmutableCFOptions& _ioptions, const EnvOptions& _env_options,
       const BlockBasedTableOptions& _table_opt,
       const InternalKeyComparator& _internal_comparator, bool skip_filters,
-      const bool _immortal_table)
+      int _level, const bool _immortal_table)
       : ioptions(_ioptions),
         env_options(_env_options),
         table_options(_table_opt),
@@ -444,6 +449,7 @@ struct BlockBasedTable::Rep {
         prefix_filtering(true),
         range_del_handle(BlockHandle::NullBlockHandle()),
         global_seqno(kDisableGlobalSequenceNumber),
+        level(_level),
         immortal_table(_immortal_table) {}
 
   const ImmutableCFOptions& ioptions;
@@ -452,7 +458,7 @@ struct BlockBasedTable::Rep {
   const FilterPolicy* const filter_policy;
   const InternalKeyComparator& internal_comparator;
   Status status;
-  unique_ptr<RandomAccessFileReader> file;
+  std::unique_ptr<RandomAccessFileReader> file;
   char cache_key_prefix[kMaxCacheKeyPrefixSize];
   size_t cache_key_prefix_size = 0;
   char persistent_cache_key_prefix[kMaxCacheKeyPrefixSize];
@@ -468,8 +474,8 @@ struct BlockBasedTable::Rep {
   // index_reader and filter will be populated and used only when
   // options.block_cache is nullptr; otherwise we will get the index block via
   // the block cache.
-  unique_ptr<IndexReader> index_reader;
-  unique_ptr<FilterBlockReader> filter;
+  std::unique_ptr<IndexReader> index_reader;
+  std::unique_ptr<FilterBlockReader> filter;
 
   enum class FilterType {
     kNoFilter,
@@ -494,7 +500,7 @@ struct BlockBasedTable::Rep {
   // module should not be relying on db module. However to make things easier
   // and compatible with existing code, we introduce a wrapper that allows
   // block to extract prefix without knowing if a key is internal or not.
-  unique_ptr<SliceTransform> internal_prefix_transform;
+  std::unique_ptr<SliceTransform> internal_prefix_transform;
   std::shared_ptr<const SliceTransform> table_prefix_extractor;
 
   // only used in level 0 files when pin_l0_filter_and_index_blocks_in_cache is
@@ -509,6 +515,7 @@ struct BlockBasedTable::Rep {
   // cache is enabled.
   CachableEntry<Block> range_del_entry;
   BlockHandle range_del_handle;
+  std::shared_ptr<const FragmentedRangeTombstoneList> fragmented_range_dels;
 
   // If global_seqno is used, all Keys in this file will have the same
   // seqno with value `global_seqno`.
@@ -517,12 +524,20 @@ struct BlockBasedTable::Rep {
   // and every key have it's own seqno.
   SequenceNumber global_seqno;
 
+  // the level when the table is opened, could potentially change when trivial
+  // move is involved
+  int level;
+
   // If false, blocks in this file are definitely all uncompressed. Knowing this
   // before reading individual blocks enables certain optimizations.
   bool blocks_maybe_compressed = true;
 
   bool closed = false;
   const bool immortal_table;
+
+  SequenceNumber get_global_seqno(bool is_index) const {
+    return is_index ? kDisableGlobalSequenceNumber : global_seqno;
+  }
 };
 
 template <class TBlockIter, typename TValue = Slice>

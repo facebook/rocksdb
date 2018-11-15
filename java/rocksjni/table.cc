@@ -37,7 +37,7 @@ jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
 /*
  * Class:     org_rocksdb_BlockBasedTableConfig
  * Method:    newTableFactoryHandle
- * Signature: (ZJIJJIIZIZZZJIBBI)J
+ * Signature: (ZJIJJIIZJZZZZJZZJIBBI)J
  */
 jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     JNIEnv * /*env*/, jobject /*jobj*/, jboolean no_block_cache,
@@ -45,7 +45,10 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     jlong block_size, jint block_size_deviation, jint block_restart_interval,
     jboolean whole_key_filtering, jlong jfilter_policy,
     jboolean cache_index_and_filter_blocks,
+    jboolean cache_index_and_filter_blocks_with_high_priority,
     jboolean pin_l0_filter_and_index_blocks_in_cache,
+    jboolean partition_filters, jlong metadata_block_size,
+    jboolean pin_top_level_index_and_filter,
     jboolean hash_index_allow_collision, jlong block_cache_compressed_size,
     jint block_cache_compressd_num_shard_bits, jbyte jchecksum_type,
     jbyte jindex_type, jint jformat_version) {
@@ -77,8 +80,13 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     options.filter_policy = *pFilterPolicy;
   }
   options.cache_index_and_filter_blocks = cache_index_and_filter_blocks;
+  options.cache_index_and_filter_blocks_with_high_priority =
+      cache_index_and_filter_blocks_with_high_priority;
   options.pin_l0_filter_and_index_blocks_in_cache =
       pin_l0_filter_and_index_blocks_in_cache;
+  options.partition_filters = partition_filters;
+  options.metadata_block_size = metadata_block_size;
+  options.pin_top_level_index_and_filter = pin_top_level_index_and_filter;
   options.hash_index_allow_collision = hash_index_allow_collision;
   if (block_cache_compressed_size > 0) {
     if (block_cache_compressd_num_shard_bits > 0) {

@@ -194,8 +194,8 @@ BlockBasedTableFactory::BlockBasedTableFactory(
 
 Status BlockBasedTableFactory::NewTableReader(
     const TableReaderOptions& table_reader_options,
-    unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-    unique_ptr<TableReader>* table_reader,
+    std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+    std::unique_ptr<TableReader>* table_reader,
     bool prefetch_index_and_filter_in_cache) const {
   return BlockBasedTable::Open(
       table_reader_options.ioptions, table_reader_options.env_options,
@@ -383,6 +383,14 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   snprintf(buffer, kBufferSize, "  block_align: %d\n",
            table_options_.block_align);
   ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  memory_allocator: %p\n",
+           table_options_.memory_allocator.get());
+  ret.append(buffer);
+  if (table_options_.memory_allocator) {
+    snprintf(buffer, kBufferSize, "  memory_allocator_name: %s\n",
+             table_options_.memory_allocator->Name());
+    ret.append(buffer);
+  }
   return ret;
 }
 

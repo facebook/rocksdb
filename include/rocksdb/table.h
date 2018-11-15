@@ -24,6 +24,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/memory_allocator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
@@ -47,6 +48,7 @@ enum ChecksumType : char {
   kNoChecksum = 0x0,
   kCRC32c = 0x1,
   kxxHash = 0x2,
+  kxxHash64 = 0x3,
 };
 
 // For advanced user only
@@ -137,6 +139,8 @@ struct BlockBasedTableOptions {
 
   // If non-NULL use the specified cache for compressed blocks.
   // If NULL, rocksdb will not use a compressed block cache.
+  // Note: though it looks similar to `block_cache`, RocksDB doesn't put the
+  //       same type of object there.
   std::shared_ptr<Cache> block_cache_compressed = nullptr;
 
   // Approximate size of user data packed per block.  Note that the
@@ -254,6 +258,10 @@ struct BlockBasedTableOptions {
 
   // Align data blocks on lesser of page size and block size
   bool block_align = false;
+
+  // If non-nullptr will use this allocator instead of malloc/free to
+  // allocating memory for blocks.
+  std::shared_ptr<MemoryAllocator> memory_allocator;
 };
 
 // Table Properties that are specific to block-based table properties.
@@ -461,8 +469,8 @@ class TableFactory {
   // table_reader is the output table reader.
   virtual Status NewTableReader(
       const TableReaderOptions& table_reader_options,
-      unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-      unique_ptr<TableReader>* table_reader,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table_reader,
       bool prefetch_index_and_filter_in_cache = true) const = 0;
 
   // Return a table builder to write to a file for this table type.

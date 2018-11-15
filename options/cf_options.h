@@ -18,7 +18,7 @@ namespace rocksdb {
 // ImmutableCFOptions is a data struct used by RocksDB internal. It contains a
 // subset of Options that should not be changed during the entire lifetime
 // of DB. Raw pointers defined in this struct do not have ownership to the data
-// they point to. Options contains shared_ptr to these data.
+// they point to. Options contains std::shared_ptr to these data.
 struct ImmutableCFOptions {
   ImmutableCFOptions();
   explicit ImmutableCFOptions(const Options& options);

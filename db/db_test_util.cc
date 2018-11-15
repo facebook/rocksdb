@@ -259,6 +259,47 @@ bool DBTestBase::ChangeFilterOptions() {
   return true;
 }
 
+// Switch between different DB options for file ingestion tests.
+bool DBTestBase::ChangeOptionsForFileIngestionTest() {
+  if (option_config_ == kDefault) {
+    option_config_ = kUniversalCompaction;
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    options.create_if_missing = true;
+    TryReopen(options);
+    return true;
+  } else if (option_config_ == kUniversalCompaction) {
+    option_config_ = kUniversalCompactionMultiLevel;
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    options.create_if_missing = true;
+    TryReopen(options);
+    return true;
+  } else if (option_config_ == kUniversalCompactionMultiLevel) {
+    option_config_ = kLevelSubcompactions;
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    assert(options.max_subcompactions > 1);
+    TryReopen(options);
+    return true;
+  } else if (option_config_ == kLevelSubcompactions) {
+    option_config_ = kUniversalSubcompactions;
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    assert(options.max_subcompactions > 1);
+    TryReopen(options);
+    return true;
+  } else if (option_config_ == kUniversalSubcompactions) {
+    option_config_ = kDirectIO;
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    TryReopen(options);
+    return true;
+  } else {
+    return false;
+  }
+}
+
 // Return the current option configuration.
 Options DBTestBase::CurrentOptions(
     const anon::OptionsOverride& options_override) const {
@@ -430,6 +471,10 @@ Options DBTestBase::GetOptions(
       table_options.checksum = kxxHash;
       break;
     }
+    case kxxHash64Checksum: {
+      table_options.checksum = kxxHash64;
+      break;
+    }
     case kFIFOCompaction: {
       options.compaction_style = kCompactionStyleFIFO;
       break;
@@ -451,13 +496,14 @@ Options DBTestBase::GetOptions(
     }
     case kBlockBasedTableWithPartitionedIndexFormat4: {
       table_options.format_version = 4;
-      // Format 3 changes the binary index format. Since partitioned index is a
+      // Format 4 changes the binary index format. Since partitioned index is a
       // super-set of simple indexes, we are also using kTwoLevelIndexSearch to
       // test this format.
       table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
-      // The top-level index in partition filters are also affected by format 3.
+      // The top-level index in partition filters are also affected by format 4.
       table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
       table_options.partition_filters = true;
+      table_options.index_block_restart_interval = 8;
       break;
     }
     case kBlockBasedTableWithIndexRestartInterval: {
@@ -607,30 +653,19 @@ Status DBTestBase::ReadOnlyReopen(const Options& options) {
 Status DBTestBase::TryReopen(const Options& options) {
   Close();
   last_options_.table_factory.reset();
-  // Note: operator= is an unsafe approach here since it destructs shared_ptr in
-  // the same order of their creation, in contrast to destructors which
-  // destructs them in the opposite order of creation. One particular problme is
-  // that the cache destructor might invoke callback functions that use Option
-  // members such as statistics. To work around this problem, we manually call
-  // destructor of table_facotry which eventually clears the block cache.
+  // Note: operator= is an unsafe approach here since it destructs
+  // std::shared_ptr in the same order of their creation, in contrast to
+  // destructors which destructs them in the opposite order of creation. One
+  // particular problme is that the cache destructor might invoke callback
+  // functions that use Option members such as statistics. To work around this
+  // problem, we manually call destructor of table_facotry which eventually
+  // clears the block cache.
   last_options_ = options;
   return DB::Open(options, dbname_, &db_);
 }
 
 bool DBTestBase::IsDirectIOSupported() {
-  EnvOptions env_options;
-  env_options.use_mmap_writes = false;
-  env_options.use_direct_writes = true;
-  std::string tmp = TempFileName(dbname_, 999);
-  Status s;
-  {
-    unique_ptr<WritableFile> file;
-    s = env_->NewWritableFile(tmp, &file, env_options);
-  }
-  if (s.ok()) {
-    s = env_->DeleteFile(tmp);
-  }
-  return s.ok();
+  return test::IsDirectIOSupported(env_, dbname_);
 }
 
 bool DBTestBase::IsMemoryMappedAccessSupported() const {
@@ -643,6 +678,13 @@ Status DBTestBase::Flush(int cf) {
   } else {
     return db_->Flush(FlushOptions(), handles_[cf]);
   }
+}
+
+Status DBTestBase::Flush(const std::vector<int>& cf_ids) {
+  std::vector<ColumnFamilyHandle*> cfhs;
+  std::for_each(cf_ids.begin(), cf_ids.end(),
+                [&cfhs, this](int id) { cfhs.emplace_back(handles_[id]); });
+  return db_->Flush(FlushOptions(), cfhs);
 }
 
 Status DBTestBase::Put(const Slice& k, const Slice& v, WriteOptions wo) {
@@ -1211,9 +1253,9 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
 void DBTestBase::CopyFile(const std::string& source,
                           const std::string& destination, uint64_t size) {
   const EnvOptions soptions;
-  unique_ptr<SequentialFile> srcfile;
+  std::unique_ptr<SequentialFile> srcfile;
   ASSERT_OK(env_->NewSequentialFile(source, &srcfile, soptions));
-  unique_ptr<WritableFile> destfile;
+  std::unique_ptr<WritableFile> destfile;
   ASSERT_OK(env_->NewWritableFile(destination, &destfile, soptions));
 
   if (size == 0) {

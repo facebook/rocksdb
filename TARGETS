@@ -67,6 +67,16 @@ is_opt_mode = build_mode.startswith("opt")
 if is_opt_mode:
     rocksdb_compiler_flags.append("-DNDEBUG")
 
+default_allocator = read_config("fbcode", "default_allocator")
+
+sanitizer = read_config("fbcode", "sanitizer")
+
+# Let RocksDB aware of jemalloc existence.
+# Do not enable it if sanitizer presents.
+if default_allocator.startswith("jemalloc") and sanitizer == "":
+    rocksdb_compiler_flags.append("-DROCKSDB_JEMALLOC")
+    rocksdb_external_deps.append(("jemalloc", None, "headers"))
+
 cpp_library(
     name = "rocksdb_lib",
     srcs = [
@@ -113,6 +123,7 @@ cpp_library(
         "db/merge_helper.cc",
         "db/merge_operator.cc",
         "db/range_del_aggregator.cc",
+        "db/range_tombstone_fragmenter.cc",
         "db/repair.cc",
         "db/snapshot_impl.cc",
         "db/table_cache.cc",
@@ -215,6 +226,7 @@ cpp_library(
         "util/filename.cc",
         "util/filter_policy.cc",
         "util/hash.cc",
+        "util/jemalloc_nodump_allocator.cc",
         "util/log_buffer.cc",
         "util/murmurhash.cc",
         "util/random.cc",
@@ -292,7 +304,7 @@ cpp_library(
         "utilities/write_batch_with_index/write_batch_with_index.cc",
         "utilities/write_batch_with_index/write_batch_with_index_internal.cc",
     ],
-    headers = AutoHeaders.RECURSIVE_GLOB,
+    auto_headers = AutoHeaders.RECURSIVE_GLOB,
     arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
     compiler_flags = rocksdb_compiler_flags,
     preprocessor_flags = rocksdb_preprocessor_flags,
@@ -314,7 +326,7 @@ cpp_library(
         "utilities/col_buf_encoder.cc",
         "utilities/column_aware_encoding_util.cc",
     ],
-    headers = AutoHeaders.RECURSIVE_GLOB,
+    auto_headers = AutoHeaders.RECURSIVE_GLOB,
     arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
     compiler_flags = rocksdb_compiler_flags,
     preprocessor_flags = rocksdb_preprocessor_flags,
@@ -326,9 +338,10 @@ cpp_library(
     name = "rocksdb_tools_lib",
     srcs = [
         "tools/db_bench_tool.cc",
+        "tools/trace_analyzer_tool.cc",
         "util/testutil.cc",
     ],
-    headers = AutoHeaders.RECURSIVE_GLOB,
+    auto_headers = AutoHeaders.RECURSIVE_GLOB,
     arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
     compiler_flags = rocksdb_compiler_flags,
     preprocessor_flags = rocksdb_preprocessor_flags,
@@ -339,7 +352,7 @@ cpp_library(
 cpp_library(
     name = "env_basic_test_lib",
     srcs = ["env/env_basic_test.cc"],
-    headers = AutoHeaders.RECURSIVE_GLOB,
+    auto_headers = AutoHeaders.RECURSIVE_GLOB,
     arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
     compiler_flags = rocksdb_compiler_flags,
     preprocessor_flags = rocksdb_preprocessor_flags,
@@ -920,6 +933,11 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
+        "range_tombstone_fragmenter_test",
+        "db/range_tombstone_fragmenter_test.cc",
+        "serial",
+    ],
+    [
         "rate_limiter_test",
         "util/rate_limiter_test.cc",
         "serial",
@@ -932,6 +950,11 @@ ROCKS_TESTS = [
     [
         "repair_test",
         "db/repair_test.cc",
+        "serial",
+    ],
+    [
+        "repeatable_thread_test",
+        "util/repeatable_thread_test.cc",
         "serial",
     ],
     [

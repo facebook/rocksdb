@@ -222,7 +222,6 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       // rare case and it is ok to pay the cost of mutex ReadLock for such old,
       // reading transactions.
       WPRecordTick(TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD);
-      ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead");
       ReadLock rl(&old_commit_map_mutex_);
       auto prep_set_entry = old_commit_map_.find(snapshot_seq);
       bool found = prep_set_entry != old_commit_map_.end();
@@ -549,7 +548,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   static const size_t DEF_SNAPSHOT_CACHE_BITS = static_cast<size_t>(7);
   const size_t SNAPSHOT_CACHE_BITS;
   const size_t SNAPSHOT_CACHE_SIZE;
-  unique_ptr<std::atomic<SequenceNumber>[]> snapshot_cache_;
+  std::unique_ptr<std::atomic<SequenceNumber>[]> snapshot_cache_;
   // 2nd list for storing snapshots. The list sorted in ascending order.
   // Thread-safety is provided with snapshots_mutex_.
   std::vector<SequenceNumber> snapshots_;
@@ -567,7 +566,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   const CommitEntry64bFormat FORMAT;
   // commit_cache_ must be initialized to zero to tell apart an empty index from
   // a filled one. Thread-safety is provided with commit_cache_mutex_.
-  unique_ptr<std::atomic<CommitEntry64b>[]> commit_cache_;
+  std::unique_ptr<std::atomic<CommitEntry64b>[]> commit_cache_;
   // The largest evicted *commit* sequence number from the commit_cache_. If a
   // seq is smaller than max_evicted_seq_ is might or might not be present in
   // commit_cache_. So commit_cache_ must first be checked before consulting
