@@ -122,6 +122,7 @@ void CreateAwsEnv(const std::string& dbpath,
     return;
   }
   ((CloudEnvImpl*)s)->TEST_DisableCloudManifest();
+  ((AwsEnv*)s)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
   // If we are keeping wal in cloud storage, then tail it as well.
   // so that our unit tests can run to completion.
   if (!coptions.keep_local_log_files) {
@@ -294,6 +295,8 @@ TEST_P(EnvBasicTestWithParam, ReadWrite) {
 
   // Too high offset.
   ASSERT_TRUE(rand_file->Read(1000, 5, &result, scratch).ok());
+  // delete test file
+  ASSERT_TRUE(env_->DeleteFile(test_dir_ + fname).ok());
 }
 
 TEST_P(EnvBasicTestWithParam, Misc) {
