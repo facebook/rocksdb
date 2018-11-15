@@ -307,7 +307,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   assert(num_cfs == static_cast<int>(jobs.size()));
 
   for (int i = 0; i != num_cfs; ++i) {
-    file_meta.emplace_back(FileMetaData());
+    file_meta.emplace_back();
 
 #ifndef ROCKSDB_LITE
     const MutableCFOptions& mutable_cf_options =
@@ -335,13 +335,27 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
   if (s.ok()) {
     // TODO (yanqin): parallelize jobs with threads.
-    for (int i = 0; i != num_cfs; ++i) {
+    for (int i = 1; i != num_cfs; ++i) {
       exec_status[i].second =
           jobs[i].Run(&logs_with_prep_tracker_, &file_meta[i]);
       exec_status[i].first = true;
       if (!exec_status[i].second.ok()) {
         s = exec_status[i].second;
         break;
+      }
+    }
+    if (num_cfs > 1) {
+      TEST_SYNC_POINT(
+          "DBImpl::AtomicFlushMemTablesToOutputFiles:SomeFlushJobsComplete:1");
+      TEST_SYNC_POINT(
+          "DBImpl::AtomicFlushMemTablesToOutputFiles:SomeFlushJobsComplete:2");
+    }
+    if (s.ok()) {
+      exec_status[0].second =
+          jobs[0].Run(&logs_with_prep_tracker_, &file_meta[0]);
+      exec_status[0].first = true;
+      if (!exec_status[0].second.ok()) {
+        s = exec_status[0].second;
       }
     }
   }
@@ -428,9 +442,11 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     }
     if (!s.IsShutdownInProgress()) {
       for (int i = 0; i != num_cfs; ++i) {
-        auto& mems = jobs[i].GetMemTables();
-        cfds[i]->imm()->RollbackMemtableFlush(mems,
-                                              file_meta[i].fd.GetNumber());
+        if (exec_status[i].first && exec_status[i].second.ok()) {
+          auto& mems = jobs[i].GetMemTables();
+          cfds[i]->imm()->RollbackMemtableFlush(mems,
+                                                file_meta[i].fd.GetNumber());
+        }
       }
       Status new_bg_error = s;
       error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
