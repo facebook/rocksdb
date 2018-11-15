@@ -1856,10 +1856,16 @@ extern "C" {
 
 TEST_F(OptionsTest, LoadExtension) {
   DBOptions dbOptions;
-  ASSERT_TRUE(dbOptions.AddExtensionFactory("", "testListenerFactory").ok());
+  std::shared_ptr<EventListener> listener;
+  Status s = dbOptions.AddExtensionFactory("", "testListenerFactory");
+  ASSERT_TRUE(s.ok());
   ASSERT_EQ(dbOptions.extension_factories.size(), 1);
-  ASSERT_TRUE(dbOptions.AddEventListener("testListener").ok());
-  ASSERT_EQ(dbOptions.listeners.size(), 1);
+  s = GetEventListenerFromString("Not found", dbOptions, "", &listener);
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_TRUE(! listener);
+  s = GetEventListenerFromString("testListener", dbOptions, "", &listener);
+  ASSERT_TRUE(s.ok());
+  ASSERT_TRUE(listener);
 }
 #endif  // !ROCKSDB_LITE
 }  // namespace rocksdb

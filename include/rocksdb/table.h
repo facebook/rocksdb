@@ -433,6 +433,7 @@ class RandomAccessFileReader;
 class TableFactory : public Extension {
  public:
   virtual ~TableFactory() {}
+    static ExtensionType GetType() { return kExtensionTableFactory; }
 
   // The type of the table.
   //

@@ -44,6 +44,7 @@ Status GetTableFactoryFromMap(
     std::shared_ptr<TableFactory>* table_factory,
     bool ignore_unknown_options = false);
 
+
 enum class OptionType {
   kBoolean,
   kInt,

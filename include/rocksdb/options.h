@@ -35,6 +35,10 @@ class CompactionFilter;
 class CompactionFilterFactory;
 class Comparator;
 class Env;
+class EventListener;
+class Extension;
+class ExtensionFactory;
+  
 enum InfoLogLevel : unsigned char;
 class SstFileManager;
 class FilterPolicy;
@@ -774,7 +778,6 @@ struct DBOptions {
   // when specific RocksDB event happens.
   std::vector<std::shared_ptr<EventListener>> listeners;
 
-  Status AddEventListener(const std::string & name);
   // If true, then the status of the threads involved in this DB will
   // be tracked and available via GetThreadList() API.
   //
@@ -881,8 +884,12 @@ struct DBOptions {
 
 #ifndef ROCKSDB_LITE
   std::vector<std::shared_ptr<ExtensionFactory> > extension_factories;
-#endif
+  // Adds the input named extension factory to the list for this object.
+  // The "name" corresponds to the library being added; the method is the
+  // method in this library to invoke for creating Extensions.
   Status AddExtensionFactory(const std::string & name, const std::string & method = "GetExtensionFactory");
+  
+#endif
 
   // If true, then DB::Open / CreateColumnFamily / DropColumnFamily
   // / SetOptions will fail if options file is not detected or properly

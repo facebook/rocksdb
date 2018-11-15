@@ -277,6 +277,8 @@ struct ExternalFileIngestionInfo {
 // in a complex way.
   class EventListener: public Extension {
   public: // Methods from Extension
+    static ExtensionType GetType() { return kExtensionEventListener; }
+    
     // Overrides method from Extension.  Set to empty for backwards-compatibility
     virtual const char * Name() const override { return ""; }
  public:
@@ -451,6 +453,19 @@ struct ExternalFileIngestionInfo {
   virtual ~EventListener() {}
 };
 
+Status GetEventListenerFromMap(
+    const std::string& name,
+    const DBOptions & dbOpts, 
+    const std::unordered_map<std::string, std::string>& opt_map,
+    std::shared_ptr<EventListener> * listener,
+    bool ignore_unknown_options = false);
+
+Status GetEventListenerFromString(
+    const std::string& name,
+    const DBOptions & dbOpts, 
+    const std::string & opt_str,
+    std::shared_ptr<EventListener> * listener,
+    bool ignore_unknown_options = false);
 #else
 
 class EventListener {

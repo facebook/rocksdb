@@ -6,8 +6,78 @@
 #ifndef ROCKSDB_LITE
 #include "rocksdb/env.h"
 #include "rocksdb/extensions.h"
+#include "rocksdb/status.h"
+#include "options/options_helper.h"
 
 namespace rocksdb {
+Status Extension::ConfigureFromMap(
+          const std::unordered_map<std::string, std::string> & opts_map,
+	  const DBOptions & dbOpts,
+	  const ColumnFamilyOptions * cfOpts,
+	  bool input_strings_escaped,
+	  bool ignore_unknown_options) {
+  Status s;
+  for (const auto& o : opts_map) {
+    s = SetOption(o.first, o.second, input_strings_escaped, ignore_unknown_options);
+    if (! s.ok()) {
+      return s;
+    }
+  }
+  if (cfOpts != nullptr) {
+    return SanitizeOptions(dbOpts, *cfOpts);
+  } else {
+    return Status::OK();
+  }
+}
+  
+Status Extension::ConfigureFromString(
+	  const std::string & opt_str,
+	  const DBOptions & dbOpts,
+	  const ColumnFamilyOptions * cfOpts,
+	  bool input_strings_escaped,
+	  bool ignore_unknown_options) {
+  std::unordered_map<std::string, std::string> opt_map;
+  Status s = StringToMap(opt_str, &opt_map);
+  if (s.ok()) {
+    s = ConfigureFromMap(opt_map, dbOpts, cfOpts,
+			 input_strings_escaped,
+			 ignore_unknown_options);
+  }
+  return s;
+}
+  
+Status Extension::SetOption(const std::string & name,
+			    const std::string &,
+			    bool,
+			    bool ignore_unknown_options) {
+  
+  if (! ignore_unknown_options) {
+    return Status::InvalidArgument("Unrecognized option: ", name);
+  } else {
+    return Status::OK();
+  }
+}
+
+ template <typename T>
+Status CreateExtensionObject(const std::string & name,
+			     ExtensionType type,
+			     const DBOptions * dbOptions,
+			     const ColumnFamilyOptions * ,
+			     std::shared_ptr<T> * result) {
+  Extension *extension;
+  for (auto rit = dbOptions->extension_factories.crbegin();
+       rit != dbOptions->extension_factories.crend(); ++rit) {
+    extension = (*rit)->CreateExtensionObject(name, type);
+    if (extension != nullptr) {
+      T * resultptr = reinterpret_cast<T *>(extension);
+      if (resultptr != nullptr) {
+	result->reset(resultptr);
+	return Status::OK();
+      }
+    }
+  }
+  return Status::NotFound("Could not create", name);
+}
 
   class DynamicExtensionFactory : public ExtensionFactory {
   private:
@@ -23,9 +93,20 @@ namespace rocksdb {
     }
     
     virtual Extension * CreateExtensionObject(const std::string & name,
-					      ExtensionType type) override {
+					      ExtensionType type) const override {
       Extension * extension = (function_)(name, type);
       return extension;
+    }
+  };
+
+  class DefaultExtensionFactory : public ExtensionFactory {
+    virtual const char *Name() const override {
+      return "default";
+    }
+    
+    virtual Extension * CreateExtensionObject(const std::string & ,
+					      ExtensionType) const override {
+      return nullptr;
     }
   };
   
@@ -42,5 +123,12 @@ namespace rocksdb {
   }
 }
 
+Status ExtensionFactory::LoadDefaultFactory(std::shared_ptr<ExtensionFactory> * factory) {
+  ExtensionFactory *f = new DefaultExtensionFactory();
+  factory->reset(f);
+  return Status::OK();
+}
+
 }  // namespace rocksdb
+
 #endif  // ROCKSDB_LITE
