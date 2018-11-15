@@ -38,26 +38,8 @@ class MemoryAllocator {
 
 namespace jemalloc {
 
-enum class PerCPUArena : int {
-  // Disable per-CPU arena. One single arena is used.
-  kDisabled = 0,
-
-  // Create one arena for each CPU, to reduce arena mutex contention,
-  // but may increase memory fragmentation.
-  kPerCPU = 1,
-
-  // Assume hyper-threading is enabled and create one arena for each physical
-  // CPU (half of #CPU in total). The allocator does not have run-time check to 
-  // verify whether the assumption is true. This mode may have less memory
-  // fragmentation comparing to kPerCPU, for using less arenas.
-  kPerPhysicalCPU = 2,
-};
-
 struct JemallocAllocatorOptions {
-  // If per-CPU arena is enabled, the allocator will create arena for each
-  // CPU. It reduces arena mutex contention and improves throughput, but
-  // potentially increases memory fragmentation.
-  PerCPUArena per_cpu_arena = PerCPUArena::kPerPhysicalCPU;
+  int num_arena_shift = -1;
 };
 
 // Generate cache allocators which allocates through Jemalloc and utilize

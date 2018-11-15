@@ -419,12 +419,7 @@ DEFINE_int64(simcache_size, -1,
 
 DEFINE_bool(cache_no_dump, false, "Do not include block cache in core dump.");
 
-DEFINE_int32(jemalloc_per_cpu_arena, 2,
-             "Enable jemalloc memory allocator per-CPU arena."
-             " See jemalloc::PerCPUArnea for available enum.");
-
-DEFINE_bool(jemalloc_enable_tcache, true,
-            "Enable jemalloc memory allocator thread-specific cache.");
+DEFINE_int32(jemalloc_allocator_num_arena_shift, -1, "");
 
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "Cache index/filter blocks in block cache.");
@@ -2301,9 +2296,8 @@ class Benchmark {
       options.high_pri_pool_ratio = FLAGS_cache_high_pri_pool_ratio;
       if (FLAGS_cache_no_dump) {
         jemalloc::JemallocAllocatorOptions allocator_options;
-        allocator_options.per_cpu_arena =
-            static_cast<jemalloc::PerCPUArena>(FLAGS_jemalloc_per_cpu_arena);
-        allocator_options.enable_tcache = FLAGS_jemalloc_enable_tcache;
+        allocator_options.num_arena_shift =
+            FLAGS_jemalloc_allocator_num_arena_shift;
         Status s = NewJemallocNodumpAllocator(allocator_options,
                                               &options.memory_allocator);
         if (!s.ok()) {

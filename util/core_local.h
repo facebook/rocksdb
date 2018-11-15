@@ -21,7 +21,12 @@ namespace rocksdb {
 template <typename T>
 class CoreLocalArray {
  public:
-  CoreLocalArray();
+  // Create an array of size 2^size_shift. If size_shift is negative, use the
+  // smallest power of two not smaller than max(8, num_cpus).
+  explicit CoreLocalArray(int size_shift = -1);
+
+  // Move constructor.
+  explicit CoreLocalArray(CoreLocalArray&& a);
 
   size_t Size() const;
   // returns pointer to the element corresponding to the core that the thread
@@ -41,15 +46,21 @@ class CoreLocalArray {
 };
 
 template <typename T>
-CoreLocalArray<T>::CoreLocalArray() {
-  int num_cpus = static_cast<int>(std::thread::hardware_concurrency());
-  // find a power of two >= num_cpus and >= 8
-  size_shift_ = 3;
-  while (1 << size_shift_ < num_cpus) {
-    ++size_shift_;
+CoreLocalArray<T>::CoreLocalArray(int size_shift) : size_shift_(size_shift) {
+  if (size_shift_ < 0) {
+    int num_cpus = static_cast<int>(std::thread::hardware_concurrency());
+    // find a power of two >= num_cpus and >= 8
+    size_shift_ = 3;
+    while (1 << size_shift_ < num_cpus) {
+      ++size_shift_;
+    }
   }
   data_.reset(new T[static_cast<size_t>(1) << size_shift_]);
 }
+
+template <typename T>
+CoreLocalArray<T>::CoreLocalArray(CoreLocalArray&& a)
+    : data_(std::move(a.data_)), size_shift_(a.size_shift_) {}
 
 template <typename T>
 size_t CoreLocalArray<T>::Size() const {

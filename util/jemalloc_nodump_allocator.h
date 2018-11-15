@@ -10,6 +10,7 @@
 
 #include "port/port.h"
 #include "rocksdb/memory_allocator.h"
+#include "util/core_local.h"
 #include "util/thread_local.h"
 
 #if defined(ROCKSDB_JEMALLOC) && defined(ROCKSDB_PLATFORM_POSIX)
@@ -26,9 +27,8 @@ namespace jemalloc {
 class JemallocNodumpAllocator : public MemoryAllocator {
  public:
   JemallocNodumpAllocator(
-      PerCPUArena per_cpu_arena, unsigned num_cpus,
       std::vector<std::unique_ptr<extent_hooks_t>>&& arena_hooks,
-      std::vector<unsigned>&& arena_indices);
+      CoreLocalArray<unsigned>&& arenas);
   ~JemallocNodumpAllocator();
 
   const char* Name() const override { return "JemallocNodumpAllocator"; }
@@ -63,14 +63,13 @@ class JemallocNodumpAllocator : public MemoryAllocator {
   // alloc needs to be static to pass to jemalloc as function pointer.
   static std::atomic<extent_alloc_t*> original_alloc_;
 
-  const PerCPUArena per_cpu_arena_;
-  const unsigned num_cpus_;
   // Custom hooks has to outlive corresponding arena.
   const std::vector<std::unique_ptr<extent_hooks_t>> arena_hooks_;
-  const std::vector<unsigned> arena_indices_;
 
-  // Hold thread local tcache index, and virtually, reference to the
-  // tcache object.
+  // Hold core-local arena index.
+  CoreLocalArray<unsigned> arenas_;
+
+  // Hold thread-local tcache index.
   ThreadLocalPtr tcache_;
 };
 

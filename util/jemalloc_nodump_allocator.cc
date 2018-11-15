@@ -20,30 +20,11 @@ namespace jemalloc {
 std::atomic<extent_alloc_t*> JemallocNodumpAllocator::original_alloc_{nullptr};
 
 JemallocNodumpAllocator::JemallocNodumpAllocator(
-    PerCPUArena per_cpu_arena, unsigned num_cpus,
     std::vector<std::unique_ptr<extent_hooks_t>>&& arena_hooks,
-    std::vector<unsigned>&& arena_indices)
-    : per_cpu_arena_(per_cpu_arena),
-      num_cpus_(num_cpus),
-      arena_hooks_(std::move(arena_hooks)),
-      arena_indices_(std::move(arena_indices)),
-      tcache_(&JemallocNodumpAllocator::DestroyThreadSpecificCache) {
-  switch (per_cpu_arena) {
-    case PerCPUArena::kDisabled:
-      assert(arena_indices_.size() == 1);
-      break;
-    case PerCPUArena::kPerCPU:
-      assert(arena_indices_.size() == num_cpus_);
-      break;
-    case PerCPUArena::kPerPhysicalCPU:
-      assert(arena_indices_.size() == (num_cpus_ + 1) / 2);
-      break;
-  }
-  assert(arena_hooks.size() == arena_indices.size());
-  for (unsigned __attribute__((__unused__)) arena_index : arena_indices) {
-    assert(arena_index != 0);
-  }
-}
+    CoreLocalArray<unsigned>&& arenas)
+    : arena_hooks_(std::move(arena_hooks)),
+      arenas_(std::move(arenas)),
+      tcache_(&JemallocNodumpAllocator::DestroyThreadSpecificCache) {}
 
 int JemallocNodumpAllocator::GetThreadSpecificCache() {
   // We always enable tcache. The only corner case is when there are a ton of
@@ -67,28 +48,9 @@ int JemallocNodumpAllocator::GetThreadSpecificCache() {
 }
 
 void* JemallocNodumpAllocator::Allocate(size_t size) {
-  // Obtain tcache.
   int tcache_flag = GetThreadSpecificCache();
-
-  // Choose arena.
-  unsigned arena_id = 0;
-  if (per_cpu_arena_ != PerCPUArena::kDisabled) {
-    int cpu_id = port::PhysicalCoreID();
-    if (cpu_id < 0) {
-      // Failed to get CPU id.
-      arena_id = 0;
-    } else if (per_cpu_arena_ == PerCPUArena::kPerCPU ||
-               static_cast<unsigned>(cpu_id) < (num_cpus_ + 1) / 2) {
-      arena_id = static_cast<unsigned>(cpu_id);
-    } else {
-      arena_id = static_cast<unsigned>(cpu_id) - (num_cpus_ + 1) / 2;
-    }
-  }
-  assert(arena_id < arena_indices_.size());
-  assert(arena_indices_[arena_id] != 0);
-
-  int flags = MALLOCX_ARENA(arena_indices_[arena_id]) | tcache_flag;
-  return mallocx(size, flags);
+  unsigned arena_index = *(arenas_.Access());
+  return mallocx(size, MALLOCX_ARENA(arena_index) | tcache_flag);
 }
 
 void JemallocNodumpAllocator::Deallocate(void* p) {
@@ -150,8 +112,8 @@ JemallocNodumpAllocator::~JemallocNodumpAllocator() {
     DestroyThreadSpecificCache(tcache_index);
   }
   // Destroy arena.
-  for (unsigned arena_id = 0; arena_id < arena_indices_.size(); arena_id++) {
-    Status s = DestroyArena(arena_indices_[arena_id]);
+  for (size_t core_id = 0; core_id < arenas_.Size(); core_id++) {
+    Status s = DestroyArena(*(arenas_.AccessAtCore(core_id)));
     if (!s.ok()) {
       fprintf(stderr, "%s\n", s.ToString().c_str());
     }
@@ -177,25 +139,13 @@ Status NewJemallocNodumpAllocator(
   if (memory_allocator == nullptr) {
     return Status::InvalidArgument("memory_allocator must be non-null.");
   }
-  unsigned num_cpus = std::thread::hardware_concurrency();
-  unsigned num_arenas = 1;
-  switch (options.per_cpu_arena) {
-    case PerCPUArena::kDisabled:
-      num_arenas = 1;
-      break;
-    case PerCPUArena::kPerCPU:
-      num_arenas = num_cpus;
-      break;
-    case PerCPUArena::kPerPhysicalCPU:
-      // We don't verify if num_cpus is multiple of 2 in kPerPhysicalCPU
-      // mode. We simply handle the case when it is not.
-      num_arenas = (num_cpus + 1) / 2;
-      break;
-  }
+
+  CoreLocalArray<unsigned> arenas(options.num_arena_shift);
+  size_t num_arenas = arenas.Size();
+  size_t num_created_arenas = 0;
   std::vector<std::unique_ptr<extent_hooks_t>> arena_hooks;
-  std::vector<unsigned> arena_indices;
   Status s;
-  for (unsigned arena_id = 0; arena_id < num_arenas; arena_id++) {
+  for (unsigned core_id = 0; core_id < num_arenas; core_id++) {
     // Create arena.
     unsigned arena_index = 0;
     size_t arena_index_size = sizeof(arena_index);
@@ -207,7 +157,8 @@ Status NewJemallocNodumpAllocator(
       break;
     }
     assert(arena_index != 0);
-    arena_indices.push_back(arena_index);
+    *(arenas.AccessAtCore(core_id)) = arena_index;
+    num_created_arenas++;
 
     // Read existing hooks.
     std::string key = "arena." + ToString(arena_index) + ".extent_hooks";
@@ -245,13 +196,12 @@ Status NewJemallocNodumpAllocator(
   }
   if (s.ok()) {
     // Create cache allocator.
-    memory_allocator->reset(new JemallocNodumpAllocator(
-        options.per_cpu_arena, num_cpus,
-        std::move(arena_hooks), std::move(arena_indices)));
+    memory_allocator->reset(
+        new JemallocNodumpAllocator(std::move(arena_hooks), std::move(arenas)));
   } else {
-    for (unsigned arena_id = 0; arena_id < arena_indices.size(); arena_id++) {
+    for (unsigned core_id = 0; core_id < num_created_arenas; core_id++) {
       // Ignore status.
-      JemallocNodumpAllocator::DestroyArena(arena_indices[arena_id]);
+      JemallocNodumpAllocator::DestroyArena(*(arenas.AccessAtCore(core_id)));
     }
   }
   return s;
