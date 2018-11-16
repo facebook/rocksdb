@@ -21,7 +21,7 @@ class DBImpl;
 class Slice;
 class WriteBatch;
 
-const std::string kTraceMagic = "feedcafedeadbeef";
+extern const std::string kTraceMagic;
 const unsigned int kTraceTimestampSize = 8;
 const unsigned int kTraceTypeSize = 1;
 const unsigned int kTracePayloadLengthSize = 4;

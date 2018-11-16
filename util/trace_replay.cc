@@ -16,6 +16,8 @@
 
 namespace rocksdb {
 
+const std::string kTraceMagic = "feedcafedeadbeef";
+
 namespace {
 void EncodeCFAndKey(std::string* dst, uint32_t cf_id, const Slice& key) {
   PutFixed32(dst, cf_id);
