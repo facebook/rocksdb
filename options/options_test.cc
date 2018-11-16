@@ -1845,8 +1845,9 @@ public:
 };
 
 extern "C" {
-  Extension * testListenerFactory(const std::string & name, ExtensionType type) {
-    if (name == "testListener" && type == kExtensionEventListener) {
+  Extension * testListenerFactory(const std::string & type,
+				  const std::string & name) {
+    if (name == "testListener" && type == ExtensionTypes::kTypeEventListener) {
       return new TestListener();
     } else {
       return nullptr;

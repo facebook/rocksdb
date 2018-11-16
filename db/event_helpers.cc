@@ -199,7 +199,7 @@ Status GetEventListenerFromMap(
     const std::unordered_map<std::string, std::string>& opt_map,
     std::shared_ptr<EventListener> * listener,
     bool ignore_unknown_options) {
-  Status s = GetExtension(dbOpts.extension_factories, name, listener);
+  Status s = GetExtension(dbOpts.extension_factories, ExtensionTypes::kTypeEventListener, name, listener);
   if (s.ok()) {
     s = (*listener)->ConfigureFromMap(opt_map, dbOpts, NULL, true, ignore_unknown_options);
   }
@@ -212,9 +212,11 @@ Status GetEventListenerFromString(
     const std::string & opt_str,
     std::shared_ptr<EventListener> * listener,
     bool ignore_unknown_options) {
-  Status s = GetExtension(dbOpts.extension_factories, name, listener);
+  Status s = GetExtension(dbOpts.extension_factories,
+			  ExtensionTypes::kTypeEventListener, name, listener);
   if (s.ok()) {
-    s = (*listener)->ConfigureFromString(opt_str, dbOpts, NULL, true, ignore_unknown_options);
+    s = (*listener)->ConfigureFromString(opt_str, dbOpts, NULL, true,
+					 ignore_unknown_options);
   }
   return s;
 }

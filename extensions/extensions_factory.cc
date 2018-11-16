@@ -10,6 +10,10 @@
 #include "options/options_helper.h"
 
 namespace rocksdb {
+const std::string ExtensionTypes::kTypeEventListener = "event-listener";
+const std::string ExtensionTypes::kTypeTableFactory = "table-factory";
+const std::string ExtensionTypes::kTypeEnvironment = "environment";
+
 Status Extension::ConfigureFromMap(
           const std::unordered_map<std::string, std::string> & opts_map,
 	  const DBOptions & dbOpts,
@@ -59,15 +63,15 @@ Status Extension::SetOption(const std::string & name,
 }
 
  template <typename T>
-Status CreateExtensionObject(const std::string & name,
-			     ExtensionType type,
+Status CreateExtensionObject(const std::string & type,
+			     const std::string & name,
 			     const DBOptions * dbOptions,
 			     const ColumnFamilyOptions * ,
 			     std::shared_ptr<T> * result) {
   Extension *extension;
   for (auto rit = dbOptions->extension_factories.crbegin();
        rit != dbOptions->extension_factories.crend(); ++rit) {
-    extension = (*rit)->CreateExtensionObject(name, type);
+    extension = (*rit)->CreateExtensionObject(type, name);
     if (extension != nullptr) {
       T * resultptr = reinterpret_cast<T *>(extension);
       if (resultptr != nullptr) {
@@ -92,9 +96,9 @@ Status CreateExtensionObject(const std::string & name,
       return library_->Name();
     }
     
-    virtual Extension * CreateExtensionObject(const std::string & name,
-					      ExtensionType type) const override {
-      Extension * extension = (function_)(name, type);
+    virtual Extension * CreateExtensionObject(const std::string & type,
+					      const std::string & name) const override {
+      Extension * extension = (function_)(type, name);
       return extension;
     }
   };
@@ -104,8 +108,8 @@ Status CreateExtensionObject(const std::string & name,
       return "default";
     }
     
-    virtual Extension * CreateExtensionObject(const std::string & ,
-					      ExtensionType) const override {
+    virtual Extension * CreateExtensionObject(const std::string &,
+					      const std::string &) const override {
       return nullptr;
     }
   };

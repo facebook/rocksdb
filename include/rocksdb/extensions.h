@@ -22,23 +22,22 @@ struct DBOptions;
   
 using std::unique_ptr;
 using std::shared_ptr;
-  
-enum ExtensionType : char {
-  kExtensionEventListener = 0,
-  kExtensionTableFactory,
-  kExtensionEnvironment,
-  kExtensionCompactionFilter,
-  kExtensionMergeOperator,
-  kExtensionUnknown
+
+struct ExtensionTypes {
+  static const std::string kTypeEventListener;
+  static const std::string kTypeTableFactory;
+  static const std::string kTypeEnvironment;
 };
 
-  
 class Extension {
   public:
   virtual ~Extension() {}
   // Names starting with "rocksdb." are reserved and should not be used
   // by any clients of this package.
   virtual const char* Name() const = 0;
+
+  // The Base Type of the extension.  
+  virtual const std::string & Type() const = 0;
 
   // Configures the options for this extension based on the input parameters.
   // Returns an OK status if configuration was successful.
@@ -92,23 +91,25 @@ class Extension {
   class ExtensionFactory {
   public:
     virtual const char *Name() const = 0;
-    typedef Extension *(*ExtensionFactoryFunction)(const std::string & name, ExtensionType type);
+    typedef Extension *(*ExtensionFactoryFunction)(const std::string & type,
+						   const std::string & name);
     static Status LoadDynamicFactory(const std::shared_ptr<DynamicLibrary> & library, const std::string & method, std::shared_ptr<ExtensionFactory> * factory);
     static Status LoadDefaultFactory(std::shared_ptr<ExtensionFactory> * factory);
   public:
     virtual ~ExtensionFactory() { }
-    virtual Extension *CreateExtensionObject(const std::string &,
-					     ExtensionType) const = 0;
+    virtual Extension *CreateExtensionObject(const std::string & type,
+					     const std::string & name) const = 0;
   };
 
 #ifndef ROCKSDB_LITE
 template<typename T>
 Status GetExtension(const std::vector<std::shared_ptr<ExtensionFactory> > & factories,
+		    const std::string   & type,
 		    const std::string   & name,
 		    std::shared_ptr<T> *result) {
   for (auto rit = factories.crbegin();
        rit != factories.crend(); ++rit) {
-    Extension *extension = (*rit)->CreateExtensionObject(name, T::GetType());
+    Extension *extension = (*rit)->CreateExtensionObject(type, name);
     if (extension != nullptr) {
       T *resultptr = dynamic_cast<T *>(extension);
       result->reset(resultptr);

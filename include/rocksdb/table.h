@@ -433,7 +433,9 @@ class RandomAccessFileReader;
 class TableFactory : public Extension {
  public:
   virtual ~TableFactory() {}
-    static ExtensionType GetType() { return kExtensionTableFactory; }
+  virtual const std::string & Type() const override {
+    return ExtensionTypes::kTypeTableFactory;
+  }
 
   // The type of the table.
   //
@@ -442,7 +444,7 @@ class TableFactory : public Extension {
   //
   // Names starting with "rocksdb." are reserved and should not be used
   // by any clients of this package.
-  virtual const char* Name() const = 0;
+  virtual const char* Name() const override = 0;
 
   // Returns a Table object table that can fetch data from file specified
   // in parameter file. It's the caller's responsibility to make sure
@@ -495,7 +497,7 @@ class TableFactory : public Extension {
   // a non-ok Status will be returned.
   virtual Status SanitizeOptions(
       const DBOptions& db_opts,
-      const ColumnFamilyOptions& cf_opts) const = 0;
+      const ColumnFamilyOptions& cf_opts) const override = 0;
 
   // Return a string that contains printable format of table configurations.
   // RocksDB prints configurations at DB Open().

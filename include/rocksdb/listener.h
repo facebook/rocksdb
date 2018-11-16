@@ -277,7 +277,9 @@ struct ExternalFileIngestionInfo {
 // in a complex way.
   class EventListener: public Extension {
   public: // Methods from Extension
-    static ExtensionType GetType() { return kExtensionEventListener; }
+    virtual const std::string & Type() const override {
+      return ExtensionTypes::kTypeEventListener;
+    }
     
     // Overrides method from Extension.  Set to empty for backwards-compatibility
     virtual const char * Name() const override { return ""; }
