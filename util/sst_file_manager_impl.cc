@@ -9,6 +9,7 @@
 
 #include "db/db_impl.h"
 #include "port/port.h"
+#include "rocksdb/env.h"
 #include "rocksdb/sst_file_manager.h"
 #include "util/mutexlock.h"
 #include "util/sync_point.h"
@@ -398,68 +399,6 @@ bool SstFileManagerImpl::CancelErrorRecovery(ErrorHandler* handler) {
     }
   }
   return false;
-}
-
-
-void SstFileManagerImpl::SetMaxOutstandingCompaction(const std::string& device_name, 
-                                                     int limit) {
-  MutexLock l(&mu_);
-  assert(device_name.size() != 0);
-  max_outstanding_compaction_[device_name] = limit;
-}
-
-void SstFileManagerImpl::ResetMaxOutstandingCompaction() {
-  MutexLock l(&mu_);
-  max_outstanding_compaction_.clear();
-}
-
-int SstFileManagerImpl::GetOutstandingCompactionTasks(const std::string& device_name) {
-  int tasks = 0;
-  if (device_name.size() != 0) {
-    MutexLock l(&mu_);
-    auto iter = outstanding_compaction_.find(device_name);
-    if (iter != outstanding_compaction_.end()) {
-      tasks = iter->second;
-    }
-  }
-  return tasks;
-}
-
-bool SstFileManagerImpl::TryAddCompactionTask(const std::string& device_name,                                          
-                                              bool force, int& tasks) {
-  tasks = 0;
-  // No limitation when device name is not specified.
-  if (device_name.size() == 0) return true;
-  MutexLock l(&mu_);
-  auto iter = outstanding_compaction_.find(device_name);
-  if (iter == outstanding_compaction_.end()) {
-    auto p = outstanding_compaction_.emplace(device_name, 0);
-    iter = p.first;
-  }
-  int limit = -1;
-  if (!force) {
-    auto max_iter = max_outstanding_compaction_.find(device_name);
-    if (max_iter != max_outstanding_compaction_.end()) {
-      limit = max_iter->second;
-    }
-  }
-  // Limit less equal than zero means no limitiation.
-  if (limit <= 0 || iter->second < limit) {
-    tasks = ++iter->second;
-    return true;
-  } else {
-    tasks = iter->second;
-    return false;
-  }
-}
-
-void SstFileManagerImpl::SubtractCompactionTask(const std::string& device_name, 
-                                                int& tasks) {
-  tasks = 0;
-  if (device_name.size() == 0) return;
-  MutexLock l(&mu_);
-  tasks = --outstanding_compaction_[device_name];
-  assert(tasks >= 0);
 }
 
 Status SstFileManagerImpl::ScheduleFileDeletion(

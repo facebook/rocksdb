@@ -10,7 +10,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "rocksdb/env.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
@@ -80,15 +79,6 @@ class SstFileManager {
   // Return the total size of trash files
   // thread-safe
   virtual uint64_t GetTotalTrashSize() = 0;
-
-  // Set per device limited outstanding compaction task.
-  // limit <= 0 means no limitation
-  virtual void SetMaxOutstandingCompaction(const std::string& deviceName,
-                                          int limit) = 0;
-
-  // Reset limited outstanding compaction for all devices, there will be
-  // no limitation after the function called.
-  virtual void ResetMaxOutstandingCompaction() = 0;
 };
 
 // Create a new SstFileManager that can be shared among multiple RocksDB

@@ -1104,11 +1104,19 @@ class DBImpl : public DB {
                                const std::vector<CompactionInputFiles>& inputs,
                                bool* sfm_bookkeeping, LogBuffer* log_buffer);
 
+  // Increase compaction tasks by compaction thread limiter if it's enabled.
+  // If force = true, throttle logic is bypassed
+  // Returns true if it succeeds to increase task count.
+  bool IncreaseCompactionTasks(ColumnFamilyData* cfd, bool force, 
+                               LogBuffer* log_buffer);
+
+  // Decrease compaction tasks by compaction thread limiter if it's enabled.
+  // Function call must be paired with succeeded IncreaseCompactionTasks call.
+  void DecreaseCompactionTasks(ColumnFamilyData* cfd,
+                               LogBuffer* log_buffer);
+
   // Schedule background tasks
   void StartTimedTasks();
-
-  bool TryAddCompactionTask(const std::string& device_name, bool force, 
-                            LogBuffer* log_buffer);
 
   void SubtractCompactionTask(const std::string& device_name,
                               LogBuffer* log_buffer);
@@ -1132,6 +1140,10 @@ class DBImpl : public DB {
   void AddToCompactionQueue(ColumnFamilyData* cfd);
   ColumnFamilyData* PopFirstFromCompactionQueue();
   FlushRequest PopFirstFromFlushQueue();
+
+  // Pick the first unthrottled compaction from queue and increase 
+  // outstanding compaction task from compaction thread limiter
+  ColumnFamilyData* PickCompactionFromQueue(LogBuffer* log_buffer);
 
   // helper function to call after some of the logs_ were synced
   void MarkLogsSynced(uint64_t up_to, bool synced_dir, const Status& status);
