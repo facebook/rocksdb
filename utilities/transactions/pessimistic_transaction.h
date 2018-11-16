@@ -136,7 +136,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
                  bool read_only, bool exclusive,
-                 bool skip_validate = false) override;
+                 bool skip_validate = false, const bool assume_exclusive_tracked=false) override;
 
   void Clear() override;
 

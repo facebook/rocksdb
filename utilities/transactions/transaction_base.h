@@ -40,7 +40,7 @@ class TransactionBaseImpl : public Transaction {
   // MergeUntracked, or GetForUpdate(skip_validate=true)
   virtual Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
                          bool read_only, bool exclusive,
-                         bool skip_validate = false) = 0;
+                         bool skip_validate = false, const bool assume_exclusive_tracked=false) = 0;
 
   void SetSavePoint() override;
 
@@ -112,36 +112,36 @@ class TransactionBaseImpl : public Transaction {
                         ColumnFamilyHandle* column_family) override;
 
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,
-             const Slice& value) override;
+             const Slice& value, const bool assume_exclusive_tracked=false) override;
   Status Put(const Slice& key, const Slice& value) override {
     return Put(nullptr, key, value);
   }
 
   Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
-             const SliceParts& value) override;
+             const SliceParts& value, const bool assume_exclusive_tracked=false) override;
   Status Put(const SliceParts& key, const SliceParts& value) override {
     return Put(nullptr, key, value);
   }
 
   Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
-               const Slice& value) override;
+               const Slice& value, const bool assume_exclusive_tracked=false) override;
   Status Merge(const Slice& key, const Slice& value) override {
     return Merge(nullptr, key, value);
   }
 
-  Status Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
+  Status Delete(ColumnFamilyHandle* column_family, const Slice& key, const bool assume_exclusive_tracked=false) override;
   Status Delete(const Slice& key) override { return Delete(nullptr, key); }
   Status Delete(ColumnFamilyHandle* column_family,
-                const SliceParts& key) override;
+                const SliceParts& key, const bool assume_exclusive_tracked=false) override;
   Status Delete(const SliceParts& key) override { return Delete(nullptr, key); }
 
   Status SingleDelete(ColumnFamilyHandle* column_family,
-                      const Slice& key) override;
+                      const Slice& key, const bool assume_exclusive_tracked=false) override;
   Status SingleDelete(const Slice& key) override {
     return SingleDelete(nullptr, key);
   }
   Status SingleDelete(ColumnFamilyHandle* column_family,
-                      const SliceParts& key) override;
+                      const SliceParts& key, const bool assume_exclusive_tracked=false) override;
   Status SingleDelete(const SliceParts& key) override {
     return SingleDelete(nullptr, key);
   }
@@ -338,7 +338,7 @@ class TransactionBaseImpl : public Transaction {
   std::shared_ptr<TransactionNotifier> snapshot_notifier_ = nullptr;
 
   Status TryLock(ColumnFamilyHandle* column_family, const SliceParts& key,
-                 bool read_only, bool exclusive, bool skip_validate = false);
+                 bool read_only, bool exclusive, bool skip_validate = false, const bool assume_exclusive_tracked=false);
 
   WriteBatchBase* GetBatchForWrite();
   void SetSnapshotInternal(const Snapshot* snapshot);

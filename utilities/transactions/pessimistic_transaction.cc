@@ -515,7 +515,8 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
 // the snapshot time.
 Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
                                        const Slice& key, bool read_only,
-                                       bool exclusive, bool skip_validate) {
+                                       bool exclusive, bool skip_validate, const bool assume_exclusive_tracked) {
+  assert(!assume_exclusive_tracked || (skip_validate && exclusive));
   Status s;
   if (UNLIKELY(skip_concurrency_control_)) {
     return s;
@@ -560,6 +561,16 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   // TODO(agiardullo): could optimize by supporting shared txn locks in the
   // future
   if (skip_validate || snapshot_ == nullptr) {
+    assert(!assume_exclusive_tracked || (previously_locked && !lock_upgrade));
+    if (assume_exclusive_tracked) {
+      if (!previously_locked) {
+        s = Status::InvalidArgument(
+            "assume_exclusive_tracked is set but it is not tracked yet");
+      } else if (lock_upgrade) {
+        s = Status::InvalidArgument(
+            "assume_exclusive_tracked is set but it is not tracked exclusively");
+      }
+    }
     // Need to remember the earliest sequence number that we know that this
     // key has not been modified after.  This is useful if this same
     // transaction
