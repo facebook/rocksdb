@@ -871,9 +871,11 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
       }
     }
 
-    SstFileMetaData aggregated_file_meta;
-    aggregated_file_meta.smallestkey = smallestkey;
-    aggregated_file_meta.largestkey = largestkey;
+    const SstFileMetaData aggregated_file_meta(
+        "" /* file_name */, "" /* path */, 0 /* size */, 0 /* smallest_seqno */,
+        0 /* largest_seqno */, smallestkey, largestkey,
+        0 /* num_reads_sampled */, false /* being_compacted */,
+        0 /* num_entries */, 0 /* num_deletions */);
 
     // For all lower levels, include all overlapping files.
     // We need to add overlapping files from the current level too because even

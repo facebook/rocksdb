@@ -907,15 +907,12 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
         file_path = ioptions->cf_paths.back().path;
       }
       files.emplace_back(SstFileMetaData{
-          MakeTableFileName("", file->fd.GetNumber()),
-          file_path,
-          static_cast<size_t>(file->fd.GetFileSize()),
-          file->fd.smallest_seqno,
-          file->fd.largest_seqno,
-          file->smallest.user_key().ToString(),
+          MakeTableFileName("", file->fd.GetNumber()), std::move(file_path),
+          static_cast<size_t>(file->fd.GetFileSize()), file->fd.smallest_seqno,
+          file->fd.largest_seqno, file->smallest.user_key().ToString(),
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
-          file->being_compacted});
+          file->being_compacted, file->num_entries, file->num_deletions});
       level_size += file->fd.GetFileSize();
     }
     cf_meta->levels.emplace_back(
@@ -4390,25 +4387,24 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
     for (int level = 0; level < cfd->NumberLevels(); level++) {
       for (const auto& file :
            cfd->current()->storage_info()->LevelFiles(level)) {
-        LiveFileMetaData filemetadata;
-        filemetadata.column_family_name = cfd->GetName();
+        std::string file_name = MakeTableFileName("", file->fd.GetNumber());
+        std::string path;
         uint32_t path_id = file->fd.GetPathId();
         if (path_id < cfd->ioptions()->cf_paths.size()) {
-          filemetadata.db_path = cfd->ioptions()->cf_paths[path_id].path;
+          path = cfd->ioptions()->cf_paths[path_id].path;
         } else {
           assert(!cfd->ioptions()->cf_paths.empty());
-          filemetadata.db_path = cfd->ioptions()->cf_paths.back().path;
+          path = cfd->ioptions()->cf_paths.back().path;
         }
-        filemetadata.name = MakeTableFileName("", file->fd.GetNumber());
-        filemetadata.level = level;
-        filemetadata.size = static_cast<size_t>(file->fd.GetFileSize());
-        filemetadata.smallestkey = file->smallest.user_key().ToString();
-        filemetadata.largestkey = file->largest.user_key().ToString();
-        filemetadata.smallest_seqno = file->fd.smallest_seqno;
-        filemetadata.largest_seqno = file->fd.largest_seqno;
-        filemetadata.num_entries = file->num_entries;
-        filemetadata.num_deletions = file->num_deletions;
-        metadata->push_back(filemetadata);
+        LiveFileMetaData filemetadata(
+            std::move(file_name), std::move(path),
+            static_cast<size_t>(file->fd.GetFileSize()),
+            file->fd.smallest_seqno, file->fd.largest_seqno,
+            file->smallest.user_key().ToString(),
+            file->largest.user_key().ToString(),
+            file->stats.num_reads_sampled.load(), file->being_compacted,
+            file->num_entries, file->num_deletions, cfd->GetName(), level);
+        metadata->emplace_back(std::move(filemetadata));
       }
     }
   }

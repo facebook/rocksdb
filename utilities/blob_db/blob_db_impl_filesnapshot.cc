@@ -92,14 +92,18 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   db_->GetLiveFilesMetaData(metadata);
   for (auto bfile_pair : blob_files_) {
     auto blob_file = bfile_pair.second;
-    LiveFileMetaData filemetadata;
-    filemetadata.size = static_cast<size_t>(blob_file->GetFileSize());
     // Path should be relative to db_name, but begin with slash.
-    filemetadata.name =
+    std::string file_name =
         BlobFileName("", bdb_options_.blob_dir, blob_file->BlobFileNumber());
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
-    filemetadata.column_family_name = cfh->GetName();
-    metadata->emplace_back(filemetadata);
+    LiveFileMetaData filemetadata(
+        std::move(file_name), "" /* path */,
+        static_cast<size_t>(blob_file->GetFileSize()) /* size */,
+        0 /* smallest_seqno */, 0 /* largest_seqno */, "" /* smallest_key */,
+        "" /* largest_key */, 0 /* num_reads_sampled */,
+        false /* being_compacted */, 0 /* num_entries */, 0 /* num_deletions */,
+        cfh->GetName(), 0 /* level */);
+    metadata->emplace_back(std::move(filemetadata));
   }
 }
 

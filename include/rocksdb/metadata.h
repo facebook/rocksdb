@@ -54,32 +54,6 @@ struct LevelMetaData {
 
 // The metadata that describes a SST file.
 struct SstFileMetaData {
-  SstFileMetaData()
-      : size(0),
-        name(""),
-        db_path(""),
-        smallest_seqno(0),
-        largest_seqno(0),
-        smallestkey(""),
-        largestkey(""),
-        num_reads_sampled(0),
-        being_compacted(false) {}
-  SstFileMetaData(const std::string& _file_name, const std::string& _path,
-                  size_t _size, SequenceNumber _smallest_seqno,
-                  SequenceNumber _largest_seqno,
-                  const std::string& _smallestkey,
-                  const std::string& _largestkey, uint64_t _num_reads_sampled,
-                  bool _being_compacted)
-      : size(_size),
-        name(_file_name),
-        db_path(_path),
-        smallest_seqno(_smallest_seqno),
-        largest_seqno(_largest_seqno),
-        smallestkey(_smallestkey),
-        largestkey(_largestkey),
-        num_reads_sampled(_num_reads_sampled),
-        being_compacted(_being_compacted) {}
-
   // File size in bytes.
   size_t size;
   // The name of the file.
@@ -96,11 +70,54 @@ struct SstFileMetaData {
 
   uint64_t num_entries;
   uint64_t num_deletions;
+
+ protected:
+  SstFileMetaData(std::string _file_name, std::string _path, size_t _size,
+                  SequenceNumber _smallest_seqno, SequenceNumber _largest_seqno,
+                  std::string _smallestkey, std::string _largestkey,
+                  uint64_t _num_reads_sampled, bool _being_compacted,
+                  uint64_t _num_entries, uint64_t _num_deletions)
+      : size(_size),
+        name(std::move(_file_name)),
+        db_path(std::move(_path)),
+        smallest_seqno(_smallest_seqno),
+        largest_seqno(_largest_seqno),
+        smallestkey(std::move(_smallestkey)),
+        largestkey(std::move(_largestkey)),
+        num_reads_sampled(_num_reads_sampled),
+        being_compacted(_being_compacted),
+        num_entries(_num_entries),
+        num_deletions(_num_deletions) {}
+
+  friend class CompactionPicker;
+  friend class Version;
 };
+
+namespace blob_db {
+class BlobDBImpl;
+}
 
 // The full set of metadata associated with each SST file.
 struct LiveFileMetaData : SstFileMetaData {
   std::string column_family_name;  // Name of the column family
   int level;               // Level at which this file resides.
+
+ private:
+  LiveFileMetaData(std::string _file_name, std::string _path, size_t _size,
+                   SequenceNumber _smallest_seqno,
+                   SequenceNumber _largest_seqno, std::string _smallestkey,
+                   std::string _largestkey, uint64_t _num_reads_sampled,
+                   bool _being_compacted, uint64_t _num_entries,
+                   uint64_t _num_deletions, std::string _column_family_name,
+                   int _level)
+      : SstFileMetaData(
+            std::move(_file_name), std::move(_path), _size, _smallest_seqno,
+            _largest_seqno, std::move(_smallestkey), std::move(_largestkey),
+            _num_reads_sampled, _being_compacted, _num_entries, _num_deletions),
+        column_family_name(_column_family_name),
+        level(_level) {}
+
+  friend class VersionSet;
+  friend class blob_db::BlobDBImpl;
 };
 }  // namespace rocksdb
