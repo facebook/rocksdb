@@ -243,8 +243,8 @@ void RangeDelAggregatorV2::AddUnfragmentedTombstones(
   if (input_iter == nullptr) {
     return;
   }
-  pinned_fragments_.emplace_back(new FragmentedRangeTombstoneList(
-      std::move(input_iter), *icmp_, false /* one_time_use */));
+  pinned_fragments_.emplace_back(
+      new FragmentedRangeTombstoneList(std::move(input_iter), *icmp_));
   auto fragmented_iter = new FragmentedRangeTombstoneIterator(
       pinned_fragments_.back().get(), upper_bound_, *icmp_);
   AddTombstones(
