@@ -71,7 +71,7 @@ DBTestBase::DBTestBase(const std::string path)
   option_env_ = kDefaultEnv;
   env_->NewLogger(test::TmpDir(env_) + "/rocksdb-cloud.log", &info_log_);
   info_log_->SetInfoLogLevel(InfoLogLevel::DEBUG_LEVEL);
-  s3_env_ = CreateNewAwsEnv();
+  s3_env_ = CreateNewAwsEnv(path);
 #endif
 
   env_->SetBackgroundThreads(1, Env::LOW);
@@ -549,7 +549,7 @@ Options DBTestBase::GetOptions(
 }
 
 #ifdef USE_AWS
-Env* DBTestBase::CreateNewAwsEnv() {
+Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix) {
   // get AWS credentials
   rocksdb::CloudEnvOptions coptions;
   std::string region;
@@ -563,15 +563,15 @@ Env* DBTestBase::CreateNewAwsEnv() {
   } else {
     st = AwsEnv::NewAwsEnv(Env::Default(),
                            "dbtest." + AwsEnv::GetTestBucketSuffix(),
-                           "",  // src object prefix
+                           prefix,  // src object prefix
                            region, // src region
                            "dbtest." + AwsEnv::GetTestBucketSuffix(),
-                           "",  // dest object prefix
+                           prefix,  // dest object prefix
                            region, // dest region
                            coptions, info_log_, &cenv);
     ((CloudEnvImpl*)cenv)->TEST_DisableCloudManifest();
     ((AwsEnv*)cenv)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
-    ROCKS_LOG_DEBUG(info_log_, "Created new aws env with empty path");
+    ROCKS_LOG_INFO(info_log_, "XXX Created new aws env with path %s", prefix);
     assert(st.ok() && cenv);
     // If we are keeping wal in cloud storage, then tail it as well.
     // so that our unit tests can run to completion.
@@ -656,7 +656,7 @@ void DBTestBase::Destroy(const Options& options) {
 #ifdef USE_AWS
   if (s3_env_) {
     AwsEnv* aenv = static_cast<AwsEnv *>(s3_env_);
-    Status st = aenv->EmptyBucket("dbtest." + AwsEnv::GetTestBucketSuffix());
+    Status st = aenv->EmptyBucket("dbtest." + AwsEnv::GetTestBucketSuffix(), dbname_);
     ASSERT_TRUE(st.ok() || st.IsNotFound());
   }
 #endif

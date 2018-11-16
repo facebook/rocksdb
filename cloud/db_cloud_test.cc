@@ -60,7 +60,7 @@ class CloudTest : public testing::Test {
         options_.info_log, &aenv));
     aenv_.reset(aenv);
     // delete all pre-existing contents from the bucket
-    Status st = aenv_->EmptyBucket(src_bucket_prefix_);
+    Status st = aenv_->EmptyBucket(src_bucket_prefix_, "");
     ASSERT_TRUE(st.ok() || st.IsNotFound());
     aenv_.reset();
 

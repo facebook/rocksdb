@@ -235,7 +235,8 @@ class AwsEnv : public CloudEnvImpl {
 
   virtual uint64_t GetThreadID() const override { return AwsEnv::gettid(); }
 
-  virtual Status EmptyBucket(const std::string& bucket_prefix) override;
+  virtual Status EmptyBucket(const std::string& bucket_prefix,
+                             const std::string& path_prefix) override;
 
   // get the posix env
   Env* GetPosixEnv() const { return base_env_; }

@@ -11,6 +11,7 @@
 #include "env/mock_env.h"
 #include "rocksdb/env.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "util/logging.h"
 #include "util/stderr_logger.h"
 #include "util/testharness.h"
 
@@ -111,10 +112,11 @@ void CreateAwsEnv(const std::string& dbpath,
   coptions.credentials.access_key_id = aws_access_key_id;
   coptions.credentials.secret_key = aws_secret_access_key;
   rocksdb::CloudEnv* s;
+  ROCKS_LOG_INFO(info_log, "XXX Created new aws env with path %s", dbpath);
   st = rocksdb::AwsEnv::NewAwsEnv(
       Env::Default(),
-      "envtest." + AwsEnv::GetTestBucketSuffix(), "", aws_region,
-      "envtest." + AwsEnv::GetTestBucketSuffix(), "", aws_region,
+      "envtest." + AwsEnv::GetTestBucketSuffix(), dbpath, aws_region,
+      "envtest." + AwsEnv::GetTestBucketSuffix(), dbpath, aws_region,
       coptions, std::move(info_log), &s);
   assert(st.ok());
   if (!st.ok()) {

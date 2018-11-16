@@ -952,14 +952,15 @@ Status AwsEnv::NewS3ReadableFile(const std::string& bucket_prefix,
 }
 
 //
-// Deletes all the objects in our bucket.
+// Deletes all the objects with the specified path prefix in our bucket
 //
-Status AwsEnv::EmptyBucket(const std::string& bucket_prefix) {
+Status AwsEnv::EmptyBucket(const std::string& bucket_prefix,
+                           const std::string& s3_object_prefix) {
   std::vector<std::string> results;
   Aws::String bucket = GetAwsBucket(bucket_prefix);
 
   // Get all the objects in the  bucket
-  Status st = GetChildrenFromS3("", bucket_prefix, &results);
+  Status st = GetChildrenFromS3(s3_object_prefix, bucket_prefix, &results);
   if (!st.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
         "[s3] EmptyBucket unable to find objects in bucket %s %s",

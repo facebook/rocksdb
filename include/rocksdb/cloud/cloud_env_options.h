@@ -183,7 +183,8 @@ class CloudEnv : public Env {
   virtual ~CloudEnv();
 
   // Empties all contents of the associated cloud storage bucket.
-  virtual Status EmptyBucket(const std::string& bucket_prefix) = 0;
+  virtual Status EmptyBucket(const std::string& bucket_prefix,
+                             const std::string& path_prefix) = 0;
 
   // Reads a file from the cloud
   virtual Status NewSequentialFileCloud(const std::string& bucket_prefix,

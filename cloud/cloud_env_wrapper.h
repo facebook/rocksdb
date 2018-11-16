@@ -23,7 +23,8 @@ class CloudEnvWrapper : public CloudEnvImpl {
 
   virtual ~CloudEnvWrapper();
 
-  virtual Status EmptyBucket(const std::string& bucket) override {
+  virtual Status EmptyBucket(const std::string& bucket,
+                             const std::string& path_prefix) override {
     return notsup_;
   }
   virtual Status NewSequentialFileCloud(const std::string& bucket_prefix,
