@@ -112,7 +112,7 @@ void CreateAwsEnv(const std::string& dbpath,
   coptions.credentials.access_key_id = aws_access_key_id;
   coptions.credentials.secret_key = aws_secret_access_key;
   rocksdb::CloudEnv* s;
-  ROCKS_LOG_INFO(info_log, "XXX Created new aws env with path %s", dbpath);
+  ROCKS_LOG_INFO(info_log, "Created new aws env with path %s", dbpath.c_str());
   st = rocksdb::AwsEnv::NewAwsEnv(
       Env::Default(),
       "envtest." + AwsEnv::GetTestBucketSuffix(), dbpath, aws_region,

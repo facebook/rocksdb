@@ -571,7 +571,7 @@ Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix) {
                            coptions, info_log_, &cenv);
     ((CloudEnvImpl*)cenv)->TEST_DisableCloudManifest();
     ((AwsEnv*)cenv)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
-    ROCKS_LOG_INFO(info_log_, "XXX Created new aws env with path %s", prefix);
+    ROCKS_LOG_INFO(info_log_, "Created new aws env with path %s", prefix.c_str());
     assert(st.ok() && cenv);
     // If we are keeping wal in cloud storage, then tail it as well.
     // so that our unit tests can run to completion.
