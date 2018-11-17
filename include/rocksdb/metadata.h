@@ -63,7 +63,10 @@ struct SstFileMetaData {
         smallestkey(""),
         largestkey(""),
         num_reads_sampled(0),
-        being_compacted(false) {}
+        being_compacted(false),
+        num_entries(0),
+        num_deletions(0) {}
+
   SstFileMetaData(const std::string& _file_name, const std::string& _path,
                   size_t _size, SequenceNumber _smallest_seqno,
                   SequenceNumber _largest_seqno,
@@ -78,7 +81,9 @@ struct SstFileMetaData {
         smallestkey(_smallestkey),
         largestkey(_largestkey),
         num_reads_sampled(_num_reads_sampled),
-        being_compacted(_being_compacted) {}
+        being_compacted(_being_compacted),
+        num_entries(0),
+        num_deletions(0) {}
 
   // File size in bytes.
   size_t size;
@@ -102,5 +107,6 @@ struct SstFileMetaData {
 struct LiveFileMetaData : SstFileMetaData {
   std::string column_family_name;  // Name of the column family
   int level;               // Level at which this file resides.
+  LiveFileMetaData() : column_family_name(), level(0) {}
 };
 }  // namespace rocksdb

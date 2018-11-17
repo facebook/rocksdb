@@ -916,6 +916,8 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
           file->being_compacted});
+      files.back().num_entries = file->num_entries;
+      files.back().num_deletions = file->num_deletions;
       level_size += file->fd.GetFileSize();
     }
     cf_meta->levels.emplace_back(
@@ -4406,6 +4408,9 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.largestkey = file->largest.user_key().ToString();
         filemetadata.smallest_seqno = file->fd.smallest_seqno;
         filemetadata.largest_seqno = file->fd.largest_seqno;
+        filemetadata.num_reads_sampled = file->stats.num_reads_sampled.load(
+            std::memory_order_relaxed);
+        filemetadata.being_compacted = file->being_compacted;
         filemetadata.num_entries = file->num_entries;
         filemetadata.num_deletions = file->num_deletions;
         metadata->push_back(filemetadata);
