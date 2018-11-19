@@ -687,6 +687,8 @@ void DBImpl::PersistStats() {
   WriteOptions wo;
   ColumnFamilyOptions cf_options;
   const uint64_t now_micros = env_->NowMicros();
+  stats_history_[now_micros] = stats_map;
+  // TODO: make time stamp string equal in length to allow sorting by time
   std::string now_micros_string = ToString(now_micros);
   int keycount = 0;
   for (auto iter = stats_map.begin(); iter != stats_map.end(); ++iter) {
@@ -697,6 +699,24 @@ void DBImpl::PersistStats() {
     keycount++;
   }
 #endif  // !ROCKSDB_LITE
+}
+
+std::unordered_map<uint64_t, std::map<std::string, std::string> >
+DBImpl::GetStatsHistory(GetStatsOptions& stats_opts) {
+  return FindStatsBetween(stats_opts.start_time, stats_opts.end_time);
+}
+
+// TODO: need to recover stats_history_ in DB::Open to restore old history
+std::unordered_map<uint64_t, std::map<std::string, std::string> >
+DBImpl::FindStatsBetween(uint64_t start_time, uint64_t end_time) {
+  std::unordered_map<uint64_t, std::map<std::string, std::string> >
+      stats_history;
+  for (const auto& stats : stats_history_) {
+    if (stats.first >= start_time && stats.first < end_time) {
+      stats_history[stats.first] = stats.second;
+    }
+  }
+  return stats_history;
 }
 
 void DBImpl::DumpStats() {

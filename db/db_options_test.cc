@@ -658,6 +658,24 @@ TEST_F(DBOptionsTest, EnableStatsPersistPeriodSec) {
   ASSERT_GE(key_count2, key_count1);
   ASSERT_GE(key_count3, key_count2);
   ASSERT_EQ(key_count1 + key_count3, key_count2 * 2);
+  GetStatsOptions stats_opts;
+  stats_opts.start_time = 0;
+  stats_opts.end_time = env_->NowMicros();
+  std::unordered_map<uint64_t, std::map<std::string, std::string> >
+      stats_history = dbfull()->GetStatsHistory(stats_opts);
+  int key_count4 = 0;
+  int num_snapshot = 0;
+  for (const auto& stats : stats_history) {
+    num_snapshot++;
+    key_count4 += stats.second.size();
+    // for (const auto& kv : stats.second) {
+    //   (void) kv;
+    //   fprintf(stdout, "key = %s, value = %s\n", key.first.c_str(),
+    //   key.second.c_str()); key_count4++;
+    // }
+  }
+  ASSERT_GE(key_count4, key_count3);
+  ASSERT_GE(num_snapshot, 4);
 }
 
 TEST_F(DBOptionsTest, PersistentStatsCreateColumnFamilies) {

@@ -716,6 +716,10 @@ class DBImpl : public DB {
   static Status CreateAndNewDirectory(Env* env, const std::string& dirname,
                                       std::unique_ptr<Directory>* directory);
 
+  // return a map of DBStats and CFstats, specify time window etc in stats_opts
+  std::unordered_map<uint64_t, std::map<std::string, std::string>>
+  GetStatsHistory(GetStatsOptions& stats_opts);
+
  protected:
   Env* const env_;
   const std::string dbname_;
@@ -1277,6 +1281,9 @@ class DBImpl : public DB {
 
   bool is_snapshot_supported_;
 
+  std::unordered_map<uint64_t, std::map<std::string, std::string>>
+      stats_history_;
+
   // Class to maintain directories for all database paths other than main one.
   class Directories {
    public:
@@ -1575,6 +1582,9 @@ class DBImpl : public DB {
   Env::WriteLifeTimeHint CalculateWALWriteHint() {
     return Env::WLTH_SHORT;
   }
+
+  std::unordered_map<uint64_t, std::map<std::string, std::string>>
+  FindStatsBetween(uint64_t start_time, uint64_t end_time);
 
   // When set, we use a separate queue for writes that dont write to memtable.
   // In 2PC these are the writes at Prepare phase.
