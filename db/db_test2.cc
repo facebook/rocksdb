@@ -454,6 +454,22 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBTest2, TestWriteBufferNoLimitWithCache) {
+  Options options = CurrentOptions();
+  options.arena_block_size = 4096;
+  std::shared_ptr<Cache> cache =
+      NewLRUCache(LRUCacheOptions(10000000, 1, false, 0.0));
+  options.write_buffer_size = 50000;  // this is never hit
+  // Use a write buffer total size so that the soft limit is about
+  // 105000.
+  options.write_buffer_manager.reset(new WriteBufferManager(0, cache));
+  Reopen(options);
+
+  ASSERT_OK(Put("foo", "bar"));
+  // One dummy entry is 1MB.
+  ASSERT_GT(cache->GetUsage(), 500000);
+}
+
 namespace {
   void ValidateKeyExistence(DB* db, const std::vector<Slice>& keys_must_exist,
     const std::vector<Slice>& keys_must_not_exist) {

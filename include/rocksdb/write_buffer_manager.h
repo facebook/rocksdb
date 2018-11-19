@@ -30,6 +30,8 @@ class WriteBufferManager {
 
   bool enabled() const { return buffer_size_ != 0; }
 
+  bool cost_to_cache() const { return cache_rep_ != nullptr; }
+
   // Only valid if enabled()
   size_t memory_usage() const {
     return memory_used_.load(std::memory_order_relaxed);
