@@ -30,7 +30,9 @@ bool AwsRetryStrategy::ShouldRetry(const AWSError<CoreErrors>& error,
   std::string emsg(exceptionMsg.c_str(), exceptionMsg.size());
 
   // Internal errors are unknown errors and we try harder to fix them
+  //
   if (ce == CoreErrors::INTERNAL_FAILURE ||
+      ce == CoreErrors::UNKNOWN ||
       err.find("try again") != std::string::npos) {
     if (attemptedRetries <= internal_failure_num_retries_) {
       Log(InfoLogLevel::INFO_LEVEL, info_log_,
