@@ -95,7 +95,7 @@ void JemallocNodumpAllocator::DestroyThreadSpecificCache(void* ptr) {
   unsigned* tcache_index = static_cast<unsigned*>(ptr);
   size_t tcache_index_size = sizeof(unsigned);
   int ret __attribute__((__unused__)) =
-      mallctl("tcache.destroy", tcache_index, &tcache_index_size, nullptr, 0);
+      mallctl("tcache.destroy", nullptr, 0, tcache_index, tcache_index_size);
   // Silently ignore error.
   assert(ret == 0);
   delete tcache_index;
