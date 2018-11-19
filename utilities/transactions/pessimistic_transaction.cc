@@ -515,7 +515,8 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
 // the snapshot time.
 Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
                                        const Slice& key, bool read_only,
-                                       bool exclusive, bool skip_validate, const bool assume_exclusive_tracked) {
+                                       bool exclusive, bool skip_validate,
+                                       const bool assume_exclusive_tracked) {
   assert(!assume_exclusive_tracked || (skip_validate && exclusive));
   Status s;
   if (UNLIKELY(skip_concurrency_control_)) {
@@ -568,7 +569,8 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
             "assume_exclusive_tracked is set but it is not tracked yet");
       } else if (lock_upgrade) {
         s = Status::InvalidArgument(
-            "assume_exclusive_tracked is set but it is not tracked exclusively");
+            "assume_exclusive_tracked is set but it is not tracked "
+            "exclusively");
       }
     }
     // Need to remember the earliest sequence number that we know that this

@@ -80,9 +80,10 @@ Status OptimisticTransaction::Rollback() {
 // 'exclusive' is unused for OptimisticTransaction.
 Status OptimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
                                       const Slice& key, bool read_only,
-                                      bool exclusive, bool untracked, const bool assume_exclusive_tracked) {
-  assert(!assume_exclusive_tracked); // not supported
-  (void) assume_exclusive_tracked;
+                                      bool exclusive, bool untracked,
+                                      const bool assume_exclusive_tracked) {
+  assert(!assume_exclusive_tracked);  // not supported
+  (void)assume_exclusive_tracked;
   if (untracked) {
     return Status::OK();
   }

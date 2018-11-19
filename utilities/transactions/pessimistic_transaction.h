@@ -135,8 +135,8 @@ class PessimisticTransaction : public TransactionBaseImpl {
   Status LockBatch(WriteBatch* batch, TransactionKeyMap* keys_to_unlock);
 
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
-                 bool read_only, bool exclusive,
-                 bool skip_validate = false, const bool assume_exclusive_tracked=false) override;
+                 bool read_only, bool exclusive, bool skip_validate = false,
+                 const bool assume_exclusive_tracked = false) override;
 
   void Clear() override;
 

@@ -293,7 +293,8 @@ class Transaction {
   // keys being written.
   //
   // assume_exclusive_tracked=false expects the key already tracked with an
-  // exclusive lock. If valid then it skips ValidateSnapshot. Returns error otherwise.
+  // exclusive lock. If valid then it skips ValidateSnapshot. Returns error
+  // otherwise.
   //
   // If this Transaction was created on an OptimisticTransactionDB, these
   // functions should always return Status::OK().
@@ -307,28 +308,34 @@ class Transaction {
   //  (See max_write_buffer_number_to_maintain)
   // or other errors on unexpected failures.
   virtual Status Put(ColumnFamilyHandle* column_family, const Slice& key,
-                     const Slice& value, const bool assume_exclusive_tracked=false) = 0;
+                     const Slice& value,
+                     const bool assume_exclusive_tracked = false) = 0;
   virtual Status Put(const Slice& key, const Slice& value) = 0;
   virtual Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
-                     const SliceParts& value, const bool assume_exclusive_tracked=false) = 0;
+                     const SliceParts& value,
+                     const bool assume_exclusive_tracked = false) = 0;
   virtual Status Put(const SliceParts& key, const SliceParts& value) = 0;
 
   virtual Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
-                       const Slice& value, const bool assume_exclusive_tracked=false) = 0;
+                       const Slice& value,
+                       const bool assume_exclusive_tracked = false) = 0;
   virtual Status Merge(const Slice& key, const Slice& value) = 0;
 
-  virtual Status Delete(ColumnFamilyHandle* column_family,
-                        const Slice& key, const bool assume_exclusive_tracked=false) = 0;
+  virtual Status Delete(ColumnFamilyHandle* column_family, const Slice& key,
+                        const bool assume_exclusive_tracked = false) = 0;
   virtual Status Delete(const Slice& key) = 0;
   virtual Status Delete(ColumnFamilyHandle* column_family,
-                        const SliceParts& key, const bool assume_exclusive_tracked=false) = 0;
+                        const SliceParts& key,
+                        const bool assume_exclusive_tracked = false) = 0;
   virtual Status Delete(const SliceParts& key) = 0;
 
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
-                              const Slice& key, const bool assume_exclusive_tracked=false) = 0;
+                              const Slice& key,
+                              const bool assume_exclusive_tracked = false) = 0;
   virtual Status SingleDelete(const Slice& key) = 0;
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
-                              const SliceParts& key, const bool assume_exclusive_tracked=false) = 0;
+                              const SliceParts& key,
+                              const bool assume_exclusive_tracked = false) = 0;
   virtual Status SingleDelete(const SliceParts& key) = 0;
 
   // PutUntracked() will write a Put to the batch of operations to be committed
