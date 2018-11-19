@@ -419,8 +419,6 @@ DEFINE_int64(simcache_size, -1,
 
 DEFINE_bool(cache_no_dump, false, "Do not include block cache in core dump.");
 
-DEFINE_int32(jemalloc_allocator_num_arena_shift, -1, "");
-
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "Cache index/filter blocks in block cache.");
 
@@ -2295,11 +2293,7 @@ class Benchmark {
       options.num_shard_bits = FLAGS_cache_numshardbits;
       options.high_pri_pool_ratio = FLAGS_cache_high_pri_pool_ratio;
       if (FLAGS_cache_no_dump) {
-        jemalloc::JemallocAllocatorOptions allocator_options;
-        allocator_options.num_arena_shift =
-            FLAGS_jemalloc_allocator_num_arena_shift;
-        Status s = NewJemallocNodumpAllocator(allocator_options,
-                                              &options.memory_allocator);
+        Status s = NewJemallocNodumpAllocator(&options.memory_allocator);
         if (!s.ok()) {
           fprintf(stderr, "Failed to create JemallocNodumpAllocator, %s",
                   s.ToString().c_str());

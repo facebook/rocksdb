@@ -36,18 +36,9 @@ class MemoryAllocator {
   }
 };
 
-namespace jemalloc {
-
-struct JemallocAllocatorOptions {
-  int num_arena_shift = -1;
-};
-
 // Generate cache allocators which allocates through Jemalloc and utilize
 // MADV_DONTDUMP through madvice to exclude cache items from core dump.
 extern Status NewJemallocNodumpAllocator(
-    const jemalloc::JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator);
-
-}  // namespace jemalloc
 
 }  // namespace rocksdb

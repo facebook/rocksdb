@@ -13,17 +13,15 @@
 #include "util/string_util.h"
 
 namespace rocksdb {
-namespace jemalloc {
 
 #ifdef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 
 std::atomic<extent_alloc_t*> JemallocNodumpAllocator::original_alloc_{nullptr};
 
 JemallocNodumpAllocator::JemallocNodumpAllocator(
-    std::vector<std::unique_ptr<extent_hooks_t>>&& arena_hooks,
-    CoreLocalArray<unsigned>&& arenas)
+    std::unique_ptr<extent_hooks_t>&& arena_hooks, unsigned arena_index)
     : arena_hooks_(std::move(arena_hooks)),
-      arenas_(std::move(arenas)),
+      arena_index_(arena_index),
       tcache_(&JemallocNodumpAllocator::DestroyThreadSpecificCache) {}
 
 int JemallocNodumpAllocator::GetThreadSpecificCache() {
@@ -49,8 +47,7 @@ int JemallocNodumpAllocator::GetThreadSpecificCache() {
 
 void* JemallocNodumpAllocator::Allocate(size_t size) {
   int tcache_flag = GetThreadSpecificCache();
-  unsigned arena_index = *(arenas_.Access());
-  return mallocx(size, MALLOCX_ARENA(arena_index) | tcache_flag);
+  return mallocx(size, MALLOCX_ARENA(arena_index_) | tcache_flag);
 }
 
 void JemallocNodumpAllocator::Deallocate(void* p) {
@@ -111,13 +108,9 @@ JemallocNodumpAllocator::~JemallocNodumpAllocator() {
   for (void* tcache_index : tcache_list) {
     DestroyThreadSpecificCache(tcache_index);
   }
-  // Destroy arena.
-  for (size_t core_id = 0; core_id < arenas_.Size(); core_id++) {
-    Status s = DestroyArena(*(arenas_.AccessAtCore(core_id)));
-    if (!s.ok()) {
-      fprintf(stderr, "%s\n", s.ToString().c_str());
-    }
-  }
+  // Destroy arena. Silently ignore error.
+  Status s __attribute__((__unused__)) = DestroyArena(arena_index_);
+  assert(s.ok());
 }
 
 size_t JemallocNodumpAllocator::UsableSize(void* p,
@@ -127,11 +120,9 @@ size_t JemallocNodumpAllocator::UsableSize(void* p,
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 
 Status NewJemallocNodumpAllocator(
-    const jemalloc::JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator) {
-#ifndef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
-  (void)options;
   *memory_allocator = nullptr;
+#ifndef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
   return Status::NotSupported(
       "JemallocNodumpAllocator only available with jemalloc version >= 5 "
       "and MADV_DONTDUMP is available.");
@@ -140,73 +131,55 @@ Status NewJemallocNodumpAllocator(
     return Status::InvalidArgument("memory_allocator must be non-null.");
   }
 
-  CoreLocalArray<unsigned> arenas(options.num_arena_shift);
-  size_t num_arenas = arenas.Size();
-  size_t num_created_arenas = 0;
-  std::vector<std::unique_ptr<extent_hooks_t>> arena_hooks;
-  Status s;
-  for (unsigned core_id = 0; core_id < num_arenas; core_id++) {
-    // Create arena.
-    unsigned arena_index = 0;
-    size_t arena_index_size = sizeof(arena_index);
-    int ret =
-        mallctl("arenas.create", &arena_index, &arena_index_size, nullptr, 0);
-    if (ret != 0) {
-      s = Status::Incomplete("Failed to create jemalloc arena, error code: " +
-                             ToString(ret));
-      break;
-    }
-    assert(arena_index != 0);
-    *(arenas.AccessAtCore(core_id)) = arena_index;
-    num_created_arenas++;
-
-    // Read existing hooks.
-    std::string key = "arena." + ToString(arena_index) + ".extent_hooks";
-    extent_hooks_t* hooks;
-    size_t hooks_size = sizeof(hooks);
-    ret = mallctl(key.c_str(), &hooks, &hooks_size, nullptr, 0);
-    if (ret != 0) {
-      s = Status::Incomplete("Failed to read existing hooks, error code: " +
-                             ToString(ret));
-      break;
-    }
-
-    // Store existing alloc.
-    extent_alloc_t* original_alloc = hooks->alloc;
-    extent_alloc_t* expected = nullptr;
-    bool success =
-        JemallocNodumpAllocator::original_alloc_.compare_exchange_strong(
-            expected, original_alloc);
-    if (!success && original_alloc != expected) {
-      s = Status::Incomplete("Original alloc conflict.");
-      break;
-    }
-
-    // Set the custom hook.
-    std::unique_ptr<extent_hooks_t> new_hooks(new extent_hooks_t(*hooks));
-    new_hooks->alloc = &JemallocNodumpAllocator::Alloc;
-    extent_hooks_t* hooks_ptr = new_hooks.get();
-    ret = mallctl(key.c_str(), nullptr, nullptr, &hooks_ptr, sizeof(hooks_ptr));
-    if (ret != 0) {
-      s = Status::Incomplete("Failed to set custom hook, error code: " +
-                             ToString(ret));
-      break;
-    }
-    arena_hooks.emplace_back(std::move(new_hooks));
+  // Create arena.
+  unsigned arena_index = 0;
+  size_t arena_index_size = sizeof(arena_index);
+  int ret =
+      mallctl("arenas.create", &arena_index, &arena_index_size, nullptr, 0);
+  if (ret != 0) {
+    return Status::Incomplete("Failed to create jemalloc arena, error code: " +
+                              ToString(ret));
   }
-  if (s.ok()) {
-    // Create cache allocator.
-    memory_allocator->reset(
-        new JemallocNodumpAllocator(std::move(arena_hooks), std::move(arenas)));
-  } else {
-    for (unsigned core_id = 0; core_id < num_created_arenas; core_id++) {
-      // Ignore status.
-      JemallocNodumpAllocator::DestroyArena(*(arenas.AccessAtCore(core_id)));
-    }
+  assert(arena_index != 0);
+
+  // Read existing hooks.
+  std::string key = "arena." + ToString(arena_index) + ".extent_hooks";
+  extent_hooks_t* hooks;
+  size_t hooks_size = sizeof(hooks);
+  ret = mallctl(key.c_str(), &hooks, &hooks_size, nullptr, 0);
+  if (ret != 0) {
+    JemallocNodumpAllocator::DestroyArena(arena_index);
+    return Status::Incomplete("Failed to read existing hooks, error code: " +
+                              ToString(ret));
   }
-  return s;
+
+  // Store existing alloc.
+  extent_alloc_t* original_alloc = hooks->alloc;
+  extent_alloc_t* expected = nullptr;
+  bool success =
+      JemallocNodumpAllocator::original_alloc_.compare_exchange_strong(
+          expected, original_alloc);
+  if (!success && original_alloc != expected) {
+    JemallocNodumpAllocator::DestroyArena(arena_index);
+    return Status::Incomplete("Original alloc conflict.");
+  }
+
+  // Set the custom hook.
+  std::unique_ptr<extent_hooks_t> new_hooks(new extent_hooks_t(*hooks));
+  new_hooks->alloc = &JemallocNodumpAllocator::Alloc;
+  extent_hooks_t* hooks_ptr = new_hooks.get();
+  ret = mallctl(key.c_str(), nullptr, nullptr, &hooks_ptr, sizeof(hooks_ptr));
+  if (ret != 0) {
+    JemallocNodumpAllocator::DestroyArena(arena_index);
+    return Status::Incomplete("Failed to set custom hook, error code: " +
+                              ToString(ret));
+  }
+
+  // Create cache allocator.
+  memory_allocator->reset(
+      new JemallocNodumpAllocator(std::move(new_hooks), arena_index));
+  return Status::OK();
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 }
 
-}  // namespace jemalloc
 }  // namespace rocksdb

@@ -22,13 +22,11 @@
 #define ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 
 namespace rocksdb {
-namespace jemalloc {
 
 class JemallocNodumpAllocator : public MemoryAllocator {
  public:
-  JemallocNodumpAllocator(
-      std::vector<std::unique_ptr<extent_hooks_t>>&& arena_hooks,
-      CoreLocalArray<unsigned>&& arenas);
+  JemallocNodumpAllocator(std::unique_ptr<extent_hooks_t>&& arena_hooks,
+                          unsigned arena_index);
   ~JemallocNodumpAllocator();
 
   const char* Name() const override { return "JemallocNodumpAllocator"; }
@@ -38,7 +36,6 @@ class JemallocNodumpAllocator : public MemoryAllocator {
 
  private:
   friend Status NewJemallocNodumpAllocator(
-      const jemalloc::JemallocAllocatorOptions& options,
       std::shared_ptr<MemoryAllocator>* memory_allocator);
 
   // Custom alloc hook to replace jemalloc default alloc.
@@ -64,16 +61,15 @@ class JemallocNodumpAllocator : public MemoryAllocator {
   static std::atomic<extent_alloc_t*> original_alloc_;
 
   // Custom hooks has to outlive corresponding arena.
-  const std::vector<std::unique_ptr<extent_hooks_t>> arena_hooks_;
+  const std::unique_ptr<extent_hooks_t> arena_hooks_;
 
-  // Hold core-local arena index.
-  CoreLocalArray<unsigned> arenas_;
+  // Arena index.
+  const unsigned arena_index_;
 
   // Hold thread-local tcache index.
   ThreadLocalPtr tcache_;
 };
 
-}  // namespace jemalloc
 }  // namespace rocksdb
 #endif  // (JEMALLOC_VERSION_MAJOR >= 5) && MADV_DONTDUMP
 #endif  // ROCKSDB_JEMALLOC && ROCKSDB_PLATFORM_POSIX
