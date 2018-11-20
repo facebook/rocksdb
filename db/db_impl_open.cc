@@ -387,10 +387,9 @@ Status DBImpl::Recover(
 
   Status s = versions_->Recover(column_families, read_only);
   bool persistent_stats_cfd_exists = false;
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    if (cfd->GetName().compare(kPersistentStatsColumnFamilyName) == 0) {
-      persistent_stats_cfd_exists = true;
-    }
+  if (versions_->GetColumnFamilySet()->GetColumnFamily(
+          kPersistentStatsColumnFamilyName) != nullptr) {
+    persistent_stats_cfd_exists = true;
   }
   // create persistent_stats CF for the first time
   if (mutable_db_options_.stats_persist_period_sec != 0 &&
@@ -408,7 +407,9 @@ Status DBImpl::Recover(
   }
   if (s.ok() && !read_only) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->GetName().compare(kPersistentStatsColumnFamilyName) == 0) {
+      // skip directory creation if persistent_stats CF was just created
+      if (cfd->GetName().compare(kPersistentStatsColumnFamilyName) == 0 &&
+          persist_stats_cf_handle_ != nullptr) {
         continue;
       }
       s = cfd->AddDirectories();
@@ -442,6 +443,7 @@ Status DBImpl::Recover(
               kPersistentStatsColumnFamilyName),
           this, &mutex_);
     }
+    // TODO: handle single_column_family_mode_ when persistent_stats is enabled
     single_column_family_mode_ =
         versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;
 
@@ -1089,7 +1091,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
     }
     // i can delete the handle since DBImpl is always holding a reference to
     // default column family
-    if (db_options.stats_persist_period_sec != 0) {
+    if (db_options.stats_persist_period_sec != 0 && handles[1] != nullptr) {
       delete handles[1];
     }
     delete handles[0];

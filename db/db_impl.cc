@@ -693,28 +693,55 @@ void DBImpl::PersistStats() {
   int keycount = 0;
   for (auto iter = stats_map.begin(); iter != stats_map.end(); ++iter) {
     // TODO(Zhongyi) use more readable timestamp?
-    std::string key = iter->first + now_micros_string;
+    std::string key = iter->first + "#" + now_micros_string;
     // TODO(Zhongyi): add counters for failed writes
     Status s = DB::Put(wo, persist_stats_cf_handle_, key, iter->second);
     keycount++;
   }
+  // TODO: add TTL for stats_history_ to limit memory consumption
 #endif  // !ROCKSDB_LITE
 }
 
 std::unordered_map<uint64_t, std::map<std::string, std::string> >
-DBImpl::GetStatsHistory(GetStatsOptions& stats_opts) {
-  return FindStatsBetween(stats_opts.start_time, stats_opts.end_time);
+DBImpl::GetStatsHistory(GetStatsOptions& stats_opts, const Options& options) {
+  return FindStatsBetween(stats_opts.start_time, stats_opts.end_time, options);
 }
 
-// TODO: need to recover stats_history_ in DB::Open to restore old history
 std::unordered_map<uint64_t, std::map<std::string, std::string> >
-DBImpl::FindStatsBetween(uint64_t start_time, uint64_t end_time) {
+DBImpl::FindStatsBetween(uint64_t start_time, uint64_t end_time, const Options& options) {
   std::unordered_map<uint64_t, std::map<std::string, std::string> >
       stats_history;
+  // first dump whatever is in-memory that satisfies the time range
   for (const auto& stats : stats_history_) {
     if (stats.first >= start_time && stats.first < end_time) {
       stats_history[stats.first] = stats.second;
     }
+  }
+  // if persist_stats_to_disk is true, create iterator to scan history
+  // and add to stats_history
+  if (options.stats_persist_period_sec > 0 &&
+      persist_stats_cf_handle_ != nullptr) {
+    auto iter = NewIterator(ReadOptions(), persist_stats_cf_handle_);
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      std::string key = iter->key().ToString();
+      std::string stats_value = iter->value().ToString();
+      std::string::size_type stats_key_len = key.find("#");
+      if (stats_key_len != std::string::npos &&
+          stats_key_len != 0 &&
+          stats_key_len != key.length()) {
+        std::string stats_key = key.substr(0, stats_key_len);
+        std::string time_stamp_str = key.substr(stats_key_len + 1);
+        uint64_t timestamp = ParseUint64(time_stamp_str);
+        if (timestamp >= start_time && timestamp < end_time) {
+          if (stats_history.find(timestamp) == stats_history.end()) {
+            std::map<std::string, std::string> empty_stats_map;
+            stats_history[timestamp] = empty_stats_map;
+          }
+          stats_history[timestamp][stats_key] = stats_value;
+        }
+      }
+    }
+    delete iter;
   }
   return stats_history;
 }

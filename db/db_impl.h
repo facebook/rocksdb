@@ -718,7 +718,7 @@ class DBImpl : public DB {
 
   // return a map of DBStats and CFstats, specify time window etc in stats_opts
   std::unordered_map<uint64_t, std::map<std::string, std::string>>
-  GetStatsHistory(GetStatsOptions& stats_opts);
+  GetStatsHistory(GetStatsOptions& stats_opts, const Options& options);
 
  protected:
   Env* const env_;
@@ -1584,7 +1584,7 @@ class DBImpl : public DB {
   }
 
   std::unordered_map<uint64_t, std::map<std::string, std::string>>
-  FindStatsBetween(uint64_t start_time, uint64_t end_time);
+  FindStatsBetween(uint64_t start_time, uint64_t end_time, const Options& options);
 
   // When set, we use a separate queue for writes that dont write to memtable.
   // In 2PC these are the writes at Prepare phase.

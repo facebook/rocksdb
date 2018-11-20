@@ -637,9 +637,6 @@ TEST_F(DBOptionsTest, EnableStatsPersistPeriodSec) {
   CreateColumnFamilies({"pikachu"}, options);
   ASSERT_OK(Put("foo", "bar"));
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
-  ASSERT_EQ(Get("foo"), "bar");
-  ReopenWithColumnFamilies({"default", "pikachu"}, options);
-  ASSERT_EQ(Get("foo"), "bar");
   env_->SleepForMicroseconds(8000000);  // Wait for stats persist to finish
   auto iter =
       db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
@@ -657,17 +654,18 @@ TEST_F(DBOptionsTest, EnableStatsPersistPeriodSec) {
   delete iter;
   ASSERT_GE(key_count2, key_count1);
   ASSERT_GE(key_count3, key_count2);
-  ASSERT_EQ(key_count1 + key_count3, key_count2 * 2);
+  ASSERT_EQ(key_count3 - key_count2, key_count2 - key_count1);
   GetStatsOptions stats_opts;
   stats_opts.start_time = 0;
   stats_opts.end_time = env_->NowMicros();
   std::unordered_map<uint64_t, std::map<std::string, std::string> >
-      stats_history = dbfull()->GetStatsHistory(stats_opts);
+      stats_history = dbfull()->GetStatsHistory(stats_opts, options);
   int key_count4 = 0;
   int num_snapshot = 0;
   for (const auto& stats : stats_history) {
     num_snapshot++;
-    key_count4 += stats.second.size();
+    key_count4 += static_cast<int>(stats.second.size());
+    // fprintf(stdout, "GetStatsHistory: timestamp = %ld\n", static_cast<long>(stats.first));
     // for (const auto& kv : stats.second) {
     //   (void) kv;
     //   fprintf(stdout, "key = %s, value = %s\n", key.first.c_str(),
@@ -678,6 +676,57 @@ TEST_F(DBOptionsTest, EnableStatsPersistPeriodSec) {
   ASSERT_GE(num_snapshot, 4);
 }
 
+void AssertStatsIter(Iterator* iter, std::unordered_map<uint64_t,
+                     std::map<std::string, std::string> >& stats_history) {
+  // verify kv pairs are consistent in stats_history and iter
+  std::string key = iter->key().ToString();
+  std::string stats_value = iter->value().ToString();
+  std::string::size_type stats_key_len = key.find("#");
+  if (stats_key_len != std::string::npos &&
+      stats_key_len != 0 &&
+      stats_key_len != key.length()) {
+    std::string stats_key = key.substr(0, stats_key_len);
+    std::string time_stamp_str = key.substr(stats_key_len + 1);
+    uint64_t timestamp = ParseUint64(time_stamp_str);
+    ASSERT_EQ(stats_value, stats_history[timestamp][stats_key]);
+  }
+  else {
+    // reaching here means key is mis-formatted
+    ASSERT_TRUE(0);
+  }
+}
+
+TEST_F(DBOptionsTest, GetStatsHistory) {
+  Options options;
+  options.create_if_missing = true;
+  options.stats_persist_period_sec = 5;
+  options.env = env_;
+  CreateColumnFamilies({"pikachu"}, options);
+  ASSERT_OK(Put("foo", "bar"));
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  env_->SleepForMicroseconds(8000000);  // Wait for stats persist to finish
+  auto iter =
+      db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
+  GetStatsOptions stats_opts;
+  stats_opts.start_time = 0;
+  stats_opts.end_time = env_->NowMicros();
+  std::unordered_map<uint64_t, std::map<std::string, std::string> >
+      stats_history = dbfull()->GetStatsHistory(stats_opts, options);
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    AssertStatsIter(iter, stats_history);
+  }
+  delete iter;
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  iter =
+      db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
+  stats_opts.end_time = env_->NowMicros();
+  stats_history = dbfull()->GetStatsHistory(stats_opts, options);
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    AssertStatsIter(iter, stats_history);
+  }
+  delete iter;
+}
+
 TEST_F(DBOptionsTest, PersistentStatsCreateColumnFamilies) {
   Options options;
   options.create_if_missing = true;
@@ -685,8 +734,12 @@ TEST_F(DBOptionsTest, PersistentStatsCreateColumnFamilies) {
   options.env = env_;
   ASSERT_OK(TryReopen(options));
   CreateColumnFamilies({"one", "two", "three"}, options);
+  ASSERT_OK(Put("foo", "bar"));
   ReopenWithColumnFamilies({"default", "one", "two", "three"}, options);
+  ASSERT_EQ(Get("foo"), "bar");
   CreateColumnFamilies({"four"}, options);
+  ReopenWithColumnFamilies({"default", "one", "two", "three", "four"}, options);
+  ASSERT_EQ(Get("foo"), "bar");
   Close();
   Destroy(options);
 }
