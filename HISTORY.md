@@ -6,6 +6,9 @@
 ### New Features
 * Introduced `Memoryllocator`, which lets the user specify custom memory allocator for block based table.
 
+### Bug Fixes
+* Fixed Get correctness bug in the presence of range tombstones where merge operands covered by a range tombstone always result in NotFound.
+
 ## 5.18.0 (11/12/2018)
 ### New Features
 * Introduced `PerfContextByLevel` as part of `PerfContext` which allows storing perf context at each level. Also replaced `__thread` with `thread_local` keyword for perf_context. Added per-level perf context for bloom filter and `Get` query.
