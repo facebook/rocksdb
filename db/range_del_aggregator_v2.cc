@@ -47,9 +47,15 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
       // We do not need to adjust largest to properly truncate range
       // tombstones that extend past the boundary.
     } else if (parsed_largest.sequence == 0) {
-      // No range tombstone from this sstable can cover largest (or a range
-      // tombstone has seqnum 0 and does not cover any keys). We will never use
-      // largest to truncate a tombstone, so leave it as-is.
+      // The largest key in the sstable has a sequence number of 0. Since we
+      // guarantee that no internal keys with the same user key and sequence
+      // number can exist in a DB, we know that the largest key in this sstable
+      // cannot exist as the smallest key in the next sstable. This further
+      // implies that no range tombstone in this sstable covers largest;
+      // otherwise, the file boundary would have been artificially extended.
+      //
+      // Therefore, we will never truncate a range tombstone at largest, so we
+      // can leave it unchanged.
     } else {
       // The same user key may straddle two sstable boundaries. To ensure that
       // the truncated end key can cover the largest key in this sstable, reduce
