@@ -369,13 +369,12 @@ TEST_F(RangeDelAggregatorV2Test, MultipleItersInAggregatorWithUpperBound) {
                                       {InternalValue("ii", 14), true},
                                       {InternalValue("j", 14), false}});
 
-  VerifyIsRangeOverlapped(&range_del_agg,
-                          {{"", "_", false},
-                           {"_", "a", true},
-                           {"a", "c", true},
-                           {"d", "f", true},
-                           {"g", "l", true},
-                           {"x", "y", false}});
+  VerifyIsRangeOverlapped(&range_del_agg, {{"", "_", false},
+                                           {"_", "a", true},
+                                           {"a", "c", true},
+                                           {"d", "f", true},
+                                           {"g", "l", true},
+                                           {"x", "y", false}});
 }
 
 TEST_F(RangeDelAggregatorV2Test, MultipleTruncatedItersInAggregator) {
