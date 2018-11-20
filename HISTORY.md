@@ -1,13 +1,5 @@
 # Rocksdb Change Log
 ## Unreleased
-### Public API Change
-* `NO_ITERATORS` is divided into two counters `NO_ITERATOR_CREATED` and `NO_ITERATOR_DELETE`. Both of them are only increasing now, just as other counters.
-
-### New Features
-* Introduced `Memoryllocator`, which lets the user specify custom memory allocator for block based table.
-
-### Bug Fixes
-* Fixed Get correctness bug in the presence of range tombstones where merge operands covered by a range tombstone always result in NotFound.
 
 ## 5.18.0 (11/12/2018)
 ### New Features
@@ -17,9 +9,11 @@
 * Added `num_deletions` and `num_merge_operands` members to `TableProperties`.
 * Added "rocksdb.min-obsolete-sst-number-to-keep" DB property that reports the lower bound on SST file numbers that are being kept from deletion, even if the SSTs are obsolete.
 * Add xxhash64 checksum support
+* Introduced `Memoryllocator`, which lets the user specify custom memory allocator for block based table.
 
 ### Public API Change
 * `DBOptions::use_direct_reads` now affects reads issued by `BackupEngine` on the database's SSTs.
+* `NO_ITERATORS` is divided into two counters `NO_ITERATOR_CREATED` and `NO_ITERATOR_DELETE`. Both of them are only increasing now, just as other counters.
 
 ### Bug Fixes
 * Fix corner case where a write group leader blocked due to write stall blocks other writers in queue with WriteOptions::no_slowdown set.
@@ -29,6 +23,7 @@
 * Fix the bug that WriteBatchWithIndex's SeekForPrev() doesn't see the entries with the same key.
 * Fix the bug where user comparator was sometimes fed with InternalKey instead of the user key. The bug manifests when during GenerateBottommostFiles.
 * Fix a bug in WritePrepared txns where if the number of old snapshots goes beyond the snapshot cache size (128 default) the rest will not be checked when evicting a commit entry from the commit cache.
+* Fixed Get correctness bug in the presence of range tombstones where merge operands covered by a range tombstone always result in NotFound.
 
 ## 5.17.0 (10/05/2018)
 ### Public API Change
