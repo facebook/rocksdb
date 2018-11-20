@@ -6,8 +6,12 @@
 #pragma once
 
 #include <atomic>
+#include <vector>
 
+#include "port/port.h"
 #include "rocksdb/memory_allocator.h"
+#include "util/core_local.h"
+#include "util/thread_local.h"
 
 #if defined(ROCKSDB_JEMALLOC) && defined(ROCKSDB_PLATFORM_POSIX)
 
@@ -21,8 +25,8 @@ namespace rocksdb {
 
 class JemallocNodumpAllocator : public MemoryAllocator {
  public:
-  JemallocNodumpAllocator(unsigned arena_index, int flags,
-                          std::unique_ptr<extent_hooks_t>&& hooks);
+  JemallocNodumpAllocator(std::unique_ptr<extent_hooks_t>&& arena_hooks,
+                          unsigned arena_index);
   ~JemallocNodumpAllocator();
 
   const char* Name() const override { return "JemallocNodumpAllocator"; }
@@ -39,6 +43,16 @@ class JemallocNodumpAllocator : public MemoryAllocator {
                      size_t alignment, bool* zero, bool* commit,
                      unsigned arena_ind);
 
+  // Destroy arena on destruction of the allocator, or on failure.
+  static Status DestroyArena(unsigned arena_index);
+
+  // Destroy tcache on destruction of the allocator, or thread exit.
+  static void DestroyThreadSpecificCache(void* ptr);
+
+  // Get or create tcache. Return flag suitable to use with `mallocx`:
+  // either MALLOCX_TCACHE_NONE or MALLOCX_TCACHE(tc).
+  int GetThreadSpecificCache();
+
   // A function pointer to jemalloc default alloc. Use atomic to make sure
   // NewJemallocNodumpAllocator is thread-safe.
   //
@@ -46,9 +60,14 @@ class JemallocNodumpAllocator : public MemoryAllocator {
   // alloc needs to be static to pass to jemalloc as function pointer.
   static std::atomic<extent_alloc_t*> original_alloc_;
 
-  unsigned arena_index_;
-  int flags_;
-  const std::unique_ptr<extent_hooks_t> hooks_;
+  // Custom hooks has to outlive corresponding arena.
+  const std::unique_ptr<extent_hooks_t> arena_hooks_;
+
+  // Arena index.
+  const unsigned arena_index_;
+
+  // Hold thread-local tcache index.
+  ThreadLocalPtr tcache_;
 };
 
 }  // namespace rocksdb
