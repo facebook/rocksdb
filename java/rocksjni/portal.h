@@ -3301,7 +3301,7 @@ class TickerTypeJni {
         return 0x36;
       case rocksdb::Tickers::RATE_LIMIT_DELAY_MILLIS:
         return 0x37;
-      case rocksdb::Tickers::NO_ITERATOR_CREATED:
+      case rocksdb::Tickers::NO_ITERATORS:
         return 0x38;
       case rocksdb::Tickers::NUMBER_MULTIGET_CALLS:
         return 0x39;
@@ -3379,10 +3379,12 @@ class TickerTypeJni {
         return 0x5D;
       case rocksdb::Tickers::NUMBER_MULTIGET_KEYS_FOUND:
         return 0x5E;
-      case rocksdb::Tickers::NO_ITERATOR_DELETED:
+      case rocksdb::Tickers::NO_ITERATOR_CREATED:
         return 0x5F;
-      case rocksdb::Tickers::TICKER_ENUM_MAX:
+      case rocksdb::Tickers::NO_ITERATOR_DELETED:
         return 0x60;
+      case rocksdb::Tickers::TICKER_ENUM_MAX:
+        return 0x61;
 
       default:
         // undefined/default
