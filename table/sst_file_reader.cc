@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "db/db_iter.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_factory.h"
 #include "table/get_context.h"
@@ -212,76 +213,27 @@ Status InternalSstFileReader::ReadTableProperties(
   return init_result_;
 }
 
-class SstKVIteratorImpl : public SstKVIterator {
- public:
-  explicit SstKVIteratorImpl(InternalIterator* iter) : iter_(iter) {}
-
-  virtual bool Valid() const override { return iter_->Valid(); }
-  virtual void SeekToFirst() override { iter_->SeekToFirst(); }
-  virtual void SeekToLast() override { iter_->SeekToLast(); }
-  virtual void Seek(const Slice& k) override {
-    InternalKey ikey;
-    ikey.SetMinPossibleForUserKey(k);
-    iter_->Seek(ikey.Encode());
-  }
-  virtual void SeekForPrev(const Slice& k) override {
-    InternalKey ikey;
-    ikey.SetMinPossibleForUserKey(k);
-    iter_->SeekForPrev(ikey.Encode());
-  }
-  virtual void Next() override { iter_->Next(); }
-  virtual void Prev() override { iter_->Prev(); }
-
-  virtual Slice value() const override { return iter_->value(); }
-
-  Slice key() const override { return key(nullptr, nullptr); }
-
-  Slice key(SequenceNumber* sequence, int* type) const override {
-    ParsedInternalKey ikey;
-    ikey.type = kTypeDeletion;
-    ParseInternalKey(iter_->key(), &ikey);
-
-    if (sequence != nullptr) {
-      *sequence = ikey.sequence;
-    }
-    if (type != nullptr) {
-      *type = static_cast<int>(ikey.type);
-    }
-    return ikey.user_key;
-  }
-
-  virtual Status status() const override { return iter_->status(); }
-
-  virtual Status GetProperty(std::string prop_name,
-                             std::string* prop) override {
-    return iter_->GetProperty(prop_name, prop);
-  }
-
-  virtual ~SstKVIteratorImpl() { delete iter_; }
-
- private:
-  InternalIterator* iter_;
-};
-
 struct SstFileReader::Rep : public InternalSstFileReader {
   Rep(const std::string& file_name, Options options,
       const Comparator* comparator)
       : InternalSstFileReader(file_name, options, comparator) {}
 
-  SstKVIteratorImpl* NewIterator(const ReadOptions& read_options,
-                                 const SliceTransform* prefix_extractor,
-                                 Arena* arena, bool skip_filters,
-                                 bool for_compaction) {
+  Iterator* NewIterator(const ReadOptions& read_options,
+                        const SliceTransform* prefix_extractor, Arena* arena,
+                        bool skip_filters, bool for_compaction) {
     InternalIterator* iter = InternalSstFileReader::NewIterator(
         read_options, prefix_extractor, arena, skip_filters, for_compaction);
     if (iter == nullptr) {
       return nullptr;
     }
-    return new SstKVIteratorImpl(iter);
+    return NewDBIterator(options_.env, read_options, ioptions_, moptions_,
+                         internal_comparator_.user_comparator(), iter,
+                         kMaxSequenceNumber,
+                         moptions_.max_sequential_skip_in_iterations, nullptr);
   }
 };
 
-Status SstFileReader::Open(std::shared_ptr<SstFileReader>* reader,
+Status SstFileReader::Open(std::unique_ptr<SstFileReader>* reader,
                            const std::string& file_name, Options options,
                            const Comparator* comparator) {
   if (reader == nullptr) {
@@ -303,16 +255,17 @@ SstFileReader::SstFileReader(std::unique_ptr<SstFileReader::Rep>& rep)
 
 SstFileReader::~SstFileReader() {}
 
-SstKVIterator* SstFileReader::NewIterator(
-    const ReadOptions& read_options, const SliceTransform* prefix_extractor,
-    Arena* arena, bool skip_filters, bool for_compaction) {
+Iterator* SstFileReader::NewIterator(const ReadOptions& read_options,
+                                     const SliceTransform* prefix_extractor,
+                                     Arena* arena, bool skip_filters,
+                                     bool for_compaction) {
   return rep_->NewIterator(read_options, prefix_extractor, arena, skip_filters,
                            for_compaction);
 }
 
-Status SstFileReader::ReadTableProperties(
+void SstFileReader::ReadTableProperties(
     std::shared_ptr<const TableProperties>* table_properties) {
-  return rep_->ReadTableProperties(table_properties);
+  rep_->ReadTableProperties(table_properties);
 }
 
 Status SstFileReader::VerifyChecksum() { return rep_->VerifyChecksum(); }

@@ -480,7 +480,7 @@ TEST_F(ExternalSSTFileTest, SstFileReader) {
 
     ASSERT_GT(sst_file_writer.FileSize(), 0);
 
-    std::shared_ptr<SstFileReader> sst_file_reader;
+    std::unique_ptr<SstFileReader> sst_file_reader;
     s = SstFileReader::Open(nullptr, file_read_info.file_path, options,
                             BytewiseComparator());
     ASSERT_NOK(s);
@@ -490,7 +490,7 @@ TEST_F(ExternalSSTFileTest, SstFileReader) {
     ASSERT_OK(sst_file_reader->VerifyChecksum());
 
     {  // test iterator
-      std::unique_ptr<SstKVIterator> iter(sst_file_reader->NewIterator(
+      std::unique_ptr<Iterator> iter(sst_file_reader->NewIterator(
           ReadOptions(true, false), options.prefix_extractor.get()));
       for (int k = 0; k < 100; k++) {
         auto key = Key(k);
@@ -498,9 +498,7 @@ TEST_F(ExternalSSTFileTest, SstFileReader) {
         iter->Seek(key);
         ASSERT_TRUE(iter->Valid());
         ASSERT_EQ(iter->value(), value);
-        SequenceNumber number;
-        std::string str = iter->key(&number, nullptr).ToString();
-        ASSERT_EQ(number, 0);
+        std::string str = iter->key().ToString();
         ASSERT_EQ(str, key);
       }
       iter->Seek(Key(110));
@@ -510,8 +508,7 @@ TEST_F(ExternalSSTFileTest, SstFileReader) {
     {  // test table properties
       std::shared_ptr<const rocksdb::TableProperties>
           table_properties_from_reader;
-      ASSERT_OK(
-          sst_file_reader->ReadTableProperties(&table_properties_from_reader));
+      sst_file_reader->ReadTableProperties(&table_properties_from_reader);
       const rocksdb::TableProperties* table_properties =
           table_properties_from_reader.get();
       ASSERT_GE(table_properties->data_size, 0);

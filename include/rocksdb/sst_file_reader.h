@@ -14,20 +14,6 @@
 
 namespace rocksdb {
 
-class SstKVIterator : public Iterator {
- public:
-  SstKVIterator() {}
-  virtual ~SstKVIterator() {}
-  // If `sequence` is not nullptr, it will be set as the SequenceNumber of
-  // current entry.
-  // If `type` is not nullptr, it will be set as the ValueType of
-  // current entry.
-  virtual Slice key(SequenceNumber* sequence, int* type) const = 0;
-  // key() will be implemented by key(nullptr, nullptr). This method is not
-  // recommended.
-  virtual Slice key() const = 0;
-};
-
 // SstFileReader is used to read sst files.
 // SstFileReader may be safely accessed from multiple threads
 // without external synchronization.
@@ -38,26 +24,26 @@ class SstFileReader {
   // `options` is used to control the behavior of TableReader.
   // `comparator` provides a total order across slices that are used as keys in
   // sstable.
-  static Status Open(std::shared_ptr<SstFileReader>* reader,
+  static Status Open(std::unique_ptr<SstFileReader>* reader,
                      const std::string& file_name, Options options = Options(),
                      const Comparator* comparator = BytewiseComparator());
 
   ~SstFileReader();
 
-  // Returns an iterator over this sst file.
+  // Returns a tailing iterator over this sst file.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
   //
   // Caller should delete the iterator when it is no longer needed.
   // The returned iterator should be deleted before this SstFileReader is
   // deleted.
-  SstKVIterator* NewIterator(const ReadOptions& read_options,
-                             const SliceTransform* prefix_extractor,
-                             Arena* arena = nullptr, bool skip_filters = false,
-                             bool for_compaction = false);
+  Iterator* NewIterator(const ReadOptions& read_options,
+                        const SliceTransform* prefix_extractor,
+                        Arena* arena = nullptr, bool skip_filters = false,
+                        bool for_compaction = false);
 
   // Get table properties.
-  Status ReadTableProperties(
+  void ReadTableProperties(
       std::shared_ptr<const TableProperties>* table_properties);
 
   // Check whether there is corruption in this file.
