@@ -852,51 +852,6 @@ TEST_F(OptimisticTransactionTest, UntrackedWrites) {
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, IteratorUpperBoundTest) {
-  WriteOptions write_options;
-  ReadOptions read_options;
-  auto txn = unique_ptr<Transaction>(txn_db->BeginTransaction(write_options));
-
-  string key1 = "a1";
-  string key2 = "a3";
-  string key3 = "b1";
-  string val = "123";
-  txn->Put(key1, val);
-  txn->Put(key2, val);
-
-  Status s = txn->Commit();
-  ASSERT_OK(s);
-  txn = unique_ptr<Transaction>(txn_db->BeginTransaction(write_options));
-  txn->Put(key3, val);
-
-  string ubKey("a2");
-  Slice upperbound(ubKey);
-  read_options.iterate_upper_bound = &upperbound;
-  auto it = unique_ptr<Iterator>(txn->GetIterator(read_options));
-  for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    EXPECT_LT(it->key().ToString(), ubKey);
-  }
-  EXPECT_GE(it->key().ToString(), ubKey);
-  int key_count = 0;
-  for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    EXPECT_LT(it->key().ToString(), ubKey);
-    key_count++;
-  }
-  ASSERT_EQ(key_count, 1);
-  // Test Seek to a key equal or over upper bound
-  it->Seek("a2");
-  ASSERT_FALSE(it->Valid());
-  it->Seek("a3");
-  ASSERT_FALSE(it->Valid());
-  it->Seek("a1");
-  ASSERT_TRUE(it->Valid());
-  it.reset();
-
-  s = txn->Commit();
-  ASSERT_OK(s);
-  txn.reset();
-}
-
 TEST_F(OptimisticTransactionTest, IteratorTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
