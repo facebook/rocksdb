@@ -1159,11 +1159,11 @@ Status AwsEnv::DeleteCloudFileFromDest(const std::string& fname) {
       return Status::OK();
     }
   }
-  auto handle = GetJobExecutor()->ScheduleJob(
-      std::chrono::steady_clock::now() + file_deletion_delay_,
-      std::move(doDeleteFile));
   {
     std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
+    auto handle = GetJobExecutor()->ScheduleJob(
+        std::chrono::steady_clock::now() + file_deletion_delay_,
+        std::move(doDeleteFile));
     files_to_delete_.emplace(base, std::move(handle));
   }
   return Status::OK();
