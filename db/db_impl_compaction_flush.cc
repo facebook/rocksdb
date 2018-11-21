@@ -219,20 +219,23 @@ Status DBImpl::FlushMemTablesToOutputFiles(
     return AtomicFlushMemTablesToOutputFiles(bg_flush_args, made_progress,
                                              job_context, log_buffer);
   }
-  Status s;
+  Status status;
   for (auto& arg : bg_flush_args) {
     ColumnFamilyData* cfd = arg.cfd_;
     const MutableCFOptions& mutable_cf_options =
         *cfd->GetLatestMutableCFOptions();
     SuperVersionContext* superversion_context = arg.superversion_context_;
-    s = FlushMemTableToOutputFile(cfd, mutable_cf_options, made_progress,
-                                  job_context, superversion_context,
-                                  log_buffer);
+    Status s = FlushMemTableToOutputFile(cfd, mutable_cf_options, made_progress,
+                                         job_context, superversion_context,
+                                         log_buffer);
     if (!s.ok()) {
-      break;
+      status = s;
+      if (!s.IsShutdownInProgress()) {
+        break;
+      }
     }
   }
-  return s;
+  return status;
 }
 
 /*
@@ -341,10 +344,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       exec_status[i].second =
           jobs[i].Run(&logs_with_prep_tracker_, &file_meta[i]);
       exec_status[i].first = true;
-      if (!exec_status[i].second.ok()) {
-        s = exec_status[i].second;
-        break;
-      }
     }
     if (num_cfs > 1) {
       TEST_SYNC_POINT(
@@ -352,17 +351,24 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       TEST_SYNC_POINT(
           "DBImpl::AtomicFlushMemTablesToOutputFiles:SomeFlushJobsComplete:2");
     }
-    if (s.ok()) {
-      exec_status[0].second =
-          jobs[0].Run(&logs_with_prep_tracker_, &file_meta[0]);
-      exec_status[0].first = true;
-      if (!exec_status[0].second.ok()) {
-        s = exec_status[0].second;
+    exec_status[0].second =
+        jobs[0].Run(&logs_with_prep_tracker_, &file_meta[0]);
+    exec_status[0].first = true;
+  }
+
+  Status tmp_status;
+  for (const auto& e : exec_status) {
+    if (!e.second.ok()) {
+      s = e.second;
+      if (!e.second.IsShutdownInProgress()) {
+        tmp_status = e.second;
       }
     }
   }
 
-  if (s.ok()) {
+  s = tmp_status.ok() ? s : tmp_status;
+
+  if (s.ok() || s.IsShutdownInProgress()) {
     // Sync on all distinct output directories.
     for (auto dir : distinct_output_dirs) {
       if (dir != nullptr) {
@@ -383,6 +389,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       autovector<MemTableList*> imm_lists;
       autovector<const MutableCFOptions*> mutable_cf_options_list;
       for (auto cfd : *versions_->GetColumnFamilySet()) {
+        if (cfd->IsDropped()) {
+          continue;
+        }
         all_cfds.emplace_back(cfd);
         imm_lists.emplace_back(cfd->imm());
         mutable_cf_options_list.emplace_back(cfd->GetLatestMutableCFOptions());
@@ -396,7 +405,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     }
   }
 
-  if (s.ok()) {
+  if (s.ok() || s.IsShutdownInProgress()) {
     assert(num_cfs ==
            static_cast<int>(job_context->superversion_contexts.size()));
     for (int i = 0; i != num_cfs; ++i) {
@@ -1541,6 +1550,7 @@ Status DBImpl::AtomicFlushMemTables(
       write_thread_.ExitUnbatched(&w);
     }
   }
+  TEST_SYNC_POINT("DBImpl::AtomicFlushMemTables:AfterScheduleFlush");
 
   if (s.ok() && flush_options.wait) {
     autovector<const uint64_t*> flush_memtable_ids;

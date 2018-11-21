@@ -3205,7 +3205,7 @@ Status VersionSet::LogAndApply(
     if (!manifest_writers_.empty()) {
       manifest_writers_.front()->cv.Signal();
     }
-    return Status::OK();
+    return Status::ShutdownInProgress();
   }
 
   return ProcessManifestWrites(writers, mu, db_directory, new_descriptor_log,

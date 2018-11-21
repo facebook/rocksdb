@@ -426,7 +426,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
       imm_lists[pos]->InstallNewVersion();
     }
 
-    if (s.ok()) {
+    if (s.ok() || s.IsShutdownInProgress()) {
       for (size_t i = 0; i != batch_sz; ++i) {
         if (tmp_cfds[i]->IsDropped()) {
           continue;
