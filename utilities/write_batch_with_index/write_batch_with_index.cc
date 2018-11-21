@@ -47,7 +47,7 @@ class BaseDeltaIterator : public Iterator {
   virtual ~BaseDeltaIterator() {}
 
   bool Valid() const override {
-    return valid() ? !current_over_upper_bound_ : false;
+    return BaseDeltaValid() ? !current_over_upper_bound_ : false;
   }
 
   void SeekToFirst() override {
@@ -260,7 +260,9 @@ class BaseDeltaIterator : public Iterator {
   }
   bool BaseValid() const { return base_iterator_->Valid(); }
   bool DeltaValid() const { return delta_iterator_->Valid(); }
-  bool valid() const { return (current_at_base_ ? BaseValid() : DeltaValid()); }
+  bool BaseDeltaValid() const {
+    return (current_at_base_ ? BaseValid() : DeltaValid());
+  }
   void UpdateCurrent() {
 // Suppress false positive clang analyzer warnings.
 #ifndef __clang_analyzer__
@@ -322,13 +324,13 @@ class BaseDeltaIterator : public Iterator {
           break;
         }
       }
-      current_over_upper_bound_ = valid() && IsOverUpperBound();
+      current_over_upper_bound_ = BaseDeltaValid() && IsOverUpperBound();
       if (current_over_upper_bound_) {
         break;
       }
     }
 
-    current_over_upper_bound_ = valid() && IsOverUpperBound();
+    current_over_upper_bound_ = BaseDeltaValid() && IsOverUpperBound();
 #endif  // __clang_analyzer__
   }
 
