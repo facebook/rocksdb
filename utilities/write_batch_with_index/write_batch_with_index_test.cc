@@ -837,6 +837,46 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
     iter->Prev();
     AssertIter(iter.get(), "c", "cc");
   }
+
+  // Test iterate_upper_bound
+  {
+    KVMap empty_map;
+    Slice upper_bound("cd");
+    ReadOptions read_options;
+    read_options.iterate_upper_bound = &upper_bound;
+    std::unique_ptr<Iterator> iter(
+        batch.NewIteratorWithBase(read_options, &cf1, new KVIter(&empty_map)));
+
+    iter->SeekToFirst();
+    AssertIter(iter.get(), "a", "aa");
+    iter->Next();
+    AssertIter(iter.get(), "c", "cc");
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->SeekToLast();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->Seek("aa");
+    AssertIter(iter.get(), "c", "cc");
+    iter->Prev();
+    AssertIter(iter.get(), "a", "aa");
+    iter->Next();
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->Seek("ca");
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    // Seek to outside of upper bound, should not crash
+    iter->Seek("zz");
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+  }
 }
 
 TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
