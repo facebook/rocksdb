@@ -932,11 +932,12 @@ ROCKS_TESTS = [
         "range_del_aggregator_test",
         "db/range_del_aggregator_test.cc",
         "serial",
-    ][
+    ],
+    [
         "range_del_aggregator_v2_test",
         "db/range_del_aggregator_v2_test.cc",
         "serial",
-    ],,
+    ],
     [
         "range_tombstone_fragmenter_test",
         "db/range_tombstone_fragmenter_test.cc",
