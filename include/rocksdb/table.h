@@ -24,7 +24,6 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
-#include "rocksdb/memory_allocator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
@@ -258,10 +257,6 @@ struct BlockBasedTableOptions {
 
   // Align data blocks on lesser of page size and block size
   bool block_align = false;
-
-  // If non-nullptr will use this allocator instead of malloc/free to
-  // allocating memory for blocks.
-  std::shared_ptr<MemoryAllocator> memory_allocator;
 };
 
 // Table Properties that are specific to block-based table properties.

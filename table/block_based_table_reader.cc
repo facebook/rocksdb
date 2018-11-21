@@ -96,7 +96,9 @@ Status ReadBlockFromFile(
 
 inline MemoryAllocator* GetMemoryAllocator(
     const BlockBasedTableOptions& table_options) {
-  return table_options.memory_allocator.get();
+  return table_options.block_cache.get()
+             ? table_options.block_cache->memory_allocator()
+             : nullptr;
 }
 
 // Delete the resource that is held by the iterator.

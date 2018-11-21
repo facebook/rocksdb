@@ -1,11 +1,9 @@
 # Rocksdb Change Log
 ## Unreleased
+### New Features
+* Introduced `Memoryllocator`, which lets the user specify custom allocator for memory in block cache.
 ### Public API Change
 * `NO_ITERATORS` is divided into two counters `NO_ITERATOR_CREATED` and `NO_ITERATOR_DELETE`. Both of them are only increasing now, just as other counters.
-
-### New Features
-* Introduced `Memoryllocator`, which lets the user specify custom memory allocator for block based table.
-
 ### Bug Fixes
 * Fixed Get correctness bug in the presence of range tombstones where merge operands covered by a range tombstone always result in NotFound.
 
