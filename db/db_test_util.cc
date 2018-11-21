@@ -814,7 +814,8 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
   Arena arena;
   auto options = CurrentOptions();
   InternalKeyComparator icmp(options.comparator);
-  RangeDelAggregator range_del_agg(icmp, {} /* snapshots */);
+  RangeDelAggregatorV2 range_del_agg(&icmp,
+                                     kMaxSequenceNumber /* upper_bound */);
   ScopedArenaIterator iter;
   if (cf == 0) {
     iter.set(dbfull()->NewInternalIterator(&arena, &range_del_agg));
@@ -1225,7 +1226,8 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
   Arena arena;
   auto options = CurrentOptions();
   InternalKeyComparator icmp(options.comparator);
-  RangeDelAggregator range_del_agg(icmp, {} /* snapshots */);
+  RangeDelAggregatorV2 range_del_agg(&icmp,
+                                     kMaxSequenceNumber /* upper_bound */);
   // This should be defined after range_del_agg so that it destructs the
   // assigned iterator before it range_del_agg is already destructed.
   ScopedArenaIterator iter;
@@ -1433,7 +1435,8 @@ void DBTestBase::VerifyDBInternal(
     std::vector<std::pair<std::string, std::string>> true_data) {
   Arena arena;
   InternalKeyComparator icmp(last_options_.comparator);
-  RangeDelAggregator range_del_agg(icmp, {});
+  RangeDelAggregatorV2 range_del_agg(&icmp,
+                                     kMaxSequenceNumber /* upper_bound */);
   auto iter = dbfull()->NewInternalIterator(&arena, &range_del_agg);
   iter->SeekToFirst();
   for (auto p : true_data) {

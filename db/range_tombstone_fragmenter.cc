@@ -231,10 +231,33 @@ void FragmentedRangeTombstoneIterator::SeekToFirst() {
   seq_pos_ = tombstones_->seq_begin();
 }
 
+void FragmentedRangeTombstoneIterator::SeekToTopFirst() {
+  if (tombstones_->empty()) {
+    Invalidate();
+    return;
+  }
+  pos_ = tombstones_->begin();
+  seq_pos_ = std::lower_bound(tombstones_->seq_iter(pos_->seq_start_idx),
+                              tombstones_->seq_iter(pos_->seq_end_idx),
+                              snapshot_, std::greater<SequenceNumber>());
+  ScanForwardToVisibleTombstone();
+}
+
 void FragmentedRangeTombstoneIterator::SeekToLast() {
-  pos_ = tombstones_->end();
-  seq_pos_ = tombstones_->seq_end();
-  Prev();
+  pos_ = std::prev(tombstones_->end());
+  seq_pos_ = std::prev(tombstones_->seq_end());
+}
+
+void FragmentedRangeTombstoneIterator::SeekToTopLast() {
+  if (tombstones_->empty()) {
+    Invalidate();
+    return;
+  }
+  pos_ = std::prev(tombstones_->end());
+  seq_pos_ = std::lower_bound(tombstones_->seq_iter(pos_->seq_start_idx),
+                              tombstones_->seq_iter(pos_->seq_end_idx),
+                              snapshot_, std::greater<SequenceNumber>());
+  ScanBackwardToVisibleTombstone();
 }
 
 void FragmentedRangeTombstoneIterator::Seek(const Slice& target) {
@@ -243,16 +266,7 @@ void FragmentedRangeTombstoneIterator::Seek(const Slice& target) {
     return;
   }
   SeekToCoveringTombstone(target);
-  while (pos_ != tombstones_->end() &&
-         seq_pos_ == tombstones_->seq_iter(pos_->seq_end_idx)) {
-    ++pos_;
-    if (pos_ == tombstones_->end()) {
-      return;
-    }
-    seq_pos_ = std::lower_bound(tombstones_->seq_iter(pos_->seq_start_idx),
-                                tombstones_->seq_iter(pos_->seq_end_idx),
-                                snapshot_, std::greater<SequenceNumber>());
-  }
+  ScanForwardToVisibleTombstone();
 }
 
 void FragmentedRangeTombstoneIterator::SeekForPrev(const Slice& target) {
@@ -261,17 +275,7 @@ void FragmentedRangeTombstoneIterator::SeekForPrev(const Slice& target) {
     return;
   }
   SeekForPrevToCoveringTombstone(target);
-  while (pos_ != tombstones_->end() &&
-         seq_pos_ == tombstones_->seq_iter(pos_->seq_end_idx)) {
-    if (pos_ == tombstones_->begin()) {
-      Invalidate();
-      return;
-    }
-    --pos_;
-    seq_pos_ = std::lower_bound(tombstones_->seq_iter(pos_->seq_start_idx),
-                                tombstones_->seq_iter(pos_->seq_end_idx),
-                                snapshot_, std::greater<SequenceNumber>());
-  }
+  ScanBackwardToVisibleTombstone();
 }
 
 void FragmentedRangeTombstoneIterator::SeekToCoveringTombstone(
@@ -307,11 +311,49 @@ void FragmentedRangeTombstoneIterator::SeekForPrevToCoveringTombstone(
                               snapshot_, std::greater<SequenceNumber>());
 }
 
+void FragmentedRangeTombstoneIterator::ScanForwardToVisibleTombstone() {
+  while (pos_ != tombstones_->end() &&
+         seq_pos_ == tombstones_->seq_iter(pos_->seq_end_idx)) {
+    ++pos_;
+    if (pos_ == tombstones_->end()) {
+      return;
+    }
+    seq_pos_ = std::lower_bound(tombstones_->seq_iter(pos_->seq_start_idx),
+                                tombstones_->seq_iter(pos_->seq_end_idx),
+                                snapshot_, std::greater<SequenceNumber>());
+  }
+}
+
+void FragmentedRangeTombstoneIterator::ScanBackwardToVisibleTombstone() {
+  while (pos_ != tombstones_->end() &&
+         seq_pos_ == tombstones_->seq_iter(pos_->seq_end_idx)) {
+    if (pos_ == tombstones_->begin()) {
+      Invalidate();
+      return;
+    }
+    --pos_;
+    seq_pos_ = std::lower_bound(tombstones_->seq_iter(pos_->seq_start_idx),
+                                tombstones_->seq_iter(pos_->seq_end_idx),
+                                snapshot_, std::greater<SequenceNumber>());
+  }
+}
+
 void FragmentedRangeTombstoneIterator::Next() {
   ++seq_pos_;
   if (seq_pos_ == tombstones_->seq_iter(pos_->seq_end_idx)) {
     ++pos_;
   }
+}
+
+void FragmentedRangeTombstoneIterator::TopNext() {
+  ++pos_;
+  if (pos_ == tombstones_->end()) {
+    return;
+  }
+  seq_pos_ = std::lower_bound(tombstones_->seq_iter(pos_->seq_start_idx),
+                              tombstones_->seq_iter(pos_->seq_end_idx),
+                              snapshot_, std::greater<SequenceNumber>());
+  ScanForwardToVisibleTombstone();
 }
 
 void FragmentedRangeTombstoneIterator::Prev() {
@@ -325,6 +367,18 @@ void FragmentedRangeTombstoneIterator::Prev() {
       seq_pos_ == tombstones_->seq_iter(pos_->seq_start_idx - 1)) {
     --pos_;
   }
+}
+
+void FragmentedRangeTombstoneIterator::TopPrev() {
+  if (pos_ == tombstones_->begin()) {
+    Invalidate();
+    return;
+  }
+  --pos_;
+  seq_pos_ = std::lower_bound(tombstones_->seq_iter(pos_->seq_start_idx),
+                              tombstones_->seq_iter(pos_->seq_end_idx),
+                              snapshot_, std::greater<SequenceNumber>());
+  ScanBackwardToVisibleTombstone();
 }
 
 bool FragmentedRangeTombstoneIterator::Valid() const {

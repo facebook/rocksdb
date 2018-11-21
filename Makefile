@@ -554,6 +554,7 @@ TESTS = \
 	trace_analyzer_test \
 	repeatable_thread_test \
 	range_tombstone_fragmenter_test \
+	range_del_aggregator_v2_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -1584,6 +1585,9 @@ repeatable_thread_test: util/repeatable_thread_test.o $(LIBOBJECTS) $(TESTHARNES
 	$(AM_LINK)
 
 range_tombstone_fragmenter_test: db/range_tombstone_fragmenter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+range_del_aggregator_v2_test: db/range_del_aggregator_v2_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

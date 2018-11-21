@@ -15,6 +15,7 @@
 #include "db/db_iter.h"
 #include "db/dbformat.h"
 #include "db/job_context.h"
+#include "db/range_del_aggregator_v2.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
@@ -71,8 +72,8 @@ class ForwardLevelIterator : public InternalIterator {
       delete file_iter_;
     }
 
-    RangeDelAggregator range_del_agg(
-        cfd_->internal_comparator(), {} /* snapshots */);
+    RangeDelAggregatorV2 range_del_agg(&cfd_->internal_comparator(),
+                                       kMaxSequenceNumber /* upper_bound */);
     file_iter_ = cfd_->table_cache()->NewIterator(
         read_options_, *(cfd_->soptions()), cfd_->internal_comparator(),
         *files_[file_index_],
@@ -608,14 +609,14 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
     // New
     sv_ = cfd_->GetReferencedSuperVersion(&(db_->mutex_));
   }
-  RangeDelAggregator range_del_agg(
-      cfd_->internal_comparator(), {} /* snapshots */);
+  RangeDelAggregatorV2 range_del_agg(&cfd_->internal_comparator(),
+                                     kMaxSequenceNumber /* upper_bound */);
   mutable_iter_ = sv_->mem->NewIterator(read_options_, &arena_);
   sv_->imm->AddIterators(read_options_, &imm_iters_, &arena_);
   if (!read_options_.ignore_range_deletions) {
     std::unique_ptr<InternalIterator> range_del_iter(
         sv_->mem->NewRangeTombstoneIterator(read_options_));
-    range_del_agg.AddTombstones(std::move(range_del_iter));
+    range_del_agg.AddUnfragmentedTombstones(std::move(range_del_iter));
     sv_->imm->AddRangeTombstoneIterators(read_options_, &arena_,
                                          &range_del_agg);
   }
@@ -666,12 +667,12 @@ void ForwardIterator::RenewIterators() {
 
   mutable_iter_ = svnew->mem->NewIterator(read_options_, &arena_);
   svnew->imm->AddIterators(read_options_, &imm_iters_, &arena_);
-  RangeDelAggregator range_del_agg(
-      cfd_->internal_comparator(), {} /* snapshots */);
+  RangeDelAggregatorV2 range_del_agg(&cfd_->internal_comparator(),
+                                     kMaxSequenceNumber /* upper_bound */);
   if (!read_options_.ignore_range_deletions) {
     std::unique_ptr<InternalIterator> range_del_iter(
         svnew->mem->NewRangeTombstoneIterator(read_options_));
-    range_del_agg.AddTombstones(std::move(range_del_iter));
+    range_del_agg.AddUnfragmentedTombstones(std::move(range_del_iter));
     svnew->imm->AddRangeTombstoneIterators(read_options_, &arena_,
                                            &range_del_agg);
   }

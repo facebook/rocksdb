@@ -134,8 +134,7 @@ class DBIter final: public Iterator {
         prefix_same_as_start_(read_options.prefix_same_as_start),
         pin_thru_lifetime_(read_options.pin_data),
         total_order_seek_(read_options.total_order_seek),
-        range_del_agg_(cf_options.internal_comparator, s,
-                       true /* collapse_deletions */),
+        range_del_agg_(&cf_options.internal_comparator, s),
         read_callback_(read_callback),
         db_impl_(db_impl),
         cfd_(cfd),
@@ -172,7 +171,7 @@ class DBIter final: public Iterator {
     iter_ = iter;
     iter_->SetPinnedItersMgr(&pinned_iters_mgr_);
   }
-  virtual RangeDelAggregator* GetRangeDelAggregator() {
+  virtual RangeDelAggregatorV2* GetRangeDelAggregator() {
     return &range_del_agg_;
   }
 
@@ -342,7 +341,7 @@ class DBIter final: public Iterator {
   const bool total_order_seek_;
   // List of operands for merge operator.
   MergeContext merge_context_;
-  RangeDelAggregator range_del_agg_;
+  RangeDelAggregatorV2 range_del_agg_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
   ReadCallback* read_callback_;
@@ -1480,7 +1479,7 @@ Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
 
 ArenaWrappedDBIter::~ArenaWrappedDBIter() { db_iter_->~DBIter(); }
 
-RangeDelAggregator* ArenaWrappedDBIter::GetRangeDelAggregator() {
+RangeDelAggregatorV2* ArenaWrappedDBIter::GetRangeDelAggregator() {
   return db_iter_->GetRangeDelAggregator();
 }
 

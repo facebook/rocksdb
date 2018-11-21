@@ -183,7 +183,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
 InternalIterator* TableCache::NewIterator(
     const ReadOptions& options, const EnvOptions& env_options,
     const InternalKeyComparator& icomparator, const FileMetaData& file_meta,
-    RangeDelAggregator* range_del_agg, const SliceTransform* prefix_extractor,
+    RangeDelAggregatorV2* range_del_agg, const SliceTransform* prefix_extractor,
     TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
     bool for_compaction, Arena* arena, bool skip_filters, int level,
     const InternalKey* smallest_compaction_key,
@@ -264,8 +264,9 @@ InternalIterator* TableCache::NewIterator(
   }
   if (s.ok() && range_del_agg != nullptr && !options.ignore_range_deletions) {
     if (range_del_agg->AddFile(fd.GetNumber())) {
-      std::unique_ptr<InternalIterator> range_del_iter(
-          table_reader->NewRangeTombstoneIterator(options));
+      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+          static_cast<FragmentedRangeTombstoneIterator*>(
+              table_reader->NewRangeTombstoneIterator(options)));
       if (range_del_iter != nullptr) {
         s = range_del_iter->status();
       }
@@ -278,8 +279,8 @@ InternalIterator* TableCache::NewIterator(
         if (largest_compaction_key != nullptr) {
           largest = largest_compaction_key;
         }
-        s = range_del_agg->AddTombstones(std::move(range_del_iter), smallest,
-                                         largest);
+        range_del_agg->AddTombstones(std::move(range_del_iter), smallest,
+                                     largest);
       }
     }
   }
