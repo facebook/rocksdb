@@ -1707,6 +1707,7 @@ void Java_org_rocksdb_RocksDB_dropColumnFamily(JNIEnv* env, jobject /*jdb*/,
   }
 }
 
+
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    destroyColumnFamilyHandle
