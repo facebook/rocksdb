@@ -69,6 +69,8 @@ public:
                     const Slice& existing_value, std::string* new_value,
                     std::string* skip_until) const override;
 
+  bool IgnoreSnapshots() const override { return true; }
+
   void Configure(Config* config) {
       Config* old_config = config_;
       config_ = config;
