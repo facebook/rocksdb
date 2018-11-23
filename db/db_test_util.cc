@@ -67,16 +67,19 @@ DBTestBase::DBTestBase(const std::string path)
       option_config_(kDefault),
       s3_env_(nullptr) {
 
+  std::string mypath = path;
 #ifdef USE_AWS
+  // Randomize the test path so that multiple tests can run in parallel
+  mypath = mypath + "_" + std::to_string(rand());
   option_env_ = kDefaultEnv;
   env_->NewLogger(test::TmpDir(env_) + "/rocksdb-cloud.log", &info_log_);
   info_log_->SetInfoLogLevel(InfoLogLevel::DEBUG_LEVEL);
-  s3_env_ = CreateNewAwsEnv(path);
+  s3_env_ = CreateNewAwsEnv(mypath);
 #endif
 
   env_->SetBackgroundThreads(1, Env::LOW);
   env_->SetBackgroundThreads(1, Env::HIGH);
-  dbname_ = test::TmpDir(env_) + path;
+  dbname_ = test::TmpDir(env_) + mypath;
   alternative_wal_dir_ = dbname_ + "/wal";
   alternative_db_log_dir_ = dbname_ + "/db_log_dir";
   auto options = CurrentOptions();
