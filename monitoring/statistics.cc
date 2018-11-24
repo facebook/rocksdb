@@ -18,12 +18,11 @@
 namespace rocksdb {
 
 std::shared_ptr<Statistics> CreateDBStatistics() {
-  return std::make_shared<StatisticsImpl>(nullptr, false);
+  return std::make_shared<StatisticsImpl>(nullptr);
 }
 
-StatisticsImpl::StatisticsImpl(std::shared_ptr<Statistics> stats,
-                               bool enable_internal_stats)
-    : stats_(std::move(stats)), enable_internal_stats_(enable_internal_stats) {}
+StatisticsImpl::StatisticsImpl(std::shared_ptr<Statistics> stats)
+    : stats_(std::move(stats)) {}
 
 StatisticsImpl::~StatisticsImpl() {}
 
@@ -33,10 +32,7 @@ uint64_t StatisticsImpl::getTickerCount(uint32_t tickerType) const {
 }
 
 uint64_t StatisticsImpl::getTickerCountLocked(uint32_t tickerType) const {
-  assert(
-    enable_internal_stats_ ?
-      tickerType < INTERNAL_TICKER_ENUM_MAX :
-      tickerType < TICKER_ENUM_MAX);
+  assert(tickerType < TICKER_ENUM_MAX);
   uint64_t res = 0;
   for (size_t core_idx = 0; core_idx < per_core_stats_.Size(); ++core_idx) {
     res += per_core_stats_.AccessAtCore(core_idx)->tickers_[tickerType];
@@ -52,10 +48,7 @@ void StatisticsImpl::histogramData(uint32_t histogramType,
 
 std::unique_ptr<HistogramImpl> StatisticsImpl::getHistogramImplLocked(
     uint32_t histogramType) const {
-  assert(
-    enable_internal_stats_ ?
-      histogramType < INTERNAL_HISTOGRAM_ENUM_MAX :
-      histogramType < HISTOGRAM_ENUM_MAX);
+  assert(histogramType < HISTOGRAM_ENUM_MAX);
   std::unique_ptr<HistogramImpl> res_hist(new HistogramImpl());
   for (size_t core_idx = 0; core_idx < per_core_stats_.Size(); ++core_idx) {
     res_hist->Merge(
@@ -80,8 +73,7 @@ void StatisticsImpl::setTickerCount(uint32_t tickerType, uint64_t count) {
 }
 
 void StatisticsImpl::setTickerCountLocked(uint32_t tickerType, uint64_t count) {
-  assert(enable_internal_stats_ ? tickerType < INTERNAL_TICKER_ENUM_MAX
-                                : tickerType < TICKER_ENUM_MAX);
+  assert(tickerType < TICKER_ENUM_MAX);
   for (size_t core_idx = 0; core_idx < per_core_stats_.Size(); ++core_idx) {
     if (core_idx == 0) {
       per_core_stats_.AccessAtCore(core_idx)->tickers_[tickerType] = count;
@@ -95,8 +87,7 @@ uint64_t StatisticsImpl::getAndResetTickerCount(uint32_t tickerType) {
   uint64_t sum = 0;
   {
     MutexLock lock(&aggregate_lock_);
-    assert(enable_internal_stats_ ? tickerType < INTERNAL_TICKER_ENUM_MAX
-                                  : tickerType < TICKER_ENUM_MAX);
+    assert(tickerType < TICKER_ENUM_MAX);
     for (size_t core_idx = 0; core_idx < per_core_stats_.Size(); ++core_idx) {
       sum +=
           per_core_stats_.AccessAtCore(core_idx)->tickers_[tickerType].exchange(
@@ -110,10 +101,7 @@ uint64_t StatisticsImpl::getAndResetTickerCount(uint32_t tickerType) {
 }
 
 void StatisticsImpl::recordTick(uint32_t tickerType, uint64_t count) {
-  assert(
-    enable_internal_stats_ ?
-      tickerType < INTERNAL_TICKER_ENUM_MAX :
-      tickerType < TICKER_ENUM_MAX);
+  assert(tickerType < TICKER_ENUM_MAX);
   per_core_stats_.Access()->tickers_[tickerType].fetch_add(
       count, std::memory_order_relaxed);
   if (stats_ && tickerType < TICKER_ENUM_MAX) {
@@ -122,10 +110,7 @@ void StatisticsImpl::recordTick(uint32_t tickerType, uint64_t count) {
 }
 
 void StatisticsImpl::measureTime(uint32_t histogramType, uint64_t value) {
-  assert(
-    enable_internal_stats_ ?
-      histogramType < INTERNAL_HISTOGRAM_ENUM_MAX :
-      histogramType < HISTOGRAM_ENUM_MAX);
+  assert(histogramType < HISTOGRAM_ENUM_MAX);
   per_core_stats_.Access()->histograms_[histogramType].Add(value);
   if (stats_ && histogramType < HISTOGRAM_ENUM_MAX) {
     stats_->measureTime(histogramType, value);
@@ -157,7 +142,7 @@ std::string StatisticsImpl::ToString() const {
   std::string res;
   res.reserve(20000);
   for (const auto& t : TickersNameMap) {
-    if (t.first < TICKER_ENUM_MAX || enable_internal_stats_) {
+    if (t.first < TICKER_ENUM_MAX) {
       char buffer[kTmpStrBufferSize];
       snprintf(buffer, kTmpStrBufferSize, "%s COUNT : %" PRIu64 "\n",
                t.second.c_str(), getTickerCountLocked(t.first));
@@ -165,7 +150,7 @@ std::string StatisticsImpl::ToString() const {
     }
   }
   for (const auto& h : HistogramsNameMap) {
-    if (h.first < HISTOGRAM_ENUM_MAX || enable_internal_stats_) {
+    if (h.first < HISTOGRAM_ENUM_MAX) {
       char buffer[kTmpStrBufferSize];
       HistogramData hData;
       getHistogramImplLocked(h.first)->Data(&hData);
@@ -188,10 +173,7 @@ std::string StatisticsImpl::ToString() const {
 }
 
 bool StatisticsImpl::HistEnabledForType(uint32_t type) const {
-  if (LIKELY(!enable_internal_stats_)) {
-    return type < HISTOGRAM_ENUM_MAX;
-  }
-  return true;
+  return type < HISTOGRAM_ENUM_MAX;
 }
 
 } // namespace rocksdb
