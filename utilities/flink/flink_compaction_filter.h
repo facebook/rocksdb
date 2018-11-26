@@ -53,16 +53,71 @@ public:
       std::size_t fixed_size_;
   };
 
+  // Factory is needed to create one iterator per filter/thread
+  // and avoid concurrent access to list state bytes between methods SetListBytes and NextOffset
+  class ListElementIterFactory {
+  public:
+    virtual ~ListElementIterFactory() = default;
+    virtual ListElementIter* CreateListElementIter() const = 0;
+  };
+
+  class FixedListElementIterFactory : public ListElementIterFactory {
+  public:
+    explicit FixedListElementIterFactory(std::size_t fixed_size) : fixed_size_(fixed_size) {}
+    FixedListElementIter* CreateListElementIter() const override {
+        return new FixedListElementIter(fixed_size_);
+    };
+  private:
+    std::size_t fixed_size_;
+  };
+
   struct Config {
     StateType state_type_;
     std::size_t timestamp_offset_;
     int64_t ttl_;
     bool useSystemTime_;
-    ListElementIter* list_element_iter_;
+    ListElementIterFactory* list_element_iter_factory_;
   };
 
-  explicit FlinkCompactionFilter() : logger_(nullptr) {};
-  explicit FlinkCompactionFilter(std::shared_ptr<Logger> logger) : logger_(std::move(logger)) {};
+  class ConfigHolder {
+  public:
+    ~ConfigHolder() {
+      Config config = config_;
+      delete config.list_element_iter_factory_;
+    }
+
+    // at the moment Flink configures filters (can be already created) only once when user creates state
+    // otherwise it can lead to ListElementIter leak in Config
+    // or race between its delete in Configure() and usage in FilterV2()
+    void Configure(Config config) {
+      config_ = config;
+    }
+
+    void SetCurrentTimestamp(int64_t current_timestamp) {
+      current_timestamp_ = current_timestamp;
+    }
+
+    Config GetConfig() {
+        return config_;
+    }
+
+    std::int64_t GetCurrentTimestamp() {
+      return current_timestamp_;
+    }
+
+  private:
+    std::atomic<Config> config_ = { Config{Disabled, 0, std::numeric_limits<int64_t>::max(), true, nullptr} };
+    std::atomic<std::int64_t> current_timestamp_ = { std::numeric_limits<int64_t>::min() };
+  };
+
+  explicit FlinkCompactionFilter(std::shared_ptr<ConfigHolder> config_holder) :
+          config_holder_(std::move(config_holder)), logger_(nullptr) {};
+  explicit FlinkCompactionFilter(std::shared_ptr<ConfigHolder> config_holder, std::shared_ptr<Logger> logger) :
+          config_holder_(std::move(config_holder)), logger_(std::move(logger)) {};
+
+  ~FlinkCompactionFilter() override {
+    delete list_element_iter_;
+  }
 
   const char* Name() const override;
   Decision FilterV2(int level, const Slice& key, ValueType value_type,
@@ -71,27 +126,10 @@ public:
 
   bool IgnoreSnapshots() const override { return true; }
 
-  void Configure(Config* config) {
-      Config* old_config = config_;
-      config_ = config;
-      delete old_config->list_element_iter_;
-      delete old_config;
-  }
-
-  void SetCurrentTimestamp(int64_t current_timestamp) {
-      current_timestamp_ = current_timestamp;
-  }
-
-  ~FlinkCompactionFilter() override {
-      Config* config = config_;
-      delete config->list_element_iter_;
-      delete config;
-  }
-
 private:
   Decision ListDecide(const Slice& existing_value, const Config& config, std::string* new_value) const;
 
-  inline std::size_t ListNextOffset(std::size_t offset, ListElementIter* list_element_iter_) const;
+  inline std::size_t ListNextOffset(std::size_t offset) const;
 
   inline void SetUnexpiredListValue(
           const Slice& existing_value, std::size_t offset, std::string* new_value) const;
@@ -102,9 +140,15 @@ private:
 
   inline int64_t CurrentTimestamp(bool useSystemTime) const;
 
-  std::atomic<Config*> config_ = { new Config{Disabled, 0, std::numeric_limits<int64_t>::max(), true, nullptr} };
-  std::atomic<std::int64_t> current_timestamp_ = { std::numeric_limits<int64_t>::min() };
+  inline void CreateListElementIterIfNull(ListElementIterFactory* list_element_iter_factory) const {
+    if (!list_element_iter_ && list_element_iter_factory) {
+      const_cast<FlinkCompactionFilter*>(this)->list_element_iter_ = list_element_iter_factory->CreateListElementIter();
+    }
+  }
+
+  std::shared_ptr<ConfigHolder> config_holder_;
   std::shared_ptr<Logger> logger_;
+  ListElementIter* list_element_iter_ = nullptr;
 };
 
 }  // namespace flink

@@ -63,7 +63,7 @@ public class FlinkCompactionFilterTest {
     public void cleanup() {
         for (StateContext stateContext : stateContexts) {
             stateContext.cfDesc.getOptions().close();
-            stateContext.filter.close();
+            stateContext.filterFactory.close();
         }
     }
 
@@ -128,7 +128,7 @@ public class FlinkCompactionFilterTest {
         final ColumnFamilyDescriptor cfDesc;
         final String userValue;
         final long currentTime;
-        final FlinkCompactionFilter filter;
+        final FlinkCompactionFilter.FlinkCompactionFilterFactory filterFactory;
 
         ColumnFamilyHandle columnFamilyHandle;
 
@@ -141,7 +141,7 @@ public class FlinkCompactionFilterTest {
         }
 
         void expire() {
-            filter.setCurrentTimestamp(currentTime + TTL + TTL / 2);
+            filterFactory.setCurrentTimestamp(currentTime + TTL + TTL / 2);
         }
 
         private StateContext(StateType type, int timestampOffset) {
@@ -153,9 +153,9 @@ public class FlinkCompactionFilterTest {
             userValue = type.name() + "StateValue";
             cf = type.name() + "StateCf";
             key = type.name() + "StateKey";
-            filter = new FlinkCompactionFilter(createLogger());
-            filter.configure(createConfig(type, timestampOffset));
-            cfDesc = new ColumnFamilyDescriptor(getASCII(cf), getOptionsWithFilter(filter));
+            filterFactory = new FlinkCompactionFilter.FlinkCompactionFilterFactory(createLogger());
+            filterFactory.configure(createConfig(type, timestampOffset));
+            cfDesc = new ColumnFamilyDescriptor(getASCII(cf), getOptionsWithFilter(filterFactory));
         }
 
         private Logger createLogger() {
@@ -173,9 +173,10 @@ public class FlinkCompactionFilterTest {
             return FlinkCompactionFilter.Config.create(type, timestampOffset, TTL, false);
         }
 
-        private static ColumnFamilyOptions getOptionsWithFilter(FlinkCompactionFilter filter) {
+        private static ColumnFamilyOptions getOptionsWithFilter(
+                FlinkCompactionFilter.FlinkCompactionFilterFactory filterFactory) {
             return new ColumnFamilyOptions()
-                    .setCompactionFilter(filter)
+                    .setCompactionFilterFactory(filterFactory)
                     .setMergeOperatorName(MERGE_OPERATOR_NAME);
         }
 
@@ -242,7 +243,7 @@ public class FlinkCompactionFilterTest {
         }
 
         private static class ListStateContext extends StateContext {
-            private static ListElementIter ELEM_ITER = new ListElementIter();
+            private static FlinkCompactionFilter.ListElementIterFactory ELEM_ITER_FACTORY = new ListElementIterFactory();
 
             private ListStateContext() {
                 super(StateType.List, 0);
@@ -250,7 +251,7 @@ public class FlinkCompactionFilterTest {
 
             @Override
             FlinkCompactionFilter.Config createConfig(StateType type, int timestampOffset) {
-                return FlinkCompactionFilter.Config.createForList(timestampOffset, TTL, false, ELEM_ITER);
+                return FlinkCompactionFilter.Config.createForList(timestampOffset, TTL, false, ELEM_ITER_FACTORY);
             }
 
             @Override
@@ -315,13 +316,18 @@ public class FlinkCompactionFilterTest {
                 return ByteBuffer.allocate(length);
             }
 
-            private static class ListElementIter extends FlinkCompactionFilter.AbstractListElementIter {
+            private static class ListElementIterFactory implements FlinkCompactionFilter.ListElementIterFactory {
                 @Override
-                public int nextOffset(int currentOffset) {
-                    int elemLen = ByteBuffer
-                            .wrap(list, currentOffset, list.length - currentOffset)
-                            .getInt(8);
-                    return currentOffset + 13 + elemLen;
+                public FlinkCompactionFilter.ListElementIter createListElementIter() {
+                    return new FlinkCompactionFilter.AbstractListElementIter() {
+                        @Override
+                        public int nextOffset(int currentOffset) {
+                            int elemLen = ByteBuffer
+                                    .wrap(list, currentOffset, list.length - currentOffset)
+                                    .getInt(8);
+                            return currentOffset + 13 + elemLen;
+                        }
+                    };
                 }
             }
         }

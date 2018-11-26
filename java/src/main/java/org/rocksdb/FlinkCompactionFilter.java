@@ -19,41 +19,22 @@ public class FlinkCompactionFilter
     List
   }
 
-  private final Logger logger;
-
-  public FlinkCompactionFilter() {
-    this(null);
+  public FlinkCompactionFilter(ConfigHolder configHolder) {
+    this(configHolder, null);
   }
 
-  public FlinkCompactionFilter(Logger logger) {
-    super(createNewFlinkCompactionFilter0(logger == null ? 0 : logger.nativeHandle_));
-    this.logger = logger;
+  public FlinkCompactionFilter(ConfigHolder configHolder, Logger logger) {
+    super(createNewFlinkCompactionFilter0(configHolder.nativeHandle_, logger == null ? 0 : logger.nativeHandle_));
   }
 
-  @Override
-  public void close() {
-    super.close();
-    if (logger != null) {
-      logger.close();
-    }
-  }
-
-  public void configure(Config config) {
-    configureFlinkCompactionFilter(nativeHandle_, config.stateType.ordinal(), config.timestampOffset,
-            config.ttl, config.useSystemTime,
-            config.fixedElementLength, config.listElementIter);
-  }
-
-  public void setCurrentTimestamp(long currentTimestamp) {
-    setCurrentTimestamp(nativeHandle_, currentTimestamp);
-  }
-
-  private native static long createNewFlinkCompactionFilter0(long loggerHandle);
+  private native static long createNewFlinkCompactionFilter0(long configHolderHandle, long loggerHandle);
+  private native static long createNewFlinkCompactionFilterConfigHolder();
+  private native static void disposeFlinkCompactionFilterConfigHolder(long configHolderHandle);
   private native static long configureFlinkCompactionFilter(
-          long filterHandle, int stateType, int timestampOffset, long ttl, boolean useSystemTime,
-          int fixedElementLength, ListElementIter listElementIter);
+          long configHolderHandle, int stateType, int timestampOffset, long ttl, boolean useSystemTime,
+          int fixedElementLength, ListElementIterFactory listElementIterFactory);
   private native static long setCurrentTimestamp(
-          long filterHandle, long currentTimestamp);
+          long configHolderHandle, long currentTimestamp);
 
   public interface ListElementIter {
     void setListBytes(byte[] list);
@@ -70,23 +51,27 @@ public class FlinkCompactionFilter
     }
   }
 
+  public interface ListElementIterFactory {
+    ListElementIter createListElementIter();
+  }
+
   public static class Config {
     final StateType stateType;
     final int timestampOffset;
     final long ttl;
     final boolean useSystemTime;
     final int fixedElementLength;
-    final ListElementIter listElementIter;
+    final ListElementIterFactory listElementIterFactory;
 
     private Config(
             StateType stateType, int timestampOffset, long ttl, boolean useSystemTime,
-            int fixedElementLength, ListElementIter listElementIter) {
+            int fixedElementLength, ListElementIterFactory listElementIterFactory) {
       this.stateType = stateType;
       this.timestampOffset = timestampOffset;
       this.ttl = ttl;
       this.useSystemTime = useSystemTime;
       this.fixedElementLength = fixedElementLength;
-      this.listElementIter = listElementIter;
+      this.listElementIterFactory = listElementIterFactory;
     }
 
     public static Config create(StateType stateType, int timestampOffset, long ttl, boolean useSystemTime) {
@@ -97,8 +82,61 @@ public class FlinkCompactionFilter
       return new Config(StateType.List, timestampOffset, ttl, useSystemTime, fixedElementLength, null);
     }
 
-    public static Config createForList(int timestampOffset, long ttl, boolean useSystemTime, ListElementIter listElementIter) {
-      return new Config(StateType.List, timestampOffset, ttl, useSystemTime, -1, listElementIter);
+    public static Config createForList(int timestampOffset, long ttl, boolean useSystemTime, ListElementIterFactory listElementIterFactory) {
+      return new Config(StateType.List, timestampOffset, ttl, useSystemTime, -1, listElementIterFactory);
+    }
+  }
+
+  private static class ConfigHolder extends RocksObject {
+    protected ConfigHolder() {
+      super(createNewFlinkCompactionFilterConfigHolder());
+    }
+
+    @Override
+    protected void disposeInternal(long handle) {
+      disposeFlinkCompactionFilterConfigHolder(handle);
+    }
+  }
+
+  public static class FlinkCompactionFilterFactory extends AbstractCompactionFilterFactory<FlinkCompactionFilter> {
+    private final Logger logger;
+    private final ConfigHolder configHolder = new ConfigHolder();
+
+    public FlinkCompactionFilterFactory() {
+      this(null);
+    }
+
+    public FlinkCompactionFilterFactory(Logger logger) {
+      this.logger = logger;
+    }
+
+    @Override
+    public void close() {
+      super.close();
+      configHolder.close();
+      if (logger != null) {
+        logger.close();
+      }
+    }
+
+    @Override
+    public FlinkCompactionFilter createCompactionFilter(Context context) {
+      return new FlinkCompactionFilter(configHolder, logger);
+    }
+
+    @Override
+    public String name() {
+      return "FlinkCompactionFilterFactory";
+    }
+
+    public void configure(Config config) {
+      configureFlinkCompactionFilter(configHolder.nativeHandle_, config.stateType.ordinal(), config.timestampOffset,
+              config.ttl, config.useSystemTime,
+              config.fixedElementLength, config.listElementIterFactory);
+    }
+
+    public void setCurrentTimestamp(long currentTimestamp) {
+      FlinkCompactionFilter.setCurrentTimestamp(configHolder.nativeHandle_, currentTimestamp);
     }
   }
 }

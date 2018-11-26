@@ -55,7 +55,10 @@ std::string stub = ""; // NOLINT
 
 FlinkCompactionFilter::StateType state_type;
 CompactionFilter::ValueType value_type;
-FlinkCompactionFilter filter(shared_ptr<rocksdb::Logger>(new ConsoleLogger())); // NOLINT
+FlinkCompactionFilter::ConfigHolder config_holder; // NOLINT
+ConsoleLogger logger; // NOLINT
+FlinkCompactionFilter filter = FlinkCompactionFilter( // NOLINT
+        shared_ptr<FlinkCompactionFilter::ConfigHolder>(&config_holder), shared_ptr<rocksdb::Logger>(&logger));
 
 void SetTimestamp(int64_t timestamp = time, size_t offset = 0, char* value = data) {
   for (unsigned long i = 0; i < sizeof(uint64_t); i++) {
@@ -71,8 +74,8 @@ void Init(FlinkCompactionFilter::StateType stype,
   SetTimestamp(time, timestamp_offset);
   state_type = stype;
   value_type = vtype;
-  
-  filter.Configure(new FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, false, nullptr});
+
+  config_holder.Configure(FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, false, nullptr});
 }
 
 void InitList(CompactionFilter::ValueType vtype, bool first_elem_expired=false, size_t timestamp_offset = 0) {
@@ -82,12 +85,12 @@ void InitList(CompactionFilter::ValueType vtype, bool first_elem_expired=false, 
   state_type = LIST;
   value_type = vtype;
 
-  auto fixed_len_iter = new FlinkCompactionFilter::FixedListElementIter(LIST_ELEM_FIXED_LEN);
-  filter.Configure(new FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, false, fixed_len_iter});
+  auto fixed_len_iter_factory = new FlinkCompactionFilter::FixedListElementIterFactory(LIST_ELEM_FIXED_LEN);
+  config_holder.Configure(FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, false, fixed_len_iter_factory});
 }
 
 CompactionFilter::Decision decide(size_t data_size = sizeof(data)) {
-  filter.SetCurrentTimestamp(time);
+  config_holder.SetCurrentTimestamp(time);
   return filter.FilterV2(0, key, value_type, Slice(data, data_size), &new_list, &stub);
 }
 

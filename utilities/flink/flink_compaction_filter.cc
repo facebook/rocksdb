@@ -18,7 +18,9 @@ CompactionFilter::Decision FlinkCompactionFilter::FilterV2(
     int /*level*/, const Slice& key, ValueType value_type,
     const Slice& existing_value, std::string* new_value,
     std::string* /*skip_until*/) const {
-  const Config config = *(config_.load());
+  const Config config = config_holder_->GetConfig();
+  CreateListElementIterIfNull(config.list_element_iter_factory_);
+
   const char* data = existing_value.data();
 
   Debug(logger_.get(),
@@ -35,7 +37,7 @@ CompactionFilter::Decision FlinkCompactionFilter::FilterV2(
   const bool value_state = state_type == StateType::Value && value_type == ValueType::kValue;
   const bool list_entry = state_type == StateType::List && value_or_merge;
   const bool toDecide = value_state || list_entry;
-  const bool list_iter = list_entry && config.list_element_iter_ != nullptr;
+  const bool list_iter = list_entry && list_element_iter_;
 
   Decision decision = Decision::kKeep;
   if (!tooShortValue && toDecide) {
@@ -49,12 +51,12 @@ CompactionFilter::Decision FlinkCompactionFilter::FilterV2(
 
 CompactionFilter::Decision FlinkCompactionFilter::ListDecide(
         const Slice& existing_value, const Config& config, std::string* new_value) const {
-  config.list_element_iter_->SetListBytes(existing_value);
+  list_element_iter_->SetListBytes(existing_value);
   std::size_t offset = 0;
   while (offset < existing_value.size()) {
     Decision decision = Decide(existing_value.data(), config, offset + config.timestamp_offset_);
     if (decision != Decision::kKeep) {
-      offset = ListNextOffset(offset, config.list_element_iter_);
+      offset = ListNextOffset(offset);
       if (offset >= JAVA_MAX_SIZE) {
         return Decision::kKeep;
       }
@@ -71,7 +73,7 @@ CompactionFilter::Decision FlinkCompactionFilter::ListDecide(
   return Decision::kKeep;
 }
 
-std::size_t FlinkCompactionFilter::ListNextOffset(std::size_t offset, ListElementIter* list_element_iter_) const {
+std::size_t FlinkCompactionFilter::ListNextOffset(std::size_t offset) const {
   std::size_t new_offset = list_element_iter_->NextOffset(offset);
   if (new_offset >= JAVA_MAX_SIZE || new_offset < offset) {
     Error(logger_.get(), "Wrong next offset in list iterator: %d -> %d",
@@ -117,7 +119,7 @@ int64_t FlinkCompactionFilter::CurrentTimestamp(bool useSystemTime) const {
   if (useSystemTime) {
     current_timestamp = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
   } else {
-    current_timestamp = current_timestamp_;
+    current_timestamp = config_holder_->GetCurrentTimestamp();
   }
   return current_timestamp;
 }

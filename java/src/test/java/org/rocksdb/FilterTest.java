@@ -16,7 +16,7 @@ public class FilterTest {
 
   @Test
   public void filter() {
-    // new Bloom filter
+    // new Bloom filterFactory
     final BlockBasedTableConfig blockConfig = new BlockBasedTableConfig();
     try(final Options options = new Options()) {
 
