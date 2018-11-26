@@ -12,6 +12,7 @@
 #include <memory>
 #include <map>
 #include "db/column_family.h"
+#include "rocksdb/comparator.h"
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/random.h"
@@ -506,7 +507,14 @@ typedef std::map<std::string, std::string> KVMap;
 class KVIter : public Iterator {
  public:
   explicit KVIter(const KVMap* map) : map_(map), iter_(map_->end()) {}
-  virtual bool Valid() const { return iter_ != map_->end(); }
+  explicit KVIter(const KVMap* map, const Slice* iterate_upper_bound) : map_(map), iter_(map_->end()), iterate_upper_bound_(iterate_upper_bound) {}
+  virtual bool Valid() const {
+    if (iterate_upper_bound_ == nullptr) {
+      return iter_ != map_->end();
+    }
+    const Comparator* cmp = BytewiseComparator();
+    return cmp->Compare(key(), *iterate_upper_bound_) < 0;
+  }
   virtual void SeekToFirst() { iter_ = map_->begin(); }
   virtual void SeekToLast() {
     if (map_->empty()) {
@@ -536,6 +544,7 @@ class KVIter : public Iterator {
  private:
   const KVMap* const map_;
   KVMap::const_iterator iter_;
+  const Slice* iterate_upper_bound_ = nullptr;
 };
 
 void AssertIter(Iterator* iter, const std::string& key,
@@ -552,6 +561,15 @@ void AssertItersEqual(Iterator* iter1, Iterator* iter2) {
     ASSERT_EQ(iter1->key().ToString(), iter2->key().ToString());
     ASSERT_EQ(iter1->value().ToString(), iter2->value().ToString());
   }
+}
+
+std::string getRandomString(Random& rnd, int length) {
+  std::string s;
+  s.reserve(length);
+  for (int i = 0; i < length; i++) {
+    s += ('a' + rnd.Uniform(26));
+  }
+  return s;
 }
 }  // namespace
 
@@ -613,9 +631,12 @@ TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
       }
     }
 
+    Slice random_upper_bound(getRandomString(rnd, source_strings.size()));
+    ReadOptions read_options;
+    read_options.iterate_upper_bound = &random_upper_bound;
     std::unique_ptr<Iterator> iter(
-        batch.NewIteratorWithBase(&cf1, new KVIter(&map)));
-    std::unique_ptr<Iterator> result_iter(new KVIter(&merged_map));
+        batch.NewIteratorWithBase(read_options, &cf1, new KVIter(&map)));
+    std::unique_ptr<Iterator> result_iter(new KVIter(&merged_map, &random_upper_bound));
 
     bool is_valid = false;
     for (int i = 0; i < 128; i++) {
