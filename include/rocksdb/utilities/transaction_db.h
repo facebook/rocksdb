@@ -198,8 +198,10 @@ struct TransactionDBWriteOptimizations {
 
 struct KeyLockInfo {
   std::string key;
+  std::string key2; // Used when range locking is used
   std::vector<TransactionID> ids;
   bool exclusive;
+  bool has_key2 = false; // TRUE <=> key2 has a value
 };
 
 struct DeadlockInfo {

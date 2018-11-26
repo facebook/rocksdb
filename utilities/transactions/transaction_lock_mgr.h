@@ -76,74 +76,6 @@ class BaseLockMgr {
   virtual ~BaseLockMgr(){}
 };
 
-using namespace toku;
-
-
-/*
-  A lock manager that supports Range-based locking.
-*/
-class RangeLockMgr :
-  public BaseLockMgr, 
-  public RangeLockMgrControl 
-{
- public:
-  void AddColumnFamily(uint32_t column_family_id) override { /* do nothing */ }
-  void RemoveColumnFamily(uint32_t column_family_id) override { /* do nothing */ }
-
-  Status TryLock(PessimisticTransaction* txn, uint32_t column_family_id,
-                 const std::string& key, Env* env, bool exclusive) override ;
-
-  // Get a lock on a range
-  //  (TODO: this allows to acquire exclusive range locks although they are not
-  //  used ATM)
-  Status TryRangeLock(PessimisticTransaction* txn,
-                      uint32_t column_family_id,
-                      const rocksdb::Slice &start_key,
-                      const rocksdb::Slice &end_key,
-                      bool exclusive);
-  
-  void UnLock(const PessimisticTransaction* txn, const TransactionKeyMap* keys,
-              Env* env) override ;
-  /*
-    Same as above, but *keys is guaranteed to hold all the locks obtained by
-    the transaction.
-  */
-  void UnLockAll(const PessimisticTransaction* txn, const TransactionKeyMap* keys,
-              Env* env);
-  void UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
-              const std::string& key, Env* env) override ;
-
-  RangeLockMgr() 
-  {
-    ltm.create(on_create, on_destroy, on_escalate, NULL);
-    toku::comparator cmp;
-    cmp.create(toku_builtin_compare_fun, NULL);
-    DICTIONARY_ID dict_id = { .dictid = 1 };
-    lt= ltm.get_lt(dict_id, cmp , /* on_create_extra*/nullptr);
-
-  }
-
-  void KillLockWait(void *cdata);
-
-  int set_max_lock_memory(size_t max_lock_memory) override
-  {
-    return ltm.set_max_lock_memory(max_lock_memory);
-  }
-
-  uint64_t get_escalation_count() override;
-
- private:
-  toku::locktree_manager ltm;
-  toku::locktree *lt; // only one tree for now
-  
-  // Callbacks
-  static int  on_create(locktree *lt, void *extra) { return 0; /* no error */ }
-  static void on_destroy(locktree *lt) {}
-  static void on_escalate(TXNID txnid, const locktree *lt, 
-                          const range_buffer &buffer, void *extra) {}
-
-};
-
 
 class TransactionLockMgr {
  public:
@@ -246,6 +178,80 @@ class TransactionLockMgr {
   void DecrementWaitersImpl(const PessimisticTransaction* txn,
                             const autovector<TransactionID>& wait_ids);
 };
+
+
+using namespace toku;
+
+/*
+  A lock manager that supports Range-based locking.
+*/
+class RangeLockMgr :
+  public BaseLockMgr, 
+  public RangeLockMgrControl 
+{
+ public:
+  void AddColumnFamily(uint32_t column_family_id) override { /* do nothing */ }
+  void RemoveColumnFamily(uint32_t column_family_id) override { /* do nothing */ }
+
+  Status TryLock(PessimisticTransaction* txn, uint32_t column_family_id,
+                 const std::string& key, Env* env, bool exclusive) override ;
+
+  // Get a lock on a range
+  //  (TODO: this allows to acquire exclusive range locks although they are not
+  //  used ATM)
+  Status TryRangeLock(PessimisticTransaction* txn,
+                      uint32_t column_family_id,
+                      const rocksdb::Slice &start_key,
+                      const rocksdb::Slice &end_key,
+                      bool exclusive);
+  
+  void UnLock(const PessimisticTransaction* txn, const TransactionKeyMap* keys,
+              Env* env) override ;
+  /*
+    Same as above, but *keys is guaranteed to hold all the locks obtained by
+    the transaction.
+  */
+  void UnLockAll(const PessimisticTransaction* txn, const TransactionKeyMap* keys,
+              Env* env);
+  void UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
+              const std::string& key, Env* env) override ;
+
+  RangeLockMgr(TransactionDB* txn_db) : my_txn_db(txn_db)
+  {
+    ltm.create(on_create, on_destroy, on_escalate, NULL);
+    toku::comparator cmp;
+    cmp.create(toku_builtin_compare_fun, NULL);
+    DICTIONARY_ID dict_id = { .dictid = 1 };
+    lt= ltm.get_lt(dict_id, cmp , /* on_create_extra*/nullptr);
+
+  }
+
+  void KillLockWait(void *cdata);
+
+  int set_max_lock_memory(size_t max_lock_memory) override
+  {
+    return ltm.set_max_lock_memory(max_lock_memory);
+  }
+
+  uint64_t get_escalation_count() override;
+
+  TransactionLockMgr::LockStatusData GetLockStatusData();
+
+ private:
+  toku::locktree_manager ltm;
+  toku::locktree *lt; // only one tree for now
+
+  TransactionDB* my_txn_db;
+  
+  // Callbacks
+  static int  on_create(locktree *lt, void *extra) { return 0; /* no error */ }
+  static void on_destroy(locktree *lt) {}
+  static void on_escalate(TXNID txnid, const locktree *lt, 
+                          const range_buffer &buffer, void *extra) {}
+
+};
+
+
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

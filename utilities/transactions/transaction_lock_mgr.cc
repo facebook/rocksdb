@@ -837,6 +837,43 @@ void TransactionLockMgr::UnLock(const PessimisticTransaction* txn,
   }
 }
 
+struct LOCK_PRINT_CONTEXT {
+  TransactionLockMgr::LockStatusData *data;
+  // this will not be needed when locks are per-column-family:
+  uint32_t cfh_id;
+};
+
+static 
+void push_into_lock_status_data(void* param, const DBT *left, 
+                                const DBT *right, TXNID txnid)
+{
+  struct LOCK_PRINT_CONTEXT *ctx= (LOCK_PRINT_CONTEXT*)param;
+  struct KeyLockInfo info;
+
+  info.key.append((const char*)left->data, (size_t)left->size);
+  info.exclusive= true;
+
+  if (!(left->size == right->size && 
+        !memcmp(left->data, right->data, left->size)))
+  {
+    // not a single-point lock 
+    info.has_key2= true;
+    info.key2.append((const char*)right->data, right->size);
+  }
+
+  info.ids.push_back(txnid);
+  ctx->data->insert({ctx->cfh_id, info});
+}
+
+
+TransactionLockMgr::LockStatusData RangeLockMgr::GetLockStatusData() {
+  TransactionLockMgr::LockStatusData data;
+  LOCK_PRINT_CONTEXT ctx = {&data, GetColumnFamilyID(my_txn_db->DefaultColumnFamily()) };
+  lt->dump_locks((void*)&ctx, push_into_lock_status_data);
+  return data;
+}
+
+
 TransactionLockMgr::LockStatusData TransactionLockMgr::GetLockStatusData() {
   LockStatusData data;
   // Lock order here is important. The correct order is lock_map_mutex_, then

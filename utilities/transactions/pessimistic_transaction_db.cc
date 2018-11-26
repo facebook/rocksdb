@@ -36,7 +36,8 @@ PessimisticTransactionDB::PessimisticTransactionDB(
                 txn_db_options_.custom_mutex_factory
                     ? txn_db_options_.custom_mutex_factory
                     : std::shared_ptr<TransactionDBMutexFactory>(
-                          new TransactionDBMutexFactoryImpl())) {
+                          new TransactionDBMutexFactoryImpl())),
+      range_lock_mgr_(this) {
   assert(db_impl_ != nullptr);
   info_log_ = db_impl_->GetDBOptions().info_log;
 }
@@ -67,7 +68,8 @@ PessimisticTransactionDB::PessimisticTransactionDB(
                 txn_db_options_.custom_mutex_factory
                     ? txn_db_options_.custom_mutex_factory
                     : std::shared_ptr<TransactionDBMutexFactory>(
-                          new TransactionDBMutexFactoryImpl())) {
+                          new TransactionDBMutexFactoryImpl())),
+      range_lock_mgr_(this) {
   assert(db_impl_ != nullptr);
 }
 
@@ -629,7 +631,10 @@ void PessimisticTransactionDB::GetAllPreparedTransactions(
 
 TransactionLockMgr::LockStatusData
 PessimisticTransactionDB::GetLockStatusData() {
-  return lock_mgr_.GetLockStatusData();
+  if (use_range_locking)
+    return range_lock_mgr_.GetLockStatusData();
+  else
+    return lock_mgr_.GetLockStatusData();
 }
 
 std::vector<DeadlockPath> PessimisticTransactionDB::GetDeadlockInfoBuffer() {
