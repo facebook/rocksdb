@@ -24,6 +24,7 @@
 #include "db/db_impl.h"
 #include "db/internal_stats.h"
 #include "db/job_context.h"
+#include "db/range_del_aggregator_v2.h"
 #include "db/table_properties_collector.h"
 #include "db/version_set.h"
 #include "db/write_controller.h"
@@ -950,9 +951,8 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   }
   super_version->imm->AddRangeTombstoneIterators(read_opts,
                                                  &memtable_range_del_iters);
-  RangeDelAggregator range_del_agg(internal_comparator_, {} /* snapshots */,
-                                   false /* collapse_deletions */);
-  Status status;
+  RangeDelAggregatorV2 range_del_agg(&internal_comparator_,
+                                     kMaxSequenceNumber /* upper_bound */);
   {
     std::unique_ptr<InternalIterator> memtable_range_del_iter(
         NewMergingIterator(&internal_comparator_,
@@ -960,8 +960,9 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
                                ? nullptr
                                : &memtable_range_del_iters[0],
                            static_cast<int>(memtable_range_del_iters.size())));
-    status = range_del_agg.AddTombstones(std::move(memtable_range_del_iter));
+    range_del_agg.AddUnfragmentedTombstones(std::move(memtable_range_del_iter));
   }
+  Status status;
   for (size_t i = 0; i < ranges.size() && status.ok() && !*overlap; ++i) {
     auto* vstorage = super_version->current->storage_info();
     auto* ucmp = vstorage->InternalComparator()->user_comparator();

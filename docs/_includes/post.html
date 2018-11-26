@@ -1,18 +1,23 @@
 <div class="post">
-  {% assign author = site.data.authors[page.author] %}
   <header class="post-header">
-    {% if author.fbid %}
-    <div class="authorPhoto">
-      <img src="http://graph.facebook.com/{{ author.fbid }}/picture/" alt="{{ author.fullname }}" title="{{ author.fullname }}" />
+    <div style="display: flex; align-content: center; align-items: center; justify-content: center">
+    {% for author_idx in page.author %}
+      <div style="padding: 16px; display: inline-block; text-align: center">
+        {% assign author = site.data.authors[author_idx] %}
+        {% if author.fbid %}
+        <div class="authorPhoto">
+          <img src="http://graph.facebook.com/{{ author.fbid }}/picture/" alt="{{ author.fullname }}" title="{{ author.fullname }}" />
+        </div>
+        {% endif %}
+        {% if author.full_name %}
+        <p class="post-authorName">{{ author.full_name }}</p>
+        {% endif %}
+      </div>
+    {% endfor %}
     </div>
-    {% endif %}
-    {% if author.full_name %}
-    <p class="post-authorName">{{ author.full_name }}</p>
-    {% endif %}
     <h1 class="post-title">{% if include.truncate %}<a href="{{ page.url | absolute_url }}">{{ page.title }}</a>{% else %}{{ page.title }}{% endif %}</h1>
     <p class="post-meta">Posted {{ page.date | date: '%B %d, %Y' }}{% if page.meta %} • {{ page.meta }}{% endif %}</p>
   </header>
-
   <article class="post-content">
   {% if include.truncate %}
     {% if page.content contains '<!--truncate-->' %}

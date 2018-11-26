@@ -158,15 +158,12 @@ bool MemTableListVersion::GetFromList(
 
 Status MemTableListVersion::AddRangeTombstoneIterators(
     const ReadOptions& read_opts, Arena* /*arena*/,
-    RangeDelAggregator* range_del_agg) {
+    RangeDelAggregatorV2* range_del_agg) {
   assert(range_del_agg != nullptr);
   for (auto& m : memlist_) {
     std::unique_ptr<InternalIterator> range_del_iter(
         m->NewRangeTombstoneIterator(read_opts));
-    Status s = range_del_agg->AddTombstones(std::move(range_del_iter));
-    if (!s.ok()) {
-      return s;
-    }
+    range_del_agg->AddUnfragmentedTombstones(std::move(range_del_iter));
   }
   return Status::OK();
 }

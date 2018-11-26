@@ -1032,7 +1032,7 @@ bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
 }
 
 InternalIterator* DBImpl::NewInternalIterator(
-    Arena* arena, RangeDelAggregator* range_del_agg,
+    Arena* arena, RangeDelAggregatorV2* range_del_agg,
     ColumnFamilyHandle* column_family) {
   ColumnFamilyData* cfd;
   if (column_family == nullptr) {
@@ -1152,7 +1152,7 @@ static void CleanupIteratorState(void* arg1, void* /*arg2*/) {
 InternalIterator* DBImpl::NewInternalIterator(
     const ReadOptions& read_options, ColumnFamilyData* cfd,
     SuperVersion* super_version, Arena* arena,
-    RangeDelAggregator* range_del_agg) {
+    RangeDelAggregatorV2* range_del_agg) {
   InternalIterator* internal_iter;
   assert(arena != nullptr);
   assert(range_del_agg != nullptr);
@@ -1169,7 +1169,7 @@ InternalIterator* DBImpl::NewInternalIterator(
   if (!read_options.ignore_range_deletions) {
     range_del_iter.reset(
         super_version->mem->NewRangeTombstoneIterator(read_options));
-    s = range_del_agg->AddTombstones(std::move(range_del_iter));
+    range_del_agg->AddUnfragmentedTombstones(std::move(range_del_iter));
   }
   // Collect all needed child iterators for immutable memtables
   if (s.ok()) {

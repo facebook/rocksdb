@@ -24,6 +24,7 @@
 * Fix the bug where user comparator was sometimes fed with InternalKey instead of the user key. The bug manifests when during GenerateBottommostFiles.
 * Fix a bug in WritePrepared txns where if the number of old snapshots goes beyond the snapshot cache size (128 default) the rest will not be checked when evicting a commit entry from the commit cache.
 * Fixed Get correctness bug in the presence of range tombstones where merge operands covered by a range tombstone always result in NotFound.
+* Start populating `NO_FILE_CLOSES` ticker statistic, which was always zero previously.
 
 ## 5.17.0 (10/05/2018)
 ### Public API Change

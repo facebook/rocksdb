@@ -42,8 +42,10 @@ static void UnrefEntry(void* arg1, void* arg2) {
   cache->Release(h);
 }
 
-static void DeleteTableReader(void* arg1, void* /*arg2*/) {
+static void DeleteTableReader(void* arg1, void* arg2) {
   TableReader* table_reader = reinterpret_cast<TableReader*>(arg1);
+  Statistics* stats = reinterpret_cast<Statistics*>(arg2);
+  RecordTick(stats, NO_FILE_CLOSES);
   delete table_reader;
 }
 
@@ -183,7 +185,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
 InternalIterator* TableCache::NewIterator(
     const ReadOptions& options, const EnvOptions& env_options,
     const InternalKeyComparator& icomparator, const FileMetaData& file_meta,
-    RangeDelAggregator* range_del_agg, const SliceTransform* prefix_extractor,
+    RangeDelAggregatorV2* range_del_agg, const SliceTransform* prefix_extractor,
     TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
     bool for_compaction, Arena* arena, bool skip_filters, int level,
     const InternalKey* smallest_compaction_key,
@@ -249,7 +251,8 @@ InternalIterator* TableCache::NewIterator(
     }
     if (create_new_table_reader) {
       assert(handle == nullptr);
-      result->RegisterCleanup(&DeleteTableReader, table_reader, nullptr);
+      result->RegisterCleanup(&DeleteTableReader, table_reader,
+                              ioptions_.statistics);
     } else if (handle != nullptr) {
       result->RegisterCleanup(&UnrefEntry, cache_, handle);
       handle = nullptr;  // prevent from releasing below
@@ -264,8 +267,9 @@ InternalIterator* TableCache::NewIterator(
   }
   if (s.ok() && range_del_agg != nullptr && !options.ignore_range_deletions) {
     if (range_del_agg->AddFile(fd.GetNumber())) {
-      std::unique_ptr<InternalIterator> range_del_iter(
-          table_reader->NewRangeTombstoneIterator(options));
+      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+          static_cast<FragmentedRangeTombstoneIterator*>(
+              table_reader->NewRangeTombstoneIterator(options)));
       if (range_del_iter != nullptr) {
         s = range_del_iter->status();
       }
@@ -278,8 +282,8 @@ InternalIterator* TableCache::NewIterator(
         if (largest_compaction_key != nullptr) {
           largest = largest_compaction_key;
         }
-        s = range_del_agg->AddTombstones(std::move(range_del_iter), smallest,
-                                         largest);
+        range_del_agg->AddTombstones(std::move(range_del_iter), smallest,
+                                     largest);
       }
     }
   }
