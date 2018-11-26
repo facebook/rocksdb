@@ -122,7 +122,8 @@ class ForwardRangeDelIterator {
   void PushIter(TruncatedRangeDelIterator* iter,
                 const ParsedInternalKey& parsed) {
     if (!iter->Valid()) {
-      PushConsumedIter(iter);
+      // The iterator has been fully consumed, so we don't need to add it to
+      // either of the heaps.
     } else if (icmp_->Compare(parsed, iter->start_key()) < 0) {
       PushInactiveIter(iter);
     } else {
@@ -153,17 +154,12 @@ class ForwardRangeDelIterator {
     return iter;
   }
 
-  void PushConsumedIter(TruncatedRangeDelIterator* iter) {
-    consumed_iters_.push_back(iter);
-  }
-
   const InternalKeyComparator* icmp_;
   const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters_;
   size_t unused_idx_;
   ActiveSeqSet active_seqnums_;
   BinaryHeap<ActiveSeqSet::const_iterator, EndKeyMinComparator> active_iters_;
   BinaryHeap<TruncatedRangeDelIterator*, StartKeyMinComparator> inactive_iters_;
-  std::vector<TruncatedRangeDelIterator*> consumed_iters_;
 };
 
 class ReverseRangeDelIterator {
@@ -203,7 +199,8 @@ class ReverseRangeDelIterator {
   void PushIter(TruncatedRangeDelIterator* iter,
                 const ParsedInternalKey& parsed) {
     if (!iter->Valid()) {
-      PushConsumedIter(iter);
+      // The iterator has been fully consumed, so we don't need to add it to
+      // either of the heaps.
     } else if (icmp_->Compare(iter->end_key(), parsed) <= 0) {
       PushInactiveIter(iter);
     } else {
@@ -234,17 +231,12 @@ class ReverseRangeDelIterator {
     return iter;
   }
 
-  void PushConsumedIter(TruncatedRangeDelIterator* iter) {
-    consumed_iters_.push_back(iter);
-  }
-
   const InternalKeyComparator* icmp_;
   const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters_;
   size_t unused_idx_;
   ActiveSeqSet active_seqnums_;
   BinaryHeap<ActiveSeqSet::const_iterator, StartKeyMaxComparator> active_iters_;
   BinaryHeap<TruncatedRangeDelIterator*, EndKeyMaxComparator> inactive_iters_;
-  std::vector<TruncatedRangeDelIterator*> consumed_iters_;
 };
 
 class RangeDelAggregatorV2 {

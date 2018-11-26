@@ -96,6 +96,10 @@ class BinaryHeap {
     return data_.empty();
   }
 
+  size_t size() const {
+    return data_.size();
+  }
+
   void reset_root_cmp_cache() { root_cmp_cache_ = port::kMaxSizet; }
 
  private:

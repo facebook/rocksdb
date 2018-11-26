@@ -122,7 +122,7 @@ bool ForwardRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
     auto& iter = *it;
     iter->Seek(parsed.user_key);
     PushIter(iter.get(), parsed);
-    assert(active_iters_.empty() || !active_seqnums_.empty());
+    assert(active_iters_.size() == active_seqnums_.size());
   }
 
   // Move active iterators that end before parsed.
@@ -133,7 +133,7 @@ bool ForwardRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
       iter->Next();
     } while (iter->Valid() && icmp_->Compare(iter->end_key(), parsed) <= 0);
     PushIter(iter, parsed);
-    assert(active_iters_.empty() || !active_seqnums_.empty());
+    assert(active_iters_.size() == active_seqnums_.size());
   }
 
   // Move inactive iterators that start before parsed.
@@ -144,7 +144,7 @@ bool ForwardRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
       iter->Next();
     }
     PushIter(iter, parsed);
-    assert(active_iters_.empty() || !active_seqnums_.empty());
+    assert(active_iters_.size() == active_seqnums_.size());
   }
 
   return active_seqnums_.empty()
@@ -157,7 +157,6 @@ void ForwardRangeDelIterator::Invalidate() {
   active_iters_.clear();
   active_seqnums_.clear();
   inactive_iters_.clear();
-  consumed_iters_.clear();
 }
 
 ReverseRangeDelIterator::ReverseRangeDelIterator(
@@ -178,7 +177,7 @@ bool ReverseRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
     auto& iter = *it;
     iter->SeekForPrev(parsed.user_key);
     PushIter(iter.get(), parsed);
-    assert(active_iters_.empty() || !active_seqnums_.empty());
+    assert(active_iters_.size() == active_seqnums_.size());
   }
 
   // Move active iterators that start after parsed.
@@ -189,7 +188,7 @@ bool ReverseRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
       iter->Prev();
     } while (iter->Valid() && icmp_->Compare(parsed, iter->start_key()) < 0);
     PushIter(iter, parsed);
-    assert(active_iters_.empty() || !active_seqnums_.empty());
+    assert(active_iters_.size() == active_seqnums_.size());
   }
 
   // Move inactive iterators that end after parsed.
@@ -200,7 +199,7 @@ bool ReverseRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
       iter->Prev();
     }
     PushIter(iter, parsed);
-    assert(active_iters_.empty() || !active_seqnums_.empty());
+    assert(active_iters_.size() == active_seqnums_.size());
   }
 
   return active_seqnums_.empty()
@@ -213,7 +212,6 @@ void ReverseRangeDelIterator::Invalidate() {
   active_iters_.clear();
   active_seqnums_.clear();
   inactive_iters_.clear();
-  consumed_iters_.clear();
 }
 
 RangeDelAggregatorV2::RangeDelAggregatorV2(const InternalKeyComparator* icmp,
@@ -259,20 +257,7 @@ bool RangeDelAggregatorV2::ShouldDelete(const ParsedInternalKey& parsed,
     return wrapped_range_del_agg->ShouldDelete(parsed, mode);
   }
 
-  assert(mode != RangeDelPositioningMode::kFullScan &&
-         mode != RangeDelPositioningMode::kBinarySearch);
-
   switch (mode) {
-    case RangeDelPositioningMode::kBinarySearch:
-      InvalidateRangeDelMapPositions();
-      for (auto& iter : iters_) {
-        iter->Seek(parsed.user_key);
-        if (iter->Valid() && icmp_->Compare(iter->start_key(), parsed) <= 0 &&
-            iter->seq() > parsed.sequence) {
-          return true;
-        }
-      }
-      return false;
     case RangeDelPositioningMode::kForwardTraversal:
       reverse_iter_.Invalidate();
       return forward_iter_.ShouldDelete(parsed);
