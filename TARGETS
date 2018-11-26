@@ -202,6 +202,7 @@ cpp_library(
         "table/plain_table_index.cc",
         "table/plain_table_key_coding.cc",
         "table/plain_table_reader.cc",
+        "table/sst_file_reader.cc",
         "table/sst_file_writer.cc",
         "table/table_properties.cc",
         "table/two_level_iterator.cc",
@@ -1097,6 +1098,11 @@ ROCKS_TESTS = [
         "write_unprepared_transaction_test",
         "utilities/transactions/write_unprepared_transaction_test.cc",
         "parallel",
+    ],
+    [
+        "sst_file_reader_test",
+        "table/sst_file_reader_test.cc",
+        "serial",
     ],
 ]
 
