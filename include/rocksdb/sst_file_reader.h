@@ -25,11 +25,9 @@ class SstFileReader {
   // Prepares to read from the file located at "file_path".
   Status Open(const std::string& file_path);
 
-  // Gets a value with the key from the table.
-  Status Get(const ReadOptions& options,
-             const Slice& key, PinnableSlice* value);
-
   // Returns a new iterator over the table contents.
+  // Most read options provide the same control as we read from DB.
+  // If "snapshot" is nullptr, the iterator returns only the latest keys.
   Iterator* NewIterator(const ReadOptions& options);
 
   std::shared_ptr<const TableProperties> GetTableProperties() const;

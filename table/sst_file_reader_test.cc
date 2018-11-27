@@ -5,35 +5,42 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <inttypes.h>
+
 #include "rocksdb/sst_file_reader.h"
 #include "rocksdb/sst_file_writer.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
+#include "utilities/merge_operators.h"
 
 namespace rocksdb {
+
+std::string EncodeAsString(uint64_t v) {
+  char buf[16];
+  snprintf(buf, sizeof(buf), "%08" PRIu64, v);
+  return std::string(buf);
+}
+
+std::string EncodeAsUint64(uint64_t v) {
+  std::string dst;
+  PutFixed64(&dst, v);
+  return dst;
+}
 
 class SstFileReaderTest : public testing::Test {
  public:
   SstFileReaderTest() {
-    options_.comparator = test::Uint64Comparator();
+    options_.merge_operator = MergeOperators::CreateUInt64AddOperator();
     sst_name_ = test::PerThreadDBPath("sst_file");
   }
 
-  std::string EncodeUint64(uint64_t v) {
-    return std::string((char*) &v, sizeof(v));
-  }
-
-  void CreateFileAndCheck() {
-    std::vector<std::string> keys;
-    const uint64_t kNumPuts = 100;
-    for (uint64_t i = 0; i < kNumPuts; i++) {
-      keys.emplace_back(EncodeUint64(i));
-    }
-
+  void CreateFileAndCheck(const std::vector<std::string>& keys) {
     SstFileWriter writer(soptions_, options_);
     ASSERT_OK(writer.Open(sst_name_));
-    for (auto& key : keys) {
-      ASSERT_OK(writer.Put(key, key));
+    for (size_t i = 0; i + 2 < keys.size(); i += 3) {
+      ASSERT_OK(writer.Put(keys[i], keys[i]));
+      ASSERT_OK(writer.Merge(keys[i+1], EncodeAsUint64(i+1)));
+      ASSERT_OK(writer.Delete(keys[i+2]));
     }
     ASSERT_OK(writer.Finish());
 
@@ -43,26 +50,42 @@ class SstFileReaderTest : public testing::Test {
     ASSERT_OK(reader.VerifyChecksum());
     std::unique_ptr<Iterator> iter(reader.NewIterator(ropts));
     iter->SeekToFirst();
-    for (auto& key : keys) {
-      PinnableSlice value;
-      ASSERT_OK(reader.Get(ropts, key, &value));
-      ASSERT_EQ(value.compare(key), 0);
+    for (size_t i = 0; i + 2 < keys.size(); i += 3) {
       ASSERT_TRUE(iter->Valid());
-      ASSERT_EQ(iter->key().compare(key), 0);
-      ASSERT_EQ(iter->value().compare(key), 0);
+      ASSERT_EQ(iter->key().compare(keys[i]), 0);
+      ASSERT_EQ(iter->value().compare(keys[i]), 0);
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key().compare(keys[i+1]), 0);
+      ASSERT_EQ(iter->value().compare(EncodeAsUint64(i+1)), 0);
       iter->Next();
     }
     ASSERT_FALSE(iter->Valid());
   }
 
- private:
+ protected:
   Options options_;
   EnvOptions soptions_;
   std::string sst_name_;
 };
 
+const uint64_t kNumKeys = 100;
+
 TEST_F(SstFileReaderTest, Basic) {
-  CreateFileAndCheck();
+  std::vector<std::string> keys;
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    keys.emplace_back(EncodeAsString(i));
+  }
+  CreateFileAndCheck(keys);
+}
+
+TEST_F(SstFileReaderTest, Uint64Comparator) {
+  options_.comparator = test::Uint64Comparator();
+  std::vector<std::string> keys;
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    keys.emplace_back(EncodeAsUint64(i));
+  }
+  CreateFileAndCheck(keys);
 }
 
 }  // namespace rocksdb

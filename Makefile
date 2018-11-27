@@ -555,6 +555,7 @@ TESTS = \
 	repeatable_thread_test \
 	range_tombstone_fragmenter_test \
 	range_del_aggregator_v2_test \
+	sst_file_reader_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \

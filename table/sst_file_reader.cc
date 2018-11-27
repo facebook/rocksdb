@@ -58,25 +58,6 @@ Status SstFileReader::Open(const std::string& file_path) {
   return s;
 }
 
-Status SstFileReader::Get(const ReadOptions& options,
-                          const Slice& key, PinnableSlice* value) {
-  auto r = rep_.get();
-  auto sequence = options.snapshot != nullptr ?
-                  options.snapshot->GetSequenceNumber() :
-                  kMaxSequenceNumber;
-  LookupKey lkey(key, sequence);
-  GetContext get_context(
-      r->ioptions.user_comparator, r->ioptions.merge_operator,
-      nullptr /* logger */, nullptr /* statistics */,
-      GetContext::kNotFound, lkey.user_key(), value,
-      nullptr /* value_found */,
-      nullptr /* merge_context */,
-      nullptr /* max_covering_tombstone_sequence */,
-      r->options.env);
-  return r->table_reader->Get(options, lkey.internal_key(), &get_context,
-                              r->moptions.prefix_extractor.get());
-}
-
 Iterator* SstFileReader::NewIterator(const ReadOptions& options) {
   auto r = rep_.get();
   auto sequence = options.snapshot != nullptr ?
