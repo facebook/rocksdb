@@ -31,11 +31,11 @@ void DecodeCFAndKey(std::string& buffer, uint32_t* cf_id, Slice* key) {
 }
 }  // namespace
 
-Tracer::Tracer(Env* env, std::unique_ptr<TraceWriter>&& trace_writer,
-               const TraceOptions& trace_options)
+Tracer::Tracer(Env* env, const TraceOptions& trace_options,
+               std::unique_ptr<TraceWriter>&& trace_writer)
     : env_(env),
-      trace_writer_(std::move(trace_writer)),
-      trace_options_(trace_options) {
+      trace_options_(trace_options),
+      trace_writer_(std::move(trace_writer)) {
   WriteHeader();
 }
 

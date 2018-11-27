@@ -1341,7 +1341,7 @@ struct IngestExternalFileOptions {
 struct TraceOptions {
   // To avoid the trace file size grows large than the storage space,
   // user can set the max trace file size in Bytes. Default is 64GB
-  uint64_t max_trace_file_size = 64ULL * 1024 * 1024 * 1024;
+  uint64_t max_trace_file_size = uint64_t{64} * 1024 * 1024 * 1024;
 };
 
 }  // namespace rocksdb

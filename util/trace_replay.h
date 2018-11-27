@@ -56,8 +56,8 @@ struct Trace {
 // Trace RocksDB operations using a TraceWriter.
 class Tracer {
  public:
-  Tracer(Env* env, std::unique_ptr<TraceWriter>&& trace_writer,
-         const TraceOptions& trace_options);
+  Tracer(Env* env, const TraceOptions& trace_options,
+         std::unique_ptr<TraceWriter>&& trace_writer);
   ~Tracer();
 
   Status Write(WriteBatch* write_batch);
@@ -74,8 +74,8 @@ class Tracer {
   Status WriteTrace(const Trace& trace);
 
   Env* env_;
-  unique_ptr<TraceWriter> trace_writer_;
   TraceOptions trace_options_;
+  std::unique_ptr<TraceWriter> trace_writer_;
 };
 
 // Replay RocksDB operations from a trace.
