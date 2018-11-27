@@ -98,11 +98,11 @@ public:
     }
 
     Config GetConfig() {
-        return config_;
+        return config_.load();
     }
 
     std::int64_t GetCurrentTimestamp() {
-      return current_timestamp_;
+      return current_timestamp_.load();
     }
 
   private:
