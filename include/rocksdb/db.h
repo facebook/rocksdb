@@ -287,8 +287,7 @@ class DB {
   // a non-OK status on error. It is not an error if no keys exist in the range
   // ["begin_key", "end_key").
   //
-  // As of RocksDB 5.19, this feature will be usable in production, with the
-  // following caveats:
+  // This feature is now usable in production, with the following caveats:
   // 1) Accumulating many range tombstones in the memtable will degrade read
   // performance; this can be avoided by manually flushing occasionally.
   // 2) Limiting the maximum number of open files in the presence of range
