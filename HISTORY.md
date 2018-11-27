@@ -2,6 +2,7 @@
 ## Unreleased
 ### New Features
 * Introduced `Memoryllocator`, which lets the user specify custom allocator for memory in block cache.
+* Improved `DeleteRange` to prevent read performance degradation. The feature is no longer marked as experimental.
 ### Public API Change
 * `NO_ITERATORS` is divided into two counters `NO_ITERATOR_CREATED` and `NO_ITERATOR_DELETE`. Both of them are only increasing now, just as other counters.
 ### Bug Fixes
