@@ -414,7 +414,7 @@ enum Histograms : uint32_t {
   // Time spent flushing memtable to disk
   FLUSH_TIME,
 
-  HISTOGRAM_ENUM_MAX,  // TODO(ldemailly): enforce HistogramsNameMap match
+  HISTOGRAM_ENUM_MAX,
 };
 
 extern const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap;
