@@ -104,9 +104,122 @@ void TruncatedRangeDelIterator::SeekToFirst() { iter_->SeekToTopFirst(); }
 
 void TruncatedRangeDelIterator::SeekToLast() { iter_->SeekToTopLast(); }
 
+ForwardRangeDelIterator::ForwardRangeDelIterator(
+    const InternalKeyComparator* icmp,
+    const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters)
+    : icmp_(icmp),
+      iters_(iters),
+      unused_idx_(0),
+      active_seqnums_(SeqMaxComparator()),
+      active_iters_(EndKeyMinComparator(icmp)),
+      inactive_iters_(StartKeyMinComparator(icmp)) {}
+
+bool ForwardRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
+  assert(iters_ != nullptr);
+  // Pick up previously unseen iterators.
+  for (auto it = std::next(iters_->begin(), unused_idx_); it != iters_->end();
+       ++it, ++unused_idx_) {
+    auto& iter = *it;
+    iter->Seek(parsed.user_key);
+    PushIter(iter.get(), parsed);
+    assert(active_iters_.size() == active_seqnums_.size());
+  }
+
+  // Move active iterators that end before parsed.
+  while (!active_iters_.empty() &&
+         icmp_->Compare((*active_iters_.top())->end_key(), parsed) <= 0) {
+    TruncatedRangeDelIterator* iter = PopActiveIter();
+    do {
+      iter->Next();
+    } while (iter->Valid() && icmp_->Compare(iter->end_key(), parsed) <= 0);
+    PushIter(iter, parsed);
+    assert(active_iters_.size() == active_seqnums_.size());
+  }
+
+  // Move inactive iterators that start before parsed.
+  while (!inactive_iters_.empty() &&
+         icmp_->Compare(inactive_iters_.top()->start_key(), parsed) <= 0) {
+    TruncatedRangeDelIterator* iter = PopInactiveIter();
+    while (iter->Valid() && icmp_->Compare(iter->end_key(), parsed) <= 0) {
+      iter->Next();
+    }
+    PushIter(iter, parsed);
+    assert(active_iters_.size() == active_seqnums_.size());
+  }
+
+  return active_seqnums_.empty()
+             ? false
+             : (*active_seqnums_.begin())->seq() > parsed.sequence;
+}
+
+void ForwardRangeDelIterator::Invalidate() {
+  unused_idx_ = 0;
+  active_iters_.clear();
+  active_seqnums_.clear();
+  inactive_iters_.clear();
+}
+
+ReverseRangeDelIterator::ReverseRangeDelIterator(
+    const InternalKeyComparator* icmp,
+    const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters)
+    : icmp_(icmp),
+      iters_(iters),
+      unused_idx_(0),
+      active_seqnums_(SeqMaxComparator()),
+      active_iters_(StartKeyMaxComparator(icmp)),
+      inactive_iters_(EndKeyMaxComparator(icmp)) {}
+
+bool ReverseRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
+  assert(iters_ != nullptr);
+  // Pick up previously unseen iterators.
+  for (auto it = std::next(iters_->begin(), unused_idx_); it != iters_->end();
+       ++it, ++unused_idx_) {
+    auto& iter = *it;
+    iter->SeekForPrev(parsed.user_key);
+    PushIter(iter.get(), parsed);
+    assert(active_iters_.size() == active_seqnums_.size());
+  }
+
+  // Move active iterators that start after parsed.
+  while (!active_iters_.empty() &&
+         icmp_->Compare(parsed, (*active_iters_.top())->start_key()) < 0) {
+    TruncatedRangeDelIterator* iter = PopActiveIter();
+    do {
+      iter->Prev();
+    } while (iter->Valid() && icmp_->Compare(parsed, iter->start_key()) < 0);
+    PushIter(iter, parsed);
+    assert(active_iters_.size() == active_seqnums_.size());
+  }
+
+  // Move inactive iterators that end after parsed.
+  while (!inactive_iters_.empty() &&
+         icmp_->Compare(parsed, inactive_iters_.top()->end_key()) < 0) {
+    TruncatedRangeDelIterator* iter = PopInactiveIter();
+    while (iter->Valid() && icmp_->Compare(parsed, iter->start_key()) < 0) {
+      iter->Prev();
+    }
+    PushIter(iter, parsed);
+    assert(active_iters_.size() == active_seqnums_.size());
+  }
+
+  return active_seqnums_.empty()
+             ? false
+             : (*active_seqnums_.begin())->seq() > parsed.sequence;
+}
+
+void ReverseRangeDelIterator::Invalidate() {
+  unused_idx_ = 0;
+  active_iters_.clear();
+  active_seqnums_.clear();
+  inactive_iters_.clear();
+}
+
 RangeDelAggregatorV2::RangeDelAggregatorV2(const InternalKeyComparator* icmp,
                                            SequenceNumber upper_bound)
-    : icmp_(icmp), upper_bound_(upper_bound) {}
+    : icmp_(icmp),
+      upper_bound_(upper_bound),
+      forward_iter_(icmp, &iters_),
+      reverse_iter_(icmp, &iters_) {}
 
 void RangeDelAggregatorV2::AddTombstones(
     std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter,
@@ -143,20 +256,24 @@ bool RangeDelAggregatorV2::ShouldDelete(const ParsedInternalKey& parsed,
   if (wrapped_range_del_agg != nullptr) {
     return wrapped_range_del_agg->ShouldDelete(parsed, mode);
   }
-  // TODO: avoid re-seeking every call
-  for (auto& iter : iters_) {
-    iter->Seek(parsed.user_key);
-    if (iter->Valid() && icmp_->Compare(iter->start_key(), parsed) <= 0 &&
-        iter->seq() > parsed.sequence) {
-      return true;
-    }
+
+  switch (mode) {
+    case RangeDelPositioningMode::kForwardTraversal:
+      reverse_iter_.Invalidate();
+      return forward_iter_.ShouldDelete(parsed);
+    case RangeDelPositioningMode::kBackwardTraversal:
+      forward_iter_.Invalidate();
+      return reverse_iter_.ShouldDelete(parsed);
+    default:
+      assert(false);
+      return false;
   }
-  return false;
 }
 
 bool RangeDelAggregatorV2::IsRangeOverlapped(const Slice& start,
                                              const Slice& end) {
   assert(wrapped_range_del_agg == nullptr);
+  InvalidateRangeDelMapPositions();
 
   // Set the internal start/end keys so that:
   // - if start_ikey has the same user key and sequence number as the current

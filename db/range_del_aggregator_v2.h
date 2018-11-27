@@ -78,6 +78,167 @@ class TruncatedRangeDelIterator {
   std::list<ParsedInternalKey> pinned_bounds_;
 };
 
+struct SeqMaxComparator {
+  bool operator()(const TruncatedRangeDelIterator* a,
+                  const TruncatedRangeDelIterator* b) const {
+    return a->seq() > b->seq();
+  }
+};
+
+class ForwardRangeDelIterator {
+ public:
+  ForwardRangeDelIterator(
+      const InternalKeyComparator* icmp,
+      const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters);
+
+  bool ShouldDelete(const ParsedInternalKey& parsed);
+  void Invalidate();
+
+ private:
+  using ActiveSeqSet =
+      std::multiset<TruncatedRangeDelIterator*, SeqMaxComparator>;
+
+  struct StartKeyMinComparator {
+    explicit StartKeyMinComparator(const InternalKeyComparator* c) : icmp(c) {}
+
+    bool operator()(const TruncatedRangeDelIterator* a,
+                    const TruncatedRangeDelIterator* b) const {
+      return icmp->Compare(a->start_key(), b->start_key()) > 0;
+    }
+
+    const InternalKeyComparator* icmp;
+  };
+  struct EndKeyMinComparator {
+    explicit EndKeyMinComparator(const InternalKeyComparator* c) : icmp(c) {}
+
+    bool operator()(const ActiveSeqSet::const_iterator& a,
+                    const ActiveSeqSet::const_iterator& b) const {
+      return icmp->Compare((*a)->end_key(), (*b)->end_key()) > 0;
+    }
+
+    const InternalKeyComparator* icmp;
+  };
+
+  void PushIter(TruncatedRangeDelIterator* iter,
+                const ParsedInternalKey& parsed) {
+    if (!iter->Valid()) {
+      // The iterator has been fully consumed, so we don't need to add it to
+      // either of the heaps.
+    } else if (icmp_->Compare(parsed, iter->start_key()) < 0) {
+      PushInactiveIter(iter);
+    } else {
+      PushActiveIter(iter);
+    }
+  }
+
+  void PushActiveIter(TruncatedRangeDelIterator* iter) {
+    auto seq_pos = active_seqnums_.insert(iter);
+    active_iters_.push(seq_pos);
+  }
+
+  TruncatedRangeDelIterator* PopActiveIter() {
+    auto active_top = active_iters_.top();
+    auto iter = *active_top;
+    active_iters_.pop();
+    active_seqnums_.erase(active_top);
+    return iter;
+  }
+
+  void PushInactiveIter(TruncatedRangeDelIterator* iter) {
+    inactive_iters_.push(iter);
+  }
+
+  TruncatedRangeDelIterator* PopInactiveIter() {
+    auto* iter = inactive_iters_.top();
+    inactive_iters_.pop();
+    return iter;
+  }
+
+  const InternalKeyComparator* icmp_;
+  const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters_;
+  size_t unused_idx_;
+  ActiveSeqSet active_seqnums_;
+  BinaryHeap<ActiveSeqSet::const_iterator, EndKeyMinComparator> active_iters_;
+  BinaryHeap<TruncatedRangeDelIterator*, StartKeyMinComparator> inactive_iters_;
+};
+
+class ReverseRangeDelIterator {
+ public:
+  ReverseRangeDelIterator(
+      const InternalKeyComparator* icmp,
+      const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters);
+
+  bool ShouldDelete(const ParsedInternalKey& parsed);
+  void Invalidate();
+
+ private:
+  using ActiveSeqSet =
+      std::multiset<TruncatedRangeDelIterator*, SeqMaxComparator>;
+
+  struct EndKeyMaxComparator {
+    explicit EndKeyMaxComparator(const InternalKeyComparator* c) : icmp(c) {}
+
+    bool operator()(const TruncatedRangeDelIterator* a,
+                    const TruncatedRangeDelIterator* b) const {
+      return icmp->Compare(a->end_key(), b->end_key()) < 0;
+    }
+
+    const InternalKeyComparator* icmp;
+  };
+  struct StartKeyMaxComparator {
+    explicit StartKeyMaxComparator(const InternalKeyComparator* c) : icmp(c) {}
+
+    bool operator()(const ActiveSeqSet::const_iterator& a,
+                    const ActiveSeqSet::const_iterator& b) const {
+      return icmp->Compare((*a)->start_key(), (*b)->start_key()) < 0;
+    }
+
+    const InternalKeyComparator* icmp;
+  };
+
+  void PushIter(TruncatedRangeDelIterator* iter,
+                const ParsedInternalKey& parsed) {
+    if (!iter->Valid()) {
+      // The iterator has been fully consumed, so we don't need to add it to
+      // either of the heaps.
+    } else if (icmp_->Compare(iter->end_key(), parsed) <= 0) {
+      PushInactiveIter(iter);
+    } else {
+      PushActiveIter(iter);
+    }
+  }
+
+  void PushActiveIter(TruncatedRangeDelIterator* iter) {
+    auto seq_pos = active_seqnums_.insert(iter);
+    active_iters_.push(seq_pos);
+  }
+
+  TruncatedRangeDelIterator* PopActiveIter() {
+    auto active_top = active_iters_.top();
+    auto iter = *active_top;
+    active_iters_.pop();
+    active_seqnums_.erase(active_top);
+    return iter;
+  }
+
+  void PushInactiveIter(TruncatedRangeDelIterator* iter) {
+    inactive_iters_.push(iter);
+  }
+
+  TruncatedRangeDelIterator* PopInactiveIter() {
+    auto* iter = inactive_iters_.top();
+    inactive_iters_.pop();
+    return iter;
+  }
+
+  const InternalKeyComparator* icmp_;
+  const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters_;
+  size_t unused_idx_;
+  ActiveSeqSet active_seqnums_;
+  BinaryHeap<ActiveSeqSet::const_iterator, StartKeyMaxComparator> active_iters_;
+  BinaryHeap<TruncatedRangeDelIterator*, EndKeyMaxComparator> inactive_iters_;
+};
+
 class RangeDelAggregatorV2 {
  public:
   RangeDelAggregatorV2(const InternalKeyComparator* icmp,
@@ -95,9 +256,10 @@ class RangeDelAggregatorV2 {
 
   bool IsRangeOverlapped(const Slice& start, const Slice& end);
 
-  // TODO: no-op for now, but won't be once ShouldDelete leverages positioning
-  // mode and doesn't re-seek every ShouldDelete
-  void InvalidateRangeDelMapPositions() {}
+  void InvalidateRangeDelMapPositions() {
+    forward_iter_.Invalidate();
+    reverse_iter_.Invalidate();
+  }
 
   bool IsEmpty() const { return iters_.empty(); }
   bool AddFile(uint64_t file_number) {
@@ -126,6 +288,9 @@ class RangeDelAggregatorV2 {
   std::vector<std::unique_ptr<TruncatedRangeDelIterator>> iters_;
   std::list<std::unique_ptr<FragmentedRangeTombstoneList>> pinned_fragments_;
   std::set<uint64_t> files_seen_;
+
+  ForwardRangeDelIterator forward_iter_;
+  ReverseRangeDelIterator reverse_iter_;
 
   // TODO: remove once V2 supports exposing tombstone iterators
   std::unique_ptr<RangeDelAggregator> wrapped_range_del_agg;
