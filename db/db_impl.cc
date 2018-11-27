@@ -3276,10 +3276,10 @@ void DBImpl::WaitForIngestFile() {
   }
 }
 
-Status DBImpl::StartTrace(const TraceOptions& /* options */,
+Status DBImpl::StartTrace(const TraceOptions& trace_options,
                           std::unique_ptr<TraceWriter>&& trace_writer) {
   InstrumentedMutexLock lock(&trace_mutex_);
-  tracer_.reset(new Tracer(env_, std::move(trace_writer)));
+  tracer_.reset(new Tracer(env_, trace_options, std::move(trace_writer)));
   return Status::OK();
 }
 

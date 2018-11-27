@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "rocksdb/env.h"
+#include "rocksdb/options.h"
 #include "rocksdb/trace_reader_writer.h"
 
 namespace rocksdb {
@@ -55,13 +56,15 @@ struct Trace {
 // Trace RocksDB operations using a TraceWriter.
 class Tracer {
  public:
-  Tracer(Env* env, std::unique_ptr<TraceWriter>&& trace_writer);
+  Tracer(Env* env, const TraceOptions& trace_options,
+         std::unique_ptr<TraceWriter>&& trace_writer);
   ~Tracer();
 
   Status Write(WriteBatch* write_batch);
   Status Get(ColumnFamilyHandle* cfname, const Slice& key);
   Status IteratorSeek(const uint32_t& cf_id, const Slice& key);
   Status IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
+  bool IsTraceFileOverMax();
 
   Status Close();
 
@@ -71,6 +74,7 @@ class Tracer {
   Status WriteTrace(const Trace& trace);
 
   Env* env_;
+  TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
 };
 

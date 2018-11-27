@@ -39,6 +39,7 @@ class FileTraceWriter : public TraceWriter {
 
   virtual Status Write(const Slice& data) override;
   virtual Status Close() override;
+  virtual uint64_t GetFileSize() override;
 
  private:
   std::unique_ptr<WritableFileWriter> file_writer_;
