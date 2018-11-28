@@ -159,7 +159,7 @@ class MemTable {
   InternalIterator* NewIterator(const ReadOptions& read_options, Arena* arena);
 
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
-      const ReadOptions& read_options);
+      const ReadOptions& read_options, SequenceNumber read_seq);
 
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.

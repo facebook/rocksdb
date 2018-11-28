@@ -615,7 +615,8 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
   sv_->imm->AddIterators(read_options_, &imm_iters_, &arena_);
   if (!read_options_.ignore_range_deletions) {
     std::unique_ptr<InternalIterator> range_del_iter(
-        sv_->mem->NewRangeTombstoneIterator(read_options_));
+        sv_->mem->NewRangeTombstoneIterator(
+            read_options_, sv_->current->version_set()->LastSequence()));
     range_del_agg.AddUnfragmentedTombstones(std::move(range_del_iter));
     sv_->imm->AddRangeTombstoneIterators(read_options_, &arena_,
                                          &range_del_agg);
@@ -671,7 +672,8 @@ void ForwardIterator::RenewIterators() {
                                      kMaxSequenceNumber /* upper_bound */);
   if (!read_options_.ignore_range_deletions) {
     std::unique_ptr<InternalIterator> range_del_iter(
-        svnew->mem->NewRangeTombstoneIterator(read_options_));
+        svnew->mem->NewRangeTombstoneIterator(
+            read_options_, sv_->current->version_set()->LastSequence()));
     range_del_agg.AddUnfragmentedTombstones(std::move(range_del_iter));
     svnew->imm->AddRangeTombstoneIterators(read_options_, &arena_,
                                            &range_del_agg);

@@ -46,6 +46,7 @@
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/range_del_aggregator.h"
+#include "db/range_tombstone_fragmenter.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
 #include "db/transaction_log_impl.h"
@@ -1164,12 +1165,15 @@ InternalIterator* DBImpl::NewInternalIterator(
   // Collect iterator for mutable mem
   merge_iter_builder.AddIterator(
       super_version->mem->NewIterator(read_options, arena));
-  std::unique_ptr<InternalIterator> range_del_iter;
+  std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter;
   Status s;
   if (!read_options.ignore_range_deletions) {
+    auto read_seq = read_options.snapshot != nullptr
+                        ? read_options.snapshot->GetSequenceNumber()
+                        : versions_->LastSequence();
     range_del_iter.reset(
-        super_version->mem->NewRangeTombstoneIterator(read_options));
-    range_del_agg->AddUnfragmentedTombstones(std::move(range_del_iter));
+        super_version->mem->NewRangeTombstoneIterator(read_options, read_seq));
+    range_del_agg->AddTombstones(std::move(range_del_iter));
   }
   // Collect all needed child iterators for immutable memtables
   if (s.ok()) {

@@ -944,8 +944,9 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   ScopedArenaIterator memtable_iter(merge_iter_builder.Finish());
 
   std::vector<InternalIterator*> memtable_range_del_iters;
+  auto read_seq = super_version->current->version_set()->LastSequence();
   auto* active_range_del_iter =
-      super_version->mem->NewRangeTombstoneIterator(read_opts);
+      super_version->mem->NewRangeTombstoneIterator(read_opts, read_seq);
   if (active_range_del_iter != nullptr) {
     memtable_range_del_iters.push_back(active_range_del_iter);
   }

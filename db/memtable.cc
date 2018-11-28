@@ -413,7 +413,7 @@ InternalIterator* MemTable::NewIterator(const ReadOptions& read_options,
 }
 
 FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
-    const ReadOptions& read_options) {
+    const ReadOptions& read_options, SequenceNumber read_seq) {
   if (read_options.ignore_range_deletions || is_range_del_table_empty_) {
     return nullptr;
   }
@@ -427,12 +427,8 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
           std::unique_ptr<InternalIterator>(unfragmented_iter),
           comparator_.comparator);
 
-  SequenceNumber snapshot = kMaxSequenceNumber;
-  if (read_options.snapshot != nullptr) {
-    snapshot = read_options.snapshot->GetSequenceNumber();
-  }
   auto* fragmented_iter = new FragmentedRangeTombstoneIterator(
-      fragmented_tombstone_list, snapshot, comparator_.comparator);
+      fragmented_tombstone_list, read_seq, comparator_.comparator);
   return fragmented_iter;
 }
 
@@ -748,7 +744,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   PERF_TIMER_GUARD(get_from_memtable_time);
 
   std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-      NewRangeTombstoneIterator(read_opts));
+      NewRangeTombstoneIterator(read_opts,
+                                GetInternalKeySeqno(key.internal_key())));
   if (range_del_iter != nullptr) {
     *max_covering_tombstone_seq =
         std::max(*max_covering_tombstone_seq,
