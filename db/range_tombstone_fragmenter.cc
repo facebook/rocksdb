@@ -20,8 +20,7 @@ namespace rocksdb {
 
 FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
     std::unique_ptr<InternalIterator> unfragmented_tombstones,
-    const InternalKeyComparator& icmp, bool one_time_use,
-    SequenceNumber snapshot) {
+    const InternalKeyComparator& icmp) {
   if (unfragmented_tombstones == nullptr) {
     return;
   }
@@ -44,8 +43,7 @@ FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
     }
   }
   if (is_sorted) {
-    FragmentTombstones(std::move(unfragmented_tombstones), icmp, one_time_use,
-                       snapshot);
+    FragmentTombstones(std::move(unfragmented_tombstones), icmp);
     return;
   }
 
@@ -63,13 +61,12 @@ FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
   // VectorIterator implicitly sorts by key during construction.
   auto iter = std::unique_ptr<VectorIterator>(
       new VectorIterator(std::move(keys), std::move(values), &icmp));
-  FragmentTombstones(std::move(iter), icmp, one_time_use, snapshot);
+  FragmentTombstones(std::move(iter), icmp);
 }
 
 void FragmentedRangeTombstoneList::FragmentTombstones(
     std::unique_ptr<InternalIterator> unfragmented_tombstones,
-    const InternalKeyComparator& icmp, bool one_time_use,
-    SequenceNumber snapshot) {
+    const InternalKeyComparator& icmp) {
   Slice cur_start_key(nullptr, 0);
   auto cmp = ParsedInternalKeyComparator(&icmp);
 
@@ -112,32 +109,20 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
              icmp.user_comparator()->Compare(tombstones_.back().end_key,
                                              cur_start_key) <= 0);
 
-      if (one_time_use) {
-        SequenceNumber max_seqnum = 0;
-        for (auto flush_it = it; flush_it != cur_end_keys.end(); ++flush_it) {
-          max_seqnum = std::max(max_seqnum, flush_it->sequence);
-        }
-
-        size_t start_idx = tombstone_seqs_.size();
-        tombstone_seqs_.push_back(max_seqnum);
-        tombstones_.emplace_back(cur_start_key, cur_end_key, start_idx,
-                                 start_idx + 1);
-      } else {
-        // Sort the sequence numbers of the tombstones being fragmented in
-        // descending order, and then flush them in that order.
-        autovector<SequenceNumber> seqnums_to_flush;
-        for (auto flush_it = it; flush_it != cur_end_keys.end(); ++flush_it) {
-          seqnums_to_flush.push_back(flush_it->sequence);
-        }
-        std::sort(seqnums_to_flush.begin(), seqnums_to_flush.end(),
-                  std::greater<SequenceNumber>());
-        size_t start_idx = tombstone_seqs_.size();
-        size_t end_idx = start_idx + seqnums_to_flush.size();
-        tombstone_seqs_.insert(tombstone_seqs_.end(), seqnums_to_flush.begin(),
-                               seqnums_to_flush.end());
-        tombstones_.emplace_back(cur_start_key, cur_end_key, start_idx,
-                                 end_idx);
+      // Sort the sequence numbers of the tombstones being fragmented in
+      // descending order, and then flush them in that order.
+      autovector<SequenceNumber> seqnums_to_flush;
+      for (auto flush_it = it; flush_it != cur_end_keys.end(); ++flush_it) {
+        seqnums_to_flush.push_back(flush_it->sequence);
       }
+      std::sort(seqnums_to_flush.begin(), seqnums_to_flush.end(),
+                std::greater<SequenceNumber>());
+      size_t start_idx = tombstone_seqs_.size();
+      size_t end_idx = start_idx + seqnums_to_flush.size();
+      tombstone_seqs_.insert(tombstone_seqs_.end(), seqnums_to_flush.begin(),
+                             seqnums_to_flush.end());
+      tombstones_.emplace_back(cur_start_key, cur_end_key, start_idx, end_idx);
+
       cur_start_key = cur_end_key;
     }
     if (!reached_next_start_key) {
@@ -158,10 +143,6 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
     const Slice& ikey = unfragmented_tombstones->key();
     Slice tombstone_start_key = ExtractUserKey(ikey);
     SequenceNumber tombstone_seq = GetInternalKeySeqno(ikey);
-    if (one_time_use && tombstone_seq > snapshot) {
-      // The tombstone is not visible by this snapshot.
-      continue;
-    }
     no_tombstones = false;
 
     Slice tombstone_end_key = unfragmented_tombstones->value();

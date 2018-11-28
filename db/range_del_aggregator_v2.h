@@ -249,8 +249,6 @@ class RangeDelAggregatorV2 {
       const InternalKey* smallest = nullptr,
       const InternalKey* largest = nullptr);
 
-  void AddUnfragmentedTombstones(std::unique_ptr<InternalIterator> input_iter);
-
   bool ShouldDelete(const ParsedInternalKey& parsed,
                     RangeDelPositioningMode mode);
 
@@ -283,10 +281,8 @@ class RangeDelAggregatorV2 {
 
  private:
   const InternalKeyComparator* icmp_;
-  SequenceNumber upper_bound_;
 
   std::vector<std::unique_ptr<TruncatedRangeDelIterator>> iters_;
-  std::list<std::unique_ptr<FragmentedRangeTombstoneList>> pinned_fragments_;
   std::set<uint64_t> files_seen_;
 
   ForwardRangeDelIterator forward_iter_;

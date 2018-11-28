@@ -943,25 +943,15 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   super_version->imm->AddIterators(read_opts, &merge_iter_builder);
   ScopedArenaIterator memtable_iter(merge_iter_builder.Finish());
 
-  std::vector<InternalIterator*> memtable_range_del_iters;
+  auto read_seq = super_version->current->version_set()->LastSequence();
+  RangeDelAggregatorV2 range_del_agg(&internal_comparator_, read_seq);
   auto* active_range_del_iter =
-      super_version->mem->NewRangeTombstoneIterator(read_opts);
-  if (active_range_del_iter != nullptr) {
-    memtable_range_del_iters.push_back(active_range_del_iter);
-  }
-  super_version->imm->AddRangeTombstoneIterators(read_opts,
-                                                 &memtable_range_del_iters);
-  RangeDelAggregatorV2 range_del_agg(&internal_comparator_,
-                                     kMaxSequenceNumber /* upper_bound */);
-  {
-    std::unique_ptr<InternalIterator> memtable_range_del_iter(
-        NewMergingIterator(&internal_comparator_,
-                           memtable_range_del_iters.empty()
-                               ? nullptr
-                               : &memtable_range_del_iters[0],
-                           static_cast<int>(memtable_range_del_iters.size())));
-    range_del_agg.AddUnfragmentedTombstones(std::move(memtable_range_del_iter));
-  }
+      super_version->mem->NewRangeTombstoneIterator(read_opts, read_seq);
+  range_del_agg.AddTombstones(
+      std::unique_ptr<FragmentedRangeTombstoneIterator>(active_range_del_iter));
+  super_version->imm->AddRangeTombstoneIterators(read_opts, nullptr /* arena */,
+                                                 &range_del_agg);
+
   Status status;
   for (size_t i = 0; i < ranges.size() && status.ok() && !*overlap; ++i) {
     auto* vstorage = super_version->current->storage_info();

@@ -995,7 +995,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     auto iter = std::unique_ptr<InternalIterator>(
         new_table->NewUnfragmentedRangeTombstoneIterator(read_options));
     rep->fragmented_range_dels = std::make_shared<FragmentedRangeTombstoneList>(
-        std::move(iter), internal_comparator, false /* one_time_use */);
+        std::move(iter), internal_comparator);
   }
 
   bool need_upper_bound_check =
@@ -2315,7 +2315,7 @@ InternalIterator* BlockBasedTable::NewIterator(
   }
 }
 
-InternalIterator* BlockBasedTable::NewRangeTombstoneIterator(
+FragmentedRangeTombstoneIterator* BlockBasedTable::NewRangeTombstoneIterator(
     const ReadOptions& read_options) {
   if (rep_->fragmented_range_dels == nullptr) {
     return nullptr;

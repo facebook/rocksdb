@@ -46,6 +46,7 @@
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/range_del_aggregator.h"
+#include "db/range_tombstone_fragmenter.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
 #include "db/transaction_log_impl.h"
@@ -1032,7 +1033,7 @@ bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
 }
 
 InternalIterator* DBImpl::NewInternalIterator(
-    Arena* arena, RangeDelAggregatorV2* range_del_agg,
+    Arena* arena, RangeDelAggregatorV2* range_del_agg, SequenceNumber sequence,
     ColumnFamilyHandle* column_family) {
   ColumnFamilyData* cfd;
   if (column_family == nullptr) {
@@ -1046,8 +1047,8 @@ InternalIterator* DBImpl::NewInternalIterator(
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   mutex_.Unlock();
   ReadOptions roptions;
-  return NewInternalIterator(roptions, cfd, super_version, arena,
-                             range_del_agg);
+  return NewInternalIterator(roptions, cfd, super_version, arena, range_del_agg,
+                             sequence);
 }
 
 void DBImpl::SchedulePurge() {
@@ -1152,7 +1153,7 @@ static void CleanupIteratorState(void* arg1, void* /*arg2*/) {
 InternalIterator* DBImpl::NewInternalIterator(
     const ReadOptions& read_options, ColumnFamilyData* cfd,
     SuperVersion* super_version, Arena* arena,
-    RangeDelAggregatorV2* range_del_agg) {
+    RangeDelAggregatorV2* range_del_agg, SequenceNumber sequence) {
   InternalIterator* internal_iter;
   assert(arena != nullptr);
   assert(range_del_agg != nullptr);
@@ -1164,12 +1165,12 @@ InternalIterator* DBImpl::NewInternalIterator(
   // Collect iterator for mutable mem
   merge_iter_builder.AddIterator(
       super_version->mem->NewIterator(read_options, arena));
-  std::unique_ptr<InternalIterator> range_del_iter;
+  std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter;
   Status s;
   if (!read_options.ignore_range_deletions) {
     range_del_iter.reset(
-        super_version->mem->NewRangeTombstoneIterator(read_options));
-    range_del_agg->AddUnfragmentedTombstones(std::move(range_del_iter));
+        super_version->mem->NewRangeTombstoneIterator(read_options, sequence));
+    range_del_agg->AddTombstones(std::move(range_del_iter));
   }
   // Collect all needed child iterators for immutable memtables
   if (s.ok()) {
@@ -1841,7 +1842,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
 
   InternalIterator* internal_iter =
       NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
-                          db_iter->GetRangeDelAggregator());
+                          db_iter->GetRangeDelAggregator(), snapshot);
   db_iter->SetIterUnderDBIter(internal_iter);
 
   return db_iter;

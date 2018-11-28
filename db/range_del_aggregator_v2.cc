@@ -215,11 +215,8 @@ void ReverseRangeDelIterator::Invalidate() {
 }
 
 RangeDelAggregatorV2::RangeDelAggregatorV2(const InternalKeyComparator* icmp,
-                                           SequenceNumber upper_bound)
-    : icmp_(icmp),
-      upper_bound_(upper_bound),
-      forward_iter_(icmp, &iters_),
-      reverse_iter_(icmp, &iters_) {}
+                                           SequenceNumber /* upper_bound */)
+    : icmp_(icmp), forward_iter_(icmp, &iters_), reverse_iter_(icmp, &iters_) {}
 
 void RangeDelAggregatorV2::AddTombstones(
     std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter,
@@ -235,20 +232,6 @@ void RangeDelAggregatorV2::AddTombstones(
   }
   iters_.emplace_back(new TruncatedRangeDelIterator(std::move(input_iter),
                                                     icmp_, smallest, largest));
-}
-
-void RangeDelAggregatorV2::AddUnfragmentedTombstones(
-    std::unique_ptr<InternalIterator> input_iter) {
-  assert(wrapped_range_del_agg == nullptr);
-  if (input_iter == nullptr) {
-    return;
-  }
-  pinned_fragments_.emplace_back(new FragmentedRangeTombstoneList(
-      std::move(input_iter), *icmp_, false /* one_time_use */));
-  auto fragmented_iter = new FragmentedRangeTombstoneIterator(
-      pinned_fragments_.back().get(), upper_bound_, *icmp_);
-  AddTombstones(
-      std::unique_ptr<FragmentedRangeTombstoneIterator>(fragmented_iter));
 }
 
 bool RangeDelAggregatorV2::ShouldDelete(const ParsedInternalKey& parsed,

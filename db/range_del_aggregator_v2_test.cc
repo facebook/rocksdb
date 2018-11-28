@@ -41,7 +41,7 @@ MakeFragmentedTombstoneLists(
   for (const auto& range_dels : range_dels_list) {
     auto range_del_iter = MakeRangeDelIter(range_dels);
     fragment_lists.emplace_back(new FragmentedRangeTombstoneList(
-        std::move(range_del_iter), bytewise_icmp, false /* one_time_use */));
+        std::move(range_del_iter), bytewise_icmp));
   }
   return fragment_lists;
 }
@@ -170,8 +170,8 @@ void VerifyIsRangeOverlapped(
 
 TEST_F(RangeDelAggregatorV2Test, EmptyTruncatedIter) {
   auto range_del_iter = MakeRangeDelIter({});
-  FragmentedRangeTombstoneList fragment_list(
-      std::move(range_del_iter), bytewise_icmp, true /* one_time_use */);
+  FragmentedRangeTombstoneList fragment_list(std::move(range_del_iter),
+                                             bytewise_icmp);
   std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter(
       new FragmentedRangeTombstoneIterator(&fragment_list, kMaxSequenceNumber,
                                            bytewise_icmp));
@@ -189,8 +189,8 @@ TEST_F(RangeDelAggregatorV2Test, EmptyTruncatedIter) {
 TEST_F(RangeDelAggregatorV2Test, UntruncatedIter) {
   auto range_del_iter =
       MakeRangeDelIter({{"a", "e", 10}, {"e", "g", 8}, {"j", "n", 4}});
-  FragmentedRangeTombstoneList fragment_list(
-      std::move(range_del_iter), bytewise_icmp, false /* one_time_use */);
+  FragmentedRangeTombstoneList fragment_list(std::move(range_del_iter),
+                                             bytewise_icmp);
   std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter(
       new FragmentedRangeTombstoneIterator(&fragment_list, kMaxSequenceNumber,
                                            bytewise_icmp));
@@ -223,8 +223,8 @@ TEST_F(RangeDelAggregatorV2Test, UntruncatedIter) {
 TEST_F(RangeDelAggregatorV2Test, UntruncatedIterWithSnapshot) {
   auto range_del_iter =
       MakeRangeDelIter({{"a", "e", 10}, {"e", "g", 8}, {"j", "n", 4}});
-  FragmentedRangeTombstoneList fragment_list(
-      std::move(range_del_iter), bytewise_icmp, false /* one_time_use */);
+  FragmentedRangeTombstoneList fragment_list(std::move(range_del_iter),
+                                             bytewise_icmp);
   std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter(
       new FragmentedRangeTombstoneIterator(&fragment_list, 9 /* snapshot */,
                                            bytewise_icmp));
@@ -256,8 +256,8 @@ TEST_F(RangeDelAggregatorV2Test, UntruncatedIterWithSnapshot) {
 TEST_F(RangeDelAggregatorV2Test, TruncatedIter) {
   auto range_del_iter =
       MakeRangeDelIter({{"a", "e", 10}, {"e", "g", 8}, {"j", "n", 4}});
-  FragmentedRangeTombstoneList fragment_list(
-      std::move(range_del_iter), bytewise_icmp, false /* one_time_use */);
+  FragmentedRangeTombstoneList fragment_list(std::move(range_del_iter),
+                                             bytewise_icmp);
   std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter(
       new FragmentedRangeTombstoneIterator(&fragment_list, kMaxSequenceNumber,
                                            bytewise_icmp));
@@ -291,8 +291,8 @@ TEST_F(RangeDelAggregatorV2Test, TruncatedIter) {
 
 TEST_F(RangeDelAggregatorV2Test, SingleIterInAggregator) {
   auto range_del_iter = MakeRangeDelIter({{"a", "e", 10}, {"c", "g", 8}});
-  FragmentedRangeTombstoneList fragment_list(
-      std::move(range_del_iter), bytewise_icmp, false /* one_time_use */);
+  FragmentedRangeTombstoneList fragment_list(std::move(range_del_iter),
+                                             bytewise_icmp);
   std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter(
       new FragmentedRangeTombstoneIterator(&fragment_list, kMaxSequenceNumber,
                                            bytewise_icmp));

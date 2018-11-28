@@ -419,7 +419,8 @@ class Repairer {
       status = BuildTable(
           dbname_, env_, *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
           env_options_, table_cache_, iter.get(),
-          std::unique_ptr<InternalIterator>(mem->NewRangeTombstoneIterator(ro)),
+          std::unique_ptr<InternalIterator>(
+              mem->NewRangeTombstoneIterator(ro, vset_.LastSequence())),
           &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
           {}, kMaxSequenceNumber, snapshot_checker, kNoCompression,

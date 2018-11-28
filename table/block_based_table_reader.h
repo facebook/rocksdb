@@ -114,7 +114,7 @@ class BlockBasedTable : public TableReader {
                                 bool skip_filters = false,
                                 bool for_compaction = false) override;
 
-  InternalIterator* NewRangeTombstoneIterator(
+  FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
 
   // @param skip_filters Disables loading/accessing the filter block
