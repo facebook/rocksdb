@@ -1305,8 +1305,10 @@ Status CompactionJob::FinishCompactionOutputFile(
             InternalKey(*upper_bound, kMaxSequenceNumber, kTypeRangeDeletion);
       }
 #ifndef NDEBUG
-      SequenceNumber smallest_ikey_seqnum =
-          GetInternalKeySeqno(meta->smallest.Encode());
+      SequenceNumber smallest_ikey_seqnum = kMaxSequenceNumber;
+      if (meta->smallest.Valid()) {
+        GetInternalKeySeqno(meta->smallest.Encode());
+      }
 #endif
       meta->UpdateBoundariesForRange(smallest_candidate, largest_candidate,
                                      tombstone.seq_,
