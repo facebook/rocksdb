@@ -955,7 +955,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         rep->file.get(), prefetch_buffer.get(), rep->footer, read_options,
         compression_dict_handle, compression_dict_cont.get(), rep->ioptions,
         false /* decompress */, Slice() /*compression dict*/, cache_options,
-        GetMemoryAllocator(table_options));
+        nullptr /*memory_allocator*/);
     s = compression_block_fetcher.ReadBlockContents();
 
     if (!s.ok()) {
