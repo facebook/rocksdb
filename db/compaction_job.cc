@@ -1306,7 +1306,7 @@ Status CompactionJob::FinishCompactionOutputFile(
       }
 #ifndef NDEBUG
       SequenceNumber smallest_ikey_seqnum = kMaxSequenceNumber;
-      if (meta->smallest.Valid()) {
+      if (meta->smallest.size() > 0) {
         GetInternalKeySeqno(meta->smallest.Encode());
       }
 #endif
