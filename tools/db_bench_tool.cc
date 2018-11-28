@@ -4580,7 +4580,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       if (FLAGS_max_scan_distance != 0) {
         if (FLAGS_reverse_iterator) {
           GenerateKeyFromInt(
-              (uint64_t)std::max((int64_t)0, seek_pos - FLAGS_max_scan_distance),
+              (uint64_t)std::max((int64_t)0,
+                                 seek_pos - FLAGS_max_scan_distance),
               FLAGS_num, &lower_bound);
           options.iterate_lower_bound = &lower_bound;
         } else {

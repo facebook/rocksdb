@@ -20,6 +20,7 @@
 #include <limits>
 
 #include "db/compaction_picker.h"
+#include "db/compaction_picker_fifo.h"
 #include "db/compaction_picker_universal.h"
 #include "db/db_impl.h"
 #include "db/internal_stats.h"
