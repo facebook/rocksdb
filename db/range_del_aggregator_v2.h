@@ -281,7 +281,6 @@ class RangeDelAggregatorV2 {
 
  private:
   const InternalKeyComparator* icmp_;
-  SequenceNumber upper_bound_;
 
   std::vector<std::unique_ptr<TruncatedRangeDelIterator>> iters_;
   std::set<uint64_t> files_seen_;

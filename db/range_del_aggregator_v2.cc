@@ -215,9 +215,8 @@ void ReverseRangeDelIterator::Invalidate() {
 }
 
 RangeDelAggregatorV2::RangeDelAggregatorV2(const InternalKeyComparator* icmp,
-                                           SequenceNumber upper_bound)
+                                           SequenceNumber /* upper_bound */)
     : icmp_(icmp),
-      upper_bound_(upper_bound),
       forward_iter_(icmp, &iters_),
       reverse_iter_(icmp, &iters_) {}
 
