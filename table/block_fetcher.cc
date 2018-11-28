@@ -140,6 +140,10 @@ void BlockFetcher::PrepareBufferForBlockFromFile() {
     // If we've got a small enough hunk of data, read it in to the
     // trivially allocated stack buffer instead of needing a full malloc()
     used_buf_ = &stack_buf_[0];
+  } else if (maybe_compressed_ && !do_uncompress_) {
+    compressed_buf_ = AllocateBlock(block_size_ + kBlockTrailerSize,
+                                    memory_allocator_compressed_);
+    used_buf_ = compressed_buf_.get();
   } else {
     heap_buf_ =
         AllocateBlock(block_size_ + kBlockTrailerSize, memory_allocator_);
@@ -169,6 +173,12 @@ void BlockFetcher::InsertUncompressedBlockToPersistentCacheIfNeeded() {
   }
 }
 
+inline void BlockFetcher::CopyBuffer() {
+  assert(used_buf_ != heap_buf_.get());
+  heap_buf_ = AllocateBlock(block_size_ + kBlockTrailerSize, memory_allocator_);
+  memcpy(heap_buf_.get(), used_buf_, block_size_ + kBlockTrailerSize);
+}
+
 inline
 void BlockFetcher::GetBlockContents() {
   if (slice_.data() != used_buf_) {
@@ -177,11 +187,16 @@ void BlockFetcher::GetBlockContents() {
   } else {
     // page can be either uncompressed or compressed, the buffer either stack
     // or heap provided. Refer to https://github.com/facebook/rocksdb/pull/4096
+    if (used_buf_ == compressed_buf_.get() && 
     if (got_from_prefetch_buffer_ || used_buf_ == &stack_buf_[0]) {
-      assert(used_buf_ != heap_buf_.get());
-      heap_buf_ =
-          AllocateBlock(block_size_ + kBlockTrailerSize, memory_allocator_);
-      memcpy(heap_buf_.get(), used_buf_, block_size_ + kBlockTrailerSize);
+      CopyBuffer();
+    } else if (used_buf_ == compressed_buf_.get()) {
+      if (compression_type_ == kNoCompression &&
+          memory_allocator_ != memory_allocator_compressed_) {
+        CopyBuffer();
+      } else {
+        heap_buf_ = std::move(compressed_buf_);
+      }
     }
     *contents_ = BlockContents(std::move(heap_buf_), block_size_);
   }
