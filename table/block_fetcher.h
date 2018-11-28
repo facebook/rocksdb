@@ -79,7 +79,7 @@ class BlockFetcher {
   bool TryGetCompressedBlockFromPersistentCache();
   void PrepareBufferForBlockFromFile();
   // Copy content from used_buf_ to new heap buffer.
-  void CopyBuffer();
+  void CopyBufferToHeap();
   void GetBlockContents();
   void InsertCompressedBlockToPersistentCacheIfNeeded();
   void InsertUncompressedBlockToPersistentCacheIfNeeded();

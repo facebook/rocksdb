@@ -173,7 +173,7 @@ void BlockFetcher::InsertUncompressedBlockToPersistentCacheIfNeeded() {
   }
 }
 
-inline void BlockFetcher::CopyBuffer() {
+inline void BlockFetcher::CopyBufferToHeap() {
   assert(used_buf_ != heap_buf_.get());
   heap_buf_ = AllocateBlock(block_size_ + kBlockTrailerSize, memory_allocator_);
   memcpy(heap_buf_.get(), used_buf_, block_size_ + kBlockTrailerSize);
@@ -187,13 +187,12 @@ void BlockFetcher::GetBlockContents() {
   } else {
     // page can be either uncompressed or compressed, the buffer either stack
     // or heap provided. Refer to https://github.com/facebook/rocksdb/pull/4096
-    if (used_buf_ == compressed_buf_.get() && 
     if (got_from_prefetch_buffer_ || used_buf_ == &stack_buf_[0]) {
-      CopyBuffer();
+      CopyBufferToHeap();
     } else if (used_buf_ == compressed_buf_.get()) {
       if (compression_type_ == kNoCompression &&
           memory_allocator_ != memory_allocator_compressed_) {
-        CopyBuffer();
+        CopyBufferToHeap();
       } else {
         heap_buf_ = std::move(compressed_buf_);
       }
