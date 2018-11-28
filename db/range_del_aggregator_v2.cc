@@ -237,20 +237,6 @@ void RangeDelAggregatorV2::AddTombstones(
                                                     icmp_, smallest, largest));
 }
 
-void RangeDelAggregatorV2::AddUnfragmentedTombstones(
-    std::unique_ptr<InternalIterator> input_iter) {
-  assert(wrapped_range_del_agg == nullptr);
-  if (input_iter == nullptr) {
-    return;
-  }
-  pinned_fragments_.emplace_back(
-      new FragmentedRangeTombstoneList(std::move(input_iter), *icmp_));
-  auto fragmented_iter = new FragmentedRangeTombstoneIterator(
-      pinned_fragments_.back().get(), upper_bound_, *icmp_);
-  AddTombstones(
-      std::unique_ptr<FragmentedRangeTombstoneIterator>(fragmented_iter));
-}
-
 bool RangeDelAggregatorV2::ShouldDelete(const ParsedInternalKey& parsed,
                                         RangeDelPositioningMode mode) {
   if (wrapped_range_del_agg != nullptr) {
