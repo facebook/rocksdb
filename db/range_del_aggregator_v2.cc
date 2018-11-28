@@ -216,9 +216,7 @@ void ReverseRangeDelIterator::Invalidate() {
 
 RangeDelAggregatorV2::RangeDelAggregatorV2(const InternalKeyComparator* icmp,
                                            SequenceNumber /* upper_bound */)
-    : icmp_(icmp),
-      forward_iter_(icmp, &iters_),
-      reverse_iter_(icmp, &iters_) {}
+    : icmp_(icmp), forward_iter_(icmp, &iters_), reverse_iter_(icmp, &iters_) {}
 
 void RangeDelAggregatorV2::AddTombstones(
     std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter,

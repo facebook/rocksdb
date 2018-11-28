@@ -1033,7 +1033,7 @@ bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
 }
 
 InternalIterator* DBImpl::NewInternalIterator(
-    Arena* arena, RangeDelAggregatorV2* range_del_agg,
+    Arena* arena, RangeDelAggregatorV2* range_del_agg, SequenceNumber sequence,
     ColumnFamilyHandle* column_family) {
   ColumnFamilyData* cfd;
   if (column_family == nullptr) {
@@ -1047,8 +1047,8 @@ InternalIterator* DBImpl::NewInternalIterator(
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   mutex_.Unlock();
   ReadOptions roptions;
-  return NewInternalIterator(roptions, cfd, super_version, arena,
-                             range_del_agg);
+  return NewInternalIterator(roptions, cfd, super_version, arena, range_del_agg,
+                             sequence);
 }
 
 void DBImpl::SchedulePurge() {
@@ -1153,7 +1153,7 @@ static void CleanupIteratorState(void* arg1, void* /*arg2*/) {
 InternalIterator* DBImpl::NewInternalIterator(
     const ReadOptions& read_options, ColumnFamilyData* cfd,
     SuperVersion* super_version, Arena* arena,
-    RangeDelAggregatorV2* range_del_agg) {
+    RangeDelAggregatorV2* range_del_agg, SequenceNumber sequence) {
   InternalIterator* internal_iter;
   assert(arena != nullptr);
   assert(range_del_agg != nullptr);
@@ -1168,11 +1168,8 @@ InternalIterator* DBImpl::NewInternalIterator(
   std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter;
   Status s;
   if (!read_options.ignore_range_deletions) {
-    auto read_seq = read_options.snapshot != nullptr
-                        ? read_options.snapshot->GetSequenceNumber()
-                        : versions_->LastSequence();
     range_del_iter.reset(
-        super_version->mem->NewRangeTombstoneIterator(read_options, read_seq));
+        super_version->mem->NewRangeTombstoneIterator(read_options, sequence));
     range_del_agg->AddTombstones(std::move(range_del_iter));
   }
   // Collect all needed child iterators for immutable memtables
@@ -1845,7 +1842,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
 
   InternalIterator* internal_iter =
       NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
-                          db_iter->GetRangeDelAggregator());
+                          db_iter->GetRangeDelAggregator(), snapshot);
   db_iter->SetIterUnderDBIter(internal_iter);
 
   return db_iter;
