@@ -1,8 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
 ### New Features
-* Introduced `Memoryllocator`, which lets the user specify custom allocator for memory in block cache.
 * Improved `DeleteRange` to prevent read performance degradation. The feature is no longer marked as experimental.
+
 ### Public API Change
 * `NO_ITERATORS` is divided into two counters `NO_ITERATOR_CREATED` and `NO_ITERATOR_DELETE`. Both of them are only increasing now, just as other counters.
 ### Bug Fixes
@@ -11,6 +11,8 @@
 
 ## 5.18.0 (11/12/2018)
 ### New Features
+* Introduced `Memoryllocator` interface, which lets the user specify custom allocator for memory in block cache.
+* Introduced `JemallocNodumpAllocator` memory allocator. When being use, block cache will be excluded from core dump.
 * Introduced `PerfContextByLevel` as part of `PerfContext` which allows storing perf context at each level. Also replaced `__thread` with `thread_local` keyword for perf_context. Added per-level perf context for bloom filter and `Get` query.
 * With level_compaction_dynamic_level_bytes = true, level multiplier may be adjusted automatically when Level 0 to 1 compaction is lagged behind.
 * Introduced DB option `atomic_flush`. If true, RocksDB supports flushing multiple column families and atomically committing the result to MANIFEST. Useful when WAL is disabled.

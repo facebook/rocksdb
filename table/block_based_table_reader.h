@@ -322,9 +322,9 @@ class BlockBasedTable : public TableReader {
       CachableEntry<Block>* block, BlockContents* raw_block_contents,
       CompressionType raw_block_comp_type, uint32_t format_version,
       const Slice& compression_dict, SequenceNumber seq_no,
-      size_t read_amp_bytes_per_bit, bool is_index = false,
-      Cache::Priority pri = Cache::Priority::LOW,
-      GetContext* get_context = nullptr, MemoryAllocator* allocator = nullptr);
+      size_t read_amp_bytes_per_bit, MemoryAllocator* memory_allocator,
+      bool is_index = false, Cache::Priority pri = Cache::Priority::LOW,
+      GetContext* get_context = nullptr);
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
   // after a call to Seek(key), until handle_result returns false.
