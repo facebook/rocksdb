@@ -593,7 +593,7 @@ void WritePreparedTxnDB::CleanupReleasedSnapshots(
     assert(*newi >= *oldi);  // cannot have new snapshots with lower seq
     if (*newi == *oldi) {    // still not released
       auto value = *newi;
-      while (newi != old_snapshots.end() && *newi == value) {
+      while (newi != new_snapshots.end() && *newi == value) {
         newi++;
       }
       while (oldi != old_snapshots.end() && *oldi == value) {
