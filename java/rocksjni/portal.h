@@ -3672,8 +3672,36 @@ class HistogramTypeJni {
         return 0x1E;
       case rocksdb::Histograms::FLUSH_TIME:
         return 0x1F;
-      case rocksdb::Histograms::HISTOGRAM_ENUM_MAX:
+      case rocksdb::Histograms::BLOB_DB_KEY_SIZE:
         return 0x20;
+      case rocksdb::Histograms::BLOB_DB_VALUE_SIZE:
+        return 0x21;
+      case rocksdb::Histograms::BLOB_DB_WRITE_MICROS:
+        return 0x22;
+      case rocksdb::Histograms::BLOB_DB_GET_MICROS:
+        return 0x23;
+      case rocksdb::Histograms::BLOB_DB_MULTIGET_MICROS:
+        return 0x24;
+      case rocksdb::Histograms::BLOB_DB_SEEK_MICROS:
+        return 0x25;
+      case rocksdb::Histograms::BLOB_DB_NEXT_MICROS:
+        return 0x26;
+      case rocksdb::Histograms::BLOB_DB_PREV_MICROS:
+        return 0x27;
+      case rocksdb::Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS:
+        return 0x28;
+      case rocksdb::Histograms::BLOB_DB_BLOB_FILE_READ_MICROS:
+        return 0x29;
+      case rocksdb::Histograms::BLOB_DB_BLOB_FILE_SYNC_MICROS:
+        return 0x2A;
+      case rocksdb::Histograms::BLOB_DB_GC_MICROS:
+        return 0x2B;
+      case rocksdb::Histograms::BLOB_DB_COMPRESSION_MICROS:
+        return 0x2C;
+      case rocksdb::Histograms::BLOB_DB_DECOMPRESSION_MICROS:
+        return 0x2D;
+      case rocksdb::Histograms::HISTOGRAM_ENUM_MAX:
+        return 0x2E;
 
       default:
         // undefined/default
@@ -3750,6 +3778,34 @@ class HistogramTypeJni {
       case 0x1F:
         return rocksdb::Histograms::FLUSH_TIME;
       case 0x20:
+        return rocksdb::Histograms::BLOB_DB_KEY_SIZE;
+      case 0x21:
+        return rocksdb::Histograms::BLOB_DB_VALUE_SIZE;
+      case 0x22:
+        return rocksdb::Histograms::BLOB_DB_WRITE_MICROS;
+      case 0x23:
+        return rocksdb::Histograms::BLOB_DB_GET_MICROS;
+      case 0x24:
+        return rocksdb::Histograms::BLOB_DB_MULTIGET_MICROS;
+      case 0x25:
+        return rocksdb::Histograms::BLOB_DB_SEEK_MICROS;
+      case 0x26:
+        return rocksdb::Histograms::BLOB_DB_NEXT_MICROS;
+      case 0x27:
+        return rocksdb::Histograms::BLOB_DB_PREV_MICROS;
+      case 0x28:
+        return rocksdb::Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS;
+      case 0x29:
+        return rocksdb::Histograms::BLOB_DB_BLOB_FILE_READ_MICROS;
+      case 0x2A:
+        return rocksdb::Histograms::BLOB_DB_BLOB_FILE_SYNC_MICROS;
+      case 0x2B:
+        return rocksdb::Histograms::BLOB_DB_GC_MICROS;
+      case 0x2C:
+        return rocksdb::Histograms::BLOB_DB_COMPRESSION_MICROS;
+      case 0x2D:
+        return rocksdb::Histograms::BLOB_DB_DECOMPRESSION_MICROS;
+      case 0x2E:
         return rocksdb::Histograms::HISTOGRAM_ENUM_MAX;
 
       default:

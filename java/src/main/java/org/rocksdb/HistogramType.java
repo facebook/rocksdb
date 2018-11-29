@@ -84,7 +84,82 @@ public enum HistogramType {
 
   READ_NUM_MERGE_OPERANDS((byte) 0x1E),
 
-  HISTOGRAM_ENUM_MAX((byte) 0x1F);
+  /**
+   * Time spent flushing memtable to disk
+   */
+  FLUSH_TIME((byte) 0x1F),
+
+  /**
+   * Size of keys written to BlobDB.
+   */
+  BLOB_DB_KEY_SIZE((byte) 0x20),
+
+  /**
+   * Size of values written to BlobDB.
+   */
+  BLOB_DB_VALUE_SIZE((byte) 0x21),
+
+  /**
+   * BlobDB Put/PutWithTTL/PutUntil/Write latency.
+   */
+  BLOB_DB_WRITE_MICROS((byte) 0x22),
+
+  /**
+   * BlobDB Get lagency.
+   */
+  BLOB_DB_GET_MICROS((byte) 0x23),
+
+  /**
+   * BlobDB MultiGet latency.
+   */
+  BLOB_DB_MULTIGET_MICROS((byte) 0x24),
+
+  /**
+   * BlobDB Seek/SeekToFirst/SeekToLast/SeekForPrev latency.
+   */
+  BLOB_DB_SEEK_MICROS((byte) 0x25),
+
+  /**
+   * BlobDB Next latency.
+   */
+  BLOB_DB_NEXT_MICROS((byte) 0x26),
+
+  /**
+   * BlobDB Prev latency.
+   */
+  BLOB_DB_PREV_MICROS((byte) 0x27),
+
+  /**
+   * Blob file write latency.
+   */
+  BLOB_DB_BLOB_FILE_WRITE_MICROS((byte) 0x28),
+
+  /**
+   * Blob file read latency.
+   */
+  BLOB_DB_BLOB_FILE_READ_MICROS((byte) 0x29),
+
+  /**
+   * Blob file sync latency.
+   */
+  BLOB_DB_BLOB_FILE_SYNC_MICROS((byte) 0x2A),
+
+  /**
+   * BlobDB garbage collection time.
+   */
+  BLOB_DB_GC_MICROS((byte) 0x2B),
+
+  /**
+   * BlobDB compression time.
+   */
+  BLOB_DB_COMPRESSION_MICROS((byte) 0x2C),
+
+  /**
+   * BlobDB decompression time.
+   */
+  BLOB_DB_DECOMPRESSION_MICROS((byte) 0x2D),
+
+  HISTOGRAM_ENUM_MAX((byte) 0x2E);
 
   private final byte value;
 
