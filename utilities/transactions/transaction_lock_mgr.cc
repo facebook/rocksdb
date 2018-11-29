@@ -341,10 +341,18 @@ Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
                              nullptr, /* killed_callback */
                              nullptr /* lock_wait_needed_callback*/ );
   request.destroy();
-  if (r != 0)
-    return Status::TimedOut(Status::SubCode::kLockTimeout);
-
-  return Status::OK();
+  switch (r) {
+    case 0:
+      return Status::OK();
+    case DB_LOCK_NOTGRANTED:
+      return Status::TimedOut(Status::SubCode::kLockTimeout);
+    case TOKUDB_OUT_OF_LOCKS:
+      debug_dump_locks(this);
+      return Status::Busy(Status::SubCode::kLockLimit);
+    default:
+      assert(0);
+      return Status::Busy(Status::SubCode::kLockLimit);
+  }
 }
 
 
