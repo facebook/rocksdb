@@ -512,8 +512,11 @@ class KVIter : public Iterator {
     if (iterate_upper_bound_ == nullptr) {
       return iter_ != map_->end();
     }
-    const Comparator* cmp = BytewiseComparator();
-    return cmp->Compare(key(), *iterate_upper_bound_) < 0;
+    else {
+      if (iter_ == map_->end()) return false;
+      const Comparator* cmp = BytewiseComparator();
+      return cmp->Compare(key(), *iterate_upper_bound_) < 0;
+    }
   }
   virtual void SeekToFirst() { iter_ = map_->begin(); }
   virtual void SeekToLast() {
@@ -563,14 +566,6 @@ void AssertItersEqual(Iterator* iter1, Iterator* iter2) {
   }
 }
 
-std::string getRandomString(Random& rnd, int length) {
-  std::string s;
-  s.reserve(length);
-  for (int i = 0; i < length; i++) {
-    s += ('a' + rnd.Uniform(26));
-  }
-  return s;
-}
 }  // namespace
 
 TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
@@ -631,7 +626,8 @@ TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
       }
     }
 
-    Slice random_upper_bound(getRandomString(rnd, source_strings.size()));
+    auto rnd_key_idx = rnd.Uniform(static_cast<int>(source_strings.size()));
+    Slice random_upper_bound(source_strings[rnd_key_idx]);
     ReadOptions read_options;
     read_options.iterate_upper_bound = &random_upper_bound;
     std::unique_ptr<Iterator> iter(
