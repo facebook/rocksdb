@@ -55,6 +55,7 @@ void BackupStatistics::IncrementNumberFailBackup() {
 uint32_t BackupStatistics::GetNumberSuccessBackup() const {
   return number_success_backup;
 }
+
 uint32_t BackupStatistics::GetNumberFailBackup() const {
   return number_fail_backup;
 }
@@ -131,12 +132,12 @@ class BackupEngineImpl : public BackupEngine {
       const std::string& dir, Env* env,
       std::unordered_map<std::string, uint64_t>* result);
 
-  struct FileInfo {
-    FileInfo(const std::string& fname, uint64_t sz, uint32_t checksum)
+  struct FileMeta {
+    FileMeta(const std::string& fname, uint64_t sz, uint32_t checksum)
       : refs(0), filename(fname), size(sz), checksum_value(checksum) {}
 
-    FileInfo(const FileInfo&) = delete;
-    FileInfo& operator=(const FileInfo&) = delete;
+    FileMeta(const FileMeta&) = delete;
+    FileMeta& operator=(const FileMeta&) = delete;
 
     int refs;
     const std::string filename;
@@ -148,14 +149,14 @@ class BackupEngineImpl : public BackupEngine {
    public:
     BackupMeta(
         const std::string& meta_filename, const std::string& meta_tmp_filename,
-        std::unordered_map<std::string, std::shared_ptr<FileInfo>>* file_infos,
+        std::unordered_map<std::string, std::shared_ptr<FileMeta>>* files_meta,
         Env* env)
         : timestamp_(0),
           sequence_number_(0),
           size_(0),
           meta_filename_(meta_filename),
           meta_tmp_filename_(meta_tmp_filename),
-          file_infos_(file_infos),
+          files_meta_(files_meta),
           env_(env) {}
 
     BackupMeta(const BackupMeta&) = delete;
@@ -186,7 +187,7 @@ class BackupEngineImpl : public BackupEngine {
       app_metadata_ = app_metadata;
     }
 
-    Status AddFile(std::shared_ptr<FileInfo> file_info);
+    Status AddFile(std::shared_ptr<FileMeta> file_info);
 
     Status Delete(bool delete_meta = true);
 
@@ -194,14 +195,14 @@ class BackupEngineImpl : public BackupEngine {
       return files_.empty();
     }
 
-    std::shared_ptr<FileInfo> GetFile(const std::string& filename) const {
-      auto it = file_infos_->find(filename);
-      if (it == file_infos_->end())
+    std::shared_ptr<FileMeta> GetFile(const std::string& filename) const {
+      auto it = files_meta_->find(filename);
+      if (it == files_meta_->end())
         return nullptr;
       return it->second;
     }
 
-    const std::vector<std::shared_ptr<FileInfo>>& GetFiles() {
+    const std::vector<std::shared_ptr<FileMeta>>& GetFiles() {
       return files_;
     }
 
@@ -236,8 +237,8 @@ class BackupEngineImpl : public BackupEngine {
     std::string const meta_filename_;
     std::string const meta_tmp_filename_;
     // files with relative paths (without "/" prefix!!)
-    std::vector<std::shared_ptr<FileInfo>> files_;
-    std::unordered_map<std::string, std::shared_ptr<FileInfo>>* file_infos_;
+    std::vector<std::shared_ptr<FileMeta>> files_;
+    std::unordered_map<std::string, std::shared_ptr<FileMeta>>* files_meta_;
     Env* env_;
 
     static const size_t max_backup_meta_file_size_ = 10 * 1024 * 1024;  // 10MB
@@ -488,7 +489,7 @@ class BackupEngineImpl : public BackupEngine {
   std::map<BackupID, std::pair<Status, std::unique_ptr<BackupMeta>>>
       corrupt_backups_;
   std::unordered_map<std::string,
-                     std::shared_ptr<FileInfo>> backuped_file_infos_;
+                     std::shared_ptr<FileMeta>> backuped_files_meta_;
   std::atomic<bool> stop_backup_;
 
   // options data
@@ -624,7 +625,7 @@ Status BackupEngineImpl::Initialize() {
         backup_id, std::unique_ptr<BackupMeta>(new BackupMeta(
                        GetBackupMetaFile(backup_id, false /* tmp */),
                        GetBackupMetaFile(backup_id, true /* tmp */),
-                       &backuped_file_infos_, backup_env_))));
+                       &backuped_files_meta_, backup_env_))));
   }
 
   latest_backup_id_ = 0;
@@ -770,7 +771,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
       new_backup_id, std::unique_ptr<BackupMeta>(new BackupMeta(
                          GetBackupMetaFile(new_backup_id, false /* tmp */),
                          GetBackupMetaFile(new_backup_id, true /* tmp */),
-                         &backuped_file_infos_, backup_env_))));
+                         &backuped_files_meta_, backup_env_))));
   assert(ret.second == true);
   auto& new_backup = ret.first->second;
   new_backup->RecordTimestamp();
@@ -881,7 +882,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     }
     if (item_status.ok()) {
       item_status = new_backup.get()->AddFile(
-              std::make_shared<FileInfo>(item.dst_relative,
+              std::make_shared<FileMeta>(item.dst_relative,
                                          result.size,
                                          result.checksum_value));
     }
@@ -1003,7 +1004,7 @@ Status BackupEngineImpl::DeleteBackup(BackupID backup_id) {
 
   if (options_.max_valid_backups_to_open == port::kMaxInt32) {
     std::vector<std::string> to_delete;
-    for (auto& itr : backuped_file_infos_) {
+    for (auto& itr : backuped_files_meta_) {
       if (itr.second->refs == 0) {
         Status s = backup_env_->DeleteFile(GetAbsolutePath(itr.first));
         ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
@@ -1012,7 +1013,7 @@ Status BackupEngineImpl::DeleteBackup(BackupID backup_id) {
       }
     }
     for (auto& td : to_delete) {
-      backuped_file_infos_.erase(td);
+      backuped_files_meta_.erase(td);
     }
   } else {
     ROCKS_LOG_WARN(
@@ -1035,9 +1036,16 @@ void BackupEngineImpl::GetBackupInfo(std::vector<BackupInfo>* backup_info) {
   backup_info->reserve(backups_.size());
   for (auto& backup : backups_) {
     if (!backup.second->Empty()) {
+      auto backup_files_meta = backup.second->GetFiles();
+      auto backup_files_info = std::vector<BackupFileInfo>();
+      for (const auto& file_meta: backup_files_meta) {
+        backup_files_info.push_back(BackupFileInfo(
+            file_meta->filename, file_meta->size, file_meta->checksum_value));
+      }
       backup_info->push_back(BackupInfo(
           backup.first, backup.second->GetTimestamp(), backup.second->GetSize(),
-          backup.second->GetNumberFiles(), backup.second->GetAppMetadata()));
+          backup.second->GetNumberFiles(), backup.second->GetAppMetadata(),
+          backup_files_info));
     }
   }
 }
@@ -1383,8 +1391,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
       ROCKS_LOG_INFO(options_.info_log,
                      "%s already present, with checksum %u and size %" PRIu64,
                      fname.c_str(), checksum_value, size_bytes);
-    } else if (backuped_file_infos_.find(dst_relative) ==
-               backuped_file_infos_.end() && !same_path) {
+    } else if (backuped_files_meta_.find(dst_relative) ==
+               backuped_files_meta_.end() && !same_path) {
       // file already exists, but it's not referenced by any backup. overwrite
       // the file
       ROCKS_LOG_INFO(
@@ -1547,16 +1555,16 @@ Status BackupEngineImpl::GarbageCollect() {
       } else {
         rel_fname = GetSharedFileRel(child);
       }
-      auto child_itr = backuped_file_infos_.find(rel_fname);
+      auto child_itr = backuped_files_meta_.find(rel_fname);
       // if it's not refcounted, delete it
-      if (child_itr == backuped_file_infos_.end() ||
+      if (child_itr == backuped_files_meta_.end() ||
           child_itr->second->refs == 0) {
         // this might be a directory, but DeleteFile will just fail in that
         // case, so we're good
         Status s = backup_env_->DeleteFile(GetAbsolutePath(rel_fname));
         ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
                        rel_fname.c_str(), s.ToString().c_str());
-        backuped_file_infos_.erase(rel_fname);
+        backuped_files_meta_.erase(rel_fname);
       }
     }
   }
@@ -1604,10 +1612,10 @@ Status BackupEngineImpl::GarbageCollect() {
 // ------- BackupMeta class --------
 
 Status BackupEngineImpl::BackupMeta::AddFile(
-    std::shared_ptr<FileInfo> file_info) {
-  auto itr = file_infos_->find(file_info->filename);
-  if (itr == file_infos_->end()) {
-    auto ret = file_infos_->insert({file_info->filename, file_info});
+    std::shared_ptr<FileMeta> file_meta) {
+  auto itr = files_meta_->find(file_meta->filename);
+  if (itr == files_meta_->end()) {
+    auto ret = files_meta_->insert({file_meta->filename, file_meta});
     if (ret.second) {
       itr = ret.first;
       itr->second->refs = 1;
@@ -1616,7 +1624,7 @@ Status BackupEngineImpl::BackupMeta::AddFile(
       return Status::Corruption("In memory metadata insertion error");
     }
   } else {
-    if (itr->second->checksum_value != file_info->checksum_value) {
+    if (itr->second->checksum_value != file_meta->checksum_value) {
       return Status::Corruption(
           "Checksum mismatch for existing backup file. Delete old backups and "
           "try again.");
@@ -1624,7 +1632,7 @@ Status BackupEngineImpl::BackupMeta::AddFile(
     ++itr->second->refs;  // increase refcount if already present
   }
 
-  size_ += file_info->size;
+  size_ += file_meta->size;
   files_.push_back(itr->second);
 
   return Status::OK();
@@ -1702,7 +1710,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   num_files = static_cast<uint32_t>(strtoul(data.data(), &next, 10));
   data.remove_prefix(next - data.data() + 1); // +1 for '\n'
 
-  std::vector<std::shared_ptr<FileInfo>> files;
+  std::vector<std::shared_ptr<FileMeta>> files;
 
   Slice checksum_prefix("crc32 ");
 
@@ -1711,7 +1719,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
     std::string filename = GetSliceUntil(&line, ' ').ToString();
 
     uint64_t size;
-    const std::shared_ptr<FileInfo> file_info = GetFile(filename);
+    const std::shared_ptr<FileMeta> file_info = GetFile(filename);
     if (file_info) {
       size = file_info->size;
     } else {
@@ -1742,7 +1750,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
                                 " in " + meta_filename_);
     }
 
-    files.emplace_back(new FileInfo(filename, size, checksum_value));
+    files.emplace_back(new FileMeta(filename, size, checksum_value));
   }
 
   if (s.ok() && data.size() > 0) {

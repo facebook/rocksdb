@@ -1741,6 +1741,32 @@ TEST_P(BackupableDBTestWithParam, BackupUsingDirectIO) {
   }
 }
 
+TEST_F(BackupableDBTest, BackupFilesInfoConsistent) {
+  // Verify that the summary metadata in BackupInfo (size, num_files)
+  // is consistent with the content of backup_files_info.
+  //
+  // Expectation: the size of backup_files_info should match
+  // BackupInfo.num_files and the sum of sizes in backup_files_info should match
+  // BackupInfo.size.
+  const int kNumKeys = 5000;
+  OpenDBAndBackupEngine(true);
+  FillDB(db_.get(), 0 /* from */ , kNumKeys /* to */);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+
+  std::vector<BackupInfo> backup_info;
+  backup_engine_->GetBackupInfo(&backup_info);
+  ASSERT_EQ(1, backup_info.size());
+  ASSERT_EQ(backup_info[0].number_files,
+            backup_info[0].backup_files_info.size());
+  uint64_t total_size = 0;
+  for (const auto& file_meta: backup_info[0].backup_files_info) {
+    total_size += file_meta.size;
+  }
+  ASSERT_EQ(backup_info[0].size, total_size);
+  CloseDBAndBackupEngine();
+  DestroyDB(dbname_, options_);
+}
+
 }  // anon namespace
 
 } //  namespace rocksdb

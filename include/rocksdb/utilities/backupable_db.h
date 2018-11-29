@@ -160,6 +160,19 @@ struct RestoreOptions {
 
 typedef uint32_t BackupID;
 
+struct BackupFileInfo {
+  std::string path;
+  uint64_t size;
+  uint32_t checksum;
+
+  BackupFileInfo() {}
+
+  BackupFileInfo(const std::string& _path, uint64_t _size, uint32_t _checksum)
+      : path(_path),
+        size(_size),
+        checksum(_checksum) {}
+};
+
 struct BackupInfo {
   BackupID backup_id;
   int64_t timestamp;
@@ -167,16 +180,19 @@ struct BackupInfo {
 
   uint32_t number_files;
   std::string app_metadata;
+  std::vector<BackupFileInfo> backup_files_info;
 
   BackupInfo() {}
 
   BackupInfo(BackupID _backup_id, int64_t _timestamp, uint64_t _size,
-             uint32_t _number_files, const std::string& _app_metadata)
+             uint32_t _number_files, const std::string& _app_metadata,
+             const std::vector<BackupFileInfo>& _backup_files_info)
       : backup_id(_backup_id),
         timestamp(_timestamp),
         size(_size),
         number_files(_number_files),
-        app_metadata(_app_metadata) {}
+        app_metadata(_app_metadata),
+        backup_files_info(_backup_files_info) {}
 };
 
 class BackupStatistics {
