@@ -9,12 +9,12 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <memory>
-#include <map>
-#include "db/column_family.h"
-#include "rocksdb/comparator.h"
-#include "port/stack_trace.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include <map>
+#include <memory>
+#include "db/column_family.h"
+#include "port/stack_trace.h"
+#include "rocksdb/comparator.h"
 #include "util/random.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
@@ -507,12 +507,14 @@ typedef std::map<std::string, std::string> KVMap;
 class KVIter : public Iterator {
  public:
   explicit KVIter(const KVMap* map) : map_(map), iter_(map_->end()) {}
-  explicit KVIter(const KVMap* map, const Slice* iterate_upper_bound) : map_(map), iter_(map_->end()), iterate_upper_bound_(iterate_upper_bound) {}
+  explicit KVIter(const KVMap* map, const Slice* iterate_upper_bound)
+      : map_(map),
+        iter_(map_->end()),
+        iterate_upper_bound_(iterate_upper_bound) {}
   virtual bool Valid() const {
     if (iterate_upper_bound_ == nullptr) {
       return iter_ != map_->end();
-    }
-    else {
+    } else {
       if (iter_ == map_->end()) return false;
       const Comparator* cmp = BytewiseComparator();
       return cmp->Compare(key(), *iterate_upper_bound_) < 0;
@@ -632,7 +634,8 @@ TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
     read_options.iterate_upper_bound = &random_upper_bound;
     std::unique_ptr<Iterator> iter(
         batch.NewIteratorWithBase(read_options, &cf1, new KVIter(&map)));
-    std::unique_ptr<Iterator> result_iter(new KVIter(&merged_map, &random_upper_bound));
+    std::unique_ptr<Iterator> result_iter(
+        new KVIter(&merged_map, &random_upper_bound));
 
     bool is_valid = false;
     for (int i = 0; i < 128; i++) {

@@ -293,6 +293,10 @@ class BaseDeltaIterator : public Iterator {
         if (delta_entry.type == kDeleteRecord ||
             delta_entry.type == kSingleDeleteRecord) {
           AdvanceDelta();
+          current_over_upper_bound_ = BaseDeltaValid() && IsOverUpperBound();
+          if (current_over_upper_bound_) {
+            break;
+          }
         } else {
           current_at_base_ = false;
           break;
@@ -321,14 +325,6 @@ class BaseDeltaIterator : public Iterator {
           }
         } else {
           current_at_base_ = true;
-          break;
-        }
-      }
-      if (delta_entry.type != kDeleteRecord &&
-          delta_entry.type != kSingleDeleteRecord) {
-        // should not break early if we are looking at a deleted record
-        current_over_upper_bound_ = BaseDeltaValid() && IsOverUpperBound();
-        if (current_over_upper_bound_) {
           break;
         }
       }
