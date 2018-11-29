@@ -198,11 +198,6 @@ class CompactionPicker {
     return &compactions_in_progress_;
   }
 
-  bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
-                             size_t min_files_to_compact,
-                             uint64_t max_compact_bytes_per_del_file,
-                             CompactionInputFiles* comp_inputs);
-
  protected:
   const ImmutableCFOptions& ioptions_;
 
@@ -276,6 +271,11 @@ class NullCompactionPicker : public CompactionPicker {
   }
 };
 #endif  // !ROCKSDB_LITE
+
+bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
+                           size_t min_files_to_compact,
+                           uint64_t max_compact_bytes_per_del_file,
+                           CompactionInputFiles* comp_inputs);
 
 CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
                                    const VersionStorageInfo* vstorage,

@@ -39,6 +39,39 @@ uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
 }
 }  // anonymous namespace
 
+bool FindIntraL0Compaction(
+    const std::vector<FileMetaData*>& level_files, size_t min_files_to_compact,
+    uint64_t max_compact_bytes_per_del_file,
+    CompactionInputFiles* comp_inputs) {
+  size_t compact_bytes = static_cast<size_t>(level_files[0]->fd.file_size);
+  size_t compact_bytes_per_del_file = port::kMaxSizet;
+  // compaction range will be [0, span_len).
+  size_t span_len;
+  // pull in files until the amount of compaction work per deleted file begins
+  // increasing.
+  size_t new_compact_bytes_per_del_file = 0;
+  for (span_len = 1; span_len < level_files.size(); ++span_len) {
+    compact_bytes += static_cast<size_t>(level_files[span_len]->fd.file_size);
+    new_compact_bytes_per_del_file = compact_bytes / span_len;
+    if (level_files[span_len]->being_compacted ||
+        new_compact_bytes_per_del_file > compact_bytes_per_del_file) {
+      break;
+    }
+    compact_bytes_per_del_file = new_compact_bytes_per_del_file;
+  }
+
+  if (span_len >= min_files_to_compact &&
+      compact_bytes_per_del_file < max_compact_bytes_per_del_file) {
+    assert(comp_inputs != nullptr);
+    comp_inputs->level = 0;
+    for (size_t i = 0; i < span_len; ++i) {
+      comp_inputs->files.push_back(level_files[i]);
+    }
+    return true;
+  }
+  return false;
+}
+
 // Determine compression type, based on user options, level of the output
 // file and whether compression is disabled.
 // If enable_compression is false, then compression is always disabled no
@@ -108,39 +141,6 @@ void CompactionPicker::ReleaseCompactionFiles(Compaction* c, Status status) {
   if (!status.ok()) {
     c->ResetNextCompactionIndex();
   }
-}
-
-bool CompactionPicker::FindIntraL0Compaction(
-    const std::vector<FileMetaData*>& level_files, size_t min_files_to_compact,
-    uint64_t max_compact_bytes_per_del_file,
-    CompactionInputFiles* comp_inputs) {
-  size_t compact_bytes = static_cast<size_t>(level_files[0]->fd.file_size);
-  size_t compact_bytes_per_del_file = port::kMaxSizet;
-  // compaction range will be [0, span_len).
-  size_t span_len;
-  // pull in files until the amount of compaction work per deleted file begins
-  // increasing.
-  size_t new_compact_bytes_per_del_file = 0;
-  for (span_len = 1; span_len < level_files.size(); ++span_len) {
-    compact_bytes += static_cast<size_t>(level_files[span_len]->fd.file_size);
-    new_compact_bytes_per_del_file = compact_bytes / span_len;
-    if (level_files[span_len]->being_compacted ||
-        new_compact_bytes_per_del_file > compact_bytes_per_del_file) {
-      break;
-    }
-    compact_bytes_per_del_file = new_compact_bytes_per_del_file;
-  }
-
-  if (span_len >= min_files_to_compact &&
-      compact_bytes_per_del_file < max_compact_bytes_per_del_file) {
-    assert(comp_inputs != nullptr);
-    comp_inputs->level = 0;
-    for (size_t i = 0; i < span_len; ++i) {
-      comp_inputs->files.push_back(level_files[i]);
-    }
-    return true;
-  }
-  return false;
 }
 
 void CompactionPicker::GetRange(const CompactionInputFiles& inputs,
@@ -1535,7 +1535,7 @@ bool LevelCompactionBuilder::PickIntraL0Compaction() {
     // resort to L0->L0 compaction yet.
     return false;
   }
-  return compaction_picker_->FindIntraL0Compaction(
+  return FindIntraL0Compaction(
       level_files, kMinFilesForIntraL0Compaction, port::kMaxUint64,
       &start_level_inputs_);
 }
