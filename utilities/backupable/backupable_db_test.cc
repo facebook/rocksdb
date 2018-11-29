@@ -1761,6 +1761,7 @@ TEST_F(BackupableDBTest, BackupFilesInfoConsistent) {
   uint64_t total_size = 0;
   for (const auto& file_meta: backup_info[0].backup_files_info) {
     total_size += file_meta.size;
+    ASSERT_EQ(ChecksumType::kCRC32c, file_meta.checksum.checksum_type);
   }
   ASSERT_EQ(backup_info[0].size, total_size);
   CloseDBAndBackupEngine();

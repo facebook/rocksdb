@@ -1040,7 +1040,8 @@ void BackupEngineImpl::GetBackupInfo(std::vector<BackupInfo>* backup_info) {
       auto backup_files_info = std::vector<BackupFileInfo>();
       for (const auto& file_meta: backup_files_meta) {
         backup_files_info.push_back(BackupFileInfo(
-            file_meta->filename, file_meta->size, file_meta->checksum_value));
+            file_meta->filename, file_meta->size,
+            Checksum(ChecksumType::kCRC32c, file_meta->checksum_value)));
       }
       backup_info->push_back(BackupInfo(
           backup.first, backup.second->GetTimestamp(), backup.second->GetSize(),

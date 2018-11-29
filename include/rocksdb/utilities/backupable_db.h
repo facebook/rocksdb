@@ -24,6 +24,7 @@
 
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
+#include "rocksdb/table.h"
 
 namespace rocksdb {
 
@@ -160,14 +161,29 @@ struct RestoreOptions {
 
 typedef uint32_t BackupID;
 
+struct Checksum {
+  // Encapsulate values for multiple types of supported checksum algorithms.
+  // Only one checksum value at a time will be populated, depending on the
+  // checksum_type. Currently only ChecksumType.kCRC32c is supported (the value
+  // for that is found in Checksum::crc32_value).
+  ChecksumType checksum_type;
+  uint32_t crc32_value;
+
+  Checksum() {}
+
+  Checksum(ChecksumType _checksum_type, uint32_t _crc32_value=0)
+      : checksum_type(_checksum_type),
+        crc32_value(_crc32_value) {}
+};
+
 struct BackupFileInfo {
   std::string path;
   uint64_t size;
-  uint32_t checksum;
+  Checksum checksum;
 
   BackupFileInfo() {}
 
-  BackupFileInfo(const std::string& _path, uint64_t _size, uint32_t _checksum)
+  BackupFileInfo(const std::string& _path, uint64_t _size, Checksum _checksum)
       : path(_path),
         size(_size),
         checksum(_checksum) {}
