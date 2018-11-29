@@ -62,6 +62,10 @@ struct LRUCacheOptions {
   // If non-nullptr will use this allocator instead of system allocator when
   // allocating memory for cache blocks. Call this method before you start using
   // the cache!
+  //
+  // Caveat: when the cache is used as block cache, the memory allocator is
+  // ignored when dealing with compression libraries that allocate memory
+  // internally (currently only XPRESS).
   std::shared_ptr<MemoryAllocator> memory_allocator;
 
   LRUCacheOptions() {}
