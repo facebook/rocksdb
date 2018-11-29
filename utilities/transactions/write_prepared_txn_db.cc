@@ -554,12 +554,6 @@ const std::vector<SequenceNumber> WritePreparedTxnDB::GetSnapshotListFromDB(
   return db_impl_->snapshots().GetAll(nullptr, max);
 }
 
-void WritePreparedTxnDB::ReleaseSnapshot(const Snapshot* snapshot) {
-  auto snap_seq = snapshot->GetSequenceNumber();
-  ReleaseSnapshotInternal(snap_seq);
-  db_impl_->ReleaseSnapshot(snapshot);
-}
-
 void WritePreparedTxnDB::ReleaseSnapshotInternal(
     const SequenceNumber snap_seq) {
   // relax is enough since max increases monotonically, i.e., if snap_seq <
@@ -587,6 +581,28 @@ void WritePreparedTxnDB::ReleaseSnapshotInternal(
       old_commit_map_empty_.store(old_commit_map_.empty(),
                                   std::memory_order_release);
     }
+  }
+}
+
+void WritePreparedTxnDB::CleanupReleasedSnapshots(
+    const std::vector<SequenceNumber>& new_snapshots,
+    const std::vector<SequenceNumber>& old_snapshots) {
+  auto newi = new_snapshots.begin();
+  auto oldi = old_snapshots.begin();
+  for (; newi != new_snapshots.end() && oldi != old_snapshots.end();) {
+    assert(*newi >= *oldi);  // cannot have new snapshots with lower seq
+    if (*newi == *oldi) {    // still not released
+      newi++;
+      oldi++;
+    } else {
+      assert(*newi > *oldi);  // *oldi is released
+      ReleaseSnapshotInternal(*oldi);
+      oldi++;
+    }
+  }
+  // Everything remained in old_snapshots is released and must be cleaned up
+  for (; oldi != old_snapshots.end(); oldi++) {
+    ReleaseSnapshotInternal(*oldi);
   }
 }
 
@@ -638,6 +654,12 @@ void WritePreparedTxnDB::UpdateSnapshots(
   // Update the size at the end. Otherwise a parallel reader might read
   // items that are not set yet.
   snapshots_total_.store(snapshots.size(), std::memory_order_release);
+
+  // Note: this must be done after the snapshots data structures are updated
+  // with the new list of snapshots.
+  CleanupReleasedSnapshots(snapshots, snapshots_all_);
+  snapshots_all_ = snapshots;
+
   TEST_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots:p:end");
   TEST_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots:s:end");
 }
