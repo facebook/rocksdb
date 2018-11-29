@@ -545,6 +545,7 @@ TEST_F(DBOptionsTest, RunStatsPersistPeriodSec) {
   Options options;
   options.create_if_missing = true;
   options.stats_persist_period_sec = 5;
+  options.persist_stats_to_disk = true;
   std::unique_ptr<rocksdb::MockTimeEnv> mock_env;
   mock_env.reset(new rocksdb::MockTimeEnv(env_));
   mock_env->set_current_time(0);  // in seconds
@@ -579,6 +580,7 @@ TEST_F(DBOptionsTest, PersistentStatsFreshInstall) {
   Options options;
   options.create_if_missing = true;
   options.stats_persist_period_sec = 0;
+  options.persist_stats_to_disk = false;
   std::unique_ptr<rocksdb::MockTimeEnv> mock_env;
   mock_env.reset(new rocksdb::MockTimeEnv(env_));
   mock_env->set_current_time(0);  // in seconds
@@ -589,7 +591,9 @@ TEST_F(DBOptionsTest, PersistentStatsFreshInstall) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   Reopen(options);
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "5"}}));
+  ASSERT_OK(dbfull()->SetDBOptions({{"persist_stats_to_disk", "true"}}));
   ASSERT_EQ(5, dbfull()->GetDBOptions().stats_persist_period_sec);
+  ASSERT_EQ(true, dbfull()->GetDBOptions().persist_stats_to_disk);
   dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
   ASSERT_GE(counter, 1);
   Close();
@@ -599,6 +603,7 @@ TEST_F(DBOptionsTest, SetStatsPersistPeriodSec) {
   Options options;
   options.create_if_missing = true;
   options.stats_persist_period_sec = 5;
+  options.persist_stats_to_disk = true;
   options.env = env_;
   Reopen(options);
   ASSERT_EQ(5, dbfull()->GetDBOptions().stats_persist_period_sec);
@@ -633,6 +638,7 @@ TEST_F(DBOptionsTest, EnableStatsPersistPeriodSec) {
   options.create_if_missing = true;
   // column family "_persistent_stats" is created implicitly after DB::Open
   options.stats_persist_period_sec = 5;
+  options.persist_stats_to_disk = true;
   options.env = env_;
   CreateColumnFamilies({"pikachu"}, options);
   ASSERT_OK(Put("foo", "bar"));
@@ -659,7 +665,7 @@ TEST_F(DBOptionsTest, EnableStatsPersistPeriodSec) {
   stats_opts.start_time = 0;
   stats_opts.end_time = env_->NowMicros();
   std::unordered_map<uint64_t, std::map<std::string, std::string> >
-      stats_history = dbfull()->GetStatsHistory(stats_opts, options);
+      stats_history = dbfull()->GetStatsHistory(stats_opts);
   int key_count4 = 0;
   int num_snapshot = 0;
   for (const auto& stats : stats_history) {
@@ -700,6 +706,7 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
   Options options;
   options.create_if_missing = true;
   options.stats_persist_period_sec = 5;
+  options.persist_stats_to_disk = true;
   options.env = env_;
   CreateColumnFamilies({"pikachu"}, options);
   ASSERT_OK(Put("foo", "bar"));
@@ -711,7 +718,7 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
   stats_opts.start_time = 0;
   stats_opts.end_time = env_->NowMicros();
   std::unordered_map<uint64_t, std::map<std::string, std::string> >
-      stats_history = dbfull()->GetStatsHistory(stats_opts, options);
+      stats_history = dbfull()->GetStatsHistory(stats_opts);
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     AssertStatsIter(iter, stats_history);
   }
@@ -720,7 +727,7 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
   iter =
       db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
   stats_opts.end_time = env_->NowMicros();
-  stats_history = dbfull()->GetStatsHistory(stats_opts, options);
+  stats_history = dbfull()->GetStatsHistory(stats_opts);
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     AssertStatsIter(iter, stats_history);
   }
@@ -731,6 +738,7 @@ TEST_F(DBOptionsTest, PersistentStatsCreateColumnFamilies) {
   Options options;
   options.create_if_missing = true;
   options.stats_persist_period_sec = 5;
+  options.persist_stats_to_disk = true;
   options.env = env_;
   ASSERT_OK(TryReopen(options));
   CreateColumnFamilies({"one", "two", "three"}, options);
@@ -750,6 +758,7 @@ TEST_F(DBOptionsTest, PersistentStatsReadOnly) {
 
   auto options = CurrentOptions();
   options.stats_persist_period_sec = 5;
+  options.persist_stats_to_disk = true;
   assert(options.env == env_);
   ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_EQ("v2", Get("bar"));

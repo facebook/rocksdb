@@ -392,7 +392,7 @@ Status DBImpl::Recover(
     persistent_stats_cfd_exists = true;
   }
   // create persistent_stats CF for the first time
-  if (mutable_db_options_.stats_persist_period_sec != 0 &&
+  if (mutable_db_options_.persist_stats_to_disk &&
       !persistent_stats_cfd_exists) {
     mutex_.Unlock();
     ColumnFamilyHandle* handle = nullptr;
@@ -436,7 +436,7 @@ Status DBImpl::Recover(
     // When recovering from a DB which already contains persistent stats CF,
     // the CF is already created in VersionSet::ApplyOneVersionEdit, but
     // column family handle was not. Need to explicitly create handle here.
-    if (mutable_db_options_.stats_persist_period_sec != 0 &&
+    if (mutable_db_options_.persist_stats_to_disk &&
         persist_stats_cf_handle_ == nullptr) {
       persist_stats_cf_handle_ = new ColumnFamilyHandleImpl(
           versions_->GetColumnFamilySet()->GetColumnFamily(
@@ -1077,21 +1077,21 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.push_back(
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
-  if (db_options.stats_persist_period_sec != 0) {
+  if (db_options.persist_stats_to_disk) {
     column_families.push_back(
         ColumnFamilyDescriptor(kPersistentStatsColumnFamilyName, cf_options));
   }
   std::vector<ColumnFamilyHandle*> handles;
   Status s = DB::Open(db_options, dbname, column_families, &handles, dbptr);
   if (s.ok()) {
-    if (db_options.stats_persist_period_sec != 0) {
+    if (db_options.persist_stats_to_disk) {
       assert(handles.size() == 2);
     } else {
       assert(handles.size() == 1);
     }
     // i can delete the handle since DBImpl is always holding a reference to
     // default column family
-    if (db_options.stats_persist_period_sec != 0 && handles[1] != nullptr) {
+    if (db_options.persist_stats_to_disk && handles[1] != nullptr) {
       delete handles[1];
     }
     delete handles[0];

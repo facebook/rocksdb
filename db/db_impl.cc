@@ -687,28 +687,29 @@ void DBImpl::PersistStats() {
   WriteOptions wo;
   ColumnFamilyOptions cf_options;
   const uint64_t now_micros = env_->NowMicros();
-  stats_history_[now_micros] = stats_map;
-  // TODO: make time stamp string equal in length to allow sorting by time
-  std::string now_micros_string = ToString(now_micros);
-  int keycount = 0;
-  for (auto iter = stats_map.begin(); iter != stats_map.end(); ++iter) {
-    // TODO(Zhongyi) use more readable timestamp?
-    std::string key = iter->first + "#" + now_micros_string;
-    // TODO(Zhongyi): add counters for failed writes
-    Status s = DB::Put(wo, persist_stats_cf_handle_, key, iter->second);
-    keycount++;
-  }
   // TODO: add TTL for stats_history_ to limit memory consumption
+  stats_history_[now_micros] = stats_map;
+  if (mutable_db_options_.persist_stats_to_disk) {
+    // TODO: make time stamp string equal in length to allow sorting by time
+    std::string now_micros_string = ToString(now_micros);
+    int keycount = 0;
+    for (auto iter = stats_map.begin(); iter != stats_map.end(); ++iter) {
+      std::string key = iter->first + "#" + now_micros_string;
+      // TODO(Zhongyi): add counters for failed writes
+      Status s = DB::Put(wo, persist_stats_cf_handle_, key, iter->second);
+      keycount++;
+    }
+  }
 #endif  // !ROCKSDB_LITE
 }
 
 std::unordered_map<uint64_t, std::map<std::string, std::string> >
-DBImpl::GetStatsHistory(GetStatsOptions& stats_opts, const Options& options) {
-  return FindStatsBetween(stats_opts.start_time, stats_opts.end_time, options);
+DBImpl::GetStatsHistory(GetStatsOptions& stats_opts) {
+  return FindStatsBetween(stats_opts.start_time, stats_opts.end_time);
 }
 
 std::unordered_map<uint64_t, std::map<std::string, std::string> >
-DBImpl::FindStatsBetween(uint64_t start_time, uint64_t end_time, const Options& options) {
+DBImpl::FindStatsBetween(uint64_t start_time, uint64_t end_time) {
   std::unordered_map<uint64_t, std::map<std::string, std::string> >
       stats_history;
   // first dump whatever is in-memory that satisfies the time range
@@ -717,10 +718,9 @@ DBImpl::FindStatsBetween(uint64_t start_time, uint64_t end_time, const Options& 
       stats_history[stats.first] = stats.second;
     }
   }
-  // if persist_stats_to_disk is true, create iterator to scan history
-  // and add to stats_history
-  if (options.stats_persist_period_sec > 0 &&
-      persist_stats_cf_handle_ != nullptr) {
+  // if persistent_stats column family is available, create iterator to scan
+  // history and add to stats_history map
+  if (persist_stats_cf_handle_ != nullptr) {
     auto iter = NewIterator(ReadOptions(), persist_stats_cf_handle_);
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       std::string key = iter->key().ToString();

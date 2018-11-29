@@ -669,8 +669,12 @@ struct DBOptions {
   unsigned int stats_dump_period_sec = 600;
 
   // if not zero, dump rocksdb.stats to RocksDB every stats_persist_period_sec
-  // Default: 0 (Disabled)
-  unsigned int stats_persist_period_sec = 0;
+  // Default: 600
+  unsigned int stats_persist_period_sec = 600;
+
+  // If true, automatically persist stats to a hidden column family every
+  // stats_persist_period_sec seconds. Default: false
+  bool persist_stats_to_disk = false;
 
   // If set true, will hint the underlying file system that the file
   // access pattern is random, when a sst file is opened.
