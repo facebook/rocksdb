@@ -178,7 +178,7 @@ Status TransactionBaseImpl::RollbackToSavePoint() {
     return Status::NotFound();
   }
 }
-  
+
 Status TransactionBaseImpl::PopSavePoint() {
   if (save_points_ == nullptr ||
       save_points_->empty()) {
@@ -187,7 +187,7 @@ Status TransactionBaseImpl::PopSavePoint() {
     return Status::NotFound();
   }
 
-  assert(!save_points_->empty()); 
+  assert(!save_points_->empty());
   save_points_->pop();
   return write_batch_.PopSavePoint();
 }
@@ -291,7 +291,7 @@ Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options) {
   Iterator* db_iter = db_->NewIterator(read_options);
   assert(db_iter);
 
-  return write_batch_.NewIteratorWithBase(db_iter);
+  return write_batch_.NewIteratorWithBase(read_options, db_iter);
 }
 
 Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options,
@@ -299,7 +299,7 @@ Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options,
   Iterator* db_iter = db_->NewIterator(read_options, column_family);
   assert(db_iter);
 
-  return write_batch_.NewIteratorWithBase(column_family, db_iter);
+  return write_batch_.NewIteratorWithBase(read_options, column_family, db_iter);
 }
 
 Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
