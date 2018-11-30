@@ -46,11 +46,13 @@ struct JemallocAllocatorOptions {
 
   // Lower bound of allocation size to use tcache, if limit_tcache_size=true.
   // When used with block cache, it is recommneded to set it to block_size/4.
-  size_t tcache_size_lower_bound = 0;
+  // The default value is correspond to default block_size=4k.
+  size_t tcache_size_lower_bound = 1024;
 
   // Upper bound of allocation size to use tcache, if limit_tcache_size=true.
   // When used with block cache, it is recommneded to set it to block_size.
-  size_t tcache_size_upper_bound = 32 * 1024;
+  // The default value is correspond to default block_size=4k.
+  size_t tcache_size_upper_bound = 4 * 1024;
 };
 
 // Generate memory allocators which allocates through Jemalloc and utilize
