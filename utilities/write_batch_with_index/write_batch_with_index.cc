@@ -293,9 +293,10 @@ class BaseDeltaIterator : public Iterator {
         if (delta_entry.type == kDeleteRecord ||
             delta_entry.type == kSingleDeleteRecord) {
           AdvanceDelta();
-          current_over_upper_bound_ = BaseDeltaValid() && IsOverUpperBound();
+          // If the new Delta is valid and >= iterate_upper_bound, stop
+          current_over_upper_bound_ = DeltaValid() && IsOverUpperBound();
           if (current_over_upper_bound_) {
-            break;
+            return;
           }
         } else {
           current_at_base_ = false;
