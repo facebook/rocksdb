@@ -54,6 +54,8 @@ class Iterator : public Cleanable {
   // Position at the last key in the source that at or before target.
   // The iterator is Valid() after this call iff the source contains
   // an entry that comes at or before target.
+  // Note: If iterate_upper_bound is set and SeekForPrev is called with target
+  // greater or equal to iterate_upper_bound, the behavior is undefined
   virtual void SeekForPrev(const Slice& target) = 0;
 
   // Moves to the next entry in the source.  After this call, Valid() is

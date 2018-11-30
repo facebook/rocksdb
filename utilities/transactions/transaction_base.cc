@@ -313,7 +313,7 @@ Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options) {
   Iterator* db_iter = db_->NewIterator(read_options);
   assert(db_iter);
 
-  return write_batch_.NewIteratorWithBase(db_iter);
+  return write_batch_.NewIteratorWithBase(read_options, db_iter);
 }
 
 Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options,
@@ -321,7 +321,7 @@ Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options,
   Iterator* db_iter = db_->NewIterator(read_options, column_family);
   assert(db_iter);
 
-  return write_batch_.NewIteratorWithBase(column_family, db_iter);
+  return write_batch_.NewIteratorWithBase(read_options, column_family, db_iter);
 }
 
 Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
