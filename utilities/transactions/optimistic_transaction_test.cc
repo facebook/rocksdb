@@ -854,7 +854,6 @@ TEST_F(OptimisticTransactionTest, UntrackedWrites) {
 
 TEST_F(OptimisticTransactionTest, IteratorUpperBoundTest) {
   WriteOptions write_options;
-  ReadOptions read_options;
   auto txn = unique_ptr<Transaction>(txn_db->BeginTransaction(write_options));
 
   string key1 = "a1";
@@ -871,6 +870,7 @@ TEST_F(OptimisticTransactionTest, IteratorUpperBoundTest) {
 
   string ubKey("a2");
   Slice upperbound(ubKey);
+  ReadOptions read_options;
   read_options.iterate_upper_bound = &upperbound;
   auto it = unique_ptr<Iterator>(txn->GetIterator(read_options));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
