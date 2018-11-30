@@ -375,7 +375,7 @@ class DBImpl : public DB {
   // The returned iterator should be deleted when no longer needed.
   InternalIterator* NewInternalIterator(
       Arena* arena, RangeDelAggregatorV2* range_del_agg,
-      ColumnFamilyHandle* column_family = nullptr);
+      SequenceNumber sequence, ColumnFamilyHandle* column_family = nullptr);
 
   LogsWithPrepTracker* logs_with_prep_tracker() {
     return &logs_with_prep_tracker_;
@@ -582,7 +582,8 @@ class DBImpl : public DB {
                                         ColumnFamilyData* cfd,
                                         SuperVersion* super_version,
                                         Arena* arena,
-                                        RangeDelAggregatorV2* range_del_agg);
+                                        RangeDelAggregatorV2* range_del_agg,
+                                        SequenceNumber sequence);
 
   // hollow transactions shell used for recovery.
   // these will then be passed to TransactionDB so that

@@ -25,7 +25,8 @@ namespace rocksdb {
 
 class JemallocNodumpAllocator : public MemoryAllocator {
  public:
-  JemallocNodumpAllocator(std::unique_ptr<extent_hooks_t>&& arena_hooks,
+  JemallocNodumpAllocator(JemallocAllocatorOptions& options,
+                          std::unique_ptr<extent_hooks_t>&& arena_hooks,
                           unsigned arena_index);
   ~JemallocNodumpAllocator();
 
@@ -36,6 +37,7 @@ class JemallocNodumpAllocator : public MemoryAllocator {
 
  private:
   friend Status NewJemallocNodumpAllocator(
+      JemallocAllocatorOptions& options,
       std::shared_ptr<MemoryAllocator>* memory_allocator);
 
   // Custom alloc hook to replace jemalloc default alloc.
@@ -51,7 +53,7 @@ class JemallocNodumpAllocator : public MemoryAllocator {
 
   // Get or create tcache. Return flag suitable to use with `mallocx`:
   // either MALLOCX_TCACHE_NONE or MALLOCX_TCACHE(tc).
-  int GetThreadSpecificCache();
+  int GetThreadSpecificCache(size_t size);
 
   // A function pointer to jemalloc default alloc. Use atomic to make sure
   // NewJemallocNodumpAllocator is thread-safe.
@@ -59,6 +61,8 @@ class JemallocNodumpAllocator : public MemoryAllocator {
   // Hack: original_alloc_ needs to be static for Alloc() to access it.
   // alloc needs to be static to pass to jemalloc as function pointer.
   static std::atomic<extent_alloc_t*> original_alloc_;
+
+  const JemallocAllocatorOptions options_;
 
   // Custom hooks has to outlive corresponding arena.
   const std::unique_ptr<extent_hooks_t> arena_hooks_;

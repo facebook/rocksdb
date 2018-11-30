@@ -22,7 +22,8 @@ Status GetAllKeyVersions(DB* db, Slice begin_key, Slice end_key,
   RangeDelAggregatorV2 range_del_agg(&icmp,
                                      kMaxSequenceNumber /* upper_bound */);
   Arena arena;
-  ScopedArenaIterator iter(idb->NewInternalIterator(&arena, &range_del_agg));
+  ScopedArenaIterator iter(
+      idb->NewInternalIterator(&arena, &range_del_agg, kMaxSequenceNumber));
 
   if (!begin_key.empty()) {
     InternalKey ikey;

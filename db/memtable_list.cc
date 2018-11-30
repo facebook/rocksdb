@@ -15,6 +15,7 @@
 #include <string>
 #include "db/db_impl.h"
 #include "db/memtable.h"
+#include "db/range_tombstone_fragmenter.h"
 #include "db/version_set.h"
 #include "monitoring/thread_status_util.h"
 #include "rocksdb/db.h"
@@ -161,21 +162,11 @@ Status MemTableListVersion::AddRangeTombstoneIterators(
     RangeDelAggregatorV2* range_del_agg) {
   assert(range_del_agg != nullptr);
   for (auto& m : memlist_) {
-    std::unique_ptr<InternalIterator> range_del_iter(
-        m->NewRangeTombstoneIterator(read_opts));
-    range_del_agg->AddUnfragmentedTombstones(std::move(range_del_iter));
-  }
-  return Status::OK();
-}
-
-Status MemTableListVersion::AddRangeTombstoneIterators(
-    const ReadOptions& read_opts,
-    std::vector<InternalIterator*>* range_del_iters) {
-  for (auto& m : memlist_) {
-    auto* range_del_iter = m->NewRangeTombstoneIterator(read_opts);
-    if (range_del_iter != nullptr) {
-      range_del_iters->push_back(range_del_iter);
-    }
+    // Using kMaxSequenceNumber is OK because these are immutable memtables.
+    std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+        m->NewRangeTombstoneIterator(read_opts,
+                                     kMaxSequenceNumber /* read_seq */));
+    range_del_agg->AddTombstones(std::move(range_del_iter));
   }
   return Status::OK();
 }

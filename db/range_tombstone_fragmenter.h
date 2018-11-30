@@ -38,8 +38,7 @@ struct FragmentedRangeTombstoneList {
   };
   FragmentedRangeTombstoneList(
       std::unique_ptr<InternalIterator> unfragmented_tombstones,
-      const InternalKeyComparator& icmp, bool one_time_use,
-      SequenceNumber snapshot = kMaxSequenceNumber);
+      const InternalKeyComparator& icmp);
 
   std::vector<RangeTombstoneStack>::const_iterator begin() const {
     return tombstones_.begin();
@@ -69,8 +68,7 @@ struct FragmentedRangeTombstoneList {
   // tombstones_ and tombstone_seqs_.
   void FragmentTombstones(
       std::unique_ptr<InternalIterator> unfragmented_tombstones,
-      const InternalKeyComparator& icmp, bool one_time_use,
-      SequenceNumber snapshot = kMaxSequenceNumber);
+      const InternalKeyComparator& icmp);
 
   std::vector<RangeTombstoneStack> tombstones_;
   std::vector<SequenceNumber> tombstone_seqs_;

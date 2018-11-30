@@ -83,6 +83,8 @@ Status FileTraceWriter::Write(const Slice& data) {
   return file_writer_->Append(data);
 }
 
+uint64_t FileTraceWriter::GetFileSize() { return file_writer_->GetFileSize(); }
+
 Status NewFileTraceReader(Env* env, const EnvOptions& env_options,
                           const std::string& trace_filename,
                           std::unique_ptr<TraceReader>* trace_reader) {

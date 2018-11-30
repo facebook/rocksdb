@@ -118,7 +118,8 @@ class Repairer {
         wc_(db_options_.delayed_write_rate),
         vset_(dbname_, &immutable_db_options_, env_options_,
               raw_table_cache_.get(), &wb_, &wc_),
-        next_file_number_(1) {
+        next_file_number_(1),
+        db_lock_(nullptr) {
     for (const auto& cfd : column_families) {
       cf_name_to_opts_[cfd.name] = cfd.options;
     }
@@ -419,7 +420,8 @@ class Repairer {
       status = BuildTable(
           dbname_, env_, *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
           env_options_, table_cache_, iter.get(),
-          std::unique_ptr<InternalIterator>(mem->NewRangeTombstoneIterator(ro)),
+          std::unique_ptr<InternalIterator>(
+              mem->NewRangeTombstoneIterator(ro, vset_.LastSequence())),
           &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
           {}, kMaxSequenceNumber, snapshot_checker, kNoCompression,

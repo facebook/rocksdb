@@ -62,7 +62,6 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
 #endif  // ROCKSDB_LITE
 }
 
-#ifndef TRAVIS
 // Disable this test temporarily on Travis as it fails intermittently.
 // Github issue: #4151
 TEST_F(DBFlushTest, SyncFail) {
@@ -73,7 +72,11 @@ TEST_F(DBFlushTest, SyncFail) {
   options.env = fault_injection_env.get();
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DBFlushTest::SyncFail:1", "DBImpl::SyncClosedLogs:Start"},
+      {{"DBFlushTest::SyncFail:GetVersionRefCount:1",
+        "DBImpl::FlushMemTableToOutputFile:BeforePickMemtables"},
+       {"DBImpl::FlushMemTableToOutputFile:AfterPickMemtables",
+        "DBFlushTest::SyncFail:GetVersionRefCount:2"},
+       {"DBFlushTest::SyncFail:1", "DBImpl::SyncClosedLogs:Start"},
        {"DBImpl::SyncClosedLogs:Failed", "DBFlushTest::SyncFail:2"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -88,6 +91,10 @@ TEST_F(DBFlushTest, SyncFail) {
   // Flush installs a new super-version. Get the ref count after that.
   auto current_before = cfd->current();
   int refs_before = cfd->current()->TEST_refs();
+  TEST_SYNC_POINT("DBFlushTest::SyncFail:GetVersionRefCount:1");
+  TEST_SYNC_POINT("DBFlushTest::SyncFail:GetVersionRefCount:2");
+  int refs_after_picking_memtables = cfd->current()->TEST_refs();
+  ASSERT_EQ(refs_before + 1, refs_after_picking_memtables);
   fault_injection_env->SetFilesystemActive(false);
   TEST_SYNC_POINT("DBFlushTest::SyncFail:1");
   TEST_SYNC_POINT("DBFlushTest::SyncFail:2");
@@ -126,7 +133,6 @@ TEST_F(DBFlushTest, SyncSkip) {
 
   Destroy(options);
 }
-#endif  // TRAVIS
 
 TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
   // Verify setting an empty high-pri (flush) thread pool causes flushes to be

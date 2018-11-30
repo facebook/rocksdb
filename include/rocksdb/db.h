@@ -287,16 +287,12 @@ class DB {
   // a non-OK status on error. It is not an error if no keys exist in the range
   // ["begin_key", "end_key").
   //
-  // This feature is currently an experimental performance optimization for
-  // deleting very large ranges of contiguous keys. Invoking it many times or on
-  // small ranges may severely degrade read performance; in particular, the
-  // resulting performance can be worse than calling Delete() for each key in
-  // the range. Note also the degraded read performance affects keys outside the
-  // deleted ranges, and affects database operations involving scans, like flush
-  // and compaction.
-  //
-  // Consider setting ReadOptions::ignore_range_deletions = true to speed
-  // up reads for key(s) that are known to be unaffected by range deletions.
+  // This feature is now usable in production, with the following caveats:
+  // 1) Accumulating many range tombstones in the memtable will degrade read
+  // performance; this can be avoided by manually flushing occasionally.
+  // 2) Limiting the maximum number of open files in the presence of range
+  // tombstones can degrade read performance. To avoid this problem, set
+  // max_open_files to -1 whenever possible.
   virtual Status DeleteRange(const WriteOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& begin_key, const Slice& end_key);

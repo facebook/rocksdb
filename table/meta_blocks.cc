@@ -175,7 +175,8 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
                       FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                       const ImmutableCFOptions& ioptions,
                       TableProperties** table_properties,
-                      bool /*compression_type_missing*/) {
+                      bool /*compression_type_missing*/,
+                      MemoryAllocator* memory_allocator) {
   assert(table_properties);
 
   Slice v = handle_value;
@@ -191,9 +192,10 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
   Slice compression_dict;
   PersistentCacheOptions cache_options;
 
-  BlockFetcher block_fetcher(
-      file, prefetch_buffer, footer, read_options, handle, &block_contents,
-      ioptions, false /* decompress */, compression_dict, cache_options);
+  BlockFetcher block_fetcher(file, prefetch_buffer, footer, read_options,
+                             handle, &block_contents, ioptions,
+                             false /* decompress */, false /*maybe_compressed*/,
+                             compression_dict, cache_options, memory_allocator);
   s = block_fetcher.ReadBlockContents();
   // property block is never compressed. Need to add uncompress logic if we are
   // to compress it..
@@ -314,9 +316,10 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
 
 Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
                            uint64_t table_magic_number,
-                           const ImmutableCFOptions &ioptions,
+                           const ImmutableCFOptions& ioptions,
                            TableProperties** properties,
-                           bool compression_type_missing) {
+                           bool compression_type_missing,
+                           MemoryAllocator* memory_allocator) {
   // -- Read metaindex block
   Footer footer;
   auto s = ReadFooterFromFile(file, nullptr /* prefetch_buffer */, file_size,
@@ -332,10 +335,11 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   Slice compression_dict;
   PersistentCacheOptions cache_options;
 
-  BlockFetcher block_fetcher(
-      file, nullptr /* prefetch_buffer */, footer, read_options,
-      metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
-      compression_dict, cache_options);
+  BlockFetcher block_fetcher(file, nullptr /* prefetch_buffer */, footer,
+                             read_options, metaindex_handle,
+                             &metaindex_contents, ioptions,
+                             false /* decompress */, false /*maybe_compressed*/,
+                             compression_dict, cache_options, memory_allocator);
   s = block_fetcher.ReadBlockContents();
   if (!s.ok()) {
     return s;
@@ -358,7 +362,8 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   TableProperties table_properties;
   if (found_properties_block == true) {
     s = ReadProperties(meta_iter->value(), file, nullptr /* prefetch_buffer */,
-                       footer, ioptions, properties, compression_type_missing);
+                       footer, ioptions, properties, compression_type_missing,
+                       memory_allocator);
   } else {
     s = Status::NotFound();
   }
@@ -384,7 +389,8 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
                      const ImmutableCFOptions& ioptions,
                      const std::string& meta_block_name,
                      BlockHandle* block_handle,
-                     bool /*compression_type_missing*/) {
+                     bool /*compression_type_missing*/,
+                     MemoryAllocator* memory_allocator) {
   Footer footer;
   auto s = ReadFooterFromFile(file, nullptr /* prefetch_buffer */, file_size,
                               &footer, table_magic_number);
@@ -401,7 +407,8 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
   BlockFetcher block_fetcher(
       file, nullptr /* prefetch_buffer */, footer, read_options,
       metaindex_handle, &metaindex_contents, ioptions,
-      false /* do decompression */, compression_dict, cache_options);
+      false /* do decompression */, false /*maybe_compressed*/,
+      compression_dict, cache_options, memory_allocator);
   s = block_fetcher.ReadBlockContents();
   if (!s.ok()) {
     return s;
@@ -423,8 +430,8 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
                      uint64_t table_magic_number,
                      const ImmutableCFOptions& ioptions,
                      const std::string& meta_block_name,
-                     BlockContents* contents,
-                     bool /*compression_type_missing*/) {
+                     BlockContents* contents, bool /*compression_type_missing*/,
+                     MemoryAllocator* memory_allocator) {
   Status status;
   Footer footer;
   status = ReadFooterFromFile(file, prefetch_buffer, file_size, &footer,
@@ -443,8 +450,8 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
 
   BlockFetcher block_fetcher(file, prefetch_buffer, footer, read_options,
                              metaindex_handle, &metaindex_contents, ioptions,
-                             false /* decompress */, compression_dict,
-                             cache_options);
+                             false /* decompress */, false /*maybe_compressed*/,
+                             compression_dict, cache_options, memory_allocator);
   status = block_fetcher.ReadBlockContents();
   if (!status.ok()) {
     return status;
@@ -470,7 +477,8 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
   // Reading metablock
   BlockFetcher block_fetcher2(
       file, prefetch_buffer, footer, read_options, block_handle, contents,
-      ioptions, false /* decompress */, compression_dict, cache_options);
+      ioptions, false /* decompress */, false /*maybe_compressed*/,
+      compression_dict, cache_options, memory_allocator);
   return block_fetcher2.ReadBlockContents();
 }
 

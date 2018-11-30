@@ -1985,7 +1985,9 @@ class Benchmark {
   int64_t max_num_range_tombstones_;
   WriteOptions write_options_;
   Options open_options_;  // keep options around to properly destroy db later
+#ifndef ROCKSDB_LITE
   TraceOptions trace_options_;
+#endif
   int64_t reads_;
   int64_t deletes_;
   double read_random_exp_range_;
@@ -4578,7 +4580,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       if (FLAGS_max_scan_distance != 0) {
         if (FLAGS_reverse_iterator) {
           GenerateKeyFromInt(
-              (uint64_t)std::max(0l, seek_pos - FLAGS_max_scan_distance),
+              (uint64_t)std::max((int64_t)0,
+                                 seek_pos - FLAGS_max_scan_distance),
               FLAGS_num, &lower_bound);
           options.iterate_lower_bound = &lower_bound;
         } else {

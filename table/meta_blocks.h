@@ -11,12 +11,13 @@
 
 #include "db/builder.h"
 #include "db/table_properties_collector.h"
-#include "util/kv_map.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/memory_allocator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "table/block_builder.h"
 #include "table/format.h"
+#include "util/kv_map.h"
 
 namespace rocksdb {
 
@@ -96,7 +97,8 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
                       FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                       const ImmutableCFOptions& ioptions,
                       TableProperties** table_properties,
-                      bool compression_type_missing = false);
+                      bool compression_type_missing = false,
+                      MemoryAllocator* memory_allocator = nullptr);
 
 // Directly read the properties from the properties block of a plain table.
 // @returns a status to indicate if the operation succeeded. On success,
@@ -108,9 +110,10 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
 // `ReadProperties`, `FindMetaBlock`, and `ReadMetaBlock`
 Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
                            uint64_t table_magic_number,
-                           const ImmutableCFOptions &ioptions,
+                           const ImmutableCFOptions& ioptions,
                            TableProperties** properties,
-                           bool compression_type_missing = false);
+                           bool compression_type_missing = false,
+                           MemoryAllocator* memory_allocator = nullptr);
 
 // Find the meta block from the meta index block.
 Status FindMetaBlock(InternalIterator* meta_index_iter,
@@ -120,10 +123,11 @@ Status FindMetaBlock(InternalIterator* meta_index_iter,
 // Find the meta block
 Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
                      uint64_t table_magic_number,
-                     const ImmutableCFOptions &ioptions,
+                     const ImmutableCFOptions& ioptions,
                      const std::string& meta_block_name,
                      BlockHandle* block_handle,
-                     bool compression_type_missing = false);
+                     bool compression_type_missing = false,
+                     MemoryAllocator* memory_allocator = nullptr);
 
 // Read the specified meta block with name meta_block_name
 // from `file` and initialize `contents` with contents of this block.
@@ -134,6 +138,7 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
                      const ImmutableCFOptions& ioptions,
                      const std::string& meta_block_name,
                      BlockContents* contents,
-                     bool compression_type_missing = false);
+                     bool compression_type_missing = false,
+                     MemoryAllocator* memory_allocator = nullptr);
 
 }  // namespace rocksdb

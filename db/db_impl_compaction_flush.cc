@@ -135,7 +135,9 @@ Status DBImpl::FlushMemTableToOutputFile(
 
   FileMetaData file_meta;
 
+  TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforePickMemtables");
   flush_job.PickMemTable();
+  TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:AfterPickMemtables");
 
 #ifndef ROCKSDB_LITE
   // may temporarily unlock and lock the mutex.

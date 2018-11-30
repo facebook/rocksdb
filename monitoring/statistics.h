@@ -41,8 +41,7 @@ enum HistogramsInternal : uint32_t {
 
 class StatisticsImpl : public Statistics {
  public:
-  StatisticsImpl(std::shared_ptr<Statistics> stats,
-                 bool enable_internal_stats);
+  StatisticsImpl(std::shared_ptr<Statistics> stats);
   virtual ~StatisticsImpl();
 
   virtual uint64_t getTickerCount(uint32_t ticker_type) const override;
@@ -62,8 +61,6 @@ class StatisticsImpl : public Statistics {
  private:
   // If non-nullptr, forwards updates to the object pointed to by `stats_`.
   std::shared_ptr<Statistics> stats_;
-  // TODO(ajkr): clean this up since there are no internal stats anymore
-  bool enable_internal_stats_;
   // Synchronizes anything that operates across other cores' local data,
   // such that operations like Reset() can be performed atomically.
   mutable port::Mutex aggregate_lock_;

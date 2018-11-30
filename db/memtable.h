@@ -16,7 +16,7 @@
 #include <unordered_map>
 #include <vector>
 #include "db/dbformat.h"
-#include "db/range_del_aggregator.h"
+#include "db/range_tombstone_fragmenter.h"
 #include "db/read_callback.h"
 #include "db/version_edit.h"
 #include "monitoring/instrumented_mutex.h"
@@ -158,7 +158,8 @@ class MemTable {
   //        those allocated in arena.
   InternalIterator* NewIterator(const ReadOptions& read_options, Arena* arena);
 
-  InternalIterator* NewRangeTombstoneIterator(const ReadOptions& read_options);
+  FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
+      const ReadOptions& read_options, SequenceNumber read_seq);
 
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.
