@@ -45,7 +45,7 @@ class HdfsEnv : public Env {
 
  public:
   explicit HdfsEnv(const std::string& fsname) : fsname_(fsname) {
-    posixEnv = Env::Default();
+    posixEnv = Env::BaseDefault();
     fileSys_ = connectToPath(fsname_);
   }
 

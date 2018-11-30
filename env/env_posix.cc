@@ -49,6 +49,7 @@
 #include "port/port.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
 #include "util/logging.h"
@@ -1107,7 +1108,7 @@ std::string Env::GenerateUniqueId() {
 //
 // Default Posix Env
 //
-Env* Env::Default() {
+Env* Env::BaseDefault() {
   // The following function call initializes the singletons of ThreadLocalPtr
   // right before the static default_env.  This guarantees default_env will
   // always being destructed before the ThreadLocalPtr singletons get
@@ -1123,6 +1124,28 @@ Env* Env::Default() {
   INIT_SYNC_POINT_SINGLETONS();
   static PosixEnv default_env;
   return &default_env;
+}
+
+//
+// Default Env
+//
+Env* Env::Default() {
+  Env* base_default_env = Env::BaseDefault();
+#ifndef ROCKSDB_LITE
+  const char* uri_pattern = getenv("ROCKS_ENV_URI_PATTERN");
+  if (uri_pattern != nullptr) {
+    static Env* custom_env = nullptr;
+    static std::unique_ptr<Env> custom_env_guard;
+    static bool init = false;
+    if (!init) {
+      init = true;
+      custom_env = NewCustomObject<Env>(uri_pattern, &custom_env_guard);
+    }
+    assert(custom_env != nullptr);
+    return custom_env;
+  }
+#endif  // !ROCKSDB_LITE
+  return base_default_env;
 }
 
 }  // namespace rocksdb

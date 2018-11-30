@@ -1486,4 +1486,4 @@ EnvLibrados* EnvLibrados::Default() {
   return &default_env;
 }
 // @lint-ignore TXT4 T25377293 Grandfathered in
-}
+}  // namespace rocksdb

@@ -339,6 +339,17 @@ cpp_library(
 )
 
 cpp_library(
+    name = "db_basic_test_lib",
+    srcs = ["db/db_basic_test.cc"],
+    auto_headers = AutoHeaders.RECURSIVE_GLOB,
+    arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
+    compiler_flags = rocksdb_compiler_flags,
+    preprocessor_flags = rocksdb_preprocessor_flags,
+    deps = [":rocksdb_test_lib"],
+    external_deps = rocksdb_external_deps,
+)
+
+cpp_library(
     name = "env_basic_test_lib",
     srcs = ["env/env_basic_test.cc"],
     auto_headers = AutoHeaders.RECURSIVE_GLOB,

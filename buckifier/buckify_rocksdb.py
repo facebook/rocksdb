@@ -10,7 +10,10 @@ import sys
 from util import ColorString
 
 # tests to export as libraries for inclusion in other projects
-_EXPORTED_TEST_LIBS = ["env_basic_test"]
+_EXPORTED_TEST_LIBS = [
+    "env_basic_test",
+    "db_basic_test",
+]
 
 # Parse src.mk files as a Dictionary of
 # VAR_NAME => list of files
@@ -81,7 +84,7 @@ def get_tests(repo_path):
             else:
                 # we consumed all the parallel tests
                 break
-    
+
     return tests
 
 
