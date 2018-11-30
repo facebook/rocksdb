@@ -3186,7 +3186,7 @@ class TickerTypeJni {
  public:
   // Returns the equivalent org.rocksdb.TickerType for the provided
   // C++ rocksdb::Tickers enum
-  static jbyte toJavaTickerType(
+  static jchar toJavaTickerType(
       const rocksdb::Tickers& tickers) {
     switch(tickers) {
       case rocksdb::Tickers::BLOCK_CACHE_MISS:
@@ -3477,7 +3477,7 @@ class TickerTypeJni {
 
   // Returns the equivalent C++ rocksdb::Tickers enum for the
   // provided Java org.rocksdb.TickerType
-  static rocksdb::Tickers toCppTickers(jbyte jticker_type) {
+  static rocksdb::Tickers toCppTickers(jchar jticker_type) {
     switch(jticker_type) {
       case 0x0:
         return rocksdb::Tickers::BLOCK_CACHE_MISS;
