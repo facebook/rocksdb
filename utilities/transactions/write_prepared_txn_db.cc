@@ -592,8 +592,13 @@ void WritePreparedTxnDB::CleanupReleasedSnapshots(
   for (; newi != new_snapshots.end() && oldi != old_snapshots.end();) {
     assert(*newi >= *oldi);  // cannot have new snapshots with lower seq
     if (*newi == *oldi) {    // still not released
-      newi++;
-      oldi++;
+      auto value = *newi;
+      while (newi != new_snapshots.end() && *newi == value) {
+        newi++;
+      }
+      while (oldi != old_snapshots.end() && *oldi == value) {
+        oldi++;
+      }
     } else {
       assert(*newi > *oldi);  // *oldi is released
       ReleaseSnapshotInternal(*oldi);

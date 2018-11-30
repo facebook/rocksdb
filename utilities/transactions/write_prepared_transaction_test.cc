@@ -747,7 +747,8 @@ TEST_P(WritePreparedTransactionTest, DoubleSnapshot) {
   ASSERT_OK(txn->SetName("txn"));
   ASSERT_OK(txn->Put("key", "value2"));
   ASSERT_OK(txn->Prepare());
-  // Two snapshots with the same seq number
+  // Three snapshots with the same seq number
+  const Snapshot* snapshot0 = wp_db->GetSnapshot();
   const Snapshot* snapshot1 = wp_db->GetSnapshot();
   const Snapshot* snapshot2 = wp_db->GetSnapshot();
   ASSERT_OK(txn->Commit());
@@ -755,7 +756,11 @@ TEST_P(WritePreparedTransactionTest, DoubleSnapshot) {
   SequenceNumber overlap_seq = txn->GetId() + cache_size;
   delete txn;
 
+  // 4th snapshot with a larger seq
+  const Snapshot* snapshot3 = wp_db->GetSnapshot();
   // Cause an eviction to advance max evicted seq number
+  // This also fetches the 4 snapshots from db since their seq is lower than the
+  // new max
   wp_db->AddCommitted(overlap_seq, overlap_seq);
 
   ReadOptions ropt;
@@ -774,7 +779,21 @@ TEST_P(WritePreparedTransactionTest, DoubleSnapshot) {
   ASSERT_OK(s);
   ASSERT_TRUE(pinnable_val == "value1");
   pinnable_val.Reset();
+
+  // Cause an eviction to advance max evicted seq number and trigger updating
+  // the snapshot list
+  overlap_seq += cache_size;
+  wp_db->AddCommitted(overlap_seq, overlap_seq);
+
+  // It should still see the value before commit
+  s = wp_db->Get(ropt, wp_db->DefaultColumnFamily(), "key", &pinnable_val);
+  ASSERT_OK(s);
+  ASSERT_TRUE(pinnable_val == "value1");
+  pinnable_val.Reset();
+
+  wp_db->ReleaseSnapshot(snapshot0);
   wp_db->ReleaseSnapshot(snapshot2);
+  wp_db->ReleaseSnapshot(snapshot3);
 }
 
 // Test that the entries in old_commit_map_ get garbage collected properly
