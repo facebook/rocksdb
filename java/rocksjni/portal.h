@@ -3673,8 +3673,6 @@ class TickerTypeJni {
         return rocksdb::Tickers::NO_ITERATOR_CREATED;
       case 0x60:
         return rocksdb::Tickers::NO_ITERATOR_DELETED;
-
-
       case 0x61:
         return rocksdb::Tickers::COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE;
       case 0x62:
