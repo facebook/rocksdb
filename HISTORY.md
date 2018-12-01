@@ -1,18 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
-### New Features
-* Improved `DeleteRange` to prevent read performance degradation. The feature is no longer marked as experimental.
 
-### Public API Change
-* `NO_ITERATORS` is divided into two counters `NO_ITERATOR_CREATED` and `NO_ITERATOR_DELETE`. Both of them are only increasing now, just as other counters.
-### Bug Fixes
-* Fixed Get correctness bug in the presence of range tombstones where merge operands covered by a range tombstone always result in NotFound.
-* Start populating `NO_FILE_CLOSES` ticker statistic, which was always zero previously.
-* The default value of NewBloomFilterPolicy()'s argument use_block_based_builder is changed to false. Note that this new default may cause large temp memory usage when building very large SST files.
-
-## 5.18.0 (11/12/2018)
+## 5.18.0 (11/30/2018)
 ### New Features
-* Introduced `Memoryllocator` interface, which lets the user specify custom allocator for memory in block cache.
 * Introduced `JemallocNodumpAllocator` memory allocator. When being use, block cache will be excluded from core dump.
 * Introduced `PerfContextByLevel` as part of `PerfContext` which allows storing perf context at each level. Also replaced `__thread` with `thread_local` keyword for perf_context. Added per-level perf context for bloom filter and `Get` query.
 * With level_compaction_dynamic_level_bytes = true, level multiplier may be adjusted automatically when Level 0 to 1 compaction is lagged behind.
@@ -20,9 +10,12 @@
 * Added `num_deletions` and `num_merge_operands` members to `TableProperties`.
 * Added "rocksdb.min-obsolete-sst-number-to-keep" DB property that reports the lower bound on SST file numbers that are being kept from deletion, even if the SSTs are obsolete.
 * Add xxhash64 checksum support
+* Introduced `MemoryAllocator`, which lets the user specify custom memory allocator for block based table.
+* Improved `DeleteRange` to prevent read performance degradation. The feature is no longer marked as experimental.
 
 ### Public API Change
 * `DBOptions::use_direct_reads` now affects reads issued by `BackupEngine` on the database's SSTs.
+* `NO_ITERATORS` is divided into two counters `NO_ITERATOR_CREATED` and `NO_ITERATOR_DELETE`. Both of them are only increasing now, just as other counters.
 
 ### Bug Fixes
 * Fix corner case where a write group leader blocked due to write stall blocks other writers in queue with WriteOptions::no_slowdown set.
@@ -32,6 +25,9 @@
 * Fix the bug that WriteBatchWithIndex's SeekForPrev() doesn't see the entries with the same key.
 * Fix the bug where user comparator was sometimes fed with InternalKey instead of the user key. The bug manifests when during GenerateBottommostFiles.
 * Fix a bug in WritePrepared txns where if the number of old snapshots goes beyond the snapshot cache size (128 default) the rest will not be checked when evicting a commit entry from the commit cache.
+* Fixed Get correctness bug in the presence of range tombstones where merge operands covered by a range tombstone always result in NotFound.
+* Start populating `NO_FILE_CLOSES` ticker statistic, which was always zero previously.
+* The default value of NewBloomFilterPolicy()'s argument use_block_based_builder is changed to false. Note that this new default may cause large temp memory usage when building very large SST files.
 
 ## 5.17.0 (10/05/2018)
 ### Public API Change
