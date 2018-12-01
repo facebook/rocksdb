@@ -415,10 +415,11 @@ SequenceNumber FragmentedRangeTombstoneIterator::MaxCoveringTombstoneSeqnum(
   return ValidPos() && ucmp_->Compare(start_key(), user_key) <= 0 ? seq() : 0;
 }
 
-std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
+std::map<SequenceNumber, std::unique_ptr<FragmentedRangeTombstoneIterator>>
 FragmentedRangeTombstoneIterator::SplitBySnapshot(
     const std::vector<SequenceNumber>& snapshots) {
-  std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>> splits;
+  std::map<SequenceNumber, std::unique_ptr<FragmentedRangeTombstoneIterator>>
+      splits;
   SequenceNumber lower_bound = 0;
   SequenceNumber upper_bound;
   for (size_t i = 0; i <= snapshots.size(); i++) {
@@ -428,10 +429,10 @@ FragmentedRangeTombstoneIterator::SplitBySnapshot(
       upper_bound = snapshots[i];
     }
     if (tombstones_->ContainsRange(lower_bound, upper_bound)) {
-      splits.emplace_back(new FragmentedRangeTombstoneIterator(
-          tombstones_, *icmp_, upper_bound, lower_bound));
-    } else {
-      splits.emplace_back(nullptr);
+      splits.emplace(upper_bound,
+                     std::unique_ptr<FragmentedRangeTombstoneIterator>(
+                         new FragmentedRangeTombstoneIterator(
+                             tombstones_, *icmp_, upper_bound, lower_bound)));
     }
     lower_bound = upper_bound + 1;
   }

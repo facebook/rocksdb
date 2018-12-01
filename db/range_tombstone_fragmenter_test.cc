@@ -355,7 +355,7 @@ TEST_F(RangeTombstoneFragmenterTest, IteratorSplitNoSnapshots) {
   auto split_iters = iter.SplitBySnapshot({} /* snapshots */);
   ASSERT_EQ(1, split_iters.size());
 
-  auto* split_iter = split_iters[0].get();
+  auto* split_iter = split_iters[kMaxSequenceNumber].get();
   VerifyVisibleTombstones(split_iter, {{"a", "c", 10},
                                        {"c", "e", 10},
                                        {"e", "g", 8},
@@ -379,27 +379,27 @@ TEST_F(RangeTombstoneFragmenterTest, IteratorSplitWithSnapshots) {
   auto split_iters = iter.SplitBySnapshot({3, 5, 7, 9} /* snapshots */);
   ASSERT_EQ(5, split_iters.size());
 
-  auto* split_iter1 = split_iters[0].get();
+  auto* split_iter1 = split_iters[3].get();
   VerifyVisibleTombstones(split_iter1, {{"j", "l", 2}});
 
-  auto* split_iter2 = split_iters[1].get();
+  auto* split_iter2 = split_iters[5].get();
   VerifyVisibleTombstones(split_iter2, {{"j", "l", 4}, {"l", "n", 4}});
 
-  auto* split_iter3 = split_iters[2].get();
+  auto* split_iter3 = split_iters[7].get();
   VerifyVisibleTombstones(split_iter3, {{"c", "e", 6},
                                         {"e", "g", 6},
                                         {"g", "i", 6},
                                         {"j", "l", 4},
                                         {"l", "n", 4}});
 
-  auto* split_iter4 = split_iters[3].get();
+  auto* split_iter4 = split_iters[9].get();
   VerifyVisibleTombstones(split_iter4, {{"c", "e", 8},
                                         {"e", "g", 8},
                                         {"g", "i", 6},
                                         {"j", "l", 4},
                                         {"l", "n", 4}});
 
-  auto* split_iter5 = split_iters[4].get();
+  auto* split_iter5 = split_iters[kMaxSequenceNumber].get();
   VerifyVisibleTombstones(split_iter5, {{"a", "c", 10},
                                         {"c", "e", 10},
                                         {"e", "g", 8},

@@ -162,15 +162,14 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
 
   // Splits the iterator into n+1 iterators (where n is the number of
   // snapshots), each providing a view over a "stripe" of sequence numbers. The
-  // iterators are ordered by the range of sequence numbers they cover, in
-  // ascending order (same as the input snapshots). Also, if the range an
-  // iterator covers is empty, it will be represented as nullptr.
+  // iterators are keyed by the upper bound of their ranges (the provided
+  // snapshots + kMaxSequenceNumber).
   //
-  // NOTE: the iterators in the returned vector are no longer valid if their
+  // NOTE: the iterators in the returned map are no longer valid if their
   // parent iterator is deleted, since they do not modify the refcount of the
-  // underlying tombstone list. Therefore, this vector should be deleted before
+  // underlying tombstone list. Therefore, this map should be deleted before
   // the parent iterator.
-  std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
+  std::map<SequenceNumber, std::unique_ptr<FragmentedRangeTombstoneIterator>>
   SplitBySnapshot(const std::vector<SequenceNumber>& snapshots);
 
  private:
