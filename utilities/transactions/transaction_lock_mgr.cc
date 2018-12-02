@@ -347,8 +347,9 @@ Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
     case DB_LOCK_NOTGRANTED:
       return Status::TimedOut(Status::SubCode::kLockTimeout);
     case TOKUDB_OUT_OF_LOCKS:
-      debug_dump_locks(this);
       return Status::Busy(Status::SubCode::kLockLimit);
+    case DB_LOCK_DEADLOCK:
+      return Status::Busy(Status::SubCode::kDeadlock);
     default:
       assert(0);
       return Status::Busy(Status::SubCode::kLockLimit);
