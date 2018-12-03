@@ -11,15 +11,25 @@ public class HistogramData {
   private final double percentile99_;
   private final double average_;
   private final double standardDeviation_;
+  private final double max_;
+  private final long count_;
+  private final long sum_;
+  private final double min_;
+
 
   public HistogramData(final double median, final double percentile95,
       final double percentile99, final double average,
-      final double standardDeviation) {
+      final double standardDeviation, final double max, final long count,
+      final long sum, final double min) {
     median_ = median;
     percentile95_ = percentile95;
     percentile99_ = percentile99;
     average_ = average;
     standardDeviation_ = standardDeviation;
+    max_ = max;
+    count_ = count;
+    sum_ = sum;
+    min_ = min;
   }
 
   public double getMedian() {
@@ -40,5 +50,21 @@ public class HistogramData {
 
   public double getStandardDeviation() {
     return standardDeviation_;
+  }
+
+  public double getMax() {
+    return max_;'
+  }
+
+  public long getCount() {
+    return count_;
+  }
+
+  public long getSum() {
+    return sum_;
+  }
+
+  public double getMin() {
+    return min_;
   }
 }
