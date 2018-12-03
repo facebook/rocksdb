@@ -339,6 +339,7 @@ void FragmentedRangeTombstoneIterator::ScanForwardToVisibleTombstone() {
           *seq_pos_ < lower_bound_)) {
     ++pos_;
     if (pos_ == tombstones_->end()) {
+      Invalidate();
       return;
     }
     seq_pos_ = std::lower_bound(tombstones_->seq_iter(pos_->seq_start_idx),
@@ -382,8 +383,7 @@ void FragmentedRangeTombstoneIterator::TopNext() {
 
 void FragmentedRangeTombstoneIterator::Prev() {
   if (seq_pos_ == tombstones_->seq_begin()) {
-    pos_ = tombstones_->end();
-    seq_pos_ = tombstones_->seq_end();
+    Invalidate();
     return;
   }
   --seq_pos_;

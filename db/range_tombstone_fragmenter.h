@@ -172,6 +172,9 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   std::map<SequenceNumber, std::unique_ptr<FragmentedRangeTombstoneIterator>>
   SplitBySnapshot(const std::vector<SequenceNumber>& snapshots);
 
+  SequenceNumber upper_bound() const { return upper_bound_; }
+  SequenceNumber lower_bound() const { return lower_bound_; }
+
  private:
   using RangeTombstoneStack = FragmentedRangeTombstoneList::RangeTombstoneStack;
 
