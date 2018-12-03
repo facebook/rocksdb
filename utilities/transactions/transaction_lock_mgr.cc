@@ -312,6 +312,7 @@ void RangeLockMgr::KillLockWait(void *cdata)
 }
 
 
+
 // Get a range lock on [start_key; end_key] range
 //  (TODO: check if we do what is inteded at the endpoints)
 
@@ -337,9 +338,47 @@ Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
     wait_time_msec = (wait_time_msec + 500) / 1000;
 
   request.start();
-  const int r = request.wait(wait_time_msec, killed_time_msec, 
-                             nullptr, /* killed_callback */
-                             nullptr /* lock_wait_needed_callback*/ );
+
+  /*
+    If we are going to wait on the lock, we should set appropriate status in
+    the 'txn' object. This is done by the SetWaitingTxn() call below.
+    The API we are using are MariaDB's wait notification API, so the way this
+    is done is a bit convoluted.
+    In MyRocks, the wait details are visible in I_S.rocksdb_trx.
+  */
+  std::string key_str(start_key.data(), start_key.size());
+  struct st_wait_info {
+    PessimisticTransaction* txn;
+    uint32_t column_family_id;
+    std::string *key_ptr;
+    autovector<TransactionID> wait_ids;
+    bool done= false;
+
+    static void lock_wait_callback(void *cdata, TXNID waiter, TXNID waitee)
+    {
+      auto self= (struct st_wait_info*)cdata;
+      if (!self->done)
+      {
+        self->wait_ids.push_back(waitee);
+        self->txn->SetWaitingTxn(self->wait_ids, self->column_family_id, self->key_ptr);
+        self->done= true;
+      }
+    }
+  } wait_info;
+
+  wait_info.txn= txn;
+  wait_info.column_family_id= column_family_id;
+  wait_info.key_ptr= &key_str;
+  wait_info.done= false;
+
+  const int r = request.wait(wait_time_msec, killed_time_msec,
+                             nullptr, // killed_callback
+                             st_wait_info::lock_wait_callback,
+                             (void*)&wait_info);
+
+  // Inform the txn that we are no longer waiting:
+  txn->ClearWaitingTxn();
+
   request.destroy();
   switch (r) {
     case 0:
