@@ -85,7 +85,7 @@ public enum HistogramType {
   READ_NUM_MERGE_OPERANDS((byte) 0x1E),
 
   /**
-   * Time spent flushing memtable to disk
+   * Time spent flushing memtable to disk.
    */
   FLUSH_TIME((byte) 0x1F),
 
