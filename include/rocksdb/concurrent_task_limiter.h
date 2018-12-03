@@ -19,17 +19,19 @@ class ConcurrentTaskLimiter {
 
   virtual ~ConcurrentTaskLimiter() {}
 
+  // Returns a name that identifies this concurrent task limiter.
   virtual const std::string& GetName() const = 0;
 
+  // Set max concurrent tasks.
+  // limit = 0 means no new task allowed.
+  // limit < 0 means no limitation.
   virtual void SetMaxOutstandingTask(int32_t limit) = 0;
 
+  // Reset to unlimited max concurrent task.
   virtual void ResetMaxOutstandingTask() = 0;
   
+  // Returns current outstanding task count.
   virtual int32_t GetOutstandingTask() const = 0;
-
-  virtual bool GetToken(bool force, int32_t& tasks) = 0;
-
-  virtual void ReturnToken(int32_t& tasks) = 0;
 };
 
 // Create a ConcurrentTaskLimiter that can be shared with mulitple CFs
@@ -40,6 +42,6 @@ class ConcurrentTaskLimiter {
 //        limit = 0 means no new task allowed.
 //        limit < 0 means no limitation.
 extern ConcurrentTaskLimiter* NewConcurrentTaskLimiter(
-    const std::string& name = "", int32_t limit = -1);
+    const std::string& name, int32_t limit);
 
 }  // namespace rocksdb

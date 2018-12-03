@@ -9,21 +9,19 @@
 
 #pragma once
 #include <atomic>
+#include <memory>
 
 #include "rocksdb/env.h"
 #include "rocksdb/concurrent_task_limiter.h"
 
 namespace rocksdb {
 
+class TaskLimiterToken;
+
 class ConcurrentTaskLimiterImpl : public ConcurrentTaskLimiter {
  public:
   explicit ConcurrentTaskLimiterImpl(const std::string& name,
                                      int32_t max_outstanding_task);
-
-  // No copying allowed
-  ConcurrentTaskLimiterImpl(const ConcurrentTaskLimiterImpl&) = delete;
-  ConcurrentTaskLimiterImpl& operator=(
-      const ConcurrentTaskLimiterImpl&) = delete;
 
   virtual ~ConcurrentTaskLimiterImpl();
 
@@ -35,15 +33,36 @@ class ConcurrentTaskLimiterImpl : public ConcurrentTaskLimiter {
 
   virtual int32_t GetOutstandingTask() const override;
   
-  virtual bool GetToken(bool force, int32_t& tasks) override;
-
-  virtual void ReturnToken(int32_t& tasks) override;
+  // Request token for adding a new task.
+  // If force == true, it requests a token bypassing throttle.
+  // Returns nullptr if it got throttled. 
+  virtual std::unique_ptr<TaskLimiterToken> GetToken(bool force);
 
  private:
+  friend class TaskLimiterToken;
+
   std::string name_;
   std::atomic<int32_t> max_outstanding_tasks_;
   std::atomic<int32_t> outstanding_tasks_;  
+
+  // No copying allowed
+  ConcurrentTaskLimiterImpl(const ConcurrentTaskLimiterImpl&) = delete;
+  ConcurrentTaskLimiterImpl& operator=(
+      const ConcurrentTaskLimiterImpl&) = delete;
 };
 
+class TaskLimiterToken {
+ public:
+  explicit TaskLimiterToken(ConcurrentTaskLimiterImpl* limiter)
+      : limiter_(limiter) {}
+  ~TaskLimiterToken();
+
+ private:
+  ConcurrentTaskLimiterImpl* limiter_;
+
+  // no copying allowed
+  TaskLimiterToken(const TaskLimiterToken&) = delete;
+  void operator=(const TaskLimiterToken&) = delete;
+};
 
 }  // namespace rocksdb

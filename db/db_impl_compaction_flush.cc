@@ -60,35 +60,25 @@ bool DBImpl::EnoughRoomForCompaction(
   return enough_room;
 }
 
-bool DBImpl::IncreaseCompactionTasks(ColumnFamilyData* cfd,
-    bool force, LogBuffer* log_buffer) {
-  bool enough_capacity = true;
-  auto limiter = cfd->ioptions()->compaction_thread_limiter;
-  if (limiter != nullptr) {
-    int32_t tasks_after = 0;
-    enough_capacity = limiter->GetToken(force, tasks_after);
-    if (enough_capacity) {
-      ROCKS_LOG_BUFFER(log_buffer,
-        "Thread limiter [%s] increase [%s] compaction task, "
-        "force: %s, tasks after: %d", 
-        limiter->GetName().c_str(), cfd->GetName().c_str(), 
-        force ? "true" : "false", tasks_after);
-    }
+bool DBImpl::RequestCompactionToken(ColumnFamilyData* cfd, bool force, 
+                                    std::unique_ptr<TaskLimiterToken>* token,
+                                    LogBuffer* log_buffer) {
+  assert(*token == nullptr);
+  auto limiter = static_cast<ConcurrentTaskLimiterImpl*>(
+      cfd->ioptions()->compaction_thread_limiter.get());
+  if (limiter == nullptr) {
+    return true;
   }
-  return enough_capacity;
-}
-
-void DBImpl::DecreaseCompactionTasks(ColumnFamilyData* cfd,
-    LogBuffer* log_buffer) {
-  auto limiter = cfd->ioptions()->compaction_thread_limiter;
-  if (limiter != nullptr) {
-    int32_t tasks_after = 0;
-    limiter->ReturnToken(tasks_after);
+  *token = limiter->GetToken(force);
+  if (*token != nullptr) {
     ROCKS_LOG_BUFFER(log_buffer,
-      "Thread limiter [%s] decrease [%s] compaction task from limiter, "
-      "tasks after: %d", 
-      limiter->GetName().c_str(), cfd->GetName().c_str(), tasks_after);
+      "Thread limiter [%s] increase [%s] compaction task, "
+      "force: %s, tasks after: %d", 
+      limiter->GetName().c_str(), cfd->GetName().c_str(), 
+      force ? "true" : "false", limiter->GetOutstandingTask());
+    return true;
   }
+  return false;
 }
 
 Status DBImpl::SyncClosedLogs(JobContext* job_context) {
@@ -1364,6 +1354,8 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "[%s] Manual compaction starting", cfd->GetName().c_str());
 
+  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
+                       immutable_db_options_.info_log.get());
   // We don't check bg_error_ here, because if we get the error in compaction,
   // the compaction will set manual.status to bg_error_ and set manual.done to
   // true.
@@ -1401,6 +1393,12 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
       ca->prepicked_compaction = new PrepickedCompaction;
       ca->prepicked_compaction->manual_compaction_state = &manual;
       ca->prepicked_compaction->compaction = compaction;
+      if (!RequestCompactionToken(cfd, true, 
+                                  &ca->prepicked_compaction->task_token,
+                                  &log_buffer)) {
+          // Don't throttle manual compaction, only count outstanding tasks.
+          assert(false);
+      }
       manual.incomplete = false;
       bg_compaction_scheduled_++;
       env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
@@ -1409,6 +1407,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
     }
   }
 
+  log_buffer.FlushBufferToLog();
   assert(!manual.in_progress);
   assert(HasPendingManualCompaction());
   RemoveManualCompaction(&manual);
@@ -1834,15 +1833,17 @@ DBImpl::FlushRequest DBImpl::PopFirstFromFlushQueue() {
   return flush_req;
 }
 
-ColumnFamilyData* DBImpl::PickCompactionFromQueue(LogBuffer* log_buffer) {
+ColumnFamilyData* DBImpl::PickCompactionFromQueue(
+    std::unique_ptr<TaskLimiterToken>* token, LogBuffer* log_buffer) {
   assert(!compaction_queue_.empty());
-  std::deque<ColumnFamilyData*> throttled_candidates;
+  assert(*token == nullptr);
+  autovector<ColumnFamilyData*> throttled_candidates;
   ColumnFamilyData* cfd = nullptr;
   while (!compaction_queue_.empty()) {
     auto first_cfd = *compaction_queue_.begin();
     compaction_queue_.pop_front();
     assert(first_cfd->queued_for_compaction());
-    if (!IncreaseCompactionTasks(first_cfd, false, log_buffer)) {
+    if (!RequestCompactionToken(first_cfd, false, token, log_buffer)) {
       throttled_candidates.push_back(first_cfd);
       continue;
     }
@@ -1851,10 +1852,10 @@ ColumnFamilyData* DBImpl::PickCompactionFromQueue(LogBuffer* log_buffer) {
     break;
   }
   // Add throttled compaction candidates back to queue in the original order.
-  while (!throttled_candidates.empty()) {
-    compaction_queue_.push_front(throttled_candidates.back());
-    throttled_candidates.pop_back();
-  }  
+  for (auto iter = throttled_candidates.rbegin(); 
+    iter != throttled_candidates.rend(); ++iter) {
+    compaction_queue_.push_front(*iter);
+  }
   return cfd;
 }
 
@@ -2255,6 +2256,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     manual_compaction->in_progress = true;
   }
 
+  std::unique_ptr<TaskLimiterToken> task_token;
+
   // InternalKey manual_end_storage;
   // InternalKey* manual_end = &manual_end_storage;
   bool sfm_reserved_compact_space = false;
@@ -2283,10 +2286,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         // as long as status == CompactionTooLarge
         status = Status::CompactionTooLarge();
       } else {
-        if (!IncreaseCompactionTasks(m->cfd, true, log_buffer)) {
-          // Don't throttle manual compaction, only count outstanding tasks.
-          assert(false);
-        }
         ROCKS_LOG_BUFFER(
             log_buffer,
             "[%s] Manual compaction from level-%d to level-%d from %s .. "
@@ -2310,7 +2309,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       return Status::OK();
     }
 
-    auto cfd = PickCompactionFromQueue(log_buffer);
+    auto cfd = PickCompactionFromQueue(&task_token, log_buffer);
     if (cfd == nullptr) {
       // Can't find any executable task from the compaction queue.
       // All tasks have been throttled by compaction thread limiter.
@@ -2326,7 +2325,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     if (cfd->Unref()) {
       // This was the last reference of the column family, so no need to
       // compact.
-      DecreaseCompactionTasks(cfd, log_buffer);
       delete cfd;
       return Status::OK();
     }
@@ -2388,10 +2386,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           }
         }
       }
-    }
-    if (!c) {
-      // There is no valid compaction for picked column family.
-      DecreaseCompactionTasks(cfd, log_buffer);
     }
   }
 
@@ -2516,6 +2510,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ca->prepicked_compaction = new PrepickedCompaction;
     ca->prepicked_compaction->compaction = c.release();
     ca->prepicked_compaction->manual_compaction_state = nullptr;
+    // Transfer requested token, so it doesn't need to do it again.
+    ca->prepicked_compaction->task_token = std::move(task_token);
     ++bg_bottom_compaction_scheduled_;
     env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca, Env::Priority::BOTTOM,
                    this, &DBImpl::UnscheduleCallback);
@@ -2577,8 +2573,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       sfm->OnCompactionCompletion(c.get());
     }
 #endif  // ROCKSDB_LITE
-    // Compaction thread limiter does its bookkeeping on compaction complete.
-    DecreaseCompactionTasks(c->column_family_data(), log_buffer);
 
     NotifyOnCompactionCompleted(c->column_family_data(), c.get(), status,
                                 compaction_job_stats, job_context->job_id);

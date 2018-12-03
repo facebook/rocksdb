@@ -39,28 +39,28 @@ int32_t ConcurrentTaskLimiterImpl::GetOutstandingTask() const {
   return outstanding_tasks_.load(std::memory_order_relaxed);
 }
 
-bool ConcurrentTaskLimiterImpl::GetToken(bool force, int32_t& tasks) {
+std::unique_ptr<TaskLimiterToken> ConcurrentTaskLimiterImpl::GetToken(
+    bool force) {
   int32_t limit = max_outstanding_tasks_.load(std::memory_order_relaxed);
-  tasks = outstanding_tasks_.load(std::memory_order_relaxed);
+  int32_t tasks = outstanding_tasks_.load(std::memory_order_relaxed);
   // force = true, bypass the throttle.
   // limit < 0 means unlimited tasks.
   while (force || limit < 0 || tasks < limit) {
     if (outstanding_tasks_.compare_exchange_weak(tasks, tasks + 1)) {
-      ++tasks;
-      return true;
+      return std::unique_ptr<TaskLimiterToken>(new TaskLimiterToken(this));
     }
   }
-  return false;
-}
-
-void ConcurrentTaskLimiterImpl::ReturnToken(int32_t& tasks) {
-  tasks = --outstanding_tasks_;
-  assert(tasks >= 0);
+  return nullptr;
 }
 
 ConcurrentTaskLimiter* NewConcurrentTaskLimiter(
     const std::string& name, int32_t limit) {
   return new ConcurrentTaskLimiterImpl(name, limit);
+}
+
+TaskLimiterToken::~TaskLimiterToken() {
+  --limiter_->outstanding_tasks_;
+  assert(limiter_->outstanding_tasks_ >= 0);
 }
 
 }  // namespace rocksdb
