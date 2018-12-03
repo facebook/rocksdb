@@ -1646,11 +1646,14 @@ class MockPersistentCache : public PersistentCache {
   const size_t max_size_ = 10 * 1024;  // 10KiB
 };
 
+#ifdef OS_LINUX
 // Make sure that in CPU time perf context counters, Env::NowCPUNanos()
 // is used, rather than Env::CPUNanos();
 TEST_F(DBTest2, TestPerfContextCpuTime) {
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Flush());
+
+  env_->now_cpu_count_.store(0);
 
   // CPU timing is not enabled with kEnableTimeExceptForMutex
   SetPerfLevel(PerfLevel::kEnableTimeExceptForMutex);
@@ -1675,6 +1678,7 @@ TEST_F(DBTest2, TestPerfContextCpuTime) {
   SetPerfLevel(PerfLevel::kDisable);
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
+#endif  // OS_LINUX
 
 #ifndef OS_SOLARIS // GetUniqueIdFromFile is not implemented
 TEST_F(DBTest2, PersistentCache) {
