@@ -53,7 +53,7 @@ public class HistogramData {
   }
 
   public double getMax() {
-    return max_;'
+    return max_;
   }
 
   public long getCount() {
