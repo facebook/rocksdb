@@ -26,10 +26,10 @@ public class HistogramData {
     percentile99_ = percentile99;
     average_ = average;
     standardDeviation_ = standardDeviation;
+    min_ = min;
     max_ = max;
     count_ = count;
     sum_ = sum;
-    min_ = min;
   }
 
   public double getMedian() {
