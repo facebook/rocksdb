@@ -192,8 +192,8 @@ TEST_F(RangeDelAggregatorV2Test, UntruncatedIter) {
   FragmentedRangeTombstoneList fragment_list(std::move(range_del_iter),
                                              bytewise_icmp);
   std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter(
-      new FragmentedRangeTombstoneIterator(&fragment_list,
-                                           bytewise_icmp, kMaxSequenceNumber));
+      new FragmentedRangeTombstoneIterator(&fragment_list, bytewise_icmp,
+                                           kMaxSequenceNumber));
 
   TruncatedRangeDelIterator iter(std::move(input_iter), &bytewise_icmp, nullptr,
                                  nullptr);
@@ -226,8 +226,8 @@ TEST_F(RangeDelAggregatorV2Test, UntruncatedIterWithSnapshot) {
   FragmentedRangeTombstoneList fragment_list(std::move(range_del_iter),
                                              bytewise_icmp);
   std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter(
-      new FragmentedRangeTombstoneIterator(&fragment_list,
-                                           bytewise_icmp, 9 /* snapshot */));
+      new FragmentedRangeTombstoneIterator(&fragment_list, bytewise_icmp,
+                                           9 /* snapshot */));
 
   TruncatedRangeDelIterator iter(std::move(input_iter), &bytewise_icmp, nullptr,
                                  nullptr);
@@ -259,8 +259,8 @@ TEST_F(RangeDelAggregatorV2Test, TruncatedIter) {
   FragmentedRangeTombstoneList fragment_list(std::move(range_del_iter),
                                              bytewise_icmp);
   std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter(
-      new FragmentedRangeTombstoneIterator(&fragment_list,
-                                           bytewise_icmp, kMaxSequenceNumber));
+      new FragmentedRangeTombstoneIterator(&fragment_list, bytewise_icmp,
+                                           kMaxSequenceNumber));
 
   InternalKey smallest("d", 7, kTypeValue);
   InternalKey largest("m", 9, kTypeValue);
@@ -294,8 +294,8 @@ TEST_F(RangeDelAggregatorV2Test, SingleIterInAggregator) {
   FragmentedRangeTombstoneList fragment_list(std::move(range_del_iter),
                                              bytewise_icmp);
   std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter(
-      new FragmentedRangeTombstoneIterator(&fragment_list,
-                                           bytewise_icmp, kMaxSequenceNumber));
+      new FragmentedRangeTombstoneIterator(&fragment_list, bytewise_icmp,
+                                           kMaxSequenceNumber));
 
   RangeDelAggregatorV2 range_del_agg(&bytewise_icmp, kMaxSequenceNumber);
   range_del_agg.AddTombstones(std::move(input_iter));
@@ -321,8 +321,8 @@ TEST_F(RangeDelAggregatorV2Test, MultipleItersInAggregator) {
   RangeDelAggregatorV2 range_del_agg(&bytewise_icmp, kMaxSequenceNumber);
   for (const auto& fragment_list : fragment_lists) {
     std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter(
-        new FragmentedRangeTombstoneIterator(
-            fragment_list.get(), bytewise_icmp, kMaxSequenceNumber));
+        new FragmentedRangeTombstoneIterator(fragment_list.get(), bytewise_icmp,
+                                             kMaxSequenceNumber));
     range_del_agg.AddTombstones(std::move(input_iter));
   }
 
@@ -353,8 +353,8 @@ TEST_F(RangeDelAggregatorV2Test, MultipleItersInAggregatorWithUpperBound) {
   RangeDelAggregatorV2 range_del_agg(&bytewise_icmp, 19);
   for (const auto& fragment_list : fragment_lists) {
     std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter(
-        new FragmentedRangeTombstoneIterator(fragment_list.get(),
-                                             bytewise_icmp, 19 /* snapshot */));
+        new FragmentedRangeTombstoneIterator(fragment_list.get(), bytewise_icmp,
+                                             19 /* snapshot */));
     range_del_agg.AddTombstones(std::move(input_iter));
   }
 
@@ -392,8 +392,8 @@ TEST_F(RangeDelAggregatorV2Test, MultipleTruncatedItersInAggregator) {
     const auto& fragment_list = fragment_lists[i];
     const auto& bounds = iter_bounds[i];
     std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter(
-        new FragmentedRangeTombstoneIterator(fragment_list.get(),
-                                             bytewise_icmp, 19 /* snapshot */));
+        new FragmentedRangeTombstoneIterator(fragment_list.get(), bytewise_icmp,
+                                             19 /* snapshot */));
     range_del_agg.AddTombstones(std::move(input_iter), &bounds.first,
                                 &bounds.second);
   }
