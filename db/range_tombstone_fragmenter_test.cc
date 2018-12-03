@@ -46,8 +46,8 @@ void VerifyFragmentedRangeDels(
     FragmentedRangeTombstoneIterator* iter,
     const std::vector<RangeTombstone>& expected_tombstones) {
   iter->SeekToFirst();
-  for (size_t i = 0; i < expected_tombstones.size() && iter->Valid();
-       i++, iter->Next()) {
+  for (size_t i = 0; i < expected_tombstones.size(); i++, iter->Next()) {
+    ASSERT_TRUE(iter->Valid());
     CheckIterPosition(expected_tombstones[i], iter);
   }
   EXPECT_FALSE(iter->Valid());
@@ -57,8 +57,8 @@ void VerifyVisibleTombstones(
     FragmentedRangeTombstoneIterator* iter,
     const std::vector<RangeTombstone>& expected_tombstones) {
   iter->SeekToTopFirst();
-  for (size_t i = 0; i < expected_tombstones.size() && iter->Valid();
-       i++, iter->TopNext()) {
+  for (size_t i = 0; i < expected_tombstones.size(); i++, iter->TopNext()) {
+    ASSERT_TRUE(iter->Valid());
     CheckIterPosition(expected_tombstones[i], iter);
   }
   EXPECT_FALSE(iter->Valid());
@@ -388,24 +388,15 @@ TEST_F(RangeTombstoneFragmenterTest, IteratorSplitWithSnapshots) {
   auto* split_iter3 = split_iters[7].get();
   VerifyVisibleTombstones(split_iter3, {{"c", "e", 6},
                                         {"e", "g", 6},
-                                        {"g", "i", 6},
-                                        {"j", "l", 4},
-                                        {"l", "n", 4}});
+                                        {"g", "i", 6}});
 
   auto* split_iter4 = split_iters[9].get();
   VerifyVisibleTombstones(split_iter4, {{"c", "e", 8},
-                                        {"e", "g", 8},
-                                        {"g", "i", 6},
-                                        {"j", "l", 4},
-                                        {"l", "n", 4}});
+                                        {"e", "g", 8}});
 
   auto* split_iter5 = split_iters[kMaxSequenceNumber].get();
   VerifyVisibleTombstones(split_iter5, {{"a", "c", 10},
-                                        {"c", "e", 10},
-                                        {"e", "g", 8},
-                                        {"g", "i", 6},
-                                        {"j", "l", 4},
-                                        {"l", "n", 4}});
+                                        {"c", "e", 10}});
 }
 
 TEST_F(RangeTombstoneFragmenterTest, SeekStartKey) {
