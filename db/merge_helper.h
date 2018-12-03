@@ -11,7 +11,7 @@
 
 #include "db/dbformat.h"
 #include "db/merge_context.h"
-#include "db/range_del_aggregator.h"
+#include "db/range_del_aggregator_v2.h"
 #include "db/snapshot_checker.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
@@ -78,7 +78,7 @@ class MergeHelper {
   //
   // REQUIRED: The first key in the input is not corrupted.
   Status MergeUntil(InternalIterator* iter,
-                    RangeDelAggregator* range_del_agg = nullptr,
+                    CompactionRangeDelAggregatorV2* range_del_agg = nullptr,
                     const SequenceNumber stop_before = 0,
                     const bool at_bottom = false);
 

@@ -1057,8 +1057,8 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
 
   Arena arena;
   Status status;
-  RangeDelAggregatorV2 range_del_agg(&icmp,
-                                     kMaxSequenceNumber /* upper_bound */);
+  ReadRangeDelAggregatorV2 range_del_agg(&icmp,
+                                         kMaxSequenceNumber /* upper_bound */);
 
   *overlap = false;
 

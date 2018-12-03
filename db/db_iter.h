@@ -48,7 +48,7 @@ class ArenaWrappedDBIter : public Iterator {
   // Get the arena to be used to allocate memory for DBIter to be wrapped,
   // as well as child iterators in it.
   virtual Arena* GetArena() { return &arena_; }
-  virtual RangeDelAggregatorV2* GetRangeDelAggregator();
+  virtual ReadRangeDelAggregatorV2* GetRangeDelAggregator();
 
   // Set the internal iterator wrapped inside the DB Iterator. Usually it is
   // a merging iterator.

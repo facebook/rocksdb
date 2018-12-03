@@ -111,7 +111,7 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
 //       operands_ stores the list of merge operands encountered while merging.
 //       keys_[i] corresponds to operands_[i] for each i.
 Status MergeHelper::MergeUntil(InternalIterator* iter,
-                               RangeDelAggregator* range_del_agg,
+                               CompactionRangeDelAggregatorV2* range_del_agg,
                                const SequenceNumber stop_before,
                                const bool at_bottom) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()

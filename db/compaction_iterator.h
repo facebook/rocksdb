@@ -13,7 +13,7 @@
 #include "db/compaction_iteration_stats.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
-#include "db/range_del_aggregator.h"
+#include "db/range_del_aggregator_v2.h"
 #include "db/snapshot_checker.h"
 #include "options/cf_options.h"
 #include "rocksdb/compaction_filter.h"
@@ -64,7 +64,7 @@ class CompactionIterator {
                      SequenceNumber earliest_write_conflict_snapshot,
                      const SnapshotChecker* snapshot_checker, Env* env,
                      bool report_detailed_time, bool expect_valid_internal_key,
-                     RangeDelAggregator* range_del_agg,
+                     CompactionRangeDelAggregatorV2* range_del_agg,
                      const Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
@@ -77,7 +77,7 @@ class CompactionIterator {
                      SequenceNumber earliest_write_conflict_snapshot,
                      const SnapshotChecker* snapshot_checker, Env* env,
                      bool report_detailed_time, bool expect_valid_internal_key,
-                     RangeDelAggregator* range_del_agg,
+                     CompactionRangeDelAggregatorV2* range_del_agg,
                      std::unique_ptr<CompactionProxy> compaction,
                      const CompactionFilter* compaction_filter = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
@@ -141,7 +141,7 @@ class CompactionIterator {
   Env* env_;
   bool report_detailed_time_;
   bool expect_valid_internal_key_;
-  RangeDelAggregator* range_del_agg_;
+  CompactionRangeDelAggregatorV2* range_del_agg_;
   std::unique_ptr<CompactionProxy> compaction_;
   const CompactionFilter* compaction_filter_;
   const std::atomic<bool>* shutting_down_;
