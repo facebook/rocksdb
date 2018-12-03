@@ -222,9 +222,9 @@ class BaseDeltaIterator : public Iterator {
 #endif
   }
 
-  bool IsOverUpperBound() {
+  bool IsOverUpperBound(const Slice& key) {
     return read_options_.iterate_upper_bound != nullptr &&
-           comparator_->Compare(key(), *read_options_.iterate_upper_bound) >= 0;
+           comparator_->Compare(key, *read_options_.iterate_upper_bound) >= 0;
   }
 
   void Advance() {
@@ -294,7 +294,7 @@ class BaseDeltaIterator : public Iterator {
             delta_entry.type == kSingleDeleteRecord) {
           AdvanceDelta();
           // If the new Delta is valid and >= iterate_upper_bound, stop
-          current_over_upper_bound_ = DeltaValid() && IsOverUpperBound();
+          current_over_upper_bound_ = DeltaValid() && IsOverUpperBound(delta_iterator_->Entry().key);
           if (current_over_upper_bound_) {
             return;
           }
@@ -331,7 +331,7 @@ class BaseDeltaIterator : public Iterator {
       }
     }
 
-    current_over_upper_bound_ = BaseDeltaValid() && IsOverUpperBound();
+    current_over_upper_bound_ = BaseDeltaValid() && IsOverUpperBound(key());
 #endif  // __clang_analyzer__
   }
 
