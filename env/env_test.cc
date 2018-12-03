@@ -1614,6 +1614,7 @@ class TestEnv : public EnvWrapper {
     explicit TestEnv() : EnvWrapper(Env::Default()),
                 close_count(0) { }
 
+  virtual const char *Name() const override { return "test"; }
   class TestLogger : public Logger {
    public:
     using Logger::Logv;
@@ -1641,7 +1642,7 @@ class TestEnv : public EnvWrapper {
   int GetCloseCount() { return close_count; }
 
   virtual Status NewLogger(const std::string& /*fname*/,
-                           shared_ptr<Logger>* result) {
+                           shared_ptr<Logger>* result) override {
     result->reset(new TestLogger(this));
     return Status::OK();
   }

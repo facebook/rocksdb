@@ -53,6 +53,14 @@ class HdfsEnv : public Env {
     fprintf(stderr, "Destroying HdfsEnv::Default()\n");
     hdfsDisconnect(fileSys_);
   }
+  
+  virtual const char *Name() const override { return fsname_.c_str(); }
+  virtual Status SetOption(const std::string & name,
+			   const std::string & value,
+			   bool ignore_unknown_options = false,
+			   bool input_strings_escaped = false) override;
+  virtual Status SanitizeOptions(const DBOptions &,
+				 const ColumnFamilyOptions &) const override;
 
   virtual Status NewSequentialFile(const std::string& fname,
                                    std::unique_ptr<SequentialFile>* result,
@@ -179,6 +187,7 @@ class HdfsEnv : public Env {
                         // posix threads, etc.
 
   static const std::string kProto;
+  static const std::string kOptFsName;
   static const std::string pathsep;
 
   /**
@@ -253,6 +262,8 @@ class HdfsEnv : public Env {
 
   virtual ~HdfsEnv() {
   }
+
+  virtual const char *Name() const override { return "unsupported hdfs"; }
 
   virtual Status NewSequentialFile(const std::string& fname,
                                    unique_ptr<SequentialFile>* result,

@@ -159,6 +159,10 @@ class PosixEnv : public Env {
     }
   }
 
+  virtual const char *Name() const override {
+    return EnvConstants::kEnvDefault.c_str();
+  }
+  
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
     if ((options == nullptr || options->set_fd_cloexec) && fd > 0) {
       fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);

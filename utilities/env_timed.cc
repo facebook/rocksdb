@@ -17,6 +17,11 @@ class TimedEnv : public EnvWrapper {
  public:
   explicit TimedEnv(Env* base_env) : EnvWrapper(base_env) {}
 
+
+  virtual const char *Name() const override {
+    return EnvConstants::kEnvTimed.c_str();
+  }
+  
   virtual Status NewSequentialFile(const std::string& fname,
                                    unique_ptr<SequentialFile>* result,
                                    const EnvOptions& options) override {

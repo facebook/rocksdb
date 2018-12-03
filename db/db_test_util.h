@@ -205,6 +205,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
 class SpecialEnv : public EnvWrapper {
  public:
   explicit SpecialEnv(Env* base);
+  virtual const char *Name() const override { return "TestSpecialDelayed"; }
 
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
                          const EnvOptions& soptions) override {
@@ -585,6 +586,7 @@ class SpecialEnv : public EnvWrapper {
 class MockTimeEnv : public EnvWrapper {
  public:
   explicit MockTimeEnv(Env* base) : EnvWrapper(base) {}
+  virtual const char *Name() const override { return "TestMockTime"; }
 
   virtual Status GetCurrentTime(int64_t* time) override {
     assert(time != nullptr);

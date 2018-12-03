@@ -10,13 +10,23 @@
 #include <iostream>
 
 #include "rocksdb/env_encryption.h"
+#include "rocksdb/extension_loader.h"
+#include "rocksdb/options.h"
 #include "util/aligned_buffer.h"
 #include "util/coding.h"
 #include "util/random.h"
+#include "util/string_util.h"
 
 #endif
 
 namespace rocksdb {
+
+const std::string EncryptionConsts::kTypeProvider = "provider";
+const std::string EncryptionConsts::kTypeBlockCipher = "block_cipher";
+const std::string EncryptionConsts::kEnvEncrypted = "encrypted";
+const std::string EncryptionConsts::kProviderCTR = "CTR";
+const std::string EncryptionConsts::kCipherROT13 = "ROT13";
+const std::string EncryptionConsts::kEnvEncryptedPropPrefix = "rocksdb.encrypted.";
 
 #ifndef ROCKSDB_LITE
 
@@ -375,14 +385,102 @@ class EncryptedRandomRWFile : public RandomRWFile {
   }
 };
 
+static const std::string EncryptedProviderNameProp =
+  EncryptionConsts::kEnvEncryptedPropPrefix + "env.provider.name";
+static const std::string EncryptedProviderProp =
+  EncryptionConsts::kEnvEncryptedPropPrefix + "env.provider";
+
+static Status NewEncryptionProvider(const DBOptions & dbOpts,
+				    const ColumnFamilyOptions * cfOpts,
+				    const std::string & name,
+				    std::shared_ptr<EncryptionProvider> *result) {
+  Status s = Status::OK();
+  if (! result->get() || result->get()->Name() != name) {
+    std::shared_ptr<EncryptionProvider> provider;
+    s = dbOpts.NewSharedExtension(EncryptionConsts::kTypeProvider,
+				  name, cfOpts, &provider);
+    if (s.ok()) {
+      *result = provider;
+    }
+  }
+  return s;
+}
+
 // EncryptedEnv implements an Env wrapper that adds encryption to files stored on disk.
 class EncryptedEnv : public EnvWrapper {
  public:
-  EncryptedEnv(Env* base_env, EncryptionProvider *provider)
-      : EnvWrapper(base_env) {
+  EncryptedEnv(Env* base_env, const std::shared_ptr<EncryptionProvider> &provider)
+    : EnvWrapper(base_env, EncryptionConsts::kEnvEncryptedPropPrefix) {
     provider_ = provider;
   }
 
+  const char *Name() const override {
+    return EncryptionConsts::kEnvEncrypted.c_str();
+  }
+
+  virtual Status SetOption(const std::string & name,
+			   const std::string & value,
+			   bool ignore_unknown_options,
+			   bool input_strings_escaped) override {
+    if (! provider_) {
+      return EnvWrapper::SetOption(name, value,
+				   ignore_unknown_options,
+				   input_strings_escaped);
+    } else {
+      Status s = EnvWrapper::SetOption(name, value, false, input_strings_escaped);
+      if (s.IsInvalidArgument()) {
+	s = provider_->SetOption(name, value,
+				 ignore_unknown_options, input_strings_escaped);
+      }
+      return s;
+    }
+  }
+  virtual Status SetOption(const std::string & name,
+			   const std::string & value,
+			   const DBOptions & dbOpts,
+			   bool ignore_unknown_options,
+			   bool input_strings_escaped) override {
+    return EnvWrapper::SetOption(name, value, dbOpts, ignore_unknown_options, input_strings_escaped);
+  }
+  
+  virtual Status SetOption(const std::string & name,
+			   const std::string & value,
+			   const DBOptions & dbOpts,
+			   const ColumnFamilyOptions *cfOpts,
+			   bool ignore_unknown_options,
+			   bool input_strings_escaped) override {
+    if (name == EncryptedProviderNameProp) {
+      return NewEncryptionProvider(dbOpts, cfOpts, value, &provider_);
+    } else if (name == EncryptedProviderProp) {
+      return Status::OK(); // MJR: TODO: Extract provider name and properties from value
+    } else if (! provider_) { // No provider, run the super SetOption
+      Status s = EnvWrapper::SetOption(name, value, dbOpts, cfOpts,
+				       ignore_unknown_options,
+				       input_strings_escaped);
+      return s;
+    } else {
+      Status s = EnvWrapper::SetOption(name, value, dbOpts, cfOpts, false,
+					       input_strings_escaped);
+      if (s.IsInvalidArgument()) {
+	s =  provider_->SetOption(name, value, dbOpts, cfOpts,
+				  ignore_unknown_options,
+				  input_strings_escaped);
+      }
+      return s;
+    }
+  }
+
+  virtual Status SanitizeOptions(const DBOptions & dbOpts) const override {
+    Status status = EnvWrapper::SanitizeOptions(dbOpts);
+    if (! status.ok()) {
+      return status;
+    } else if (provider_) {
+      return provider_->SanitizeOptions(dbOpts);
+    } else {
+      return Status::InvalidArgument("Empty Provider", Name());
+    }
+  }
+  
   // NewSequentialFile opens a file for sequential reading.
   virtual Status NewSequentialFile(const std::string& fname,
                                    std::unique_ptr<SequentialFile>* result,
@@ -675,15 +773,27 @@ class EncryptedEnv : public EnvWrapper {
   }
 
  private:
-  EncryptionProvider *provider_;
+  std::shared_ptr<EncryptionProvider> provider_;
 };
 
 
 // Returns an Env that encrypts data when stored on disk and decrypts data when 
 // read from disk.
-Env* NewEncryptedEnv(Env* base_env, EncryptionProvider* provider) {
+Env* NewEncryptedEnv(Env* base_env, const std::shared_ptr<EncryptionProvider> & provider) {
   return new EncryptedEnv(base_env, provider);
 }
+
+static ExtensionLoader::FactoryFunction EncryptedEnvFactory =
+  ExtensionLoader::Default()->RegisterFactory(
+				 Env::kTypeEnvironment,
+				 EncryptionConsts::kEnvEncrypted,
+				 [](const std::string &,
+				    const DBOptions & dbOpts,
+				    const ColumnFamilyOptions *,
+				    std::unique_ptr<Extension> * guard) {
+				   guard->reset();
+				   return new EncryptedEnv(dbOpts.env, nullptr);
+				 });
 
 // Encrypt one or more (partial) blocks of data at the file offset.
 // Length of data is given in dataSize.
@@ -775,64 +885,132 @@ Status BlockAccessCipherStream::Decrypt(uint64_t fileOffset, char *data, size_t 
   }
 }
 
-// Encrypt a block of data.
-// Length of data is equal to BlockSize().
-Status ROT13BlockCipher::Encrypt(char *data) {
-  for (size_t i = 0; i < blockSize_; ++i) {
+static const std::string kROT13BlockSizeProp =
+  EncryptionConsts::kEnvEncryptedPropPrefix + "cipher.rot13.blocksize";
+  
+// Implements a BlockCipher using ROT13.
+//
+// Note: This is a sample implementation of BlockCipher, 
+// it is NOT considered safe and should NOT be used in production.
+class ROT13BlockCipher : public BlockCipher {
+private: 
+  size_t blockSize_;
+public:
+  ROT13BlockCipher(size_t blockSize) 
+    : blockSize_(blockSize) {}
+  virtual ~ROT13BlockCipher() {};
+  virtual const char *Name() const override {
+    return EncryptionConsts::kCipherROT13.c_str();
+  }
+
+  virtual Status SetOption(const std::string & name,
+			   const std::string & value,
+			   bool ignore_unknown_options,
+			   bool input_strings_escaped) override {
+    if (name == kROT13BlockSizeProp) {
+      blockSize_ = ParseSizeT(trim(value));
+      return Status::OK();
+    } else {
+      return BlockCipher::SetOption(name, value,
+				    ignore_unknown_options, input_strings_escaped);
+    }
+  }
+
+  virtual Status SanitizeOptions(const DBOptions & dbOpts) const override {
+    if (blockSize_ == 0) {
+      return Status::InvalidArgument("Cipher block size must be > 0");
+    } else {
+      return BlockCipher::SanitizeOptions(dbOpts);
+    }
+  }
+  
+  // BlockSize returns the size of each block supported by this cipher stream.
+  virtual size_t BlockSize() override { return blockSize_; }
+  
+  // Encrypt a block of data.
+  // Length of data is equal to BlockSize().
+  virtual Status Encrypt(char *data) override {
+    for (size_t i = 0; i < blockSize_; ++i) {
       data[i] += 13;
+    }
+    return Status::OK();
   }
-  return Status::OK();
-}
+  
+  // Decrypt a block of data.
+  // Length of data is equal to BlockSize().
+  virtual Status Decrypt(char *data) override {
+    return Encrypt(data);
+  }
+};
 
-// Decrypt a block of data.
-// Length of data is equal to BlockSize().
-Status ROT13BlockCipher::Decrypt(char *data) {
-  return Encrypt(data);
-}
+static ExtensionLoader::FactoryFunction ROT13BlockCipherFactory =
+  ExtensionLoader::Default()->RegisterFactory(
+				 EncryptionConsts::kTypeBlockCipher,
+				 EncryptionConsts::kCipherROT13,
+				 [](const std::string &,
+				    const DBOptions &,
+				    const ColumnFamilyOptions *,
+				    std::unique_ptr<Extension> * guard) {
+				   guard->reset(new ROT13BlockCipher(0));
+				   return guard->get();
+				 });
 
-// Allocate scratch space which is passed to EncryptBlock/DecryptBlock.
-void CTRCipherStream::AllocateScratch(std::string& scratch) {
-  auto blockSize = cipher_.BlockSize();
-  scratch.reserve(blockSize);
-}
-
-// Encrypt a block of data at the given block index.
-// Length of data is equal to BlockSize();
-Status CTRCipherStream::EncryptBlock(uint64_t blockIndex, char *data, char* scratch) {
-
-  // Create nonce + counter
-  auto blockSize = cipher_.BlockSize();
-  memmove(scratch, iv_.data(), blockSize);
-  EncodeFixed64(scratch, blockIndex + initialCounter_);
-
-  // Encrypt nonce+counter 
-  auto status = cipher_.Encrypt(scratch);
-  if (!status.ok()) {
-    return status;
+// CTRCipherStream implements BlockAccessCipherStream using an 
+// Counter operations mode. 
+// See https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation
+//
+// Note: This is a possible implementation of BlockAccessCipherStream, 
+// it is considered suitable for use.
+class CTRCipherStream final : public BlockAccessCipherStream {
+private:
+  std::shared_ptr<BlockCipher> cipher_;
+  std::string iv_;
+  uint64_t initialCounter_;
+public:
+  CTRCipherStream(std::shared_ptr<BlockCipher> & c, const char *iv, uint64_t initialCounter) 
+    : cipher_(c), iv_(iv, c->BlockSize()), initialCounter_(initialCounter) {};
+  virtual ~CTRCipherStream() {};
+  
+  // BlockSize returns the size of each block supported by this cipher stream.
+  virtual size_t BlockSize() override { return cipher_->BlockSize(); }
+  
+protected:
+  // Allocate scratch space which is passed to EncryptBlock/DecryptBlock.
+  virtual void AllocateScratch(std::string& scratch) override {
+    auto blockSize = cipher_->BlockSize();
+    scratch.reserve(blockSize);
   }
 
-  // XOR data with ciphertext.
-  for (size_t i = 0; i < blockSize; i++) {
-    data[i] = data[i] ^ scratch[i];
+  // Encrypt a block of data at the given block index.
+  // Length of data is equal to BlockSize();
+  virtual Status EncryptBlock(uint64_t blockIndex, char *data, char *scratch) override {
+    // Create nonce + counter
+    auto blockSize = cipher_->BlockSize();
+    memmove(scratch, iv_.data(), blockSize);
+    EncodeFixed64(scratch, blockIndex + initialCounter_);
+    
+    // Encrypt nonce+counter 
+    auto status = cipher_->Encrypt(scratch);
+    if (!status.ok()) {
+      return status;
+    }
+    
+    // XOR data with ciphertext.
+    for (size_t i = 0; i < blockSize; i++) {
+      data[i] = data[i] ^ scratch[i];
+    }
+    return Status::OK();
+  }    
+
+  // Decrypt a block of data at the given block index.
+  // Length of data is equal to BlockSize();
+  virtual Status DecryptBlock(uint64_t blockIndex, char *data, char *scratch) override {
+    // For CTR decryption & encryption are the same 
+    return EncryptBlock(blockIndex, data, scratch);
   }
-  return Status::OK();
-}
+};
 
-// Decrypt a block of data at the given block index.
-// Length of data is equal to BlockSize();
-Status CTRCipherStream::DecryptBlock(uint64_t blockIndex, char *data, char* scratch) {
-  // For CTR decryption & encryption are the same 
-  return EncryptBlock(blockIndex, data, scratch);
-}
-
-// GetPrefixLength returns the length of the prefix that is added to every file
-// and used for storing encryption options.
-// For optimal performance, the prefix length should be a multiple of 
-// the page size.
-size_t CTREncryptionProvider::GetPrefixLength() {
-  return defaultPrefixLength;
-}
-
+  
 // decodeCTRParameters decodes the initial counter & IV from the given
 // (plain text) prefix.
 static void decodeCTRParameters(const char *prefix, size_t blockSize, uint64_t &initialCounter, Slice &iv) {
@@ -841,75 +1019,214 @@ static void decodeCTRParameters(const char *prefix, size_t blockSize, uint64_t &
   // Second block contains IV
   iv = Slice(prefix + blockSize, blockSize);
 }
+  
+// This encryption provider uses a CTR cipher stream, with a given block cipher 
+// and IV.
+//
+// Note: This is a possible implementation of EncryptionProvider, 
+// it is considered suitable for use, provided a safe BlockCipher is used.
+static const std::string CTRCipherNameProp =
+  EncryptionConsts::kEnvEncryptedPropPrefix + "provider.ctr.cipher.name";
+static const std::string CTRCipherProp =
+  EncryptionConsts::kEnvEncryptedPropPrefix + "provider.ctr.cipher";
 
-// CreateNewPrefix initialized an allocated block of prefix memory 
-// for a new file.
-Status CTREncryptionProvider::CreateNewPrefix(const std::string& /*fname*/,
-                                              char* prefix,
-                                              size_t prefixLength) {
-  // Create & seed rnd.
-  Random rnd((uint32_t)Env::Default()->NowMicros());
-  // Fill entire prefix block with random values.
-  for (size_t i = 0; i < prefixLength; i++) {
-    prefix[i] = rnd.Uniform(256) & 0xFF;
+static Status NewBlockCipher(const DBOptions & dbOpts,
+			     const ColumnFamilyOptions * cfOpts,
+			     const std::string & name,
+			     std::shared_ptr<BlockCipher> *result) {
+  Status s = Status::OK();
+  if (! result->get() || result->get()->Name() != name) {
+    std::shared_ptr<BlockCipher> cipher;
+    s = dbOpts.NewSharedExtension(EncryptionConsts::kTypeBlockCipher,
+				  name, cfOpts, &cipher);
+    if (s.ok()) {
+      *result = cipher;
+    }
   }
-  // Take random data to extract initial counter & IV
-  auto blockSize = cipher_.BlockSize();
-  uint64_t initialCounter;
-  Slice prefixIV;
-  decodeCTRParameters(prefix, blockSize, initialCounter, prefixIV);
-
-  // Now populate the rest of the prefix, starting from the third block.
-  PopulateSecretPrefixPart(prefix + (2 * blockSize), prefixLength - (2 * blockSize), blockSize);
-
-  // Encrypt the prefix, starting from block 2 (leave block 0, 1 with initial counter & IV unencrypted)
-  CTRCipherStream cipherStream(cipher_, prefixIV.data(), initialCounter);
-  auto status = cipherStream.Encrypt(0, prefix + (2 * blockSize), prefixLength - (2 * blockSize));
-  if (!status.ok()) {
-    return status;
+  return s;
+}
+  
+class CTREncryptionProvider : public EncryptionProvider {
+private:
+  std::shared_ptr<BlockCipher> cipher_;
+protected:
+  const static size_t defaultPrefixLength = 4096;
+  
+public:
+  CTREncryptionProvider(const std::shared_ptr<BlockCipher> & c) 
+    : cipher_(c) {};
+  virtual ~CTREncryptionProvider() {}
+  virtual const char *Name() const override {
+    return EncryptionConsts::kProviderCTR.c_str();
   }
+
+  virtual Status SanitizeOptions(const DBOptions & dbOpts) const override {
+    Status status = EncryptionProvider::SanitizeOptions(dbOpts);
+    if (! status.ok()) {
+      return status;
+    } else if (cipher_) {
+      return cipher_->SanitizeOptions(dbOpts);
+    } else {
+      return Status::InvalidArgument("Block Cipher not configured");
+    }
+  }
+
+  virtual Status SetOption(const std::string & name,
+			   const std::string & value,
+			   bool ignore_unknown_options,
+			   bool input_strings_escaped) override {
+    if (! cipher_) {
+      return EncryptionProvider::SetOption(name, value,
+					   ignore_unknown_options,
+					   input_strings_escaped);
+    } else {
+      Status s = EncryptionProvider::SetOption(name, value, false,
+					       input_strings_escaped);
+      if (s.IsInvalidArgument()) {
+	s =  cipher_->SetOption(name, value,
+				ignore_unknown_options,
+				input_strings_escaped);
+      }
+      return s;
+    }
+  }
+  
+  virtual Status SetOption(const std::string & name,
+			   const std::string & value,
+			   const DBOptions & dbOpts,
+			   const ColumnFamilyOptions *cfOpts,
+			   bool ignore_unknown_options,
+			   bool input_strings_escaped) override {
+
+    if (name == CTRCipherNameProp) {
+      return NewBlockCipher(dbOpts, cfOpts, value, &cipher_);
+    } else if (name == CTRCipherProp) {
+      return Status::OK(); // MJR: TODO: Extract cipher name and properties from value
+    } else if (! cipher_) { // No cipher, run the super SetOption
+      Status s = EncryptionProvider::SetOption(name, value, dbOpts, cfOpts,
+					   ignore_unknown_options,
+					   input_strings_escaped);
+      return s;
+    } else {
+      Status s = EncryptionProvider::SetOption(name, value, dbOpts, cfOpts, false,
+					       input_strings_escaped);
+      if (s.IsInvalidArgument()) {
+	s =  cipher_->SetOption(name, value, dbOpts, cfOpts,
+				ignore_unknown_options,
+				input_strings_escaped);
+      }
+      return s;
+    }
+  }
+  
+  // GetPrefixLength returns the length of the prefix that is added to every file
+  // and used for storing encryption options.
+  // For optimal performance, the prefix length should be a multiple of 
+  // the page size.
+  virtual size_t GetPrefixLength() override {
+    return defaultPrefixLength;
+  }
+
+  // CreateNewPrefix initialized an allocated block of prefix memory 
+  // for a new file.
+  virtual Status CreateNewPrefix(const std::string& /*fname */,
+				 char *prefix, size_t prefixLength) override {
+    // Create & seed rnd.
+    Random rnd((uint32_t)Env::Default()->NowMicros());
+    // Fill entire prefix block with random values.
+    for (size_t i = 0; i < prefixLength; i++) {
+      prefix[i] = rnd.Uniform(256) & 0xFF;
+    }
+    // Take random data to extract initial counter & IV
+    auto blockSize = cipher_->BlockSize();
+    uint64_t initialCounter;
+    Slice prefixIV;
+    decodeCTRParameters(prefix, blockSize, initialCounter, prefixIV);
+    
+    // Now populate the rest of the prefix, starting from the third block.
+    PopulateSecretPrefixPart(prefix + (2 * blockSize), prefixLength - (2 * blockSize), blockSize);
+    
+    // Encrypt the prefix, starting from block 2 (leave block 0, 1 with initial counter & IV unencrypted)
+    CTRCipherStream cipherStream(cipher_, prefixIV.data(), initialCounter);
+    auto status = cipherStream.Encrypt(0, prefix + (2 * blockSize), prefixLength - (2 * blockSize));
+    if (!status.ok()) {
+      return status;
+    }
+    return Status::OK();
+  }
+
+  // CreateCipherStream creates a block access cipher stream for a file given
+  // given name and options.
+  virtual Status CreateCipherStream(
+			     const std::string& fname,
+			     const EnvOptions& options,
+			     Slice& prefix,
+			     unique_ptr<BlockAccessCipherStream>* result) override {
+    // Read plain text part of prefix.
+    auto blockSize = cipher_->BlockSize();
+    uint64_t initialCounter;
+    Slice iv;
+    decodeCTRParameters(prefix.data(), blockSize, initialCounter, iv);
+    
+    // Decrypt the encrypted part of the prefix, starting from block 2 (block 0, 1 with initial counter & IV are unencrypted)
+    CTRCipherStream cipherStream(cipher_, iv.data(), initialCounter);
+    auto status = cipherStream.Decrypt(0, (char*)prefix.data() + (2 * blockSize), prefix.size() - (2 * blockSize));
+    if (!status.ok()) {
+      return status;
+    }
+    
+    // Create cipher stream 
+    return CreateCipherStreamFromPrefix(fname, options, initialCounter, iv, prefix, result);
+  }
+
+protected:
+  // PopulateSecretPrefixPart initializes the data into a new prefix block 
+  // that will be encrypted. This function will store the data in plain text. 
+  // It will be encrypted later (before written to disk).
+  // Returns the amount of space (starting from the start of the prefix)
+  // that has been initialized.
+  virtual size_t PopulateSecretPrefixPart(char * /*prefix */,
+					  size_t /* prefixLength */,
+					  size_t /*blockSize */) {
+    // Nothing to do here, put in custom data in override when needed.
+    return 0;
+  }
+  
+  // CreateCipherStreamFromPrefix creates a block access cipher stream for a file given
+  // given name and options. The given prefix is already decrypted.
+  virtual Status CreateCipherStreamFromPrefix(
+ 		             const std::string& /* fname */,
+			     const EnvOptions&  /* options */,
+			     uint64_t initialCounter,
+			     const Slice& iv,
+			     const Slice& /* prefix */,
+			     unique_ptr<BlockAccessCipherStream>* result) {
+    (*result) = unique_ptr<BlockAccessCipherStream>(new CTRCipherStream(cipher_, iv.data(), initialCounter));
+    return Status::OK();
+  }
+};
+
+static ExtensionLoader::FactoryFunction CTREncryptionProviderFactory =
+  ExtensionLoader::Default()->RegisterFactory(
+				 EncryptionConsts::kTypeProvider,
+				 EncryptionConsts::kProviderCTR,
+				 [](const std::string &,
+				    const DBOptions &,
+				    const ColumnFamilyOptions *,
+				    std::unique_ptr<Extension> * guard) {
+				   std::shared_ptr<BlockCipher> cipher;
+				   guard->reset(new CTREncryptionProvider(cipher));
+				   return guard->get();
+				 });
+
+Status NewEncryptionProvider(const std::shared_ptr<BlockCipher> & cipher,
+			       std::shared_ptr<EncryptionProvider> * provider) {
+  provider->reset(new CTREncryptionProvider(cipher));
   return Status::OK();
 }
 
-// PopulateSecretPrefixPart initializes the data into a new prefix block 
-// in plain text.
-// Returns the amount of space (starting from the start of the prefix)
-// that has been initialized.
-size_t CTREncryptionProvider::PopulateSecretPrefixPart(char* /*prefix*/,
-                                                       size_t /*prefixLength*/,
-                                                       size_t /*blockSize*/) {
-  // Nothing to do here, put in custom data in override when needed.
-  return 0;
-}
-
-Status CTREncryptionProvider::CreateCipherStream(const std::string& fname, const EnvOptions& options, Slice &prefix, unique_ptr<BlockAccessCipherStream>* result) {
-  // Read plain text part of prefix.
-  auto blockSize = cipher_.BlockSize();
-  uint64_t initialCounter;
-  Slice iv;
-  decodeCTRParameters(prefix.data(), blockSize, initialCounter, iv);
-
-  // Decrypt the encrypted part of the prefix, starting from block 2 (block 0, 1 with initial counter & IV are unencrypted)
-  CTRCipherStream cipherStream(cipher_, iv.data(), initialCounter);
-  auto status = cipherStream.Decrypt(0, (char*)prefix.data() + (2 * blockSize), prefix.size() - (2 * blockSize));
-  if (!status.ok()) {
-    return status;
-  }
-
-  // Create cipher stream 
-  return CreateCipherStreamFromPrefix(fname, options, initialCounter, iv, prefix, result);
-}
-
-// CreateCipherStreamFromPrefix creates a block access cipher stream for a file given
-// given name and options. The given prefix is already decrypted.
-Status CTREncryptionProvider::CreateCipherStreamFromPrefix(
-    const std::string& /*fname*/, const EnvOptions& /*options*/,
-    uint64_t initialCounter, const Slice& iv, const Slice& /*prefix*/,
-    unique_ptr<BlockAccessCipherStream>* result) {
-  (*result) = unique_ptr<BlockAccessCipherStream>(new CTRCipherStream(cipher_, iv.data(), initialCounter));
-  return Status::OK();
-}
-
+  
+  
 #endif // ROCKSDB_LITE
 
 }  // namespace rocksdb

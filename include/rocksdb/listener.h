@@ -276,9 +276,11 @@ struct ExternalFileIngestionInfo {
 // deadlock and performance issue when using EventListener callback
 // in a complex way.
   class EventListener: public Extension {
+  public:
+    static const std::string kTypeEventListener;
   public: // Methods from Extension
     virtual const std::string & Type() const override {
-      return ExtensionTypes::kTypeEventListener;
+      return kTypeEventListener;
     }
     
     // Overrides method from Extension.  Set to empty for backwards-compatibility
@@ -455,19 +457,6 @@ struct ExternalFileIngestionInfo {
   virtual ~EventListener() {}
 };
 
-Status GetEventListenerFromMap(
-    const std::string& name,
-    const DBOptions & dbOpts, 
-    const std::unordered_map<std::string, std::string>& opt_map,
-    std::shared_ptr<EventListener> * listener,
-    bool ignore_unknown_options = false);
-
-Status GetEventListenerFromString(
-    const std::string& name,
-    const DBOptions & dbOpts, 
-    const std::string & opt_str,
-    std::shared_ptr<EventListener> * listener,
-    bool ignore_unknown_options = false);
 #else
 
 class EventListener {

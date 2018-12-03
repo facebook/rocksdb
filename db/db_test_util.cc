@@ -42,31 +42,49 @@ SpecialEnv::SpecialEnv(Env* base)
   non_writable_count_ = 0;
   table_write_callback_ = nullptr;
 }
-#ifndef ROCKSDB_LITE
-ROT13BlockCipher rot13Cipher_(16);
-#endif  // ROCKSDB_LITE
 
-DBTestBase::DBTestBase(const std::string path)
-    : mem_env_(!getenv("MEM_ENV") ? nullptr : new MockEnv(Env::Default())),
+std::shared_ptr<BlockCipher> cipher;
+std::shared_ptr<EncryptionProvider> provider;
+  
+ DBTestBase::DBTestBase(const std::string path) :
+  mem_env_(nullptr),
+  encrypted_env_(nullptr),
+  env_(nullptr),
+  option_config_(kDefault)
+ {
+  DBOptions dbOpts = GetDefaultOptions();
+  if (getenv("MEM_ENV")) {
+    dbOpts.env = mem_env_ = new MockEnv(dbOpts.env);
+  }
 #ifndef ROCKSDB_LITE
-      encrypted_env_(
-          !getenv("ENCRYPTED_ENV")
-              ? nullptr
-              : NewEncryptedEnv(mem_env_ ? mem_env_ : Env::Default(),
-                                new CTREncryptionProvider(rot13Cipher_))),
-#else
-      encrypted_env_(nullptr),
+  if (getenv("ENCRYPED_ENV")) {
+    std::unique_ptr<Env> guard;
+    Status s = dbOpts.NewExtension(Env::kTypeEnvironment,
+				   EncryptionConsts::kEnvEncrypted, NULL,
+				   &encrypted_env_, &guard);
+    guard.release();
+    if (encrypted_env_ != nullptr) {
+      s = encrypted_env_->ConfigureFromString(
+			      "rocksdb.encrypted.env.provider.name=CTR;"
+			      "rocksdb.encrypted.ctr.cipher.name=ROT13;"
+			      "rocksdb.encrytped.cipher.rot13.blocksize=42",
+			      dbOpts);
+    }
+    if (s.ok()) {
+      dbOpts.env = encrypted_env_;
+    } else {
+      printf("Failed to create encrypted environment status=%s\n", s.ToString().c_str());
+    }
+  }
 #endif  // ROCKSDB_LITE
-      env_(new SpecialEnv(encrypted_env_
-                              ? encrypted_env_
-                              : (mem_env_ ? mem_env_ : Env::Default()))),
-      option_config_(kDefault) {
+  env_ = new SpecialEnv(dbOpts.env);
   env_->SetBackgroundThreads(1, Env::LOW);
   env_->SetBackgroundThreads(1, Env::HIGH);
   dbname_ = test::PerThreadDBPath(env_, path);
   alternative_wal_dir_ = dbname_ + "/wal";
   alternative_db_log_dir_ = dbname_ + "/db_log_dir";
   auto options = CurrentOptions();
+  
   options.env = env_;
   auto delete_options = options;
   delete_options.wal_dir = alternative_wal_dir_;

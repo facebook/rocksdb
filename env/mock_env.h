@@ -26,6 +26,8 @@ class MockEnv : public EnvWrapper {
 
   virtual ~MockEnv();
 
+  virtual const char *Name() const override { return EnvConstants::kEnvMemory.c_str(); }
+  
   // Partial implementation of the Env interface.
   virtual Status NewSequentialFile(const std::string& fname,
                                    unique_ptr<SequentialFile>* result,

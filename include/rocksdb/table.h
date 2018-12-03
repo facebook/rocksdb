@@ -431,10 +431,12 @@ class RandomAccessFileReader;
 
 // A base class for table factories.
 class TableFactory : public Extension {
+public:
+  static const std::string kTypeTableFactory;
  public:
   virtual ~TableFactory() {}
   virtual const std::string & Type() const override {
-    return ExtensionTypes::kTypeTableFactory;
+    return kTypeTableFactory;
   }
 
   // The type of the table.

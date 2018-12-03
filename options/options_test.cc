@@ -1839,35 +1839,6 @@ TEST_F(OptionsParserTest, EscapeOptionString) {
             "Escape \\# and");
 }
 
-class TestListener : public EventListener {
-public:
-  const char * Name() const override { return "testListener"; }
-};
-
-extern "C" {
-  Extension * testListenerFactory(const std::string & type,
-				  const std::string & name) {
-    if (name == "testListener" && type == ExtensionTypes::kTypeEventListener) {
-      return new TestListener();
-    } else {
-      return nullptr;
-    }
-  }
-}
-
-TEST_F(OptionsTest, LoadExtension) {
-  DBOptions dbOptions;
-  std::shared_ptr<EventListener> listener;
-  Status s = dbOptions.AddExtensionFactory("", "testListenerFactory");
-  ASSERT_TRUE(s.ok());
-  ASSERT_EQ(dbOptions.extension_factories.size(), 1);
-  s = GetEventListenerFromString("Not found", dbOptions, "", &listener);
-  ASSERT_TRUE(s.IsNotFound());
-  ASSERT_TRUE(! listener);
-  s = GetEventListenerFromString("testListener", dbOptions, "", &listener);
-  ASSERT_TRUE(s.ok());
-  ASSERT_TRUE(listener);
-}
 #endif  // !ROCKSDB_LITE
 }  // namespace rocksdb
 

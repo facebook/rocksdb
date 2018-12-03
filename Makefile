@@ -496,6 +496,7 @@ TESTS = \
 	table_test \
 	geodb_test \
 	delete_scheduler_test \
+	extension_test \
 	options_test \
 	options_settable_test \
 	options_util_test \
@@ -1453,6 +1454,9 @@ thread_list_test: util/thread_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 compact_files_test: db/compact_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+extension_test: extensions/extension_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 options_test: options/options_test.o $(LIBOBJECTS) $(TESTHARNESS)

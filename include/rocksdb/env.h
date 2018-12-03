@@ -23,6 +23,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "rocksdb/extensions.h"
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
 
@@ -110,8 +111,15 @@ struct EnvOptions {
   RateLimiter* rate_limiter = nullptr;
 };
 
-class Env {
+struct EnvConstants {
+  static const std::string kEnvDefault;
+  static const std::string kEnvMemory;
+  static const std::string kEnvTimed;
+};
+
+class Env : public Extension {
  public:
+  static const std::string kTypeEnvironment;
   struct FileAttributes {
     // File name
     std::string name;
@@ -130,6 +138,9 @@ class Env {
   //
   // The result of Default() belongs to rocksdb and must never be deleted.
   static Env* Default();
+  virtual const std::string & Type() const override {
+    return kTypeEnvironment;
+  }
 
   // Create a brand new sequentially-readable file with the specified name.
   // On success, stores a pointer to the new file in *result and returns OK.
@@ -1005,10 +1016,65 @@ extern Status ReadFileToString(Env* env, const std::string& fname,
 // May be useful to clients who wish to override just part of the
 // functionality of another Env.
 class EnvWrapper : public Env {
- public:
+public:
   // Initialize an EnvWrapper that delegates all calls to *t
-  explicit EnvWrapper(Env* t) : target_(t) { }
+ protected:
+  const std::string kPropPrefix_;
+ public:
+  explicit EnvWrapper(Env* t, const std::string & p = "rocksdb.env.") :
+    kPropPrefix_(p),
+    target_(t) {
+  }
   ~EnvWrapper() override;
+
+  virtual const char *Name() const override {
+    if (target_ != nullptr) {
+      return target_->Name();
+    } else {
+      return "Unknown";
+    }
+  }
+
+  virtual Status ConfigureFromMap(
+		     const std::unordered_map<std::string, std::string> & opt_map,
+		     const DBOptions & dbOpts,
+		     const ColumnFamilyOptions * cfOpts,
+		     bool ignore_unknown_options,
+		     bool input_strings_escaped)  override;
+  
+  // Configures the options for this extension based on the input parameters.
+  // Returns an OK status if configuration was successful.
+  // If a non-OK status is returned, the options should be left in their original
+  // state.
+  virtual Status ConfigureFromString(
+		     const std::string & opt_str,
+		     const DBOptions & dbOpts,
+		     const ColumnFamilyOptions * cfOpts,
+		     bool ignore_unknown_options,
+		     bool input_strings_escaped) override;
+
+  virtual Status SetOption(const std::string & name,
+			   const std::string & value,
+			   const DBOptions & dbOpts,
+			   const ColumnFamilyOptions * cfOpts,
+			   bool ignore_unknown_options,
+			   bool input_strings_escaped) override;
+  virtual Status SetOption(const std::string & name,
+			   const std::string & value,
+			   const DBOptions & dbOpts,
+			   bool ignore_unknown_options,
+			   bool input_strings_escaped) override;
+  virtual Status SetOption(const std::string & name,
+			   const std::string & value,
+			   bool ignore_unknown_options,
+			   bool input_strings_escaped) override;
+  
+  // Sanitizes the specified DB Options and ColumnFamilyOptions.
+  // If the function cannot find a way to sanitize the input DB Options,
+  // a non-ok Status will be returned.
+  virtual Status SanitizeOptions(const DBOptions & dbOpts,
+				 const ColumnFamilyOptions & cfOpts) const override;
+  virtual Status SanitizeOptions(const DBOptions & dbOpts) const override;
 
   // Return the target to which this Env forwards all calls
   Env* target() const { return target_; }
@@ -1270,16 +1336,23 @@ class WritableFileWrapper : public WritableFile {
 
 class DynamicLibrary {
 public:
-    typedef void *(*FunctionPtr)();
-    virtual ~DynamicLibrary() {}
-
-    virtual const char* Name() const = 0;
-
-    // Append data to the end of the file
-    // Note: A WriteabelFile object must support either Append or
-    // PositionedAppend, so the users cannot mix the two.
-    virtual FunctionPtr LoadSymbol(const std::string & sym_name) = 0;
-
+  typedef void *(*FunctionPtr)();
+  virtual ~DynamicLibrary() {}
+  
+  virtual const char* Name() const = 0;
+  
+  template<typename T>
+  T * LoadFunction(const std::string & sym_name, std::function<T> *function) {
+    T *symbol =  reinterpret_cast<T *>(LoadSymbol(sym_name));
+    *function = symbol;
+    return symbol;
+  }
+    
+  // Append data to the end of the file
+  // Note: A WriteabelFile object must support either Append or
+  // PositionedAppend, so the users cannot mix the two.
+  virtual FunctionPtr LoadSymbol(const std::string & sym_name) = 0;
+  
 };
 
 // Returns a new environment that stores its data in memory and delegates

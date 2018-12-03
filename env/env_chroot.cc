@@ -24,18 +24,33 @@ class ChrootEnv : public EnvWrapper {
  public:
   ChrootEnv(Env* base_env, const std::string& chroot_dir)
       : EnvWrapper(base_env) {
+    SetOption("env.chroot.dir", chroot_dir);
+  }
+  
+  const char *Name() const override {
+    return "chroot";
+  }
+  
+  Status SetOption(const std::string & name, const std::string & value,
+		   bool input_strings_escaped = false,
+		   bool ignore_unknown_options = false) override {
+    if (name == "env.chroot.dir") {
 #if defined(OS_AIX)
-    char resolvedName[PATH_MAX];
-    char* real_chroot_dir = realpath(chroot_dir.c_str(), resolvedName);
+      char resolvedName[PATH_MAX];
+      char* real_chroot_dir = realpath(value.c_str(), resolvedName);
 #else
-    char* real_chroot_dir = realpath(chroot_dir.c_str(), nullptr);
+      char* real_chroot_dir = realpath(value.c_str(), nullptr);
 #endif
-    // chroot_dir must exist so realpath() returns non-nullptr.
-    assert(real_chroot_dir != nullptr);
-    chroot_dir_ = real_chroot_dir;
+      // chroot_dir must exist so realpath() returns non-nullptr.
+      assert(real_chroot_dir != nullptr);
+      chroot_dir_ = real_chroot_dir;
 #if !defined(OS_AIX)
-    free(real_chroot_dir);
+      free(real_chroot_dir);
 #endif
+      return Status::OK();
+    } else {
+      return EnvWrapper::SetOption(name, value, input_strings_escaped, ignore_unknown_options);
+    }
   }
 
   virtual Status NewSequentialFile(const std::string& fname,

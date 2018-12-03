@@ -10,6 +10,7 @@
 #include "rocksdb/env.h"
 
 #include <thread>
+#include "rocksdb/env_encryption.h"
 #include "options/db_options.h"
 #include "port/port.h"
 #include "port/sys_time.h"
@@ -18,9 +19,14 @@
 #include "util/autovector.h"
 
 namespace rocksdb {
+const std::string Env::kTypeEnvironment = "environment";
+const std::string EnvConstants::kEnvDefault = "default";
+const std::string EnvConstants::kEnvMemory = "memory";
+const std::string EnvConstants::kEnvTimed = "timed";
 
 Env::~Env() {
 }
+
 
 std::string Env::PriorityToString(Env::Priority priority) {
   switch (priority) {
@@ -346,7 +352,120 @@ Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
   return s;
 }
 
+
+static Status NewEnvironment(const DBOptions & dbOpts,
+			     const ColumnFamilyOptions * cfOpts,
+			     const std::string & name,
+			     Env   **result) {
+  Status s = Status::OK();
+  if (*result == nullptr || (*result)->Name() != name) {
+    std::unique_ptr<Env> guard;
+    Env *env;
+    s = dbOpts.NewExtension(Env::kTypeEnvironment, name, cfOpts, &env, &guard);
+    if (s.ok()) {
+      *result = env;
+      guard.release(); //**TODO: This seems like it leaks
+    }
+  }
+  return s;
+}
+
+static const std::string kRocksEnvPropPrefix = "rocksdb.env.";
+static const std::string kTargetPropSuffix = "target.name";
+
 EnvWrapper::~EnvWrapper() {
+}
+
+Status EnvWrapper::SetOption(const std::string & name,
+			     const std::string & value,
+			     const DBOptions & dbOpts,
+			     const ColumnFamilyOptions * cfOpts,
+			     bool ignore_unknown_options,
+			     bool input_strings_escaped) {
+  if (MatchesProperty(name, kPropPrefix_, kTargetPropSuffix)) {
+    return NewEnvironment(dbOpts, cfOpts, value, &target_);
+  } else if (target_) {
+    return target_->SetOption(name, value, dbOpts, cfOpts,
+			      ignore_unknown_options,
+			      input_strings_escaped);
+  } else {
+    return Env::SetOption(name, value, ignore_unknown_options, input_strings_escaped);
+  }
+}
+  
+Status EnvWrapper::SetOption(const std::string & name,
+			     const std::string & value,
+			     const DBOptions & dbOpts,
+			     bool ignore_unknown_options,
+			     bool input_strings_escaped) {
+  if (MatchesProperty(name, kPropPrefix_, kTargetPropSuffix)) {
+    return NewEnvironment(dbOpts, nullptr, value, &target_);
+  } else if (target_) {
+    return target_->SetOption(name, value, dbOpts,
+			      ignore_unknown_options,
+			      input_strings_escaped);
+  } else {
+    return SetOption(name, value, ignore_unknown_options, input_strings_escaped);
+  }
+}
+
+Status EnvWrapper::SetOption(const std::string & name,
+			     const std::string & value,
+			     bool ignore_unknown_options,
+			     bool input_strings_escaped) {
+  if (target_) {
+    return target_->SetOption(name, value,
+			      ignore_unknown_options,
+			      input_strings_escaped);
+  } else {
+    return Status::InvalidArgument("No target environment found");
+  }
+}
+
+Status EnvWrapper::ConfigureFromMap(
+		     const std::unordered_map<std::string, std::string> & opt_map,
+		     const DBOptions & dbOpts,
+		     const ColumnFamilyOptions * cfOpts,
+		     bool ignore_unknown_options, 
+		     bool input_strings_escaped) {
+  if (target_ == nullptr) {
+    target_ = dbOpts.env;
+  }
+  return Extension::ConfigureFromMap(opt_map, dbOpts, cfOpts,
+				   ignore_unknown_options,
+				   input_strings_escaped);
+}
+  
+Status EnvWrapper::ConfigureFromString(
+		     const std::string & opt_str,
+		     const DBOptions & dbOpts, 
+		     const ColumnFamilyOptions * cfOpts,
+		     bool ignore_unknown_options,
+		     bool input_strings_escaped) {
+  if (target_ == nullptr) {
+    target_ = dbOpts.env;
+  }
+  return Extension::ConfigureFromString(opt_str, dbOpts, cfOpts,
+					ignore_unknown_options,
+					input_strings_escaped);
+}
+
+Status EnvWrapper::SanitizeOptions(const DBOptions & dbOpts,
+				   const ColumnFamilyOptions & cfOpts) const {
+  if (target_) {
+    return target_->SanitizeOptions(dbOpts, cfOpts);
+  } else {
+    return Status::InvalidArgument("No target environment found");
+  }
+
+}
+
+Status EnvWrapper::SanitizeOptions(const DBOptions & dbOpts) const {
+  if (target_) {
+    return target_->SanitizeOptions(dbOpts);
+  } else {
+    return Status::InvalidArgument("No target environment found");
+  }
 }
 
 namespace {  // anonymous namespace
@@ -416,6 +535,4 @@ EnvOptions::EnvOptions() {
   DBOptions options;
   AssignEnvOptions(this, options);
 }
-
-
 }  // namespace rocksdb

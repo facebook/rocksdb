@@ -14,6 +14,8 @@ inline T SafeDivide(T a, T b) {
 }
 }  // namespace
 
+const std::string EventListener::kTypeEventListener = "event-listener";
+  
 void EventHelpers::AppendCurrentTime(JSONWriter* jwriter) {
   *jwriter << "time_micros"
            << std::chrono::duration_cast<std::chrono::microseconds>(
@@ -192,34 +194,4 @@ void EventHelpers::NotifyOnErrorRecoveryCompleted(
 #endif  // ROCKSDB_LITE
 }
 
-#ifndef ROCKSDB_LITE
-Status GetEventListenerFromMap(
-    const std::string& name,
-    const DBOptions & dbOpts, 
-    const std::unordered_map<std::string, std::string>& opt_map,
-    std::shared_ptr<EventListener> * listener,
-    bool ignore_unknown_options) {
-  Status s = GetExtension(dbOpts.extension_factories, ExtensionTypes::kTypeEventListener, name, listener);
-  if (s.ok()) {
-    s = (*listener)->ConfigureFromMap(opt_map, dbOpts, NULL, true, ignore_unknown_options);
-  }
-  return s;
-}
-  
-Status GetEventListenerFromString(
-    const std::string& name,
-    const DBOptions & dbOpts, 
-    const std::string & opt_str,
-    std::shared_ptr<EventListener> * listener,
-    bool ignore_unknown_options) {
-  Status s = GetExtension(dbOpts.extension_factories,
-			  ExtensionTypes::kTypeEventListener, name, listener);
-  if (s.ok()) {
-    s = (*listener)->ConfigureFromString(opt_str, dbOpts, NULL, true,
-					 ignore_unknown_options);
-  }
-  return s;
-}
-  
-#endif  // ROCKSDB_LITE
 }  // namespace rocksdb

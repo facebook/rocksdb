@@ -378,7 +378,20 @@ class HdfsLogger : public Logger {
 
 const std::string HdfsEnv::kProto = "hdfs://";
 const std::string HdfsEnv::pathsep = "/";
+const std::string HdfsEnv::kOptFsName = "rocksdb.hdfs.fs.name";
 
+Status HdfsEnv::SetOption(const std::string & name,
+			  const std::string & value,
+			  bool ignore_unknown_options,
+			  bool input_strings_escaped) {
+  if (name == kOptFsName) {
+    fsname_ = name;
+    return Status::OK();
+  } else {
+    Env::SetOption(name, value, ignore_unknown_options, input_strings_escaped);
+  }
+}
+  
 // open a file for sequential reading
 Status HdfsEnv::NewSequentialFile(const std::string& fname,
                                   unique_ptr<SequentialFile>* result,
@@ -601,6 +614,18 @@ Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname) {
   *hdfs_env = new HdfsEnv(fsname);
   return Status::OK();
 }
+
+static ExtensionLoader::FactoryFunction EncryptedEnvFactory =
+  ExtensionLoader::Default()->RegisterFactory(
+				 ExtensionConsts::kTypeEnvironment,
+				 kProto + "*",
+				 [](const std::string & fsname,
+				    const DBOptions & dbOpts,
+				    const ColumnFamilyOptions *,
+				    std::unique_ptr<Extension> * guard) {
+				   guard->reset(new HdfsdEnv(fsname));
+				   return guard->get();
+				 });
 }  // namespace rocksdb
 
 #endif // ROCKSDB_HDFS_FILE_C
@@ -618,6 +643,7 @@ Status HdfsEnv::NewSequentialFile(const std::string& /*fname*/,
  Status NewHdfsEnv(Env** /*hdfs_env*/, const std::string& /*fsname*/) {
    return Status::NotSupported("Not compiled with hdfs support");
  }
+
 }
 
 #endif

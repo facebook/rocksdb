@@ -15,7 +15,6 @@
 
 #include <inttypes.h>
 #include <limits>
-
 #include "monitoring/statistics.h"
 #include "options/db_options.h"
 #include "options/options_helper.h"
@@ -23,6 +22,7 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
+#include "rocksdb/extension_loader.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
@@ -102,20 +102,19 @@ ColumnFamilyOptions::ColumnFamilyOptions()
 ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
     : ColumnFamilyOptions(*static_cast<const ColumnFamilyOptions*>(&options)) {}
 
-DBOptions::DBOptions() {}
+DBOptions::DBOptions() {
+}
 DBOptions::DBOptions(const Options& options)
     : DBOptions(*static_cast<const DBOptions*>(&options)) {}
 
 #ifndef ROCKSDB_LITE
-Status DBOptions::AddExtensionFactory(const std::string & name, const std::string & method) {
+Status DBOptions::AddExtensionLibrary(const std::string & name,
+				      const std::string & method,
+				      const std::string & arg) {
   shared_ptr<DynamicLibrary> library;
   Status status = env->LoadLibrary(name, &library);
   if (status.ok()) {
-    std::shared_ptr<ExtensionFactory> factory;
-    status = ExtensionFactory::LoadDynamicFactory(library, method, &factory);
-    if (status.ok()) {
-      extension_factories.push_back(factory);
-    }
+    status = extensions->RegisterLibrary(library, method, arg);
   }
   return status;
 }

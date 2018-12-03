@@ -23,6 +23,7 @@
 
 namespace rocksdb {
 
+class ColumnFamilyHandle;
 class Comparator;
 
 // ExternalSstFileInfo include information about sst files created
