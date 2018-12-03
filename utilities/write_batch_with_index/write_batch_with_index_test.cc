@@ -9,12 +9,11 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/utilities/write_batch_with_index.h"
-#include <map>
 #include <memory>
+#include <map>
 #include "db/column_family.h"
 #include "port/stack_trace.h"
-#include "rocksdb/comparator.h"
+#include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/random.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
@@ -507,19 +506,7 @@ typedef std::map<std::string, std::string> KVMap;
 class KVIter : public Iterator {
  public:
   explicit KVIter(const KVMap* map) : map_(map), iter_(map_->end()) {}
-  explicit KVIter(const KVMap* map, const Slice* iterate_upper_bound)
-      : map_(map),
-        iter_(map_->end()),
-        iterate_upper_bound_(iterate_upper_bound) {}
-  virtual bool Valid() const {
-    if (iterate_upper_bound_ == nullptr) {
-      return iter_ != map_->end();
-    } else {
-      if (iter_ == map_->end()) return false;
-      const Comparator* cmp = BytewiseComparator();
-      return cmp->Compare(key(), *iterate_upper_bound_) < 0;
-    }
-  }
+  virtual bool Valid() const { return iter_ != map_->end(); }
   virtual void SeekToFirst() { iter_ = map_->begin(); }
   virtual void SeekToLast() {
     if (map_->empty()) {
@@ -549,7 +536,6 @@ class KVIter : public Iterator {
  private:
   const KVMap* const map_;
   KVMap::const_iterator iter_;
-  const Slice* iterate_upper_bound_ = nullptr;
 };
 
 void AssertIter(Iterator* iter, const std::string& key,
@@ -567,7 +553,6 @@ void AssertItersEqual(Iterator* iter1, Iterator* iter2) {
     ASSERT_EQ(iter1->value().ToString(), iter2->value().ToString());
   }
 }
-
 }  // namespace
 
 TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
@@ -628,14 +613,9 @@ TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
       }
     }
 
-    auto rnd_key_idx = rnd.Uniform(static_cast<int>(source_strings.size()));
-    Slice random_upper_bound(source_strings[rnd_key_idx]);
-    ReadOptions read_options;
-    read_options.iterate_upper_bound = &random_upper_bound;
     std::unique_ptr<Iterator> iter(
-        batch.NewIteratorWithBase(read_options, &cf1, new KVIter(&map)));
-    std::unique_ptr<Iterator> result_iter(
-        new KVIter(&merged_map, &random_upper_bound));
+        batch.NewIteratorWithBase(&cf1, new KVIter(&map)));
+    std::unique_ptr<Iterator> result_iter(new KVIter(&merged_map));
 
     bool is_valid = false;
     for (int i = 0; i < 128; i++) {
@@ -856,46 +836,6 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
 
     iter->Prev();
     AssertIter(iter.get(), "c", "cc");
-  }
-
-  // Test iterate_upper_bound
-  {
-    KVMap empty_map;
-    Slice upper_bound("cd");
-    ReadOptions read_options;
-    read_options.iterate_upper_bound = &upper_bound;
-    std::unique_ptr<Iterator> iter(
-        batch.NewIteratorWithBase(read_options, &cf1, new KVIter(&empty_map)));
-
-    iter->SeekToFirst();
-    AssertIter(iter.get(), "a", "aa");
-    iter->Next();
-    AssertIter(iter.get(), "c", "cc");
-    iter->Next();
-    ASSERT_OK(iter->status());
-    ASSERT_TRUE(!iter->Valid());
-
-    iter->SeekToLast();
-    ASSERT_OK(iter->status());
-    ASSERT_TRUE(!iter->Valid());
-
-    iter->Seek("aa");
-    AssertIter(iter.get(), "c", "cc");
-    iter->Prev();
-    AssertIter(iter.get(), "a", "aa");
-    iter->Next();
-    iter->Next();
-    ASSERT_OK(iter->status());
-    ASSERT_TRUE(!iter->Valid());
-
-    iter->Seek("ca");
-    ASSERT_OK(iter->status());
-    ASSERT_TRUE(!iter->Valid());
-
-    // Seek to outside of upper bound, should not crash
-    iter->Seek("zz");
-    ASSERT_OK(iter->status());
-    ASSERT_TRUE(!iter->Valid());
   }
 }
 
