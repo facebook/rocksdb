@@ -219,31 +219,31 @@ bool FragmentedRangeTombstoneList::ContainsRange(SequenceNumber lower,
 
 FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
     const FragmentedRangeTombstoneList* tombstones,
-    const InternalKeyComparator& icmp, SequenceNumber upper_bound,
-    SequenceNumber lower_bound)
+    const InternalKeyComparator& icmp, SequenceNumber _upper_bound,
+    SequenceNumber _lower_bound)
     : tombstone_start_cmp_(icmp.user_comparator()),
       tombstone_end_cmp_(icmp.user_comparator()),
       icmp_(&icmp),
       ucmp_(icmp.user_comparator()),
       tombstones_(tombstones),
-      upper_bound_(upper_bound),
-      lower_bound_(lower_bound) {
+      upper_bound_(_upper_bound),
+      lower_bound_(_lower_bound) {
   assert(tombstones_ != nullptr);
   Invalidate();
 }
 
 FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
     const std::shared_ptr<const FragmentedRangeTombstoneList>& tombstones,
-    const InternalKeyComparator& icmp, SequenceNumber upper_bound,
-    SequenceNumber lower_bound)
+    const InternalKeyComparator& icmp, SequenceNumber _upper_bound,
+    SequenceNumber _lower_bound)
     : tombstone_start_cmp_(icmp.user_comparator()),
       tombstone_end_cmp_(icmp.user_comparator()),
       icmp_(&icmp),
       ucmp_(icmp.user_comparator()),
       tombstones_ref_(tombstones),
       tombstones_(tombstones_ref_.get()),
-      upper_bound_(upper_bound),
-      lower_bound_(lower_bound) {
+      upper_bound_(_upper_bound),
+      lower_bound_(_lower_bound) {
   assert(tombstones_ != nullptr);
   Invalidate();
 }
@@ -420,21 +420,20 @@ FragmentedRangeTombstoneIterator::SplitBySnapshot(
     const std::vector<SequenceNumber>& snapshots) {
   std::map<SequenceNumber, std::unique_ptr<FragmentedRangeTombstoneIterator>>
       splits;
-  SequenceNumber lower_bound = 0;
-  SequenceNumber upper_bound;
+  SequenceNumber lower = 0;
+  SequenceNumber upper;
   for (size_t i = 0; i <= snapshots.size(); i++) {
     if (i >= snapshots.size()) {
-      upper_bound = kMaxSequenceNumber;
+      upper = kMaxSequenceNumber;
     } else {
-      upper_bound = snapshots[i];
+      upper = snapshots[i];
     }
-    if (tombstones_->ContainsRange(lower_bound, upper_bound)) {
-      splits.emplace(upper_bound,
-                     std::unique_ptr<FragmentedRangeTombstoneIterator>(
-                         new FragmentedRangeTombstoneIterator(
-                             tombstones_, *icmp_, upper_bound, lower_bound)));
+    if (tombstones_->ContainsRange(lower, upper)) {
+      splits.emplace(upper, std::unique_ptr<FragmentedRangeTombstoneIterator>(
+                                new FragmentedRangeTombstoneIterator(
+                                    tombstones_, *icmp_, upper, lower)));
     }
-    lower_bound = upper_bound + 1;
+    lower = upper + 1;
   }
   return splits;
 }
