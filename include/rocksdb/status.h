@@ -73,6 +73,7 @@ class Status {
     kStaleFile = 6,
     kMemoryLimit = 7,
     kSpaceLimit = 8,
+    kPathNotFound = 9,
     kMaxSubCode
   };
 
@@ -198,6 +199,11 @@ class Status {
     return Status(kIOError, kSpaceLimit, msg, msg2);
   }
 
+  static Status PathNotFound() { return Status(kIOError, kPathNotFound); }
+  static Status PathNotFound(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kIOError, kPathNotFound, msg, msg2);
+  }
+
   // Returns true iff the status indicates success.
   bool ok() const { return code() == kOk; }
 
@@ -264,6 +270,14 @@ class Status {
   // of a write batch) in order to avoid out of memory exceptions.
   bool IsMemoryLimit() const {
     return (code() == kAborted) && (subcode() == kMemoryLimit);
+  }
+
+  // Returns true iff the status indicates a PathNotFound error
+  // This is caused by an I/O error returning the specific "no such file or
+  // directory" error condition. A PathNotFound error is an I/O error with
+  // a specific subcode, enabling users to take appropriate action if necessary
+  bool IsPathNotFound() const {
+    return (code() == kIOError) && (subcode() == kPathNotFound);
   }
 
   // Return a string representation of this status suitable for printing.
