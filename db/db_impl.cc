@@ -3116,6 +3116,7 @@ Status DBImpl::IngestExternalFile(
     }
 
     num_running_ingest_file_++;
+    TEST_SYNC_POINT("DBImpl::IngestExternalFile:AfterIncIngestFileCounter");
 
     // We cannot ingest a file into a dropped CF
     if (cfd->IsDropped()) {
@@ -3130,16 +3131,18 @@ Status DBImpl::IngestExternalFile(
       TEST_SYNC_POINT_CALLBACK("DBImpl::IngestExternalFile:NeedFlush",
                                &need_flush);
       if (status.ok() && need_flush) {
+        FlushOptions flush_opts;
+        flush_opts.allow_write_stall = true;
         if (immutable_db_options_.atomic_flush) {
           autovector<ColumnFamilyData*> cfds;
           SelectColumnFamiliesForAtomicFlush(&cfds);
           mutex_.Unlock();
-          status = AtomicFlushMemTables(cfds, FlushOptions(),
+          status = AtomicFlushMemTables(cfds, flush_opts,
                                         FlushReason::kExternalFileIngestion,
                                         true /* writes_stopped */);
         } else {
           mutex_.Unlock();
-          status = FlushMemTable(cfd, FlushOptions(),
+          status = FlushMemTable(cfd, flush_opts,
                                  FlushReason::kExternalFileIngestion,
                                  true /* writes_stopped */);
         }
