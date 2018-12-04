@@ -662,11 +662,17 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
    */
+  public void put(final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final byte[] value,
+      final boolean assume_exclusive_tracked) throws RocksDBException {
+    assert (isOwningHandle());
+    put(nativeHandle_, key, key.length, value, value.length, columnFamilyHandle.nativeHandle_,
+        assume_exclusive_tracked);
+  }
   public void put(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
       final byte[] value) throws RocksDBException {
     assert(isOwningHandle());
-    put(nativeHandle_, key, key.length, value, value.length,
-        columnFamilyHandle.nativeHandle_);
+    put(nativeHandle_, key, key.length, value, value.length, columnFamilyHandle.nativeHandle_,
+        /*assume_exclusive_tracked*/ false);
   }
 
   /**
@@ -710,12 +716,18 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
    */
+  public void put(final ColumnFamilyHandle columnFamilyHandle, final byte[][] keyParts,
+      final byte[][] valueParts, final boolean assume_exclusive_tracked) throws RocksDBException {
+    assert (isOwningHandle());
+    put(nativeHandle_, keyParts, keyParts.length, valueParts, valueParts.length,
+        columnFamilyHandle.nativeHandle_, assume_exclusive_tracked);
+  }
   public void put(final ColumnFamilyHandle columnFamilyHandle,
       final byte[][] keyParts, final byte[][] valueParts)
       throws RocksDBException {
     assert(isOwningHandle());
     put(nativeHandle_, keyParts, keyParts.length, valueParts, valueParts.length,
-        columnFamilyHandle.nativeHandle_);
+        columnFamilyHandle.nativeHandle_, /*assume_exclusive_tracked*/ false);
   }
 
   //TODO(AR) refactor if we implement org.rocksdb.SliceParts in future
@@ -760,11 +772,17 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
    */
+  public void merge(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
+      final byte[] value, final boolean assume_exclusive_tracked) throws RocksDBException {
+    assert (isOwningHandle());
+    merge(nativeHandle_, key, key.length, value, value.length, columnFamilyHandle.nativeHandle_,
+        assume_exclusive_tracked);
+  }
   public void merge(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key, final byte[] value) throws RocksDBException {
     assert(isOwningHandle());
-    merge(nativeHandle_, key, key.length, value, value.length,
-        columnFamilyHandle.nativeHandle_);
+    merge(nativeHandle_, key, key.length, value, value.length, columnFamilyHandle.nativeHandle_,
+        /*assume_exclusive_tracked*/ false);
   }
 
   /**
@@ -817,10 +835,17 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
    */
+  public void delete(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
+      final boolean assume_exclusive_tracked) throws RocksDBException {
+    assert (isOwningHandle());
+    delete(
+        nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_, assume_exclusive_tracked);
+  }
   public void delete(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key) throws RocksDBException {
     assert(isOwningHandle());
-    delete(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
+    delete(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_,
+        /*assume_exclusive_tracked*/ false);
   }
 
   /**
@@ -861,11 +886,17 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
    */
+  public void delete(final ColumnFamilyHandle columnFamilyHandle, final byte[][] keyParts,
+      final boolean assume_exclusive_tracked) throws RocksDBException {
+    assert (isOwningHandle());
+    delete(nativeHandle_, keyParts, keyParts.length, columnFamilyHandle.nativeHandle_,
+        assume_exclusive_tracked);
+  }
   public void delete(final ColumnFamilyHandle columnFamilyHandle,
       final byte[][] keyParts) throws RocksDBException {
     assert(isOwningHandle());
-    delete(nativeHandle_, keyParts, keyParts.length,
-        columnFamilyHandle.nativeHandle_);
+    delete(nativeHandle_, keyParts, keyParts.length, columnFamilyHandle.nativeHandle_,
+        /*assume_exclusive_tracked*/ false);
   }
 
   //TODO(AR) refactor if we implement org.rocksdb.SliceParts in future
@@ -907,11 +938,18 @@ public class Transaction extends RocksObject {
    *     described above occurs, or in the case of an unexpected error
    */
   @Experimental("Performance optimization for a very specific workload")
-  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key) throws RocksDBException {
+  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
+      final boolean assume_exclusive_tracked) throws RocksDBException {
+    assert (isOwningHandle());
+    singleDelete(
+        nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_, assume_exclusive_tracked);
+  }
+  @Experimental("Performance optimization for a very specific workload")
+  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle, final byte[] key)
+      throws RocksDBException {
     assert(isOwningHandle());
-    singleDelete(nativeHandle_, key, key.length,
-        columnFamilyHandle.nativeHandle_);
+    singleDelete(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_,
+        /*assume_exclusive_tracked*/ false);
   }
 
   /**
@@ -954,11 +992,18 @@ public class Transaction extends RocksObject {
    *     described above occurs, or in the case of an unexpected error
    */
   @Experimental("Performance optimization for a very specific workload")
-  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[][] keyParts) throws RocksDBException {
+  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle, final byte[][] keyParts,
+      final boolean assume_exclusive_tracked) throws RocksDBException {
+    assert (isOwningHandle());
+    singleDelete(nativeHandle_, keyParts, keyParts.length, columnFamilyHandle.nativeHandle_,
+        assume_exclusive_tracked);
+  }
+  @Experimental("Performance optimization for a very specific workload")
+  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle, final byte[][] keyParts)
+      throws RocksDBException {
     assert(isOwningHandle());
-    singleDelete(nativeHandle_, keyParts, keyParts.length,
-        columnFamilyHandle.nativeHandle_);
+    singleDelete(nativeHandle_, keyParts, keyParts.length, columnFamilyHandle.nativeHandle_,
+        /*assume_exclusive_tracked*/ false);
   }
 
   //TODO(AR) refactor if we implement org.rocksdb.SliceParts in future
@@ -1685,41 +1730,41 @@ public class Transaction extends RocksObject {
       final long readOptionsHandle);
   private native long getIterator(final long handle,
       final long readOptionsHandle, final long columnFamilyHandle);
-  private native void put(final long handle, final byte[] key,
-      final int keyLength, final byte[] value, final int valueLength,
-      final long columnFamilyHandle) throws RocksDBException;
+  private native void put(final long handle, final byte[] key, final int keyLength,
+      final byte[] value, final int valueLength, final long columnFamilyHandle,
+      final boolean assume_exclusive_tracked) throws RocksDBException;
   private native void put(final long handle, final byte[] key,
       final int keyLength, final byte[] value, final int valueLength)
       throws RocksDBException;
-  private native void put(final long handle, final byte[][] keys,
-      final int keysLength, final byte[][] values, final int valuesLength,
-      final long columnFamilyHandle) throws RocksDBException;
+  private native void put(final long handle, final byte[][] keys, final int keysLength,
+      final byte[][] values, final int valuesLength, final long columnFamilyHandle,
+      final boolean assume_exclusive_tracked) throws RocksDBException;
   private native void put(final long handle, final byte[][] keys,
       final int keysLength, final byte[][] values, final int valuesLength)
       throws RocksDBException;
-  private native void merge(final long handle, final byte[] key,
-      final int keyLength, final byte[] value, final int valueLength,
-      final long columnFamilyHandle) throws RocksDBException;
+  private native void merge(final long handle, final byte[] key, final int keyLength,
+      final byte[] value, final int valueLength, final long columnFamilyHandle,
+      final boolean assume_exclusive_tracked) throws RocksDBException;
   private native void merge(final long handle, final byte[] key,
       final int keyLength, final byte[] value, final int valueLength)
       throws RocksDBException;
-  private native void delete(final long handle, final byte[] key,
-      final int keyLength, final long columnFamilyHandle)
+  private native void delete(final long handle, final byte[] key, final int keyLength,
+      final long columnFamilyHandle, final boolean assume_exclusive_tracked)
       throws RocksDBException;
   private native void delete(final long handle, final byte[] key,
       final int keyLength) throws RocksDBException;
-  private native void delete(final long handle, final byte[][] keys,
-      final int keysLength, final long columnFamilyHandle)
+  private native void delete(final long handle, final byte[][] keys, final int keysLength,
+      final long columnFamilyHandle, final boolean assume_exclusive_tracked)
       throws RocksDBException;
   private native void delete(final long handle, final byte[][] keys,
       final int keysLength) throws RocksDBException;
-  private native void singleDelete(final long handle, final byte[] key,
-      final int keyLength, final long columnFamilyHandle)
+  private native void singleDelete(final long handle, final byte[] key, final int keyLength,
+      final long columnFamilyHandle, final boolean assume_exclusive_tracked)
       throws RocksDBException;
   private native void singleDelete(final long handle, final byte[] key,
       final int keyLength) throws RocksDBException;
-  private native void singleDelete(final long handle, final byte[][] keys,
-      final int keysLength, final long columnFamilyHandle)
+  private native void singleDelete(final long handle, final byte[][] keys, final int keysLength,
+      final long columnFamilyHandle, final boolean assume_exclusive_tracked)
       throws RocksDBException;
   private native void singleDelete(final long handle, final byte[][] keys,
       final int keysLength) throws RocksDBException;
