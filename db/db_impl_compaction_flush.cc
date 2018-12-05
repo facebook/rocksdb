@@ -2672,7 +2672,7 @@ void DBImpl::BuildCompactionJobInfo(
       }
     }
   }
-  for (const auto newf : c->edit()->GetNewFiles()) {
+  for (const auto& newf : c->edit()->GetNewFiles()) {
     compaction_job_info->output_files.push_back(
         TableFileName(c->immutable_cf_options()->cf_paths,
                       newf.second.fd.GetNumber(), newf.second.fd.GetPathId()));
