@@ -53,6 +53,9 @@ class WriteBatch;
 class Env;
 class EventListener;
 class TraceWriter;
+#ifdef ROCKSDB_LITE
+class CompactionJobInfo;
+#endif
 
 using std::unique_ptr;
 
