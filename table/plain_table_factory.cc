@@ -226,7 +226,7 @@ Status GetPlainTableOptionsFromMap(
 extern TableFactory* NewPlainTableFactory(const PlainTableOptions& options) {
   return new PlainTableFactory(options);
 }
-const std::string TableFactory::kTypeTableFactory =
+const std::string TableFactory::kType =
     "table-factory";
 const std::string PlainTablePropertyNames::kEncodingType =
     "rocksdb.plain.table.encoding.type";

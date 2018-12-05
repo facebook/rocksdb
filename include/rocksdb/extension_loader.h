@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
@@ -157,4 +158,57 @@ private:
 		     std::vector<std::pair<std::regex, FactoryFunction> > > factories;
 };
 
+template<typename T>
+Status NewExtension(const std::string & name,
+		    const DBOptions & dbOpts, 
+		    const ColumnFamilyOptions * cfOpts,
+		    T **result,
+		    std::unique_ptr<T> *guard) {
+  *result =  nullptr;
+  guard->reset();
+  std::unique_ptr<Extension> ext_guard;
+  Extension *extension = dbOpts.extensions->CreateExtension(T::Type(), name,
+							    dbOpts, cfOpts,
+							    &ext_guard);
+  if (extension != nullptr) {
+    *result = extension->CastTo(&ext_guard, guard);
+    if (*result == nullptr) {
+    } else {
+      return Status::OK();
+    }
+  }
+  return Status::NotFound("Could not load extension", name);
+}
+  
+template<typename T>
+Status NewSharedExtension(const std::string & name,
+			  const DBOptions & dbOpts, 
+			  const ColumnFamilyOptions * cfOpts,
+			  std::shared_ptr<T> * result)  {
+  T *unique;
+  std::unique_ptr<T> guard;
+  result->reset();
+  Status s = NewExtension(name, dbOpts, cfOpts, &unique, &guard);
+  if (! s.ok()) {
+    return s;
+  } else if (guard) {
+    result->reset(guard.release());
+    return Status::OK();
+  } else {
+    return Status::NotSupported("Cannot share extension", name);
+  }
+}
+  
+  
+template<typename T>
+Status GetSharedExtension(const std::string & name,
+			  const DBOptions & dbOpts, 
+			  const ColumnFamilyOptions * cfOpts,
+			  std::shared_ptr<T> * result) {
+  if (! result->get() || result->get()->Name() != name) {
+    return NewSharedExtension(name, dbOpts, cfOpts, result);
+  } else {
+    return Status::OK();
+  }
+}
 }  // namespace rocksdb

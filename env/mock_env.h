@@ -21,12 +21,14 @@ namespace rocksdb {
 
 class MemFile;
 class MockEnv : public EnvWrapper {
+public:
+  static const std::string kName;
  public:
   explicit MockEnv(Env* base_env);
 
   virtual ~MockEnv();
 
-  virtual const char *Name() const override { return EnvConstants::kEnvMemory.c_str(); }
+  virtual const char *Name() const override { return kName.c_str(); }
   
   // Partial implementation of the Env interface.
   virtual Status NewSequentialFile(const std::string& fname,

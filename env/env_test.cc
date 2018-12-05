@@ -1696,6 +1696,18 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(std::pair<Env*, bool>(chroot_env.get(), true)));
 #endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
+#ifndef ROCKSDB_LITE
+TEST_F(EnvTest, TestEnvWrapperSetOption) {
+  DBOptions dbOpts;
+  Env* env = new TestEnv();
+  ASSERT_OK(env->SetOption("rocksdb.env.target.name", "test", dbOpts));
+  ASSERT_EQ(Status::InvalidArgument(),
+	    env->SetOption("rocksdb.env.target.name", "memory"));
+  ASSERT_OK(env->SetOption("rocksdb.env.target.name", "memory", dbOpts));
+  ASSERT_OK(env->SetOption("rocksdb.env.target.name", "default", dbOpts));
+  delete env;
+}  
+#endif // ROCKSDB_LITE
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

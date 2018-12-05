@@ -19,7 +19,6 @@
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
-#include "rocksdb/extension_loader.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/types.h"
 #include "rocksdb/version.h"
@@ -885,49 +884,11 @@ struct DBOptions {
 #endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE
-  std::shared_ptr<ExtensionLoader> extensions = ExtensionLoader::Get();
+  std::shared_ptr<ExtensionLoader> extensions;
 
   Status AddExtensionLibrary(const std::string & name,
 			     const std::string & method,
 			     const std::string & arg);
-  template<typename T>
-  Status NewExtension(const std::string & type,
-		      const std::string & name,
-		      const ColumnFamilyOptions * cfOpts,
-		      T **result,
-		      std::unique_ptr<T> *guard) const {
-    *result =  nullptr;
-    guard->reset();
-    std::unique_ptr<Extension> ext_guard;
-    Extension *extension = extensions->CreateExtension(type, name, *this, cfOpts, &ext_guard);
-    if (extension != nullptr) {
-      *result = extension->CastTo(&ext_guard, guard);
-      if (*result == nullptr) {
-      } else {
-	return Status::OK();
-      }
-    }
-    return Status::NotFound("Could not load extension", name);
-  }
-  
-  template<typename T>
-  Status NewSharedExtension(const std::string & type,
-			    const std::string & name,
-			    const ColumnFamilyOptions * cfOpts,
-			    std::shared_ptr<T> * result) const {
-    T *unique;
-    std::unique_ptr<T> guard;
-    Status s = NewExtension(type, name, cfOpts, &unique, &guard);
-    if (! s.ok()) {
-      return s;
-    } else if (guard) {
-      result->reset(guard.release());
-      return Status::OK();
-    } else {
-      return Status::NotSupported("Cannot share extension", name);
-    }
-  }
-      
 #endif
 
   // If true, then DB::Open / CreateColumnFamily / DropColumnFamily

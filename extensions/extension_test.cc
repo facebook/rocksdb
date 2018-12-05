@@ -87,7 +87,7 @@ public:
 
 extern "C" {
   void testListenerFactory(ExtensionLoader & factory, const std::string & name) {
-    factory.RegisterFactory(EventListener::kTypeEventListener, name,
+    factory.RegisterFactory(EventListener::Type(), name,
 			    CreateTestListener);
   }
 }
@@ -96,8 +96,7 @@ static EventListener *AssertNewListener(DBOptions & dbOpts, const char *name,
 					bool isValid,
 					std::unique_ptr<EventListener> *guard) {
   EventListener *listener;
-  AssertNewExtension(dbOpts, EventListener::kTypeEventListener, name,
-		     isValid, &listener, true, guard);
+  AssertNewExtension(dbOpts, name, isValid, &listener, true, guard);
   return listener;
 }
 
@@ -112,9 +111,9 @@ TEST_F(ExtensionTest, RegisterLocalExtensions) {
   DBOptions dbOpt1, dbOpt2;
   const char *name1 = "listener1";
   const char *name2= "listener2";
-  dbOpt1.extensions->RegisterFactory(EventListener::kTypeEventListener, name1,
+  dbOpt1.extensions->RegisterFactory(EventListener::Type(), name1,
 				     CreateTestListener);
-  dbOpt2.extensions->RegisterFactory(EventListener::kTypeEventListener, name2,
+  dbOpt2.extensions->RegisterFactory(EventListener::Type(), name2,
 				     CreateTestListener);
 
   AssertNewListener(dbOpt1, name1, true);
@@ -128,7 +127,7 @@ TEST_F(ExtensionTest, RegisterDefaultExtensions) {
   const char *name = "DefaultListener";
   AssertNewListener(dbOpt1, name, false);
 
-  ExtensionLoader::Default()->RegisterFactory(EventListener::kTypeEventListener,
+  ExtensionLoader::Default()->RegisterFactory(EventListener::Type(),
 					      name, CreateTestListener);
   
   AssertNewListener(dbOpt1, name, true);
@@ -161,7 +160,7 @@ TEST_F(ExtensionTest, SetOptions) {
   DBOptions dbOptions;
   std::unique_ptr<EventListener> guard;
   const char *name = "setOptions";
-  ExtensionLoader::Default()->RegisterFactory(EventListener::kTypeEventListener,
+  ExtensionLoader::Default()->RegisterFactory(EventListener::Type(),
 					      name, CreateTestListener);
   AssertNewListener(dbOptions, name, true, &guard);
   ASSERT_OK(guard->SetOption("unknown", "bad", true, true));
@@ -174,7 +173,7 @@ TEST_F(ExtensionTest, SetOptions) {
   DBOptions dbOptions;
   std::unique_ptr<EventListener> guard;
   const char *name = "setOptions";
-  ExtensionLoader::Default()->RegisterFactory(EventListener::kTypeEventListener,
+  ExtensionLoader::Default()->RegisterFactory(EventListener::Type(),
 					      name, CreateTestListener);
   AssertNewListener(dbOptions, name, true, &guard);
   ASSERT_OK(guard->SetOption("test.listener.sanitize", "false"));
@@ -187,19 +186,22 @@ TEST_F(ExtensionTest, ConfigureOptionsFromString) {
   DBOptions dbOptions;
   std::unique_ptr<EventListener> guard;
   const char *name = "fromString";
-  ExtensionLoader::Default()->RegisterFactory(EventListener::kTypeEventListener,
+  ExtensionLoader::Default()->RegisterFactory(EventListener::Type(),
 					      name, CreateTestListener);
   AssertNewListener(dbOptions, name, true, &guard);
   ASSERT_OK(guard->ConfigureFromString("test.listener.sanitize=true",
 				       dbOptions));
-  ASSERT_EQ(Status::InvalidArgument(),
-	    guard->ConfigureFromString("test.listener.sanitize=false",
+  ASSERT_OK(guard->SanitizeOptions(dbOptions));
+  ASSERT_OK(guard->ConfigureFromString("test.listener.sanitize=false",
 				       dbOptions));
+  ASSERT_EQ(Status::InvalidArgument(), guard->SanitizeOptions(dbOptions));
   ASSERT_OK(guard->ConfigureFromString("test.listener.sanitize=true;unknown.options=x",
 				       dbOptions, nullptr, true, false));
-  ASSERT_EQ(Status::InvalidArgument(),
+  ASSERT_OK(guard->SanitizeOptions(dbOptions));
+  ASSERT_EQ(Status::InvalidArgument(), 
 	    guard->ConfigureFromString("test.listener.sanitize=true;unknown.options=x",
 				       dbOptions));
+  ASSERT_OK(guard->SanitizeOptions(dbOptions));
 }
   
 TEST_F(ExtensionTest, ConfigureOptionsFromMap) {
@@ -208,16 +210,21 @@ TEST_F(ExtensionTest, ConfigureOptionsFromMap) {
   const char *name = "fromString";
   std::unordered_map<std::string, std::string> opt_map;
   opt_map["test.listener.sanitize"]="false";
-  ExtensionLoader::Default()->RegisterFactory(EventListener::kTypeEventListener,
+  ExtensionLoader::Default()->RegisterFactory(EventListener::Type(),
 					      name, CreateTestListener);
   AssertNewListener(dbOptions, name, true, &guard);
-  ASSERT_EQ(Status::InvalidArgument(),
-	    guard->ConfigureFromMap(opt_map, dbOptions));
+
+  ASSERT_OK(guard->ConfigureFromMap(opt_map, dbOptions));
+  ASSERT_EQ(Status::InvalidArgument(), guard->SanitizeOptions(dbOptions));
+
   opt_map["test.listener.sanitize"]="true";
   ASSERT_OK(guard->ConfigureFromMap(opt_map, dbOptions));
+  ASSERT_OK(guard->SanitizeOptions(dbOptions));
   
   opt_map["unknown.options"]="true";
   ASSERT_OK(guard->ConfigureFromMap(opt_map, dbOptions, nullptr, true, false));
+  ASSERT_OK(guard->SanitizeOptions(dbOptions));
+
   ASSERT_EQ(Status::InvalidArgument(),
 	    guard->ConfigureFromMap(opt_map, dbOptions));
 }

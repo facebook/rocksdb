@@ -11,6 +11,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
+#include <iostream> // MJR
 namespace rocksdb {
 std::shared_ptr<ExtensionLoader> ExtensionLoader::Get() {
   std::shared_ptr<ExtensionLoader> factory = std::make_shared<ExtensionLoader>();

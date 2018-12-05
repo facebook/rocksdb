@@ -10,7 +10,7 @@
 #include "rocksdb/env.h"
 
 #include <thread>
-#include "rocksdb/env_encryption.h"
+#include "rocksdb/extension_loader.h"
 #include "options/db_options.h"
 #include "port/port.h"
 #include "port/sys_time.h"
@@ -19,10 +19,7 @@
 #include "util/autovector.h"
 
 namespace rocksdb {
-const std::string Env::kTypeEnvironment = "environment";
-const std::string EnvConstants::kEnvDefault = "default";
-const std::string EnvConstants::kEnvMemory = "memory";
-const std::string EnvConstants::kEnvTimed = "timed";
+const std::string Env::kType = "environment";
 
 Env::~Env() {
 }
@@ -361,7 +358,8 @@ static Status NewEnvironment(const DBOptions & dbOpts,
   if (*result == nullptr || (*result)->Name() != name) {
     std::unique_ptr<Env> guard;
     Env *env;
-    s = dbOpts.NewExtension(Env::kTypeEnvironment, name, cfOpts, &env, &guard);
+    s = NewExtension(name, dbOpts, cfOpts,
+		     &env, &guard);
     if (s.ok()) {
       *result = env;
       guard.release(); //**TODO: This seems like it leaks
@@ -383,7 +381,11 @@ Status EnvWrapper::SetOption(const std::string & name,
 			     bool ignore_unknown_options,
 			     bool input_strings_escaped) {
   if (MatchesProperty(name, kPropPrefix_, kTargetPropSuffix)) {
-    return NewEnvironment(dbOpts, cfOpts, value, &target_);
+    if (value == Name()) {
+      return Status::OK();
+    } else {
+      return NewEnvironment(dbOpts, cfOpts, value, &target_);
+    }
   } else if (target_) {
     return target_->SetOption(name, value, dbOpts, cfOpts,
 			      ignore_unknown_options,
@@ -395,25 +397,11 @@ Status EnvWrapper::SetOption(const std::string & name,
   
 Status EnvWrapper::SetOption(const std::string & name,
 			     const std::string & value,
-			     const DBOptions & dbOpts,
 			     bool ignore_unknown_options,
 			     bool input_strings_escaped) {
   if (MatchesProperty(name, kPropPrefix_, kTargetPropSuffix)) {
-    return NewEnvironment(dbOpts, nullptr, value, &target_);
+    return Status::InvalidArgument("Cannot create target type without options", name);
   } else if (target_) {
-    return target_->SetOption(name, value, dbOpts,
-			      ignore_unknown_options,
-			      input_strings_escaped);
-  } else {
-    return SetOption(name, value, ignore_unknown_options, input_strings_escaped);
-  }
-}
-
-Status EnvWrapper::SetOption(const std::string & name,
-			     const std::string & value,
-			     bool ignore_unknown_options,
-			     bool input_strings_escaped) {
-  if (target_) {
     return target_->SetOption(name, value,
 			      ignore_unknown_options,
 			      input_strings_escaped);

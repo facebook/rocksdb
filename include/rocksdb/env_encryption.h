@@ -12,15 +12,6 @@
 #include "env.h"
 
 namespace rocksdb {
-struct EncryptionConsts {
-  static const std::string kEnvEncryptedPropPrefix;
-  static const std::string kTypeProvider;
-  static const std::string kTypeBlockCipher;
-  static const std::string kEnvEncrypted;
-  static const std::string kProviderCTR;
-  static const std::string kCipherROT13;
-};
-
 class EncryptionProvider;
 class BlockCipher;
 struct DBOptions;
@@ -64,10 +55,12 @@ class BlockAccessCipherStream {
 
 // BlockCipher 
   class BlockCipher : public Extension {
+  public:
+    static const std::string kType;
     public:
       virtual ~BlockCipher() {};
-      virtual const std::string & Type() const override {
-	return EncryptionConsts::kTypeBlockCipher;
+      static const std::string & Type() {
+	return kType;
       }
 
       // BlockSize returns the size of each block supported by this cipher stream.
@@ -87,10 +80,12 @@ class BlockAccessCipherStream {
 // The returned cipher stream will be used for actual encryption/decryption 
 // actions.
 class EncryptionProvider : public Extension {
+public:
+    static const std::string kType;
  public:
     virtual ~EncryptionProvider() {};
-    virtual const std::string & Type() const override {
-      return EncryptionConsts::kTypeProvider;
+    static const std::string & Type() {
+      return kType;
     }
 
     // GetPrefixLength returns the length of the prefix that is added to every file

@@ -9,7 +9,7 @@
 
 #include "db/db_test_util.h"
 #include "db/forward_iterator.h"
-#include "rocksdb/env_encryption.h"
+#include "rocksdb/extension_loader.h"
 
 namespace rocksdb {
 
@@ -43,9 +43,6 @@ SpecialEnv::SpecialEnv(Env* base)
   table_write_callback_ = nullptr;
 }
 
-std::shared_ptr<BlockCipher> cipher;
-std::shared_ptr<EncryptionProvider> provider;
-  
  DBTestBase::DBTestBase(const std::string path) :
   mem_env_(nullptr),
   encrypted_env_(nullptr),
@@ -59,9 +56,7 @@ std::shared_ptr<EncryptionProvider> provider;
 #ifndef ROCKSDB_LITE
   if (getenv("ENCRYPED_ENV")) {
     std::unique_ptr<Env> guard;
-    Status s = dbOpts.NewExtension(Env::kTypeEnvironment,
-				   EncryptionConsts::kEnvEncrypted, NULL,
-				   &encrypted_env_, &guard);
+    Status s = NewExtension("encrypted", dbOpts, nullptr, &encrypted_env_, &guard);
     guard.release();
     if (encrypted_env_ != nullptr) {
       s = encrypted_env_->ConfigureFromString(

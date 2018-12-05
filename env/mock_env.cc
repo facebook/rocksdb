@@ -15,8 +15,11 @@
 #include "util/murmurhash.h"
 #include "util/random.h"
 #include "util/rate_limiter.h"
+#include "rocksdb/extension_loader.h"
+#include "rocksdb/options.h"
 
 namespace rocksdb {
+const std::string MockEnv::kName = "memory";
 
 class MemFile {
  public:
@@ -765,6 +768,17 @@ void MockEnv::FakeSleepForMicroseconds(int64_t micros) {
 #ifndef ROCKSDB_LITE
 // This is to maintain the behavior before swithcing from InMemoryEnv to MockEnv
 Env* NewMemEnv(Env* base_env) { return new MockEnv(base_env); }
+static ExtensionLoader::FactoryFunction MockEnvFactory =
+  ExtensionLoader::Default()->RegisterFactory(
+				 Env::kType,
+				 MockEnv::kName,
+				 [](const std::string &,
+				    const DBOptions & dbOpts,
+				    const ColumnFamilyOptions *,
+				    std::unique_ptr<Extension> * guard) {
+				   guard->reset();
+				   return NewMemEnv(dbOpts.env);
+				 });
 
 #else  // ROCKSDB_LITE
 

@@ -33,6 +33,27 @@ bool Extension::MatchesProperty(const std::string & propName,
   }
 }
 
+Status Extension::ExtractPropertyNameValue(const std::string & prop,
+					   std::string * name,
+					   std::string * value,
+					   bool ignore_unknown_options,
+					   bool) {
+  std::unordered_map<std::string, std::string> opt_map;
+  Status s = StringToMap(prop, &opt_map);
+  if (s.ok()) {
+    for (auto it : opt_map) {
+      if (it.first == ExtensionConsts::kPropNameValue) {
+	*name = it.second;
+      } else if (it.first ==  ExtensionConsts::kPropOptValue) {
+	*value = it.second;
+      } else if (! ignore_unknown_options) {
+	return Status::InvalidArgument("Unknown option:", it.first);
+      }
+    }
+  }
+  return s;
+}
+  
 Status Extension::ConfigureFromMap(
           const std::unordered_map<std::string, std::string> & opts_map,
 	  const DBOptions & dbOpts,
@@ -54,6 +75,7 @@ Status Extension::ConfigureFromMap(
   }
   return saved;
 }
+  
 Status Extension::ConfigureFromMap(
           const std::unordered_map<std::string, std::string> & opts_map,
 	  const DBOptions & dbOpts,
@@ -83,12 +105,10 @@ Status Extension::ConfigureFromMap(
       }
     } while (found && ! unused_opts.empty());
   }
-  if (ignore_unknown_options || saved.ok() || unused_opts.empty()) {
-    if (cfOpts != nullptr) {
-      return SanitizeOptions(dbOpts, *cfOpts);
-    } else {
-      return SanitizeOptions(dbOpts);
-    }
+  if (saved.ok()) {
+    return saved;
+  } else if (ignore_unknown_options || unused_opts.empty()) {
+    return Status::OK();
   } else {
     return saved;
   }

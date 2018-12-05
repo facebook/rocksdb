@@ -111,15 +111,9 @@ struct EnvOptions {
   RateLimiter* rate_limiter = nullptr;
 };
 
-struct EnvConstants {
-  static const std::string kEnvDefault;
-  static const std::string kEnvMemory;
-  static const std::string kEnvTimed;
-};
-
 class Env : public Extension {
  public:
-  static const std::string kTypeEnvironment;
+  static const std::string kType;
   struct FileAttributes {
     // File name
     std::string name;
@@ -138,8 +132,8 @@ class Env : public Extension {
   //
   // The result of Default() belongs to rocksdb and must never be deleted.
   static Env* Default();
-  virtual const std::string & Type() const override {
-    return kTypeEnvironment;
+  static const std::string & Type() {
+    return kType;
   }
 
   // Create a brand new sequentially-readable file with the specified name.
@@ -1057,11 +1051,6 @@ public:
 			   const std::string & value,
 			   const DBOptions & dbOpts,
 			   const ColumnFamilyOptions * cfOpts,
-			   bool ignore_unknown_options,
-			   bool input_strings_escaped) override;
-  virtual Status SetOption(const std::string & name,
-			   const std::string & value,
-			   const DBOptions & dbOpts,
 			   bool ignore_unknown_options,
 			   bool input_strings_escaped) override;
   virtual Status SetOption(const std::string & name,

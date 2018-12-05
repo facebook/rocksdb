@@ -14,12 +14,14 @@ namespace rocksdb {
 // An environment that measures function call times for filesystem
 // operations, reporting results to variables in PerfContext.
 class TimedEnv : public EnvWrapper {
+public:
+  static const std::string kName;
  public:
   explicit TimedEnv(Env* base_env) : EnvWrapper(base_env) {}
 
 
   virtual const char *Name() const override {
-    return EnvConstants::kEnvTimed.c_str();
+    return kName.c_str();
   }
   
   virtual Status NewSequentialFile(const std::string& fname,
@@ -141,6 +143,8 @@ class TimedEnv : public EnvWrapper {
     return EnvWrapper::NewLogger(fname, result);
   }
 };
+
+const std::string TimedEnv::kName = "timed";
 
 Env* NewTimedEnv(Env* base_env) { return new TimedEnv(base_env); }
 

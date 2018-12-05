@@ -37,14 +37,17 @@ public:
   // Returns true if propName == prefix+suffix
   static bool MatchesProperty(const std::string & propName,
 			      const std::string & prefix,
-			      const std::string & suffix); 
+			      const std::string & suffix);
+  static Status ExtractPropertyNameValue(const std::string & prop,
+					 std::string * name,
+					 std::string * value,
+					 bool ignore_unknown_options,
+					 bool input_strings_escaped);
 public:
   virtual ~Extension() {}
   // Names starting with "rocksdb." are reserved and should not be used
   // by any clients of this package.
   virtual const char* Name() const = 0;
-
-  virtual const std::string & Type() const = 0;
 
   // Configures the options for this extension based on the input parameters.
   // Returns an OK status if configuration was successful.
@@ -105,40 +108,35 @@ public:
 		     ExtensionConsts::kInputStringsEscaped);
   }
   
-  // Updateas the named option to the input value, returning OK if successful.
+  // Updates the named option to the input value, returning OK if successful.
   virtual Status SetOption(const std::string & name,
 			   const std::string & value,
 			   const DBOptions &,
-			   bool ignore_unknown_options,
-			   bool input_strings_escaped) {
-    return SetOption(name, value, ignore_unknown_options, input_strings_escaped);
-  }
-  
-  Status SetOption(const std::string & name, const std::string & value,
-		   const DBOptions & dbOpts) {
-    return SetOption(name, value, dbOpts,
-		     ExtensionConsts::kIgnoreUnknownOptions,
-		     ExtensionConsts::kInputStringsEscaped);
-  }
-
-  // Updateas the named option to the input value, returning OK if successful.
-  virtual Status SetOption(const std::string & name,
-			   const std::string & value,
-			   const DBOptions & dbOpts,
 			   const ColumnFamilyOptions *,
 			   bool ignore_unknown_options,
 			   bool input_strings_escaped) {
-    return SetOption(name, value, dbOpts, ignore_unknown_options, input_strings_escaped);
+    return SetOption(name, value, ignore_unknown_options, input_strings_escaped);
   }
 
   Status SetOption(const std::string & name,
 		   const std::string & value,
 		   const DBOptions & dbOpts,
-		   const ColumnFamilyOptions * cfOpts) {
+		   bool ignore_unknown_options,
+		   bool input_strings_escaped) {
+    return SetOption(name, value, dbOpts, nullptr,
+		     ignore_unknown_options, input_strings_escaped);
+  }
+
+  // Updates the named option to the input value, returning OK if successful.
+  Status SetOption(const std::string & name,
+		   const std::string & value,
+		   const DBOptions & dbOpts,
+		   const ColumnFamilyOptions *cfOpts = nullptr) {
     return SetOption(name, value, dbOpts, cfOpts,
 		     ExtensionConsts::kIgnoreUnknownOptions,
 		     ExtensionConsts::kInputStringsEscaped);
   }
+  
 
   // Sanitizes the specified DB Options and ColumnFamilyOptions.
   // If the function cannot find a way to sanitize the input DB Options,

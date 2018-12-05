@@ -14,7 +14,7 @@ inline T SafeDivide(T a, T b) {
 }
 }  // namespace
 
-const std::string EventListener::kTypeEventListener = "event-listener";
+const std::string EventListener::kType = "event-listener";
   
 void EventHelpers::AppendCurrentTime(JSONWriter* jwriter) {
   *jwriter << "time_micros"

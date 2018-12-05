@@ -21,12 +21,8 @@
 
 namespace rocksdb {
 
-const std::string EncryptionConsts::kTypeProvider = "provider";
-const std::string EncryptionConsts::kTypeBlockCipher = "block_cipher";
-const std::string EncryptionConsts::kEnvEncrypted = "encrypted";
-const std::string EncryptionConsts::kProviderCTR = "CTR";
-const std::string EncryptionConsts::kCipherROT13 = "ROT13";
-const std::string EncryptionConsts::kEnvEncryptedPropPrefix = "rocksdb.encrypted.";
+const std::string EncryptionProvider::kType = "provider";
+const std::string BlockCipher::kType = "block_cipher";
 
 #ifndef ROCKSDB_LITE
 
@@ -385,37 +381,24 @@ class EncryptedRandomRWFile : public RandomRWFile {
   }
 };
 
+static const std::string kEnvEncryptedPropPrefix = "rocksdb.encrypted.";
 static const std::string EncryptedProviderNameProp =
-  EncryptionConsts::kEnvEncryptedPropPrefix + "env.provider.name";
+  kEnvEncryptedPropPrefix + "env.provider.name";
 static const std::string EncryptedProviderProp =
-  EncryptionConsts::kEnvEncryptedPropPrefix + "env.provider";
-
-static Status NewEncryptionProvider(const DBOptions & dbOpts,
-				    const ColumnFamilyOptions * cfOpts,
-				    const std::string & name,
-				    std::shared_ptr<EncryptionProvider> *result) {
-  Status s = Status::OK();
-  if (! result->get() || result->get()->Name() != name) {
-    std::shared_ptr<EncryptionProvider> provider;
-    s = dbOpts.NewSharedExtension(EncryptionConsts::kTypeProvider,
-				  name, cfOpts, &provider);
-    if (s.ok()) {
-      *result = provider;
-    }
-  }
-  return s;
-}
+  kEnvEncryptedPropPrefix + "env.provider";
 
 // EncryptedEnv implements an Env wrapper that adds encryption to files stored on disk.
 class EncryptedEnv : public EnvWrapper {
+public:
+  static const std::string kName;
  public:
   EncryptedEnv(Env* base_env, const std::shared_ptr<EncryptionProvider> &provider)
-    : EnvWrapper(base_env, EncryptionConsts::kEnvEncryptedPropPrefix) {
+    : EnvWrapper(base_env, kEnvEncryptedPropPrefix) {
     provider_ = provider;
   }
 
   const char *Name() const override {
-    return EncryptionConsts::kEnvEncrypted.c_str();
+    return kName.c_str();
   }
 
   virtual Status SetOption(const std::string & name,
@@ -438,19 +421,11 @@ class EncryptedEnv : public EnvWrapper {
   virtual Status SetOption(const std::string & name,
 			   const std::string & value,
 			   const DBOptions & dbOpts,
-			   bool ignore_unknown_options,
-			   bool input_strings_escaped) override {
-    return EnvWrapper::SetOption(name, value, dbOpts, ignore_unknown_options, input_strings_escaped);
-  }
-  
-  virtual Status SetOption(const std::string & name,
-			   const std::string & value,
-			   const DBOptions & dbOpts,
 			   const ColumnFamilyOptions *cfOpts,
 			   bool ignore_unknown_options,
 			   bool input_strings_escaped) override {
     if (name == EncryptedProviderNameProp) {
-      return NewEncryptionProvider(dbOpts, cfOpts, value, &provider_);
+      return GetSharedExtension(value, dbOpts, cfOpts, &provider_);
     } else if (name == EncryptedProviderProp) {
       return Status::OK(); // MJR: TODO: Extract provider name and properties from value
     } else if (! provider_) { // No provider, run the super SetOption
@@ -776,6 +751,7 @@ class EncryptedEnv : public EnvWrapper {
   std::shared_ptr<EncryptionProvider> provider_;
 };
 
+const std::string EncryptedEnv::kName = "encrypted";
 
 // Returns an Env that encrypts data when stored on disk and decrypts data when 
 // read from disk.
@@ -785,8 +761,8 @@ Env* NewEncryptedEnv(Env* base_env, const std::shared_ptr<EncryptionProvider> & 
 
 static ExtensionLoader::FactoryFunction EncryptedEnvFactory =
   ExtensionLoader::Default()->RegisterFactory(
-				 Env::kTypeEnvironment,
-				 EncryptionConsts::kEnvEncrypted,
+				 Env::kType,
+				 EncryptedEnv::kName,
 				 [](const std::string &,
 				    const DBOptions & dbOpts,
 				    const ColumnFamilyOptions *,
@@ -886,13 +862,15 @@ Status BlockAccessCipherStream::Decrypt(uint64_t fileOffset, char *data, size_t 
 }
 
 static const std::string kROT13BlockSizeProp =
-  EncryptionConsts::kEnvEncryptedPropPrefix + "cipher.rot13.blocksize";
+  kEnvEncryptedPropPrefix + "cipher.rot13.blocksize";
   
 // Implements a BlockCipher using ROT13.
 //
 // Note: This is a sample implementation of BlockCipher, 
 // it is NOT considered safe and should NOT be used in production.
 class ROT13BlockCipher : public BlockCipher {
+public:
+  static const std::string kName;
 private: 
   size_t blockSize_;
 public:
@@ -900,7 +878,7 @@ public:
     : blockSize_(blockSize) {}
   virtual ~ROT13BlockCipher() {};
   virtual const char *Name() const override {
-    return EncryptionConsts::kCipherROT13.c_str();
+    return kName.c_str();
   }
 
   virtual Status SetOption(const std::string & name,
@@ -943,10 +921,12 @@ public:
   }
 };
 
+const std::string ROT13BlockCipher::kName = "ROT13";
+
 static ExtensionLoader::FactoryFunction ROT13BlockCipherFactory =
   ExtensionLoader::Default()->RegisterFactory(
-				 EncryptionConsts::kTypeBlockCipher,
-				 EncryptionConsts::kCipherROT13,
+				 BlockCipher::kType,
+				 ROT13BlockCipher::kName,
 				 [](const std::string &,
 				    const DBOptions &,
 				    const ColumnFamilyOptions *,
@@ -1026,38 +1006,24 @@ static void decodeCTRParameters(const char *prefix, size_t blockSize, uint64_t &
 // Note: This is a possible implementation of EncryptionProvider, 
 // it is considered suitable for use, provided a safe BlockCipher is used.
 static const std::string CTRCipherNameProp =
-  EncryptionConsts::kEnvEncryptedPropPrefix + "provider.ctr.cipher.name";
+  kEnvEncryptedPropPrefix + "provider.ctr.cipher.name";
 static const std::string CTRCipherProp =
-  EncryptionConsts::kEnvEncryptedPropPrefix + "provider.ctr.cipher";
+  kEnvEncryptedPropPrefix + "provider.ctr.cipher";
 
-static Status NewBlockCipher(const DBOptions & dbOpts,
-			     const ColumnFamilyOptions * cfOpts,
-			     const std::string & name,
-			     std::shared_ptr<BlockCipher> *result) {
-  Status s = Status::OK();
-  if (! result->get() || result->get()->Name() != name) {
-    std::shared_ptr<BlockCipher> cipher;
-    s = dbOpts.NewSharedExtension(EncryptionConsts::kTypeBlockCipher,
-				  name, cfOpts, &cipher);
-    if (s.ok()) {
-      *result = cipher;
-    }
-  }
-  return s;
-}
   
 class CTREncryptionProvider : public EncryptionProvider {
 private:
   std::shared_ptr<BlockCipher> cipher_;
-protected:
+public:
   const static size_t defaultPrefixLength = 4096;
-  
+  const static std::string kName;
+
 public:
   CTREncryptionProvider(const std::shared_ptr<BlockCipher> & c) 
     : cipher_(c) {};
   virtual ~CTREncryptionProvider() {}
   virtual const char *Name() const override {
-    return EncryptionConsts::kProviderCTR.c_str();
+    return kName.c_str();
   }
 
   virtual Status SanitizeOptions(const DBOptions & dbOpts) const override {
@@ -1099,7 +1065,7 @@ public:
 			   bool input_strings_escaped) override {
 
     if (name == CTRCipherNameProp) {
-      return NewBlockCipher(dbOpts, cfOpts, value, &cipher_);
+      return GetSharedExtension(value, dbOpts, cfOpts, &cipher_);
     } else if (name == CTRCipherProp) {
       return Status::OK(); // MJR: TODO: Extract cipher name and properties from value
     } else if (! cipher_) { // No cipher, run the super SetOption
@@ -1206,10 +1172,12 @@ protected:
   }
 };
 
+const std::string CTREncryptionProvider::kName = "CTR";
+
 static ExtensionLoader::FactoryFunction CTREncryptionProviderFactory =
   ExtensionLoader::Default()->RegisterFactory(
-				 EncryptionConsts::kTypeProvider,
-				 EncryptionConsts::kProviderCTR,
+				 EncryptionProvider::kType,
+				 CTREncryptionProvider::kName,
 				 [](const std::string &,
 				    const DBOptions &,
 				    const ColumnFamilyOptions *,

@@ -49,6 +49,7 @@
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
 #include "port/port.h"
+#include "rocksdb/extension_loader.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "util/coding.h"
@@ -140,6 +141,8 @@ int cloexec_flags(int flags, const EnvOptions* options) {
 }
 
 class PosixEnv : public Env {
+public:
+  static const std::string kName;
  public:
   PosixEnv();
 
@@ -160,7 +163,7 @@ class PosixEnv : public Env {
   }
 
   virtual const char *Name() const override {
-    return EnvConstants::kEnvDefault.c_str();
+    return kName.c_str();
   }
   
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
@@ -1054,6 +1057,7 @@ class PosixEnv : public Env {
   bool allow_non_owner_access_;
 };
 
+const std::string PosixEnv::kName = "default";
 PosixEnv::PosixEnv()
     : checkedDiskForMmap_(false),
       forceMmapOff_(false),
@@ -1163,5 +1167,17 @@ Env* Env::Default() {
   static PosixEnv default_env;
   return &default_env;
 }
+
+static ExtensionLoader::FactoryFunction DefaultEnvFactory =
+  ExtensionLoader::Default()->RegisterFactory(
+					      Env::Type(),
+					      PosixEnv::kName,
+				 [](const std::string &,
+				    const DBOptions &,
+				    const ColumnFamilyOptions *,
+				    std::unique_ptr<Extension> * guard) {
+				   guard->reset();
+				   return Env::Default();
+				 });
 
 }  // namespace rocksdb
