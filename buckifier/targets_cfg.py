@@ -77,7 +77,7 @@ sanitizer = read_config("fbcode", "sanitizer")
 
 # Let RocksDB aware of jemalloc existence.
 # Do not enable it if sanitizer presents.
-if default_allocator.startswith("jemalloc") and sanitizer == "":
+if is_opt_mode and default_allocator.startswith("jemalloc") and sanitizer == "":
     rocksdb_compiler_flags.append("-DROCKSDB_JEMALLOC")
     rocksdb_external_deps.append(("jemalloc", None, "headers"))
 """
