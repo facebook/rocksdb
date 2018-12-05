@@ -3059,6 +3059,7 @@ Status DBImpl::IngestExternalFile(
     }
 
     num_running_ingest_file_++;
+    TEST_SYNC_POINT("DBImpl::IngestExternalFile:AfterIncIngestFileCounter");
 
     // We cannot ingest a file into a dropped CF
     if (cfd->IsDropped()) {
@@ -3074,7 +3075,9 @@ Status DBImpl::IngestExternalFile(
                                &need_flush);
       if (status.ok() && need_flush) {
         mutex_.Unlock();
-        status = FlushMemTable(cfd, FlushOptions(),
+        FlushOptions flush_opts;
+        flush_opts.allow_write_stall = true;
+        status = FlushMemTable(cfd, flush_opts,
                                FlushReason::kExternalFileIngestion,
                                true /* writes_stopped */);
         mutex_.Lock();
