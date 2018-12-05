@@ -551,7 +551,37 @@ TEST_F(EventListenerTest, CompactionReasonUniversal) {
     ASSERT_EQ(compaction_reason, CompactionReason::kUniversalSizeAmplification);
   }
 
+  options.level0_file_num_compaction_trigger = 8;
+  options.compaction_options_universal.max_size_amplification_percent = 100000;
+  options.compaction_options_universal.size_ratio = 100000;
+  options.ttl = 24 * 60 * 60;  // 24 hours
+  env_->time_elapse_only_sleep_ = false;
+  options.env = env_;
+  env_->addon_time_.store(0);
+
+  DestroyAndReopen(options);
+  listener->compaction_reasons_.clear();
+
+  // Write 2 files in L0
+  for (int i = 0; i < 2; i++) {
+    GenerateNewRandomFile(&rnd);
+  }
+
+  // forward time by 36 hours
+  env_->addon_time_.fetch_add(36 * 60 * 60);
+  for (int i = 0; i < 1; i++) {
+    GenerateNewRandomFile(&rnd);
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_GT(listener->compaction_reasons_.size(), 0);
+  for (auto compaction_reason : listener->compaction_reasons_) {
+    ASSERT_EQ(compaction_reason, CompactionReason::kTtl);
+  }
+
   options.disable_auto_compactions = true;
+  options.compaction_options_universal.max_size_amplification_percent = 1;
+  options.ttl = 0;
   Close();
   listener->compaction_reasons_.clear();
   Reopen(options);

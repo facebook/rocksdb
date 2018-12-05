@@ -996,6 +996,41 @@ void CompactionPicker::UnregisterCompaction(Compaction* c) {
   compactions_in_progress_.erase(c);
 }
 
+void CompactionPicker::PickExpiredTtlFiles(
+    const std::string& cf_name, VersionStorageInfo* vstorage, int* start_level,
+    int* output_level, CompactionInputFiles* start_level_inputs) {
+  if (vstorage->ExpiredTtlFiles().empty()) {
+    return;
+  }
+
+  auto continuation = [&, cf_name](std::pair<int, FileMetaData*> level_file) {
+    // If it's being compacted it has nothing to do here.
+    // If this assert() fails that means that some function marked some
+    // files as being_compacted, but didn't call ComputeCompactionScore()
+    assert(!level_file.second->being_compacted);
+    *start_level = level_file.first;
+    *output_level =
+        (*start_level == 0) ? vstorage->base_level() : *start_level + 1;
+
+    if (*start_level == 0 && !level0_compactions_in_progress()->empty()) {
+      return false;
+    }
+
+    start_level_inputs->files = {level_file.second};
+    start_level_inputs->level = *start_level;
+    return ExpandInputsToCleanCut(cf_name, vstorage, start_level_inputs);
+  };
+
+  for (auto& level_file : vstorage->ExpiredTtlFiles()) {
+    if (continuation(level_file)) {
+      // found the compaction!
+      return;
+    }
+  }
+
+  start_level_inputs->files.clear();
+}
+
 void CompactionPicker::PickFilesMarkedForCompaction(
     const std::string& cf_name, VersionStorageInfo* vstorage, int* start_level,
     int* output_level, CompactionInputFiles* start_level_inputs) {
@@ -1167,42 +1202,6 @@ class LevelCompactionBuilder {
   static const int kMinFilesForIntraL0Compaction = 4;
 };
 
-void LevelCompactionBuilder::PickExpiredTtlFiles() {
-  if (vstorage_->ExpiredTtlFiles().empty()) {
-    return;
-  }
-
-  auto continuation = [&](std::pair<int, FileMetaData*> level_file) {
-    // If it's being compacted it has nothing to do here.
-    // If this assert() fails that means that some function marked some
-    // files as being_compacted, but didn't call ComputeCompactionScore()
-    assert(!level_file.second->being_compacted);
-    start_level_ = level_file.first;
-    output_level_ =
-        (start_level_ == 0) ? vstorage_->base_level() : start_level_ + 1;
-
-    if ((start_level_ == vstorage_->num_non_empty_levels() - 1) ||
-        (start_level_ == 0 &&
-         !compaction_picker_->level0_compactions_in_progress()->empty())) {
-      return false;
-    }
-
-    start_level_inputs_.files = {level_file.second};
-    start_level_inputs_.level = start_level_;
-    return compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
-                                                      &start_level_inputs_);
-  };
-
-  for (auto& level_file : vstorage_->ExpiredTtlFiles()) {
-    if (continuation(level_file)) {
-      // found the compaction!
-      return;
-    }
-  }
-
-  start_level_inputs_.files.clear();
-}
-
 void LevelCompactionBuilder::SetupInitialFiles() {
   // Find the compactions by size on all levels.
   bool skipped_l0_to_base = false;
@@ -1287,7 +1286,9 @@ void LevelCompactionBuilder::SetupInitialFiles() {
     }
 
     assert(start_level_inputs_.empty());
-    PickExpiredTtlFiles();
+    compaction_picker_->PickExpiredTtlFiles(cf_name_, vstorage_, &start_level_,
+                                            &output_level_,
+                                            &start_level_inputs_);
     if (!start_level_inputs_.empty()) {
       compaction_reason_ = CompactionReason::kTtl;
     }

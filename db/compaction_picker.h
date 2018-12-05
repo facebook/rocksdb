@@ -181,6 +181,11 @@ class CompactionPicker {
                                     int* start_level, int* output_level,
                                     CompactionInputFiles* start_level_inputs);
 
+  void PickExpiredTtlFiles(const std::string& cf_name,
+                           VersionStorageInfo* vstorage, int* start_level,
+                           int* output_level,
+                           CompactionInputFiles* start_level_inputs);
+
   bool GetOverlappingL0Files(VersionStorageInfo* vstorage,
                              CompactionInputFiles* start_level_inputs,
                              int output_level, int* parent_index);

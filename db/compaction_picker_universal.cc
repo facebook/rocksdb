@@ -168,6 +168,9 @@ bool UniversalCompactionPicker::NeedsCompaction(
   if (!vstorage->FilesMarkedForCompaction().empty()) {
     return true;
   }
+  if (!vstorage->ExpiredTtlFiles().empty()) {
+    return true;
+  }
   return false;
 }
 
@@ -266,11 +269,14 @@ Compaction* UniversalCompactionPicker::PickCompaction(
       (vstorage->FilesMarkedForCompaction().empty() &&
        sorted_runs.size() < (unsigned int)mutable_cf_options
                                 .level0_file_num_compaction_trigger)) {
-    ROCKS_LOG_BUFFER(log_buffer, "[%s] Universal: nothing to do\n",
-                     cf_name.c_str());
-    TEST_SYNC_POINT_CALLBACK("UniversalCompactionPicker::PickCompaction:Return",
-                             nullptr);
-    return nullptr;
+    if ((mutable_cf_options.ttl == 0) ||
+        (mutable_cf_options.ttl > 0 && vstorage->ExpiredTtlFiles().empty())) {
+      ROCKS_LOG_BUFFER(log_buffer, "[%s] Universal: nothing to do\n",
+                       cf_name.c_str());
+      TEST_SYNC_POINT_CALLBACK(
+          "UniversalCompactionPicker::PickCompaction:Return", nullptr);
+      return nullptr;
+    }
   }
   VersionStorageInfo::LevelSummaryStorage tmp;
   ROCKS_LOG_BUFFER_MAX_SZ(
@@ -337,11 +343,20 @@ Compaction* UniversalCompactionPicker::PickCompaction(
   }
 
   if (c == nullptr) {
-    if ((c = PickDeleteTriggeredCompaction(cf_name, mutable_cf_options,
-                                           vstorage, score, sorted_runs,
-                                           log_buffer)) != nullptr) {
+    if ((c = PickSomeTriggeredCompaction(cf_name, mutable_cf_options, vstorage,
+                                         score, sorted_runs, log_buffer,
+                                         MARKED_FILES)) != nullptr) {
       ROCKS_LOG_BUFFER(log_buffer,
                        "[%s] Universal: delete triggered compaction\n",
+                       cf_name.c_str());
+    }
+  }
+
+  if (c == nullptr) {
+    if ((c = PickSomeTriggeredCompaction(cf_name, mutable_cf_options, vstorage,
+                                         score, sorted_runs, log_buffer,
+                                         TTL)) != nullptr) {
+      ROCKS_LOG_BUFFER(log_buffer, "[%s] Universal: ttl triggered compaction\n",
                        cf_name.c_str());
     }
   }
@@ -783,12 +798,11 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
       CompactionReason::kUniversalSizeAmplification);
 }
 
-// Pick files marked for compaction. Typically, files are marked by
-// CompactOnDeleteCollector due to the presence of tombstones.
-Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
+Compaction* UniversalCompactionPicker::PickSomeTriggeredCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, double score,
-    const std::vector<SortedRun>& /*sorted_runs*/, LogBuffer* /*log_buffer*/) {
+    const std::vector<SortedRun>& /*sorted_runs*/, LogBuffer* /*log_buffer*/,
+    const TriggerStrategy strategy) {
   CompactionInputFiles start_level_inputs;
   int output_level;
   std::vector<CompactionInputFiles> inputs;
@@ -796,34 +810,46 @@ Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
   if (vstorage->num_levels() == 1) {
     // This is single level universal. Since we're basically trying to reclaim
     // space by processing files marked for compaction due to high tombstone
-    // density, let's do the same thing as compaction to reduce size amp which
-    // has the same goals.
-    bool compact = false;
+    // density or ttl-expired files, let's do the same thing as compaction to
+    // reduce size amp which has the same goals.
 
     start_level_inputs.level = 0;
     start_level_inputs.files.clear();
     output_level = 0;
-    for (FileMetaData* f : vstorage->LevelFiles(0)) {
-      if (f->marked_for_compaction) {
-        compact = true;
+    if (strategy == MARKED_FILES) {
+      bool compact = false;
+      for (FileMetaData* f : vstorage->LevelFiles(0)) {
+        if (f->marked_for_compaction) {
+          compact = true;
+        }
+        if (compact) {
+          start_level_inputs.files.push_back(f);
+        }
       }
-      if (compact) {
-        start_level_inputs.files.push_back(f);
+    } else if (strategy == TTL) {
+      for (std::pair<int, FileMetaData*> f : vstorage->ExpiredTtlFiles()) {
+        start_level_inputs.files.push_back(f.second);
       }
     }
     if (start_level_inputs.size() <= 1) {
       // If only the last file in L0 is marked for compaction, ignore it
       return nullptr;
     }
+
     inputs.push_back(start_level_inputs);
   } else {
     int start_level;
 
     // For multi-level universal, the strategy is to make this look more like
-    // leveled. We pick one of the files marked for compaction and compact with
-    // overlapping files in the adjacent level.
-    PickFilesMarkedForCompaction(cf_name, vstorage, &start_level, &output_level,
-                                 &start_level_inputs);
+    // leveled. We pick one of the files marked for compaction or ttl-expired
+    // files and compact with overlapping files in the adjacent level.
+    if (strategy == MARKED_FILES) {
+      PickFilesMarkedForCompaction(cf_name, vstorage, &start_level,
+                                   &output_level, &start_level_inputs);
+    } else if (strategy == TTL) {
+      PickExpiredTtlFiles(cf_name, vstorage, &start_level, &output_level,
+                          &start_level_inputs);
+    }
     if (start_level_inputs.empty()) {
       return nullptr;
     }
@@ -888,6 +914,14 @@ Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
   for (FileMetaData* f : vstorage->LevelFiles(output_level)) {
     estimated_total_size += f->fd.GetFileSize();
   }
+
+  // defaults for marked-files (delete triggered) compaction
+  bool is_manual_compaction = true;
+  auto compaction_reason = CompactionReason::kFilesMarkedForCompaction;
+  if (strategy == TTL) {
+    is_manual_compaction = false;
+    compaction_reason = CompactionReason::kTtl;
+  }
   uint32_t path_id =
       GetPathId(ioptions_, mutable_cf_options, estimated_total_size);
   return new Compaction(
@@ -898,10 +932,10 @@ Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, output_level,
                          1),
       GetCompressionOptions(ioptions_, vstorage, output_level),
-      /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ true,
-      score, false /* deletion_compaction */,
-      CompactionReason::kFilesMarkedForCompaction);
+      /* max_subcompactions */ 0, /* grandparents */ {}, is_manual_compaction,
+      score, false /* deletion_compaction */, compaction_reason);
 }
+
 }  // namespace rocksdb
 
 #endif  // !ROCKSDB_LITE

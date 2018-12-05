@@ -73,10 +73,19 @@ class UniversalCompactionPicker : public CompactionPicker {
       VersionStorageInfo* vstorage, double score,
       const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer);
 
-  Compaction* PickDeleteTriggeredCompaction(
+  enum TriggerStrategy {
+    // Pick files marked for compaction. Typically, files are marked by
+    // CompactOnDeletionCollector due to the presence of tombstones.
+    MARKED_FILES,
+    // Pick ttl expired files.
+    TTL
+  };
+
+  Compaction* PickSomeTriggeredCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       VersionStorageInfo* vstorage, double score,
-      const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer);
+      const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer,
+      const TriggerStrategy strategy);
 
   // Used in universal compaction when the enabled_trivial_move
   // option is set. Checks whether there are any overlapping files
