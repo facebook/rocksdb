@@ -452,7 +452,7 @@ public class Transaction extends RocksObject {
   /**
    * Same as
    * {@link #getForUpdate(ReadOptions, ColumnFamilyHandle, byte[], boolean, boolean)}
-   * without do_validate option.
+   * with do_validate=true.
    *
    * @param readOptions Read options.
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
@@ -668,6 +668,12 @@ public class Transaction extends RocksObject {
     put(nativeHandle_, key, key.length, value, value.length, columnFamilyHandle.nativeHandle_,
         assume_exclusive_tracked);
   }
+
+  /*
+   * Same as
+   * {@link #put(ColumnFamilyHandle, byte[], byte[], boolean)}
+   * with assume_exclusive_tracked=false.
+   */
   public void put(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
       final byte[] value) throws RocksDBException {
     assert(isOwningHandle());
@@ -722,6 +728,12 @@ public class Transaction extends RocksObject {
     put(nativeHandle_, keyParts, keyParts.length, valueParts, valueParts.length,
         columnFamilyHandle.nativeHandle_, assume_exclusive_tracked);
   }
+
+  /*
+   * Same as
+   * {@link #put(ColumnFamilyHandle, byte[][], byte[][], boolean)}
+   * with assume_exclusive_tracked=false.
+   */
   public void put(final ColumnFamilyHandle columnFamilyHandle,
       final byte[][] keyParts, final byte[][] valueParts)
       throws RocksDBException {
@@ -778,6 +790,12 @@ public class Transaction extends RocksObject {
     merge(nativeHandle_, key, key.length, value, value.length, columnFamilyHandle.nativeHandle_,
         assume_exclusive_tracked);
   }
+
+  /*
+   * Same as
+   * {@link #merge(ColumnFamilyHandle, byte[], byte[], boolean)}
+   * with assume_exclusive_tracked=false.
+   */
   public void merge(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key, final byte[] value) throws RocksDBException {
     assert(isOwningHandle());
@@ -841,6 +859,12 @@ public class Transaction extends RocksObject {
     delete(
         nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_, assume_exclusive_tracked);
   }
+
+  /*
+   * Same as
+   * {@link #delete(ColumnFamilyHandle, byte[], boolean)}
+   * with assume_exclusive_tracked=false.
+   */
   public void delete(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key) throws RocksDBException {
     assert(isOwningHandle());
@@ -892,6 +916,12 @@ public class Transaction extends RocksObject {
     delete(nativeHandle_, keyParts, keyParts.length, columnFamilyHandle.nativeHandle_,
         assume_exclusive_tracked);
   }
+
+  /*
+   * Same as
+   * {@link #delete(ColumnFamilyHandle, byte[][], boolean)}
+   * with assume_exclusive_tracked=false.
+   */
   public void delete(final ColumnFamilyHandle columnFamilyHandle,
       final byte[][] keyParts) throws RocksDBException {
     assert(isOwningHandle());
@@ -944,6 +974,12 @@ public class Transaction extends RocksObject {
     singleDelete(
         nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_, assume_exclusive_tracked);
   }
+
+  /*
+   * Same as
+   * {@link #singleDelete(ColumnFamilyHandle, byte[], boolean)}
+   * with assume_exclusive_tracked=false.
+   */
   @Experimental("Performance optimization for a very specific workload")
   public void singleDelete(final ColumnFamilyHandle columnFamilyHandle, final byte[] key)
       throws RocksDBException {
@@ -998,6 +1034,12 @@ public class Transaction extends RocksObject {
     singleDelete(nativeHandle_, keyParts, keyParts.length, columnFamilyHandle.nativeHandle_,
         assume_exclusive_tracked);
   }
+
+  /*
+   * Same as
+   * {@link #singleDelete(ColumnFamilyHandle, byte[][], boolean)}
+   * with assume_exclusive_tracked=false.
+   */
   @Experimental("Performance optimization for a very specific workload")
   public void singleDelete(final ColumnFamilyHandle columnFamilyHandle, final byte[][] keyParts)
       throws RocksDBException {
