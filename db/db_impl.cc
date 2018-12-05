@@ -1246,8 +1246,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     // In WriteUnprepared, we cannot set snapshot in the lookup key because we
     // may skip uncommitted data that should be visible to the transaction for
     // reading own writes.
-    snapshot =
-        reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
+    snapshot = read_options.snapshot->GetSequenceNumber();
     if (callback) {
       snapshot = std::max(snapshot, callback->MaxUnpreparedSequenceNumber());
     }
@@ -1352,8 +1351,7 @@ std::vector<Status> DBImpl::MultiGet(
 
   mutex_.Lock();
   if (read_options.snapshot != nullptr) {
-    snapshot =
-        reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
+    snapshot = read_options.snapshot->GetSequenceNumber();
   } else {
     snapshot = last_seq_same_as_publish_seq_
                    ? versions_->LastSequence()
