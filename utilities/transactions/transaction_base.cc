@@ -218,6 +218,12 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
                                          ColumnFamilyHandle* column_family,
                                          const Slice& key, std::string* value,
                                          bool exclusive, bool skip_validate) {
+  assert(!skip_validate || read_options.snapshot == nullptr);
+  if (UNLIKELY(skip_validate && read_options.snapshot != nullptr)) {
+    return Status::InvalidArgument(
+        "If skip_validate is set then GetForUpdate with snapshot is not "
+        "defined.");
+  }
   Status s = TryLock(column_family, key, true /* read_only */, exclusive,
                      skip_validate);
 
@@ -225,13 +231,7 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
     assert(value != nullptr);
     PinnableSlice pinnable_val(value);
     assert(!pinnable_val.IsPinned());
-    if (skip_validate && read_options.snapshot != nullptr) {
-      ReadOptions ro(read_options);
-      ro.snapshot = nullptr;
-      s = Get(ro, column_family, key, &pinnable_val);
-    } else {
-      s = Get(read_options, column_family, key, &pinnable_val);
-    }
+    s = Get(read_options, column_family, key, &pinnable_val);
     if (s.ok() && pinnable_val.IsPinned()) {
       value->assign(pinnable_val.data(), pinnable_val.size());
     }  // else value is already assigned
@@ -244,17 +244,17 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
                                          const Slice& key,
                                          PinnableSlice* pinnable_val,
                                          bool exclusive, bool skip_validate) {
+  assert(!skip_validate || read_options.snapshot == nullptr);
+  if (UNLIKELY(skip_validate && read_options.snapshot != nullptr)) {
+    return Status::InvalidArgument(
+        "If skip_validate is set then GetForUpdate with snapshot is not "
+        "defined.");
+  }
   Status s = TryLock(column_family, key, true /* read_only */, exclusive,
                      skip_validate);
 
   if (s.ok() && pinnable_val != nullptr) {
-    if (skip_validate && read_options.snapshot != nullptr) {
-      ReadOptions ro(read_options);
-      ro.snapshot = nullptr;
-      s = Get(ro, column_family, key, pinnable_val);
-    } else {
-      s = Get(read_options, column_family, key, pinnable_val);
-    }
+    s = Get(read_options, column_family, key, pinnable_val);
   }
   return s;
 }
