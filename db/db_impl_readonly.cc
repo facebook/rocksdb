@@ -72,18 +72,20 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
   auto cfd = cfh->cfd();
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   SequenceNumber latest_snapshot = versions_->LastSequence();
+  SequenceNumber read_seq =
+      read_options.snapshot != nullptr
+          ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
+                ->number_
+          : latest_snapshot;
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   auto db_iter = NewArenaWrappedDbIterator(
       env_, read_options, *cfd->ioptions(), super_version->mutable_cf_options,
-      (read_options.snapshot != nullptr
-           ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
-                 ->number_
-           : latest_snapshot),
+      read_seq,
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
       super_version->version_number, read_callback);
   auto internal_iter =
       NewInternalIterator(read_options, cfd, super_version, db_iter->GetArena(),
-                          db_iter->GetRangeDelAggregator());
+                          db_iter->GetRangeDelAggregator(), read_seq);
   db_iter->SetIterUnderDBIter(internal_iter);
   return db_iter;
 }
@@ -99,21 +101,22 @@ Status DBImplReadOnly::NewIterators(
   iterators->clear();
   iterators->reserve(column_families.size());
   SequenceNumber latest_snapshot = versions_->LastSequence();
+  SequenceNumber read_seq =
+      read_options.snapshot != nullptr
+          ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
+                ->number_
+          : latest_snapshot;
 
   for (auto cfh : column_families) {
     auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
     auto* sv = cfd->GetSuperVersion()->Ref();
     auto* db_iter = NewArenaWrappedDbIterator(
-        env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
-        (read_options.snapshot != nullptr
-             ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
-                   ->number_
-             : latest_snapshot),
+        env_, read_options, *cfd->ioptions(), sv->mutable_cf_options, read_seq,
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
         sv->version_number, read_callback);
     auto* internal_iter =
         NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
-                            db_iter->GetRangeDelAggregator());
+                            db_iter->GetRangeDelAggregator(), read_seq);
     db_iter->SetIterUnderDBIter(internal_iter);
     iterators->push_back(db_iter);
   }

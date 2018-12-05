@@ -818,10 +818,11 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
                                      kMaxSequenceNumber /* upper_bound */);
   ScopedArenaIterator iter;
   if (cf == 0) {
-    iter.set(dbfull()->NewInternalIterator(&arena, &range_del_agg));
+    iter.set(dbfull()->NewInternalIterator(&arena, &range_del_agg,
+                                           kMaxSequenceNumber));
   } else {
-    iter.set(
-        dbfull()->NewInternalIterator(&arena, &range_del_agg, handles_[cf]));
+    iter.set(dbfull()->NewInternalIterator(&arena, &range_del_agg,
+                                           kMaxSequenceNumber, handles_[cf]));
   }
   InternalKey target(user_key, kMaxSequenceNumber, kTypeValue);
   iter->Seek(target.Encode());
@@ -1232,10 +1233,11 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
   // assigned iterator before it range_del_agg is already destructed.
   ScopedArenaIterator iter;
   if (cf != 0) {
-    iter.set(
-        dbfull()->NewInternalIterator(&arena, &range_del_agg, handles_[cf]));
+    iter.set(dbfull()->NewInternalIterator(&arena, &range_del_agg,
+                                           kMaxSequenceNumber, handles_[cf]));
   } else {
-    iter.set(dbfull()->NewInternalIterator(&arena, &range_del_agg));
+    iter.set(dbfull()->NewInternalIterator(&arena, &range_del_agg,
+                                           kMaxSequenceNumber));
   }
   iter->SeekToFirst();
   ASSERT_EQ(iter->status().ok(), true);
@@ -1437,7 +1439,8 @@ void DBTestBase::VerifyDBInternal(
   InternalKeyComparator icmp(last_options_.comparator);
   RangeDelAggregatorV2 range_del_agg(&icmp,
                                      kMaxSequenceNumber /* upper_bound */);
-  auto iter = dbfull()->NewInternalIterator(&arena, &range_del_agg);
+  auto iter =
+      dbfull()->NewInternalIterator(&arena, &range_del_agg, kMaxSequenceNumber);
   iter->SeekToFirst();
   for (auto p : true_data) {
     ASSERT_TRUE(iter->Valid());

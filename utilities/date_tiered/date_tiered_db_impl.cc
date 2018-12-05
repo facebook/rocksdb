@@ -389,7 +389,7 @@ Iterator* DateTieredDBImpl::NewIterator(const ReadOptions& opts) {
   for (auto& item : handle_map_) {
     auto handle = item.second;
     builder.AddIterator(db_impl->NewInternalIterator(
-        arena, db_iter->GetRangeDelAggregator(), handle));
+        arena, db_iter->GetRangeDelAggregator(), kMaxSequenceNumber, handle));
   }
   auto internal_iter = builder.Finish();
   db_iter->SetIterUnderDBIter(internal_iter);

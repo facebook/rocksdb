@@ -2845,8 +2845,8 @@ void DumpSstFile(std::string filename, bool output_hex, bool show_properties) {
     return;
   }
   // no verification
-  rocksdb::SstFileReader reader(filename, false, output_hex);
-  Status st = reader.ReadSequential(true, std::numeric_limits<uint64_t>::max(), false,  // has_from
+  rocksdb::SstFileDumper dumper(filename, false, output_hex);
+  Status st = dumper.ReadSequential(true, std::numeric_limits<uint64_t>::max(), false,  // has_from
                                     from_key, false,  // has_to
                                     to_key);
   if (!st.ok()) {
@@ -2860,11 +2860,11 @@ void DumpSstFile(std::string filename, bool output_hex, bool show_properties) {
 
     std::shared_ptr<const rocksdb::TableProperties>
         table_properties_from_reader;
-    st = reader.ReadTableProperties(&table_properties_from_reader);
+    st = dumper.ReadTableProperties(&table_properties_from_reader);
     if (!st.ok()) {
       std::cerr << filename << ": " << st.ToString()
                 << ". Try to use initial table properties" << std::endl;
-      table_properties = reader.GetInitTableProperties();
+      table_properties = dumper.GetInitTableProperties();
     } else {
       table_properties = table_properties_from_reader.get();
     }

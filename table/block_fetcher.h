@@ -10,7 +10,6 @@
 #pragma once
 #include "table/block.h"
 #include "table/format.h"
-
 #include "util/memory_allocator.h"
 
 namespace rocksdb {
@@ -26,9 +25,11 @@ class BlockFetcher {
                FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                const ReadOptions& read_options, const BlockHandle& handle,
                BlockContents* contents, const ImmutableCFOptions& ioptions,
-               bool do_uncompress, const Slice& compression_dict,
+               bool do_uncompress, bool maybe_compressed,
+               const Slice& compression_dict,
                const PersistentCacheOptions& cache_options,
-               MemoryAllocator* allocator = nullptr)
+               MemoryAllocator* memory_allocator = nullptr,
+               MemoryAllocator* memory_allocator_compressed = nullptr)
       : file_(file),
         prefetch_buffer_(prefetch_buffer),
         footer_(footer),
@@ -37,9 +38,11 @@ class BlockFetcher {
         contents_(contents),
         ioptions_(ioptions),
         do_uncompress_(do_uncompress),
+        maybe_compressed_(maybe_compressed),
         compression_dict_(compression_dict),
         cache_options_(cache_options),
-        allocator_(allocator) {}
+        memory_allocator_(memory_allocator),
+        memory_allocator_compressed_(memory_allocator_compressed) {}
   Status ReadBlockContents();
   CompressionType get_compression_type() const { return compression_type_; }
 
@@ -54,14 +57,17 @@ class BlockFetcher {
   BlockContents* contents_;
   const ImmutableCFOptions& ioptions_;
   bool do_uncompress_;
+  bool maybe_compressed_;
   const Slice& compression_dict_;
   const PersistentCacheOptions& cache_options_;
-  MemoryAllocator* allocator_;
+  MemoryAllocator* memory_allocator_;
+  MemoryAllocator* memory_allocator_compressed_;
   Status status_;
   Slice slice_;
   char* used_buf_ = nullptr;
   size_t block_size_;
   CacheAllocationPtr heap_buf_;
+  CacheAllocationPtr compressed_buf_;
   char stack_buf_[kDefaultStackBufferSize];
   bool got_from_prefetch_buffer_ = false;
   rocksdb::CompressionType compression_type_;
@@ -72,6 +78,8 @@ class BlockFetcher {
   bool TryGetFromPrefetchBuffer();
   bool TryGetCompressedBlockFromPersistentCache();
   void PrepareBufferForBlockFromFile();
+  // Copy content from used_buf_ to new heap buffer.
+  void CopyBufferToHeap();
   void GetBlockContents();
   void InsertCompressedBlockToPersistentCacheIfNeeded();
   void InsertUncompressedBlockToPersistentCacheIfNeeded();

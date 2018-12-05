@@ -215,8 +215,8 @@ int main(int argc, char** argv) {
           rocksdb::MakeRangeDelIterator(persistent_range_tombstones);
       fragmented_range_tombstone_lists.emplace_back(
           new rocksdb::FragmentedRangeTombstoneList(
-              rocksdb::MakeRangeDelIterator(persistent_range_tombstones), icmp,
-              false /* one_time_use */));
+              rocksdb::MakeRangeDelIterator(persistent_range_tombstones),
+              icmp));
       std::unique_ptr<rocksdb::FragmentedRangeTombstoneIterator>
           fragmented_range_del_iter(
               new rocksdb::FragmentedRangeTombstoneIterator(

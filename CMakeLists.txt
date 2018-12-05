@@ -471,6 +471,7 @@ set(SOURCES
         db/compaction_iterator.cc
         db/compaction_job.cc
         db/compaction_picker.cc
+        db/compaction_picker_fifo.cc
         db/compaction_picker_universal.cc
         db/convenience.cc
         db/db_filesnapshot.cc
@@ -578,6 +579,7 @@ set(SOURCES
         table/plain_table_index.cc
         table/plain_table_key_coding.cc
         table/plain_table_reader.cc
+        table/sst_file_reader.cc
         table/sst_file_writer.cc
         table/table_properties.cc
         table/two_level_iterator.cc
@@ -935,6 +937,7 @@ if(WITH_TESTS)
         table/data_block_hash_index_test.cc
         table/full_filter_block_test.cc
         table/merger_test.cc
+        table/sst_file_reader_test.cc
         table/table_test.cc
         tools/ldb_cmd_test.cc
         tools/reduce_levels_test.cc

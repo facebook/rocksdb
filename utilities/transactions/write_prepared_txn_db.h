@@ -112,8 +112,6 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) override;
 
-  virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
-
   // Check whether the transaction that wrote the value with sequence number seq
   // is visible to the snapshot with sequence number snapshot_seq.
   // Returns true if commit_seq <= snapshot_seq
@@ -379,6 +377,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class
       WritePreparedTransactionTest_AdvanceMaxEvictedSeqWithDuplicatesTest_Test;
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
+  friend class WritePreparedTransactionTest_DoubleSnapshot_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
   friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
   friend class WritePreparedTransactionTest_RollbackTest_Test;
@@ -518,6 +517,11 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // version value.
   void UpdateSnapshots(const std::vector<SequenceNumber>& snapshots,
                        const SequenceNumber& version);
+  // Check the new list of new snapshots against the old one to see  if any of
+  // the snapshots are released and to do the cleanup for the released snapshot.
+  void CleanupReleasedSnapshots(
+      const std::vector<SequenceNumber>& new_snapshots,
+      const std::vector<SequenceNumber>& old_snapshots);
 
   // Check an evicted entry against live snapshots to see if it should be kept
   // around or it can be safely discarded (and hence assume committed for all
@@ -552,6 +556,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // 2nd list for storing snapshots. The list sorted in ascending order.
   // Thread-safety is provided with snapshots_mutex_.
   std::vector<SequenceNumber> snapshots_;
+  // The list of all snapshots: snapshots_ + snapshot_cache_. This list although
+  // redundant but simplifies CleanupOldSnapshots implementation.
+  // Thread-safety is provided with snapshots_mutex_.
+  std::vector<SequenceNumber> snapshots_all_;
   // The version of the latest list of snapshots. This can be used to avoid
   // rewriting a list that is concurrently updated with a more recent version.
   SequenceNumber snapshots_version_ = 0;

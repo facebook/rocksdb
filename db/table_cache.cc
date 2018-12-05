@@ -382,8 +382,7 @@ Status TableCache::Get(const ReadOptions& options,
     if (s.ok() && max_covering_tombstone_seq != nullptr &&
         !options.ignore_range_deletions) {
       std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-          static_cast<FragmentedRangeTombstoneIterator*>(
-              t->NewRangeTombstoneIterator(options)));
+          t->NewRangeTombstoneIterator(options));
       if (range_del_iter != nullptr) {
         *max_covering_tombstone_seq = std::max(
             *max_covering_tombstone_seq,
