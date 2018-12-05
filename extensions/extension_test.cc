@@ -228,6 +228,62 @@ TEST_F(ExtensionTest, ConfigureOptionsFromMap) {
   ASSERT_EQ(Status::InvalidArgument(),
 	    guard->ConfigureFromMap(opt_map, dbOptions));
 }
+
+class TestExtension : public Extension {
+public:
+  const std::string name_;
+  static const std::string kType;
+  static const std::string & Type() { return kType; }
+public:
+    TestExtension(const std::string & name) : name_(name) { }
+  virtual const char *Name() const override { return name_.c_str(); }
+};
+
+const std::string TestExtension::kType = "test-extension";
+
+TEST_F(ExtensionTest, NewGuardedExtension) {
+  DBOptions dbOpts;
+  TestExtension *test;
+  std::unique_ptr<TestExtension> guard;
+  std::shared_ptr<TestExtension> shared;
+  
+  AssertNewExtension(dbOpts, "guarded", false, &test, true, &guard);
+  dbOpts.extensions->RegisterFactory(
+				 TestExtension::kType,
+				 "guarded",
+				 [](const std::string & name,
+				    const DBOptions &,
+				    const ColumnFamilyOptions *,
+				    std::unique_ptr<Extension> * guard) {
+				   guard->reset(new TestExtension(name));
+				   return guard->get();
+				 });
+  AssertNewExtension(dbOpts, "guarded", true, &test, true, &guard);
+  AssertNewSharedExtension(dbOpts, "guarded", true, &shared);
+}
+
+TEST_F(ExtensionTest, NewUnguardedExtension) {
+  DBOptions dbOpts;
+  TestExtension *test;
+  std::unique_ptr<TestExtension> guard;
+  std::shared_ptr<TestExtension> shared;
+  
+  AssertNewExtension(dbOpts, "unguarded", false, &test, true, &guard);
+  dbOpts.extensions->RegisterFactory(
+				 TestExtension::kType,
+				 "unguarded",
+				 [](const std::string & name,
+				    const DBOptions &,
+				    const ColumnFamilyOptions *,
+				    std::unique_ptr<Extension> * guard) {
+				   guard->reset();
+				   return new TestExtension(name);
+				 });
+  AssertNewExtension(dbOpts, "unguarded", true, &test, false, &guard);
+  Status status = NewSharedExtension("unguarded", dbOpts, nullptr, &shared);
+  ASSERT_TRUE(status.IsNotSupported());
+  ASSERT_EQ(shared.get(), nullptr);
+}
   
 #endif  // !ROCKSDB_LITE
 }  // namespace rocksdb
