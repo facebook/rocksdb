@@ -3131,20 +3131,19 @@ Status DBImpl::IngestExternalFile(
                                &need_flush);
       if (status.ok() && need_flush) {
         if (immutable_db_options_.atomic_flush) {
-          mutex_.Unlock();
           autovector<ColumnFamilyData*> cfds;
           SelectColumnFamiliesForAtomicFlush(&cfds);
+          mutex_.Unlock();
           status = AtomicFlushMemTables(cfds, FlushOptions(),
                                         FlushReason::kExternalFileIngestion,
                                         true /* writes_stopped */);
-          mutex_.Lock();
         } else {
           mutex_.Unlock();
           status = FlushMemTable(cfd, FlushOptions(),
                                  FlushReason::kExternalFileIngestion,
                                  true /* writes_stopped */);
-          mutex_.Lock();
         }
+        mutex_.Lock();
       }
     }
 
