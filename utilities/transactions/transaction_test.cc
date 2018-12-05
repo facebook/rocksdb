@@ -140,7 +140,7 @@ TEST_P(TransactionTest, SuccessTest) {
   delete txn;
 }
 
-// The test clarifies the contract of skip_validate and assume_exclusive_tracked
+// The test clarifies the contract of do_validate and assume_exclusive_tracked
 // in GetForUpdate and Put/Merge/Delete
 TEST_P(TransactionTest, AssumeExclusiveTracked) {
   WriteOptions write_options;
@@ -150,7 +150,7 @@ TEST_P(TransactionTest, AssumeExclusiveTracked) {
   TransactionOptions txn_options;
   txn_options.lock_timeout = 1;
   const bool EXCLUSIVE = true;
-  const bool SKIP_VALIDATE = true;
+  const bool DO_VALIDATE = true;
   const bool ASSUME_EXC_LOCKED = true;
 
   Transaction* txn = db->BeginTransaction(write_options, txn_options);
@@ -166,7 +166,7 @@ TEST_P(TransactionTest, AssumeExclusiveTracked) {
   // But the user could direct the db to skip validating the snapshot. The read
   // value then should be the most recently committed
   ASSERT_OK(
-      txn->GetForUpdate(read_options, "foo", &value, EXCLUSIVE, SKIP_VALIDATE));
+      txn->GetForUpdate(read_options, "foo", &value, EXCLUSIVE, !DO_VALIDATE));
   ASSERT_EQ(value, "bar");
 
   // Although ValidateSnapshot is skipped the key must have still got locked

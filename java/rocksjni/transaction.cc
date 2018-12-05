@@ -423,7 +423,7 @@ jobjectArray Java_org_rocksdb_Transaction_multiGet__JJ_3_3B(
 jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIJZZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
     jbyteArray jkey, jint jkey_part_len, jlong jcolumn_family_handle,
-    jboolean jexclusive, jboolean jskip_validate) {
+    jboolean jexclusive, jboolean jdo_validate) {
   auto* column_family_handle =
       reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcolumn_family_handle);
   auto* txn = reinterpret_cast<rocksdb::Transaction*>(jhandle);
@@ -431,7 +431,7 @@ jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIJZZ(
       const rocksdb::ReadOptions&, rocksdb::ColumnFamilyHandle*,
       const rocksdb::Slice&, std::string*, bool, bool)>(
       &rocksdb::Transaction::GetForUpdate, txn, _1, column_family_handle, _2,
-      _3, jexclusive, jskip_validate);
+      _3, jexclusive, jdo_validate);
   return txn_get_helper(env, fn_get_for_update, jread_options_handle, jkey,
                         jkey_part_len);
 }
@@ -444,12 +444,12 @@ jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIJZZ(
 jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIZZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
     jbyteArray jkey, jint jkey_part_len, jboolean jexclusive,
-    jboolean jskip_validate) {
+    jboolean jdo_validate) {
   auto* txn = reinterpret_cast<rocksdb::Transaction*>(jhandle);
   FnGet fn_get_for_update = std::bind<rocksdb::Status (rocksdb::Transaction::*)(
       const rocksdb::ReadOptions&, const rocksdb::Slice&, std::string*, bool,
       bool)>(&rocksdb::Transaction::GetForUpdate, txn, _1, _2, _3, jexclusive,
-             jskip_validate);
+             jdo_validate);
   return txn_get_helper(env, fn_get_for_update, jread_options_handle, jkey,
                         jkey_part_len);
 }

@@ -208,9 +208,10 @@ class Transaction {
   // Read this key and ensure that this transaction will only
   // be able to be committed if this key is not written outside this
   // transaction after it has first been read (or after the snapshot if a
-  // snapshot is set in this transaction and skip_validate is false).  The
-  // transaction behavior is the same regardless of whether the key exists or
-  // not.
+  // snapshot is set in this transaction and do_validate is true). If
+  // do_validate is false, ReadOptions::snapshot is expected to be nullptr so
+  // that GetForUpdate returns the latest committed value. The transaction
+  // behavior is the same regardless of whether the key exists or not.
   //
   // Note: Currently, this function will return Status::MergeInProgress
   // if the most recent write to the queried key in this batch is a Merge.
@@ -236,7 +237,7 @@ class Transaction {
                               ColumnFamilyHandle* column_family,
                               const Slice& key, std::string* value,
                               bool exclusive = true,
-                              bool skip_validate = false) = 0;
+                              bool do_validate = true) = 0;
 
   // An overload of the above method that receives a PinnableSlice
   // For backward compatibility a default implementation is provided
@@ -244,14 +245,14 @@ class Transaction {
                               ColumnFamilyHandle* column_family,
                               const Slice& key, PinnableSlice* pinnable_val,
                               bool exclusive = true,
-                              bool skip_validate = false) {
+                              const bool do_validate = true) {
     if (pinnable_val == nullptr) {
       std::string* null_str = nullptr;
       return GetForUpdate(options, column_family, key, null_str, exclusive,
-                          skip_validate);
+                          do_validate);
     } else {
       auto s = GetForUpdate(options, column_family, key,
-                            pinnable_val->GetSelf(), exclusive, skip_validate);
+                            pinnable_val->GetSelf(), exclusive, do_validate);
       pinnable_val->PinSelf();
       return s;
     }
@@ -259,7 +260,7 @@ class Transaction {
 
   virtual Status GetForUpdate(const ReadOptions& options, const Slice& key,
                               std::string* value, bool exclusive = true,
-                              bool skip_validate = false) = 0;
+                              const bool do_validate = true) = 0;
 
   virtual std::vector<Status> MultiGetForUpdate(
       const ReadOptions& options,

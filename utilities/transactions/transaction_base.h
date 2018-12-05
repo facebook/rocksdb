@@ -36,11 +36,11 @@ class TransactionBaseImpl : public Transaction {
 
   // Called before executing Put, Merge, Delete, and GetForUpdate.  If TryLock
   // returns non-OK, the Put/Merge/Delete/GetForUpdate will be failed.
-  // skip_validate will be true if called from PutUntracked, DeleteUntracked,
-  // MergeUntracked, or GetForUpdate(skip_validate=true)
+  // do_validate will be false if called from PutUntracked, DeleteUntracked,
+  // MergeUntracked, or GetForUpdate(do_validate=false)
   virtual Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
                          bool read_only, bool exclusive,
-                         bool skip_validate = false,
+                         const bool do_validate = true,
                          const bool assume_exclusive_tracked = false) = 0;
 
   void SetSavePoint() override;
@@ -65,18 +65,18 @@ class TransactionBaseImpl : public Transaction {
   Status GetForUpdate(const ReadOptions& options,
                       ColumnFamilyHandle* column_family, const Slice& key,
                       std::string* value, bool exclusive,
-                      bool skip_validate) override;
+                      const bool do_validate) override;
 
   Status GetForUpdate(const ReadOptions& options,
                       ColumnFamilyHandle* column_family, const Slice& key,
                       PinnableSlice* pinnable_val, bool exclusive,
-                      bool skip_validate) override;
+                      const bool do_validate) override;
 
   Status GetForUpdate(const ReadOptions& options, const Slice& key,
                       std::string* value, bool exclusive,
-                      bool skip_validate) override {
+                      const bool do_validate) override {
     return GetForUpdate(options, db_->DefaultColumnFamily(), key, value,
-                        exclusive, skip_validate);
+                        exclusive, do_validate);
   }
 
   std::vector<Status> MultiGet(
@@ -343,7 +343,7 @@ class TransactionBaseImpl : public Transaction {
   std::shared_ptr<TransactionNotifier> snapshot_notifier_ = nullptr;
 
   Status TryLock(ColumnFamilyHandle* column_family, const SliceParts& key,
-                 bool read_only, bool exclusive, bool skip_validate = false,
+                 bool read_only, bool exclusive, const bool do_validate = true,
                  const bool assume_exclusive_tracked = false);
 
   WriteBatchBase* GetBatchForWrite();
