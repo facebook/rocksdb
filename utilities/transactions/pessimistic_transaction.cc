@@ -562,7 +562,6 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   // TODO(agiardullo): could optimize by supporting shared txn locks in the
   // future
   if (!do_validate || snapshot_ == nullptr) {
-    assert(!assume_tracked || previously_locked);
     if (assume_tracked && !previously_locked) {
       s = Status::InvalidArgument(
           "assume_tracked is set but it is not tracked yet");
