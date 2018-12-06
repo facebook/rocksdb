@@ -48,7 +48,7 @@ class OptimisticTransaction : public TransactionBaseImpl {
 
  protected:
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
-                 bool read_only, bool exclusive, bool untracked = false,
+                 bool read_only, bool exclusive, const bool do_validate = true,
                  const bool assume_exclusive_tracked = false) override;
 
  private:
