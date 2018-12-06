@@ -563,11 +563,9 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   // future
   if (!do_validate || snapshot_ == nullptr) {
     assert(!assume_tracked || previously_locked);
-    if (assume_tracked) {
-      if (!previously_locked) {
-        s = Status::InvalidArgument(
-            "assume_tracked is set but it is not tracked yet");
-      }
+    if (assume_tracked && !previously_locked) {
+      s = Status::InvalidArgument(
+          "assume_tracked is set but it is not tracked yet");
     }
     // Need to remember the earliest sequence number that we know that this
     // key has not been modified after.  This is useful if this same
