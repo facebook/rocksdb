@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## 5.17.4 (12/05/2018)
+### Bug Fixes
+* Fix a deadlock caused by compaction and file ingestion waiting for each other in the event of write stalls.
 
 # 5.17.2 (10/24/2018)
 ### Bug Fixes
