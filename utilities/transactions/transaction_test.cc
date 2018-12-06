@@ -140,7 +140,7 @@ TEST_P(TransactionTest, SuccessTest) {
   delete txn;
 }
 
-// The test clarifies the contract of do_validate and assume_exclusive_tracked
+// The test clarifies the contract of do_validate and assume_tracked
 // in GetForUpdate and Put/Merge/Delete
 TEST_P(TransactionTest, AssumeExclusiveTracked) {
   WriteOptions write_options;
@@ -151,7 +151,7 @@ TEST_P(TransactionTest, AssumeExclusiveTracked) {
   txn_options.lock_timeout = 1;
   const bool EXCLUSIVE = true;
   const bool DO_VALIDATE = true;
-  const bool ASSUME_EXC_LOCKED = true;
+  const bool ASSUME_LOCKED = true;
 
   Transaction* txn = db->BeginTransaction(write_options, txn_options);
   ASSERT_TRUE(txn);
@@ -178,18 +178,18 @@ TEST_P(TransactionTest, AssumeExclusiveTracked) {
   s = txn->Put(Slice("foo"), Slice("bar1"));
   ASSERT_TRUE(s.IsBusy());
   s = txn->Put(db->DefaultColumnFamily(), Slice("foo"), Slice("bar1"),
-               !ASSUME_EXC_LOCKED);
+               !ASSUME_LOCKED);
   ASSERT_TRUE(s.IsBusy());
   // But the user could direct the db that it already assumes exclusive lock on
   // the key due to the previous GetForUpdate call.
   ASSERT_OK(txn->Put(db->DefaultColumnFamily(), Slice("foo"), Slice("bar1"),
-                     ASSUME_EXC_LOCKED));
+                     ASSUME_LOCKED));
   ASSERT_OK(txn->Merge(db->DefaultColumnFamily(), Slice("foo"), Slice("bar2"),
-                       ASSUME_EXC_LOCKED));
+                       ASSUME_LOCKED));
   ASSERT_OK(
-      txn->Delete(db->DefaultColumnFamily(), Slice("foo"), ASSUME_EXC_LOCKED));
+      txn->Delete(db->DefaultColumnFamily(), Slice("foo"), ASSUME_LOCKED));
   ASSERT_OK(txn->SingleDelete(db->DefaultColumnFamily(), Slice("foo"),
-                              ASSUME_EXC_LOCKED));
+                              ASSUME_LOCKED));
 
   txn->Rollback();
   delete txn;

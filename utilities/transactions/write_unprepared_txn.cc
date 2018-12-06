@@ -85,79 +85,71 @@ void WriteUnpreparedTxn::Initialize(const TransactionOptions& txn_options) {
 
 Status WriteUnpreparedTxn::Put(ColumnFamilyHandle* column_family,
                                const Slice& key, const Slice& value,
-                               const bool assume_exclusive_tracked) {
+                               const bool assume_tracked) {
   Status s = MaybeFlushWriteBatchToDB();
   if (!s.ok()) {
     return s;
   }
-  return TransactionBaseImpl::Put(column_family, key, value,
-                                  assume_exclusive_tracked);
+  return TransactionBaseImpl::Put(column_family, key, value, assume_tracked);
 }
 
 Status WriteUnpreparedTxn::Put(ColumnFamilyHandle* column_family,
                                const SliceParts& key, const SliceParts& value,
-                               const bool assume_exclusive_tracked) {
+                               const bool assume_tracked) {
   Status s = MaybeFlushWriteBatchToDB();
   if (!s.ok()) {
     return s;
   }
-  return TransactionBaseImpl::Put(column_family, key, value,
-                                  assume_exclusive_tracked);
+  return TransactionBaseImpl::Put(column_family, key, value, assume_tracked);
 }
 
 Status WriteUnpreparedTxn::Merge(ColumnFamilyHandle* column_family,
                                  const Slice& key, const Slice& value,
-                                 const bool assume_exclusive_tracked) {
+                                 const bool assume_tracked) {
   Status s = MaybeFlushWriteBatchToDB();
   if (!s.ok()) {
     return s;
   }
-  return TransactionBaseImpl::Merge(column_family, key, value,
-                                    assume_exclusive_tracked);
+  return TransactionBaseImpl::Merge(column_family, key, value, assume_tracked);
 }
 
 Status WriteUnpreparedTxn::Delete(ColumnFamilyHandle* column_family,
-                                  const Slice& key,
-                                  const bool assume_exclusive_tracked) {
+                                  const Slice& key, const bool assume_tracked) {
   Status s = MaybeFlushWriteBatchToDB();
   if (!s.ok()) {
     return s;
   }
-  return TransactionBaseImpl::Delete(column_family, key,
-                                     assume_exclusive_tracked);
+  return TransactionBaseImpl::Delete(column_family, key, assume_tracked);
 }
 
 Status WriteUnpreparedTxn::Delete(ColumnFamilyHandle* column_family,
                                   const SliceParts& key,
-                                  const bool assume_exclusive_tracked) {
+                                  const bool assume_tracked) {
   Status s = MaybeFlushWriteBatchToDB();
   if (!s.ok()) {
     return s;
   }
-  return TransactionBaseImpl::Delete(column_family, key,
-                                     assume_exclusive_tracked);
+  return TransactionBaseImpl::Delete(column_family, key, assume_tracked);
 }
 
 Status WriteUnpreparedTxn::SingleDelete(ColumnFamilyHandle* column_family,
                                         const Slice& key,
-                                        const bool assume_exclusive_tracked) {
+                                        const bool assume_tracked) {
   Status s = MaybeFlushWriteBatchToDB();
   if (!s.ok()) {
     return s;
   }
-  return TransactionBaseImpl::SingleDelete(column_family, key,
-                                           assume_exclusive_tracked);
+  return TransactionBaseImpl::SingleDelete(column_family, key, assume_tracked);
 }
 
 Status WriteUnpreparedTxn::SingleDelete(ColumnFamilyHandle* column_family,
                                         const SliceParts& key,
-                                        const bool assume_exclusive_tracked) {
+                                        const bool assume_tracked) {
   Status s = MaybeFlushWriteBatchToDB();
   if (!s.ok()) {
     return s;
   }
-  return TransactionBaseImpl::SingleDelete(column_family, key,
-                                           assume_exclusive_tracked);
+  return TransactionBaseImpl::SingleDelete(column_family, key, assume_tracked);
 }
 
 Status WriteUnpreparedTxn::MaybeFlushWriteBatchToDB() {

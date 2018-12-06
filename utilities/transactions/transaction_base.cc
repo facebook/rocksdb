@@ -98,7 +98,7 @@ void TransactionBaseImpl::SetSnapshotIfNeeded() {
 Status TransactionBaseImpl::TryLock(ColumnFamilyHandle* column_family,
                                     const SliceParts& key, bool read_only,
                                     bool exclusive, const bool do_validate,
-                                    const bool assume_exclusive_tracked) {
+                                    const bool assume_tracked) {
   size_t key_size = 0;
   for (int i = 0; i < key.num_parts; ++i) {
     key_size += key.parts[i].size();
@@ -112,7 +112,7 @@ Status TransactionBaseImpl::TryLock(ColumnFamilyHandle* column_family,
   }
 
   return TryLock(column_family, str, read_only, exclusive, do_validate,
-                 assume_exclusive_tracked);
+                 assume_tracked);
 }
 
 void TransactionBaseImpl::SetSavePoint() {
@@ -320,11 +320,10 @@ Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options,
 
 Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
                                 const Slice& key, const Slice& value,
-                                const bool assume_exclusive_tracked) {
-  const bool do_validate = !assume_exclusive_tracked;
-  Status s =
-      TryLock(column_family, key, false /* read_only */, true /* exclusive */,
-              do_validate, assume_exclusive_tracked);
+                                const bool assume_tracked) {
+  const bool do_validate = !assume_tracked;
+  Status s = TryLock(column_family, key, false /* read_only */,
+                     true /* exclusive */, do_validate, assume_tracked);
 
   if (s.ok()) {
     s = GetBatchForWrite()->Put(column_family, key, value);
@@ -338,11 +337,10 @@ Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
 
 Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
                                 const SliceParts& key, const SliceParts& value,
-                                const bool assume_exclusive_tracked) {
-  const bool do_validate = !assume_exclusive_tracked;
-  Status s =
-      TryLock(column_family, key, false /* read_only */, true /* exclusive */,
-              do_validate, assume_exclusive_tracked);
+                                const bool assume_tracked) {
+  const bool do_validate = !assume_tracked;
+  Status s = TryLock(column_family, key, false /* read_only */,
+                     true /* exclusive */, do_validate, assume_tracked);
 
   if (s.ok()) {
     s = GetBatchForWrite()->Put(column_family, key, value);
@@ -356,11 +354,10 @@ Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
 
 Status TransactionBaseImpl::Merge(ColumnFamilyHandle* column_family,
                                   const Slice& key, const Slice& value,
-                                  const bool assume_exclusive_tracked) {
-  const bool do_validate = !assume_exclusive_tracked;
-  Status s =
-      TryLock(column_family, key, false /* read_only */, true /* exclusive */,
-              do_validate, assume_exclusive_tracked);
+                                  const bool assume_tracked) {
+  const bool do_validate = !assume_tracked;
+  Status s = TryLock(column_family, key, false /* read_only */,
+                     true /* exclusive */, do_validate, assume_tracked);
 
   if (s.ok()) {
     s = GetBatchForWrite()->Merge(column_family, key, value);
@@ -374,11 +371,10 @@ Status TransactionBaseImpl::Merge(ColumnFamilyHandle* column_family,
 
 Status TransactionBaseImpl::Delete(ColumnFamilyHandle* column_family,
                                    const Slice& key,
-                                   const bool assume_exclusive_tracked) {
-  const bool do_validate = !assume_exclusive_tracked;
-  Status s =
-      TryLock(column_family, key, false /* read_only */, true /* exclusive */,
-              do_validate, assume_exclusive_tracked);
+                                   const bool assume_tracked) {
+  const bool do_validate = !assume_tracked;
+  Status s = TryLock(column_family, key, false /* read_only */,
+                     true /* exclusive */, do_validate, assume_tracked);
 
   if (s.ok()) {
     s = GetBatchForWrite()->Delete(column_family, key);
@@ -392,11 +388,10 @@ Status TransactionBaseImpl::Delete(ColumnFamilyHandle* column_family,
 
 Status TransactionBaseImpl::Delete(ColumnFamilyHandle* column_family,
                                    const SliceParts& key,
-                                   const bool assume_exclusive_tracked) {
-  const bool do_validate = !assume_exclusive_tracked;
-  Status s =
-      TryLock(column_family, key, false /* read_only */, true /* exclusive */,
-              do_validate, assume_exclusive_tracked);
+                                   const bool assume_tracked) {
+  const bool do_validate = !assume_tracked;
+  Status s = TryLock(column_family, key, false /* read_only */,
+                     true /* exclusive */, do_validate, assume_tracked);
 
   if (s.ok()) {
     s = GetBatchForWrite()->Delete(column_family, key);
@@ -410,11 +405,10 @@ Status TransactionBaseImpl::Delete(ColumnFamilyHandle* column_family,
 
 Status TransactionBaseImpl::SingleDelete(ColumnFamilyHandle* column_family,
                                          const Slice& key,
-                                         const bool assume_exclusive_tracked) {
-  const bool do_validate = !assume_exclusive_tracked;
-  Status s =
-      TryLock(column_family, key, false /* read_only */, true /* exclusive */,
-              do_validate, assume_exclusive_tracked);
+                                         const bool assume_tracked) {
+  const bool do_validate = !assume_tracked;
+  Status s = TryLock(column_family, key, false /* read_only */,
+                     true /* exclusive */, do_validate, assume_tracked);
 
   if (s.ok()) {
     s = GetBatchForWrite()->SingleDelete(column_family, key);
@@ -428,11 +422,10 @@ Status TransactionBaseImpl::SingleDelete(ColumnFamilyHandle* column_family,
 
 Status TransactionBaseImpl::SingleDelete(ColumnFamilyHandle* column_family,
                                          const SliceParts& key,
-                                         const bool assume_exclusive_tracked) {
-  const bool do_validate = !assume_exclusive_tracked;
-  Status s =
-      TryLock(column_family, key, false /* read_only */, true /* exclusive */,
-              do_validate, assume_exclusive_tracked);
+                                         const bool assume_tracked) {
+  const bool do_validate = !assume_tracked;
+  Status s = TryLock(column_family, key, false /* read_only */,
+                     true /* exclusive */, do_validate, assume_tracked);
 
   if (s.ok()) {
     s = GetBatchForWrite()->SingleDelete(column_family, key);
