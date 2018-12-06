@@ -1,5 +1,11 @@
 # Rocksdb Change Log
 ## Unreleased
+### New Features
+
+### Public API Change
+
+### Bug Fixes
+* Fix a deadlock caused by compaction and file ingestion waiting for each other in the event of write stalls.
 
 ## 5.18.0 (11/30/2018)
 ### New Features
