@@ -245,7 +245,7 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
                                          PinnableSlice* pinnable_val,
                                          bool exclusive,
                                          const bool do_validate) {
-  if (UNLIKELY(!do_validate && read_options.snapshot != nullptr)) {
+  if (!do_validate && read_options.snapshot != nullptr) {
     return Status::InvalidArgument(
         "If do_validate is false then GetForUpdate with snapshot is not "
         "defined.");
