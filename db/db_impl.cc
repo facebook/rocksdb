@@ -1342,7 +1342,6 @@ std::vector<Status> DBImpl::MultiGet(
     SuperVersion* super_version;
   };
   std::unordered_map<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(column_family.size());
-  // fill up and allocate outside of mutex
   for (auto cf : column_family) {
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(cf);
     auto cfd = cfh->cfd();
@@ -1354,32 +1353,55 @@ std::vector<Status> DBImpl::MultiGet(
     }
   }
 
-  if (read_options.snapshot != nullptr) {
-    snapshot =
-        reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
-  } else {
-    snapshot = last_seq_same_as_publish_seq_
-                   ? versions_->LastSequence()
-                   : versions_->LastPublishedSequence();
-  }
-
+  bool last_try = false;
   {
     // If we end up with the same issue of memtable geting sealed during 2
-    // consecutive retries, it means the write rate is very high.
+    // consecutive retries, it means the write rate is very high. In that case
+    // its probably ok to take the mutex on the 3rd try so we can succeed for
+    // sure
     static const int num_retries = 3;
     for (auto i=0; i<num_retries; ++i) {
+      last_try = (i == num_retries - 1);
       bool retry = false;
+
+      if (i > 0) {
+        for (auto mgd_iter = multiget_cf_data.begin();
+             mgd_iter != multiget_cf_data.end(); ++mgd_iter) {
+          auto super_version = mgd_iter->second.super_version;
+          auto cfd = mgd_iter->second.cfd;
+          if (super_version != nullptr) {
+            ReturnAndCleanupSuperVersion(cfd, super_version);
+          }
+          mgd_iter->second.super_version = nullptr;
+        }
+      }
+
+      if (read_options.snapshot == nullptr) {
+        if (last_try) {
+          TEST_SYNC_POINT("DBImpl::MultiGet::LastTry");
+          // We're close to max number of retries. For the last retry,
+          // acquire the lock so we're sure to succeed
+          mutex_.Lock();
+        }
+        snapshot = last_seq_same_as_publish_seq_
+                       ? versions_->LastSequence()
+                       : versions_->LastPublishedSequence();
+      } else {
+        snapshot = reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
+                       ->number_;
+      }
+
       for (auto mgd_iter = multiget_cf_data.begin();
            mgd_iter != multiget_cf_data.end(); ++mgd_iter) {
-        auto super_version = mgd_iter->second.super_version;
-        auto cfd = mgd_iter->second.cfd;
-        if (super_version != nullptr) {
-          ReturnAndCleanupSuperVersion(cfd, super_version);
+        if (!last_try) {
+          mgd_iter->second.super_version =
+              GetAndRefSuperVersion(mgd_iter->second.cfd);
+        } else {
+          mgd_iter->second.super_version =
+              mgd_iter->second.cfd->GetSuperVersion()->Ref();
         }
-        mgd_iter->second.super_version =
-          GetAndRefSuperVersion(mgd_iter->second.cfd);
         TEST_SYNC_POINT("DBImpl::MultiGet::AfterRefSV");
-        if (read_options.snapshot != nullptr || i == num_retries - 1) {
+        if (read_options.snapshot != nullptr || last_try) {
           // If user passed a snapshot, then we don't care if a memtable is
           // sealed or compaction happens because the snapshot would ensure
           // that older key versions are kept around. If this is the last
@@ -1390,22 +1412,17 @@ std::vector<Status> DBImpl::MultiGet(
         // memtables, which will include immutable memtables as well, but that
         // might be tricky to maintain in case we decide, in future, to do
         // memtable compaction.
-        auto seq = mgd_iter->second.super_version->mem->GetEarliestSequenceNumber();
-        if (seq > snapshot) {
-          if (i == num_retries - 2) {
-            // We're close to max number of retries. For the last retry,
-            // acquire the lock so we're sure to succeed
-            mutex_.Lock();
+        if (!last_try) {
+          auto seq =
+              mgd_iter->second.super_version->mem->GetEarliestSequenceNumber();
+          if (seq > snapshot) {
+            retry = true;
+            break;
           }
-          snapshot = last_seq_same_as_publish_seq_
-                        ? versions_->LastSequence()
-                        : versions_->LastPublishedSequence();
-          retry = true;
-          break;
         }
       }
       if (!retry) {
-        if (i == num_retries - 1) {
+        if (last_try) {
           mutex_.Unlock();
         }
         break;
@@ -1479,7 +1496,11 @@ std::vector<Status> DBImpl::MultiGet(
 
   for (auto mgd_iter : multiget_cf_data) {
     auto mgd = mgd_iter.second;
-    ReturnAndCleanupSuperVersion(mgd.cfd, mgd.super_version);
+    if (!last_try) {
+      ReturnAndCleanupSuperVersion(mgd.cfd, mgd.super_version);
+    } else {
+      mgd.cfd->GetSuperVersion()->Unref();
+    }
   }
   RecordTick(stats_, NUMBER_MULTIGET_CALLS);
   RecordTick(stats_, NUMBER_MULTIGET_KEYS_READ, num_keys);
