@@ -516,8 +516,8 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
 Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
                                        const Slice& key, bool read_only,
                                        bool exclusive, const bool do_validate,
-                                       const bool assume_exclusive_tracked) {
-  assert(!assume_exclusive_tracked || (!do_validate && exclusive));
+                                       const bool assume_tracked) {
+  assert(!assume_tracked || !do_validate);
   Status s;
   if (UNLIKELY(skip_concurrency_control_)) {
     return s;
@@ -562,15 +562,11 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   // TODO(agiardullo): could optimize by supporting shared txn locks in the
   // future
   if (!do_validate || snapshot_ == nullptr) {
-    assert(!assume_exclusive_tracked || (previously_locked && !lock_upgrade));
-    if (assume_exclusive_tracked) {
+    assert(!assume_tracked || previously_locked);
+    if (assume_tracked) {
       if (!previously_locked) {
         s = Status::InvalidArgument(
-            "assume_exclusive_tracked is set but it is not tracked yet");
-      } else if (lock_upgrade) {
-        s = Status::InvalidArgument(
-            "assume_exclusive_tracked is set but it is not tracked "
-            "exclusively");
+            "assume_tracked is set but it is not tracked yet");
       }
     }
     // Need to remember the earliest sequence number that we know that this
