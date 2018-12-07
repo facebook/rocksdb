@@ -2857,7 +2857,7 @@ Status VersionSet::ProcessManifestWrites(
       last_writer = *(it++);
       assert(last_writer != nullptr);
       assert(last_writer->cfd != nullptr);
-      if (last_writer->cfd != nullptr && last_writer->cfd->IsDropped()) {
+      if (last_writer->cfd->IsDropped()) {
         continue;
       }
       // We do a linear search on versions because versions is small.

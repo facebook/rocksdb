@@ -382,6 +382,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     if (s.ok()) {
       autovector<const autovector<MemTable*>*> mems_list;
       for (int i = 0; i != num_cfs; ++i) {
+        if (cfds[i]->IsDropped()) {
+          continue;
+        }
         const auto& mems = jobs[i].GetMemTables();
         mems_list.emplace_back(&mems);
       }
