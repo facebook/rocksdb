@@ -661,57 +661,63 @@ void DBImpl::PersistStats() {
     InstrumentedMutexLock l(&mutex_);
     default_cf_internal_stats_->GetMapProperty(
         *db_property_info, DB::Properties::kDBStats, &stats_map);
+    std::map<std::string, std::string> cf_stats_map;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->initialized()) {
         cfd->internal_stats()->GetMapProperty(
             *cf_property_info, DB::Properties::kCFStatsNoFileHistogram,
-            &stats_map);
-      }
-    }
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->initialized()) {
+            &cf_stats_map);
         cfd->internal_stats()->GetMapProperty(
-            *cf_property_info, DB::Properties::kCFFileHistogram, &stats_map);
+            *cf_property_info, DB::Properties::kCFFileHistogram, &cf_stats_map);
+        // add column family name to the key string
+        for (const auto& cf_stats : cf_stats_map) {
+          std::string key_with_cf_name = cfd->GetName() + "." + cf_stats.first;
+          stats_map[key_with_cf_name] = cf_stats.second;
+        }
       }
     }
-  }
-  TEST_SYNC_POINT("DBImpl::PersistStats:2");
-  WriteOptions wo;
-  ColumnFamilyOptions cf_options;
-  const uint64_t now_micros = env_->NowMicros();
-  stats_history_[now_micros] = stats_map;
-  // delete older stats snapshots to control memory consumption
-  int num_stats_to_delete =
-      static_cast<int>(stats_history_.size()) -
-      static_cast<int>(mutable_db_options_.max_stats_history_count);
-  if (num_stats_to_delete > 0) {
-    auto it = stats_history_.begin();
-    for (int i = 0; i < num_stats_to_delete; ++i) {
-      if (it != stats_history_.end()) {
-        it = stats_history_.erase(it);
+    TEST_SYNC_POINT("DBImpl::PersistStats:2");
+    WriteOptions wo;
+    ColumnFamilyOptions cf_options;
+    const uint64_t now_micros = env_->NowMicros();
+    stats_history_[now_micros] = stats_map;
+    // delete older stats snapshots to control memory consumption
+    int num_stats_to_delete =
+        static_cast<int>(stats_history_.size()) -
+        static_cast<int>(mutable_db_options_.max_stats_history_count);
+    if (num_stats_to_delete > 0) {
+      auto it = stats_history_.begin();
+      for (int i = 0; i < num_stats_to_delete; ++i) {
+        if (it != stats_history_.end()) {
+          it = stats_history_.erase(it);
+        }
       }
     }
+    // TODO: also persist stats to disk
   }
-  // TODO: also persist stats to disk
 #endif  // !ROCKSDB_LITE
 }
 
-std::map<uint64_t, std::map<std::string, std::string> >
-DBImpl::GetStatsHistory(GetStatsOptions& stats_opts) {
-  return FindStatsBetween(stats_opts.start_time, stats_opts.end_time);
+Status DBImpl::GetStatsHistory(GetStatsOptions& stats_opts,
+  std::map<uint64_t, std::map<std::string, std::string> >& stats_history) {
+  stats_history = FindStatsBetween(stats_opts.start_time, stats_opts.end_time);
+  return Status::OK();
 }
 
 std::map<uint64_t, std::map<std::string, std::string> >
 DBImpl::FindStatsBetween(uint64_t start_time, uint64_t end_time) {
   std::map<uint64_t, std::map<std::string, std::string> > stats_history;
   // first dump whatever is in-memory that satisfies the time range
-  for (const auto& stats : stats_history_) {
-    if (stats.first >= start_time && stats.first < end_time) {
-      stats_history[stats.first] = stats.second;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    for (const auto& stats : stats_history_) {
+      if (stats.first >= start_time && stats.first < end_time) {
+        stats_history[stats.first] = stats.second;
+      }
     }
-  }
-  // TODO: if persistent_stats column family is available, create iterator to scan
-  // history and add to stats_history map
+    // TODO: if persistent_stats column family is available, create iterator to scan
+    // history and add to stats_history map
+    }
   return stats_history;
 }
 

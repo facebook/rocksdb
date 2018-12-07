@@ -1200,6 +1200,13 @@ class DB {
   // Needed for StackableDB
   virtual DB* GetRootDB() { return this; }
 
+  // return a map of DBStats and CFstats, specify time window etc in stats_opts
+  virtual Status GetStatsHistory(GetStatsOptions& /*stats_opts*/,
+    std::map<uint64_t, std::map<std::string, std::string> >& /*stats_history*/) {
+    return Status::NotSupported("GetStatsHistory() is not implemented.");
+  }
+
+
  private:
   // No copying allowed
   DB(const DB&);

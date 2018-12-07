@@ -726,8 +726,8 @@ class DBImpl : public DB {
                                       std::unique_ptr<Directory>* directory);
 
   // return a map of DBStats and CFstats, specify time window etc in stats_opts
-  std::map<uint64_t, std::map<std::string, std::string>>
-  GetStatsHistory(GetStatsOptions& stats_opts);
+  virtual Status GetStatsHistory(GetStatsOptions& stats_opts,
+    std::map<uint64_t, std::map<std::string, std::string>>& stats_history) override;
 
  protected:
   Env* const env_;
