@@ -1340,16 +1340,15 @@ std::vector<Status> DBImpl::MultiGet(
   struct MultiGetColumnFamilyData {
     ColumnFamilyData* cfd;
     SuperVersion* super_version;
+    MultiGetColumnFamilyData(ColumnFamilyData* cf, SuperVersion* sv)
+      : cfd(cf), super_version(sv) {}
   };
   std::unordered_map<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(column_family.size());
   for (auto cf : column_family) {
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(cf);
     auto cfd = cfh->cfd();
     if (multiget_cf_data.find(cfd->GetID()) == multiget_cf_data.end()) {
-      struct MultiGetColumnFamilyData mgcfd;
-      mgcfd.cfd = cfd;
-      mgcfd.super_version = nullptr;
-      multiget_cf_data.insert({cfd->GetID(), mgcfd});
+      multiget_cf_data.emplace(cfd->GetID(), MultiGetColumnFamilyData(cfd, nullptr));
     }
   }
 

@@ -1122,6 +1122,7 @@ TEST_F(DBBasicTest, MultiGetMultiCFSnapshot) {
 
   const Snapshot* snapshot = db_->GetSnapshot();
   values = MultiGet(cfs, keys, snapshot);
+  db_->ReleaseSnapshot(snapshot);
   ASSERT_EQ(values.size(), 8);
   for (unsigned int j = 0; j < values.size(); ++j) {
     ASSERT_EQ(values[j], "cf" + std::to_string(j) + "_val");
