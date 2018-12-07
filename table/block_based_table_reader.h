@@ -351,10 +351,31 @@ class BlockBasedTable : public TableReader {
       const Slice& user_key, const bool no_io,
       const SliceTransform* prefix_extractor = nullptr) const;
 
-  // Read the meta block from sst.
+  static Status PrefetchTail(
+      RandomAccessFileReader* file, uint64_t file_size,
+      TailPrefetchStats* tail_prefetch_stats, const bool prefetch_all,
+      const bool preload_all,
+      std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer);
   static Status ReadMetaBlock(Rep* rep, FilePrefetchBuffer* prefetch_buffer,
                               std::unique_ptr<Block>* meta_block,
                               std::unique_ptr<InternalIterator>* iter);
+  static Status ReadPropertiesBlock(Rep* rep,
+                                    FilePrefetchBuffer* prefetch_buffer,
+                                    InternalIterator* meta_iter,
+                                    const SequenceNumber largest_seqno);
+  static Status ReadRangeDelBlock(
+      Rep* rep, FilePrefetchBuffer* prefetch_buffer,
+      InternalIterator* meta_iter, BlockBasedTable* new_table,
+      const InternalKeyComparator& internal_comparator);
+  static Status ReadCompressionDictBlock(Rep* rep,
+                                         FilePrefetchBuffer* prefetch_buffer,
+                                         InternalIterator* meta_iter);
+  static Status PrefetchIndexAndFilterBlocks(
+      Rep* rep, FilePrefetchBuffer* prefetch_buffer,
+      InternalIterator* meta_iter, BlockBasedTable* new_table,
+      const SliceTransform* prefix_extractor, bool prefetch_all,
+      const BlockBasedTableOptions& table_options, const int level,
+      const bool prefetch_index_and_filter_in_cache);
 
   Status VerifyChecksumInBlocks(InternalIteratorBase<Slice>* index_iter);
   Status VerifyChecksumInBlocks(InternalIteratorBase<BlockHandle>* index_iter);
