@@ -13,7 +13,7 @@ import java.util.Random;
 
 import org.junit.ClassRule;
 import org.junit.Test;
-import org.rocksdb.test.TestCompactionFilterFactory;
+import org.rocksdb.test.RemoveEmptyValueCompactionFilterFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -1127,7 +1127,7 @@ public class OptionsTest {
   @Test
   public void compactionFilterFactory() {
     try(final Options options = new Options();
-        final TestCompactionFilterFactory cff = new TestCompactionFilterFactory()) {
+        final RemoveEmptyValueCompactionFilterFactory cff = new RemoveEmptyValueCompactionFilterFactory()) {
       options.setCompactionFilterFactory(cff);
       assertThat(options.compactionFilterFactory()).isEqualTo(cff);
     }
