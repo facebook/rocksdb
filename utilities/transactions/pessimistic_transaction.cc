@@ -515,7 +515,9 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
 // the snapshot time.
 Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
                                        const Slice& key, bool read_only,
-                                       bool exclusive, bool skip_validate) {
+                                       bool exclusive, const bool do_validate,
+                                       const bool assume_tracked) {
+  assert(!assume_tracked || !do_validate);
   Status s;
   if (UNLIKELY(skip_concurrency_control_)) {
     return s;
@@ -559,7 +561,11 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   // any writes since this transaction's snapshot.
   // TODO(agiardullo): could optimize by supporting shared txn locks in the
   // future
-  if (skip_validate || snapshot_ == nullptr) {
+  if (!do_validate || snapshot_ == nullptr) {
+    if (assume_tracked && !previously_locked) {
+      s = Status::InvalidArgument(
+          "assume_tracked is set but it is not tracked yet");
+    }
     // Need to remember the earliest sequence number that we know that this
     // key has not been modified after.  This is useful if this same
     // transaction
@@ -628,7 +634,7 @@ Status PessimisticTransaction::ValidateSnapshot(
   // Otherwise we have either
   // 1: tracked_at_seq == kMaxSequenceNumber, i.e., first time tracking the key
   // 2: snap_seq < tracked_at_seq: last time we lock the key was via
-  // skip_validate option which means we had skipped ValidateSnapshot. In both
+  // do_validate=false which means we had skipped ValidateSnapshot. In both
   // cases we should do ValidateSnapshot now.
 
   *tracked_at_seq = snap_seq;

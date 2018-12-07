@@ -140,6 +140,61 @@ TEST_P(TransactionTest, SuccessTest) {
   delete txn;
 }
 
+// The test clarifies the contract of do_validate and assume_tracked
+// in GetForUpdate and Put/Merge/Delete
+TEST_P(TransactionTest, AssumeExclusiveTracked) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  std::string value;
+  Status s;
+  TransactionOptions txn_options;
+  txn_options.lock_timeout = 1;
+  const bool EXCLUSIVE = true;
+  const bool DO_VALIDATE = true;
+  const bool ASSUME_LOCKED = true;
+
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn);
+  txn->SetSnapshot();
+
+  // commit a value after the snapshot is taken
+  ASSERT_OK(db->Put(write_options, Slice("foo"), Slice("bar")));
+
+  // By default write should fail to the commit after our snapshot
+  s = txn->GetForUpdate(read_options, "foo", &value, EXCLUSIVE);
+  ASSERT_TRUE(s.IsBusy());
+  // But the user could direct the db to skip validating the snapshot. The read
+  // value then should be the most recently committed
+  ASSERT_OK(
+      txn->GetForUpdate(read_options, "foo", &value, EXCLUSIVE, !DO_VALIDATE));
+  ASSERT_EQ(value, "bar");
+
+  // Although ValidateSnapshot is skipped the key must have still got locked
+  s = db->Put(write_options, Slice("foo"), Slice("bar"));
+  ASSERT_TRUE(s.IsTimedOut());
+
+  // By default the write operations should fail due to the commit after the
+  // snapshot
+  s = txn->Put(Slice("foo"), Slice("bar1"));
+  ASSERT_TRUE(s.IsBusy());
+  s = txn->Put(db->DefaultColumnFamily(), Slice("foo"), Slice("bar1"),
+               !ASSUME_LOCKED);
+  ASSERT_TRUE(s.IsBusy());
+  // But the user could direct the db that it already assumes exclusive lock on
+  // the key due to the previous GetForUpdate call.
+  ASSERT_OK(txn->Put(db->DefaultColumnFamily(), Slice("foo"), Slice("bar1"),
+                     ASSUME_LOCKED));
+  ASSERT_OK(txn->Merge(db->DefaultColumnFamily(), Slice("foo"), Slice("bar2"),
+                       ASSUME_LOCKED));
+  ASSERT_OK(
+      txn->Delete(db->DefaultColumnFamily(), Slice("foo"), ASSUME_LOCKED));
+  ASSERT_OK(txn->SingleDelete(db->DefaultColumnFamily(), Slice("foo"),
+                              ASSUME_LOCKED));
+
+  txn->Rollback();
+  delete txn;
+}
+
 // This test clarifies the contract of ValidateSnapshot
 TEST_P(TransactionTest, ValidateSnapshotTest) {
   for (bool with_2pc : {true, false}) {

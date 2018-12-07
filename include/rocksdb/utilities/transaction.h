@@ -208,8 +208,10 @@ class Transaction {
   // Read this key and ensure that this transaction will only
   // be able to be committed if this key is not written outside this
   // transaction after it has first been read (or after the snapshot if a
-  // snapshot is set in this transaction).  The transaction behavior is the
-  // same regardless of whether the key exists or not.
+  // snapshot is set in this transaction and do_validate is true). If
+  // do_validate is false, ReadOptions::snapshot is expected to be nullptr so
+  // that GetForUpdate returns the latest committed value. The transaction
+  // behavior is the same regardless of whether the key exists or not.
   //
   // Note: Currently, this function will return Status::MergeInProgress
   // if the most recent write to the queried key in this batch is a Merge.
@@ -234,27 +236,31 @@ class Transaction {
   virtual Status GetForUpdate(const ReadOptions& options,
                               ColumnFamilyHandle* column_family,
                               const Slice& key, std::string* value,
-                              bool exclusive = true) = 0;
+                              bool exclusive = true,
+                              bool do_validate = true) = 0;
 
   // An overload of the above method that receives a PinnableSlice
   // For backward compatibility a default implementation is provided
   virtual Status GetForUpdate(const ReadOptions& options,
                               ColumnFamilyHandle* column_family,
                               const Slice& key, PinnableSlice* pinnable_val,
-                              bool exclusive = true) {
+                              bool exclusive = true,
+                              const bool do_validate = true) {
     if (pinnable_val == nullptr) {
       std::string* null_str = nullptr;
-      return GetForUpdate(options, column_family, key, null_str, exclusive);
+      return GetForUpdate(options, column_family, key, null_str, exclusive,
+                          do_validate);
     } else {
       auto s = GetForUpdate(options, column_family, key,
-                            pinnable_val->GetSelf(), exclusive);
+                            pinnable_val->GetSelf(), exclusive, do_validate);
       pinnable_val->PinSelf();
       return s;
     }
   }
 
   virtual Status GetForUpdate(const ReadOptions& options, const Slice& key,
-                              std::string* value, bool exclusive = true) = 0;
+                              std::string* value, bool exclusive = true,
+                              const bool do_validate = true) = 0;
 
   virtual std::vector<Status> MultiGetForUpdate(
       const ReadOptions& options,
@@ -287,6 +293,9 @@ class Transaction {
   // functions in WriteBatch, but will also do conflict checking on the
   // keys being written.
   //
+  // assume_tracked=false expects the key be already tracked. If valid then it
+  // skips ValidateSnapshot. Returns error otherwise.
+  //
   // If this Transaction was created on an OptimisticTransactionDB, these
   // functions should always return Status::OK().
   //
@@ -299,28 +308,33 @@ class Transaction {
   //  (See max_write_buffer_number_to_maintain)
   // or other errors on unexpected failures.
   virtual Status Put(ColumnFamilyHandle* column_family, const Slice& key,
-                     const Slice& value) = 0;
+                     const Slice& value, const bool assume_tracked = false) = 0;
   virtual Status Put(const Slice& key, const Slice& value) = 0;
   virtual Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
-                     const SliceParts& value) = 0;
+                     const SliceParts& value,
+                     const bool assume_tracked = false) = 0;
   virtual Status Put(const SliceParts& key, const SliceParts& value) = 0;
 
   virtual Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
-                       const Slice& value) = 0;
+                       const Slice& value,
+                       const bool assume_tracked = false) = 0;
   virtual Status Merge(const Slice& key, const Slice& value) = 0;
 
-  virtual Status Delete(ColumnFamilyHandle* column_family,
-                        const Slice& key) = 0;
+  virtual Status Delete(ColumnFamilyHandle* column_family, const Slice& key,
+                        const bool assume_tracked = false) = 0;
   virtual Status Delete(const Slice& key) = 0;
   virtual Status Delete(ColumnFamilyHandle* column_family,
-                        const SliceParts& key) = 0;
+                        const SliceParts& key,
+                        const bool assume_tracked = false) = 0;
   virtual Status Delete(const SliceParts& key) = 0;
 
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
-                              const Slice& key) = 0;
+                              const Slice& key,
+                              const bool assume_tracked = false) = 0;
   virtual Status SingleDelete(const Slice& key) = 0;
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
-                              const SliceParts& key) = 0;
+                              const SliceParts& key,
+                              const bool assume_tracked = false) = 0;
   virtual Status SingleDelete(const SliceParts& key) = 0;
 
   // PutUntracked() will write a Put to the batch of operations to be committed
