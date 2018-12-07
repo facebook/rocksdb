@@ -113,6 +113,10 @@ struct EnvOptions {
 
 class Env : public Extension {
  public:
+  using Extension::SetOption;
+  using Extension::ConfigureFromString;
+  using Extension::ConfigureFromMap;
+  
   static const std::string kType;
   struct FileAttributes {
     // File name
@@ -1014,9 +1018,11 @@ public:
   // Initialize an EnvWrapper that delegates all calls to *t
  protected:
   const std::string kPropPrefix_;
+  const std::string kTargetProp;
  public:
   explicit EnvWrapper(Env* t, const std::string & p = "rocksdb.env.") :
     kPropPrefix_(p),
+    kTargetProp(p + "target"), 
     target_(t) {
   }
   ~EnvWrapper() override;
@@ -1031,31 +1037,30 @@ public:
 
   virtual Status ConfigureFromMap(
 		     const std::unordered_map<std::string, std::string> & opt_map,
+		     bool input_strings_escaped,
 		     const DBOptions & dbOpts,
 		     const ColumnFamilyOptions * cfOpts,
-		     bool ignore_unknown_options,
-		     bool input_strings_escaped)  override;
+		     std::unordered_set<std::string> *unused) override;
   
   // Configures the options for this extension based on the input parameters.
   // Returns an OK status if configuration was successful.
   // If a non-OK status is returned, the options should be left in their original
   // state.
   virtual Status ConfigureFromString(
-		     const std::string & opt_str,
-		     const DBOptions & dbOpts,
-		     const ColumnFamilyOptions * cfOpts,
-		     bool ignore_unknown_options,
-		     bool input_strings_escaped) override;
+  		     const std::string & opt_str,
+  		     bool input_strings_escaped,
+  		     const DBOptions & dbOpts,
+  		     const ColumnFamilyOptions * cfOpts,
+		     std::unordered_set<std::string> *unused) override;
 
   virtual Status SetOption(const std::string & name,
 			   const std::string & value,
+			   bool input_strings_escaped,
 			   const DBOptions & dbOpts,
 			   const ColumnFamilyOptions * cfOpts,
-			   bool ignore_unknown_options,
-			   bool input_strings_escaped) override;
+			   bool ignore_uknown_options) override;
   virtual Status SetOption(const std::string & name,
 			   const std::string & value,
-			   bool ignore_unknown_options,
 			   bool input_strings_escaped) override;
   
   // Sanitizes the specified DB Options and ColumnFamilyOptions.

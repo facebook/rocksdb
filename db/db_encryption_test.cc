@@ -97,10 +97,10 @@ TEST_F(DBEncryptionTest, NewBlockCipher) {
 }
 
 template<typename T> void TestConfigureFromString(Status expected,
-						  Status sanitized,
 						  const DBOptions & dbOptions,
 						  T * extension,
-						  const std::string & props) {
+						  const std::string & props,
+						  Status sanitized) {
   if (expected.ok()) {
     // Setting a valid property works
     ASSERT_OK(extension->ConfigureFromString(props, dbOptions));
@@ -119,27 +119,19 @@ template<typename T> void TestConfigureFromString(Status expected,
 TEST_F(DBEncryptionTest, ConfigureBlockCipherFromString) {
   shared_ptr<BlockCipher> cipher;
   DBOptions dbOptions;
-  Status invalid = Status::InvalidArgument();
+  Status notfound = Status::NotFound();
   Status okay   = Status::OK();
+  Status invalid = Status::InvalidArgument();
   // A new cipher is not valid until its properties are initialized
   AssertNewSharedExtension(dbOptions, "ROT13", true, &cipher);
-  TestConfigureFromString(okay, invalid, dbOptions, cipher.get(), "");
+  TestConfigureFromString(okay, dbOptions, cipher.get(), "", invalid);
   
   // Settting an unknown property fails
-  TestConfigureFromString(invalid, invalid, dbOptions, cipher.get(), "unknown=unknown");
-  // Settting an unknown property fails to sanitize, even if we ignore errors
-  ASSERT_OK(cipher->ConfigureFromString("unknown=unknown",
-					dbOptions, nullptr, true, false));
-  ASSERT_EQ(invalid, cipher->SanitizeOptions(dbOptions));
-
+  TestConfigureFromString(notfound, dbOptions, cipher.get(),
+			  "unknown=unknown", invalid);
   // Setting a valid property works
-  TestConfigureFromString(okay, okay, dbOptions, cipher.get(),
-			  "rocksdb.encrypted.cipher.rot13.blocksize=13");
-  // Invalid options work if ignored
-  ASSERT_OK(cipher->ConfigureFromString("unknown=unknown;"
-					"rocksdb.encrypted.cipher.rot13.blocksize=13",
-					dbOptions, nullptr, true, false));
-  ASSERT_OK(cipher->SanitizeOptions(dbOptions));
+  TestConfigureFromString(okay, dbOptions, cipher.get(),
+			  "rocksdb.encrypted.cipher.rot13.blocksize=13", okay);
 }
 
 TEST_F(DBEncryptionTest, NewCTRProvider) {
@@ -147,19 +139,19 @@ TEST_F(DBEncryptionTest, NewCTRProvider) {
   DBOptions dbOptions;
   AssertNewSharedExtension(dbOptions, "CTR", true, &provider);
   ASSERT_EQ(Status::InvalidArgument(), provider->SanitizeOptions(dbOptions));
-  ASSERT_EQ(Status::InvalidArgument(),
+  ASSERT_EQ(Status::NotFound(),
 	    provider->SetOption("rocksdb.encrypted.cipher.rot13.blocksize", "13"));
   ASSERT_EQ(Status::InvalidArgument(),
-	    provider->SetOption("rocksdb.encrypted.provider.ctr.cipher.name",
-				"unknown"));
+  	    provider->SetOption("rocksdb.encrypted.provider.ctr.cipher.name",
+  				"unknown"));
+  ASSERT_EQ(Status::InvalidArgument(),
+  	    provider->SetOption("rocksdb.encrypted.provider.ctr.cipher.name",
+  				"ROT13"));
   ASSERT_EQ(Status::InvalidArgument(),
 	    provider->SetOption("rocksdb.encrypted.provider.ctr.cipher.name",
-				"ROT13"));
-  ASSERT_EQ(Status::NotFound(),
-	    provider->SetOption("rocksdb.encrypted.provider.ctr.cipher.name",
-				"unknown", dbOptions, nullptr));
+				"unknown", dbOptions));
   ASSERT_OK(provider->SetOption("rocksdb.encrypted.provider.ctr.cipher.name",
-				"ROT13", dbOptions, nullptr));
+				"ROT13", dbOptions));
   ASSERT_EQ(Status::InvalidArgument(), provider->SanitizeOptions(dbOptions));
   ASSERT_OK(provider->SetOption("rocksdb.encrypted.cipher.rot13.blocksize",
 				"13"));
@@ -170,111 +162,146 @@ TEST_F(DBEncryptionTest, NewCTRProvider) {
 TEST_F(DBEncryptionTest, ConfigureProviderFromString) {
   shared_ptr<EncryptionProvider> provider;
   DBOptions dbOptions;
+  Status notfound = Status::NotFound();
   Status invalid = Status::InvalidArgument();
   Status okay = Status::OK();
   AssertNewSharedExtension(dbOptions, "CTR", true, &provider);
   // A new provider is not valid until its properties are initialized
-  TestConfigureFromString(okay, invalid, dbOptions, provider.get(), "");
-  TestConfigureFromString(invalid, invalid, dbOptions, provider.get(),
-			  "unknown=unknown");
-  ASSERT_OK(provider->ConfigureFromString("unknown=unknown", dbOptions, nullptr, true, false));
-
+  TestConfigureFromString(okay, dbOptions, provider.get(), "", invalid);
+  TestConfigureFromString(notfound, dbOptions, provider.get(),
+			  "unknown=unknown", invalid);
   // Cannot set the cipher properties until one is initialized
-  TestConfigureFromString(invalid, invalid, dbOptions, provider.get(),
-			  "rocksdb.encrypted.cipher.rot13.blocksize=13");
-  TestConfigureFromString(Status::NotFound(), invalid, dbOptions, provider.get(),
-			  "rocksdb.encrypted.provider.ctr.cipher.name=unknown");
+  TestConfigureFromString(notfound, dbOptions, provider.get(),
+			  "rocksdb.encrypted.cipher.rot13.blocksize=13", invalid);
+  TestConfigureFromString(invalid, dbOptions, provider.get(),
+			  "rocksdb.encrypted.provider.ctr.cipher.name=unknown",
+			  invalid);
   // Create a valid cipher but not initializing it also fails to sanitize
-  TestConfigureFromString(okay, invalid, dbOptions, provider.get(),
-			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13");
+  TestConfigureFromString(okay, dbOptions, provider.get(),
+			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13",
+			  invalid);
 			  
   // Create a valid cipher and initializing it works
-  TestConfigureFromString(okay, okay, dbOptions, provider.get(),
+  TestConfigureFromString(okay, dbOptions, provider.get(),
 			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13;"
-			  "rocksdb.encrypted.cipher.rot13.blocksize=13");
+			  "rocksdb.encrypted.cipher.rot13.blocksize=13",
+			  okay);
   // And one more time to make sure we have a "clean" provider
   AssertNewSharedExtension(dbOptions, "CTR", true, &provider);
-  ASSERT_EQ(Status::InvalidArgument(), provider->SanitizeOptions(dbOptions));
-  TestConfigureFromString(okay, okay, dbOptions, provider.get(),
+  ASSERT_EQ(invalid, provider->SanitizeOptions(dbOptions));
+  TestConfigureFromString(okay, dbOptions, provider.get(),
 			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13;"
-			  "rocksdb.encrypted.cipher.rot13.blocksize=13");
+			  "rocksdb.encrypted.cipher.rot13.blocksize=13",
+			  okay);
   // And one more time, with th properties in a different order...
   AssertNewSharedExtension(dbOptions, "CTR", true, &provider);
-  TestConfigureFromString(okay, okay, dbOptions, provider.get(),
+  TestConfigureFromString(okay, dbOptions, provider.get(),
 			  "rocksdb.encrypted.cipher.rot13.blocksize=13;"
-			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13;");
+			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13;",
+			  okay);
 }
 
-TEST_F(DBEncryptionTest, NewEncryptedEnv) {
-  Env *encrypted;
-  unique_ptr<Env> guard;
+ TEST_F(DBEncryptionTest, ConfigureProviderFromProperties) {
+  shared_ptr<EncryptionProvider> provider;
   DBOptions dbOptions;
-  AssertNewExtension(dbOptions, "unknown", false,  &encrypted, false, &guard);
-  AssertNewExtension(dbOptions, "encrypted", true, &encrypted, false, &guard);
+  Status bad = Status::NotSupported(); //TODO
+  Status okay = Status::OK();
+  AssertNewSharedExtension(dbOptions, "CTR", true, &provider);
+  ASSERT_EQ(bad,
+	    provider->ConfigureFromString("rocksdb.encrypted.provider.ctr.cipher={"
+					  "name=unknown"
+					  "}", dbOptions));
+  ASSERT_EQ(bad,
+	    provider->ConfigureFromString("rocksdb.encrypted.provider.ctr.cipher={"
+					  "name=ROT13;"
+					  "options={unknown=unknown}"
+					  "}", dbOptions));
+  ASSERT_EQ(bad,
+	    provider->ConfigureFromString("rocksdb.encrypted.provider.ctr.cipher={"
+					  "name=ROT13;"
+					  "options={rocksdb.encrypted.cipher.rot13.blocksize=13;}"
+					  "}", dbOptions));
+ }
+
+static void AssertNewEnvironment(const DBOptions & dbOpts,
+				 const std::string & name,
+				 bool isValid,
+				 std::unique_ptr<Env> *guard,
+				 bool) {
+  Env *env;
+  AssertNewUniqueExtension(dbOpts, name, isValid, &env, guard, false);
+  guard->reset(env);
+}
+  
+TEST_F(DBEncryptionTest, NewEncryptedEnv) {
+  std::unique_ptr<Env> encrypted;
+  DBOptions dbOptions;
+  AssertNewEnvironment(dbOptions, "unknown", false, &encrypted, false);
+  AssertNewEnvironment(dbOptions, "encrypted", true, &encrypted, false);
   ASSERT_EQ(Status::InvalidArgument(), encrypted->SanitizeOptions(dbOptions));
-  guard.reset(encrypted); // Store in guard for clean-up
-  ASSERT_EQ(Status::InvalidArgument(),
+  ASSERT_EQ(Status::NotFound(),
 	    encrypted->SetOption("rocksdb.encrypted.cipher.rot13.blocksize", "13"));
-  ASSERT_EQ(Status::InvalidArgument(),
+  ASSERT_EQ(Status::NotFound(),
 	    encrypted->SetOption("rocksdb.encrypted.provider.ctr.cipher.name",
 				 "ROT13"));
-  ASSERT_EQ(Status::NotFound(),
+  ASSERT_EQ(Status::InvalidArgument(),
 	    encrypted->SetOption("rocksdb.encrypted.env.provider.name",
-				 "unknown", dbOptions, nullptr));
+				 "unknown", dbOptions));
   ASSERT_OK(encrypted->SetOption("rocksdb.encrypted.env.provider.name",
-				 "CTR", dbOptions, nullptr));
+				 "CTR", dbOptions));
   ASSERT_EQ(Status::InvalidArgument(), encrypted->SanitizeOptions(dbOptions));
   ASSERT_OK(encrypted->SetOption("rocksdb.encrypted.provider.ctr.cipher.name",
-				 "ROT13", dbOptions, nullptr));
+				 "ROT13", dbOptions));
   ASSERT_EQ(Status::InvalidArgument(), encrypted->SanitizeOptions(dbOptions));
   ASSERT_OK(encrypted->SetOption("rocksdb.encrypted.cipher.rot13.blocksize", "13"));
   ASSERT_OK(encrypted->SanitizeOptions(dbOptions));
 }
 
 TEST_F(DBEncryptionTest, EnryptedEnvFromString) {
-  Env *encrypted;
-  unique_ptr<Env> guard;
+  unique_ptr<Env> encrypted;
   DBOptions dbOptions;
   Status invalid = Status::InvalidArgument();
   Status okay = Status::OK();
-  AssertNewExtension(dbOptions, "encrypted", true, &encrypted, false, &guard);
-  guard.reset(encrypted);
-  TestConfigureFromString(invalid, invalid, dbOptions, encrypted,
+  Status notfound = Status::NotFound();
+  
+  AssertNewEnvironment(dbOptions, "encrypted", true, &encrypted, false);
+  TestConfigureFromString(notfound, dbOptions, encrypted.get(),
 			  "rocksdb.encrypted.cipher.rot13.blocksize=13;"
-			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13;");
-  TestConfigureFromString(okay, invalid, dbOptions, encrypted,
-			  "rocksdb.encrypted.env.provider.name=CTR;");
-  TestConfigureFromString(okay, invalid, dbOptions, encrypted,
+			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13;",
+			  invalid);
+  TestConfigureFromString(okay, dbOptions, encrypted.get(),
+			  "rocksdb.encrypted.env.provider.name=CTR;", invalid);
+  TestConfigureFromString(okay, dbOptions, encrypted.get(),
 			  "rocksdb.encrypted.env.provider.name=CTR;"
-			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13;");
-  TestConfigureFromString(okay, okay, dbOptions, encrypted,
-			  "rocksdb.encrypted.cipher.rot13.blocksize=13;"
-			  "rocksdb.encrypted.env.provider.name=CTR;"
-			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13;");
-  AssertNewExtension(dbOptions, "encrypted", true, &encrypted, false, &guard);
-  guard.reset(encrypted);
-  TestConfigureFromString(okay, okay, dbOptions, encrypted,
+			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13;",
+			  invalid);
+  TestConfigureFromString(okay, dbOptions, encrypted.get(),
 			  "rocksdb.encrypted.cipher.rot13.blocksize=13;"
 			  "rocksdb.encrypted.env.provider.name=CTR;"
-			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13;");
-  AssertNewExtension(dbOptions, "encrypted", true, &encrypted, false, &guard);
-  guard.reset(encrypted);
-  TestConfigureFromString(okay, okay, dbOptions, encrypted,
+			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13;",
+			  okay);
+  AssertNewEnvironment(dbOptions, "encrypted", true, &encrypted, false);
+  TestConfigureFromString(okay, dbOptions, encrypted.get(),
 			  "rocksdb.encrypted.cipher.rot13.blocksize=13;"
 			  "rocksdb.encrypted.env.provider.name=CTR;"
-			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13;");
-  AssertNewExtension(dbOptions, "encrypted", true, &encrypted, false, &guard);
-  guard.reset(encrypted);
-  TestConfigureFromString(okay, okay, dbOptions, encrypted,
+			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13;",
+			  okay);
+  AssertNewEnvironment(dbOptions, "encrypted", true, &encrypted, false);
+  TestConfigureFromString(okay, dbOptions, encrypted.get(),
+			  "rocksdb.encrypted.cipher.rot13.blocksize=13;"
+			  "rocksdb.encrypted.env.provider.name=CTR;"
+			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13;",
+			  okay);
+  AssertNewEnvironment(dbOptions, "encrypted", true, &encrypted, false);
+  TestConfigureFromString(okay, dbOptions, encrypted.get(),
 			  "rocksdb.encrypted.env.provider.name=CTR;"
 			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13;"
-			  "rocksdb.encrypted.cipher.rot13.blocksize=13;");
-  AssertNewExtension(dbOptions, "encrypted", true, &encrypted, false, &guard);
-  guard.reset(encrypted);
-  TestConfigureFromString(okay, okay, dbOptions, encrypted,
+			  "rocksdb.encrypted.cipher.rot13.blocksize=13;", okay);
+  AssertNewEnvironment(dbOptions, "encrypted", true, &encrypted, false);
+  TestConfigureFromString(okay, dbOptions, encrypted.get(),
 			  "rocksdb.encrypted.provider.ctr.cipher.name=ROT13;"
 			  "rocksdb.encrypted.env.provider.name=CTR;"
-			  "rocksdb.encrypted.cipher.rot13.blocksize=13;");
+			  "rocksdb.encrypted.cipher.rot13.blocksize=13;", okay);
 }
 #endif
 

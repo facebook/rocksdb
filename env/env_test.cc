@@ -1700,7 +1700,8 @@ INSTANTIATE_TEST_CASE_P(
 TEST_F(EnvTest, TestEnvWrapperSetOption) {
   DBOptions dbOpts;
   Env* env = new TestEnv();
-  ASSERT_OK(env->SetOption("rocksdb.env.target.name", "test", dbOpts));
+  ASSERT_EQ(Status::InvalidArgument(),
+	    env->SetOption("rocksdb.env.target.name", "test", dbOpts));
   ASSERT_EQ(Status::InvalidArgument(),
 	    env->SetOption("rocksdb.env.target.name", "memory"));
   ASSERT_OK(env->SetOption("rocksdb.env.target.name", "memory", dbOpts));

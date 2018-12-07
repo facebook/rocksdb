@@ -56,7 +56,7 @@ SpecialEnv::SpecialEnv(Env* base)
 #ifndef ROCKSDB_LITE
   if (getenv("ENCRYPED_ENV")) {
     std::unique_ptr<Env> guard;
-    Status s = NewExtension("encrypted", dbOpts, nullptr, &encrypted_env_, &guard);
+    Status s = NewUniqueExtension("encrypted", dbOpts, nullptr, &encrypted_env_, &guard);
     guard.release();
     if (encrypted_env_ != nullptr) {
       s = encrypted_env_->ConfigureFromString(

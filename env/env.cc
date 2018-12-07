@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/env.h"
-
 #include <thread>
 #include "rocksdb/extension_loader.h"
 #include "options/db_options.h"
@@ -350,92 +349,67 @@ Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
 }
 
 
-static Status NewEnvironment(const DBOptions & dbOpts,
-			     const ColumnFamilyOptions * cfOpts,
-			     const std::string & name,
-			     Env   **result) {
-  Status s = Status::OK();
-  if (*result == nullptr || (*result)->Name() != name) {
-    std::unique_ptr<Env> guard;
-    Env *env;
-    s = NewExtension(name, dbOpts, cfOpts,
-		     &env, &guard);
-    if (s.ok()) {
-      *result = env;
-      guard.release(); //**TODO: This seems like it leaks
-    }
-  }
-  return s;
-}
-
-static const std::string kRocksEnvPropPrefix = "rocksdb.env.";
-static const std::string kTargetPropSuffix = "target.name";
 
 EnvWrapper::~EnvWrapper() {
 }
 
 Status EnvWrapper::SetOption(const std::string & name,
 			     const std::string & value,
+			     bool input_strings_escaped,
 			     const DBOptions & dbOpts,
 			     const ColumnFamilyOptions * cfOpts,
-			     bool ignore_unknown_options,
-			     bool input_strings_escaped) {
-  if (MatchesProperty(name, kPropPrefix_, kTargetPropSuffix)) {
-    if (value == Name()) {
-      return Status::OK();
-    } else {
-      return NewEnvironment(dbOpts, cfOpts, value, &target_);
-    }
-  } else if (target_) {
-    return target_->SetOption(name, value, dbOpts, cfOpts,
-			      ignore_unknown_options,
-			      input_strings_escaped);
+				  bool ignore_unknown_options) {
+  std::unique_ptr<Env> guard;
+  Status s = SetUniqueOption(kTargetProp, name, value, input_strings_escaped,
+			     dbOpts, cfOpts, ignore_unknown_options,
+			     &target_, &guard);
+  guard.release(); //**TODO: This seems like it leaks
+
+  if (s.IsNotFound()) {
+    return Env::SetOption(name, value, input_strings_escaped,
+			  dbOpts, cfOpts, ignore_unknown_options);
   } else {
-    return Env::SetOption(name, value, ignore_unknown_options, input_strings_escaped);
+    return s;
   }
 }
+
   
 Status EnvWrapper::SetOption(const std::string & name,
-			     const std::string & value,
-			     bool ignore_unknown_options,
-			     bool input_strings_escaped) {
-  if (MatchesProperty(name, kPropPrefix_, kTargetPropSuffix)) {
-    return Status::InvalidArgument("Cannot create target type without options", name);
-  } else if (target_) {
-    return target_->SetOption(name, value,
-			      ignore_unknown_options,
-			      input_strings_escaped);
+				  const std::string & value,
+				  bool input_strings_escaped) {
+  Status s = SetExtensionOption(kTargetProp, name, value,
+				input_strings_escaped, target_);
+  if (s.IsNotFound()) {
+   return Env::SetOption(name, value, input_strings_escaped);
   } else {
-    return Status::InvalidArgument("No target environment found");
+    return s;
   }
 }
 
 Status EnvWrapper::ConfigureFromMap(
 		     const std::unordered_map<std::string, std::string> & opt_map,
+		     bool input_strings_escaped,
 		     const DBOptions & dbOpts,
 		     const ColumnFamilyOptions * cfOpts,
-		     bool ignore_unknown_options, 
-		     bool input_strings_escaped) {
+		     std::unordered_set<std::string> * unused_opts) {
   if (target_ == nullptr) {
     target_ = dbOpts.env;
   }
-  return Extension::ConfigureFromMap(opt_map, dbOpts, cfOpts,
-				   ignore_unknown_options,
-				   input_strings_escaped);
+  return Extension::ConfigureFromMap(opt_map, input_strings_escaped,
+				     dbOpts, cfOpts, unused_opts);
 }
   
 Status EnvWrapper::ConfigureFromString(
 		     const std::string & opt_str,
+		     bool input_strings_escaped,
 		     const DBOptions & dbOpts, 
 		     const ColumnFamilyOptions * cfOpts,
-		     bool ignore_unknown_options,
-		     bool input_strings_escaped) {
+		     std::unordered_set<std::string> * unused_opts) {
   if (target_ == nullptr) {
     target_ = dbOpts.env;
   }
-  return Extension::ConfigureFromString(opt_str, dbOpts, cfOpts,
-					ignore_unknown_options,
-					input_strings_escaped);
+  return Extension::ConfigureFromString(opt_str, input_strings_escaped,
+					dbOpts, cfOpts, unused_opts);
 }
 
 Status EnvWrapper::SanitizeOptions(const DBOptions & dbOpts,

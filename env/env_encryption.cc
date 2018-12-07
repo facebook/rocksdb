@@ -382,8 +382,6 @@ class EncryptedRandomRWFile : public RandomRWFile {
 };
 
 static const std::string kEnvEncryptedPropPrefix = "rocksdb.encrypted.";
-static const std::string EncryptedProviderNameProp =
-  kEnvEncryptedPropPrefix + "env.provider.name";
 static const std::string EncryptedProviderProp =
   kEnvEncryptedPropPrefix + "env.provider";
 
@@ -402,45 +400,29 @@ public:
   }
 
   virtual Status SetOption(const std::string & name,
-			   const std::string & value,
-			   bool ignore_unknown_options,
-			   bool input_strings_escaped) override {
-    if (! provider_) {
-      return EnvWrapper::SetOption(name, value,
-				   ignore_unknown_options,
-				   input_strings_escaped);
+				const std::string & value,
+				bool input_strings_escaped) override {
+    Status s = SetExtensionOption(EncryptedProviderProp, name, value,
+				  input_strings_escaped, provider_.get());
+    if (s.IsNotFound()) {
+      return EnvWrapper::SetOption(name, value, input_strings_escaped);
     } else {
-      Status s = EnvWrapper::SetOption(name, value, false, input_strings_escaped);
-      if (s.IsInvalidArgument()) {
-	s = provider_->SetOption(name, value,
-				 ignore_unknown_options, input_strings_escaped);
-      }
       return s;
     }
   }
   virtual Status SetOption(const std::string & name,
-			   const std::string & value,
-			   const DBOptions & dbOpts,
-			   const ColumnFamilyOptions *cfOpts,
-			   bool ignore_unknown_options,
-			   bool input_strings_escaped) override {
-    if (name == EncryptedProviderNameProp) {
-      return GetSharedExtension(value, dbOpts, cfOpts, &provider_);
-    } else if (name == EncryptedProviderProp) {
-      return Status::OK(); // MJR: TODO: Extract provider name and properties from value
-    } else if (! provider_) { // No provider, run the super SetOption
-      Status s = EnvWrapper::SetOption(name, value, dbOpts, cfOpts,
-				       ignore_unknown_options,
-				       input_strings_escaped);
-      return s;
+				const std::string & value,
+				bool input_strings_escaped,
+				const DBOptions & dbOpts,
+				const ColumnFamilyOptions *cfOpts,
+				bool ignore_unknown_options) override {
+    Status s = SetSharedOption(EncryptedProviderProp, name, value,
+			       input_strings_escaped, dbOpts, cfOpts,
+			       ignore_unknown_options, &provider_);
+    if (s.IsNotFound()) {
+      return EnvWrapper::SetOption(name, value, input_strings_escaped,
+				   dbOpts, cfOpts, ignore_unknown_options);
     } else {
-      Status s = EnvWrapper::SetOption(name, value, dbOpts, cfOpts, false,
-					       input_strings_escaped);
-      if (s.IsInvalidArgument()) {
-	s =  provider_->SetOption(name, value, dbOpts, cfOpts,
-				  ignore_unknown_options,
-				  input_strings_escaped);
-      }
       return s;
     }
   }
@@ -883,14 +865,12 @@ public:
 
   virtual Status SetOption(const std::string & name,
 			   const std::string & value,
-			   bool ignore_unknown_options,
 			   bool input_strings_escaped) override {
     if (name == kROT13BlockSizeProp) {
       blockSize_ = ParseSizeT(trim(value));
       return Status::OK();
     } else {
-      return BlockCipher::SetOption(name, value,
-				    ignore_unknown_options, input_strings_escaped);
+      return BlockCipher::SetOption(name, value, input_strings_escaped);
     }
   }
 
@@ -1005,8 +985,6 @@ static void decodeCTRParameters(const char *prefix, size_t blockSize, uint64_t &
 //
 // Note: This is a possible implementation of EncryptionProvider, 
 // it is considered suitable for use, provided a safe BlockCipher is used.
-static const std::string CTRCipherNameProp =
-  kEnvEncryptedPropPrefix + "provider.ctr.cipher.name";
 static const std::string CTRCipherProp =
   kEnvEncryptedPropPrefix + "provider.ctr.cipher";
 
@@ -1039,48 +1017,30 @@ public:
 
   virtual Status SetOption(const std::string & name,
 			   const std::string & value,
-			   bool ignore_unknown_options,
 			   bool input_strings_escaped) override {
-    if (! cipher_) {
+    Status s = SetExtensionOption(CTRCipherProp, name, value,
+				  input_strings_escaped,  cipher_.get());
+    if (s.IsNotFound()) {
       return EncryptionProvider::SetOption(name, value,
-					   ignore_unknown_options,
 					   input_strings_escaped);
     } else {
-      Status s = EncryptionProvider::SetOption(name, value, false,
-					       input_strings_escaped);
-      if (s.IsInvalidArgument()) {
-	s =  cipher_->SetOption(name, value,
-				ignore_unknown_options,
-				input_strings_escaped);
-      }
       return s;
     }
   }
   
   virtual Status SetOption(const std::string & name,
-			   const std::string & value,
-			   const DBOptions & dbOpts,
-			   const ColumnFamilyOptions *cfOpts,
-			   bool ignore_unknown_options,
-			   bool input_strings_escaped) override {
-
-    if (name == CTRCipherNameProp) {
-      return GetSharedExtension(value, dbOpts, cfOpts, &cipher_);
-    } else if (name == CTRCipherProp) {
-      return Status::OK(); // MJR: TODO: Extract cipher name and properties from value
-    } else if (! cipher_) { // No cipher, run the super SetOption
-      Status s = EncryptionProvider::SetOption(name, value, dbOpts, cfOpts,
-					   ignore_unknown_options,
-					   input_strings_escaped);
-      return s;
+				const std::string & value,
+				bool input_strings_escaped,
+				const DBOptions & dbOpts,
+				const ColumnFamilyOptions *cfOpts,
+				bool ignore_unknown_options) override {
+    Status s = SetSharedOption(CTRCipherProp, name, value,
+			       input_strings_escaped, dbOpts, cfOpts,
+			       ignore_unknown_options, &cipher_);
+    if (s.IsNotFound()) {
+      return EncryptionProvider::SetOption(name, value, input_strings_escaped,
+					   dbOpts, cfOpts, ignore_unknown_options);
     } else {
-      Status s = EncryptionProvider::SetOption(name, value, dbOpts, cfOpts, false,
-					       input_strings_escaped);
-      if (s.IsInvalidArgument()) {
-	s =  cipher_->SetOption(name, value, dbOpts, cfOpts,
-				ignore_unknown_options,
-				input_strings_escaped);
-      }
       return s;
     }
   }

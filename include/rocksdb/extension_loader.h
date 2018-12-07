@@ -22,8 +22,8 @@ class Extension;
 class DynamicLibrary;
 class Logger;
   
-using std::unique_ptr;
 using std::shared_ptr;
+using std::unique_ptr;
 
 /**
  * ExtensionLoader is the class for loading extensions on demand.
@@ -34,6 +34,11 @@ using std::shared_ptr;
  */
 
 class ExtensionLoader {
+  public:
+  static bool PropertyMatchesPrefix(const std::string & prefix,
+				    const std::string & property,
+				    bool *isExact);
+
 public:
 		     
 
@@ -47,10 +52,10 @@ public:
    *                            deletion of this object. 
    * @return                    The new extension object (on success) or nullptr
    */
-  typedef std::function<Extension *(const std::string &,
-				    const DBOptions &,
-				    const ColumnFamilyOptions *,
-				    std::unique_ptr<Extension>*)> FactoryFunction;
+  typedef std::function<Extension*(const std::string &,
+				   const DBOptions &,
+				   const ColumnFamilyOptions *,
+				   std::unique_ptr<Extension>*)> FactoryFunction;
 
   /**
    * The signature of the function for loading extension factories 
@@ -118,21 +123,17 @@ public:
    */
   FactoryFunction FindFactory(const std::string  & type, const std::string & name);
 
-  /**
-   * Creates and returns an extension of the appropriate type/name using
-   * the supplied parameters.
-   * @param type     The type of extension to create.
-   * @param name     The name of extension to create.
-   * @param dbOpts   Parameter supplied to the FactoryFunction
-   * @param cfOpts   Parameter supplied to the FactoryFunction
-   * @param guard    Parameter supplied to the FactoryFunction. 
-   * @returns        The created extension (if found)
-   */
-  Extension *CreateExtension(const std::string & type,
-			     const std::string & name,
-			     const DBOptions & dbOpts,
-			     const ColumnFamilyOptions * cfOpts,
-			     std::unique_ptr<Extension> *guard);
+  Status CreateSharedExtension(const std::string & type,
+			       const std::string & name,
+			       const DBOptions & dbOpts,
+			       const ColumnFamilyOptions * cfOpts,
+			       std::shared_ptr<Extension> *result);
+  Extension *CreateUniqueExtension(const std::string & type,
+				   const std::string & name,
+				   const DBOptions & dbOpts,
+				   const ColumnFamilyOptions * cfOpts,
+				   std::unique_ptr<Extension> *guard);
+
   /**
    * Dumps information about the registered factories to the supplied logger.
    * @param log      The logger to write to.
@@ -158,44 +159,73 @@ private:
 		     std::vector<std::pair<std::regex, FactoryFunction> > > factories;
 };
 
+
 template<typename T>
-Status NewExtension(const std::string & name,
-		    const DBOptions & dbOpts, 
-		    const ColumnFamilyOptions * cfOpts,
-		    T **result,
-		    std::unique_ptr<T> *guard) {
-  *result =  nullptr;
-  guard->reset();
-  std::unique_ptr<Extension> ext_guard;
-  Extension *extension = dbOpts.extensions->CreateExtension(T::Type(), name,
-							    dbOpts, cfOpts,
-							    &ext_guard);
-  if (extension != nullptr) {
-    *result = extension->CastTo(&ext_guard, guard);
-    if (*result == nullptr) {
-    } else {
-      return Status::OK();
-    }
+Status CastSharedExtension(const std::shared_ptr<Extension> & from,
+			   std::shared_ptr<T> * to) {
+  *to = std::dynamic_pointer_cast<T>(from);
+  if (!to && from) {
+    return Status::NotSupported("Cannot cast extension: ", from->Name());
+  } else {
+    return Status::OK();
   }
-  return Status::NotFound("Could not load extension", name);
 }
-  
+
+template<typename T>
+Status CastUniqueExtension(Extension *from,
+			   std::unique_ptr<Extension> & from_guard,
+			   T **to,
+			   std::unique_ptr<T> * to_guard) {
+  to_guard->reset();
+  *to = nullptr;
+  if (from != nullptr) {
+    *to = dynamic_cast<T *>(from);
+    if (*to == nullptr) {
+      return Status::NotSupported("Cannot cast extension: ", from->Name());
+    } else if (from_guard.release() != nullptr) {
+      to_guard->reset(*to);
+    }
+  } 
+  return Status::OK();
+}
+
 template<typename T>
 Status NewSharedExtension(const std::string & name,
 			  const DBOptions & dbOpts, 
 			  const ColumnFamilyOptions * cfOpts,
 			  std::shared_ptr<T> * result)  {
-  T *unique;
-  std::unique_ptr<T> guard;
+  std::shared_ptr<Extension> extension;
   result->reset();
-  Status s = NewExtension(name, dbOpts, cfOpts, &unique, &guard);
+  Status s =  dbOpts.extensions->CreateSharedExtension(T::Type(), name,
+						       dbOpts, cfOpts, 
+						       &extension);
   if (! s.ok()) {
     return s;
-  } else if (guard) {
-    result->reset(guard.release());
-    return Status::OK();
+  } else if (extension) {
+    return CastSharedExtension(extension, result);
   } else {
-    return Status::NotSupported("Cannot share extension", name);
+    return Status::NotSupported("Cannot share extension: ", name);
+  }
+}
+
+template<typename T>
+Status NewUniqueExtension(const std::string & name,
+			  const DBOptions & dbOpts, 
+			  const ColumnFamilyOptions * cfOpts,
+			  T ** result,
+			  std::unique_ptr<T> * guard)  {
+  std::unique_ptr<Extension> ext_guard;
+  Extension *extension;
+  guard->reset();
+  *result = nullptr;
+  extension = dbOpts.extensions->CreateUniqueExtension(T::Type(), name,
+						       dbOpts, cfOpts, 
+						       &ext_guard);
+  if (extension != nullptr) {
+    Status status = CastUniqueExtension(extension, ext_guard, result, guard);
+    return status;
+  } else {
+    return Status::InvalidArgument("Could not find extension: ", name);
   }
 }
   
@@ -210,5 +240,72 @@ Status GetSharedExtension(const std::string & name,
   } else {
     return Status::OK();
   }
+}
+
+template<typename T>
+Status GetUniqueExtension(const std::string & name,
+			  const DBOptions & dbOpts, 
+			  const ColumnFamilyOptions * cfOpts,
+			  T **extension,
+			  std::unique_ptr<T> * guard) {
+  if (*extension == nullptr || (*extension)->Name() != name) {
+    return NewUniqueExtension(name, dbOpts, cfOpts, extension, guard);
+  } else {
+    return Status::OK();
+  }
+}
+
+template<typename T>
+Status SetSharedOption(const std::string & prefix,
+		       const std::string & name,
+		       const std::string & value,
+		       bool input_strings_escaped,
+		       const DBOptions & dbOpts,
+		       const ColumnFamilyOptions * cfOpts,
+		       bool ignore_unknown_options,
+		       std::shared_ptr<T> * shared) {
+  bool isProp;
+  Status status = Status::OK();
+  if (ExtensionLoader::PropertyMatchesPrefix(prefix, name, &isProp)) {
+    if (isProp) {
+      status = Status::NotSupported("Not yet implemented");
+    } else {
+      status = GetSharedExtension(value, dbOpts, cfOpts, shared);
+    }
+  } else if (*shared) {
+    status = shared->get()->SetOption(name, value, input_strings_escaped,
+				      dbOpts, cfOpts, ignore_unknown_options);
+    
+  } else {
+    status = Status::NotFound("Unrecognized property: ", name);
+  }
+  return status;
+}
+
+template<typename T>
+Status SetUniqueOption(const std::string & prefix,
+		       const std::string & name,
+		       const std::string & value,
+		       bool input_strings_escaped,
+		       const DBOptions & dbOpts,
+		       const ColumnFamilyOptions * cfOpts,
+		       bool ignore_unknown_options,
+		       T **result,
+		       std::unique_ptr<T> * guard) {
+  bool isProp;
+  Status status = Status::OK();
+  if (ExtensionLoader::PropertyMatchesPrefix(prefix, name, &isProp)) {
+    if (isProp) {
+      status = Status::NotSupported("Not yet implemented");
+    } else {
+      status = GetUniqueExtension(value, dbOpts, cfOpts, result, guard);
+    }
+  } else if (*result) {
+    status = (*result)->SetOption(name, value, input_strings_escaped,
+				  dbOpts, cfOpts, ignore_unknown_options);
+  } else {
+    status = Status::NotFound("Unrecognized property: ", name);
+  }
+  return status;
 }
 }  // namespace rocksdb

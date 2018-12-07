@@ -11,7 +11,6 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
-#include <iostream> // MJR
 namespace rocksdb {
 std::shared_ptr<ExtensionLoader> ExtensionLoader::Get() {
   std::shared_ptr<ExtensionLoader> factory = std::make_shared<ExtensionLoader>();
@@ -84,11 +83,11 @@ ExtensionLoader::FactoryFunction ExtensionLoader::FindFactory(
   }
 }
 
-Extension *ExtensionLoader::CreateExtension(const std::string & type,
-					     const std::string & name,
-					     const DBOptions & dbOpts,
-					     const ColumnFamilyOptions * cfOpts,
-					     std::unique_ptr<Extension> *guard) {
+Extension *ExtensionLoader::CreateUniqueExtension(const std::string & type,
+						  const std::string & name,
+						  const DBOptions & dbOpts,
+						  const ColumnFamilyOptions * cfOpts,
+						  std::unique_ptr<Extension> *guard) {
   guard->reset();
   FactoryFunction factory = FindFactory(type, name);
   if (factory) {
@@ -98,8 +97,45 @@ Extension *ExtensionLoader::CreateExtension(const std::string & type,
     return nullptr;
   }
 }
+
+Status ExtensionLoader::CreateSharedExtension(const std::string & type,
+					      const std::string & name,
+					      const DBOptions & dbOpts,
+					      const ColumnFamilyOptions * cfOpts,
+					      std::shared_ptr<Extension> *result) {
+  std::unique_ptr<Extension> guard;
+  result->reset();
+  Extension *extension = CreateUniqueExtension(type, name, dbOpts, cfOpts, &guard);
+  if (extension == nullptr) {
+    return Status::InvalidArgument("Could not load extension", name);
+  } else if (guard) {
+    result->reset(guard.release());
+    return Status::OK();
+  } else {
+    return Status::NotSupported("Cannot share extension", name);
+  }
+}
   
 void ExtensionLoader::Dump(Logger*) const {
 } 
+
+bool ExtensionLoader::PropertyMatchesPrefix(const std::string & prefix,
+					    const std::string & property,
+					    bool *isExact) {
+  size_t prefixLen = prefix.size();
+  size_t propLen   = property.size();
+  *isExact = false;
+  if (prefixLen <= propLen) {
+    if (property.compare(0, prefixLen, prefix) == 0) {
+      if (prefixLen == propLen) {
+	*isExact = true;
+	return true;
+      } else {
+	return (property.compare(prefixLen, 5, ".name") == 0);
+      }
+    }
+  }
+  return false;
+}
 } // Namespace rocksdb
 #endif  // ROCKSDB_LITE

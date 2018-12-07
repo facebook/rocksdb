@@ -55,10 +55,9 @@ class HdfsEnv : public Env {
   }
   
   virtual const char *Name() const override { return fsname_.c_str(); }
-  virtual Status SetOption(const std::string & name,
-			   const std::string & value,
-			   bool ignore_unknown_options = false,
-			   bool input_strings_escaped = false) override;
+  virtual Status SetNamedOption(const std::string & name,
+				const std::string & value,
+				bool input_strings_escaped) override;
   virtual Status SanitizeOptions(const DBOptions &,
 				 const ColumnFamilyOptions &) const override;
 

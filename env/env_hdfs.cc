@@ -382,14 +382,19 @@ const std::string HdfsEnv::kOptFsName = "rocksdb.hdfs.fs.name";
 
 Status HdfsEnv::SetOption(const std::string & name,
 			  const std::string & value,
-			  bool ignore_unknown_options,
 			  bool input_strings_escaped) {
   if (name == kOptFsName) {
     fsname_ = name;
     return Status::OK();
   } else {
-    Env::SetOption(name, value, ignore_unknown_options, input_strings_escaped);
+    Env::SetNamedOption(name, value, input_strings_escaped);
   }
+}
+
+Status HdfsEnv::SanitizeOptions(const DBOptions &) const {
+  if (fsname_.empty()) {
+  }
+  return Status::OK();
 }
   
 // open a file for sequential reading
@@ -407,6 +412,7 @@ Status HdfsEnv::NewSequentialFile(const std::string& fname,
   return Status::OK();
 }
 
+  
 // open a file for random reading
 Status HdfsEnv::NewRandomAccessFile(const std::string& fname,
                                     unique_ptr<RandomAccessFile>* result,

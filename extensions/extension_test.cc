@@ -16,20 +16,11 @@
 #include <unordered_map>
 #include <inttypes.h>
 
-#include "cache/lru_cache.h"
-#include "cache/sharded_cache.h"
-#include "options/options_helper.h"
-#include "options/options_parser.h"
-#include "options/options_sanity_check.h"
-#include "rocksdb/cache.h"
-#include "rocksdb/convenience.h"
-#include "rocksdb/memtablerep.h"
-#include "rocksdb/utilities/leveldb_options.h"
-#include "util/random.h"
+#include "rocksdb/extensions.h"
+#include "rocksdb/extension_loader.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
-#include "util/testutil.h"
 #include "extensions/extension_test.h"
 
 #ifndef GFLAGS
@@ -39,107 +30,97 @@ bool FLAGS_enable_print = false;
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 DEFINE_bool(enable_print, false, "Print options generated to console.");
 #endif  // GFLAGS
-
 namespace rocksdb {
 
 class ExtensionTest : public testing::Test {};
 
-#ifndef ROCKSDB_LITE  // GetOptionsFromMap is not supported in ROCKSDB_LITE
-
-class TestListener : public EventListener {
+class MockExtension : public Extension {
 private:
+  const std::string name_;
   bool        sanitize;
-  std::string listenerName;
 public:
-  TestListener(const std::string & n) : listenerName(n) { sanitize=true;}
-  const char * Name() const override { return listenerName.c_str(); }
+  using Extension::SetOption;
+  static const std::string kType;
+  static const std::string & Type() { return kType; }
+public:
+  MockExtension(const std::string & name) : name_(name) { }
+  virtual const char *Name() const override { return name_.c_str(); }
+
   virtual Status SetOption(const std::string & name,
 			   const std::string & value,
-			   bool ignore_unknown_options,
 			   bool input_strings_escaped) override {
-    if (name == "test.listener.sanitize") {
+    if (name == "test.sanitize") {
       sanitize = ParseBoolean(name, value);
       return Status::OK();
     } else {
-      return EventListener::SetOption(name, value,
-				      ignore_unknown_options,
-				      input_strings_escaped);
+      return Extension::SetOption(name, value, input_strings_escaped);
     }
   }
 
   virtual Status SanitizeOptions(const DBOptions & dbOpts) const override {
     if (sanitize) {
-      return EventListener::SanitizeOptions(dbOpts);
+      return Extension::SanitizeOptions(dbOpts);
     } else {
       return Status::InvalidArgument("Sanitized=false");
     }
   }
 };
 
-  Extension *CreateTestListener(const std::string & name,
+const std::string MockExtension::kType = "test-extension";
+
+#ifndef ROCKSDB_LITE
+Extension *CreateMockExtension(const std::string & name,
 				const DBOptions &,
 				const ColumnFamilyOptions *,
 				std::unique_ptr<Extension>* guard) {
-    guard->reset(new TestListener(name));
-    return guard->get();
-  }
+  guard->reset(new MockExtension(name));
+  return guard->get();
+}
   
 
 extern "C" {
-  void testListenerFactory(ExtensionLoader & factory, const std::string & name) {
-    factory.RegisterFactory(EventListener::Type(), name,
-			    CreateTestListener);
+  void testMockExtensionFactory(ExtensionLoader & factory, const std::string & name) {
+    factory.RegisterFactory(MockExtension::Type(), name,
+			    CreateMockExtension);
   }
 }
 
-static EventListener *AssertNewListener(DBOptions & dbOpts, const char *name,
-					bool isValid,
-					std::unique_ptr<EventListener> *guard) {
-  EventListener *listener;
-  AssertNewExtension(dbOpts, name, isValid, &listener, true, guard);
-  return listener;
-}
-
-static void AssertNewListener(DBOptions & dbOpts, const char *name,
-			      bool isValid) {
-  std::unique_ptr<EventListener> guard;
-  AssertNewListener(dbOpts, name, isValid, &guard);
-}
-
-  
 TEST_F(ExtensionTest, RegisterLocalExtensions) {
+  std::shared_ptr<MockExtension> extension;
   DBOptions dbOpt1, dbOpt2;
-  const char *name1 = "listener1";
-  const char *name2= "listener2";
-  dbOpt1.extensions->RegisterFactory(EventListener::Type(), name1,
-				     CreateTestListener);
-  dbOpt2.extensions->RegisterFactory(EventListener::Type(), name2,
-				     CreateTestListener);
-
-  AssertNewListener(dbOpt1, name1, true);
-  AssertNewListener(dbOpt2, name1, false);
-  AssertNewListener(dbOpt1, name2, false);
-  AssertNewListener(dbOpt2, name2, true);
+  const char *name1 = "test1";
+  const char *name2= "test2";
+  dbOpt1.extensions->RegisterFactory(MockExtension::Type(), name1,
+				     CreateMockExtension);
+  dbOpt2.extensions->RegisterFactory(MockExtension::Type(), name2,
+				     CreateMockExtension);
+  AssertNewSharedExtension(dbOpt1, name1, true, &extension);
+  AssertNewSharedExtension(dbOpt1, name2, false, &extension);
+  AssertNewSharedExtension(dbOpt2, name1, false, &extension);
+  AssertNewSharedExtension(dbOpt2, name2, true, &extension);
 }
   
 TEST_F(ExtensionTest, RegisterDefaultExtensions) {
   DBOptions dbOpt1;
-  const char *name = "DefaultListener";
-  AssertNewListener(dbOpt1, name, false);
+  std::shared_ptr<MockExtension> extension;
+  const char *name = "Default";
+  AssertNewSharedExtension(dbOpt1, name, false, &extension);
 
-  ExtensionLoader::Default()->RegisterFactory(EventListener::Type(),
-					      name, CreateTestListener);
+  ExtensionLoader::Default()->RegisterFactory(MockExtension::Type(),
+					      name, CreateMockExtension);
   
-  AssertNewListener(dbOpt1, name, true);
+  AssertNewSharedExtension(dbOpt1, name, true, &extension);
   DBOptions dbOpt2;
-  AssertNewListener(dbOpt2, name, true);
+  AssertNewSharedExtension(dbOpt2, name, true, &extension);
 }
 
 TEST_F(ExtensionTest, RegisterFactories) {
   DBOptions dbOptions;
-  const char *name = "factoryListener";
-  dbOptions.extensions->RegisterFactories(testListenerFactory, name);
-  AssertNewListener(dbOptions, name, true);
+  const char *name = "factory";
+  std::shared_ptr<MockExtension> extension;
+
+  dbOptions.extensions->RegisterFactories(testMockExtensionFactory, name);
+  AssertNewSharedExtension(dbOptions, name, true, &extension);
 }
 
 TEST_F(ExtensionTest, LoadUnknownLibrary) {
@@ -150,144 +131,129 @@ TEST_F(ExtensionTest, LoadUnknownLibrary) {
 
 TEST_F(ExtensionTest, LoadExtensionLibrary) {
   DBOptions dbOptions;
-  const char *name = "testListener";
-  ASSERT_OK(dbOptions.AddExtensionLibrary("", "testListenerFactory", name));
-  AssertNewListener(dbOptions, "Not found", false);
-  AssertNewListener(dbOptions, name, true);
+  const char *name = "test";
+  std::shared_ptr<MockExtension> extension;
+  ASSERT_OK(dbOptions.AddExtensionLibrary("", "testMockExtensionFactory", name));
+  AssertNewSharedExtension(dbOptions, "Not found", false, &extension);
+  AssertNewSharedExtension(dbOptions, name, true, &extension);
 }
 
 TEST_F(ExtensionTest, SetOptions) {
   DBOptions dbOptions;
-  std::unique_ptr<EventListener> guard;
   const char *name = "setOptions";
-  ExtensionLoader::Default()->RegisterFactory(EventListener::Type(),
-					      name, CreateTestListener);
-  AssertNewListener(dbOptions, name, true, &guard);
-  ASSERT_OK(guard->SetOption("unknown", "bad", true, true));
-  ASSERT_EQ(Status::InvalidArgument(), guard->SetOption("unknown", "bad", false, false));
-  ASSERT_EQ(Status::InvalidArgument(), guard->SetOption("unknown", "bad"));  
-  ASSERT_OK(guard->SetOption("test.listener.sanitize", "true"));
+  std::shared_ptr<MockExtension> extension;
+  
+  ExtensionLoader::Default()->RegisterFactory(MockExtension::Type(),
+					      name, CreateMockExtension);
+  AssertNewSharedExtension(dbOptions, name, true, &extension);
+  ASSERT_EQ(Status::NotFound(), extension->SetOption("unknown", "bad"));  
+  ASSERT_OK(extension->SetOption("test.sanitize", "true"));
 }
 
-  TEST_F(ExtensionTest, SanitizeOptions) {
+TEST_F(ExtensionTest, SanitizeOptions) {
   DBOptions dbOptions;
-  std::unique_ptr<EventListener> guard;
+  std::shared_ptr<MockExtension> ext;
   const char *name = "setOptions";
-  ExtensionLoader::Default()->RegisterFactory(EventListener::Type(),
-					      name, CreateTestListener);
-  AssertNewListener(dbOptions, name, true, &guard);
-  ASSERT_OK(guard->SetOption("test.listener.sanitize", "false"));
-  ASSERT_EQ(Status::InvalidArgument(), guard->SanitizeOptions(dbOptions));
-  ASSERT_OK(guard->SetOption("test.listener.sanitize", "true"));
-  ASSERT_OK(guard->SanitizeOptions(dbOptions));
+  ExtensionLoader::Default()->RegisterFactory(MockExtension::Type(),
+					      name, CreateMockExtension);
+  AssertNewSharedExtension(dbOptions, name, true, &ext);
+  ASSERT_OK(ext->SetOption("test.sanitize", "false"));
+  ASSERT_EQ(Status::InvalidArgument(), ext->SanitizeOptions(dbOptions));
+  ASSERT_OK(ext->SetOption("test.sanitize", "true"));
+  ASSERT_OK(ext->SanitizeOptions(dbOptions));
 }
 
 TEST_F(ExtensionTest, ConfigureOptionsFromString) {
   DBOptions dbOptions;
-  std::unique_ptr<EventListener> guard;
+  std::shared_ptr<MockExtension> ext;
   const char *name = "fromString";
-  ExtensionLoader::Default()->RegisterFactory(EventListener::Type(),
-					      name, CreateTestListener);
-  AssertNewListener(dbOptions, name, true, &guard);
-  ASSERT_OK(guard->ConfigureFromString("test.listener.sanitize=true",
-				       dbOptions));
-  ASSERT_OK(guard->SanitizeOptions(dbOptions));
-  ASSERT_OK(guard->ConfigureFromString("test.listener.sanitize=false",
-				       dbOptions));
-  ASSERT_EQ(Status::InvalidArgument(), guard->SanitizeOptions(dbOptions));
-  ASSERT_OK(guard->ConfigureFromString("test.listener.sanitize=true;unknown.options=x",
-				       dbOptions, nullptr, true, false));
-  ASSERT_OK(guard->SanitizeOptions(dbOptions));
-  ASSERT_EQ(Status::InvalidArgument(), 
-	    guard->ConfigureFromString("test.listener.sanitize=true;unknown.options=x",
-				       dbOptions));
-  ASSERT_OK(guard->SanitizeOptions(dbOptions));
+  ExtensionLoader::Default()->RegisterFactory(MockExtension::Type(),
+					      name, CreateMockExtension);
+  AssertNewSharedExtension(dbOptions, name, true, &ext);
+  ASSERT_OK(ext->ConfigureFromString("test.sanitize=true",dbOptions));
+  ASSERT_OK(ext->SanitizeOptions(dbOptions));
+  ASSERT_OK(ext->ConfigureFromString("test.sanitize=false", dbOptions));
+  ASSERT_EQ(Status::InvalidArgument(), ext->SanitizeOptions(dbOptions));
+  ASSERT_OK(ext->ConfigureFromString("test.sanitize=true;unknown.options=x",
+				     false, dbOptions, nullptr, true));
+  ASSERT_OK(ext->SanitizeOptions(dbOptions));
+  ASSERT_EQ(Status::NotFound(), 
+	    ext->ConfigureFromString("test.sanitize=true;unknown.options=x",
+				     dbOptions));
+  ASSERT_OK(ext->SanitizeOptions(dbOptions));
 }
   
 TEST_F(ExtensionTest, ConfigureOptionsFromMap) {
   DBOptions dbOptions;
-  std::unique_ptr<EventListener> guard;
+  std::shared_ptr<MockExtension> guard;
   const char *name = "fromString";
   std::unordered_map<std::string, std::string> opt_map;
-  opt_map["test.listener.sanitize"]="false";
-  ExtensionLoader::Default()->RegisterFactory(EventListener::Type(),
-					      name, CreateTestListener);
-  AssertNewListener(dbOptions, name, true, &guard);
+  opt_map["test.sanitize"]="false";
+  ExtensionLoader::Default()->RegisterFactory(MockExtension::Type(),
+					      name, CreateMockExtension);
+  AssertNewSharedExtension(dbOptions, name, true, &guard);
 
   ASSERT_OK(guard->ConfigureFromMap(opt_map, dbOptions));
   ASSERT_EQ(Status::InvalidArgument(), guard->SanitizeOptions(dbOptions));
 
-  opt_map["test.listener.sanitize"]="true";
+  opt_map["test.sanitize"]="true";
   ASSERT_OK(guard->ConfigureFromMap(opt_map, dbOptions));
   ASSERT_OK(guard->SanitizeOptions(dbOptions));
   
   opt_map["unknown.options"]="true";
-  ASSERT_OK(guard->ConfigureFromMap(opt_map, dbOptions, nullptr, true, false));
+  ASSERT_OK(guard->ConfigureFromMap(opt_map, false, dbOptions, nullptr, true));
   ASSERT_OK(guard->SanitizeOptions(dbOptions));
 
-  ASSERT_EQ(Status::InvalidArgument(),
+  ASSERT_EQ(Status::NotFound(),
 	    guard->ConfigureFromMap(opt_map, dbOptions));
 }
 
-class TestExtension : public Extension {
-public:
-  const std::string name_;
-  static const std::string kType;
-  static const std::string & Type() { return kType; }
-public:
-    TestExtension(const std::string & name) : name_(name) { }
-  virtual const char *Name() const override { return name_.c_str(); }
-};
-
-const std::string TestExtension::kType = "test-extension";
-
 TEST_F(ExtensionTest, NewGuardedExtension) {
   DBOptions dbOpts;
-  TestExtension *test;
-  std::unique_ptr<TestExtension> guard;
-  std::shared_ptr<TestExtension> shared;
+  MockExtension *ext;
+  std::unique_ptr<MockExtension> guard;
+  std::shared_ptr<MockExtension> shared;
   
-  AssertNewExtension(dbOpts, "guarded", false, &test, true, &guard);
+  AssertNewUniqueExtension(dbOpts, "guarded", false, &ext, &guard, true);
   dbOpts.extensions->RegisterFactory(
-				 TestExtension::kType,
+				 MockExtension::kType,
 				 "guarded",
 				 [](const std::string & name,
 				    const DBOptions &,
 				    const ColumnFamilyOptions *,
 				    std::unique_ptr<Extension> * guard) {
-				   guard->reset(new TestExtension(name));
+				   guard->reset(new MockExtension(name));
 				   return guard->get();
 				 });
-  AssertNewExtension(dbOpts, "guarded", true, &test, true, &guard);
+  AssertNewUniqueExtension(dbOpts, "guarded", true, &ext, &guard, true);
   AssertNewSharedExtension(dbOpts, "guarded", true, &shared);
 }
 
 TEST_F(ExtensionTest, NewUnguardedExtension) {
   DBOptions dbOpts;
-  TestExtension *test;
-  std::unique_ptr<TestExtension> guard;
-  std::shared_ptr<TestExtension> shared;
+  MockExtension *ext;
+  std::shared_ptr<MockExtension> shared;
+  std::unique_ptr<MockExtension> guard;
   
-  AssertNewExtension(dbOpts, "unguarded", false, &test, true, &guard);
+  AssertNewUniqueExtension(dbOpts, "unguarded", false, &ext, &guard, false);
   dbOpts.extensions->RegisterFactory(
-				 TestExtension::kType,
+				 MockExtension::kType,
 				 "unguarded",
 				 [](const std::string & name,
 				    const DBOptions &,
 				    const ColumnFamilyOptions *,
 				    std::unique_ptr<Extension> * guard) {
 				   guard->reset();
-				   return new TestExtension(name);
+				   return new MockExtension(name);
 				 });
-  AssertNewExtension(dbOpts, "unguarded", true, &test, false, &guard);
+  AssertNewUniqueExtension(dbOpts, "unguarded", true, &ext, &guard, false);
   Status status = NewSharedExtension("unguarded", dbOpts, nullptr, &shared);
   ASSERT_TRUE(status.IsNotSupported());
   ASSERT_EQ(shared.get(), nullptr);
+  delete ext;
 }
-  
 #endif  // !ROCKSDB_LITE
 }  // namespace rocksdb
-
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
 #ifdef GFLAGS
