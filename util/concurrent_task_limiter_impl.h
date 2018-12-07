@@ -32,10 +32,10 @@ class ConcurrentTaskLimiterImpl : public ConcurrentTaskLimiter {
   virtual void ResetMaxOutstandingTask() override;
 
   virtual int32_t GetOutstandingTask() const override;
-  
+
   // Request token for adding a new task.
   // If force == true, it requests a token bypassing throttle.
-  // Returns nullptr if it got throttled. 
+  // Returns nullptr if it got throttled.
   virtual std::unique_ptr<TaskLimiterToken> GetToken(bool force);
 
  private:
@@ -43,7 +43,7 @@ class ConcurrentTaskLimiterImpl : public ConcurrentTaskLimiter {
 
   std::string name_;
   std::atomic<int32_t> max_outstanding_tasks_;
-  std::atomic<int32_t> outstanding_tasks_;  
+  std::atomic<int32_t> outstanding_tasks_;
 
   // No copying allowed
   ConcurrentTaskLimiterImpl(const ConcurrentTaskLimiterImpl&) = delete;

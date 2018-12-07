@@ -29,7 +29,7 @@ class ConcurrentTaskLimiter {
 
   // Reset to unlimited max concurrent task.
   virtual void ResetMaxOutstandingTask() = 0;
-  
+
   // Returns current outstanding task count.
   virtual int32_t GetOutstandingTask() const = 0;
 };
@@ -38,7 +38,7 @@ class ConcurrentTaskLimiter {
 // across RocksDB instances to control concurrent tasks.
 //
 // @param name: Name of the limiter.
-// @param limit: max concurrent tasks. 
+// @param limit: max concurrent tasks.
 //        limit = 0 means no new task allowed.
 //        limit < 0 means no limitation.
 extern ConcurrentTaskLimiter* NewConcurrentTaskLimiter(

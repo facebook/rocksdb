@@ -3921,15 +3921,14 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
   const int cf_count = sizeof cf_names / sizeof cf_names[0];
 
   std::unordered_map<std::string, CompactionLimiter*> cf_to_limiter;
-  
+
   Options options = CurrentOptions();
-  options.write_buffer_size = 110 << 10;  // 110KB
-  options.arena_block_size = 4 << 10;
+  options.write_buffer_size = 110 * 1024;  // 110KB
+  options.arena_block_size = 4096;
   options.num_levels = 3;
   options.level0_file_num_compaction_trigger = 4;
   options.level0_slowdown_writes_trigger = 64;
   options.level0_stop_writes_trigger = 64;
-  options.soft_pending_compaction_bytes_limit = 1 << 30;  // Infinitely large
   options.max_background_jobs = kMaxBackgroundThreads; // Enough threads
   options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
   options.max_write_buffer_number = 10; // Enough memtables
@@ -3937,7 +3936,7 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
 
   std::vector<Options> option_vector;
   option_vector.reserve(cf_count);
-  
+
   for (int cf = 0; cf < cf_count; cf++) {
     ColumnFamilyOptions cf_opt(options);
     if (cf == 0) {
@@ -3951,7 +3950,7 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
       // Assign limiter by mod
       auto& ls = limiter_settings[cf % 3];
       cf_opt.compaction_thread_limiter = ls.limiter;
-      cf_to_limiter[cf_names[cf]] = &ls;      
+      cf_to_limiter[cf_names[cf]] = &ls;
     }
     option_vector.emplace_back(DBOptions(options), cf_opt);
   }
@@ -3960,26 +3959,26 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
     CreateColumnFamilies({cf_names[cf]}, option_vector[cf]);
   }
 
-  ReopenWithColumnFamilies(std::vector<std::string>(cf_names, 
-                                                    cf_names + cf_count), 
+  ReopenWithColumnFamilies(std::vector<std::string>(cf_names,
+                                                    cf_names + cf_count),
                            option_vector);
 
-  port::Mutex mutex;  
+  port::Mutex mutex;
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-    "DBImpl::BackgroundCompaction:BeforeCompaction", [&](void* arg) { 
+    "DBImpl::BackgroundCompaction:BeforeCompaction", [&](void* arg) {
       const auto& cf_name = static_cast<ColumnFamilyData*>(arg)->GetName();
       auto iter = cf_to_limiter.find(cf_name);
       if (iter != cf_to_limiter.end()) {
         MutexLock l(&mutex);
         ASSERT_GE(iter->second->limit_tasks, ++iter->second->tasks);
-        iter->second->max_tasks = std::max(iter->second->max_tasks, 
+        iter->second->max_tasks = std::max(iter->second->max_tasks,
               iter->second->limit_tasks);
       }
     });
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-    "DBImpl::BackgroundCompaction:AfterCompaction", [&](void* arg) { 
+    "DBImpl::BackgroundCompaction:AfterCompaction", [&](void* arg) {
       const auto& cf_name = static_cast<ColumnFamilyData*>(arg)->GetName();
       auto iter = cf_to_limiter.find(cf_name);
       if (iter != cf_to_limiter.end()) {
@@ -4023,7 +4022,7 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
 
   // Enough L0 files to trigger compaction
   for (int cf = 0; cf < cf_count; cf++) {
-    ASSERT_EQ(NumTableFilesAtLevel(0, cf), 
+    ASSERT_EQ(NumTableFilesAtLevel(0, cf),
       options.level0_file_num_compaction_trigger);
   }
 
@@ -4043,7 +4042,7 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
   // All CFs are pending compaction
   ASSERT_EQ(cf_count, env_->GetThreadPoolQueueLen(Env::LOW));
 
-  // Unblock all compaction threads.
+  // Unblock all compaction threads
   for (size_t i = 0; i < kTotalCompactTasks; i++) {
     sleeping_compact_tasks[i].WakeUp();
     sleeping_compact_tasks[i].WaitUntilDone();

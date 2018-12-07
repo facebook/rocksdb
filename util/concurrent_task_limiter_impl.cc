@@ -13,14 +13,14 @@
 namespace rocksdb {
 
 ConcurrentTaskLimiterImpl::ConcurrentTaskLimiterImpl(
-    const std::string& name, int32_t max_outstanding_task) 
+    const std::string& name, int32_t max_outstanding_task)
     : name_(name),
-      max_outstanding_tasks_(max_outstanding_task),
-      outstanding_tasks_(0) {
+      max_outstanding_tasks_{max_outstanding_task},
+      outstanding_tasks_{0} {
 
 }
 
-ConcurrentTaskLimiterImpl::~ConcurrentTaskLimiterImpl() {  
+ConcurrentTaskLimiterImpl::~ConcurrentTaskLimiterImpl() {
 }
 
 const std::string& ConcurrentTaskLimiterImpl::GetName() const {

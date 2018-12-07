@@ -1106,10 +1106,11 @@ class DBImpl : public DB {
                                bool* sfm_bookkeeping, LogBuffer* log_buffer);
 
   // Request compaction tasks token from compaction thread limiter.
-  // It always succeeds if force = true or limiter is disable. 
-  bool RequestCompactionToken(ColumnFamilyData* cfd, bool force, 
+  // It always succeeds if force = true or limiter is disable.
+  bool RequestCompactionToken(ColumnFamilyData* cfd, bool force,
                               std::unique_ptr<TaskLimiterToken>* token,
                               LogBuffer* log_buffer);
+
   // Schedule background tasks
   void StartTimedTasks();
 
@@ -1136,7 +1137,7 @@ class DBImpl : public DB {
   ColumnFamilyData* PopFirstFromCompactionQueue();
   FlushRequest PopFirstFromFlushQueue();
 
-  // Pick the first unthrottled compaction with task token from queue. 
+  // Pick the first unthrottled compaction with task token from queue.
   ColumnFamilyData* PickCompactionFromQueue(
       std::unique_ptr<TaskLimiterToken>* token, LogBuffer* log_buffer);
 
