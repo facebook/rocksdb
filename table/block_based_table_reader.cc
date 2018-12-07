@@ -788,8 +788,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
   const bool preload_all = !table_options.cache_index_and_filter_blocks;
 
-  s = PrefetchTail(file.get(), &prefetch_buffer, file_size, tail_prefetch_stats,
-                   prefetch_all, preload_all);
+  s = PrefetchTail(file.get(), file_size, tail_prefetch_stats, prefetch_all,
+                   preload_all, &prefetch_buffer);
 
   // Read in the following order:
   //    1. Footer
@@ -874,10 +874,10 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
 }
 
 Status BlockBasedTable::PrefetchTail(
-    RandomAccessFileReader* file,
-    std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, uint64_t file_size,
+    RandomAccessFileReader* file, uint64_t file_size,
     TailPrefetchStats* tail_prefetch_stats, const bool prefetch_all,
-    const bool preload_all) {
+    const bool preload_all,
+    std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer) {
   size_t tail_prefetch_size = 0;
   if (tail_prefetch_stats != nullptr) {
     // Multiple threads may get a 0 (no history) when running in parallel,
@@ -931,9 +931,8 @@ Status BlockBasedTable::ReadPropertiesBlock(
     s = meta_iter->status();
     TableProperties* table_properties = nullptr;
     if (s.ok()) {
-      s = ReadProperties(meta_iter->value(), rep->file.get(),
-                         prefetch_buffer, rep->footer, rep->ioptions,
-                         &table_properties,
+      s = ReadProperties(meta_iter->value(), rep->file.get(), prefetch_buffer,
+                         rep->footer, rep->ioptions, &table_properties,
                          false /* compression_type_missing */,
                          nullptr /* memory_allocator */);
     }
@@ -974,7 +973,6 @@ Status BlockBasedTable::ReadPropertiesBlock(
                                 &(rep->global_seqno));
     if (!s.ok()) {
       ROCKS_LOG_ERROR(rep->ioptions.info_log, "%s", s.ToString().c_str());
-      // return s;
     }
   }
   return s;

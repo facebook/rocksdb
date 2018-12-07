@@ -352,10 +352,10 @@ class BlockBasedTable : public TableReader {
       const SliceTransform* prefix_extractor = nullptr) const;
 
   static Status PrefetchTail(
-      RandomAccessFileReader* file,
-      std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, uint64_t file_size,
+      RandomAccessFileReader* file, uint64_t file_size,
       TailPrefetchStats* tail_prefetch_stats, const bool prefetch_all,
-      const bool preload_all);
+      const bool preload_all,
+      std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer);
   static Status ReadMetaBlock(Rep* rep, FilePrefetchBuffer* prefetch_buffer,
                               std::unique_ptr<Block>* meta_block,
                               std::unique_ptr<InternalIterator>* iter);
