@@ -1617,6 +1617,7 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 
   FilterBlockReader* filter = nullptr;
   if (cache_handle != nullptr) {
+    PERF_COUNTER_ADD(block_cache_filter_hit_count, 1);
     filter = reinterpret_cast<FilterBlockReader*>(
         block_cache->Value(cache_handle));
   } else if (no_io) {
@@ -1633,6 +1634,7 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
               ? Cache::Priority::HIGH
               : Cache::Priority::LOW);
       if (s.ok()) {
+        PERF_COUNTER_ADD(filter_block_read_count, 1);
         if (get_context != nullptr) {
           get_context->get_context_stats_.num_cache_add++;
           get_context->get_context_stats_.num_cache_bytes_write += usage;
@@ -1708,6 +1710,7 @@ InternalIteratorBase<BlockHandle>* BlockBasedTable::NewIndexIterator(
 
   IndexReader* index_reader = nullptr;
   if (cache_handle != nullptr) {
+    PERF_COUNTER_ADD(block_cache_index_hit_count, 1);
     index_reader =
         reinterpret_cast<IndexReader*>(block_cache->Value(cache_handle));
   } else {
@@ -1737,6 +1740,7 @@ InternalIteratorBase<BlockHandle>* BlockBasedTable::NewIndexIterator(
         RecordTick(statistics, BLOCK_CACHE_ADD);
         RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, charge);
       }
+      PERF_COUNTER_ADD(index_block_read_count, 1);
       RecordTick(statistics, BLOCK_CACHE_INDEX_ADD);
       RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT, charge);
     } else {
