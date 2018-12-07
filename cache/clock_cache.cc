@@ -28,7 +28,7 @@ std::shared_ptr<Cache> NewClockCache(size_t /*capacity*/, int /*num_shard_bits*/
 #include <deque>
 
 // "tbb/concurrent_hash_map.h" requires RTTI if exception is enabled.
-// Disable it so users can chooose to disable RTTI.
+// Disable it so users can choose to disable RTTI.
 #ifndef ROCKSDB_USE_RTTI
 #define TBB_USE_EXCEPTIONS 0
 #endif
@@ -710,6 +710,8 @@ class ClockCache : public ShardedCache {
   }
 
   virtual void DisownData() override { shards_ = nullptr; }
+
+  virtual Status Clear() override { return Status::NotSupported(); }
 
  private:
   ClockCacheShard* shards_;

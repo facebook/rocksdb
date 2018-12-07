@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include "port/port.h"
+#include "rocksdb/status.h"
 #include "util/testharness.h"
 
 namespace rocksdb {
@@ -55,6 +56,10 @@ class LRUCacheTest : public testing::Test {
   bool Lookup(char key) { return Lookup(std::string(1, key)); }
 
   void Erase(const std::string& key) { cache_->Erase(key, 0 /*hash*/); }
+
+  Status Clear() { return cache_->Clear(); }
+
+  size_t GetUsage() { return cache_->GetUsage(); }
 
   void ValidateLRUList(std::vector<std::string> keys,
                        size_t num_high_pri_pool_keys = 0) {
@@ -187,6 +192,34 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
   ASSERT_TRUE(Lookup("d"));
   ValidateLRUList({"e", "f", "g", "Z", "d"}, 2);
 }
+
+TEST_F(LRUCacheTest, ClearLRU) {
+  NewCache(5);
+
+  ASSERT_EQ(0, GetUsage());
+
+  for (char ch = 'a'; ch <= 'e'; ch++) {
+    Insert(ch);
+  }
+  ValidateLRUList({"a", "b", "c", "d", "e"});
+  ASSERT_NE(0, GetUsage());
+
+  Status s = Clear();
+  ASSERT_EQ(s.ok(), true);
+  ASSERT_EQ(0, GetUsage());
+  
+  ValidateLRUList({});
+    
+  Insert('f');
+  ValidateLRUList({"f"});
+  ASSERT_NE(0, GetUsage());
+
+  s = Clear();
+  ASSERT_EQ(s.ok(), true);
+  ASSERT_EQ(0, GetUsage());
+  
+  ValidateLRUList({});
+} 
 
 }  // namespace rocksdb
 

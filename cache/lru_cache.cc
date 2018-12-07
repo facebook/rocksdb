@@ -148,6 +148,31 @@ void LRUCacheShard::EraseUnRefEntries() {
   }
 }
 
+Status LRUCacheShard::Clear() {
+  MutexLock l(&mutex_);
+  
+  LRUHandle* lru_handle = lru_.next;
+  while (lru_handle != &lru_) {
+    assert(lru_handle->InCache());
+
+    if (lru_handle->refs == 1) {
+      LRUHandle* old = lru_handle;
+      lru_handle = old->next;
+
+      LRU_Remove(old);
+      table_.Remove(old->key(), old->hash);
+      old->SetInCache(false);
+      Unref(old);
+      usage_ -= old->charge;
+      old->Free();
+    } else {
+      lru_handle = lru_handle->next;
+    }
+  }
+
+  return Status::OK();
+}
+
 void LRUCacheShard::ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                                            bool thread_safe) {
   if (thread_safe) {

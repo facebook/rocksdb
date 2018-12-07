@@ -117,7 +117,6 @@ class CacheTest : public testing::TestWithParam<std::string> {
     cache->Erase(EncodeKey(key));
   }
 
-
   int Lookup(int key) {
     return Lookup(cache_, key);
   }
@@ -656,7 +655,7 @@ void callback(void* entry, size_t charge) {
 }
 };
 
-TEST_P(CacheTest, ApplyToAllCacheEntiresTest) {
+TEST_P(CacheTest, ApplyToAllCacheEntriesTest) {
   std::vector<std::pair<int, int>> inserted;
   callback_state.clear();
 

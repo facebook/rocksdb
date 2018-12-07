@@ -185,6 +185,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
   virtual bool Release(Cache::Handle* handle,
                        bool force_erase = false) override;
   virtual void Erase(const Slice& key, uint32_t hash) override;
+  virtual Status Clear() override;
 
   // Although in some platforms the update of size_t is atomic, to make sure
   // GetUsage() and GetPinnedUsage() work correctly under any platform, we'll

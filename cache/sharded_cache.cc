@@ -75,6 +75,18 @@ void ShardedCache::Erase(const Slice& key) {
   GetShard(Shard(hash))->Erase(key, hash);
 }
 
+Status ShardedCache::Clear() {
+  Status status;
+  int num_shards = 1 << num_shard_bits_;
+  for (int s = 0; s < num_shards; s++) {
+    status = GetShard(s)->Clear();
+    if (!status.ok()) {
+      break;
+    }
+  }
+  return status;
+}
+
 uint64_t ShardedCache::NewId() {
   return last_id_.fetch_add(1, std::memory_order_relaxed);
 }

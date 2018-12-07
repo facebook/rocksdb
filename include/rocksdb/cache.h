@@ -183,6 +183,16 @@ class Cache {
   // underlying entry will be kept around until all existing handles
   // to it have been released.
   virtual void Erase(const Slice& key) = 0;
+
+  // Clear all non-referenced entries from the cache. This tries to achieve
+  // a best-effort deletion of cache entries, but it does not guarantee 
+  // consistent deletion of entries, e.g. across multiple shards.
+  virtual Status Clear() {
+    // there is no default implementation for Clear(), only some derived 
+    // classes implement it
+    return Status::NotSupported();
+  }
+
   // Return a new numeric id.  May be used by multiple clients who are
   // sharding the same cache to partition the key space.  Typically the
   // client will allocate a new id at startup and prepend the id to
@@ -220,9 +230,9 @@ class Cache {
   // memory - call this only if you're shutting down the process.
   // Any attempts of using cache after this call will fail terribly.
   // Always delete the DB object before calling this method!
-  virtual void DisownData(){
-      // default implementation is noop
-  };
+  virtual void DisownData() {
+    // default implementation is noop
+  }
 
   // Apply callback to all entries in the cache
   // If thread_safe is true, it will also lock the accesses. Otherwise, it will
