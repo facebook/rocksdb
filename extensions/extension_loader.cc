@@ -119,23 +119,5 @@ Status ExtensionLoader::CreateSharedExtension(const std::string & type,
 void ExtensionLoader::Dump(Logger*) const {
 } 
 
-bool ExtensionLoader::PropertyMatchesPrefix(const std::string & prefix,
-					    const std::string & property,
-					    bool *isExact) {
-  size_t prefixLen = prefix.size();
-  size_t propLen   = property.size();
-  *isExact = false;
-  if (prefixLen <= propLen) {
-    if (property.compare(0, prefixLen, prefix) == 0) {
-      if (prefixLen == propLen) {
-	*isExact = true;
-	return true;
-      } else {
-	return (property.compare(prefixLen, 5, ".name") == 0);
-      }
-    }
-  }
-  return false;
-}
 } // Namespace rocksdb
 #endif  // ROCKSDB_LITE

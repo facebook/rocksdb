@@ -1701,11 +1701,11 @@ TEST_F(EnvTest, TestEnvWrapperSetOption) {
   DBOptions dbOpts;
   Env* env = new TestEnv();
   ASSERT_EQ(Status::InvalidArgument(),
-	    env->SetOption("rocksdb.env.target.name", "test", dbOpts));
+	    env->SetOption(dbOpts, "rocksdb.env.target.name", "test"));
   ASSERT_EQ(Status::InvalidArgument(),
 	    env->SetOption("rocksdb.env.target.name", "memory"));
-  ASSERT_OK(env->SetOption("rocksdb.env.target.name", "memory", dbOpts));
-  ASSERT_OK(env->SetOption("rocksdb.env.target.name", "default", dbOpts));
+  ASSERT_OK(env->SetOption(dbOpts, "rocksdb.env.target.name", "memory"));
+  ASSERT_OK(env->SetOption(dbOpts, "rocksdb.env.target.name", "default"));
   delete env;
 }  
 #endif // ROCKSDB_LITE

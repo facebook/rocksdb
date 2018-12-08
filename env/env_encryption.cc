@@ -381,9 +381,9 @@ class EncryptedRandomRWFile : public RandomRWFile {
   }
 };
 
-static const std::string kEnvEncryptedPropPrefix = "rocksdb.encrypted.";
-static const std::string EncryptedProviderProp =
-  kEnvEncryptedPropPrefix + "env.provider";
+static const std::string kEnvEncryptedPropPrefix = "rocksdb.encrypted";
+static const std::string EncryptedProviderPrefix =
+  kEnvEncryptedPropPrefix + ".env.provider";
 
 // EncryptedEnv implements an Env wrapper that adds encryption to files stored on disk.
 class EncryptedEnv : public EnvWrapper {
@@ -400,28 +400,27 @@ public:
   }
 
   virtual Status SetOption(const std::string & name,
-				const std::string & value,
-				bool input_strings_escaped) override {
-    Status s = SetExtensionOption(EncryptedProviderProp, name, value,
-				  input_strings_escaped, provider_.get());
+			   const std::string & value,
+			   bool input_strings_escaped) override {
+    Status s = SetExtensionOption(provider_.get(), EncryptedProviderPrefix,
+				  name, value,
+				  input_strings_escaped);
     if (s.IsNotFound()) {
       return EnvWrapper::SetOption(name, value, input_strings_escaped);
     } else {
       return s;
     }
   }
-  virtual Status SetOption(const std::string & name,
-				const std::string & value,
-				bool input_strings_escaped,
-				const DBOptions & dbOpts,
-				const ColumnFamilyOptions *cfOpts,
-				bool ignore_unknown_options) override {
-    Status s = SetSharedOption(EncryptedProviderProp, name, value,
-			       input_strings_escaped, dbOpts, cfOpts,
-			       ignore_unknown_options, &provider_);
+  virtual Status SetOption(const DBOptions & dbOpts,
+			   const ColumnFamilyOptions *cfOpts,
+			   const std::string & name,
+			   const std::string & value,
+			   bool input_strings_escaped) override {
+    Status s = SetSharedOption(dbOpts, cfOpts, name, value,
+			       input_strings_escaped, 
+			       EncryptedProviderPrefix, &provider_);
     if (s.IsNotFound()) {
-      return EnvWrapper::SetOption(name, value, input_strings_escaped,
-				   dbOpts, cfOpts, ignore_unknown_options);
+      return EnvWrapper::SetOption(dbOpts, cfOpts, name, value, input_strings_escaped);
     } else {
       return s;
     }
@@ -1018,8 +1017,8 @@ public:
   virtual Status SetOption(const std::string & name,
 			   const std::string & value,
 			   bool input_strings_escaped) override {
-    Status s = SetExtensionOption(CTRCipherProp, name, value,
-				  input_strings_escaped,  cipher_.get());
+    Status s = SetExtensionOption(cipher_.get(), CTRCipherProp,
+				  name, value, input_strings_escaped);
     if (s.IsNotFound()) {
       return EncryptionProvider::SetOption(name, value,
 					   input_strings_escaped);
@@ -1028,18 +1027,17 @@ public:
     }
   }
   
-  virtual Status SetOption(const std::string & name,
-				const std::string & value,
-				bool input_strings_escaped,
-				const DBOptions & dbOpts,
-				const ColumnFamilyOptions *cfOpts,
-				bool ignore_unknown_options) override {
-    Status s = SetSharedOption(CTRCipherProp, name, value,
-			       input_strings_escaped, dbOpts, cfOpts,
-			       ignore_unknown_options, &cipher_);
+  virtual Status SetOption(const DBOptions & dbOpts,
+			   const ColumnFamilyOptions *cfOpts,
+			   const std::string & name,
+			   const std::string & value,
+			   bool input_strings_escaped) override {
+    Status s = SetSharedOption(dbOpts, cfOpts, name, value,
+			       input_strings_escaped, 
+			       CTRCipherProp, &cipher_);
     if (s.IsNotFound()) {
-      return EncryptionProvider::SetOption(name, value, input_strings_escaped,
-					   dbOpts, cfOpts, ignore_unknown_options);
+      return EncryptionProvider::SetOption(dbOpts, cfOpts, name, value,
+					   input_strings_escaped);
     } else {
       return s;
     }

@@ -353,32 +353,37 @@ Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
 EnvWrapper::~EnvWrapper() {
 }
 
-Status EnvWrapper::SetOption(const std::string & name,
-			     const std::string & value,
-			     bool input_strings_escaped,
-			     const DBOptions & dbOpts,
+Status EnvWrapper::SetOption(const DBOptions & dbOpts,
 			     const ColumnFamilyOptions * cfOpts,
-				  bool ignore_unknown_options) {
-  std::unique_ptr<Env> guard;
-  Status s = SetUniqueOption(kTargetProp, name, value, input_strings_escaped,
-			     dbOpts, cfOpts, ignore_unknown_options,
-			     &target_, &guard);
-  guard.release(); //**TODO: This seems like it leaks
-
+			     const std::string & name,
+			     const std::string & value,
+			     bool input_strings_escaped) {
+  Status s = Status::NotFound();
+  if (target_ != nullptr) {
+    // If there is a valid target environment, see if this option is for it
+    s = target_->SetOption(dbOpts, cfOpts, name, value, input_strings_escaped);
   if (s.IsNotFound()) {
-    return Env::SetOption(name, value, input_strings_escaped,
-			  dbOpts, cfOpts, ignore_unknown_options);
-  } else {
-    return s;
+    std::string envName, envProps;
+    s = PrefixMatchesOption(kTargetProp_, name, value, &envName, &envProps);
+    if (s.ok()) {
+      std::unique_ptr<Env> guard;
+      s = GetUniqueExtension(dbOpts, cfOpts, envName, &target_, &guard);
+      if (s.ok() && ! envProps.empty()) {
+	s = target_->ConfigureFromString(dbOpts, cfOpts, envProps,
+					 input_strings_escaped);
+      }
+      guard.release(); //**TODO: This seems like it leaks
+    }
   }
+  return s;
 }
 
   
 Status EnvWrapper::SetOption(const std::string & name,
-				  const std::string & value,
-				  bool input_strings_escaped) {
-  Status s = SetExtensionOption(kTargetProp, name, value,
-				input_strings_escaped, target_);
+			     const std::string & value,
+			     bool input_strings_escaped) {
+  Status s = SetExtensionOption(target_, kTargetProp_,
+				name, value, input_strings_escaped);
   if (s.IsNotFound()) {
    return Env::SetOption(name, value, input_strings_escaped);
   } else {
@@ -387,29 +392,17 @@ Status EnvWrapper::SetOption(const std::string & name,
 }
 
 Status EnvWrapper::ConfigureFromMap(
-		     const std::unordered_map<std::string, std::string> & opt_map,
-		     bool input_strings_escaped,
 		     const DBOptions & dbOpts,
 		     const ColumnFamilyOptions * cfOpts,
-		     std::unordered_set<std::string> * unused_opts) {
-  if (target_ == nullptr) {
-    target_ = dbOpts.env;
-  }
-  return Extension::ConfigureFromMap(opt_map, input_strings_escaped,
-				     dbOpts, cfOpts, unused_opts);
-}
-  
-Status EnvWrapper::ConfigureFromString(
-		     const std::string & opt_str,
+		     const std::unordered_map<std::string, std::string> & opt_map,
 		     bool input_strings_escaped,
-		     const DBOptions & dbOpts, 
-		     const ColumnFamilyOptions * cfOpts,
 		     std::unordered_set<std::string> * unused_opts) {
   if (target_ == nullptr) {
     target_ = dbOpts.env;
   }
-  return Extension::ConfigureFromString(opt_str, input_strings_escaped,
-					dbOpts, cfOpts, unused_opts);
+  return Extension::ConfigureFromMap(dbOpts, cfOpts, opt_map,
+				     input_strings_escaped,
+				     unused_opts);
 }
 
 Status EnvWrapper::SanitizeOptions(const DBOptions & dbOpts,

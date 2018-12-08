@@ -34,11 +34,6 @@ using std::unique_ptr;
  */
 
 class ExtensionLoader {
-  public:
-  static bool PropertyMatchesPrefix(const std::string & prefix,
-				    const std::string & property,
-				    bool *isExact);
-
 public:
 		     
 
@@ -159,11 +154,14 @@ private:
 		     std::vector<std::pair<std::regex, FactoryFunction> > > factories;
 };
 
-
-template<typename T>
+/**
+ * Converts the base shared Extension from to the Derived Extension to.
+ * If the cast fails, returns NotSupported.  Otherwise, returns OK
+ */
+template<typename Derived>  
 Status CastSharedExtension(const std::shared_ptr<Extension> & from,
-			   std::shared_ptr<T> * to) {
-  *to = std::dynamic_pointer_cast<T>(from);
+			   std::shared_ptr<Derived> * to) {
+  *to = std::dynamic_pointer_cast<Derived>(from);
   if (!to && from) {
     return Status::NotSupported("Cannot cast extension: ", from->Name());
   } else {
@@ -171,24 +169,17 @@ Status CastSharedExtension(const std::shared_ptr<Extension> & from,
   }
 }
 
-template<typename T>
-Status CastUniqueExtension(Extension *from,
-			   std::unique_ptr<Extension> & from_guard,
-			   T **to,
-			   std::unique_ptr<T> * to_guard) {
-  to_guard->reset();
-  *to = nullptr;
-  if (from != nullptr) {
-    *to = dynamic_cast<T *>(from);
-    if (*to == nullptr) {
-      return Status::NotSupported("Cannot cast extension: ", from->Name());
-    } else if (from_guard.release() != nullptr) {
-      to_guard->reset(*to);
-    }
-  } 
-  return Status::OK();
-}
-
+/**
+ * Creates and returns a new Extension of type T
+ * @param name     The name of the returned extension
+ * @param dbOpts   Database options for creating this extension
+ * @param cfOpts   Optional column family options for creating this extension
+ * @param result   The resuting new T extension 
+ * @return         OK if the new extension was successfully created
+ *                 InvalidArgument if the named extension of type T could not
+ *                                 be found.
+ *                 NotSupported if the class types do not match
+ */
 template<typename T>
 Status NewSharedExtension(const std::string & name,
 			  const DBOptions & dbOpts, 
@@ -206,6 +197,27 @@ Status NewSharedExtension(const std::string & name,
   } else {
     return Status::NotSupported("Cannot share extension: ", name);
   }
+}
+/**
+ * Converts the base shared Extension from to the Derived Extension to.
+ * If the cast fails, returns NotSupported.  Otherwise, returns OK
+ */
+template<typename T>
+Status CastUniqueExtension(Extension *from,
+			   std::unique_ptr<Extension> & from_guard,
+			   T **to,
+			   std::unique_ptr<T> * to_guard) {
+  to_guard->reset();
+  *to = nullptr;
+  if (from != nullptr) {
+    *to = dynamic_cast<T *>(from);
+    if (*to == nullptr) {
+      return Status::NotSupported("Cannot cast extension: ", from->Name());
+    } else if (from_guard.release() != nullptr) {
+      to_guard->reset(*to);
+    }
+  } 
+  return Status::OK();
 }
 
 template<typename T>
@@ -228,12 +240,23 @@ Status NewUniqueExtension(const std::string & name,
     return Status::InvalidArgument("Could not find extension: ", name);
   }
 }
-  
-  
+   
+/**
+ * Creates a new Extension of type T if the current one is not appropriate (either
+ * the extension is null or the wrong name.
+ * @param name     The name of the returned extension
+ * @param dbOpts   Database options for creating this extension
+ * @param cfOpts   Optional column family options for creating this extension
+ * @param result   The resuting new T extension 
+ * @return         OK if the new extension was successfully created
+ *                 InvalidArgument if the named extension of type T could not
+ *                                 be found.
+ *                 NotSupported if the class types do not match
+ */
 template<typename T>
-Status GetSharedExtension(const std::string & name,
-			  const DBOptions & dbOpts, 
+Status GetSharedExtension(const DBOptions & dbOpts, 
 			  const ColumnFamilyOptions * cfOpts,
+			  const std::string & name,
 			  std::shared_ptr<T> * result) {
   if (! result->get() || result->get()->Name() != name) {
     return NewSharedExtension(name, dbOpts, cfOpts, result);
@@ -243,9 +266,9 @@ Status GetSharedExtension(const std::string & name,
 }
 
 template<typename T>
-Status GetUniqueExtension(const std::string & name,
-			  const DBOptions & dbOpts, 
+Status GetUniqueExtension(const DBOptions & dbOpts, 
 			  const ColumnFamilyOptions * cfOpts,
+			  const std::string & name,
 			  T **extension,
 			  std::unique_ptr<T> * guard) {
   if (*extension == nullptr || (*extension)->Name() != name) {
@@ -255,33 +278,49 @@ Status GetUniqueExtension(const std::string & name,
   }
 }
 
+/**
+ * Updates the options for the shared Extension of type T.
+ * If the shared exists, see if the option exists in this extension
+ * Otherwise, check (using the prefix) is used to create this shared extension
+ * @param name     The name of the returned extension
+ * @param dbOpts   Database options for creating this extension
+ * @param cfOpts   Optional column family options for creating this extension
+ * @param result   The resuting new T extension 
+ * @return         OK if the new extension was successfully created
+ *                 InvalidArgument if the named extension of type T could not
+ *                                 be found.
+ *                 NotSupported if the class types do not match
+ */
 template<typename T>
-Status SetSharedOption(const std::string & prefix,
-		       const std::string & name,
+Status SetSharedOption(const DBOptions & dbOpts,
+		       const ColumnFamilyOptions * cfOpts,
+		       const std::string & option,
 		       const std::string & value,
 		       bool input_strings_escaped,
-		       const DBOptions & dbOpts,
-		       const ColumnFamilyOptions * cfOpts,
-		       bool ignore_unknown_options,
+		       const std::string & prefix,
 		       std::shared_ptr<T> * shared) {
-  bool isProp;
-  Status status = Status::OK();
-  if (ExtensionLoader::PropertyMatchesPrefix(prefix, name, &isProp)) {
-    if (isProp) {
-      status = Status::NotSupported("Not yet implemented");
-    } else {
-      status = GetSharedExtension(value, dbOpts, cfOpts, shared);
-    }
-  } else if (*shared) {
-    status = shared->get()->SetOption(name, value, input_strings_escaped,
-				      dbOpts, cfOpts, ignore_unknown_options);
-    
-  } else {
-    status = Status::NotFound("Unrecognized property: ", name);
+  Status s = Status::NotFound();
+  if (*shared) {
+    // If there is a valid extension, see if this option is for it
+    s = shared->get()->SetOption(dbOpts, cfOpts, option, value, input_strings_escaped);
   }
-  return status;
+  if (s.IsNotFound()) {
+    std::string name, props;
+    s = Extension::PrefixMatchesOption(prefix, option, value,
+				       &name, &props);
+    if (s.ok()) {
+      s = GetSharedExtension(dbOpts, cfOpts, name, shared);
+      if (s.ok() && ! props.empty()) {
+	// We have an extension and properties, configure it
+	s = shared->get()->ConfigureFromString(dbOpts, cfOpts, props,
+					       input_strings_escaped);
+      }
+    }
+  }
+  return s;
 }
 
+  /*
 template<typename T>
 Status SetUniqueOption(const std::string & prefix,
 		       const std::string & name,
@@ -308,4 +347,5 @@ Status SetUniqueOption(const std::string & prefix,
   }
   return status;
 }
+  */
 }  // namespace rocksdb

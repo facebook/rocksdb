@@ -41,136 +41,163 @@ public:
 
   // Configures the options for this extension based on the input parameters.
   // Returns an OK status if configuration was successful.
-  // If a non-OK status is returned, the options should be left in their original
-  // state.
-  virtual Status ConfigureFromMap(
-		     const std::unordered_map<std::string, std::string> &,
-		     bool input_strings_escaped,
-		     const DBOptions & dbOpts,
-		     const ColumnFamilyOptions * cfOpts,
-		     std::unordered_set<std::string> *unused);
-    virtual Status ConfigureFromString(
-		     const std::string & opt_str,
-		     bool input_strings_escaped,
-		     const DBOptions & dbOpts,
-		     const ColumnFamilyOptions * cfOpts,
-		     std::unordered_set<std::string> *unused_opts);
+  // Parameters:
+  //   dbOpts                  The database options for this extension 
+  //   cfOpts                  The (optional) column family options
+  //   opt_map                 The name/value pair map of the options to set
+  //   opt_str                 String of name/value pairs of the options to set
+  //   input_strings_escaped   True if the strings are escaped (old-style?)
+  //   ignore_unusued_options  If true and there are any unused options,
+  //                           they will be ignored and OK will be returne
+  //   unused_opts             The set of any unused option names from the map
+  virtual Status ConfigureFromMap(const std::unordered_map<std::string, std::string> &,
+				  bool input_strings_escaped,
+				  std::unordered_set<std::string> *unused);
+  virtual Status ConfigureFromMap(const DBOptions & dbOpts,
+				  const ColumnFamilyOptions * cfOpts,
+				  const std::unordered_map<std::string, std::string> &,
+				  bool input_strings_escaped,
+				  std::unordered_set<std::string> *unused);  
+  Status ConfigureFromMap(const std::unordered_map<std::string, std::string> &,
+			  bool input_strings_escaped,
+			  bool ignore_unused_options);
+  Status ConfigureFromMap(const std::unordered_map<std::string, std::string> &,
+			  bool input_strings_escaped);
+  Status ConfigureFromMap(const std::unordered_map<std::string, std::string> & map);
+  Status ConfigureFromMap(const DBOptions & dbOpts,
+			  const ColumnFamilyOptions * cfOpts,
+			  const std::unordered_map<std::string, std::string> & map,
+			  bool input_strings_escaped,
+			  bool ignore_unused_options);
+  Status ConfigureFromMap(const DBOptions & dbOpts,
+			  const ColumnFamilyOptions * cfOpts,
+			  const std::unordered_map<std::string, std::string> & map,
+			  bool input_strings_escaped);
+  Status ConfigureFromMap(const DBOptions & dbOpts,
+			  const ColumnFamilyOptions * cfOpts,
+			  const std::unordered_map<std::string, std::string> & map);
+  Status ConfigureFromMap(const DBOptions & dbOpts,
+			  const std::unordered_map<std::string, std::string> & map,
+			  bool input_strings_escaped);
+  Status ConfigureFromMap(const DBOptions & dbOpts,
+			  const std::unordered_map<std::string, std::string> & map);
+  Status ConfigureFromString(const DBOptions & dbOpts,
+			     const ColumnFamilyOptions * cfOpts,
+			     const std::string & opt_str,
+			     bool input_strings_escaped,
+			     std::unordered_set<std::string> *unused_opts);
+  Status ConfigureFromString(const DBOptions & dbOpts,
+			     const ColumnFamilyOptions * cfOpts,
+			     const std::string & opts_str,
+			     bool input_strings_escaped,
+			     bool ignore_unused_options);
+  Status ConfigureFromString(const DBOptions & dbOpts,
+			     const ColumnFamilyOptions * cfOpts,
+			     const std::string & opts_str,
+			     bool input_strings_escaped);
+  Status ConfigureFromString(const DBOptions & dbOpts,
+			     const ColumnFamilyOptions * cfOpts,
+			     const std::string & opt_str);
+  Status ConfigureFromString(const DBOptions & dbOpts,
+			     const std::string & opt_str,
+			     bool input_strings_escaped);
+  Status ConfigureFromString(const DBOptions & dbOpts,
+			     const std::string & opt_str);
+  Status ConfigureFromString(const std::string & opts,
+			     bool input_strings_escaped,
+			     std::unordered_set<std::string> *unused);
+  Status ConfigureFromString(const std::string & opts,
+			     bool input_strings_escaped,
+			     bool ignore_unused_options);
+  Status ConfigureFromString(const std::string & opts,
+			     bool input_strings_escaped);
+  Status ConfigureFromString(const std::string & opts);
 
-
-  Status ConfigureFromMap(
-		    const std::unordered_map<std::string, std::string> & map,
-		    bool input_strings_escaped,
-		    const DBOptions & dbOpts,
-		    const ColumnFamilyOptions * cfOpts,
-		    bool ignore_unused_options);
-  Status ConfigureFromMap(
-		     const std::unordered_map<std::string, std::string> & map,
-		     const DBOptions & dbOpts,
-		     const ColumnFamilyOptions * cfOpts = nullptr) {
-    return ConfigureFromMap(map, ExtensionConsts::kInputStringsEscaped,
-			    dbOpts, cfOpts);
-  }
   
-  Status ConfigureFromMap(
-		     const std::unordered_map<std::string, std::string> & map,
-		     bool input_strings_escaped,
-		     const DBOptions & dbOpts,
-		     const ColumnFamilyOptions * cfOpts = nullptr) {
-    return ConfigureFromMap(map, input_strings_escaped, dbOpts, cfOpts,
-			    ExtensionConsts::kIgnoreUnknownOptions);
-  }
-  
-  
-  // Configures the options for this extension based on the input parameters.
-  // Returns an OK status if configuration was successful.
-  // If a non-OK status is returned, the options should be left in their original
-  // state.
-  Status ConfigureFromString(
-		    const std::string & opts_str,
-		    bool input_strings_escaped,
-		    const DBOptions & dbOpts,
-		    const ColumnFamilyOptions * cfOpts,
-		    bool ignore_unused_options);
-  Status ConfigureFromString(
-		     const std::string & opt_str,
-		     const DBOptions & dbOpts,
-		     const ColumnFamilyOptions * cfOpts = nullptr) {
-    return ConfigureFromString(opt_str, ExtensionConsts::kInputStringsEscaped,
-			       dbOpts, cfOpts);
-  }
-  Status ConfigureFromString(
-		     const std::string & opt_str,
-		     bool input_strings_escaped,
-		     const DBOptions & dbOpts,
-		     const ColumnFamilyOptions * cfOpts = nullptr) {
-    return ConfigureFromString(opt_str, input_strings_escaped, dbOpts, cfOpts,
-				ExtensionConsts::kIgnoreUnknownOptions);
-  }
-
-  
-  // Updateas the named option to the input value, returning OK if successful.
+  // Updates the named option to the input value, returning OK if successful.
+  // Parameters:
+  //   dbOpts                  The database options
+  //   cfOpts                  The (optional) column family options
+  //     name                  The name of the option to update
+  //     value                 The value to set for the named option
+  // Returns:  OK              on success
+  //           NotFound        if the name is not a valid option
+  //           InvalidArgument if the value is valid for the named option
+  //           NotSupported    If the name/value is not supported
   virtual Status SetOption(const std::string & name,
 				const std::string & value,
 				bool input_strings_escaped);
-  virtual Status SetOption(const std::string & name,
+  Status SetOption(const std::string & name,
 			   const std::string & value) {
     return SetOption(name, value, ExtensionConsts::kInputStringsEscaped);
   }
-  
-  // Updates the named option to the input value, returning OK if successful.
-  virtual Status SetOption(const std::string & name,
-				const std::string & value,
-				bool input_strings_escaped,
-				const DBOptions &,
-				const ColumnFamilyOptions *,
-				bool ignore_unknown_options) {
-    Status s = SetOption(name, value, input_strings_escaped);
-    if (ignore_unknown_options && s.IsNotFound()) {
-      return Status::OK();
-    } else {
-      return s;
-    }
+  virtual Status SetOption(const DBOptions &,
+			   const ColumnFamilyOptions *,
+			   const std::string & name,
+			   const std::string & value,
+			   bool input_strings_escaped) {
+    return SetOption(name, value, input_strings_escaped);
   }
 
-  Status SetOption(const std::string & name,
+  Status SetOption(const DBOptions & dbOpts,
+		   const std::string & name,
 		   const std::string & value,
-		   bool input_strings_escaped,
-		   const DBOptions & dbOpts,
-		   const ColumnFamilyOptions *cfOpts = nullptr) {
-    return SetOption(name, value, input_strings_escaped, dbOpts, cfOpts,
-			  ExtensionConsts::kIgnoreUnknownOptions);
+		   bool input_strings_escaped)  {
+    return SetOption(dbOpts, nullptr, name, value, input_strings_escaped);
   }
-
-  // Updates the named option to the input value, returning OK if successful.
-  Status SetOption(const std::string & name,
-		   const std::string & value,
-		   const DBOptions & dbOpts,
-		   const ColumnFamilyOptions *cfOpts = nullptr) {
-    return SetOption(name, value, ExtensionConsts::kInputStringsEscaped,
-		     dbOpts, cfOpts);
-		     
+  Status SetOption(const DBOptions & dbOpts,
+		   const std::string & name,
+		   const std::string & value) {
+    return SetOption(dbOpts, name, value, ExtensionConsts::kInputStringsEscaped);
   }
   
-  // Sanitizes the specified DB Options and ColumnFamilyOptions.
-  // If the function cannot find a way to sanitize the input DB Options,
-  // a non-ok Status will be returned.
   // Sanitizes the specified DB Options and ColumnFamilyOptions.
   // If the function cannot find a way to sanitize the input DB Options,
   // a non-ok Status will be returned.
   virtual Status SanitizeOptions(const DBOptions &) const {
     return Status::OK();
   }
-
   virtual Status SanitizeOptions(const DBOptions & dbOpts,
 				 const ColumnFamilyOptions &) const {
     return SanitizeOptions(dbOpts);
   }
+public:
+  // Checks to see if the named "option" matches "prefix" or "prefix.name"
+  // This method is used to separate the "value" into its pieces
+  // If "prefix.name=option", then:
+  //     1) name is set to value
+  //     2) props is empty
+  //     3) OK is returned
+  // If "prefix=name", then, value should be of the form "name=x[;options={a=b;c=d}]"
+  //     1) name is set to "x"
+  //     2) props is set to "a=b;c=d"
+  //     3) If "name" is missing, InvalidArgument is returned
+  //     4) If values other than "name" and "options" are found, InvalidArgument
+  //     5) Otherwise, OK is returned
+  //  If the prefix=name" conditions do not match, NotFound is returned
+  static Status PrefixMatchesOption(const std::string & prefix,
+				    const std::string & option,
+				    const std::string & value,
+				    std::string * name,
+				    std::string * props);
 protected:
-  Status SetExtensionOption(const std::string & prefix,
+  // Updates the parameters for the input extension
+  // Parameters:
+  //     extension             The extension to update
+  //     prefix                The prefix representing the name of this extension
+  //     name                  The name of the option to update
+  //     value                 The value to set for the named option
+  // If the extension exists and the named option exists in the extension,
+  //    the extension is updated
+  // If the prefix represents *this* extension (see PrefixMatchesOption), then
+  //    the extension with the properties from the value
+  // If the prefix matches this extension type but not this extension,
+  //    InvalidArgument is returned.
+  Status SetExtensionOption(Extension * extension,
+			    const std::string & prefix,
 			    const std::string & name,
 			    const std::string & value,
-			    bool input_strings_escaped,
-			    Extension * extension);
+			    bool input_strings_escaped);
 };
 }  // namespace rocksdb
 

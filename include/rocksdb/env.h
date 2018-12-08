@@ -114,7 +114,6 @@ struct EnvOptions {
 class Env : public Extension {
  public:
   using Extension::SetOption;
-  using Extension::ConfigureFromString;
   using Extension::ConfigureFromMap;
   
   static const std::string kType;
@@ -1018,11 +1017,11 @@ public:
   // Initialize an EnvWrapper that delegates all calls to *t
  protected:
   const std::string kPropPrefix_;
-  const std::string kTargetProp;
+  const std::string kTargetProp_;
  public:
-  explicit EnvWrapper(Env* t, const std::string & p = "rocksdb.env.") :
+  explicit EnvWrapper(Env* t, const std::string & p = "rocksdb.env") :
     kPropPrefix_(p),
-    kTargetProp(p + "target"), 
+    kTargetProp_(p + ".target"), 
     target_(t) {
   }
   ~EnvWrapper() override;
@@ -1036,29 +1035,17 @@ public:
   }
 
   virtual Status ConfigureFromMap(
-		     const std::unordered_map<std::string, std::string> & opt_map,
-		     bool input_strings_escaped,
 		     const DBOptions & dbOpts,
 		     const ColumnFamilyOptions * cfOpts,
+		     const std::unordered_map<std::string, std::string> & opt_map,
+		     bool input_strings_escaped,
 		     std::unordered_set<std::string> *unused) override;
   
-  // Configures the options for this extension based on the input parameters.
-  // Returns an OK status if configuration was successful.
-  // If a non-OK status is returned, the options should be left in their original
-  // state.
-  virtual Status ConfigureFromString(
-  		     const std::string & opt_str,
-  		     bool input_strings_escaped,
-  		     const DBOptions & dbOpts,
-  		     const ColumnFamilyOptions * cfOpts,
-		     std::unordered_set<std::string> *unused) override;
-
-  virtual Status SetOption(const std::string & name,
-			   const std::string & value,
-			   bool input_strings_escaped,
-			   const DBOptions & dbOpts,
+  virtual Status SetOption(const DBOptions & dbOpts,
 			   const ColumnFamilyOptions * cfOpts,
-			   bool ignore_uknown_options) override;
+			   const std::string & name,
+			   const std::string & value,
+			   bool input_strings_escaped) override;
   virtual Status SetOption(const std::string & name,
 			   const std::string & value,
 			   bool input_strings_escaped) override;

@@ -103,10 +103,10 @@ template<typename T> void TestConfigureFromString(Status expected,
 						  Status sanitized) {
   if (expected.ok()) {
     // Setting a valid property works
-    ASSERT_OK(extension->ConfigureFromString(props, dbOptions));
+    ASSERT_OK(extension->ConfigureFromString(dbOptions, props));
   } else {
     ASSERT_EQ(expected,
-	      extension->ConfigureFromString(props, dbOptions));
+	      extension->ConfigureFromString(dbOptions, props));
   }
   if (sanitized.ok()) {
     // And no the extension is valid
@@ -148,10 +148,12 @@ TEST_F(DBEncryptionTest, NewCTRProvider) {
   	    provider->SetOption("rocksdb.encrypted.provider.ctr.cipher.name",
   				"ROT13"));
   ASSERT_EQ(Status::InvalidArgument(),
-	    provider->SetOption("rocksdb.encrypted.provider.ctr.cipher.name",
-				"unknown", dbOptions));
-  ASSERT_OK(provider->SetOption("rocksdb.encrypted.provider.ctr.cipher.name",
-				"ROT13", dbOptions));
+	    provider->SetOption(dbOptions,
+				"rocksdb.encrypted.provider.ctr.cipher.name",
+				"unknown"));
+  ASSERT_OK(provider->SetOption(dbOptions,
+				"rocksdb.encrypted.provider.ctr.cipher.name",
+				"ROT13"));
   ASSERT_EQ(Status::InvalidArgument(), provider->SanitizeOptions(dbOptions));
   ASSERT_OK(provider->SetOption("rocksdb.encrypted.cipher.rot13.blocksize",
 				"13"));
@@ -207,20 +209,23 @@ TEST_F(DBEncryptionTest, ConfigureProviderFromString) {
   Status bad = Status::NotSupported(); //TODO
   Status okay = Status::OK();
   AssertNewSharedExtension(dbOptions, "CTR", true, &provider);
-  ASSERT_EQ(bad,
-	    provider->ConfigureFromString("rocksdb.encrypted.provider.ctr.cipher={"
+  ASSERT_EQ(Status::InvalidArgument(),
+	    provider->ConfigureFromString(dbOptions,
+					  "rocksdb.encrypted.provider.ctr.cipher={"
 					  "name=unknown"
-					  "}", dbOptions));
-  ASSERT_EQ(bad,
-	    provider->ConfigureFromString("rocksdb.encrypted.provider.ctr.cipher={"
+					  "}"));
+  ASSERT_EQ(Status::NotFound(),
+	    provider->ConfigureFromString(dbOptions,
+					  "rocksdb.encrypted.provider.ctr.cipher={"
 					  "name=ROT13;"
 					  "options={unknown=unknown}"
-					  "}", dbOptions));
-  ASSERT_EQ(bad,
-	    provider->ConfigureFromString("rocksdb.encrypted.provider.ctr.cipher={"
+					  "}"));
+  ASSERT_OK(provider->ConfigureFromString(dbOptions,
+					  "rocksdb.encrypted.provider.ctr.cipher={"
 					  "name=ROT13;"
 					  "options={rocksdb.encrypted.cipher.rot13.blocksize=13;}"
-					  "}", dbOptions));
+					  "}"));
+  ASSERT_OK(provider->SanitizeOptions(dbOptions));
  }
 
 static void AssertNewEnvironment(const DBOptions & dbOpts,
@@ -245,13 +250,14 @@ TEST_F(DBEncryptionTest, NewEncryptedEnv) {
 	    encrypted->SetOption("rocksdb.encrypted.provider.ctr.cipher.name",
 				 "ROT13"));
   ASSERT_EQ(Status::InvalidArgument(),
-	    encrypted->SetOption("rocksdb.encrypted.env.provider.name",
-				 "unknown", dbOptions));
-  ASSERT_OK(encrypted->SetOption("rocksdb.encrypted.env.provider.name",
-				 "CTR", dbOptions));
+	    encrypted->SetOption(dbOptions, "rocksdb.encrypted.env.provider.name",
+				 "unknown"));
+  ASSERT_OK(encrypted->SetOption(dbOptions, "rocksdb.encrypted.env.provider.name",
+				 "CTR"));
   ASSERT_EQ(Status::InvalidArgument(), encrypted->SanitizeOptions(dbOptions));
-  ASSERT_OK(encrypted->SetOption("rocksdb.encrypted.provider.ctr.cipher.name",
-				 "ROT13", dbOptions));
+  ASSERT_OK(encrypted->SetOption(dbOptions,
+				 "rocksdb.encrypted.provider.ctr.cipher.name",
+				 "ROT13"));
   ASSERT_EQ(Status::InvalidArgument(), encrypted->SanitizeOptions(dbOptions));
   ASSERT_OK(encrypted->SetOption("rocksdb.encrypted.cipher.rot13.blocksize", "13"));
   ASSERT_OK(encrypted->SanitizeOptions(dbOptions));

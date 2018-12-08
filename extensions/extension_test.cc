@@ -37,27 +37,62 @@ class ExtensionTest : public testing::Test {};
 class MockExtension : public Extension {
 private:
   const std::string name_;
+  std::string prefix_;
   bool        sanitize;
+  std::shared_ptr<MockExtension> child;
+  
 public:
   using Extension::SetOption;
   static const std::string kType;
   static const std::string & Type() { return kType; }
 public:
-  MockExtension(const std::string & name) : name_(name) { }
+  MockExtension(const std::string & name) : name_(name) {
+    if (name.compare(0, 5, "mock.") == 0) {
+      prefix_ = "test.";
+    } else {
+      prefix_ = "test.mock.";
+    }
+    prefix_.append(name);
+  }
+  
   virtual const char *Name() const override { return name_.c_str(); }
 
   virtual Status SetOption(const std::string & name,
 			   const std::string & value,
 			   bool input_strings_escaped) override {
-    if (name == "test.sanitize") {
+    if (name == (prefix_ + ".sanitize")) {
       sanitize = ParseBoolean(name, value);
-      return Status::OK();
+      if (child) {
+	return child->SetOption(name, value, input_strings_escaped);
+      } else {
+	return Status::OK();
+      }
     } else {
       return Extension::SetOption(name, value, input_strings_escaped);
     }
   }
+  virtual Status SetOption(const DBOptions & dbOpts,
+			   const ColumnFamilyOptions *cfOpts,
+			   const std::string & name,
+			   const std::string & value,
+			   bool input_strings_escaped) override {
+    Status s = SetSharedOption(dbOpts, cfOpts, name, value,
+			       input_strings_escaped, 
+			       prefix_, &child);
+    if (s.IsNotFound()) {
+      return Extension::SetOption(dbOpts, cfOpts, name, value, input_strings_escaped);
+    } else {
+      return s;
+    }
+  }
 
   virtual Status SanitizeOptions(const DBOptions & dbOpts) const override {
+    if (child) {
+      Status s = child->SanitizeOptions(dbOpts);
+      if (! s.ok()) {
+	return s;
+      }
+    }
     if (sanitize) {
       return Extension::SanitizeOptions(dbOpts);
     } else {
@@ -147,19 +182,19 @@ TEST_F(ExtensionTest, SetOptions) {
 					      name, CreateMockExtension);
   AssertNewSharedExtension(dbOptions, name, true, &extension);
   ASSERT_EQ(Status::NotFound(), extension->SetOption("unknown", "bad"));  
-  ASSERT_OK(extension->SetOption("test.sanitize", "true"));
+  ASSERT_OK(extension->SetOption("test.mock.setOptions.sanitize", "true"));
 }
 
 TEST_F(ExtensionTest, SanitizeOptions) {
   DBOptions dbOptions;
   std::shared_ptr<MockExtension> ext;
-  const char *name = "setOptions";
+  const char *name = "sanitize";
   ExtensionLoader::Default()->RegisterFactory(MockExtension::Type(),
 					      name, CreateMockExtension);
   AssertNewSharedExtension(dbOptions, name, true, &ext);
-  ASSERT_OK(ext->SetOption("test.sanitize", "false"));
+  ASSERT_OK(ext->SetOption("test.mock.sanitize.sanitize", "false"));
   ASSERT_EQ(Status::InvalidArgument(), ext->SanitizeOptions(dbOptions));
-  ASSERT_OK(ext->SetOption("test.sanitize", "true"));
+  ASSERT_OK(ext->SetOption("test.mock.sanitize.sanitize", "true"));
   ASSERT_OK(ext->SanitizeOptions(dbOptions));
 }
 
@@ -170,42 +205,45 @@ TEST_F(ExtensionTest, ConfigureOptionsFromString) {
   ExtensionLoader::Default()->RegisterFactory(MockExtension::Type(),
 					      name, CreateMockExtension);
   AssertNewSharedExtension(dbOptions, name, true, &ext);
-  ASSERT_OK(ext->ConfigureFromString("test.sanitize=true",dbOptions));
+  ASSERT_OK(ext->ConfigureFromString(dbOptions, "test.mock.fromString.sanitize=true"));
   ASSERT_OK(ext->SanitizeOptions(dbOptions));
-  ASSERT_OK(ext->ConfigureFromString("test.sanitize=false", dbOptions));
+  ASSERT_OK(ext->ConfigureFromString(dbOptions, "test.mock.fromString.sanitize=false"));
   ASSERT_EQ(Status::InvalidArgument(), ext->SanitizeOptions(dbOptions));
-  ASSERT_OK(ext->ConfigureFromString("test.sanitize=true;unknown.options=x",
-				     false, dbOptions, nullptr, true));
+  ASSERT_OK(ext->ConfigureFromString(dbOptions, nullptr,
+				     "test.mock.fromString.sanitize=true;"
+				     "unknown.options=x",
+				     false, true));
   ASSERT_OK(ext->SanitizeOptions(dbOptions));
   ASSERT_EQ(Status::NotFound(), 
-	    ext->ConfigureFromString("test.sanitize=true;unknown.options=x",
-				     dbOptions));
+	    ext->ConfigureFromString(dbOptions,
+				     "test.mock.fromString.sanitize=true;"
+				     "unknown.options=x"));
   ASSERT_OK(ext->SanitizeOptions(dbOptions));
 }
   
 TEST_F(ExtensionTest, ConfigureOptionsFromMap) {
   DBOptions dbOptions;
   std::shared_ptr<MockExtension> guard;
-  const char *name = "fromString";
+  const char *name = "map";
   std::unordered_map<std::string, std::string> opt_map;
-  opt_map["test.sanitize"]="false";
+  opt_map["test.mock.map.sanitize"]="false";
   ExtensionLoader::Default()->RegisterFactory(MockExtension::Type(),
 					      name, CreateMockExtension);
   AssertNewSharedExtension(dbOptions, name, true, &guard);
 
-  ASSERT_OK(guard->ConfigureFromMap(opt_map, dbOptions));
+  ASSERT_OK(guard->ConfigureFromMap(dbOptions, opt_map));
   ASSERT_EQ(Status::InvalidArgument(), guard->SanitizeOptions(dbOptions));
 
-  opt_map["test.sanitize"]="true";
-  ASSERT_OK(guard->ConfigureFromMap(opt_map, dbOptions));
+  opt_map["test.mock.map.sanitize"]="true";
+  ASSERT_OK(guard->ConfigureFromMap(dbOptions, opt_map));
   ASSERT_OK(guard->SanitizeOptions(dbOptions));
   
   opt_map["unknown.options"]="true";
-  ASSERT_OK(guard->ConfigureFromMap(opt_map, false, dbOptions, nullptr, true));
+  ASSERT_OK(guard->ConfigureFromMap(dbOptions, nullptr, opt_map, false, true));
   ASSERT_OK(guard->SanitizeOptions(dbOptions));
 
   ASSERT_EQ(Status::NotFound(),
-	    guard->ConfigureFromMap(opt_map, dbOptions));
+	    guard->ConfigureFromMap(dbOptions, opt_map));
 }
 
 TEST_F(ExtensionTest, NewGuardedExtension) {
@@ -252,6 +290,62 @@ TEST_F(ExtensionTest, NewUnguardedExtension) {
   ASSERT_EQ(shared.get(), nullptr);
   delete ext;
 }
+  
+TEST_F(ExtensionTest, CreateFromPattern) {
+  std::shared_ptr<MockExtension> ext;
+  DBOptions dbOptions;
+  dbOptions.extensions->RegisterFactory(
+				 MockExtension::kType,
+				 "good.*",
+				 [](const std::string & name,
+				    const DBOptions &,
+				    const ColumnFamilyOptions *,
+				    std::unique_ptr<Extension> * guard) {
+				   guard->reset(new MockExtension(name));
+				   return guard->get();
+				 });
+  AssertNewSharedExtension(dbOptions, "good.1", true, &ext);
+  AssertNewSharedExtension(dbOptions, "good.2", true, &ext);
+  AssertNewSharedExtension(dbOptions, "bad.2", false, &ext);
+}
+
+TEST_F(ExtensionTest, ConfigureFromProperties) {
+  std::shared_ptr<MockExtension> ext;
+  DBOptions dbOptions;
+  dbOptions.extensions->RegisterFactory(
+				 MockExtension::kType,
+				 "mock.*",
+				 [](const std::string & name,
+				    const DBOptions &,
+				    const ColumnFamilyOptions *,
+				    std::unique_ptr<Extension> * guard) {
+				   guard->reset(new MockExtension(name));
+				   return guard->get();
+				 });
+  AssertNewSharedExtension(dbOptions, "mock.parent", true, &ext);
+  ASSERT_OK(ext->SetOption(dbOptions, "test.mock.parent",
+			   "name=mock.child;"
+			   "options={test.mock.child={name=mock.grand}}"));
+  ASSERT_OK(ext->ConfigureFromString(dbOptions,
+				     "test.mock.parent={"
+				     "name=mock.1;"
+				     "options={test.mock.1={name=mock.2;"
+				     "options={test.mock.2.sanitize=true}}}}"));
+  ASSERT_EQ(Status::InvalidArgument(),
+	    ext->SetOption(dbOptions, "test.mock.parent",
+			   "name=mock.child;"
+			   "options={test.mock.child.unknown=unknown}"
+			   "unknown=unknown"));
+  ASSERT_EQ(Status::InvalidArgument(),
+	    ext->SetOption(dbOptions, "test.mock.parent",
+			   "name=bad.child;"));
+  ASSERT_EQ(Status::NotFound(),
+	    ext->SetOption(dbOptions, "test.mock.parent",
+			   "name=mock.child;"
+			   "options={test.mock.child.unknown=unknown}"));
+}
+  
+
 #endif  // !ROCKSDB_LITE
 }  // namespace rocksdb
 int main(int argc, char** argv) {

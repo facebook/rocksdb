@@ -59,11 +59,10 @@ SpecialEnv::SpecialEnv(Env* base)
     Status s = NewUniqueExtension("encrypted", dbOpts, nullptr, &encrypted_env_, &guard);
     guard.release();
     if (encrypted_env_ != nullptr) {
-      s = encrypted_env_->ConfigureFromString(
+      s = encrypted_env_->ConfigureFromString(dbOpts,
 			      "rocksdb.encrypted.env.provider.name=CTR;"
 			      "rocksdb.encrypted.ctr.cipher.name=ROT13;"
-			      "rocksdb.encrytped.cipher.rot13.blocksize=42",
-			      dbOpts);
+			      "rocksdb.encrytped.cipher.rot13.blocksize=42");
     }
     if (s.ok()) {
       dbOpts.env = encrypted_env_;
