@@ -843,7 +843,7 @@ Status BlockAccessCipherStream::Decrypt(uint64_t fileOffset, char *data, size_t 
 }
 
 static const std::string kROT13BlockSizeProp =
-  kEnvEncryptedPropPrefix + "cipher.rot13.blocksize";
+  kEnvEncryptedPropPrefix + ".cipher.rot13.blocksize";
   
 // Implements a BlockCipher using ROT13.
 //
@@ -985,7 +985,7 @@ static void decodeCTRParameters(const char *prefix, size_t blockSize, uint64_t &
 // Note: This is a possible implementation of EncryptionProvider, 
 // it is considered suitable for use, provided a safe BlockCipher is used.
 static const std::string CTRCipherProp =
-  kEnvEncryptedPropPrefix + "provider.ctr.cipher";
+  kEnvEncryptedPropPrefix + ".provider.ctr.cipher";
 
   
 class CTREncryptionProvider : public EncryptionProvider {
