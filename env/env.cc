@@ -362,6 +362,7 @@ Status EnvWrapper::SetOption(const DBOptions & dbOpts,
   if (target_ != nullptr) {
     // If there is a valid target environment, see if this option is for it
     s = target_->SetOption(dbOpts, cfOpts, name, value, input_strings_escaped);
+  }
   if (s.IsNotFound()) {
     std::string envName, envProps;
     s = PrefixMatchesOption(kTargetProp_, name, value, &envName, &envProps);
