@@ -1557,11 +1557,13 @@ class DBImpl : public DB {
   bool ShouldntRunManualCompaction(ManualCompactionState* m);
   bool HaveManualCompaction(ColumnFamilyData* cfd);
   bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
+#ifndef ROCKSDB_LITE
   void BuildCompactionJobInfo(const ColumnFamilyData* cfd, Compaction* c,
                               const Status& st,
                               const CompactionJobStats& compaction_job_stats,
                               const int job_id, const Version* current,
                               CompactionJobInfo* compaction_job_info) const;
+#endif
 
   bool ShouldPurge(uint64_t file_number) const;
   void MarkAsGrabbedForPurge(uint64_t file_number);

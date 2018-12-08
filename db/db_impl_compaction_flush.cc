@@ -2644,6 +2644,7 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
   return true;
 }
 
+#ifndef ROCKSDB_LITE
 void DBImpl::BuildCompactionJobInfo(
     const ColumnFamilyData* cfd, Compaction* c, const Status& st,
     const CompactionJobStats& compaction_job_stats, const int job_id,
@@ -2680,6 +2681,7 @@ void DBImpl::BuildCompactionJobInfo(
                       newf.second.fd.GetNumber(), newf.second.fd.GetPathId()));
   }
 }
+#endif
 
 // SuperVersionContext gets created and destructed outside of the lock --
 // we use this conveniently to:
