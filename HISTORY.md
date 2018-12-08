@@ -1,6 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
 ### New Features
+* Enabled checkpoint on readonly db (DBImplReadOnly).
 
 ### Public API Change
 * Transaction::GetForUpdate is extended with a do_validate parameter with default value of true. If false it skips validating the snapshot before doing the read. Similarly ::Merge, ::Put, ::Delete, and ::SingleDelete are extended with assume_tracked with default value of false. If true it indicates that call is assumed to be after a ::GetForUpdate.

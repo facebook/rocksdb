@@ -164,6 +164,16 @@ class CheckpointTest : public testing::Test {
     return DB::OpenForReadOnly(options, dbname_, &db_);
   }
 
+  Status ReadOnlyReopenWithColumnFamilies(const std::vector<std::string>& cfs,
+                                          const Options& options) {
+    std::vector<ColumnFamilyDescriptor> column_families;
+    for (const auto& cf : cfs) {
+      column_families.emplace_back(cf, options);
+    }
+    return DB::OpenForReadOnly(options, dbname_, column_families, &handles_,
+                               &db_);
+  }
+
   Status TryReopen(const Options& options) {
     Close();
     last_options_ = options;
@@ -610,6 +620,69 @@ TEST_F(CheckpointTest, CheckpointWithUnsyncedDataDropped) {
   delete snapshot_db;
   delete db_;
   db_ = nullptr;
+}
+
+TEST_F(CheckpointTest, CheckpointReadOnlyDB) {
+  ASSERT_OK(Put("foo", "foo_value"));
+  ASSERT_OK(Flush());
+  Close();
+  Options options = CurrentOptions();
+  ASSERT_OK(ReadOnlyReopen(options));
+  Checkpoint* checkpoint = nullptr;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+  delete checkpoint;
+  checkpoint = nullptr;
+  Close();
+  DB* snapshot_db = nullptr;
+  ASSERT_OK(DB::Open(options, snapshot_name_, &snapshot_db));
+  ReadOptions read_opts;
+  std::string get_result;
+  ASSERT_OK(snapshot_db->Get(read_opts, "foo", &get_result));
+  ASSERT_EQ("foo_value", get_result);
+  delete snapshot_db;
+}
+
+TEST_F(CheckpointTest, CheckpointReadOnlyDBWithMultipleColumnFamilies) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+  for (int i = 0; i != 3; ++i) {
+    ASSERT_OK(Put(i, "foo", "foo_value"));
+    ASSERT_OK(Flush(i));
+  }
+  Close();
+  Status s = ReadOnlyReopenWithColumnFamilies(
+      {kDefaultColumnFamilyName, "pikachu", "eevee"}, options);
+  ASSERT_OK(s);
+  Checkpoint* checkpoint = nullptr;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+  delete checkpoint;
+  checkpoint = nullptr;
+  Close();
+
+  std::vector<ColumnFamilyDescriptor> column_families{
+      {kDefaultColumnFamilyName, options},
+      {"pikachu", options},
+      {"eevee", options}};
+  DB* snapshot_db = nullptr;
+  std::vector<ColumnFamilyHandle*> snapshot_handles;
+  s = DB::Open(options, snapshot_name_, column_families, &snapshot_handles,
+               &snapshot_db);
+  ASSERT_OK(s);
+  ReadOptions read_opts;
+  for (int i = 0; i != 3; ++i) {
+    std::string get_result;
+    s = snapshot_db->Get(read_opts, snapshot_handles[i], "foo", &get_result);
+    ASSERT_OK(s);
+    ASSERT_EQ("foo_value", get_result);
+  }
+
+  for (auto snapshot_h : snapshot_handles) {
+    delete snapshot_h;
+  }
+  snapshot_handles.clear();
+  delete snapshot_db;
 }
 
 }  // namespace rocksdb
