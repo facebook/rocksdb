@@ -89,10 +89,11 @@ class DBImplReadOnly : public DBImpl {
   virtual Status EnableFileDeletions(bool /*force*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
-  virtual Status GetLiveFiles(std::vector<std::string>&,
-                              uint64_t* /*manifest_file_size*/,
-                              bool /*flush_memtable*/ = true) override {
-    return Status::NotSupported("Not supported operation in read only mode.");
+  virtual Status GetLiveFiles(std::vector<std::string>& ret,
+                              uint64_t* manifest_file_size,
+                              bool /*flush_memtable*/) override {
+    return DBImpl::GetLiveFiles(ret, manifest_file_size,
+                                false /* flush_memtable */);
   }
 
   using DBImpl::Flush;

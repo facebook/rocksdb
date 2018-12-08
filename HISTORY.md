@@ -1,12 +1,4 @@
 # Rocksdb Change Log
-## Unreleased
-### New Features
-
-### Public API Change
-
-### Bug Fixes
-* Fix a deadlock caused by compaction and file ingestion waiting for each other in the event of write stalls.
-
 ## 5.18.0 (11/30/2018)
 ### New Features
 * Introduced `JemallocNodumpAllocator` memory allocator. When being use, block cache will be excluded from core dump.
@@ -18,6 +10,7 @@
 * Add xxhash64 checksum support
 * Introduced `MemoryAllocator`, which lets the user specify custom memory allocator for block based table.
 * Improved `DeleteRange` to prevent read performance degradation. The feature is no longer marked as experimental.
+* Enabled checkpoint on readonly db (DBImplReadOnly).
 
 ### Public API Change
 * `DBOptions::use_direct_reads` now affects reads issued by `BackupEngine` on the database's SSTs.
@@ -34,6 +27,7 @@
 * Fixed Get correctness bug in the presence of range tombstones where merge operands covered by a range tombstone always result in NotFound.
 * Start populating `NO_FILE_CLOSES` ticker statistic, which was always zero previously.
 * The default value of NewBloomFilterPolicy()'s argument use_block_based_builder is changed to false. Note that this new default may cause large temp memory usage when building very large SST files.
+* Fix a deadlock caused by compaction and file ingestion waiting for each other in the event of write stalls.
 
 ## 5.17.0 (10/05/2018)
 ### Public API Change
