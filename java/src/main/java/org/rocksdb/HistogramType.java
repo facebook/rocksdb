@@ -87,79 +87,80 @@ public enum HistogramType {
   /**
    * Time spent flushing memtable to disk.
    */
-  FLUSH_TIME((byte) 0x1F),
+  FLUSH_TIME((byte) 0x20),
 
   /**
    * Size of keys written to BlobDB.
    */
-  BLOB_DB_KEY_SIZE((byte) 0x20),
+  BLOB_DB_KEY_SIZE((byte) 0x21),
 
   /**
    * Size of values written to BlobDB.
    */
-  BLOB_DB_VALUE_SIZE((byte) 0x21),
+  BLOB_DB_VALUE_SIZE((byte) 0x22),
 
   /**
    * BlobDB Put/PutWithTTL/PutUntil/Write latency.
    */
-  BLOB_DB_WRITE_MICROS((byte) 0x22),
+  BLOB_DB_WRITE_MICROS((byte) 0x23),
 
   /**
    * BlobDB Get lagency.
    */
-  BLOB_DB_GET_MICROS((byte) 0x23),
+  BLOB_DB_GET_MICROS((byte) 0x24),
 
   /**
    * BlobDB MultiGet latency.
    */
-  BLOB_DB_MULTIGET_MICROS((byte) 0x24),
+  BLOB_DB_MULTIGET_MICROS((byte) 0x25),
 
   /**
    * BlobDB Seek/SeekToFirst/SeekToLast/SeekForPrev latency.
    */
-  BLOB_DB_SEEK_MICROS((byte) 0x25),
+  BLOB_DB_SEEK_MICROS((byte) 0x26),
 
   /**
    * BlobDB Next latency.
    */
-  BLOB_DB_NEXT_MICROS((byte) 0x26),
+  BLOB_DB_NEXT_MICROS((byte) 0x27),
 
   /**
    * BlobDB Prev latency.
    */
-  BLOB_DB_PREV_MICROS((byte) 0x27),
+  BLOB_DB_PREV_MICROS((byte) 0x28),
 
   /**
    * Blob file write latency.
    */
-  BLOB_DB_BLOB_FILE_WRITE_MICROS((byte) 0x28),
+  BLOB_DB_BLOB_FILE_WRITE_MICROS((byte) 0x29),
 
   /**
    * Blob file read latency.
    */
-  BLOB_DB_BLOB_FILE_READ_MICROS((byte) 0x29),
+  BLOB_DB_BLOB_FILE_READ_MICROS((byte) 0x2A),
 
   /**
    * Blob file sync latency.
    */
-  BLOB_DB_BLOB_FILE_SYNC_MICROS((byte) 0x2A),
+  BLOB_DB_BLOB_FILE_SYNC_MICROS((byte) 0x2B),
 
   /**
    * BlobDB garbage collection time.
    */
-  BLOB_DB_GC_MICROS((byte) 0x2B),
+  BLOB_DB_GC_MICROS((byte) 0x2C),
 
   /**
    * BlobDB compression time.
    */
-  BLOB_DB_COMPRESSION_MICROS((byte) 0x2C),
+  BLOB_DB_COMPRESSION_MICROS((byte) 0x2D),
 
   /**
    * BlobDB decompression time.
    */
-  BLOB_DB_DECOMPRESSION_MICROS((byte) 0x2D),
+  BLOB_DB_DECOMPRESSION_MICROS((byte) 0x2E),
 
-  HISTOGRAM_ENUM_MAX((byte) 0x2E);
+  // 0x1F for backwards compatibility on current minor version.
+  HISTOGRAM_ENUM_MAX((byte) 0x1F);
 
   private final byte value;
 
@@ -169,7 +170,8 @@ public enum HistogramType {
 
   /**
    * @deprecated
-   * Exposes internal value of native enum mappings.
+   * Exposes internal value of native enum mappings. This method will be marked private in the
+   * next major release.
    */
   @Deprecated
   public byte getValue() {

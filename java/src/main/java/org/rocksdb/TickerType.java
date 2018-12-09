@@ -486,10 +486,11 @@ public enum TickerType {
      */
     NUMBER_MULTIGET_KEYS_FOUND((byte) 0x5E),
 
+    // -0x01 to fixate the new value that incorrectly changed TICKER_ENUM_MAX
     /**
      * Number of iterators created.
      */
-    NO_ITERATOR_CREATED((byte) 0x5F),
+    NO_ITERATOR_CREATED((byte) -0x01),
 
     /**
      * Number of iterators deleted.
@@ -661,62 +662,62 @@ public enum TickerType {
     /**
      * # of keys relocated to new blob file by garbage collection.
      */
-    BLOB_DB_GC_NUM_KEYS_RELOCATED((byte) -0x01),
+    BLOB_DB_GC_NUM_KEYS_RELOCATED((byte) -0x02),
 
     /**
      * # of bytes drop by BlobDB garbage collection because they had been
      * overwritten.
      */
-    BLOB_DB_GC_BYTES_OVERWRITTEN((byte) -0x02),
+    BLOB_DB_GC_BYTES_OVERWRITTEN((byte) -0x03),
 
     /**
      * # of bytes drop by BlobDB garbage collection because of expiration.
      */
-    BLOB_DB_GC_BYTES_EXPIRED((byte) -0x03),
+    BLOB_DB_GC_BYTES_EXPIRED((byte) -0x04),
 
     /**
      * # of bytes relocated to new blob file by garbage collection.
      */
-    BLOB_DB_GC_BYTES_RELOCATED((byte) -0x04),
+    BLOB_DB_GC_BYTES_RELOCATED((byte) -0x05),
 
     /**
      * # of blob files evicted because of BlobDB is full.
      */
-    BLOB_DB_FIFO_NUM_FILES_EVICTED((byte) -0x05),
+    BLOB_DB_FIFO_NUM_FILES_EVICTED((byte) -0x06),
 
     /**
      * # of keys in the blob files evicted because of BlobDB is full.
      */
-    BLOB_DB_FIFO_NUM_KEYS_EVICTED((byte) -0x06),
+    BLOB_DB_FIFO_NUM_KEYS_EVICTED((byte) -0x07),
 
     /**
      * # of bytes in the blob files evicted because of BlobDB is full.
      */
-    BLOB_DB_FIFO_BYTES_EVICTED((byte) -0x07),
+    BLOB_DB_FIFO_BYTES_EVICTED((byte) -0x08),
 
     /**
      * These counters indicate a performance issue in WritePrepared transactions.
      * We should not seem them ticking them much.
      * # of times prepare_mutex_ is acquired in the fast path.
      */
-    TXN_PREPARE_MUTEX_OVERHEAD((byte) -0x08),
+    TXN_PREPARE_MUTEX_OVERHEAD((byte) -0x09),
 
     /**
      * # of times old_commit_map_mutex_ is acquired in the fast path.
      */
-    TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD((byte) -0x09),
+    TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD((byte) -0x0A),
 
     /**
      * # of times we checked a batch for duplicate keys.
      */
-    TXN_DUPLICATE_KEY_OVERHEAD((byte) -0x0A),
+    TXN_DUPLICATE_KEY_OVERHEAD((byte) -0x0B),
 
     /**
      * # of times snapshot_mutex_ is acquired in the fast path.
      */
-    TXN_SNAPSHOT_MUTEX_OVERHEAD((byte) -0x0B),
+    TXN_SNAPSHOT_MUTEX_OVERHEAD((byte) -0x0C),
 
-    TICKER_ENUM_MAX((byte) -0x0C);
+    TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;
 
@@ -726,7 +727,8 @@ public enum TickerType {
 
     /**
      * @deprecated
-     * Exposes internal value of native enum mappings.
+     * Exposes internal value of native enum mappings. This method will be marked private in the
+     * next major release.
      */
     @Deprecated
     public byte getValue() {
