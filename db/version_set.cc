@@ -2858,6 +2858,24 @@ Status VersionSet::ProcessManifestWrites(
       assert(last_writer != nullptr);
       assert(last_writer->cfd != nullptr);
       if (last_writer->cfd->IsDropped()) {
+        size_t k = 0;
+        const auto& edit_list = last_writer->edit_list;
+        while (k < edit_list.size() && edit_list[k]->is_in_atomic_group_) {
+          ++k;
+        }
+        if (k > 0) {
+          assert(!edit_list.empty());
+          uint32_t remaining_entries = edit_list[0]->remaining_entries_;
+          size_t i = batch_edits.size();
+          while (i > 0 && batch_edits[i - 1]->is_in_atomic_group_ &&
+                 batch_edits[i - 1]->remaining_entries_ ==
+                     remaining_entries + 1) {
+            assert(batch_edits[i - 1]->remaining_entries_ >= k);
+            remaining_entries = batch_edits[i - 1]->remaining_entries_;
+            batch_edits[i - 1]->remaining_entries_ -= k;
+            --i;
+          }
+        }
         continue;
       }
       // We do a linear search on versions because versions is small.
