@@ -16,6 +16,11 @@ public class HistogramData {
   private final long sum_;
   private final double min_;
 
+  public HistogramData(final double median, final double percentile95,
+                       final double percentile99, final double average,
+                       final double standardDeviation) {
+    this(median, percentile95, percentile99, average, standardDeviation, 0.0, 0, 0, 0.0);
+  }
 
   public HistogramData(final double median, final double percentile95,
       final double percentile99, final double average,
