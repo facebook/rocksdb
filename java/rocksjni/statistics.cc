@@ -144,7 +144,7 @@ void Java_org_rocksdb_Statistics_setStatsLevel(JNIEnv* /*env*/,
 jlong Java_org_rocksdb_Statistics_getTickerCount(JNIEnv* /*env*/,
                                                  jobject /*jobj*/,
                                                  jlong jhandle,
-                                                 jchar jticker_type) {
+                                                 jbyte jticker_type) {
   auto* pSptr_statistics =
       reinterpret_cast<std::shared_ptr<rocksdb::Statistics>*>(jhandle);
   assert(pSptr_statistics != nullptr);
@@ -160,7 +160,7 @@ jlong Java_org_rocksdb_Statistics_getTickerCount(JNIEnv* /*env*/,
 jlong Java_org_rocksdb_Statistics_getAndResetTickerCount(JNIEnv* /*env*/,
                                                          jobject /*jobj*/,
                                                          jlong jhandle,
-                                                         jchar jticker_type) {
+                                                         jbyte jticker_type) {
   auto* pSptr_statistics =
       reinterpret_cast<std::shared_ptr<rocksdb::Statistics>*>(jhandle);
   assert(pSptr_statistics != nullptr);

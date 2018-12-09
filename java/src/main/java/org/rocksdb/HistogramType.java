@@ -167,6 +167,11 @@ public enum HistogramType {
     this.value = value;
   }
 
+  /**
+   * @deprecated
+   * Exposes internal value of native enum mappings.
+   */
+  @Deprecated
   public byte getValue() {
     return value;
   }
