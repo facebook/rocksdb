@@ -26,10 +26,29 @@
 #include <exception>
 #include <chrono>
 
+#ifdef ROCKSDB_WINDOWS_UTF8_FILENAMES
+// utf8 <-> utf16
+#include <string>
+#include <locale>
+#include <codecvt>
+#endif
+
 #include "util/logging.h"
 
 namespace rocksdb {
 namespace port {
+
+#ifdef ROCKSDB_WINDOWS_UTF8_FILENAMES
+std::string utf16_to_utf8(const std::wstring& utf16) {
+  std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>,wchar_t> convert;
+  return convert.to_bytes(utf16);
+}
+
+std::wstring utf8_to_utf16(const std::string& utf8) {
+  std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+  return converter.from_bytes(utf8);
+}
+#endif
 
 void gettimeofday(struct timeval* tv, struct timezone* /* tz */) {
   using namespace std::chrono;
@@ -108,19 +127,20 @@ void InitOnce(OnceType* once, void (*initializer)()) {
 
 // Private structure, exposed only by pointer
 struct DIR {
-  intptr_t handle_;
-  bool firstread_;
-  struct __finddata64_t data_;
+  HANDLE      handle_;
+  bool        firstread_;
+  RX_WIN32_FIND_DATA data_;
   dirent entry_;
 
-  DIR() : handle_(-1), firstread_(true) {}
+  DIR() : handle_(INVALID_HANDLE_VALUE),
+    firstread_(true) {}
 
   DIR(const DIR&) = delete;
   DIR& operator=(const DIR&) = delete;
 
   ~DIR() {
-    if (-1 != handle_) {
-      _findclose(handle_);
+    if (INVALID_HANDLE_VALUE != handle_) {
+      ::FindClose(handle_);
     }
   }
 };
@@ -136,19 +156,26 @@ DIR* opendir(const char* name) {
 
   std::unique_ptr<DIR> dir(new DIR);
 
-  dir->handle_ = _findfirst64(pattern.c_str(), &dir->data_);
+  dir->handle_ = RX_FindFirstFileEx(RX_FN(pattern).c_str(), 
+    FindExInfoBasic, // Do not want alternative name
+    &dir->data_,
+    FindExSearchNameMatch,
+    NULL, // lpSearchFilter
+    0);
 
-  if (dir->handle_ == -1) {
+  if (dir->handle_ == INVALID_HANDLE_VALUE) {
     return nullptr;
   }
 
-  strcpy_s(dir->entry_.d_name, sizeof(dir->entry_.d_name), dir->data_.name);
+  RX_FILESTRING x(dir->data_.cFileName, RX_FNLEN(dir->data_.cFileName));
+  strcpy_s(dir->entry_.d_name, sizeof(dir->entry_.d_name), 
+           FN_TO_RX(x).c_str());
 
   return dir.release();
 }
 
 struct dirent* readdir(DIR* dirp) {
-  if (!dirp || dirp->handle_ == -1) {
+  if (!dirp || dirp->handle_ == INVALID_HANDLE_VALUE) {
     errno = EBADF;
     return nullptr;
   }
@@ -158,13 +185,15 @@ struct dirent* readdir(DIR* dirp) {
     return &dirp->entry_;
   }
 
-  auto ret = _findnext64(dirp->handle_, &dirp->data_);
+  auto ret = RX_FindNextFile(dirp->handle_, &dirp->data_);
 
-  if (ret != 0) {
+  if (ret == 0) {
     return nullptr;
   }
 
-  strcpy_s(dirp->entry_.d_name, sizeof(dirp->entry_.d_name), dirp->data_.name);
+  RX_FILESTRING x(dirp->data_.cFileName, RX_FNLEN(dirp->data_.cFileName));
+  strcpy_s(dirp->entry_.d_name, sizeof(dirp->entry_.d_name), 
+           FN_TO_RX(x).c_str());
 
   return &dirp->entry_;
 }
@@ -174,11 +203,15 @@ int closedir(DIR* dirp) {
   return 0;
 }
 
-int truncate(const char* path, int64_t len) {
+int truncate(const char* path, int64_t length) {
   if (path == nullptr) {
     errno = EFAULT;
     return -1;
   }
+  return rocksdb::port::Truncate(path, length);
+}
+
+int Truncate(std::string path, int64_t len) {
 
   if (len < 0) {
     errno = EINVAL;
@@ -186,7 +219,7 @@ int truncate(const char* path, int64_t len) {
   }
 
   HANDLE hFile =
-      CreateFile(path, GENERIC_READ | GENERIC_WRITE,
+      RX_CreateFile(RX_FN(path).c_str(), GENERIC_READ | GENERIC_WRITE,
                  FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                  NULL,           // Security attrs
                  OPEN_EXISTING,  // Truncate existing file only

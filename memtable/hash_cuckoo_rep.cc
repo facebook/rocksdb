@@ -97,7 +97,7 @@ class HashCuckooRep : public MemTableRep {
   // Insert the specified key (internal_key) into the mem-table.  Assertion
   // fails if
   // the current mem-table already contains the specified key.
-  virtual bool Insert(KeyHandle handle) override;
+  virtual void Insert(KeyHandle handle) override;
 
   // This function returns bucket_count_ * approximate_entry_size_ when any
   // of the followings happen to disallow further write operations:
@@ -319,7 +319,7 @@ void HashCuckooRep::Get(const LookupKey& key, void* callback_args,
   }
 }
 
-bool HashCuckooRep::Insert(KeyHandle handle) {
+void HashCuckooRep::Insert(KeyHandle handle) {
   static const float kMaxFullness = 0.90f;
 
   auto* key = static_cast<char*>(handle);
@@ -340,7 +340,7 @@ bool HashCuckooRep::Insert(KeyHandle handle) {
       is_nearly_full_ = true;
     }
     backup_table_->Insert(key);
-    return true;
+    return;
   }
   // when reaching this point, means the insert can be done successfully.
   occupied_count_++;
@@ -349,7 +349,7 @@ bool HashCuckooRep::Insert(KeyHandle handle) {
   }
 
   // perform kickout process if the length of cuckoo path > 1.
-  if (cuckoo_path_length == 0) return true;
+  if (cuckoo_path_length == 0) return;
 
   // the cuckoo path stores the kickout path in reverse order.
   // so the kickout or displacement is actually performed
@@ -366,7 +366,6 @@ bool HashCuckooRep::Insert(KeyHandle handle) {
   }
   int insert_key_bid = cuckoo_path_[cuckoo_path_length - 1];
   cuckoo_array_[insert_key_bid].store(key, std::memory_order_release);
-  return true;
 }
 
 bool HashCuckooRep::Contains(const char* internal_key) const {
@@ -409,6 +408,7 @@ bool HashCuckooRep::QuickInsert(const char* internal_key, const Slice& user_key,
       const auto bucket_user_key = UserKey(stored_key);
       if (bucket_user_key.compare(user_key) == 0) {
         cuckoo_bucket_id = bucket_ids[hid];
+        assert(cuckoo_bucket_id != -1);
         break;
       }
     }
@@ -598,8 +598,8 @@ void HashCuckooRep::Iterator::Seek(const Slice& user_key,
 }
 
 // Retreat to the last entry with a key <= target
-void HashCuckooRep::Iterator::SeekForPrev(const Slice& user_key,
-                                          const char* memtable_key) {
+void HashCuckooRep::Iterator::SeekForPrev(const Slice& /*user_key*/,
+                                          const char* /*memtable_key*/) {
   assert(false);
 }
 
@@ -624,7 +624,7 @@ void HashCuckooRep::Iterator::SeekToLast() {
 
 MemTableRep* HashCuckooRepFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Allocator* allocator,
-    const SliceTransform* transform, Logger* logger) {
+    const SliceTransform* /*transform*/, Logger* /*logger*/) {
   // The estimated average fullness.  The write performance of any close hash
   // degrades as the fullness of the mem-table increases.  Setting kFullness
   // to a value around 0.7 can better avoid write performance degradation while

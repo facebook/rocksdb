@@ -3,9 +3,9 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_PERF_CONTEXT_H
-#define STORAGE_ROCKSDB_INCLUDE_PERF_CONTEXT_H
+#pragma once
 
+#include <map>
 #include <stdint.h>
 #include <string>
 
@@ -17,17 +17,53 @@ namespace rocksdb {
 // and transparently.
 // Use SetPerfLevel(PerfLevel::kEnableTime) to enable time stats.
 
+// Break down performance counters by level and store per-level perf context in
+// PerfContextByLevel
+struct PerfContextByLevel {
+  // # of times bloom filter has avoided file reads, i.e., negatives.
+  uint64_t bloom_filter_useful = 0;
+  // # of times bloom FullFilter has not avoided the reads.
+  uint64_t bloom_filter_full_positive = 0;
+  // # of times bloom FullFilter has not avoided the reads and data actually
+  // exist.
+  uint64_t bloom_filter_full_true_positive = 0;
+
+  // total number of user key returned (only include keys that are found, does
+  // not include keys that are deleted or merged without a final put
+  uint64_t user_key_return_count;
+
+  // total nanos spent on reading data from SST files
+  uint64_t get_from_table_nanos;
+
+  void Reset(); // reset all performance counters to zero
+};
+
 struct PerfContext {
+
+  ~PerfContext();
 
   void Reset(); // reset all performance counters to zero
 
   std::string ToString(bool exclude_zero_counters = false) const;
+
+  // enable per level perf context and allocate storage for PerfContextByLevel
+  void EnablePerLevelPerfContext();
+
+  // temporarily disable per level perf contxt by setting the flag to false
+  void DisablePerLevelPerfContext();
+
+  // free the space for PerfContextByLevel, also disable per level perf context
+  void ClearPerLevelPerfContext();
 
   uint64_t user_key_comparison_count; // total number of user key comparisons
   uint64_t block_cache_hit_count;     // total number of block cache hits
   uint64_t block_read_count;          // total number of block reads (with IO)
   uint64_t block_read_byte;           // total number of bytes from block reads
   uint64_t block_read_time;           // total nanos spent on block reads
+  uint64_t block_cache_index_hit_count; // total number of index block hits
+  uint64_t index_block_read_count;      // total number of index block reads
+  uint64_t block_cache_filter_hit_count; // total number of filter block hits
+  uint64_t filter_block_read_count;     // total number of filter block reads
   uint64_t block_checksum_time;       // total nanos spent on block checksum
   uint64_t block_decompress_time;  // total nanos spent on block decompression
 
@@ -95,16 +131,27 @@ struct PerfContext {
   // total nanos spent on iterating internal entries to find the next user entry
   uint64_t find_next_user_entry_time;
 
+  // This group of stats provide a breakdown of time spent by Write().
+  // May be inaccurate when 2PC, two_write_queues or enable_pipelined_write
+  // are enabled.
+  //
   // total nanos spent on writing to WAL
   uint64_t write_wal_time;
   // total nanos spent on writing to mem tables
   uint64_t write_memtable_time;
-  // total nanos spent on delaying write
+  // total nanos spent on delaying or throttling write
   uint64_t write_delay_time;
-  // total nanos spent on writing a record, excluding the above three times
+  // total nanos spent on switching memtable/wal and scheduling
+  // flushes/compactions.
+  uint64_t write_scheduling_flushes_compactions_time;
+  // total nanos spent on writing a record, excluding the above four things
   uint64_t write_pre_and_post_process_time;
 
-  uint64_t db_mutex_lock_nanos;      // time spent on acquiring DB mutex.
+  // time spent waiting for other threads of the batch group
+  uint64_t write_thread_wait_nanos;
+
+  // time spent on acquiring DB mutex.
+  uint64_t db_mutex_lock_nanos;
   // Time spent on waiting with a condition variable created with DB mutex.
   uint64_t db_condition_wait_nanos;
   // Time spent on merge operator.
@@ -158,6 +205,8 @@ struct PerfContext {
   uint64_t env_lock_file_nanos;
   uint64_t env_unlock_file_nanos;
   uint64_t env_new_logger_nanos;
+  std::map<uint32_t, PerfContextByLevel>* level_to_perf_context;
+  bool per_level_perf_context_enabled;
 };
 
 // Get Thread-local PerfContext object pointer
@@ -165,5 +214,3 @@ struct PerfContext {
 PerfContext* get_perf_context();
 
 }
-
-#endif

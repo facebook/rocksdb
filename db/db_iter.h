@@ -12,7 +12,7 @@
 #include <string>
 #include "db/db_impl.h"
 #include "db/dbformat.h"
-#include "db/range_del_aggregator.h"
+#include "db/range_del_aggregator_v2.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
@@ -23,19 +23,18 @@ namespace rocksdb {
 
 class Arena;
 class DBIter;
-class InternalIterator;
 
 // Return a new iterator that converts internal keys (yielded by
 // "*internal_iter") that were live at the specified "sequence" number
 // into appropriate user keys.
-extern Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
-                               const ImmutableCFOptions& cf_options,
-                               const Comparator* user_key_comparator,
-                               InternalIterator* internal_iter,
-                               const SequenceNumber& sequence,
-                               uint64_t max_sequential_skip_in_iterations,
-                               ReadCallback* read_callback,
-                               bool allow_blob = false);
+extern Iterator* NewDBIterator(
+    Env* env, const ReadOptions& read_options,
+    const ImmutableCFOptions& cf_options,
+    const MutableCFOptions& mutable_cf_options,
+    const Comparator* user_key_comparator, InternalIterator* internal_iter,
+    const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
+    ReadCallback* read_callback, DBImpl* db_impl = nullptr,
+    ColumnFamilyData* cfd = nullptr, bool allow_blob = false);
 
 // A wrapper iterator which wraps DB Iterator and the arena, with which the DB
 // iterator is supposed be allocated. This class is used as an entry point of
@@ -49,7 +48,7 @@ class ArenaWrappedDBIter : public Iterator {
   // Get the arena to be used to allocate memory for DBIter to be wrapped,
   // as well as child iterators in it.
   virtual Arena* GetArena() { return &arena_; }
-  virtual RangeDelAggregator* GetRangeDelAggregator();
+  virtual RangeDelAggregatorV2* GetRangeDelAggregator();
 
   // Set the internal iterator wrapped inside the DB Iterator. Usually it is
   // a merging iterator.
@@ -71,9 +70,11 @@ class ArenaWrappedDBIter : public Iterator {
 
   void Init(Env* env, const ReadOptions& read_options,
             const ImmutableCFOptions& cf_options,
+            const MutableCFOptions& mutable_cf_options,
             const SequenceNumber& sequence,
             uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
-            ReadCallback* read_callback, bool allow_blob, bool allow_refresh);
+            ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
+            bool allow_blob, bool allow_refresh);
 
   void StoreRefreshInfo(const ReadOptions& read_options, DBImpl* db_impl,
                         ColumnFamilyData* cfd, ReadCallback* read_callback,
@@ -102,7 +103,8 @@ class ArenaWrappedDBIter : public Iterator {
 // be supported.
 extern ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ReadOptions& read_options,
-    const ImmutableCFOptions& cf_options, const SequenceNumber& sequence,
+    const ImmutableCFOptions& cf_options,
+    const MutableCFOptions& mutable_cf_options, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
     ReadCallback* read_callback, DBImpl* db_impl = nullptr,
     ColumnFamilyData* cfd = nullptr, bool allow_blob = false,

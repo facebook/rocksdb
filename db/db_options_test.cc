@@ -134,7 +134,7 @@ TEST_F(DBOptionsTest, SetBytesPerSync) {
   const std::string kValue(kValueSize, 'v');
   ASSERT_EQ(options.bytes_per_sync, dbfull()->GetDBOptions().bytes_per_sync);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "WritableFileWriter::RangeSync:0", [&](void* arg) {
+      "WritableFileWriter::RangeSync:0", [&](void* /*arg*/) {
         counter++;
       });
 
@@ -183,7 +183,7 @@ TEST_F(DBOptionsTest, SetWalBytesPerSync) {
   int counter = 0;
   int low_bytes_per_sync = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "WritableFileWriter::RangeSync:0", [&](void* arg) {
+      "WritableFileWriter::RangeSync:0", [&](void* /*arg*/) {
         counter++;
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
@@ -242,11 +242,12 @@ TEST_F(DBOptionsTest, WritableFileMaxBufferSize) {
   ASSERT_EQ(unmatch_cnt, 0);
   ASSERT_GE(match_cnt, 11);
 
-  buffer_size = 512 * 1024;
-  match_cnt = 0;
-  unmatch_cnt = 0;
   ASSERT_OK(
       dbfull()->SetDBOptions({{"writable_file_max_buffer_size", "524288"}}));
+  buffer_size = 512 * 1024;
+  match_cnt = 0;
+  unmatch_cnt = 0;  // SetDBOptions() will create a WriteableFileWriter
+
   ASSERT_EQ(buffer_size,
             dbfull()->GetDBOptions().writable_file_max_buffer_size);
   i = 0;
@@ -511,6 +512,33 @@ TEST_F(DBOptionsTest, SetStatsDumpPeriodSec) {
         {{"stats_dump_period_sec", std::to_string(num)}}));
     ASSERT_EQ(num, dbfull()->GetDBOptions().stats_dump_period_sec);
   }
+}
+
+TEST_F(DBOptionsTest, RunStatsDumpPeriodSec) {
+  Options options;
+  options.create_if_missing = true;
+  options.stats_dump_period_sec = 5;
+  std::unique_ptr<rocksdb::MockTimeEnv> mock_env;
+  mock_env.reset(new rocksdb::MockTimeEnv(env_));
+  mock_env->set_current_time(0); // in seconds
+  options.env = mock_env.get();
+  int counter = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DumpStats:1", [&](void* /*arg*/) {
+        counter++;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  Reopen(options);
+  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_dump_period_sec);
+  dbfull()->TEST_WaitForTimedTaskRun([&] { mock_env->set_current_time(5); });
+  ASSERT_GE(counter, 1);
+
+  // Test cacel job through SetOptions
+  ASSERT_OK(dbfull()->SetDBOptions({{"stats_dump_period_sec", "0"}}));
+  int old_val = counter;
+  env_->SleepForMicroseconds(10000000);
+  ASSERT_EQ(counter, old_val);
+  Close();
 }
 
 static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {

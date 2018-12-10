@@ -11,11 +11,11 @@
 namespace rocksdb {
 
   StatisticsJni::StatisticsJni(std::shared_ptr<Statistics> stats)
-      : StatisticsImpl(stats, false), m_ignore_histograms() {
+      : StatisticsImpl(stats), m_ignore_histograms() {
   }
 
   StatisticsJni::StatisticsJni(std::shared_ptr<Statistics> stats,
-      const std::set<uint32_t> ignore_histograms) : StatisticsImpl(stats, false),
+      const std::set<uint32_t> ignore_histograms) : StatisticsImpl(stats),
       m_ignore_histograms(ignore_histograms) {
   }
 

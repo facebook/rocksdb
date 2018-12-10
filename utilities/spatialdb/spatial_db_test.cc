@@ -21,7 +21,7 @@ namespace spatial {
 class SpatialDBTest : public testing::Test {
  public:
   SpatialDBTest() {
-    dbname_ = test::TmpDir() + "/spatial_db_test";
+    dbname_ = test::PerThreadDBPath("spatial_db_test");
     DestroyDB(dbname_, Options());
   }
 
@@ -94,7 +94,7 @@ TEST_F(SpatialDBTest, FeatureSetSerializeTest) {
   ASSERT_EQ(deserialized.Get("m").get_double(), 3.25);
 
   // corrupted serialization
-  serialized = serialized.substr(0, serialized.size() - 4);
+  serialized = serialized.substr(0, serialized.size() - 1);
   deserialized.Clear();
   ASSERT_TRUE(!deserialized.Deserialize(serialized));
 }
@@ -299,7 +299,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as SpatialDB is not supported in ROCKSDB_LITE\n");
   return 0;
 }

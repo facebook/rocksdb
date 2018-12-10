@@ -18,8 +18,6 @@ namespace rocksdb {
 
 namespace blob_db {
 
-class TTLExtractor;
-
 // A wrapped database which puts values of KV pairs in a separate log
 // and store location to the log in the underlying DB.
 // It lacks lots of importatant functionalities, e.g. DB restarts,
@@ -36,13 +34,15 @@ struct BlobDBOptions {
   // whether the blob_dir path is relative or absolute.
   bool path_relative = true;
 
-  // is the eviction strategy fifo based
+  // When max_db_size is reached, evict blob files to free up space
+  // instead of returnning NoSpace error on write. Blob files will be
+  // evicted from oldest to newest, based on file creation time.
   bool is_fifo = false;
 
-  // maximum size of the blob dir. Once this gets used, up
-  // evict the blob file which is oldest (is_fifo )
-  // 0 means no limits
-  uint64_t blob_dir_size = 0;
+  // Maximum size of the database (including SST files and blob files).
+  //
+  // Default: 0 (no limits)
+  uint64_t max_db_size = 0;
 
   // a new bucket is opened, for ttl_range. So if ttl_range is 600seconds
   // (10 minutes), and the first bucket starts at 1471542000
@@ -64,11 +64,6 @@ struct BlobDBOptions {
   // the target size of each blob file. File will become immutable
   // after it exceeds that size
   uint64_t blob_file_size = 256 * 1024 * 1024;
-
-  // Instead of setting TTL explicitly by calling PutWithTTL or PutUntil,
-  // applications can set a TTLExtractor which can extract TTL from key-value
-  // pairs.
-  std::shared_ptr<TTLExtractor> ttl_extractor = nullptr;
 
   // what compression to use for Blob's
   CompressionType compression = kNoCompression;
@@ -108,15 +103,14 @@ class BlobDB : public StackableDB {
 
   using rocksdb::StackableDB::Delete;
   virtual Status Delete(const WriteOptions& options,
-                        const Slice& key) override = 0;
-  virtual Status Delete(const WriteOptions& options,
                         ColumnFamilyHandle* column_family,
                         const Slice& key) override {
     if (column_family != DefaultColumnFamily()) {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
     }
-    return Delete(options, key);
+    assert(db_ != nullptr);
+    return db_->Delete(options, column_family, key);
   }
 
   virtual Status PutWithTTL(const WriteOptions& options, const Slice& key,
@@ -149,6 +143,15 @@ class BlobDB : public StackableDB {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override = 0;
+
+  // Get value and expiration.
+  virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value, uint64_t* expiration) = 0;
+  virtual Status Get(const ReadOptions& options, const Slice& key,
+                     PinnableSlice* value, uint64_t* expiration) {
+    return Get(options, DefaultColumnFamily(), key, value, expiration);
+  }
 
   using rocksdb::StackableDB::MultiGet;
   virtual std::vector<Status> MultiGet(
@@ -187,7 +190,6 @@ class BlobDB : public StackableDB {
 
   virtual Status Write(const WriteOptions& opts,
                        WriteBatch* updates) override = 0;
-
   using rocksdb::StackableDB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& options) override = 0;
   virtual Iterator* NewIterator(const ReadOptions& options,
@@ -198,6 +200,9 @@ class BlobDB : public StackableDB {
     }
     return NewIterator(options);
   }
+
+  using rocksdb::StackableDB::Close;
+  virtual Status Close() override = 0;
 
   // Opening blob db.
   static Status Open(const Options& options, const BlobDBOptions& bdb_options,
@@ -223,33 +228,6 @@ class BlobDB : public StackableDB {
 // Destroy the content of the database.
 Status DestroyBlobDB(const std::string& dbname, const Options& options,
                      const BlobDBOptions& bdb_options);
-
-// TTLExtractor allow applications to extract TTL from key-value pairs.
-// This useful for applications using Put or WriteBatch to write keys and
-// don't intend to migrate to PutWithTTL or PutUntil.
-//
-// Applications can implement either ExtractTTL or ExtractExpiration. If both
-// are implemented, ExtractExpiration will take precedence.
-class TTLExtractor {
- public:
-  // Extract TTL from key-value pair.
-  // Return true if the key has TTL, false otherwise. If key has TTL,
-  // TTL is pass back through ttl. The method can optionally modify the value,
-  // pass the result back through new_value, and also set value_changed to true.
-  virtual bool ExtractTTL(const Slice& key, const Slice& value, uint64_t* ttl,
-                          std::string* new_value, bool* value_changed);
-
-  // Extract expiration time from key-value pair.
-  // Return true if the key has expiration time, false otherwise. If key has
-  // expiration time, it is pass back through expiration. The method can
-  // optionally modify the value, pass the result back through new_value,
-  // and also set value_changed to true.
-  virtual bool ExtractExpiration(const Slice& key, const Slice& value,
-                                 uint64_t now, uint64_t* expiration,
-                                 std::string* new_value, bool* value_changed);
-
-  virtual ~TTLExtractor() = default;
-};
 
 }  // namespace blob_db
 }  // namespace rocksdb

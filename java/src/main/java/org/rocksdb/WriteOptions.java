@@ -20,6 +20,12 @@ public class WriteOptions extends RocksObject {
 
   }
 
+  // TODO(AR) consider ownership
+  WriteOptions(final long nativeHandle) {
+    super(nativeHandle);
+    disOwnNativeHandle();
+  }
+
   /**
    * Copy constructor for WriteOptions.
    *

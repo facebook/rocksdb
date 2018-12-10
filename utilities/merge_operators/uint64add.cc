@@ -20,10 +20,8 @@ namespace { // anonymous namespace
 // Implemented as an AssociativeMergeOperator for simplicity and example.
 class UInt64AddOperator : public AssociativeMergeOperator {
  public:
-  virtual bool Merge(const Slice& key,
-                     const Slice* existing_value,
-                     const Slice& value,
-                     std::string* new_value,
+  virtual bool Merge(const Slice& /*key*/, const Slice* existing_value,
+                     const Slice& value, std::string* new_value,
                      Logger* logger) const override {
     uint64_t orig_value = 0;
     if (existing_value){

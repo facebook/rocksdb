@@ -15,13 +15,18 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     noBlockCache_ = false;
     blockCacheSize_ = 8 * 1024 * 1024;
     blockCacheNumShardBits_ = 0;
+    blockCache_ = null;
     blockSize_ = 4 * 1024;
     blockSizeDeviation_ = 10;
     blockRestartInterval_ = 16;
     wholeKeyFiltering_ = true;
     filter_ = null;
     cacheIndexAndFilterBlocks_ = false;
+    cacheIndexAndFilterBlocksWithHighPriority_ = false;
     pinL0FilterAndIndexBlocksInCache_ = false;
+    partitionFilters_ = false;
+    metadataBlockSize_ = 4096;
+    pinTopLevelIndexAndFilter_ = true;
     hashIndexAllowCollision_ = true;
     blockCacheCompressedSize_ = 0;
     blockCacheCompressedNumShardBits_ = 0;
@@ -69,6 +74,24 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    */
   public long blockCacheSize() {
     return blockCacheSize_;
+  }
+
+  /**
+   * Use the specified cache for blocks.
+   * When not null this take precedence even if the user sets a block cache size.
+   *
+   * {@link org.rocksdb.Cache} should not be disposed before options instances
+   * using this cache is disposed.
+   *
+   * {@link org.rocksdb.Cache} instance can be re-used in multiple options
+   * instances.
+   *
+   * @param cache {@link org.rocksdb.Cache} Cache java instance (e.g. LRUCache).
+   * @return the reference to the current config.
+   */
+  public BlockBasedTableConfig setBlockCache(final Cache cache) {
+    blockCache_ = cache;
+    return this;
   }
 
   /**
@@ -228,6 +251,31 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   }
 
   /**
+   * Indicates if index and filter blocks will be treated as high-priority in the block cache.
+   * See note below about applicability. If not specified, defaults to false.
+   *
+   * @return if index and filter blocks will be treated as high-priority.
+   */
+  public boolean cacheIndexAndFilterBlocksWithHighPriority() {
+    return cacheIndexAndFilterBlocksWithHighPriority_;
+  }
+
+  /**
+   * If true, cache index and filter blocks with high priority. If set to true,
+   * depending on implementation of block cache, index and filter blocks may be
+   * less likely to be evicted than data blocks.
+   *
+   * @param cacheIndexAndFilterBlocksWithHighPriority if index and filter blocks
+   *            will be treated as high-priority.
+   * @return the reference to the current config.
+   */
+  public BlockBasedTableConfig setCacheIndexAndFilterBlocksWithHighPriority(
+          final boolean cacheIndexAndFilterBlocksWithHighPriority) {
+    cacheIndexAndFilterBlocksWithHighPriority_ = cacheIndexAndFilterBlocksWithHighPriority;
+    return this;
+  }
+
+  /**
    * Indicating if we'd like to pin L0 index/filter blocks to the block cache.
      If not specified, defaults to false.
    *
@@ -247,6 +295,70 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   public BlockBasedTableConfig setPinL0FilterAndIndexBlocksInCache(
       final boolean pinL0FilterAndIndexBlocksInCache) {
     pinL0FilterAndIndexBlocksInCache_ = pinL0FilterAndIndexBlocksInCache;
+    return this;
+  }
+
+  /**
+   * Indicating if we're using partitioned filters. Defaults to false.
+   *
+   * @return if we're using partition filters.
+   */
+  public boolean partitionFilters() {
+    return partitionFilters_;
+  }
+
+  /**
+   * Use partitioned full filters for each SST file. This option is incompatible with
+   * block-based filters.
+   *
+   * @param partitionFilters use partition filters.
+   * @return the reference to the current config.
+   */
+  public BlockBasedTableConfig setPartitionFilters(final boolean partitionFilters) {
+    partitionFilters_ = partitionFilters;
+    return this;
+  }
+
+  /**
+   * @return block size for partitioned metadata.
+   */
+  public long metadataBlockSize() {
+    return metadataBlockSize_;
+  }
+
+  /**
+   * Set block size for partitioned metadata.
+   *
+   * @param metadataBlockSize Partitioned metadata block size.
+   * @return the reference to the current config.
+   */
+  public BlockBasedTableConfig setMetadataBlockSize(
+          final long metadataBlockSize) {
+    metadataBlockSize_ = metadataBlockSize;
+    return this;
+  }
+
+  /**
+   * Indicates if top-level index and filter blocks should be pinned.
+   *
+   * @return if top-level index and filter blocks should be pinned.
+   */
+  public boolean pinTopLevelIndexAndFilter() {
+    return pinTopLevelIndexAndFilter_;
+  }
+
+  /**
+   * If cacheIndexAndFilterBlocks is true and the below is true, then
+   * the top-level index of partitioned filter and index blocks are stored in
+   * the cache, but a reference is held in the "table reader" object so the
+   * blocks are pinned and only evicted from cache when the table reader is
+   * freed. This is not limited to l0 in LSM tree.
+   *
+   * @param pinTopLevelIndexAndFilter if top-level index and filter blocks should be pinned.
+   * @return the reference to the current config.
+   */
+  public BlockBasedTableConfig setPinTopLevelIndexAndFilter(final boolean pinTopLevelIndexAndFilter) {
+    pinTopLevelIndexAndFilter_ = pinTopLevelIndexAndFilter;
     return this;
   }
 
@@ -413,28 +525,35 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       filterHandle = filter_.nativeHandle_;
     }
 
-    return newTableFactoryHandle(noBlockCache_, blockCacheSize_,
-        blockCacheNumShardBits_, blockSize_, blockSizeDeviation_,
-        blockRestartInterval_, wholeKeyFiltering_,
-        filterHandle, cacheIndexAndFilterBlocks_,
-        pinL0FilterAndIndexBlocksInCache_,
-        hashIndexAllowCollision_, blockCacheCompressedSize_,
-        blockCacheCompressedNumShardBits_,
-        checksumType_.getValue(), indexType_.getValue(),
-        formatVersion_);
+    long blockCacheHandle = 0;
+    if (blockCache_ != null) {
+      blockCacheHandle = blockCache_.nativeHandle_;
+    }
+
+    return newTableFactoryHandle(noBlockCache_, blockCacheSize_, blockCacheNumShardBits_,
+        blockCacheHandle, blockSize_, blockSizeDeviation_, blockRestartInterval_,
+        wholeKeyFiltering_, filterHandle, cacheIndexAndFilterBlocks_,
+        cacheIndexAndFilterBlocksWithHighPriority_, pinL0FilterAndIndexBlocksInCache_,
+        partitionFilters_, metadataBlockSize_, pinTopLevelIndexAndFilter_,
+        hashIndexAllowCollision_, blockCacheCompressedSize_, blockCacheCompressedNumShardBits_,
+        checksumType_.getValue(), indexType_.getValue(), formatVersion_);
   }
 
-  private native long newTableFactoryHandle(
-      boolean noBlockCache, long blockCacheSize, int blockCacheNumShardBits,
-      long blockSize, int blockSizeDeviation, int blockRestartInterval,
-      boolean wholeKeyFiltering, long filterPolicyHandle,
-      boolean cacheIndexAndFilterBlocks, boolean pinL0FilterAndIndexBlocksInCache,
-      boolean hashIndexAllowCollision, long blockCacheCompressedSize,
-      int blockCacheCompressedNumShardBits, byte checkSumType,
-      byte indexType, int formatVersion);
+  private native long newTableFactoryHandle(boolean noBlockCache, long blockCacheSize,
+      int blockCacheNumShardBits, long blockCacheHandle, long blockSize, int blockSizeDeviation,
+      int blockRestartInterval, boolean wholeKeyFiltering, long filterPolicyHandle,
+      boolean cacheIndexAndFilterBlocks, boolean cacheIndexAndFilterBlocksWithHighPriority,
+      boolean pinL0FilterAndIndexBlocksInCache, boolean partitionFilters, long metadataBlockSize,
+      boolean pinTopLevelIndexAndFilter, boolean hashIndexAllowCollision,
+      long blockCacheCompressedSize, int blockCacheCompressedNumShardBits,
+      byte checkSumType, byte indexType, int formatVersion);
 
   private boolean cacheIndexAndFilterBlocks_;
+  private boolean cacheIndexAndFilterBlocksWithHighPriority_;
   private boolean pinL0FilterAndIndexBlocksInCache_;
+  private boolean partitionFilters_;
+  private long metadataBlockSize_;
+  private boolean pinTopLevelIndexAndFilter_;
   private IndexType indexType_;
   private boolean hashIndexAllowCollision_;
   private ChecksumType checksumType_;
@@ -442,6 +561,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private long blockSize_;
   private long blockCacheSize_;
   private int blockCacheNumShardBits_;
+  private Cache blockCache_;
   private long blockCacheCompressedSize_;
   private int blockCacheCompressedNumShardBits_;
   private int blockSizeDeviation_;

@@ -23,7 +23,7 @@ class DBTestXactLogIterator : public DBTestBase {
 
   std::unique_ptr<TransactionLogIterator> OpenTransactionLogIter(
       const SequenceNumber seq) {
-    unique_ptr<TransactionLogIterator> iter;
+    std::unique_ptr<TransactionLogIterator> iter;
     Status status = dbfull()->GetUpdatesSince(seq, &iter);
     EXPECT_OK(status);
     EXPECT_TRUE(iter->Valid());
@@ -289,6 +289,8 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 #else
+  (void) argc;
+  (void) argv;
   return 0;
 #endif
 }

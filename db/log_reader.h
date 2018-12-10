@@ -50,14 +50,10 @@ class Reader {
   // live while this Reader is in use.
   //
   // If "checksum" is true, verify checksums if available.
-  //
-  // The Reader will start reading at the first record located at physical
-  // position >= initial_offset within the file.
   Reader(std::shared_ptr<Logger> info_log,
-  // @lint-ignore TXT2 T25377293 Grandfathered in
-	 unique_ptr<SequentialFileReader>&& file,
-         Reporter* reporter, bool checksum, uint64_t initial_offset,
-         uint64_t log_num);
+         // @lint-ignore TXT2 T25377293 Grandfathered in
+         std::unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
+         bool checksum, uint64_t log_num, bool retry_after_eof);
 
   ~Reader();
 
@@ -91,7 +87,7 @@ class Reader {
 
  private:
   std::shared_ptr<Logger> info_log_;
-  const unique_ptr<SequentialFileReader> file_;
+  const std::unique_ptr<SequentialFileReader> file_;
   Reporter* const reporter_;
   bool const checksum_;
   char* const backing_store_;
@@ -108,14 +104,16 @@ class Reader {
   // Offset of the first location past the end of buffer_.
   uint64_t end_of_buffer_offset_;
 
-  // Offset at which to start looking for the first record to return
-  uint64_t const initial_offset_;
-
   // which log number this is
   uint64_t const log_number_;
 
   // Whether this is a recycled log file
   bool recycled_;
+
+  // Whether retry after encountering EOF
+  // TODO (yanqin) add support for retry policy, e.g. sleep, max retry limit,
+  // etc.
+  const bool retry_after_eof_;
 
   // Extend record types with the following special values
   enum {
@@ -124,7 +122,6 @@ class Reader {
     // Currently there are three situations in which this happens:
     // * The record has an invalid CRC (ReadPhysicalRecord reports a drop)
     // * The record is a 0-length record (No drop is reported)
-    // * The record is below constructor's initial_offset (No drop is reported)
     kBadRecord = kMaxRecordType + 2,
     // Returned when we fail to read a valid header.
     kBadHeader = kMaxRecordType + 3,
@@ -135,11 +132,6 @@ class Reader {
     // Returned when we get a bad record checksum
     kBadRecordChecksum = kMaxRecordType + 6,
   };
-
-  // Skips all blocks that are completely before "initial_offset_".
-  //
-  // Returns true on success. Handles reporting.
-  bool SkipToInitialBlock();
 
   // Return type, or one of the preceding special values
   unsigned int ReadPhysicalRecord(Slice* result, size_t* drop_size);

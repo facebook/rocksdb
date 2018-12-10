@@ -19,16 +19,16 @@ Status CopyFile(Env* env, const std::string& source,
                 const std::string& destination, uint64_t size, bool use_fsync) {
   const EnvOptions soptions;
   Status s;
-  unique_ptr<SequentialFileReader> src_reader;
-  unique_ptr<WritableFileWriter> dest_writer;
+  std::unique_ptr<SequentialFileReader> src_reader;
+  std::unique_ptr<WritableFileWriter> dest_writer;
 
   {
-    unique_ptr<SequentialFile> srcfile;
+    std::unique_ptr<SequentialFile> srcfile;
     s = env->NewSequentialFile(source, &srcfile, soptions);
     if (!s.ok()) {
       return s;
     }
-    unique_ptr<WritableFile> destfile;
+    std::unique_ptr<WritableFile> destfile;
     s = env->NewWritableFile(destination, &destfile, soptions);
     if (!s.ok()) {
       return s;
@@ -41,8 +41,9 @@ Status CopyFile(Env* env, const std::string& source,
         return s;
       }
     }
-    src_reader.reset(new SequentialFileReader(std::move(srcfile)));
-    dest_writer.reset(new WritableFileWriter(std::move(destfile), soptions));
+    src_reader.reset(new SequentialFileReader(std::move(srcfile), source));
+    dest_writer.reset(
+        new WritableFileWriter(std::move(destfile), destination, soptions));
   }
 
   char buffer[4096];
@@ -62,38 +63,42 @@ Status CopyFile(Env* env, const std::string& source,
     }
     size -= slice.size();
   }
-  dest_writer->Sync(use_fsync);
-  return Status::OK();
+  return dest_writer->Sync(use_fsync);
 }
 
 // Utility function to create a file with the provided contents
 Status CreateFile(Env* env, const std::string& destination,
-                  const std::string& contents) {
+                  const std::string& contents, bool use_fsync) {
   const EnvOptions soptions;
   Status s;
-  unique_ptr<WritableFileWriter> dest_writer;
+  std::unique_ptr<WritableFileWriter> dest_writer;
 
-  unique_ptr<WritableFile> destfile;
+  std::unique_ptr<WritableFile> destfile;
   s = env->NewWritableFile(destination, &destfile, soptions);
   if (!s.ok()) {
     return s;
   }
-  dest_writer.reset(new WritableFileWriter(std::move(destfile), soptions));
-  return dest_writer->Append(Slice(contents));
+  dest_writer.reset(
+      new WritableFileWriter(std::move(destfile), destination, soptions));
+  s = dest_writer->Append(Slice(contents));
+  if (!s.ok()) {
+    return s;
+  }
+  return dest_writer->Sync(use_fsync);
 }
 
 Status DeleteSSTFile(const ImmutableDBOptions* db_options,
-                     const std::string& fname, uint32_t path_id) {
-  // TODO(tec): support sst_file_manager for multiple path_ids
+                     const std::string& fname, const std::string& dir_to_sync) {
 #ifndef ROCKSDB_LITE
   auto sfm =
       static_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());
-  if (sfm && path_id == 0) {
-    return sfm->ScheduleFileDeletion(fname);
+  if (sfm) {
+    return sfm->ScheduleFileDeletion(fname, dir_to_sync);
   } else {
     return db_options->env->DeleteFile(fname);
   }
 #else
+  (void)dir_to_sync;
   // SstFileManager is not supported in ROCKSDB_LITE
   return db_options->env->DeleteFile(fname);
 #endif

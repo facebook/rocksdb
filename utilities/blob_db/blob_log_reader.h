@@ -14,6 +14,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
+#include "util/file_reader_writer.h"
 #include "utilities/blob_db/blob_log_format.h"
 
 namespace rocksdb {
@@ -39,7 +40,7 @@ class Reader {
 
   // Create a reader that will return log records from "*file".
   // "*file" must remain live while this Reader is in use.
-  Reader(std::unique_ptr<SequentialFileReader>&& file_reader, Env* env,
+  Reader(std::unique_ptr<RandomAccessFileReader>&& file_reader, Env* env,
          Statistics* statistics);
 
   ~Reader() = default;
@@ -59,19 +60,19 @@ class Reader {
   Status ReadRecord(BlobLogRecord* record, ReadLevel level = kReadHeader,
                     uint64_t* blob_offset = nullptr);
 
-  Status ReadSlice(uint64_t size, Slice* slice, std::string* buf);
-
   void ResetNextByte() { next_byte_ = 0; }
 
   uint64_t GetNextByte() const { return next_byte_; }
 
  private:
-  const std::unique_ptr<SequentialFileReader> file_;
+  Status ReadSlice(uint64_t size, Slice* slice, char* buf);
+
+  const std::unique_ptr<RandomAccessFileReader> file_;
   Env* env_;
   Statistics* statistics_;
 
-  std::string backing_store_;
   Slice buffer_;
+  char header_buf_[BlobLogRecord::kHeaderSize];
 
   // which byte to read next. For asserting proper usage
   uint64_t next_byte_;

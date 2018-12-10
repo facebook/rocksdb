@@ -24,6 +24,8 @@ static inline uint64_t CuckooHash(
   if (get_slice_hash != nullptr) {
     return get_slice_hash(user_key, hash_cnt, table_size_);
   }
+#else
+  (void)get_slice_hash;
 #endif
 
   uint64_t value = 0;
@@ -58,8 +60,8 @@ class CuckooTableFactory : public TableFactory {
 
   Status NewTableReader(
       const TableReaderOptions& table_reader_options,
-      unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-      unique_ptr<TableReader>* table,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table,
       bool prefetch_index_and_filter_in_cache = true) const override;
 
   TableBuilder* NewTableBuilder(
@@ -67,8 +69,9 @@ class CuckooTableFactory : public TableFactory {
       uint32_t column_family_id, WritableFileWriter* file) const override;
 
   // Sanitizes the specified DB Options.
-  Status SanitizeOptions(const DBOptions& db_opts,
-                         const ColumnFamilyOptions& cf_opts) const override {
+  Status SanitizeOptions(
+      const DBOptions& /*db_opts*/,
+      const ColumnFamilyOptions& /*cf_opts*/) const override {
     return Status::OK();
   }
 
@@ -76,8 +79,8 @@ class CuckooTableFactory : public TableFactory {
 
   void* GetOptions() override { return &table_options_; }
 
-  Status GetOptionString(std::string* opt_string,
-                         const std::string& delimiter) const override {
+  Status GetOptionString(std::string* /*opt_string*/,
+                         const std::string& /*delimiter*/) const override {
     return Status::OK();
   }
 

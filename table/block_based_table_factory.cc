@@ -27,9 +27,140 @@
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_reader.h"
 #include "table/format.h"
+#include "util/mutexlock.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
+
+void TailPrefetchStats::RecordEffectiveSize(size_t len) {
+  MutexLock l(&mutex_);
+  if (num_records_ < kNumTracked) {
+    num_records_++;
+  }
+  records_[next_++] = len;
+  if (next_ == kNumTracked) {
+    next_ = 0;
+  }
+}
+
+size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
+  std::vector<size_t> sorted;
+  {
+    MutexLock l(&mutex_);
+
+    if (num_records_ == 0) {
+      return 0;
+    }
+    sorted.assign(records_, records_ + num_records_);
+  }
+
+  // Of the historic size, we find the maximum one that satisifis the condtiion
+  // that if prefetching all, less than 1/8 will be wasted.
+  std::sort(sorted.begin(), sorted.end());
+
+  // Assuming we have 5 data points, and after sorting it looks like this:
+  //
+  //                                     +---+
+  //                             +---+   |   |
+  //                             |   |   |   |
+  //                             |   |   |   |
+  //                             |   |   |   |
+  //                             |   |   |   |
+  //                    +---+    |   |   |   |
+  //                    |   |    |   |   |   |
+  //           +---+    |   |    |   |   |   |
+  //           |   |    |   |    |   |   |   |
+  //  +---+    |   |    |   |    |   |   |   |
+  //  |   |    |   |    |   |    |   |   |   |
+  //  |   |    |   |    |   |    |   |   |   |
+  //  |   |    |   |    |   |    |   |   |   |
+  //  |   |    |   |    |   |    |   |   |   |
+  //  |   |    |   |    |   |    |   |   |   |
+  //  +---+    +---+    +---+    +---+   +---+
+  //
+  // and we use every of the value as a candidate, and estimate how much we
+  // wasted, compared to read. For example, when we use the 3rd record
+  // as candiate. This area is what we read:
+  //                                     +---+
+  //                             +---+   |   |
+  //                             |   |   |   |
+  //                             |   |   |   |
+  //                             |   |   |   |
+  //                             |   |   |   |
+  //  ***  ***  ***  ***+ ***  ***  *** *** **
+  //  *                 |   |    |   |   |   |
+  //           +---+    |   |    |   |   |   *
+  //  *        |   |    |   |    |   |   |   |
+  //  +---+    |   |    |   |    |   |   |   *
+  //  *   |    |   |    | X |    |   |   |   |
+  //  |   |    |   |    |   |    |   |   |   *
+  //  *   |    |   |    |   |    |   |   |   |
+  //  |   |    |   |    |   |    |   |   |   *
+  //  *   |    |   |    |   |    |   |   |   |
+  //  *** *** ***-***  ***--*** ***--*** +****
+  // which is (size of the record) X (number of records).
+  //
+  // While wasted is this area:
+  //                                     +---+
+  //                             +---+   |   |
+  //                             |   |   |   |
+  //                             |   |   |   |
+  //                             |   |   |   |
+  //                             |   |   |   |
+  //  ***  ***  ***  ****---+    |   |   |   |
+  //  *                 *   |    |   |   |   |
+  //  *        *-***  ***   |    |   |   |   |
+  //  *        *   |    |   |    |   |   |   |
+  //  *--**  ***   |    |   |    |   |   |   |
+  //  |   |    |   |    | X |    |   |   |   |
+  //  |   |    |   |    |   |    |   |   |   |
+  //  |   |    |   |    |   |    |   |   |   |
+  //  |   |    |   |    |   |    |   |   |   |
+  //  |   |    |   |    |   |    |   |   |   |
+  //  +---+    +---+    +---+    +---+   +---+
+  //
+  // Which can be calculated iteratively.
+  // The difference between wasted using 4st and 3rd record, will
+  // be following area:
+  //                                     +---+
+  //  +--+  +-+   ++  +-+  +-+   +---+   |   |
+  //  + xxxxxxxxxxxxxxxxxxxxxxxx |   |   |   |
+  //    xxxxxxxxxxxxxxxxxxxxxxxx |   |   |   |
+  //  + xxxxxxxxxxxxxxxxxxxxxxxx |   |   |   |
+  //  | xxxxxxxxxxxxxxxxxxxxxxxx |   |   |   |
+  //  +-+ +-+  +-+  ++  +---+ +--+   |   |   |
+  //  |                 |   |    |   |   |   |
+  //           +---+ ++ |   |    |   |   |   |
+  //  |        |   |    |   |    | X |   |   |
+  //  +---+ ++ |   |    |   |    |   |   |   |
+  //  |   |    |   |    |   |    |   |   |   |
+  //  |   |    |   |    |   |    |   |   |   |
+  //  |   |    |   |    |   |    |   |   |   |
+  //  |   |    |   |    |   |    |   |   |   |
+  //  |   |    |   |    |   |    |   |   |   |
+  //  +---+    +---+    +---+    +---+   +---+
+  //
+  // which will be the size difference between 4st and 3rd record,
+  // times 3, which is number of records before the 4st.
+  // Here we assume that all data within the prefetch range will be useful. In
+  // reality, it may not be the case when a partial block is inside the range,
+  // or there are data in the middle that is not read. We ignore those cases
+  // for simplicity.
+  assert(!sorted.empty());
+  size_t prev_size = sorted[0];
+  size_t max_qualified_size = sorted[0];
+  size_t wasted = 0;
+  for (size_t i = 1; i < sorted.size(); i++) {
+    size_t read = sorted[i] * sorted.size();
+    wasted += (sorted[i] - prev_size) * i;
+    if (wasted <= read / 8) {
+      max_qualified_size = sorted[i];
+    }
+    prev_size = sorted[i];
+  }
+  const size_t kMaxPrefetchSize = 512 * 1024;  // Never exceed 512KB
+  return std::min(kMaxPrefetchSize, max_qualified_size);
+}
 
 BlockBasedTableFactory::BlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options)
@@ -63,22 +194,24 @@ BlockBasedTableFactory::BlockBasedTableFactory(
 
 Status BlockBasedTableFactory::NewTableReader(
     const TableReaderOptions& table_reader_options,
-    unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-    unique_ptr<TableReader>* table_reader,
+    std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+    std::unique_ptr<TableReader>* table_reader,
     bool prefetch_index_and_filter_in_cache) const {
   return BlockBasedTable::Open(
       table_reader_options.ioptions, table_reader_options.env_options,
       table_options_, table_reader_options.internal_comparator, std::move(file),
-      file_size, table_reader, prefetch_index_and_filter_in_cache,
-      table_reader_options.skip_filters, table_reader_options.level);
+      file_size, table_reader, table_reader_options.prefix_extractor,
+      prefetch_index_and_filter_in_cache, table_reader_options.skip_filters,
+      table_reader_options.level, table_reader_options.immortal,
+      table_reader_options.largest_seqno, &tail_prefetch_stats_);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
     const TableBuilderOptions& table_builder_options, uint32_t column_family_id,
     WritableFileWriter* file) const {
   auto table_builder = new BlockBasedTableBuilder(
-      table_builder_options.ioptions, table_options_,
-      table_builder_options.internal_comparator,
+      table_builder_options.ioptions, table_builder_options.moptions,
+      table_options_, table_builder_options.internal_comparator,
       table_builder_options.int_tbl_prop_collector_factories, column_family_id,
       file, table_builder_options.compression_type,
       table_builder_options.compression_opts,
@@ -92,16 +225,17 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
 }
 
 Status BlockBasedTableFactory::SanitizeOptions(
-    const DBOptions& db_opts,
-    const ColumnFamilyOptions& cf_opts) const {
+    const DBOptions& /*db_opts*/, const ColumnFamilyOptions& cf_opts) const {
   if (table_options_.index_type == BlockBasedTableOptions::kHashSearch &&
       cf_opts.prefix_extractor == nullptr) {
-    return Status::InvalidArgument("Hash index is specified for block-based "
+    return Status::InvalidArgument(
+        "Hash index is specified for block-based "
         "table, but prefix_extractor is not given");
   }
   if (table_options_.cache_index_and_filter_blocks &&
       table_options_.no_block_cache) {
-    return Status::InvalidArgument("Enable cache_index_and_filter_blocks, "
+    return Status::InvalidArgument(
+        "Enable cache_index_and_filter_blocks, "
         ", but block cache is disabled");
   }
   if (table_options_.pin_l0_filter_and_index_blocks_in_cache &&
@@ -114,6 +248,23 @@ Status BlockBasedTableFactory::SanitizeOptions(
     return Status::InvalidArgument(
         "Unsupported BlockBasedTable format_version. Please check "
         "include/rocksdb/table.h for more info");
+  }
+  if (table_options_.block_align && (cf_opts.compression != kNoCompression)) {
+    return Status::InvalidArgument(
+        "Enable block_align, but compression "
+        "enabled");
+  }
+  if (table_options_.block_align &&
+      (table_options_.block_size & (table_options_.block_size - 1))) {
+    return Status::InvalidArgument(
+        "Block alignment requested but block size is not a power of 2");
+  }
+  if (table_options_.data_block_index_type ==
+          BlockBasedTableOptions::kDataBlockBinaryAndHash &&
+      table_options_.data_block_hash_table_util_ratio <= 0) {
+    return Status::InvalidArgument(
+        "data_block_hash_table_util_ratio should be greater than 0 when "
+        "data_block_index_type is set to kDataBlockBinaryAndHash");
   }
   return Status::OK();
 }
@@ -139,14 +290,16 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
            "  pin_l0_filter_and_index_blocks_in_cache: %d\n",
            table_options_.pin_l0_filter_and_index_blocks_in_cache);
   ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  pin_top_level_index_and_filter: %d\n",
+           table_options_.pin_top_level_index_and_filter);
+  ret.append(buffer);
   snprintf(buffer, kBufferSize, "  index_type: %d\n",
            table_options_.index_type);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  hash_index_allow_collision: %d\n",
            table_options_.hash_index_allow_collision);
   ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  checksum: %d\n",
-           table_options_.checksum);
+  snprintf(buffer, kBufferSize, "  checksum: %d\n", table_options_.checksum);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  no_block_cache: %d\n",
            table_options_.no_block_cache);
@@ -208,8 +361,9 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
            table_options_.use_delta_encoding);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  filter_policy: %s\n",
-           table_options_.filter_policy == nullptr ?
-             "nullptr" : table_options_.filter_policy->Name());
+           table_options_.filter_policy == nullptr
+               ? "nullptr"
+               : table_options_.filter_policy->Name());
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  whole_key_filtering: %d\n",
            table_options_.whole_key_filtering);
@@ -225,6 +379,9 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  enable_index_compression: %d\n",
            table_options_.enable_index_compression);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  block_align: %d\n",
+           table_options_.block_align);
   ret.append(buffer);
   return ret;
 }
@@ -273,7 +430,7 @@ Status BlockBasedTableFactory::GetOptionString(
 }
 #else
 Status BlockBasedTableFactory::GetOptionString(
-    std::string* opt_string, const std::string& delimiter) const {
+    std::string* /*opt_string*/, const std::string& /*delimiter*/) const {
   return Status::OK();
 }
 #endif  // !ROCKSDB_LITE
@@ -307,8 +464,8 @@ std::string ParseBlockBasedTableOption(const std::string& name,
         cache = NewLRUCache(ParseSizeT(value));
       } else {
         LRUCacheOptions cache_opts;
-        if(!ParseOptionHelper(reinterpret_cast<char*>(&cache_opts),
-                              OptionType::kLRUCacheOptions, value)) {
+        if (!ParseOptionHelper(reinterpret_cast<char*>(&cache_opts),
+                               OptionType::kLRUCacheOptions, value)) {
           return "Invalid cache options";
         }
         cache = NewLRUCache(cache_opts);

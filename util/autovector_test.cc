@@ -27,6 +27,9 @@ template <class T>
 void AssertAutoVectorOnlyInStack(autovector<T, kSize>* vec, bool result) {
 #ifndef ROCKSDB_LITE
   ASSERT_EQ(vec->only_in_stack(), result);
+#else
+  (void) vec;
+  (void) result;
 #endif  // !ROCKSDB_LITE
 }
 }  // namespace

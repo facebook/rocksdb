@@ -47,7 +47,7 @@ class DBBlockCacheTest : public DBTestBase {
     return options;
   }
 
-  void InitTable(const Options& options) {
+  void InitTable(const Options& /*options*/) {
     std::string value(kValueSize, 'a');
     for (size_t i = 0; i < kNumBlocks; i++) {
       ASSERT_OK(Put(ToString(i), value.c_str()));
@@ -305,6 +305,41 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
             TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
 }
 
+// With fill_cache = false, fills up the cache, then iterates over the entire
+// db, verify dummy entries inserted in `BlockBasedTable::NewDataBlockIterator`
+// does not cause heap-use-after-free errors in COMPILE_WITH_ASAN=1 runs
+TEST_F(DBBlockCacheTest, FillCacheAndIterateDB) {
+  ReadOptions read_options;
+  read_options.fill_cache = false;
+  auto table_options = GetTableOptions();
+  auto options = GetOptions(table_options);
+  InitTable(options);
+
+  std::shared_ptr<Cache> cache = NewLRUCache(10, 0, true);
+  table_options.block_cache = cache;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  Reopen(options);
+  ASSERT_OK(Put("key1", "val1"));
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key3", "val3"));
+  ASSERT_OK(Put("key4", "val4"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key5", "val5"));
+  ASSERT_OK(Put("key6", "val6"));
+  ASSERT_OK(Flush());
+
+  Iterator* iter = nullptr;
+
+  iter = db_->NewIterator(read_options);
+  iter->Seek(ToString(0));
+  while (iter->Valid()) {
+    iter->Next();
+  }
+  delete iter;
+  iter = nullptr;
+}
+
 TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -314,7 +349,7 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
   // 200 bytes are enough to hold the first two blocks
   std::shared_ptr<Cache> cache = NewLRUCache(200, 0, false);
   table_options.block_cache = cache;
-  table_options.filter_policy.reset(NewBloomFilterPolicy(20));
+  table_options.filter_policy.reset(NewBloomFilterPolicy(20, true));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -355,7 +390,10 @@ class MockCache : public LRUCache {
   static uint32_t high_pri_insert_count;
   static uint32_t low_pri_insert_count;
 
-  MockCache() : LRUCache(1 << 25, 0, false, 0.0) {}
+  MockCache()
+      : LRUCache((size_t)1 << 25 /*capacity*/, 0 /*num_shard_bits*/,
+                 false /*strict_capacity_limit*/, 0.0 /*high_pri_pool_ratio*/) {
+  }
 
   virtual Status Insert(const Slice& key, void* value, size_t charge,
                         void (*deleter)(const Slice& key, void* value),

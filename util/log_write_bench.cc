@@ -31,13 +31,13 @@ DEFINE_bool(enable_sync, false, "sync after each write.");
 
 namespace rocksdb {
 void RunBenchmark() {
-  std::string file_name = test::TmpDir() + "/log_write_benchmark.log";
+  std::string file_name = test::PerThreadDBPath("log_write_benchmark.log");
   Env* env = Env::Default();
   EnvOptions env_options = env->OptimizeForLogWrite(EnvOptions());
   env_options.bytes_per_sync = FLAGS_bytes_per_sync;
-  unique_ptr<WritableFile> file;
+  std::unique_ptr<WritableFile> file;
   env->NewWritableFile(file_name, &file, env_options);
-  unique_ptr<WritableFileWriter> writer;
+  std::unique_ptr<WritableFileWriter> writer;
   writer.reset(new WritableFileWriter(std::move(file), env_options));
 
   std::string record;

@@ -27,7 +27,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
                                        const ColumnFamilyOptions& cf_options)
     : compaction_style(cf_options.compaction_style),
       compaction_pri(cf_options.compaction_pri),
-      prefix_extractor(cf_options.prefix_extractor.get()),
       user_comparator(cf_options.comparator),
       internal_comparator(InternalKeyComparator(cf_options.comparator)),
       merge_operator(cf_options.merge_operator.get()),
@@ -58,6 +57,7 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       use_fsync(db_options.use_fsync),
       compression_per_level(cf_options.compression_per_level),
       bottommost_compression(cf_options.bottommost_compression),
+      bottommost_compression_opts(cf_options.bottommost_compression_opts),
       compression_opts(cf_options.compression_opts),
       level_compaction_dynamic_level_bytes(
           cf_options.level_compaction_dynamic_level_bytes),
@@ -74,7 +74,8 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       row_cache(db_options.row_cache),
       max_subcompactions(db_options.max_subcompactions),
       memtable_insert_with_hint_prefix_extractor(
-          cf_options.memtable_insert_with_hint_prefix_extractor.get()) {}
+          cf_options.memtable_insert_with_hint_prefix_extractor.get()),
+      cf_paths(cf_options.cf_paths) {}
 
 // Multiple two operands. If they overflow, return op1.
 uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {
@@ -85,6 +86,24 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {
     return op1;
   }
   return static_cast<uint64_t>(op1 * op2);
+}
+
+// when level_compaction_dynamic_level_bytes is true and leveled compaction
+// is used, the base level is not always L1, so precomupted max_file_size can
+// no longer be used. Recompute file_size_for_level from base level.
+uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options,
+    int level, CompactionStyle compaction_style, int base_level,
+    bool level_compaction_dynamic_level_bytes) {
+  if (!level_compaction_dynamic_level_bytes || level < base_level ||
+      compaction_style != kCompactionStyleLevel) {
+    assert(level >= 0);
+    assert(level < (int)cf_options.max_file_size.size());
+    return cf_options.max_file_size[level];
+  } else {
+    assert(level >= 0 && base_level >= 0);
+    assert(level - base_level < (int)cf_options.max_file_size.size());
+    return cf_options.max_file_size[level - base_level];
+  }
 }
 
 void MutableCFOptions::RefreshDerivedOptions(int num_levels,
@@ -100,12 +119,6 @@ void MutableCFOptions::RefreshDerivedOptions(int num_levels,
       max_file_size[i] = target_file_size_base;
     }
   }
-}
-
-uint64_t MutableCFOptions::MaxFileSizeForLevel(int level) const {
-  assert(level >= 0);
-  assert(level < (int)max_file_size.size());
-  return max_file_size[level];
 }
 
 void MutableCFOptions::Dump(Logger* log) const {
@@ -129,6 +142,9 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(log,
                  "                 inplace_update_num_locks: %" ROCKSDB_PRIszt,
                  inplace_update_num_locks);
+  ROCKS_LOG_INFO(
+      log, "                         prefix_extractor: %s",
+      prefix_extractor == nullptr ? "nullptr" : prefix_extractor->Name());
   ROCKS_LOG_INFO(log, "                 disable_auto_compactions: %d",
                  disable_auto_compactions);
   ROCKS_LOG_INFO(log, "      soft_pending_compaction_bytes_limit: %" PRIu64,
@@ -151,6 +167,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  max_bytes_for_level_base);
   ROCKS_LOG_INFO(log, "           max_bytes_for_level_multiplier: %f",
                  max_bytes_for_level_multiplier);
+  ROCKS_LOG_INFO(log, "                                      ttl: %" PRIu64,
+                 ttl);
   std::string result;
   char buf[10];
   for (const auto m : max_bytes_for_level_multiplier_additional) {
@@ -173,6 +191,36 @@ void MutableCFOptions::Dump(Logger* log) const {
                  report_bg_io_stats);
   ROCKS_LOG_INFO(log, "                              compression: %d",
                  static_cast<int>(compression));
+
+  // Universal Compaction Options
+  ROCKS_LOG_INFO(log, "compaction_options_universal.size_ratio : %d",
+                 compaction_options_universal.size_ratio);
+  ROCKS_LOG_INFO(log, "compaction_options_universal.min_merge_width : %d",
+                 compaction_options_universal.min_merge_width);
+  ROCKS_LOG_INFO(log, "compaction_options_universal.max_merge_width : %d",
+                 compaction_options_universal.max_merge_width);
+  ROCKS_LOG_INFO(
+      log, "compaction_options_universal.max_size_amplification_percent : %d",
+      compaction_options_universal.max_size_amplification_percent);
+  ROCKS_LOG_INFO(log,
+                 "compaction_options_universal.compression_size_percent : %d",
+                 compaction_options_universal.compression_size_percent);
+  ROCKS_LOG_INFO(log, "compaction_options_universal.stop_style : %d",
+                 compaction_options_universal.stop_style);
+  ROCKS_LOG_INFO(
+      log, "compaction_options_universal.allow_trivial_move : %d",
+      static_cast<int>(compaction_options_universal.allow_trivial_move));
+
+  // FIFO Compaction Options
+  ROCKS_LOG_INFO(log, "compaction_options_fifo.max_table_files_size : %" PRIu64,
+                 compaction_options_fifo.max_table_files_size);
+  ROCKS_LOG_INFO(log, "compaction_options_fifo.ttl : %" PRIu64,
+                 compaction_options_fifo.ttl);
+  ROCKS_LOG_INFO(log, "compaction_options_fifo.allow_compaction : %d",
+                 compaction_options_fifo.allow_compaction);
 }
+
+MutableCFOptions::MutableCFOptions(const Options& options)
+    : MutableCFOptions(ColumnFamilyOptions(options)) {}
 
 }  // namespace rocksdb

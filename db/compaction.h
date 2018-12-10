@@ -15,11 +15,43 @@
 
 namespace rocksdb {
 
+// Utility for comparing sstable boundary keys. Returns -1 if either a or b is
+// null which provides the property that a==null indicates a key that is less
+// than any key and b==null indicates a key that is greater than any key. Note
+// that the comparison is performed primarily on the user-key portion of the
+// key. If the user-keys compare equal, an additional test is made to sort
+// range tombstone sentinel keys before other keys with the same user-key. The
+// result is that 2 user-keys will compare equal if they differ purely on
+// their sequence number and value, but the range tombstone sentinel for that
+// user-key will compare not equal. This is necessary because the range
+// tombstone sentinel key is set as the largest key for an sstable even though
+// that key never appears in the database. We don't want adjacent sstables to
+// be considered overlapping if they are separated by the range tombstone
+// sentinel.
+int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
+                      const InternalKey& b);
+int sstableKeyCompare(const Comparator* user_cmp, const InternalKey* a,
+                      const InternalKey& b);
+int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
+                      const InternalKey* b);
+
+// An AtomicCompactionUnitBoundary represents a range of keys [smallest,
+// largest] that exactly spans one ore more neighbouring SSTs on the same
+// level. Every pair of  SSTs in this range "overlap" (i.e., the largest
+// user key of one file is the smallest user key of the next file). These
+// boundaries are propagated down to RangeDelAggregator during compaction
+// to provide safe truncation boundaries for range tombstones.
+struct AtomicCompactionUnitBoundary {
+  const InternalKey* smallest = nullptr;
+  const InternalKey* largest = nullptr;
+};
+
 // The structure that manages compaction input files associated
 // with the same physical level.
 struct CompactionInputFiles {
   int level;
   std::vector<FileMetaData*> files;
+  std::vector<AtomicCompactionUnitBoundary> atomic_compaction_unit_boundaries;
   inline bool empty() const { return files.empty(); }
   inline size_t size() const { return files.size(); }
   inline void clear() { files.clear(); }
@@ -40,6 +72,7 @@ class Compaction {
              std::vector<CompactionInputFiles> inputs, int output_level,
              uint64_t target_file_size, uint64_t max_compaction_bytes,
              uint32_t output_path_id, CompressionType compression,
+             CompressionOptions compression_opts, uint32_t max_subcompactions,
              std::vector<FileMetaData*> grandparents,
              bool manual_compaction = false, double score = -1,
              bool deletion_compaction = false,
@@ -95,6 +128,12 @@ class Compaction {
     return inputs_[compaction_input_level][i];
   }
 
+  const std::vector<AtomicCompactionUnitBoundary>* boundaries(
+      size_t compaction_input_level) const {
+    assert(compaction_input_level < inputs_.size());
+    return &inputs_[compaction_input_level].atomic_compaction_unit_boundaries;
+  }
+
   // Returns the list of file meta data of the specified compaction
   // input level.
   // REQUIREMENT: "compaction_input_level" must be >= 0 and
@@ -117,6 +156,11 @@ class Compaction {
 
   // What compression for output
   CompressionType output_compression() const { return output_compression_; }
+
+  // What compression options for output
+  CompressionOptions output_compression_opts() const {
+    return output_compression_opts_;
+  }
 
   // Whether need to write output file to second DB path.
   uint32_t output_path_id() const { return output_path_id_; }
@@ -233,6 +277,8 @@ class Compaction {
 
   Slice GetLargestUserKey() const { return largest_user_key_; }
 
+  int GetInputBaseLevel() const;
+
   CompactionReason compaction_reason() { return compaction_reason_; }
 
   const std::vector<FileMetaData*>& grandparents() const {
@@ -240,6 +286,8 @@ class Compaction {
   }
 
   uint64_t max_compaction_bytes() const { return max_compaction_bytes_; }
+
+  uint32_t max_subcompactions() const { return max_subcompactions_; }
 
   uint64_t MaxInputFileCreationTime() const;
 
@@ -251,6 +299,13 @@ class Compaction {
   static void GetBoundaryKeys(VersionStorageInfo* vstorage,
                               const std::vector<CompactionInputFiles>& inputs,
                               Slice* smallest_key, Slice* largest_key);
+
+  // Get the atomic file boundaries for all files in the compaction. Necessary
+  // in order to avoid the scenario described in
+  // https://github.com/facebook/rocksdb/pull/4432#discussion_r221072219 and plumb
+  // down appropriate key boundaries to RangeDelAggregator during compaction.
+  static std::vector<CompactionInputFiles> PopulateWithAtomicBoundaries(
+      VersionStorageInfo* vstorage, std::vector<CompactionInputFiles> inputs);
 
   // helper function to determine if compaction with inputs and storage is
   // bottommost
@@ -267,6 +322,7 @@ class Compaction {
   const int output_level_;  // levels to which output files are stored
   uint64_t max_output_file_size_;
   uint64_t max_compaction_bytes_;
+  uint32_t max_subcompactions_;
   const ImmutableCFOptions immutable_cf_options_;
   const MutableCFOptions mutable_cf_options_;
   Version* input_version_;
@@ -277,6 +333,7 @@ class Compaction {
 
   const uint32_t output_path_id_;
   CompressionType output_compression_;
+  CompressionOptions output_compression_opts_;
   // If true, then the comaction can be done by simply deleting input files.
   const bool deletion_compaction_;
 

@@ -118,6 +118,7 @@ class WriteThread {
     bool no_slowdown;
     bool disable_wal;
     bool disable_memtable;
+    size_t batch_cnt;  // if non-zero, number of sub-batches in the write batch
     PreReleaseCallback* pre_release_callback;
     uint64_t log_used;  // log number that this batch was inserted into
     uint64_t log_ref;   // log number that memtable insert should reference
@@ -128,6 +129,7 @@ class WriteThread {
     SequenceNumber sequence;  // the sequence number to use for the first key
     Status status;            // status of memtable inserter
     Status callback_status;   // status returned by callback->Callback()
+
     std::aligned_storage<sizeof(std::mutex)>::type state_mutex_bytes;
     std::aligned_storage<sizeof(std::condition_variable)>::type state_cv_bytes;
     Writer* link_older;  // read/write only before linking, or as leader
@@ -139,6 +141,7 @@ class WriteThread {
           no_slowdown(false),
           disable_wal(false),
           disable_memtable(false),
+          batch_cnt(0),
           pre_release_callback(nullptr),
           log_used(0),
           log_ref(0),
@@ -152,12 +155,14 @@ class WriteThread {
 
     Writer(const WriteOptions& write_options, WriteBatch* _batch,
            WriteCallback* _callback, uint64_t _log_ref, bool _disable_memtable,
+           size_t _batch_cnt = 0,
            PreReleaseCallback* _pre_release_callback = nullptr)
         : batch(_batch),
           sync(write_options.sync),
           no_slowdown(write_options.no_slowdown),
           disable_wal(write_options.disableWAL),
           disable_memtable(_disable_memtable),
+          batch_cnt(_batch_cnt),
           pre_release_callback(_pre_release_callback),
           log_used(0),
           log_ref(_log_ref),
@@ -337,6 +342,13 @@ class WriteThread {
     return last_sequence_;
   }
 
+  // Insert a dummy writer at the tail of the write queue to indicate a write
+  // stall, and fail any writers in the queue with no_slowdown set to true
+  void BeginWriteStall();
+
+  // Remove the dummy writer and wake up waiting writers
+  void EndWriteStall();
+
  private:
   // See AwaitState.
   const uint64_t max_yield_usec_;
@@ -359,6 +371,17 @@ class WriteThread {
   // The last sequence that have been consumed by a writer. The sequence
   // is not necessary visible to reads because the writer can be ongoing.
   SequenceNumber last_sequence_;
+
+  // A dummy writer to indicate a write stall condition. This will be inserted
+  // at the tail of the writer queue by the leader, so newer writers can just
+  // check for this and bail
+  Writer write_stall_dummy_;
+
+  // Mutex and condvar for writers to block on a write stall. During a write
+  // stall, writers with no_slowdown set to false will wait on this rather
+  // on the writer queue
+  port::Mutex stall_mu_;
+  port::CondVar stall_cv_;
 
   // Waits for w->state & goal_mask using w->StateMutex().  Returns
   // the state that satisfies goal_mask.
@@ -386,6 +409,10 @@ class WriteThread {
   // Computes any missing link_newer links.  Should not be called
   // concurrently with itself.
   void CreateMissingNewerLinks(Writer* head);
+
+  // Starting from a pending writer, follow link_older to search for next
+  // leader, until we hit boundary.
+  Writer* FindNextLeader(Writer* pending_writer, Writer* boundary);
 
   // Set the leader in write_group to completed state and remove it from the
   // write group.

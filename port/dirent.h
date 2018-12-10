@@ -9,8 +9,7 @@
 //
 // See port_example.h for documentation for the following types/functions.
 
-#ifndef STORAGE_LEVELDB_PORT_DIRENT_H_
-#define STORAGE_LEVELDB_PORT_DIRENT_H_
+#pragma once
 
 #ifdef ROCKSDB_PLATFORM_POSIX
 #include <dirent.h>
@@ -43,5 +42,3 @@ using port::closedir;
 }  // namespace rocksdb
 
 #endif  // OS_WIN
-
-#endif  // STORAGE_LEVELDB_PORT_DIRENT_H_

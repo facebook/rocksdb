@@ -10,7 +10,6 @@
 
 namespace rocksdb {
 
-class InternalIterator;
 class BlockHandle;
 
 // Seek to the properties block.

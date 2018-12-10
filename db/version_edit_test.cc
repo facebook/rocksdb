@@ -181,6 +181,22 @@ TEST_F(VersionEditTest, ColumnFamilyTest) {
   TestEncodeDecode(edit);
 }
 
+TEST_F(VersionEditTest, MinLogNumberToKeep) {
+  VersionEdit edit;
+  edit.SetMinLogNumberToKeep(13);
+  TestEncodeDecode(edit);
+
+  edit.Clear();
+  edit.SetMinLogNumberToKeep(23);
+  TestEncodeDecode(edit);
+}
+
+TEST_F(VersionEditTest, AtomicGroupTest) {
+  VersionEdit edit;
+  edit.MarkAtomicGroup(1);
+  TestEncodeDecode(edit);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

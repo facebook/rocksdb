@@ -6,7 +6,6 @@
 #pragma once
 #include <string>
 #include "db/merge_context.h"
-#include "db/range_del_aggregator.h"
 #include "db/read_callback.h"
 #include "rocksdb/env.h"
 #include "rocksdb/statistics.h"
@@ -16,6 +15,26 @@
 namespace rocksdb {
 class MergeContext;
 class PinnedIteratorsManager;
+
+struct GetContextStats {
+  uint64_t num_cache_hit = 0;
+  uint64_t num_cache_index_hit = 0;
+  uint64_t num_cache_data_hit = 0;
+  uint64_t num_cache_filter_hit = 0;
+  uint64_t num_cache_index_miss = 0;
+  uint64_t num_cache_filter_miss = 0;
+  uint64_t num_cache_data_miss = 0;
+  uint64_t num_cache_bytes_read = 0;
+  uint64_t num_cache_miss = 0;
+  uint64_t num_cache_add = 0;
+  uint64_t num_cache_bytes_write = 0;
+  uint64_t num_cache_index_add = 0;
+  uint64_t num_cache_index_bytes_insert = 0;
+  uint64_t num_cache_data_add = 0;
+  uint64_t num_cache_data_bytes_insert = 0;
+  uint64_t num_cache_filter_add = 0;
+  uint64_t num_cache_filter_bytes_insert = 0;
+};
 
 class GetContext {
  public:
@@ -27,13 +46,14 @@ class GetContext {
     kMerge,  // saver contains the current merge result (the operands)
     kBlobIndex,
   };
-  uint64_t tickers_value[Tickers::TICKER_ENUM_MAX] = {0};
+  GetContextStats get_context_stats_;
 
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
              const Slice& user_key, PinnableSlice* value, bool* value_found,
-             MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-             Env* env, SequenceNumber* seq = nullptr,
+             MergeContext* merge_context,
+             SequenceNumber* max_covering_tombstone_seq, Env* env,
+             SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr);
 
@@ -42,10 +62,13 @@ class GetContext {
   // Records this key, value, and any meta-data (such as sequence number and
   // state) into this GetContext.
   //
+  // If the parsed_key matches the user key that we are looking for, sets
+  // mathced to true.
+  //
   // Returns True if more keys need to be read (due to merges) or
   //         False if the complete value has been found.
   bool SaveValue(const ParsedInternalKey& parsed_key, const Slice& value,
-                 Cleanable* value_pinner = nullptr);
+                 bool* matched, Cleanable* value_pinner = nullptr);
 
   // Simplified version of the previous function. Should only be used when we
   // know that the operation is a Put.
@@ -53,7 +76,9 @@ class GetContext {
 
   GetState State() const { return state_; }
 
-  RangeDelAggregator* range_del_agg() { return range_del_agg_; }
+  SequenceNumber* max_covering_tombstone_seq() {
+    return max_covering_tombstone_seq_;
+  }
 
   PinnedIteratorsManager* pinned_iters_mgr() { return pinned_iters_mgr_; }
 
@@ -69,12 +94,12 @@ class GetContext {
 
   bool CheckCallback(SequenceNumber seq) {
     if (callback_) {
-      return callback_->IsCommitted(seq);
+      return callback_->IsVisible(seq);
     }
     return true;
   }
 
-  void RecordCounters(Tickers ticker, size_t val);
+  void ReportCounters();
 
  private:
   const Comparator* ucmp_;
@@ -88,7 +113,7 @@ class GetContext {
   PinnableSlice* pinnable_val_;
   bool* value_found_;  // Is value set correctly? Used by KeyMayExist
   MergeContext* merge_context_;
-  RangeDelAggregator* range_del_agg_;
+  SequenceNumber* max_covering_tombstone_seq_;
   Env* env_;
   // If a key is found, seq_ will be set to the SequenceNumber of most recent
   // write to the key or kMaxSequenceNumber if unknown

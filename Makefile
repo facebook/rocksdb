@@ -76,20 +76,49 @@ ifeq ($(MAKECMDGOALS),install)
 endif
 
 ifeq ($(MAKECMDGOALS),rocksdbjavastatic)
-	DEBUG_LEVEL=0
+	ifneq ($(DEBUG_LEVEL),2)
+		DEBUG_LEVEL=0
+	endif
 endif
 
 ifeq ($(MAKECMDGOALS),rocksdbjavastaticrelease)
 	DEBUG_LEVEL=0
 endif
 
+ifeq ($(MAKECMDGOALS),rocksdbjavastaticreleasedocker)
+        DEBUG_LEVEL=0
+endif
+
 ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
 	DEBUG_LEVEL=0
 endif
 
+# Lite build flag.
+LITE ?= 0
+ifeq ($(LITE), 0)
+ifneq ($(filter -DROCKSDB_LITE,$(OPT)),)
+  # Be backward compatible and support older format where OPT=-DROCKSDB_LITE is
+  # specified instead of LITE=1 on the command line.
+  LITE=1
+endif
+else ifeq ($(LITE), 1)
+ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
+	OPT += -DROCKSDB_LITE
+endif
+endif
+
+# Figure out optimize level.
+ifneq ($(DEBUG_LEVEL), 2)
+ifeq ($(LITE), 0)
+	OPT += -O2
+else
+	OPT += -Os
+endif
+endif
+
 # compile with -O2 if debug level is not 2
 ifneq ($(DEBUG_LEVEL), 2)
-OPT += -O2 -fno-omit-frame-pointer
+OPT += -fno-omit-frame-pointer
 # Skip for archs that don't support -momit-leaf-frame-pointer
 ifeq (,$(shell $(CXX) -fsyntax-only -momit-leaf-frame-pointer -xc /dev/null 2>&1))
 OPT += -momit-leaf-frame-pointer
@@ -222,6 +251,9 @@ ifdef COMPILE_WITH_TSAN
 	PROFILING_FLAGS =
 	# LUA is not supported under TSAN
 	LUA_PATH =
+	# Limit keys for crash test under TSAN to avoid error:
+	# "ThreadSanitizer: DenseSlabAllocator overflow. Dying."
+	CRASH_TEST_EXT_ARGS += --max_key=1000000
 endif
 
 # AIX doesn't work with -pg
@@ -232,9 +264,13 @@ endif
 # USAN doesn't work well with jemalloc. If we're compiling with USAN, we should use regular malloc.
 ifdef COMPILE_WITH_UBSAN
 	DISABLE_JEMALLOC=1
-	EXEC_LDFLAGS += -fsanitize=undefined -fno-sanitize-recover
-	PLATFORM_CCFLAGS += -fsanitize=undefined -fno-sanitize-recover -DROCKSDB_UBSAN_RUN
-	PLATFORM_CXXFLAGS += -fsanitize=undefined -fno-sanitize-recover -DROCKSDB_UBSAN_RUN
+	# Suppress alignment warning because murmurhash relies on casting unaligned
+	# memory to integer. Fixing it may cause performance regression. 3-way crc32
+	# relies on it too, although it can be rewritten to eliminate with minimal
+	# performance regression.
+	EXEC_LDFLAGS += -fsanitize=undefined -fno-sanitize-recover=all
+	PLATFORM_CCFLAGS += -fsanitize=undefined -fno-sanitize-recover=all -DROCKSDB_UBSAN_RUN
+	PLATFORM_CXXFLAGS += -fsanitize=undefined -fno-sanitize-recover=all -DROCKSDB_UBSAN_RUN
 endif
 
 ifdef ROCKSDB_VALGRIND_RUN
@@ -272,7 +308,11 @@ endif
 default: all
 
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
-  -Wno-unused-parameter
+  -Wunused-parameter
+
+ifeq ($(PLATFORM), OS_OPENBSD)
+	WARNING_FLAGS += -Wno-unused-lambda-capture
+endif
 
 ifndef DISABLE_WARNING_AS_ERROR
 	WARNING_FLAGS += -Werror
@@ -301,7 +341,7 @@ endif
 ifeq ("$(wildcard $(LUA_LIB))", "") # LUA_LIB does not exist
 $(error $(LUA_LIB) does not exist.  Try to specify both LUA_PATH and LUA_LIB manually)
 endif
-LDFLAGS += $(LUA_LIB)
+EXEC_LDFLAGS += $(LUA_LIB)
 
 endif
 
@@ -361,6 +401,8 @@ VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 BENCHTOOLOBJECTS = $(BENCH_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
 
+ANALYZETOOLOBJECTS = $(ANALYZER_LIB_SOURCES:.cc=.o)
+
 EXPOBJECTS = $(EXP_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
 
 TESTS = \
@@ -389,6 +431,7 @@ TESTS = \
 	db_blob_index_test \
 	db_bloom_filter_test \
 	db_iter_test \
+	db_iter_stress_test \
 	db_log_iter_test \
 	db_compaction_filter_test \
 	db_compaction_test \
@@ -402,12 +445,12 @@ TESTS = \
 	db_range_del_test \
 	db_sst_test \
 	db_tailing_iter_test \
-	db_universal_compaction_test \
 	db_io_failure_test \
 	db_properties_test \
 	db_table_properties_test \
 	db_statistics_test \
 	db_write_test \
+	error_handler_test \
 	autovector_test \
 	blob_db_test \
 	cleanable_test \
@@ -415,6 +458,7 @@ TESTS = \
 	table_properties_collector_test \
 	arena_test \
 	block_test \
+	data_block_hash_index_test \
 	cache_test \
 	corruption_test \
 	slice_transform_test \
@@ -467,6 +511,7 @@ TESTS = \
 	write_batch_with_index_test \
 	write_controller_test\
 	deletefile_test \
+	obsolete_files_test \
 	table_test \
 	geodb_test \
 	delete_scheduler_test \
@@ -504,6 +549,13 @@ TESTS = \
 	repair_test \
 	env_timed_test \
 	write_prepared_transaction_test \
+	write_unprepared_transaction_test \
+	db_universal_compaction_test \
+	trace_analyzer_test \
+	repeatable_thread_test \
+	range_tombstone_fragmenter_test \
+	range_del_aggregator_v2_test \
+	sst_file_reader_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -522,7 +574,12 @@ PARALLEL_TEST = \
 	table_test \
 	transaction_test \
 	write_prepared_transaction_test \
+	write_unprepared_transaction_test \
 
+# options_settable_test doesn't pass with UBSAN as we use hack in the test
+ifdef COMPILE_WITH_UBSAN
+        TESTS := $(shell echo $(TESTS) | sed 's/\boptions_settable_test\b//g')
+endif
 SUBSET := $(TESTS)
 ifdef ROCKSDBTESTS_START
         SUBSET := $(shell echo $(SUBSET) | sed 's/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/')
@@ -542,12 +599,13 @@ TOOLS = \
 	rocksdb_dump \
 	rocksdb_undump \
 	blob_dump \
+	trace_analyzer \
 
 TEST_LIBS = \
 	librocksdb_env_basic_test.a
 
 # TODO: add back forward_iterator_bench, after making it build in all environemnts.
-BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench column_aware_encoding_exp persistent_cache_bench
+BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench column_aware_encoding_exp persistent_cache_bench range_del_aggregator_bench
 
 # if user didn't config LIBNAME, set the default
 ifeq ($(LIBNAME),)
@@ -630,12 +688,12 @@ ifeq ($(HAVE_POWER8),1)
 shared_all_libobjects = $(shared_libobjects) $(shared-ppc-objects)
 endif
 $(SHARED4): $(shared_all_libobjects)
-	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(shared_libobjects) $(LDFLAGS) -o $@
+	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(shared_all_libobjects) $(LDFLAGS) -o $@
 
 endif  # PLATFORM_SHARED_EXT
 
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
-	release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
+	release tags tags0 valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
 	analyze tools tools_lib
 
@@ -666,7 +724,7 @@ coverage:
 	COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) J=1 all check
 	cd coverage && ./coverage_test.sh
         # Delete intermediate files
-	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
+	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 
 ifneq (,$(filter check parallel_check,$(MAKECMDGOALS)),)
 # Use /dev/shm if it has the sticky bit set (otherwise, /tmp),
@@ -783,7 +841,7 @@ check_0:
 	  | grep -E '$(tests-regexp)'					\
 	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu '{} >& t/log-{/}'
 
-valgrind-blacklist-regexp = InlineSkipTest.ConcurrentInsert|TransactionTest.DeadlockStress|DBCompactionTest.SuggestCompactRangeNoTwoLevel0Compactions|BackupableDBTest.RateLimiting|DBTest.CloseSpeedup|DBTest.ThreadStatusFlush|DBTest.RateLimitingTest|DBTest.EncodeDecompressedBlockSizeTest|FaultInjectionTest.UninstalledCompaction|HarnessTest.Randomized|ExternalSSTFileTest.CompactDuringAddFileRandom|ExternalSSTFileTest.IngestFileWithGlobalSeqnoRandomized
+valgrind-blacklist-regexp = InlineSkipTest.ConcurrentInsert|TransactionStressTest.DeadlockStress|DBCompactionTest.SuggestCompactRangeNoTwoLevel0Compactions|BackupableDBTest.RateLimiting|DBTest.CloseSpeedup|DBTest.ThreadStatusFlush|DBTest.RateLimitingTest|DBTest.EncodeDecompressedBlockSizeTest|FaultInjectionTest.UninstalledCompaction|HarnessTest.Randomized|ExternalSSTFileTest.CompactDuringAddFileRandom|ExternalSSTFileTest.IngestFileWithGlobalSeqnoRandomized|MySQLStyleTransactionTest.TransactionStressTest
 
 .PHONY: valgrind_check_0
 valgrind_check_0:
@@ -813,7 +871,7 @@ CLEAN_FILES += t LOG $(TMPD)
 # regardless of their duration. As with any use of "watch", hit ^C to
 # interrupt.
 watch-log:
-	watch --interval=0 'sort -k7,7nr -k4,4gr LOG|$(quoted_perl_command)'
+	$(WATCH) --interval=0 'sort -k7,7nr -k4,4gr LOG|$(quoted_perl_command)'
 
 # If J != 1 and GNU parallel is installed, run the tests in parallel,
 # via the check_0 rule above.  Otherwise, run them sequentially.
@@ -848,6 +906,7 @@ crash_test: whitebox_crash_test blackbox_crash_test
 
 blackbox_crash_test: db_stress
 	python -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
+	python -u tools/db_crashtest.py --enable_atomic_flush blackbox $(CRASH_TEST_EXT_ARGS)
 	python -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
 
 ifeq ($(CRASH_TEST_KILL_ODD),)
@@ -856,6 +915,8 @@ endif
 
 whitebox_crash_test: db_stress
 	python -u tools/db_crashtest.py --simple whitebox --random_kill_odd \
+      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
+	python -u tools/db_crashtest.py --enable_atomic_flush whitebox  --random_kill_odd \
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 	python -u tools/db_crashtest.py whitebox  --random_kill_odd \
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
@@ -967,8 +1028,10 @@ unity.a: unity.o
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ unity.o
 
+
+TOOLLIBOBJECTS = $(TOOL_LIB_SOURCES:.cc=.o)
 # try compiling db_test with unity
-unity_test: db/db_test.o db/db_test_util.o $(TESTHARNESS) unity.a
+unity_test: db/db_test.o db/db_test_util.o $(TESTHARNESS) $(TOOLLIBOBJECTS) unity.a
 	$(AM_LINK)
 	./unity_test
 
@@ -978,14 +1041,21 @@ rocksdb.h rocksdb.cc: build_tools/amalgamate.py Makefile $(LIB_SOURCES) unity.cc
 clean:
 	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(LIBRARY) $(SHARED)
 	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
-	find . -name "*.[oda]" -exec rm -f {} \;
-	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
+	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
+	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 	rm -rf bzip2* snappy* zlib* lz4* zstd*
 	cd java; $(MAKE) clean
 
 tags:
-	ctags * -R
-	cscope -b `find . -name '*.cc'` `find . -name '*.h'` `find . -name '*.c'`
+	ctags -R .
+	cscope -b `$(FIND) . -name '*.cc'` `$(FIND) . -name '*.h'` `$(FIND) . -name '*.c'`
+	ctags -e -R -o etags *
+
+tags0:
+	ctags -R .
+	cscope -b `$(FIND) . -name '*.cc' -and ! -name '*_test.cc'` \
+		  `$(FIND) . -name '*.c' -and ! -name '*_test.c'` \
+		  `$(FIND) . -name '*.h' -and ! -name '*_test.h'`
 	ctags -e -R -o etags *
 
 format:
@@ -1001,7 +1071,7 @@ $(LIBRARY): $(LIBOBJECTS)
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $(LIBOBJECTS)
 
-$(TOOLS_LIBRARY): $(BENCH_LIB_SOURCES:.cc=.o) $(TOOL_LIB_SOURCES:.cc=.o) $(LIB_SOURCES:.cc=.o) $(TESTUTIL)
+$(TOOLS_LIBRARY): $(BENCH_LIB_SOURCES:.cc=.o) $(TOOL_LIB_SOURCES:.cc=.o) $(LIB_SOURCES:.cc=.o) $(TESTUTIL) $(ANALYZER_LIB_SOURCES:.cc=.o)
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
@@ -1010,6 +1080,9 @@ librocksdb_env_basic_test.a: env/env_basic_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
 db_bench: tools/db_bench.o $(BENCHTOOLOBJECTS)
+	$(AM_LINK)
+
+trace_analyzer: tools/trace_analyzer.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
 	$(AM_LINK)
 
 cache_bench: cache/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
@@ -1165,6 +1238,9 @@ db_statistics_test: db/db_statistics_test.o db/db_test_util.o $(LIBOBJECTS) $(TE
 db_write_test: db/db_write_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+error_handler_test: db/error_handler_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 external_sst_file_basic_test: db/external_sst_file_basic_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1175,6 +1251,9 @@ db_tailing_iter_test: db/db_tailing_iter_test.o db/db_test_util.o $(LIBOBJECTS) 
 	$(AM_LINK)
 
 db_iter_test: db/db_iter_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_iter_stress_test: db/db_iter_stress_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_universal_compaction_test: db/db_universal_compaction_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1314,6 +1393,9 @@ table_test: table/table_test.o $(LIBOBJECTS) $(TESTHARNESS)
 block_test: table/block_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+data_block_hash_index_test: table/data_block_hash_index_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 inlineskiplist_test: memtable/inlineskiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1368,6 +1450,9 @@ options_file_test: db/options_file_test.o $(LIBOBJECTS) $(TESTHARNESS)
 deletefile_test: db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+obsolete_files_test: db/obsolete_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 geodb_test: utilities/geodb/geodb_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1405,6 +1490,9 @@ options_util_test: utilities/options/options_util_test.o $(LIBOBJECTS) $(TESTHAR
 	$(AM_LINK)
 
 db_bench_tool_test: tools/db_bench_tool_test.o $(BENCHTOOLOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+trace_analyzer_test: tools/trace_analyzer_test.o $(LIBOBJECTS) $(ANALYZETOOLOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 event_logger_test: util/event_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1449,6 +1537,9 @@ transaction_test: utilities/transactions/transaction_test.o $(LIBOBJECTS) $(TEST
 write_prepared_transaction_test: utilities/transactions/write_prepared_transaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+write_unprepared_transaction_test: utilities/transactions/write_unprepared_transaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
 	$(AM_LINK)
 
@@ -1485,7 +1576,22 @@ lua_test: utilities/lua/rocks_lua_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTH
 range_del_aggregator_test: db/range_del_aggregator_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+range_del_aggregator_bench: db/range_del_aggregator_bench.o $(LIBOBJECTS) $(TESTUTIL)
+	$(AM_LINK)
+
 blob_db_test: utilities/blob_db/blob_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+repeatable_thread_test: util/repeatable_thread_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+range_tombstone_fragmenter_test: db/range_tombstone_fragmenter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+range_del_aggregator_v2_test: db/range_del_aggregator_v2_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+sst_file_reader_test: table/sst_file_reader_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------
@@ -1502,10 +1608,10 @@ uninstall:
 
 install-headers:
 	install -d $(INSTALL_PATH)/lib
-	for header_dir in `find "include/rocksdb" -type d`; do \
+	for header_dir in `$(FIND) "include/rocksdb" -type d`; do \
 		install -d $(INSTALL_PATH)/$$header_dir; \
 	done
-	for header in `find "include/rocksdb" -type f -name *.h`; do \
+	for header in `$(FIND) "include/rocksdb" -type f -name *.h`; do \
 		install -C -m 644 $$header $(INSTALL_PATH)/$$header; \
 	done
 
@@ -1532,6 +1638,12 @@ install: install-static
 JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
 ifeq ($(PLATFORM), OS_SOLARIS)
 	ARCH := $(shell isainfo -b)
+else ifeq ($(PLATFORM), OS_OPENBSD)
+	ifneq (,$(filter $(MACHINE), amd64 arm64 sparc64))
+		ARCH := 64
+	else
+		ARCH := 32
+	endif
 else
 	ARCH := $(shell getconf LONG_BIT)
 endif
@@ -1552,7 +1664,7 @@ ZLIB_SHA256 ?= c3e5e9fdd5004dcb542feda5ee4f0ff0744628baf8ed2dd5d66f8ca1197cb1a1
 ZLIB_DOWNLOAD_BASE ?= http://zlib.net
 BZIP2_VER ?= 1.0.6
 BZIP2_SHA256 ?= a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
-BZIP2_DOWNLOAD_BASE ?= http://www.bzip.org
+BZIP2_DOWNLOAD_BASE ?= https://web.archive.org/web/20180624184835/http://www.bzip.org
 SNAPPY_VER ?= 1.1.4
 SNAPPY_SHA256 ?= 134bfe122fd25599bb807bb8130e7ba6d9bdb851e0b16efcb83ac4f5d0b70057
 SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/releases/download
@@ -1562,6 +1674,7 @@ LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
 ZSTD_VER ?= 1.3.3
 ZSTD_SHA256 ?= a77c47153ee7de02626c5b2a097005786b71688be61e9fb81806a011f90b297b
 ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
+CURL_SSL_OPTS ?= --tlsv1
 
 ifeq ($(PLATFORM), OS_MACOSX)
 	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
@@ -1590,6 +1703,11 @@ ifeq ($(PLATFORM), OS_AIX)
 	EXTRACT_SOURCES = gunzip < TAR_GZ | tar xvf -
 	SNAPPY_MAKE_TARGET = libsnappy.la
 endif
+ifeq ($(PLATFORM), OS_OPENBSD)
+        JAVA_INCLUDE = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/openbsd
+	ROCKSDBJNILIB = librocksdbjni-openbsd$(ARCH).so
+        ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-openbsd$(ARCH).jar
+endif
 
 libz.a:
 	-rm -rf zlib-$(ZLIB_VER)
@@ -1617,7 +1735,7 @@ libbz2.a:
 
 libsnappy.a:
 	-rm -rf snappy-$(SNAPPY_VER)
-	curl -O -L ${SNAPPY_DOWNLOAD_BASE}/$(SNAPPY_VER)/snappy-$(SNAPPY_VER).tar.gz
+	curl -O -L ${CURL_SSL_OPTS} ${SNAPPY_DOWNLOAD_BASE}/$(SNAPPY_VER)/snappy-$(SNAPPY_VER).tar.gz
 	SNAPPY_SHA256_ACTUAL=`$(SHA256_CMD) snappy-$(SNAPPY_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(SNAPPY_SHA256)" != "$$SNAPPY_SHA256_ACTUAL" ]; then \
 		echo snappy-$(SNAPPY_VER).tar.gz checksum mismatch, expected=\"$(SNAPPY_SHA256)\" actual=\"$$SNAPPY_SHA256_ACTUAL\"; \
@@ -1630,7 +1748,7 @@ libsnappy.a:
 
 liblz4.a:
 	-rm -rf lz4-$(LZ4_VER)
-	curl -O -L ${LZ4_DOWNLOAD_BASE}/v$(LZ4_VER).tar.gz
+	curl -O -L ${CURL_SSL_OPTS} ${LZ4_DOWNLOAD_BASE}/v$(LZ4_VER).tar.gz
 	mv v$(LZ4_VER).tar.gz lz4-$(LZ4_VER).tar.gz
 	LZ4_SHA256_ACTUAL=`$(SHA256_CMD) lz4-$(LZ4_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(LZ4_SHA256)" != "$$LZ4_SHA256_ACTUAL" ]; then \
@@ -1643,7 +1761,7 @@ liblz4.a:
 
 libzstd.a:
 	-rm -rf zstd-$(ZSTD_VER)
-	curl -O -L ${ZSTD_DOWNLOAD_BASE}/v$(ZSTD_VER).tar.gz
+	curl -O -L ${CURL_SSL_OPTS} ${ZSTD_DOWNLOAD_BASE}/v$(ZSTD_VER).tar.gz
 	mv v$(ZSTD_VER).tar.gz zstd-$(ZSTD_VER).tar.gz
 	ZSTD_SHA256_ACTUAL=`$(SHA256_CMD) zstd-$(ZSTD_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(ZSTD_SHA256)" != "$$ZSTD_SHA256_ACTUAL" ]; then \
@@ -1691,7 +1809,9 @@ rocksdbjavastatic: $(java_static_all_libobjects)
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
 	  $(java_static_all_libobjects) $(COVERAGEFLAGS) \
 	  $(JAVA_COMPRESSIONS) $(JAVA_STATIC_LDFLAGS)
-	cd java/target;strip $(STRIPFLAGS) $(ROCKSDBJNILIB)
+	cd java/target;if [ "$(DEBUG_LEVEL)" == "0" ]; then \
+		strip $(STRIPFLAGS) $(ROCKSDBJNILIB); \
+	fi
 	cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
 	cd java/target;jar -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)
 	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
@@ -1704,20 +1824,26 @@ rocksdbjavastaticrelease: rocksdbjavastatic
 	cd java/target;jar -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
 	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
 
-rocksdbjavastaticreleasedocker: rocksdbjavastatic
-	DOCKER_LINUX_X64_CONTAINER=`docker ps -aqf name=rocksdb_linux_x64-be`; \
-	if [ -z "$$DOCKER_LINUX_X64_CONTAINER" ]; then \
-		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_x64-be evolvedbinary/rocksjava:centos6_x64-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
-	fi
-	docker start -a rocksdb_linux_x64-be
+rocksdbjavastaticreleasedocker: rocksdbjavastatic rocksdbjavastaticdockerx86 rocksdbjavastaticdockerx86_64
+	cd java;jar -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
+	cd java/target;jar -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
+	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
+
+rocksdbjavastaticdockerx86:
+	mkdir -p java/target
 	DOCKER_LINUX_X86_CONTAINER=`docker ps -aqf name=rocksdb_linux_x86-be`; \
 	if [ -z "$$DOCKER_LINUX_X86_CONTAINER" ]; then \
 		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_x86-be evolvedbinary/rocksjava:centos6_x86-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
 	fi
 	docker start -a rocksdb_linux_x86-be
-	cd java;jar -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
-	cd java/target;jar -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
-	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
+
+rocksdbjavastaticdockerx86_64:
+	mkdir -p java/target
+	DOCKER_LINUX_X64_CONTAINER=`docker ps -aqf name=rocksdb_linux_x64-be`; \
+	if [ -z "$$DOCKER_LINUX_X64_CONTAINER" ]; then \
+		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_x64-be evolvedbinary/rocksjava:centos6_x64-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
+	fi
+	docker start -a rocksdb_linux_x64-be
 
 rocksdbjavastaticdockerppc64le:
 	mkdir -p java/target
@@ -1773,7 +1899,7 @@ $(java_libobjects): jl/%.o: %.cc
 rocksdbjava: $(java_all_libobjects)
 	$(AM_V_GEN)cd java;$(MAKE) javalib;
 	$(AM_V_at)rm -f ./java/target/$(ROCKSDBJNILIB)
-	$(AM_V_at)$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(java_libobjects) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
+	$(AM_V_at)$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(java_all_libobjects) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
 	$(AM_V_at)cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
 	$(AM_V_at)cd java/target;jar -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)
 	$(AM_V_at)cd java/target/classes;jar -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
@@ -1842,7 +1968,7 @@ endif
 #  	Source files dependencies detection
 # ---------------------------------------------------------------------------
 
-all_sources = $(LIB_SOURCES) $(MAIN_SOURCES) $(MOCK_LIB_SOURCES) $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(TEST_LIB_SOURCES) $(EXP_LIB_SOURCES)
+all_sources = $(LIB_SOURCES) $(MAIN_SOURCES) $(MOCK_LIB_SOURCES) $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(TEST_LIB_SOURCES) $(EXP_LIB_SOURCES) $(ANALYZER_LIB_SOURCES)
 DEPFILES = $(all_sources:.cc=.cc.d)
 
 # Add proper dependency support so changing a .h file forces a .cc file to

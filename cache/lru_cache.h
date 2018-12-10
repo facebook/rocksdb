@@ -57,7 +57,7 @@ struct LRUHandle {
   // Include the following flags:
   //   in_cache:    whether this entry is referenced by the hash table.
   //   is_high_pri: whether this entry is high priority entry.
-  //   in_high_pro_pool: whether this entry is in high-pri pool.
+  //   in_high_pri_pool: whether this entry is in high-pri pool.
   char flags;
 
   uint32_t hash;     // Hash of key(); used for fast sharding and comparisons
@@ -77,6 +77,7 @@ struct LRUHandle {
   bool InCache() { return flags & 1; }
   bool IsHighPri() { return flags & 2; }
   bool InHighPriPool() { return flags & 4; }
+  bool HasHit() { return flags & 8; }
 
   void SetInCache(bool in_cache) {
     if (in_cache) {
@@ -101,6 +102,8 @@ struct LRUHandle {
       flags &= ~4;
     }
   }
+
+  void SetHit() { flags |= 8; }
 
   void Free() {
     assert((refs == 1 && InCache()) || (refs == 0 && !InCache()));
@@ -156,7 +159,8 @@ class LRUHandleTable {
 // A single shard of sharded cache.
 class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
  public:
-  LRUCacheShard();
+  LRUCacheShard(size_t capacity, bool strict_capacity_limit,
+                double high_pri_pool_ratio);
   virtual ~LRUCacheShard();
 
   // Separate from constructor so caller can easily make an array of LRUCache
@@ -204,15 +208,6 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
 
   //  Retrives high pri pool ratio
   double GetHighPriPoolRatio();
-
-  // Overloading to aligned it to cache line size
-  void* operator new(size_t);
-
-  void* operator new[](size_t);
-
-  void operator delete(void *);
-
-  void operator delete[](void*);
 
  private:
   void LRU_Remove(LRUHandle* e);
@@ -284,7 +279,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
 class LRUCache : public ShardedCache {
  public:
   LRUCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-           double high_pri_pool_ratio);
+           double high_pri_pool_ratio,
+           std::shared_ptr<MemoryAllocator> memory_allocator = nullptr);
   virtual ~LRUCache();
   virtual const char* Name() const override { return "LRUCache"; }
   virtual CacheShard* GetShard(int shard) override;
@@ -300,7 +296,7 @@ class LRUCache : public ShardedCache {
   double GetHighPriPoolRatio();
 
  private:
-  LRUCacheShard* shards_;
+  LRUCacheShard* shards_ = nullptr;
   int num_shards_ = 0;
 };
 

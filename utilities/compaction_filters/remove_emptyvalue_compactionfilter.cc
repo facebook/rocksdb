@@ -16,12 +16,11 @@ const char* RemoveEmptyValueCompactionFilter::Name() const {
   return "RemoveEmptyValueCompactionFilter";
 }
 
-bool RemoveEmptyValueCompactionFilter::Filter(int level,
-    const Slice& key,
-    const Slice& existing_value,
-    std::string* new_value,
-    bool* value_changed) const {
-
+bool RemoveEmptyValueCompactionFilter::Filter(int /*level*/,
+                                              const Slice& /*key*/,
+                                              const Slice& existing_value,
+                                              std::string* /*new_value*/,
+                                              bool* /*value_changed*/) const {
   // remove kv pairs that have empty values
   return existing_value.empty();
 }

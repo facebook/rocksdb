@@ -28,7 +28,7 @@ class HashSkipListRep : public MemTableRep {
                   size_t bucket_size, int32_t skiplist_height,
                   int32_t skiplist_branching_factor);
 
-  virtual bool Insert(KeyHandle handle) override;
+  virtual void Insert(KeyHandle handle) override;
 
   virtual bool Contains(const char* key) const override;
 
@@ -131,8 +131,8 @@ class HashSkipListRep : public MemTableRep {
     }
 
     // Retreat to the last entry with a key <= target
-    virtual void SeekForPrev(const Slice& internal_key,
-                             const char* memtable_key) override {
+    virtual void SeekForPrev(const Slice& /*internal_key*/,
+                             const char* /*memtable_key*/) override {
       // not supported
       assert(false);
     }
@@ -168,7 +168,7 @@ class HashSkipListRep : public MemTableRep {
     Bucket* list_;
     Bucket::Iterator iter_;
     // here we track if we own list_. If we own it, we are also
-    // responsible for it's cleaning. This is a poor man's shared_ptr
+    // responsible for it's cleaning. This is a poor man's std::shared_ptr
     bool own_list_;
     std::unique_ptr<Arena> arena_;
     std::string tmp_;       // For passing to EncodeKey
@@ -219,10 +219,10 @@ class HashSkipListRep : public MemTableRep {
     }
     virtual void Next() override {}
     virtual void Prev() override {}
-    virtual void Seek(const Slice& internal_key,
-                      const char* memtable_key) override {}
-    virtual void SeekForPrev(const Slice& internal_key,
-                             const char* memtable_key) override {}
+    virtual void Seek(const Slice& /*internal_key*/,
+                      const char* /*memtable_key*/) override {}
+    virtual void SeekForPrev(const Slice& /*internal_key*/,
+                             const char* /*memtable_key*/) override {}
     virtual void SeekToFirst() override {}
     virtual void SeekToLast() override {}
 
@@ -267,13 +267,12 @@ HashSkipListRep::Bucket* HashSkipListRep::GetInitializedBucket(
   return bucket;
 }
 
-bool HashSkipListRep::Insert(KeyHandle handle) {
+void HashSkipListRep::Insert(KeyHandle handle) {
   auto* key = static_cast<char*>(handle);
   assert(!Contains(key));
   auto transformed = transform_->Transform(UserKey(key));
   auto bucket = GetInitializedBucket(transformed);
   bucket->Insert(key);
-  return true;
 }
 
 bool HashSkipListRep::Contains(const char* key) const {
@@ -336,7 +335,7 @@ MemTableRep::Iterator* HashSkipListRep::GetDynamicPrefixIterator(Arena* arena) {
 
 MemTableRep* HashSkipListRepFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Allocator* allocator,
-    const SliceTransform* transform, Logger* logger) {
+    const SliceTransform* transform, Logger* /*logger*/) {
   return new HashSkipListRep(compare, allocator, transform, bucket_count_,
                              skiplist_height_, skiplist_branching_factor_);
 }

@@ -14,8 +14,7 @@
 // non-const method, all threads accessing the same Status must use
 // external synchronization.
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_STATUS_H_
-#define STORAGE_ROCKSDB_INCLUDE_STATUS_H_
+#pragma once
 
 #include <string>
 #include "rocksdb/slice.h"
@@ -25,7 +24,7 @@ namespace rocksdb {
 class Status {
  public:
   // Create a success status.
-  Status() : code_(kOk), subcode_(kNone), state_(nullptr) {}
+  Status() : code_(kOk), subcode_(kNone), sev_(kNoError), state_(nullptr) {}
   ~Status() { delete[] state_; }
 
   // Copy the specified status.
@@ -44,7 +43,7 @@ class Status {
   bool operator==(const Status& rhs) const;
   bool operator!=(const Status& rhs) const;
 
-  enum Code {
+  enum Code : unsigned char {
     kOk = 0,
     kNotFound = 1,
     kCorruption = 2,
@@ -58,12 +57,13 @@ class Status {
     kAborted = 10,
     kBusy = 11,
     kExpired = 12,
-    kTryAgain = 13
+    kTryAgain = 13,
+    kCompactionTooLarge = 14
   };
 
   Code code() const { return code_; }
 
-  enum SubCode {
+  enum SubCode : unsigned char {
     kNone = 0,
     kMutexTimeout = 1,
     kLockTimeout = 2,
@@ -72,10 +72,23 @@ class Status {
     kDeadlock = 5,
     kStaleFile = 6,
     kMemoryLimit = 7,
+    kSpaceLimit = 8,
     kMaxSubCode
   };
 
   SubCode subcode() const { return subcode_; }
+
+  enum Severity : unsigned char {
+    kNoError = 0,
+    kSoftError = 1,
+    kHardError = 2,
+    kFatalError = 3,
+    kUnrecoverableError = 4,
+    kMaxSeverity
+  };
+
+  Status(const Status& s, Severity sev);
+  Severity severity() const { return sev_; }
 
   // Returns a C style string indicating the message of the Status
   const char* getState() const { return state_; }
@@ -162,6 +175,14 @@ class Status {
     return Status(kTryAgain, msg, msg2);
   }
 
+  static Status CompactionTooLarge(SubCode msg = kNone) {
+    return Status(kCompactionTooLarge, msg);
+  }
+  static Status CompactionTooLarge(const Slice& msg,
+                                   const Slice& msg2 = Slice()) {
+    return Status(kCompactionTooLarge, msg, msg2);
+  }
+
   static Status NoSpace() { return Status(kIOError, kNoSpace); }
   static Status NoSpace(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kIOError, kNoSpace, msg, msg2);
@@ -170,6 +191,11 @@ class Status {
   static Status MemoryLimit() { return Status(kAborted, kMemoryLimit); }
   static Status MemoryLimit(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kAborted, kMemoryLimit, msg, msg2);
+  }
+
+  static Status SpaceLimit() { return Status(kIOError, kSpaceLimit); }
+  static Status SpaceLimit(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kIOError, kSpaceLimit, msg, msg2);
   }
 
   // Returns true iff the status indicates success.
@@ -221,6 +247,9 @@ class Status {
   // re-attempted.
   bool IsTryAgain() const { return code() == kTryAgain; }
 
+  // Returns true iff the status indicates the proposed compaction is too large
+  bool IsCompactionTooLarge() const { return code() == kCompactionTooLarge; }
+
   // Returns true iff the status indicates a NoSpace error
   // This is caused by an I/O error returning the specific "out of space"
   // error condition. Stricto sensu, an NoSpace error is an I/O error
@@ -249,12 +278,11 @@ class Status {
   //    state_[4..]  == message
   Code code_;
   SubCode subcode_;
+  Severity sev_;
   const char* state_;
 
-  static const char* msgs[static_cast<int>(kMaxSubCode)];
-
   explicit Status(Code _code, SubCode _subcode = kNone)
-      : code_(_code), subcode_(_subcode), state_(nullptr) {}
+      : code_(_code), subcode_(_subcode), sev_(kNoError), state_(nullptr) {}
 
   Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2);
   Status(Code _code, const Slice& msg, const Slice& msg2)
@@ -263,7 +291,11 @@ class Status {
   static const char* CopyState(const char* s);
 };
 
-inline Status::Status(const Status& s) : code_(s.code_), subcode_(s.subcode_) {
+inline Status::Status(const Status& s) : code_(s.code_), subcode_(s.subcode_), sev_(s.sev_) {
+  state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
+}
+inline Status::Status(const Status& s, Severity sev)
+  : code_(s.code_), subcode_(s.subcode_), sev_(sev) {
   state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
 }
 inline Status& Status::operator=(const Status& s) {
@@ -272,6 +304,7 @@ inline Status& Status::operator=(const Status& s) {
   if (this != &s) {
     code_ = s.code_;
     subcode_ = s.subcode_;
+    sev_ = s.sev_;
     delete[] state_;
     state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
   }
@@ -296,6 +329,8 @@ inline Status& Status::operator=(Status&& s)
     s.code_ = kOk;
     subcode_ = std::move(s.subcode_);
     s.subcode_ = kNone;
+    sev_ = std::move(s.sev_);
+    s.sev_ = kNoError;
     delete[] state_;
     state_ = nullptr;
     std::swap(state_, s.state_);
@@ -312,5 +347,3 @@ inline bool Status::operator!=(const Status& rhs) const {
 }
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_STATUS_H_

@@ -41,6 +41,7 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
   virtual bool IsBlockBased() override { return true; }
   virtual void StartBlock(uint64_t block_offset) override;
   virtual void Add(const Slice& key) override;
+  virtual size_t NumAdded() const override { return num_added_; }
   virtual Slice Finish(const BlockHandle& tmp, Status* status) override;
   using FilterBlockBuilder::Finish;
 
@@ -65,6 +66,7 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
   std::string result_;              // Filter data computed so far
   std::vector<Slice> tmp_entries_;  // policy_->CreateFilter() argument
   std::vector<uint32_t> filter_offsets_;
+  size_t num_added_;                // Number of keys added
 
   // No copying allowed
   BlockBasedFilterBlockBuilder(const BlockBasedFilterBlockBuilder&);
@@ -81,13 +83,14 @@ class BlockBasedFilterBlockReader : public FilterBlockReader {
                               bool whole_key_filtering,
                               BlockContents&& contents, Statistics* statistics);
   virtual bool IsBlockBased() override { return true; }
+
   virtual bool KeyMayMatch(
-      const Slice& key, uint64_t block_offset = kNotValid,
-      const bool no_io = false,
+      const Slice& key, const SliceTransform* prefix_extractor,
+      uint64_t block_offset = kNotValid, const bool no_io = false,
       const Slice* const const_ikey_ptr = nullptr) override;
   virtual bool PrefixMayMatch(
-      const Slice& prefix, uint64_t block_offset = kNotValid,
-      const bool no_io = false,
+      const Slice& prefix, const SliceTransform* prefix_extractor,
+      uint64_t block_offset = kNotValid, const bool no_io = false,
       const Slice* const const_ikey_ptr = nullptr) override;
   virtual size_t ApproximateMemoryUsage() const override;
 

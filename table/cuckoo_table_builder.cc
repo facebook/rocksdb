@@ -164,9 +164,9 @@ bool CuckooTableBuilder::IsDeletedKey(uint64_t idx) const {
 Slice CuckooTableBuilder::GetKey(uint64_t idx) const {
   assert(closed_);
   if (IsDeletedKey(idx)) {
-    return Slice(&deleted_keys_[(idx - num_values_) * key_size_], key_size_);
+    return Slice(&deleted_keys_[static_cast<size_t>((idx - num_values_) * key_size_)], static_cast<size_t>(key_size_));
   }
-  return Slice(&kvs_[idx * (key_size_ + value_size_)], key_size_);
+  return Slice(&kvs_[static_cast<size_t>(idx * (key_size_ + value_size_))], static_cast<size_t>(key_size_));
 }
 
 Slice CuckooTableBuilder::GetUserKey(uint64_t idx) const {
@@ -177,14 +177,14 @@ Slice CuckooTableBuilder::GetUserKey(uint64_t idx) const {
 Slice CuckooTableBuilder::GetValue(uint64_t idx) const {
   assert(closed_);
   if (IsDeletedKey(idx)) {
-    static std::string empty_value(value_size_, 'a');
+    static std::string empty_value(static_cast<unsigned int>(value_size_), 'a');
     return Slice(empty_value);
   }
-  return Slice(&kvs_[idx * (key_size_ + value_size_) + key_size_], value_size_);
+  return Slice(&kvs_[static_cast<size_t>(idx * (key_size_ + value_size_) + key_size_)], static_cast<size_t>(value_size_));
 }
 
 Status CuckooTableBuilder::MakeHashTable(std::vector<CuckooBucket>* buckets) {
-  buckets->resize(hash_table_size_ + cuckoo_block_size_ - 1);
+  buckets->resize(static_cast<size_t>(hash_table_size_ + cuckoo_block_size_ - 1));
   uint32_t make_space_for_key_call_id = 0;
   for (uint32_t vector_idx = 0; vector_idx < num_entries_; vector_idx++) {
     uint64_t bucket_id = 0;
@@ -200,13 +200,13 @@ Status CuckooTableBuilder::MakeHashTable(std::vector<CuckooBucket>* buckets) {
       // stop searching and proceed for next hash function.
       for (uint32_t block_idx = 0; block_idx < cuckoo_block_size_;
           ++block_idx, ++hash_val) {
-        if ((*buckets)[hash_val].vector_idx == kMaxVectorIdx) {
+        if ((*buckets)[static_cast<size_t>(hash_val)].vector_idx == kMaxVectorIdx) {
           bucket_id = hash_val;
           bucket_found = true;
           break;
         } else {
           if (ucomp_->Compare(user_key,
-                GetUserKey((*buckets)[hash_val].vector_idx)) == 0) {
+                GetUserKey((*buckets)[static_cast<size_t>(hash_val)].vector_idx)) == 0) {
             return Status::NotSupported("Same key is being inserted again.");
           }
           hash_vals.push_back(hash_val);
@@ -226,7 +226,7 @@ Status CuckooTableBuilder::MakeHashTable(std::vector<CuckooBucket>* buckets) {
       ++num_hash_func_;
       for (uint32_t block_idx = 0; block_idx < cuckoo_block_size_;
           ++block_idx, ++hash_val) {
-        if ((*buckets)[hash_val].vector_idx == kMaxVectorIdx) {
+        if ((*buckets)[static_cast<size_t>(hash_val)].vector_idx == kMaxVectorIdx) {
           bucket_found = true;
           bucket_id = hash_val;
           break;
@@ -235,7 +235,7 @@ Status CuckooTableBuilder::MakeHashTable(std::vector<CuckooBucket>* buckets) {
         }
       }
     }
-    (*buckets)[bucket_id].vector_idx = vector_idx;
+    (*buckets)[static_cast<size_t>(bucket_id)].vector_idx = vector_idx;
   }
   return Status::OK();
 }
@@ -289,13 +289,14 @@ Status CuckooTableBuilder::Finish() {
     }
   }
   properties_.num_entries = num_entries_;
+  properties_.num_deletions = num_entries_ - num_values_;
   properties_.fixed_key_len = key_size_;
   properties_.user_collected_properties[
         CuckooTablePropertyNames::kValueLength].assign(
         reinterpret_cast<const char*>(&value_size_), sizeof(value_size_));
 
   uint64_t bucket_size = key_size_ + value_size_;
-  unused_bucket.resize(bucket_size, 'a');
+  unused_bucket.resize(static_cast<size_t>(bucket_size), 'a');
   // Write the table.
   uint32_t num_added = 0;
   for (auto& bucket : buckets) {
@@ -320,7 +321,7 @@ Status CuckooTableBuilder::Finish() {
 
   uint64_t offset = buckets.size() * bucket_size;
   properties_.data_size = offset;
-  unused_bucket.resize(properties_.fixed_key_len);
+  unused_bucket.resize(static_cast<size_t>(properties_.fixed_key_len));
   properties_.user_collected_properties[
     CuckooTablePropertyNames::kEmptyKey] = unused_bucket;
   properties_.user_collected_properties[
@@ -456,7 +457,7 @@ bool CuckooTableBuilder::MakeSpaceForKey(
   // no. of times this will be called is <= max_num_hash_func_ + num_entries_.
   for (uint32_t hash_cnt = 0; hash_cnt < num_hash_func_; ++hash_cnt) {
     uint64_t bid = hash_vals[hash_cnt];
-    (*buckets)[bid].make_space_for_key_call_id = make_space_for_key_call_id;
+    (*buckets)[static_cast<size_t>(bid)].make_space_for_key_call_id = make_space_for_key_call_id;
     tree.push_back(CuckooNode(bid, 0, 0));
   }
   bool null_found = false;
@@ -467,7 +468,7 @@ bool CuckooTableBuilder::MakeSpaceForKey(
     if (curr_depth >= max_search_depth_) {
       break;
     }
-    CuckooBucket& curr_bucket = (*buckets)[curr_node.bucket_id];
+    CuckooBucket& curr_bucket = (*buckets)[static_cast<size_t>(curr_node.bucket_id)];
     for (uint32_t hash_cnt = 0;
         hash_cnt < num_hash_func_ && !null_found; ++hash_cnt) {
       uint64_t child_bucket_id = CuckooHash(GetUserKey(curr_bucket.vector_idx),
@@ -476,15 +477,15 @@ bool CuckooTableBuilder::MakeSpaceForKey(
       // Iterate inside Cuckoo Block.
       for (uint32_t block_idx = 0; block_idx < cuckoo_block_size_;
           ++block_idx, ++child_bucket_id) {
-        if ((*buckets)[child_bucket_id].make_space_for_key_call_id ==
+        if ((*buckets)[static_cast<size_t>(child_bucket_id)].make_space_for_key_call_id ==
             make_space_for_key_call_id) {
           continue;
         }
-        (*buckets)[child_bucket_id].make_space_for_key_call_id =
+        (*buckets)[static_cast<size_t>(child_bucket_id)].make_space_for_key_call_id =
           make_space_for_key_call_id;
         tree.push_back(CuckooNode(child_bucket_id, curr_depth + 1,
               curr_pos));
-        if ((*buckets)[child_bucket_id].vector_idx == kMaxVectorIdx) {
+        if ((*buckets)[static_cast<size_t>(child_bucket_id)].vector_idx == kMaxVectorIdx) {
           null_found = true;
           break;
         }
@@ -502,8 +503,8 @@ bool CuckooTableBuilder::MakeSpaceForKey(
     uint32_t bucket_to_replace_pos = static_cast<uint32_t>(tree.size()) - 1;
     while (bucket_to_replace_pos >= num_hash_func_) {
       CuckooNode& curr_node = tree[bucket_to_replace_pos];
-      (*buckets)[curr_node.bucket_id] =
-        (*buckets)[tree[curr_node.parent_pos].bucket_id];
+      (*buckets)[static_cast<size_t>(curr_node.bucket_id)] =
+        (*buckets)[static_cast<size_t>(tree[curr_node.parent_pos].bucket_id)];
       bucket_to_replace_pos = curr_node.parent_pos;
     }
     *bucket_id = tree[bucket_to_replace_pos].bucket_id;

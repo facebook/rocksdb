@@ -5082,8 +5082,8 @@ sub openoutputfiles {
 	# Set reading FD if using --group (--ungroup does not need)
 	for my $fdno (1,2) {
 	    # Re-open the file for reading
-	    # so fdw can be closed seperately
-	    # and fdr can be seeked seperately (for --line-buffer)
+	    # so fdw can be closed separately
+	    # and fdr can be seeked separately (for --line-buffer)
 	    open(my $fdr,"<", $self->fh($fdno,'name')) ||
 		::die_bug("fdr: Cannot open ".$self->fh($fdno,'name'));
 	    $self->set_fh($fdno,'r',$fdr);

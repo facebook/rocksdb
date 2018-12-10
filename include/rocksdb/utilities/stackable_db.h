@@ -219,10 +219,11 @@ class StackableDB : public DB {
       const CompactionOptions& compact_options,
       ColumnFamilyHandle* column_family,
       const std::vector<std::string>& input_file_names,
-      const int output_level, const int output_path_id = -1) override {
+      const int output_level, const int output_path_id = -1,
+      std::vector<std::string>* const output_file_names = nullptr) override {
     return db_->CompactFiles(
         compact_options, column_family, input_file_names,
-        output_level, output_path_id);
+        output_level, output_path_id, output_file_names);
   }
 
   virtual Status PauseBackgroundWork() override {
@@ -276,6 +277,11 @@ class StackableDB : public DB {
   virtual Status Flush(const FlushOptions& fopts,
                        ColumnFamilyHandle* column_family) override {
     return db_->Flush(fopts, column_family);
+  }
+  virtual Status Flush(
+      const FlushOptions& fopts,
+      const std::vector<ColumnFamilyHandle*>& column_families) override {
+    return db_->Flush(fopts, column_families);
   }
 
   virtual Status SyncWAL() override {
@@ -363,7 +369,7 @@ class StackableDB : public DB {
   }
 
   virtual Status GetUpdatesSince(
-      SequenceNumber seq_number, unique_ptr<TransactionLogIterator>* iter,
+      SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
       const TransactionLogIterator::ReadOptions& read_options) override {
     return db_->GetUpdatesSince(seq_number, iter, read_options);
   }

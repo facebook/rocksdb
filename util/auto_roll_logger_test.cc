@@ -71,9 +71,10 @@ class AutoRollLoggerTest : public testing::Test {
 
 const std::string AutoRollLoggerTest::kSampleMessage(
     "this is the message to be written to the log file!!");
-const std::string AutoRollLoggerTest::kTestDir(test::TmpDir() + "/db_log_test");
-const std::string AutoRollLoggerTest::kLogFile(test::TmpDir() +
-                                               "/db_log_test/LOG");
+const std::string AutoRollLoggerTest::kTestDir(
+    test::PerThreadDBPath("db_log_test"));
+const std::string AutoRollLoggerTest::kLogFile(
+    test::PerThreadDBPath("db_log_test") + "/LOG");
 Env* AutoRollLoggerTest::default_env = Env::Default();
 
 // In this test we only want to Log some simple log message with
@@ -229,7 +230,7 @@ TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
 TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   DBOptions options;
   NoSleepEnv nse(Env::Default());
-  shared_ptr<Logger> logger;
+  std::shared_ptr<Logger> logger;
 
   // Normal logger
   ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
@@ -272,7 +273,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
 
 TEST_F(AutoRollLoggerTest, LogFlushWhileRolling) {
   DBOptions options;
-  shared_ptr<Logger> logger;
+  std::shared_ptr<Logger> logger;
 
   InitTestDb();
   options.max_log_file_size = 1024 * 5;
@@ -520,7 +521,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr,
           "SKIPPED as AutoRollLogger is not supported in ROCKSDB_LITE\n");
   return 0;

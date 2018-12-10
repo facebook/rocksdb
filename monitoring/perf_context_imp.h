@@ -14,9 +14,9 @@ extern PerfContext perf_context;
 #else
 #if defined(OS_SOLARIS)
 extern __thread PerfContext perf_context_;
-#define perf_context (*get_perf_context());
+#define perf_context (*get_perf_context())
 #else
-extern __thread PerfContext perf_context;
+extern thread_local PerfContext perf_context;
 #endif
 #endif
 
@@ -41,10 +41,12 @@ extern __thread PerfContext perf_context;
   PerfStepTimer perf_step_timer_##metric(&(perf_context.metric)); \
   perf_step_timer_##metric.Start();
 
-#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition)       \
-  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric), true); \
-  if ((condition)) {                                                    \
-    perf_step_timer_##metric.Start();                                   \
+#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition, stats,      \
+                                               ticker_type)                   \
+  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric), true, stats, \
+                                         ticker_type);                        \
+  if (condition) {                                                            \
+    perf_step_timer_##metric.Start();                                         \
   }
 
 // Update metric with time elapsed since last START. start time is reset
@@ -56,6 +58,22 @@ extern __thread PerfContext perf_context;
   if (perf_level >= PerfLevel::kEnableCount) { \
     perf_context.metric += value;              \
   }
+
+// Increase metric value
+#define PERF_COUNTER_BY_LEVEL_ADD(metric, value, level)                      \
+  if (perf_level >= PerfLevel::kEnableCount &&                               \
+      perf_context.per_level_perf_context_enabled &&                         \
+      perf_context.level_to_perf_context) {                                  \
+    if ((*(perf_context.level_to_perf_context)).find(level) !=               \
+        (*(perf_context.level_to_perf_context)).end()) {                     \
+      (*(perf_context.level_to_perf_context))[level].metric += value;        \
+    }                                                                        \
+    else {                                                                   \
+      PerfContextByLevel empty_context;                                      \
+      (*(perf_context.level_to_perf_context))[level] = empty_context;        \
+      (*(perf_context.level_to_perf_context))[level].metric += value;       \
+    }                                                                        \
+  }                                                                          \
 
 #endif
 

@@ -922,7 +922,7 @@ class DocumentDBImpl : public DocumentDB {
       for (const auto& update : updates.Items()) {
         if (update.first == "$set") {
           JSONDocumentBuilder builder;
-          bool res __attribute__((unused)) = builder.WriteStartObject();
+          bool res __attribute__((__unused__)) = builder.WriteStartObject();
           assert(res);
           for (const auto& itr : update.second.Items()) {
             if (itr.first == kPrimaryKey) {
@@ -1044,24 +1044,25 @@ class DocumentDBImpl : public DocumentDB {
 
   // RocksDB functions
   using DB::Get;
-  virtual Status Get(const ReadOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     PinnableSlice* value) override {
+  virtual Status Get(const ReadOptions& /*options*/,
+                     ColumnFamilyHandle* /*column_family*/,
+                     const Slice& /*key*/, PinnableSlice* /*value*/) override {
     return Status::NotSupported("");
   }
-  virtual Status Get(const ReadOptions& options, const Slice& key,
-                     std::string* value) override {
+  virtual Status Get(const ReadOptions& /*options*/, const Slice& /*key*/,
+                     std::string* /*value*/) override {
     return Status::NotSupported("");
   }
-  virtual Status Write(const WriteOptions& options,
-                       WriteBatch* updates) override {
+  virtual Status Write(const WriteOptions& /*options*/,
+                       WriteBatch* /*updates*/) override {
     return Status::NotSupported("");
   }
-  virtual Iterator* NewIterator(const ReadOptions& options,
-                                ColumnFamilyHandle* column_family) override {
+  virtual Iterator* NewIterator(
+      const ReadOptions& /*options*/,
+      ColumnFamilyHandle* /*column_family*/) override {
     return nullptr;
   }
-  virtual Iterator* NewIterator(const ReadOptions& options) override {
+  virtual Iterator* NewIterator(const ReadOptions& /*options*/) override {
     return nullptr;
   }
 
@@ -1154,10 +1155,10 @@ Options GetRocksDBOptionsFromOptions(const DocumentDBOptions& options) {
   Options rocksdb_options;
   rocksdb_options.max_background_compactions = options.background_threads - 1;
   rocksdb_options.max_background_flushes = 1;
-  rocksdb_options.write_buffer_size = options.memtable_size;
+  rocksdb_options.write_buffer_size = static_cast<size_t>(options.memtable_size);
   rocksdb_options.max_write_buffer_number = 6;
   BlockBasedTableOptions table_options;
-  table_options.block_cache = NewLRUCache(options.cache_size);
+  table_options.block_cache = NewLRUCache(static_cast<size_t>(options.cache_size));
   rocksdb_options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   return rocksdb_options;
 }

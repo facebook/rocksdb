@@ -26,6 +26,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   explicit PartitionedFilterBlockBuilder(
       const SliceTransform* prefix_extractor, bool whole_key_filtering,
       FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
+      const bool use_value_delta_encoding,
       PartitionedIndexBuilder* const p_index_builder,
       const uint32_t partition_size);
 
@@ -33,12 +34,16 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
 
   void AddKey(const Slice& key) override;
 
+  size_t NumAdded() const override { return num_added_; }
+
   virtual Slice Finish(const BlockHandle& last_partition_block_handle,
                        Status* status) override;
 
  private:
   // Filter data
   BlockBuilder index_on_filter_block_builder_;  // top-level index builder
+  BlockBuilder
+      index_on_filter_block_builder_without_seq_;  // same for user keys
   struct FilterEntry {
     std::string key;
     Slice filter;
@@ -59,41 +64,48 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   uint32_t filters_per_partition_;
   // The current number of filters in the last partition
   uint32_t filters_in_partition_;
+  // Number of keys added
+  size_t num_added_;
+  BlockHandle last_encoded_handle_;
 };
 
-class PartitionedFilterBlockReader : public FilterBlockReader {
+class PartitionedFilterBlockReader : public FilterBlockReader,
+                                     public Cleanable {
  public:
-  explicit PartitionedFilterBlockReader(const SliceTransform* prefix_extractor,
-                                        bool whole_key_filtering,
-                                        BlockContents&& contents,
-                                        FilterBitsReader* filter_bits_reader,
-                                        Statistics* stats,
-                                        const Comparator& comparator,
-                                        const BlockBasedTable* table);
+  explicit PartitionedFilterBlockReader(
+      const SliceTransform* prefix_extractor, bool whole_key_filtering,
+      BlockContents&& contents, FilterBitsReader* filter_bits_reader,
+      Statistics* stats, const InternalKeyComparator comparator,
+      const BlockBasedTable* table, const bool index_key_includes_seq,
+      const bool index_value_is_full);
   virtual ~PartitionedFilterBlockReader();
 
   virtual bool IsBlockBased() override { return false; }
   virtual bool KeyMayMatch(
-      const Slice& key, uint64_t block_offset = kNotValid,
-      const bool no_io = false,
+      const Slice& key, const SliceTransform* prefix_extractor,
+      uint64_t block_offset = kNotValid, const bool no_io = false,
       const Slice* const const_ikey_ptr = nullptr) override;
   virtual bool PrefixMayMatch(
-      const Slice& prefix, uint64_t block_offset = kNotValid,
-      const bool no_io = false,
+      const Slice& prefix, const SliceTransform* prefix_extractor,
+      uint64_t block_offset = kNotValid, const bool no_io = false,
       const Slice* const const_ikey_ptr = nullptr) override;
   virtual size_t ApproximateMemoryUsage() const override;
 
  private:
-  Slice GetFilterPartitionHandle(const Slice& entry);
+  BlockHandle GetFilterPartitionHandle(const Slice& entry);
   BlockBasedTable::CachableEntry<FilterBlockReader> GetFilterPartition(
-      FilePrefetchBuffer* prefetch_buffer, Slice* handle, const bool no_io,
-      bool* cached);
-  virtual void CacheDependencies(bool pin) override;
+      FilePrefetchBuffer* prefetch_buffer, BlockHandle& handle,
+      const bool no_io, bool* cached,
+      const SliceTransform* prefix_extractor = nullptr);
+  virtual void CacheDependencies(
+      bool bin, const SliceTransform* prefix_extractor) override;
 
   const SliceTransform* prefix_extractor_;
   std::unique_ptr<Block> idx_on_fltr_blk_;
-  const Comparator& comparator_;
+  const InternalKeyComparator comparator_;
   const BlockBasedTable* table_;
+  const bool index_key_includes_seq_;
+  const bool index_value_is_full_;
   std::unordered_map<uint64_t,
                      BlockBasedTable::CachableEntry<FilterBlockReader>>
       filter_map_;

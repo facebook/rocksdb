@@ -27,6 +27,7 @@
 //    kTypeCommitXID varstring
 //    kTypeRollbackXID varstring
 //    kTypeBeginPersistedPrepareXID varstring
+//    kTypeBeginUnprepareXID varstring
 //    kTypeNoop
 // varstring :=
 //    len: varint32
@@ -52,7 +53,9 @@
 #include "monitoring/statistics.h"
 #include "rocksdb/merge_operator.h"
 #include "util/coding.h"
+#include "util/duplicate_detector.h"
 #include "util/string_util.h"
+#include "util/util.h"
 
 namespace rocksdb {
 
@@ -71,6 +74,7 @@ enum ContentFlags : uint32_t {
   HAS_ROLLBACK = 1 << 8,
   HAS_DELETE_RANGE = 1 << 9,
   HAS_BLOB_INDEX = 1 << 10,
+  HAS_BEGIN_UNPREPARE = 1 << 11,
 };
 
 struct BatchContentClassifier : public WriteBatch::Handler {
@@ -106,8 +110,11 @@ struct BatchContentClassifier : public WriteBatch::Handler {
     return Status::OK();
   }
 
-  Status MarkBeginPrepare() override {
+  Status MarkBeginPrepare(bool unprepare) override {
     content_flags |= ContentFlags::HAS_BEGIN_PREPARE;
+    if (unprepare) {
+      content_flags |= ContentFlags::HAS_BEGIN_UNPREPARE;
+    }
     return Status::OK();
   }
 
@@ -186,7 +193,7 @@ WriteBatch::~WriteBatch() { delete save_points_; }
 
 WriteBatch::Handler::~Handler() { }
 
-void WriteBatch::Handler::LogData(const Slice& blob) {
+void WriteBatch::Handler::LogData(const Slice& /*blob*/) {
   // If the user has not specified something to do with blobs, then we ignore
   // them.
 }
@@ -301,7 +308,7 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
       if (!GetVarint32(input, column_family)) {
         return Status::Corruption("bad WriteBatch Put");
       }
-    // intentional fallthrough
+      FALLTHROUGH_INTENDED;
     case kTypeValue:
       if (!GetLengthPrefixedSlice(input, key) ||
           !GetLengthPrefixedSlice(input, value)) {
@@ -313,7 +320,7 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
       if (!GetVarint32(input, column_family)) {
         return Status::Corruption("bad WriteBatch Delete");
       }
-    // intentional fallthrough
+      FALLTHROUGH_INTENDED;
     case kTypeDeletion:
     case kTypeSingleDeletion:
       if (!GetLengthPrefixedSlice(input, key)) {
@@ -324,7 +331,7 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
       if (!GetVarint32(input, column_family)) {
         return Status::Corruption("bad WriteBatch DeleteRange");
       }
-    // intentional fallthrough
+      FALLTHROUGH_INTENDED;
     case kTypeRangeDeletion:
       // for range delete, "key" is begin_key, "value" is end_key
       if (!GetLengthPrefixedSlice(input, key) ||
@@ -336,7 +343,7 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
       if (!GetVarint32(input, column_family)) {
         return Status::Corruption("bad WriteBatch Merge");
       }
-    // intentional fallthrough
+      FALLTHROUGH_INTENDED;
     case kTypeMerge:
       if (!GetLengthPrefixedSlice(input, key) ||
           !GetLengthPrefixedSlice(input, value)) {
@@ -347,7 +354,7 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
       if (!GetVarint32(input, column_family)) {
         return Status::Corruption("bad WriteBatch BlobIndex");
       }
-    // intentional fallthrough
+      FALLTHROUGH_INTENDED;
     case kTypeBlobIndex:
       if (!GetLengthPrefixedSlice(input, key) ||
           !GetLengthPrefixedSlice(input, value)) {
@@ -365,6 +372,8 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
       // This indicates that the prepared batch is also persisted in the db.
       // This is used in WritePreparedTxn
     case kTypeBeginPersistedPrepareXID:
+      // This is used in WriteUnpreparedTxn
+    case kTypeBeginUnprepareXID:
       break;
     case kTypeEndPrepareXID:
       if (!GetLengthPrefixedSlice(input, xid)) {
@@ -396,20 +405,42 @@ Status WriteBatch::Iterate(Handler* handler) const {
   input.remove_prefix(WriteBatchInternal::kHeader);
   Slice key, value, blob, xid;
   // Sometimes a sub-batch starts with a Noop. We want to exclude such Noops as
-  // the batch boundry sybmols otherwise we would mis-count the number of
+  // the batch boundary symbols otherwise we would mis-count the number of
   // batches. We do that by checking whether the accumulated batch is empty
   // before seeing the next Noop.
   bool empty_batch = true;
   int found = 0;
   Status s;
-  while (s.ok() && !input.empty() && handler->Continue()) {
-    char tag = 0;
-    uint32_t column_family = 0;  // default
+  char tag = 0;
+  uint32_t column_family = 0;  // default
+  bool last_was_try_again = false;
+  bool handler_continue = true;
+  while (((s.ok() && !input.empty()) || UNLIKELY(s.IsTryAgain()))) {
+    handler_continue = handler->Continue();
+    if (!handler_continue) {
+      break;
+    }
 
-    s = ReadRecordFromWriteBatch(&input, &tag, &column_family, &key, &value,
-                                 &blob, &xid);
-    if (!s.ok()) {
-      return s;
+    if (LIKELY(!s.IsTryAgain())) {
+      last_was_try_again = false;
+      tag = 0;
+      column_family = 0;  // default
+
+      s = ReadRecordFromWriteBatch(&input, &tag, &column_family, &key, &value,
+                                   &blob, &xid);
+      if (!s.ok()) {
+        return s;
+      }
+    } else {
+      assert(s.IsTryAgain());
+      assert(!last_was_try_again); // to detect infinite loop bugs
+      if (UNLIKELY(last_was_try_again)) {
+        return Status::Corruption(
+            "two consecutive TryAgain in WriteBatch handler; this is either a "
+            "software bug or data corruption.");
+      }
+      last_was_try_again = true;
+      s = Status::OK();
     }
 
     switch (tag) {
@@ -418,47 +449,59 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_PUT));
         s = handler->PutCF(column_family, key, value);
-        empty_batch = false;
-        found++;
+        if (LIKELY(s.ok())) {
+          empty_batch = false;
+          found++;
+        }
         break;
       case kTypeColumnFamilyDeletion:
       case kTypeDeletion:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE));
         s = handler->DeleteCF(column_family, key);
-        empty_batch = false;
-        found++;
+        if (LIKELY(s.ok())) {
+          empty_batch = false;
+          found++;
+        }
         break;
       case kTypeColumnFamilySingleDeletion:
       case kTypeSingleDeletion:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_SINGLE_DELETE));
         s = handler->SingleDeleteCF(column_family, key);
-        empty_batch = false;
-        found++;
+        if (LIKELY(s.ok())) {
+          empty_batch = false;
+          found++;
+        }
         break;
       case kTypeColumnFamilyRangeDeletion:
       case kTypeRangeDeletion:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE_RANGE));
         s = handler->DeleteRangeCF(column_family, key, value);
-        empty_batch = false;
-        found++;
+        if (LIKELY(s.ok())) {
+          empty_batch = false;
+          found++;
+        }
         break;
       case kTypeColumnFamilyMerge:
       case kTypeMerge:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_MERGE));
         s = handler->MergeCF(column_family, key, value);
-        empty_batch = false;
-        found++;
+        if (LIKELY(s.ok())) {
+          empty_batch = false;
+          found++;
+        }
         break;
       case kTypeColumnFamilyBlobIndex:
       case kTypeBlobIndex:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_BLOB_INDEX));
         s = handler->PutBlobIndexCF(column_family, key, value);
-        found++;
+        if (LIKELY(s.ok())) {
+          found++;
+        }
         break;
       case kTypeLogData:
         handler->LogData(blob);
@@ -473,8 +516,15 @@ Status WriteBatch::Iterate(Handler* handler) const {
         if (!handler->WriteAfterCommit()) {
           s = Status::NotSupported(
               "WriteCommitted txn tag when write_after_commit_ is disabled (in "
-              "WritePrepared mode). If it is not due to corruption, the WAL "
-              "must be emptied before changing the WritePolicy.");
+              "WritePrepared/WriteUnprepared mode). If it is not due to "
+              "corruption, the WAL must be emptied before changing the "
+              "WritePolicy.");
+        }
+        if (handler->WriteBeforePrepare()) {
+          s = Status::NotSupported(
+              "WriteCommitted txn tag when write_before_prepare_ is enabled "
+              "(in WriteUnprepared mode). If it is not due to corruption, the "
+              "WAL must be emptied before changing the WritePolicy.");
         }
         break;
       case kTypeBeginPersistedPrepareXID:
@@ -484,9 +534,29 @@ Status WriteBatch::Iterate(Handler* handler) const {
         empty_batch = false;
         if (handler->WriteAfterCommit()) {
           s = Status::NotSupported(
-              "WritePrepared txn tag when write_after_commit_ is enabled (in "
+              "WritePrepared/WriteUnprepared txn tag when write_after_commit_ "
+              "is enabled (in default WriteCommitted mode). If it is not due "
+              "to corruption, the WAL must be emptied before changing the "
+              "WritePolicy.");
+        }
+        break;
+      case kTypeBeginUnprepareXID:
+        assert(content_flags_.load(std::memory_order_relaxed) &
+               (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_UNPREPARE));
+        handler->MarkBeginPrepare(true /* unprepared */);
+        empty_batch = false;
+        if (handler->WriteAfterCommit()) {
+          s = Status::NotSupported(
+              "WriteUnprepared txn tag when write_after_commit_ is enabled (in "
               "default WriteCommitted mode). If it is not due to corruption, "
               "the WAL must be emptied before changing the WritePolicy.");
+        }
+        if (!handler->WriteBeforePrepare()) {
+          s = Status::NotSupported(
+              "WriteUnprepared txn tag when write_before_prepare_ is disabled "
+              "(in WriteCommitted/WritePrepared mode). If it is not due to "
+              "corruption, the WAL must be emptied before changing the "
+              "WritePolicy.");
         }
         break;
       case kTypeEndPrepareXID:
@@ -518,7 +588,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
   if (!s.ok()) {
     return s;
   }
-  if (found != WriteBatchInternal::Count(this)) {
+  if (handler_continue && found != WriteBatchInternal::Count(this)) {
     return Status::Corruption("WriteBatch has wrong count");
   } else {
     return Status::OK();
@@ -549,12 +619,19 @@ void WriteBatchInternal::SetSequence(WriteBatch* b, SequenceNumber seq) {
   EncodeFixed64(&b->rep_[0], seq);
 }
 
-size_t WriteBatchInternal::GetFirstOffset(WriteBatch* b) {
+size_t WriteBatchInternal::GetFirstOffset(WriteBatch* /*b*/) {
   return WriteBatchInternal::kHeader;
 }
 
 Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
                                const Slice& key, const Slice& value) {
+  if (key.size() > size_t{port::kMaxUint32}) {
+    return Status::InvalidArgument("key is too large");
+  }
+  if (value.size() > size_t{port::kMaxUint32}) {
+    return Status::InvalidArgument("value is too large");
+  }
+
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -577,8 +654,33 @@ Status WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
                                  value);
 }
 
+Status WriteBatchInternal::CheckSlicePartsLength(const SliceParts& key,
+                                                 const SliceParts& value) {
+  size_t total_key_bytes = 0;
+  for (int i = 0; i < key.num_parts; ++i) {
+    total_key_bytes += key.parts[i].size();
+  }
+  if (total_key_bytes >= size_t{port::kMaxUint32}) {
+    return Status::InvalidArgument("key is too large");
+  }
+
+  size_t total_value_bytes = 0;
+  for (int i = 0; i < value.num_parts; ++i) {
+    total_value_bytes += value.parts[i].size();
+  }
+  if (total_value_bytes >= size_t{port::kMaxUint32}) {
+    return Status::InvalidArgument("value is too large");
+  }
+  return Status::OK();
+}
+
 Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
                                const SliceParts& key, const SliceParts& value) {
+  Status s = CheckSlicePartsLength(key, value);
+  if (!s.ok()) {
+    return s;
+  }
+
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -607,7 +709,8 @@ Status WriteBatchInternal::InsertNoop(WriteBatch* b) {
 }
 
 Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid,
-                                          bool write_after_commit) {
+                                          bool write_after_commit,
+                                          bool unprepared_batch) {
   // a manually constructed batch can only contain one prepare section
   assert(b->rep_[12] == static_cast<char>(kTypeNoop));
 
@@ -619,15 +722,21 @@ Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid,
   }
 
   // rewrite noop as begin marker
-  b->rep_[12] =
-      static_cast<char>(write_after_commit ? kTypeBeginPrepareXID
-                                           : kTypeBeginPersistedPrepareXID);
+  b->rep_[12] = static_cast<char>(
+      write_after_commit ? kTypeBeginPrepareXID
+                         : (unprepared_batch ? kTypeBeginUnprepareXID
+                                             : kTypeBeginPersistedPrepareXID));
   b->rep_.push_back(static_cast<char>(kTypeEndPrepareXID));
   PutLengthPrefixedSlice(&b->rep_, xid);
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
                               ContentFlags::HAS_END_PREPARE |
                               ContentFlags::HAS_BEGIN_PREPARE,
                           std::memory_order_relaxed);
+  if (unprepared_batch) {
+    b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
+                                ContentFlags::HAS_BEGIN_UNPREPARE,
+                            std::memory_order_relaxed);
+  }
   return Status::OK();
 }
 
@@ -795,6 +904,13 @@ Status WriteBatch::DeleteRange(ColumnFamilyHandle* column_family,
 
 Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
                                  const Slice& key, const Slice& value) {
+  if (key.size() > size_t{port::kMaxUint32}) {
+    return Status::InvalidArgument("key is too large");
+  }
+  if (value.size() > size_t{port::kMaxUint32}) {
+    return Status::InvalidArgument("value is too large");
+  }
+
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -820,6 +936,11 @@ Status WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
 Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
                                  const SliceParts& key,
                                  const SliceParts& value) {
+  Status s = CheckSlicePartsLength(key, value);
+  if (!s.ok()) {
+    return s;
+  }
+
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -932,7 +1053,7 @@ class MemTableInserter : public WriteBatch::Handler {
   // a map is too expensive in the Write() path as they
   // cause memory allocations though unused.
   // Make creation optional but do not incur
-  // unique_ptr additional allocation
+  // std::unique_ptr additional allocation
   using MemPostInfoMap = std::map<MemTable*, MemTablePostProcessInfo>;
   using PostMapType = std::aligned_storage<sizeof(MemPostInfoMap)>::type;
   PostMapType mem_post_info_map_;
@@ -944,6 +1065,13 @@ class MemTableInserter : public WriteBatch::Handler {
   bool seq_per_batch_;
   // Whether the memtable write will be done only after the commit
   bool write_after_commit_;
+  // Whether memtable write can be done before prepare
+  bool write_before_prepare_;
+  // Whether this batch was unprepared or not
+  bool unprepared_batch_;
+  using DupDetector = std::aligned_storage<sizeof(DuplicateDetector)>::type;
+  DupDetector       duplicate_detector_;
+  bool              dup_dectector_on_;
 
   MemPostInfoMap& GetPostMap() {
     assert(concurrent_memtable_writes_);
@@ -954,7 +1082,21 @@ class MemTableInserter : public WriteBatch::Handler {
     return *reinterpret_cast<MemPostInfoMap*>(&mem_post_info_map_);
   }
 
+  bool IsDuplicateKeySeq(uint32_t column_family_id, const Slice& key) {
+    assert(!write_after_commit_);
+    assert(rebuilding_trx_ != nullptr);
+    if (!dup_dectector_on_) {
+      new (&duplicate_detector_) DuplicateDetector(db_);
+      dup_dectector_on_ = true;
+    }
+    return reinterpret_cast<DuplicateDetector*>
+      (&duplicate_detector_)->IsDuplicateKeySeq(column_family_id, key, sequence_);
+  }
+
  protected:
+  virtual bool WriteBeforePrepare() const override {
+    return write_before_prepare_;
+  }
   virtual bool WriteAfterCommit() const override { return write_after_commit_; }
 
  public:
@@ -964,7 +1106,8 @@ class MemTableInserter : public WriteBatch::Handler {
                    bool ignore_missing_column_families,
                    uint64_t recovering_log_number, DB* db,
                    bool concurrent_memtable_writes,
-                   bool* has_valid_writes = nullptr, bool seq_per_batch = false)
+                   bool* has_valid_writes = nullptr, bool seq_per_batch = false,
+                   bool batch_per_txn = true)
       : sequence_(_sequence),
         cf_mems_(cf_mems),
         flush_scheduler_(flush_scheduler),
@@ -981,11 +1124,21 @@ class MemTableInserter : public WriteBatch::Handler {
         // Write after commit currently uses one seq per key (instead of per
         // batch). So seq_per_batch being false indicates write_after_commit
         // approach.
-        write_after_commit_(!seq_per_batch) {
+        write_after_commit_(!seq_per_batch),
+        // WriteUnprepared can write WriteBatches per transaction, so
+        // batch_per_txn being false indicates write_before_prepare.
+        write_before_prepare_(!batch_per_txn),
+        unprepared_batch_(false),
+        duplicate_detector_(),
+        dup_dectector_on_(false) {
     assert(cf_mems_);
   }
 
   ~MemTableInserter() {
+    if (dup_dectector_on_) {
+      reinterpret_cast<DuplicateDetector*>
+        (&duplicate_detector_)->~DuplicateDetector();
+    }
     if (post_info_created_) {
       reinterpret_cast<MemPostInfoMap*>
         (&mem_post_info_map_)->~MemPostInfoMap();
@@ -996,18 +1149,16 @@ class MemTableInserter : public WriteBatch::Handler {
   MemTableInserter(const MemTableInserter&) = delete;
   MemTableInserter& operator=(const MemTableInserter&) = delete;
 
-  virtual bool WriterAfterCommit() const { return write_after_commit_; }
-
   // The batch seq is regularly restarted; In normal mode it is set when
   // MemTableInserter is constructed in the write thread and in recovery mode it
   // is set when a batch, which is tagged with seq, is read from the WAL.
   // Within a sequenced batch, which could be a merge of multiple batches, we
   // have two policies to advance the seq: i) seq_per_key (default) and ii)
-  // seq_per_batch. To implement the latter we need to mark the boundry between
+  // seq_per_batch. To implement the latter we need to mark the boundary between
   // the individual batches. The approach is this: 1) Use the terminating
-  // markers to indicate the boundry (kTypeEndPrepareXID, kTypeCommitXID,
-  // kTypeRollbackXID) 2) Terminate a batch with kTypeNoop in the absense of a
-  // natural boundy marker.
+  // markers to indicate the boundary (kTypeEndPrepareXID, kTypeCommitXID,
+  // kTypeRollbackXID) 2) Terminate a batch with kTypeNoop in the absence of a
+  // natural boundary marker.
   void MaybeAdvanceSeq(bool batch_boundry = false) {
     if (batch_boundry == seq_per_batch_) {
       sequence_++;
@@ -1071,25 +1222,43 @@ class MemTableInserter : public WriteBatch::Handler {
 
   Status PutCFImpl(uint32_t column_family_id, const Slice& key,
                    const Slice& value, ValueType value_type) {
-    if (rebuilding_trx_ != nullptr) {
+    // optimize for non-recovery mode
+    if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
-      if (write_after_commit_) {
-        return Status::OK();
-      }
+      return Status::OK();
       // else insert the values to the memtable right away
     }
 
     Status seek_status;
-    if (!SeekToColumnFamily(column_family_id, &seek_status)) {
-      MaybeAdvanceSeq();
+    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+      bool batch_boundry = false;
+      if (rebuilding_trx_ != nullptr) {
+        assert(!write_after_commit_);
+        // The CF is probably flushed and hence no need for insert but we still
+        // need to keep track of the keys for upcoming rollback/commit.
+        WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
+        batch_boundry = IsDuplicateKeySeq(column_family_id, key);
+      }
+      MaybeAdvanceSeq(batch_boundry);
       return seek_status;
     }
+    Status ret_status;
 
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetImmutableMemTableOptions();
+    // inplace_update_support is inconsistent with snapshots, and therefore with
+    // any kind of transactions including the ones that use seq_per_batch
+    assert(!seq_per_batch_ || !moptions->inplace_update_support);
     if (!moptions->inplace_update_support) {
-      mem->Add(sequence_, value_type, key, value, concurrent_memtable_writes_,
-               get_post_process_info(mem));
+      bool mem_res =
+          mem->Add(sequence_, value_type, key, value,
+                   concurrent_memtable_writes_, get_post_process_info(mem));
+      if (UNLIKELY(!mem_res)) {
+        assert(seq_per_batch_);
+        ret_status = Status::TryAgain("key+seq exists");
+        const bool BATCH_BOUNDRY = true;
+        MaybeAdvanceSeq(BATCH_BOUNDRY);
+      }
     } else if (moptions->inplace_callback == nullptr) {
       assert(!concurrent_memtable_writes_);
       mem->Update(sequence_, key, value);
@@ -1125,21 +1294,34 @@ class MemTableInserter : public WriteBatch::Handler {
                                                  value, &merged_value);
         if (status == UpdateStatus::UPDATED_INPLACE) {
           // prev_value is updated in-place with final value.
-          mem->Add(sequence_, value_type, key, Slice(prev_buffer, prev_size));
+          bool mem_res __attribute__((__unused__));
+          mem_res = mem->Add(
+              sequence_, value_type, key, Slice(prev_buffer, prev_size));
+          assert(mem_res);
           RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
         } else if (status == UpdateStatus::UPDATED) {
           // merged_value contains the final value.
-          mem->Add(sequence_, value_type, key, Slice(merged_value));
+          bool mem_res __attribute__((__unused__));
+          mem_res =
+              mem->Add(sequence_, value_type, key, Slice(merged_value));
+          assert(mem_res);
           RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
         }
       }
     }
-    // Since all Puts are logged in trasaction logs (if enabled), always bump
+    // optimize for non-recovery mode
+    if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
+      assert(!write_after_commit_);
+      // If the ret_status is TryAgain then let the next try to add the ky to
+      // the rebuilding transaction object.
+      WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
+    }
+    // Since all Puts are logged in transaction logs (if enabled), always bump
     // sequence number. Even if the update eventually fails and does not result
     // in memtable add/update.
     MaybeAdvanceSeq();
     CheckMemtableFull();
-    return Status::OK();
+    return ret_status;
   }
 
   virtual Status PutCF(uint32_t column_family_id, const Slice& key,
@@ -1147,69 +1329,119 @@ class MemTableInserter : public WriteBatch::Handler {
     return PutCFImpl(column_family_id, key, value, kTypeValue);
   }
 
-  Status DeleteImpl(uint32_t column_family_id, const Slice& key,
+  Status DeleteImpl(uint32_t /*column_family_id*/, const Slice& key,
                     const Slice& value, ValueType delete_type) {
+    Status ret_status;
     MemTable* mem = cf_mems_->GetMemTable();
-    mem->Add(sequence_, delete_type, key, value, concurrent_memtable_writes_,
-             get_post_process_info(mem));
+    bool mem_res =
+        mem->Add(sequence_, delete_type, key, value,
+                 concurrent_memtable_writes_, get_post_process_info(mem));
+    if (UNLIKELY(!mem_res)) {
+      assert(seq_per_batch_);
+      ret_status = Status::TryAgain("key+seq exists");
+      const bool BATCH_BOUNDRY = true;
+      MaybeAdvanceSeq(BATCH_BOUNDRY);
+    }
     MaybeAdvanceSeq();
     CheckMemtableFull();
-    return Status::OK();
+    return ret_status;
   }
 
   virtual Status DeleteCF(uint32_t column_family_id,
                           const Slice& key) override {
-    if (rebuilding_trx_ != nullptr) {
+    // optimize for non-recovery mode
+    if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
-      if (write_after_commit_) {
-        return Status::OK();
-      }
+      return Status::OK();
       // else insert the values to the memtable right away
     }
 
     Status seek_status;
-    if (!SeekToColumnFamily(column_family_id, &seek_status)) {
-      MaybeAdvanceSeq();
+    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+      bool batch_boundry = false;
+      if (rebuilding_trx_ != nullptr) {
+        assert(!write_after_commit_);
+        // The CF is probably flushed and hence no need for insert but we still
+        // need to keep track of the keys for upcoming rollback/commit.
+        WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
+        batch_boundry = IsDuplicateKeySeq(column_family_id, key);
+      }
+      MaybeAdvanceSeq(batch_boundry);
       return seek_status;
     }
 
-    return DeleteImpl(column_family_id, key, Slice(), kTypeDeletion);
+    auto ret_status = DeleteImpl(column_family_id, key, Slice(), kTypeDeletion);
+    // optimize for non-recovery mode
+    if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
+      assert(!write_after_commit_);
+      // If the ret_status is TryAgain then let the next try to add the ky to
+      // the rebuilding transaction object.
+      WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
+    }
+    return ret_status;
   }
 
   virtual Status SingleDeleteCF(uint32_t column_family_id,
                                 const Slice& key) override {
-    if (rebuilding_trx_ != nullptr) {
+    // optimize for non-recovery mode
+    if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id, key);
-      if (write_after_commit_) {
-        return Status::OK();
-      }
+      return Status::OK();
       // else insert the values to the memtable right away
     }
 
     Status seek_status;
-    if (!SeekToColumnFamily(column_family_id, &seek_status)) {
-      MaybeAdvanceSeq();
+    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+      bool batch_boundry = false;
+      if (rebuilding_trx_ != nullptr) {
+        assert(!write_after_commit_);
+        // The CF is probably flushed and hence no need for insert but we still
+        // need to keep track of the keys for upcoming rollback/commit.
+        WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id,
+                                         key);
+        batch_boundry = IsDuplicateKeySeq(column_family_id, key);
+      }
+      MaybeAdvanceSeq(batch_boundry);
       return seek_status;
     }
 
-    return DeleteImpl(column_family_id, key, Slice(), kTypeSingleDeletion);
+    auto ret_status =
+        DeleteImpl(column_family_id, key, Slice(), kTypeSingleDeletion);
+    // optimize for non-recovery mode
+    if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
+      assert(!write_after_commit_);
+      // If the ret_status is TryAgain then let the next try to add the ky to
+      // the rebuilding transaction object.
+      WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id, key);
+    }
+    return ret_status;
   }
 
   virtual Status DeleteRangeCF(uint32_t column_family_id,
                                const Slice& begin_key,
                                const Slice& end_key) override {
-    if (rebuilding_trx_ != nullptr) {
+    // optimize for non-recovery mode
+    if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
                                       begin_key, end_key);
-      if (write_after_commit_) {
-        return Status::OK();
-      }
+      return Status::OK();
       // else insert the values to the memtable right away
     }
 
     Status seek_status;
-    if (!SeekToColumnFamily(column_family_id, &seek_status)) {
-      MaybeAdvanceSeq();
+    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+      bool batch_boundry = false;
+      if (rebuilding_trx_ != nullptr) {
+        assert(!write_after_commit_);
+        // The CF is probably flushed and hence no need for insert but we still
+        // need to keep track of the keys for upcoming rollback/commit.
+        WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
+                                        begin_key, end_key);
+        // TODO(myabandeh): when transactional DeleteRange support is added,
+        // check if end_key must also be added.
+        batch_boundry = IsDuplicateKeySeq(column_family_id, begin_key);
+      }
+      MaybeAdvanceSeq(batch_boundry);
       return seek_status;
     }
     if (db_ != nullptr) {
@@ -1226,26 +1458,45 @@ class MemTableInserter : public WriteBatch::Handler {
       }
     }
 
-    return DeleteImpl(column_family_id, begin_key, end_key, kTypeRangeDeletion);
+    auto ret_status =
+        DeleteImpl(column_family_id, begin_key, end_key, kTypeRangeDeletion);
+    // optimize for non-recovery mode
+    if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
+      assert(!write_after_commit_);
+      // If the ret_status is TryAgain then let the next try to add the ky to
+      // the rebuilding transaction object.
+      WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
+                                      begin_key, end_key);
+    }
+    return ret_status;
   }
 
   virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
     assert(!concurrent_memtable_writes_);
-    if (rebuilding_trx_ != nullptr) {
+    // optimize for non-recovery mode
+    if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key, value);
-      if (write_after_commit_) {
-        return Status::OK();
-      }
+      return Status::OK();
       // else insert the values to the memtable right away
     }
 
     Status seek_status;
-    if (!SeekToColumnFamily(column_family_id, &seek_status)) {
-      MaybeAdvanceSeq();
+    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+      bool batch_boundry = false;
+      if (rebuilding_trx_ != nullptr) {
+        assert(!write_after_commit_);
+        // The CF is probably flushed and hence no need for insert but we still
+        // need to keep track of the keys for upcoming rollback/commit.
+        WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key,
+                                  value);
+        batch_boundry = IsDuplicateKeySeq(column_family_id, key);
+      }
+      MaybeAdvanceSeq(batch_boundry);
       return seek_status;
     }
 
+    Status ret_status;
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetImmutableMemTableOptions();
     bool perform_merge = false;
@@ -1301,18 +1552,37 @@ class MemTableInserter : public WriteBatch::Handler {
         perform_merge = false;
       } else {
         // 3) Add value to memtable
-        mem->Add(sequence_, kTypeValue, key, new_value);
+        bool mem_res = mem->Add(sequence_, kTypeValue, key, new_value);
+        if (UNLIKELY(!mem_res)) {
+          assert(seq_per_batch_);
+          ret_status = Status::TryAgain("key+seq exists");
+          const bool BATCH_BOUNDRY = true;
+          MaybeAdvanceSeq(BATCH_BOUNDRY);
+        }
       }
     }
 
     if (!perform_merge) {
       // Add merge operator to memtable
-      mem->Add(sequence_, kTypeMerge, key, value);
+      bool mem_res = mem->Add(sequence_, kTypeMerge, key, value);
+      if (UNLIKELY(!mem_res)) {
+        assert(seq_per_batch_);
+        ret_status = Status::TryAgain("key+seq exists");
+        const bool BATCH_BOUNDRY = true;
+        MaybeAdvanceSeq(BATCH_BOUNDRY);
+      }
     }
 
+    // optimize for non-recovery mode
+    if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
+      assert(!write_after_commit_);
+      // If the ret_status is TryAgain then let the next try to add the ky to
+      // the rebuilding transaction object.
+      WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key, value);
+    }
     MaybeAdvanceSeq();
     CheckMemtableFull();
-    return Status::OK();
+    return ret_status;
   }
 
   virtual Status PutBlobIndexCF(uint32_t column_family_id, const Slice& key,
@@ -1334,7 +1604,9 @@ class MemTableInserter : public WriteBatch::Handler {
     }
   }
 
-  Status MarkBeginPrepare() override {
+  // The write batch handler calls MarkBeginPrepare with unprepare set to true
+  // if it encounters the kTypeBeginUnprepareXID marker.
+  Status MarkBeginPrepare(bool unprepare) override {
     assert(rebuilding_trx_ == nullptr);
     assert(db_);
 
@@ -1350,6 +1622,11 @@ class MemTableInserter : public WriteBatch::Handler {
       // we are now iterating through a prepared section
       rebuilding_trx_ = new WriteBatch();
       rebuilding_trx_seq_ = sequence_;
+      // We only call MarkBeginPrepare once per batch, and unprepared_batch_
+      // is initialized to false by default.
+      assert(!unprepared_batch_);
+      unprepared_batch_ = unprepare;
+
       if (has_valid_writes_ != nullptr) {
         *has_valid_writes_ = true;
       }
@@ -1364,8 +1641,13 @@ class MemTableInserter : public WriteBatch::Handler {
 
     if (recovering_log_number_ != 0) {
       assert(db_->allow_2pc());
+      size_t batch_cnt =
+          write_after_commit_
+              ? 0  // 0 will disable further checks
+              : static_cast<size_t>(sequence_ - rebuilding_trx_seq_ + 1);
       db_->InsertRecoveredTransaction(recovering_log_number_, name.ToString(),
-                                      rebuilding_trx_, rebuilding_trx_seq_);
+                                      rebuilding_trx_, rebuilding_trx_seq_,
+                                      batch_cnt, unprepared_batch_);
       rebuilding_trx_ = nullptr;
     } else {
       assert(rebuilding_trx_ == nullptr);
@@ -1400,7 +1682,7 @@ class MemTableInserter : public WriteBatch::Handler {
       // and commit.
       auto trx = db_->GetRecoveredTransaction(name.ToString());
 
-      // the log contaiting the prepared section may have
+      // the log containing the prepared section may have
       // been released in the last incarnation because the
       // data was flushed to L0
       if (trx != nullptr) {
@@ -1408,9 +1690,12 @@ class MemTableInserter : public WriteBatch::Handler {
         // duplicate re-insertion of values.
         assert(log_number_ref_ == 0);
         if (write_after_commit_) {
-          // all insertes must reference this trx log number
-          log_number_ref_ = trx->log_number_;
-          s = trx->batch_->Iterate(this);
+          // write_after_commit_ can only have one batch in trx.
+          assert(trx->batches_.size() == 1);
+          const auto& batch_info = trx->batches_.begin()->second;
+          // all inserts must reference this trx log number
+          log_number_ref_ = batch_info.log_number_;
+          s = batch_info.batch_->Iterate(this);
           log_number_ref_ = 0;
         }
         // else the values are already inserted before the commit
@@ -1475,11 +1760,11 @@ Status WriteBatchInternal::InsertInto(
     WriteThread::WriteGroup& write_group, SequenceNumber sequence,
     ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
     bool ignore_missing_column_families, uint64_t recovery_log_number, DB* db,
-    bool concurrent_memtable_writes, bool seq_per_batch) {
-  MemTableInserter inserter(sequence, memtables, flush_scheduler,
-                            ignore_missing_column_families, recovery_log_number,
-                            db, concurrent_memtable_writes,
-                            nullptr /*has_valid_writes*/, seq_per_batch);
+    bool concurrent_memtable_writes, bool seq_per_batch, bool batch_per_txn) {
+  MemTableInserter inserter(
+      sequence, memtables, flush_scheduler, ignore_missing_column_families,
+      recovery_log_number, db, concurrent_memtable_writes,
+      nullptr /*has_valid_writes*/, seq_per_batch, batch_per_txn);
   for (auto w : write_group) {
     if (w->CallbackFailed()) {
       continue;
@@ -1496,6 +1781,8 @@ Status WriteBatchInternal::InsertInto(
     if (!w->status.ok()) {
       return w->status;
     }
+    assert(!seq_per_batch || w->batch_cnt != 0);
+    assert(!seq_per_batch || inserter.sequence() - w->sequence == w->batch_cnt);
   }
   return Status::OK();
 }
@@ -1504,15 +1791,21 @@ Status WriteBatchInternal::InsertInto(
     WriteThread::Writer* writer, SequenceNumber sequence,
     ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
     bool ignore_missing_column_families, uint64_t log_number, DB* db,
-    bool concurrent_memtable_writes, bool seq_per_batch) {
+    bool concurrent_memtable_writes, bool seq_per_batch, size_t batch_cnt,
+    bool batch_per_txn) {
+#ifdef NDEBUG
+  (void)batch_cnt;
+#endif
   assert(writer->ShouldWriteToMemtable());
-  MemTableInserter inserter(sequence, memtables, flush_scheduler,
-                            ignore_missing_column_families, log_number, db,
-                            concurrent_memtable_writes,
-                            nullptr /*has_valid_writes*/, seq_per_batch);
+  MemTableInserter inserter(
+      sequence, memtables, flush_scheduler, ignore_missing_column_families,
+      log_number, db, concurrent_memtable_writes, nullptr /*has_valid_writes*/,
+      seq_per_batch, batch_per_txn);
   SetSequence(writer->batch, sequence);
   inserter.set_log_number_ref(writer->log_ref);
   Status s = writer->batch->Iterate(&inserter);
+  assert(!seq_per_batch || batch_cnt != 0);
+  assert(!seq_per_batch || inserter.sequence() - sequence == batch_cnt);
   if (concurrent_memtable_writes) {
     inserter.PostProcess();
   }
@@ -1523,11 +1816,12 @@ Status WriteBatchInternal::InsertInto(
     const WriteBatch* batch, ColumnFamilyMemTables* memtables,
     FlushScheduler* flush_scheduler, bool ignore_missing_column_families,
     uint64_t log_number, DB* db, bool concurrent_memtable_writes,
-    SequenceNumber* next_seq, bool* has_valid_writes, bool seq_per_batch) {
+    SequenceNumber* next_seq, bool* has_valid_writes, bool seq_per_batch,
+    bool batch_per_txn) {
   MemTableInserter inserter(Sequence(batch), memtables, flush_scheduler,
                             ignore_missing_column_families, log_number, db,
                             concurrent_memtable_writes, has_valid_writes,
-                            seq_per_batch);
+                            seq_per_batch, batch_per_txn);
   Status s = batch->Iterate(&inserter);
   if (next_seq != nullptr) {
     *next_seq = inserter.sequence();

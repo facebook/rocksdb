@@ -133,7 +133,7 @@ class EncryptionProvider {
     // GetPrefixLength returns the length of the prefix that is added to every file
     // and used for storing encryption options.
     // For optimal performance, the prefix length should be a multiple of 
-    // the a page size.
+    // the page size.
     virtual size_t GetPrefixLength() = 0;
 
     // CreateNewPrefix initialized an allocated block of prefix memory 
@@ -142,8 +142,9 @@ class EncryptionProvider {
 
     // CreateCipherStream creates a block access cipher stream for a file given
     // given name and options.
-    virtual Status CreateCipherStream(const std::string& fname, const EnvOptions& options,
-      Slice& prefix, unique_ptr<BlockAccessCipherStream>* result) = 0;
+    virtual Status CreateCipherStream(
+        const std::string& fname, const EnvOptions& options, Slice& prefix,
+        std::unique_ptr<BlockAccessCipherStream>* result) = 0;
 };
 
 // This encryption provider uses a CTR cipher stream, with a given block cipher 
@@ -165,7 +166,7 @@ class CTREncryptionProvider : public EncryptionProvider {
     // GetPrefixLength returns the length of the prefix that is added to every file
     // and used for storing encryption options.
     // For optimal performance, the prefix length should be a multiple of 
-    // the a page size.
+    // the page size.
     virtual size_t GetPrefixLength() override;
 
     // CreateNewPrefix initialized an allocated block of prefix memory 
@@ -174,10 +175,11 @@ class CTREncryptionProvider : public EncryptionProvider {
 
     // CreateCipherStream creates a block access cipher stream for a file given
     // given name and options.
-    virtual Status CreateCipherStream(const std::string& fname, const EnvOptions& options,
-      Slice& prefix, unique_ptr<BlockAccessCipherStream>* result) override;
+    virtual Status CreateCipherStream(
+        const std::string& fname, const EnvOptions& options, Slice& prefix,
+        std::unique_ptr<BlockAccessCipherStream>* result) override;
 
-  protected:
+   protected:
     // PopulateSecretPrefixPart initializes the data into a new prefix block 
     // that will be encrypted. This function will store the data in plain text. 
     // It will be encrypted later (before written to disk).
@@ -187,8 +189,10 @@ class CTREncryptionProvider : public EncryptionProvider {
 
     // CreateCipherStreamFromPrefix creates a block access cipher stream for a file given
     // given name and options. The given prefix is already decrypted.
-    virtual Status CreateCipherStreamFromPrefix(const std::string& fname, const EnvOptions& options,
-      uint64_t initialCounter, const Slice& iv, const Slice& prefix, unique_ptr<BlockAccessCipherStream>* result);
+    virtual Status CreateCipherStreamFromPrefix(
+        const std::string& fname, const EnvOptions& options,
+        uint64_t initialCounter, const Slice& iv, const Slice& prefix,
+        std::unique_ptr<BlockAccessCipherStream>* result);
 };
 
 }  // namespace rocksdb

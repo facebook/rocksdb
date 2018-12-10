@@ -17,8 +17,7 @@
 // Most people will want to use the builtin bloom filter support (see
 // NewBloomFilterPolicy() below).
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_FILTER_POLICY_H_
-#define STORAGE_ROCKSDB_INCLUDE_FILTER_POLICY_H_
+#pragma once
 
 #include <memory>
 #include <stdexcept>
@@ -50,7 +49,7 @@ class FilterBitsBuilder {
 #pragma warning(push)
 #pragma warning(disable : 4702) // unreachable code
 #endif
-  virtual int CalculateNumEntry(const uint32_t space) {
+  virtual int CalculateNumEntry(const uint32_t /*space*/) {
 #ifndef ROCKSDB_LITE
     throw std::runtime_error("CalculateNumEntry not Implemented");
 #else
@@ -122,7 +121,8 @@ class FilterPolicy {
   // Get the FilterBitsReader, which is ONLY used for full filter block
   // It contains interface to tell if key can be in filter
   // The input slice should NOT be deleted by FilterPolicy
-  virtual FilterBitsReader* GetFilterBitsReader(const Slice& contents) const {
+  virtual FilterBitsReader* GetFilterBitsReader(
+      const Slice& /*contents*/) const {
     return nullptr;
   }
 };
@@ -145,8 +145,6 @@ class FilterPolicy {
 // ignores trailing spaces, it would be incorrect to use a
 // FilterPolicy (like NewBloomFilterPolicy) that does not ignore
 // trailing spaces in keys.
-extern const FilterPolicy* NewBloomFilterPolicy(int bits_per_key,
-    bool use_block_based_builder = true);
+extern const FilterPolicy* NewBloomFilterPolicy(
+    int bits_per_key, bool use_block_based_builder = false);
 }
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_FILTER_POLICY_H_

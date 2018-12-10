@@ -12,19 +12,25 @@ namespace rocksdb {
 
 class PerfStepTimer {
  public:
-  explicit PerfStepTimer(uint64_t* metric, bool for_mutex = false)
-      : enabled_(perf_level >= PerfLevel::kEnableTime ||
-                 (!for_mutex && perf_level >= kEnableTimeExceptForMutex)),
-        env_(enabled_ ? Env::Default() : nullptr),
+  explicit PerfStepTimer(uint64_t* metric, bool for_mutex = false,
+                         Statistics* statistics = nullptr,
+                         uint32_t ticker_type = 0)
+      : perf_counter_enabled_(
+            perf_level >= PerfLevel::kEnableTime ||
+            (!for_mutex && perf_level >= kEnableTimeExceptForMutex)),
+        env_((perf_counter_enabled_ || statistics != nullptr) ? Env::Default()
+                                                              : nullptr),
         start_(0),
-        metric_(metric) {}
+        metric_(metric),
+        statistics_(statistics),
+        ticker_type_(ticker_type) {}
 
   ~PerfStepTimer() {
     Stop();
   }
 
   void Start() {
-    if (enabled_) {
+    if (perf_counter_enabled_ || statistics_ != nullptr) {
       start_ = env_->NowNanos();
     }
   }
@@ -39,16 +45,25 @@ class PerfStepTimer {
 
   void Stop() {
     if (start_) {
-      *metric_ += env_->NowNanos() - start_;
+      uint64_t duration = env_->NowNanos() - start_;
+      if (perf_counter_enabled_) {
+        *metric_ += duration;
+      }
+
+      if (statistics_ != nullptr) {
+        RecordTick(statistics_, ticker_type_, duration);
+      }
       start_ = 0;
     }
   }
 
  private:
-  const bool enabled_;
+  const bool perf_counter_enabled_;
   Env* const env_;
   uint64_t start_;
   uint64_t* metric_;
+  Statistics* statistics_;
+  uint32_t ticker_type_;
 };
 
 }  // namespace rocksdb

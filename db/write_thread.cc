@@ -7,6 +7,7 @@
 #include <chrono>
 #include <thread>
 #include "db/column_family.h"
+#include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "util/random.h"
 #include "util/sync_point.h"
@@ -23,7 +24,10 @@ WriteThread::WriteThread(const ImmutableDBOptions& db_options)
       enable_pipelined_write_(db_options.enable_pipelined_write),
       newest_writer_(nullptr),
       newest_memtable_writer_(nullptr),
-      last_sequence_(0) {}
+      last_sequence_(0),
+      write_stall_dummy_(),
+      stall_mu_(),
+      stall_cv_(&stall_mu_) {}
 
 uint8_t WriteThread::BlockingAwaitState(Writer* w, uint8_t goal_mask) {
   // We're going to block.  Lazily create the mutex.  We guarantee
@@ -72,6 +76,10 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
     }
     port::AsmVolatilePause();
   }
+
+  // This is below the fast path, so that the stat is zero when all writes are
+  // from the same thread.
+  PERF_TIMER_GUARD(write_thread_wait_nanos);
 
   // If we're only going to end up waiting a short period of time,
   // it can be a lot more efficient to call std::this_thread::yield()
@@ -173,6 +181,7 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
   }
 
   if ((state & goal_mask) == 0) {
+    TEST_SYNC_POINT_CALLBACK("WriteThread::AwaitState:BlockingWaiting", w);
     state = BlockingAwaitState(w, goal_mask);
   }
 
@@ -214,6 +223,28 @@ bool WriteThread::LinkOne(Writer* w, std::atomic<Writer*>* newest_writer) {
   assert(w->state == STATE_INIT);
   Writer* writers = newest_writer->load(std::memory_order_relaxed);
   while (true) {
+    // If write stall in effect, and w->no_slowdown is not true,
+    // block here until stall is cleared. If its true, then return
+    // immediately
+    if (writers == &write_stall_dummy_) {
+      if (w->no_slowdown) {
+        w->status = Status::Incomplete("Write stall");
+        SetState(w, STATE_COMPLETED);
+        return false;
+      }
+      // Since no_slowdown is false, wait here to be notified of the write
+      // stall clearing
+      {
+        MutexLock lock(&stall_mu_);
+        writers = newest_writer->load(std::memory_order_relaxed);
+        if (writers == &write_stall_dummy_) {
+          stall_cv_.Wait();
+          // Load newest_writers_ again since it may have changed
+          writers = newest_writer->load(std::memory_order_relaxed);
+          continue;
+        }
+      }
+    }
     w->link_older = writers;
     if (newest_writer->compare_exchange_weak(writers, w)) {
       return (writers == nullptr);
@@ -258,6 +289,17 @@ void WriteThread::CreateMissingNewerLinks(Writer* head) {
   }
 }
 
+WriteThread::Writer* WriteThread::FindNextLeader(Writer* from,
+                                                 Writer* boundary) {
+  assert(from != nullptr && from != boundary);
+  Writer* current = from;
+  while (current->link_older != boundary) {
+    current = current->link_older;
+    assert(current != nullptr);
+  }
+  return current;
+}
+
 void WriteThread::CompleteLeader(WriteGroup& write_group) {
   assert(write_group.size > 0);
   Writer* leader = write_group.leader;
@@ -287,12 +329,44 @@ void WriteThread::CompleteFollower(Writer* w, WriteGroup& write_group) {
   SetState(w, STATE_COMPLETED);
 }
 
+void WriteThread::BeginWriteStall() {
+  LinkOne(&write_stall_dummy_, &newest_writer_);
+
+  // Walk writer list until w->write_group != nullptr. The current write group
+  // will not have a mix of slowdown/no_slowdown, so its ok to stop at that
+  // point
+  Writer* w = write_stall_dummy_.link_older;
+  Writer* prev = &write_stall_dummy_;
+  while (w != nullptr && w->write_group == nullptr) {
+    if (w->no_slowdown) {
+      prev->link_older = w->link_older;
+      w->status = Status::Incomplete("Write stall");
+      SetState(w, STATE_COMPLETED);
+      w = prev->link_older;
+    } else {
+      prev = w;
+      w = w->link_older;
+    }
+  }
+}
+
+void WriteThread::EndWriteStall() {
+  MutexLock lock(&stall_mu_);
+
+  assert(newest_writer_.load(std::memory_order_relaxed) == &write_stall_dummy_);
+  newest_writer_.exchange(write_stall_dummy_.link_older);
+
+  // Wake up writers
+  stall_cv_.SignalAll();
+}
+
 static WriteThread::AdaptationContext jbg_ctx("JoinBatchGroup");
 void WriteThread::JoinBatchGroup(Writer* w) {
   TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:Start", w);
   assert(w->batch != nullptr);
 
   bool linked_as_leader = LinkOne(w, &newest_writer_);
+
   if (linked_as_leader) {
     SetState(w, STATE_GROUP_LEADER);
   }
@@ -313,6 +387,7 @@ void WriteThread::JoinBatchGroup(Writer* w) {
      * 3.2) an existing memtable writer group leader tell us to finish memtable
      *      writes in parallel.
      */
+    TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:BeganWaiting", w);
     AwaitState(w, STATE_GROUP_LEADER | STATE_MEMTABLE_WRITER_LEADER |
                       STATE_PARALLEL_MEMTABLE_WRITER | STATE_COMPLETED,
                &jbg_ctx);
@@ -456,7 +531,8 @@ void WriteThread::EnterAsMemTableWriter(Writer* leader,
       last_writer->sequence + WriteBatchInternal::Count(last_writer->batch) - 1;
 }
 
-void WriteThread::ExitAsMemTableWriter(Writer* self, WriteGroup& write_group) {
+void WriteThread::ExitAsMemTableWriter(Writer* /*self*/,
+                                       WriteGroup& write_group) {
   Writer* leader = write_group.leader;
   Writer* last_writer = write_group.last_writer;
 
@@ -551,21 +627,49 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
     if (!leader->ShouldWriteToMemtable()) {
       CompleteLeader(write_group);
     }
+
+    Writer* next_leader = nullptr;
+
+    // Look for next leader before we call LinkGroup. If there isn't
+    // pending writers, place a dummy writer at the tail of the queue
+    // so we know the boundary of the current write group.
+    Writer dummy;
+    Writer* expected = last_writer;
+    bool has_dummy = newest_writer_.compare_exchange_strong(expected, &dummy);
+    if (!has_dummy) {
+      // We find at least one pending writer when we insert dummy. We search
+      // for next leader from there.
+      next_leader = FindNextLeader(expected, last_writer);
+      assert(next_leader != nullptr && next_leader != last_writer);
+    }
+
     // Link the ramaining of the group to memtable writer list.
+    //
+    // We have to link our group to memtable writer queue before wake up the
+    // next leader or set newest_writer_ to null, otherwise the next leader
+    // can run ahead of us and link to memtable writer queue before we do.
     if (write_group.size > 0) {
       if (LinkGroup(write_group, &newest_memtable_writer_)) {
         // The leader can now be different from current writer.
         SetState(write_group.leader, STATE_MEMTABLE_WRITER_LEADER);
       }
     }
-    // Reset newest_writer_ and wake up the next leader.
-    Writer* newest_writer = last_writer;
-    if (!newest_writer_.compare_exchange_strong(newest_writer, nullptr)) {
-      Writer* next_leader = newest_writer;
-      while (next_leader->link_older != last_writer) {
-        next_leader = next_leader->link_older;
-        assert(next_leader != nullptr);
+
+    // If we have inserted dummy in the queue, remove it now and check if there
+    // are pending writer join the queue since we insert the dummy. If so,
+    // look for next leader again.
+    if (has_dummy) {
+      assert(next_leader == nullptr);
+      expected = &dummy;
+      bool has_pending_writer =
+          !newest_writer_.compare_exchange_strong(expected, nullptr);
+      if (has_pending_writer) {
+        next_leader = FindNextLeader(expected, &dummy);
+        assert(next_leader != nullptr && next_leader != &dummy);
       }
+    }
+
+    if (next_leader != nullptr) {
       next_leader->link_older = nullptr;
       SetState(next_leader, STATE_GROUP_LEADER);
     }

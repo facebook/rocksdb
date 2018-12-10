@@ -35,7 +35,7 @@ Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
                              const std::string& file_path) {
-  unique_ptr<RandomAccessFile> file;
+  std::unique_ptr<RandomAccessFile> file;
   uint64_t file_size;
   InternalKeyComparator internal_comparator(options.comparator);
   ImmutableCFOptions ioptions(options);
@@ -46,12 +46,14 @@ Status VerifySstFileChecksum(const Options& options,
   } else {
     return s;
   }
-  unique_ptr<TableReader> table_reader;
+  std::unique_ptr<TableReader> table_reader;
   std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(std::move(file), file_path));
+  const bool kImmortal = true;
   s = ioptions.table_factory->NewTableReader(
-      TableReaderOptions(ioptions, env_options, internal_comparator,
-                         false /* skip_filters */, -1 /* level */),
+      TableReaderOptions(ioptions, options.prefix_extractor.get(), env_options,
+                         internal_comparator, false /* skip_filters */,
+                         !kImmortal, -1 /* level */),
       std::move(file_reader), file_size, &table_reader,
       false /* prefetch_index_and_filter_in_cache */);
   if (!s.ok()) {

@@ -16,8 +16,7 @@
 // non-const method, all threads accessing the same Iterator must use
 // external synchronization.
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_
-#define STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_
+#pragma once
 
 #include <string>
 #include "rocksdb/cleanable.h"
@@ -33,6 +32,7 @@ class Iterator : public Cleanable {
 
   // An iterator is either positioned at a key/value pair, or
   // not valid.  This method returns true iff the iterator is valid.
+  // Always returns false if !status().ok().
   virtual bool Valid() const = 0;
 
   // Position at the first key in the source.  The iterator is Valid()
@@ -43,12 +43,15 @@ class Iterator : public Cleanable {
   // Valid() after this call iff the source is not empty.
   virtual void SeekToLast() = 0;
 
-  // Position at the first key in the source that at or past target
+  // Position at the first key in the source that at or past target.
   // The iterator is Valid() after this call iff the source contains
   // an entry that comes at or past target.
+  // All Seek*() methods clear any error status() that the iterator had prior to
+  // the call; after the seek, status() indicates only the error (if any) that
+  // happened during the seek, not any past errors.
   virtual void Seek(const Slice& target) = 0;
 
-  // Position at the last key in the source that at or before target
+  // Position at the last key in the source that at or before target.
   // The iterator is Valid() after this call iff the source contains
   // an entry that comes at or before target.
   virtual void SeekForPrev(const Slice& target) = 0;
@@ -72,7 +75,7 @@ class Iterator : public Cleanable {
   // Return the value for the current entry.  The underlying storage for
   // the returned slice is valid only until the next modification of
   // the iterator.
-  // REQUIRES: !AtEnd() && !AtStart()
+  // REQUIRES: Valid()
   virtual Slice value() const = 0;
 
   // If an error has occurred, return it.  Else return an ok status.
@@ -97,6 +100,9 @@ class Iterator : public Cleanable {
   // Property "rocksdb.iterator.super-version-number":
   //   LSM version used by the iterator. The same format as DB Property
   //   kCurrentSuperVersionNumber. See its comment for more information.
+  // Property "rocksdb.iterator.internal-key":
+  //   Get the user-key portion of the internal key at which the iteration
+  //   stopped.
   virtual Status GetProperty(std::string prop_name, std::string* prop);
 
  private:
@@ -112,5 +118,3 @@ extern Iterator* NewEmptyIterator();
 extern Iterator* NewErrorIterator(const Status& status);
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_

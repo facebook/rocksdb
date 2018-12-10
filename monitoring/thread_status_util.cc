@@ -10,20 +10,18 @@
 
 namespace rocksdb {
 
-
 #ifdef ROCKSDB_USING_THREAD_STATUS
-__thread ThreadStatusUpdater*
-    ThreadStatusUtil::thread_updater_local_cache_ = nullptr;
+__thread ThreadStatusUpdater* ThreadStatusUtil::thread_updater_local_cache_ =
+    nullptr;
 __thread bool ThreadStatusUtil::thread_updater_initialized_ = false;
 
-void ThreadStatusUtil::RegisterThread(
-    const Env* env, ThreadStatus::ThreadType thread_type) {
+void ThreadStatusUtil::RegisterThread(const Env* env,
+                                      ThreadStatus::ThreadType thread_type) {
   if (!MaybeInitThreadLocalUpdater(env)) {
     return;
   }
   assert(thread_updater_local_cache_);
-  thread_updater_local_cache_->RegisterThread(
-      thread_type, env->GetThreadID());
+  thread_updater_local_cache_->RegisterThread(thread_type, env->GetThreadID());
 }
 
 void ThreadStatusUtil::UnregisterThread() {
@@ -80,28 +78,25 @@ ThreadStatus::OperationStage ThreadStatusUtil::SetThreadOperationStage(
   return thread_updater_local_cache_->SetThreadOperationStage(stage);
 }
 
-void ThreadStatusUtil::SetThreadOperationProperty(
-    int code, uint64_t value) {
+void ThreadStatusUtil::SetThreadOperationProperty(int code, uint64_t value) {
   if (thread_updater_local_cache_ == nullptr) {
     // thread_updater_local_cache_ must be set in SetColumnFamily
     // or other ThreadStatusUtil functions.
     return;
   }
 
-  thread_updater_local_cache_->SetThreadOperationProperty(
-      code, value);
+  thread_updater_local_cache_->SetThreadOperationProperty(code, value);
 }
 
-void ThreadStatusUtil::IncreaseThreadOperationProperty(
-    int code, uint64_t delta) {
+void ThreadStatusUtil::IncreaseThreadOperationProperty(int code,
+                                                       uint64_t delta) {
   if (thread_updater_local_cache_ == nullptr) {
     // thread_updater_local_cache_ must be set in SetColumnFamily
     // or other ThreadStatusUtil functions.
     return;
   }
 
-  thread_updater_local_cache_->IncreaseThreadOperationProperty(
-      code, delta);
+  thread_updater_local_cache_->IncreaseThreadOperationProperty(code, delta);
 }
 
 void ThreadStatusUtil::SetThreadState(ThreadStatus::StateType state) {
@@ -135,8 +130,7 @@ void ThreadStatusUtil::NewColumnFamilyInfo(const DB* db,
   }
 }
 
-void ThreadStatusUtil::EraseColumnFamilyInfo(
-    const ColumnFamilyData* cfd) {
+void ThreadStatusUtil::EraseColumnFamilyInfo(const ColumnFamilyData* cfd) {
   if (thread_updater_local_cache_ == nullptr) {
     return;
   }
@@ -173,49 +167,39 @@ AutoThreadOperationStageUpdater::~AutoThreadOperationStageUpdater() {
 ThreadStatusUpdater* ThreadStatusUtil::thread_updater_local_cache_ = nullptr;
 bool ThreadStatusUtil::thread_updater_initialized_ = false;
 
-bool ThreadStatusUtil::MaybeInitThreadLocalUpdater(const Env* env) {
+bool ThreadStatusUtil::MaybeInitThreadLocalUpdater(const Env* /*env*/) {
   return false;
 }
 
-void ThreadStatusUtil::SetColumnFamily(const ColumnFamilyData* cfd,
-                                       const Env* env,
-                                       bool enable_thread_tracking) {}
+void ThreadStatusUtil::SetColumnFamily(const ColumnFamilyData* /*cfd*/,
+                                       const Env* /*env*/,
+                                       bool /*enable_thread_tracking*/) {}
 
-void ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType op) {
-}
+void ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType /*op*/) {}
 
-void ThreadStatusUtil::SetThreadOperationProperty(
-    int code, uint64_t value) {
-}
+void ThreadStatusUtil::SetThreadOperationProperty(int /*code*/,
+                                                  uint64_t /*value*/) {}
 
-void ThreadStatusUtil::IncreaseThreadOperationProperty(
-    int code, uint64_t delta) {
-}
+void ThreadStatusUtil::IncreaseThreadOperationProperty(int /*code*/,
+                                                       uint64_t /*delta*/) {}
 
-void ThreadStatusUtil::SetThreadState(ThreadStatus::StateType state) {
-}
+void ThreadStatusUtil::SetThreadState(ThreadStatus::StateType /*state*/) {}
 
-void ThreadStatusUtil::NewColumnFamilyInfo(const DB* db,
-                                           const ColumnFamilyData* cfd,
-                                           const std::string& cf_name,
-                                           const Env* env) {}
+void ThreadStatusUtil::NewColumnFamilyInfo(const DB* /*db*/,
+                                           const ColumnFamilyData* /*cfd*/,
+                                           const std::string& /*cf_name*/,
+                                           const Env* /*env*/) {}
 
-void ThreadStatusUtil::EraseColumnFamilyInfo(
-    const ColumnFamilyData* cfd) {
-}
+void ThreadStatusUtil::EraseColumnFamilyInfo(const ColumnFamilyData* /*cfd*/) {}
 
-void ThreadStatusUtil::EraseDatabaseInfo(const DB* db) {
-}
+void ThreadStatusUtil::EraseDatabaseInfo(const DB* /*db*/) {}
 
-void ThreadStatusUtil::ResetThreadStatus() {
-}
+void ThreadStatusUtil::ResetThreadStatus() {}
 
 AutoThreadOperationStageUpdater::AutoThreadOperationStageUpdater(
-    ThreadStatus::OperationStage stage) {
-}
+    ThreadStatus::OperationStage /*stage*/) {}
 
-AutoThreadOperationStageUpdater::~AutoThreadOperationStageUpdater() {
-}
+AutoThreadOperationStageUpdater::~AutoThreadOperationStageUpdater() {}
 
 #endif  // ROCKSDB_USING_THREAD_STATUS
 

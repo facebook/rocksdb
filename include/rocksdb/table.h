@@ -16,6 +16,7 @@
 //   https://github.com/facebook/rocksdb/wiki/A-Tutorial-of-RocksDB-SST-formats#wiki-examples
 
 #pragma once
+
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -46,6 +47,7 @@ enum ChecksumType : char {
   kNoChecksum = 0x0,
   kCRC32c = 0x1,
   kxxHash = 0x2,
+  kxxHash64 = 0x3,
 };
 
 // For advanced user only
@@ -77,6 +79,13 @@ struct BlockBasedTableOptions {
   // evicted from cache when the table reader is freed.
   bool pin_l0_filter_and_index_blocks_in_cache = false;
 
+  // If cache_index_and_filter_blocks is true and the below is true, then
+  // the top-level index of partitioned filter and index blocks are stored in
+  // the cache, but a reference is held in the "table reader" object so the
+  // blocks are pinned and only evicted from cache when the table reader is
+  // freed. This is not limited to l0 in LSM tree.
+  bool pin_top_level_index_and_filter = true;
+
   // The index type that will be used for this table.
   enum IndexType : char {
     // A space efficient index block that is optimized for
@@ -92,6 +101,18 @@ struct BlockBasedTableOptions {
   };
 
   IndexType index_type = kBinarySearch;
+
+  // The index type that will be used for the data block.
+  enum DataBlockIndexType : char {
+    kDataBlockBinarySearch = 0,   // traditional block type
+    kDataBlockBinaryAndHash = 1,  // additional hash index
+  };
+
+  DataBlockIndexType data_block_index_type = kDataBlockBinarySearch;
+
+  // #entries/#buckets. It is valid only when data_block_hash_index_type is
+  // kDataBlockBinaryAndHash.
+  double data_block_hash_table_util_ratio = 0.75;
 
   // This option is now deprecated. No matter what value it is set to,
   // it will behave as if hash_index_allow_collision=true.
@@ -117,6 +138,8 @@ struct BlockBasedTableOptions {
 
   // If non-NULL use the specified cache for compressed blocks.
   // If NULL, rocksdb will not use a compressed block cache.
+  // Note: though it looks similar to `block_cache`, RocksDB doesn't put the
+  //       same type of object there.
   std::shared_ptr<Cache> block_cache_compressed = nullptr;
 
   // Approximate size of user data packed per block.  Note that the
@@ -156,7 +179,7 @@ struct BlockBasedTableOptions {
   // well.
   // TODO(myabandeh): remove the note above once the limitation is lifted
   // Use partitioned full filters for each SST file. This option is
-  // incompatibile with block-based filters.
+  // incompatible with block-based filters.
   bool partition_filters = false;
 
   // Use delta encoding to compress keys in blocks.
@@ -214,19 +237,31 @@ struct BlockBasedTableOptions {
   // encode compressed blocks with LZ4, BZip2 and Zlib compression. If you
   // don't plan to run RocksDB before version 3.10, you should probably use
   // this.
-  // This option only affects newly written tables. When reading exising tables,
-  // the information about version is read from the footer.
+  // 3 -- Can be read by RocksDB's versions since 5.15. Changes the way we
+  // encode the keys in index blocks. If you don't plan to run RocksDB before
+  // version 5.15, you should probably use this.
+  // This option only affects newly written tables. When reading existing
+  // tables, the information about version is read from the footer.
+  // 4 -- Can be read by RocksDB's versions since 5.16. Changes the way we
+  // encode the values in index blocks. If you don't plan to run RocksDB before
+  // version 5.16 and you are using index_block_restart_interval > 1, you should
+  // probably use this as it would reduce the index size.
+  // This option only affects newly written tables. When reading existing
+  // tables, the information about version is read from the footer.
   uint32_t format_version = 2;
 
   // Store index blocks on disk in compressed format. Changing this option to
   // false  will avoid the overhead of decompression if index blocks are evicted
   // and read back
   bool enable_index_compression = true;
+
+  // Align data blocks on lesser of page size and block size
+  bool block_align = false;
 };
 
 // Table Properties that are specific to block-based table properties.
 struct BlockBasedTablePropertyNames {
-  // value of this propertis is a fixed int32 number.
+  // value of this properties is a fixed int32 number.
   static const std::string kIndexType;
   // value is "1" for true and "0" for false.
   static const std::string kWholeKeyFiltering;
@@ -319,7 +354,7 @@ struct PlainTableOptions {
 };
 
 // -- Plain Table with prefix-only seek
-// For this factory, you need to set Options.prefix_extrator properly to make it
+// For this factory, you need to set Options.prefix_extractor properly to make it
 // work. Look-up will starts with prefix hash lookup for key prefix. Inside the
 // hash bucket found, a binary search is executed for hash conflicts. Finally,
 // a linear search is used.
@@ -382,7 +417,7 @@ struct CuckooTableOptions {
   bool identity_as_first_hash = false;
   // If this option is set to true, module is used during hash calculation.
   // This often yields better space efficiency at the cost of performance.
-  // If this optino is set to false, # of entries in table is constrained to be
+  // If this option is set to false, # of entries in table is constrained to be
   // power of two, and bit and is used to calculate hash, which is faster in
   // general.
   bool use_module_hash = true;
@@ -417,9 +452,9 @@ class TableFactory {
   // NewTableReader() is called in three places:
   // (1) TableCache::FindTable() calls the function when table cache miss
   //     and cache the table object returned.
-  // (2) SstFileReader (for SST Dump) opens the table and dump the table
+  // (2) SstFileDumper (for SST Dump) opens the table and dump the table
   //     contents using the iterator of the table.
-  // (3) DBImpl::AddFile() calls this function to read the contents of
+  // (3) DBImpl::IngestExternalFile() calls this function to read the contents of
   //     the sst file it's attempting to add
   //
   // table_reader_options is a TableReaderOptions which contain all the
@@ -429,8 +464,8 @@ class TableFactory {
   // table_reader is the output table reader.
   virtual Status NewTableReader(
       const TableReaderOptions& table_reader_options,
-      unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-      unique_ptr<TableReader>* table_reader,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table_reader,
       bool prefetch_index_and_filter_in_cache = true) const = 0;
 
   // Return a table builder to write to a file for this table type.
@@ -467,8 +502,8 @@ class TableFactory {
   // RocksDB prints configurations at DB Open().
   virtual std::string GetPrintableTableOptions() const = 0;
 
-  virtual Status GetOptionString(std::string* opt_string,
-                                 const std::string& delimiter) const {
+  virtual Status GetOptionString(std::string* /*opt_string*/,
+                                 const std::string& /*delimiter*/) const {
     return Status::NotSupported(
         "The table factory doesn't implement GetOptionString().");
   }

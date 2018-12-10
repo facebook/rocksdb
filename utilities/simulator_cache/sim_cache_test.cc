@@ -39,7 +39,7 @@ class SimCacheTest : public DBTestBase {
     return options;
   }
 
-  void InitTable(const Options& options) {
+  void InitTable(const Options& /*options*/) {
     std::string value(kValueSize, 'a');
     for (size_t i = 0; i < kNumBlocks * 2; i++) {
       ASSERT_OK(Put(ToString(i), value.c_str()));
@@ -154,7 +154,7 @@ TEST_F(SimCacheTest, SimCacheLogging) {
     Flush();
   }
 
-  std::string log_file = test::TmpDir(env_) + "/cache_log.txt";
+  std::string log_file = test::PerThreadDBPath(env_, "cache_log.txt");
   ASSERT_OK(sim_cache->StartActivityLogging(log_file, env_));
   for (int i = 0; i < num_block_entries; i++) {
     ASSERT_EQ(Get(Key(i)), "val");

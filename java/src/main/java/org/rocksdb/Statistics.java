@@ -117,6 +117,8 @@ public class Statistics extends RocksObject {
 
   /**
    * Resets all ticker and histogram stats.
+   *
+   * @throws RocksDBException if an error occurs when resetting the statistics.
    */
   public void reset() throws RocksDBException {
     assert(isOwningHandle());
@@ -126,6 +128,7 @@ public class Statistics extends RocksObject {
   /**
    * String representation of the statistic object.
    */
+  @Override
   public String toString() {
     assert(isOwningHandle());
     return toString(nativeHandle_);

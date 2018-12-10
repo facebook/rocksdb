@@ -24,7 +24,7 @@ class CompactFilesTest : public testing::Test {
  public:
   CompactFilesTest() {
     env_ = Env::Default();
-    db_name_ = test::TmpDir(env_) + "/compact_files_test";
+    db_name_ = test::PerThreadDBPath("compact_files_test");
   }
 
   std::string db_name_;
@@ -37,8 +37,7 @@ class FlushedFileCollector : public EventListener {
   FlushedFileCollector() {}
   ~FlushedFileCollector() {}
 
-  virtual void OnFlushCompleted(
-      DB* db, const FlushJobInfo& info) override {
+  virtual void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     std::lock_guard<std::mutex> lock(mutex_);
     flushed_files_.push_back(info.file_path);
   }
@@ -257,9 +256,9 @@ TEST_F(CompactFilesTest, CapturingPendingFiles) {
 TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
   class FilterWithGet : public CompactionFilter {
    public:
-    virtual bool Filter(int level, const Slice& key, const Slice& value,
-                        std::string* new_value,
-                        bool* value_changed) const override {
+    virtual bool Filter(int /*level*/, const Slice& /*key*/,
+                        const Slice& /*value*/, std::string* /*new_value*/,
+                        bool* /*value_changed*/) const override {
       if (db_ == nullptr) {
         return true;
       }
@@ -309,6 +308,55 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
   delete db;
 }
 
+TEST_F(CompactFilesTest, SentinelCompressionType) {
+  if (!Zlib_Supported()) {
+    fprintf(stderr, "zlib compression not supported, skip this test\n");
+    return;
+  }
+  if (!Snappy_Supported()) {
+    fprintf(stderr, "snappy compression not supported, skip this test\n");
+    return;
+  }
+  // Check that passing `CompressionType::kDisableCompressionOption` to
+  // `CompactFiles` causes it to use the column family compression options.
+  for (auto compaction_style :
+       {CompactionStyle::kCompactionStyleLevel,
+        CompactionStyle::kCompactionStyleUniversal,
+        CompactionStyle::kCompactionStyleNone}) {
+    DestroyDB(db_name_, Options());
+    Options options;
+    options.compaction_style = compaction_style;
+    // L0: Snappy, L1: ZSTD, L2: Snappy
+    options.compression_per_level = {CompressionType::kSnappyCompression,
+                                     CompressionType::kZlibCompression,
+                                     CompressionType::kSnappyCompression};
+    options.create_if_missing = true;
+    FlushedFileCollector* collector = new FlushedFileCollector();
+    options.listeners.emplace_back(collector);
+    DB* db = nullptr;
+    ASSERT_OK(DB::Open(options, db_name_, &db));
+
+    db->Put(WriteOptions(), "key", "val");
+    db->Flush(FlushOptions());
+
+    auto l0_files = collector->GetFlushedFiles();
+    ASSERT_EQ(1, l0_files.size());
+
+    // L0->L1 compaction, so output should be ZSTD-compressed
+    CompactionOptions compaction_opts;
+    compaction_opts.compression = CompressionType::kDisableCompressionOption;
+    ASSERT_OK(db->CompactFiles(compaction_opts, l0_files, 1));
+
+    rocksdb::TablePropertiesCollection all_tables_props;
+    ASSERT_OK(db->GetPropertiesOfAllTables(&all_tables_props));
+    for (const auto& name_and_table_props : all_tables_props) {
+      ASSERT_EQ(CompressionTypeToString(CompressionType::kZlibCompression),
+                name_and_table_props.second->compression_name);
+    }
+    delete db;
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
@@ -319,7 +367,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr,
           "SKIPPED as DBImpl::CompactFiles is not supported in ROCKSDB_LITE\n");
   return 0;

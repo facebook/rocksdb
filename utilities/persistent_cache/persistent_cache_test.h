@@ -157,7 +157,7 @@ class PersistentCacheTierTest : public testing::Test {
       memset(edata, '0' + (i % 10), sizeof(edata));
       auto k = prefix + PaddedNumber(i, /*count=*/8);
       Slice key(k);
-      unique_ptr<char[]> block;
+      std::unique_ptr<char[]> block;
       size_t block_size;
 
       if (eviction_enabled) {
@@ -210,7 +210,7 @@ class PersistentCacheTierTest : public testing::Test {
   }
 
   const std::string path_;
-  shared_ptr<Logger> log_;
+  std::shared_ptr<Logger> log_;
   std::shared_ptr<PersistentCacheTier> cache_;
   std::atomic<size_t> key_{0};
   size_t max_keys_ = 0;
@@ -233,8 +233,8 @@ class PersistentCacheDBTest : public DBTestBase {
 
   // insert data to table
   void Insert(const Options& options,
-              const BlockBasedTableOptions& table_options, const int num_iter,
-              std::vector<std::string>* values) {
+              const BlockBasedTableOptions& /*table_options*/,
+              const int num_iter, std::vector<std::string>* values) {
     CreateAndReopenWithCF({"pikachu"}, options);
     // default column family doesn't have block cache
     Options no_block_cache_opts;

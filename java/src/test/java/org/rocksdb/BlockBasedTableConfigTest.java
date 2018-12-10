@@ -6,7 +6,11 @@
 package org.rocksdb;
 
 import org.junit.ClassRule;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
+
+import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -15,6 +19,8 @@ public class BlockBasedTableConfigTest {
   @ClassRule
   public static final RocksMemoryResource rocksMemoryResource =
       new RocksMemoryResource();
+
+  @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
   public void noBlockCache() {
@@ -29,6 +35,31 @@ public class BlockBasedTableConfigTest {
     blockBasedTableConfig.setBlockCacheSize(8 * 1024);
     assertThat(blockBasedTableConfig.blockCacheSize()).
         isEqualTo(8 * 1024);
+  }
+
+  @Test
+  public void sharedBlockCache() throws RocksDBException {
+    try (final Cache cache = new LRUCache(8 * 1024 * 1024);
+         final Statistics statistics = new Statistics()) {
+      for (int shard = 0; shard < 8; shard++) {
+        try (final Options options =
+                 new Options()
+                     .setCreateIfMissing(true)
+                     .setStatistics(statistics)
+                     .setTableFormatConfig(new BlockBasedTableConfig().setBlockCache(cache));
+             final RocksDB db =
+                 RocksDB.open(options, dbFolder.getRoot().getAbsolutePath() + "/" + shard)) {
+          final byte[] key = "some-key".getBytes(StandardCharsets.UTF_8);
+          final byte[] value = "some-value".getBytes(StandardCharsets.UTF_8);
+
+          db.put(key, value);
+          db.flush(new FlushOptions());
+          db.get(key);
+
+          assertThat(statistics.getTickerCount(TickerType.BLOCK_CACHE_ADD)).isEqualTo(shard + 1);
+        }
+      }
+    }
   }
 
   @Test
@@ -62,6 +93,46 @@ public class BlockBasedTableConfigTest {
     assertThat(blockBasedTableConfig.cacheIndexAndFilterBlocks()).
         isTrue();
 
+  }
+
+  @Test
+  public void cacheIndexAndFilterBlocksWithHighPriority() {
+    BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    blockBasedTableConfig.setCacheIndexAndFilterBlocksWithHighPriority(true);
+    assertThat(blockBasedTableConfig.cacheIndexAndFilterBlocksWithHighPriority()).
+            isTrue();
+  }
+
+  @Test
+  public void pinL0FilterAndIndexBlocksInCache() {
+    BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    blockBasedTableConfig.setPinL0FilterAndIndexBlocksInCache(true);
+    assertThat(blockBasedTableConfig.pinL0FilterAndIndexBlocksInCache()).
+            isTrue();
+  }
+
+  @Test
+  public void partitionFilters() {
+    BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    blockBasedTableConfig.setPartitionFilters(true);
+    assertThat(blockBasedTableConfig.partitionFilters()).
+            isTrue();
+  }
+
+  @Test
+  public void metadataBlockSize() {
+    BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    blockBasedTableConfig.setMetadataBlockSize(1024);
+    assertThat(blockBasedTableConfig.metadataBlockSize()).
+            isEqualTo(1024);
+  }
+
+  @Test
+  public void pinTopLevelIndexAndFilter() {
+    BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    blockBasedTableConfig.setPinTopLevelIndexAndFilter(false);
+    assertThat(blockBasedTableConfig.pinTopLevelIndexAndFilter()).
+            isFalse();
   }
 
   @Test
@@ -145,6 +216,14 @@ public class BlockBasedTableConfigTest {
         new BlockBasedTableConfig().setFilter(null))) {
       assertThat(options.tableFactoryName()).
           isEqualTo("BlockBasedTable");
+    }
+  }
+
+  @Test
+  public void blockBasedTableWithBlockCache() {
+    try (final Options options = new Options().setTableFormatConfig(
+             new BlockBasedTableConfig().setBlockCache(new LRUCache(17 * 1024 * 1024)))) {
+      assertThat(options.tableFactoryName()).isEqualTo("BlockBasedTable");
     }
   }
 

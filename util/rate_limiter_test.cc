@@ -199,7 +199,7 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   // computes the next refill time (ensuring refill time in the future allows
   // the next request to drain the rate limiter).
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "GenericRateLimiter::Refill", [&](void* arg) {
+      "GenericRateLimiter::Refill", [&](void* /*arg*/) {
         special_env.SleepForMicroseconds(static_cast<int>(
             std::chrono::microseconds(kTimePerRefill).count()));
       });

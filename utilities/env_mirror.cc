@@ -16,11 +16,11 @@ namespace rocksdb {
 // Env's.  This is useful for debugging purposes.
 class SequentialFileMirror : public SequentialFile {
  public:
-  unique_ptr<SequentialFile> a_, b_;
+  std::unique_ptr<SequentialFile> a_, b_;
   std::string fname;
   explicit SequentialFileMirror(std::string f) : fname(f) {}
 
-  Status Read(size_t n, Slice* result, char* scratch) {
+  Status Read(size_t n, Slice* result, char* scratch) override {
     Slice aslice;
     Status as = a_->Read(n, &aslice, scratch);
     if (as == Status::OK()) {
@@ -44,13 +44,13 @@ class SequentialFileMirror : public SequentialFile {
     return as;
   }
 
-  Status Skip(uint64_t n) {
+  Status Skip(uint64_t n) override {
     Status as = a_->Skip(n);
     Status bs = b_->Skip(n);
     assert(as == bs);
     return as;
   }
-  Status InvalidateCache(size_t offset, size_t length) {
+  Status InvalidateCache(size_t offset, size_t length) override {
     Status as = a_->InvalidateCache(offset, length);
     Status bs = b_->InvalidateCache(offset, length);
     assert(as == bs);
@@ -60,11 +60,12 @@ class SequentialFileMirror : public SequentialFile {
 
 class RandomAccessFileMirror : public RandomAccessFile {
  public:
-  unique_ptr<RandomAccessFile> a_, b_;
+  std::unique_ptr<RandomAccessFile> a_, b_;
   std::string fname;
   explicit RandomAccessFileMirror(std::string f) : fname(f) {}
 
-  Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const {
+  Status Read(uint64_t offset, size_t n, Slice* result,
+              char* scratch) const override {
     Status as = a_->Read(offset, n, result, scratch);
     if (as == Status::OK()) {
       char* bscratch = new char[n];
@@ -86,7 +87,7 @@ class RandomAccessFileMirror : public RandomAccessFile {
     return as;
   }
 
-  size_t GetUniqueId(char* id, size_t max_size) const {
+  size_t GetUniqueId(char* id, size_t max_size) const override {
     // NOTE: not verified
     return a_->GetUniqueId(id, max_size);
   }
@@ -94,7 +95,7 @@ class RandomAccessFileMirror : public RandomAccessFile {
 
 class WritableFileMirror : public WritableFile {
  public:
-  unique_ptr<WritableFile> a_, b_;
+  std::unique_ptr<WritableFile> a_, b_;
   std::string fname;
   explicit WritableFileMirror(std::string f) : fname(f) {}
 
@@ -190,7 +191,7 @@ class WritableFileMirror : public WritableFile {
 };
 
 Status EnvMirror::NewSequentialFile(const std::string& f,
-                                    unique_ptr<SequentialFile>* r,
+                                    std::unique_ptr<SequentialFile>* r,
                                     const EnvOptions& options) {
   if (f.find("/proc/") == 0) {
     return a_->NewSequentialFile(f, r, options);
@@ -207,7 +208,7 @@ Status EnvMirror::NewSequentialFile(const std::string& f,
 }
 
 Status EnvMirror::NewRandomAccessFile(const std::string& f,
-                                      unique_ptr<RandomAccessFile>* r,
+                                      std::unique_ptr<RandomAccessFile>* r,
                                       const EnvOptions& options) {
   if (f.find("/proc/") == 0) {
     return a_->NewRandomAccessFile(f, r, options);
@@ -224,7 +225,7 @@ Status EnvMirror::NewRandomAccessFile(const std::string& f,
 }
 
 Status EnvMirror::NewWritableFile(const std::string& f,
-                                  unique_ptr<WritableFile>* r,
+                                  std::unique_ptr<WritableFile>* r,
                                   const EnvOptions& options) {
   if (f.find("/proc/") == 0) return a_->NewWritableFile(f, r, options);
   WritableFileMirror* mf = new WritableFileMirror(f);
@@ -240,7 +241,7 @@ Status EnvMirror::NewWritableFile(const std::string& f,
 
 Status EnvMirror::ReuseWritableFile(const std::string& fname,
                                     const std::string& old_fname,
-                                    unique_ptr<WritableFile>* r,
+                                    std::unique_ptr<WritableFile>* r,
                                     const EnvOptions& options) {
   if (fname.find("/proc/") == 0)
     return a_->ReuseWritableFile(fname, old_fname, r, options);

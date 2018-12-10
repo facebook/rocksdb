@@ -80,8 +80,11 @@ Status OptimisticTransaction::Rollback() {
 // 'exclusive' is unused for OptimisticTransaction.
 Status OptimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
                                       const Slice& key, bool read_only,
-                                      bool exclusive, bool untracked) {
-  if (untracked) {
+                                      bool exclusive, const bool do_validate,
+                                      const bool assume_tracked) {
+  assert(!assume_tracked);  // not supported
+  (void)assume_tracked;
+  if (!do_validate) {
     return Status::OK();
   }
   uint32_t cfh_id = GetColumnFamilyID(column_family);

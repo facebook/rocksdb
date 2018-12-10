@@ -141,6 +141,27 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
         export JAVA_HOME=/usr/local/openjdk7
         gmake rocksdbjava
 
+* **OpenBSD** (6.3/-current):
+
+    * As RocksDB is not available in the ports yet you have to build it on your own:
+
+    * Install the dependencies for RocksDB:
+
+        pkg_add gmake gflags snappy bzip2 lz4 zstd git jdk bash findutils gnuwatch 
+
+    * Build RocksDB from source:
+
+        cd ~
+        git clone https://github.com/facebook/rocksdb.git
+        cd rocksdb
+        gmake static_lib
+
+    * Build RocksJava from source (optional):
+
+        cd rocksdb
+        export JAVA_HOME=/usr/local/jdk-1.8.0
+        export PATH=$PATH:/usr/local/jdk-1.8.0/bin
+        gmake rocksdbjava
 
 * **iOS**:
   * Run: `TARGET_OS=IOS make static_lib`. When building the project which uses rocksdb iOS library, make sure to define two important pre-processing macros: `ROCKSDB_LITE` and `IOS_CROSS_COMPILE`.

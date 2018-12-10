@@ -33,7 +33,7 @@ namespace rocksdb {
 
 class PosixLogger : public Logger {
  private:
-  virtual Status CloseImpl() override {
+  Status PosixCloseHelper() {
     int ret;
 
     ret = fclose(file_);
@@ -50,6 +50,10 @@ class PosixLogger : public Logger {
   std::atomic_uint_fast64_t last_flush_micros_;
   Env* env_;
   std::atomic<bool> flush_pending_;
+
+ protected:
+  virtual Status CloseImpl() override { return PosixCloseHelper(); }
+
  public:
   PosixLogger(FILE* f, uint64_t (*gettid)(), Env* env,
               const InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL)
@@ -61,7 +65,12 @@ class PosixLogger : public Logger {
         last_flush_micros_(0),
         env_(env),
         flush_pending_(false) {}
-  virtual ~PosixLogger() { Close(); }
+  virtual ~PosixLogger() {
+    if (!closed_) {
+      closed_ = true;
+      PosixCloseHelper();
+    }
+  }
   virtual void Flush() override {
     TEST_SYNC_POINT("PosixLogger::Flush:Begin1");
     TEST_SYNC_POINT("PosixLogger::Flush:Begin2");
@@ -156,7 +165,6 @@ class PosixLogger : public Logger {
 
       size_t sz = fwrite(base, 1, write_size, file_);
       flush_pending_ = true;
-      assert(sz == write_size);
       if (sz > 0) {
         log_size_ += write_size;
       }

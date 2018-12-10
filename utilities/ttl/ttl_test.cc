@@ -43,7 +43,7 @@ class TtlTest : public testing::Test {
  public:
   TtlTest() {
     env_.reset(new SpecialTimeEnv(Env::Default()));
-    dbname_ = test::TmpDir() + "/db_ttl";
+    dbname_ = test::PerThreadDBPath("db_ttl");
     options_.create_if_missing = true;
     options_.env = env_.get();
     // ensure that compaction is kicked in to always strip timestamp from kvs
@@ -301,8 +301,8 @@ class TtlTest : public testing::Test {
     // Keeps key if it is in [kSampleSize_/3, 2*kSampleSize_/3),
     // Change value if it is in [2*kSampleSize_/3, kSampleSize_)
     // Eg. kSampleSize_=6. Drop:key0-1...Keep:key2-3...Change:key4-5...
-    virtual bool Filter(int level, const Slice& key,
-                        const Slice& value, std::string* new_value,
+    virtual bool Filter(int /*level*/, const Slice& key, const Slice& /*value*/,
+                        std::string* new_value,
                         bool* value_changed) const override {
       assert(new_value != nullptr);
 
@@ -351,7 +351,7 @@ class TtlTest : public testing::Test {
       }
 
       virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-          const CompactionFilter::Context& context) override {
+          const CompactionFilter::Context& /*context*/) override {
         return std::unique_ptr<CompactionFilter>(
             new TestFilter(kSampleSize_, kNewValue_));
       }
@@ -370,14 +370,14 @@ class TtlTest : public testing::Test {
   static const int64_t kSampleSize_ = 100;
   std::string dbname_;
   DBWithTTL* db_ttl_;
-  unique_ptr<SpecialTimeEnv> env_;
+  std::unique_ptr<SpecialTimeEnv> env_;
 
  private:
   Options options_;
   KVMap kvmap_;
   KVMap::iterator kv_it_;
   const std::string kNewValue_ = "new_value";
-  unique_ptr<CompactionFilter> test_comp_filter_;
+  std::unique_ptr<CompactionFilter> test_comp_filter_;
 }; // class TtlTest
 
 // If TTL is non positive or not provided, the behaviour is TTL = infinity
@@ -655,7 +655,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as DBWithTTL is not supported in ROCKSDB_LITE\n");
   return 0;
 }

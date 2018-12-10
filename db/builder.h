@@ -35,7 +35,6 @@ class VersionEdit;
 class TableBuilder;
 class WritableFileWriter;
 class InternalStats;
-class InternalIterator;
 
 // @param column_family_name Name of the column family that is also identified
 //    by column_family_id, or empty string if unknown. It must outlive the
@@ -43,7 +42,7 @@ class InternalIterator;
 // @param compression_dict Data for presetting the compression library's
 //    dictionary, or nullptr.
 TableBuilder* NewTableBuilder(
-    const ImmutableCFOptions& options,
+    const ImmutableCFOptions& options, const MutableCFOptions& moptions,
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,

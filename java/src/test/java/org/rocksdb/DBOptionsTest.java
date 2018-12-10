@@ -425,6 +425,26 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void setWriteBufferManager() throws RocksDBException {
+    try (final DBOptions opt = new DBOptions();
+         final Cache cache = new LRUCache(1 * 1024 * 1024);
+         final WriteBufferManager writeBufferManager = new WriteBufferManager(2000l, cache)) {
+      opt.setWriteBufferManager(writeBufferManager);
+      assertThat(opt.writeBufferManager()).isEqualTo(writeBufferManager);
+    }
+  }
+
+  @Test
+  public void setWriteBufferManagerWithZeroBufferSize() throws RocksDBException {
+    try (final DBOptions opt = new DBOptions();
+         final Cache cache = new LRUCache(1 * 1024 * 1024);
+         final WriteBufferManager writeBufferManager = new WriteBufferManager(0l, cache)) {
+      opt.setWriteBufferManager(writeBufferManager);
+      assertThat(opt.writeBufferManager()).isEqualTo(writeBufferManager);
+    }
+  }
+
+  @Test
   public void accessHintOnCompactionStart() {
     try(final DBOptions opt = new DBOptions()) {
       final AccessHint accessHint = AccessHint.SEQUENTIAL;
@@ -640,6 +660,15 @@ public class DBOptionsTest {
       // Test with parameter initialization
       anotherOptions.setRateLimiter(
           new RateLimiter(1000));
+    }
+  }
+
+  @Test
+  public void sstFileManager() throws RocksDBException {
+    try (final DBOptions options = new DBOptions();
+         final SstFileManager sstFileManager =
+             new SstFileManager(Env.getDefault())) {
+      options.setSstFileManager(sstFileManager);
     }
   }
 

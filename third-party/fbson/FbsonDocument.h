@@ -48,15 +48,14 @@
  * and use index to retrieve from array. Array index is 0-based.
  *
  * ** External dictionary **
- * During query processing, you can also pass a call-back function, so the
+ * During query processing, you can also pass a callback function, so the
  * search will first try to check if the key string exists in the dictionary.
  * If so, search will be based on the id instead of the key string.
  *
  * @author Tian Xia <tianx@fb.com>
  */
 
-#ifndef FBSON_FBSONDOCUMENT_H
-#define FBSON_FBSONDOCUMENT_H
+#pragma once
 
 #include <stdlib.h>
 #include <string.h>
@@ -355,7 +354,7 @@ class NumberValT : public FbsonValue {
   unsigned int numPackedBytes() const { return sizeof(FbsonValue) + sizeof(T); }
 
   // catch all unknow specialization of the template class
-  bool setVal(T value) { return false; }
+  bool setVal(T /*value*/) { return false; }
 
  private:
   T num_;
@@ -889,5 +888,3 @@ inline FbsonValue* FbsonValue::findPath(const char* key_path,
 #pragma pack(pop)
 
 } // namespace fbson
-
-#endif // FBSON_FBSONDOCUMENT_H

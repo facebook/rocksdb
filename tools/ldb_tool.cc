@@ -13,7 +13,7 @@ namespace rocksdb {
 LDBOptions::LDBOptions() {}
 
 void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
-                                 const char* exec_name) {
+                                 const char* /*exec_name*/) {
   std::string ret;
 
   ret.append(ldb_options.print_help_header);
@@ -88,6 +88,8 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   BackupCommand::Help(ret);
   RestoreCommand::Help(ret);
   CheckPointCommand::Help(ret);
+  WriteExternalSstFilesCommand::Help(ret);
+  IngestExternalSstFilesCommand::Help(ret);
 
   fprintf(stderr, "%s\n", ret.c_str());
 }

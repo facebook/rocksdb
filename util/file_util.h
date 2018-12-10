@@ -19,9 +19,10 @@ extern Status CopyFile(Env* env, const std::string& source,
                        bool use_fsync);
 
 extern Status CreateFile(Env* env, const std::string& destination,
-                         const std::string& contents);
+                         const std::string& contents, bool use_fsync);
 
 extern Status DeleteSSTFile(const ImmutableDBOptions* db_options,
-                            const std::string& fname, uint32_t path_id);
+                            const std::string& fname,
+                            const std::string& path_to_sync);
 
 }  // namespace rocksdb

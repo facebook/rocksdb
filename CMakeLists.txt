@@ -16,7 +16,7 @@
 #    See thirdparty.inc for more information.
 #        sample command: cmake -G "Visual Studio 15 Win64" -DWITH_GFLAGS=1 -DWITH_SNAPPY=1 -DWITH_JEMALLOC=1 -DWITH_JNI=1 ..
 # 4. Then build the project in debug mode (you may want to add /m[:<N>] flag to run msbuild in <N> parallel threads
-#                                          or simply /m ot use all avail cores)
+#                                          or simply /m to use all avail cores)
 #        msbuild rocksdb.sln
 #
 #        rocksdb.sln build features exclusions of test only code in Release. If you build ALL_BUILD then everything
@@ -48,6 +48,11 @@ option(WITH_JEMALLOC "build with JeMalloc" OFF)
 option(WITH_SNAPPY "build with SNAPPY" OFF)
 option(WITH_LZ4 "build with lz4" OFF)
 option(WITH_ZLIB "build with zlib" OFF)
+option(WITH_ZSTD "build with zstd" OFF)
+option(WITH_WINDOWS_UTF8_FILENAMES "use UTF8 as characterset for opening files, regardles of the system code page" OFF)
+if (WITH_WINDOWS_UTF8_FILENAMES)
+  add_definitions(-DROCKSDB_WINDOWS_UTF8_FILENAMES)
+endif()
 if(MSVC)
   # Defaults currently different for GFLAGS.
   #  We will address find_package work a little later
@@ -56,7 +61,7 @@ if(MSVC)
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
   if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
-    # FreeBSD has jemaloc as default malloc
+    # FreeBSD has jemalloc as default malloc
     # but it does not have all the jemalloc files in include/...
     set(WITH_JEMALLOC ON)
   else()
@@ -64,9 +69,10 @@ else()
       find_package(JeMalloc REQUIRED)
       add_definitions(-DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE)
       include_directories(${JEMALLOC_INCLUDE_DIR})
+      list(APPEND THIRDPARTY_LIBS ${JEMALLOC_LIBRARIES})
     endif()
   endif()
-  
+
   # No config file for this
   option(WITH_GFLAGS "build with GFlags" ON)
   if(WITH_GFLAGS)
@@ -107,7 +113,6 @@ else()
     list(APPEND THIRDPARTY_LIBS ${LZ4_LIBRARIES})
   endif()
 
-  option(WITH_ZSTD "build with zstd" OFF)
   if(WITH_ZSTD)
     find_package(zstd REQUIRED)
     add_definitions(-DZSTD)
@@ -132,19 +137,17 @@ endif()
 
 string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA "${GIT_SHA}")
 
-set(SH_CMD "sh")
-execute_process(COMMAND
-  ${SH_CMD} -c "build_tools/version.sh full"
-  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-  OUTPUT_VARIABLE ROCKSDB_VERSION
-)
-string(STRIP "${ROCKSDB_VERSION}" ROCKSDB_VERSION)
-execute_process(COMMAND
-  ${SH_CMD} -c "build_tools/version.sh major"
-  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-  OUTPUT_VARIABLE ROCKSDB_VERSION_MAJOR
-)
-string(STRIP "${ROCKSDB_VERSION_MAJOR}" ROCKSDB_VERSION_MAJOR)
+
+# Read rocksdb version from version.h header file.
+file(READ include/rocksdb/version.h version_header_file)
+string(REGEX MATCH "#define ROCKSDB_MAJOR ([0-9]+)" _ ${version_header_file})
+set(ROCKSDB_VERSION_MAJOR ${CMAKE_MATCH_1})
+string(REGEX MATCH "#define ROCKSDB_MINOR ([0-9]+)" _ ${version_header_file})
+set(ROCKSDB_VERSION_MINOR ${CMAKE_MATCH_1})
+string(REGEX MATCH "#define ROCKSDB_PATCH ([0-9]+)" _ ${version_header_file})
+set(ROCKSDB_VERSION_PATCH ${CMAKE_MATCH_1})
+set(ROCKSDB_VERSION ${ROCKSDB_VERSION_MAJOR}.${ROCKSDB_VERSION_MINOR}.${ROCKSDB_VERSION_PATCH})
+
 
 option(WITH_MD_LIBRARY "build with MD" ON)
 if(WIN32 AND MSVC)
@@ -171,7 +174,7 @@ else()
   endif()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
   if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -fno-omit-frame-pointer")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer")
     include(CheckCXXCompilerFlag)
     CHECK_CXX_COMPILER_FLAG("-momit-leaf-frame-pointer" HAVE_OMIT_LEAF_FRAME_POINTER)
     if(HAVE_OMIT_LEAF_FRAME_POINTER)
@@ -229,6 +232,7 @@ int main() {
 unset(CMAKE_REQUIRED_FLAGS)
 if(HAVE_SSE42)
   add_definitions(-DHAVE_SSE42)
+  add_definitions(-DHAVE_PCLMUL)
 elseif(FORCE_SSE42)
   message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
 endif()
@@ -285,35 +289,69 @@ if(WITH_UBSAN)
   endif()
 endif()
 
-find_package(NUMA)
-if(NUMA_FOUND)
+option(WITH_NUMA "build with NUMA policy support" OFF)
+if(WITH_NUMA)
+  find_package(NUMA REQUIRED)
   add_definitions(-DNUMA)
   include_directories(${NUMA_INCLUDE_DIR})
   list(APPEND THIRDPARTY_LIBS ${NUMA_LIBRARIES})
 endif()
 
-find_package(TBB)
-if(TBB_FOUND)
+option(WITH_TBB "build with Threading Building Blocks (TBB)" OFF)
+if(WITH_TBB)
+  find_package(TBB REQUIRED)
   add_definitions(-DTBB)
   include_directories(${TBB_INCLUDE_DIR})
   list(APPEND THIRDPARTY_LIBS ${TBB_LIBRARIES})
 endif()
 
-# Used to run CI build and tests so we can run faster
-set(OPTIMIZE_DEBUG_DEFAULT 0)        # Debug build is unoptimized by default use -DOPTDBG=1 to optimize
-
-if(DEFINED OPTDBG)
-   set(OPTIMIZE_DEBUG ${OPTDBG})
-else()
-   set(OPTIMIZE_DEBUG ${OPTIMIZE_DEBUG_DEFAULT})
+# Stall notifications eat some performance from inserts
+option(DISABLE_STALL_NOTIF "Build with stall notifications" OFF)
+if(DISABLE_STALL_NOTIF)
+  add_definitions(-DROCKSDB_DISABLE_STALL_NOTIFICATION)
 endif()
 
-if(MSVC)
-  if((${OPTIMIZE_DEBUG} EQUAL 1))
-    message(STATUS "Debug optimization is enabled")
-    set(CMAKE_CXX_FLAGS_DEBUG "/Oxt /${RUNTIME_LIBRARY}d")
+
+if(DEFINED USE_RTTI)
+  if(USE_RTTI)
+    message(STATUS "Enabling RTTI")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DROCKSDB_USE_RTTI")
   else()
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1 /Gm /${RUNTIME_LIBRARY}d")
+    if(MSVC)
+      message(STATUS "Disabling RTTI in Release builds. Always on in Debug.")
+      set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
+      set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /GR-")
+    else()
+      message(STATUS "Disabling RTTI in Release builds")
+      set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fno-rtti")
+      set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-rtti")
+    endif()
+  endif()
+else()
+  message(STATUS "Enabling RTTI in Debug builds only (default)")
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
+  if(MSVC)
+     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /GR-")
+  else()
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-rtti")
+  endif()
+endif()
+
+# Used to run CI build and tests so we can run faster
+option(OPTDBG "Build optimized debug build with MSVC" OFF)
+option(WITH_RUNTIME_DEBUG "build with debug version of runtime library" ON)
+if(MSVC)
+  if(OPTDBG)
+    message(STATUS "Debug optimization is enabled")
+    set(CMAKE_CXX_FLAGS_DEBUG "/Oxt")
+  else()
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1 /Gm")
+  endif()
+  if(WITH_RUNTIME_DEBUG)
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /${RUNTIME_LIBRARY}d")
+  else()
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /${RUNTIME_LIBRARY}")
   endif()
   set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Oxt /Zp8 /Gm- /Gy /${RUNTIME_LIBRARY}")
 
@@ -328,7 +366,7 @@ endif()
 option(ROCKSDB_LITE "Build RocksDBLite version" OFF)
 if(ROCKSDB_LITE)
   add_definitions(-DROCKSDB_LITE)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -Os")
 endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "Cygwin")
@@ -433,6 +471,7 @@ set(SOURCES
         db/compaction_iterator.cc
         db/compaction_job.cc
         db/compaction_picker.cc
+        db/compaction_picker_fifo.cc
         db/compaction_picker_universal.cc
         db/convenience.cc
         db/db_filesnapshot.cc
@@ -447,6 +486,7 @@ set(SOURCES
         db/db_info_dumper.cc
         db/db_iter.cc
         db/dbformat.cc
+        db/error_handler.cc
         db/event_helpers.cc
         db/experimental.cc
         db/external_sst_file_ingestion_job.cc
@@ -455,15 +495,17 @@ set(SOURCES
         db/flush_scheduler.cc
         db/forward_iterator.cc
         db/internal_stats.cc
+        db/logs_with_prep_tracker.cc
         db/log_reader.cc
         db/log_writer.cc
         db/malloc_stats.cc
-        db/managed_iterator.cc
         db/memtable.cc
         db/memtable_list.cc
         db/merge_helper.cc
         db/merge_operator.cc
         db/range_del_aggregator.cc
+        db/range_del_aggregator_v2.cc
+        db/range_tombstone_fragmenter.cc
         db/repair.cc
         db/snapshot_impl.cc
         db/table_cache.cc
@@ -520,6 +562,8 @@ set(SOURCES
         table/cuckoo_table_builder.cc
         table/cuckoo_table_factory.cc
         table/cuckoo_table_reader.cc
+        table/data_block_hash_index.cc
+        table/data_block_footer.cc
         table/flush_block_policy.cc
         table/format.cc
         table/full_filter_block.cc
@@ -535,6 +579,7 @@ set(SOURCES
         table/plain_table_index.cc
         table/plain_table_key_coding.cc
         table/plain_table_reader.cc
+        table/sst_file_reader.cc
         table/sst_file_writer.cc
         table/table_properties.cc
         table/two_level_iterator.cc
@@ -543,12 +588,14 @@ set(SOURCES
         tools/ldb_cmd.cc
         tools/ldb_tool.cc
         tools/sst_dump_tool.cc
+        tools/trace_analyzer_tool.cc
         util/arena.cc
         util/auto_roll_logger.cc
         util/bloom.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
+        util/compression_context_cache.cc
         util/concurrent_arena.cc
         util/crc32c.cc
         util/delete_scheduler.cc
@@ -559,6 +606,7 @@ set(SOURCES
         util/filename.cc
         util/filter_policy.cc
         util/hash.cc
+        util/jemalloc_nodump_allocator.cc
         util/log_buffer.cc
         util/murmurhash.cc
         util/random.cc
@@ -566,23 +614,25 @@ set(SOURCES
         util/slice.cc
         util/sst_file_manager_impl.cc
         util/status.cc
-        util/status_message.cc
         util/string_util.cc
         util/sync_point.cc
+        util/sync_point_impl.cc
         util/testutil.cc
         util/thread_local.cc
         util/threadpool_imp.cc
+        util/trace_replay.cc
         util/transaction_test_util.cc
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
+        utilities/blob_db/blob_compaction_filter.cc
         utilities/blob_db/blob_db.cc
         utilities/blob_db/blob_db_impl.cc
+        utilities/blob_db/blob_db_impl_filesnapshot.cc
         utilities/blob_db/blob_dump_tool.cc
         utilities/blob_db/blob_file.cc
         utilities/blob_db/blob_log_reader.cc
         utilities/blob_db/blob_log_writer.cc
         utilities/blob_db/blob_log_format.cc
-        utilities/blob_db/ttl_extractor.cc
         utilities/cassandra/cassandra_compaction_filter.cc
         utilities/cassandra/format.cc
         utilities/cassandra/merge_operator.cc
@@ -602,6 +652,7 @@ set(SOURCES
         utilities/leveldb_options/leveldb_options.cc
         utilities/lua/rocks_lua_compaction_filter.cc
         utilities/memory/memory_util.cc
+        utilities/merge_operators/bytesxor.cc
         utilities/merge_operators/max.cc
         utilities/merge_operators/put.cc
         utilities/merge_operators/string_append/stringappend.cc
@@ -618,6 +669,7 @@ set(SOURCES
         utilities/simulator_cache/sim_cache.cc
         utilities/spatialdb/spatial_db.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
+        utilities/trace/file_trace_reader_writer.cc
         utilities/transactions/optimistic_transaction_db_impl.cc
         utilities/transactions/optimistic_transaction.cc
         utilities/transactions/pessimistic_transaction.cc
@@ -629,17 +681,17 @@ set(SOURCES
         utilities/transactions/transaction_util.cc
         utilities/transactions/write_prepared_txn.cc
         utilities/transactions/write_prepared_txn_db.cc
+        utilities/transactions/write_unprepared_txn.cc
+        utilities/transactions/write_unprepared_txn_db.cc
         utilities/ttl/db_ttl_impl.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
         $<TARGET_OBJECTS:build_version>)
 
-if(HAVE_SSE42 AND NOT FORCE_SSE42)
-  if(NOT MSVC)
-set_source_files_properties(
-  util/crc32c.cc
-      PROPERTIES COMPILE_FLAGS "-msse4.2 -mpclmul")
-  endif()
+if(HAVE_SSE42 AND NOT MSVC)
+  set_source_files_properties(
+    util/crc32c.cc
+    PROPERTIES COMPILE_FLAGS "-msse4.2 -mpclmul")
 endif()
 
 if(HAVE_POWER8)
@@ -655,8 +707,12 @@ if(WIN32)
     port/win/env_default.cc
     port/win/port_win.cc
     port/win/win_logger.cc
-    port/win/win_thread.cc
+    port/win/win_thread.cc)
+
+if(WITH_XPRESS)
+  list(APPEND SOURCES
     port/win/xpress_win.cc)
+endif()
 
 if(WITH_JEMALLOC)
   list(APPEND SOURCES
@@ -673,6 +729,14 @@ endif()
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
 set(ROCKSDB_SHARED_LIB rocksdb-shared${ARTIFACT_SUFFIX})
 set(ROCKSDB_IMPORT_LIB ${ROCKSDB_SHARED_LIB})
+
+option(WITH_LIBRADOS "Build with librados" OFF)
+if(WITH_LIBRADOS)
+  list(APPEND SOURCES
+    utilities/env_librados.cc)
+  list(APPEND THIRDPARTY_LIBS rados)
+endif()
+
 if(WIN32)
   set(SYSTEM_LIBS ${SYSTEM_LIBS} Shlwapi.lib Rpcrt4.lib)
   set(LIBS ${ROCKSDB_STATIC_LIB} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
@@ -689,13 +753,6 @@ else()
                         SOVERSION ${ROCKSDB_VERSION_MAJOR}
                         CXX_STANDARD 11
                         OUTPUT_NAME "rocksdb")
-endif()
-
-option(WITH_LIBRADOS "Build with librados" OFF)
-if(WITH_LIBRADOS)
-  list(APPEND SOURCES
-    utilities/env_librados.cc)
-  list(APPEND THIRDPARTY_LIBS rados)
 endif()
 
 add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES})
@@ -812,6 +869,7 @@ if(WITH_TESTS)
         db/db_inplace_update_test.cc
         db/db_io_failure_test.cc
         db/db_iter_test.cc
+        db/db_iter_stress_test.cc
         db/db_iterator_test.cc
         db/db_log_iter_test.cc
         db/db_memtable_test.cc
@@ -830,6 +888,8 @@ if(WITH_TESTS)
         db/db_write_test.cc
         db/dbformat_test.cc
         db/deletefile_test.cc
+        db/error_handler_test.cc
+        db/obsolete_files_test.cc
         db/external_sst_file_basic_test.cc
         db/external_sst_file_test.cc
         db/fault_injection_test.cc
@@ -846,6 +906,9 @@ if(WITH_TESTS)
         db/perf_context_test.cc
         db/plain_table_db_test.cc
         db/prefix_test.cc
+        db/range_del_aggregator_test.cc
+        db/range_del_aggregator_v2_test.cc
+        db/range_tombstone_fragmenter_test.cc
         db/repair_test.cc
         db/table_properties_collector_test.cc
         db/version_builder_test.cc
@@ -871,12 +934,15 @@ if(WITH_TESTS)
         table/cleanable_test.cc
         table/cuckoo_table_builder_test.cc
         table/cuckoo_table_reader_test.cc
+        table/data_block_hash_index_test.cc
         table/full_filter_block_test.cc
         table/merger_test.cc
+        table/sst_file_reader_test.cc
         table/table_test.cc
         tools/ldb_cmd_test.cc
         tools/reduce_levels_test.cc
         tools/sst_dump_test.cc
+        tools/trace_analyzer_test.cc
         util/arena_test.cc
         util/auto_roll_logger_test.cc
         util/autovector_test.cc
@@ -891,6 +957,7 @@ if(WITH_TESTS)
         util/hash_test.cc
         util/heap_test.cc
         util/rate_limiter_test.cc
+        util/repeatable_thread_test.cc
         util/slice_transform_test.cc
         util/timer_queue_test.cc
         util/thread_list_test.cc
@@ -922,6 +989,7 @@ if(WITH_TESTS)
         utilities/transactions/optimistic_transaction_test.cc
         utilities/transactions/transaction_test.cc
         utilities/transactions/write_prepared_transaction_test.cc
+        utilities/transactions/write_unprepared_transaction_test.cc
         utilities/ttl/ttl_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
   )
@@ -932,6 +1000,7 @@ if(WITH_TESTS)
   set(BENCHMARKS
     cache/cache_bench.cc
     memtable/memtablerep_bench.cc
+    db/range_del_aggregator_bench.cc
     tools/db_bench.cc
     table/table_reader_bench.cc
     utilities/column_aware_encoding_exp.cc

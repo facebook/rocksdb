@@ -6,8 +6,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_COMPACTION_FILTER_H_
-#define STORAGE_ROCKSDB_INCLUDE_COMPACTION_FILTER_H_
+#pragma once
 
 #include <cassert>
 #include <memory>
@@ -94,8 +93,10 @@ class CompactionFilter {
   // be used by a single thread that is doing the compaction run, and this
   // call does not need to be thread-safe.  However, multiple filters may be
   // in existence and operating concurrently.
-  virtual bool Filter(int level, const Slice& key, const Slice& existing_value,
-                      std::string* new_value, bool* value_changed) const {
+  virtual bool Filter(int /*level*/, const Slice& /*key*/,
+                      const Slice& /*existing_value*/,
+                      std::string* /*new_value*/,
+                      bool* /*value_changed*/) const {
     return false;
   }
 
@@ -108,8 +109,8 @@ class CompactionFilter {
   // may not realize there is a write conflict and may allow a Transaction to
   // Commit that should have failed.  Instead, it is better to implement any
   // Merge filtering inside the MergeOperator.
-  virtual bool FilterMergeOperand(int level, const Slice& key,
-                                  const Slice& operand) const {
+  virtual bool FilterMergeOperand(int /*level*/, const Slice& /*key*/,
+                                  const Slice& /*operand*/) const {
     return false;
   }
 
@@ -154,7 +155,7 @@ class CompactionFilter {
   // MergeOperator.
   virtual Decision FilterV2(int level, const Slice& key, ValueType value_type,
                             const Slice& existing_value, std::string* new_value,
-                            std::string* skip_until) const {
+                            std::string* /*skip_until*/) const {
     switch (value_type) {
       case ValueType::kValue: {
         bool value_changed = false;
@@ -204,5 +205,3 @@ class CompactionFilterFactory {
 };
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_COMPACTION_FILTER_H_

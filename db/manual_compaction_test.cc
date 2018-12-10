@@ -19,7 +19,12 @@ using namespace rocksdb;
 
 namespace {
 
-const int kNumKeys = 1100000;
+// Reasoning: previously the number was 1100000. Since the keys are written to
+// the batch in one write each write will result into one SST file. each write
+// will result into one SST file. We reduced the write_buffer_size to 1K to
+// basically have the same effect with however less number of keys, which
+// results into less test runtime.
+const int kNumKeys = 1100;
 
 std::string Key1(int i) {
   char buf[100];
@@ -35,7 +40,7 @@ class ManualCompactionTest : public testing::Test {
  public:
   ManualCompactionTest() {
     // Get rid of any state from an old run.
-    dbname_ = rocksdb::test::TmpDir() + "/rocksdb_cbug_test";
+    dbname_ = rocksdb::test::PerThreadDBPath("rocksdb_cbug_test");
     DestroyDB(dbname_, rocksdb::Options());
   }
 
@@ -46,9 +51,9 @@ class DestroyAllCompactionFilter : public CompactionFilter {
  public:
   DestroyAllCompactionFilter() {}
 
-  virtual bool Filter(int level, const Slice& key, const Slice& existing_value,
-                      std::string* new_value,
-                      bool* value_changed) const override {
+  virtual bool Filter(int /*level*/, const Slice& /*key*/,
+                      const Slice& existing_value, std::string* /*new_value*/,
+                      bool* /*value_changed*/) const override {
     return existing_value.ToString() == "destroy";
   }
 
@@ -99,6 +104,7 @@ TEST_F(ManualCompactionTest, Test) {
   // specific scenario.
   rocksdb::DB* db;
   rocksdb::Options db_options;
+  db_options.write_buffer_size = 1024;
   db_options.create_if_missing = true;
   db_options.compression = rocksdb::kNoCompression;
   ASSERT_OK(rocksdb::DB::Open(db_options, dbname_, &db));

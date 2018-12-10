@@ -24,7 +24,7 @@ public interface WriteBatchInterface {
      * @param key the specified key to be inserted.
      * @param value the value associated with the specified key.
      */
-    void put(byte[] key, byte[] value);
+    void put(byte[] key, byte[] value) throws RocksDBException;
 
     /**
      * <p>Store the mapping "key-&gt;value" within given column
@@ -36,7 +36,7 @@ public interface WriteBatchInterface {
      * @param value the value associated with the specified key.
      */
     void put(ColumnFamilyHandle columnFamilyHandle,
-                    byte[] key, byte[] value);
+                    byte[] key, byte[] value) throws RocksDBException;
 
     /**
      * <p>Merge "value" with the existing value of "key" in the database.
@@ -46,7 +46,7 @@ public interface WriteBatchInterface {
      * @param value the value to be merged with the current value for
      * the specified key.
      */
-    void merge(byte[] key, byte[] value);
+    void merge(byte[] key, byte[] value) throws RocksDBException;
 
     /**
      * <p>Merge "value" with the existing value of "key" in given column family.
@@ -58,14 +58,36 @@ public interface WriteBatchInterface {
      * the specified key.
      */
     void merge(ColumnFamilyHandle columnFamilyHandle,
-                      byte[] key, byte[] value);
+                      byte[] key, byte[] value) throws RocksDBException;
+
+    /**
+     * <p>If the database contains a mapping for "key", erase it.  Else do nothing.</p>
+     *
+     * @param key Key to delete within database
+     *
+     * @deprecated Use {@link #delete(byte[])}
+     */
+    @Deprecated
+    void remove(byte[] key) throws RocksDBException;
+
+    /**
+     * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
+     *
+     * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+     * @param key Key to delete within database
+     *
+     * @deprecated Use {@link #delete(ColumnFamilyHandle, byte[])}
+     */
+    @Deprecated
+    void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key)
+        throws RocksDBException;
 
     /**
      * <p>If the database contains a mapping for "key", erase it.  Else do nothing.</p>
      *
      * @param key Key to delete within database
      */
-    void remove(byte[] key);
+    void delete(byte[] key) throws RocksDBException;
 
     /**
      * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
@@ -73,7 +95,58 @@ public interface WriteBatchInterface {
      * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
      * @param key Key to delete within database
      */
-    void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key);
+    void delete(ColumnFamilyHandle columnFamilyHandle, byte[] key)
+        throws RocksDBException;
+
+    /**
+     * Remove the database entry for {@code key}. Requires that the key exists
+     * and was not overwritten. It is not an error if the key did not exist
+     * in the database.
+     *
+     * If a key is overwritten (by calling {@link #put(byte[], byte[])} multiple
+     * times), then the result of calling SingleDelete() on this key is undefined.
+     * SingleDelete() only behaves correctly if there has been only one Put()
+     * for this key since the previous call to SingleDelete() for this key.
+     *
+     * This feature is currently an experimental performance optimization
+     * for a very specific workload. It is up to the caller to ensure that
+     * SingleDelete is only used for a key that is not deleted using Delete() or
+     * written using Merge(). Mixing SingleDelete operations with Deletes and
+     * Merges can result in undefined behavior.
+     *
+     * @param key Key to delete within database
+     *
+     * @throws RocksDBException thrown if error happens in underlying
+     *     native library.
+     */
+    @Experimental("Performance optimization for a very specific workload")
+    void singleDelete(final byte[] key) throws RocksDBException;
+
+    /**
+     * Remove the database entry for {@code key}. Requires that the key exists
+     * and was not overwritten. It is not an error if the key did not exist
+     * in the database.
+     *
+     * If a key is overwritten (by calling {@link #put(byte[], byte[])} multiple
+     * times), then the result of calling SingleDelete() on this key is undefined.
+     * SingleDelete() only behaves correctly if there has been only one Put()
+     * for this key since the previous call to SingleDelete() for this key.
+     *
+     * This feature is currently an experimental performance optimization
+     * for a very specific workload. It is up to the caller to ensure that
+     * SingleDelete is only used for a key that is not deleted using Delete() or
+     * written using Merge(). Mixing SingleDelete operations with Deletes and
+     * Merges can result in undefined behavior.
+     *
+     * @param columnFamilyHandle The column family to delete the key from
+     * @param key Key to delete within database
+     *
+     * @throws RocksDBException thrown if error happens in underlying
+     *     native library.
+     */
+    @Experimental("Performance optimization for a very specific workload")
+    void singleDelete(final ColumnFamilyHandle columnFamilyHandle,
+            final byte[] key) throws RocksDBException;
 
     /**
      * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
@@ -89,7 +162,7 @@ public interface WriteBatchInterface {
      * @param endKey
      *          Last key to delete within database (excluded)
      */
-    void deleteRange(byte[] beginKey, byte[] endKey);
+    void deleteRange(byte[] beginKey, byte[] endKey) throws RocksDBException;
 
     /**
      * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
@@ -106,7 +179,8 @@ public interface WriteBatchInterface {
      * @param endKey
      *          Last key to delete within database (excluded)
      */
-    void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey, byte[] endKey);
+    void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey,
+            byte[] endKey) throws RocksDBException;
 
     /**
      * Append a blob of arbitrary size to the records in this batch. The blob will
@@ -122,7 +196,7 @@ public interface WriteBatchInterface {
      *
      * @param blob binary object to be inserted
      */
-    void putLogData(byte[] blob);
+    void putLogData(byte[] blob) throws RocksDBException;
 
     /**
      * Clear all updates buffered in this batch
@@ -143,4 +217,30 @@ public interface WriteBatchInterface {
      * @throws RocksDBException if there is no previous call to SetSavePoint()
      */
     void rollbackToSavePoint() throws RocksDBException;
+
+    /**
+     * Pop the most recent save point.
+     *
+     * That is to say that it removes the last save point,
+     * which was set by {@link #setSavePoint()}.
+     *
+     * @throws RocksDBException If there is no previous call to
+     *     {@link #setSavePoint()}, an exception with
+     *     {@link Status.Code#NotFound} will be thrown.
+     */
+    void popSavePoint() throws RocksDBException;
+
+    /**
+     * Set the maximum size of the write batch.
+     *
+     * @param maxBytes the maximum size in bytes.
+     */
+    void setMaxBytes(long maxBytes);
+
+    /**
+     * Get the underlying Write Batch.
+     *
+     * @return the underlying WriteBatch.
+     */
+    WriteBatch getWriteBatch();
 }

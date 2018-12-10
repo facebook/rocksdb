@@ -46,6 +46,7 @@ public class DBOptions
     this.numShardBits_ = other.numShardBits_;
     this.rateLimiter_ = other.rateLimiter_;
     this.rowCache_ = other.rowCache_;
+    this.writeBufferManager_ = other.writeBufferManager_;
   }
 
   /**
@@ -175,6 +176,13 @@ public class DBOptions
     assert(isOwningHandle());
     rateLimiter_ = rateLimiter;
     setRateLimiter(nativeHandle_, rateLimiter.nativeHandle_);
+    return this;
+  }
+
+  @Override
+  public DBOptions setSstFileManager(final SstFileManager sstFileManager) {
+    assert(isOwningHandle());
+    setSstFileManager(nativeHandle_, sstFileManager.nativeHandle_);
     return this;
   }
 
@@ -661,6 +669,20 @@ public class DBOptions
   }
 
   @Override
+  public DBOptions setWriteBufferManager(final WriteBufferManager writeBufferManager) {
+    assert(isOwningHandle());
+    setWriteBufferManager(nativeHandle_, writeBufferManager.nativeHandle_);
+    this.writeBufferManager_ = writeBufferManager;
+    return this;
+  }
+
+  @Override
+  public WriteBufferManager writeBufferManager() {
+    assert(isOwningHandle());
+    return this.writeBufferManager_;
+  }
+
+    @Override
   public long dbWriteBufferSize() {
     assert(isOwningHandle());
     return dbWriteBufferSize(nativeHandle_);
@@ -988,6 +1010,8 @@ public class DBOptions
   private native boolean paranoidChecks(long handle);
   private native void setRateLimiter(long handle,
       long rateLimiterHandle);
+  private native void setSstFileManager(final long handle,
+      final long sstFileManagerHandle);
   private native void setLogger(long handle,
       long loggerHandle);
   private native void setInfoLogLevel(long handle, byte logLevel);
@@ -1078,6 +1102,8 @@ public class DBOptions
   private native boolean adviseRandomOnOpen(long handle);
   private native void setDbWriteBufferSize(final long handle,
       final long dbWriteBufferSize);
+  private native void setWriteBufferManager(final long dbOptionsHandle,
+      final long writeBufferManagerHandle);
   private native long dbWriteBufferSize(final long handle);
   private native void setAccessHintOnCompactionStart(final long handle,
       final byte accessHintOnCompactionStart);
@@ -1149,4 +1175,5 @@ public class DBOptions
   private int numShardBits_;
   private RateLimiter rateLimiter_;
   private Cache rowCache_;
+  private WriteBufferManager writeBufferManager_;
 }

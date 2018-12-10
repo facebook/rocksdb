@@ -110,6 +110,12 @@ struct BackupableDBOptions {
 
   // When Open() is called, it will open at most this many of the latest
   // non-corrupted backups.
+  //
+  // Note setting this to a non-default value prevents old files from being
+  // deleted in the shared directory, as we can't do proper ref-counting. If
+  // using this option, make sure to occasionally disable it (by resetting to
+  // INT_MAX) and run GarbageCollect to clean accumulated stale files.
+  //
   // Default: INT_MAX
   int max_valid_backups_to_open;
 

@@ -18,7 +18,7 @@ namespace rocksdb {
 class DocumentDBTest : public testing::Test {
  public:
   DocumentDBTest() {
-    dbname_ = test::TmpDir() + "/document_db_test";
+    dbname_ = test::PerThreadDBPath("document_db_test");
     DestroyDB(dbname_, Options());
   }
   ~DocumentDBTest() {
@@ -75,8 +75,10 @@ TEST_F(DocumentDBTest, SimpleQueryTest) {
   ASSERT_OK(DocumentDB::Open(options, dbname_, {}, &db_));
   CreateIndexes({index});
   delete db_;
+  db_ = nullptr;
   // now there is index present
   ASSERT_OK(DocumentDB::Open(options, dbname_, {index}, &db_));
+  assert(db_ != nullptr);
   delete index.description;
 
   std::vector<std::string> json_objects = {
@@ -328,7 +330,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as DocumentDB is not supported in ROCKSDB_LITE\n");
   return 0;
 }
