@@ -200,6 +200,9 @@ public class ColumnFamilyOptions extends RocksObject
    * {@link #setCompactionFilter(AbstractCompactionFilter)} takes precedence
    * over {@link #setCompactionFilterFactory(AbstractCompactionFilterFactory)}
    * if the client specifies both.
+   *
+   * @param compactionFilter The compaction filter called during compaction.
+   * @return the reference to {@link org.rocksdb.ColumnFamilyOptions instance}.
    */
   //TODO(AR) need to set a note on the concurrency of the compaction filter used from this method
   public ColumnFamilyOptions setCompactionFilter(
@@ -218,6 +221,9 @@ public class ColumnFamilyOptions extends RocksObject
    * A new filter will be created on each compaction run.  If multithreaded
    * compaction is being used, each created CompactionFilter will only be used
    * from a single thread and so does not need to be thread-safe.
+   *
+   * @param compactionFilterFactory The factory used for creating a new filter on each compaction run.
+   * @return the reference to {@link org.rocksdb.ColumnFamilyOptions instance}.
    */
   public ColumnFamilyOptions setCompactionFilterFactory(final AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>> compactionFilterFactory) {
     assert (isOwningHandle());
