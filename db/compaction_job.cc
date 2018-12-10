@@ -1272,9 +1272,11 @@ Status CompactionJob::FinishCompactionOutputFile(
         // lower_bound. We also know that smaller subcompactions exist, because
         // otherwise the subcompaction woud be unbounded on the left. As a
         // result, we know that no other files on the output level will contain
-        // keys at lower_bound. Therefore, it is safe to use the tombstone's
-        // sequence number, to ensure that keys at lower_bound at lower levels
-        // are covered by truncated tombstones.
+        // actual keys at lower_bound (an output file may have a largest key of
+        // lower_bound@kMaxSequenceNumber, but this only indicates a large range
+        // tombstone was truncated). Therefore, it is safe to use the
+        // tombstone's sequence number, to ensure that keys at lower_bound at
+        // lower levels are covered by truncated tombstones.
         //
         // If lower_bound was chosen by the smallest data key in the file,
         // choose lowest seqnum so this file's smallest internal key comes after
@@ -1307,7 +1309,7 @@ Status CompactionJob::FinishCompactionOutputFile(
 #ifndef NDEBUG
       SequenceNumber smallest_ikey_seqnum = kMaxSequenceNumber;
       if (meta->smallest.size() > 0) {
-        GetInternalKeySeqno(meta->smallest.Encode());
+        smallest_ikey_seqnum = GetInternalKeySeqno(meta->smallest.Encode());
       }
 #endif
       meta->UpdateBoundariesForRange(smallest_candidate, largest_candidate,
