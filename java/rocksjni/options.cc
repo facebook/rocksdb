@@ -239,7 +239,7 @@ void Java_org_rocksdb_Options_setMergeOperator(JNIEnv* /*env*/,
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_Options_setCompactionFilterHandle(
-    JNIEnv* env, jobject jobj, jlong jopt_handle,
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jopt_handle,
     jlong jcompactionfilter_handle) {
   reinterpret_cast<rocksdb::Options*>(jopt_handle)->
       compaction_filter = reinterpret_cast<rocksdb::CompactionFilter*>
