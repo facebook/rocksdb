@@ -186,25 +186,7 @@ public class ColumnFamilyOptions extends RocksObject
     return this;
   }
 
-  /**
-   * A single CompactionFilter instance to call into during compaction.
-   * Allows an application to modify/delete a key-value during background
-   * compaction.
-   *
-   * If the client requires a new compaction filter to be used for different
-   * compaction runs, it can specify call
-   * {@link #setCompactionFilterFactory(AbstractCompactionFilterFactory)}
-   * instead.
-   *
-   * The client should specify only set one of the two.
-   * {@link #setCompactionFilter(AbstractCompactionFilter)} takes precedence
-   * over {@link #setCompactionFilterFactory(AbstractCompactionFilterFactory)}
-   * if the client specifies both.
-   *
-   * @param compactionFilter The compaction filter called during compaction.
-   * @return the reference to {@link org.rocksdb.ColumnFamilyOptions instance}.
-   */
-  //TODO(AR) need to set a note on the concurrency of the compaction filter used from this method
+  @Override
   public ColumnFamilyOptions setCompactionFilter(
         final AbstractCompactionFilter<? extends AbstractSlice<?>>
             compactionFilter) {
@@ -213,23 +195,24 @@ public class ColumnFamilyOptions extends RocksObject
     return this;
   }
 
-  /**
-   * This is a factory that provides {@link AbstractCompactionFilter} objects
-   * which allow an application to modify/delete a key-value during background
-   * compaction.
-   *
-   * A new filter will be created on each compaction run.  If multithreaded
-   * compaction is being used, each created CompactionFilter will only be used
-   * from a single thread and so does not need to be thread-safe.
-   *
-   * @param compactionFilterFactory The factory used for creating a new filter on each compaction run.
-   * @return the reference to {@link org.rocksdb.ColumnFamilyOptions instance}.
-   */
+  @Override
+  public AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter() {
+    assert (isOwningHandle());
+    return compactionFilter_;
+  }
+
+  @Override
   public ColumnFamilyOptions setCompactionFilterFactory(final AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>> compactionFilterFactory) {
     assert (isOwningHandle());
     setCompactionFilterFactoryHandle(nativeHandle_, compactionFilterFactory.nativeHandle_);
     compactionFilterFactory_ = compactionFilterFactory;
     return this;
+  }
+
+  @Override
+  public AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>> compactionFilterFactory() {
+    assert (isOwningHandle());
+    return compactionFilterFactory_;
   }
 
   @Override
@@ -967,7 +950,7 @@ public class ColumnFamilyOptions extends RocksObject
   private TableFormatConfig tableFormatConfig_;
   private AbstractComparator<? extends AbstractSlice<?>> comparator_;
   private AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter_;
-  AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>>
+  private AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>>
       compactionFilterFactory_;
   private CompactionOptionsUniversal compactionOptionsUniversal_;
   private CompactionOptionsFIFO compactionOptionsFIFO_;

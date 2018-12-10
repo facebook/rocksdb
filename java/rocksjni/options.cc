@@ -235,6 +235,34 @@ void Java_org_rocksdb_Options_setMergeOperator(JNIEnv* /*env*/,
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setCompactionFilterHandle
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setCompactionFilterHandle(
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jopt_handle,
+    jlong jcompactionfilter_handle) {
+  reinterpret_cast<rocksdb::Options*>(jopt_handle)->
+      compaction_filter = reinterpret_cast<rocksdb::CompactionFilter*>
+  (jcompactionfilter_handle);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setCompactionFilterFactoryHandle
+ * Signature: (JJ)V
+ */
+void JNICALL Java_org_rocksdb_Options_setCompactionFilterFactoryHandle(
+    JNIEnv* /* env */, jobject /* jobj */, jlong jopt_handle,
+    jlong jcompactionfilterfactory_handle) {
+  auto* cff_factory =
+      reinterpret_cast<std::shared_ptr<rocksdb::CompactionFilterFactory> *>(
+          jcompactionfilterfactory_handle);
+  reinterpret_cast<rocksdb::Options*>(jopt_handle)->
+      compaction_filter_factory = *cff_factory;
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    setWriteBufferSize
  * Signature: (JJ)I
  */
