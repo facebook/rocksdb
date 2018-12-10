@@ -120,6 +120,21 @@ Status DBOptions::AddExtensionLibrary(const std::string & name,
   return status;
 }
 
+Status DBOptions::SetEnvironment(const std::string & name, const std::string & options) {
+  Env *newEnv;
+  std::unique_ptr<Env> guard;
+  Status status = NewUniqueExtension(name, *this, nullptr, &newEnv, &guard);
+  if (status.ok()) {
+    status = newEnv->ConfigureFromString(*this, options);
+  }
+  if (status.ok()) {
+    status = newEnv->SanitizeOptions(*this);
+  }
+  if (status.ok()) {
+    this->env = newEnv;
+  }
+  return status;
+}
 #endif
 
 

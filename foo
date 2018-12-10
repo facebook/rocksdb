@@ -1,0 +1,3 @@
+Makefile:137: Warning: Compiling in debug mode. Don't use the resulting binary in production
+  GEN      util/build_version.cc
+Makefile:137: Warning: Compiling in debug mode. Don't use the resulting binary in production

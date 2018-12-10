@@ -1038,7 +1038,32 @@ TEST_F(OptionsTest, ConvertOptionsTest) {
             leveldb_opt.block_restart_interval);
   ASSERT_EQ(table_opt.filter_policy.get(), leveldb_opt.filter_policy);
 }
+#ifndef ROCKSDB_LITE
+TEST_F(OptionsTest, SetEnvironment) {
+  DBOptions db_opt;
+  std::string defaultName = "default";
+  ASSERT_NE(db_opt.env, nullptr);
+  ASSERT_EQ(defaultName, db_opt.env->Name());
+  ASSERT_EQ(Status::InvalidArgument(), db_opt.SetEnvironment("unknown", ""));
+  ASSERT_EQ(defaultName, db_opt.env->Name());
+  ASSERT_EQ(Status::NotFound(), db_opt.SetEnvironment("memory", "bad=bad"));
+  ASSERT_EQ(defaultName, db_opt.env->Name());
+  ASSERT_OK(db_opt.SetEnvironment("memory", ""));
+  ASSERT_EQ(std::string("memory"), db_opt.env->Name());
+  ASSERT_EQ(Status::InvalidArgument(), db_opt.SetEnvironment("encrypted", ""));
+  ASSERT_EQ(std::string("memory"), db_opt.env->Name());
+  ASSERT_OK(db_opt.SetEnvironment("encrypted",
+				  "rocksdb.encrypted.env.provider={"
+				  "name=CTR;"
+  				  "options={rocksdb.encrypted.provider.ctr.cipher.name=ROT13;"
+  				  "rocksdb.encrypted.cipher.rot13.blocksize=42"
+				  "}}"));
 
+  ASSERT_EQ(std::string("encrypted"), db_opt.env->Name());
+}
+  
+#endif
+  
 #ifndef ROCKSDB_LITE
 class OptionsParserTest : public testing::Test {
  public:

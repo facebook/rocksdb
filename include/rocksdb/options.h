@@ -889,6 +889,12 @@ struct DBOptions {
   Status AddExtensionLibrary(const std::string & name,
 			     const std::string & method,
 			     const std::string & arg);
+  // Sets the environment to the one specified by the input name
+  // The "options" are used to configure the named environment.
+  // Does not change the environment if it the named environment could not
+  // be created or configured.
+  // Returns OK if the environment was successfully configured and non-OK otherwise
+  Status SetEnvironment(const std::string & name, const std::string & options);
 #endif
 
   // If true, then DB::Open / CreateColumnFamily / DropColumnFamily
