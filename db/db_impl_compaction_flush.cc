@@ -231,6 +231,8 @@ Status DBImpl::FlushMemTablesToOutputFiles(
     if (!s.ok()) {
       status = s;
       if (!s.IsShutdownInProgress()) {
+        // At this point, DB is not shutting down, nor is cfd dropped.
+        // Something is wrong, thus we break out of the loop.
         break;
       }
     }
@@ -334,8 +336,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   autovector<std::pair<bool, Status>> exec_status;
   for (int i = 0; i != num_cfs; ++i) {
     // Initially all jobs are not executed, with status OK.
-    std::pair<bool, Status> elem(false, Status::OK());
-    exec_status.emplace_back(elem);
+    exec_status.emplace_back(false, Status::OK());
   }
 
   if (s.ok()) {
@@ -356,17 +357,20 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     exec_status[0].first = true;
   }
 
-  Status tmp_status;
+  Status error_status;
   for (const auto& e : exec_status) {
     if (!e.second.ok()) {
       s = e.second;
       if (!e.second.IsShutdownInProgress()) {
-        tmp_status = e.second;
+        // If a flush job did not return OK, and the CF is not dropped, and the
+        // DB is not shutting down, then we have to return this result to
+        // caller later.
+        error_status = e.second;
       }
     }
   }
 
-  s = tmp_status.ok() ? s : tmp_status;
+  s = error_status.ok() ? s : error_status;
 
   if (s.ok() || s.IsShutdownInProgress()) {
     // Sync on all distinct output directories.
@@ -412,6 +416,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     assert(num_cfs ==
            static_cast<int>(job_context->superversion_contexts.size()));
     for (int i = 0; i != num_cfs; ++i) {
+      if (cfds[i]->IsDropped()) {
+        continue;
+      }
       InstallSuperVersionAndScheduleWork(cfds[i],
                                          &job_context->superversion_contexts[i],
                                          *cfds[i]->GetLatestMutableCFOptions());
@@ -427,6 +434,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     auto sfm = static_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
     for (int i = 0; i != num_cfs; ++i) {
+      if (cfds[i]->IsDropped()) {
+        continue;
+      }
       NotifyOnFlushCompleted(cfds[i], &file_meta[i],
                              *cfds[i]->GetLatestMutableCFOptions(),
                              job_context->job_id, jobs[i].GetTableProperties());
@@ -446,7 +456,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 #endif  // ROCKSDB_LITE
   }
 
-  if (!s.ok()) {
+  // Need to undo atomic flush if something went wrong, i.e. s is not OK and
+  // it is not because of CF drop.
+  if (!s.ok() && !s.IsShutdownInProgress()) {
     // Have to cancel the flush jobs that have NOT executed because we need to
     // unref the versions.
     for (int i = 0; i != num_cfs; ++i) {
@@ -454,17 +466,15 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         jobs[i].Cancel();
       }
     }
-    if (!s.IsShutdownInProgress()) {
-      for (int i = 0; i != num_cfs; ++i) {
-        if (exec_status[i].first && exec_status[i].second.ok()) {
-          auto& mems = jobs[i].GetMemTables();
-          cfds[i]->imm()->RollbackMemtableFlush(mems,
-                                                file_meta[i].fd.GetNumber());
-        }
+    for (int i = 0; i != num_cfs; ++i) {
+      if (exec_status[i].first && exec_status[i].second.ok()) {
+        auto& mems = jobs[i].GetMemTables();
+        cfds[i]->imm()->RollbackMemtableFlush(mems,
+                                              file_meta[i].fd.GetNumber());
       }
-      Status new_bg_error = s;
-      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
     }
+    Status new_bg_error = s;
+    error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
   }
 
   return s;

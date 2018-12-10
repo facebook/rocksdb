@@ -2858,6 +2858,13 @@ Status VersionSet::ProcessManifestWrites(
       assert(last_writer != nullptr);
       assert(last_writer->cfd != nullptr);
       if (last_writer->cfd->IsDropped()) {
+        // If we detect a dropped CF at this point, and the corresponding
+        // version edits belong to an atomic group, then we need to find out
+        // the preceding version edits in the same atomic group, and update
+        // their `remaining_entries_` member variable because we are NOT going
+        // to write the version edits' of dropped CF to the MANIFEST. If we
+        // don't update, then Recover can report corrupted atomic group because
+        // the `remaining_entries_` do not match.
         size_t k = 0;
         const auto& edit_list = last_writer->edit_list;
         while (k < edit_list.size() && edit_list[k]->is_in_atomic_group_) {
@@ -2872,7 +2879,7 @@ Status VersionSet::ProcessManifestWrites(
                      remaining_entries + 1) {
             assert(batch_edits[i - 1]->remaining_entries_ >= k);
             remaining_entries = batch_edits[i - 1]->remaining_entries_;
-            batch_edits[i - 1]->remaining_entries_ -= k;
+            batch_edits[i - 1]->remaining_entries_ -= static_cast<uint32_t>(k);
             --i;
           }
         }
