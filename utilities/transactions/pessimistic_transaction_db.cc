@@ -638,6 +638,8 @@ PessimisticTransactionDB::GetLockStatusData() {
 }
 
 std::vector<DeadlockPath> PessimisticTransactionDB::GetDeadlockInfoBuffer() {
+  // TODO: Here, we should get deadlock info from RangeLockMgr if we are using
+  // it. At the moment, it doesn't provide any deadlock information.
   return lock_mgr_.GetDeadlockInfoBuffer();
 }
 
