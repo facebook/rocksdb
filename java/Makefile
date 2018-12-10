@@ -1,6 +1,7 @@
 NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.AbstractCompactionFilterFactory\
 	org.rocksdb.AbstractSlice\
+	org.rocksdb.AbstractTableFilter\
 	org.rocksdb.AbstractTransactionNotifier\
 	org.rocksdb.BackupEngine\
 	org.rocksdb.BackupableDBOptions\
@@ -141,6 +142,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.SnapshotTest\
 	org.rocksdb.SstFileManagerTest\
 	org.rocksdb.SstFileWriterTest\
+	org.rocksdb.TableFilterTest\
 	org.rocksdb.TransactionTest\
 	org.rocksdb.TransactionDBTest\
 	org.rocksdb.TransactionOptionsTest\

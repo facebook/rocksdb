@@ -307,7 +307,7 @@ jobject Java_org_rocksdb_TransactionDB_getLockStatusData(JNIEnv* env,
     return nullptr;
   }
 
-  const rocksdb::HashMapJni::FnMapKV<const int32_t, const rocksdb::KeyLockInfo>
+  const rocksdb::HashMapJni::FnMapKV<const int32_t, const rocksdb::KeyLockInfo, jobject, jobject>
       fn_map_kv =
           [env](
               const std::pair<const int32_t, const rocksdb::KeyLockInfo>&

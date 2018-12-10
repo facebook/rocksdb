@@ -136,7 +136,7 @@ jobject Java_org_rocksdb_SstFileManager_getTrackedFiles(JNIEnv* env,
     return nullptr;
   }
 
-  const rocksdb::HashMapJni::FnMapKV<const std::string, const uint64_t>
+  const rocksdb::HashMapJni::FnMapKV<const std::string, const uint64_t, jobject, jobject>
       fn_map_kv =
           [env](const std::pair<const std::string, const uint64_t>& pair) {
             const jstring jtracked_file_path =

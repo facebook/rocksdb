@@ -32,6 +32,7 @@
 #include "rocksjni/compaction_filter_factory_jnicallback.h"
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/loggerjnicallback.h"
+#include "rocksjni/table_filter_jnicallback.h"
 #include "rocksjni/transaction_notifier_jnicallback.h"
 #include "rocksjni/writebatchhandlerjnicallback.h"
 
@@ -4438,6 +4439,212 @@ class DeadlockPathJni : public JavaClass {
   }
 };
 
+class AbstractTableFilterJni : public RocksDBNativeClass<const rocksdb::TableFilterJniCallback*, AbstractTableFilterJni> {
+ public:
+  /**
+   * Get the Java Method: TableFilter#filter(TableProperties)
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getFilterMethod(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "filter", "(Lorg/rocksdb/TableProperties;)Z");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+ private:
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/TableFilter");
+  }
+};
+
+class TablePropertiesJni : public JavaClass {
+ public:
+  /**
+   * Create a new Java org.rocksdb.TableProperties object.
+   *
+   * @param env A pointer to the Java environment
+   * @param table_properties A Cpp table properties object
+   *
+   * @return A reference to a Java org.rocksdb.TableProperties object, or
+   * nullptr if an an exception occurs
+   */
+  static jobject fromCppTableProperties(JNIEnv* env, const rocksdb::TableProperties& table_properties) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(JJJJJJJJJJJJJJJJJJJ[BLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;)V");
+    if (mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    jbyteArray jcolumn_family_name = rocksdb::JniUtil::copyBytes(env, table_properties.column_family_name);
+    if (jcolumn_family_name == nullptr) {
+      // exception occurred creating java string
+      return nullptr;
+    }
+
+    jstring jfilter_policy_name = rocksdb::JniUtil::toJavaString(env, &table_properties.filter_policy_name, true);
+    if (env->ExceptionCheck()) {
+      // exception occurred creating java string
+      env->DeleteLocalRef(jcolumn_family_name);
+      return nullptr;
+    }
+
+    jstring jcomparator_name = rocksdb::JniUtil::toJavaString(env, &table_properties.comparator_name, true);
+    if (env->ExceptionCheck()) {
+      // exception occurred creating java string
+      env->DeleteLocalRef(jcolumn_family_name);
+      env->DeleteLocalRef(jfilter_policy_name);
+      return nullptr;
+    }
+
+    jstring jmerge_operator_name = rocksdb::JniUtil::toJavaString(env, &table_properties.merge_operator_name, true);
+    if (env->ExceptionCheck()) {
+      // exception occurred creating java string
+      env->DeleteLocalRef(jcolumn_family_name);
+      env->DeleteLocalRef(jfilter_policy_name);
+      env->DeleteLocalRef(jcomparator_name);
+      return nullptr;
+    }
+
+    jstring jprefix_extractor_name = rocksdb::JniUtil::toJavaString(env, &table_properties.prefix_extractor_name, true);
+    if (env->ExceptionCheck()) {
+      // exception occurred creating java string
+      env->DeleteLocalRef(jcolumn_family_name);
+      env->DeleteLocalRef(jfilter_policy_name);
+      env->DeleteLocalRef(jcomparator_name);
+      env->DeleteLocalRef(jmerge_operator_name);
+      return nullptr;
+    }
+  
+    jstring jproperty_collectors_names = rocksdb::JniUtil::toJavaString(env, &table_properties.property_collectors_names, true);
+    if (env->ExceptionCheck()) {
+      // exception occurred creating java string
+      env->DeleteLocalRef(jcolumn_family_name);
+      env->DeleteLocalRef(jfilter_policy_name);
+      env->DeleteLocalRef(jcomparator_name);
+      env->DeleteLocalRef(jmerge_operator_name);
+      env->DeleteLocalRef(jprefix_extractor_name);
+      return nullptr;
+    }
+
+    jstring jcompression_name = rocksdb::JniUtil::toJavaString(env, &table_properties.compression_name, true);
+    if (env->ExceptionCheck()) {
+      // exception occurred creating java string
+      env->DeleteLocalRef(jcolumn_family_name);
+      env->DeleteLocalRef(jfilter_policy_name);
+      env->DeleteLocalRef(jcomparator_name);
+      env->DeleteLocalRef(jmerge_operator_name);
+      env->DeleteLocalRef(jprefix_extractor_name);
+      env->DeleteLocalRef(jproperty_collectors_names);
+      return nullptr;
+    }
+
+    // Map<String, String>
+    jobject juser_collected_properties = rocksdb::HashMapJni::fromCppMap(env, &table_properties.user_collected_properties);
+    if (env->ExceptionCheck()) {
+      // exception occurred creating java map
+      env->DeleteLocalRef(jcolumn_family_name);
+      env->DeleteLocalRef(jfilter_policy_name);
+      env->DeleteLocalRef(jcomparator_name);
+      env->DeleteLocalRef(jmerge_operator_name);
+      env->DeleteLocalRef(jprefix_extractor_name);
+      env->DeleteLocalRef(jproperty_collectors_names);
+      env->DeleteLocalRef(jcompression_name);
+      return nullptr;
+    }
+
+    // Map<String, String>
+    jobject jreadable_properties = rocksdb::HashMapJni::fromCppMap(env, &table_properties.readable_properties);
+    if (env->ExceptionCheck()) {
+      // exception occurred creating java map
+      env->DeleteLocalRef(jcolumn_family_name);
+      env->DeleteLocalRef(jfilter_policy_name);
+      env->DeleteLocalRef(jcomparator_name);
+      env->DeleteLocalRef(jmerge_operator_name);
+      env->DeleteLocalRef(jprefix_extractor_name);
+      env->DeleteLocalRef(jproperty_collectors_names);
+      env->DeleteLocalRef(jcompression_name);
+      env->DeleteLocalRef(juser_collected_properties);
+      return nullptr;
+    }
+
+    // Map<String, Long>
+    jobject jproperties_offsets = rocksdb::HashMapJni::fromCppMap(env, &table_properties.properties_offsets);
+    if (env->ExceptionCheck()) {
+      // exception occurred creating java map
+      env->DeleteLocalRef(jcolumn_family_name);
+      env->DeleteLocalRef(jfilter_policy_name);
+      env->DeleteLocalRef(jcomparator_name);
+      env->DeleteLocalRef(jmerge_operator_name);
+      env->DeleteLocalRef(jprefix_extractor_name);
+      env->DeleteLocalRef(jproperty_collectors_names);
+      env->DeleteLocalRef(jcompression_name);
+      env->DeleteLocalRef(juser_collected_properties);
+      env->DeleteLocalRef(jreadable_properties);
+      return nullptr;
+    }
+
+    jobject jtable_properties = env->NewObject(jclazz, mid,
+        static_cast<jlong>(table_properties.data_size),
+        static_cast<jlong>(table_properties.index_size),
+        static_cast<jlong>(table_properties.index_partitions),
+        static_cast<jlong>(table_properties.top_level_index_size),
+        static_cast<jlong>(table_properties.index_key_is_user_key),
+        static_cast<jlong>(table_properties.index_value_is_delta_encoded),
+        static_cast<jlong>(table_properties.filter_size),
+        static_cast<jlong>(table_properties.raw_key_size),
+        static_cast<jlong>(table_properties.raw_value_size),
+        static_cast<jlong>(table_properties.num_data_blocks),
+        static_cast<jlong>(table_properties.num_entries),
+        static_cast<jlong>(table_properties.num_deletions),
+        static_cast<jlong>(table_properties.num_merge_operands),
+        static_cast<jlong>(table_properties.num_range_deletions),
+        static_cast<jlong>(table_properties.format_version),
+        static_cast<jlong>(table_properties.fixed_key_len),
+        static_cast<jlong>(table_properties.column_family_id),
+        static_cast<jlong>(table_properties.creation_time),
+        static_cast<jlong>(table_properties.oldest_key_time),
+        jcolumn_family_name,
+        jfilter_policy_name,
+        jcomparator_name,
+        jmerge_operator_name,
+        jprefix_extractor_name,
+        jproperty_collectors_names,
+        jcompression_name,
+        juser_collected_properties,
+        jreadable_properties,
+        jproperties_offsets
+    );
+
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+
+    return jtable_properties;
+  }
+
+ private:
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/TableProperties");
+  }
+};
+
 // various utility functions for working with RocksDB and JNI
 class JniUtil {
  public:
@@ -4823,6 +5030,29 @@ class JniUtil {
 
       return jbyte_strings;
     }
+
+    /**
+     * Creates a Java UTF String from a C++ std::string
+     *
+     * @param env A pointer to the java environment
+     * @param string the C++ std::string
+     * @param treat_empty_as_null true if empty strings should be treated as null
+     *
+     * @return the Java UTF string, or nullptr if the provided string
+     *     is null (or empty and treat_empty_as_null is set), or if an
+     *     exception occurs allocating the Java String.
+     */
+    static jstring toJavaString(JNIEnv* env, const std::string* string, const bool treat_empty_as_null = false) {
+      if (string == nullptr) {
+        return nullptr;
+      }
+
+      if (treat_empty_as_null && string->empty()) {
+        return nullptr;
+      }
+
+      return env->NewStringUTF(string->c_str());
+    }
     
     /**
       * Copies bytes to a new jByteArray with the check of java array size limitation.
@@ -5177,13 +5407,13 @@ class HashMapJni : public JavaClass {
   }
 
   /**
-   * A function which maps a std::pair<K,V> to a std::pair<jobject, jobject>
+   * A function which maps a std::pair<K,V> to a std::pair<JK, JV>
    *
    * @return Either a pointer to a std::pair<jobject, jobject>, or nullptr
    *     if an error occurs during the mapping
    */
-  template <typename K, typename V>
-  using FnMapKV = std::function<std::unique_ptr<std::pair<jobject, jobject>> (const std::pair<K, V>&)>;
+  template <typename K, typename V, typename JK, typename JV>
+  using FnMapKV = std::function<std::unique_ptr<std::pair<JK, JV>> (const std::pair<K, V>&)>;
 
   // template <class I, typename K, typename V, typename K1, typename V1, typename std::enable_if<std::is_same<typename std::iterator_traits<I>::value_type, std::pair<const K,V>>::value, int32_t>::type = 0>
   // static void putAll(JNIEnv* env, const jobject jhash_map, I iterator, const FnMapKV<const K,V,K1,V1> &fn_map_kv) {
@@ -5191,7 +5421,7 @@ class HashMapJni : public JavaClass {
    * Returns true if it succeeds, false if an error occurs
    */
   template<class iterator_type, typename K, typename V>
-  static bool putAll(JNIEnv* env, const jobject jhash_map, iterator_type iterator, iterator_type end, const FnMapKV<K, V> &fn_map_kv) {
+  static bool putAll(JNIEnv* env, const jobject jhash_map, iterator_type iterator, iterator_type end, const FnMapKV<K, V, jobject, jobject> &fn_map_kv) {
     const jmethodID jmid_put = rocksdb::MapJni::getMapPutMethodId(env);
     if (jmid_put == nullptr) {
       return false;
@@ -5217,6 +5447,96 @@ class HashMapJni : public JavaClass {
     }
 
     return true;
+  }
+
+  /**
+   * Creates a java.util.Map<String, String> from a std::map<std::string, std::string>
+   *
+   * @param env A pointer to the Java environment
+   * @param map the Cpp map
+   *
+   * @return a reference to the Java java.util.Map object, or nullptr if an exception occcurred
+   */
+  static jobject fromCppMap(JNIEnv* env, std::map<std::string, std::string>* map) {
+    if (map == nullptr) {
+      return nullptr;
+    }
+
+    jobject jhash_map = construct(env, static_cast<uint32_t>(map->size()));
+    if (jhash_map == nullptr) {
+      // exception occurred
+      return nullptr;
+    }
+
+    const rocksdb::HashMapJni::FnMapKV<const std::string, const std::string, jobject, jobject> fn_map_kv =
+        [env](const std::pair<const std::string, const std::string>& kv) {
+      jstring jkey = rocksdb::JniUtil::toJavaString(env, &(kv.first), false);
+      if (env->ExceptionCheck()) {
+        // an error occurred
+        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+      }
+
+      jstring jvalue = rocksdb::JniUtil::toJavaString(env, &(kv.second), true);
+      if (env->ExceptionCheck()) {
+        // an error occurred
+        env->DeleteLocalRef(jkey);
+        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+      }
+
+      return std::unique_ptr<std::pair<jobject, jobject>>(new std::pair<jobject, jobject>(static_cast<jobject>(jkey), static_cast<jobject>(jvalue)));
+    };
+
+    if (!putAll(env, jhash_map, map->begin(), map->end(), fn_map_kv)) {
+      // exception occurred
+      return nullptr;
+    }
+
+    return jhash_map;
+  }
+
+  /**
+   * Creates a java.util.Map<String, Long> from a std::map<std::string, uint64_t>
+   *
+   * @param env A pointer to the Java environment
+   * @param map the Cpp map
+   *
+   * @return a reference to the Java java.util.Map object, or nullptr if an exception occcurred
+   */
+  static jobject fromCppMap(JNIEnv* env, std::map<std::string, uint64_t>* map) {
+    if (map == nullptr) {
+      return nullptr;
+    }
+
+    jobject jhash_map = construct(env, static_cast<uint32_t>(map->size()));
+    if (jhash_map == nullptr) {
+      // exception occurred
+      return nullptr;
+    }
+
+    const rocksdb::HashMapJni::FnMapKV<const std::string, const uint64_t, jobject, jobject> fn_map_kv =
+        [env](const std::pair<const std::string, const uint64_t>& kv) {
+      jstring jkey = rocksdb::JniUtil::toJavaString(env, &(kv.first), false);
+      if (env->ExceptionCheck()) {
+        // an error occurred
+        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+      }
+
+      jobject jvalue = rocksdb::LongJni::valueOf(env, static_cast<jlong>(kv.second));
+      if (env->ExceptionCheck()) {
+        // an error occurred
+        env->DeleteLocalRef(jkey);
+        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+      }
+
+      return std::unique_ptr<std::pair<jobject, jobject>>(new std::pair<jobject, jobject>(static_cast<jobject>(jkey), jvalue));
+    };
+
+    if (!putAll(env, jhash_map, map->begin(), map->end(), fn_map_kv)) {
+      // exception occurred
+      return nullptr;
+    }
+
+    return jhash_map;
   }
 };
 

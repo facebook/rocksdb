@@ -22,6 +22,7 @@
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/portal.h"
 #include "rocksjni/statisticsjni.h"
+#include "rocksjni/table_filter_jnicallback.h"
 
 #include "rocksdb/comparator.h"
 #include "rocksdb/convenience.h"
@@ -6252,9 +6253,22 @@ jboolean Java_org_rocksdb_WriteOptions_noSlowdown(JNIEnv* /*env*/,
  * Method:    newReadOptions
  * Signature: ()J
  */
-jlong Java_org_rocksdb_ReadOptions_newReadOptions(JNIEnv* /*env*/,
-                                                  jclass /*jcls*/) {
+jlong Java_org_rocksdb_ReadOptions_newReadOptions__(
+    JNIEnv*, jclass) {
   auto* read_options = new rocksdb::ReadOptions();
+  return reinterpret_cast<jlong>(read_options);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    newReadOptions
+ * Signature: (ZZ)J
+ */
+jlong Java_org_rocksdb_ReadOptions_newReadOptions__ZZ(
+    JNIEnv*, jclass, jboolean jverify_checksums, jboolean jfill_cache) {
+  auto* read_options =
+      new rocksdb::ReadOptions(static_cast<bool>(jverify_checksums),
+          static_cast<bool>(jfill_cache));
   return reinterpret_cast<jlong>(read_options);
 }
 
@@ -6490,6 +6504,29 @@ void Java_org_rocksdb_ReadOptions_setReadaheadSize(JNIEnv* /*env*/,
 
 /*
  * Class:     org_rocksdb_ReadOptions
+ * Method:    maxSkippableInternalKeys
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ReadOptions_maxSkippableInternalKeys(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
+  return static_cast<jlong>(opt->max_skippable_internal_keys);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setMaxSkippableInternalKeys
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ReadOptions_setMaxSkippableInternalKeys(
+    JNIEnv*, jobject, jlong jhandle, jlong jmax_skippable_internal_keys) {
+  auto* opt = reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
+  opt->max_skippable_internal_keys =
+      static_cast<uint64_t>(jmax_skippable_internal_keys);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
  * Method:    ignoreRangeDeletions
  * Signature: (J)Z
  */
@@ -6604,6 +6641,41 @@ jlong Java_org_rocksdb_ReadOptions_iterateLowerBound(JNIEnv* /*env*/,
   auto& lower_bound_slice_handle =
       reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->iterate_lower_bound;
   return reinterpret_cast<jlong>(lower_bound_slice_handle);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setTableFilter
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ReadOptions_setTableFilter(
+    JNIEnv*, jobject, jlong jhandle, jlong jjni_table_filter_handle) {
+  auto* opt = reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
+  auto* jni_table_filter =
+      reinterpret_cast<rocksdb::TableFilterJniCallback*>(jjni_table_filter_handle);
+  opt->table_filter = jni_table_filter->GetTableFilterFunction();
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setIterStartSeqnum
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ReadOptions_setIterStartSeqnum(
+    JNIEnv*, jobject, jlong jhandle, jlong jiter_start_seqnum) {
+  auto* opt = reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
+  opt->iter_start_seqnum = static_cast<uint64_t>(jiter_start_seqnum);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    iterStartSeqnum
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ReadOptions_iterStartSeqnum(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
+  return static_cast<jlong>(opt->iter_start_seqnum);
 }
 
 /////////////////////////////////////////////////////////////////////

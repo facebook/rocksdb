@@ -46,6 +46,8 @@ set(JNI_NATIVE_SOURCES
         rocksjni/statistics.cc
         rocksjni/statisticsjni.cc
         rocksjni/table.cc
+        rocksjni/table_filter.cc
+        rocksjni/table_filter_jnicallback.cc
         rocksjni/transaction.cc
         rocksjni/transaction_db.cc
         rocksjni/transaction_db_options.cc
@@ -69,6 +71,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.AbstractNativeReference
         org.rocksdb.AbstractRocksIterator
         org.rocksdb.AbstractSlice
+        org.rocksdb.AbstractTableFilter
         org.rocksdb.AbstractTransactionNotifier
         org.rocksdb.BackupableDBOptions
         org.rocksdb.BackupEngine
@@ -267,6 +270,8 @@ add_jar(
   src/main/java/org/rocksdb/StatsLevel.java
   src/main/java/org/rocksdb/Status.java
   src/main/java/org/rocksdb/StringAppendOperator.java
+  src/main/java/org/rocksdb/TableFilter.java
+  src/main/java/org/rocksdb/TableProperties.java
   src/main/java/org/rocksdb/TableFormatConfig.java
   src/main/java/org/rocksdb/TickerType.java
   src/main/java/org/rocksdb/TransactionalDB.java
