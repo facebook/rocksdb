@@ -293,7 +293,7 @@ class Transaction {
   // functions in WriteBatch, but will also do conflict checking on the
   // keys being written.
   //
-  // assume_tracked=false expects the key be already tracked. If valid then it
+  // assume_tracked=true expects the key be already tracked. If valid then it
   // skips ValidateSnapshot. Returns error otherwise.
   //
   // If this Transaction was created on an OptimisticTransactionDB, these
