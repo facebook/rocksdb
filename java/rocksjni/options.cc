@@ -199,7 +199,8 @@ void Java_org_rocksdb_Options_setMergeOperatorName(
  * Signature: (JJjava/lang/String)V
  */
 void Java_org_rocksdb_Options_setMergeOperator(
-  JNIEnv* env, jobject jobj, jlong jhandle, jlong mergeOperatorHandle) {
+    JNIEnv* /* env */, jobject /* jobj */, jlong jhandle,
+    jlong mergeOperatorHandle) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->merge_operator =
     *(reinterpret_cast<std::shared_ptr<rocksdb::MergeOperator>*>
       (mergeOperatorHandle));
@@ -224,7 +225,7 @@ void Java_org_rocksdb_Options_setCompactionFilterHandle(
  * Signature: (JJ)V
  */
 void JNICALL Java_org_rocksdb_Options_setCompactionFilterFactoryHandle(
-    JNIEnv* env , jobject jobj, jlong jopt_handle,
+    JNIEnv* /* env */, jobject /* jobj */, jlong jopt_handle,
     jlong jcompactionfilterfactory_handle) {
   auto* cff_factory =
       reinterpret_cast<std::shared_ptr<rocksdb::CompactionFilterFactory> *>(
