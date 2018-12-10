@@ -270,7 +270,7 @@ void JNICALL Java_org_rocksdb_Options_setCompactionFilterFactoryHandle(
 void Java_org_rocksdb_Options_setWriteBufferSize(JNIEnv* env, jobject /*jobj*/,
                                                  jlong jhandle,
                                                  jlong jwrite_buffer_size) {
-  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(jwrite_buffer_size);
+  rocksdb::Status s = rocksdb::JniUtil::check_if_jlong_fits_size_t(jwrite_buffer_size);
   if (s.ok()) {
     reinterpret_cast<rocksdb::Options*>(jhandle)->write_buffer_size =
         jwrite_buffer_size;
@@ -818,7 +818,7 @@ jlong Java_org_rocksdb_Options_maxLogFileSize(JNIEnv* /*env*/, jobject /*jobj*/,
 void Java_org_rocksdb_Options_setMaxLogFileSize(JNIEnv* env, jobject /*jobj*/,
                                                 jlong jhandle,
                                                 jlong max_log_file_size) {
-  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(max_log_file_size);
+  rocksdb::Status s = rocksdb::JniUtil::check_if_jlong_fits_size_t(max_log_file_size);
   if (s.ok()) {
     reinterpret_cast<rocksdb::Options*>(jhandle)->max_log_file_size =
         max_log_file_size;
@@ -846,7 +846,7 @@ jlong Java_org_rocksdb_Options_logFileTimeToRoll(JNIEnv* /*env*/,
 void Java_org_rocksdb_Options_setLogFileTimeToRoll(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong log_file_time_to_roll) {
   rocksdb::Status s =
-      rocksdb::check_if_jlong_fits_size_t(log_file_time_to_roll);
+      rocksdb::JniUtil::check_if_jlong_fits_size_t(log_file_time_to_roll);
   if (s.ok()) {
     reinterpret_cast<rocksdb::Options*>(jhandle)->log_file_time_to_roll =
         log_file_time_to_roll;
@@ -873,7 +873,7 @@ jlong Java_org_rocksdb_Options_keepLogFileNum(JNIEnv* /*env*/, jobject /*jobj*/,
 void Java_org_rocksdb_Options_setKeepLogFileNum(JNIEnv* env, jobject /*jobj*/,
                                                 jlong jhandle,
                                                 jlong keep_log_file_num) {
-  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(keep_log_file_num);
+  rocksdb::Status s = rocksdb::JniUtil::check_if_jlong_fits_size_t(keep_log_file_num);
   if (s.ok()) {
     reinterpret_cast<rocksdb::Options*>(jhandle)->keep_log_file_num =
         keep_log_file_num;
@@ -902,7 +902,7 @@ void Java_org_rocksdb_Options_setRecycleLogFileNum(JNIEnv* env,
                                                    jobject /*jobj*/,
                                                    jlong jhandle,
                                                    jlong recycle_log_file_num) {
-  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(recycle_log_file_num);
+  rocksdb::Status s = rocksdb::JniUtil::check_if_jlong_fits_size_t(recycle_log_file_num);
   if (s.ok()) {
     reinterpret_cast<rocksdb::Options*>(jhandle)->recycle_log_file_num =
         recycle_log_file_num;
@@ -1140,7 +1140,7 @@ jlong Java_org_rocksdb_Options_manifestPreallocationSize(JNIEnv* /*env*/,
  */
 void Java_org_rocksdb_Options_setManifestPreallocationSize(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong preallocation_size) {
-  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(preallocation_size);
+  rocksdb::Status s = rocksdb::JniUtil::check_if_jlong_fits_size_t(preallocation_size);
   if (s.ok()) {
     reinterpret_cast<rocksdb::Options*>(jhandle)->manifest_preallocation_size =
         preallocation_size;
@@ -2454,7 +2454,7 @@ jlong Java_org_rocksdb_Options_arenaBlockSize(JNIEnv* /*env*/, jobject /*jobj*/,
 void Java_org_rocksdb_Options_setArenaBlockSize(JNIEnv* env,
                                                 jobject /*jobj*/, jlong jhandle,
                                                 jlong jarena_block_size) {
-  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(jarena_block_size);
+  rocksdb::Status s = rocksdb::JniUtil::check_if_jlong_fits_size_t(jarena_block_size);
   if (s.ok()) {
     reinterpret_cast<rocksdb::Options*>(jhandle)->arena_block_size =
         jarena_block_size;
@@ -2554,7 +2554,7 @@ void Java_org_rocksdb_Options_setInplaceUpdateNumLocks(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle,
     jlong jinplace_update_num_locks) {
   rocksdb::Status s =
-      rocksdb::check_if_jlong_fits_size_t(jinplace_update_num_locks);
+      rocksdb::JniUtil::check_if_jlong_fits_size_t(jinplace_update_num_locks);
   if (s.ok()) {
     reinterpret_cast<rocksdb::Options*>(jhandle)->inplace_update_num_locks =
         jinplace_update_num_locks;
@@ -2630,7 +2630,7 @@ void Java_org_rocksdb_Options_setMaxSuccessiveMerges(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle,
     jlong jmax_successive_merges) {
   rocksdb::Status s =
-      rocksdb::check_if_jlong_fits_size_t(jmax_successive_merges);
+      rocksdb::JniUtil::check_if_jlong_fits_size_t(jmax_successive_merges);
   if (s.ok()) {
     reinterpret_cast<rocksdb::Options*>(jhandle)->max_successive_merges =
         jmax_successive_merges;
@@ -2741,7 +2741,7 @@ void Java_org_rocksdb_Options_setMemtableHugePageSize(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle,
     jlong jmemtable_huge_page_size) {
   rocksdb::Status s =
-      rocksdb::check_if_jlong_fits_size_t(jmemtable_huge_page_size);
+      rocksdb::JniUtil::check_if_jlong_fits_size_t(jmemtable_huge_page_size);
   if (s.ok()) {
     reinterpret_cast<rocksdb::Options*>(jhandle)->memtable_huge_page_size =
         jmemtable_huge_page_size;
@@ -3302,7 +3302,7 @@ Java_org_rocksdb_ColumnFamilyOptions_setCompactionFilterFactoryHandle(
 void Java_org_rocksdb_ColumnFamilyOptions_setWriteBufferSize(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle,
     jlong jwrite_buffer_size) {
-  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(jwrite_buffer_size);
+  rocksdb::Status s = rocksdb::JniUtil::check_if_jlong_fits_size_t(jwrite_buffer_size);
   if (s.ok()) {
     reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)
         ->write_buffer_size = jwrite_buffer_size;
@@ -3893,7 +3893,7 @@ jlong Java_org_rocksdb_ColumnFamilyOptions_arenaBlockSize(JNIEnv* /*env*/,
  */
 void Java_org_rocksdb_ColumnFamilyOptions_setArenaBlockSize(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jarena_block_size) {
-  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(jarena_block_size);
+  rocksdb::Status s = rocksdb::JniUtil::check_if_jlong_fits_size_t(jarena_block_size);
   if (s.ok()) {
     reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)->arena_block_size =
         jarena_block_size;
@@ -3992,7 +3992,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setInplaceUpdateNumLocks(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle,
     jlong jinplace_update_num_locks) {
   rocksdb::Status s =
-      rocksdb::check_if_jlong_fits_size_t(jinplace_update_num_locks);
+      rocksdb::JniUtil::check_if_jlong_fits_size_t(jinplace_update_num_locks);
   if (s.ok()) {
     reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)
         ->inplace_update_num_locks = jinplace_update_num_locks;
@@ -4069,7 +4069,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMaxSuccessiveMerges(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle,
     jlong jmax_successive_merges) {
   rocksdb::Status s =
-      rocksdb::check_if_jlong_fits_size_t(jmax_successive_merges);
+      rocksdb::JniUtil::check_if_jlong_fits_size_t(jmax_successive_merges);
   if (s.ok()) {
     reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)
         ->max_successive_merges = jmax_successive_merges;
@@ -4122,7 +4122,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMemtableHugePageSize(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle,
     jlong jmemtable_huge_page_size) {
   rocksdb::Status s =
-      rocksdb::check_if_jlong_fits_size_t(jmemtable_huge_page_size);
+      rocksdb::JniUtil::check_if_jlong_fits_size_t(jmemtable_huge_page_size);
   if (s.ok()) {
     reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)
         ->memtable_huge_page_size = jmemtable_huge_page_size;
@@ -5129,7 +5129,7 @@ void Java_org_rocksdb_DBOptions_setMaxLogFileSize(JNIEnv* env,
                                                   jobject /*jobj*/,
                                                   jlong jhandle,
                                                   jlong max_log_file_size) {
-  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(max_log_file_size);
+  rocksdb::Status s = rocksdb::JniUtil::check_if_jlong_fits_size_t(max_log_file_size);
   if (s.ok()) {
     reinterpret_cast<rocksdb::DBOptions*>(jhandle)->max_log_file_size =
         max_log_file_size;
@@ -5158,7 +5158,7 @@ void Java_org_rocksdb_DBOptions_setLogFileTimeToRoll(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle,
     jlong log_file_time_to_roll) {
   rocksdb::Status s =
-      rocksdb::check_if_jlong_fits_size_t(log_file_time_to_roll);
+      rocksdb::JniUtil::check_if_jlong_fits_size_t(log_file_time_to_roll);
   if (s.ok()) {
     reinterpret_cast<rocksdb::DBOptions*>(jhandle)->log_file_time_to_roll =
         log_file_time_to_roll;
@@ -5187,7 +5187,7 @@ void Java_org_rocksdb_DBOptions_setKeepLogFileNum(JNIEnv* env,
                                                   jobject /*jobj*/,
                                                   jlong jhandle,
                                                   jlong keep_log_file_num) {
-  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(keep_log_file_num);
+  rocksdb::Status s = rocksdb::JniUtil::check_if_jlong_fits_size_t(keep_log_file_num);
   if (s.ok()) {
     reinterpret_cast<rocksdb::DBOptions*>(jhandle)->keep_log_file_num =
         keep_log_file_num;
@@ -5215,7 +5215,7 @@ jlong Java_org_rocksdb_DBOptions_keepLogFileNum(JNIEnv* /*env*/,
 void Java_org_rocksdb_DBOptions_setRecycleLogFileNum(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle,
     jlong recycle_log_file_num) {
-  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(recycle_log_file_num);
+  rocksdb::Status s = rocksdb::JniUtil::check_if_jlong_fits_size_t(recycle_log_file_num);
   if (s.ok()) {
     reinterpret_cast<rocksdb::DBOptions*>(jhandle)->recycle_log_file_num =
         recycle_log_file_num;
@@ -5338,7 +5338,7 @@ jlong Java_org_rocksdb_DBOptions_walSizeLimitMB(JNIEnv* /*env*/,
 void Java_org_rocksdb_DBOptions_setManifestPreallocationSize(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle,
     jlong preallocation_size) {
-  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(preallocation_size);
+  rocksdb::Status s = rocksdb::JniUtil::check_if_jlong_fits_size_t(preallocation_size);
   if (s.ok()) {
     reinterpret_cast<rocksdb::DBOptions*>(jhandle)
         ->manifest_preallocation_size = preallocation_size;

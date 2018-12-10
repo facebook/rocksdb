@@ -43,15 +43,6 @@
 
 namespace rocksdb {
 
-// Detect if jlong overflows size_t
-inline Status check_if_jlong_fits_size_t(const jlong& jvalue) {
-  Status s = Status::OK();
-  if (static_cast<uint64_t>(jvalue) > std::numeric_limits<size_t>::max()) {
-    s = Status::InvalidArgument(Slice("jlong overflows 32 bit value."));
-  }
-  return s;
-}
-
 class JavaClass {
  public:
   /**
@@ -160,11 +151,12 @@ template<class DERIVED> class JavaException : public JavaClass {
   }
 };
 
-// The portal class for org.rocksdb.RocksDB
-class RocksDBJni : public RocksDBNativeClass<rocksdb::DB*, RocksDBJni> {
+// The portal class for java.lang.IllegalArgumentException
+class IllegalArgumentExceptionJni :
+    public JavaException<IllegalArgumentExceptionJni> {
  public:
   /**
-   * Get the Java Class org.rocksdb.RocksDB
+   * Get the Java Class java.lang.IllegalArgumentException
    *
    * @param env A pointer to the Java environment
    *
@@ -173,7 +165,34 @@ class RocksDBJni : public RocksDBNativeClass<rocksdb::DB*, RocksDBJni> {
    *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
    */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env, "org/rocksdb/RocksDB");
+    return JavaException::getJClass(env, "java/lang/IllegalArgumentException");
+  }
+
+  /**
+   * Create and throw a Java IllegalArgumentException with the provided status
+   *
+   * If s.ok() == true, then this function will not throw any exception.
+   *
+   * @param env A pointer to the Java environment
+   * @param s The status for the exception
+   *
+   * @return true if an exception was thrown, false otherwise
+   */
+  static bool ThrowNew(JNIEnv* env, const Status& s) {
+    assert(!s.ok());
+    if (s.ok()) {
+      return false;
+    }
+
+    // get the IllegalArgumentException class
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      std::cerr << "IllegalArgumentExceptionJni::ThrowNew/class - Error: unexpected exception!" << std::endl;
+      return env->ExceptionCheck();
+    }
+
+    return JavaException::ThrowNew(env, s.ToString());
   }
 };
 
@@ -896,12 +915,157 @@ class RocksDBExceptionJni :
   }
 };
 
-// The portal class for java.lang.IllegalArgumentException
-class IllegalArgumentExceptionJni :
-    public JavaException<IllegalArgumentExceptionJni> {
+// The portal class for java.util.List
+class ListJni : public JavaClass {
  public:
   /**
-   * Get the Java Class java.lang.IllegalArgumentException
+   * Get the Java Class java.util.List
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getListClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "java/util/List");
+  }
+
+  /**
+   * Get the Java Class java.util.ArrayList
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getArrayListClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "java/util/ArrayList");
+  }
+
+  /**
+   * Get the Java Class java.util.Iterator
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getIteratorClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "java/util/Iterator");
+  }
+
+  /**
+   * Get the Java Method: List#iterator
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getIteratorMethod(JNIEnv* env) {
+    jclass jlist_clazz = getListClass(env);
+    if(jlist_clazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jlist_clazz, "iterator", "()Ljava/util/Iterator;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: Iterator#hasNext
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getHasNextMethod(JNIEnv* env) {
+    jclass jiterator_clazz = getIteratorClass(env);
+    if(jiterator_clazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jiterator_clazz, "hasNext", "()Z");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: Iterator#next
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getNextMethod(JNIEnv* env) {
+    jclass jiterator_clazz = getIteratorClass(env);
+    if(jiterator_clazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jiterator_clazz, "next", "()Ljava/lang/Object;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: ArrayList constructor
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getArrayListConstructorMethodId(JNIEnv* env) {
+    jclass jarray_list_clazz = getArrayListClass(env);
+    if(jarray_list_clazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+    static jmethodID mid =
+        env->GetMethodID(jarray_list_clazz, "<init>", "(I)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: List#add
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getListAddMethodId(JNIEnv* env) {
+    jclass jlist_clazz = getListClass(env);
+    if(jlist_clazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jlist_clazz, "add", "(Ljava/lang/Object;)Z");
+    assert(mid != nullptr);
+    return mid;
+  }
+};
+
+// The portal class for java.lang.Byte
+class ByteJni : public JavaClass {
+ public:
+  /**
+   * Get the Java Class java.lang.Byte
    *
    * @param env A pointer to the Java environment
    *
@@ -910,37 +1074,1041 @@ class IllegalArgumentExceptionJni :
    *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
    */
   static jclass getJClass(JNIEnv* env) {
-    return JavaException::getJClass(env, "java/lang/IllegalArgumentException");
+    return JavaClass::getJClass(env, "java/lang/Byte");
   }
 
   /**
-   * Create and throw a Java IllegalArgumentException with the provided status
-   *
-   * If s.ok() == true, then this function will not throw any exception.
+   * Get the Java Class byte[]
    *
    * @param env A pointer to the Java environment
-   * @param s The status for the exception
    *
-   * @return true if an exception was thrown, false otherwise
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
    */
-  static bool ThrowNew(JNIEnv* env, const Status& s) {
-    assert(!s.ok());
-    if (s.ok()) {
-      return false;
-    }
+  static jclass getArrayJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "[B");
+  }
 
-    // get the IllegalArgumentException class
-    jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+  /**
+   * Creates a new 2-dimensional Java Byte Array byte[][]
+   *
+   * @param env A pointer to the Java environment
+   * @param len The size of the first dimension
+   *
+   * @return A reference to the Java byte[][] or nullptr if an exception occurs
+   */
+  static jobjectArray new2dByteArray(JNIEnv* env, const jsize len) {
+    jclass clazz = getArrayJClass(env);
+    if(clazz == nullptr) {
       // exception occurred accessing class
-      std::cerr << "IllegalArgumentExceptionJni::ThrowNew/class - Error: unexpected exception!" << std::endl;
-      return env->ExceptionCheck();
+      return nullptr;
     }
 
-    return JavaException::ThrowNew(env, s.ToString());
+    return env->NewObjectArray(len, clazz, nullptr);
+  }
+
+  /**
+   * Get the Java Method: Byte#byteValue
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retrieved
+   */
+  static jmethodID getByteValueMethod(JNIEnv* env) {
+    jclass clazz = getJClass(env);
+    if(clazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(clazz, "byteValue", "()B");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Calls the Java Method: Byte#valueOf, returning a constructed Byte jobject
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return A constructing Byte object or nullptr if the class or method id could not
+   *     be retrieved, or an exception occurred
+   */
+  static jobject valueOf(JNIEnv* env, jbyte jprimitive_byte) {
+    jclass clazz = getJClass(env);
+    if (clazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetStaticMethodID(clazz, "valueOf", "(B)Ljava/lang/Byte;");
+    if (mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    const jobject jbyte_obj =
+        env->CallStaticObjectMethod(clazz, mid, jprimitive_byte);
+    if (env->ExceptionCheck()) {
+      // exception occurred
+      return nullptr;
+    }
+
+    return jbyte_obj;
+  }
+
+};
+
+// The portal class for java.lang.Long
+class LongJni : public JavaClass {
+ public:
+  /**
+   * Get the Java Class java.lang.Long
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "java/lang/Long");
+  }
+
+  static jobject valueOf(JNIEnv* env, jlong jprimitive_long) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jmethodID mid =
+        env->GetStaticMethodID(jclazz, "valueOf", "(J)Ljava/lang/Long;");
+    if (mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    const jobject jlong_obj =
+        env->CallStaticObjectMethod(jclazz, mid, jprimitive_long);
+    if (env->ExceptionCheck()) {
+      // exception occurred
+      return nullptr;
+    }
+
+    return jlong_obj;
   }
 };
 
+// The portal class for java.lang.StringBuilder
+class StringBuilderJni : public JavaClass {
+  public:
+  /**
+   * Get the Java Class java.lang.StringBuilder
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "java/lang/StringBuilder");
+  }
+
+  /**
+   * Get the Java Method: StringBuilder#append
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getListAddMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "append",
+            "(Ljava/lang/String;)Ljava/lang/StringBuilder;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Appends a C-style string to a StringBuilder
+   *
+   * @param env A pointer to the Java environment
+   * @param jstring_builder Reference to a java.lang.StringBuilder
+   * @param c_str A C-style string to append to the StringBuilder
+   *
+   * @return A reference to the updated StringBuilder, or a nullptr if
+   *     an exception occurs
+   */
+  static jobject append(JNIEnv* env, jobject jstring_builder,
+      const char* c_str) {
+    jmethodID mid = getListAddMethodId(env);
+    if(mid == nullptr) {
+      // exception occurred accessing class or method
+      return nullptr;
+    }
+
+    jstring new_value_str = env->NewStringUTF(c_str);
+    if(new_value_str == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return nullptr;
+    }
+
+    jobject jresult_string_builder =
+        env->CallObjectMethod(jstring_builder, mid, new_value_str);
+    if(env->ExceptionCheck()) {
+      // exception occurred
+      env->DeleteLocalRef(new_value_str);
+      return nullptr;
+    }
+
+    return jresult_string_builder;
+  }
+};
+
+// various utility functions for working with RocksDB and JNI
+class JniUtil {
+ public:
+    /**
+     * Detect if jlong overflows size_t
+     * 
+     * @param jvalue the jlong value
+     * 
+     * @return
+     */
+    inline static Status check_if_jlong_fits_size_t(const jlong& jvalue) {
+      Status s = Status::OK();
+      if (static_cast<uint64_t>(jvalue) > std::numeric_limits<size_t>::max()) {
+        s = Status::InvalidArgument(Slice("jlong overflows 32 bit value."));
+      }
+      return s;
+    }
+
+    /**
+     * Obtains a reference to the JNIEnv from
+     * the JVM
+     *
+     * If the current thread is not attached to the JavaVM
+     * then it will be attached so as to retrieve the JNIEnv
+     *
+     * If a thread is attached, it must later be manually
+     * released by calling JavaVM::DetachCurrentThread.
+     * This can be handled by always matching calls to this
+     * function with calls to {@link JniUtil::releaseJniEnv(JavaVM*, jboolean)}
+     *
+     * @param jvm (IN) A pointer to the JavaVM instance
+     * @param attached (OUT) A pointer to a boolean which
+     *     will be set to JNI_TRUE if we had to attach the thread
+     *
+     * @return A pointer to the JNIEnv or nullptr if a fatal error
+     *     occurs and the JNIEnv cannot be retrieved
+     */
+    static JNIEnv* getJniEnv(JavaVM* jvm, jboolean* attached) {
+      assert(jvm != nullptr);
+
+      JNIEnv *env;
+      const jint env_rs = jvm->GetEnv(reinterpret_cast<void**>(&env),
+          JNI_VERSION_1_2);
+
+      if(env_rs == JNI_OK) {
+        // current thread is already attached, return the JNIEnv
+        *attached = JNI_FALSE;
+        return env;
+      } else if(env_rs == JNI_EDETACHED) {
+        // current thread is not attached, attempt to attach
+        const jint rs_attach = jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), NULL);
+        if(rs_attach == JNI_OK) {
+          *attached = JNI_TRUE;
+          return env;
+        } else {
+          // error, could not attach the thread
+          std::cerr << "JniUtil::getJinEnv - Fatal: could not attach current thread to JVM!" << std::endl;
+          return nullptr;
+        }
+      } else if(env_rs == JNI_EVERSION) {
+        // error, JDK does not support JNI_VERSION_1_2+
+        std::cerr << "JniUtil::getJinEnv - Fatal: JDK does not support JNI_VERSION_1_2" << std::endl;
+        return nullptr;
+      } else {
+        std::cerr << "JniUtil::getJinEnv - Fatal: Unknown error: env_rs=" << env_rs << std::endl;
+        return nullptr;
+      }
+    }
+
+    /**
+     * Counterpart to {@link JniUtil::getJniEnv(JavaVM*, jboolean*)}
+     *
+     * Detachess the current thread from the JVM if it was previously
+     * attached
+     *
+     * @param jvm (IN) A pointer to the JavaVM instance
+     * @param attached (IN) JNI_TRUE if we previously had to attach the thread
+     *     to the JavaVM to get the JNIEnv
+     */
+    static void releaseJniEnv(JavaVM* jvm, jboolean& attached) {
+      assert(jvm != nullptr);
+      if(attached == JNI_TRUE) {
+        const jint rs_detach = jvm->DetachCurrentThread();
+        assert(rs_detach == JNI_OK);
+        if(rs_detach != JNI_OK) {
+          std::cerr << "JniUtil::getJinEnv - Warn: Unable to detach current thread from JVM!" << std::endl;
+        }
+      }
+    }
+
+    /**
+     * Copies a Java String[] to a C++ std::vector<std::string>
+     *
+     * @param env (IN) A pointer to the java environment
+     * @param jss (IN) The Java String array to copy
+     * @param has_exception (OUT) will be set to JNI_TRUE
+     *     if an OutOfMemoryError or ArrayIndexOutOfBoundsException
+     *     exception occurs
+     *
+     * @return A std::vector<std:string> containing copies of the Java strings
+     */
+    static std::vector<std::string> copyStrings(JNIEnv* env,
+        jobjectArray jss, jboolean* has_exception) {
+          return rocksdb::JniUtil::copyStrings(env, jss,
+              env->GetArrayLength(jss), has_exception);
+    }
+
+    /**
+     * Copies a Java String[] to a C++ std::vector<std::string>
+     *
+     * @param env (IN) A pointer to the java environment
+     * @param jss (IN) The Java String array to copy
+     * @param jss_len (IN) The length of the Java String array to copy
+     * @param has_exception (OUT) will be set to JNI_TRUE
+     *     if an OutOfMemoryError or ArrayIndexOutOfBoundsException
+     *     exception occurs
+     *
+     * @return A std::vector<std:string> containing copies of the Java strings
+     */
+    static std::vector<std::string> copyStrings(JNIEnv* env,
+        jobjectArray jss, const jsize jss_len, jboolean* has_exception) {
+      std::vector<std::string> strs;
+      for (jsize i = 0; i < jss_len; i++) {
+        jobject js = env->GetObjectArrayElement(jss, i);
+        if(env->ExceptionCheck()) {
+          // exception thrown: ArrayIndexOutOfBoundsException
+          *has_exception = JNI_TRUE;
+          return strs;
+        }
+
+        jstring jstr = static_cast<jstring>(js);
+        const char* str = env->GetStringUTFChars(jstr, nullptr);
+        if(str == nullptr) {
+          // exception thrown: OutOfMemoryError
+          env->DeleteLocalRef(js);
+          *has_exception = JNI_TRUE;
+          return strs;
+        }
+
+        strs.push_back(std::string(str));
+
+        env->ReleaseStringUTFChars(jstr, str);
+        env->DeleteLocalRef(js);
+      }
+
+      *has_exception = JNI_FALSE;
+      return strs;
+    }
+
+    /**
+     * Copies a jstring to a C-style null-terminated byte string
+     * and releases the original jstring
+     *
+     * The jstring is copied as UTF-8
+     *
+     * If an exception occurs, then JNIEnv::ExceptionCheck()
+     * will have been called
+     *
+     * @param env (IN) A pointer to the java environment
+     * @param js (IN) The java string to copy
+     * @param has_exception (OUT) will be set to JNI_TRUE
+     *     if an OutOfMemoryError exception occurs
+     *
+     * @return A pointer to the copied string, or a
+     *     nullptr if has_exception == JNI_TRUE
+     */
+    static std::unique_ptr<char[]> copyString(JNIEnv* env, jstring js,
+        jboolean* has_exception) {
+      const char *utf = env->GetStringUTFChars(js, nullptr);
+      if(utf == nullptr) {
+        // exception thrown: OutOfMemoryError
+        env->ExceptionCheck();
+        *has_exception = JNI_TRUE;
+        return nullptr;
+      } else if(env->ExceptionCheck()) {
+        // exception thrown
+        env->ReleaseStringUTFChars(js, utf);
+        *has_exception = JNI_TRUE;
+        return nullptr;
+      }
+
+      const jsize utf_len = env->GetStringUTFLength(js);
+      std::unique_ptr<char[]> str(new char[utf_len + 1]);  // Note: + 1 is needed for the c_str null terminator
+      std::strcpy(str.get(), utf);
+      env->ReleaseStringUTFChars(js, utf);
+      *has_exception = JNI_FALSE;
+      return str;
+    }
+
+    /**
+     * Copies a jstring to a std::string
+     * and releases the original jstring
+     *
+     * If an exception occurs, then JNIEnv::ExceptionCheck()
+     * will have been called
+     *
+     * @param env (IN) A pointer to the java environment
+     * @param js (IN) The java string to copy
+     * @param has_exception (OUT) will be set to JNI_TRUE
+     *     if an OutOfMemoryError exception occurs
+     *
+     * @return A std:string copy of the jstring, or an
+     *     empty std::string if has_exception == JNI_TRUE
+     */
+    static std::string copyStdString(JNIEnv* env, jstring js,
+      jboolean* has_exception) {
+      const char *utf = env->GetStringUTFChars(js, nullptr);
+      if(utf == nullptr) {
+        // exception thrown: OutOfMemoryError
+        env->ExceptionCheck();
+        *has_exception = JNI_TRUE;
+        return std::string();
+      } else if(env->ExceptionCheck()) {
+        // exception thrown
+        env->ReleaseStringUTFChars(js, utf);
+        *has_exception = JNI_TRUE;
+        return std::string();
+      }
+
+      std::string name(utf);
+      env->ReleaseStringUTFChars(js, utf);
+      *has_exception = JNI_FALSE;
+      return name;
+    }
+
+    /**
+     * Copies bytes from a std::string to a jByteArray
+     *
+     * @param env A pointer to the java environment
+     * @param bytes The bytes to copy
+     *
+     * @return the Java byte[] or nullptr if an exception occurs
+     * 
+     * @throws RocksDBException thrown 
+     *   if memory size to copy exceeds general java specific array size limitation.
+     */
+    static jbyteArray copyBytes(JNIEnv* env, std::string bytes) {
+      return createJavaByteArrayWithSizeCheck(env, bytes.c_str(), bytes.size());
+    }
+
+    /**
+     * Given a Java byte[][] which is an array of java.lang.Strings
+     * where each String is a byte[], the passed function `string_fn`
+     * will be called on each String, the result is the collected by
+     * calling the passed function `collector_fn`
+     *
+     * @param env (IN) A pointer to the java environment
+     * @param jbyte_strings (IN) A Java array of Strings expressed as bytes
+     * @param string_fn (IN) A transform function to call for each String
+     * @param collector_fn (IN) A collector which is called for the result
+     *     of each `string_fn`
+     * @param has_exception (OUT) will be set to JNI_TRUE
+     *     if an ArrayIndexOutOfBoundsException or OutOfMemoryError
+     *     exception occurs
+     */
+    template <typename T> static void byteStrings(JNIEnv* env,
+        jobjectArray jbyte_strings,
+        std::function<T(const char*, const size_t)> string_fn,
+        std::function<void(size_t, T)> collector_fn,
+        jboolean *has_exception) {
+      const jsize jlen = env->GetArrayLength(jbyte_strings);
+
+      for(jsize i = 0; i < jlen; i++) {
+        jobject jbyte_string_obj = env->GetObjectArrayElement(jbyte_strings, i);
+        if(env->ExceptionCheck()) {
+          // exception thrown: ArrayIndexOutOfBoundsException
+          *has_exception = JNI_TRUE;  // signal error
+          return;
+        }
+
+        jbyteArray jbyte_string_ary =
+            reinterpret_cast<jbyteArray>(jbyte_string_obj);
+        T result = byteString(env, jbyte_string_ary, string_fn, has_exception);
+
+        env->DeleteLocalRef(jbyte_string_obj);
+
+        if(*has_exception == JNI_TRUE) {
+          // exception thrown: OutOfMemoryError
+          return;
+        }
+
+        collector_fn(i, result);
+      }
+
+      *has_exception = JNI_FALSE;
+    }
+
+    /**
+     * Given a Java String which is expressed as a Java Byte Array byte[],
+     * the passed function `string_fn` will be called on the String
+     * and the result returned
+     *
+     * @param env (IN) A pointer to the java environment
+     * @param jbyte_string_ary (IN) A Java String expressed in bytes
+     * @param string_fn (IN) A transform function to call on the String
+     * @param has_exception (OUT) will be set to JNI_TRUE
+     *     if an OutOfMemoryError exception occurs
+     */
+    template <typename T> static T byteString(JNIEnv* env,
+        jbyteArray jbyte_string_ary,
+        std::function<T(const char*, const size_t)> string_fn,
+        jboolean* has_exception) {
+      const jsize jbyte_string_len = env->GetArrayLength(jbyte_string_ary);
+      return byteString<T>(env, jbyte_string_ary, jbyte_string_len, string_fn,
+          has_exception);
+    }
+
+    /**
+     * Given a Java String which is expressed as a Java Byte Array byte[],
+     * the passed function `string_fn` will be called on the String
+     * and the result returned
+     *
+     * @param env (IN) A pointer to the java environment
+     * @param jbyte_string_ary (IN) A Java String expressed in bytes
+     * @param jbyte_string_len (IN) The length of the Java String
+     *     expressed in bytes
+     * @param string_fn (IN) A transform function to call on the String
+     * @param has_exception (OUT) will be set to JNI_TRUE
+     *     if an OutOfMemoryError exception occurs
+     */
+    template <typename T> static T byteString(JNIEnv* env,
+        jbyteArray jbyte_string_ary, const jsize jbyte_string_len,
+        std::function<T(const char*, const size_t)> string_fn,
+        jboolean* has_exception) {
+      jbyte* jbyte_string =
+          env->GetByteArrayElements(jbyte_string_ary, nullptr);
+      if(jbyte_string == nullptr) {
+        // exception thrown: OutOfMemoryError
+        *has_exception = JNI_TRUE;
+        return nullptr;  // signal error
+      }
+
+      T result =
+          string_fn(reinterpret_cast<char *>(jbyte_string), jbyte_string_len);
+
+      env->ReleaseByteArrayElements(jbyte_string_ary, jbyte_string, JNI_ABORT);
+
+      *has_exception = JNI_FALSE;
+      return result;
+    }
+
+    /**
+     * Converts a std::vector<string> to a Java byte[][] where each Java String
+     * is expressed as a Java Byte Array byte[].
+     *
+     * @param env A pointer to the java environment
+     * @param strings A vector of Strings
+     *
+     * @return A Java array of Strings expressed as bytes
+     */
+    static jobjectArray stringsBytes(JNIEnv* env, std::vector<std::string> strings) {
+      jclass jcls_ba = ByteJni::getArrayJClass(env);
+      if(jcls_ba == nullptr) {
+        // exception occurred
+        return nullptr;
+      }
+
+      const jsize len = static_cast<jsize>(strings.size());
+
+      jobjectArray jbyte_strings = env->NewObjectArray(len, jcls_ba, nullptr);
+      if(jbyte_strings == nullptr) {
+        // exception thrown: OutOfMemoryError
+        return nullptr;
+      }
+
+      for (jsize i = 0; i < len; i++) {
+        std::string *str = &strings[i];
+        const jsize str_len = static_cast<jsize>(str->size());
+
+        jbyteArray jbyte_string_ary = env->NewByteArray(str_len);
+        if(jbyte_string_ary == nullptr) {
+          // exception thrown: OutOfMemoryError
+          env->DeleteLocalRef(jbyte_strings);
+          return nullptr;
+        }
+
+        env->SetByteArrayRegion(
+          jbyte_string_ary, 0, str_len,
+          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(str->c_str())));
+        if(env->ExceptionCheck()) {
+          // exception thrown: ArrayIndexOutOfBoundsException
+          env->DeleteLocalRef(jbyte_string_ary);
+          env->DeleteLocalRef(jbyte_strings);
+          return nullptr;
+        }
+
+        env->SetObjectArrayElement(jbyte_strings, i, jbyte_string_ary);
+        if(env->ExceptionCheck()) {
+          // exception thrown: ArrayIndexOutOfBoundsException
+          // or ArrayStoreException
+          env->DeleteLocalRef(jbyte_string_ary);
+          env->DeleteLocalRef(jbyte_strings);
+          return nullptr;
+        }
+
+        env->DeleteLocalRef(jbyte_string_ary);
+      }
+
+      return jbyte_strings;
+    }
+
+    /**
+     * Creates a Java UTF String from a C++ std::string
+     *
+     * @param env A pointer to the java environment
+     * @param string the C++ std::string
+     * @param treat_empty_as_null true if empty strings should be treated as null
+     *
+     * @return the Java UTF string, or nullptr if the provided string
+     *     is null (or empty and treat_empty_as_null is set), or if an
+     *     exception occurs allocating the Java String.
+     */
+    static jstring toJavaString(JNIEnv* env, const std::string* string, const bool treat_empty_as_null = false) {
+      if (string == nullptr) {
+        return nullptr;
+      }
+
+      if (treat_empty_as_null && string->empty()) {
+        return nullptr;
+      }
+
+      return env->NewStringUTF(string->c_str());
+    }
+    
+    /**
+      * Copies bytes to a new jByteArray with the check of java array size limitation.
+      *
+      * @param bytes pointer to memory to copy to a new jByteArray
+      * @param size number of bytes to copy
+      *
+      * @return the Java byte[] or nullptr if an exception occurs
+      * 
+      * @throws RocksDBException thrown 
+      *   if memory size to copy exceeds general java array size limitation to avoid overflow.
+      */
+    static jbyteArray createJavaByteArrayWithSizeCheck(JNIEnv* env, const char* bytes, const size_t size) {
+      // Limitation for java array size is vm specific
+      // In general it cannot exceed Integer.MAX_VALUE (2^31 - 1)
+      // Current HotSpot VM limitation for array size is Integer.MAX_VALUE - 5 (2^31 - 1 - 5)
+      // It means that the next call to env->NewByteArray can still end with 
+      // OutOfMemoryError("Requested array size exceeds VM limit") coming from VM
+      static const size_t MAX_JARRAY_SIZE = (static_cast<size_t>(1)) << 31;
+      if(size > MAX_JARRAY_SIZE) {
+        rocksdb::RocksDBExceptionJni::ThrowNew(env, "Requested array size exceeds VM limit");
+        return nullptr;
+      }
+      
+      const jsize jlen = static_cast<jsize>(size);
+      jbyteArray jbytes = env->NewByteArray(jlen);
+      if(jbytes == nullptr) {
+        // exception thrown: OutOfMemoryError	
+        return nullptr;
+      }
+      
+      env->SetByteArrayRegion(jbytes, 0, jlen,
+        const_cast<jbyte*>(reinterpret_cast<const jbyte*>(bytes)));
+      if(env->ExceptionCheck()) {
+        // exception thrown: ArrayIndexOutOfBoundsException
+        env->DeleteLocalRef(jbytes);
+        return nullptr;
+      }
+
+      return jbytes;
+    }
+
+    /**
+     * Copies bytes from a rocksdb::Slice to a jByteArray
+     *
+     * @param env A pointer to the java environment
+     * @param bytes The bytes to copy
+     *
+     * @return the Java byte[] or nullptr if an exception occurs
+     * 
+     * @throws RocksDBException thrown 
+     *   if memory size to copy exceeds general java specific array size limitation.
+     */
+    static jbyteArray copyBytes(JNIEnv* env, const Slice& bytes) {
+      return createJavaByteArrayWithSizeCheck(env, bytes.data(), bytes.size());
+    }
+
+    /*
+     * Helper for operations on a key and value
+     * for example WriteBatch->Put
+     *
+     * TODO(AR) could be used for RocksDB->Put etc.
+     */
+    static std::unique_ptr<rocksdb::Status> kv_op(
+        std::function<rocksdb::Status(rocksdb::Slice, rocksdb::Slice)> op,
+        JNIEnv* env, jobject /*jobj*/,
+        jbyteArray jkey, jint jkey_len,
+        jbyteArray jvalue, jint jvalue_len) {
+      jbyte* key = env->GetByteArrayElements(jkey, nullptr);
+      if(env->ExceptionCheck()) {
+        // exception thrown: OutOfMemoryError
+        return nullptr;
+      }
+
+      jbyte* value = env->GetByteArrayElements(jvalue, nullptr);
+      if(env->ExceptionCheck()) {
+        // exception thrown: OutOfMemoryError
+        if(key != nullptr) {
+          env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+        }
+        return nullptr;
+      }
+
+      rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+      rocksdb::Slice value_slice(reinterpret_cast<char*>(value),
+          jvalue_len);
+
+      auto status = op(key_slice, value_slice);
+
+      if(value != nullptr) {
+        env->ReleaseByteArrayElements(jvalue, value, JNI_ABORT);
+      }
+      if(key != nullptr) {
+        env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+      }
+
+      return std::unique_ptr<rocksdb::Status>(new rocksdb::Status(status));
+    }
+
+    /*
+     * Helper for operations on a key
+     * for example WriteBatch->Delete
+     *
+     * TODO(AR) could be used for RocksDB->Delete etc.
+     */
+    static std::unique_ptr<rocksdb::Status> k_op(
+        std::function<rocksdb::Status(rocksdb::Slice)> op,
+        JNIEnv* env, jobject /*jobj*/,
+        jbyteArray jkey, jint jkey_len) {
+      jbyte* key = env->GetByteArrayElements(jkey, nullptr);
+      if(env->ExceptionCheck()) {
+        // exception thrown: OutOfMemoryError
+        return nullptr;
+      }
+
+      rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+
+      auto status = op(key_slice);
+
+      if(key != nullptr) {
+        env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+      }
+
+      return std::unique_ptr<rocksdb::Status>(new rocksdb::Status(status));
+    }
+
+    /*
+     * Helper for operations on a value
+     * for example WriteBatchWithIndex->GetFromBatch
+     */
+    static jbyteArray v_op(
+        std::function<rocksdb::Status(rocksdb::Slice, std::string*)> op,
+        JNIEnv* env, jbyteArray jkey, jint jkey_len) {
+      jbyte* key = env->GetByteArrayElements(jkey, nullptr);
+      if(env->ExceptionCheck()) {
+        // exception thrown: OutOfMemoryError
+        return nullptr;
+      }
+
+      rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+
+      std::string value;
+      rocksdb::Status s = op(key_slice, &value);
+
+      if(key != nullptr) {
+        env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+      }
+
+      if (s.IsNotFound()) {
+        return nullptr;
+      }
+
+      if (s.ok()) {
+        jbyteArray jret_value =
+            env->NewByteArray(static_cast<jsize>(value.size()));
+        if(jret_value == nullptr) {
+          // exception thrown: OutOfMemoryError
+          return nullptr;
+        }
+
+        env->SetByteArrayRegion(jret_value, 0, static_cast<jsize>(value.size()),
+                                const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value.c_str())));
+        if(env->ExceptionCheck()) {
+          // exception thrown: ArrayIndexOutOfBoundsException
+          if(jret_value != nullptr) {
+            env->DeleteLocalRef(jret_value);
+          }
+          return nullptr;
+        }
+
+        return jret_value;
+      }
+
+      rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+      return nullptr;
+    }
+};
+
+class MapJni : public JavaClass {
+ public:
+  /**
+   * Get the Java Class java.util.Map
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "java/util/Map");
+  }
+
+  /**
+   * Get the Java Method: Map#put
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getMapPutMethodId(JNIEnv* env) {
+    jclass jlist_clazz = getClass(env);
+    if(jlist_clazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jlist_clazz, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+    assert(mid != nullptr);
+    return mid;
+  }
+};
+
+class HashMapJni : public JavaClass {
+ public:
+  /**
+   * Get the Java Class java.util.HashMap
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "java/util/HashMap");
+  }
+
+  /**
+   * Create a new Java java.util.HashMap object.
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return A reference to a Java java.util.HashMap object, or
+   * nullptr if an an exception occurs
+   */
+  static jobject construct(JNIEnv* env, const uint32_t initial_capacity = 16) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(I)V");
+    if (mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    jobject jhash_map = env->NewObject(jclazz, mid, static_cast<jint>(initial_capacity));
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+
+    return jhash_map;
+  }
+
+  /**
+   * A function which maps a std::pair<K,V> to a std::pair<JK, JV>
+   *
+   * @return Either a pointer to a std::pair<jobject, jobject>, or nullptr
+   *     if an error occurs during the mapping
+   */
+  template <typename K, typename V, typename JK, typename JV>
+  using FnMapKV = std::function<std::unique_ptr<std::pair<JK, JV>> (const std::pair<K, V>&)>;
+
+  // template <class I, typename K, typename V, typename K1, typename V1, typename std::enable_if<std::is_same<typename std::iterator_traits<I>::value_type, std::pair<const K,V>>::value, int32_t>::type = 0>
+  // static void putAll(JNIEnv* env, const jobject jhash_map, I iterator, const FnMapKV<const K,V,K1,V1> &fn_map_kv) {
+  /**
+   * Returns true if it succeeds, false if an error occurs
+   */
+  template<class iterator_type, typename K, typename V>
+  static bool putAll(JNIEnv* env, const jobject jhash_map, iterator_type iterator, iterator_type end, const FnMapKV<K, V, jobject, jobject> &fn_map_kv) {
+    const jmethodID jmid_put = rocksdb::MapJni::getMapPutMethodId(env);
+    if (jmid_put == nullptr) {
+      return false;
+    }
+
+    for (auto it = iterator; it != end; ++it) {
+      const std::unique_ptr<std::pair<jobject, jobject>> result = fn_map_kv(*it);
+      if (result == nullptr) {
+          // an error occurred during fn_map_kv
+          return false;
+      }
+      env->CallObjectMethod(jhash_map, jmid_put, result->first, result->second);
+      if (env->ExceptionCheck()) {
+        // exception occurred
+        env->DeleteLocalRef(result->second);
+        env->DeleteLocalRef(result->first);
+        return false;
+      }
+
+      // release local references
+      env->DeleteLocalRef(result->second);
+      env->DeleteLocalRef(result->first);
+    }
+
+    return true;
+  }
+
+  /**
+   * Creates a java.util.Map<String, String> from a std::map<std::string, std::string>
+   *
+   * @param env A pointer to the Java environment
+   * @param map the Cpp map
+   *
+   * @return a reference to the Java java.util.Map object, or nullptr if an exception occcurred
+   */
+  static jobject fromCppMap(JNIEnv* env, const std::map<std::string, std::string>* map) {
+    if (map == nullptr) {
+      return nullptr;
+    }
+
+    jobject jhash_map = construct(env, static_cast<uint32_t>(map->size()));
+    if (jhash_map == nullptr) {
+      // exception occurred
+      return nullptr;
+    }
+
+    const rocksdb::HashMapJni::FnMapKV<const std::string, const std::string, jobject, jobject> fn_map_kv =
+        [env](const std::pair<const std::string, const std::string>& kv) {
+      jstring jkey = rocksdb::JniUtil::toJavaString(env, &(kv.first), false);
+      if (env->ExceptionCheck()) {
+        // an error occurred
+        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+      }
+
+      jstring jvalue = rocksdb::JniUtil::toJavaString(env, &(kv.second), true);
+      if (env->ExceptionCheck()) {
+        // an error occurred
+        env->DeleteLocalRef(jkey);
+        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+      }
+
+      return std::unique_ptr<std::pair<jobject, jobject>>(new std::pair<jobject, jobject>(static_cast<jobject>(jkey), static_cast<jobject>(jvalue)));
+    };
+
+    if (!putAll(env, jhash_map, map->begin(), map->end(), fn_map_kv)) {
+      // exception occurred
+      return nullptr;
+    }
+
+    return jhash_map;
+  }
+
+  /**
+   * Creates a java.util.Map<String, Long> from a std::map<std::string, uint64_t>
+   *
+   * @param env A pointer to the Java environment
+   * @param map the Cpp map
+   *
+   * @return a reference to the Java java.util.Map object, or nullptr if an exception occcurred
+   */
+  static jobject fromCppMap(JNIEnv* env, const std::map<std::string, uint64_t>* map) {
+    if (map == nullptr) {
+      return nullptr;
+    }
+
+    jobject jhash_map = construct(env, static_cast<uint32_t>(map->size()));
+    if (jhash_map == nullptr) {
+      // exception occurred
+      return nullptr;
+    }
+
+    const rocksdb::HashMapJni::FnMapKV<const std::string, const uint64_t, jobject, jobject> fn_map_kv =
+        [env](const std::pair<const std::string, const uint64_t>& kv) {
+      jstring jkey = rocksdb::JniUtil::toJavaString(env, &(kv.first), false);
+      if (env->ExceptionCheck()) {
+        // an error occurred
+        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+      }
+
+      jobject jvalue = rocksdb::LongJni::valueOf(env, static_cast<jlong>(kv.second));
+      if (env->ExceptionCheck()) {
+        // an error occurred
+        env->DeleteLocalRef(jkey);
+        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+      }
+
+      return std::unique_ptr<std::pair<jobject, jobject>>(new std::pair<jobject, jobject>(static_cast<jobject>(jkey), jvalue));
+    };
+
+    if (!putAll(env, jhash_map, map->begin(), map->end(), fn_map_kv)) {
+      // exception occurred
+      return nullptr;
+    }
+
+    return jhash_map;
+  }
+};
+
+// The portal class for org.rocksdb.RocksDB
+class RocksDBJni : public RocksDBNativeClass<rocksdb::DB*, RocksDBJni> {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.RocksDB
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/RocksDB");
+  }
+};
 
 // The portal class for org.rocksdb.Options
 class OptionsJni : public RocksDBNativeClass<
@@ -2051,327 +3219,6 @@ class DirectSliceJni : public NativeRocksMutableObject<
     }
 
     return jdirect_slice;
-  }
-};
-
-// The portal class for java.util.List
-class ListJni : public JavaClass {
- public:
-  /**
-   * Get the Java Class java.util.List
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Class or nullptr if one of the
-   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
-   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
-   */
-  static jclass getListClass(JNIEnv* env) {
-    return JavaClass::getJClass(env, "java/util/List");
-  }
-
-  /**
-   * Get the Java Class java.util.ArrayList
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Class or nullptr if one of the
-   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
-   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
-   */
-  static jclass getArrayListClass(JNIEnv* env) {
-    return JavaClass::getJClass(env, "java/util/ArrayList");
-  }
-
-  /**
-   * Get the Java Class java.util.Iterator
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Class or nullptr if one of the
-   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
-   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
-   */
-  static jclass getIteratorClass(JNIEnv* env) {
-    return JavaClass::getJClass(env, "java/util/Iterator");
-  }
-
-  /**
-   * Get the Java Method: List#iterator
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
-   */
-  static jmethodID getIteratorMethod(JNIEnv* env) {
-    jclass jlist_clazz = getListClass(env);
-    if(jlist_clazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    static jmethodID mid =
-        env->GetMethodID(jlist_clazz, "iterator", "()Ljava/util/Iterator;");
-    assert(mid != nullptr);
-    return mid;
-  }
-
-  /**
-   * Get the Java Method: Iterator#hasNext
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
-   */
-  static jmethodID getHasNextMethod(JNIEnv* env) {
-    jclass jiterator_clazz = getIteratorClass(env);
-    if(jiterator_clazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    static jmethodID mid = env->GetMethodID(jiterator_clazz, "hasNext", "()Z");
-    assert(mid != nullptr);
-    return mid;
-  }
-
-  /**
-   * Get the Java Method: Iterator#next
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
-   */
-  static jmethodID getNextMethod(JNIEnv* env) {
-    jclass jiterator_clazz = getIteratorClass(env);
-    if(jiterator_clazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    static jmethodID mid =
-        env->GetMethodID(jiterator_clazz, "next", "()Ljava/lang/Object;");
-    assert(mid != nullptr);
-    return mid;
-  }
-
-  /**
-   * Get the Java Method: ArrayList constructor
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
-   */
-  static jmethodID getArrayListConstructorMethodId(JNIEnv* env) {
-    jclass jarray_list_clazz = getArrayListClass(env);
-    if(jarray_list_clazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-    static jmethodID mid =
-        env->GetMethodID(jarray_list_clazz, "<init>", "(I)V");
-    assert(mid != nullptr);
-    return mid;
-  }
-
-  /**
-   * Get the Java Method: List#add
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
-   */
-  static jmethodID getListAddMethodId(JNIEnv* env) {
-    jclass jlist_clazz = getListClass(env);
-    if(jlist_clazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    static jmethodID mid =
-        env->GetMethodID(jlist_clazz, "add", "(Ljava/lang/Object;)Z");
-    assert(mid != nullptr);
-    return mid;
-  }
-};
-
-// The portal class for java.lang.Byte
-class ByteJni : public JavaClass {
- public:
-  /**
-   * Get the Java Class java.lang.Byte
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Class or nullptr if one of the
-   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
-   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
-   */
-  static jclass getJClass(JNIEnv* env) {
-    return JavaClass::getJClass(env, "java/lang/Byte");
-  }
-
-  /**
-   * Get the Java Class byte[]
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Class or nullptr if one of the
-   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
-   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
-   */
-  static jclass getArrayJClass(JNIEnv* env) {
-    return JavaClass::getJClass(env, "[B");
-  }
-
-  /**
-   * Creates a new 2-dimensional Java Byte Array byte[][]
-   *
-   * @param env A pointer to the Java environment
-   * @param len The size of the first dimension
-   *
-   * @return A reference to the Java byte[][] or nullptr if an exception occurs
-   */
-  static jobjectArray new2dByteArray(JNIEnv* env, const jsize len) {
-    jclass clazz = getArrayJClass(env);
-    if(clazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    return env->NewObjectArray(len, clazz, nullptr);
-  }
-
-  /**
-   * Get the Java Method: Byte#byteValue
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retrieved
-   */
-  static jmethodID getByteValueMethod(JNIEnv* env) {
-    jclass clazz = getJClass(env);
-    if(clazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    static jmethodID mid = env->GetMethodID(clazz, "byteValue", "()B");
-    assert(mid != nullptr);
-    return mid;
-  }
-
-  /**
-   * Calls the Java Method: Byte#valueOf, returning a constructed Byte jobject
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return A constructing Byte object or nullptr if the class or method id could not
-   *     be retrieved, or an exception occurred
-   */
-  static jobject valueOf(JNIEnv* env, jbyte jprimitive_byte) {
-    jclass clazz = getJClass(env);
-    if (clazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    static jmethodID mid =
-        env->GetStaticMethodID(clazz, "valueOf", "(B)Ljava/lang/Byte;");
-    if (mid == nullptr) {
-      // exception thrown: NoSuchMethodException or OutOfMemoryError
-      return nullptr;
-    }
-
-    const jobject jbyte_obj =
-        env->CallStaticObjectMethod(clazz, mid, jprimitive_byte);
-    if (env->ExceptionCheck()) {
-      // exception occurred
-      return nullptr;
-    }
-
-    return jbyte_obj;
-  }
-
-};
-
-// The portal class for java.lang.StringBuilder
-class StringBuilderJni : public JavaClass {
-  public:
-  /**
-   * Get the Java Class java.lang.StringBuilder
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Class or nullptr if one of the
-   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
-   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
-   */
-  static jclass getJClass(JNIEnv* env) {
-    return JavaClass::getJClass(env, "java/lang/StringBuilder");
-  }
-
-  /**
-   * Get the Java Method: StringBuilder#append
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
-   */
-  static jmethodID getListAddMethodId(JNIEnv* env) {
-    jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    static jmethodID mid =
-        env->GetMethodID(jclazz, "append",
-            "(Ljava/lang/String;)Ljava/lang/StringBuilder;");
-    assert(mid != nullptr);
-    return mid;
-  }
-
-  /**
-   * Appends a C-style string to a StringBuilder
-   *
-   * @param env A pointer to the Java environment
-   * @param jstring_builder Reference to a java.lang.StringBuilder
-   * @param c_str A C-style string to append to the StringBuilder
-   *
-   * @return A reference to the updated StringBuilder, or a nullptr if
-   *     an exception occurs
-   */
-  static jobject append(JNIEnv* env, jobject jstring_builder,
-      const char* c_str) {
-    jmethodID mid = getListAddMethodId(env);
-    if(mid == nullptr) {
-      // exception occurred accessing class or method
-      return nullptr;
-    }
-
-    jstring new_value_str = env->NewStringUTF(c_str);
-    if(new_value_str == nullptr) {
-      // exception thrown: OutOfMemoryError
-      return nullptr;
-    }
-
-    jobject jresult_string_builder =
-        env->CallObjectMethod(jstring_builder, mid, new_value_str);
-    if(env->ExceptionCheck()) {
-      // exception occurred
-      env->DeleteLocalRef(new_value_str);
-      return nullptr;
-    }
-
-    return jresult_string_builder;
   }
 };
 
@@ -4645,592 +5492,6 @@ class TablePropertiesJni : public JavaClass {
   }
 };
 
-// various utility functions for working with RocksDB and JNI
-class JniUtil {
- public:
-    /**
-     * Obtains a reference to the JNIEnv from
-     * the JVM
-     *
-     * If the current thread is not attached to the JavaVM
-     * then it will be attached so as to retrieve the JNIEnv
-     *
-     * If a thread is attached, it must later be manually
-     * released by calling JavaVM::DetachCurrentThread.
-     * This can be handled by always matching calls to this
-     * function with calls to {@link JniUtil::releaseJniEnv(JavaVM*, jboolean)}
-     *
-     * @param jvm (IN) A pointer to the JavaVM instance
-     * @param attached (OUT) A pointer to a boolean which
-     *     will be set to JNI_TRUE if we had to attach the thread
-     *
-     * @return A pointer to the JNIEnv or nullptr if a fatal error
-     *     occurs and the JNIEnv cannot be retrieved
-     */
-    static JNIEnv* getJniEnv(JavaVM* jvm, jboolean* attached) {
-      assert(jvm != nullptr);
-
-      JNIEnv *env;
-      const jint env_rs = jvm->GetEnv(reinterpret_cast<void**>(&env),
-          JNI_VERSION_1_2);
-
-      if(env_rs == JNI_OK) {
-        // current thread is already attached, return the JNIEnv
-        *attached = JNI_FALSE;
-        return env;
-      } else if(env_rs == JNI_EDETACHED) {
-        // current thread is not attached, attempt to attach
-        const jint rs_attach = jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), NULL);
-        if(rs_attach == JNI_OK) {
-          *attached = JNI_TRUE;
-          return env;
-        } else {
-          // error, could not attach the thread
-          std::cerr << "JniUtil::getJinEnv - Fatal: could not attach current thread to JVM!" << std::endl;
-          return nullptr;
-        }
-      } else if(env_rs == JNI_EVERSION) {
-        // error, JDK does not support JNI_VERSION_1_2+
-        std::cerr << "JniUtil::getJinEnv - Fatal: JDK does not support JNI_VERSION_1_2" << std::endl;
-        return nullptr;
-      } else {
-        std::cerr << "JniUtil::getJinEnv - Fatal: Unknown error: env_rs=" << env_rs << std::endl;
-        return nullptr;
-      }
-    }
-
-    /**
-     * Counterpart to {@link JniUtil::getJniEnv(JavaVM*, jboolean*)}
-     *
-     * Detachess the current thread from the JVM if it was previously
-     * attached
-     *
-     * @param jvm (IN) A pointer to the JavaVM instance
-     * @param attached (IN) JNI_TRUE if we previously had to attach the thread
-     *     to the JavaVM to get the JNIEnv
-     */
-    static void releaseJniEnv(JavaVM* jvm, jboolean& attached) {
-      assert(jvm != nullptr);
-      if(attached == JNI_TRUE) {
-        const jint rs_detach = jvm->DetachCurrentThread();
-        assert(rs_detach == JNI_OK);
-        if(rs_detach != JNI_OK) {
-          std::cerr << "JniUtil::getJinEnv - Warn: Unable to detach current thread from JVM!" << std::endl;
-        }
-      }
-    }
-
-    /**
-     * Copies a Java String[] to a C++ std::vector<std::string>
-     *
-     * @param env (IN) A pointer to the java environment
-     * @param jss (IN) The Java String array to copy
-     * @param has_exception (OUT) will be set to JNI_TRUE
-     *     if an OutOfMemoryError or ArrayIndexOutOfBoundsException
-     *     exception occurs
-     *
-     * @return A std::vector<std:string> containing copies of the Java strings
-     */
-    static std::vector<std::string> copyStrings(JNIEnv* env,
-        jobjectArray jss, jboolean* has_exception) {
-          return rocksdb::JniUtil::copyStrings(env, jss,
-              env->GetArrayLength(jss), has_exception);
-    }
-
-    /**
-     * Copies a Java String[] to a C++ std::vector<std::string>
-     *
-     * @param env (IN) A pointer to the java environment
-     * @param jss (IN) The Java String array to copy
-     * @param jss_len (IN) The length of the Java String array to copy
-     * @param has_exception (OUT) will be set to JNI_TRUE
-     *     if an OutOfMemoryError or ArrayIndexOutOfBoundsException
-     *     exception occurs
-     *
-     * @return A std::vector<std:string> containing copies of the Java strings
-     */
-    static std::vector<std::string> copyStrings(JNIEnv* env,
-        jobjectArray jss, const jsize jss_len, jboolean* has_exception) {
-      std::vector<std::string> strs;
-      for (jsize i = 0; i < jss_len; i++) {
-        jobject js = env->GetObjectArrayElement(jss, i);
-        if(env->ExceptionCheck()) {
-          // exception thrown: ArrayIndexOutOfBoundsException
-          *has_exception = JNI_TRUE;
-          return strs;
-        }
-
-        jstring jstr = static_cast<jstring>(js);
-        const char* str = env->GetStringUTFChars(jstr, nullptr);
-        if(str == nullptr) {
-          // exception thrown: OutOfMemoryError
-          env->DeleteLocalRef(js);
-          *has_exception = JNI_TRUE;
-          return strs;
-        }
-
-        strs.push_back(std::string(str));
-
-        env->ReleaseStringUTFChars(jstr, str);
-        env->DeleteLocalRef(js);
-      }
-
-      *has_exception = JNI_FALSE;
-      return strs;
-    }
-
-    /**
-     * Copies a jstring to a C-style null-terminated byte string
-     * and releases the original jstring
-     *
-     * The jstring is copied as UTF-8
-     *
-     * If an exception occurs, then JNIEnv::ExceptionCheck()
-     * will have been called
-     *
-     * @param env (IN) A pointer to the java environment
-     * @param js (IN) The java string to copy
-     * @param has_exception (OUT) will be set to JNI_TRUE
-     *     if an OutOfMemoryError exception occurs
-     *
-     * @return A pointer to the copied string, or a
-     *     nullptr if has_exception == JNI_TRUE
-     */
-    static std::unique_ptr<char[]> copyString(JNIEnv* env, jstring js,
-        jboolean* has_exception) {
-      const char *utf = env->GetStringUTFChars(js, nullptr);
-      if(utf == nullptr) {
-        // exception thrown: OutOfMemoryError
-        env->ExceptionCheck();
-        *has_exception = JNI_TRUE;
-        return nullptr;
-      } else if(env->ExceptionCheck()) {
-        // exception thrown
-        env->ReleaseStringUTFChars(js, utf);
-        *has_exception = JNI_TRUE;
-        return nullptr;
-      }
-
-      const jsize utf_len = env->GetStringUTFLength(js);
-      std::unique_ptr<char[]> str(new char[utf_len + 1]);  // Note: + 1 is needed for the c_str null terminator
-      std::strcpy(str.get(), utf);
-      env->ReleaseStringUTFChars(js, utf);
-      *has_exception = JNI_FALSE;
-      return str;
-    }
-
-    /**
-     * Copies a jstring to a std::string
-     * and releases the original jstring
-     *
-     * If an exception occurs, then JNIEnv::ExceptionCheck()
-     * will have been called
-     *
-     * @param env (IN) A pointer to the java environment
-     * @param js (IN) The java string to copy
-     * @param has_exception (OUT) will be set to JNI_TRUE
-     *     if an OutOfMemoryError exception occurs
-     *
-     * @return A std:string copy of the jstring, or an
-     *     empty std::string if has_exception == JNI_TRUE
-     */
-    static std::string copyStdString(JNIEnv* env, jstring js,
-      jboolean* has_exception) {
-      const char *utf = env->GetStringUTFChars(js, nullptr);
-      if(utf == nullptr) {
-        // exception thrown: OutOfMemoryError
-        env->ExceptionCheck();
-        *has_exception = JNI_TRUE;
-        return std::string();
-      } else if(env->ExceptionCheck()) {
-        // exception thrown
-        env->ReleaseStringUTFChars(js, utf);
-        *has_exception = JNI_TRUE;
-        return std::string();
-      }
-
-      std::string name(utf);
-      env->ReleaseStringUTFChars(js, utf);
-      *has_exception = JNI_FALSE;
-      return name;
-    }
-
-    /**
-     * Copies bytes from a std::string to a jByteArray
-     *
-     * @param env A pointer to the java environment
-     * @param bytes The bytes to copy
-     *
-     * @return the Java byte[] or nullptr if an exception occurs
-     * 
-     * @throws RocksDBException thrown 
-     *   if memory size to copy exceeds general java specific array size limitation.
-     */
-    static jbyteArray copyBytes(JNIEnv* env, std::string bytes) {
-      return createJavaByteArrayWithSizeCheck(env, bytes.c_str(), bytes.size());
-    }
-
-    /**
-     * Given a Java byte[][] which is an array of java.lang.Strings
-     * where each String is a byte[], the passed function `string_fn`
-     * will be called on each String, the result is the collected by
-     * calling the passed function `collector_fn`
-     *
-     * @param env (IN) A pointer to the java environment
-     * @param jbyte_strings (IN) A Java array of Strings expressed as bytes
-     * @param string_fn (IN) A transform function to call for each String
-     * @param collector_fn (IN) A collector which is called for the result
-     *     of each `string_fn`
-     * @param has_exception (OUT) will be set to JNI_TRUE
-     *     if an ArrayIndexOutOfBoundsException or OutOfMemoryError
-     *     exception occurs
-     */
-    template <typename T> static void byteStrings(JNIEnv* env,
-        jobjectArray jbyte_strings,
-        std::function<T(const char*, const size_t)> string_fn,
-        std::function<void(size_t, T)> collector_fn,
-        jboolean *has_exception) {
-      const jsize jlen = env->GetArrayLength(jbyte_strings);
-
-      for(jsize i = 0; i < jlen; i++) {
-        jobject jbyte_string_obj = env->GetObjectArrayElement(jbyte_strings, i);
-        if(env->ExceptionCheck()) {
-          // exception thrown: ArrayIndexOutOfBoundsException
-          *has_exception = JNI_TRUE;  // signal error
-          return;
-        }
-
-        jbyteArray jbyte_string_ary =
-            reinterpret_cast<jbyteArray>(jbyte_string_obj);
-        T result = byteString(env, jbyte_string_ary, string_fn, has_exception);
-
-        env->DeleteLocalRef(jbyte_string_obj);
-
-        if(*has_exception == JNI_TRUE) {
-          // exception thrown: OutOfMemoryError
-          return;
-        }
-
-        collector_fn(i, result);
-      }
-
-      *has_exception = JNI_FALSE;
-    }
-
-    /**
-     * Given a Java String which is expressed as a Java Byte Array byte[],
-     * the passed function `string_fn` will be called on the String
-     * and the result returned
-     *
-     * @param env (IN) A pointer to the java environment
-     * @param jbyte_string_ary (IN) A Java String expressed in bytes
-     * @param string_fn (IN) A transform function to call on the String
-     * @param has_exception (OUT) will be set to JNI_TRUE
-     *     if an OutOfMemoryError exception occurs
-     */
-    template <typename T> static T byteString(JNIEnv* env,
-        jbyteArray jbyte_string_ary,
-        std::function<T(const char*, const size_t)> string_fn,
-        jboolean* has_exception) {
-      const jsize jbyte_string_len = env->GetArrayLength(jbyte_string_ary);
-      return byteString<T>(env, jbyte_string_ary, jbyte_string_len, string_fn,
-          has_exception);
-    }
-
-    /**
-     * Given a Java String which is expressed as a Java Byte Array byte[],
-     * the passed function `string_fn` will be called on the String
-     * and the result returned
-     *
-     * @param env (IN) A pointer to the java environment
-     * @param jbyte_string_ary (IN) A Java String expressed in bytes
-     * @param jbyte_string_len (IN) The length of the Java String
-     *     expressed in bytes
-     * @param string_fn (IN) A transform function to call on the String
-     * @param has_exception (OUT) will be set to JNI_TRUE
-     *     if an OutOfMemoryError exception occurs
-     */
-    template <typename T> static T byteString(JNIEnv* env,
-        jbyteArray jbyte_string_ary, const jsize jbyte_string_len,
-        std::function<T(const char*, const size_t)> string_fn,
-        jboolean* has_exception) {
-      jbyte* jbyte_string =
-          env->GetByteArrayElements(jbyte_string_ary, nullptr);
-      if(jbyte_string == nullptr) {
-        // exception thrown: OutOfMemoryError
-        *has_exception = JNI_TRUE;
-        return nullptr;  // signal error
-      }
-
-      T result =
-          string_fn(reinterpret_cast<char *>(jbyte_string), jbyte_string_len);
-
-      env->ReleaseByteArrayElements(jbyte_string_ary, jbyte_string, JNI_ABORT);
-
-      *has_exception = JNI_FALSE;
-      return result;
-    }
-
-    /**
-     * Converts a std::vector<string> to a Java byte[][] where each Java String
-     * is expressed as a Java Byte Array byte[].
-     *
-     * @param env A pointer to the java environment
-     * @param strings A vector of Strings
-     *
-     * @return A Java array of Strings expressed as bytes
-     */
-    static jobjectArray stringsBytes(JNIEnv* env, std::vector<std::string> strings) {
-      jclass jcls_ba = ByteJni::getArrayJClass(env);
-      if(jcls_ba == nullptr) {
-        // exception occurred
-        return nullptr;
-      }
-
-      const jsize len = static_cast<jsize>(strings.size());
-
-      jobjectArray jbyte_strings = env->NewObjectArray(len, jcls_ba, nullptr);
-      if(jbyte_strings == nullptr) {
-        // exception thrown: OutOfMemoryError
-        return nullptr;
-      }
-
-      for (jsize i = 0; i < len; i++) {
-        std::string *str = &strings[i];
-        const jsize str_len = static_cast<jsize>(str->size());
-
-        jbyteArray jbyte_string_ary = env->NewByteArray(str_len);
-        if(jbyte_string_ary == nullptr) {
-          // exception thrown: OutOfMemoryError
-          env->DeleteLocalRef(jbyte_strings);
-          return nullptr;
-        }
-
-        env->SetByteArrayRegion(
-          jbyte_string_ary, 0, str_len,
-          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(str->c_str())));
-        if(env->ExceptionCheck()) {
-          // exception thrown: ArrayIndexOutOfBoundsException
-          env->DeleteLocalRef(jbyte_string_ary);
-          env->DeleteLocalRef(jbyte_strings);
-          return nullptr;
-        }
-
-        env->SetObjectArrayElement(jbyte_strings, i, jbyte_string_ary);
-        if(env->ExceptionCheck()) {
-          // exception thrown: ArrayIndexOutOfBoundsException
-          // or ArrayStoreException
-          env->DeleteLocalRef(jbyte_string_ary);
-          env->DeleteLocalRef(jbyte_strings);
-          return nullptr;
-        }
-
-        env->DeleteLocalRef(jbyte_string_ary);
-      }
-
-      return jbyte_strings;
-    }
-
-    /**
-     * Creates a Java UTF String from a C++ std::string
-     *
-     * @param env A pointer to the java environment
-     * @param string the C++ std::string
-     * @param treat_empty_as_null true if empty strings should be treated as null
-     *
-     * @return the Java UTF string, or nullptr if the provided string
-     *     is null (or empty and treat_empty_as_null is set), or if an
-     *     exception occurs allocating the Java String.
-     */
-    static jstring toJavaString(JNIEnv* env, const std::string* string, const bool treat_empty_as_null = false) {
-      if (string == nullptr) {
-        return nullptr;
-      }
-
-      if (treat_empty_as_null && string->empty()) {
-        return nullptr;
-      }
-
-      return env->NewStringUTF(string->c_str());
-    }
-    
-    /**
-      * Copies bytes to a new jByteArray with the check of java array size limitation.
-      *
-      * @param bytes pointer to memory to copy to a new jByteArray
-      * @param size number of bytes to copy
-      *
-      * @return the Java byte[] or nullptr if an exception occurs
-      * 
-      * @throws RocksDBException thrown 
-      *   if memory size to copy exceeds general java array size limitation to avoid overflow.
-      */
-    static jbyteArray createJavaByteArrayWithSizeCheck(JNIEnv* env, const char* bytes, const size_t size) {
-      // Limitation for java array size is vm specific
-      // In general it cannot exceed Integer.MAX_VALUE (2^31 - 1)
-      // Current HotSpot VM limitation for array size is Integer.MAX_VALUE - 5 (2^31 - 1 - 5)
-      // It means that the next call to env->NewByteArray can still end with 
-      // OutOfMemoryError("Requested array size exceeds VM limit") coming from VM
-      static const size_t MAX_JARRAY_SIZE = (static_cast<size_t>(1)) << 31;
-      if(size > MAX_JARRAY_SIZE) {
-        rocksdb::RocksDBExceptionJni::ThrowNew(env, "Requested array size exceeds VM limit");
-        return nullptr;
-      }
-      
-      const jsize jlen = static_cast<jsize>(size);
-      jbyteArray jbytes = env->NewByteArray(jlen);
-      if(jbytes == nullptr) {
-        // exception thrown: OutOfMemoryError	
-        return nullptr;
-      }
-      
-      env->SetByteArrayRegion(jbytes, 0, jlen,
-        const_cast<jbyte*>(reinterpret_cast<const jbyte*>(bytes)));
-      if(env->ExceptionCheck()) {
-        // exception thrown: ArrayIndexOutOfBoundsException
-        env->DeleteLocalRef(jbytes);
-        return nullptr;
-      }
-
-      return jbytes;
-    }
-
-    /**
-     * Copies bytes from a rocksdb::Slice to a jByteArray
-     *
-     * @param env A pointer to the java environment
-     * @param bytes The bytes to copy
-     *
-     * @return the Java byte[] or nullptr if an exception occurs
-     * 
-     * @throws RocksDBException thrown 
-     *   if memory size to copy exceeds general java specific array size limitation.
-     */
-    static jbyteArray copyBytes(JNIEnv* env, const Slice& bytes) {
-      return createJavaByteArrayWithSizeCheck(env, bytes.data(), bytes.size());
-    }
-
-    /*
-     * Helper for operations on a key and value
-     * for example WriteBatch->Put
-     *
-     * TODO(AR) could be used for RocksDB->Put etc.
-     */
-    static std::unique_ptr<rocksdb::Status> kv_op(
-        std::function<rocksdb::Status(rocksdb::Slice, rocksdb::Slice)> op,
-        JNIEnv* env, jobject /*jobj*/,
-        jbyteArray jkey, jint jkey_len,
-        jbyteArray jvalue, jint jvalue_len) {
-      jbyte* key = env->GetByteArrayElements(jkey, nullptr);
-      if(env->ExceptionCheck()) {
-        // exception thrown: OutOfMemoryError
-        return nullptr;
-      }
-
-      jbyte* value = env->GetByteArrayElements(jvalue, nullptr);
-      if(env->ExceptionCheck()) {
-        // exception thrown: OutOfMemoryError
-        if(key != nullptr) {
-          env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-        }
-        return nullptr;
-      }
-
-      rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-      rocksdb::Slice value_slice(reinterpret_cast<char*>(value),
-          jvalue_len);
-
-      auto status = op(key_slice, value_slice);
-
-      if(value != nullptr) {
-        env->ReleaseByteArrayElements(jvalue, value, JNI_ABORT);
-      }
-      if(key != nullptr) {
-        env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-      }
-
-      return std::unique_ptr<rocksdb::Status>(new rocksdb::Status(status));
-    }
-
-    /*
-     * Helper for operations on a key
-     * for example WriteBatch->Delete
-     *
-     * TODO(AR) could be used for RocksDB->Delete etc.
-     */
-    static std::unique_ptr<rocksdb::Status> k_op(
-        std::function<rocksdb::Status(rocksdb::Slice)> op,
-        JNIEnv* env, jobject /*jobj*/,
-        jbyteArray jkey, jint jkey_len) {
-      jbyte* key = env->GetByteArrayElements(jkey, nullptr);
-      if(env->ExceptionCheck()) {
-        // exception thrown: OutOfMemoryError
-        return nullptr;
-      }
-
-      rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-
-      auto status = op(key_slice);
-
-      if(key != nullptr) {
-        env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-      }
-
-      return std::unique_ptr<rocksdb::Status>(new rocksdb::Status(status));
-    }
-
-    /*
-     * Helper for operations on a value
-     * for example WriteBatchWithIndex->GetFromBatch
-     */
-    static jbyteArray v_op(
-        std::function<rocksdb::Status(rocksdb::Slice, std::string*)> op,
-        JNIEnv* env, jbyteArray jkey, jint jkey_len) {
-      jbyte* key = env->GetByteArrayElements(jkey, nullptr);
-      if(env->ExceptionCheck()) {
-        // exception thrown: OutOfMemoryError
-        return nullptr;
-      }
-
-      rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-
-      std::string value;
-      rocksdb::Status s = op(key_slice, &value);
-
-      if(key != nullptr) {
-        env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-      }
-
-      if (s.IsNotFound()) {
-        return nullptr;
-      }
-
-      if (s.ok()) {
-        jbyteArray jret_value =
-            env->NewByteArray(static_cast<jsize>(value.size()));
-        if(jret_value == nullptr) {
-          // exception thrown: OutOfMemoryError
-          return nullptr;
-        }
-
-        env->SetByteArrayRegion(jret_value, 0, static_cast<jsize>(value.size()),
-                                const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value.c_str())));
-        if(env->ExceptionCheck()) {
-          // exception thrown: ArrayIndexOutOfBoundsException
-          if(jret_value != nullptr) {
-            env->DeleteLocalRef(jret_value);
-          }
-          return nullptr;
-        }
-
-        return jret_value;
-      }
-
-      rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
-      return nullptr;
-    }
-};
-
 class ColumnFamilyDescriptorJni : public JavaClass {
  public:
   /**
@@ -5322,261 +5583,6 @@ class ColumnFamilyDescriptorJni : public JavaClass {
         jclazz, "columnFamilyOptions", "()Lorg/rocksdb/ColumnFamilyOptions;");
     assert(mid != nullptr);
     return mid;
-  }
-};
-
-class MapJni : public JavaClass {
- public:
-  /**
-   * Get the Java Class java.util.Map
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Class or nullptr if one of the
-   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
-   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
-   */
-  static jclass getClass(JNIEnv* env) {
-    return JavaClass::getJClass(env, "java/util/Map");
-  }
-
-  /**
-   * Get the Java Method: Map#put
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
-   */
-  static jmethodID getMapPutMethodId(JNIEnv* env) {
-    jclass jlist_clazz = getClass(env);
-    if(jlist_clazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    static jmethodID mid =
-        env->GetMethodID(jlist_clazz, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
-    assert(mid != nullptr);
-    return mid;
-  }
-};
-
-class HashMapJni : public JavaClass {
- public:
-  /**
-   * Get the Java Class java.util.HashMap
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Class or nullptr if one of the
-   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
-   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
-   */
-  static jclass getJClass(JNIEnv* env) {
-    return JavaClass::getJClass(env, "java/util/HashMap");
-  }
-
-  /**
-   * Create a new Java java.util.HashMap object.
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return A reference to a Java java.util.HashMap object, or
-   * nullptr if an an exception occurs
-   */
-  static jobject construct(JNIEnv* env, const uint32_t initial_capacity = 16) {
-    jclass jclazz = getJClass(env);
-    if (jclazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(I)V");
-    if (mid == nullptr) {
-      // exception thrown: NoSuchMethodException or OutOfMemoryError
-      return nullptr;
-    }
-
-    jobject jhash_map = env->NewObject(jclazz, mid, static_cast<jint>(initial_capacity));
-    if (env->ExceptionCheck()) {
-      return nullptr;
-    }
-
-    return jhash_map;
-  }
-
-  /**
-   * A function which maps a std::pair<K,V> to a std::pair<JK, JV>
-   *
-   * @return Either a pointer to a std::pair<jobject, jobject>, or nullptr
-   *     if an error occurs during the mapping
-   */
-  template <typename K, typename V, typename JK, typename JV>
-  using FnMapKV = std::function<std::unique_ptr<std::pair<JK, JV>> (const std::pair<K, V>&)>;
-
-  // template <class I, typename K, typename V, typename K1, typename V1, typename std::enable_if<std::is_same<typename std::iterator_traits<I>::value_type, std::pair<const K,V>>::value, int32_t>::type = 0>
-  // static void putAll(JNIEnv* env, const jobject jhash_map, I iterator, const FnMapKV<const K,V,K1,V1> &fn_map_kv) {
-  /**
-   * Returns true if it succeeds, false if an error occurs
-   */
-  template<class iterator_type, typename K, typename V>
-  static bool putAll(JNIEnv* env, const jobject jhash_map, iterator_type iterator, iterator_type end, const FnMapKV<K, V, jobject, jobject> &fn_map_kv) {
-    const jmethodID jmid_put = rocksdb::MapJni::getMapPutMethodId(env);
-    if (jmid_put == nullptr) {
-      return false;
-    }
-
-    for (auto it = iterator; it != end; ++it) {
-      const std::unique_ptr<std::pair<jobject, jobject>> result = fn_map_kv(*it);
-      if (result == nullptr) {
-          // an error occurred during fn_map_kv
-          return false;
-      }
-      env->CallObjectMethod(jhash_map, jmid_put, result->first, result->second);
-      if (env->ExceptionCheck()) {
-        // exception occurred
-        env->DeleteLocalRef(result->second);
-        env->DeleteLocalRef(result->first);
-        return false;
-      }
-
-      // release local references
-      env->DeleteLocalRef(result->second);
-      env->DeleteLocalRef(result->first);
-    }
-
-    return true;
-  }
-
-  /**
-   * Creates a java.util.Map<String, String> from a std::map<std::string, std::string>
-   *
-   * @param env A pointer to the Java environment
-   * @param map the Cpp map
-   *
-   * @return a reference to the Java java.util.Map object, or nullptr if an exception occcurred
-   */
-  static jobject fromCppMap(JNIEnv* env, std::map<std::string, std::string>* map) {
-    if (map == nullptr) {
-      return nullptr;
-    }
-
-    jobject jhash_map = construct(env, static_cast<uint32_t>(map->size()));
-    if (jhash_map == nullptr) {
-      // exception occurred
-      return nullptr;
-    }
-
-    const rocksdb::HashMapJni::FnMapKV<const std::string, const std::string, jobject, jobject> fn_map_kv =
-        [env](const std::pair<const std::string, const std::string>& kv) {
-      jstring jkey = rocksdb::JniUtil::toJavaString(env, &(kv.first), false);
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
-
-      jstring jvalue = rocksdb::JniUtil::toJavaString(env, &(kv.second), true);
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        env->DeleteLocalRef(jkey);
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
-
-      return std::unique_ptr<std::pair<jobject, jobject>>(new std::pair<jobject, jobject>(static_cast<jobject>(jkey), static_cast<jobject>(jvalue)));
-    };
-
-    if (!putAll(env, jhash_map, map->begin(), map->end(), fn_map_kv)) {
-      // exception occurred
-      return nullptr;
-    }
-
-    return jhash_map;
-  }
-
-  /**
-   * Creates a java.util.Map<String, Long> from a std::map<std::string, uint64_t>
-   *
-   * @param env A pointer to the Java environment
-   * @param map the Cpp map
-   *
-   * @return a reference to the Java java.util.Map object, or nullptr if an exception occcurred
-   */
-  static jobject fromCppMap(JNIEnv* env, std::map<std::string, uint64_t>* map) {
-    if (map == nullptr) {
-      return nullptr;
-    }
-
-    jobject jhash_map = construct(env, static_cast<uint32_t>(map->size()));
-    if (jhash_map == nullptr) {
-      // exception occurred
-      return nullptr;
-    }
-
-    const rocksdb::HashMapJni::FnMapKV<const std::string, const uint64_t, jobject, jobject> fn_map_kv =
-        [env](const std::pair<const std::string, const uint64_t>& kv) {
-      jstring jkey = rocksdb::JniUtil::toJavaString(env, &(kv.first), false);
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
-
-      jobject jvalue = rocksdb::LongJni::valueOf(env, static_cast<jlong>(kv.second));
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        env->DeleteLocalRef(jkey);
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
-
-      return std::unique_ptr<std::pair<jobject, jobject>>(new std::pair<jobject, jobject>(static_cast<jobject>(jkey), jvalue));
-    };
-
-    if (!putAll(env, jhash_map, map->begin(), map->end(), fn_map_kv)) {
-      // exception occurred
-      return nullptr;
-    }
-
-    return jhash_map;
-  }
-};
-
-class LongJni : public JavaClass {
- public:
-  /**
-   * Get the Java Class java.lang.Long
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Class or nullptr if one of the
-   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
-   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
-   */
-  static jclass getJClass(JNIEnv* env) {
-    return JavaClass::getJClass(env, "java/lang/Long");
-  }
-
-  static jobject valueOf(JNIEnv* env, jlong jprimitive_long) {
-    jclass jclazz = getJClass(env);
-    if (jclazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    jmethodID mid =
-        env->GetStaticMethodID(jclazz, "valueOf", "(J)Ljava/lang/Long;");
-    if (mid == nullptr) {
-      // exception thrown: NoSuchMethodException or OutOfMemoryError
-      return nullptr;
-    }
-
-    const jobject jlong_obj =
-        env->CallStaticObjectMethod(jclazz, mid, jprimitive_long);
-    if (env->ExceptionCheck()) {
-      // exception occurred
-      return nullptr;
-    }
-
-    return jlong_obj;
   }
 };
 }  // namespace rocksdb
