@@ -157,6 +157,18 @@ class PessimisticTransaction : public TransactionBaseImpl {
   // microseconds according to Env->NowMicros())
   uint64_t expiration_time_;
 
+  /*
+    psergey: Range Locking: A list of locks the transaction is holding.
+
+    (for point locking, the locks are kept in TransactionBaseImpl::tracked_keys_)
+  */
+ public:
+  class LockStorage {
+  public:
+    virtual ~LockStorage(){}
+  };
+  std::unique_ptr<LockStorage> owned_locks;
+
  private:
   friend class TransactionTest_ValidateSnapshotTest_Test;
   // Used to create unique ids for transactions.

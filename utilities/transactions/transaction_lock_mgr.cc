@@ -312,6 +312,33 @@ void RangeLockMgr::KillLockWait(void *cdata)
 }
 
 
+/*
+  Storage for locks that are held by this transaction.
+
+  We store them in toku::range_buffer because toku::locktree::release_locks()
+  accepts that as an argument.
+
+  TODO: lock escalation in the lock table should affect this structure, too?
+*/
+class RangeLockList: public PessimisticTransaction::LockStorage
+{
+public:
+  virtual ~RangeLockList()
+  {
+    buffer.destroy();
+  }
+
+  RangeLockList()
+  {
+    buffer.create();
+  }
+
+  void append(const DBT *left_key, const DBT *right_key) {
+    buffer.append(left_key, right_key);
+  }
+
+  toku::range_buffer buffer;
+};
 
 // Get a range lock on [start_key; end_key] range
 //  (TODO: check if we do what is inteded at the endpoints)
@@ -382,7 +409,7 @@ Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
   request.destroy();
   switch (r) {
     case 0:
-      return Status::OK();
+      break; /* fall through */
     case DB_LOCK_NOTGRANTED:
       return Status::TimedOut(Status::SubCode::kLockTimeout);
     case TOKUDB_OUT_OF_LOCKS:
@@ -393,6 +420,17 @@ Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
       assert(0);
       return Status::Busy(Status::SubCode::kLockLimit);
   }
+
+  /* Save the acquired lock in txn->owned_locks */
+  if (!txn->owned_locks)
+  {
+    //create the object
+    txn->owned_locks= std::unique_ptr<RangeLockList>(new RangeLockList);
+  }
+  RangeLockList* range_list= (RangeLockList*)txn->owned_locks.get();
+  range_list->append(&start_key_dbt, &end_key_dbt);
+
+  return Status::OK();
 }
 
 
@@ -784,6 +822,7 @@ void RangeLockMgr::UnLock(const PessimisticTransaction* txn,
 
 void RangeLockMgr::UnLockAll(const PessimisticTransaction* txn,
                             const TransactionKeyMap* key_map, Env* env) {
+#if 0
   //TODO: collecting multiple locks into a buffer and then making one call
   // to lock_tree::release_locks() will be faster.
   for (auto& key_map_iter : *key_map) {
@@ -797,6 +836,17 @@ void RangeLockMgr::UnLockAll(const PessimisticTransaction* txn,
   }
 
   toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
+#endif
+
+  // owned_locks may hold nullptr if the transaction has never acquired any
+  // locks.
+  if (txn->owned_locks)
+  {
+    RangeLockList* range_list= (RangeLockList*)txn->owned_locks.get();
+    lt->release_locks(txn->GetID(), &range_list->buffer);
+    range_list->buffer.destroy();
+    toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
+  }
 
 #if 0
   Original usage:
