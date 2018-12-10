@@ -1192,10 +1192,12 @@ Status CompactionJob::FinishCompactionOutputFile(
     Slice lower_bound_guard, upper_bound_guard;
     std::string smallest_user_key;
     const Slice *lower_bound, *upper_bound;
+    bool lower_bound_from_sub_compact = false;
     if (sub_compact->outputs.size() == 1) {
       // For the first output table, include range tombstones before the min key
       // but after the subcompaction boundary.
       lower_bound = sub_compact->start;
+      lower_bound_from_sub_compact = true;
     } else if (meta->smallest.size() > 0) {
       // For subsequent output tables, only include range tombstones from min
       // key onwards since the previous file was extended to contain range
@@ -1265,11 +1267,24 @@ Status CompactionJob::FinishCompactionOutputFile(
         // (the max key in the previous table or subcompaction) in order for
         // files to appear key-space partitioned.
         //
-        // Choose lowest seqnum so this file's smallest internal key comes
-        // after the previous file's/subcompaction's largest. The fake seqnum
-        // is OK because the read path's file-picking code only considers user
-        // key.
-        smallest_candidate = InternalKey(*lower_bound, 0, kTypeRangeDeletion);
+        // When lower_bound is chosen by a subcompaction, we know that
+        // subcompactions over smaller keys cannot contain any keys at
+        // lower_bound. We also know that smaller subcompactions exist, because
+        // otherwise the subcompaction woud be unbounded on the left. As a
+        // result, we know that no other files on the output level will contain
+        // actual keys at lower_bound (an output file may have a largest key of
+        // lower_bound@kMaxSequenceNumber, but this only indicates a large range
+        // tombstone was truncated). Therefore, it is safe to use the
+        // tombstone's sequence number, to ensure that keys at lower_bound at
+        // lower levels are covered by truncated tombstones.
+        //
+        // If lower_bound was chosen by the smallest data key in the file,
+        // choose lowest seqnum so this file's smallest internal key comes after
+        // the previous file's largest. The fake seqnum is OK because the read
+        // path's file-picking code only considers user key.
+        smallest_candidate = InternalKey(
+            *lower_bound, lower_bound_from_sub_compact ? tombstone.seq_ : 0,
+            kTypeRangeDeletion);
       }
       InternalKey largest_candidate = tombstone.SerializeEndKey();
       if (upper_bound != nullptr &&
@@ -1291,9 +1306,23 @@ Status CompactionJob::FinishCompactionOutputFile(
         largest_candidate =
             InternalKey(*upper_bound, kMaxSequenceNumber, kTypeRangeDeletion);
       }
+#ifndef NDEBUG
+      SequenceNumber smallest_ikey_seqnum = kMaxSequenceNumber;
+      if (meta->smallest.size() > 0) {
+        smallest_ikey_seqnum = GetInternalKeySeqno(meta->smallest.Encode());
+      }
+#endif
       meta->UpdateBoundariesForRange(smallest_candidate, largest_candidate,
                                      tombstone.seq_,
                                      cfd->internal_comparator());
+
+      // The smallest key in a file is used for range tombstone truncation, so
+      // it cannot have a seqnum of 0 (unless the smallest data key in a file
+      // has a seqnum of 0). Otherwise, the truncated tombstone may expose
+      // deleted keys at lower levels.
+      assert(smallest_ikey_seqnum == 0 ||
+             ExtractInternalKeyFooter(meta->smallest.Encode()) !=
+                 PackSequenceAndType(0, kTypeRangeDeletion));
     }
     meta->marked_for_compaction = sub_compact->builder->NeedCompact();
   }
