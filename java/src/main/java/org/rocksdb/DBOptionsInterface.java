@@ -174,6 +174,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    *    first db_path (db_name if db_paths is empty).
    *
    * @param sstFileManager The SST File Manager for the db.
+   * @return the instance of the current object.
    */
   T setSstFileManager(SstFileManager sstFileManager);
 
