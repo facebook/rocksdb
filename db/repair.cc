@@ -417,7 +417,8 @@ class Repairer {
       SnapshotChecker* snapshot_checker = DisableGCSnapshotChecker::Instance();
 
       auto write_hint = cfd->CalculateSSTWriteHint(0);
-      std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>> range_del_iters;
+      std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
+          range_del_iters;
       auto range_del_iter =
           mem->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
       if (range_del_iter != nullptr) {

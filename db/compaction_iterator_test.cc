@@ -228,7 +228,8 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
     std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
         new FragmentedRangeTombstoneIterator(tombstone_list, icmp_,
                                              kMaxSequenceNumber));
-    range_del_agg_.reset(new CompactionRangeDelAggregatorV2(&icmp_, snapshots_));
+    range_del_agg_.reset(
+        new CompactionRangeDelAggregatorV2(&icmp_, snapshots_));
     range_del_agg_->AddTombstones(std::move(range_del_iter));
 
     std::unique_ptr<CompactionIterator::CompactionProxy> compaction;

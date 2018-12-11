@@ -149,7 +149,7 @@ class ForwardRangeDelIterator {
       // either of the heaps.
       return;
     }
-    int cmp =icmp_->Compare(parsed, iter->start_key());
+    int cmp = icmp_->Compare(parsed, iter->start_key());
     if (cmp < 0) {
       PushInactiveIter(iter);
     } else {
