@@ -17,7 +17,7 @@ namespace rocksdb {
 class ExternalSSTFileBasicTest : public DBTestBase,
                                  public ::testing::WithParamInterface<bool> {
  public:
-  ExternalSSTFileBasicTest() : DBTestBase("/external_sst_file_test") {
+  ExternalSSTFileBasicTest() : DBTestBase("/external_sst_file_basic_test") {
     sst_files_dir_ = dbname_ + "/sst_files/";
     DestroyAndRecreateExternalSSTFilesDir();
   }
