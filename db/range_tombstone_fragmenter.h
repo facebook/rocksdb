@@ -7,6 +7,7 @@
 
 #include <list>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -38,7 +39,8 @@ struct FragmentedRangeTombstoneList {
   };
   FragmentedRangeTombstoneList(
       std::unique_ptr<InternalIterator> unfragmented_tombstones,
-      const InternalKeyComparator& icmp);
+      const InternalKeyComparator& icmp, bool for_compaction = false,
+      const std::vector<SequenceNumber>& snapshots = {});
 
   std::vector<RangeTombstoneStack>::const_iterator begin() const {
     return tombstones_.begin();
@@ -60,7 +62,11 @@ struct FragmentedRangeTombstoneList {
     return tombstone_seqs_.end();
   }
 
-  bool empty() const { return tombstones_.size() == 0; }
+  bool empty() const { return tombstones_.empty(); }
+
+  // Returns true if the stored tombstones contain with one with a sequence
+  // number in [lower, upper].
+  bool ContainsRange(SequenceNumber lower, SequenceNumber upper) const;
 
  private:
   // Given an ordered range tombstone iterator unfragmented_tombstones,
@@ -68,10 +74,12 @@ struct FragmentedRangeTombstoneList {
   // tombstones_ and tombstone_seqs_.
   void FragmentTombstones(
       std::unique_ptr<InternalIterator> unfragmented_tombstones,
-      const InternalKeyComparator& icmp);
+      const InternalKeyComparator& icmp, bool for_compaction,
+      const std::vector<SequenceNumber>& snapshots);
 
   std::vector<RangeTombstoneStack> tombstones_;
   std::vector<SequenceNumber> tombstone_seqs_;
+  std::set<SequenceNumber> seq_set_;
   std::list<std::string> pinned_slices_;
   PinnedIteratorsManager pinned_iters_mgr_;
 };
@@ -88,11 +96,13 @@ struct FragmentedRangeTombstoneList {
 class FragmentedRangeTombstoneIterator : public InternalIterator {
  public:
   FragmentedRangeTombstoneIterator(
-      const FragmentedRangeTombstoneList* tombstones, SequenceNumber snapshot,
-      const InternalKeyComparator& icmp);
+      const FragmentedRangeTombstoneList* tombstones,
+      const InternalKeyComparator& icmp, SequenceNumber upper_bound,
+      SequenceNumber lower_bound = 0);
   FragmentedRangeTombstoneIterator(
       const std::shared_ptr<const FragmentedRangeTombstoneList>& tombstones,
-      SequenceNumber snapshot, const InternalKeyComparator& icmp);
+      const InternalKeyComparator& icmp, SequenceNumber upper_bound,
+      SequenceNumber lower_bound = 0);
 
   void SeekToFirst() override;
   void SeekToLast() override;
@@ -136,10 +146,6 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
     seq_pos_ = tombstones_->seq_end();
   }
 
-  // TODO: implement properly
-  RangeTombstone tombstone() const {
-    return RangeTombstone(start_key(), end_key(), seq());
-  }
   Slice start_key() const { return pos_->start_key; }
   Slice end_key() const { return pos_->end_key; }
   SequenceNumber seq() const { return *seq_pos_; }
@@ -151,11 +157,23 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
     return ParsedInternalKey(pos_->end_key, kMaxSequenceNumber,
                              kTypeRangeDeletion);
   }
-  ParsedInternalKey internal_key() const {
-    return ParsedInternalKey(pos_->start_key, *seq_pos_, kTypeRangeDeletion);
-  }
 
   SequenceNumber MaxCoveringTombstoneSeqnum(const Slice& user_key);
+
+  // Splits the iterator into n+1 iterators (where n is the number of
+  // snapshots), each providing a view over a "stripe" of sequence numbers. The
+  // iterators are keyed by the upper bound of their ranges (the provided
+  // snapshots + kMaxSequenceNumber).
+  //
+  // NOTE: the iterators in the returned map are no longer valid if their
+  // parent iterator is deleted, since they do not modify the refcount of the
+  // underlying tombstone list. Therefore, this map should be deleted before
+  // the parent iterator.
+  std::map<SequenceNumber, std::unique_ptr<FragmentedRangeTombstoneIterator>>
+  SplitBySnapshot(const std::vector<SequenceNumber>& snapshots);
+
+  SequenceNumber upper_bound() const { return upper_bound_; }
+  SequenceNumber lower_bound() const { return lower_bound_; }
 
  private:
   using RangeTombstoneStack = FragmentedRangeTombstoneList::RangeTombstoneStack;
@@ -217,10 +235,12 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
 
   const RangeTombstoneStackStartComparator tombstone_start_cmp_;
   const RangeTombstoneStackEndComparator tombstone_end_cmp_;
+  const InternalKeyComparator* icmp_;
   const Comparator* ucmp_;
   std::shared_ptr<const FragmentedRangeTombstoneList> tombstones_ref_;
   const FragmentedRangeTombstoneList* tombstones_;
-  SequenceNumber snapshot_;
+  SequenceNumber upper_bound_;
+  SequenceNumber lower_bound_;
   std::vector<RangeTombstoneStack>::const_iterator pos_;
   std::vector<SequenceNumber>::const_iterator seq_pos_;
   mutable std::vector<RangeTombstoneStack>::const_iterator pinned_pos_;

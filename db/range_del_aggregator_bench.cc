@@ -220,8 +220,8 @@ int main(int argc, char** argv) {
       std::unique_ptr<rocksdb::FragmentedRangeTombstoneIterator>
           fragmented_range_del_iter(
               new rocksdb::FragmentedRangeTombstoneIterator(
-                  fragmented_range_tombstone_lists.back().get(),
-                  rocksdb::kMaxSequenceNumber, icmp));
+                  fragmented_range_tombstone_lists.back().get(), icmp,
+                  rocksdb::kMaxSequenceNumber));
 
       if (FLAGS_use_v2_aggregator) {
         rocksdb::StopWatchNano stop_watch_add_tombstones(
