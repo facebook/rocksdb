@@ -1153,11 +1153,12 @@ void Java_org_rocksdb_Options_setManifestPreallocationSize(
  * Method:    setTableFactory
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_Options_setTableFactory(JNIEnv* /*env*/, jobject /*jobj*/,
-                                              jlong jhandle,
-                                              jlong jfactory_handle) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->table_factory.reset(
-      reinterpret_cast<rocksdb::TableFactory*>(jfactory_handle));
+void Java_org_rocksdb_Options_setTableFactory(
+    JNIEnv*, jobject, jlong jhandle, jlong jtable_factory_handle) {
+  auto* options = reinterpret_cast<rocksdb::Options*>(jhandle);
+  auto* table_factory =
+      reinterpret_cast<rocksdb::TableFactory*>(jtable_factory_handle);
+  options->table_factory.reset(table_factory);
 }
 
 /*

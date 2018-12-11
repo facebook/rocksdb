@@ -33,6 +33,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/optimistic_transaction_options.cc
         rocksjni/options.cc
         rocksjni/options_util.cc
+        rocksjni/persistent_cache.cc
         rocksjni/ratelimiterjni.cc
         rocksjni/remove_emptyvalue_compactionfilterjni.cc
         rocksjni/restorejni.cc
@@ -210,6 +211,7 @@ add_jar(
   src/main/java/org/rocksdb/ComparatorType.java
   src/main/java/org/rocksdb/CompressionOptions.java
   src/main/java/org/rocksdb/CompressionType.java
+  src/main/java/org/rocksdb/DataBlockIndexType.java
   src/main/java/org/rocksdb/DBOptionsInterface.java
   src/main/java/org/rocksdb/DBOptions.java
   src/main/java/org/rocksdb/DbPath.java
@@ -242,6 +244,7 @@ add_jar(
   src/main/java/org/rocksdb/OptimisticTransactionOptions.java
   src/main/java/org/rocksdb/Options.java
   src/main/java/org/rocksdb/OptionsUtil.java
+  src/main/java/org/rocksdb/PersistentCache.java
   src/main/java/org/rocksdb/PlainTableConfig.java
   src/main/java/org/rocksdb/RateLimiter.java
   src/main/java/org/rocksdb/RateLimiterMode.java

@@ -39,6 +39,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.OptimisticTransactionOptions\
 	org.rocksdb.Options\
 	org.rocksdb.OptionsUtil\
+	org.rocksdb.PersistentCache\
 	org.rocksdb.PlainTableConfig\
 	org.rocksdb.RateLimiter\
 	org.rocksdb.ReadOptions\

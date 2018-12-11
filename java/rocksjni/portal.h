@@ -25,6 +25,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/status.h"
+#include "rocksdb/table.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -5584,6 +5585,117 @@ class ColumnFamilyDescriptorJni : public JavaClass {
     assert(mid != nullptr);
     return mid;
   }
+};
+
+// The portal class for org.rocksdb.IndexType
+class IndexTypeJni {
+ public:
+ // Returns the equivalent org.rocksdb.IndexType for the provided
+ // C++ rocksdb::IndexType enum
+ static jbyte toJavaIndexType(
+     const rocksdb::BlockBasedTableOptions::IndexType& index_type) {
+   switch(index_type) {
+     case rocksdb::BlockBasedTableOptions::IndexType::kBinarySearch:
+       return 0x0;
+     case rocksdb::BlockBasedTableOptions::IndexType::kHashSearch:
+       return 0x1;
+    case rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch:
+       return 0x2;
+     default:
+       return 0x7F;  // undefined
+   }
+ }
+
+ // Returns the equivalent C++ rocksdb::IndexType enum for the
+ // provided Java org.rocksdb.IndexType
+ static rocksdb::BlockBasedTableOptions::IndexType toCppIndexType(
+     jbyte jindex_type) {
+   switch(jindex_type) {
+     case 0x0:
+       return rocksdb::BlockBasedTableOptions::IndexType::kBinarySearch;
+     case 0x1:
+       return rocksdb::BlockBasedTableOptions::IndexType::kHashSearch;
+     case 0x2:
+       return rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+     default:
+       // undefined/default
+       return rocksdb::BlockBasedTableOptions::IndexType::kBinarySearch;
+   }
+ }
+};
+
+// The portal class for org.rocksdb.DataBlockIndexType
+class DataBlockIndexTypeJni {
+ public:
+ // Returns the equivalent org.rocksdb.DataBlockIndexType for the provided
+ // C++ rocksdb::DataBlockIndexType enum
+ static jbyte toJavaDataBlockIndexType(
+     const rocksdb::BlockBasedTableOptions::DataBlockIndexType& index_type) {
+   switch(index_type) {
+     case rocksdb::BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch:
+       return 0x0;
+     case rocksdb::BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinaryAndHash:
+       return 0x1;
+     default:
+       return 0x7F;  // undefined
+   }
+ }
+
+ // Returns the equivalent C++ rocksdb::DataBlockIndexType enum for the
+ // provided Java org.rocksdb.DataBlockIndexType
+ static rocksdb::BlockBasedTableOptions::DataBlockIndexType toCppDataBlockIndexType(
+     jbyte jindex_type) {
+   switch(jindex_type) {
+     case 0x0:
+       return rocksdb::BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch;
+     case 0x1:
+       return rocksdb::BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinaryAndHash;
+     default:
+       // undefined/default
+       return rocksdb::BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch;
+   }
+ }
+};
+
+// The portal class for org.rocksdb.ChecksumType
+class ChecksumTypeJni {
+ public:
+ // Returns the equivalent org.rocksdb.ChecksumType for the provided
+ // C++ rocksdb::ChecksumType enum
+ static jbyte toJavaChecksumType(
+     const rocksdb::ChecksumType& checksum_type) {
+   switch(checksum_type) {
+     case rocksdb::ChecksumType::kNoChecksum:
+       return 0x0;
+     case rocksdb::ChecksumType::kCRC32c:
+       return 0x1;
+     case rocksdb::ChecksumType::kxxHash:
+       return 0x2;
+     case rocksdb::ChecksumType::kxxHash64:
+       return 0x3;
+     default:
+       return 0x7F;  // undefined
+   }
+ }
+
+ // Returns the equivalent C++ rocksdb::ChecksumType enum for the
+ // provided Java org.rocksdb.ChecksumType
+ static rocksdb::ChecksumType toCppChecksumType(
+     jbyte jchecksum_type) {
+   switch(jchecksum_type) {
+     case 0x0:
+       return rocksdb::ChecksumType::kNoChecksum;
+     case 0x1:
+       return rocksdb::ChecksumType::kCRC32c;
+     case 0x2:
+       return rocksdb::ChecksumType::kxxHash;
+     case 0x3:
+       return rocksdb::ChecksumType::kxxHash64;
+     default:
+       // undefined/default
+       return rocksdb::ChecksumType::kCRC32c;
+   }
+ }
 };
 }  // namespace rocksdb
 #endif  // JAVA_ROCKSJNI_PORTAL_H_
