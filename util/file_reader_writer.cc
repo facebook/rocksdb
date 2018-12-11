@@ -327,7 +327,9 @@ Status WritableFileWriter::Flush() {
   if (buf_.CurrentSize() > 0) {
     if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
-      s = WriteDirect();
+      if (pending_sync_) {
+        s = WriteDirect();
+      }
 #endif  // !ROCKSDB_LITE
     } else {
       s = WriteBuffered(buf_.BufferStart(), buf_.CurrentSize());
