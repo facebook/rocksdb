@@ -2412,7 +2412,7 @@ FragmentedRangeTombstoneIterator* BlockBasedTable::NewRangeTombstoneIterator(
     snapshot = read_options.snapshot->GetSequenceNumber();
   }
   return new FragmentedRangeTombstoneIterator(
-      rep_->fragmented_range_dels, snapshot, rep_->internal_comparator);
+      rep_->fragmented_range_dels, rep_->internal_comparator, snapshot);
 }
 
 InternalIterator* BlockBasedTable::NewUnfragmentedRangeTombstoneIterator(
