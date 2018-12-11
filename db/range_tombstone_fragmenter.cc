@@ -151,10 +151,8 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
         seq_set_.insert(seqnums_to_flush.begin(), seqnums_to_flush.end());
       }
 
-      if (start_idx != end_idx) {
-        tombstones_.emplace_back(cur_start_key, cur_end_key, start_idx,
-                                 end_idx);
-      }
+      assert(start_idx < end_idx);
+      tombstones_.emplace_back(cur_start_key, cur_end_key, start_idx, end_idx);
 
       cur_start_key = cur_end_key;
     }
