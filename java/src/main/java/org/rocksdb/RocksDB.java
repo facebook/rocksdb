@@ -2343,9 +2343,9 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Drops the column family identified by columnFamilyName. Internal
-   * handles to this column family will be disposed. If the column family
-   * is not known removal will fail.
+   * Drops the column family specified by {@code columnFamilyHandle}. This call
+   * only records a drop record in the manifest and prevents the column
+   * family from flushing and compacting.
    *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance
@@ -2354,11 +2354,21 @@ public class RocksDB extends RocksObject {
    *    native library.
    */
   public void dropColumnFamily(final ColumnFamilyHandle columnFamilyHandle)
-      throws RocksDBException, IllegalArgumentException {
-    // throws RocksDBException if something goes wrong
+      throws RocksDBException {
     dropColumnFamily(nativeHandle_, columnFamilyHandle.nativeHandle_);
-    // After the drop the native handle is not valid anymore
-    columnFamilyHandle.disOwnNativeHandle();
+  }
+
+  // Bulk drop column families. This call only records drop records in the
+  // manifest and prevents the column families from flushing and compacting.
+  // In case of error, the request may succeed partially. User may call
+  // ListColumnFamilies to check the result.
+  public void dropColumnFamilies(
+      final List<ColumnFamilyHandle> columnFamilies) throws RocksDBException {
+    final long[] cfHandles = new long[columnFamilies.size()];
+    for (int i = 0; i < columnFamilies.size(); i++) {
+      cfHandles[i] = columnFamilies.get(i).nativeHandle_;
+    }
+    dropColumnFamilies(nativeHandle_, cfHandles);
   }
 
   /**
@@ -3035,8 +3045,10 @@ public class RocksDB extends RocksObject {
   private native long createColumnFamily(final long handle,
       final byte[] columnFamilyName, final long columnFamilyOptions)
       throws RocksDBException;
-  private native void dropColumnFamily(long handle, long cfHandle)
+  private native void dropColumnFamily(final long handle, final long cfHandle)
       throws RocksDBException;
+  private native void dropColumnFamilies(final long handle,
+      final long[] cfHandles) throws RocksDBException;
   private native void flush(long handle, long flushOptHandle)
       throws RocksDBException;
   private native void flush(long handle, long flushOptHandle, long cfHandle)
