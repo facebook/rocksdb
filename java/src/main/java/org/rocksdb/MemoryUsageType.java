@@ -54,9 +54,9 @@ public enum MemoryUsageType {
    *     cannot be found
    */
   public static MemoryUsageType getMemoryUsageType(final byte byteIdentifier) {
-    for (final MemoryUsageType MemoryUsageType : MemoryUsageType.values()) {
-      if (MemoryUsageType.getValue() == byteIdentifier) {
-        return MemoryUsageType;
+    for (final MemoryUsageType memoryUsageType : MemoryUsageType.values()) {
+      if (memoryUsageType.getValue() == byteIdentifier) {
+        return memoryUsageType;
       }
     }
 
@@ -64,7 +64,7 @@ public enum MemoryUsageType {
         "Illegal value provided for MemoryUsageType.");
   }
 
-  private MemoryUsageType(byte value) {
+  MemoryUsageType(byte value) {
     value_ = value;
   }
 
