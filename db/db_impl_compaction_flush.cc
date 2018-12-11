@@ -355,22 +355,22 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     exec_status[0].second =
         jobs[0].Run(&logs_with_prep_tracker_, &file_meta[0]);
     exec_status[0].first = true;
-  }
 
-  Status error_status;
-  for (const auto& e : exec_status) {
-    if (!e.second.ok()) {
-      s = e.second;
-      if (!e.second.IsShutdownInProgress()) {
-        // If a flush job did not return OK, and the CF is not dropped, and the
-        // DB is not shutting down, then we have to return this result to
-        // caller later.
-        error_status = e.second;
+    Status error_status;
+    for (const auto& e : exec_status) {
+      if (!e.second.ok()) {
+        s = e.second;
+        if (!e.second.IsShutdownInProgress()) {
+          // If a flush job did not return OK, and the CF is not dropped, and
+          // the DB is not shutting down, then we have to return this result to
+          // caller later.
+          error_status = e.second;
+        }
       }
     }
-  }
 
-  s = error_status.ok() ? s : error_status;
+    s = error_status.ok() ? s : error_status;
+  }
 
   if (s.ok() || s.IsShutdownInProgress()) {
     // Sync on all distinct output directories.
