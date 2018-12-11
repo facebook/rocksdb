@@ -64,8 +64,8 @@ public class RocksDB extends RocksObject {
         NativeLibraryLoader.getInstance().loadLibrary(tmpDir);
       } catch (IOException e) {
         libraryLoaded.set(LibraryState.NOT_LOADED);
-        throw new RuntimeException("Unable to load the RocksDB shared library"
-            + e);
+        throw new RuntimeException("Unable to load the RocksDB shared library",
+            e);
       }
 
       libraryLoaded.set(LibraryState.LOADED);
