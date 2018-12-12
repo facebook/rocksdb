@@ -154,6 +154,8 @@ struct FileOperationInfo {
 };
 
 struct FlushJobInfo {
+  // the id of the column family
+  uint32_t cf_id;
   // the name of the column family
   std::string cf_name;
   // the path to the newly created file
