@@ -277,7 +277,8 @@ class ReverseRangeDelIterator {
 
 class RangeDelAggregatorV2 {
  public:
-  RangeDelAggregatorV2(const InternalKeyComparator* icmp) : icmp_(icmp) {}
+  explicit RangeDelAggregatorV2(const InternalKeyComparator* icmp)
+      : icmp_(icmp) {}
   virtual ~RangeDelAggregatorV2() {}
 
   virtual void AddTombstones(
