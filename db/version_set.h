@@ -34,7 +34,7 @@
 #include "db/dbformat.h"
 #include "db/file_indexer.h"
 #include "db/log_reader.h"
-#include "db/range_del_aggregator_v2.h"
+#include "db/range_del_aggregator.h"
 #include "db/read_callback.h"
 #include "db/table_cache.h"
 #include "db/version_builder.h"
@@ -538,11 +538,11 @@ class Version {
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   void AddIterators(const ReadOptions&, const EnvOptions& soptions,
                     MergeIteratorBuilder* merger_iter_builder,
-                    RangeDelAggregatorV2* range_del_agg);
+                    RangeDelAggregator* range_del_agg);
 
   void AddIteratorsForLevel(const ReadOptions&, const EnvOptions& soptions,
                             MergeIteratorBuilder* merger_iter_builder,
-                            int level, RangeDelAggregatorV2* range_del_agg);
+                            int level, RangeDelAggregator* range_del_agg);
 
   Status OverlapWithLevelIterator(const ReadOptions&, const EnvOptions&,
                                   const Slice& smallest_user_key,
@@ -935,7 +935,7 @@ class VersionSet {
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
   InternalIterator* MakeInputIterator(
-      const Compaction* c, RangeDelAggregatorV2* range_del_agg,
+      const Compaction* c, RangeDelAggregator* range_del_agg,
       const EnvOptions& env_options_compactions);
 
   // Add all files listed in any live version to *live.

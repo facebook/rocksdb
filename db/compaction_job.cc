@@ -36,7 +36,7 @@
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
-#include "db/range_del_aggregator_v2.h"
+#include "db/range_del_aggregator.h"
 #include "db/version_set.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
@@ -805,8 +805,8 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact != nullptr);
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
-  CompactionRangeDelAggregatorV2 range_del_agg(&cfd->internal_comparator(),
-                                               existing_snapshots_);
+  CompactionRangeDelAggregator range_del_agg(&cfd->internal_comparator(),
+                                             existing_snapshots_);
 
   // Although the v2 aggregator is what the level iterator(s) know about,
   // the AddTombstones calls will be propagated down to the v1 aggregator.
@@ -1165,7 +1165,7 @@ void CompactionJob::RecordDroppedKeys(
 
 Status CompactionJob::FinishCompactionOutputFile(
     const Status& input_status, SubcompactionState* sub_compact,
-    CompactionRangeDelAggregatorV2* range_del_agg,
+    CompactionRangeDelAggregator* range_del_agg,
     CompactionIterationStats* range_del_out_stats,
     const Slice* next_table_min_key /* = nullptr */) {
   AutoThreadOperationStageUpdater stage_updater(

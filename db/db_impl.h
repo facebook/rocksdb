@@ -31,7 +31,7 @@
 #include "db/log_writer.h"
 #include "db/logs_with_prep_tracker.h"
 #include "db/pre_release_callback.h"
-#include "db/range_del_aggregator_v2.h"
+#include "db/range_del_aggregator.h"
 #include "db/read_callback.h"
 #include "db/snapshot_checker.h"
 #include "db/snapshot_impl.h"
@@ -375,8 +375,8 @@ class DBImpl : public DB {
   // The keys of this iterator are internal keys (see format.h).
   // The returned iterator should be deleted when no longer needed.
   InternalIterator* NewInternalIterator(
-      Arena* arena, RangeDelAggregatorV2* range_del_agg,
-      SequenceNumber sequence, ColumnFamilyHandle* column_family = nullptr);
+      Arena* arena, RangeDelAggregator* range_del_agg, SequenceNumber sequence,
+      ColumnFamilyHandle* column_family = nullptr);
 
   LogsWithPrepTracker* logs_with_prep_tracker() {
     return &logs_with_prep_tracker_;
@@ -579,12 +579,9 @@ class DBImpl : public DB {
 
   const WriteController& write_controller() { return write_controller_; }
 
-  InternalIterator* NewInternalIterator(const ReadOptions&,
-                                        ColumnFamilyData* cfd,
-                                        SuperVersion* super_version,
-                                        Arena* arena,
-                                        RangeDelAggregatorV2* range_del_agg,
-                                        SequenceNumber sequence);
+  InternalIterator* NewInternalIterator(
+      const ReadOptions&, ColumnFamilyData* cfd, SuperVersion* super_version,
+      Arena* arena, RangeDelAggregator* range_del_agg, SequenceNumber sequence);
 
   // hollow transactions shell used for recovery.
   // these will then be passed to TransactionDB so that

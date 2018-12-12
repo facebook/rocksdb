@@ -15,7 +15,7 @@
 #include "db/db_iter.h"
 #include "db/dbformat.h"
 #include "db/job_context.h"
-#include "db/range_del_aggregator_v2.h"
+#include "db/range_del_aggregator.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
@@ -73,8 +73,8 @@ class ForwardLevelIterator : public InternalIterator {
       delete file_iter_;
     }
 
-    ReadRangeDelAggregatorV2 range_del_agg(
-        &cfd_->internal_comparator(), kMaxSequenceNumber /* upper_bound */);
+    ReadRangeDelAggregator range_del_agg(&cfd_->internal_comparator(),
+                                         kMaxSequenceNumber /* upper_bound */);
     file_iter_ = cfd_->table_cache()->NewIterator(
         read_options_, *(cfd_->soptions()), cfd_->internal_comparator(),
         *files_[file_index_],
@@ -610,8 +610,8 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
     // New
     sv_ = cfd_->GetReferencedSuperVersion(&(db_->mutex_));
   }
-  ReadRangeDelAggregatorV2 range_del_agg(&cfd_->internal_comparator(),
-                                         kMaxSequenceNumber /* upper_bound */);
+  ReadRangeDelAggregator range_del_agg(&cfd_->internal_comparator(),
+                                       kMaxSequenceNumber /* upper_bound */);
   mutable_iter_ = sv_->mem->NewIterator(read_options_, &arena_);
   sv_->imm->AddIterators(read_options_, &imm_iters_, &arena_);
   if (!read_options_.ignore_range_deletions) {
@@ -669,8 +669,8 @@ void ForwardIterator::RenewIterators() {
 
   mutable_iter_ = svnew->mem->NewIterator(read_options_, &arena_);
   svnew->imm->AddIterators(read_options_, &imm_iters_, &arena_);
-  ReadRangeDelAggregatorV2 range_del_agg(&cfd_->internal_comparator(),
-                                         kMaxSequenceNumber /* upper_bound */);
+  ReadRangeDelAggregator range_del_agg(&cfd_->internal_comparator(),
+                                       kMaxSequenceNumber /* upper_bound */);
   if (!read_options_.ignore_range_deletions) {
     std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
         svnew->mem->NewRangeTombstoneIterator(
