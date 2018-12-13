@@ -729,6 +729,9 @@ class DBImpl : public DB {
   virtual Status GetStatsHistory(GetStatsOptions& stats_opts,
     std::map<uint64_t, std::map<std::string, std::string>>& stats_history) override;
 
+  // return the total size in bytes of all stats history stored in memory
+  int GetStatsHistorySize();
+
  protected:
   Env* const env_;
   const std::string dbname_;

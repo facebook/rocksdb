@@ -644,6 +644,18 @@ void DBImpl::StartTimedTasks() {
   }
 }
 
+int DBImpl::GetStatsHistorySize() {
+  int size_total = sizeof(stats_history_);
+  for (const auto& stats : stats_history_) {
+    size_total += sizeof(stats.first) + sizeof(stats.second);
+    if (stats.second.size() != 0) {
+      auto s = stats.second.begin();
+      size_total += (sizeof(s->first) + sizeof(s->second)) * stats.second.size();
+    }
+  }
+  return size_total;
+}
+
 void DBImpl::PersistStats() {
   TEST_SYNC_POINT("DBImpl::PersistStats:1");
 #ifndef ROCKSDB_LITE
@@ -682,6 +694,7 @@ void DBImpl::PersistStats() {
     const uint64_t now_micros = env_->NowMicros();
     stats_history_[now_micros] = stats_map;
     // delete older stats snapshots to control memory consumption
+    // fprintf(stdout, "total size of stats_history_ is %d\n", GetStatsHistorySize());
     int num_stats_to_delete =
         static_cast<int>(stats_history_.size()) -
         static_cast<int>(mutable_db_options_.max_stats_history_count);
