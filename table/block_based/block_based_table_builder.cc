@@ -734,6 +734,7 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
                        is_filter_block);
   }
 
+  // did_already_try_caching should be true here.
   WriteRawBlock(block_contents, type, handle, is_data_block, is_index_block, is_filter_block, true);
   r->compressed_output.clear();
   if (is_data_block) {
@@ -829,11 +830,11 @@ static void DeleteCachedBlockContents(const Slice& /*key*/, void* value) {
   delete bc;
 }
 
-// template <class Entry>
-// void DeleteCachedEntry(const Slice& /*key*/, void* value) {
-//   auto entry = reinterpret_cast<Entry*>(value);
-//   delete entry;
-// }
+template <class Entry>
+void DeleteCachedEntry(const Slice& /*key*/, void* value) {
+  auto entry = reinterpret_cast<Entry*>(value);
+  delete entry;
+}
 
 void DeleteCachedFilterEntry(const Slice& /*key*/, void* value) {
   FilterBlockReader* filter = reinterpret_cast<FilterBlockReader*>(value);
@@ -861,45 +862,77 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
   }
 
   // Uncompressed regular block cache
-  Cache* block_cache = r->table_options.block_cache.get();
-  if (type == kNoCompression && block_cache != nullptr) {
-    size_t size = block_contents.size();
-    auto buf = AllocateBlock(size, block_cache->cache_allocator());
-    memcpy(buf.get(), block_contents.data(), size);
-    BlockContents results(std::move(buf), size, true, type);
-
-    if (is_filter_block) {
-      FilterBlockReader* block = new BlockBasedFilterBlockReader(nullptr,
-          r->table_options, true, std::move(results), nullptr);
+  if (r->table_options.prepopulate_data_blocks) {
+    Cache* block_cache = r->table_options.block_cache.get();
+    if (type == kNoCompression && block_cache != nullptr) {
+      size_t size = block_contents.size();
+      auto buf = AllocateBlock(size, block_cache->memory_allocator());
+      memcpy(buf.get(), block_contents.data(), size);
+      BlockContents results(std::move(buf), size);
 
       char cache_key[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-      auto key = BlockBasedTable::GetCacheKey(r->cache_key_prefix,
-                                              r->cache_key_prefix_size,
-                                              *handle, cache_key);
-      size_t usage = block->ApproximateMemoryUsage();
-      block_cache->Insert(key, block, block->ApproximateMemoryUsage(),
-                          &DeleteCachedFilterEntry);
-      RecordTick(r->ioptions.statistics, BLOCK_CACHE_ADD);
-      RecordTick(r->ioptions.statistics, BLOCK_CACHE_BYTES_WRITE, usage);
-      RecordTick(r->ioptions.statistics, BLOCK_CACHE_FILTER_ADD);
-      RecordTick(r->ioptions.statistics, BLOCK_CACHE_FILTER_BYTES_INSERT, usage);
-    } else if (is_data_block) {
-      assert(r->level == 0);
-      Block* block = new Block(std::move(results), kDisableGlobalSequenceNumber);
+      Slice key = BlockBasedTable::GetCacheKey(r->cache_key_prefix,
+                                               r->cache_key_prefix_size,
+                                               *handle, cache_key);
 
-      std::string handle_encoding;
-      handle->EncodeTo(&handle_encoding);
-      char cache_key[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-      auto key = BlockBasedTable::GetCacheKey(r->cache_key_prefix,
-                                              r->cache_key_prefix_size,
-                                              *handle, cache_key);
-      size_t usage = block->ApproximateMemoryUsage();
-      block_cache->Insert(key, block, block->ApproximateMemoryUsage(),
-                          &DeleteCachedBlock);
-      RecordTick(r->ioptions.statistics, BLOCK_CACHE_ADD);
-      RecordTick(r->ioptions.statistics, BLOCK_CACHE_BYTES_WRITE, usage);
+      if (is_filter_block) {
+        // fprintf(stderr, "adding filter block\n");
+        // FilterBlockReader* block = new BlockBasedFilterBlockReader(nullptr,
+        //     r->table_options, true, std::move(results), nullptr);
+        //
+        // size_t charge = block->ApproximateMemoryUsage();
+        // block_cache->Insert(key, block, block->ApproximateMemoryUsage(),
+        //                     &DeleteCachedFilterEntry);
+        // RecordTick(r->ioptions.statistics, BLOCK_CACHE_ADD);
+        // RecordTick(r->ioptions.statistics, BLOCK_CACHE_BYTES_WRITE, charge);
+        // RecordTick(r->ioptions.statistics, BLOCK_CACHE_FILTER_ADD);
+        // RecordTick(r->ioptions.statistics, BLOCK_CACHE_FILTER_BYTES_INSERT, charge);
+      } else if (is_data_block) {
+        // // OLDER
+        // fprintf(stderr, "adding data block\n");
+        // assert(r->level == 0);
+        // Block* block = new Block(std::move(results), kDisableGlobalSequenceNumber);
+        //
+        // std::string encoded_handle;
+        // handle->EncodeTo(&encoded_handle);
+        // auto key = BlockBasedTable::GetCacheKey(r->cache_key_prefix,
+        //                                         r->cache_key_prefix_size,
+        //                                         *handle, cache_key);
+        // size_t charge = block->ApproximateMemoryUsage();
+        // block_cache->Insert(key, block, block->ApproximateMemoryUsage(),
+        //                     &DeleteCachedEntry<Block>);
+        // RecordTick(r->ioptions.statistics, BLOCK_CACHE_ADD);
+        // RecordTick(r->ioptions.statistics, BLOCK_CACHE_BYTES_WRITE, charge);
+
+
+        // // NEWER
+        // fprintf(stderr, "adding data block\n");
+        assert(r->level == 0);
+
+        // TODO WARN : We arent' using the encoded_handle. Should it be removed?
+        std::string encoded_handle;
+        handle->EncodeTo(&encoded_handle);
+        Slice handle_encoding_slice(encoded_handle);
+        // fprintf(stderr, "encoded handle: %s\n", handle_encoding_slice.ToString(true).c_str());
+
+        // fprintf(stderr, "cache key prefix: %s cache key: %s\n",
+        //         Slice(r->cache_key_prefix,
+        //         r->cache_key_prefix_size).ToString(true).c_str(),
+        //         key.ToString(true).c_str());
+
+        BlockBasedTable::CachableEntry<Block> cached_block;
+        cached_block.value = new Block(std::move(results), kDisableGlobalSequenceNumber);
+        size_t charge = cached_block.value->ApproximateMemoryUsage();
+
+        block_cache->Insert(key, cached_block.value, charge,
+                            &DeleteCachedEntry<Block>);
+        RecordTick(r->ioptions.statistics, BLOCK_CACHE_ADD);
+        RecordTick(r->ioptions.statistics, BLOCK_CACHE_DATA_ADD);
+        RecordTick(r->ioptions.statistics, BLOCK_CACHE_BYTES_WRITE, charge);
+        RecordTick(r->ioptions.statistics, BLOCK_CACHE_DATA_BYTES_INSERT, charge);
+      }
+      return Status::OK();
     }
-    return Status::OK();
   }
 
   // Compressed block cache
@@ -999,17 +1032,15 @@ void BlockBasedTableBuilder::WriteIndexBlock(
   }
   if (ok()) {
     if (rep_->table_options.enable_index_compression) {
-      // std::cerr << "compressed: Writing Index block contents" << std::endl;
       WriteBlock(index_blocks.index_block_contents, index_block_handle,
                  false /* is_data_block */,
-                 false /* is_index_block */,
+                 true /* is_index_block */,
                  false /* is_filter_block */);
     } else {
-      // std::cerr << "Writing Index block contents" << std::endl;
       WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
                     index_block_handle,
                     false /* is_data_block */,
-                    false  /* is_index_block */,
+                    true  /* is_index_block */,
                     false /* is_filter_block */);
     }
   }

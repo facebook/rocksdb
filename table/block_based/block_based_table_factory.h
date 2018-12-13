@@ -190,6 +190,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"pin_top_level_index_and_filter",
          {offsetof(struct BlockBasedTableOptions,
                    pin_top_level_index_and_filter),
+          OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
+        {"prepopulate_data_blocks",
+         {offsetof(struct BlockBasedTableOptions, prepopulate_data_blocks),
           OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}}};
 #endif  // !ROCKSDB_LITE
 }  // namespace rocksdb
