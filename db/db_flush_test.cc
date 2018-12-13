@@ -407,6 +407,87 @@ TEST_P(DBAtomicFlushTest, AtomicFlushRollbackSomeJobs) {
   Destroy(options);
 }
 
+TEST_P(DBAtomicFlushTest, FlushMultipleCFs_DropSomeBeforeRequestFlush) {
+  bool atomic_flush = GetParam();
+  if (!atomic_flush) {
+    return;
+  }
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = atomic_flush;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  WriteOptions wopts;
+  wopts.disableWAL = true;
+  std::vector<int> cf_ids;
+  for (size_t i = 0; i != num_cfs; ++i) {
+    int cf_id = static_cast<int>(i);
+    ASSERT_OK(Put(cf_id, "key", "value", wopts));
+    cf_ids.push_back(cf_id);
+  }
+  ASSERT_OK(dbfull()->DropColumnFamily(handles_[1]));
+  ASSERT_TRUE(Flush(cf_ids).IsShutdownInProgress());
+  Destroy(options);
+}
+
+TEST_P(DBAtomicFlushTest,
+       FlushMultipleCFs_DropSomeAfterScheduleFlushBeforeFlushJobRun) {
+  bool atomic_flush = GetParam();
+  if (!atomic_flush) {
+    return;
+  }
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = atomic_flush;
+
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::AtomicFlushMemTables:AfterScheduleFlush",
+        "DBAtomicFlushTest::BeforeDropCF"},
+       {"DBAtomicFlushTest::AfterDropCF",
+        "DBImpl::BackgroundCallFlush:start"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  WriteOptions wopts;
+  wopts.disableWAL = true;
+  for (size_t i = 0; i != num_cfs; ++i) {
+    int cf_id = static_cast<int>(i);
+    ASSERT_OK(Put(cf_id, "key", "value", wopts));
+  }
+  port::Thread user_thread([&]() {
+    TEST_SYNC_POINT("DBAtomicFlushTest::BeforeDropCF");
+    ASSERT_OK(dbfull()->DropColumnFamily(handles_[1]));
+    TEST_SYNC_POINT("DBAtomicFlushTest::AfterDropCF");
+  });
+  FlushOptions flush_opts;
+  flush_opts.wait = true;
+  ASSERT_OK(dbfull()->Flush(flush_opts, handles_));
+  user_thread.join();
+  for (size_t i = 0; i != num_cfs; ++i) {
+    int cf_id = static_cast<int>(i);
+    ASSERT_EQ("value", Get(cf_id, "key"));
+  }
+
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "eevee"}, options);
+  num_cfs = handles_.size();
+  ASSERT_EQ(2, num_cfs);
+  for (size_t i = 0; i != num_cfs; ++i) {
+    int cf_id = static_cast<int>(i);
+    ASSERT_EQ("value", Get(cf_id, "key"));
+  }
+  Destroy(options);
+}
+
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
                         testing::Bool());
 
