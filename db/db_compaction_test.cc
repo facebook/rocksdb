@@ -1594,7 +1594,7 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
   // Note that we don't delete level 0 files
   compact_options.change_level = true;
   compact_options.target_level = 1;
-  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr));
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
 
   ASSERT_OK(
       DeleteFilesInRange(db_, db_->DefaultColumnFamily(), nullptr, nullptr));
