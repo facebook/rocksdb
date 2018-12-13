@@ -984,7 +984,8 @@ class VersionSetTestDropOneCF : public VersionSetTestBase,
 //  |                             Prepare version edits (e1,e2,e3) for atomic
 //  |                             flush cf1, cf2, cf3
 //  |    Enqueue e to drop cfi
-//  |                             Enqueue (cf1,cf2,cf3)
+//  |    to manifest_writers_
+//  |                             Enqueue (e1,e2,e3) to manifest_writers_
 //  |
 //  |    Apply e,
 //  |    cfi.IsDropped() is true
