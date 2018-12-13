@@ -10,8 +10,10 @@
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/concurrent_task_limiter.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/utilities/convenience.h"
+#include "util/concurrent_task_limiter_impl.h"
 #include "util/fault_injection_test_env.h"
 #include "util/sync_point.h"
 
@@ -3888,6 +3890,193 @@ TEST_F(DBCompactionTest, CompactionHasEmptyOutput) {
   // Expect one file creation to start for each flush, and zero for compaction
   // since no keys are written.
   ASSERT_EQ(2, collector->num_ssts_creation_started());
+}
+
+TEST_F(DBCompactionTest, CompactionLimiter) {
+  const int kNumKeysPerFile = 10;
+  const int kMaxBackgroundThreads = 64;
+
+  struct CompactionLimiter {
+    std::string name;
+    int limit_tasks;
+    int max_tasks;
+    int tasks;
+    std::shared_ptr<ConcurrentTaskLimiter> limiter;
+  };
+
+  std::vector<CompactionLimiter> limiter_settings;
+  limiter_settings.push_back({"limiter_1", 1, 0, 0, nullptr});
+  limiter_settings.push_back({"limiter_2", 2, 0, 0, nullptr});
+  limiter_settings.push_back({"limiter_3", 3, 0, 0, nullptr});
+
+  for (auto& ls : limiter_settings) {
+    ls.limiter.reset(NewConcurrentTaskLimiter(ls.name, ls.limit_tasks));
+  }
+
+  std::shared_ptr<ConcurrentTaskLimiter> unique_limiter(
+    NewConcurrentTaskLimiter("unique_limiter", -1));
+
+  const char* cf_names[] = {"default", "0", "1", "2", "3", "4", "5",
+    "6", "7", "8", "9", "a", "b", "c", "d", "e", "f" };
+  const int cf_count = sizeof cf_names / sizeof cf_names[0];
+
+  std::unordered_map<std::string, CompactionLimiter*> cf_to_limiter;
+
+  Options options = CurrentOptions();
+  options.write_buffer_size = 110 * 1024;  // 110KB
+  options.arena_block_size = 4096;
+  options.num_levels = 3;
+  options.level0_file_num_compaction_trigger = 4;
+  options.level0_slowdown_writes_trigger = 64;
+  options.level0_stop_writes_trigger = 64;
+  options.max_background_jobs = kMaxBackgroundThreads; // Enough threads
+  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.max_write_buffer_number = 10; // Enough memtables
+  DestroyAndReopen(options);
+
+  std::vector<Options> option_vector;
+  option_vector.reserve(cf_count);
+
+  for (int cf = 0; cf < cf_count; cf++) {
+    ColumnFamilyOptions cf_opt(options);
+    if (cf == 0) {
+      // "Default" CF does't use compaction limiter
+      cf_opt.compaction_thread_limiter = nullptr;
+    } else if (cf == 1) {
+      // "1" CF uses bypass compaction limiter
+      unique_limiter->SetMaxOutstandingTask(-1);
+      cf_opt.compaction_thread_limiter = unique_limiter;
+    } else {
+      // Assign limiter by mod
+      auto& ls = limiter_settings[cf % 3];
+      cf_opt.compaction_thread_limiter = ls.limiter;
+      cf_to_limiter[cf_names[cf]] = &ls;
+    }
+    option_vector.emplace_back(DBOptions(options), cf_opt);
+  }
+
+  for (int cf = 1; cf < cf_count; cf++) {
+    CreateColumnFamilies({cf_names[cf]}, option_vector[cf]);
+  }
+
+  ReopenWithColumnFamilies(std::vector<std::string>(cf_names,
+                                                    cf_names + cf_count),
+                           option_vector);
+
+  port::Mutex mutex;
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+    "DBImpl::BackgroundCompaction:BeforeCompaction", [&](void* arg) {
+      const auto& cf_name = static_cast<ColumnFamilyData*>(arg)->GetName();
+      auto iter = cf_to_limiter.find(cf_name);
+      if (iter != cf_to_limiter.end()) {
+        MutexLock l(&mutex);
+        ASSERT_GE(iter->second->limit_tasks, ++iter->second->tasks);
+        iter->second->max_tasks = std::max(iter->second->max_tasks,
+              iter->second->limit_tasks);
+      }
+    });
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+    "DBImpl::BackgroundCompaction:AfterCompaction", [&](void* arg) {
+      const auto& cf_name = static_cast<ColumnFamilyData*>(arg)->GetName();
+      auto iter = cf_to_limiter.find(cf_name);
+      if (iter != cf_to_limiter.end()) {
+        MutexLock l(&mutex);
+        ASSERT_GE(--iter->second->tasks, 0);
+      }
+    });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Block all compact threads in thread pool.
+  const size_t kTotalFlushTasks = kMaxBackgroundThreads / 4;
+  const size_t kTotalCompactTasks = kMaxBackgroundThreads - kTotalFlushTasks;
+  env_->SetBackgroundThreads((int)kTotalFlushTasks, Env::HIGH);
+  env_->SetBackgroundThreads((int)kTotalCompactTasks, Env::LOW);
+
+  test::SleepingBackgroundTask sleeping_compact_tasks[kTotalCompactTasks];
+
+  // Block all compaction threads in thread pool.
+  for (size_t i = 0; i < kTotalCompactTasks; i++) {
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                   &sleeping_compact_tasks[i], Env::LOW);
+    sleeping_compact_tasks[i].WaitUntilSleeping();
+  }
+
+  int keyIndex = 0;
+
+  for (int n = 0; n < options.level0_file_num_compaction_trigger; n++) {
+    for (int cf = 0; cf < cf_count; cf++) {
+      for (int i = 0; i < kNumKeysPerFile; i++) {
+        ASSERT_OK(Put(cf, Key(keyIndex++), ""));
+      }
+      // put extra key to trigger flush
+      ASSERT_OK(Put(cf, "", ""));
+    }
+
+    for (int cf = 0; cf < cf_count; cf++) {
+      dbfull()->TEST_WaitForFlushMemTable(handles_[cf]);
+    }
+  }
+
+  // Enough L0 files to trigger compaction
+  for (int cf = 0; cf < cf_count; cf++) {
+    ASSERT_EQ(NumTableFilesAtLevel(0, cf),
+      options.level0_file_num_compaction_trigger);
+  }
+
+  // Create more files for one column family, which triggers speed up
+  // condition, all compactions will be scheduled.
+  for (int num = 0; num < options.level0_file_num_compaction_trigger; num++) {
+    for (int i = 0; i < kNumKeysPerFile; i++) {
+      ASSERT_OK(Put(0, Key(i), ""));
+    }
+    // put extra key to trigger flush
+    ASSERT_OK(Put(0, "", ""));
+    dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
+    ASSERT_EQ(options.level0_file_num_compaction_trigger + num + 1,
+              NumTableFilesAtLevel(0, 0));
+  }
+
+  // All CFs are pending compaction
+  ASSERT_EQ(cf_count, env_->GetThreadPoolQueueLen(Env::LOW));
+
+  // Unblock all compaction threads
+  for (size_t i = 0; i < kTotalCompactTasks; i++) {
+    sleeping_compact_tasks[i].WakeUp();
+    sleeping_compact_tasks[i].WaitUntilDone();
+  }
+
+  for (int cf = 0; cf < cf_count; cf++) {
+    dbfull()->TEST_WaitForFlushMemTable(handles_[cf]);
+  }
+
+  dbfull()->TEST_WaitForCompact();
+
+  // Max outstanding compact tasks reached limit
+  for (auto& ls : limiter_settings) {
+    ASSERT_EQ(ls.limit_tasks, ls.max_tasks);
+    ASSERT_EQ(0, ls.limiter->GetOutstandingTask());
+  }
+
+  // test manual compaction under a fully throttled limiter
+  int cf_test = 1;
+  unique_limiter->SetMaxOutstandingTask(0);
+
+  // flush one more file to cf 1
+  for (int i = 0; i < kNumKeysPerFile; i++) {
+      ASSERT_OK(Put(cf_test, Key(keyIndex++), ""));
+  }
+  // put extra key to trigger flush
+  ASSERT_OK(Put(cf_test, "", ""));
+
+  dbfull()->TEST_WaitForFlushMemTable(handles_[cf_test]);
+  ASSERT_EQ(1, NumTableFilesAtLevel(0, cf_test));
+
+  Compact(cf_test, Key(0), Key(keyIndex));
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, unique_limiter->GetOutstandingTask());
 }
 
 INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,

@@ -597,6 +597,7 @@ set(SOURCES
         util/comparator.cc
         util/compression_context_cache.cc
         util/concurrent_arena.cc
+        util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
         util/delete_scheduler.cc
         util/dynamic_bloom.cc

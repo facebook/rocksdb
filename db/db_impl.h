@@ -65,6 +65,7 @@ class Arena;
 class ArenaWrappedDBIter;
 class MemTable;
 class TableCache;
+class TaskLimiterToken;
 class Version;
 class VersionEdit;
 class VersionSet;
@@ -1106,8 +1107,17 @@ class DBImpl : public DB {
                                const std::vector<CompactionInputFiles>& inputs,
                                bool* sfm_bookkeeping, LogBuffer* log_buffer);
 
+  // Request compaction tasks token from compaction thread limiter.
+  // It always succeeds if force = true or limiter is disable.
+  bool RequestCompactionToken(ColumnFamilyData* cfd, bool force,
+                              std::unique_ptr<TaskLimiterToken>* token,
+                              LogBuffer* log_buffer);
+
   // Schedule background tasks
   void StartTimedTasks();
+
+  void SubtractCompactionTask(const std::string& device_name,
+                              LogBuffer* log_buffer);
 
   void PrintStatistics();
 
@@ -1128,6 +1138,10 @@ class DBImpl : public DB {
   void AddToCompactionQueue(ColumnFamilyData* cfd);
   ColumnFamilyData* PopFirstFromCompactionQueue();
   FlushRequest PopFirstFromFlushQueue();
+
+  // Pick the first unthrottled compaction with task token from queue.
+  ColumnFamilyData* PickCompactionFromQueue(
+      std::unique_ptr<TaskLimiterToken>* token, LogBuffer* log_buffer);
 
   // helper function to call after some of the logs_ were synced
   void MarkLogsSynced(uint64_t up_to, bool synced_dir, const Status& status);
@@ -1422,6 +1436,8 @@ class DBImpl : public DB {
     // caller retains ownership of `manual_compaction_state` as it is reused
     // across background compactions.
     ManualCompactionState* manual_compaction_state;  // nullptr if non-manual
+    // task limiter token is requested during compaction picking.
+    std::unique_ptr<TaskLimiterToken> task_token;
   };
   std::deque<ManualCompactionState*> manual_compaction_dequeue_;
 

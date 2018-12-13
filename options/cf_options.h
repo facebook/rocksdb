@@ -120,6 +120,8 @@ struct ImmutableCFOptions {
   const SliceTransform* memtable_insert_with_hint_prefix_extractor;
 
   std::vector<DbPath> cf_paths;
+
+  std::shared_ptr<ConcurrentTaskLimiter> compaction_thread_limiter;
 };
 
 struct MutableCFOptions {
