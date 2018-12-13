@@ -1334,15 +1334,15 @@ class JniUtil {
           return env;
         } else {
           // error, could not attach the thread
-          std::cerr << "JniUtil::getJinEnv - Fatal: could not attach current thread to JVM!" << std::endl;
+          std::cerr << "JniUtil::getJniEnv - Fatal: could not attach current thread to JVM!" << std::endl;
           return nullptr;
         }
       } else if(env_rs == JNI_EVERSION) {
         // error, JDK does not support JNI_VERSION_1_2+
-        std::cerr << "JniUtil::getJinEnv - Fatal: JDK does not support JNI_VERSION_1_2" << std::endl;
+        std::cerr << "JniUtil::getJniEnv - Fatal: JDK does not support JNI_VERSION_1_2" << std::endl;
         return nullptr;
       } else {
-        std::cerr << "JniUtil::getJinEnv - Fatal: Unknown error: env_rs=" << env_rs << std::endl;
+        std::cerr << "JniUtil::getJniEnv - Fatal: Unknown error: env_rs=" << env_rs << std::endl;
         return nullptr;
       }
     }
@@ -1363,7 +1363,7 @@ class JniUtil {
         const jint rs_detach = jvm->DetachCurrentThread();
         assert(rs_detach == JNI_OK);
         if(rs_detach != JNI_OK) {
-          std::cerr << "JniUtil::getJinEnv - Warn: Unable to detach current thread from JVM!" << std::endl;
+          std::cerr << "JniUtil::getJniEnv - Warn: Unable to detach current thread from JVM!" << std::endl;
         }
       }
     }
