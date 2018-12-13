@@ -2159,12 +2159,12 @@ void Java_org_rocksdb_Options_setCompressionOptions(
  * Method:    setCompactionStyle
  * Signature: (JB)V
  */
-void Java_org_rocksdb_Options_setCompactionStyle(JNIEnv* /*env*/,
-                                                 jobject /*jobj*/,
-                                                 jlong jhandle,
-                                                 jbyte compaction_style) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->compaction_style =
-      static_cast<rocksdb::CompactionStyle>(compaction_style);
+void Java_org_rocksdb_Options_setCompactionStyle(
+    JNIEnv*, jobject, jlong jhandle, jbyte jcompaction_style) {
+  auto* options = reinterpret_cast<rocksdb::Options*>(jhandle);
+  options->compaction_style =
+      rocksdb::CompactionStyleJni::toCppCompactionStyle(
+          jcompaction_style);
 }
 
 /*
@@ -2172,10 +2172,11 @@ void Java_org_rocksdb_Options_setCompactionStyle(JNIEnv* /*env*/,
  * Method:    compactionStyle
  * Signature: (J)B
  */
-jbyte Java_org_rocksdb_Options_compactionStyle(JNIEnv* /*env*/,
-                                               jobject /*jobj*/,
-                                               jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->compaction_style;
+jbyte Java_org_rocksdb_Options_compactionStyle(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* options = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return rocksdb::CompactionStyleJni::toJavaCompactionStyle(
+      options->compaction_style);
 }
 
 /*
@@ -3594,9 +3595,10 @@ void Java_org_rocksdb_ColumnFamilyOptions_setCompressionOptions(
  * Signature: (JB)V
  */
 void Java_org_rocksdb_ColumnFamilyOptions_setCompactionStyle(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle, jbyte compaction_style) {
-  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)->compaction_style =
-      static_cast<rocksdb::CompactionStyle>(compaction_style);
+    JNIEnv*, jobject, jlong jhandle, jbyte jcompaction_style) {
+  auto* cf_options = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
+  cf_options->compaction_style =
+      rocksdb::CompactionStyleJni::toCppCompactionStyle(jcompaction_style);
 }
 
 /*
@@ -3604,11 +3606,11 @@ void Java_org_rocksdb_ColumnFamilyOptions_setCompactionStyle(
  * Method:    compactionStyle
  * Signature: (J)B
  */
-jbyte Java_org_rocksdb_ColumnFamilyOptions_compactionStyle(JNIEnv* /*env*/,
-                                                           jobject /*jobj*/,
-                                                           jlong jhandle) {
-  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)
-      ->compaction_style;
+jbyte Java_org_rocksdb_ColumnFamilyOptions_compactionStyle(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* cf_options = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
+  return rocksdb::CompactionStyleJni::toJavaCompactionStyle(
+      cf_options->compaction_style);
 }
 
 /*

@@ -482,7 +482,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public CompactionStyle compactionStyle() {
-    return CompactionStyle.values()[compactionStyle(nativeHandle_)];
+    return CompactionStyle.fromValue(compactionStyle(nativeHandle_));
   }
 
   @Override

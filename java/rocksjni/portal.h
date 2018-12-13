@@ -6024,5 +6024,46 @@ class ThreadStatusJni : public JavaClass {
     return jcfd;
   }
 };
+
+// The portal class for org.rocksdb.CompactionStyle
+class CompactionStyleJni {
+ public:
+ // Returns the equivalent org.rocksdb.CompactionStyle for the provided
+ // C++ rocksdb::CompactionStyle enum
+ static jbyte toJavaCompactionStyle(
+     const rocksdb::CompactionStyle& compaction_style) {
+   switch(compaction_style) {
+     case rocksdb::CompactionStyle::kCompactionStyleLevel:
+       return 0x0;
+     case rocksdb::CompactionStyle::kCompactionStyleUniversal:
+       return 0x1;
+     case rocksdb::CompactionStyle::kCompactionStyleFIFO:
+       return 0x2;
+     case rocksdb::CompactionStyle::kCompactionStyleNone:
+       return 0x3;
+     default:
+       return 0x7F;  // undefined
+   }
+ }
+
+ // Returns the equivalent C++ rocksdb::CompactionStyle enum for the
+ // provided Java org.rocksdb.CompactionStyle
+ static rocksdb::CompactionStyle toCppCompactionStyle(
+     jbyte jcompaction_style) {
+   switch(jcompaction_style) {
+     case 0x0:
+       return rocksdb::CompactionStyle::kCompactionStyleLevel;
+     case 0x1:
+       return rocksdb::CompactionStyle::kCompactionStyleUniversal;
+     case 0x2:
+       return rocksdb::CompactionStyle::kCompactionStyleFIFO;
+     case 0x3:
+       return rocksdb::CompactionStyle::kCompactionStyleNone;
+     default:
+       // undefined/default
+       return rocksdb::CompactionStyle::kCompactionStyleLevel;
+   }
+ }
+};
 }  // namespace rocksdb
 #endif  // JAVA_ROCKSJNI_PORTAL_H_
