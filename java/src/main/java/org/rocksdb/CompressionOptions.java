@@ -71,6 +71,67 @@ public class CompressionOptions extends RocksObject {
     return maxDictBytes(nativeHandle_);
   }
 
+  /**
+   * Maximum size of training data passed to zstd's dictionary trainer. Using
+   * zstd's dictionary trainer can achieve even better compression ratio
+   * improvements than using {@link #setMaxDictBytes(int)} alone.
+   *
+   * The training data will be used to generate a dictionary
+   * of {@link #maxDictBytes()}.
+   *
+   * Default: 0.
+   *
+   * @param zstdMaxTrainBytes Maximum bytes to use for training ZStd.
+   *
+   * @return the reference to the current options
+   */
+  public CompressionOptions setZStdMaxTrainBytes(final int zstdMaxTrainBytes) {
+    setZstdMaxTrainBytes(nativeHandle_, zstdMaxTrainBytes);
+    return this;
+  }
+
+  /**
+   * Maximum size of training data passed to zstd's dictionary trainer.
+   *
+   * @return Maximum bytes to use for training ZStd
+   */
+  public int zstdMaxTrainBytes() {
+    return zstdMaxTrainBytes(nativeHandle_);
+  }
+
+  /**
+   * When the compression options are set by the user, it will be set to "true".
+   * For bottommost_compression_opts, to enable it, user must set enabled=true.
+   * Otherwise, bottommost compression will use compression_opts as default
+   * compression options.
+   *
+   * For compression_opts, if compression_opts.enabled=false, it is still
+   * used as compression options for compression process.
+   *
+   * Default: false.
+   *
+   * @param enabled true to use these compression options
+   *     for the bottommost_compression_opts, false otherwise
+   *
+   * @return the reference to the current options
+   */
+  public CompressionOptions setEnabled(final boolean enabled) {
+    setEnabled(nativeHandle_, enabled);
+    return this;
+  }
+
+  /**
+   * Determine whether these compression options
+   * are used for the bottommost_compression_opts.
+   *
+   * @return true if these compression options are used
+   *     for the bottommost_compression_opts, false otherwise
+   */
+  public boolean enabled() {
+    return enabled(nativeHandle_);
+  }
+
+
   private native static long newCompressionOptions();
   @Override protected final native void disposeInternal(final long handle);
 
@@ -82,4 +143,9 @@ public class CompressionOptions extends RocksObject {
   private native int strategy(final long handle);
   private native void setMaxDictBytes(final long handle, final int maxDictBytes);
   private native int maxDictBytes(final long handle);
+  private native void setZstdMaxTrainBytes(final long handle,
+      final int zstdMaxTrainBytes);
+  private native int zstdMaxTrainBytes(final long handle);
+  private native void setEnabled(final long handle, final boolean enabled);
+  private native boolean enabled(final long handle);
 }
