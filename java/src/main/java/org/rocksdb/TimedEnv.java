@@ -6,15 +6,14 @@
 package org.rocksdb;
 
 /**
- * Memory environment.
+ * Timed environment.
  */
-//TODO(AR) rename to MemEnv
-public class RocksMemEnv extends Env {
+public class TimedEnv extends Env {
 
   /**
-   * <p>Creates a new environment that stores its data
-   * in memory and delegates all non-file-storage tasks to
-   * {@code baseEnv}.</p>
+   * <p>Creates a new environment that measures function call times for
+   * filesystem operations, reporting results to variables in PerfContext.</p>
+   *
    *
    * <p>The caller must delete the result when it is
    * no longer needed.</p>
@@ -22,18 +21,10 @@ public class RocksMemEnv extends Env {
    * @param baseEnv the base environment,
    *     must remain live while the result is in use.
    */
-  public RocksMemEnv(final Env baseEnv) {
-    super(createMemEnv(baseEnv.nativeHandle_));
+  public TimedEnv(final Env baseEnv) {
+    super(createTimedEnv(baseEnv.nativeHandle_));
   }
 
-  /**
-   * @deprecated Use {@link #RocksMemEnv(Env)}.
-   */
-  @Deprecated
-  public RocksMemEnv() {
-    this(Env.getDefault());
-  }
-
-  private static native long createMemEnv(final long baseEnvHandle);
+  private static native long createTimedEnv(final long baseEnvHandle);
   @Override protected final native void disposeInternal(final long handle);
 }

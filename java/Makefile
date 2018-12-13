@@ -29,6 +29,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.IngestExternalFileOptions\
 	org.rocksdb.HashLinkedListMemTableConfig\
 	org.rocksdb.HashSkipListMemTableConfig\
+	org.rocksdb.HdfsEnv\
 	org.rocksdb.Logger\
 	org.rocksdb.LRUCache\
 	org.rocksdb.MemoryUsageType\
@@ -55,6 +56,8 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.SstFileManager\
 	org.rocksdb.SstFileWriter\
 	org.rocksdb.Statistics\
+	org.rocksdb.ThreadStatus\
+	org.rocksdb.TimedEnv\
 	org.rocksdb.Transaction\
 	org.rocksdb.TransactionDB\
 	org.rocksdb.TransactionDBOptions\
@@ -109,6 +112,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.DirectComparatorTest\
 	org.rocksdb.DirectSliceTest\
 	org.rocksdb.EnvOptionsTest\
+	org.rocksdb.HdfsEnvTest\
 	org.rocksdb.IngestExternalFileOptionsTest\
 	org.rocksdb.util.EnvironmentTest\
 	org.rocksdb.FilterTest\
@@ -135,7 +139,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.ReadOptionsTest\
 	org.rocksdb.RocksDBTest\
 	org.rocksdb.RocksDBExceptionTest\
-	org.rocksdb.RocksEnvTest\
+	org.rocksdb.DefaultEnvTest\
 	org.rocksdb.RocksIteratorTest\
 	org.rocksdb.RocksMemEnvTest\
 	org.rocksdb.util.SizeUnitTest\
@@ -144,6 +148,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.SstFileManagerTest\
 	org.rocksdb.SstFileWriterTest\
 	org.rocksdb.TableFilterTest\
+	org.rocksdb.TimedEnvTest\
 	org.rocksdb.TransactionTest\
 	org.rocksdb.TransactionDBTest\
 	org.rocksdb.TransactionOptionsTest\

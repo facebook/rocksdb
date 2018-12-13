@@ -5697,5 +5697,332 @@ class ChecksumTypeJni {
    }
  }
 };
+
+// The portal class for org.rocksdb.Priority
+class PriorityJni {
+ public:
+ // Returns the equivalent org.rocksdb.Priority for the provided
+ // C++ rocksdb::Env::Priority enum
+ static jbyte toJavaPriority(
+     const rocksdb::Env::Priority& priority) {
+   switch(priority) {
+     case rocksdb::Env::Priority::BOTTOM:
+       return 0x0;
+     case rocksdb::Env::Priority::LOW:
+       return 0x1;
+     case rocksdb::Env::Priority::HIGH:
+       return 0x2;
+     case rocksdb::Env::Priority::TOTAL:
+       return 0x3;
+     default:
+       return 0x7F;  // undefined
+   }
+ }
+
+ // Returns the equivalent C++ rocksdb::env::Priority enum for the
+ // provided Java org.rocksdb.Priority
+ static rocksdb::Env::Priority toCppPriority(
+     jbyte jpriority) {
+   switch(jpriority) {
+     case 0x0:
+       return rocksdb::Env::Priority::BOTTOM;
+     case 0x1:
+       return rocksdb::Env::Priority::LOW;
+     case 0x2:
+       return rocksdb::Env::Priority::HIGH;
+     case 0x3:
+       return rocksdb::Env::Priority::TOTAL;
+     default:
+       // undefined/default
+       return rocksdb::Env::Priority::LOW;
+   }
+ }
+};
+
+// The portal class for org.rocksdb.ThreadType
+class ThreadTypeJni {
+ public:
+ // Returns the equivalent org.rocksdb.ThreadType for the provided
+ // C++ rocksdb::ThreadStatus::ThreadType enum
+ static jbyte toJavaThreadType(
+     const rocksdb::ThreadStatus::ThreadType& thread_type) {
+   switch(thread_type) {
+     case rocksdb::ThreadStatus::ThreadType::HIGH_PRIORITY:
+       return 0x0;
+     case rocksdb::ThreadStatus::ThreadType::LOW_PRIORITY:
+       return 0x1;
+     case rocksdb::ThreadStatus::ThreadType::USER:
+       return 0x2;
+     case rocksdb::ThreadStatus::ThreadType::BOTTOM_PRIORITY:
+       return 0x3;
+     default:
+       return 0x7F;  // undefined
+   }
+ }
+
+ // Returns the equivalent C++ rocksdb::ThreadStatus::ThreadType enum for the
+ // provided Java org.rocksdb.ThreadType
+ static rocksdb::ThreadStatus::ThreadType toCppThreadType(
+     jbyte jthread_type) {
+   switch(jthread_type) {
+     case 0x0:
+       return rocksdb::ThreadStatus::ThreadType::HIGH_PRIORITY;
+     case 0x1:
+       return rocksdb::ThreadStatus::ThreadType::LOW_PRIORITY;
+     case 0x2:
+       return ThreadStatus::ThreadType::USER;
+     case 0x3:
+       return rocksdb::ThreadStatus::ThreadType::BOTTOM_PRIORITY;
+     default:
+       // undefined/default
+       return rocksdb::ThreadStatus::ThreadType::LOW_PRIORITY;
+   }
+ }
+};
+
+// The portal class for org.rocksdb.OperationType
+class OperationTypeJni {
+ public:
+ // Returns the equivalent org.rocksdb.OperationType for the provided
+ // C++ rocksdb::ThreadStatus::OperationType enum
+ static jbyte toJavaOperationType(
+     const rocksdb::ThreadStatus::OperationType& operation_type) {
+   switch(operation_type) {
+     case rocksdb::ThreadStatus::OperationType::OP_UNKNOWN:
+       return 0x0;
+     case rocksdb::ThreadStatus::OperationType::OP_COMPACTION:
+       return 0x1;
+     case rocksdb::ThreadStatus::OperationType::OP_FLUSH:
+       return 0x2;
+     default:
+       return 0x7F;  // undefined
+   }
+ }
+
+ // Returns the equivalent C++ rocksdb::ThreadStatus::OperationType enum for the
+ // provided Java org.rocksdb.OperationType
+ static rocksdb::ThreadStatus::OperationType toCppOperationType(
+     jbyte joperation_type) {
+   switch(joperation_type) {
+     case 0x0:
+       return rocksdb::ThreadStatus::OperationType::OP_UNKNOWN;
+     case 0x1:
+       return rocksdb::ThreadStatus::OperationType::OP_COMPACTION;
+     case 0x2:
+       return rocksdb::ThreadStatus::OperationType::OP_FLUSH;
+     default:
+       // undefined/default
+       return rocksdb::ThreadStatus::OperationType::OP_UNKNOWN;
+   }
+ }
+};
+
+// The portal class for org.rocksdb.OperationStage
+class OperationStageJni {
+ public:
+ // Returns the equivalent org.rocksdb.OperationStage for the provided
+ // C++ rocksdb::ThreadStatus::OperationStage enum
+ static jbyte toJavaOperationStage(
+     const rocksdb::ThreadStatus::OperationStage& operation_stage) {
+   switch(operation_stage) {
+     case rocksdb::ThreadStatus::OperationStage::STAGE_UNKNOWN:
+       return 0x0;
+     case rocksdb::ThreadStatus::OperationStage::STAGE_FLUSH_RUN:
+       return 0x1;
+     case rocksdb::ThreadStatus::OperationStage::STAGE_FLUSH_WRITE_L0:
+       return 0x2;
+     case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_PREPARE:
+       return 0x3;
+     case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_RUN:
+       return 0x4;
+     case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_PROCESS_KV:
+       return 0x5;
+     case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_INSTALL:
+       return 0x6;
+     case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_SYNC_FILE:
+       return 0x7;
+     case rocksdb::ThreadStatus::OperationStage::STAGE_PICK_MEMTABLES_TO_FLUSH:
+       return 0x8;
+     case rocksdb::ThreadStatus::OperationStage::STAGE_MEMTABLE_ROLLBACK:
+       return 0x9;
+     case rocksdb::ThreadStatus::OperationStage::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS:
+       return 0xA;
+     default:
+       return 0x7F;  // undefined
+   }
+ }
+
+ // Returns the equivalent C++ rocksdb::ThreadStatus::OperationStage enum for the
+ // provided Java org.rocksdb.OperationStage
+ static rocksdb::ThreadStatus::OperationStage toCppOperationStage(
+     jbyte joperation_stage) {
+   switch(joperation_stage) {
+     case 0x0:
+       return rocksdb::ThreadStatus::OperationStage::STAGE_UNKNOWN;
+     case 0x1:
+       return rocksdb::ThreadStatus::OperationStage::STAGE_FLUSH_RUN;
+     case 0x2:
+       return rocksdb::ThreadStatus::OperationStage::STAGE_FLUSH_WRITE_L0;
+     case 0x3:
+       return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_PREPARE;
+     case 0x4:
+       return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_RUN;
+     case 0x5:
+       return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_PROCESS_KV;
+     case 0x6:
+       return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_INSTALL;
+     case 0x7:
+       return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_SYNC_FILE;
+     case 0x8:
+       return rocksdb::ThreadStatus::OperationStage::STAGE_PICK_MEMTABLES_TO_FLUSH;
+     case 0x9:
+       return rocksdb::ThreadStatus::OperationStage::STAGE_MEMTABLE_ROLLBACK;
+     case 0xA:
+       return rocksdb::ThreadStatus::OperationStage::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS;
+     default:
+       // undefined/default
+       return rocksdb::ThreadStatus::OperationStage::STAGE_UNKNOWN;
+   }
+ }
+};
+
+// The portal class for org.rocksdb.StateType
+class StateTypeJni {
+ public:
+ // Returns the equivalent org.rocksdb.StateType for the provided
+ // C++ rocksdb::ThreadStatus::StateType enum
+ static jbyte toJavaStateType(
+     const rocksdb::ThreadStatus::StateType& state_type) {
+   switch(state_type) {
+     case rocksdb::ThreadStatus::StateType::STATE_UNKNOWN:
+       return 0x0;
+     case rocksdb::ThreadStatus::StateType::STATE_MUTEX_WAIT:
+       return 0x1;
+     default:
+       return 0x7F;  // undefined
+   }
+ }
+
+ // Returns the equivalent C++ rocksdb::ThreadStatus::StateType enum for the
+ // provided Java org.rocksdb.StateType
+ static rocksdb::ThreadStatus::StateType toCppStateType(
+     jbyte jstate_type) {
+   switch(jstate_type) {
+     case 0x0:
+       return rocksdb::ThreadStatus::StateType::STATE_UNKNOWN;
+     case 0x1:
+       return rocksdb::ThreadStatus::StateType::STATE_MUTEX_WAIT;
+     default:
+       // undefined/default
+       return rocksdb::ThreadStatus::StateType::STATE_UNKNOWN;
+   }
+ }
+};
+
+// The portal class for org.rocksdb.ThreadStatus
+class ThreadStatusJni : public JavaClass {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.ThreadStatus
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env,
+        "org/rocksdb/ThreadStatus");
+  }
+
+  /**
+   * Create a new Java org.rocksdb.ThreadStatus object with the same
+   * properties as the provided C++ rocksdb::ThreadStatus object
+   *
+   * @param env A pointer to the Java environment
+   * @param thread_status A pointer to rocksdb::ThreadStatus object
+   *
+   * @return A reference to a Java org.rocksdb.ColumnFamilyOptions object, or
+   * nullptr if an an exception occurs
+   */
+  static jobject construct(JNIEnv* env,
+      const rocksdb::ThreadStatus* thread_status) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(JBLjava/lang/String;Ljava/lang/String;BJB[JB)V");
+    if (mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    jstring jdb_name =
+        JniUtil::toJavaString(env, &(thread_status->db_name), true);
+    if (env->ExceptionCheck()) {
+        // an error occurred
+        return nullptr;
+    }
+
+    jstring jcf_name =
+        JniUtil::toJavaString(env, &(thread_status->cf_name), true);
+    if (env->ExceptionCheck()) {
+        // an error occurred
+        env->DeleteLocalRef(jdb_name);
+        return nullptr;
+    }
+
+    // long[]
+    const jsize len = static_cast<jsize>(rocksdb::ThreadStatus::kNumOperationProperties);
+    jlongArray joperation_properties =
+        env->NewLongArray(len);
+    if (joperation_properties == nullptr) {
+      // an exception occurred
+      env->DeleteLocalRef(jdb_name);
+      env->DeleteLocalRef(jcf_name);
+      return nullptr;
+    }
+    jlong *body = env->GetLongArrayElements(joperation_properties, nullptr);
+    if (body == nullptr) {
+        // exception thrown: OutOfMemoryError
+        env->DeleteLocalRef(jdb_name);
+        env->DeleteLocalRef(jcf_name);
+        env->DeleteLocalRef(joperation_properties);
+        return nullptr;
+    }
+    for (size_t i = 0; i < len; ++i) {
+      body[i] = static_cast<jlong>(thread_status->op_properties[i]);
+    }
+    env->ReleaseLongArrayElements(joperation_properties, body, 0);
+
+    jobject jcfd = env->NewObject(jclazz, mid,
+        static_cast<jlong>(thread_status->thread_id),
+        ThreadTypeJni::toJavaThreadType(thread_status->thread_type),
+        jdb_name,
+        jcf_name,
+        OperationTypeJni::toJavaOperationType(thread_status->operation_type),
+        static_cast<jlong>(thread_status->op_elapsed_micros),
+        OperationStageJni::toJavaOperationStage(thread_status->operation_stage),
+        joperation_properties,
+        StateTypeJni::toCppStateType(thread_status->state_type));
+    if (env->ExceptionCheck()) {
+      // exception occurred
+        env->DeleteLocalRef(jdb_name);
+        env->DeleteLocalRef(jcf_name);
+        env->DeleteLocalRef(joperation_properties);
+      return nullptr;
+    }
+
+    // cleanup
+    env->DeleteLocalRef(jdb_name);
+    env->DeleteLocalRef(jcf_name);
+    env->DeleteLocalRef(joperation_properties);
+
+    return jcfd;
+  }
+};
 }  // namespace rocksdb
 #endif  // JAVA_ROCKSJNI_PORTAL_H_

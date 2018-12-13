@@ -49,6 +49,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/table.cc
         rocksjni/table_filter.cc
         rocksjni/table_filter_jnicallback.cc
+        rocksjni/thread_status.cc
         rocksjni/transaction.cc
         rocksjni/transaction_db.cc
         rocksjni/transaction_db_options.cc
@@ -225,6 +226,7 @@ add_jar(
   src/main/java/org/rocksdb/FlushOptions.java
   src/main/java/org/rocksdb/HashLinkedListMemTableConfig.java
   src/main/java/org/rocksdb/HashSkipListMemTableConfig.java
+  src/main/java/org/rocksdb/HdfsEnv.java
   src/main/java/org/rocksdb/HistogramData.java
   src/main/java/org/rocksdb/HistogramType.java
   src/main/java/org/rocksdb/IndexType.java
@@ -240,12 +242,15 @@ add_jar(
   src/main/java/org/rocksdb/MutableColumnFamilyOptions.java
   src/main/java/org/rocksdb/NativeComparatorWrapper.java
   src/main/java/org/rocksdb/NativeLibraryLoader.java
+  src/main/java/org/rocksdb/OperationStage.java
+  src/main/java/org/rocksdb/OperationType.java
   src/main/java/org/rocksdb/OptimisticTransactionDB.java
   src/main/java/org/rocksdb/OptimisticTransactionOptions.java
   src/main/java/org/rocksdb/Options.java
   src/main/java/org/rocksdb/OptionsUtil.java
   src/main/java/org/rocksdb/PersistentCache.java
   src/main/java/org/rocksdb/PlainTableConfig.java
+  src/main/java/org/rocksdb/Priority.java
   src/main/java/org/rocksdb/RateLimiter.java
   src/main/java/org/rocksdb/RateLimiterMode.java
   src/main/java/org/rocksdb/ReadOptions.java
@@ -266,6 +271,7 @@ add_jar(
   src/main/java/org/rocksdb/Snapshot.java
   src/main/java/org/rocksdb/SstFileManager.java
   src/main/java/org/rocksdb/SstFileWriter.java
+  src/main/java/org/rocksdb/StateType.java
   src/main/java/org/rocksdb/StatisticsCollectorCallback.java
   src/main/java/org/rocksdb/StatisticsCollector.java
   src/main/java/org/rocksdb/Statistics.java
@@ -276,7 +282,10 @@ add_jar(
   src/main/java/org/rocksdb/TableFilter.java
   src/main/java/org/rocksdb/TableProperties.java
   src/main/java/org/rocksdb/TableFormatConfig.java
+  src/main/java/org/rocksdb/ThreadType.java
+  src/main/java/org/rocksdb/ThreadStatus.java
   src/main/java/org/rocksdb/TickerType.java
+  src/main/java/org/rocksdb/TimedEnv.java
   src/main/java/org/rocksdb/TransactionalDB.java
   src/main/java/org/rocksdb/TransactionalOptions.java
   src/main/java/org/rocksdb/TransactionDB.java

@@ -445,6 +445,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/table.cc                                      \
   java/rocksjni/table_filter.cc                               \
   java/rocksjni/table_filter_jnicallback.cc                   \
+  java/rocksjni/thread_status.cc                              \
   java/rocksjni/transaction.cc                                \
   java/rocksjni/transaction_db.cc                             \
   java/rocksjni/transaction_options.cc                        \
