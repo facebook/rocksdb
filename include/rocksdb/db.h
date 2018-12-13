@@ -53,6 +53,9 @@ class WriteBatch;
 class Env;
 class EventListener;
 class TraceWriter;
+#ifdef ROCKSDB_LITE
+class CompactionJobInfo;
+#endif
 
 using std::unique_ptr;
 
@@ -834,18 +837,20 @@ class DB {
   virtual Status CompactFiles(
       const CompactionOptions& compact_options,
       ColumnFamilyHandle* column_family,
-      const std::vector<std::string>& input_file_names,
-      const int output_level, const int output_path_id = -1,
-      std::vector<std::string>* const output_file_names = nullptr) = 0;
+      const std::vector<std::string>& input_file_names, const int output_level,
+      const int output_path_id = -1,
+      std::vector<std::string>* const output_file_names = nullptr,
+      CompactionJobInfo* compaction_job_info = nullptr) = 0;
 
   virtual Status CompactFiles(
       const CompactionOptions& compact_options,
-      const std::vector<std::string>& input_file_names,
-      const int output_level, const int output_path_id = -1,
-      std::vector<std::string>* const output_file_names = nullptr) {
+      const std::vector<std::string>& input_file_names, const int output_level,
+      const int output_path_id = -1,
+      std::vector<std::string>* const output_file_names = nullptr,
+      CompactionJobInfo* compaction_job_info = nullptr) {
     return CompactFiles(compact_options, DefaultColumnFamily(),
                         input_file_names, output_level, output_path_id,
-                        output_file_names);
+                        output_file_names, compaction_job_info);
   }
 
   // This function will wait until all currently running background processes

@@ -917,7 +917,8 @@ int main(int argc, char** argv) {
     rocksdb_writebatch_wi_t* wbi = rocksdb_writebatch_wi_create(0, 1);
     rocksdb_writebatch_wi_put(wbi, "bar", 3, "b", 1);
     rocksdb_writebatch_wi_delete(wbi, "foo", 3);
-    rocksdb_iterator_t* iter = rocksdb_writebatch_wi_create_iterator_with_base(wbi, base_iter);
+    rocksdb_iterator_t* iter =
+        rocksdb_writebatch_wi_create_iterator_with_base(wbi, base_iter);
     CheckCondition(!rocksdb_iter_valid(iter));
     rocksdb_iter_seek_to_first(iter);
     CheckCondition(rocksdb_iter_valid(iter));
@@ -1527,7 +1528,7 @@ int main(int argc, char** argv) {
     const rocksdb_snapshot_t* snapshot;
     snapshot = rocksdb_transactiondb_create_snapshot(txn_db);
     rocksdb_readoptions_set_snapshot(roptions, snapshot);
-  
+
     rocksdb_transactiondb_put(txn_db, woptions, "foo", 3, "hey", 3,  &err);
     CheckNoError(err);
 

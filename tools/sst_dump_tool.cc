@@ -570,8 +570,7 @@ int SSTDumpTool::Run(int argc, char** argv) {
       filename = std::string(dir_or_file) + "/" + filename;
     }
 
-    rocksdb::SstFileDumper dumper(filename, verify_checksum,
-                                  output_hex);
+    rocksdb::SstFileDumper dumper(filename, verify_checksum, output_hex);
     if (!dumper.getStatus().ok()) {
       fprintf(stderr, "%s: %s\n", filename.c_str(),
               dumper.getStatus().ToString().c_str());
