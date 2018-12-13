@@ -605,9 +605,13 @@ TEST_F(FindLevelFileTest, LevelOverlappingFiles) {
   ASSERT_TRUE(Overlaps("600", "700"));
 }
 
-class VersionSetTest : public testing::Test {
+class VersionSetTestBase {
  public:
-  VersionSetTest()
+  const static std::string kColumnFamilyName1;
+  const static std::string kColumnFamilyName2;
+  const static std::string kColumnFamilyName3;
+
+  VersionSetTestBase()
       : env_(Env::Default()),
         dbname_(test::PerThreadDBPath("version_set_test")),
         db_options_(),
@@ -635,8 +639,9 @@ class VersionSetTest : public testing::Test {
     new_db.SetNextFile(2);
     new_db.SetLastSequence(0);
 
-    const std::vector<std::string> cf_names = {kDefaultColumnFamilyName,
-                                               "alice", "bob"};
+    const std::vector<std::string> cf_names = {
+        kDefaultColumnFamilyName, kColumnFamilyName1, kColumnFamilyName2,
+        kColumnFamilyName3};
     const int kInitialNumOfCfs = static_cast<int>(cf_names.size());
     autovector<VersionEdit> new_cfs;
     uint64_t last_seq = 1;
@@ -709,6 +714,15 @@ class VersionSetTest : public testing::Test {
   InstrumentedMutex mutex_;
   std::atomic<bool> shutting_down_;
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
+};
+
+const std::string VersionSetTestBase::kColumnFamilyName1 = "alice";
+const std::string VersionSetTestBase::kColumnFamilyName2 = "bob";
+const std::string VersionSetTestBase::kColumnFamilyName3 = "charles";
+
+class VersionSetTest : public VersionSetTestBase, public testing::Test {
+ public:
+  VersionSetTest() : VersionSetTestBase() {}
 };
 
 TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
@@ -958,6 +972,124 @@ TEST_F(VersionSetTest, HandleIncorrectAtomicGroupSize) {
             versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
   EXPECT_TRUE(incorrect_group_size);
 }
+
+class VersionSetTestDropOneCF : public VersionSetTestBase,
+                                public testing::TestWithParam<std::string> {
+ public:
+  VersionSetTestDropOneCF() : VersionSetTestBase() {}
+};
+
+// This test simulates the following execution sequence
+// Time  thread1                  bg_flush_thr
+//  |                             Prepare version edits (e1,e2,e3) for atomic
+//  |                             flush cf1, cf2, cf3
+//  |    Enqueue e to drop cfi
+//  |    to manifest_writers_
+//  |                             Enqueue (e1,e2,e3) to manifest_writers_
+//  |
+//  |    Apply e,
+//  |    cfi.IsDropped() is true
+//  |                             Apply (e1,e2,e3),
+//  |                             since cfi.IsDropped() == true, we need to
+//  |                             drop ei and write the rest to MANIFEST.
+//  V
+//
+//  Repeat the test for i = 1, 2, 3 to simulate dropping the first, middle and
+//  last column family in an atomic group.
+TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
+  std::vector<ColumnFamilyDescriptor> column_families;
+  SequenceNumber last_seqno;
+  std::unique_ptr<log::Writer> log_writer;
+  PrepareManifest(&column_families, &last_seqno, &log_writer);
+  Status s = SetCurrentFile(env_, dbname_, 1, nullptr);
+  ASSERT_OK(s);
+
+  EXPECT_OK(versions_->Recover(column_families, false /* read_only */));
+  EXPECT_EQ(column_families.size(),
+            versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
+
+  const int kAtomicGroupSize = 3;
+  const std::vector<std::string> non_default_cf_names = {
+      kColumnFamilyName1, kColumnFamilyName2, kColumnFamilyName3};
+
+  // Drop one column family
+  VersionEdit drop_cf_edit;
+  drop_cf_edit.DropColumnFamily();
+  const std::string cf_to_drop_name(GetParam());
+  auto cfd_to_drop =
+      versions_->GetColumnFamilySet()->GetColumnFamily(cf_to_drop_name);
+  ASSERT_NE(nullptr, cfd_to_drop);
+  cfd_to_drop->Ref(); // Increase its refcount because cfd_to_drop is used later
+  drop_cf_edit.SetColumnFamily(cfd_to_drop->GetID());
+  mutex_.Lock();
+  s = versions_->LogAndApply(cfd_to_drop,
+                             *cfd_to_drop->GetLatestMutableCFOptions(),
+                             &drop_cf_edit, &mutex_);
+  mutex_.Unlock();
+  ASSERT_OK(s);
+
+  std::vector<VersionEdit> edits(kAtomicGroupSize);
+  uint32_t remaining = kAtomicGroupSize;
+  size_t i = 0;
+  autovector<ColumnFamilyData*> cfds;
+  autovector<const MutableCFOptions*> mutable_cf_options_list;
+  autovector<autovector<VersionEdit*>> edit_lists;
+  for (const auto& cf_name : non_default_cf_names) {
+    auto cfd = (cf_name != cf_to_drop_name)
+                   ? versions_->GetColumnFamilySet()->GetColumnFamily(cf_name)
+                   : cfd_to_drop;
+    ASSERT_NE(nullptr, cfd);
+    cfds.push_back(cfd);
+    mutable_cf_options_list.emplace_back(cfd->GetLatestMutableCFOptions());
+    edits[i].SetColumnFamily(cfd->GetID());
+    edits[i].SetLogNumber(0);
+    edits[i].SetNextFile(2);
+    edits[i].MarkAtomicGroup(--remaining);
+    edits[i].SetLastSequence(last_seqno++);
+    autovector<VersionEdit*> tmp_edits;
+    tmp_edits.push_back(&edits[i]);
+    edit_lists.emplace_back(tmp_edits);
+    ++i;
+  }
+  int called = 0;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:CheckOneAtomicGroup", [&](void* arg) {
+        std::vector<VersionEdit*>* tmp_edits =
+            reinterpret_cast<std::vector<VersionEdit*>*>(arg);
+        EXPECT_EQ(kAtomicGroupSize - 1, tmp_edits->size());
+        for (const auto e : *tmp_edits) {
+          bool found = false;
+          for (const auto& e2 : edits) {
+            if (&e2 == e) {
+              found = true;
+              break;
+            }
+          }
+          ASSERT_TRUE(found);
+        }
+        ++called;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  mutex_.Lock();
+  s = versions_->LogAndApply(cfds, mutable_cf_options_list, edit_lists,
+                             &mutex_);
+  mutex_.Unlock();
+  ASSERT_OK(s);
+  ASSERT_EQ(1, called);
+  if (cfd_to_drop->Unref()) {
+    delete cfd_to_drop;
+    cfd_to_drop = nullptr;
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    AtomicGroup, VersionSetTestDropOneCF,
+    testing::Values(VersionSetTestBase::kColumnFamilyName1,
+                    VersionSetTestBase::kColumnFamilyName2,
+                    VersionSetTestBase::kColumnFamilyName3));
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

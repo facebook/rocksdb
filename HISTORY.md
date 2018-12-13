@@ -11,6 +11,7 @@
 * Introduced `MemoryAllocator`, which lets the user specify custom memory allocator for block based table.
 * Improved `DeleteRange` to prevent read performance degradation. The feature is no longer marked as experimental.
 * Enabled checkpoint on readonly db (DBImplReadOnly).
+* Make DB ignore dropped column families while committing results of atomic flush.
 
 ### Public API Change
 * `DBOptions::use_direct_reads` now affects reads issued by `BackupEngine` on the database's SSTs.

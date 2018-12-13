@@ -579,7 +579,7 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     AppendNumberTo(&r, max_column_family_);
   }
   if (is_in_atomic_group_) {
-    r.append("\n AtomicGroup: ");
+    r.append("\n  AtomicGroup: ");
     AppendNumberTo(&r, remaining_entries_);
     r.append(" entries remains");
   }
