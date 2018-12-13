@@ -10,8 +10,8 @@
 #include "db/db_iter.h"
 #include "options/cf_options.h"
 #include "table/get_context.h"
-#include "table/table_reader.h"
 #include "table/table_builder.h"
+#include "table/table_reader.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {
@@ -31,8 +31,7 @@ struct SstFileReader::Rep {
         moptions(ColumnFamilyOptions(options)) {}
 };
 
-SstFileReader::SstFileReader(const Options& options)
-    : rep_(new Rep(options)) {}
+SstFileReader::SstFileReader(const Options& options) : rep_(new Rep(options)) {}
 
 SstFileReader::~SstFileReader() {}
 
@@ -60,18 +59,19 @@ Status SstFileReader::Open(const std::string& file_path) {
 
 Iterator* SstFileReader::NewIterator(const ReadOptions& options) {
   auto r = rep_.get();
-  auto sequence = options.snapshot != nullptr ?
-                  options.snapshot->GetSequenceNumber() :
-                  kMaxSequenceNumber;
-  auto internal_iter = r->table_reader->NewIterator(
-      options, r->moptions.prefix_extractor.get());
+  auto sequence = options.snapshot != nullptr
+                      ? options.snapshot->GetSequenceNumber()
+                      : kMaxSequenceNumber;
+  auto internal_iter =
+      r->table_reader->NewIterator(options, r->moptions.prefix_extractor.get());
   return NewDBIterator(r->options.env, options, r->ioptions, r->moptions,
                        r->ioptions.user_comparator, internal_iter, sequence,
                        r->moptions.max_sequential_skip_in_iterations,
                        nullptr /* read_callback */);
 }
 
-std::shared_ptr<const TableProperties> SstFileReader::GetTableProperties() const {
+std::shared_ptr<const TableProperties> SstFileReader::GetTableProperties()
+    const {
   return rep_->table_reader->GetTableProperties();
 }
 

@@ -7,9 +7,9 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/slice.h"
-#include "rocksdb/options.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/options.h"
+#include "rocksdb/slice.h"
 #include "rocksdb/table_properties.h"
 
 namespace rocksdb {

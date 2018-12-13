@@ -39,8 +39,8 @@ class SstFileReaderTest : public testing::Test {
     ASSERT_OK(writer.Open(sst_name_));
     for (size_t i = 0; i + 2 < keys.size(); i += 3) {
       ASSERT_OK(writer.Put(keys[i], keys[i]));
-      ASSERT_OK(writer.Merge(keys[i+1], EncodeAsUint64(i+1)));
-      ASSERT_OK(writer.Delete(keys[i+2]));
+      ASSERT_OK(writer.Merge(keys[i + 1], EncodeAsUint64(i + 1)));
+      ASSERT_OK(writer.Delete(keys[i + 2]));
     }
     ASSERT_OK(writer.Finish());
 
@@ -56,8 +56,8 @@ class SstFileReaderTest : public testing::Test {
       ASSERT_EQ(iter->value().compare(keys[i]), 0);
       iter->Next();
       ASSERT_TRUE(iter->Valid());
-      ASSERT_EQ(iter->key().compare(keys[i+1]), 0);
-      ASSERT_EQ(iter->value().compare(EncodeAsUint64(i+1)), 0);
+      ASSERT_EQ(iter->key().compare(keys[i + 1]), 0);
+      ASSERT_EQ(iter->value().compare(EncodeAsUint64(i + 1)), 0);
       iter->Next();
     }
     ASSERT_FALSE(iter->Valid());
@@ -99,7 +99,8 @@ int main(int argc, char** argv) {
 #include <stdio.h>
 
 int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as SstFileReader is not supported in ROCKSDB_LITE\n");
+  fprintf(stderr,
+          "SKIPPED as SstFileReader is not supported in ROCKSDB_LITE\n");
   return 0;
 }
 

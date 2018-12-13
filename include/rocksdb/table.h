@@ -454,8 +454,8 @@ class TableFactory {
   //     and cache the table object returned.
   // (2) SstFileDumper (for SST Dump) opens the table and dump the table
   //     contents using the iterator of the table.
-  // (3) DBImpl::IngestExternalFile() calls this function to read the contents of
-  //     the sst file it's attempting to add
+  // (3) DBImpl::IngestExternalFile() calls this function to read the contents
+  //     of the sst file it's attempting to add
   //
   // table_reader_options is a TableReaderOptions which contain all the
   //    needed parameters and configuration to open the table.

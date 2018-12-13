@@ -357,11 +357,12 @@ std::string StatisticsImpl::ToString() const {
     getHistogramImplLocked(h.first)->Data(&hData);
     // don't handle failures - buffer should always be big enough and arguments
     // should be provided correctly
-    int ret = snprintf(
-        buffer, kTmpStrBufferSize,
-        "%s P50 : %f P95 : %f P99 : %f P100 : %f COUNT : %" PRIu64 " SUM : %"
-        PRIu64 "\n", h.second.c_str(), hData.median, hData.percentile95,
-        hData.percentile99, hData.max, hData.count, hData.sum);
+    int ret =
+        snprintf(buffer, kTmpStrBufferSize,
+                 "%s P50 : %f P95 : %f P99 : %f P100 : %f COUNT : %" PRIu64
+                 " SUM : %" PRIu64 "\n",
+                 h.second.c_str(), hData.median, hData.percentile95,
+                 hData.percentile99, hData.max, hData.count, hData.sum);
     if (ret < 0 || ret >= kTmpStrBufferSize) {
       assert(false);
       continue;
