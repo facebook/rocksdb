@@ -3162,6 +3162,18 @@ rocksdb_env_t* rocksdb_create_default_env() {
   return result;
 }
 
+rocksdb_env_t* rocksdb_create_spdk_env(
+    const char *dir, const char *conf, const char *bdev, uint64_t cache_size_in_mb) {
+  rocksdb_env_t* result = new rocksdb_env_t;
+  result->rep = rocksdb::NewSpdkEnv(rocksdb::Env::Default(), dir, conf, bdev, cache_size_in_mb);
+  result->is_default = true;
+  if (result->rep == NULL) {
+    delete result;
+    result = NULL;
+  }
+  return result;
+}
+
 rocksdb_env_t* rocksdb_create_mem_env() {
   rocksdb_env_t* result = new rocksdb_env_t;
   result->rep = rocksdb::NewMemEnv(Env::Default());
