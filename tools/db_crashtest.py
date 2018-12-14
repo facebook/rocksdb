@@ -126,9 +126,9 @@ blackbox_simple_default_params = {
 whitebox_simple_default_params = {}
 
 atomic_flush_params = {
-    "atomic_flush": 1,
     "disable_wal": 1,
     "reopen": 0,
+    "test_atomic_flush": 1,
     # use small value for write_buffer_size so that RocksDB triggers flush
     # more frequently
     "write_buffer_size": 1024 * 1024,

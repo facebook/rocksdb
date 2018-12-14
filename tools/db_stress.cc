@@ -133,7 +133,12 @@ DEFINE_bool(test_batches_snapshots, false,
             "\t(b) No long validation at the end (more speed up)\n"
             "\t(c) Test snapshot and atomicity of batch writes");
 
-DEFINE_bool(atomic_flush, false, "If true, the test enables atomic flush\n");
+DEFINE_bool(atomic_flush, false,
+            "If set, enables atomic flush in the options.\n");
+
+DEFINE_bool(test_atomic_flush, false,
+            "If set, runs the stress test dedicated to verifying atomic flush "
+            "functionality. Setting this implies `atomic_flush=true`.\n");
 
 DEFINE_int32(threads, 32, "Number of concurrent threads to run.");
 
@@ -3782,6 +3787,9 @@ int main(int argc, char** argv) {
             "Error: clear_column_family_one_in must be 0 when using backup\n");
     exit(1);
   }
+  if (FLAGS_test_atomic_flush) {
+    FLAGS_atomic_flush = true;
+  }
 
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db.empty()) {
@@ -3795,7 +3803,7 @@ int main(int argc, char** argv) {
   rocksdb_kill_prefix_blacklist = SplitString(FLAGS_kill_prefix_blacklist);
 
   std::unique_ptr<rocksdb::StressTest> stress;
-  if (FLAGS_atomic_flush) {
+  if (FLAGS_test_atomic_flush) {
     stress.reset(new rocksdb::AtomicFlushStressTest());
   } else if (FLAGS_test_batches_snapshots) {
     stress.reset(new rocksdb::BatchedOpsStressTest());
