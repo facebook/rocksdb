@@ -2063,7 +2063,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
                         handle, cache_key);
       // fprintf(stderr, "in MaybeReadBlockAndLoadToCache::\n");
       // fprintf(stderr, "cache key prefix: %s, cache key: %s\n",
-      //         Slice(rep->cache_key_prefix, rep->cache_key_prefix_size).ToString(true).c_str(),
+      //         Slice(rep->cache_key_prefix,
+      //         rep->cache_key_prefix_size).ToString(true).c_str(),
       //         key.ToString(true).c_str());
     }
 

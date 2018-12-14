@@ -871,9 +871,8 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
       BlockContents results(std::move(buf), size);
 
       char cache_key[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-      Slice key = BlockBasedTable::GetCacheKey(r->cache_key_prefix,
-                                               r->cache_key_prefix_size,
-                                               *handle, cache_key);
+      Slice key = BlockBasedTable::GetCacheKey(
+          r->cache_key_prefix, r->cache_key_prefix_size, *handle, cache_key);
 
       if (is_filter_block) {
         // fprintf(stderr, "adding filter block\n");
@@ -886,12 +885,14 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
         // RecordTick(r->ioptions.statistics, BLOCK_CACHE_ADD);
         // RecordTick(r->ioptions.statistics, BLOCK_CACHE_BYTES_WRITE, charge);
         // RecordTick(r->ioptions.statistics, BLOCK_CACHE_FILTER_ADD);
-        // RecordTick(r->ioptions.statistics, BLOCK_CACHE_FILTER_BYTES_INSERT, charge);
+        // RecordTick(r->ioptions.statistics, BLOCK_CACHE_FILTER_BYTES_INSERT,
+        // charge);
       } else if (is_data_block) {
         // // OLDER
         // fprintf(stderr, "adding data block\n");
         // assert(r->level == 0);
-        // Block* block = new Block(std::move(results), kDisableGlobalSequenceNumber);
+        // Block* block = new Block(std::move(results),
+        // kDisableGlobalSequenceNumber);
         //
         // std::string encoded_handle;
         // handle->EncodeTo(&encoded_handle);
@@ -904,7 +905,6 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
         // RecordTick(r->ioptions.statistics, BLOCK_CACHE_ADD);
         // RecordTick(r->ioptions.statistics, BLOCK_CACHE_BYTES_WRITE, charge);
 
-
         // // NEWER
         // fprintf(stderr, "adding data block\n");
         assert(r->level == 0);
@@ -913,7 +913,8 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
         std::string encoded_handle;
         handle->EncodeTo(&encoded_handle);
         Slice handle_encoding_slice(encoded_handle);
-        // fprintf(stderr, "encoded handle: %s\n", handle_encoding_slice.ToString(true).c_str());
+        // fprintf(stderr, "encoded handle: %s\n",
+        // handle_encoding_slice.ToString(true).c_str());
 
         // fprintf(stderr, "cache key prefix: %s cache key: %s\n",
         //         Slice(r->cache_key_prefix,
@@ -921,7 +922,8 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
         //         key.ToString(true).c_str());
 
         BlockBasedTable::CachableEntry<Block> cached_block;
-        cached_block.value = new Block(std::move(results), kDisableGlobalSequenceNumber);
+        cached_block.value =
+            new Block(std::move(results), kDisableGlobalSequenceNumber);
         size_t charge = cached_block.value->ApproximateMemoryUsage();
 
         block_cache->Insert(key, cached_block.value, charge,
@@ -929,7 +931,8 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
         RecordTick(r->ioptions.statistics, BLOCK_CACHE_ADD);
         RecordTick(r->ioptions.statistics, BLOCK_CACHE_DATA_ADD);
         RecordTick(r->ioptions.statistics, BLOCK_CACHE_BYTES_WRITE, charge);
-        RecordTick(r->ioptions.statistics, BLOCK_CACHE_DATA_BYTES_INSERT, charge);
+        RecordTick(r->ioptions.statistics, BLOCK_CACHE_DATA_BYTES_INSERT,
+                   charge);
       }
       return Status::OK();
     }
@@ -1033,15 +1036,12 @@ void BlockBasedTableBuilder::WriteIndexBlock(
   if (ok()) {
     if (rep_->table_options.enable_index_compression) {
       WriteBlock(index_blocks.index_block_contents, index_block_handle,
-                 false /* is_data_block */,
-                 true /* is_index_block */,
+                 false /* is_data_block */, true /* is_index_block */,
                  false /* is_filter_block */);
     } else {
       WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
-                    index_block_handle,
-                    false /* is_data_block */,
-                    true  /* is_index_block */,
-                    false /* is_filter_block */);
+                    index_block_handle, false /* is_data_block */,
+                    true /* is_index_block */, false /* is_filter_block */);
     }
   }
   // If there are more index partitions, finish them and write them out

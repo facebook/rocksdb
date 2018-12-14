@@ -411,7 +411,8 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
 //   // ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
 //   // ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
 //   // ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
-//   // ASSERT_EQ(1, /* only filter block. data block adding not working correctly yet */
+//   // ASSERT_EQ(1, /* only filter block. data block adding not working
+//   correctly yet */
 //   //           TestGetTickerCount(options, BLOCK_CACHE_ADD));
 //   // // ASSERT_EQ(2, /* only filter and data were added */
 //   // //           TestGetTickerCount(options, BLOCK_CACHE_ADD));
@@ -439,7 +440,8 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
 //   // ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
 //   // ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
 //   // ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
-//   // ASSERT_EQ(3, /* only filter block. data block adding not working correctly yet */
+//   // ASSERT_EQ(3, /* only filter block. data block adding not working
+//   correctly yet */
 //   //           TestGetTickerCount(options, BLOCK_CACHE_ADD));
 //   //
 //   // ASSERT_EQ("value", Get("key1"));
@@ -459,12 +461,14 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
 //   //   ASSERT_OK(Put("key_" + ToString(i), "value"));
 //   //   ASSERT_OK(Flush());
 //   //
-//   //   ASSERT_EQ(2*i + 1, /* only filter block. data block adding not working correctly yet */
+//   //   ASSERT_EQ(2*i + 1, /* only filter block. data block adding not working
+//   correctly yet */
 //   //             TestGetTickerCount(options, BLOCK_CACHE_ADD));
 //   //   ASSERT_EQ("value", Get("key_" + ToString(i)));
 //   //   ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
 //   //   ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
-//   //   // ASSERT_EQ(i + 1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+//   //   // ASSERT_EQ(i + 1, TestGetTickerCount(options,
+//   BLOCK_CACHE_FILTER_HIT));
 //   //
 //   //   ASSERT_EQ(i + 1, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
 //   //   ASSERT_EQ(2*i + 2, TestGetTickerCount(options, BLOCK_CACHE_ADD));
@@ -480,7 +484,6 @@ TEST_F(DBBlockCacheTest, WarmCacheWithL0DataBlock) {
   table_options.filter_policy.reset(NewBloomFilterPolicy(20));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   DestroyAndReopen(options);
-
 
   // // Create a new table.
   // ASSERT_OK(Put("foo", "value"));
@@ -519,7 +522,8 @@ TEST_F(DBBlockCacheTest, WarmCacheWithL0DataBlock) {
   // ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
   // ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
   // ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
-  // ASSERT_EQ(3, /* only filter block. data block adding not working correctly yet */
+  // ASSERT_EQ(3, /* only filter block. data block adding not working correctly
+  // yet */
   //           TestGetTickerCount(options, BLOCK_CACHE_ADD));
   //
   // ASSERT_EQ("value", Get("key1"));
