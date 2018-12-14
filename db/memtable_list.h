@@ -31,6 +31,7 @@ class ColumnFamilyData;
 class InternalKeyComparator;
 class InstrumentedMutex;
 class MergeIteratorBuilder;
+class MemTableList;
 
 // keeps a list of immutable memtables in a vector. the list is immutable
 // if refcount is bigger than one. It is used as a state for Get() and
@@ -114,6 +115,18 @@ class MemTableListVersion {
   SequenceNumber GetEarliestSequenceNumber(bool include_history = false) const;
 
  private:
+  friend class MemTableList;
+
+  friend Status InstallMemtableAtomicFlushResults(
+      const autovector<MemTableList*>* imm_lists,
+      const autovector<ColumnFamilyData*>& cfds,
+      const autovector<const MutableCFOptions*>& mutable_cf_options_list,
+      const autovector<const autovector<MemTable*>*>& mems_list,
+      VersionSet* vset, InstrumentedMutex* mu,
+      const autovector<FileMetaData>& file_meta,
+      autovector<MemTable*>* to_delete, Directory* db_directory,
+      LogBuffer* log_buffer);
+
   // REQUIRE: m is an immutable memtable
   void Add(MemTable* m, autovector<MemTable*>* to_delete);
   // REQUIRE: m is an immutable memtable
@@ -131,8 +144,6 @@ class MemTableListVersion {
   void AddMemTable(MemTable* m);
 
   void UnrefMemTable(autovector<MemTable*>* to_delete, MemTable* m);
-
-  friend class MemTableList;
 
   // Immutable MemTables that have not yet been flushed.
   std::list<MemTable*> memlist_;
@@ -163,18 +174,6 @@ class MemTableListVersion {
 // write thread.)
 class MemTableList {
  public:
-  // Commit a successful atomic flush in the manifest file
-  static Status TryInstallMemtableFlushResults(
-      autovector<MemTableList*>& imm_lists,
-      const autovector<ColumnFamilyData*>& cfds,
-      const autovector<const MutableCFOptions*>& mutable_cf_options_list,
-      const autovector<const autovector<MemTable*>*>& mems_list,
-      bool* atomic_flush_commit_in_progress, LogsWithPrepTracker* prep_tracker,
-      VersionSet* vset, InstrumentedMutex* mu,
-      const autovector<FileMetaData>& file_meta,
-      autovector<MemTable*>* to_delete, Directory* db_directory,
-      LogBuffer* log_buffer);
-
   // A list of memtables.
   explicit MemTableList(int min_write_buffer_number_to_merge,
                         int max_write_buffer_number_to_maintain)
@@ -296,6 +295,16 @@ class MemTableList {
   }
 
  private:
+  friend Status InstallMemtableAtomicFlushResults(
+      const autovector<MemTableList*>* imm_lists,
+      const autovector<ColumnFamilyData*>& cfds,
+      const autovector<const MutableCFOptions*>& mutable_cf_options_list,
+      const autovector<const autovector<MemTable*>*>& mems_list,
+      VersionSet* vset, InstrumentedMutex* mu,
+      const autovector<FileMetaData>& file_meta,
+      autovector<MemTable*>* to_delete, Directory* db_directory,
+      LogBuffer* log_buffer);
+
   // DB mutex held
   void InstallNewVersion();
 
@@ -317,4 +326,18 @@ class MemTableList {
   size_t current_memory_usage_;
 };
 
+// Installs memtable atomic flush results.
+// In most cases, imm_lists is nullptr, and the function simply uses the
+// immutable memtable lists associated with the cfds. There are unit tests that
+// installs flush results for external immutable memtable lists other than the
+// cfds' own immutable memtable lists, e.g. MemTableLIstTest. In this case,
+// imm_lists parameter is not nullptr.
+extern Status InstallMemtableAtomicFlushResults(
+    const autovector<MemTableList*>* imm_lists,
+    const autovector<ColumnFamilyData*>& cfds,
+    const autovector<const MutableCFOptions*>& mutable_cf_options_list,
+    const autovector<const autovector<MemTable*>*>& mems_list, VersionSet* vset,
+    InstrumentedMutex* mu, const autovector<FileMetaData>& file_meta,
+    autovector<MemTable*>* to_delete, Directory* db_directory,
+    LogBuffer* log_buffer);
 }  // namespace rocksdb
