@@ -415,61 +415,58 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
   write_group->leader = leader;
   write_group->last_writer = leader;
   write_group->size = 1;
-  Writer* newest_writer = newest_writer_.load(std::memory_order_acquire);
 
-  // This is safe regardless of any db mutex status of the caller. Previous
-  // calls to ExitAsGroupLeader either didn't call CreateMissingNewerLinks
-  // (they emptied the list and then we added ourself as leader) or had to
-  // explicitly wake us up (the list was non-empty when we added ourself,
-  // so we have already received our MarkJoined).
-  CreateMissingNewerLinks(newest_writer);
+  if (leader->AllowWriteBatching()) {
+    Writer* newest_writer = newest_writer_.load(std::memory_order_acquire);
 
-  // Tricky. Iteration start (leader) is exclusive and finish
-  // (newest_writer) is inclusive. Iteration goes from old to new.
-  Writer* w = leader;
-  while (w != newest_writer) {
-    w = w->link_newer;
+    // This is safe regardless of any db mutex status of the caller. Previous
+    // calls to ExitAsGroupLeader either didn't call CreateMissingNewerLinks
+    // (they emptied the list and then we added ourself as leader) or had to
+    // explicitly wake us up (the list was non-empty when we added ourself,
+    // so we have already received our MarkJoined).
+    CreateMissingNewerLinks(newest_writer);
 
-    if (w->sync && !leader->sync) {
-      // Do not include a sync write into a batch handled by a non-sync write.
-      break;
+    // Tricky. Iteration start (leader) is exclusive and finish
+    // (newest_writer) is inclusive. Iteration goes from old to new.
+    Writer* w = leader;
+    while (w != newest_writer) {
+      w = w->link_newer;
+
+      if (w->sync && !leader->sync) {
+        // Do not include a sync write into a batch handled by a non-sync write.
+        break;
+      }
+
+      if (w->no_slowdown != leader->no_slowdown) {
+        // Do not mix writes that are ok with delays with the ones that
+        // request fail on delays.
+        break;
+      }
+
+      if (!w->disable_wal && leader->disable_wal) {
+        // Do not include a write that needs WAL into a batch that has
+        // WAL disabled.
+        break;
+      }
+
+      if (!w->AllowWriteBatching()) {
+        // dont batch writes that don't want to be batched
+        break;
+      }
+
+      auto batch_size = WriteBatchInternal::ByteSize(w->batch);
+      if (size + batch_size > max_size) {
+        // Do not make batch too big
+        break;
+      }
+
+      w->write_group = write_group;
+      size += batch_size;
+      write_group->last_writer = w;
+      write_group->size++;
     }
-
-    if (w->no_slowdown != leader->no_slowdown) {
-      // Do not mix writes that are ok with delays with the ones that
-      // request fail on delays.
-      break;
-    }
-
-    if (!w->disable_wal && leader->disable_wal) {
-      // Do not include a write that needs WAL into a batch that has
-      // WAL disabled.
-      break;
-    }
-
-    if (w->batch == nullptr) {
-      // Do not include those writes with nullptr batch. Those are not writes,
-      // those are something else. They want to be alone
-      break;
-    }
-
-    if (w->callback != nullptr && !w->callback->AllowWriteBatching()) {
-      // dont batch writes that don't want to be batched
-      break;
-    }
-
-    auto batch_size = WriteBatchInternal::ByteSize(w->batch);
-    if (size + batch_size > max_size) {
-      // Do not make batch too big
-      break;
-    }
-
-    w->write_group = write_group;
-    size += batch_size;
-    write_group->last_writer = w;
-    write_group->size++;
+    TEST_SYNC_POINT_CALLBACK("WriteThread::EnterAsBatchGroupLeader:End", w);
   }
-  TEST_SYNC_POINT_CALLBACK("WriteThread::EnterAsBatchGroupLeader:End", w);
   return size;
 }
 

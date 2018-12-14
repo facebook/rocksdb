@@ -243,6 +243,21 @@ class WriteThread {
       return *static_cast<std::condition_variable*>(
                  static_cast<void*>(&state_cv_bytes));
     }
+
+    bool AllowWriteBatching() const {
+      if (batch == nullptr) {
+        // Do not include those writes with nullptr batch. Those are not writes,
+        // those are something else. They want to be alone
+        return false;
+      }
+
+      if (callback != nullptr && !callback->AllowWriteBatching()) {
+        // dont batch writes that don't want to be batched
+        return false;
+      }
+
+      return true;
+    }
   };
 
   struct AdaptationContext {
