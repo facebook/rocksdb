@@ -3380,12 +3380,97 @@ class TickerTypeJni {
       case rocksdb::Tickers::NUMBER_MULTIGET_KEYS_FOUND:
         return 0x5E;
       case rocksdb::Tickers::NO_ITERATOR_CREATED:
-        return 0x5F;
+        // -0x01 to fixate the new value that incorrectly changed TICKER_ENUM_MAX.
+        return -0x01;
       case rocksdb::Tickers::NO_ITERATOR_DELETED:
         return 0x60;
-      case rocksdb::Tickers::TICKER_ENUM_MAX:
+      case rocksdb::Tickers::COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE:
         return 0x61;
-
+      case rocksdb::Tickers::COMPACTION_CANCELLED:
+        return 0x62;
+      case rocksdb::Tickers::BLOOM_FILTER_FULL_POSITIVE:
+        return 0x63;
+      case rocksdb::Tickers::BLOOM_FILTER_FULL_TRUE_POSITIVE:
+        return 0x64;
+      case rocksdb::Tickers::BLOB_DB_NUM_PUT:
+        return 0x65;
+      case rocksdb::Tickers::BLOB_DB_NUM_WRITE:
+        return 0x66;
+      case rocksdb::Tickers::BLOB_DB_NUM_GET:
+        return 0x67;
+      case rocksdb::Tickers::BLOB_DB_NUM_MULTIGET:
+        return 0x68;
+      case rocksdb::Tickers::BLOB_DB_NUM_SEEK:
+        return 0x69;
+      case rocksdb::Tickers::BLOB_DB_NUM_NEXT:
+        return 0x6A;
+      case rocksdb::Tickers::BLOB_DB_NUM_PREV:
+        return 0x6B;
+      case rocksdb::Tickers::BLOB_DB_NUM_KEYS_WRITTEN:
+        return 0x6C;
+      case rocksdb::Tickers::BLOB_DB_NUM_KEYS_READ:
+        return 0x6D;
+      case rocksdb::Tickers::BLOB_DB_BYTES_WRITTEN:
+        return 0x6E;
+      case rocksdb::Tickers::BLOB_DB_BYTES_READ:
+        return 0x6F;
+      case rocksdb::Tickers::BLOB_DB_WRITE_INLINED:
+        return 0x70;
+      case rocksdb::Tickers::BLOB_DB_WRITE_INLINED_TTL:
+        return 0x71;
+      case rocksdb::Tickers::BLOB_DB_WRITE_BLOB:
+        return 0x72;
+      case rocksdb::Tickers::BLOB_DB_WRITE_BLOB_TTL:
+        return 0x73;
+      case rocksdb::Tickers::BLOB_DB_BLOB_FILE_BYTES_WRITTEN:
+        return 0x74;
+      case rocksdb::Tickers::BLOB_DB_BLOB_FILE_BYTES_READ:
+        return 0x75;
+      case rocksdb::Tickers::BLOB_DB_BLOB_FILE_SYNCED:
+        return 0x76;
+      case rocksdb::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_COUNT:
+        return 0x77;
+      case rocksdb::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_SIZE:
+        return 0x78;
+      case rocksdb::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_COUNT:
+        return 0x79;
+      case rocksdb::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_SIZE:
+        return 0x7A;
+      case rocksdb::Tickers::BLOB_DB_GC_NUM_FILES:
+        return 0x7B;
+      case rocksdb::Tickers::BLOB_DB_GC_NUM_NEW_FILES:
+        return 0x7C;
+      case rocksdb::Tickers::BLOB_DB_GC_FAILURES:
+        return 0x7D;
+      case rocksdb::Tickers::BLOB_DB_GC_NUM_KEYS_OVERWRITTEN:
+        return 0x7E;
+      case rocksdb::Tickers::BLOB_DB_GC_NUM_KEYS_EXPIRED:
+        return 0x7F;
+      case rocksdb::Tickers::BLOB_DB_GC_NUM_KEYS_RELOCATED:
+        return -0x02;
+      case rocksdb::Tickers::BLOB_DB_GC_BYTES_OVERWRITTEN:
+        return -0x03;
+      case rocksdb::Tickers::BLOB_DB_GC_BYTES_EXPIRED:
+        return -0x04;
+      case rocksdb::Tickers::BLOB_DB_GC_BYTES_RELOCATED:
+        return -0x05;
+      case rocksdb::Tickers::BLOB_DB_FIFO_NUM_FILES_EVICTED:
+        return -0x06;
+      case rocksdb::Tickers::BLOB_DB_FIFO_NUM_KEYS_EVICTED:
+        return -0x07;
+      case rocksdb::Tickers::BLOB_DB_FIFO_BYTES_EVICTED:
+        return -0x08;
+      case rocksdb::Tickers::TXN_PREPARE_MUTEX_OVERHEAD:
+        return -0x09;
+      case rocksdb::Tickers::TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD:
+        return -0x0A;
+      case rocksdb::Tickers::TXN_DUPLICATE_KEY_OVERHEAD:
+        return -0x0B;
+      case rocksdb::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD:
+        return -0x0C;
+      case rocksdb::Tickers::TICKER_ENUM_MAX:
+        // 0x5F for backwards compatibility on current minor version.
+        return 0x5F;
       default:
         // undefined/default
         return 0x0;
@@ -3586,11 +3671,97 @@ class TickerTypeJni {
         return rocksdb::Tickers::NUMBER_ITER_SKIP;
       case 0x5E:
         return rocksdb::Tickers::NUMBER_MULTIGET_KEYS_FOUND;
-      case 0x5F:
+      case -0x01:
+        // -0x01 to fixate the new value that incorrectly changed TICKER_ENUM_MAX.
         return rocksdb::Tickers::NO_ITERATOR_CREATED;
       case 0x60:
         return rocksdb::Tickers::NO_ITERATOR_DELETED;
       case 0x61:
+        return rocksdb::Tickers::COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE;
+      case 0x62:
+        return rocksdb::Tickers::COMPACTION_CANCELLED;
+      case 0x63:
+        return rocksdb::Tickers::BLOOM_FILTER_FULL_POSITIVE;
+      case 0x64:
+        return rocksdb::Tickers::BLOOM_FILTER_FULL_TRUE_POSITIVE;
+      case 0x65:
+        return rocksdb::Tickers::BLOB_DB_NUM_PUT;
+      case 0x66:
+        return rocksdb::Tickers::BLOB_DB_NUM_WRITE;
+      case 0x67:
+        return rocksdb::Tickers::BLOB_DB_NUM_GET;
+      case 0x68:
+        return rocksdb::Tickers::BLOB_DB_NUM_MULTIGET;
+      case 0x69:
+        return rocksdb::Tickers::BLOB_DB_NUM_SEEK;
+      case 0x6A:
+        return rocksdb::Tickers::BLOB_DB_NUM_NEXT;
+      case 0x6B:
+        return rocksdb::Tickers::BLOB_DB_NUM_PREV;
+      case 0x6C:
+        return rocksdb::Tickers::BLOB_DB_NUM_KEYS_WRITTEN;
+      case 0x6D:
+        return rocksdb::Tickers::BLOB_DB_NUM_KEYS_READ;
+      case 0x6E:
+        return rocksdb::Tickers::BLOB_DB_BYTES_WRITTEN;
+      case 0x6F:
+        return rocksdb::Tickers::BLOB_DB_BYTES_READ;
+      case 0x70:
+        return rocksdb::Tickers::BLOB_DB_WRITE_INLINED;
+      case 0x71:
+        return rocksdb::Tickers::BLOB_DB_WRITE_INLINED_TTL;
+      case 0x72:
+        return rocksdb::Tickers::BLOB_DB_WRITE_BLOB;
+      case 0x73:
+        return rocksdb::Tickers::BLOB_DB_WRITE_BLOB_TTL;
+      case 0x74:
+        return rocksdb::Tickers::BLOB_DB_BLOB_FILE_BYTES_WRITTEN;
+      case 0x75:
+        return rocksdb::Tickers::BLOB_DB_BLOB_FILE_BYTES_READ;
+      case 0x76:
+        return rocksdb::Tickers::BLOB_DB_BLOB_FILE_SYNCED;
+      case 0x77:
+        return rocksdb::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_COUNT;
+      case 0x78:
+        return rocksdb::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_SIZE;
+      case 0x79:
+        return rocksdb::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_COUNT;
+      case 0x7A:
+        return rocksdb::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_SIZE;
+      case 0x7B:
+        return rocksdb::Tickers::BLOB_DB_GC_NUM_FILES;
+      case 0x7C:
+        return rocksdb::Tickers::BLOB_DB_GC_NUM_NEW_FILES;
+      case 0x7D:
+        return rocksdb::Tickers::BLOB_DB_GC_FAILURES;
+      case 0x7E:
+        return rocksdb::Tickers::BLOB_DB_GC_NUM_KEYS_OVERWRITTEN;
+      case 0x7F:
+        return rocksdb::Tickers::BLOB_DB_GC_NUM_KEYS_EXPIRED;
+      case -0x02:
+        return rocksdb::Tickers::BLOB_DB_GC_NUM_KEYS_RELOCATED;
+      case -0x03:
+        return rocksdb::Tickers::BLOB_DB_GC_BYTES_OVERWRITTEN;
+      case -0x04:
+        return rocksdb::Tickers::BLOB_DB_GC_BYTES_EXPIRED;
+      case -0x05:
+        return rocksdb::Tickers::BLOB_DB_GC_BYTES_RELOCATED;
+      case -0x06:
+        return rocksdb::Tickers::BLOB_DB_FIFO_NUM_FILES_EVICTED;
+      case -0x07:
+        return rocksdb::Tickers::BLOB_DB_FIFO_NUM_KEYS_EVICTED;
+      case -0x08:
+        return rocksdb::Tickers::BLOB_DB_FIFO_BYTES_EVICTED;
+      case -0x09:
+        return rocksdb::Tickers::TXN_PREPARE_MUTEX_OVERHEAD;
+      case -0x0A:
+        return rocksdb::Tickers::TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD;
+      case -0x0B:
+        return rocksdb::Tickers::TXN_DUPLICATE_KEY_OVERHEAD;
+      case -0x0C:
+        return rocksdb::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD;
+      case 0x5F:
+        // 0x5F for backwards compatibility on current minor version.
         return rocksdb::Tickers::TICKER_ENUM_MAX;
 
       default:
@@ -3670,10 +3841,40 @@ class HistogramTypeJni {
         return 0x1D;
       case rocksdb::Histograms::READ_NUM_MERGE_OPERANDS:
         return 0x1E;
+      // 0x20 to skip 0x1F so TICKER_ENUM_MAX remains unchanged for minor version compatibility.
       case rocksdb::Histograms::FLUSH_TIME:
-        return 0x1F;
-      case rocksdb::Histograms::HISTOGRAM_ENUM_MAX:
         return 0x20;
+      case rocksdb::Histograms::BLOB_DB_KEY_SIZE:
+        return 0x21;
+      case rocksdb::Histograms::BLOB_DB_VALUE_SIZE:
+        return 0x22;
+      case rocksdb::Histograms::BLOB_DB_WRITE_MICROS:
+        return 0x23;
+      case rocksdb::Histograms::BLOB_DB_GET_MICROS:
+        return 0x24;
+      case rocksdb::Histograms::BLOB_DB_MULTIGET_MICROS:
+        return 0x25;
+      case rocksdb::Histograms::BLOB_DB_SEEK_MICROS:
+        return 0x26;
+      case rocksdb::Histograms::BLOB_DB_NEXT_MICROS:
+        return 0x27;
+      case rocksdb::Histograms::BLOB_DB_PREV_MICROS:
+        return 0x28;
+      case rocksdb::Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS:
+        return 0x29;
+      case rocksdb::Histograms::BLOB_DB_BLOB_FILE_READ_MICROS:
+        return 0x2A;
+      case rocksdb::Histograms::BLOB_DB_BLOB_FILE_SYNC_MICROS:
+        return 0x2B;
+      case rocksdb::Histograms::BLOB_DB_GC_MICROS:
+        return 0x2C;
+      case rocksdb::Histograms::BLOB_DB_COMPRESSION_MICROS:
+        return 0x2D;
+      case rocksdb::Histograms::BLOB_DB_DECOMPRESSION_MICROS:
+        return 0x2E;
+      case rocksdb::Histograms::HISTOGRAM_ENUM_MAX:
+        // 0x1F for backwards compatibility on current minor version.
+        return 0x1F;
 
       default:
         // undefined/default
@@ -3747,9 +3948,39 @@ class HistogramTypeJni {
         return rocksdb::Histograms::DECOMPRESSION_TIMES_NANOS;
       case 0x1E:
         return rocksdb::Histograms::READ_NUM_MERGE_OPERANDS;
-      case 0x1F:
-        return rocksdb::Histograms::FLUSH_TIME;
+      // 0x20 to skip 0x1F so TICKER_ENUM_MAX remains unchanged for minor version compatibility.
       case 0x20:
+        return rocksdb::Histograms::FLUSH_TIME;
+      case 0x21:
+        return rocksdb::Histograms::BLOB_DB_KEY_SIZE;
+      case 0x22:
+        return rocksdb::Histograms::BLOB_DB_VALUE_SIZE;
+      case 0x23:
+        return rocksdb::Histograms::BLOB_DB_WRITE_MICROS;
+      case 0x24:
+        return rocksdb::Histograms::BLOB_DB_GET_MICROS;
+      case 0x25:
+        return rocksdb::Histograms::BLOB_DB_MULTIGET_MICROS;
+      case 0x26:
+        return rocksdb::Histograms::BLOB_DB_SEEK_MICROS;
+      case 0x27:
+        return rocksdb::Histograms::BLOB_DB_NEXT_MICROS;
+      case 0x28:
+        return rocksdb::Histograms::BLOB_DB_PREV_MICROS;
+      case 0x29:
+        return rocksdb::Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS;
+      case 0x2A:
+        return rocksdb::Histograms::BLOB_DB_BLOB_FILE_READ_MICROS;
+      case 0x2B:
+        return rocksdb::Histograms::BLOB_DB_BLOB_FILE_SYNC_MICROS;
+      case 0x2C:
+        return rocksdb::Histograms::BLOB_DB_GC_MICROS;
+      case 0x2D:
+        return rocksdb::Histograms::BLOB_DB_COMPRESSION_MICROS;
+      case 0x2E:
+        return rocksdb::Histograms::BLOB_DB_DECOMPRESSION_MICROS;
+      case 0x1F:
+        // 0x1F for backwards compatibility on current minor version.
         return rocksdb::Histograms::HISTOGRAM_ENUM_MAX;
 
       default:
