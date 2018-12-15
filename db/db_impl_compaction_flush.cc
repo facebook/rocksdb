@@ -1464,11 +1464,16 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
 
-    if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
-        !cached_recoverable_state_empty_.load()) {
+    if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) {
       s = SwitchMemtable(cfd, &context);
-      flush_memtable_id = cfd->imm()->GetLatestMemTableID();
-      flush_req.emplace_back(cfd, flush_memtable_id);
+    }
+
+    if (s.ok()) {
+      if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
+          !cached_recoverable_state_empty_.load()) {
+        flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+        flush_req.emplace_back(cfd, flush_memtable_id);
+      }
     }
 
     if (s.ok() && !flush_req.empty()) {
@@ -1542,6 +1547,9 @@ Status DBImpl::AtomicFlushMemTables(
       }
     }
     for (auto cfd : cfds) {
+      if (cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load()) {
+        continue;
+      }
       cfd->Ref();
       s = SwitchMemtable(cfd, &context);
       cfd->Unref();
