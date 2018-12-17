@@ -988,6 +988,8 @@ DEFINE_double(mix_access_ratio, 0.1,
 DEFINE_double(
     sine_mix_rate_noise, 0.0,
     "Add the noise ratio to the sine rate, it is between 0.0 and 1.0");
+DEFINE_bool(sine_mix_rate, false,
+            "Enable the sine QPS control on the mix workload");
 DEFINE_uint64(
     sine_mix_rate_interval_milliseconds, 10000,
     "Interval of which the sine wave read_rate_limit is recalculated");
@@ -4672,15 +4674,14 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     int64_t seek = 0;
     int64_t seek_found;
     int64_t bytes = 0;
-    int64_t rand_max = INT64_MAX;
-    int value_max = 1024 * 1024;
+    int value_max = 1024 * 16;
+    int scan_len_max = 10000;
     double write_rate = 1000000.0;
     double read_rate = 1000000.0;
     std::vector<double> ratio;
     char value_buffer[2 * value_max];
     QueryDecider query;
     RandomGenerator gen;
-    Iterator* single_iter = nullptr;
     Status s;
 
     ReadOptions options(FLAGS_verify_checksum, true);
@@ -4706,9 +4707,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     while (!duration.Done(1)) {
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
       int64_t rand_v, key_rand;
-      rand_v = GetRandomKey(&thread->rand);
-      double u = static_cast<double>(rand_v) / rand_max;
-      key_rand = PowerCdfInversion(u, 0.002312, 0.3467) % FLAGS_num;
+      rand_v = GetRandomKey(&thread->rand) % FLAGS_num;
+      double u = static_cast<double>(rand_v) / FLAGS_num;
+      key_rand =
+          PowerCdfInversion(u, FLAGS_key_dist_a, FLAGS_key_dist_b) % FLAGS_num;
       GenerateKeyFromInt(key_rand, FLAGS_num, &key);
       int query_type = query.GetType(rand_v);
 
@@ -4729,7 +4731,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         double mix_rate_with_noise = AddNoise(
             SineRate(usecs_since_start / 1000000.0), FLAGS_sine_mix_rate_noise);
         read_rate = mix_rate_with_noise * (query.ratio_[0] + query.ratio_[2]);
-        write_rate = mix_rate_with_noise * query.ratio_[1];
+        write_rate = mix_rate_with_noise * query.ratio_[1] * 512;
 
         thread->shared->write_rate_limiter.reset(
             NewGenericRateLimiter(write_rate));
@@ -4778,8 +4780,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         } else if (value_size > value_max) {
           value_size = value_size % value_max;
         }
-        s = db_with_cfh->db->Put(write_options_, key,
-                                 gen.Generate(value_size_));
+        s = db_with_cfh->db->Put(write_options_, key, gen.Generate(value_size));
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
           exit(1);
@@ -4794,7 +4795,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       } else if (query_type == 2) {
         // Seek query
         if (db_with_cfh->db != nullptr) {
-          delete single_iter;
+          Iterator* single_iter = nullptr;
           single_iter = db_with_cfh->db->NewIterator(options);
           if (single_iter != nullptr) {
             single_iter->Seek(key);
@@ -4802,8 +4803,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
             if (single_iter->Valid() && single_iter->key().compare(key) == 0) {
               seek_found++;
             }
-            int scan_length = static_cast<int>(ParetoCdfInversion(
-                u, FLAGS_iter_theta, FLAGS_iter_k, FLAGS_iter_sigma));
+            int scan_length =
+                static_cast<int>(ParetoCdfInversion(
+                    u, FLAGS_iter_theta, FLAGS_iter_k, FLAGS_iter_sigma)) %
+                scan_len_max;
             for (int j = 0; j < scan_length && single_iter->Valid(); j++) {
               Slice value = single_iter->value();
               memcpy(value_buffer, value.data(),
@@ -4821,9 +4824,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
               }
             }
           }
+          delete single_iter;
         }
       }
-      delete single_iter;
     }
     char msg[100];
     snprintf(msg, sizeof(msg),
