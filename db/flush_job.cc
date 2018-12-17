@@ -24,14 +24,15 @@
 #include "db/event_helpers.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
+#include "db/memtable.h"
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
+#include "db/range_tombstone_fragmenter.h"
 #include "db/version_set.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
-#include "db/memtable.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/statistics.h"
@@ -295,7 +296,8 @@ Status FlushJob::WriteLevel0Table() {
     // memtable and its associated range deletion memtable, respectively, at
     // corresponding indexes.
     std::vector<InternalIterator*> memtables;
-    std::vector<InternalIterator*> range_del_iters;
+    std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
+        range_del_iters;
     ReadOptions ro;
     ro.total_order_seek = true;
     Arena arena;
@@ -308,9 +310,9 @@ Status FlushJob::WriteLevel0Table() {
           cfd_->GetName().c_str(), job_context_->job_id, m->GetNextLogNumber());
       memtables.push_back(m->NewIterator(ro, &arena));
       auto* range_del_iter =
-          m->NewRangeTombstoneIterator(ro, versions_->LastSequence());
+          m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
       if (range_del_iter != nullptr) {
-        range_del_iters.push_back(range_del_iter);
+        range_del_iters.emplace_back(range_del_iter);
       }
       total_num_entries += m->num_entries();
       total_num_deletes += m->num_deletes();
@@ -329,10 +331,6 @@ Status FlushJob::WriteLevel0Table() {
       ScopedArenaIterator iter(
           NewMergingIterator(&cfd_->internal_comparator(), &memtables[0],
                              static_cast<int>(memtables.size()), &arena));
-      std::unique_ptr<InternalIterator> range_del_iter(NewMergingIterator(
-          &cfd_->internal_comparator(),
-          range_del_iters.empty() ? nullptr : &range_del_iters[0],
-          static_cast<int>(range_del_iters.size())));
       ROCKS_LOG_INFO(db_options_.info_log,
                      "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": started",
                      cfd_->GetName().c_str(), job_context_->job_id,
@@ -358,7 +356,7 @@ Status FlushJob::WriteLevel0Table() {
       s = BuildTable(
           dbname_, db_options_.env, *cfd_->ioptions(), mutable_cf_options_,
           env_options_, cfd_->table_cache(), iter.get(),
-          std::move(range_del_iter), &meta_, cfd_->internal_comparator(),
+          std::move(range_del_iters), &meta_, cfd_->internal_comparator(),
           cfd_->int_tbl_prop_collector_factories(), cfd_->GetID(),
           cfd_->GetName(), existing_snapshots_,
           earliest_write_conflict_snapshot_, snapshot_checker_,

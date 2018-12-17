@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <algorithm>
+#include <iterator>
 #include <list>
 #include <map>
 #include <set>
@@ -27,8 +29,6 @@
 
 namespace rocksdb {
 
-class RangeDelAggregatorV2;
-
 class TruncatedRangeDelIterator {
  public:
   TruncatedRangeDelIterator(
@@ -40,6 +40,8 @@ class TruncatedRangeDelIterator {
 
   void Next();
   void Prev();
+
+  void InternalNext();
 
   // Seeks to the tombstone with the highest viisble sequence number that covers
   // target (a user key). If no such tombstone exists, the position will be at
@@ -70,12 +72,22 @@ class TruncatedRangeDelIterator {
 
   SequenceNumber seq() const { return iter_->seq(); }
 
+  std::map<SequenceNumber, std::unique_ptr<TruncatedRangeDelIterator>>
+  SplitBySnapshot(const std::vector<SequenceNumber>& snapshots);
+
+  SequenceNumber upper_bound() const { return iter_->upper_bound(); }
+
+  SequenceNumber lower_bound() const { return iter_->lower_bound(); }
+
  private:
   std::unique_ptr<FragmentedRangeTombstoneIterator> iter_;
   const InternalKeyComparator* icmp_;
   const ParsedInternalKey* smallest_ = nullptr;
   const ParsedInternalKey* largest_ = nullptr;
   std::list<ParsedInternalKey> pinned_bounds_;
+
+  const InternalKey* smallest_ikey_;
+  const InternalKey* largest_ikey_;
 };
 
 struct SeqMaxComparator {
@@ -83,6 +95,17 @@ struct SeqMaxComparator {
                   const TruncatedRangeDelIterator* b) const {
     return a->seq() > b->seq();
   }
+};
+
+struct StartKeyMinComparator {
+  explicit StartKeyMinComparator(const InternalKeyComparator* c) : icmp(c) {}
+
+  bool operator()(const TruncatedRangeDelIterator* a,
+                  const TruncatedRangeDelIterator* b) const {
+    return icmp->Compare(a->start_key(), b->start_key()) > 0;
+  }
+
+  const InternalKeyComparator* icmp;
 };
 
 class ForwardRangeDelIterator {
@@ -94,20 +117,20 @@ class ForwardRangeDelIterator {
   bool ShouldDelete(const ParsedInternalKey& parsed);
   void Invalidate();
 
+  void AddNewIter(TruncatedRangeDelIterator* iter,
+                  const ParsedInternalKey& parsed) {
+    iter->Seek(parsed.user_key);
+    PushIter(iter, parsed);
+    assert(active_iters_.size() == active_seqnums_.size());
+  }
+
+  size_t UnusedIdx() const { return unused_idx_; }
+  void IncUnusedIdx() { unused_idx_++; }
+
  private:
   using ActiveSeqSet =
       std::multiset<TruncatedRangeDelIterator*, SeqMaxComparator>;
 
-  struct StartKeyMinComparator {
-    explicit StartKeyMinComparator(const InternalKeyComparator* c) : icmp(c) {}
-
-    bool operator()(const TruncatedRangeDelIterator* a,
-                    const TruncatedRangeDelIterator* b) const {
-      return icmp->Compare(a->start_key(), b->start_key()) > 0;
-    }
-
-    const InternalKeyComparator* icmp;
-  };
   struct EndKeyMinComparator {
     explicit EndKeyMinComparator(const InternalKeyComparator* c) : icmp(c) {}
 
@@ -124,7 +147,10 @@ class ForwardRangeDelIterator {
     if (!iter->Valid()) {
       // The iterator has been fully consumed, so we don't need to add it to
       // either of the heaps.
-    } else if (icmp_->Compare(parsed, iter->start_key()) < 0) {
+      return;
+    }
+    int cmp = icmp_->Compare(parsed, iter->start_key());
+    if (cmp < 0) {
       PushInactiveIter(iter);
     } else {
       PushActiveIter(iter);
@@ -170,6 +196,16 @@ class ReverseRangeDelIterator {
 
   bool ShouldDelete(const ParsedInternalKey& parsed);
   void Invalidate();
+
+  void AddNewIter(TruncatedRangeDelIterator* iter,
+                  const ParsedInternalKey& parsed) {
+    iter->SeekForPrev(parsed.user_key);
+    PushIter(iter, parsed);
+    assert(active_iters_.size() == active_seqnums_.size());
+  }
+
+  size_t UnusedIdx() const { return unused_idx_; }
+  void IncUnusedIdx() { unused_idx_++; }
 
  private:
   using ActiveSeqSet =
@@ -241,55 +277,160 @@ class ReverseRangeDelIterator {
 
 class RangeDelAggregatorV2 {
  public:
-  RangeDelAggregatorV2(const InternalKeyComparator* icmp,
-                       SequenceNumber upper_bound);
+  explicit RangeDelAggregatorV2(const InternalKeyComparator* icmp)
+      : icmp_(icmp) {}
+  virtual ~RangeDelAggregatorV2() {}
 
-  void AddTombstones(
+  virtual void AddTombstones(
       std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter,
       const InternalKey* smallest = nullptr,
-      const InternalKey* largest = nullptr);
+      const InternalKey* largest = nullptr) = 0;
 
-  bool ShouldDelete(const ParsedInternalKey& parsed,
-                    RangeDelPositioningMode mode);
-
-  bool IsRangeOverlapped(const Slice& start, const Slice& end);
-
-  void InvalidateRangeDelMapPositions() {
-    forward_iter_.Invalidate();
-    reverse_iter_.Invalidate();
+  bool ShouldDelete(const Slice& key, RangeDelPositioningMode mode) {
+    ParsedInternalKey parsed;
+    if (!ParseInternalKey(key, &parsed)) {
+      return false;
+    }
+    return ShouldDelete(parsed, mode);
   }
+  virtual bool ShouldDelete(const ParsedInternalKey& parsed,
+                            RangeDelPositioningMode mode) = 0;
 
-  bool IsEmpty() const { return iters_.empty(); }
+  virtual void InvalidateRangeDelMapPositions() = 0;
+
+  virtual bool IsEmpty() const = 0;
+
   bool AddFile(uint64_t file_number) {
     return files_seen_.insert(file_number).second;
   }
 
-  // Adaptor method to pass calls through to an old-style RangeDelAggregator.
-  // Will be removed once this new version supports an iterator that can be used
-  // during flush/compaction.
-  RangeDelAggregator* DelegateToRangeDelAggregator(
-      const std::vector<SequenceNumber>& snapshots) {
-    wrapped_range_del_agg.reset(new RangeDelAggregator(
-        *icmp_, snapshots, true /* collapse_deletions */));
-    return wrapped_range_del_agg.get();
-  }
+ protected:
+  class StripeRep {
+   public:
+    StripeRep(const InternalKeyComparator* icmp, SequenceNumber upper_bound,
+              SequenceNumber lower_bound)
+        : icmp_(icmp),
+          forward_iter_(icmp, &iters_),
+          reverse_iter_(icmp, &iters_),
+          upper_bound_(upper_bound),
+          lower_bound_(lower_bound) {}
 
-  std::unique_ptr<RangeDelIterator> NewIterator() {
-    assert(wrapped_range_del_agg != nullptr);
-    return wrapped_range_del_agg->NewIterator();
-  }
+    void AddTombstones(std::unique_ptr<TruncatedRangeDelIterator> input_iter) {
+      iters_.push_back(std::move(input_iter));
+    }
 
- private:
+    bool IsEmpty() const { return iters_.empty(); }
+
+    bool ShouldDelete(const ParsedInternalKey& parsed,
+                      RangeDelPositioningMode mode);
+
+    void Invalidate() {
+      InvalidateForwardIter();
+      InvalidateReverseIter();
+    }
+
+    bool IsRangeOverlapped(const Slice& start, const Slice& end);
+
+   private:
+    bool InStripe(SequenceNumber seq) const {
+      return lower_bound_ <= seq && seq <= upper_bound_;
+    }
+
+    void InvalidateForwardIter() { forward_iter_.Invalidate(); }
+
+    void InvalidateReverseIter() { reverse_iter_.Invalidate(); }
+
+    const InternalKeyComparator* icmp_;
+    std::vector<std::unique_ptr<TruncatedRangeDelIterator>> iters_;
+    ForwardRangeDelIterator forward_iter_;
+    ReverseRangeDelIterator reverse_iter_;
+    SequenceNumber upper_bound_;
+    SequenceNumber lower_bound_;
+  };
+
   const InternalKeyComparator* icmp_;
 
-  std::vector<std::unique_ptr<TruncatedRangeDelIterator>> iters_;
+ private:
   std::set<uint64_t> files_seen_;
+};
 
-  ForwardRangeDelIterator forward_iter_;
-  ReverseRangeDelIterator reverse_iter_;
+class ReadRangeDelAggregatorV2 : public RangeDelAggregatorV2 {
+ public:
+  ReadRangeDelAggregatorV2(const InternalKeyComparator* icmp,
+                           SequenceNumber upper_bound)
+      : RangeDelAggregatorV2(icmp),
+        rep_(icmp, upper_bound, 0 /* lower_bound */) {}
+  ~ReadRangeDelAggregatorV2() override {}
 
-  // TODO: remove once V2 supports exposing tombstone iterators
-  std::unique_ptr<RangeDelAggregator> wrapped_range_del_agg;
+  using RangeDelAggregatorV2::ShouldDelete;
+  void AddTombstones(
+      std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter,
+      const InternalKey* smallest = nullptr,
+      const InternalKey* largest = nullptr) override;
+
+  bool ShouldDelete(const ParsedInternalKey& parsed,
+                    RangeDelPositioningMode mode) override;
+
+  bool IsRangeOverlapped(const Slice& start, const Slice& end);
+
+  void InvalidateRangeDelMapPositions() override { rep_.Invalidate(); }
+
+  bool IsEmpty() const override { return rep_.IsEmpty(); }
+
+ private:
+  StripeRep rep_;
+};
+
+class CompactionRangeDelAggregatorV2 : public RangeDelAggregatorV2 {
+ public:
+  CompactionRangeDelAggregatorV2(const InternalKeyComparator* icmp,
+                                 const std::vector<SequenceNumber>& snapshots)
+      : RangeDelAggregatorV2(icmp), snapshots_(&snapshots) {}
+  ~CompactionRangeDelAggregatorV2() override {}
+
+  void AddTombstones(
+      std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter,
+      const InternalKey* smallest = nullptr,
+      const InternalKey* largest = nullptr) override;
+
+  using RangeDelAggregatorV2::ShouldDelete;
+  bool ShouldDelete(const ParsedInternalKey& parsed,
+                    RangeDelPositioningMode mode) override;
+
+  bool IsRangeOverlapped(const Slice& start, const Slice& end);
+
+  void InvalidateRangeDelMapPositions() override {
+    for (auto& rep : reps_) {
+      rep.second.Invalidate();
+    }
+  }
+
+  bool IsEmpty() const override {
+    for (const auto& rep : reps_) {
+      if (!rep.second.IsEmpty()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Creates an iterator over all the range tombstones in the aggregator, for
+  // use in compaction. Nullptr arguments indicate that the iterator range is
+  // unbounded.
+  // NOTE: the boundaries are used for optimization purposes to reduce the
+  // number of tombstones that are passed to the fragmenter; they do not
+  // guarantee that the resulting iterator only contains range tombstones that
+  // cover keys in the provided range. If required, these bounds must be
+  // enforced during iteration.
+  std::unique_ptr<FragmentedRangeTombstoneIterator> NewIterator(
+      const Slice* lower_bound = nullptr, const Slice* upper_bound = nullptr,
+      bool upper_bound_inclusive = false);
+
+ private:
+  std::vector<std::unique_ptr<TruncatedRangeDelIterator>> parent_iters_;
+  std::map<SequenceNumber, StripeRep> reps_;
+
+  const std::vector<SequenceNumber>* snapshots_;
 };
 
 }  // namespace rocksdb

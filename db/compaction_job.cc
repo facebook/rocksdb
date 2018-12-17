@@ -805,15 +805,13 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact != nullptr);
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
-  RangeDelAggregatorV2 range_del_agg_v2(&cfd->internal_comparator(),
-                                        kMaxSequenceNumber /* upper_bound */);
-  auto* range_del_agg =
-      range_del_agg_v2.DelegateToRangeDelAggregator(existing_snapshots_);
+  CompactionRangeDelAggregatorV2 range_del_agg(&cfd->internal_comparator(),
+                                               existing_snapshots_);
 
   // Although the v2 aggregator is what the level iterator(s) know about,
   // the AddTombstones calls will be propagated down to the v1 aggregator.
   std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
-      sub_compact->compaction, &range_del_agg_v2, env_optiosn_for_read_));
+      sub_compact->compaction, &range_del_agg, env_optiosn_for_read_));
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
@@ -902,8 +900,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       input.get(), cfd->user_comparator(), &merge, versions_->LastSequence(),
       &existing_snapshots_, earliest_write_conflict_snapshot_,
       snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_), false,
-      range_del_agg, sub_compact->compaction, compaction_filter, shutting_down_,
-      preserve_deletes_seqnum_));
+      &range_del_agg, sub_compact->compaction, compaction_filter,
+      shutting_down_, preserve_deletes_seqnum_));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() && sub_compact->compaction->output_level() != 0) {
@@ -1041,7 +1039,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       }
       CompactionIterationStats range_del_out_stats;
       status =
-          FinishCompactionOutputFile(input_status, sub_compact, range_del_agg,
+          FinishCompactionOutputFile(input_status, sub_compact, &range_del_agg,
                                      &range_del_out_stats, next_key);
       RecordDroppedKeys(range_del_out_stats,
                         &sub_compact->compaction_job_stats);
@@ -1092,8 +1090,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   if (status.ok() && sub_compact->builder == nullptr &&
-      sub_compact->outputs.size() == 0 &&
-      !range_del_agg->IsEmpty()) {
+      sub_compact->outputs.size() == 0 && !range_del_agg.IsEmpty()) {
     // handle subcompaction containing only range deletions
     status = OpenCompactionOutputFile(sub_compact);
   }
@@ -1102,7 +1099,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // close the output file.
   if (sub_compact->builder != nullptr) {
     CompactionIterationStats range_del_out_stats;
-    Status s = FinishCompactionOutputFile(status, sub_compact, range_del_agg,
+    Status s = FinishCompactionOutputFile(status, sub_compact, &range_del_agg,
                                           &range_del_out_stats);
     if (status.ok()) {
       status = s;
@@ -1168,7 +1165,7 @@ void CompactionJob::RecordDroppedKeys(
 
 Status CompactionJob::FinishCompactionOutputFile(
     const Status& input_status, SubcompactionState* sub_compact,
-    RangeDelAggregator* range_del_agg,
+    CompactionRangeDelAggregatorV2* range_del_agg,
     CompactionIterationStats* range_del_out_stats,
     const Slice* next_table_min_key /* = nullptr */) {
   AutoThreadOperationStageUpdater stage_updater(
@@ -1222,17 +1219,23 @@ Status CompactionJob::FinishCompactionOutputFile(
     if (existing_snapshots_.size() > 0) {
       earliest_snapshot = existing_snapshots_[0];
     }
-    auto it = range_del_agg->NewIterator();
-    if (lower_bound != nullptr) {
-      it->Seek(*lower_bound);
-    }
-
     bool has_overlapping_endpoints;
     if (upper_bound != nullptr && meta->largest.size() > 0) {
       has_overlapping_endpoints =
           ucmp->Compare(meta->largest.user_key(), *upper_bound) == 0;
     } else {
       has_overlapping_endpoints = false;
+    }
+
+    auto it = range_del_agg->NewIterator(lower_bound, upper_bound,
+                                         has_overlapping_endpoints);
+    // Position the range tombstone output iterator. There may be tombstone
+    // fragments that are entirely out of range, so make sure that we do not
+    // include those.
+    if (lower_bound != nullptr) {
+      it->Seek(*lower_bound);
+    } else {
+      it->SeekToFirst();
     }
     for (; it->Valid(); it->Next()) {
       auto tombstone = it->Tombstone();
@@ -1259,6 +1262,8 @@ Status CompactionJob::FinishCompactionOutputFile(
       }
 
       auto kv = tombstone.Serialize();
+      assert(lower_bound == nullptr ||
+             ucmp->Compare(*lower_bound, kv.second) < 0);
       sub_compact->builder->Add(kv.first.Encode(), kv.second);
       InternalKey smallest_candidate = std::move(kv.first);
       if (lower_bound != nullptr &&
