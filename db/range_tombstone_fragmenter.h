@@ -146,6 +146,9 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
     seq_pos_ = tombstones_->seq_end();
   }
 
+  RangeTombstone Tombstone() const {
+    return RangeTombstone(start_key(), end_key(), seq());
+  }
   Slice start_key() const { return pos_->start_key; }
   Slice end_key() const { return pos_->end_key; }
   SequenceNumber seq() const { return *seq_pos_; }

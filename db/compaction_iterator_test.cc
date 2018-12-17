@@ -221,10 +221,16 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
       MergeOperator* merge_op = nullptr, CompactionFilter* filter = nullptr,
       bool bottommost_level = false,
       SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber) {
-    std::unique_ptr<InternalIterator> range_del_iter(
+    std::unique_ptr<InternalIterator> unfragmented_range_del_iter(
         new test::VectorIterator(range_del_ks, range_del_vs));
-    range_del_agg_.reset(new RangeDelAggregator(icmp_, snapshots_));
-    ASSERT_OK(range_del_agg_->AddTombstones(std::move(range_del_iter)));
+    auto tombstone_list = std::make_shared<FragmentedRangeTombstoneList>(
+        std::move(unfragmented_range_del_iter), icmp_);
+    std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+        new FragmentedRangeTombstoneIterator(tombstone_list, icmp_,
+                                             kMaxSequenceNumber));
+    range_del_agg_.reset(
+        new CompactionRangeDelAggregatorV2(&icmp_, snapshots_));
+    range_del_agg_->AddTombstones(std::move(range_del_iter));
 
     std::unique_ptr<CompactionIterator::CompactionProxy> compaction;
     if (filter || bottommost_level) {
@@ -292,7 +298,7 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
   std::unique_ptr<MergeHelper> merge_helper_;
   std::unique_ptr<LoggingForwardVectorIterator> iter_;
   std::unique_ptr<CompactionIterator> c_iter_;
-  std::unique_ptr<RangeDelAggregator> range_del_agg_;
+  std::unique_ptr<CompactionRangeDelAggregatorV2> range_del_agg_;
   std::unique_ptr<SnapshotChecker> snapshot_checker_;
   std::atomic<bool> shutting_down_{false};
   FakeCompaction* compaction_proxy_;

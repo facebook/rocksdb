@@ -174,6 +174,11 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
     const Slice& ikey = unfragmented_tombstones->key();
     Slice tombstone_start_key = ExtractUserKey(ikey);
     SequenceNumber tombstone_seq = GetInternalKeySeqno(ikey);
+    if (!unfragmented_tombstones->IsKeyPinned()) {
+      pinned_slices_.emplace_back(tombstone_start_key.data(),
+                                  tombstone_start_key.size());
+      tombstone_start_key = pinned_slices_.back();
+    }
     no_tombstones = false;
 
     Slice tombstone_end_key = unfragmented_tombstones->value();
@@ -188,13 +193,7 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
       // this new start key.
       flush_current_tombstones(tombstone_start_key);
     }
-    if (unfragmented_tombstones->IsKeyPinned()) {
-      cur_start_key = tombstone_start_key;
-    } else {
-      pinned_slices_.emplace_back(tombstone_start_key.data(),
-                                  tombstone_start_key.size());
-      cur_start_key = pinned_slices_.back();
-    }
+    cur_start_key = tombstone_start_key;
 
     cur_end_keys.emplace(tombstone_end_key, tombstone_seq, kTypeRangeDeletion);
   }

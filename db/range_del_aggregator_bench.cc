@@ -194,7 +194,7 @@ int main(int argc, char** argv) {
   for (int i = 0; i < FLAGS_num_runs; i++) {
     rocksdb::RangeDelAggregator range_del_agg(icmp, {} /* snapshots */,
                                               FLAGS_use_collapsed);
-    rocksdb::RangeDelAggregatorV2 range_del_agg_v2(
+    rocksdb::ReadRangeDelAggregatorV2 range_del_agg_v2(
         &icmp, rocksdb::kMaxSequenceNumber /* upper_bound */);
 
     std::vector<std::unique_ptr<rocksdb::FragmentedRangeTombstoneList> >
