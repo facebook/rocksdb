@@ -1,5 +1,4 @@
-sudo: false
-dist: trusty
+dist: xenial
 language: cpp
 os:
   - linux
