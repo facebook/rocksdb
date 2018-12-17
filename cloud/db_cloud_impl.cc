@@ -85,16 +85,17 @@ std::string generateNewEpochId(Env* env) {
 }
 };
 
-Status DBCloud::PreloadCloudManifest(CloudEnv* env, const std::string& local_dbname) {
+Status DBCloud::PreloadCloudManifest(CloudEnv* env, const Options& options,
+                                     const std::string& local_dbname) {
   CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(env);
   Status st;
   Env* local_env = cenv->GetBaseEnv();
   local_env->CreateDirIfMissing(local_dbname);
   if (cenv->GetCloudType() != CloudType::kCloudNone) {
-    st = DBCloudImpl::MaybeMigrateManifestFile(local_env, local_dbname);
+    st = DBCloudImpl::MaybeMigrateManifestFile(local_env, options, local_dbname);
     if (st.ok()) {
       // Init cloud manifest
-      st = DBCloudImpl::FetchCloudManifest(cenv, local_dbname);
+      st = DBCloudImpl::FetchCloudManifest(cenv, options, local_dbname, false);
     }
     if (st.ok()) {
       // Inits CloudEnvImpl::cloud_manifest_, which will enable us to read files
@@ -131,10 +132,10 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   }
 
   if (!read_only && cenv->GetCloudType() != CloudType::kCloudNone) {
-    st = DBCloudImpl::MaybeMigrateManifestFile(local_env, local_dbname);
+    st = DBCloudImpl::MaybeMigrateManifestFile(local_env, options, local_dbname);
     if (st.ok()) {
       // Init cloud manifest
-      st = DBCloudImpl::FetchCloudManifest(cenv, local_dbname);
+      st = DBCloudImpl::FetchCloudManifest(cenv, options, local_dbname, false);
     }
     if (st.ok()) {
       // Inits CloudEnvImpl::cloud_manifest_, which will enable us to read files
@@ -358,6 +359,8 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
       cenv->GetSrcObjectPrefix().c_str(), cenv->GetDestBucketPrefix().c_str(),
       cenv->GetDestObjectPrefix().c_str());
 
+  CloudEnvImpl* cimpl = static_cast<CloudEnvImpl*>(cenv);
+
   // If no buckets are specified, then we cannot reinit anyways
   if (cenv->GetSrcBucketPrefix().empty() &&
       cenv->GetDestBucketPrefix().empty()) {
@@ -392,7 +395,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
     Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
         "failed to find CURRENT file %s: %s",
-        local_dir.c_str(), st.ToString().c_str());
+        CurrentFileName(local_dir).c_str(), st.ToString().c_str());
     return st.IsNotFound() ? Status::OK() : st;
   }
 
@@ -417,7 +420,6 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
 
   // We found a dbid in the local dir. Verify that it matches
   // what we found on the cloud.
-  std::string src_dbid;
   std::string src_object_path;
 
   // If a src bucket is specified, then get src dbid
@@ -444,7 +446,6 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
         "Local dbid %s configured src path %s src dbid registry",
         local_dbid.c_str(), src_object_path.c_str());
   }
-  std::string dest_dbid;
   std::string dest_object_path;
 
   // If a dest bucket is specified, then get dest dbid
@@ -486,6 +487,20 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
         "Local dbid %s configured path %s matches the dest dbid registry",
         local_dbid.c_str(), dest_object_path.c_str());
   }
+
+  // Ephemeral clones do not write their dbid to the cloud registry.
+  // Then extract them from the env-configured paths
+  std::string src_dbid;
+  std::string dest_dbid;
+  st = GetCloudDbid(cimpl, options, local_dir, &src_dbid, &dest_dbid);
+  if (!st.ok()) {
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+        "[db_cloud_impl] NeedsReinitialization: "
+        "Unable to extract dbid from cloud paths %s",
+        st.ToString().c_str());
+    return st;
+  }
+
   // If we found a src_dbid, then it should be a prefix of local_dbid
   if (!src_dbid.empty()) {
     size_t pos = local_dbid.find(src_dbid);
@@ -551,20 +566,123 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
       }
     }
   }
-  // We found a local dbid but we did not find this dbid mapping in the bucket.
+
+  // We found a local dbid but we did not find this dbid in bucket registry.
   if (src_object_path.empty() && dest_object_path.empty()) {
     Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
-        "local dbid %s does not have a mapping in src bucket "
-        "%s or dest bucket %s",
+        "local dbid %s does not have a mapping in cloud registry "
+        "src bucket %s or dest bucket %s",
         local_dbid.c_str(), src_bucket.c_str(), dest_bucket.c_str());
-    return Status::OK();
+
+    // This is an ephemeral clone. Resync all files from cloud.
+    // If the  resycn failed, then return success to indicate that
+    // the local directory needs to be completely removed and recreated.
+    st = ResyncDir(cimpl, options, local_dir);
+    if (!st.ok()) {
+      return Status::OK();
+    }
   }
   // ID's in the local dir are valid.
 
   // The DBID of the local dir is compatible with the src and dest buckets.
   // We do not need any re-initialization of local dir.
   *do_reinit = false;
+  return Status::OK();
+}
+
+//
+// Check and fix all files in local dir and cloud dir.
+// This should be called only for ephemeral clones.
+// Returns Status::OK if we want to keep all local data,
+// otherwise all local data will be erased.
+//
+Status DBCloudImpl::ResyncDir(CloudEnvImpl* cenv, const Options& options,
+                const std::string& local_dir) {
+  auto& src_bucket = cenv->GetSrcBucketPrefix();
+  auto& dest_bucket = cenv->GetDestBucketPrefix();
+  if (!dest_bucket.empty()) {
+    Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
+        "[db_cloud_impl] ResyncDir: "
+        "not an ephemeral clone local dir %s "
+        "src bucket %s dest bucket %s",
+        local_dir.c_str(), src_bucket.c_str(), dest_bucket.c_str());
+    return Status::InvalidArgument();
+  }
+  // If ephemeral_resync_on_open is false, then we want to keep all local
+  // data intact.
+  if (!cenv->GetCloudEnvOptions().ephemeral_resync_on_open) {
+    return Status::OK();
+  }
+
+  // Copy the src cloud manifest to local dir. This essentially means that
+  // the local db is resycned with the src cloud bucket. All new files will be
+  // pulled in as needed when we open the db.
+  return FetchCloudManifest(cenv, options, local_dir, true);
+}
+
+//
+// Extract the src dbid and the dest dbid from the cloud paths
+//
+Status DBCloudImpl::GetCloudDbid(CloudEnvImpl* cenv, const Options& options,
+                    const std::string& local_dir,
+                    std::string* src_dbid, std::string* dest_dbid) {
+  // get local env
+  Env* env = cenv->GetBaseEnv();
+
+  // use a tmp file in local dir
+  std::string tmpfile = IdentityFileName(local_dir) + ".cloud.tmp";
+
+  // Delete any old data remaining there
+  env->DeleteFile(tmpfile);
+
+  // Read dbid from src bucket if it exists
+  if (!cenv->GetSrcBucketPrefix().empty()) {
+    Status st = cenv->GetObject(cenv->GetSrcBucketPrefix(),
+                                cenv->GetSrcObjectPrefix() + "/IDENTITY",
+                                tmpfile);
+    if (!st.ok() && !st.IsNotFound()) {
+      return st;
+    }
+    if (st.ok()) {
+      std::string sid;
+      st = ReadFileToString(env, tmpfile, &sid);
+      if (st.ok()) {
+        src_dbid->assign(rtrim_if(trim(sid), '\n'));
+        env->DeleteFile(tmpfile);
+      } else {
+        Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
+            "[db_cloud_impl] GetCloudDbid: "
+            "local dir %s unable to read src dbid: %s",
+            local_dir.c_str(), st.ToString().c_str());
+        return st;
+      }
+    }
+  }
+
+  // Read dbid from dest bucket if it exists
+  if (!cenv->GetDestBucketPrefix().empty()) {
+    Status st = cenv->GetObject(cenv->GetDestBucketPrefix(),
+                                cenv->GetDestObjectPrefix() + "/IDENTITY",
+                                tmpfile);
+    if (!st.ok() && !st.IsNotFound()) {
+      return st;
+    }
+    if (st.ok()) {
+      std::string sid;
+      st = ReadFileToString(env, tmpfile, &sid);
+      if (st.ok()) {
+        dest_dbid->assign(rtrim_if(trim(sid), '\n'));
+        env->DeleteFile(tmpfile);
+      } else {
+        Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
+            "[db_cloud_impl] GetCloudDbid: "
+            "local dir %s unable to read dest dbid: %s",
+            local_dir.c_str(), st.ToString().c_str());
+        return st;
+      }
+    }
+  }
   return Status::OK();
 }
 
@@ -674,6 +792,10 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
       cenv->GetSrcBucketPrefix() == cenv->GetDestBucketPrefix() &&
       cenv->GetSrcObjectPrefix() == cenv->GetDestObjectPrefix();
 
+  Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      "[db_cloud_impl] SanitizeDirectory dest_equal_src = %d",
+      dest_equal_src);
+
   bool got_identity_from_dest = false, got_identity_from_src = false;
 
   // Download IDENTITY, first try destination, then source
@@ -698,7 +820,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
       // If there was an error and it's not IsNotFound() we need to bail
       return st;
     }
-    got_identity_from_src = true;
+    got_identity_from_src = st.ok();
   }
 
   if (!got_identity_from_src && !got_identity_from_dest) {
@@ -713,13 +835,10 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     return Status::OK();
   }
 
-  if (got_identity_from_src && !dest_equal_src &&
-      !cenv->GetDestBucketPrefix().empty()) {
-    // If:
-    // 1. there is a dest bucket,
-    // 2. which is different from src,
-    // 3. and there is no IDENTITY in dest bucket,
-    // then we are just opening this database as a clone (for the first time).
+  if (got_identity_from_src && !dest_equal_src) {
+    // If we got dbid from src but not from dest.
+    // Then we are just opening this database as a clone (for the first time).
+    // Either as a true clone or as an ephemeral clone.
     // Create a new dbid for this clone.
     std::string src_dbid;
     st = ReadFileToString(env, IdentityFileName(local_name), &src_dbid);
@@ -750,6 +869,8 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
           local_name.c_str(), st.ToString().c_str());
       return st;
     }
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+        "[db_cloud_impl] SanitizeDirectory creating dummy CURRENT file");
     std::string manifestfile =
         "MANIFEST-000001\n";  // CURRENT file needs a newline
     st = destfile->Append(Slice(manifestfile));
@@ -763,16 +884,20 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
   return Status::OK();
 }
 
-Status DBCloudImpl::FetchCloudManifest(CloudEnv* cenv,
-                                       const std::string& local_dbname) {
+Status DBCloudImpl::FetchCloudManifest(CloudEnv* cenv, const Options& options,
+                                       const std::string& local_dbname,
+                                       bool force) {
   bool dest = !cenv->GetDestBucketPrefix().empty();
   bool src = !cenv->GetSrcBucketPrefix().empty();
   bool dest_equal_src =
       cenv->GetSrcBucketPrefix() == cenv->GetDestBucketPrefix() &&
       cenv->GetSrcObjectPrefix() == cenv->GetDestObjectPrefix();
   std::string cloudmanifest = CloudManifestFile(local_dbname);
-  if (!dest && cenv->GetBaseEnv()->FileExists(cloudmanifest).ok()) {
+  if (!dest && !force && cenv->GetBaseEnv()->FileExists(cloudmanifest).ok()) {
     // nothing to do here, we have our cloud manifest
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+        "[db_cloud_impl] FetchCloudManifest: Nothing to do %s exists",
+        cloudmanifest.c_str());
     return Status::OK();
   }
   // first try to get cloudmanifest from dest
@@ -782,10 +907,18 @@ Status DBCloudImpl::FetchCloudManifest(CloudEnv* cenv,
                                 cloudmanifest);
     if (!st.ok() && !st.IsNotFound()) {
       // something went wrong, bail out
+      Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+          "[db_cloud_impl] FetchCloudManifest: Failed to fetch "
+          " cloud manifest %s from dest %s",
+          cloudmanifest.c_str(), cenv->GetDestBucketPrefix().c_str());
       return st;
     }
     if (st.ok()) {
       // found it!
+      Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+          "[db_cloud_impl] FetchCloudManifest: Fetched"
+          " cloud manifest %s from dest %s",
+          cloudmanifest.c_str(), cenv->GetDestBucketPrefix().c_str());
       return st;
     }
   }
@@ -796,13 +929,26 @@ Status DBCloudImpl::FetchCloudManifest(CloudEnv* cenv,
                                 cloudmanifest);
     if (!st.ok() && !st.IsNotFound()) {
       // something went wrong, bail out
+      Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+          "[db_cloud_impl] FetchCloudManifest: Failed to fetch "
+          " cloud manifest %s from src %s",
+          cloudmanifest.c_str(), cenv->GetSrcBucketPrefix().c_str());
       return st;
     }
     if (st.ok()) {
       // found it!
+      Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+          "[db_cloud_impl] FetchCloudManifest: Fetched"
+          " cloud manifest %s from src %s",
+          cloudmanifest.c_str(), cenv->GetSrcBucketPrefix().c_str());
       return st;
     }
   }
+  Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+      "[db_cloud_impl] FetchCloudManifest: Creating new"
+      " cloud manifest for %s",
+      local_dbname.c_str());
+
   // No cloud manifest, create an empty one
   unique_ptr<CloudManifest> manifest;
   CloudManifest::CreateForEmptyDatabase("", &manifest);
@@ -810,11 +956,15 @@ Status DBCloudImpl::FetchCloudManifest(CloudEnv* cenv,
 }
 
 Status DBCloudImpl::MaybeMigrateManifestFile(Env* local_env,
+                                             const Options& options,
                                              const std::string& local_dbname) {
   std::string manifest_filename;
   auto st = local_env->FileExists(CurrentFileName(local_dbname));
   if (st.IsNotFound()) {
     // No need to migrate
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+        "[db_cloud_impl] MaybeMigrateManifestFile: No need to migrate %s",
+        CurrentFileName(local_dbname).c_str());
     return Status::OK();
   }
   if (!st.ok()) {
@@ -834,6 +984,9 @@ Status DBCloudImpl::MaybeMigrateManifestFile(Env* local_env,
   manifest_filename = local_dbname + "/" + rtrim_if(manifest_filename, '\n');
   if (local_env->FileExists(manifest_filename).IsNotFound()) {
     // manifest doesn't exist, shrug
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+        "[db_cloud_impl] MaybeMigrateManifestFile: Manifest %s does not exist",
+        manifest_filename.c_str());
     return Status::OK();
   }
   return local_env->RenameFile(manifest_filename, local_dbname + "/MANIFEST");

@@ -14,6 +14,7 @@
 #include "cloud/manifest_reader.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "util/filename.h"
 #include "util/logging.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
@@ -69,9 +70,9 @@ class CloudTest : public testing::Test {
     ASSERT_OK(base_env_->CreateDir(clone_dir_));
   }
 
-  std::set<std::string> GetSSTFiles() {
+  std::set<std::string> GetSSTFiles(std::string name) {
     std::vector<std::string> files;
-    aenv_->GetBaseEnv()->GetChildren(dbname_, &files);
+    aenv_->GetBaseEnv()->GetChildren(name, &files);
     std::set<std::string> sst_files;
     for (auto& f : files) {
       if (IsSstFile(RemoveEpoch(f))) {
@@ -79,6 +80,11 @@ class CloudTest : public testing::Test {
       }
     }
     return sst_files;
+  }
+
+  std::set<std::string> GetSSTFilesClone(std::string name) {
+    std::string cname = clone_dir_ + "/" + name;
+    return GetSSTFiles(cname);
   }
 
   void DestroyDir(const std::string& dir) {
@@ -203,6 +209,37 @@ class CloudTest : public testing::Test {
     return manifest->GetLiveFiles(src_object_prefix_, list);
   }
 
+  // Verify that local files are the same as cloud files in src bucket path
+  void ValidateCloudLiveFilesSrcSize() {
+
+    // Loop though all the files in the cloud manifest
+    std::set<uint64_t> cloud_files;
+    ASSERT_OK(GetCloudLiveFilesSrc(&cloud_files));
+    for (uint64_t num: cloud_files) {
+      std::string pathname = MakeTableFileName(dbname_, num);
+      Log(options_.info_log, "cloud file list  %s\n", pathname.c_str());
+    }
+
+    std::set<std::string> localFiles = GetSSTFiles(dbname_);
+    uint64_t cloudSize = 0;
+    uint64_t localSize = 0;
+
+    // loop through all the local files and validate
+    for (std::string path: localFiles) {
+      std::string cpath = src_object_prefix_ + "/" + path;
+      ASSERT_OK(aenv_->GetObjectSize(src_bucket_prefix_, cpath, &cloudSize));
+
+      // find the size of the file on local storage
+      std::string lpath = dbname_ + "/" + path;
+      ASSERT_OK(aenv_->GetBaseEnv()->GetFileSize(lpath, &localSize));
+      ASSERT_TRUE(localSize == cloudSize);
+      Log(options_.info_log, "local file %s size %ld\n", lpath.c_str(), localSize);
+      Log(options_.info_log, "cloud file %s size %ld\n", cpath.c_str(), cloudSize);
+      printf("local file %s size %ld\n", lpath.c_str(), localSize);
+      printf("cloud file %s size %ld\n", cpath.c_str(), cloudSize);
+    }
+  }
+
  protected:
   Env* base_env_;
   Options options_;
@@ -289,7 +326,7 @@ TEST_F(CloudTest, Newdb) {
   value.clear();
 
   {
-    // Create and Open a new instance
+    // Create and Open a new ephemeral instance
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
     CloneDB("newdb1", src_bucket_prefix_, src_object_prefix_, "", "", &cloud_db,
@@ -298,15 +335,17 @@ TEST_F(CloudTest, Newdb) {
     // Retrieve the id of the first reopen
     ASSERT_OK(cloud_db->GetDbIdentity(newdb1_dbid));
 
-    // This reopen has the same src and destination paths, so it is
-    // not a clone, but just a reopen.
-    ASSERT_EQ(newdb1_dbid, master_dbid);
+    // This is an ephemeral clone. Its dbid is a prefix of the master's.
+    ASSERT_NE(newdb1_dbid, master_dbid);
+    auto res = std::mismatch(master_dbid.begin(), master_dbid.end(),
+                             newdb1_dbid.begin());
+    ASSERT_TRUE(res.first == master_dbid.end());
 
     ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
     ASSERT_TRUE(value.compare("World") == 0);
 
-    // Open master and write one more kv to it. The dest bucket is empty,
-    // so writes go to local dir only.
+    // Open master and write one more kv to it. This is written to
+    // src bucket as well.
     OpenDB();
     ASSERT_OK(db_->Put(WriteOptions(), "Dhruba", "Borthakur"));
 
@@ -322,11 +361,11 @@ TEST_F(CloudTest, Newdb) {
     CloseDB();
 
     // Assert  that newdb1 cannot see the second kv because the second kv
-    // was written to local dir only.
+    // was written to local dir only of the ephemeral clone.
     ASSERT_TRUE(cloud_db->Get(ReadOptions(), "Dhruba", &value).IsNotFound());
   }
   {
-    // Create another instance using a different local dir but the same two
+    // Create another ephemeral instance using a different local dir but the same two
     // buckets as newdb1. This should be identical in contents with newdb1.
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
@@ -336,11 +375,11 @@ TEST_F(CloudTest, Newdb) {
     // Retrieve the id of the second clone db
     ASSERT_OK(cloud_db->GetDbIdentity(newdb2_dbid));
 
-    // Since we used the same src and destination buckets & paths for both
-    // newdb1 and newdb2, we should get the same dbid as newdb1
-    ASSERT_EQ(newdb1_dbid, newdb2_dbid);
+    // Since we use two different local directories for the two ephemeral
+    // clones, their dbids should be different from one another
+    ASSERT_NE(newdb1_dbid, newdb2_dbid);
 
-    // check that both the kvs appear in the clone
+    // check that both the kvs appear in the new ephemeral clone
     value.clear();
     ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
     ASSERT_TRUE(value.compare("World") == 0);
@@ -504,8 +543,11 @@ TEST_F(CloudTest, KeepLocalFiles) {
   ASSERT_EQ(value, "World");
   ASSERT_OK(db_->Get(ReadOptions(), "Hello2", &value));
   ASSERT_EQ(value, "World2");
+
   CloseDB();
+  ValidateCloudLiveFilesSrcSize();
 }
+
 
 TEST_F(CloudTest, CopyToFromS3) {
   std::string fname = dbname_ + "/100000.sst";
@@ -776,7 +818,7 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
   ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_OK(db_->Put(WriteOptions(), "Second", "File"));
   ASSERT_OK(db_->Flush(FlushOptions()));
-  auto files = GetSSTFiles();
+  auto files = GetSSTFiles(dbname_);
   EXPECT_EQ(files.size(), 2);
   CloseDB();
 
@@ -786,7 +828,7 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
   OpenDB();
   ASSERT_OK(db_->Put(WriteOptions(), "Third", "File"));
   ASSERT_OK(db_->Flush(FlushOptions()));
-  auto newFiles = GetSSTFiles();
+  auto newFiles = GetSSTFiles(dbname_);
   EXPECT_EQ(newFiles.size(), 3);
   // Remember the third file we created
   std::vector<std::string> diff;
@@ -825,7 +867,7 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
   // Changes to the cloud database should be pulled down now.
   ASSERT_OK(db_->Get(ReadOptions(), "Third", &value));
   EXPECT_EQ(value, "DifferentFile");
-  files = GetSSTFiles();
+  files = GetSSTFiles(dbname_);
   // Should no longer be in my directory because it's not part of the new
   // MANIFEST.
   EXPECT_TRUE(files.find(thirdFile) == files.end());
@@ -999,11 +1041,211 @@ TEST_F(CloudTest, PreloadCloudManifest) {
   value.clear();
 
   // Reopen and validate, preload cloud manifest
-  DBCloud::PreloadCloudManifest(aenv_.get(), dbname_);
+  DBCloud::PreloadCloudManifest(aenv_.get(), options_, dbname_);
 
   OpenDB();
   ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
   ASSERT_EQ(value, "World");
+}
+
+//
+// Test Ephemeral mode. In this mode, the database is cloned
+// from a cloud bucket but new writes are not propagated
+// back to any cloud bucket. Once cloned, all updates are local.
+//
+TEST_F(CloudTest, Ephemeral) {
+  cloud_env_options_.keep_local_sst_files = true;
+  options_.level0_file_num_compaction_trigger = 100; // never compact
+
+  // Create a primary DB with two files
+  OpenDB();
+  std::string value;
+  std::string newdb1_dbid;
+  std::set<uint64_t> cloud_files;
+  ASSERT_OK(db_->Put(WriteOptions(), "Name", "dhruba"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello2", "borthakur"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  CloseDB();
+  ASSERT_EQ(2, GetSSTFiles(dbname_).size());
+
+  // Reopen the same database in ephemeral mode by cloning the original.
+  // Do not destroy the local dir. Writes to this db does not make it back
+  // to any cloud storage.
+  {
+    std::unique_ptr<CloudEnv> cloud_env;
+    std::unique_ptr<DBCloud> cloud_db;
+    CloneDB("db_ephemeral", src_bucket_prefix_, src_object_prefix_, "", "", &cloud_db,
+            &cloud_env);
+
+    // Retrieve the id of the first reopen
+    ASSERT_OK(cloud_db->GetDbIdentity(newdb1_dbid));
+
+    // verify that we still have two sst files
+    ASSERT_EQ(2, GetSSTFilesClone("db_ephemeral").size());
+
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Name", &value));
+    ASSERT_EQ(value, "dhruba");
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello2", &value));
+    ASSERT_EQ(value, "borthakur");
+
+    // Write one more record.
+    // There should be 3 local sst files in the ephemeral db.
+    ASSERT_OK(cloud_db->Put(WriteOptions(), "zip", "94087"));
+    ASSERT_OK(cloud_db->Flush(FlushOptions()));
+    ASSERT_EQ(3, GetSSTFilesClone("db_ephemeral").size());
+
+    // check that cloud files did not get updated
+    ASSERT_OK(GetCloudLiveFilesSrc(&cloud_files));
+    ASSERT_EQ(2, cloud_files.size());
+    cloud_files.clear();
+  }
+
+  // reopen main db and write two more records to it
+  OpenDB();
+  ASSERT_EQ(2, GetSSTFiles(dbname_).size());
+
+  // write two more records to it.
+  ASSERT_OK(db_->Put(WriteOptions(), "Key1", "onlyInMainDB"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Put(WriteOptions(), "Key2", "onlyInMainDB"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(4, GetSSTFiles(dbname_).size());
+  CloseDB();
+  ASSERT_OK(GetCloudLiveFilesSrc(&cloud_files));
+  ASSERT_EQ(4, cloud_files.size());
+  cloud_files.clear();
+
+  // At this point, the main db has 4 files while the ephemeral
+  // database has diverged earlier with 3 local files. If we try
+  // to reopen the ephemeral clone, it should not download new
+  // files from the cloud
+  {
+    std::unique_ptr<CloudEnv> cloud_env;
+    std::unique_ptr<DBCloud> cloud_db;
+    std::string dbid;
+    options_.info_log = nullptr;
+    CreateLoggerFromOptions(clone_dir_ + "/db_ephemeral", options_, &options_.info_log);
+
+    CloneDB("db_ephemeral", src_bucket_prefix_, src_object_prefix_, "", "", &cloud_db,
+            &cloud_env);
+
+    // Retrieve the id of this clone. It should be same as before
+    ASSERT_OK(cloud_db->GetDbIdentity(dbid));
+    ASSERT_EQ(newdb1_dbid, dbid);
+
+    ASSERT_EQ(3, GetSSTFilesClone("db_ephemeral").size());
+
+    // verify that a key written to the ephemeral db still exists
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "zip", &value));
+    ASSERT_EQ(value, "94087");
+
+    // verify that keys written to the main db after the ephemeral
+    // was clones do not appear in the ephemeral db.
+    ASSERT_NOK(cloud_db->Get(ReadOptions(), "Key1", &value));
+    ASSERT_NOK(cloud_db->Get(ReadOptions(), "Key2", &value));
+  }
+}
+
+//
+// Test Ephemeral clones with resyncOnOpen mode.
+// In this mode, every open of the ephemeral clone db causes its
+// data to be resynced with the master db.
+//
+TEST_F(CloudTest, EphemeralResync) {
+  cloud_env_options_.keep_local_sst_files = true;
+  cloud_env_options_.ephemeral_resync_on_open = true;
+  options_.level0_file_num_compaction_trigger = 100; // never compact
+
+  // Create a primary DB with two files
+  OpenDB();
+  std::string value;
+  std::string newdb1_dbid;
+  std::set<uint64_t> cloud_files;
+  ASSERT_OK(db_->Put(WriteOptions(), "Name", "dhruba"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello2", "borthakur"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  CloseDB();
+  ASSERT_EQ(2, GetSSTFiles(dbname_).size());
+
+  // Reopen the same database in ephemeral mode by cloning the original.
+  // Do not destroy the local dir. Writes to this db does not make it back
+  // to any cloud storage.
+  {
+    std::unique_ptr<CloudEnv> cloud_env;
+    std::unique_ptr<DBCloud> cloud_db;
+    CloneDB("db_ephemeral", src_bucket_prefix_, src_object_prefix_, "", "", &cloud_db,
+            &cloud_env);
+
+    // Retrieve the id of the first reopen
+    ASSERT_OK(cloud_db->GetDbIdentity(newdb1_dbid));
+
+    // verify that we still have two sst files
+    ASSERT_EQ(2, GetSSTFilesClone("db_ephemeral").size());
+
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Name", &value));
+    ASSERT_EQ(value, "dhruba");
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello2", &value));
+    ASSERT_EQ(value, "borthakur");
+
+    // Write one more record.
+    // There should be 3 local sst files in the ephemeral db.
+    ASSERT_OK(cloud_db->Put(WriteOptions(), "zip", "94087"));
+    ASSERT_OK(cloud_db->Flush(FlushOptions()));
+    ASSERT_EQ(3, GetSSTFilesClone("db_ephemeral").size());
+
+    // check that cloud files did not get updated
+    ASSERT_OK(GetCloudLiveFilesSrc(&cloud_files));
+    ASSERT_EQ(2, cloud_files.size());
+    cloud_files.clear();
+  }
+
+  // reopen main db and write two more records to it
+  OpenDB();
+  ASSERT_EQ(2, GetSSTFiles(dbname_).size());
+
+  // write two more records to it.
+  ASSERT_OK(db_->Put(WriteOptions(), "Key1", "onlyInMainDB"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Put(WriteOptions(), "Key2", "onlyInMainDB"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(4, GetSSTFiles(dbname_).size());
+  CloseDB();
+  ASSERT_OK(GetCloudLiveFilesSrc(&cloud_files));
+  ASSERT_EQ(4, cloud_files.size());
+  cloud_files.clear();
+
+  // At this point, the main db has 4 files while the ephemeral
+  // database has diverged earlier with 3 local files.
+  // Reopen the ephemeral db with resync_on_open flag.
+  // This means that earlier updates to the ephemeral db are lost.
+  // It also means that the most latest updates in the master db
+  // are reflected in the newly opened ephemeral database.
+  {
+    std::unique_ptr<CloudEnv> cloud_env;
+    std::unique_ptr<DBCloud> cloud_db;
+    std::string dbid;
+    options_.info_log = nullptr;
+    CreateLoggerFromOptions(clone_dir_ + "/db_ephemeral", options_, &options_.info_log);
+
+    CloneDB("db_ephemeral", src_bucket_prefix_, src_object_prefix_, "", "", &cloud_db,
+            &cloud_env);
+
+    // Retrieve the id of this clone. It should be same as before
+    ASSERT_OK(cloud_db->GetDbIdentity(dbid));
+    ASSERT_EQ(newdb1_dbid, dbid);
+
+    // verify that a key written to the ephemeral db does not exist
+    ASSERT_NOK(cloud_db->Get(ReadOptions(), "zip", &value));
+
+    // verify that keys written to the main db after the ephemeral
+    // was clones appear in the ephemeral db.
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Key1", &value));
+    ASSERT_EQ(value, "onlyInMainDB");
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Key2", &value));
+    ASSERT_EQ(value, "onlyInMainDB");
+  }
 }
 
 #ifdef AWS_DO_NOT_RUN
