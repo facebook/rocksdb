@@ -110,6 +110,9 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
 //       keys_ stores the list of keys encountered while merging.
 //       operands_ stores the list of merge operands encountered while merging.
 //       keys_[i] corresponds to operands_[i] for each i.
+//
+// TODO: Avoid the snapshot stripe map lookup in CompactionRangeDelAggregator
+// and just pass the StripeRep corresponding to the stripe being merged.
 Status MergeHelper::MergeUntil(InternalIterator* iter,
                                CompactionRangeDelAggregatorV2* range_del_agg,
                                const SequenceNumber stop_before,

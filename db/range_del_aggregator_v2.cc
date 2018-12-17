@@ -247,7 +247,7 @@ void ReverseRangeDelIterator::Invalidate() {
 
 bool RangeDelAggregatorV2::StripeRep::ShouldDelete(
     const ParsedInternalKey& parsed, RangeDelPositioningMode mode) {
-  if (!InStripe(parsed.sequence)) {
+  if (!InStripe(parsed.sequence) || IsEmpty()) {
     return false;
   }
   switch (mode) {
