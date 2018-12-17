@@ -239,6 +239,9 @@ bool RangeDelAggregatorV2::ShouldDelete(const ParsedInternalKey& parsed,
   if (wrapped_range_del_agg != nullptr) {
     return wrapped_range_del_agg->ShouldDelete(parsed, mode);
   }
+  if (IsEmpty()) {
+    return false;
+  }
 
   switch (mode) {
     case RangeDelPositioningMode::kForwardTraversal:
