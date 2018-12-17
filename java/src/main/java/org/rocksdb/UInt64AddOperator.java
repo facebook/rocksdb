@@ -11,9 +11,15 @@ package org.rocksdb;
  */
 public class UInt64AddOperator extends MergeOperator {
     public UInt64AddOperator() {
-        super(newSharedUInt64AddOperator());
+        super();
     }
 
+    @Override
+    protected long initializeNative(final long... nativeParameterHandles) {
+        return newSharedUInt64AddOperator();
+    }
+
+    @Override
+    protected final native void disposeInternal(final long handle);
     private native static long newSharedUInt64AddOperator();
-    @Override protected final native void disposeInternal(final long handle);
 }
