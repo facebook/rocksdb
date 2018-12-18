@@ -12,7 +12,11 @@ package org.rocksdb;
  * value.
  */
 public abstract class MergeOperator extends RocksCallbackObject {
-  protected MergeOperator() { super(); }
+  protected MergeOperator(final long... nativeParameterHandles) { super(nativeParameterHandles); }
 
-  protected native void disposeInternal(final long handle);
+  protected void disposeInternal() {
+    disposeInternal(nativeHandle_);
+  }
+
+  private native void disposeInternal(final long handle);
 }

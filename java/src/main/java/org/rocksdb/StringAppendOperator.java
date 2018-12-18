@@ -17,17 +17,19 @@ public class StringAppendOperator extends MergeOperator {
         this(',');
     }
 
-    public StringAppendOperator(char delim) {
-        super();
+    public StringAppendOperator(final char delim) {
+        super(delim);
         this.delim = delim;
     }
 
     @Override
     protected long initializeNative(final long... nativeParameterHandles) {
+        this.delim = (char)nativeParameterHandles[0];
         return newSharedStringAppendOperator(delim);
     }
 
-    @Override
+    protected void disposeInternal() { disposeInternal(nativeHandle_); }
+
     protected final native void disposeInternal(final long handle);
-    private native static long newSharedStringAppendOperator(final char delim);
+    private native long newSharedStringAppendOperator(final char delim);
 }
