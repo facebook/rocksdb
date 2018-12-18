@@ -45,7 +45,6 @@
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
-#include "db/range_del_aggregator.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
@@ -1033,7 +1032,7 @@ bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
 }
 
 InternalIterator* DBImpl::NewInternalIterator(
-    Arena* arena, RangeDelAggregatorV2* range_del_agg, SequenceNumber sequence,
+    Arena* arena, RangeDelAggregator* range_del_agg, SequenceNumber sequence,
     ColumnFamilyHandle* column_family) {
   ColumnFamilyData* cfd;
   if (column_family == nullptr) {
@@ -1150,10 +1149,12 @@ static void CleanupIteratorState(void* arg1, void* /*arg2*/) {
 }
 }  // namespace
 
-InternalIterator* DBImpl::NewInternalIterator(
-    const ReadOptions& read_options, ColumnFamilyData* cfd,
-    SuperVersion* super_version, Arena* arena,
-    RangeDelAggregatorV2* range_del_agg, SequenceNumber sequence) {
+InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
+                                              ColumnFamilyData* cfd,
+                                              SuperVersion* super_version,
+                                              Arena* arena,
+                                              RangeDelAggregator* range_del_agg,
+                                              SequenceNumber sequence) {
   InternalIterator* internal_iter;
   assert(arena != nullptr);
   assert(range_del_agg != nullptr);

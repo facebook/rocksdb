@@ -228,8 +228,7 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
     std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
         new FragmentedRangeTombstoneIterator(tombstone_list, icmp_,
                                              kMaxSequenceNumber));
-    range_del_agg_.reset(
-        new CompactionRangeDelAggregatorV2(&icmp_, snapshots_));
+    range_del_agg_.reset(new CompactionRangeDelAggregator(&icmp_, snapshots_));
     range_del_agg_->AddTombstones(std::move(range_del_iter));
 
     std::unique_ptr<CompactionIterator::CompactionProxy> compaction;
@@ -298,7 +297,7 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
   std::unique_ptr<MergeHelper> merge_helper_;
   std::unique_ptr<LoggingForwardVectorIterator> iter_;
   std::unique_ptr<CompactionIterator> c_iter_;
-  std::unique_ptr<CompactionRangeDelAggregatorV2> range_del_agg_;
+  std::unique_ptr<CompactionRangeDelAggregator> range_del_agg_;
   std::unique_ptr<SnapshotChecker> snapshot_checker_;
   std::atomic<bool> shutting_down_{false};
   FakeCompaction* compaction_proxy_;

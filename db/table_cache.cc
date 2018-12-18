@@ -185,7 +185,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
 InternalIterator* TableCache::NewIterator(
     const ReadOptions& options, const EnvOptions& env_options,
     const InternalKeyComparator& icomparator, const FileMetaData& file_meta,
-    RangeDelAggregatorV2* range_del_agg, const SliceTransform* prefix_extractor,
+    RangeDelAggregator* range_del_agg, const SliceTransform* prefix_extractor,
     TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
     bool for_compaction, Arena* arena, bool skip_filters, int level,
     const InternalKey* smallest_compaction_key,

@@ -25,7 +25,7 @@
 #include "db/job_context.h"
 #include "db/log_writer.h"
 #include "db/memtable_list.h"
-#include "db/range_del_aggregator_v2.h"
+#include "db/range_del_aggregator.h"
 #include "db/version_edit.h"
 #include "db/write_controller.h"
 #include "db/write_thread.h"
@@ -104,7 +104,7 @@ class CompactionJob {
 
   Status FinishCompactionOutputFile(
       const Status& input_status, SubcompactionState* sub_compact,
-      CompactionRangeDelAggregatorV2* range_del_agg,
+      CompactionRangeDelAggregator* range_del_agg,
       CompactionIterationStats* range_del_out_stats,
       const Slice* next_table_min_key = nullptr);
   Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options);

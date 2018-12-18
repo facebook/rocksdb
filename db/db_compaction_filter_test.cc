@@ -340,8 +340,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   Arena arena;
   {
     InternalKeyComparator icmp(options.comparator);
-    ReadRangeDelAggregatorV2 range_del_agg(
-        &icmp, kMaxSequenceNumber /* upper_bound */);
+    ReadRangeDelAggregator range_del_agg(&icmp,
+                                         kMaxSequenceNumber /* upper_bound */);
     ScopedArenaIterator iter(dbfull()->NewInternalIterator(
         &arena, &range_del_agg, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
@@ -430,8 +430,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   count = 0;
   {
     InternalKeyComparator icmp(options.comparator);
-    ReadRangeDelAggregatorV2 range_del_agg(
-        &icmp, kMaxSequenceNumber /* upper_bound */);
+    ReadRangeDelAggregator range_del_agg(&icmp,
+                                         kMaxSequenceNumber /* upper_bound */);
     ScopedArenaIterator iter(dbfull()->NewInternalIterator(
         &arena, &range_del_agg, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
@@ -648,8 +648,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     int total = 0;
     Arena arena;
     InternalKeyComparator icmp(options.comparator);
-    ReadRangeDelAggregatorV2 range_del_agg(&icmp,
-                                           kMaxSequenceNumber /* snapshots */);
+    ReadRangeDelAggregator range_del_agg(&icmp,
+                                         kMaxSequenceNumber /* snapshots */);
     ScopedArenaIterator iter(dbfull()->NewInternalIterator(
         &arena, &range_del_agg, kMaxSequenceNumber));
     iter->SeekToFirst();
