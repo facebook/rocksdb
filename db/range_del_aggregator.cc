@@ -154,17 +154,14 @@ TruncatedRangeDelIterator::SplitBySnapshot(
 }
 
 ForwardRangeDelIterator::ForwardRangeDelIterator(
-    const InternalKeyComparator* icmp,
-    const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters)
+    const InternalKeyComparator* icmp)
     : icmp_(icmp),
-      iters_(iters),
       unused_idx_(0),
       active_seqnums_(SeqMaxComparator()),
       active_iters_(EndKeyMinComparator(icmp)),
       inactive_iters_(StartKeyMinComparator(icmp)) {}
 
 bool ForwardRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
-  assert(iters_ != nullptr);
   // Move active iterators that end before parsed.
   while (!active_iters_.empty() &&
          icmp_->Compare((*active_iters_.top())->end_key(), parsed) <= 0) {
@@ -200,17 +197,14 @@ void ForwardRangeDelIterator::Invalidate() {
 }
 
 ReverseRangeDelIterator::ReverseRangeDelIterator(
-    const InternalKeyComparator* icmp,
-    const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters)
+    const InternalKeyComparator* icmp)
     : icmp_(icmp),
-      iters_(iters),
       unused_idx_(0),
       active_seqnums_(SeqMaxComparator()),
       active_iters_(StartKeyMaxComparator(icmp)),
       inactive_iters_(EndKeyMaxComparator(icmp)) {}
 
 bool ReverseRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
-  assert(iters_ != nullptr);
   // Move active iterators that start after parsed.
   while (!active_iters_.empty() &&
          icmp_->Compare(parsed, (*active_iters_.top())->start_key()) < 0) {

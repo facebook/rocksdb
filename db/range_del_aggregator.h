@@ -110,9 +110,7 @@ struct StartKeyMinComparator {
 
 class ForwardRangeDelIterator {
  public:
-  ForwardRangeDelIterator(
-      const InternalKeyComparator* icmp,
-      const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters);
+  explicit ForwardRangeDelIterator(const InternalKeyComparator* icmp);
 
   bool ShouldDelete(const ParsedInternalKey& parsed);
   void Invalidate();
@@ -181,7 +179,6 @@ class ForwardRangeDelIterator {
   }
 
   const InternalKeyComparator* icmp_;
-  const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters_;
   size_t unused_idx_;
   ActiveSeqSet active_seqnums_;
   BinaryHeap<ActiveSeqSet::const_iterator, EndKeyMinComparator> active_iters_;
@@ -190,9 +187,7 @@ class ForwardRangeDelIterator {
 
 class ReverseRangeDelIterator {
  public:
-  ReverseRangeDelIterator(
-      const InternalKeyComparator* icmp,
-      const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters);
+  explicit ReverseRangeDelIterator(const InternalKeyComparator* icmp);
 
   bool ShouldDelete(const ParsedInternalKey& parsed);
   void Invalidate();
@@ -268,7 +263,6 @@ class ReverseRangeDelIterator {
   }
 
   const InternalKeyComparator* icmp_;
-  const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters_;
   size_t unused_idx_;
   ActiveSeqSet active_seqnums_;
   BinaryHeap<ActiveSeqSet::const_iterator, StartKeyMaxComparator> active_iters_;
@@ -311,8 +305,8 @@ class RangeDelAggregator {
     StripeRep(const InternalKeyComparator* icmp, SequenceNumber upper_bound,
               SequenceNumber lower_bound)
         : icmp_(icmp),
-          forward_iter_(icmp, &iters_),
-          reverse_iter_(icmp, &iters_),
+          forward_iter_(icmp),
+          reverse_iter_(icmp),
           upper_bound_(upper_bound),
           lower_bound_(lower_bound) {}
 
