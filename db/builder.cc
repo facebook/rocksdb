@@ -18,7 +18,7 @@
 #include "db/event_helpers.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
-#include "db/range_del_aggregator_v2.h"
+#include "db/range_del_aggregator.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
 #include "monitoring/iostats_context_imp.h"
@@ -88,8 +88,8 @@ Status BuildTable(
   Status s;
   meta->fd.file_size = 0;
   iter->SeekToFirst();
-  std::unique_ptr<CompactionRangeDelAggregatorV2> range_del_agg(
-      new CompactionRangeDelAggregatorV2(&internal_comparator, snapshots));
+  std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
+      new CompactionRangeDelAggregator(&internal_comparator, snapshots));
   for (auto& range_del_iter : range_del_iters) {
     range_del_agg->AddTombstones(std::move(range_del_iter));
   }

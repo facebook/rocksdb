@@ -25,7 +25,7 @@
 #include "db/db_impl.h"
 #include "db/internal_stats.h"
 #include "db/job_context.h"
-#include "db/range_del_aggregator_v2.h"
+#include "db/range_del_aggregator.h"
 #include "db/table_properties_collector.h"
 #include "db/version_set.h"
 #include "db/write_controller.h"
@@ -945,7 +945,7 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   ScopedArenaIterator memtable_iter(merge_iter_builder.Finish());
 
   auto read_seq = super_version->current->version_set()->LastSequence();
-  ReadRangeDelAggregatorV2 range_del_agg(&internal_comparator_, read_seq);
+  ReadRangeDelAggregator range_del_agg(&internal_comparator_, read_seq);
   auto* active_range_del_iter =
       super_version->mem->NewRangeTombstoneIterator(read_opts, read_seq);
   range_del_agg.AddTombstones(

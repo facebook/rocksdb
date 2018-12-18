@@ -20,7 +20,6 @@ int main() {
 #include <vector>
 
 #include "db/range_del_aggregator.h"
-#include "db/range_del_aggregator_v2.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -48,16 +47,12 @@ DEFINE_double(tombstone_width_mean, 100.0, "average range tombstone width");
 DEFINE_double(tombstone_width_stddev, 0.0,
               "standard deviation of range tombstone width");
 
-DEFINE_bool(use_collapsed, true, "use the collapsed range tombstone map");
-
 DEFINE_int32(seed, 0, "random number generator seed");
 
 DEFINE_int32(should_deletes_per_run, 1, "number of ShouldDelete calls per run");
 
 DEFINE_int32(add_tombstones_per_run, 1,
              "number of AddTombstones calls per run");
-
-DEFINE_bool(use_v2_aggregator, false, "benchmark RangeDelAggregatorV2");
 
 namespace {
 
@@ -187,14 +182,10 @@ int main(int argc, char** argv) {
         std::vector<rocksdb::PersistentRangeTombstone>(
             FLAGS_num_range_tombstones);
   }
-  auto mode = FLAGS_use_collapsed
-                  ? rocksdb::RangeDelPositioningMode::kForwardTraversal
-                  : rocksdb::RangeDelPositioningMode::kFullScan;
+  auto mode = rocksdb::RangeDelPositioningMode::kForwardTraversal;
 
   for (int i = 0; i < FLAGS_num_runs; i++) {
-    rocksdb::RangeDelAggregator range_del_agg(icmp, {} /* snapshots */,
-                                              FLAGS_use_collapsed);
-    rocksdb::ReadRangeDelAggregatorV2 range_del_agg_v2(
+    rocksdb::ReadRangeDelAggregator range_del_agg(
         &icmp, rocksdb::kMaxSequenceNumber /* upper_bound */);
 
     std::vector<std::unique_ptr<rocksdb::FragmentedRangeTombstoneList> >
@@ -223,17 +214,10 @@ int main(int argc, char** argv) {
                   fragmented_range_tombstone_lists.back().get(), icmp,
                   rocksdb::kMaxSequenceNumber));
 
-      if (FLAGS_use_v2_aggregator) {
-        rocksdb::StopWatchNano stop_watch_add_tombstones(
-            rocksdb::Env::Default(), true /* auto_start */);
-        range_del_agg_v2.AddTombstones(std::move(fragmented_range_del_iter));
-        stats.time_add_tombstones += stop_watch_add_tombstones.ElapsedNanos();
-      } else {
-        rocksdb::StopWatchNano stop_watch_add_tombstones(
-            rocksdb::Env::Default(), true /* auto_start */);
-        range_del_agg.AddTombstones(std::move(range_del_iter));
-        stats.time_add_tombstones += stop_watch_add_tombstones.ElapsedNanos();
-      }
+      rocksdb::StopWatchNano stop_watch_add_tombstones(rocksdb::Env::Default(),
+                                                       true /* auto_start */);
+      range_del_agg.AddTombstones(std::move(fragmented_range_del_iter));
+      stats.time_add_tombstones += stop_watch_add_tombstones.ElapsedNanos();
     }
 
     rocksdb::ParsedInternalKey parsed_key;
@@ -247,18 +231,10 @@ int main(int argc, char** argv) {
       std::string key_string = rocksdb::Key(first_key + j);
       parsed_key.user_key = key_string;
 
-      uint64_t call_time;
-      if (FLAGS_use_v2_aggregator) {
-        rocksdb::StopWatchNano stop_watch_should_delete(rocksdb::Env::Default(),
-                                                        true /* auto_start */);
-        range_del_agg_v2.ShouldDelete(parsed_key, mode);
-        call_time = stop_watch_should_delete.ElapsedNanos();
-      } else {
-        rocksdb::StopWatchNano stop_watch_should_delete(rocksdb::Env::Default(),
-                                                        true /* auto_start */);
-        range_del_agg.ShouldDelete(parsed_key, mode);
-        call_time = stop_watch_should_delete.ElapsedNanos();
-      }
+      rocksdb::StopWatchNano stop_watch_should_delete(rocksdb::Env::Default(),
+                                                      true /* auto_start */);
+      range_del_agg.ShouldDelete(parsed_key, mode);
+      uint64_t call_time = stop_watch_should_delete.ElapsedNanos();
 
       if (j == 0) {
         stats.time_first_should_delete += call_time;

@@ -1,10 +1,12 @@
-//  Copyright (c) 2016-present, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2018-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
+#include <algorithm>
+#include <iterator>
 #include <list>
 #include <map>
 #include <set>
@@ -14,220 +16,422 @@
 #include "db/compaction_iteration_stats.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
+#include "db/range_del_aggregator.h"
+#include "db/range_tombstone_fragmenter.h"
 #include "db/version_edit.h"
 #include "include/rocksdb/comparator.h"
 #include "include/rocksdb/types.h"
 #include "table/internal_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/table_builder.h"
+#include "util/heap.h"
 #include "util/kv_map.h"
 
 namespace rocksdb {
 
-// RangeDelMaps maintain position across calls to ShouldDelete. The caller may
-// wish to specify a mode to optimize positioning the iterator during the next
-// call to ShouldDelete. The non-kFullScan modes are only available when
-// deletion collapsing is enabled.
-//
-// For example, if we invoke Next() on an iterator, kForwardTraversal should be
-// specified to advance one-by-one through deletions until one is found with its
-// interval containing the key. This will typically be faster than doing a full
-// binary search (kBinarySearch).
-enum class RangeDelPositioningMode {
-  kFullScan,  // used iff collapse_deletions_ == false
-  kForwardTraversal,
-  kBackwardTraversal,
-  kBinarySearch,
-};
+class TruncatedRangeDelIterator {
+ public:
+  TruncatedRangeDelIterator(
+      std::unique_ptr<FragmentedRangeTombstoneIterator> iter,
+      const InternalKeyComparator* icmp, const InternalKey* smallest,
+      const InternalKey* largest);
 
-// TruncatedRangeTombstones are a slight generalization of regular
-// RangeTombstones that can represent truncations caused by SST boundaries.
-// Instead of using user keys to represent the start and end keys, they instead
-// use internal keys, whose sequence number indicates the sequence number of
-// the smallest/largest SST key (in the case where a tombstone is untruncated,
-// the sequence numbers will be kMaxSequenceNumber for both start and end
-// keys). Like RangeTombstones, TruncatedRangeTombstone are also
-// end-key-exclusive.
-struct TruncatedRangeTombstone {
-  TruncatedRangeTombstone(const ParsedInternalKey& sk,
-                          const ParsedInternalKey& ek, SequenceNumber s)
-      : start_key_(sk), end_key_(ek), seq_(s) {}
+  bool Valid() const;
 
-  RangeTombstone Tombstone() const {
-    // The RangeTombstone returned here can cover less than the
-    // TruncatedRangeTombstone when its end key has a seqnum that is not
-    // kMaxSequenceNumber. Since this method is only used by RangeDelIterators
-    // (which in turn are only used during flush/compaction), we avoid this
-    // problem by using truncation boundaries spanning multiple SSTs, which
-    // are selected in a way that guarantee a clean break at the end key.
-    assert(end_key_.sequence == kMaxSequenceNumber);
-    return RangeTombstone(start_key_.user_key, end_key_.user_key, seq_);
+  void Next();
+  void Prev();
+
+  void InternalNext();
+
+  // Seeks to the tombstone with the highest viisble sequence number that covers
+  // target (a user key). If no such tombstone exists, the position will be at
+  // the earliest tombstone that ends after target.
+  void Seek(const Slice& target);
+
+  // Seeks to the tombstone with the highest viisble sequence number that covers
+  // target (a user key). If no such tombstone exists, the position will be at
+  // the latest tombstone that starts before target.
+  void SeekForPrev(const Slice& target);
+
+  void SeekToFirst();
+  void SeekToLast();
+
+  ParsedInternalKey start_key() const {
+    return (smallest_ == nullptr ||
+            icmp_->Compare(*smallest_, iter_->parsed_start_key()) <= 0)
+               ? iter_->parsed_start_key()
+               : *smallest_;
   }
 
-  ParsedInternalKey start_key_;
-  ParsedInternalKey end_key_;
-  SequenceNumber seq_;
-};
-
-// A RangeDelIterator iterates over range deletion tombstones.
-class RangeDelIterator {
- public:
-  virtual ~RangeDelIterator() = default;
-
-  virtual bool Valid() const = 0;
-  virtual void Next() = 0;
-  // NOTE: the Slice passed to this method must be a user key.
-  virtual void Seek(const Slice& target) = 0;
-  virtual void Seek(const ParsedInternalKey& target) = 0;
-  virtual RangeTombstone Tombstone() const = 0;
-};
-
-// A RangeDelMap keeps track of range deletion tombstones within a snapshot
-// stripe.
-//
-// RangeDelMaps are used internally by RangeDelAggregator. They are not intended
-// to be used directly.
-class RangeDelMap {
- public:
-  virtual ~RangeDelMap() = default;
-
-  virtual bool ShouldDelete(const ParsedInternalKey& parsed,
-                            RangeDelPositioningMode mode) = 0;
-  virtual bool IsRangeOverlapped(const ParsedInternalKey& start,
-                                 const ParsedInternalKey& end) = 0;
-  virtual void InvalidatePosition() = 0;
-
-  virtual size_t Size() const = 0;
-  bool IsEmpty() const { return Size() == 0; }
-
-  virtual void AddTombstone(TruncatedRangeTombstone tombstone) = 0;
-  virtual std::unique_ptr<RangeDelIterator> NewIterator() = 0;
-};
-
-// A RangeDelAggregator aggregates range deletion tombstones as they are
-// encountered in memtables/SST files. It provides methods that check whether a
-// key is covered by range tombstones or write the relevant tombstones to a new
-// SST file.
-class RangeDelAggregator {
- public:
-  // @param snapshots These are used to organize the tombstones into snapshot
-  //    stripes, which is the seqnum range between consecutive snapshots,
-  //    including the higher snapshot and excluding the lower one. Currently,
-  //    this is used by ShouldDelete() to prevent deletion of keys that are
-  //    covered by range tombstones in other snapshot stripes. This constructor
-  //    is used for writes (flush/compaction). All DB snapshots are provided
-  //    such that no keys are removed that are uncovered according to any DB
-  //    snapshot.
-  // Note this overload does not lazily initialize Rep.
-  RangeDelAggregator(const InternalKeyComparator& icmp,
-                     const std::vector<SequenceNumber>& snapshots,
-                     bool collapse_deletions = true);
-
-  // @param upper_bound Similar to snapshots above, except with a single
-  //    snapshot, which allows us to store the snapshot on the stack and defer
-  //    initialization of heap-allocating members (in Rep) until the first range
-  //    deletion is encountered. This constructor is used in case of reads (get/
-  //    iterator), for which only the user snapshot (upper_bound) is provided
-  //    such that the seqnum space is divided into two stripes. Only the older
-  //    stripe will be used by ShouldDelete().
-  RangeDelAggregator(const InternalKeyComparator& icmp,
-                     SequenceNumber upper_bound,
-                     bool collapse_deletions = false);
-
-  // Returns whether the key should be deleted, which is the case when it is
-  // covered by a range tombstone residing in the same snapshot stripe.
-  // @param mode If collapse_deletions_ is true, this dictates how we will find
-  //             the deletion whose interval contains this key. Otherwise, its
-  //             value must be kFullScan indicating linear scan from beginning.
-  bool ShouldDelete(
-      const ParsedInternalKey& parsed,
-      RangeDelPositioningMode mode = RangeDelPositioningMode::kFullScan) {
-    if (rep_ == nullptr) {
-      return false;
-    }
-    return ShouldDeleteImpl(parsed, mode);
+  ParsedInternalKey end_key() const {
+    return (largest_ == nullptr ||
+            icmp_->Compare(iter_->parsed_end_key(), *largest_) <= 0)
+               ? iter_->parsed_end_key()
+               : *largest_;
   }
-  bool ShouldDelete(
-      const Slice& internal_key,
-      RangeDelPositioningMode mode = RangeDelPositioningMode::kFullScan) {
-    if (rep_ == nullptr) {
-      return false;
-    }
-    return ShouldDeleteImpl(internal_key, mode);
-  }
-  bool ShouldDeleteImpl(const ParsedInternalKey& parsed,
-                        RangeDelPositioningMode mode);
-  bool ShouldDeleteImpl(const Slice& internal_key,
-                        RangeDelPositioningMode mode);
 
-  // Checks whether range deletions cover any keys between `start` and `end`,
-  // inclusive.
-  //
-  // @param start User key representing beginning of range to check for overlap.
-  // @param end User key representing end of range to check for overlap. This
-  //     argument is inclusive, so the existence of a range deletion covering
-  //     `end` causes this to return true.
-  bool IsRangeOverlapped(const Slice& start, const Slice& end);
+  SequenceNumber seq() const { return iter_->seq(); }
 
-  // Adds tombstones to the tombstone aggregation structure maintained by this
-  // object. Tombstones are truncated to smallest and largest. If smallest (or
-  // largest) is null, it is not used for truncation. When adding range
-  // tombstones present in an sstable, smallest and largest should be set to
-  // the smallest and largest keys from the sstable file metadata. Note that
-  // tombstones end keys are exclusive while largest is inclusive.
-  // @return non-OK status if any of the tombstone keys are corrupted.
-  Status AddTombstones(std::unique_ptr<InternalIterator> input,
-                       const InternalKey* smallest = nullptr,
-                       const InternalKey* largest = nullptr);
+  std::map<SequenceNumber, std::unique_ptr<TruncatedRangeDelIterator>>
+  SplitBySnapshot(const std::vector<SequenceNumber>& snapshots);
 
-  // Resets iterators maintained across calls to ShouldDelete(). This may be
-  // called when the tombstones change, or the owner may call explicitly, e.g.,
-  // if it's an iterator that just seeked to an arbitrary position. The effect
-  // of invalidation is that the following call to ShouldDelete() will binary
-  // search for its tombstone.
-  void InvalidateRangeDelMapPositions();
+  SequenceNumber upper_bound() const { return iter_->upper_bound(); }
 
-  bool IsEmpty();
-  bool AddFile(uint64_t file_number);
-
-  // Create a new iterator over the range deletion tombstones in all of the
-  // snapshot stripes in this aggregator. Tombstones are presented in start key
-  // order. Tombstones with the same start key are presented in arbitrary order.
-  //
-  // The iterator is invalidated after any call to AddTombstones. It is the
-  // caller's responsibility to avoid using invalid iterators.
-  std::unique_ptr<RangeDelIterator> NewIterator();
+  SequenceNumber lower_bound() const { return iter_->lower_bound(); }
 
  private:
-  // Maps snapshot seqnum -> map of tombstones that fall in that stripe, i.e.,
-  // their seqnums are greater than the next smaller snapshot's seqnum, and the
-  // corresponding index into the list of snapshots. Each entry is lazily
-  // initialized.
-  typedef std::map<SequenceNumber,
-                   std::pair<std::unique_ptr<RangeDelMap>, size_t>>
-      StripeMap;
+  std::unique_ptr<FragmentedRangeTombstoneIterator> iter_;
+  const InternalKeyComparator* icmp_;
+  const ParsedInternalKey* smallest_ = nullptr;
+  const ParsedInternalKey* largest_ = nullptr;
+  std::list<ParsedInternalKey> pinned_bounds_;
 
-  struct Rep {
-    std::vector<SequenceNumber> snapshots_;
-    StripeMap stripe_map_;
-    PinnedIteratorsManager pinned_iters_mgr_;
-    std::list<std::string> pinned_slices_;
-    std::set<uint64_t> added_files_;
+  const InternalKey* smallest_ikey_;
+  const InternalKey* largest_ikey_;
+};
+
+struct SeqMaxComparator {
+  bool operator()(const TruncatedRangeDelIterator* a,
+                  const TruncatedRangeDelIterator* b) const {
+    return a->seq() > b->seq();
+  }
+};
+
+struct StartKeyMinComparator {
+  explicit StartKeyMinComparator(const InternalKeyComparator* c) : icmp(c) {}
+
+  bool operator()(const TruncatedRangeDelIterator* a,
+                  const TruncatedRangeDelIterator* b) const {
+    return icmp->Compare(a->start_key(), b->start_key()) > 0;
+  }
+
+  const InternalKeyComparator* icmp;
+};
+
+class ForwardRangeDelIterator {
+ public:
+  ForwardRangeDelIterator(
+      const InternalKeyComparator* icmp,
+      const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters);
+
+  bool ShouldDelete(const ParsedInternalKey& parsed);
+  void Invalidate();
+
+  void AddNewIter(TruncatedRangeDelIterator* iter,
+                  const ParsedInternalKey& parsed) {
+    iter->Seek(parsed.user_key);
+    PushIter(iter, parsed);
+    assert(active_iters_.size() == active_seqnums_.size());
+  }
+
+  size_t UnusedIdx() const { return unused_idx_; }
+  void IncUnusedIdx() { unused_idx_++; }
+
+ private:
+  using ActiveSeqSet =
+      std::multiset<TruncatedRangeDelIterator*, SeqMaxComparator>;
+
+  struct EndKeyMinComparator {
+    explicit EndKeyMinComparator(const InternalKeyComparator* c) : icmp(c) {}
+
+    bool operator()(const ActiveSeqSet::const_iterator& a,
+                    const ActiveSeqSet::const_iterator& b) const {
+      return icmp->Compare((*a)->end_key(), (*b)->end_key()) > 0;
+    }
+
+    const InternalKeyComparator* icmp;
   };
-  // Initializes rep_ lazily. This aggregator object is constructed for every
-  // read, so expensive members should only be created when necessary, i.e.,
-  // once the first range deletion is encountered.
-  void InitRep(const std::vector<SequenceNumber>& snapshots);
 
-  std::unique_ptr<RangeDelMap> NewRangeDelMap();
-  RangeDelMap* GetRangeDelMapIfExists(SequenceNumber seq);
-  RangeDelMap& GetRangeDelMap(SequenceNumber seq);
+  void PushIter(TruncatedRangeDelIterator* iter,
+                const ParsedInternalKey& parsed) {
+    if (!iter->Valid()) {
+      // The iterator has been fully consumed, so we don't need to add it to
+      // either of the heaps.
+      return;
+    }
+    int cmp = icmp_->Compare(parsed, iter->start_key());
+    if (cmp < 0) {
+      PushInactiveIter(iter);
+    } else {
+      PushActiveIter(iter);
+    }
+  }
 
-  SequenceNumber upper_bound_;
-  std::unique_ptr<Rep> rep_;
-  const InternalKeyComparator& icmp_;
-  // collapse range deletions so they're binary searchable
-  const bool collapse_deletions_;
+  void PushActiveIter(TruncatedRangeDelIterator* iter) {
+    auto seq_pos = active_seqnums_.insert(iter);
+    active_iters_.push(seq_pos);
+  }
+
+  TruncatedRangeDelIterator* PopActiveIter() {
+    auto active_top = active_iters_.top();
+    auto iter = *active_top;
+    active_iters_.pop();
+    active_seqnums_.erase(active_top);
+    return iter;
+  }
+
+  void PushInactiveIter(TruncatedRangeDelIterator* iter) {
+    inactive_iters_.push(iter);
+  }
+
+  TruncatedRangeDelIterator* PopInactiveIter() {
+    auto* iter = inactive_iters_.top();
+    inactive_iters_.pop();
+    return iter;
+  }
+
+  const InternalKeyComparator* icmp_;
+  const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters_;
+  size_t unused_idx_;
+  ActiveSeqSet active_seqnums_;
+  BinaryHeap<ActiveSeqSet::const_iterator, EndKeyMinComparator> active_iters_;
+  BinaryHeap<TruncatedRangeDelIterator*, StartKeyMinComparator> inactive_iters_;
+};
+
+class ReverseRangeDelIterator {
+ public:
+  ReverseRangeDelIterator(
+      const InternalKeyComparator* icmp,
+      const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters);
+
+  bool ShouldDelete(const ParsedInternalKey& parsed);
+  void Invalidate();
+
+  void AddNewIter(TruncatedRangeDelIterator* iter,
+                  const ParsedInternalKey& parsed) {
+    iter->SeekForPrev(parsed.user_key);
+    PushIter(iter, parsed);
+    assert(active_iters_.size() == active_seqnums_.size());
+  }
+
+  size_t UnusedIdx() const { return unused_idx_; }
+  void IncUnusedIdx() { unused_idx_++; }
+
+ private:
+  using ActiveSeqSet =
+      std::multiset<TruncatedRangeDelIterator*, SeqMaxComparator>;
+
+  struct EndKeyMaxComparator {
+    explicit EndKeyMaxComparator(const InternalKeyComparator* c) : icmp(c) {}
+
+    bool operator()(const TruncatedRangeDelIterator* a,
+                    const TruncatedRangeDelIterator* b) const {
+      return icmp->Compare(a->end_key(), b->end_key()) < 0;
+    }
+
+    const InternalKeyComparator* icmp;
+  };
+  struct StartKeyMaxComparator {
+    explicit StartKeyMaxComparator(const InternalKeyComparator* c) : icmp(c) {}
+
+    bool operator()(const ActiveSeqSet::const_iterator& a,
+                    const ActiveSeqSet::const_iterator& b) const {
+      return icmp->Compare((*a)->start_key(), (*b)->start_key()) < 0;
+    }
+
+    const InternalKeyComparator* icmp;
+  };
+
+  void PushIter(TruncatedRangeDelIterator* iter,
+                const ParsedInternalKey& parsed) {
+    if (!iter->Valid()) {
+      // The iterator has been fully consumed, so we don't need to add it to
+      // either of the heaps.
+    } else if (icmp_->Compare(iter->end_key(), parsed) <= 0) {
+      PushInactiveIter(iter);
+    } else {
+      PushActiveIter(iter);
+    }
+  }
+
+  void PushActiveIter(TruncatedRangeDelIterator* iter) {
+    auto seq_pos = active_seqnums_.insert(iter);
+    active_iters_.push(seq_pos);
+  }
+
+  TruncatedRangeDelIterator* PopActiveIter() {
+    auto active_top = active_iters_.top();
+    auto iter = *active_top;
+    active_iters_.pop();
+    active_seqnums_.erase(active_top);
+    return iter;
+  }
+
+  void PushInactiveIter(TruncatedRangeDelIterator* iter) {
+    inactive_iters_.push(iter);
+  }
+
+  TruncatedRangeDelIterator* PopInactiveIter() {
+    auto* iter = inactive_iters_.top();
+    inactive_iters_.pop();
+    return iter;
+  }
+
+  const InternalKeyComparator* icmp_;
+  const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>* iters_;
+  size_t unused_idx_;
+  ActiveSeqSet active_seqnums_;
+  BinaryHeap<ActiveSeqSet::const_iterator, StartKeyMaxComparator> active_iters_;
+  BinaryHeap<TruncatedRangeDelIterator*, EndKeyMaxComparator> inactive_iters_;
+};
+
+enum class RangeDelPositioningMode { kForwardTraversal, kBackwardTraversal };
+class RangeDelAggregator {
+ public:
+  explicit RangeDelAggregator(const InternalKeyComparator* icmp)
+      : icmp_(icmp) {}
+  virtual ~RangeDelAggregator() {}
+
+  virtual void AddTombstones(
+      std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter,
+      const InternalKey* smallest = nullptr,
+      const InternalKey* largest = nullptr) = 0;
+
+  bool ShouldDelete(const Slice& key, RangeDelPositioningMode mode) {
+    ParsedInternalKey parsed;
+    if (!ParseInternalKey(key, &parsed)) {
+      return false;
+    }
+    return ShouldDelete(parsed, mode);
+  }
+  virtual bool ShouldDelete(const ParsedInternalKey& parsed,
+                            RangeDelPositioningMode mode) = 0;
+
+  virtual void InvalidateRangeDelMapPositions() = 0;
+
+  virtual bool IsEmpty() const = 0;
+
+  bool AddFile(uint64_t file_number) {
+    return files_seen_.insert(file_number).second;
+  }
+
+ protected:
+  class StripeRep {
+   public:
+    StripeRep(const InternalKeyComparator* icmp, SequenceNumber upper_bound,
+              SequenceNumber lower_bound)
+        : icmp_(icmp),
+          forward_iter_(icmp, &iters_),
+          reverse_iter_(icmp, &iters_),
+          upper_bound_(upper_bound),
+          lower_bound_(lower_bound) {}
+
+    void AddTombstones(std::unique_ptr<TruncatedRangeDelIterator> input_iter) {
+      iters_.push_back(std::move(input_iter));
+    }
+
+    bool IsEmpty() const { return iters_.empty(); }
+
+    bool ShouldDelete(const ParsedInternalKey& parsed,
+                      RangeDelPositioningMode mode);
+
+    void Invalidate() {
+      InvalidateForwardIter();
+      InvalidateReverseIter();
+    }
+
+    bool IsRangeOverlapped(const Slice& start, const Slice& end);
+
+   private:
+    bool InStripe(SequenceNumber seq) const {
+      return lower_bound_ <= seq && seq <= upper_bound_;
+    }
+
+    void InvalidateForwardIter() { forward_iter_.Invalidate(); }
+
+    void InvalidateReverseIter() { reverse_iter_.Invalidate(); }
+
+    const InternalKeyComparator* icmp_;
+    std::vector<std::unique_ptr<TruncatedRangeDelIterator>> iters_;
+    ForwardRangeDelIterator forward_iter_;
+    ReverseRangeDelIterator reverse_iter_;
+    SequenceNumber upper_bound_;
+    SequenceNumber lower_bound_;
+  };
+
+  const InternalKeyComparator* icmp_;
+
+ private:
+  std::set<uint64_t> files_seen_;
+};
+
+class ReadRangeDelAggregator : public RangeDelAggregator {
+ public:
+  ReadRangeDelAggregator(const InternalKeyComparator* icmp,
+                         SequenceNumber upper_bound)
+      : RangeDelAggregator(icmp),
+        rep_(icmp, upper_bound, 0 /* lower_bound */) {}
+  ~ReadRangeDelAggregator() override {}
+
+  using RangeDelAggregator::ShouldDelete;
+  void AddTombstones(
+      std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter,
+      const InternalKey* smallest = nullptr,
+      const InternalKey* largest = nullptr) override;
+
+  bool ShouldDelete(const ParsedInternalKey& parsed,
+                    RangeDelPositioningMode mode) override;
+
+  bool IsRangeOverlapped(const Slice& start, const Slice& end);
+
+  void InvalidateRangeDelMapPositions() override { rep_.Invalidate(); }
+
+  bool IsEmpty() const override { return rep_.IsEmpty(); }
+
+ private:
+  StripeRep rep_;
+};
+
+class CompactionRangeDelAggregator : public RangeDelAggregator {
+ public:
+  CompactionRangeDelAggregator(const InternalKeyComparator* icmp,
+                               const std::vector<SequenceNumber>& snapshots)
+      : RangeDelAggregator(icmp), snapshots_(&snapshots) {}
+  ~CompactionRangeDelAggregator() override {}
+
+  void AddTombstones(
+      std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter,
+      const InternalKey* smallest = nullptr,
+      const InternalKey* largest = nullptr) override;
+
+  using RangeDelAggregator::ShouldDelete;
+  bool ShouldDelete(const ParsedInternalKey& parsed,
+                    RangeDelPositioningMode mode) override;
+
+  bool IsRangeOverlapped(const Slice& start, const Slice& end);
+
+  void InvalidateRangeDelMapPositions() override {
+    for (auto& rep : reps_) {
+      rep.second.Invalidate();
+    }
+  }
+
+  bool IsEmpty() const override {
+    for (const auto& rep : reps_) {
+      if (!rep.second.IsEmpty()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Creates an iterator over all the range tombstones in the aggregator, for
+  // use in compaction. Nullptr arguments indicate that the iterator range is
+  // unbounded.
+  // NOTE: the boundaries are used for optimization purposes to reduce the
+  // number of tombstones that are passed to the fragmenter; they do not
+  // guarantee that the resulting iterator only contains range tombstones that
+  // cover keys in the provided range. If required, these bounds must be
+  // enforced during iteration.
+  std::unique_ptr<FragmentedRangeTombstoneIterator> NewIterator(
+      const Slice* lower_bound = nullptr, const Slice* upper_bound = nullptr,
+      bool upper_bound_inclusive = false);
+
+ private:
+  std::vector<std::unique_ptr<TruncatedRangeDelIterator>> parent_iters_;
+  std::map<SequenceNumber, StripeRep> reps_;
+
+  const std::vector<SequenceNumber>* snapshots_;
 };
 
 }  // namespace rocksdb

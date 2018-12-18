@@ -15,7 +15,7 @@
 #include <stdint.h>
 
 #include "db/dbformat.h"
-#include "db/range_del_aggregator_v2.h"
+#include "db/range_del_aggregator.h"
 #include "options/cf_options.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
@@ -52,7 +52,7 @@ class TableCache {
   InternalIterator* NewIterator(
       const ReadOptions& options, const EnvOptions& toptions,
       const InternalKeyComparator& internal_comparator,
-      const FileMetaData& file_meta, RangeDelAggregatorV2* range_del_agg,
+      const FileMetaData& file_meta, RangeDelAggregator* range_del_agg,
       const SliceTransform* prefix_extractor = nullptr,
       TableReader** table_reader_ptr = nullptr,
       HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,

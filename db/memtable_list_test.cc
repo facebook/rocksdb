@@ -8,7 +8,6 @@
 #include <string>
 #include <vector>
 #include "db/merge_context.h"
-#include "db/range_del_aggregator.h"
 #include "db/version_set.h"
 #include "db/write_controller.h"
 #include "rocksdb/db.h"

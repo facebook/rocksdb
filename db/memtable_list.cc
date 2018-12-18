@@ -159,7 +159,7 @@ bool MemTableListVersion::GetFromList(
 
 Status MemTableListVersion::AddRangeTombstoneIterators(
     const ReadOptions& read_opts, Arena* /*arena*/,
-    RangeDelAggregatorV2* range_del_agg) {
+    RangeDelAggregator* range_del_agg) {
   assert(range_del_agg != nullptr);
   for (auto& m : memlist_) {
     // Using kMaxSequenceNumber is OK because these are immutable memtables.
