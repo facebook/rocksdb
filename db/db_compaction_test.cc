@@ -4053,7 +4053,7 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
     dbfull()->TEST_WaitForFlushMemTable(handles_[cf]);
   }
 
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // Max outstanding compact tasks reached limit
   for (auto& ls : limiter_settings) {
@@ -4076,8 +4076,7 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
   ASSERT_EQ(1, NumTableFilesAtLevel(0, cf_test));
 
   Compact(cf_test, Key(0), Key(keyIndex));
-  dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ(0, unique_limiter->GetOutstandingTask());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 }
 
 INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,
