@@ -261,6 +261,17 @@ struct BlockBasedTableOptions {
   // Align data blocks on lesser of page size and block size
   bool block_align = false;
 
+  // If enabled, prepopulate warm/hot data which is already in memory into
+  // block cache at the time of flush.
+  // On a flush, the data that is in memory (in memtables) get flushed to the
+  // device. If using Direct IO, additional IO is incurred to read this data
+  // back into memory again, which is avoided by enabling this option.
+  // This further helps if the workload exhibits high temporal locality, where
+  // most of the reads go to recently written data.
+  //
+  // TODO: Right now, this is enabled only for flush. We plan to expand this
+  // option to cover compactions in the future (as the blocks from old files are
+  // invalidated at the end of a compaction.)
   bool prepopulate_data_blocks = false;
 
   // This enum allows trading off increased index size for improved iterator

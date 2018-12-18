@@ -100,28 +100,17 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   // Call block's Finish() method
   // and then write the compressed block contents to file.
-  void WriteBlock(BlockBuilder* block, BlockHandle* handle,
-                  bool is_data_block,
-                  bool is_index_block = false,
-                  bool is_filter_block = false);
+  void WriteBlock(BlockBuilder* block, BlockHandle* handle, bool is_data_block);
 
   // Compress and write block content to the file.
   void WriteBlock(const Slice& block_contents, BlockHandle* handle,
-                  bool is_data_block,
-                  bool is_index_block = false,
-                  bool is_filter_block = false);
+                  bool is_data_block);
   // Directly write data to the file.
   void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle,
-                     bool is_data_block = false,
-                     bool is_index_block = false,
-                     bool is_filter_block = false,
-                     bool did_already_consider_caching = false);
+                     bool is_data_block = false);
   Status InsertBlockInCache(const Slice& block_contents,
                             const CompressionType type,
-                            const BlockHandle* handle,
-                            bool is_data_block,
-                            bool is_index_block,
-                            bool is_filter_block);
+                            const BlockHandle* handle, bool is_data_block);
 
   void WriteFilterBlock(MetaIndexBuilder* meta_index_builder);
   void WriteIndexBlock(MetaIndexBuilder* meta_index_builder,

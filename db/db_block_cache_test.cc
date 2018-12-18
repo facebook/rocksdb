@@ -389,7 +389,7 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
             filter_bytes_insert);
 }
 
-TEST_F(DBBlockCacheTest, WarmCacheWithL0DataBlock) {
+TEST_F(DBBlockCacheTest, WarmCacheWithL0DataBlocks) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();

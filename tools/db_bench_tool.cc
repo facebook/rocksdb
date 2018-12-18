@@ -475,7 +475,7 @@ DEFINE_bool(block_align, rocksdb::BlockBasedTableOptions().block_align,
 
 DEFINE_bool(prepopulate_data_blocks,
             rocksdb::BlockBasedTableOptions().prepopulate_data_blocks,
-            "Pre populate L0 data blocks");
+            "Pre-populate L0 data blocks");
 
 DEFINE_bool(use_data_block_hash_index, false,
             "if use kDataBlockBinaryAndHash "

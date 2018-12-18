@@ -596,35 +596,20 @@ void BlockBasedTableBuilder::Flush() {
 
 void BlockBasedTableBuilder::WriteBlock(BlockBuilder* block,
                                         BlockHandle* handle,
-                                        bool is_data_block,
-                                        bool is_index_block,
-                                        bool is_filter_block) {
-  WriteBlock(block->Finish(), handle, is_data_block, is_index_block, is_filter_block);
+                                        bool is_data_block) {
+  WriteBlock(block->Finish(), handle, is_data_block);
   block->Reset();
 }
 
 void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
                                         BlockHandle* handle,
-                                        bool is_data_block,
-                                        bool is_index_block,
-                                        bool is_filter_block) {
+                                        bool is_data_block) {
   // File format contains a sequence of blocks where each block has:
   //    block_data: uint8[n]
   //    type: uint8
   //    crc: uint32
   assert(ok());
   Rep* r = rep_;
-
-  if (!is_data_block) {
-    Status s = InsertBlockInCache(raw_block_contents, kNoCompression, handle,
-                                is_data_block,
-                                is_index_block,
-                                is_filter_block);
-    if (!s.ok()) {
-      // This is best effort, so MUST ignore. But fail for now in testing.
-      r->status = s;
-    }
-  }
 
   auto type = r->compression_type;
   uint64_t sample_for_compression = r->sample_for_compression;
@@ -725,17 +710,13 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     RecordTick(r->ioptions.statistics, NUMBER_BLOCK_NOT_COMPRESSED);
   }
 
-  if (is_data_block) {
+  if (is_data_block && type != kNoCompression) {
     handle->set_offset(r->offset);
     handle->set_size(block_contents.size());
     InsertBlockInCache(raw_block_contents, kNoCompression, handle,
-                       is_data_block,
-                       is_index_block,
-                       is_filter_block);
+                       is_data_block);
   }
-
-  // did_already_try_caching should be true here.
-  WriteRawBlock(block_contents, type, handle, is_data_block, is_index_block, is_filter_block, true);
+  WriteRawBlock(block_contents, type, handle, is_data_block);
   r->compressed_output.clear();
   if (is_data_block) {
     if (r->filter_builder != nullptr) {
@@ -749,10 +730,7 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
 void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
                                            CompressionType type,
                                            BlockHandle* handle,
-                                           bool is_data_block,
-                                           bool is_index_block,
-                                           bool is_filter_block,
-                                           bool did_already_try_caching) {
+                                           bool is_data_block) {
   Rep* r = rep_;
   StopWatch sw(r->ioptions.env, r->ioptions.statistics, WRITE_RAW_BLOCK_MICROS);
   handle->set_offset(r->offset);
@@ -801,11 +779,9 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
         "BlockBasedTableBuilder::WriteRawBlock:TamperWithChecksum",
         static_cast<char*>(trailer));
     r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
-    if (r->status.ok() && !did_already_try_caching) {
-      r->status = InsertBlockInCache(block_contents, type, handle,
-                                     is_data_block,
-                                     is_index_block,
-                                     is_filter_block);
+    if (r->status.ok()) {
+      r->status =
+          InsertBlockInCache(block_contents, type, handle, is_data_block);
     }
     if (r->status.ok()) {
       r->offset += block_contents.size() + kBlockTrailerSize;
@@ -836,33 +812,18 @@ void DeleteCachedEntry(const Slice& /*key*/, void* value) {
   delete entry;
 }
 
-void DeleteCachedFilterEntry(const Slice& /*key*/, void* value) {
-  FilterBlockReader* filter = reinterpret_cast<FilterBlockReader*>(value);
-  if (filter->statistics() != nullptr) {
-    RecordTick(filter->statistics(), BLOCK_CACHE_FILTER_BYTES_EVICT,
-               filter->ApproximateMemoryUsage());
-  }
-  delete filter;
-}
-
 //
 // Make a copy of the block contents and insert into compressed block cache
 //
 Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
                                                   const CompressionType type,
                                                   const BlockHandle* handle,
-                                                  bool is_data_block,
-                                                  bool /*is_index_block*/,
-                                                  bool is_filter_block) {
+                                                  bool is_data_block) {
   Rep* r = rep_;
 
-  // Insert only Filter block and L0 data blocks during table building.
-  if (!is_filter_block && !(is_data_block && r->level == 0)) {
-    return Status::OK();
-  }
-
   // Uncompressed regular block cache
-  if (r->table_options.prepopulate_data_blocks) {
+  if (r->table_options.prepopulate_data_blocks && is_data_block) {
+    assert(r->level == 0);
     Cache* block_cache = r->table_options.block_cache.get();
     if (type == kNoCompression && block_cache != nullptr) {
       size_t size = block_contents.size();
@@ -874,66 +835,15 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
       Slice key = BlockBasedTable::GetCacheKey(
           r->cache_key_prefix, r->cache_key_prefix_size, *handle, cache_key);
 
-      if (is_filter_block) {
-        // fprintf(stderr, "adding filter block\n");
-        // FilterBlockReader* block = new BlockBasedFilterBlockReader(nullptr,
-        //     r->table_options, true, std::move(results), nullptr);
-        //
-        // size_t charge = block->ApproximateMemoryUsage();
-        // block_cache->Insert(key, block, block->ApproximateMemoryUsage(),
-        //                     &DeleteCachedFilterEntry);
-        // RecordTick(r->ioptions.statistics, BLOCK_CACHE_ADD);
-        // RecordTick(r->ioptions.statistics, BLOCK_CACHE_BYTES_WRITE, charge);
-        // RecordTick(r->ioptions.statistics, BLOCK_CACHE_FILTER_ADD);
-        // RecordTick(r->ioptions.statistics, BLOCK_CACHE_FILTER_BYTES_INSERT,
-        // charge);
-      } else if (is_data_block) {
-        // // OLDER
-        // fprintf(stderr, "adding data block\n");
-        // assert(r->level == 0);
-        // Block* block = new Block(std::move(results),
-        // kDisableGlobalSequenceNumber);
-        //
-        // std::string encoded_handle;
-        // handle->EncodeTo(&encoded_handle);
-        // auto key = BlockBasedTable::GetCacheKey(r->cache_key_prefix,
-        //                                         r->cache_key_prefix_size,
-        //                                         *handle, cache_key);
-        // size_t charge = block->ApproximateMemoryUsage();
-        // block_cache->Insert(key, block, block->ApproximateMemoryUsage(),
-        //                     &DeleteCachedEntry<Block>);
-        // RecordTick(r->ioptions.statistics, BLOCK_CACHE_ADD);
-        // RecordTick(r->ioptions.statistics, BLOCK_CACHE_BYTES_WRITE, charge);
+      Block* block =
+          new Block(std::move(results), kDisableGlobalSequenceNumber);
+      size_t charge = block->ApproximateMemoryUsage();
 
-        // // NEWER
-        // fprintf(stderr, "adding data block\n");
-        assert(r->level == 0);
-
-        // TODO WARN : We arent' using the encoded_handle. Should it be removed?
-        std::string encoded_handle;
-        handle->EncodeTo(&encoded_handle);
-        Slice handle_encoding_slice(encoded_handle);
-        // fprintf(stderr, "encoded handle: %s\n",
-        // handle_encoding_slice.ToString(true).c_str());
-
-        // fprintf(stderr, "cache key prefix: %s cache key: %s\n",
-        //         Slice(r->cache_key_prefix,
-        //         r->cache_key_prefix_size).ToString(true).c_str(),
-        //         key.ToString(true).c_str());
-
-        BlockBasedTable::CachableEntry<Block> cached_block;
-        cached_block.value =
-            new Block(std::move(results), kDisableGlobalSequenceNumber);
-        size_t charge = cached_block.value->ApproximateMemoryUsage();
-
-        block_cache->Insert(key, cached_block.value, charge,
-                            &DeleteCachedEntry<Block>);
-        RecordTick(r->ioptions.statistics, BLOCK_CACHE_ADD);
-        RecordTick(r->ioptions.statistics, BLOCK_CACHE_DATA_ADD);
-        RecordTick(r->ioptions.statistics, BLOCK_CACHE_BYTES_WRITE, charge);
-        RecordTick(r->ioptions.statistics, BLOCK_CACHE_DATA_BYTES_INSERT,
-                   charge);
-      }
+      block_cache->Insert(key, block, charge, &DeleteCachedEntry<Block>);
+      RecordTick(r->ioptions.statistics, BLOCK_CACHE_ADD);
+      RecordTick(r->ioptions.statistics, BLOCK_CACHE_DATA_ADD);
+      RecordTick(r->ioptions.statistics, BLOCK_CACHE_BYTES_WRITE, charge);
+      RecordTick(r->ioptions.statistics, BLOCK_CACHE_DATA_BYTES_INSERT, charge);
       return Status::OK();
     }
   }
@@ -985,10 +895,7 @@ void BlockBasedTableBuilder::WriteFilterBlock(
           rep_->filter_builder->Finish(filter_block_handle, &s);
       assert(s.ok() || s.IsIncomplete());
       rep_->props.filter_size += filter_content.size();
-      WriteRawBlock(filter_content, kNoCompression, &filter_block_handle,
-                    false /* is_data_block */,
-                    false /* is_index_block */,
-                    true  /*is_filter_block */);
+      WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
     }
   }
   if (ok() && !empty_filter_block) {
@@ -1021,12 +928,8 @@ void BlockBasedTableBuilder::WriteIndexBlock(
   }
   if (ok()) {
     for (const auto& item : index_blocks.meta_blocks) {
-      // std::cerr << "Writing Index meta blocks" << std::endl;
       BlockHandle block_handle;
-      WriteBlock(item.second, &block_handle,
-                 false /* is_data_block */,
-                 true /* is_index_block */,
-                 false /* is_filter_block */);
+      WriteBlock(item.second, &block_handle, false /* is_data_block */);
       if (!ok()) {
         break;
       }
@@ -1035,13 +938,10 @@ void BlockBasedTableBuilder::WriteIndexBlock(
   }
   if (ok()) {
     if (rep_->table_options.enable_index_compression) {
-      WriteBlock(index_blocks.index_block_contents, index_block_handle,
-                 false /* is_data_block */, true /* is_index_block */,
-                 false /* is_filter_block */);
+      WriteBlock(index_blocks.index_block_contents, index_block_handle, false);
     } else {
       WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
-                    index_block_handle, false /* is_data_block */,
-                    true /* is_index_block */, false /* is_filter_block */);
+                    index_block_handle);
     }
   }
   // If there are more index partitions, finish them and write them out
@@ -1053,16 +953,10 @@ void BlockBasedTableBuilder::WriteIndexBlock(
       return;
     }
     if (rep_->table_options.enable_index_compression) {
-      WriteBlock(index_blocks.index_block_contents, index_block_handle,
-                 false,
-                 true,
-                 false);
+      WriteBlock(index_blocks.index_block_contents, index_block_handle, false);
     } else {
       WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
-                    index_block_handle,
-                    false,
-                    true,
-                    false);
+                    index_block_handle);
     }
     // The last index_block_handle will be for the partition index block
   }
