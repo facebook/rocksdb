@@ -415,7 +415,7 @@ InternalIterator* MemTable::NewIterator(const ReadOptions& read_options,
 FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
     const ReadOptions& read_options, SequenceNumber read_seq) {
   if (read_options.ignore_range_deletions ||
-      is_range_del_table_empty_.load(std::memory_order_acquire)) {
+      is_range_del_table_empty_.load(std::memory_order_relaxed)) {
     return nullptr;
   }
   auto* unfragmented_iter = new MemTableIterator(
@@ -565,7 +565,7 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
     }
   }
   if (type == kTypeRangeDeletion) {
-    is_range_del_table_empty_.store(false, std::memory_order_release);
+    is_range_del_table_empty_.store(false, std::memory_order_relaxed);
   }
   UpdateOldestKeyTime();
   return true;
