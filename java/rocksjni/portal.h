@@ -31,9 +31,11 @@
 #include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "rocksjni/associative_merge_operator_jnicallback.h"
 #include "rocksjni/compaction_filter_factory_jnicallback.h"
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/loggerjnicallback.h"
+#include "rocksjni/merge_operator_jnicallback.h"
 #include "rocksjni/table_filter_jnicallback.h"
 #include "rocksjni/trace_writer_jnicallback.h"
 #include "rocksjni/transaction_notifier_jnicallback.h"
@@ -7109,5 +7111,169 @@ class WalProcessingOptionJni {
    }
  }
 };
+
+// The portal class for org.rocksdb.AssociativeMergeOperatorJnicallback
+class AssociativeMergeOperatorJni : public RocksDBNativeClass<
+    const rocksdb::AssociativeMergeOperatorJniCallback*,
+    AssociativeMergeOperatorJni> {
+public:
+  /**
+   * Get the Java Class org.rocksdb.AbstractAssociativeMergeOperator
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env,
+                                         "org/rocksdb/AbstractAssociativeMergeOperator");
+  }
+
+  /**
+   * Get the Java Method: AbstractAssociativeMergeOperator#name
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getNameMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "name", "()Ljava/lang/String;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractAssociativeMergeOperator#merge
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getMergeMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "merge", "([B[B[BLorg/rocksdb/ReturnType;)[B");
+    assert(mid != nullptr);
+    return mid;
+  }
+};
+
+// The portal class for org.rocksdb.MergeOperatorJnicallback
+class MergeOperatorJni : public RocksDBNativeClass<
+    const rocksdb::MergeOperatorJniCallback*, MergeOperatorJni> {
+public:
+  /**
+   * Get the Java Class org.rocksdb.NotAbstractAssociativeMergeOperator
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/AbstractMergeOperator");
+  }
+
+  /**
+   * Get the Java Method: AbstractMergeOperator#name
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getNameMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "name", "()Ljava/lang/String;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  static jmethodID getMethodId(JNIEnv* env, const char* methodName, const char* methodSignature) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, methodName, methodSignature);
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+ * Get the Java Method: AbstractMergeOperator#fullMerge
+ *
+ * @param env A pointer to the Java environment
+ *
+ * @return The Java Method ID or nullptr if the class or method id could not
+ *     be retieved
+ */
+  static jmethodID getFullMergeMethodId(JNIEnv* env) {
+    return getMethodId(env, "fullMerge", "([B[B[[BLorg/rocksdb/ReturnType;)[B");
+  }
+
+  /**
+ * Get the Java Method: AbstractMergeOperator#partialMultiMerge
+ *
+ * @param env A pointer to the Java environment
+ *
+ * @return The Java Method ID or nullptr if the class or method id could not
+ *     be retieved
+ */
+  static jmethodID getPartialMultiMergeMethodId(JNIEnv* env) {
+    return getMethodId(env, "partialMultiMerge", "([B[[BLorg/rocksdb/ReturnType;)[B");
+  }
+
+  /**
+ * Get the Java Method: AbstractMergeOperator#partialMerge
+ *
+ * @param env A pointer to the Java environment
+ *
+ * @return The Java Method ID or nullptr if the class or method id could not
+ *     be retieved
+ */
+  static jmethodID getPartialMergeMethodId(JNIEnv* env) {
+    return getMethodId(env, "partialMerge", "([B[B[BLorg/rocksdb/ReturnType;)[B");
+  }
+
+  /**
+ * Get the Java Method: AbstractMergeOperator#shouldMerge
+ *
+ * @param env A pointer to the Java environment
+ *
+ * @return The Java Method ID or nullptr if the class or method id could not
+ *     be retieved
+ */
+  static jmethodID getShouldMergeMethodId(JNIEnv* env) {
+    return getMethodId(env, "shouldMerge", "([[B)Z");
+  }
+};
+
+
 }  // namespace rocksdb
 #endif  // JAVA_ROCKSJNI_PORTAL_H_

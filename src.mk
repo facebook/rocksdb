@@ -436,6 +436,8 @@ MAIN_SOURCES =                                                          \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
 
 JNI_NATIVE_SOURCES =                                          \
+  java/rocksjni/associative_merge_operator_jnicallback.cc     \
+  java/rocksjni/associative_merge_operator.cc                 \
   java/rocksjni/backupenginejni.cc                            \
   java/rocksjni/backupablejni.cc                              \
   java/rocksjni/checkpoint.cc                                 \
@@ -464,6 +466,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/memtablejni.cc                                \
   java/rocksjni/memory_util.cc                                \
   java/rocksjni/merge_operator.cc                             \
+  java/rocksjni/merge_operator_jnicallback.cc                 \
   java/rocksjni/native_comparator_wrapper_test.cc             \
   java/rocksjni/optimistic_transaction_db.cc                  \
   java/rocksjni/optimistic_transaction_options.cc             \
