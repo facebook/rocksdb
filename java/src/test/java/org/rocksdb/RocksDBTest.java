@@ -240,13 +240,52 @@ public class RocksDBTest {
       List<byte[]> lookupKeys = new ArrayList<>();
       lookupKeys.add("key1".getBytes());
       lookupKeys.add("key2".getBytes());
-      List<byte[]> results = db.multiGet(lookupKeys);
+      Map<byte[], byte[]> results = db.multiGet(lookupKeys);
+      assertThat(results).isNotNull();
+      assertThat(results.values()).isNotNull();
+      assertThat(results.values()).
+          contains("value".getBytes(), "12345678".getBytes());
+      // test same method with ReadOptions
+      results = db.multiGet(rOpt, lookupKeys);
+      assertThat(results).isNotNull();
+      assertThat(results.values()).isNotNull();
+      assertThat(results.values()).
+          contains("value".getBytes(), "12345678".getBytes());
+
+      // remove existing key
+      lookupKeys.remove("key2".getBytes());
+      // add non existing key
+      lookupKeys.add("key3".getBytes());
+      results = db.multiGet(lookupKeys);
+      assertThat(results).isNotNull();
+      assertThat(results.values()).isNotNull();
+      assertThat(results.values()).
+          contains("value".getBytes());
+      // test same call with readOptions
+      results = db.multiGet(rOpt, lookupKeys);
+      assertThat(results).isNotNull();
+      assertThat(results.values()).isNotNull();
+      assertThat(results.values()).
+          contains("value".getBytes());
+    }
+  }
+
+  @Test
+  public void multiGetAsList() throws RocksDBException, InterruptedException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final ReadOptions rOpt = new ReadOptions()) {
+      db.put("key1".getBytes(), "value".getBytes());
+      db.put("key2".getBytes(), "12345678".getBytes());
+      List<byte[]> lookupKeys = new ArrayList<>();
+      lookupKeys.add("key1".getBytes());
+      lookupKeys.add("key2".getBytes());
+      List<byte[]> results = db.multiGetAsList(lookupKeys);
       assertThat(results).isNotNull();
       assertThat(results).hasSize(lookupKeys.size());
       assertThat(results).
           containsExactly("value".getBytes(), "12345678".getBytes());
       // test same method with ReadOptions
-      results = db.multiGet(rOpt, lookupKeys);
+      results = db.multiGetAsList(rOpt, lookupKeys);
       assertThat(results).isNotNull();
       assertThat(results).
           contains("value".getBytes(), "12345678".getBytes());
@@ -255,12 +294,12 @@ public class RocksDBTest {
       lookupKeys.remove(1);
       // add non existing key
       lookupKeys.add("key3".getBytes());
-      results = db.multiGet(lookupKeys);
+      results = db.multiGetAsList(lookupKeys);
       assertThat(results).isNotNull();
       assertThat(results).
           containsExactly("value".getBytes(), null);
       // test same call with readOptions
-      results = db.multiGet(rOpt, lookupKeys);
+      results = db.multiGetAsList(rOpt, lookupKeys);
       assertThat(results).isNotNull();
       assertThat(results).contains("value".getBytes());
     }
