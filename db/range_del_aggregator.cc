@@ -470,8 +470,6 @@ CompactionRangeDelAggregator::NewIterator(const Slice* lower_bound,
       new TruncatedRangeDelMergingIter(icmp_, lower_bound, upper_bound,
                                        upper_bound_inclusive, parent_iters_));
 
-  // TODO: add tests where tombstone fragments can be outside of upper and lower
-  // bound range
   auto fragmented_tombstone_list =
       std::make_shared<FragmentedRangeTombstoneList>(
           std::move(merging_iter), *icmp_, true /* for_compaction */,
