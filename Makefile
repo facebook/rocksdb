@@ -1935,7 +1935,8 @@ commit_prereq: build_tools/rocksdb-lego-determinator \
 ifeq ($(PLATFORM), IOS)
 # For iOS, create universal object files to be used on both the simulator and
 # a device.
-PLATFORMSROOT=/Applications/Xcode.app/Contents/Developer/Platforms
+XCODEROOT=$(shell xcode-select -print-path)
+PLATFORMSROOT=$(XCODEROOT)/Platforms
 SIMULATORROOT=$(PLATFORMSROOT)/iPhoneSimulator.platform/Developer
 DEVICEROOT=$(PLATFORMSROOT)/iPhoneOS.platform/Developer
 IOSVERSION=$(shell defaults read $(PLATFORMSROOT)/iPhoneOS.platform/version CFBundleShortVersionString)
