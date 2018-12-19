@@ -498,8 +498,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       mutex_.Unlock();
     }
 
-    write_thread_.ExitAsBatchGroupLeader(
-        wal_write_group, w.status.ok() ? w.callback_status : w.status);
+    write_thread_.ExitAsBatchGroupLeader(wal_write_group, w.status);
   }
 
   WriteThread::WriteGroup memtable_write_group;

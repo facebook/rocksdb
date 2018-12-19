@@ -415,11 +415,6 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
   write_group->leader = leader;
   write_group->last_writer = leader;
   write_group->size = 1;
-
-  if (leader->AllowWriteBatching()) {
-    return size;
-  }
-
   Writer* newest_writer = newest_writer_.load(std::memory_order_acquire);
 
   // This is safe regardless of any db mutex status of the caller. Previous
@@ -432,6 +427,9 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
   // Tricky. Iteration start (leader) is exclusive and finish
   // (newest_writer) is inclusive. Iteration goes from old to new.
   Writer* w = leader;
+  if (!w->AllowWriteBatching()) {
+    return size;
+  }
   while (w != newest_writer) {
     w = w->link_newer;
 
