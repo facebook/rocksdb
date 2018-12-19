@@ -402,10 +402,13 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/checkpoint.cc                                 \
   java/rocksjni/clock_cache.cc                                \
   java/rocksjni/columnfamilyhandle.cc                         \
+  java/rocksjni/compact_range_options.cc                      \
   java/rocksjni/compaction_filter.cc                          \
   java/rocksjni/compaction_filter_factory.cc                  \
   java/rocksjni/compaction_filter_factory_jnicallback.cc      \
-  java/rocksjni/compact_range_options.cc                      \
+  java/rocksjni/compaction_job_info.cc                        \
+  java/rocksjni/compaction_job_stats.cc                       \
+  java/rocksjni/compaction_options.cc                         \
   java/rocksjni/compaction_options_fifo.cc                    \
   java/rocksjni/compaction_options_universal.cc               \
   java/rocksjni/comparator.cc                                 \
@@ -446,6 +449,8 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/table_filter.cc                               \
   java/rocksjni/table_filter_jnicallback.cc                   \
   java/rocksjni/thread_status.cc                              \
+  java/rocksjni/trace_writer.cc                               \
+  java/rocksjni/trace_writer_jnicallback.cc                   \
   java/rocksjni/transaction.cc                                \
   java/rocksjni/transaction_db.cc                             \
   java/rocksjni/transaction_options.cc                        \

@@ -141,7 +141,7 @@ public class IngestExternalFileOptions extends RocksObject {
    * over-writing existing newer version of data.
    *
    * This option could only be used if the DB has been running
-   * with {@link DBOptions#allowIngestBehind()} == true since the dawn of time.
+   * with DBOptions#allowIngestBehind() == true since the dawn of time.
    *
    * All files will be ingested at the bottommost level with seqno=0.
    *

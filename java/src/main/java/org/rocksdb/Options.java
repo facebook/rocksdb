@@ -19,7 +19,9 @@ import java.util.List;
  * automaticallyand native resources will be released as part of the process.
  */
 public class Options extends RocksObject
-    implements DBOptionsInterface<Options>, ColumnFamilyOptionsInterface<Options>,
+    implements DBOptionsInterface<Options>,
+    MutableDBOptionsInterface<Options>,
+    ColumnFamilyOptionsInterface<Options>,
     MutableColumnFamilyOptionsInterface<Options> {
   static {
     RocksDB.loadLibrary();
@@ -472,9 +474,10 @@ public class Options extends RocksObject
   }
 
   @Override
-  public void setMaxSubcompactions(final int maxSubcompactions) {
+  public Options setMaxSubcompactions(final int maxSubcompactions) {
     assert(isOwningHandle());
     setMaxSubcompactions(nativeHandle_, maxSubcompactions);
+    return this;
   }
 
   @Override

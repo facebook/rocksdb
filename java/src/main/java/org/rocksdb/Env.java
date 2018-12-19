@@ -13,19 +13,29 @@ import java.util.List;
  */
 public abstract class Env extends RocksObject {
 
+  private static final Env DEFAULT_ENV = new RocksEnv(getDefaultEnvInternal());
+  static {
+    /**
+     * The Ownership of the Default Env belongs to C++
+     * and so we disown the native handle here so that
+     * we cannot accidentally free it from Java.
+     */
+    DEFAULT_ENV.disOwnNativeHandle();
+  }
+
   /**
    * <p>Returns the default environment suitable for the current operating
    * system.</p>
    *
    * <p>The result of {@code getDefault()} is a singleton whose ownership
    * belongs to rocksdb c++.  As a result, the returned RocksEnv will not
-   * have the ownership of its c++ resource, and calling its dispose()
+   * have the ownership of its c++ resource, and calling its dispose()/close()
    * will be no-op.</p>
    *
    * @return the default {@link org.rocksdb.RocksEnv} instance.
    */
   public static Env getDefault() {
-    return default_env_;
+    return DEFAULT_ENV;
   }
 
   /**
@@ -122,20 +132,9 @@ public abstract class Env extends RocksObject {
     return Arrays.asList(getThreadList(nativeHandle_));
   }
 
-  protected Env(final long nativeHandle) {
+  Env(final long nativeHandle) {
     super(nativeHandle);
   }
-
-  static {
-    default_env_ = new RocksEnv(getDefaultEnvInternal());
-  }
-
-  /**
-   * <p>The static default Env. The ownership of its native handle
-   * belongs to rocksdb c++ and is not able to be released on the Java
-   * side.</p>
-   */
-  static Env default_env_;
 
   private static native long getDefaultEnvInternal();
   private native void setBackgroundThreads(

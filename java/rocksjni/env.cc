@@ -28,6 +28,18 @@ jlong Java_org_rocksdb_Env_getDefaultEnvInternal(
 }
 
 /*
+ * Class:     org_rocksdb_RocksEnv
+ * Method:    disposeInternal
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_RocksEnv_disposeInternal(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* e = reinterpret_cast<rocksdb::Env*>(jhandle);
+  assert(e != nullptr);
+  delete e;
+}
+
+/*
  * Class:     org_rocksdb_Env
  * Method:    setBackgroundThreads
  * Signature: (JIB)V

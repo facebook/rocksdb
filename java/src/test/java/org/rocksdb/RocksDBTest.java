@@ -4,17 +4,14 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
-import org.junit.Assert;
-import org.junit.Assume;
-import org.junit.ClassRule;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.*;
 import org.junit.rules.ExpectedException;
 import org.junit.rules.TemporaryFolder;
 
 import java.nio.ByteBuffer;
 import java.util.*;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.fail;
 
@@ -58,6 +55,130 @@ public class RocksDBTest {
         assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.IOError);
         assertThat(e.getStatus().getSubCode()).isEqualTo(Status.SubCode.None);
         assertThat(e.getStatus().getState()).contains("lock ");
+      }
+    }
+  }
+
+  @Test
+  public void createColumnFamily() throws RocksDBException {
+      final byte[] col1Name = "col1".getBytes(UTF_8);
+
+      try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+           final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions()
+      ) {
+        try (final ColumnFamilyHandle col1 =
+            db.createColumnFamily(new ColumnFamilyDescriptor(col1Name, cfOpts))) {
+          assertThat(col1).isNotNull();
+          assertThat(col1.getName()).isEqualTo(col1Name);
+        }
+      }
+
+      final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
+      try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath(),
+        Arrays.asList(
+            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+            new ColumnFamilyDescriptor(col1Name)),
+            cfHandles)) {
+        try {
+          assertThat(cfHandles.size()).isEqualTo(2);
+          assertThat(cfHandles.get(1)).isNotNull();
+          assertThat(cfHandles.get(1).getName()).isEqualTo(col1Name);
+        } finally {
+          for (final ColumnFamilyHandle cfHandle :
+              cfHandles) {
+            cfHandle.close();
+          }
+        }
+      }
+  }
+
+
+  @Test
+  public void createColumnFamilies() throws RocksDBException {
+    final byte[] col1Name = "col1".getBytes(UTF_8);
+    final byte[] col2Name = "col2".getBytes(UTF_8);
+
+    List<ColumnFamilyHandle> cfHandles;
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions()
+    ) {
+      cfHandles =
+          db.createColumnFamilies(cfOpts, Arrays.asList(col1Name, col2Name));
+      try {
+        assertThat(cfHandles).isNotNull();
+        assertThat(cfHandles.size()).isEqualTo(2);
+        assertThat(cfHandles.get(0).getName()).isEqualTo(col1Name);
+        assertThat(cfHandles.get(1).getName()).isEqualTo(col2Name);
+      } finally {
+        for (final ColumnFamilyHandle cfHandle : cfHandles) {
+          cfHandle.close();
+        }
+      }
+    }
+
+    cfHandles = new ArrayList<>();
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath(),
+        Arrays.asList(
+            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+            new ColumnFamilyDescriptor(col1Name),
+            new ColumnFamilyDescriptor(col2Name)),
+        cfHandles)) {
+      try {
+        assertThat(cfHandles.size()).isEqualTo(3);
+        assertThat(cfHandles.get(1)).isNotNull();
+        assertThat(cfHandles.get(1).getName()).isEqualTo(col1Name);
+        assertThat(cfHandles.get(2)).isNotNull();
+        assertThat(cfHandles.get(2).getName()).isEqualTo(col2Name);
+      } finally {
+        for (final ColumnFamilyHandle cfHandle : cfHandles) {
+          cfHandle.close();
+        }
+      }
+    }
+  }
+
+  @Test
+  public void createColumnFamiliesfromDescriptors() throws RocksDBException {
+    final byte[] col1Name = "col1".getBytes(UTF_8);
+    final byte[] col2Name = "col2".getBytes(UTF_8);
+
+    List<ColumnFamilyHandle> cfHandles;
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions()
+    ) {
+      cfHandles =
+          db.createColumnFamilies(Arrays.asList(
+              new ColumnFamilyDescriptor(col1Name, cfOpts),
+              new ColumnFamilyDescriptor(col2Name, cfOpts)));
+      try {
+        assertThat(cfHandles).isNotNull();
+        assertThat(cfHandles.size()).isEqualTo(2);
+        assertThat(cfHandles.get(0).getName()).isEqualTo(col1Name);
+        assertThat(cfHandles.get(1).getName()).isEqualTo(col2Name);
+      } finally {
+        for (final ColumnFamilyHandle cfHandle : cfHandles) {
+          cfHandle.close();
+        }
+      }
+    }
+
+    cfHandles = new ArrayList<>();
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath(),
+        Arrays.asList(
+            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+            new ColumnFamilyDescriptor(col1Name),
+            new ColumnFamilyDescriptor(col2Name)),
+        cfHandles)) {
+      try {
+        assertThat(cfHandles.size()).isEqualTo(3);
+        assertThat(cfHandles.get(1)).isNotNull();
+        assertThat(cfHandles.get(1).getName()).isEqualTo(col1Name);
+        assertThat(cfHandles.get(2)).isNotNull();
+        assertThat(cfHandles.get(2).getName()).isEqualTo(col2Name);
+      } finally {
+        for (final ColumnFamilyHandle cfHandle : cfHandles) {
+          cfHandle.close();
+        }
       }
     }
   }
@@ -932,6 +1053,502 @@ public class RocksDBTest {
         // Fails as the db is open and locked.
         RocksDB.destroyDB(dbPath, options);
       }
+    }
+  }
+
+  @Test
+  public void getApproximateSizes() throws RocksDBException {
+    final byte key1[] = "key1".getBytes(UTF_8);
+    final byte key2[] = "key2".getBytes(UTF_8);
+    final byte key3[] = "key3".getBytes(UTF_8);
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        db.put(key1, key1);
+        db.put(key2, key2);
+        db.put(key3, key3);
+
+        final long[] sizes = db.getApproximateSizes(
+            Arrays.asList(
+                new Range(new Slice(key1), new Slice(key2)),
+                new Range(new Slice(key2), new Slice(key3))
+            ),
+            SizeApproximationFlag.INCLUDE_FILES,
+            SizeApproximationFlag.INCLUDE_MEMTABLES);
+
+        assertThat(sizes.length).isEqualTo(2);
+        assertThat(sizes[0]).isEqualTo(0);
+        assertThat(sizes[1]).isGreaterThanOrEqualTo(1);
+      }
+    }
+  }
+
+  @Test
+  public void getApproximateMemTableStats() throws RocksDBException {
+    final byte key1[] = "key1".getBytes(UTF_8);
+    final byte key2[] = "key2".getBytes(UTF_8);
+    final byte key3[] = "key3".getBytes(UTF_8);
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        db.put(key1, key1);
+        db.put(key2, key2);
+        db.put(key3, key3);
+
+        final RocksDB.CountAndSize stats =
+            db.getApproximateMemTableStats(
+                new Range(new Slice(key1), new Slice(key3)));
+
+        assertThat(stats).isNotNull();
+        assertThat(stats.count).isGreaterThan(1);
+        assertThat(stats.size).isGreaterThan(1);
+      }
+    }
+  }
+
+  @Ignore("TODO(AR) re-enable when ready!")
+  @Test
+  public void compactFiles() throws RocksDBException {
+    final int kTestKeySize = 16;
+    final int kTestValueSize = 984;
+    final int kEntrySize = kTestKeySize + kTestValueSize;
+    final int kEntriesPerBuffer = 100;
+    final int writeBufferSize = kEntrySize * kEntriesPerBuffer;
+    final byte[] cfName = "pikachu".getBytes(UTF_8);
+
+    try (final Options options = new Options()
+        .setCreateIfMissing(true)
+        .setWriteBufferSize(writeBufferSize)
+        .setCompactionStyle(CompactionStyle.LEVEL)
+        .setTargetFileSizeBase(writeBufferSize)
+        .setMaxBytesForLevelBase(writeBufferSize * 2)
+        .setLevel0StopWritesTrigger(2)
+        .setMaxBytesForLevelMultiplier(2)
+        .setCompressionType(CompressionType.NO_COMPRESSION)
+        .setMaxSubcompactions(4)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath);
+           final ColumnFamilyOptions cfOptions = new ColumnFamilyOptions(options)) {
+        db.createColumnFamily(new ColumnFamilyDescriptor(cfName,
+            cfOptions)).close();
+      }
+
+      try (final ColumnFamilyOptions cfOptions = new ColumnFamilyOptions(options)) {
+        final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(
+            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOptions),
+            new ColumnFamilyDescriptor(cfName, cfOptions)
+        );
+        final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
+        try (final DBOptions dbOptions = new DBOptions(options);
+            final RocksDB db = RocksDB.open(dbOptions, dbPath, cfDescriptors,
+                cfHandles);
+        ) {
+          try (final FlushOptions flushOptions = new FlushOptions()
+                .setWaitForFlush(true)
+                .setAllowWriteStall(true);
+               final CompactionOptions compactionOptions = new CompactionOptions()) {
+            final Random rnd = new Random(301);
+            for (int key = 64 * kEntriesPerBuffer; key >= 0; --key) {
+              final byte[] value = new byte[kTestValueSize];
+              rnd.nextBytes(value);
+              db.put(cfHandles.get(1), Integer.toString(key).getBytes(UTF_8),
+                  value);
+            }
+            db.flush(flushOptions, cfHandles);
+
+            final RocksDB.LiveFiles liveFiles = db.getLiveFiles();
+            final List<String> compactedFiles =
+                db.compactFiles(compactionOptions, cfHandles.get(1),
+                    liveFiles.files, 1, -1, null);
+            assertThat(compactedFiles).isNotEmpty();
+          } finally {
+            for (final ColumnFamilyHandle cfHandle : cfHandles) {
+              cfHandle.close();
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  public void enableAutoCompaction() throws RocksDBException {
+    try (final DBOptions options = new DBOptions()
+        .setCreateIfMissing(true)) {
+      final List<ColumnFamilyDescriptor> cfDescs = Arrays.asList(
+          new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY)
+      );
+      final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath, cfDescs, cfHandles)) {
+        try {
+          db.enableAutoCompaction(cfHandles);
+        } finally {
+          for (final ColumnFamilyHandle cfHandle : cfHandles) {
+            cfHandle.close();
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  public void numberLevels() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        assertThat(db.numberLevels()).isEqualTo(7);
+      }
+    }
+  }
+
+  @Test
+  public void maxMemCompactionLevel() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        assertThat(db.maxMemCompactionLevel()).isEqualTo(0);
+      }
+    }
+  }
+
+  @Test
+  public void level0StopWriteTrigger() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        assertThat(db.level0StopWriteTrigger()).isEqualTo(36);
+      }
+    }
+  }
+
+  @Test
+  public void getName() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        assertThat(db.getName()).isEqualTo(dbPath);
+      }
+    }
+  }
+
+  @Test
+  public void getEnv() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        assertThat(db.getEnv()).isEqualTo(Env.getDefault());
+      }
+    }
+  }
+
+  @Test
+  public void flush() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath);
+        final FlushOptions flushOptions = new FlushOptions()) {
+        db.flush(flushOptions);
+      }
+    }
+  }
+
+  @Test
+  public void flushWal() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        db.flushWal(true);
+      }
+    }
+  }
+
+  @Test
+  public void syncWal() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        db.syncWal();
+      }
+    }
+  }
+
+  @Test
+  public void setPreserveDeletesSequenceNumber() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        assertThat(db.setPreserveDeletesSequenceNumber(db.getLatestSequenceNumber()))
+            .isFalse();
+      }
+    }
+  }
+
+  @Test
+  public void getLiveFiles() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        final RocksDB.LiveFiles livefiles = db.getLiveFiles(true);
+        assertThat(livefiles).isNotNull();
+        assertThat(livefiles.manifestFileSize).isEqualTo(13);
+        assertThat(livefiles.files.size()).isEqualTo(3);
+        assertThat(livefiles.files.get(0)).isEqualTo("/CURRENT");
+        assertThat(livefiles.files.get(1)).isEqualTo("/MANIFEST-000001");
+        assertThat(livefiles.files.get(2)).isEqualTo("/OPTIONS-000005");
+      }
+    }
+  }
+
+  @Test
+  public void getSortedWalFiles() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        db.put("key1".getBytes(UTF_8), "value1".getBytes(UTF_8));
+        final List<LogFile> logFiles = db.getSortedWalFiles();
+        assertThat(logFiles).isNotNull();
+        assertThat(logFiles.size()).isEqualTo(1);
+        assertThat(logFiles.get(0).type())
+            .isEqualTo(WalFileType.kAliveLogFile);
+      }
+    }
+  }
+
+  @Test
+  public void deleteFile() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        db.deleteFile("unknown");
+      }
+    }
+  }
+
+  @Test
+  public void getLiveFilesMetaData() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        db.put("key1".getBytes(UTF_8), "value1".getBytes(UTF_8));
+        final List<LiveFileMetaData> liveFilesMetaData
+            = db.getLiveFilesMetaData();
+        assertThat(liveFilesMetaData).isEmpty();
+      }
+    }
+  }
+
+  @Test
+  public void getColumnFamilyMetaData() throws RocksDBException {
+    try (final DBOptions options = new DBOptions()
+        .setCreateIfMissing(true)) {
+      final List<ColumnFamilyDescriptor> cfDescs = Arrays.asList(
+          new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY)
+      );
+      final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath, cfDescs, cfHandles)) {
+        db.put(cfHandles.get(0), "key1".getBytes(UTF_8), "value1".getBytes(UTF_8));
+        try {
+          final ColumnFamilyMetaData cfMetadata =
+              db.getColumnFamilyMetaData(cfHandles.get(0));
+          assertThat(cfMetadata).isNotNull();
+          assertThat(cfMetadata.name()).isEqualTo(RocksDB.DEFAULT_COLUMN_FAMILY);
+          assertThat(cfMetadata.levels().size()).isEqualTo(7);
+        } finally {
+          for (final ColumnFamilyHandle cfHandle : cfHandles) {
+            cfHandle.close();
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  public void verifyChecksum() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        db.verifyChecksum();
+      }
+    }
+  }
+
+  @Test
+  public void getPropertiesOfAllTables() throws RocksDBException {
+    try (final DBOptions options = new DBOptions()
+        .setCreateIfMissing(true)) {
+      final List<ColumnFamilyDescriptor> cfDescs = Arrays.asList(
+          new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY)
+      );
+      final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath, cfDescs, cfHandles)) {
+        db.put(cfHandles.get(0), "key1".getBytes(UTF_8), "value1".getBytes(UTF_8));
+        try {
+          final Map<String, TableProperties> properties =
+              db.getPropertiesOfAllTables(cfHandles.get(0));
+          assertThat(properties).isNotNull();
+        } finally {
+          for (final ColumnFamilyHandle cfHandle : cfHandles) {
+            cfHandle.close();
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  public void getPropertiesOfTablesInRange() throws RocksDBException {
+    try (final DBOptions options = new DBOptions()
+        .setCreateIfMissing(true)) {
+      final List<ColumnFamilyDescriptor> cfDescs = Arrays.asList(
+          new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY)
+      );
+      final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath, cfDescs, cfHandles)) {
+        db.put(cfHandles.get(0), "key1".getBytes(UTF_8), "value1".getBytes(UTF_8));
+        db.put(cfHandles.get(0), "key2".getBytes(UTF_8), "value2".getBytes(UTF_8));
+        db.put(cfHandles.get(0), "key3".getBytes(UTF_8), "value3".getBytes(UTF_8));
+        try {
+          final Range range = new Range(
+              new Slice("key1".getBytes(UTF_8)),
+              new Slice("key3".getBytes(UTF_8)));
+          final Map<String, TableProperties> properties =
+              db.getPropertiesOfTablesInRange(
+                  cfHandles.get(0), Arrays.asList(range));
+          assertThat(properties).isNotNull();
+        } finally {
+          for (final ColumnFamilyHandle cfHandle : cfHandles) {
+            cfHandle.close();
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  public void suggestCompactRange() throws RocksDBException {
+    try (final DBOptions options = new DBOptions()
+        .setCreateIfMissing(true)) {
+      final List<ColumnFamilyDescriptor> cfDescs = Arrays.asList(
+          new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY)
+      );
+      final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath, cfDescs, cfHandles)) {
+        db.put(cfHandles.get(0), "key1".getBytes(UTF_8), "value1".getBytes(UTF_8));
+        db.put(cfHandles.get(0), "key2".getBytes(UTF_8), "value2".getBytes(UTF_8));
+        db.put(cfHandles.get(0), "key3".getBytes(UTF_8), "value3".getBytes(UTF_8));
+        try {
+          final Range range =  db.suggestCompactRange(cfHandles.get(0));
+          assertThat(range).isNotNull();
+        } finally {
+          for (final ColumnFamilyHandle cfHandle : cfHandles) {
+            cfHandle.close();
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  public void promoteL0() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        db.promoteL0(2);
+      }
+    }
+  }
+
+  @Test
+  public void startTrace() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        final TraceOptions traceOptions = new TraceOptions();
+
+        try (final InMemoryTraceWriter traceWriter = new InMemoryTraceWriter()) {
+          db.startTrace(traceOptions, traceWriter);
+
+          db.put("key1".getBytes(UTF_8), "value1".getBytes(UTF_8));
+
+          db.endTrace();
+
+          final List<byte[]> writes = traceWriter.getWrites();
+          assertThat(writes.size()).isGreaterThan(0);
+        }
+      }
+    }
+  }
+
+  @Test
+  public void setDBOptions() throws RocksDBException {
+    try (final DBOptions options = new DBOptions()
+        .setCreateIfMissing(true)
+        .setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions()
+             .setWriteBufferSize(4096)) {
+
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+          Arrays.asList(
+              new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+              new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts));
+
+      // open database
+      final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+      try (final RocksDB db = RocksDB.open(options,
+          dbFolder.getRoot().getAbsolutePath(), columnFamilyDescriptors, columnFamilyHandles)) {
+        try {
+          final MutableDBOptions mutableOptions =
+              MutableDBOptions.builder()
+                  .setBytesPerSync(1024 * 1027 * 7)
+                  .setAvoidFlushDuringShutdown(false)
+                  .build();
+
+          db.setDBOptions(mutableOptions);
+        } finally {
+          for (final ColumnFamilyHandle handle : columnFamilyHandles) {
+            handle.close();
+          }
+        }
+      }
+    }
+  }
+
+  private static class InMemoryTraceWriter extends AbstractTraceWriter {
+    private final List<byte[]> writes = new ArrayList<>();
+    private volatile boolean closed = false;
+
+    @Override
+    public void write(final Slice slice) {
+      if (closed) {
+        return;
+      }
+      final byte[] data = slice.data();
+      final byte[] dataCopy = new byte[data.length];
+      System.arraycopy(data, 0, dataCopy, 0, data.length);
+      writes.add(dataCopy);
+    }
+
+    @Override
+    public void closeWriter() {
+      closed = true;
+    }
+
+    @Override
+    public long getFileSize() {
+      long size = 0;
+      for (int i = 0; i < writes.size(); i++) {
+        size += writes.get(i).length;
+      }
+      return size;
+    }
+
+    public List<byte[]> getWrites() {
+      return writes;
     }
   }
 }

@@ -3095,6 +3095,18 @@ jlong Java_org_rocksdb_ColumnFamilyOptions_copyColumnFamilyOptions(
 
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    newColumnFamilyOptionsFromOptions
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ColumnFamilyOptions_newColumnFamilyOptionsFromOptions(
+    JNIEnv*, jclass, jlong joptions_handle) {
+  auto new_opt = new rocksdb::ColumnFamilyOptions(
+      *reinterpret_cast<rocksdb::Options*>(joptions_handle));
+  return reinterpret_cast<jlong>(new_opt);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    getColumnFamilyOptionsFromProps
  * Signature: (Ljava/util/String;)J
  */
@@ -4467,6 +4479,18 @@ jlong Java_org_rocksdb_DBOptions_copyDBOptions(JNIEnv* /*env*/, jclass /*jcls*/,
                                                jlong jhandle) {
   auto new_opt =
       new rocksdb::DBOptions(*(reinterpret_cast<rocksdb::DBOptions*>(jhandle)));
+  return reinterpret_cast<jlong>(new_opt);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    newDBOptionsFromOptions
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_DBOptions_newDBOptionsFromOptions(
+    JNIEnv*, jclass, jlong joptions_handle) {
+  auto new_opt =
+      new rocksdb::DBOptions(*reinterpret_cast<rocksdb::Options*>(joptions_handle));
   return reinterpret_cast<jlong>(new_opt);
 }
 

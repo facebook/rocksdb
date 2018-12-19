@@ -15,8 +15,9 @@ import java.util.*;
  * If {@link #dispose()} function is not called, then it will be GC'd
  * automatically and native resources will be released as part of the process.
  */
-public class DBOptions
-    extends RocksObject implements DBOptionsInterface<DBOptions> {
+public class DBOptions extends RocksObject
+    implements DBOptionsInterface<DBOptions>,
+    MutableDBOptionsInterface<DBOptions> {
   static {
     RocksDB.loadLibrary();
   }
@@ -47,6 +48,15 @@ public class DBOptions
     this.rateLimiter_ = other.rateLimiter_;
     this.rowCache_ = other.rowCache_;
     this.writeBufferManager_ = other.writeBufferManager_;
+  }
+
+  /**
+   * Constructor from Options
+   *
+   * @param options The options.
+   */
+  public DBOptions(final Options options) {
+    super(newDBOptionsFromOptions(options.nativeHandle_));
   }
 
   /**
@@ -388,9 +398,10 @@ public class DBOptions
   }
 
   @Override
-  public void setMaxSubcompactions(final int maxSubcompactions) {
+  public DBOptions setMaxSubcompactions(final int maxSubcompactions) {
     assert(isOwningHandle());
     setMaxSubcompactions(nativeHandle_, maxSubcompactions);
+    return this;
   }
 
   @Override
@@ -991,8 +1002,9 @@ public class DBOptions
   private static native long getDBOptionsFromProps(
       String optString);
 
-  private native static long newDBOptions();
-  private native static long copyDBOptions(long handle);
+  private static native long newDBOptions();
+  private static native long copyDBOptions(final long handle);
+  private static native long newDBOptionsFromOptions(final long optionsHandle);
   @Override protected final native void disposeInternal(final long handle);
 
   private native void optimizeForSmallDb(final long handle);

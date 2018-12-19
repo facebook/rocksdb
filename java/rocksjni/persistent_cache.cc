@@ -21,7 +21,7 @@
  */
 jlong Java_org_rocksdb_PersistentCache_newPersistentCache(
     JNIEnv* env, jclass, jlong jenv_handle, jstring jpath,
-    jlong jsize, jlong jlogger_handle, jboolean joptimized_for_nvm) {
+    jlong jsz, jlong jlogger_handle, jboolean joptimized_for_nvm) {
   auto* rocks_env = reinterpret_cast<rocksdb::Env*>(jenv_handle);
   jboolean has_exception = JNI_FALSE;
   std::string path = rocksdb::JniUtil::copyStdString(env, jpath, &has_exception);
@@ -32,7 +32,7 @@ jlong Java_org_rocksdb_PersistentCache_newPersistentCache(
       reinterpret_cast<std::shared_ptr<rocksdb::LoggerJniCallback>*>(jlogger_handle);
   auto* cache = new std::shared_ptr<rocksdb::PersistentCache>(nullptr);
   rocksdb::Status s = rocksdb::NewPersistentCache(
-      rocks_env, path, static_cast<uint64_t>(jsize), *logger,
+      rocks_env, path, static_cast<uint64_t>(jsz), *logger,
       static_cast<bool>(joptimized_for_nvm), cache);
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);

@@ -2,6 +2,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.AbstractCompactionFilterFactory\
 	org.rocksdb.AbstractSlice\
 	org.rocksdb.AbstractTableFilter\
+	org.rocksdb.AbstractTraceWriter\
 	org.rocksdb.AbstractTransactionNotifier\
 	org.rocksdb.BackupEngine\
 	org.rocksdb.BackupableDBOptions\
@@ -13,6 +14,9 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.CassandraValueMergeOperator\
 	org.rocksdb.ColumnFamilyHandle\
 	org.rocksdb.ColumnFamilyOptions\
+	org.rocksdb.CompactionJobInfo\
+	org.rocksdb.CompactionJobStats\
+	org.rocksdb.CompactionOptions\
 	org.rocksdb.CompactionOptionsFIFO\
 	org.rocksdb.CompactionOptionsUniversal\
 	org.rocksdb.CompactRangeOptions\
@@ -99,7 +103,10 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.ClockCacheTest\
 	org.rocksdb.ColumnFamilyOptionsTest\
 	org.rocksdb.ColumnFamilyTest\
-    org.rocksdb.CompactionFilterFactoryTest\
+	org.rocksdb.CompactionFilterFactoryTest\
+	org.rocksdb.CompactionJobInfoTest\
+	org.rocksdb.CompactionJobStatsTest\
+	org.rocksdb.CompactionOptionsTest\
 	org.rocksdb.CompactionOptionsFIFOTest\
 	org.rocksdb.CompactionOptionsUniversalTest\
 	org.rocksdb.CompactionPriorityTest\
@@ -126,6 +133,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.MergeTest\
 	org.rocksdb.MixedOptionsTest\
 	org.rocksdb.MutableColumnFamilyOptionsTest\
+	org.rocksdb.MutableDBOptionsTest\
 	org.rocksdb.NativeComparatorWrapperTest\
 	org.rocksdb.NativeLibraryLoaderTest\
 	org.rocksdb.OptimisticTransactionTest\

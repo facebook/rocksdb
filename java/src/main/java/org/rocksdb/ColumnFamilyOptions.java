@@ -54,6 +54,15 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   /**
+   * Constructor from Options
+   *
+   * @param options The options.
+   */
+  public ColumnFamilyOptions(final Options options) {
+    super(newColumnFamilyOptionsFromOptions(options.nativeHandle_));
+  }
+
+  /**
    * <p>Constructor to be used by
    * {@link #getColumnFamilyOptionsFromProps(java.util.Properties)},
    * {@link ColumnFamilyDescriptor#columnFamilyOptions()}
@@ -793,7 +802,9 @@ public class ColumnFamilyOptions extends RocksObject
       String optString);
 
   private static native long newColumnFamilyOptions();
-  private static native long copyColumnFamilyOptions(long handle);
+  private static native long copyColumnFamilyOptions(final long handle);
+  private static native long newColumnFamilyOptionsFromOptions(
+      final long optionsHandle);
   @Override protected final native void disposeInternal(final long handle);
 
   private native void optimizeForSmallDb(final long handle);

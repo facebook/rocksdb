@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.List;
+
 /**
  * Enum CompactionStyle
  *
@@ -22,7 +24,8 @@ package org.rocksdb;
  *   very low overhead (query log for example). It periodically deletes
  *   the old data, so it's basically a TTL compaction style.</li>
  *   <li><strong>NONE</strong> - Disable background compaction.
- *   Compaction jobs are submitted {@link RocksDB#compactFiles()}.</li>
+ *   Compaction jobs are submitted
+ *   {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, List, int, int, CompactionJobInfo)} ()}.</li>
  * </ol>
  *
  * @see <a
