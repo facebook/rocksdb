@@ -237,7 +237,7 @@ class Transaction {
                               ColumnFamilyHandle* column_family,
                               const Slice& key, std::string* value,
                               bool exclusive = true,
-                              bool do_validate = true) = 0;
+                              const bool do_validate = true) = 0;
 
   // An overload of the above method that receives a PinnableSlice
   // For backward compatibility a default implementation is provided

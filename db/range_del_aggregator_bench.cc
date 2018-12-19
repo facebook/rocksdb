@@ -197,7 +197,8 @@ int main(int argc, char** argv) {
       // real workloads.
       for (int j = 0; j < FLAGS_num_range_tombstones; j++) {
         uint64_t start = rnd.Uniform(FLAGS_tombstone_start_upper_bound);
-        uint64_t end = start + std::max(1.0, normal_dist(random_gen));
+        uint64_t end = static_cast<uint64_t>(
+            std::round(start + std::max(1.0, normal_dist(random_gen))));
         persistent_range_tombstones[j] = rocksdb::PersistentRangeTombstone(
             rocksdb::Key(start), rocksdb::Key(end), j);
       }
