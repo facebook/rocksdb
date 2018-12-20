@@ -147,7 +147,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
                              HistogramImpl* file_read_hist, bool skip_filters,
                              int level,
                              bool prefetch_index_and_filter_in_cache) {
-  PERF_TIMER_GUARD(find_table_nanos);
+  PERF_TIMER_GUARD_WITH_ENV(find_table_nanos, ioptions_.env);
   Status s;
   uint64_t number = fd.GetNumber();
   Slice key = GetSliceForFileNumber(&number);

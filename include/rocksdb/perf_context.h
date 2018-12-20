@@ -205,6 +205,9 @@ struct PerfContext {
   uint64_t env_lock_file_nanos;
   uint64_t env_unlock_file_nanos;
   uint64_t env_new_logger_nanos;
+
+  uint64_t get_cpu_nanos;
+
   std::map<uint32_t, PerfContextByLevel>* level_to_perf_context;
   bool per_level_perf_context_enabled;
 };

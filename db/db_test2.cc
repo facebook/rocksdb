@@ -1646,6 +1646,40 @@ class MockPersistentCache : public PersistentCache {
   const size_t max_size_ = 10 * 1024;  // 10KiB
 };
 
+#ifdef OS_LINUX
+// Make sure that in CPU time perf context counters, Env::NowCPUNanos()
+// is used, rather than Env::CPUNanos();
+TEST_F(DBTest2, TestPerfContextCpuTime) {
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+
+  env_->now_cpu_count_.store(0);
+
+  // CPU timing is not enabled with kEnableTimeExceptForMutex
+  SetPerfLevel(PerfLevel::kEnableTimeExceptForMutex);
+  ASSERT_EQ("bar", Get("foo"));
+  ASSERT_EQ(0, get_perf_context()->get_cpu_nanos);
+  ASSERT_EQ(0, env_->now_cpu_count_.load());
+
+  uint64_t kDummyAddonTime = uint64_t{1000000000000};
+
+  // Add time to NowNanos() reading.
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "TableCache::FindTable:0",
+      [&](void* /*arg*/) { env_->addon_time_.fetch_add(kDummyAddonTime); });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  SetPerfLevel(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
+  ASSERT_EQ("bar", Get("foo"));
+  ASSERT_EQ(env_->now_cpu_count_.load(), 2);
+  ASSERT_LT(get_perf_context()->get_cpu_nanos, kDummyAddonTime);
+  ASSERT_GT(get_perf_context()->find_table_nanos, kDummyAddonTime);
+
+  SetPerfLevel(PerfLevel::kDisable);
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+#endif  // OS_LINUX
+
 #ifndef OS_SOLARIS // GetUniqueIdFromFile is not implemented
 TEST_F(DBTest2, PersistentCache) {
   int num_iter = 80;

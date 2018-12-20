@@ -843,6 +843,15 @@ class PosixEnv : public Env {
 #endif
   }
 
+  virtual uint64_t NowCPUNanos() override {
+#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_AIX)
+    struct timespec ts;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
+#endif
+    return 0;
+  }
+
   virtual void SleepForMicroseconds(int micros) override { usleep(micros); }
 
   virtual Status GetHostName(char* name, uint64_t len) override {
