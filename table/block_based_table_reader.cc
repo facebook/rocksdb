@@ -848,9 +848,12 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   if (!s.ok()) {
     return s;
   }
-  // Disregard return status of ReadRangeDelBlock and ReadCompressionDictBlock.
   s = ReadRangeDelBlock(rep, prefetch_buffer.get(), meta_iter.get(),
-                        new_table.get(), internal_comparator);
+                        internal_comparator);
+  if (!s.ok()) {
+    return s;
+  }
+  // Disregard return status of ReadCompressionDictBlock.
   s = ReadCompressionDictBlock(rep, prefetch_buffer.get(), meta_iter.get());
 
   s = PrefetchIndexAndFilterBlocks(rep, prefetch_buffer.get(), meta_iter.get(),
@@ -980,33 +983,35 @@ Status BlockBasedTable::ReadPropertiesBlock(
 
 Status BlockBasedTable::ReadRangeDelBlock(
     Rep* rep, FilePrefetchBuffer* prefetch_buffer, InternalIterator* meta_iter,
-    BlockBasedTable* new_table,
     const InternalKeyComparator& internal_comparator) {
   Status s;
   bool found_range_del_block;
-  s = SeekToRangeDelBlock(meta_iter, &found_range_del_block,
-                          &rep->range_del_handle);
+  BlockHandle range_del_handle;
+  s = SeekToRangeDelBlock(meta_iter, &found_range_del_block, &range_del_handle);
   if (!s.ok()) {
     ROCKS_LOG_WARN(
         rep->ioptions.info_log,
         "Error when seeking to range delete tombstones block from file: %s",
         s.ToString().c_str());
-  } else if (found_range_del_block && !rep->range_del_handle.IsNull()) {
+  } else if (found_range_del_block && !range_del_handle.IsNull()) {
     ReadOptions read_options;
-    s = MaybeReadBlockAndLoadToCache(
-        prefetch_buffer, rep, read_options, rep->range_del_handle,
-        Slice() /* compression_dict */, &rep->range_del_entry,
-        false /* is_index */, nullptr /* get_context */);
+    std::unique_ptr<InternalIterator> iter(NewDataBlockIterator<DataBlockIter>(
+        rep, read_options, range_del_handle, nullptr /* input_iter */,
+        false /* is_index */, true /* key_includes_seq */,
+        true /* index_key_is_full */, nullptr /* get_context */, Status(),
+        prefetch_buffer));
+    assert(iter != nullptr);
+    s = iter->status();
     if (!s.ok()) {
       ROCKS_LOG_WARN(
           rep->ioptions.info_log,
           "Encountered error while reading data from range del block %s",
           s.ToString().c_str());
+    } else {
+      rep->fragmented_range_dels =
+          std::make_shared<FragmentedRangeTombstoneList>(std::move(iter),
+                                                         internal_comparator);
     }
-    auto iter = std::unique_ptr<InternalIterator>(
-        new_table->NewUnfragmentedRangeTombstoneIterator(read_options));
-    rep->fragmented_range_dels = std::make_shared<FragmentedRangeTombstoneList>(
-        std::move(iter), internal_comparator);
   }
   return s;
 }
@@ -1837,11 +1842,11 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     assert(block.value != nullptr);
     const bool kTotalOrderSeek = true;
     // Block contents are pinned and it is still pinned after the iterator
-    // is destoryed as long as cleanup functions are moved to another object,
+    // is destroyed as long as cleanup functions are moved to another object,
     // when:
     // 1. block cache handle is set to be released in cleanup function, or
-    // 2. it's pointing to immortable source. If own_bytes is true then we are
-    //    not reading data from the original source, weather immortal or not.
+    // 2. it's pointing to immortal source. If own_bytes is true then we are
+    //    not reading data from the original source, whether immortal or not.
     //    Otherwise, the block is pinned iff the source is immortal.
     bool block_contents_pinned =
         (block.cache_handle != nullptr ||
@@ -2413,35 +2418,6 @@ FragmentedRangeTombstoneIterator* BlockBasedTable::NewRangeTombstoneIterator(
   }
   return new FragmentedRangeTombstoneIterator(
       rep_->fragmented_range_dels, rep_->internal_comparator, snapshot);
-}
-
-InternalIterator* BlockBasedTable::NewUnfragmentedRangeTombstoneIterator(
-    const ReadOptions& read_options) {
-  if (rep_->range_del_handle.IsNull()) {
-    // The block didn't exist, nullptr indicates no range tombstones.
-    return nullptr;
-  }
-  if (rep_->range_del_entry.cache_handle != nullptr) {
-    // We have a handle to an uncompressed block cache entry that's held for
-    // this table's lifetime. Increment its refcount before returning an
-    // iterator based on it since the returned iterator may outlive this table
-    // reader.
-    assert(rep_->range_del_entry.value != nullptr);
-    Cache* block_cache = rep_->table_options.block_cache.get();
-    assert(block_cache != nullptr);
-    if (block_cache->Ref(rep_->range_del_entry.cache_handle)) {
-      auto iter = rep_->range_del_entry.value->NewIterator<DataBlockIter>(
-          &rep_->internal_comparator,
-          rep_->internal_comparator.user_comparator());
-      iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
-                            rep_->range_del_entry.cache_handle);
-      return iter;
-    }
-  }
-  // The meta-block exists but isn't in uncompressed block cache (maybe
-  // because it is disabled), so go through the full lookup process.
-  return NewDataBlockIterator<DataBlockIter>(rep_, read_options,
-                                             rep_->range_del_handle);
 }
 
 bool BlockBasedTable::FullFilterKeyMayMatch(
@@ -3102,7 +3078,6 @@ void BlockBasedTable::Close() {
   }
   rep_->filter_entry.Release(rep_->table_options.block_cache.get());
   rep_->index_entry.Release(rep_->table_options.block_cache.get());
-  rep_->range_del_entry.Release(rep_->table_options.block_cache.get());
   // cleanup index and filter blocks to avoid accessing dangling pointer
   if (!rep_->table_options.no_block_cache) {
     char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
