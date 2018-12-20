@@ -6762,8 +6762,8 @@ void Java_org_rocksdb_ComparatorOptions_disposeInternal(JNIEnv* /*env*/,
  * Method:    newFlushOptions
  * Signature: ()J
  */
-jlong Java_org_rocksdb_FlushOptions_newFlushOptions(JNIEnv* /*env*/,
-                                                    jclass /*jcls*/) {
+jlong Java_org_rocksdb_FlushOptions_newFlushOptions(
+    JNIEnv*, jclass) {
   auto* flush_opt = new rocksdb::FlushOptions();
   return reinterpret_cast<jlong>(flush_opt);
 }
@@ -6773,10 +6773,8 @@ jlong Java_org_rocksdb_FlushOptions_newFlushOptions(JNIEnv* /*env*/,
  * Method:    setWaitForFlush
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_FlushOptions_setWaitForFlush(JNIEnv* /*env*/,
-                                                   jobject /*jobj*/,
-                                                   jlong jhandle,
-                                                   jboolean jwait) {
+void Java_org_rocksdb_FlushOptions_setWaitForFlush(
+    JNIEnv*, jobject, jlong jhandle, jboolean jwait) {
   reinterpret_cast<rocksdb::FlushOptions*>(jhandle)->wait =
       static_cast<bool>(jwait);
 }
@@ -6786,10 +6784,31 @@ void Java_org_rocksdb_FlushOptions_setWaitForFlush(JNIEnv* /*env*/,
  * Method:    waitForFlush
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_FlushOptions_waitForFlush(JNIEnv* /*env*/,
-                                                    jobject /*jobj*/,
-                                                    jlong jhandle) {
+jboolean Java_org_rocksdb_FlushOptions_waitForFlush(
+    JNIEnv*, jobject, jlong jhandle) {
   return reinterpret_cast<rocksdb::FlushOptions*>(jhandle)->wait;
+}
+
+/*
+ * Class:     org_rocksdb_FlushOptions
+ * Method:    setAllowWriteStall
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_FlushOptions_setAllowWriteStall(
+    JNIEnv*, jobject, jlong jhandle, jboolean jallow_write_stall) {
+  auto* flush_options = reinterpret_cast<rocksdb::FlushOptions*>(jhandle);
+  flush_options->allow_write_stall = jallow_write_stall == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_FlushOptions
+ * Method:    allowWriteStall
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_FlushOptions_allowWriteStall(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* flush_options = reinterpret_cast<rocksdb::FlushOptions*>(jhandle);
+  return static_cast<jboolean>(flush_options->allow_write_stall);
 }
 
 /*
@@ -6797,9 +6816,8 @@ jboolean Java_org_rocksdb_FlushOptions_waitForFlush(JNIEnv* /*env*/,
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_FlushOptions_disposeInternal(JNIEnv* /*env*/,
-                                                   jobject /*jobj*/,
-                                                   jlong jhandle) {
+void Java_org_rocksdb_FlushOptions_disposeInternal(
+    JNIEnv*, jobject, jlong jhandle) {
   auto* flush_opt = reinterpret_cast<rocksdb::FlushOptions*>(jhandle);
   assert(flush_opt != nullptr);
   delete flush_opt;
