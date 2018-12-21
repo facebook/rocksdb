@@ -9,6 +9,8 @@
 
 ### Bug Fixes
 * Fix a deadlock caused by compaction and file ingestion waiting for each other in the event of write stalls.
+* Fix a memory leak when files with range tombstones are read in mmap mode and block cache is enabled
+* Fix handling of corrupt range tombstone blocks such that corruptions cannot cause deleted keys to reappear
 
 ## 5.18.0 (11/30/2018)
 ### New Features
