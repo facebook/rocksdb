@@ -24,6 +24,8 @@
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
 #include "rocksdb/write_batch.h"
+#include "table/block_based_table_builder.h"
+#include "table/meta_blocks.h"
 #include "util/filename.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
@@ -465,6 +467,39 @@ TEST_F(CorruptionTest, UnrelatedKeys) {
   dbi->TEST_FlushMemTable();
   ASSERT_OK(db_->Get(ReadOptions(), Key(1000, &tmp1), &v));
   ASSERT_EQ(Value(1000, &tmp2).ToString(), v);
+}
+
+TEST_F(CorruptionTest, RangeDeletionCorrupted) {
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "b"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_EQ(static_cast<size_t>(1), metadata.size());
+  std::string filename = dbname_ + metadata[0].name;
+
+  std::unique_ptr<RandomAccessFile> file;
+  ASSERT_OK(options_.env->NewRandomAccessFile(filename, &file, EnvOptions()));
+  std::unique_ptr<RandomAccessFileReader> file_reader(
+      new RandomAccessFileReader(std::move(file), filename));
+
+  uint64_t file_size;
+  ASSERT_OK(options_.env->GetFileSize(filename, &file_size));
+
+  BlockHandle range_del_handle;
+  ASSERT_OK(FindMetaBlock(
+      file_reader.get(), file_size, kBlockBasedTableMagicNumber,
+      ImmutableCFOptions(options_), kRangeDelBlock, &range_del_handle));
+
+  ASSERT_OK(TryReopen());
+  CorruptFile(filename, static_cast<int>(range_del_handle.offset()), 1);
+  // The test case does not fail on TryReopen because failure to preload table
+  // handlers is not considered critical.
+  ASSERT_OK(TryReopen());
+  std::string val;
+  // However, it does fail on any read involving that file since that file
+  // cannot be opened with a corrupt range deletion meta-block.
+  ASSERT_TRUE(db_->Get(ReadOptions(), "a", &val).IsCorruption());
 }
 
 TEST_F(CorruptionTest, FileSystemStateCorrupted) {
