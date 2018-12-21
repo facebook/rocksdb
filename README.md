@@ -1,4 +1,4 @@
-## RocksDB: A Persistent Key-Value Store for Flash and RAM Storage
+# RocksDB: A Persistent Key-Value Store for Flash and RAM Storage
 
 [![Linux/Mac Build Status](https://travis-ci.org/facebook/rocksdb.svg?branch=master)](https://travis-ci.org/facebook/rocksdb)
 [![Windows Build status](https://ci.appveyor.com/api/projects/status/fbgfu0so3afcno78/branch/master?svg=true)](https://ci.appveyor.com/project/Facebook/rocksdb/branch/master)
