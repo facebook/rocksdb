@@ -144,6 +144,8 @@ void PerfContextByLevel::Reset() {
   bloom_filter_useful = 0;
   bloom_filter_full_positive = 0;
   bloom_filter_full_true_positive = 0;
+  block_cache_hit_count = 0;
+  block_cache_miss_count = 0;
 #endif
 }
 
@@ -229,6 +231,8 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_useful);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_full_positive);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_full_true_positive);
+  PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(block_cache_hit_count);
+  PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(block_cache_miss_count);
   return ss.str();
 #endif
 }

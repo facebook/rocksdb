@@ -35,6 +35,9 @@ struct PerfContextByLevel {
   // total nanos spent on reading data from SST files
   uint64_t get_from_table_nanos;
 
+  uint64_t block_cache_hit_count = 0;     // total number of block cache hits
+  uint64_t block_cache_miss_count = 0;    // total number of block cache misses
+
   void Reset(); // reset all performance counters to zero
 };
 

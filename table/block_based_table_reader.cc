@@ -151,6 +151,7 @@ Slice GetCacheKeyFromOffset(const char* cache_key_prefix,
 }
 
 Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
+                                 int level,
                                  Tickers block_cache_miss_ticker,
                                  Tickers block_cache_hit_ticker,
                                  uint64_t* block_cache_miss_stats,
@@ -160,6 +161,8 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
   auto cache_handle = block_cache->Lookup(key, statistics);
   if (cache_handle != nullptr) {
     PERF_COUNTER_ADD(block_cache_hit_count, 1);
+    PERF_COUNTER_BY_LEVEL_ADD(block_cache_hit_count, 1,
+      static_cast<uint32_t>(level));
     if (get_context != nullptr) {
       // overall cache hit
       get_context->get_context_stats_.num_cache_hit++;
@@ -177,6 +180,8 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
       RecordTick(statistics, block_cache_hit_ticker);
     }
   } else {
+    PERF_COUNTER_BY_LEVEL_ADD(block_cache_miss_count, 1,
+      static_cast<uint32_t>(level));
     if (get_context != nullptr) {
       // overall cache miss
       get_context->get_context_stats_.num_cache_miss++;
@@ -1284,7 +1289,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
     block->cache_handle = GetEntryFromCache(
-        block_cache, block_cache_key,
+        block_cache, block_cache_key, rep->level,
         is_index ? BLOCK_CACHE_INDEX_MISS : BLOCK_CACHE_DATA_MISS,
         is_index ? BLOCK_CACHE_INDEX_HIT : BLOCK_CACHE_DATA_HIT,
         get_context
@@ -1613,7 +1618,8 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 
   Statistics* statistics = rep_->ioptions.statistics;
   auto cache_handle = GetEntryFromCache(
-      block_cache, key, BLOCK_CACHE_FILTER_MISS, BLOCK_CACHE_FILTER_HIT,
+      block_cache, key, rep_->level,
+      BLOCK_CACHE_FILTER_MISS, BLOCK_CACHE_FILTER_HIT,
       get_context ? &get_context->get_context_stats_.num_cache_filter_miss
                   : nullptr,
       get_context ? &get_context->get_context_stats_.num_cache_filter_hit
@@ -1696,7 +1702,8 @@ InternalIteratorBase<BlockHandle>* BlockBasedTable::NewIndexIterator(
                             rep_->dummy_index_reader_offset, cache_key);
   Statistics* statistics = rep_->ioptions.statistics;
   auto cache_handle = GetEntryFromCache(
-      block_cache, key, BLOCK_CACHE_INDEX_MISS, BLOCK_CACHE_INDEX_HIT,
+      block_cache, key, rep_->level,
+      BLOCK_CACHE_INDEX_MISS, BLOCK_CACHE_INDEX_HIT,
       get_context ? &get_context->get_context_stats_.num_cache_index_miss
                   : nullptr,
       get_context ? &get_context->get_context_stats_.num_cache_index_hit
