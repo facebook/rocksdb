@@ -492,11 +492,13 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
       ImmutableCFOptions(options_), kRangeDelBlock, &range_del_handle));
 
   ASSERT_OK(TryReopen());
-  CorruptFile(filename, range_del_handle.offset(), 20);
-  // make sure the block isn't in cache
-  tiny_cache_ = NewLRUCache(100, 4);
+  CorruptFile(filename, range_del_handle.offset(), 1);
+  // The test case does not fail on TryReopen because failure to preload table
+  // handlers is not considered critical.
   ASSERT_OK(TryReopen());
   std::string val;
+  // However, it does fail on any read involving that file since that file
+  // cannot be opened with a corrupt range deletion meta-block.
   ASSERT_TRUE(db_->Get(ReadOptions(), "a", &val).IsCorruption());
 }
 
