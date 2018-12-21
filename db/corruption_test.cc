@@ -492,7 +492,7 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
       ImmutableCFOptions(options_), kRangeDelBlock, &range_del_handle));
 
   ASSERT_OK(TryReopen());
-  CorruptFile(filename, range_del_handle.offset(), 1);
+  CorruptFile(filename, static_cast<int>(range_del_handle.offset()), 1);
   // The test case does not fail on TryReopen because failure to preload table
   // handlers is not considered critical.
   ASSERT_OK(TryReopen());
