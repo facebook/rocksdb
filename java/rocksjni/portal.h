@@ -737,7 +737,6 @@ class RocksDBExceptionJni :
    * @return true if an exception was thrown, false otherwise
    */
   static bool ThrowNew(JNIEnv* env, const Status& s) {
-    assert(!s.ok());
     if (s.ok()) {
       return false;
     }
