@@ -193,9 +193,9 @@ public class RateLimiter extends RocksObject {
   }
 
   /**
-   * <p>Total bytes that go though rate limiter.</p>
+   * <p>Total bytes that go through rate limiter.</p>
    *
-   * @return total bytes that go though rate limiter.
+   * @return total bytes that go through rate limiter.
    */
   public long getTotalBytesThrough() {
     assert(isOwningHandle());
@@ -203,9 +203,9 @@ public class RateLimiter extends RocksObject {
   }
 
   /**
-   * <p>Total # of requests that go though rate limiter.</p>
+   * <p>Total # of requests that go through rate limiter.</p>
    *
-   * @return total # of requests that go though rate limiter.
+   * @return total # of requests that go through rate limiter.
    */
   public long getTotalRequests() {
     assert(isOwningHandle());
