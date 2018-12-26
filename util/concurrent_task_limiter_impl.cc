@@ -21,6 +21,7 @@ ConcurrentTaskLimiterImpl::ConcurrentTaskLimiterImpl(
 }
 
 ConcurrentTaskLimiterImpl::~ConcurrentTaskLimiterImpl() {
+  assert(outstanding_tasks_ == 0);
 }
 
 const std::string& ConcurrentTaskLimiterImpl::GetName() const {

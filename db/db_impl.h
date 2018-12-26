@@ -1114,9 +1114,6 @@ class DBImpl : public DB {
   // Schedule background tasks
   void StartTimedTasks();
 
-  void SubtractCompactionTask(const std::string& device_name,
-                              LogBuffer* log_buffer);
-
   void PrintStatistics();
 
   // dump rocksdb.stats to LOG
