@@ -500,13 +500,11 @@ void VersionBuilder::SaveTo(VersionStorageInfo* vstorage) {
 
 Status VersionBuilder::LoadTableHandlers(
     InternalStats* internal_stats, int max_threads,
-    bool prefetch_index_and_filter_in_cache,
-    bool is_initial_load,
+    bool prefetch_index_and_filter_in_cache, bool is_initial_load,
     const SliceTransform* prefix_extractor) {
   return rep_->LoadTableHandlers(internal_stats, max_threads,
                                  prefetch_index_and_filter_in_cache,
-                                 is_initial_load,
-                                 prefix_extractor);
+                                 is_initial_load, prefix_extractor);
 }
 
 void VersionBuilder::MaybeAddFile(VersionStorageInfo* vstorage, int level,

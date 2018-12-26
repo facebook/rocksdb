@@ -3321,10 +3321,9 @@ Status VersionSet::ReadAndApply(
   while (s.ok()) {
     Slice record;
     std::string scratch;
-    bool read_success = false;  // Make lint happy
     log::Reader* reader = manifest_reader->get();
     std::string old_manifest_path = reader->file()->file_name();
-    while ((read_success = reader->TryReadRecord(&record, &scratch))) {
+    while (reader->TryReadRecord(&record, &scratch)) {
       VersionEdit edit;
       s = edit.DecodeFrom(record);
       if (!s.ok()) {
@@ -3396,7 +3395,7 @@ Status VersionSet::ReadAndApply(
       column_family_set_->UpdateMaxColumnFamily(max_column_family);
       MarkMinLogNumberToKeep2PC(min_log_number_to_keep);
     }
-    if (s.ok() && !read_success) {
+    if (s.ok()) {
       // It's possible that we have finished reading the current MANIFEST, and
       // the primary has created a new MANIFEST.
       log::Reader::Reporter* reporter = reader->GetReporter();
