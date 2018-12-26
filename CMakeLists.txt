@@ -884,6 +884,7 @@ if(WITH_TESTS)
         db/db_options_test.cc
         db/db_properties_test.cc
         db/db_range_del_test.cc
+        db/db_secondary_test.cc
         db/db_sst_test.cc
         db/db_statistics_test.cc
         db/db_table_properties_test.cc
