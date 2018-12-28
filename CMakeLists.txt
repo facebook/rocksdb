@@ -94,7 +94,13 @@ else()
   if(WITH_ZLIB)
     find_package(zlib REQUIRED)
     add_definitions(-DZLIB)
-    include_directories(${ZLIB_INCLUDE_DIR})
+    if(ZLIB_INCLUDE_DIRS)
+      # CMake 3
+      include_directories(${ZLIB_INCLUDE_DIRS})
+    else()
+      # CMake 2
+      include_directories(${ZLIB_INCLUDE_DIR})
+    endif()
     list(APPEND THIRDPARTY_LIBS ${ZLIB_LIBRARIES})
   endif()
 
