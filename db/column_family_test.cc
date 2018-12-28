@@ -2042,7 +2042,7 @@ TEST_P(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
 }
 #endif  // !ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE  // Tailing interator not supported
+#ifndef ROCKSDB_LITE  // Tailing iterator not supported
 namespace {
 std::string IterStatus(Iterator* iter) {
   std::string result;
