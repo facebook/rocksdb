@@ -36,7 +36,7 @@
 #include "db/event_helpers.h"
 #include "db/external_sst_file_ingestion_job.h"
 #include "db/flush_job.h"
-#include "db/forward_interator.h"
+#include "db/forward_iterator.h"
 #include "db/job_context.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -74,9 +74,9 @@
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
-#include "table/merging_interator.h"
+#include "table/merging_iterator.h"
 #include "table/table_builder.h"
-#include "table/two_level_interator.h"
+#include "table/two_level_iterator.h"
 #include "tools/sst_dump_tool_imp.h"
 #include "util/auto_roll_logger.h"
 #include "util/autovector.h"
@@ -1158,12 +1158,12 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
   InternalIterator* internal_iter;
   assert(arena != nullptr);
   assert(range_del_agg != nullptr);
-  // Need to create internal interator from the arena.
+  // Need to create internal iterator from the arena.
   MergeIteratorBuilder merge_iter_builder(
       &cfd->internal_comparator(), arena,
       !read_options.total_order_seek &&
           super_version->mutable_cf_options.prefix_extractor != nullptr);
-  // Collect interator for mutable mem
+  // Collect iterator for mutable mem
   merge_iter_builder.AddIterator(
       super_version->mem->NewIterator(read_options, arena));
   std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter;
@@ -1173,7 +1173,7 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
         super_version->mem->NewRangeTombstoneIterator(read_options, sequence));
     range_del_agg->AddTombstones(std::move(range_del_iter));
   }
-  // Collect all needed child interators for immutable memtables
+  // Collect all needed child iterators for immutable memtables
   if (s.ok()) {
     super_version->imm->AddIterators(read_options, &merge_iter_builder);
     if (!read_options.ignore_range_deletions) {
@@ -1183,7 +1183,7 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
   }
   TEST_SYNC_POINT_CALLBACK("DBImpl::NewInternalIterator:StatusCallback", &s);
   if (s.ok()) {
-    // Collect interators for files in L0 - Ln
+    // Collect iterators for files in L0 - Ln
     if (read_options.read_tier != kMemtableTier) {
       super_version->current->AddIterators(read_options, env_options_,
                                            &merge_iter_builder, range_del_agg);
@@ -1191,7 +1191,7 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
     internal_iter = merge_iter_builder.Finish();
     IterState* cleanup =
         new IterState(this, &mutex_, super_version,
-                      read_options.background_purge_on_interator_cleanup);
+                      read_options.background_purge_on_iterator_cleanup);
     internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
 
     return internal_iter;
@@ -1742,14 +1742,14 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
                               ColumnFamilyHandle* column_family) {
   if (read_options.managed) {
     return NewErrorIterator(
-        Status::NotSupported("Managed interator is not supported anymore."));
+        Status::NotSupported("Managed iterator is not supported anymore."));
   }
   Iterator* result = nullptr;
   if (read_options.read_tier == kPersistedTier) {
     return NewErrorIterator(Status::NotSupported(
-        "ReadTier::kPersistedData is not yet supported in interators."));
+        "ReadTier::kPersistedData is not yet supported in iterators."));
   }
-  // if interator wants internal keys, we can only proceed if
+  // if iterator wants internal keys, we can only proceed if
   // we can guarantee the deletes haven't been processed yet
   if (immutable_db_options_.preserve_deletes &&
       read_options.iter_start_seqnum > 0 &&
@@ -1795,7 +1795,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
                                             bool allow_refresh) {
   SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
 
-  // Try to generate a DB interator tree in continuous memory area to be
+  // Try to generate a DB iterator tree in continuous memory area to be
   // cache friendly. Here is an example of result:
   // +-------------------------------+
   // |                               |
@@ -1831,11 +1831,11 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
   // |       |                       |
   // +-------+-----------------------+
   //
-  // ArenaWrappedDBIter inlines an arena area where all the interators in
-  // the interator tree are allocated in the order of being accessed when
+  // ArenaWrappedDBIter inlines an arena area where all the iterators in
+  // the iterator tree are allocated in the order of being accessed when
   // querying.
-  // Laying out the interators in the order of being accessed makes it more
-  // likely that any interator pointer is close to the interator it points to so
+  // Laying out the iterators in the order of being accessed makes it more
+  // likely that any iterator pointer is close to the iterator it points to so
   // that they are likely to be in the same cache line and/or page.
   ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
       env_, read_options, *cfd->ioptions(), sv->mutable_cf_options, snapshot,
@@ -1854,17 +1854,17 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
 Status DBImpl::NewIterators(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
-    std::vector<Iterator*>* interators) {
+    std::vector<Iterator*>* iterators) {
   if (read_options.managed) {
-    return Status::NotSupported("Managed interator is not supported anymore.");
+    return Status::NotSupported("Managed iterator is not supported anymore.");
   }
   if (read_options.read_tier == kPersistedTier) {
     return Status::NotSupported(
-        "ReadTier::kPersistedData is not yet supported in interators.");
+        "ReadTier::kPersistedData is not yet supported in iterators.");
   }
   ReadCallback* read_callback = nullptr;  // No read callback provided.
-  interators->clear();
-  interators->reserve(column_families.size());
+  iterators->clear();
+  iterators->reserve(column_families.size());
   if (read_options.tailing) {
 #ifdef ROCKSDB_LITE
     return Status::InvalidArgument(
@@ -1874,7 +1874,7 @@ Status DBImpl::NewIterators(
       auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
       SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
       auto iter = new ForwardIterator(this, read_options, cfd, sv);
-      interators->push_back(NewDBIterator(
+      iterators->push_back(NewDBIterator(
           env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
           cfd->user_comparator(), iter, kMaxSequenceNumber,
           sv->mutable_cf_options.max_sequential_skip_in_iterations,
@@ -1891,7 +1891,7 @@ Status DBImpl::NewIterators(
     for (size_t i = 0; i < column_families.size(); ++i) {
       auto* cfd =
           reinterpret_cast<ColumnFamilyHandleImpl*>(column_families[i])->cfd();
-      interators->push_back(
+      iterators->push_back(
           NewIteratorImpl(read_options, cfd, snapshot, read_callback));
     }
   }
@@ -2280,9 +2280,9 @@ void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
   ReturnAndCleanupSuperVersion(cfd, sv);
 }
 
-std::list<uint64_t>::interator
+std::list<uint64_t>::iterator
 DBImpl::CaptureCurrentFileNumberInPendingOutputs() {
-  // We need to remember the interator of our insert, because after the
+  // We need to remember the iterator of our insert, because after the
   // background job is done, we need to remove that element from
   // pending_outputs_.
   pending_outputs_.push_back(versions_->current_next_file_number());
@@ -2292,7 +2292,7 @@ DBImpl::CaptureCurrentFileNumberInPendingOutputs() {
 }
 
 void DBImpl::ReleaseFileNumberFromPendingOutputs(
-    std::list<uint64_t>::interator v) {
+    std::list<uint64_t>::iterator v) {
   pending_outputs_.erase(v);
 }
 
@@ -3069,7 +3069,7 @@ Status DBImpl::IngestExternalFile(
   SuperVersionContext dummy_sv_ctx(/* create_superversion */ true);
   VersionEdit dummy_edit;
   uint64_t next_file_number = 0;
-  std::list<uint64_t>::interator pending_output_elem;
+  std::list<uint64_t>::iterator pending_output_elem;
   {
     InstrumentedMutexLock l(&mutex_);
     if (error_handler_.IsDBStopped()) {

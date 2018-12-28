@@ -18,7 +18,7 @@
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "rocksdb/interator.h"
+#include "rocksdb/iterator.h"
 #include "util/coding.h"
 #include "util/fault_injection_test_env.h"
 #include "util/string_util.h"
@@ -956,10 +956,10 @@ TEST_P(ColumnFamilyTest, FlushTest) {
 
   for (int j = 0; j < 2; j++) {
     ReadOptions ro;
-    std::vector<Iterator*> interators;
+    std::vector<Iterator*> iterators;
     // Hold super version.
     if (j == 0) {
-      ASSERT_OK(db_->NewIterators(ro, handles_, &interators));
+      ASSERT_OK(db_->NewIterators(ro, handles_, &iterators));
     }
 
     for (int i = 0; i < 3; ++i) {
@@ -971,7 +971,7 @@ TEST_P(ColumnFamilyTest, FlushTest) {
     ASSERT_OK(Put(1, "foofoo", "bar"));
     ASSERT_OK(Put(0, "foofoo", "bar"));
 
-    for (auto* it : interators) {
+    for (auto* it : iterators) {
       delete it;
     }
   }
@@ -1456,7 +1456,7 @@ TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
   CompactAll(2);
   AssertFilesPerLevel("0,1", 2);
   // Compare against saved keys
-  std::set<std::string>::interator key_iter = keys_[1].begin();
+  std::set<std::string>::iterator key_iter = keys_[1].begin();
   while (key_iter != keys_[1].end()) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
@@ -1553,7 +1553,7 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
   CompactAll(2);
   AssertFilesPerLevel("0,1", 2);
   // Compare against saved keys
-  std::set<std::string>::interator key_iter = keys_[1].begin();
+  std::set<std::string>::iterator key_iter = keys_[1].begin();
   while (key_iter != keys_[1].end()) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
@@ -1652,7 +1652,7 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
   CompactAll(2);
   AssertFilesPerLevel("0,1", 2);
   // Compare against saved keys
-  std::set<std::string>::interator key_iter = keys_[1].begin();
+  std::set<std::string>::iterator key_iter = keys_[1].begin();
   while (key_iter != keys_[1].end()) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
@@ -1754,7 +1754,7 @@ TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
   ASSERT_LE(NumTableFilesAtLevel(0, 1), 2);
 
   // Compare against saved keys
-  std::set<std::string>::interator key_iter = keys_[1].begin();
+  std::set<std::string>::iterator key_iter = keys_[1].begin();
   while (key_iter != keys_[1].end()) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
@@ -1847,7 +1847,7 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
   ASSERT_LE(NumTableFilesAtLevel(0, 1), 2);
 
   // Compare against saved keys
-  std::set<std::string>::interator key_iter = keys_[1].begin();
+  std::set<std::string>::iterator key_iter = keys_[1].begin();
   while (key_iter != keys_[1].end()) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
@@ -1940,7 +1940,7 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
   AssertFilesPerLevel("0,1", 1);
 
   // Compare against saved keys
-  std::set<std::string>::interator key_iter = keys_[1].begin();
+  std::set<std::string>::iterator key_iter = keys_[1].begin();
   while (key_iter != keys_[1].end()) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
@@ -2032,7 +2032,7 @@ TEST_P(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
   // VERIFY compaction "one"
   AssertFilesPerLevel("1", 1);
   // Compare against saved keys
-  std::set<std::string>::interator key_iter = keys_[1].begin();
+  std::set<std::string>::iterator key_iter = keys_[1].begin();
   while (key_iter != keys_[1].end()) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
@@ -2065,35 +2065,35 @@ TEST_P(ColumnFamilyTest, NewIteratorsTest) {
     ASSERT_OK(Put(1, "b", "a"));
     ASSERT_OK(Put(2, "c", "m"));
     ASSERT_OK(Put(2, "v", "t"));
-    std::vector<Iterator*> interators;
+    std::vector<Iterator*> iterators;
     ReadOptions options;
     options.tailing = (iter == 1);
-    ASSERT_OK(db_->NewIterators(options, handles_, &interators));
+    ASSERT_OK(db_->NewIterators(options, handles_, &iterators));
 
-    for (auto it : interators) {
+    for (auto it : iterators) {
       it->SeekToFirst();
     }
-    ASSERT_EQ(IterStatus(interators[0]), "a->b");
-    ASSERT_EQ(IterStatus(interators[1]), "b->a");
-    ASSERT_EQ(IterStatus(interators[2]), "c->m");
+    ASSERT_EQ(IterStatus(iterators[0]), "a->b");
+    ASSERT_EQ(IterStatus(iterators[1]), "b->a");
+    ASSERT_EQ(IterStatus(iterators[2]), "c->m");
 
     ASSERT_OK(Put(1, "x", "x"));
 
-    for (auto it : interators) {
+    for (auto it : iterators) {
       it->Next();
     }
 
-    ASSERT_EQ(IterStatus(interators[0]), "(invalid)");
+    ASSERT_EQ(IterStatus(iterators[0]), "(invalid)");
     if (iter == 0) {
       // no tailing
-      ASSERT_EQ(IterStatus(interators[1]), "(invalid)");
+      ASSERT_EQ(IterStatus(iterators[1]), "(invalid)");
     } else {
       // tailing
-      ASSERT_EQ(IterStatus(interators[1]), "x->x");
+      ASSERT_EQ(IterStatus(iterators[1]), "x->x");
     }
-    ASSERT_EQ(IterStatus(interators[2]), "v->t");
+    ASSERT_EQ(IterStatus(iterators[2]), "v->t");
 
-    for (auto it : interators) {
+    for (auto it : iterators) {
       delete it;
     }
     Destroy();
@@ -2120,24 +2120,24 @@ TEST_P(ColumnFamilyTest, ReadOnlyDBTest) {
   ASSERT_EQ("blablablabla", Get(2, "foo"));
 
 
-  // test newinterators
+  // test newiterators
   {
-    std::vector<Iterator*> interators;
-    ASSERT_OK(db_->NewIterators(ReadOptions(), handles_, &interators));
-    for (auto it : interators) {
+    std::vector<Iterator*> iterators;
+    ASSERT_OK(db_->NewIterators(ReadOptions(), handles_, &iterators));
+    for (auto it : iterators) {
       it->SeekToFirst();
     }
-    ASSERT_EQ(IterStatus(interators[0]), "a->b");
-    ASSERT_EQ(IterStatus(interators[1]), "foo->bla");
-    ASSERT_EQ(IterStatus(interators[2]), "foo->blablablabla");
-    for (auto it : interators) {
+    ASSERT_EQ(IterStatus(iterators[0]), "a->b");
+    ASSERT_EQ(IterStatus(iterators[1]), "foo->bla");
+    ASSERT_EQ(IterStatus(iterators[2]), "foo->blablablabla");
+    for (auto it : iterators) {
       it->Next();
     }
-    ASSERT_EQ(IterStatus(interators[0]), "(invalid)");
-    ASSERT_EQ(IterStatus(interators[1]), "(invalid)");
-    ASSERT_EQ(IterStatus(interators[2]), "(invalid)");
+    ASSERT_EQ(IterStatus(iterators[0]), "(invalid)");
+    ASSERT_EQ(IterStatus(iterators[1]), "(invalid)");
+    ASSERT_EQ(IterStatus(iterators[2]), "(invalid)");
 
-    for (auto it : interators) {
+    for (auto it : iterators) {
       delete it;
     }
   }
@@ -2294,9 +2294,9 @@ TEST_P(ColumnFamilyTest, ReadDroppedColumnFamily) {
     PutRandomData(2, kKeysNum, 100);
 
     {
-      std::unique_ptr<Iterator> interator(
+      std::unique_ptr<Iterator> iterator(
           db_->NewIterator(ReadOptions(), handles_[2]));
-      interator->SeekToFirst();
+      iterator->SeekToFirst();
 
       if (iter == 0) {
         // Drop CF two
@@ -2306,13 +2306,13 @@ TEST_P(ColumnFamilyTest, ReadDroppedColumnFamily) {
         db_->DestroyColumnFamilyHandle(handles_[2]);
         handles_[2] = nullptr;
       }
-      // Make sure interator created can still be used.
+      // Make sure iterator created can still be used.
       int count = 0;
-      for (; interator->Valid(); interator->Next()) {
-        ASSERT_OK(interator->status());
+      for (; iterator->Valid(); iterator->Next()) {
+        ASSERT_OK(iterator->status());
         ++count;
       }
-      ASSERT_OK(interator->status());
+      ASSERT_OK(iterator->status());
       ASSERT_EQ(count, kKeysNum);
     }
 
@@ -2327,14 +2327,14 @@ TEST_P(ColumnFamilyTest, ReadDroppedColumnFamily) {
     // Since we didn't delete CF handle, RocksDB's contract guarantees that
     // we're still able to read dropped CF
     for (int i = 0; i < 3; ++i) {
-      std::unique_ptr<Iterator> interator(
+      std::unique_ptr<Iterator> iterator(
           db_->NewIterator(ReadOptions(), handles_[i]));
       int count = 0;
-      for (interator->SeekToFirst(); interator->Valid(); interator->Next()) {
-        ASSERT_OK(interator->status());
+      for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
+        ASSERT_OK(iterator->status());
         ++count;
       }
-      ASSERT_OK(interator->status());
+      ASSERT_OK(iterator->status());
       ASSERT_EQ(count, kKeysNum * ((i == 2) ? 1 : 2));
     }
 
@@ -2387,14 +2387,14 @@ TEST_P(ColumnFamilyTest, FlushAndDropRaceCondition) {
   {
     // Since we didn't delete CF handle, RocksDB's contract guarantees that
     // we're still able to read dropped CF
-    std::unique_ptr<Iterator> interator(
+    std::unique_ptr<Iterator> iterator(
         db_->NewIterator(ReadOptions(), handles_[1]));
     int count = 0;
-    for (interator->SeekToFirst(); interator->Valid(); interator->Next()) {
-      ASSERT_OK(interator->status());
+    for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
+      ASSERT_OK(iterator->status());
       ++count;
     }
-    ASSERT_OK(interator->status());
+    ASSERT_OK(iterator->status());
     ASSERT_EQ(count, kKeysNum);
   }
   for (auto& t : threads) {
@@ -2960,7 +2960,7 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   Open();
   CreateColumnFamilies({"one"});
   ASSERT_OK(Put(1, "fodor", "mirko"));
-  // Create an interator holding the current super version.
+  // Create an iterator holding the current super version.
   Iterator* it = db_->NewIterator(ReadOptions(), handles_[1]);
   // A flush will make `it` hold the last reference of its super version.
   Flush(1);
@@ -2971,7 +2971,7 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
 
   // Flush jobs will close previous WAL files after finishing. By
   // block flush jobs from running, we trigger a condition where
-  // the interator destructor should close the WAL files.
+  // the iterator destructor should close the WAL files.
   test::SleepingBackgroundTask sleeping_task;
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
                  Env::Priority::HIGH);
@@ -2981,7 +2981,7 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
 
   ASSERT_EQ(2, env.num_open_wal_file_.load());
-  // Deleting the interator will clear its super version, triggering
+  // Deleting the iterator will clear its super version, triggering
   // closing all files
   delete it;
   ASSERT_EQ(1, env.num_open_wal_file_.load());
@@ -3007,9 +3007,9 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile2) {
   Open();
   CreateColumnFamilies({"one"});
   ASSERT_OK(Put(1, "fodor", "mirko"));
-  // Create an interator holding the current super version.
+  // Create an iterator holding the current super version.
   ReadOptions ro;
-  ro.background_purge_on_interator_cleanup = true;
+  ro.background_purge_on_iterator_cleanup = true;
   Iterator* it = db_->NewIterator(ro, handles_[1]);
   // A flush will make `it` hold the last reference of its super version.
   Flush(1);
@@ -3032,7 +3032,7 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile2) {
   ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
 
   ASSERT_EQ(2, env.num_open_wal_file_.load());
-  // Deleting the interator will clear its super version, triggering
+  // Deleting the iterator will clear its super version, triggering
   // closing all files
   delete it;
   ASSERT_EQ(2, env.num_open_wal_file_.load());
@@ -3068,11 +3068,11 @@ TEST_P(ColumnFamilyTest, ForwardIteratorCloseWALFile) {
   ASSERT_OK(Put(1, "fodar2", "mirko"));
   Flush(1);
 
-  // Create an interator holding the current super version, as well as
+  // Create an iterator holding the current super version, as well as
   // the SST file just flushed.
   ReadOptions ro;
   ro.tailing = true;
-  ro.background_purge_on_interator_cleanup = true;
+  ro.background_purge_on_iterator_cleanup = true;
   Iterator* it = db_->NewIterator(ro, handles_[1]);
   // A flush will make `it` hold the last reference of its super version.
 
@@ -3102,7 +3102,7 @@ TEST_P(ColumnFamilyTest, ForwardIteratorCloseWALFile) {
 
   env.delete_count_.store(0);
   ASSERT_EQ(2, env.num_open_wal_file_.load());
-  // Deleting the interator will clear its super version, triggering
+  // Deleting the iterator will clear its super version, triggering
   // closing all files
   it->Seek("");
   ASSERT_EQ(2, env.num_open_wal_file_.load());

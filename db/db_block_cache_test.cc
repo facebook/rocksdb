@@ -124,7 +124,7 @@ TEST_F(DBBlockCacheTest, IteratorBlockCacheUsage) {
   Reopen(options);
   RecordCacheCounters(options);
 
-  std::vector<std::unique_ptr<Iterator>> interators(kNumBlocks - 1);
+  std::vector<std::unique_ptr<Iterator>> iterators(kNumBlocks - 1);
   Iterator* iter = nullptr;
 
   ASSERT_EQ(0, cache->GetUsage());
@@ -148,7 +148,7 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
   Reopen(options);
   RecordCacheCounters(options);
 
-  std::vector<std::unique_ptr<Iterator>> interators(kNumBlocks - 1);
+  std::vector<std::unique_ptr<Iterator>> iterators(kNumBlocks - 1);
   Iterator* iter = nullptr;
 
   // Load blocks into cache.
@@ -157,7 +157,7 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
     iter->Seek(ToString(i));
     ASSERT_OK(iter->status());
     CheckCacheCounters(options, 1, 0, 1, 0);
-    interators[i].reset(iter);
+    iterators[i].reset(iter);
   }
   size_t usage = cache->GetUsage();
   ASSERT_LT(0, usage);
@@ -175,7 +175,7 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
 
   // Release interators and access cache again.
   for (size_t i = 0; i < kNumBlocks - 1; i++) {
-    interators[i].reset();
+    iterators[i].reset();
     CheckCacheCounters(options, 0, 0, 0, 0);
   }
   ASSERT_EQ(0, cache->GetPinnedUsage());
@@ -184,7 +184,7 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
     iter->Seek(ToString(i));
     ASSERT_OK(iter->status());
     CheckCacheCounters(options, 0, 1, 0, 0);
-    interators[i].reset(iter);
+    iterators[i].reset(iter);
   }
 }
 
@@ -204,7 +204,7 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   Reopen(options);
   RecordCacheCounters(options);
 
-  std::vector<std::unique_ptr<Iterator>> interators(kNumBlocks - 1);
+  std::vector<std::unique_ptr<Iterator>> iterators(kNumBlocks - 1);
   Iterator* iter = nullptr;
 
   // Load blocks into cache.
@@ -214,7 +214,7 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
     ASSERT_OK(iter->status());
     CheckCacheCounters(options, 1, 0, 1, 0);
     CheckCompressedCacheCounters(options, 1, 0, 1, 0);
-    interators[i].reset(iter);
+    iterators[i].reset(iter);
   }
   size_t usage = cache->GetUsage();
   ASSERT_LT(0, usage);
