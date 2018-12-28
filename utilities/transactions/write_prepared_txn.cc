@@ -419,7 +419,7 @@ void WritePreparedTxn::SetSnapshot() {
   // the mutex overhead, we call SmallestUnCommittedSeq BEFORE taking the
   // snapshot. Since we always updated the list of unprepared seq (via
   // AddPrepared) AFTER the last sequence is updated, this guarantees that the
-  // smallest uncommited seq that we pair with the snapshot is smaller or equal
+  // smallest uncommitted seq that we pair with the snapshot is smaller or equal
   // the value that would be obtained otherwise atomically. That is ok since
   // this optimization works as long as min_uncommitted is less than or equal
   // than the smallest uncommitted seq when the snapshot was taken.

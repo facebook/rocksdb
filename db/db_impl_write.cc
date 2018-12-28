@@ -1048,22 +1048,22 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
   auto oldest_alive_log = alive_log_files_.begin()->number;
   bool flush_wont_release_oldest_log = false;
   if (allow_2pc()) {
-    auto oldest_log_with_uncommited_prep =
+    auto oldest_log_with_uncommitted_prep =
         logs_with_prep_tracker_.FindMinLogContainingOutstandingPrep();
 
-    assert(oldest_log_with_uncommited_prep == 0 ||
-           oldest_log_with_uncommited_prep >= oldest_alive_log);
-    if (oldest_log_with_uncommited_prep > 0 &&
-        oldest_log_with_uncommited_prep == oldest_alive_log) {
+    assert(oldest_log_with_uncommitted_prep == 0 ||
+           oldest_log_with_uncommitted_prep >= oldest_alive_log);
+    if (oldest_log_with_uncommitted_prep > 0 &&
+        oldest_log_with_uncommitted_prep == oldest_alive_log) {
       if (unable_to_release_oldest_log_) {
         // we already attempted to flush all column families dependent on
-        // the oldest alive log but the log still contained uncommited
+        // the oldest alive log but the log still contained uncommitted
         // transactions so there is still nothing that we can do.
         return status;
       } else {
         ROCKS_LOG_WARN(
             immutable_db_options_.info_log,
-            "Unable to release oldest log due to uncommited transaction");
+            "Unable to release oldest log due to uncommitted transaction");
         unable_to_release_oldest_log_ = true;
         flush_wont_release_oldest_log = true;
       }
