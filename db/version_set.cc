@@ -200,6 +200,13 @@ class FilePicker {
               break;
             }
           }
+          if (cmp_largest == 0 &&
+              GetInternalKeySeqno(f->largest_key) == kMaxSequenceNumber) {
+            assert(ExtractValueType(f->largest_key) == kTypeRangeDeletion);
+            // Key falls at the range tombstone sentinel endpoint. Proceed to
+            // next level.
+            break;
+          }
         }
 #ifndef NDEBUG
         // Sanity check to make sure that the files are correctly sorted
