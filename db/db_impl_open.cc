@@ -41,6 +41,8 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
       max_max_open_files = 0x400000;
     }
     ClipToRange(&result.max_open_files, 20, max_max_open_files);
+    TEST_SYNC_POINT_CALLBACK("SanitizeOptions::AfterChangeMaxOpenFiles",
+                             &result.max_open_files);
   }
 
   if (result.info_log == nullptr) {

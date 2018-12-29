@@ -604,6 +604,7 @@ Status DBTestBase::TryReopenWithColumnFamilies(
     column_families.push_back(ColumnFamilyDescriptor(cfs[i], options[i]));
   }
   DBOptions db_opts = DBOptions(options[0]);
+  last_options_ = options[0];
   return DB::Open(db_opts, dbname_, column_families, &handles_, &db_);
 }
 

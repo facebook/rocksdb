@@ -414,6 +414,7 @@ TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
 
   // Reopen the DB with stats-update disabled
   options.skip_stats_update_on_db_open = true;
+  options.max_open_files = 20;
   env_->random_file_open_counter_.store(0);
   Reopen(options);
 
@@ -439,7 +440,7 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   Options options = CurrentOptions();
   options.env = env_;
   options.new_table_reader_for_compaction_inputs = true;
-  options.max_open_files = 100;
+  options.max_open_files = 20;
   options.level0_file_num_compaction_trigger = 3;
   DestroyAndReopen(options);
   Random rnd(301);
@@ -468,15 +469,16 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
       Flush();
       dbfull()->TEST_WaitForCompact();
       // preloading iterator issues one table cache lookup and create
-      // a new table reader.
-      ASSERT_EQ(num_table_cache_lookup, 1);
+      // a new table reader, if not preloaded.
+      int old_num_table_cache_lookup = num_table_cache_lookup;
+      ASSERT_GE(num_table_cache_lookup, 1);
       ASSERT_EQ(num_new_table_reader, 1);
 
       num_table_cache_lookup = 0;
       num_new_table_reader = 0;
       ASSERT_EQ(Key(k), Get(Key(k)));
       // lookup iterator from table cache and no need to create a new one.
-      ASSERT_EQ(num_table_cache_lookup, 1);
+      ASSERT_EQ(old_num_table_cache_lookup + num_table_cache_lookup, 2);
       ASSERT_EQ(num_new_table_reader, 0);
     }
   }
@@ -489,7 +491,10 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   // a new table reader. One file is created for flush and one for compaction.
   // Compaction inputs make no table cache look-up for data/range deletion
   // iterators
-  ASSERT_EQ(num_table_cache_lookup, 2);
+  // May preload table cache too.
+  ASSERT_GE(num_table_cache_lookup, 2);
+  int old_num_table_cache_lookup2 = num_table_cache_lookup;
+
   // Create new iterator for:
   // (1) 1 for verifying flush results
   // (2) 3 for compaction input files
@@ -499,7 +504,7 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   num_table_cache_lookup = 0;
   num_new_table_reader = 0;
   ASSERT_EQ(Key(1), Get(Key(1)));
-  ASSERT_EQ(num_table_cache_lookup, 1);
+  ASSERT_EQ(num_table_cache_lookup + old_num_table_cache_lookup2, 3);
   ASSERT_EQ(num_new_table_reader, 0);
 
   num_table_cache_lookup = 0;
@@ -511,14 +516,16 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   db_->CompactRange(cro, nullptr, nullptr);
   // Only verifying compaction outputs issues one table cache lookup
   // for both data block and range deletion block).
-  ASSERT_EQ(num_table_cache_lookup, 1);
+  // May preload table cache too.
+  ASSERT_GE(num_table_cache_lookup, 1);
+  old_num_table_cache_lookup2 = num_table_cache_lookup;
   // One for compaction input, one for verifying compaction results.
   ASSERT_EQ(num_new_table_reader, 2);
 
   num_table_cache_lookup = 0;
   num_new_table_reader = 0;
   ASSERT_EQ(Key(1), Get(Key(1)));
-  ASSERT_EQ(num_table_cache_lookup, 1);
+  ASSERT_EQ(num_table_cache_lookup + old_num_table_cache_lookup2, 2);
   ASSERT_EQ(num_new_table_reader, 0);
 
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();

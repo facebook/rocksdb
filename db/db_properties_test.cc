@@ -393,7 +393,15 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
   options.target_file_size_base = 98 << 10;
   options.max_write_buffer_number = 2;
   options.statistics = rocksdb::CreateDBStatistics();
-  options.max_open_files = 100;
+  options.max_open_files = 11;  // Make sure no proloading of table readers
+
+  // RocksDB sanitize max open files to at least 20. Modify it back.
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void* arg) {
+        int* max_open_files = static_cast<int*>(arg);
+        *max_open_files = 11;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
@@ -441,6 +449,7 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
 
   // Reopen and issue iterating. See thee latency tracked
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.cf-file-histogram", &prop));
   ASSERT_EQ(std::string::npos, prop.find("** Level 0 read latency histogram"));
   ASSERT_EQ(std::string::npos, prop.find("** Level 1 read latency histogram"));
