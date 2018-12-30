@@ -694,25 +694,11 @@ public class DBOptions extends RocksObject
     return this.writeBufferManager_;
   }
 
-    @Override
+  @Override
   public long dbWriteBufferSize() {
     assert(isOwningHandle());
     return dbWriteBufferSize(nativeHandle_);
   }
-
-  //TODO(AR) NOW
-//  @Override
-//  public DBOptions setWriteBufferManager(
-//      final WriteBufferManager writeBufferManager) {
-//    assert(isOwningHandle());
-//    setWriteBufferManager(nativeHandle_, writeBufferManager.nativeHandle_);
-//    return this;
-//  }
-//
-//  @Override
-//  public WriteBufferManager writeBufferManager() {
-//    return writeBufferManager(nativeHandle_);
-//  }
 
   @Override
   public DBOptions setAccessHintOnCompactionStart(final AccessHint accessHint) {
