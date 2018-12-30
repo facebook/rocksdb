@@ -63,6 +63,8 @@ set(JNI_NATIVE_SOURCES
         rocksjni/transaction_notifier_jnicallback.cc
         rocksjni/transaction_options.cc
         rocksjni/ttl.cc
+        rocksjni/wal_filter.cc
+        rocksjni/wal_filter_jnicallback.cc
         rocksjni/write_batch.cc
         rocksjni/writebatchhandlerjnicallback.cc
         rocksjni/write_batch_test.cc
@@ -81,6 +83,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.AbstractTableFilter
         org.rocksdb.AbstractTraceWriter
         org.rocksdb.AbstractTransactionNotifier
+        org.rocksdb.AbstractWalFilter
         org.rocksdb.BackupableDBOptions
         org.rocksdb.BackupEngine
         org.rocksdb.BlockBasedTableConfig
@@ -189,6 +192,7 @@ add_jar(
   src/main/java/org/rocksdb/AbstractSlice.java
   src/main/java/org/rocksdb/AbstractTraceWriter.java
   src/main/java/org/rocksdb/AbstractTransactionNotifier.java
+  src/main/java/org/rocksdb/AbstractWalFilter.java
   src/main/java/org/rocksdb/AbstractWriteBatch.java
   src/main/java/org/rocksdb/AccessHint.java
   src/main/java/org/rocksdb/AdvancedColumnFamilyOptionsInterface.java
@@ -320,6 +324,8 @@ add_jar(
   src/main/java/org/rocksdb/TxnDBWritePolicy.java
   src/main/java/org/rocksdb/VectorMemTableConfig.java
   src/main/java/org/rocksdb/WalFileType.java
+  src/main/java/org/rocksdb/WalFilter.java
+  src/main/java/org/rocksdb/WalProcessingOption.java
   src/main/java/org/rocksdb/WALRecoveryMode.java
   src/main/java/org/rocksdb/WBWIRocksIterator.java
   src/main/java/org/rocksdb/WriteBatchInterface.java

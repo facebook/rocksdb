@@ -462,6 +462,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    * @see RocksEnv#setBackgroundThreads(int)
    * @see RocksEnv#setBackgroundThreads(int, Priority)
    */
+  @Deprecated
   int maxBackgroundFlushes();
 
   /**
@@ -888,6 +889,32 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    */
   long dbWriteBufferSize();
 
+  //TODO(AR) NOW
+//  /**
+//   * The memory usage of memtable will report to this object. The same object
+//   * can be passed into multiple DBs and it will track the sum of size of all
+//   * the DBs. If the total size of all live memtables of all the DBs exceeds
+//   * a limit, a flush will be triggered in the next DB to which the next write
+//   * is issued.
+//   *
+//   * If the object is only passed to one DB, the behavior is the same as
+//   * {@link #setDbWriteBufferSize(long)}. When this is set, it will
+//   * override {@link #dbWriteBufferSize()}.
+//   *
+//   * This feature is disabled by default.
+//   *
+//   * Default: null
+//   */
+//  T setWriteBufferManager(final WriteBufferManager writeBufferManager);
+//
+//  /**
+//   * Get the write buffer manager.
+//   * See {@link #setWriteBufferManager(WriteBufferManager)}.
+//   *
+//   * @return the write buffer manager, or null (the default).
+//   */
+//  WriteBufferManager writeBufferManager();
+
   /**
    * Specify the file access pattern once a compaction is started.
    * It will be applied to all input files of a compaction.
@@ -1018,6 +1045,25 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    */
   boolean useAdaptiveMutex();
 
+  //TODO(AR) NOW
+//  /**
+//   * Sets the {@link EventListener}s whose callback functions
+//   * will be called when specific RocksDB event happens.
+//   *
+//   * @param listeners the listeners who should be notified on various events.
+//   *
+//   * @return the instance of the current object.
+//   */
+//  T setListeners(final List<EventListener> listeners);
+//
+//  /**
+//   * Gets the {@link EventListener}s whose callback functions
+//   * will be called when specific RocksDB event happens.
+//   *
+//   * @return a collection of Event listeners.
+//   */
+//  Collection<EventListener> listeners();
+
   /**
    * If true, then the status of the threads involved in this DB will
    * be tracked and available via GetThreadList() API.
@@ -1039,6 +1085,35 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    * @return true if tracking is enabled
    */
   boolean enableThreadTracking();
+
+  /**
+   * By default, a single write thread queue is maintained. The thread gets
+   * to the head of the queue becomes write batch group leader and responsible
+   * for writing to WAL and memtable for the batch group.
+   *
+   * If {@link #enablePipelinedWrite()} is true, separate write thread queue is
+   * maintained for WAL write and memtable write. A write thread first enter WAL
+   * writer queue and then memtable writer queue. Pending thread on the WAL
+   * writer queue thus only have to wait for previous writers to finish their
+   * WAL writing but not the memtable writing. Enabling the feature may improve
+   * write throughput and reduce latency of the prepare phase of two-phase
+   * commit.
+   *
+   * Default: false
+   *
+   * @param enablePipelinedWrite true to enabled pipelined writes
+   *
+   * @return the reference to the current options.
+   */
+  T setEnablePipelinedWrite(final boolean enablePipelinedWrite);
+
+  /**
+   * Returns true if pipelined writes are enabled.
+   * See {@link #setEnablePipelinedWrite(boolean)}.
+   *
+   * @return true if pipelined writes are enabled, false otherwise.
+   */
+  boolean enablePipelinedWrite();
 
   /**
    * If true, allow multi-writers to update mem tables in parallel.
@@ -1241,6 +1316,27 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   Cache rowCache();
 
   /**
+   * A filter object supplied to be invoked while processing write-ahead-logs
+   * (WALs) during recovery. The filter provides a way to inspect log
+   * records, ignoring a particular record or skipping replay.
+   * The filter is invoked at startup and is invoked from a single-thread
+   * currently.
+   *
+   * @param walFilter the filter for processing WALs during recovery.
+   *
+   * @return the reference to the current options.
+   */
+  T setWalFilter(final AbstractWalFilter walFilter);
+
+  /**
+   * Get's the filter for processing WALs during recovery.
+   * See {@link #setWalFilter(AbstractWalFilter)}.
+   *
+   * @return the filter used for processing WALs during recovery.
+   */
+  WalFilter walFilter();
+
+  /**
    * If true, then DB::Open / CreateColumnFamily / DropColumnFamily
    * / SetOptions will fail if options file is not detected or properly
    * persisted.
@@ -1316,4 +1412,128 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    *     recovery
    */
   boolean avoidFlushDuringRecovery();
+
+  /**
+   * Set this option to true during creation of database if you want
+   * to be able to ingest behind (call IngestExternalFile() skipping keys
+   * that already exist, rather than overwriting matching keys).
+   * Setting this option to true will affect 2 things:
+   *     1) Disable some internal optimizations around SST file compression
+   *     2) Reserve bottom-most level for ingested files only.
+   *     3) Note that num_levels should be &gt;= 3 if this option is turned on.
+   *
+   * DEFAULT: false
+   *
+   * @param allowIngestBehind true to allow ingest behind, false to disallow.
+   *
+   * @return the reference to the current options.
+   */
+  T setAllowIngestBehind(final boolean allowIngestBehind);
+
+  /**
+   * Returns true if ingest behind is allowed.
+   * See {@link #setAllowIngestBehind(boolean)}.
+   *
+   * @return true if ingest behind is allowed, false otherwise.
+   */
+  boolean allowIngestBehind();
+
+  /**
+   * Needed to support differential snapshots.
+   * If set to true then DB will only process deletes with sequence number
+   * less than what was set by SetPreserveDeletesSequenceNumber(uint64_t ts).
+   * Clients are responsible to periodically call this method to advance
+   * the cutoff time. If this method is never called and preserve_deletes
+   * is set to true NO deletes will ever be processed.
+   * At the moment this only keeps normal deletes, SingleDeletes will
+   * not be preserved.
+   *
+   * DEFAULT: false
+   *
+   * @param preserveDeletes true to preserve deletes.
+   *
+   * @return the reference to the current options.
+   */
+  T setPreserveDeletes(final boolean preserveDeletes);
+
+  /**
+   * Returns true if deletes are preserved.
+   * See {@link #setPreserveDeletes(boolean)}.
+   *
+   * @return true if deletes are preserved, false otherwise.
+   */
+  boolean preserveDeletes();
+
+  /**
+   * If enabled it uses two queues for writes, one for the ones with
+   * disable_memtable and one for the ones that also write to memtable. This
+   * allows the memtable writes not to lag behind other writes. It can be used
+   * to optimize MySQL 2PC in which only the commits, which are serial, write to
+   * memtable.
+   *
+   * DEFAULT: false
+   *
+   * @param twoWriteQueues true to enable two write queues, false otherwise.
+   *
+   * @return the reference to the current options.
+   */
+  T setTwoWriteQueues(final boolean twoWriteQueues);
+
+  /**
+   * Returns true if two write queues are enabled.
+   *
+   * @return true if two write queues are enabled, false otherwise.
+   */
+  boolean twoWriteQueues();
+
+  /**
+   * If true WAL is not flushed automatically after each write. Instead it
+   * relies on manual invocation of FlushWAL to write the WAL buffer to its
+   * file.
+   *
+   * DEFAULT: false
+   *
+   * @param manualWalFlush true to set disable automatic WAL flushing,
+   *     false otherwise.
+   *
+   * @return the reference to the current options.
+   */
+  T setManualWalFlush(final boolean manualWalFlush);
+
+  /**
+   * Returns true if automatic WAL flushing is disabled.
+   * See {@link #setManualWalFlush(boolean)}.
+   *
+   * @return true if automatic WAL flushing is disabled, false otherwise.
+   */
+  boolean manualWalFlush();
+
+  /**
+   * If true, RocksDB supports flushing multiple column families and committing
+   * their results atomically to MANIFEST. Note that it is not
+   * necessary to set atomic_flush to true if WAL is always enabled since WAL
+   * allows the database to be restored to the last persistent state in WAL.
+   * This option is useful when there are column families with writes NOT
+   * protected by WAL.
+   * For manual flush, application has to specify which column families to
+   * flush atomically in {@link RocksDB#flush(FlushOptions, List)}.
+   * For auto-triggered flush, RocksDB atomically flushes ALL column families.
+   *
+   * Currently, any WAL-enabled writes after atomic flush may be replayed
+   * independently if the process crashes later and tries to recover.
+   *
+   * @param atomicFlush true to enable atomic flush of multiple column families.
+   *
+   * @return the reference to the current options.
+   */
+  T setAtomicFlush(final boolean atomicFlush);
+
+  /**
+   * Determine if atomic flush of multiple column families is enabled.
+   *
+   * See {@link #setAtomicFlush(boolean)}.
+   *
+   * @return true if atomic flush is enabled.
+   */
+  boolean atomicFlush();
 }

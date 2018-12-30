@@ -1527,6 +1527,28 @@ jlong Java_org_rocksdb_Options_delayedWriteRate(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setEnablePipelinedWrite
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setEnablePipelinedWrite(
+    JNIEnv*, jobject, jlong jhandle, jboolean jenable_pipelined_write) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->enable_pipelined_write = jenable_pipelined_write == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    enablePipelinedWrite
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_enablePipelinedWrite(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jboolean>(opt->enable_pipelined_write);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    setAllowConcurrentMemtableWrite
  * Signature: (JZ)V
  */
@@ -1697,6 +1719,20 @@ void Java_org_rocksdb_Options_setRowCache(
   opt->row_cache = *row_cache;
 }
 
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setWalFilter
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setWalFilter(
+    JNIEnv*, jobject, jlong jhandle, jlong jwal_filter_handle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  auto* wal_filter =
+      reinterpret_cast<rocksdb::WalFilterJniCallback*>(jwal_filter_handle);
+  opt->wal_filter = wal_filter;
+}
+
 /*
  * Class:     org_rocksdb_Options
  * Method:    setFailIfOptionsFileError
@@ -1786,6 +1822,116 @@ jboolean Java_org_rocksdb_Options_avoidFlushDuringShutdown(
     JNIEnv*, jobject, jlong jhandle) {
   auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
   return static_cast<jboolean>(opt->avoid_flush_during_shutdown);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setAllowIngestBehind
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setAllowIngestBehind(
+    JNIEnv*, jobject, jlong jhandle, jboolean jallow_ingest_behind) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->allow_ingest_behind = jallow_ingest_behind == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    allowIngestBehind
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_allowIngestBehind(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jboolean>(opt->allow_ingest_behind);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setPreserveDeletes
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setPreserveDeletes(
+    JNIEnv*, jobject, jlong jhandle, jboolean jpreserve_deletes) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->preserve_deletes = jpreserve_deletes == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    preserveDeletes
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_preserveDeletes(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jboolean>(opt->preserve_deletes);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setTwoWriteQueues
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setTwoWriteQueues(
+    JNIEnv*, jobject, jlong jhandle, jboolean jtwo_write_queues) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->two_write_queues = jtwo_write_queues == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    twoWriteQueues
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_twoWriteQueues(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jboolean>(opt->two_write_queues);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setManualWalFlush
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setManualWalFlush(
+    JNIEnv*, jobject, jlong jhandle, jboolean jmanual_wal_flush) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->manual_wal_flush = jmanual_wal_flush == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    manualWalFlush
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_manualWalFlush(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jboolean>(opt->manual_wal_flush);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setAtomicFlush
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setAtomicFlush(
+    JNIEnv*, jobject, jlong jhandle, jboolean jatomic_flush) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->atomic_flush = jatomic_flush == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    atomicFlush
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_atomicFlush(
+    JNIEnv *, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jboolean>(opt->atomic_flush);
 }
 
 /*
@@ -2837,6 +2983,28 @@ jboolean Java_org_rocksdb_Options_reportBgIoStats(
     JNIEnv*, jobject, jlong jhandle) {
   auto* opts = reinterpret_cast<rocksdb::Options*>(jhandle);
   return static_cast<bool>(opts->report_bg_io_stats);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setTtl
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setTtl(
+    JNIEnv*, jobject, jlong jhandle, jlong jttl) {
+  auto* opts = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opts->ttl = static_cast<uint64_t>(jttl);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    ttl
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_ttl(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opts = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jlong>(opts->ttl);
 }
 
 /*
@@ -5485,28 +5653,6 @@ jlong Java_org_rocksdb_DBOptions_walBytesPerSync(
 
 /*
  * Class:     org_rocksdb_DBOptions
- * Method:    setEnableThreadTracking
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_DBOptions_setEnableThreadTracking(
-    JNIEnv*, jobject, jlong jhandle, jboolean jenable_thread_tracking) {
-  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
-  opt->enable_thread_tracking = static_cast<bool>(jenable_thread_tracking);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    enableThreadTracking
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_DBOptions_enableThreadTracking(
-    JNIEnv*, jobject, jlong jhandle) {
-  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
-  return static_cast<jboolean>(opt->enable_thread_tracking);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
  * Method:    setDelayedWriteRate
  * Signature: (JJ)V
  */
@@ -5525,6 +5671,50 @@ jlong Java_org_rocksdb_DBOptions_delayedWriteRate(
     JNIEnv*, jobject, jlong jhandle) {
   auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
   return static_cast<jlong>(opt->delayed_write_rate);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setEnablePipelinedWrite
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setEnablePipelinedWrite(
+    JNIEnv*, jobject, jlong jhandle, jboolean jenable_pipelined_write) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->enable_pipelined_write = jenable_pipelined_write == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    enablePipelinedWrite
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_enablePipelinedWrite(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jboolean>(opt->enable_pipelined_write);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setEnableThreadTracking
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setEnableThreadTracking(
+    JNIEnv*, jobject, jlong jhandle, jboolean jenable_thread_tracking) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->enable_thread_tracking = jenable_thread_tracking == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    enableThreadTracking
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_enableThreadTracking(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jboolean>(opt->enable_thread_tracking);
 }
 
 /*
@@ -5699,6 +5889,19 @@ void Java_org_rocksdb_DBOptions_setRowCache(
 
 /*
  * Class:     org_rocksdb_DBOptions
+ * Method:    setWalFilter
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DBOptions_setWalFilter(
+    JNIEnv*, jobject, jlong jhandle, jlong jwal_filter_handle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  auto* wal_filter =
+    reinterpret_cast<rocksdb::WalFilterJniCallback*>(jwal_filter_handle);
+  opt->wal_filter = wal_filter;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
  * Method:    setFailIfOptionsFileError
  * Signature: (JZ)V
  */
@@ -5763,6 +5966,116 @@ jboolean Java_org_rocksdb_DBOptions_avoidFlushDuringRecovery(
     JNIEnv*, jobject, jlong jhandle) {
   auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
   return static_cast<jboolean>(opt->avoid_flush_during_recovery);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setAllowIngestBehind
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setAllowIngestBehind(
+    JNIEnv*, jobject, jlong jhandle, jboolean jallow_ingest_behind) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->allow_ingest_behind = jallow_ingest_behind == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    allowIngestBehind
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_allowIngestBehind(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jboolean>(opt->allow_ingest_behind);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setPreserveDeletes
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setPreserveDeletes(
+    JNIEnv*, jobject, jlong jhandle, jboolean jpreserve_deletes) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->preserve_deletes = jpreserve_deletes == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    preserveDeletes
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_preserveDeletes(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jboolean>(opt->preserve_deletes);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setTwoWriteQueues
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setTwoWriteQueues(
+    JNIEnv*, jobject, jlong jhandle, jboolean jtwo_write_queues) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->two_write_queues = jtwo_write_queues == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    twoWriteQueues
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_twoWriteQueues(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jboolean>(opt->two_write_queues);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setManualWalFlush
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setManualWalFlush(
+    JNIEnv*, jobject, jlong jhandle, jboolean jmanual_wal_flush) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->manual_wal_flush = jmanual_wal_flush == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    manualWalFlush
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_manualWalFlush(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jboolean>(opt->manual_wal_flush);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setAtomicFlush
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setAtomicFlush(
+    JNIEnv*, jobject, jlong jhandle, jboolean jatomic_flush) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->atomic_flush = jatomic_flush == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    atomicFlush
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_atomicFlush(
+    JNIEnv *, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jboolean>(opt->atomic_flush);
 }
 
 /*

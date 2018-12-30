@@ -459,6 +459,8 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/transaction_notifier.cc                       \
   java/rocksjni/transaction_notifier_jnicallback.cc           \
   java/rocksjni/ttl.cc                                        \
+  java/rocksjni/wal_filter.cc                                 \
+  java/rocksjni/wal_filter_jnicallback.cc                     \
   java/rocksjni/write_batch.cc                                \
   java/rocksjni/writebatchhandlerjnicallback.cc               \
   java/rocksjni/write_batch_test.cc                           \

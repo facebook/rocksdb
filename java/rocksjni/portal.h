@@ -37,6 +37,7 @@
 #include "rocksjni/table_filter_jnicallback.h"
 #include "rocksjni/trace_writer_jnicallback.h"
 #include "rocksjni/transaction_notifier_jnicallback.h"
+#include "rocksjni/wal_filter_jnicallback.h"
 #include "rocksjni/writebatchhandlerjnicallback.h"
 
 // Remove macro on windows
@@ -1198,6 +1199,47 @@ class ByteJni : public JavaClass {
 
 };
 
+// The portal class for java.lang.Integer
+class IntegerJni : public JavaClass {
+ public:
+  /**
+   * Get the Java Class java.lang.Integer
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "java/lang/Integer");
+  }
+
+  static jobject valueOf(JNIEnv* env, jint jprimitive_int) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jmethodID mid =
+        env->GetStaticMethodID(jclazz, "valueOf", "(I)Ljava/lang/Integer;");
+    if (mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    const jobject jinteger_obj =
+        env->CallStaticObjectMethod(jclazz, mid, jprimitive_int);
+    if (env->ExceptionCheck()) {
+      // exception occurred
+      return nullptr;
+    }
+
+    return jinteger_obj;
+  }
+};
+
 // The portal class for java.lang.Long
 class LongJni : public JavaClass {
  public:
@@ -2204,6 +2246,55 @@ class HashMapJni : public JavaClass {
   }
 
   /**
+   * Creates a java.util.Map<String, Long> from a std::map<std::string, uint32_t>
+   *
+   * @param env A pointer to the Java environment
+   * @param map the Cpp map
+   *
+   * @return a reference to the Java java.util.Map object, or nullptr if an exception occcurred
+   */
+  static jobject fromCppMap(JNIEnv* env, const std::map<std::string, uint32_t>* map) {
+    if (map == nullptr) {
+      return nullptr;
+    }
+
+    if (map == nullptr) {
+      return nullptr;
+    }
+
+    jobject jhash_map = construct(env, static_cast<uint32_t>(map->size()));
+    if (jhash_map == nullptr) {
+      // exception occurred
+      return nullptr;
+    }
+
+    const rocksdb::HashMapJni::FnMapKV<const std::string, const uint32_t, jobject, jobject> fn_map_kv =
+        [env](const std::pair<const std::string, const uint32_t>& kv) {
+      jstring jkey = rocksdb::JniUtil::toJavaString(env, &(kv.first), false);
+      if (env->ExceptionCheck()) {
+        // an error occurred
+        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+      }
+
+      jobject jvalue = rocksdb::IntegerJni::valueOf(env, static_cast<jint>(kv.second));
+      if (env->ExceptionCheck()) {
+        // an error occurred
+        env->DeleteLocalRef(jkey);
+        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+      }
+
+      return std::unique_ptr<std::pair<jobject, jobject>>(new std::pair<jobject, jobject>(static_cast<jobject>(jkey), jvalue));
+    };
+
+    if (!putAll(env, jhash_map, map->begin(), map->end(), fn_map_kv)) {
+      // exception occurred
+      return nullptr;
+    }
+
+    return jhash_map;
+  }
+
+  /**
    * Creates a java.util.Map<String, Long> from a std::map<std::string, uint64_t>
    *
    * @param env A pointer to the Java environment
@@ -2225,6 +2316,51 @@ class HashMapJni : public JavaClass {
     const rocksdb::HashMapJni::FnMapKV<const std::string, const uint64_t, jobject, jobject> fn_map_kv =
         [env](const std::pair<const std::string, const uint64_t>& kv) {
       jstring jkey = rocksdb::JniUtil::toJavaString(env, &(kv.first), false);
+      if (env->ExceptionCheck()) {
+        // an error occurred
+        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+      }
+
+      jobject jvalue = rocksdb::LongJni::valueOf(env, static_cast<jlong>(kv.second));
+      if (env->ExceptionCheck()) {
+        // an error occurred
+        env->DeleteLocalRef(jkey);
+        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+      }
+
+      return std::unique_ptr<std::pair<jobject, jobject>>(new std::pair<jobject, jobject>(static_cast<jobject>(jkey), jvalue));
+    };
+
+    if (!putAll(env, jhash_map, map->begin(), map->end(), fn_map_kv)) {
+      // exception occurred
+      return nullptr;
+    }
+
+    return jhash_map;
+  }
+
+    /**
+   * Creates a java.util.Map<String, Long> from a std::map<uint32_t, uint64_t>
+   *
+   * @param env A pointer to the Java environment
+   * @param map the Cpp map
+   *
+   * @return a reference to the Java java.util.Map object, or nullptr if an exception occcurred
+   */
+  static jobject fromCppMap(JNIEnv* env, const std::map<uint32_t, uint64_t>* map) {
+    if (map == nullptr) {
+      return nullptr;
+    }
+
+    jobject jhash_map = construct(env, static_cast<uint32_t>(map->size()));
+    if (jhash_map == nullptr) {
+      // exception occurred
+      return nullptr;
+    }
+
+    const rocksdb::HashMapJni::FnMapKV<const uint32_t, const uint64_t, jobject, jobject> fn_map_kv =
+        [env](const std::pair<const uint32_t, const uint64_t>& kv) {
+      jobject jkey = rocksdb::IntegerJni::valueOf(env, static_cast<jint>(kv.first));
       if (env->ExceptionCheck()) {
         // an error occurred
         return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
@@ -6826,6 +6962,131 @@ class AbstractTraceWriterJni : public RocksDBNativeClass<
     assert(mid != nullptr);
     return mid;
   }
+};
+
+// The portal class for org.rocksdb.AbstractWalFilter
+class AbstractWalFilterJni : public RocksDBNativeClass<
+    const rocksdb::WalFilterJniCallback*,
+    AbstractWalFilterJni> {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.AbstractWalFilter
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/AbstractWalFilter");
+  }
+
+  /**
+   * Get the Java Method: AbstractWalFilter#columnFamilyLogNumberMap
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getColumnFamilyLogNumberMapMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "columnFamilyLogNumberMap",
+        "(Ljava/util/Map;Ljava/util/Map;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractTraceWriter#logRecordFoundProxy
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getLogRecordFoundProxyMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "logRecordFoundProxy", "(JLjava/lang/String;JJ)S");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractTraceWriter#name
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getNameMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "name", "()Ljava/lang/String;");
+    assert(mid != nullptr);
+    return mid;
+  }
+};
+
+// The portal class for org.rocksdb.WalProcessingOption
+class WalProcessingOptionJni {
+ public:
+ // Returns the equivalent org.rocksdb.WalProcessingOption for the provided
+ // C++ rocksdb::WalFilter::WalProcessingOption enum
+ static jbyte toJavaWalProcessingOption(
+     const rocksdb::WalFilter::WalProcessingOption& wal_processing_option) {
+   switch(wal_processing_option) {
+     case rocksdb::WalFilter::WalProcessingOption::kContinueProcessing:
+       return 0x0;
+     case rocksdb::WalFilter::WalProcessingOption::kIgnoreCurrentRecord:
+       return 0x1;
+     case rocksdb::WalFilter::WalProcessingOption::kStopReplay:
+       return 0x2;
+     case rocksdb::WalFilter::WalProcessingOption::kCorruptedRecord:
+       return 0x3;
+     default:
+       return 0x7F;  // undefined
+   }
+ }
+
+ // Returns the equivalent C++ rocksdb::WalFilter::WalProcessingOption enum for
+ // the provided Java org.rocksdb.WalProcessingOption
+ static rocksdb::WalFilter::WalProcessingOption toCppWalProcessingOption(
+     jbyte jwal_processing_option) {
+   switch(jwal_processing_option) {
+     case 0x0:
+       return rocksdb::WalFilter::WalProcessingOption::kContinueProcessing;
+     case 0x1:
+       return rocksdb::WalFilter::WalProcessingOption::kIgnoreCurrentRecord;
+     case 0x2:
+       return rocksdb::WalFilter::WalProcessingOption::kStopReplay;
+     case 0x3:
+       return rocksdb::WalFilter::WalProcessingOption::kCorruptedRecord;
+     default:
+       // undefined/default
+       return rocksdb::WalFilter::WalProcessingOption::kCorruptedRecord;
+   }
+ }
 };
 }  // namespace rocksdb
 #endif  // JAVA_ROCKSJNI_PORTAL_H_
