@@ -62,6 +62,8 @@ build_mode = read_config("fbcode", "build_mode")
 
 is_opt_mode = build_mode.startswith("opt")
 
+is_dbg_mode = build_mode.startswith("dbg")
+
 # -DNDEBUG is added by default in opt mode in fbcode. But adding it twice
 # doesn't harm and avoid forgetting to add it.
 if is_opt_mode:
@@ -71,9 +73,14 @@ default_allocator = read_config("fbcode", "default_allocator")
 
 sanitizer = read_config("fbcode", "sanitizer")
 
+use_jemalloc = ((is_opt_mode or is_dbg_mode)
+                and default_allocator.startswith("jemalloc")
+                and sanitizer == "")
+
 # Let RocksDB aware of jemalloc existence.
 # Do not enable it if sanitizer presents.
-if is_opt_mode and default_allocator.startswith("jemalloc") and sanitizer == "":
+# TODO: handle the case where (non-default) allocator is specified by cpp_binary target.
+if use_jemalloc:
     rocksdb_compiler_flags.append("-DROCKSDB_JEMALLOC")
     rocksdb_external_deps.append(("jemalloc", None, "headers"))
 
