@@ -417,9 +417,11 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   if (!ok()) return;
   ValueType value_type = ExtractValueType(key);
   if (IsValueType(value_type)) {
-    if (r->props.num_entries > 0) {
+#ifndef NDEBUG
+    if (r->props.num_entries > r->props.num_range_deletions) {
       assert(r->internal_comparator.Compare(key, Slice(r->last_key)) > 0);
     }
+#endif  // NDEBUG
 
     auto should_flush = r->flush_block_policy->Update(key, value);
     if (should_flush) {
@@ -447,15 +449,6 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
 
     r->last_key.assign(key.data(), key.size());
     r->data_block.Add(key, value);
-    r->props.num_entries++;
-    r->props.raw_key_size += key.size();
-    r->props.raw_value_size += value.size();
-    if (value_type == kTypeDeletion || value_type == kTypeSingleDeletion) {
-      r->props.num_deletions++;
-    } else if (value_type == kTypeMerge) {
-      r->props.num_merge_operands++;
-    }
-
     r->index_builder->OnKeyAdded(key);
     NotifyCollectTableCollectorsOnAdd(key, value, r->offset,
                                       r->table_properties_collectors,
@@ -463,14 +456,23 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
 
   } else if (value_type == kTypeRangeDeletion) {
     r->range_del_block.Add(key, value);
-    ++r->props.num_range_deletions;
-    r->props.raw_key_size += key.size();
-    r->props.raw_value_size += value.size();
     NotifyCollectTableCollectorsOnAdd(key, value, r->offset,
                                       r->table_properties_collectors,
                                       r->ioptions.info_log);
   } else {
     assert(false);
+  }
+
+  r->props.num_entries++;
+  r->props.raw_key_size += key.size();
+  r->props.raw_value_size += value.size();
+  if (value_type == kTypeDeletion || value_type == kTypeSingleDeletion) {
+    r->props.num_deletions++;
+  } else if (value_type == kTypeRangeDeletion) {
+    r->props.num_deletions++;
+    r->props.num_range_deletions++;
+  } else if (value_type == kTypeMerge) {
+    r->props.num_merge_operands++;
   }
 }
 
