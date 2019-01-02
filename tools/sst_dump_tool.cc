@@ -43,12 +43,14 @@
 
 namespace rocksdb {
 
-SstFileDumper::SstFileDumper(const std::string& file_path, bool verify_checksum,
+SstFileDumper::SstFileDumper(const Options& options,
+                             const std::string& file_path, bool verify_checksum,
                              bool output_hex)
     : file_name_(file_path),
       read_num_(0),
       verify_checksum_(verify_checksum),
       output_hex_(output_hex),
+      options_(options),
       ioptions_(options_),
       moptions_(ColumnFamilyOptions(options_)),
       internal_comparator_(BytewiseComparator()) {
@@ -570,7 +572,9 @@ int SSTDumpTool::Run(int argc, char** argv) {
       filename = std::string(dir_or_file) + "/" + filename;
     }
 
-    rocksdb::SstFileDumper dumper(filename, verify_checksum, output_hex);
+    rocksdb::Options options;
+    rocksdb::SstFileDumper dumper(options, filename, verify_checksum,
+                                  output_hex);
     if (!dumper.getStatus().ok()) {
       fprintf(stderr, "%s: %s\n", filename.c_str(),
               dumper.getStatus().ToString().c_str());

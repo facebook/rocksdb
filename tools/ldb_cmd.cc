@@ -81,10 +81,12 @@ const char* LDBCommand::DELIM = " ==> ";
 
 namespace {
 
-void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
-                 bool is_write_committed, LDBCommandExecuteResult* exec_state);
+void DumpWalFile(Options options, std::string wal_file, bool print_header,
+                 bool print_values, bool is_write_committed,
+                 LDBCommandExecuteResult* exec_state);
 
-void DumpSstFile(std::string filename, bool output_hex, bool show_properties);
+void DumpSstFile(Options options, std::string filename, bool output_hex,
+                 bool show_properties);
 };
 
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
@@ -928,8 +930,8 @@ void DBLoaderCommand::DoCommand() {
 
 namespace {
 
-void DumpManifestFile(std::string file, bool verbose, bool hex, bool json) {
-  Options options;
+void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
+                      bool json) {
   EnvOptions sopt;
   std::string dbname("dummy");
   std::shared_ptr<Cache> tc(NewLRUCache(options.max_open_files - 10,
@@ -1030,7 +1032,7 @@ void ManifestDumpCommand::DoCommand() {
     printf("Processing Manifest file %s\n", manifestfile.c_str());
   }
 
-  DumpManifestFile(manifestfile, verbose_, is_key_hex_, json_);
+  DumpManifestFile(options_, manifestfile, verbose_, is_key_hex_, json_);
 
   if (verbose_) {
     printf("Processing Manifest file %s done\n", manifestfile.c_str());
@@ -1425,14 +1427,15 @@ void DBDumperCommand::DoCommand() {
     switch (type) {
       case kLogFile:
         // TODO(myabandeh): allow configuring is_write_commited
-        DumpWalFile(path_, /* print_header_ */ true, /* print_values_ */ true,
-                    true /* is_write_commited */, &exec_state_);
+        DumpWalFile(options_, path_, /* print_header_ */ true,
+                    /* print_values_ */ true, true /* is_write_commited */,
+                    &exec_state_);
         break;
       case kTableFile:
-        DumpSstFile(path_, is_key_hex_, /* show_properties */ true);
+        DumpSstFile(options_, path_, is_key_hex_, /* show_properties */ true);
         break;
       case kDescriptorFile:
-        DumpManifestFile(path_, /* verbose_ */ false, is_key_hex_,
+        DumpManifestFile(options_, path_, /* verbose_ */ false, is_key_hex_,
                          /*  json_ */ false);
         break;
       default:
@@ -1960,16 +1963,17 @@ class InMemoryHandler : public WriteBatch::Handler {
   bool write_after_commit_;
 };
 
-void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
-                 bool is_write_committed, LDBCommandExecuteResult* exec_state) {
-  Env* env_ = Env::Default();
-  EnvOptions soptions;
+void DumpWalFile(Options options, std::string wal_file, bool print_header,
+                 bool print_values, bool is_write_committed,
+                 LDBCommandExecuteResult* exec_state) {
+  Env* env = options.env;
+  EnvOptions soptions(options);
   std::unique_ptr<SequentialFileReader> wal_file_reader;
 
   Status status;
   {
     std::unique_ptr<SequentialFile> file;
-    status = env_->NewSequentialFile(wal_file, &file, soptions);
+    status = env->NewSequentialFile(wal_file, &file, soptions);
     if (status.ok()) {
       wal_file_reader.reset(
           new SequentialFileReader(std::move(file), wal_file));
@@ -1997,9 +2001,8 @@ void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
       // bogus input, carry on as best we can
       log_number = 0;
     }
-    DBOptions db_options;
-    log::Reader reader(db_options.info_log, std::move(wal_file_reader),
-                       &reporter, true /* checksum */, log_number,
+    log::Reader reader(options.info_log, std::move(wal_file_reader), &reporter,
+                       true /* checksum */, log_number,
                        false /* retry_after_eof */);
     std::string scratch;
     WriteBatch batch;
@@ -2079,8 +2082,8 @@ void WALDumperCommand::Help(std::string& ret) {
 }
 
 void WALDumperCommand::DoCommand() {
-  DumpWalFile(wal_file_, print_header_, print_values_, is_write_committed_,
-              &exec_state_);
+  DumpWalFile(options_, wal_file_, print_header_, print_values_,
+              is_write_committed_, &exec_state_);
 }
 
 // ----------------------------------------------------------------------------
@@ -2836,7 +2839,8 @@ void RestoreCommand::DoCommand() {
 
 namespace {
 
-void DumpSstFile(std::string filename, bool output_hex, bool show_properties) {
+void DumpSstFile(Options options, std::string filename, bool output_hex,
+                 bool show_properties) {
   std::string from_key;
   std::string to_key;
   if (filename.length() <= 4 ||
@@ -2845,7 +2849,7 @@ void DumpSstFile(std::string filename, bool output_hex, bool show_properties) {
     return;
   }
   // no verification
-  rocksdb::SstFileDumper dumper(filename, false, output_hex);
+  rocksdb::SstFileDumper dumper(options, filename, false, output_hex);
   Status st = dumper.ReadSequential(true, std::numeric_limits<uint64_t>::max(),
                                     false,            // has_from
                                     from_key, false,  // has_to
@@ -2911,7 +2915,7 @@ void DBFileDumperCommand::DoCommand() {
   manifest_filename.resize(manifest_filename.size() - 1);
   std::string manifest_filepath = db_->GetName() + "/" + manifest_filename;
   std::cout << manifest_filepath << std::endl;
-  DumpManifestFile(manifest_filepath, false, false, false);
+  DumpManifestFile(options_, manifest_filepath, false, false, false);
   std::cout << std::endl;
 
   std::cout << "SST Files" << std::endl;
@@ -2922,7 +2926,7 @@ void DBFileDumperCommand::DoCommand() {
     std::string filename = fileMetadata.db_path + fileMetadata.name;
     std::cout << filename << " level:" << fileMetadata.level << std::endl;
     std::cout << "------------------------------" << std::endl;
-    DumpSstFile(filename, false, true);
+    DumpSstFile(options_, filename, false, true);
     std::cout << std::endl;
   }
   std::cout << std::endl;
@@ -2939,7 +2943,7 @@ void DBFileDumperCommand::DoCommand() {
       std::string filename = db_->GetOptions().wal_dir + wal->PathName();
       std::cout << filename << std::endl;
       // TODO(myabandeh): allow configuring is_write_commited
-      DumpWalFile(filename, true, true, true /* is_write_commited */,
+      DumpWalFile(options_, filename, true, true, true /* is_write_commited */,
                   &exec_state_);
     }
   }
