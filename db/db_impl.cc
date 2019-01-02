@@ -1341,14 +1341,16 @@ std::vector<Status> DBImpl::MultiGet(
     ColumnFamilyData* cfd;
     SuperVersion* super_version;
     MultiGetColumnFamilyData(ColumnFamilyData* cf, SuperVersion* sv)
-      : cfd(cf), super_version(sv) {}
+        : cfd(cf), super_version(sv) {}
   };
-  std::unordered_map<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(column_family.size());
+  std::unordered_map<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(
+      column_family.size());
   for (auto cf : column_family) {
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(cf);
     auto cfd = cfh->cfd();
     if (multiget_cf_data.find(cfd->GetID()) == multiget_cf_data.end()) {
-      multiget_cf_data.emplace(cfd->GetID(), MultiGetColumnFamilyData(cfd, nullptr));
+      multiget_cf_data.emplace(cfd->GetID(),
+                               MultiGetColumnFamilyData(cfd, nullptr));
     }
   }
 
@@ -1359,7 +1361,7 @@ std::vector<Status> DBImpl::MultiGet(
     // its probably ok to take the mutex on the 3rd try so we can succeed for
     // sure
     static const int num_retries = 3;
-    for (auto i=0; i<num_retries; ++i) {
+    for (auto i = 0; i < num_retries; ++i) {
       last_try = (i == num_retries - 1);
       bool retry = false;
 
