@@ -1286,7 +1286,8 @@ class DbStressListener : public EventListener {
     }
     assert(info.job_id > 0 || FLAGS_compact_files_one_in > 0);
     if (info.status.ok() && info.file_size > 0) {
-      assert(info.table_properties.data_size > 0);
+      assert(info.table_properties.data_size > 0 ||
+             info.table_properties.num_range_deletions > 0);
       assert(info.table_properties.raw_key_size > 0);
       assert(info.table_properties.num_entries > 0);
     }
