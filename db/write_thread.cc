@@ -427,9 +427,6 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
   // Tricky. Iteration start (leader) is exclusive and finish
   // (newest_writer) is inclusive. Iteration goes from old to new.
   Writer* w = leader;
-  if (!w->AllowWriteBatching()) {
-    return size;
-  }
   while (w != newest_writer) {
     w = w->link_newer;
 
@@ -450,7 +447,13 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
       break;
     }
 
-    if (!w->AllowWriteBatching()) {
+    if (w->batch == nullptr) {
+      // Do not include those writes with nullptr batch. Those are not writes,
+      // those are something else. They want to be alone
+      break;
+    }
+
+    if (w->callback != nullptr && !w->callback->AllowWriteBatching()) {
       // dont batch writes that don't want to be batched
       break;
     }

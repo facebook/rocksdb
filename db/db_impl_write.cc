@@ -419,6 +419,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
 
   WriteContext write_context;
+  Status status;
 
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
                         disable_memtable);
@@ -433,7 +434,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
     // PreprocessWrite does its own perf timing.
     PERF_TIMER_STOP(write_pre_and_post_process_time);
-    w.status = PreprocessWrite(write_options, &need_log_sync, &write_context);
+    status = PreprocessWrite(write_options, &need_log_sync, &write_context);
     PERF_TIMER_START(write_pre_and_post_process_time);
     log::Writer* log_writer = logs_.back().writer;
     mutex_.Unlock();
@@ -446,7 +447,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     size_t total_count = 0;
     size_t total_byte_size = 0;
 
-    if (w.status.ok()) {
+    if (status.ok()) {
       SequenceNumber next_sequence = current_sequence;
       for (auto writer : wal_write_group) {
         if (writer->CheckCallback(this)) {
@@ -475,7 +476,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
 
     PERF_TIMER_STOP(write_pre_and_post_process_time);
 
-    if (w.ShouldWriteToWAL()) {
+    if (status.ok() && !write_options.disableWAL) {
       PERF_TIMER_GUARD(write_wal_time);
       stats->AddDBStats(InternalStats::WRITE_DONE_BY_SELF, 1);
       RecordTick(stats_, WRITE_DONE_BY_SELF, 1);
@@ -484,27 +485,27 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
                           wal_write_group.size - 1);
         RecordTick(stats_, WRITE_DONE_BY_OTHER, wal_write_group.size - 1);
       }
-      w.status = WriteToWAL(wal_write_group, log_writer, log_used,
+      status = WriteToWAL(wal_write_group, log_writer, log_used,
                             need_log_sync, need_log_dir_sync, current_sequence);
     }
 
     if (!w.CallbackFailed()) {
-      WriteStatusCheck(w.status);
+      WriteStatusCheck(status);
     }
 
     if (need_log_sync) {
       mutex_.Lock();
-      MarkLogsSynced(logfile_number_, need_log_dir_sync, w.status);
+      MarkLogsSynced(logfile_number_, need_log_dir_sync, status);
       mutex_.Unlock();
     }
 
-    write_thread_.ExitAsBatchGroupLeader(wal_write_group, w.status);
+    write_thread_.ExitAsBatchGroupLeader(wal_write_group, status);
   }
 
   WriteThread::WriteGroup memtable_write_group;
   if (w.state == WriteThread::STATE_MEMTABLE_WRITER_LEADER) {
     PERF_TIMER_GUARD(write_memtable_time);
-    assert(w.status.ok());
+    assert(status.ok());
     write_thread_.EnterAsMemTableWriter(&w, &memtable_write_group);
     if (memtable_write_group.size > 1 &&
         immutable_db_options_.allow_concurrent_memtable_write) {
