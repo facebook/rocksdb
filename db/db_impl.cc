@@ -1868,7 +1868,7 @@ Status DBImpl::NewIterators(
   if (read_options.tailing) {
 #ifdef ROCKSDB_LITE
     return Status::InvalidArgument(
-        "Tailing interator not supported in RocksDB lite");
+        "Tailing iterator not supported in RocksDB lite");
 #else
     for (auto cfh : column_families) {
       auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();

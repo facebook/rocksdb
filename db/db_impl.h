@@ -1472,7 +1472,7 @@ class DBImpl : public DB {
   std::atomic<bool> has_unpersisted_data_;
 
   // if an attempt was made to flush all column families that
-  // the oldest log depends on but uncommited data in the oldest
+  // the oldest log depends on but uncommitted data in the oldest
   // log prevents the log from being released.
   // We must attempt to free the dependent memtables again
   // at a later time after the transaction in the oldest

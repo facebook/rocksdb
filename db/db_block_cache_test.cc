@@ -173,7 +173,7 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
   delete iter;
   iter = nullptr;
 
-  // Release interators and access cache again.
+  // Release iterators and access cache again.
   for (size_t i = 0; i < kNumBlocks - 1; i++) {
     iterators[i].reset();
     CheckCacheCounters(options, 0, 0, 0, 0);

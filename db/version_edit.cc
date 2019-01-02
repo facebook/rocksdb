@@ -263,7 +263,7 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
         break;
       }
       if (!GetLengthPrefixedSlice(input, &field)) {
-        return "new-file4 custom field lenth prefixed slice error";
+        return "new-file4 custom field length prefixed slice error";
       }
       switch (custom_tag) {
         case kPathId:
