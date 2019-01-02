@@ -6,6 +6,7 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+// #include <iostream>
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
@@ -954,6 +955,184 @@ TEST_F(DBBasicTest, DBCloseFlushError) {
   ASSERT_NE(s, Status::OK());
 
   Destroy(options);
+}
+
+TEST_F(DBBasicTest, MultiGetMultiCF) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"pikachu", "ilya", "muromec", "dobrynia", "nikitich",
+                         "alyosha", "popovich"},
+                        options);
+
+  for (int i = 0; i < 8; ++i) {
+    ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                  "cf" + std::to_string(i) + "_val"));
+  }
+
+  int get_sv_count = 0;
+  rocksdb::DBImpl* db = reinterpret_cast<DBImpl*>(db_);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
+        if (++get_sv_count == 2) {
+          // After MultiGet refs a couple of CFs, flush all CFs so MultiGet
+          // is forced to repeat the process
+          for (int i = 0; i < 8; ++i) {
+            ASSERT_OK(Flush(i));
+            ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                          "cf" + std::to_string(i) + "_val2"));
+          }
+        }
+        if (get_sv_count == 11) {
+          for (int i = 0; i < 8; ++i) {
+            auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
+                            db->GetColumnFamilyHandle(i))
+                            ->cfd();
+            ASSERT_EQ(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+          }
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<int> cfs;
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+
+  for (int i = 0; i < 8; ++i) {
+    cfs.push_back(i);
+    keys.push_back("cf" + std::to_string(i) + "_key");
+  }
+
+  values = MultiGet(cfs, keys);
+  ASSERT_EQ(values.size(), 8);
+  for (unsigned int j = 0; j < values.size(); ++j) {
+    ASSERT_EQ(values[j], "cf" + std::to_string(j) + "_val2");
+  }
+  for (int i = 0; i < 8; ++i) {
+    auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
+                    reinterpret_cast<DBImpl*>(db_)->GetColumnFamilyHandle(i))
+                    ->cfd();
+    ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+    ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
+  }
+}
+
+TEST_F(DBBasicTest, MultiGetMultiCFMutex) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"pikachu", "ilya", "muromec", "dobrynia", "nikitich",
+                         "alyosha", "popovich"},
+                        options);
+
+  for (int i = 0; i < 8; ++i) {
+    ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                  "cf" + std::to_string(i) + "_val"));
+  }
+
+  int get_sv_count = 0;
+  int retries = 0;
+  bool last_try = false;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MultiGet::LastTry", [&](void* /*arg*/) {
+        last_try = true;
+        rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+      });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
+        if (last_try) {
+          return;
+        }
+        if (++get_sv_count == 2) {
+          ++retries;
+          get_sv_count = 0;
+          for (int i = 0; i < 8; ++i) {
+            ASSERT_OK(Flush(i));
+            ASSERT_OK(Put(
+                i, "cf" + std::to_string(i) + "_key",
+                "cf" + std::to_string(i) + "_val" + std::to_string(retries)));
+          }
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<int> cfs;
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+
+  for (int i = 0; i < 8; ++i) {
+    cfs.push_back(i);
+    keys.push_back("cf" + std::to_string(i) + "_key");
+  }
+
+  values = MultiGet(cfs, keys);
+  ASSERT_TRUE(last_try);
+  ASSERT_EQ(values.size(), 8);
+  for (unsigned int j = 0; j < values.size(); ++j) {
+    ASSERT_EQ(values[j],
+              "cf" + std::to_string(j) + "_val" + std::to_string(retries));
+  }
+  for (int i = 0; i < 8; ++i) {
+    auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
+                    reinterpret_cast<DBImpl*>(db_)->GetColumnFamilyHandle(i))
+                    ->cfd();
+    ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+  }
+}
+
+TEST_F(DBBasicTest, MultiGetMultiCFSnapshot) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"pikachu", "ilya", "muromec", "dobrynia", "nikitich",
+                         "alyosha", "popovich"},
+                        options);
+
+  for (int i = 0; i < 8; ++i) {
+    ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                  "cf" + std::to_string(i) + "_val"));
+  }
+
+  int get_sv_count = 0;
+  rocksdb::DBImpl* db = reinterpret_cast<DBImpl*>(db_);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
+        if (++get_sv_count == 2) {
+          for (int i = 0; i < 8; ++i) {
+            ASSERT_OK(Flush(i));
+            ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                          "cf" + std::to_string(i) + "_val2"));
+          }
+        }
+        if (get_sv_count == 8) {
+          for (int i = 0; i < 8; ++i) {
+            auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
+                            db->GetColumnFamilyHandle(i))
+                            ->cfd();
+            ASSERT_TRUE(
+                (cfd->TEST_GetLocalSV()->Get() == SuperVersion::kSVInUse) ||
+                (cfd->TEST_GetLocalSV()->Get() == SuperVersion::kSVObsolete));
+          }
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<int> cfs;
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+
+  for (int i = 0; i < 8; ++i) {
+    cfs.push_back(i);
+    keys.push_back("cf" + std::to_string(i) + "_key");
+  }
+
+  const Snapshot* snapshot = db_->GetSnapshot();
+  values = MultiGet(cfs, keys, snapshot);
+  db_->ReleaseSnapshot(snapshot);
+  ASSERT_EQ(values.size(), 8);
+  for (unsigned int j = 0; j < values.size(); ++j) {
+    ASSERT_EQ(values[j], "cf" + std::to_string(j) + "_val");
+  }
+  for (int i = 0; i < 8; ++i) {
+    auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
+                    reinterpret_cast<DBImpl*>(db_)->GetColumnFamilyHandle(i))
+                    ->cfd();
+    ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+  }
 }
 
 }  // namespace rocksdb

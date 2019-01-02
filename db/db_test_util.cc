@@ -763,6 +763,31 @@ std::string DBTestBase::Get(int cf, const std::string& k,
   return result;
 }
 
+std::vector<std::string> DBTestBase::MultiGet(std::vector<int> cfs,
+                                              const std::vector<std::string>& k,
+                                              const Snapshot* snapshot) {
+  ReadOptions options;
+  options.verify_checksums = true;
+  options.snapshot = snapshot;
+  std::vector<ColumnFamilyHandle*> handles;
+  std::vector<Slice> keys;
+  std::vector<std::string> result;
+
+  for (unsigned int i = 0; i < cfs.size(); ++i) {
+    handles.push_back(handles_[cfs[i]]);
+    keys.push_back(k[i]);
+  }
+  std::vector<Status> s = db_->MultiGet(options, handles, keys, &result);
+  for (unsigned int i = 0; i < s.size(); ++i) {
+    if (s[i].IsNotFound()) {
+      result[i] = "NOT_FOUND";
+    } else if (!s[i].ok()) {
+      result[i] = s[i].ToString();
+    }
+  }
+  return result;
+}
+
 Status DBTestBase::Get(const std::string& k, PinnableSlice* v) {
   ReadOptions options;
   options.verify_checksums = true;
