@@ -503,6 +503,11 @@ class SpecialEnv : public EnvWrapper {
     return s;
   }
 
+  virtual uint64_t NowCPUNanos() override {
+    now_cpu_count_.fetch_add(1);
+    return target()->NowCPUNanos();
+  }
+
   virtual uint64_t NowNanos() override {
     return (time_elapse_only_sleep_ ? 0 : target()->NowNanos()) +
            addon_time_.load() * 1000;
@@ -571,6 +576,8 @@ class SpecialEnv : public EnvWrapper {
   std::function<void()>* table_write_callback_;
 
   std::atomic<int64_t> addon_time_;
+
+  std::atomic<int> now_cpu_count_;
 
   std::atomic<int> delete_count_;
 

@@ -147,7 +147,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
                              HistogramImpl* file_read_hist, bool skip_filters,
                              int level,
                              bool prefetch_index_and_filter_in_cache) {
-  PERF_TIMER_GUARD(find_table_nanos);
+  PERF_TIMER_GUARD_WITH_ENV(find_table_nanos, ioptions_.env);
   Status s;
   uint64_t number = fd.GetNumber();
   Slice key = GetSliceForFileNumber(&number);
@@ -185,7 +185,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
 InternalIterator* TableCache::NewIterator(
     const ReadOptions& options, const EnvOptions& env_options,
     const InternalKeyComparator& icomparator, const FileMetaData& file_meta,
-    RangeDelAggregatorV2* range_del_agg, const SliceTransform* prefix_extractor,
+    RangeDelAggregator* range_del_agg, const SliceTransform* prefix_extractor,
     TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
     bool for_compaction, Arena* arena, bool skip_filters, int level,
     const InternalKey* smallest_compaction_key,

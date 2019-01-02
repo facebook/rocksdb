@@ -368,6 +368,16 @@ EOF
             # JEMALLOC can be enabled either using the flag (like here) or by
             # providing direct link to the jemalloc library
             WITH_JEMALLOC_FLAG=1
+            # check for JEMALLOC installed with HomeBrew
+            if [ "$PLATFORM" == "OS_MACOSX" ]; then
+                if hash brew 2>/dev/null && brew ls --versions jemalloc > /dev/null; then
+                    JEMALLOC_VER=$(brew ls --versions jemalloc | tail -n 1 | cut -f 2 -d ' ')
+                    JEMALLOC_INCLUDE="-I/usr/local/Cellar/jemalloc/${JEMALLOC_VER}/include"
+                    JEMALLOC_LIB="/usr/local/Cellar/jemalloc/${JEMALLOC_VER}/lib/libjemalloc_pic.a"
+                    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS $JEMALLOC_LIB"
+                    JAVA_STATIC_LDFLAGS="$JAVA_STATIC_LDFLAGS $JEMALLOC_LIB"
+                fi
+            fi
         fi
     fi
     if ! test $JEMALLOC && ! test $ROCKSDB_DISABLE_TCMALLOC; then

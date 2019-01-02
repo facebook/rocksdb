@@ -459,7 +459,7 @@ class LevelIterator final : public InternalIterator {
       const EnvOptions& env_options, const InternalKeyComparator& icomparator,
       const LevelFilesBrief* flevel, const SliceTransform* prefix_extractor,
       bool should_sample, HistogramImpl* file_read_hist, bool for_compaction,
-      bool skip_filters, int level, RangeDelAggregatorV2* range_del_agg,
+      bool skip_filters, int level, RangeDelAggregator* range_del_agg,
       const std::vector<AtomicCompactionUnitBoundary>* compaction_boundaries =
           nullptr)
       : table_cache_(table_cache),
@@ -571,7 +571,7 @@ class LevelIterator final : public InternalIterator {
   bool skip_filters_;
   size_t file_index_;
   int level_;
-  RangeDelAggregatorV2* range_del_agg_;
+  RangeDelAggregator* range_del_agg_;
   IteratorWrapper file_iter_;  // May be nullptr
   PinnedIteratorsManager* pinned_iters_mgr_;
 
@@ -985,7 +985,7 @@ double VersionStorageInfo::GetEstimatedCompressionRatioAtLevel(
 void Version::AddIterators(const ReadOptions& read_options,
                            const EnvOptions& soptions,
                            MergeIteratorBuilder* merge_iter_builder,
-                           RangeDelAggregatorV2* range_del_agg) {
+                           RangeDelAggregator* range_del_agg) {
   assert(storage_info_.finalized_);
 
   for (int level = 0; level < storage_info_.num_non_empty_levels(); level++) {
@@ -998,7 +998,7 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
                                    const EnvOptions& soptions,
                                    MergeIteratorBuilder* merge_iter_builder,
                                    int level,
-                                   RangeDelAggregatorV2* range_del_agg) {
+                                   RangeDelAggregator* range_del_agg) {
   assert(storage_info_.finalized_);
   if (level >= storage_info_.num_non_empty_levels()) {
     // This is an empty level
@@ -1057,8 +1057,8 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
 
   Arena arena;
   Status status;
-  RangeDelAggregatorV2 range_del_agg(&icmp,
-                                     kMaxSequenceNumber /* upper_bound */);
+  ReadRangeDelAggregator range_del_agg(&icmp,
+                                       kMaxSequenceNumber /* upper_bound */);
 
   *overlap = false;
 
@@ -3002,9 +3002,7 @@ Status VersionSet::ProcessManifestWrites(
     mu->Unlock();
 
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest");
-    if (!first_writer.edit_list.front()->IsColumnFamilyManipulation() &&
-        column_family_set_->get_table_cache()->GetCapacity() ==
-            TableCache::kInfiniteCapacity) {
+    if (!first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
       for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
         assert(!builder_guards.empty() &&
                builder_guards.size() == versions.size());
@@ -3013,7 +3011,10 @@ Status VersionSet::ProcessManifestWrites(
         ColumnFamilyData* cfd = versions[i]->cfd_;
         builder_guards[i]->version_builder()->LoadTableHandlers(
             cfd->internal_stats(), cfd->ioptions()->optimize_filters_for_hits,
-            true /* prefetch_index_and_filter_in_cache */,
+            this->GetColumnFamilySet()->get_table_cache()->GetCapacity() ==
+                TableCache::
+                    kInfiniteCapacity /* prefetch_index_and_filter_in_cache */,
+            false /* is_initial_load */,
             mutable_cf_options_ptrs[i]->prefix_extractor.get());
       }
     }
@@ -3671,15 +3672,13 @@ Status VersionSet::Recover(
       assert(builders_iter != builders.end());
       auto* builder = builders_iter->second->version_builder();
 
-      if (GetColumnFamilySet()->get_table_cache()->GetCapacity() ==
-          TableCache::kInfiniteCapacity) {
-        // unlimited table cache. Pre-load table handle now.
-        // Need to do it out of the mutex.
-        builder->LoadTableHandlers(
-            cfd->internal_stats(), db_options_->max_file_opening_threads,
-            false /* prefetch_index_and_filter_in_cache */,
-            cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
-      }
+      // unlimited table cache. Pre-load table handle now.
+      // Need to do it out of the mutex.
+      builder->LoadTableHandlers(
+          cfd->internal_stats(), db_options_->max_file_opening_threads,
+          false /* prefetch_index_and_filter_in_cache */,
+          true /* is_initial_load */,
+          cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
 
       Version* v = new Version(cfd, this, env_options_,
                                *cfd->GetLatestMutableCFOptions(),
@@ -4328,7 +4327,7 @@ void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
 }
 
 InternalIterator* VersionSet::MakeInputIterator(
-    const Compaction* c, RangeDelAggregatorV2* range_del_agg,
+    const Compaction* c, RangeDelAggregator* range_del_agg,
     const EnvOptions& env_options_compactions) {
   auto cfd = c->column_family_data();
   ReadOptions read_options;

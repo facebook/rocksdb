@@ -44,7 +44,6 @@ LIB_SOURCES =                                                   \
   db/merge_helper.cc                                            \
   db/merge_operator.cc                                          \
   db/range_del_aggregator.cc                                    \
-  db/range_del_aggregator_v2.cc                                 \
   db/range_tombstone_fragmenter.cc                              \
   db/repair.cc                                                  \
   db/snapshot_impl.cc                                           \
@@ -335,7 +334,6 @@ MAIN_SOURCES =                                                          \
   db/repair_test.cc                                                     \
   db/range_del_aggregator_test.cc                                       \
   db/range_del_aggregator_bench.cc                                      \
-  db/range_del_aggregator_v2_test.cc                                    \
   db/range_tombstone_fragmenter_test.cc                                 \
   db/table_properties_collector_test.cc                                 \
   db/util_merge_operators_test.cc                                       \

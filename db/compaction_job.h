@@ -29,8 +29,8 @@
 #include "db/version_edit.h"
 #include "db/write_controller.h"
 #include "db/write_thread.h"
-#include "options/db_options.h"
 #include "options/cf_options.h"
+#include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/compaction_job_stats.h"
@@ -104,7 +104,7 @@ class CompactionJob {
 
   Status FinishCompactionOutputFile(
       const Status& input_status, SubcompactionState* sub_compact,
-      RangeDelAggregator* range_del_agg,
+      CompactionRangeDelAggregator* range_del_agg,
       CompactionIterationStats* range_del_out_stats,
       const Slice* next_table_min_key = nullptr);
   Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options);

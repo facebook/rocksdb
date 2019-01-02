@@ -309,7 +309,7 @@ enum Tickers : uint32_t {
   // # of bytes in the blob files evicted because of BlobDB is full.
   BLOB_DB_FIFO_BYTES_EVICTED,
 
-  // These coutners indicate a performance issue in WritePrepared transactions.
+  // These counters indicate a performance issue in WritePrepared transactions.
   // We should not seem them ticking them much.
   // # of times prepare_mutex_ is acquired in the fast path.
   TXN_PREPARE_MUTEX_OVERHEAD,
@@ -430,6 +430,7 @@ struct HistogramData {
   double max = 0.0;
   uint64_t count = 0;
   uint64_t sum = 0;
+  double min = 0.0;
 };
 
 enum StatsLevel {

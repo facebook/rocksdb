@@ -31,7 +31,8 @@ default_params = {
     "clear_column_family_one_in": 0,
     "compact_files_one_in": 1000000,
     "compact_range_one_in": 1000000,
-    "delpercent": 5,
+    "delpercent": 4,
+    "delrangepercent": 1,
     "destroy_db_initially": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "expected_values_path": expected_values_file.name,
@@ -147,6 +148,9 @@ def finalize_and_sanitize(src_params):
             dest_params["db"]):
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
+    if dest_params.get("test_batches_snapshots") == 1:
+        dest_params["delpercent"] += dest_params["delrangepercent"]
+        dest_params["delrangepercent"] = 0
     return dest_params
 
 

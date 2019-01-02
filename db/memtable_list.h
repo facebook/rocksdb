@@ -15,7 +15,7 @@
 #include "db/dbformat.h"
 #include "db/logs_with_prep_tracker.h"
 #include "db/memtable.h"
-#include "db/range_del_aggregator_v2.h"
+#include "db/range_del_aggregator.h"
 #include "monitoring/instrumented_mutex.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
@@ -91,7 +91,7 @@ class MemTableListVersion {
   }
 
   Status AddRangeTombstoneIterators(const ReadOptions& read_opts, Arena* arena,
-                                    RangeDelAggregatorV2* range_del_agg);
+                                    RangeDelAggregator* range_del_agg);
 
   void AddIterators(const ReadOptions& options,
                     std::vector<InternalIterator*>* iterator_list,

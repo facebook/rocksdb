@@ -8,6 +8,7 @@
 
 #include "db/db_test_util.h"
 #include "db/memtable.h"
+#include "db/range_del_aggregator.h"
 #include "port/stack_trace.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/slice_transform.h"
@@ -135,7 +136,8 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
   MergeContext merge_context;
   Options options;
   InternalKeyComparator ikey_cmp(options.comparator);
-  RangeDelAggregator range_del_agg(ikey_cmp, {} /* snapshots */);
+  ReadRangeDelAggregator range_del_agg(&ikey_cmp,
+                                       kMaxSequenceNumber /* upper_bound */);
 
   // Create a MemTable
   InternalKeyComparator cmp(BytewiseComparator());

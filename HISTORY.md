@@ -3,12 +3,15 @@
 ### New Features
 * Enabled checkpoint on readonly db (DBImplReadOnly).
 * Make DB ignore dropped column families while committing results of atomic flush.
+* RocksDB may choose to preopen some files even if options.max_open_files != -1. This may make DB open slightly longer.
 
 ### Public API Change
 * Transaction::GetForUpdate is extended with a do_validate parameter with default value of true. If false it skips validating the snapshot before doing the read. Similarly ::Merge, ::Put, ::Delete, and ::SingleDelete are extended with assume_tracked with default value of false. If true it indicates that call is assumed to be after a ::GetForUpdate.
 
 ### Bug Fixes
 * Fix a deadlock caused by compaction and file ingestion waiting for each other in the event of write stalls.
+* Fix a memory leak when files with range tombstones are read in mmap mode and block cache is enabled
+* Fix handling of corrupt range tombstone blocks such that corruptions cannot cause deleted keys to reappear
 
 ## 5.18.0 (11/30/2018)
 ### New Features

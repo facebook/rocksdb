@@ -384,6 +384,9 @@ class Env {
     return NowMicros() * 1000;
   }
 
+  // 0 indicates not supported.
+  virtual uint64_t NowCPUNanos() { return 0; }
+
   // Sleep/delay the thread for the prescribed number of micro-seconds.
   virtual void SleepForMicroseconds(int micros) = 0;
 
