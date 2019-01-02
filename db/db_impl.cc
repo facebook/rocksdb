@@ -2389,9 +2389,9 @@ Status DBImpl::DeleteFile(std::string name) {
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(
-          cfd, &job_context.superversion_contexts[0],
-          *cfd->GetLatestMutableCFOptions(), FlushReason::kDeleteFiles);
+      InstallSuperVersionAndScheduleWork(cfd,
+                                         &job_context.superversion_contexts[0],
+                                         *cfd->GetLatestMutableCFOptions());
     }
     FindObsoleteFiles(&job_context, false);
   }  // lock released here
@@ -2474,9 +2474,9 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(
-          cfd, &job_context.superversion_contexts[0],
-          *cfd->GetLatestMutableCFOptions(), FlushReason::kDeleteFiles);
+      InstallSuperVersionAndScheduleWork(cfd,
+                                         &job_context.superversion_contexts[0],
+                                         *cfd->GetLatestMutableCFOptions());
     }
     for (auto* deleted_file : deleted_files) {
       deleted_file->being_compacted = false;
@@ -3172,8 +3172,7 @@ Status DBImpl::IngestExternalFile(
                                  &mutex_, directories_.GetDbDir());
     }
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(cfd, &sv_context, *mutable_cf_options,
-                                         FlushReason::kExternalFileIngestion);
+      InstallSuperVersionAndScheduleWork(cfd, &sv_context, *mutable_cf_options);
     }
 
     // Resume writes to the DB

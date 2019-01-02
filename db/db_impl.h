@@ -1541,8 +1541,7 @@ class DBImpl : public DB {
   // state needs flush or compaction.
   void InstallSuperVersionAndScheduleWork(
       ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-      const MutableCFOptions& mutable_cf_options,
-      FlushReason flush_reason = FlushReason::kOthers);
+      const MutableCFOptions& mutable_cf_options);
 
 #ifndef ROCKSDB_LITE
   using DB::GetPropertiesOfAllTables;
