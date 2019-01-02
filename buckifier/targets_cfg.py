@@ -15,6 +15,7 @@ rocksdb_compiler_flags = [
     "-DROCKSDB_PLATFORM_POSIX",
     "-DROCKSDB_LIB_IO_POSIX",
     "-DROCKSDB_FALLOCATE_PRESENT",
+    "-DROCKSDB_JEMALLOC",
     "-DROCKSDB_MALLOC_USABLE_SIZE",
     "-DROCKSDB_RANGESYNC_PRESENT",
     "-DROCKSDB_SCHED_GETCPU_PRESENT",
@@ -47,6 +48,7 @@ rocksdb_external_deps = [
     ("tbb", None),
     ("numa", None, "numa"),
     ("googletest", None, "gtest"),
+    ("jemalloc", None, "headers"),
 ]
 
 rocksdb_preprocessor_flags = [
@@ -70,16 +72,6 @@ is_opt_mode = build_mode.startswith("opt")
 # doesn't harm and avoid forgetting to add it.
 if is_opt_mode:
     rocksdb_compiler_flags.append("-DNDEBUG")
-
-default_allocator = read_config("fbcode", "default_allocator")
-
-sanitizer = read_config("fbcode", "sanitizer")
-
-# Let RocksDB aware of jemalloc existence.
-# Do not enable it if sanitizer presents.
-if is_opt_mode and default_allocator.startswith("jemalloc") and sanitizer == "":
-    rocksdb_compiler_flags.append("-DROCKSDB_JEMALLOC")
-    rocksdb_external_deps.append(("jemalloc", None, "headers"))
 """
 
 
