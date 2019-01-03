@@ -4672,7 +4672,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     int64_t puts = 0;
     int64_t found = 0;
     int64_t seek = 0;
-    int64_t seek_found;
+    int64_t seek_found = 0;
     int64_t bytes = 0;
     int value_max = FLAGS_mix_max_value_size;
     int scan_len_max = FLAGS_mix_max_scan_len;
