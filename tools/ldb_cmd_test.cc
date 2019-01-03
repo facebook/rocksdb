@@ -72,7 +72,7 @@ TEST_F(LdbCmdTest, MemEnv) {
   delete db;
 
   char arg1[] = "./ldb";
-  char arg2[dbname.size()+6];
+  char arg2[1024];
   snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
   char arg3[] = "dump_live_files";
   char* argv[] = {arg1, arg2, arg3};
