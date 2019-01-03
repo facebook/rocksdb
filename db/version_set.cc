@@ -301,9 +301,7 @@ class FilePicker {
         // On Level-n (n>=1), files are sorted. Binary search to find the
         // earliest file whose largest key >= ikey. Search left bound and
         // right bound are used to narrow the range.
-        if (search_left_bound_ == search_right_bound_) {
-          start_index = search_left_bound_;
-        } else if (search_left_bound_ < search_right_bound_) {
+        if (search_left_bound_ <= search_right_bound_) {
           if (search_right_bound_ == FileIndexer::kLevelMaxIndex) {
             search_right_bound_ =
                 static_cast<int32_t>(curr_file_level_->num_files) - 1;
