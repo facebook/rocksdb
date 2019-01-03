@@ -4346,6 +4346,28 @@ jboolean Java_org_rocksdb_ColumnFamilyOptions_reportBgIoStats(
 
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setTtl
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setTtl(
+    JNIEnv*, jobject, jlong jhandle, jlong jttl) {
+  auto* cf_opts = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
+  cf_opts->ttl = static_cast<uint64_t>(jttl);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    ttl
+ * Signature: (J)J
+ */
+JNIEXPORT jlong JNICALL Java_org_rocksdb_ColumnFamilyOptions_ttl(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* cf_opts = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
+  return static_cast<jlong>(cf_opts->ttl);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    setCompactionOptionsUniversal
  * Signature: (JJ)V
  */

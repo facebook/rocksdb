@@ -50,6 +50,7 @@ public class ColumnFamilyOptions extends RocksObject
     this.compactionFilterFactory_ = other.compactionFilterFactory_;
     this.compactionOptionsUniversal_ = other.compactionOptionsUniversal_;
     this.compactionOptionsFIFO_ = other.compactionOptionsFIFO_;
+    this.bottommostCompressionOptions_ = other.bottommostCompressionOptions_;
     this.compressionOptions_ = other.compressionOptions_;
   }
 
@@ -325,6 +326,20 @@ public class ColumnFamilyOptions extends RocksObject
   public CompressionType bottommostCompressionType() {
     return CompressionType.getCompressionType(
         bottommostCompressionType(nativeHandle_));
+  }
+
+  @Override
+  public ColumnFamilyOptions setBottommostCompressionOptions(
+      final CompressionOptions bottommostCompressionOptions) {
+    setBottommostCompressionOptions(nativeHandle_,
+        bottommostCompressionOptions.nativeHandle_);
+    this.bottommostCompressionOptions_ = bottommostCompressionOptions;
+    return this;
+  }
+
+  @Override
+  public CompressionOptions bottommostCompressionOptions() {
+    return this.bottommostCompressionOptions_;
   }
 
   @Override
@@ -761,6 +776,17 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
+  public ColumnFamilyOptions setTtl(final long ttl) {
+    setTtl(nativeHandle_, ttl);
+    return this;
+  }
+
+  @Override
+  public long ttl() {
+    return ttl(nativeHandle_);
+  }
+
+  @Override
   public ColumnFamilyOptions setCompactionOptionsUniversal(
       final CompactionOptionsUniversal compactionOptionsUniversal) {
     setCompactionOptionsUniversal(nativeHandle_,
@@ -840,6 +866,8 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setBottommostCompressionType(long handle,
       byte bottommostCompressionType);
   private native byte bottommostCompressionType(long handle);
+  private native void setBottommostCompressionOptions(final long handle,
+      final long bottommostCompressionOptionsHandle);
   private native void setCompressionOptions(long handle,
       long compressionOptionsHandle);
   private native void useFixedLengthPrefixExtractor(
@@ -947,6 +975,8 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setReportBgIoStats(final long handle,
     final boolean reportBgIoStats);
   private native boolean reportBgIoStats(final long handle);
+  private native void setTtl(final long handle, final long ttl);
+  private native long ttl(final long handle);
   private native void setCompactionOptionsUniversal(final long handle,
     final long compactionOptionsUniversalHandle);
   private native void setCompactionOptionsFIFO(final long handle,
@@ -965,6 +995,7 @@ public class ColumnFamilyOptions extends RocksObject
       compactionFilterFactory_;
   private CompactionOptionsUniversal compactionOptionsUniversal_;
   private CompactionOptionsFIFO compactionOptionsFIFO_;
+  private CompressionOptions bottommostCompressionOptions_;
   private CompressionOptions compressionOptions_;
 
 }

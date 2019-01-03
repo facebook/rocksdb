@@ -1051,20 +1051,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void compressionOptions() {
-    try (final Options options = new Options();
-         final CompressionOptions compressionOptions = new CompressionOptions()
-             .setMaxDictBytes(123)) {
-
-      options.setCompressionOptions(compressionOptions);
-      assertThat(options.compressionOptions())
-          .isEqualTo(compressionOptions);
-      assertThat(options.compressionOptions().maxDictBytes())
-          .isEqualTo(123);
-    }
-  }
-
-  @Test
   public void bottommostCompressionOptions() {
     try (final Options options = new Options();
          final CompressionOptions bottommostCompressionOptions = new CompressionOptions()
@@ -1074,6 +1060,20 @@ public class OptionsTest {
       assertThat(options.bottommostCompressionOptions())
           .isEqualTo(bottommostCompressionOptions);
       assertThat(options.bottommostCompressionOptions().maxDictBytes())
+          .isEqualTo(123);
+    }
+  }
+
+  @Test
+  public void compressionOptions() {
+    try (final Options options = new Options();
+         final CompressionOptions compressionOptions = new CompressionOptions()
+             .setMaxDictBytes(123)) {
+
+      options.setCompressionOptions(compressionOptions);
+      assertThat(options.compressionOptions())
+          .isEqualTo(compressionOptions);
+      assertThat(options.compressionOptions().maxDictBytes())
           .isEqualTo(123);
     }
   }

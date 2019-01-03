@@ -116,7 +116,8 @@ public class MutableColumnFamilyOptions
     target_file_size_multiplier(ValueType.INT),
     max_bytes_for_level_base(ValueType.LONG),
     max_bytes_for_level_multiplier(ValueType.INT),
-    max_bytes_for_level_multiplier_additional(ValueType.INT_ARRAY);
+    max_bytes_for_level_multiplier_additional(ValueType.INT_ARRAY),
+    ttl(ValueType.LONG);
 
     private final ValueType valueType;
     CompactionOption(final ValueType valueType) {
@@ -453,6 +454,16 @@ public class MutableColumnFamilyOptions
     @Override
     public boolean reportBgIoStats() {
       return getBoolean(MiscOption.report_bg_io_stats);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setTtl(final long ttl) {
+      return setLong(CompactionOption.ttl, ttl);
+    }
+
+    @Override
+    public long ttl() {
+      return getLong(CompactionOption.ttl);
     }
   }
 }

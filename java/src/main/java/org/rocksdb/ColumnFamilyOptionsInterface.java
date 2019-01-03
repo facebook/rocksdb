@@ -399,6 +399,28 @@ public interface ColumnFamilyOptionsInterface
    */
   CompressionType bottommostCompressionType();
 
+  /**
+   * Set the options for compression algorithms used by
+   * {@link #bottommostCompressionType()} if it is enabled.
+   *
+   * To enable it, please see the definition of
+   * {@link CompressionOptions}.
+   *
+   * @param compressionOptions the bottom most compression options.
+   *
+   * @return the reference of the current options.
+   */
+  T setBottommostCompressionOptions(
+      final CompressionOptions compressionOptions);
+
+  /**
+   * Get the bottom most compression options.
+   *
+   * See {@link #setBottommostCompressionOptions(CompressionOptions)}.
+   *
+   * @return the bottom most compression options.
+   */
+  CompressionOptions bottommostCompressionOptions();
 
   /**
    * Set the different options for compression algorithms

@@ -1973,10 +1973,10 @@ public class Options extends RocksObject
   private native void setBottommostCompressionType(long handle,
       byte bottommostCompressionType);
   private native byte bottommostCompressionType(long handle);
+  private native void setBottommostCompressionOptions(final long handle,
+      final long bottommostCompressionOptionsHandle);
   private native void setCompressionOptions(long handle,
       long compressionOptionsHandle);
-  private native void setBottommostCompressionOptions(long handle,
-      long bottommostCompressionOptionsHandle);
   private native void useFixedLengthPrefixExtractor(
       long handle, int prefixLength);
   private native void useCappedPrefixExtractor(
