@@ -7,11 +7,13 @@
 
 ### Public API Change
 * Transaction::GetForUpdate is extended with a do_validate parameter with default value of true. If false it skips validating the snapshot before doing the read. Similarly ::Merge, ::Put, ::Delete, and ::SingleDelete are extended with assume_tracked with default value of false. If true it indicates that call is assumed to be after a ::GetForUpdate.
+* `TableProperties::num_entries` and `TableProperties::num_deletions` now also account for number of range tombstones.
 
 ### Bug Fixes
 * Fix a deadlock caused by compaction and file ingestion waiting for each other in the event of write stalls.
 * Fix a memory leak when files with range tombstones are read in mmap mode and block cache is enabled
 * Fix handling of corrupt range tombstone blocks such that corruptions cannot cause deleted keys to reappear
+* Lock free MultiGet
 * Fix write leaders's callback failure lead to the whole write group fail.
 
 ## 5.18.0 (11/30/2018)

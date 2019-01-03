@@ -245,15 +245,14 @@ void GetExpectedTableProperties(
   const int kDeletionCount = kTableCount * kDeletionsPerTable;
   const int kMergeCount = kTableCount * kMergeOperandsPerTable;
   const int kRangeDeletionCount = kTableCount * kRangeDeletionsPerTable;
-  const int kKeyCount = kPutCount + kDeletionCount + kMergeCount;
+  const int kKeyCount = kPutCount + kDeletionCount + kMergeCount + kRangeDeletionCount;
   const int kAvgSuccessorSize = kKeySize / 5;
   const int kEncodingSavePerKey = kKeySize / 4;
-  expected_tp->raw_key_size =
-      (kKeyCount + kRangeDeletionCount) * (kKeySize + 8);
+  expected_tp->raw_key_size = kKeyCount * (kKeySize + 8);
   expected_tp->raw_value_size =
       (kPutCount + kMergeCount + kRangeDeletionCount) * kValueSize;
   expected_tp->num_entries = kKeyCount;
-  expected_tp->num_deletions = kDeletionCount;
+  expected_tp->num_deletions = kDeletionCount + kRangeDeletionCount;
   expected_tp->num_merge_operands = kMergeCount;
   expected_tp->num_range_deletions = kRangeDeletionCount;
   expected_tp->num_data_blocks =

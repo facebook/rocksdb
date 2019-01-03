@@ -840,6 +840,10 @@ class DBTestBase : public testing::Test {
 
   Status Get(const std::string& k, PinnableSlice* v);
 
+  std::vector<std::string> MultiGet(std::vector<int> cfs,
+                                    const std::vector<std::string>& k,
+                                    const Snapshot* snapshot = nullptr);
+
   uint64_t GetNumSnapshots();
 
   uint64_t GetTimeOldestSnapshots();

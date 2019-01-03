@@ -60,7 +60,7 @@ bool DBImpl::EnoughRoomForCompaction(
   return enough_room;
 }
 
-bool DBImpl::RequestCompactionToken(ColumnFamilyData* cfd, bool force, 
+bool DBImpl::RequestCompactionToken(ColumnFamilyData* cfd, bool force,
                                     std::unique_ptr<TaskLimiterToken>* token,
                                     LogBuffer* log_buffer) {
   assert(*token == nullptr);
@@ -72,10 +72,10 @@ bool DBImpl::RequestCompactionToken(ColumnFamilyData* cfd, bool force,
   *token = limiter->GetToken(force);
   if (*token != nullptr) {
     ROCKS_LOG_BUFFER(log_buffer,
-      "Thread limiter [%s] increase [%s] compaction task, "
-      "force: %s, tasks after: %d", 
-      limiter->GetName().c_str(), cfd->GetName().c_str(), 
-      force ? "true" : "false", limiter->GetOutstandingTask());
+                     "Thread limiter [%s] increase [%s] compaction task, "
+                     "force: %s, tasks after: %d",
+                     limiter->GetName().c_str(), cfd->GetName().c_str(),
+                     force ? "true" : "false", limiter->GetOutstandingTask());
     return true;
   }
   return false;
@@ -948,9 +948,9 @@ Status DBImpl::CompactFilesImpl(
 
   Status status = compaction_job.Install(*c->mutable_cf_options());
   if (status.ok()) {
-    InstallSuperVersionAndScheduleWork(
-        c->column_family_data(), &job_context->superversion_contexts[0],
-        *c->mutable_cf_options(), FlushReason::kManualCompaction);
+    InstallSuperVersionAndScheduleWork(c->column_family_data(),
+                                       &job_context->superversion_contexts[0],
+                                       *c->mutable_cf_options());
   }
   c->ReleaseCompactionFiles(s);
 #ifndef ROCKSDB_LITE
@@ -1406,11 +1406,10 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
       ca->prepicked_compaction = new PrepickedCompaction;
       ca->prepicked_compaction->manual_compaction_state = &manual;
       ca->prepicked_compaction->compaction = compaction;
-      if (!RequestCompactionToken(cfd, true, 
-                                  &ca->prepicked_compaction->task_token,
-                                  &log_buffer)) {
-          // Don't throttle manual compaction, only count outstanding tasks.
-          assert(false);
+      if (!RequestCompactionToken(
+              cfd, true, &ca->prepicked_compaction->task_token, &log_buffer)) {
+        // Don't throttle manual compaction, only count outstanding tasks.
+        assert(false);
       }
       manual.incomplete = false;
       bg_compaction_scheduled_++;
@@ -1874,8 +1873,8 @@ ColumnFamilyData* DBImpl::PickCompactionFromQueue(
     break;
   }
   // Add throttled compaction candidates back to queue in the original order.
-  for (auto iter = throttled_candidates.rbegin(); 
-    iter != throttled_candidates.rend(); ++iter) {
+  for (auto iter = throttled_candidates.rbegin();
+       iter != throttled_candidates.rend(); ++iter) {
     compaction_queue_.push_front(*iter);
   }
   return cfd;
@@ -2435,9 +2434,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
-    InstallSuperVersionAndScheduleWork(
-        c->column_family_data(), &job_context->superversion_contexts[0],
-        *c->mutable_cf_options(), FlushReason::kAutoCompaction);
+    InstallSuperVersionAndScheduleWork(c->column_family_data(),
+                                       &job_context->superversion_contexts[0],
+                                       *c->mutable_cf_options());
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Deleted %d files\n",
                      c->column_family_data()->GetName().c_str(),
                      c->num_input_files(0));
@@ -2489,9 +2488,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
     // Use latest MutableCFOptions
-    InstallSuperVersionAndScheduleWork(
-        c->column_family_data(), &job_context->superversion_contexts[0],
-        *c->mutable_cf_options(), FlushReason::kAutoCompaction);
+    InstallSuperVersionAndScheduleWork(c->column_family_data(),
+                                       &job_context->superversion_contexts[0],
+                                       *c->mutable_cf_options());
 
     VersionStorageInfo::LevelSummaryStorage tmp;
     c->column_family_data()->internal_stats()->IncBytesMoved(c->output_level(),
@@ -2575,9 +2574,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
     status = compaction_job.Install(*c->mutable_cf_options());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(
-          c->column_family_data(), &job_context->superversion_contexts[0],
-          *c->mutable_cf_options(), FlushReason::kAutoCompaction);
+      InstallSuperVersionAndScheduleWork(c->column_family_data(),
+                                         &job_context->superversion_contexts[0],
+                                         *c->mutable_cf_options());
     }
     *made_progress = true;
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
@@ -2815,10 +2814,7 @@ void DBImpl::BuildCompactionJobInfo(
 
 void DBImpl::InstallSuperVersionAndScheduleWork(
     ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-    const MutableCFOptions& mutable_cf_options,
-    FlushReason /* flush_reason */) {
-  // TODO(yanqin) investigate if 'flush_reason' can be removed since it's not
-  // used.
+    const MutableCFOptions& mutable_cf_options) {
   mutex_.AssertHeld();
 
   // Update max_total_in_memory_state_
