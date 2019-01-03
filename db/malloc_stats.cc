@@ -15,13 +15,15 @@
 
 #include "port/jemalloc_helper.h"
 
-#ifdef JEMALLOC_NO_RENAME
-#define malloc_stats_print je_malloc_stats_print
-#endif
 
 namespace rocksdb {
 
 #ifdef ROCKSDB_JEMALLOC
+
+#ifdef JEMALLOC_NO_RENAME
+#define malloc_stats_print je_malloc_stats_print
+#endif
+
 typedef struct {
   char* cur;
   char* end;
