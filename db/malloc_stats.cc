@@ -13,7 +13,7 @@
 #include <memory>
 #include <string.h>
 
-#include "port/jemalloc.h"
+#include "port/jemalloc_helper.h"
 
 #ifdef JEMALLOC_NO_RENAME
 #define malloc_stats_print je_malloc_stats_print
