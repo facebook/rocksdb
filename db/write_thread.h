@@ -127,7 +127,7 @@ class WriteThread {
     std::atomic<uint8_t> state;  // write under StateMutex() or pre-link
     WriteGroup* write_group;
     SequenceNumber sequence;  // the sequence number to use for the first key
-    Status status;            // status of memtable inserter
+    Status status;
     Status callback_status;   // status returned by callback->Callback()
 
     std::aligned_storage<sizeof(std::mutex)>::type state_mutex_bytes;
