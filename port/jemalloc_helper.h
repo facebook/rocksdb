@@ -34,7 +34,7 @@ extern "C" size_t malloc_usable_size(JEMALLOC_USABLE_SIZE_CONST void*)
 
 // Check if Jemalloc is linked with the binary. Note the main program might be
 // using a different memory allocator even this method return true.
-// It is loosely based on folly::usingJEMalloc(), minus the check the actually
+// It is loosely based on folly::usingJEMalloc(), minus the check that actually
 // allocate memory and see if it is through jemalloc, to handle the dlopen()
 // case:
 // https://github.com/facebook/folly/blob/76cf8b5841fb33137cfbf8b224f0226437c855bc/folly/memory/Malloc.h#L147
