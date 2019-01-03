@@ -17,8 +17,8 @@ namespace rocksdb {
 
 class SstFileDumper {
  public:
-  explicit SstFileDumper(const std::string& file_name, bool verify_checksum,
-                         bool output_hex);
+  explicit SstFileDumper(const Options& options, const std::string& file_name,
+                         bool verify_checksum, bool output_hex);
 
   Status ReadSequential(bool print_kv, uint64_t read_num, bool has_from,
                         const std::string& from_key, bool has_to,
