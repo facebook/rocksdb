@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## Cherry-picks
+* Fix with pipelined write, write leaders's callback failure lead to the whole write group fail.
+
 ## 5.18.3 (2/11/2019)
 ### Bug Fixes
 * Fix possible LSM corruption when both range deletions and subcompactions are used. The symptom of this corruption is L1+ files overlapping in the user key space.
