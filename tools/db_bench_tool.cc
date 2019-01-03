@@ -981,10 +981,10 @@ DEFINE_double(mix_put_ratio, 0.0,
               "The ratio of Put queries of mix_graph workload");
 DEFINE_double(mix_seek_ratio, 0.0,
               "The ratio of Seek queries of mix_graph workload");
-DEFINE_double(mix_seekforprev_ratio, 0.0,
-              "The ratio of SeekForPrev queries of mix_graph workload");
-DEFINE_double(mix_access_ratio, 0.1,
-              "The ratio of keys that will be accessed by mix_graph workload");
+DEFINE_int64(mix_max_scan_len, 10000, "The max scan length of Iterator");
+DEFINE_int64(mix_ave_kv_size, 512,
+             "The average key-value size of this workload");
+DEFINE_int64(mix_max_value_size, 1024, "The max value size of this workload");
 DEFINE_double(
     sine_mix_rate_noise, 0.0,
     "Add the noise ratio to the sine rate, it is between 0.0 and 1.0");
@@ -4674,8 +4674,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     int64_t seek = 0;
     int64_t seek_found;
     int64_t bytes = 0;
-    int value_max = 1024 * 16;
-    int scan_len_max = 10000;
+    int value_max = FLAGS_mix_max_value_size;
+    int scan_len_max = FLAGS_mix_max_scan_len;
     double write_rate = 1000000.0;
     double read_rate = 1000000.0;
     std::vector<double> ratio;
@@ -4691,7 +4691,6 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     ratio.push_back(FLAGS_mix_get_ratio);
     ratio.push_back(FLAGS_mix_put_ratio);
     ratio.push_back(FLAGS_mix_seek_ratio);
-    ratio.push_back(FLAGS_mix_seekforprev_ratio);
     query.Initiate(ratio);
 
     // the limit of qps initiation
@@ -4706,11 +4705,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
-      int64_t rand_v, key_rand;
+      int64_t rand_v, key_rand, key_seed;
       rand_v = GetRandomKey(&thread->rand) % FLAGS_num;
       double u = static_cast<double>(rand_v) / FLAGS_num;
-      key_rand =
-          PowerCdfInversion(u, FLAGS_key_dist_a, FLAGS_key_dist_b) % FLAGS_num;
+      key_seed = PowerCdfInversion(u, FLAGS_key_dist_a, FLAGS_key_dist_b);
+      Random64 rand(key_seed);
+      key_rand = static_cast<int64_t>(rand.Next()) % FLAGS_num;
       GenerateKeyFromInt(key_rand, FLAGS_num, &key);
       int query_type = query.GetType(rand_v);
 
@@ -4731,7 +4731,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         double mix_rate_with_noise = AddNoise(
             SineRate(usecs_since_start / 1000000.0), FLAGS_sine_mix_rate_noise);
         read_rate = mix_rate_with_noise * (query.ratio_[0] + query.ratio_[2]);
-        write_rate = mix_rate_with_noise * query.ratio_[1] * 512;
+        write_rate =
+            mix_rate_with_noise * query.ratio_[1] * FLAGS_mix_ave_kv_size;
 
         thread->shared->write_rate_limiter.reset(
             NewGenericRateLimiter(write_rate));
@@ -4800,6 +4801,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           if (single_iter != nullptr) {
             single_iter->Seek(key);
             seek++;
+            read++;
             if (single_iter->Valid() && single_iter->key().compare(key) == 0) {
               seek_found++;
             }
@@ -4814,14 +4816,6 @@ void VerifyDBFromDB(std::string& truth_db_name) {
               bytes += single_iter->key().size() + single_iter->value().size();
               single_iter->Next();
               assert(single_iter->status().ok());
-              read++;
-
-              if (thread->shared->read_rate_limiter.get() != nullptr &&
-                  read % 256 == 255) {
-                thread->shared->read_rate_limiter->Request(
-                    256, Env::IO_HIGH, nullptr /* stats */,
-                    RateLimiter::OpType::kRead);
-              }
             }
           }
           delete single_iter;
