@@ -419,7 +419,7 @@ void print_help() {
 
 }  // namespace
 
-int SSTDumpTool::Run(int argc, char** argv) {
+int SSTDumpTool::Run(int argc, char** argv, Options options) {
   const char* dir_or_file = nullptr;
   uint64_t read_num = std::numeric_limits<uint64_t>::max();
   std::string command;
@@ -547,7 +547,7 @@ int SSTDumpTool::Run(int argc, char** argv) {
   }
 
   std::vector<std::string> filenames;
-  rocksdb::Env* env = rocksdb::Env::Default();
+  rocksdb::Env* env = options.env;
   rocksdb::Status st = env->GetChildren(dir_or_file, &filenames);
   bool dir = true;
   if (!st.ok()) {
@@ -572,7 +572,6 @@ int SSTDumpTool::Run(int argc, char** argv) {
       filename = std::string(dir_or_file) + "/" + filename;
     }
 
-    rocksdb::Options options;
     rocksdb::SstFileDumper dumper(options, filename, verify_checksum,
                                   output_hex);
     if (!dumper.getStatus().ok()) {
