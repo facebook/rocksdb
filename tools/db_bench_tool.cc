@@ -959,22 +959,6 @@ DEFINE_double(iter_k, 0.0,
 DEFINE_double(iter_sigma, 0.0,
               "The parameter 'sigma' of Generized Pareto Distribution "
               "f(x)=(1/sigma)*(1+k*(x-theta)/sigma)^-(1/k+1)");
-DEFINE_double(prefix_dist_a, 0.0,
-              "The parameter 'a' of prefix average access distribution "
-              "f(x)=a*exp(b*x)+c*exp(d*x)");
-DEFINE_double(prefix_dist_b, 0.0,
-              "The parameter 'b' of prefix average access distribution "
-              "f(x)=a*exp(b*x)+c*exp(d*x)");
-DEFINE_double(prefix_dist_c, 0.0,
-              "The parameter 'c' of prefix average access distribution"
-              "f(x)=a*exp(b*x)+c*exp(d*x)");
-DEFINE_double(prefix_dist_d, 0.0,
-              "The parameter 'd' of prefix average access distribution"
-              "f(x)=a*exp(b*x)+c*exp(d*x)");
-DEFINE_int64(prefix_num, 1,
-             "The number of key ranges that are in the same prefix "
-             "group, each prefix range will have its key acccess "
-             "distribution");
 DEFINE_double(mix_get_ratio, 1.0,
               "The ratio of Get queries of mix_graph workload");
 DEFINE_double(mix_put_ratio, 0.0,
@@ -4674,8 +4658,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     int64_t seek = 0;
     int64_t seek_found = 0;
     int64_t bytes = 0;
-    int value_max = FLAGS_mix_max_value_size;
-    int scan_len_max = FLAGS_mix_max_scan_len;
+    int64_t value_max = FLAGS_mix_max_value_size;
+    int64_t scan_len_max = FLAGS_mix_max_scan_len;
     double write_rate = 1000000.0;
     double read_rate = 1000000.0;
     std::vector<double> ratio;
@@ -4774,8 +4758,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       } else if (query_type == 1) {
         // the Put query
         puts++;
-        int value_size = static_cast<int>(ParetoCdfInversion(
-            u, FLAGS_value_theta, FLAGS_value_k, FLAGS_value_sigma));
+        int64_t value_size = ParetoCdfInversion(
+            u, FLAGS_value_theta, FLAGS_value_k, FLAGS_value_sigma);
         if (value_size < 0) {
           value_size = 10;
         } else if (value_size > value_max) {
@@ -4805,11 +4789,11 @@ void VerifyDBFromDB(std::string& truth_db_name) {
             if (single_iter->Valid() && single_iter->key().compare(key) == 0) {
               seek_found++;
             }
-            int scan_length =
-                static_cast<int>(ParetoCdfInversion(
-                    u, FLAGS_iter_theta, FLAGS_iter_k, FLAGS_iter_sigma)) %
+            int64_t scan_length =
+                ParetoCdfInversion(u, FLAGS_iter_theta, FLAGS_iter_k,
+                                   FLAGS_iter_sigma) %
                 scan_len_max;
-            for (int j = 0; j < scan_length && single_iter->Valid(); j++) {
+            for (int64_t j = 0; j < scan_length && single_iter->Valid(); j++) {
               Slice value = single_iter->value();
               memcpy(value_buffer, value.data(),
                      std::min(value.size(), sizeof(value_buffer)));
