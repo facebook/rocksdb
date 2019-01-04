@@ -1630,15 +1630,16 @@ class DBImpl : public DB {
 
   ErrorHandler error_handler_;
 
-  // True if the DB is committing atomic flush.
-  // TODO (yanqin) the current impl assumes that the entire DB belongs to
-  // a single atomic flush group. In the future we need to add a new class
-  // (struct) similar to the following to make it more general.
-  // struct AtomicFlushGroup {
-  //   bool commit_in_progress_;
-  //   std::vector<MemTableList*> imm_lists;
-  // };
-  bool atomic_flush_commit_in_progress_;
+  // Conditional variable to coordinate installation of atomic flush results.
+  // With atomic flush, each bg thread installs the result of flushing multiple
+  // column families, and different threads can flush different column
+  // families. It's difficult to rely on one thread to perform batch
+  // installation for all threads. This is different from the non-atomic flush
+  // case.
+  // atomic_flush_install_cv_ makes sure that threads install atomic flush
+  // results sequentially. Flush results of memtables with lower IDs get
+  // installed to MANIFEST first.
+  InstrumentedCondVar atomic_flush_install_cv_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

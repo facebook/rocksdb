@@ -85,17 +85,46 @@ class MemTableListTest : public testing::Test {
   Status Mock_InstallMemtableFlushResults(
       MemTableList* list, const MutableCFOptions& mutable_cf_options,
       const autovector<MemTable*>& m, autovector<MemTable*>* to_delete) {
-    autovector<MemTableList*> lists;
-    lists.emplace_back(list);
-    autovector<const autovector<MemTable*>*> mems_list;
-    mems_list.emplace_back(&m);
-    return Mock_InstallMemtableFlushResults(
-        lists, {0} /* cf_ids */, {&mutable_cf_options}, mems_list, to_delete);
+    // Create a mock Logger
+    test::NullLogger logger;
+    LogBuffer log_buffer(DEBUG_LEVEL, &logger);
+
+    CreateDB();
+    // Create a mock VersionSet
+    DBOptions db_options;
+    ImmutableDBOptions immutable_db_options(db_options);
+    EnvOptions env_options;
+    std::shared_ptr<Cache> table_cache(NewLRUCache(50000, 16));
+    WriteBufferManager write_buffer_manager(db_options.db_write_buffer_size);
+    WriteController write_controller(10000000u);
+
+    VersionSet versions(dbname, &immutable_db_options, env_options,
+                        table_cache.get(), &write_buffer_manager,
+                        &write_controller);
+    std::vector<ColumnFamilyDescriptor> cf_descs;
+    cf_descs.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
+    cf_descs.emplace_back("one", ColumnFamilyOptions());
+    cf_descs.emplace_back("two", ColumnFamilyOptions());
+
+    EXPECT_OK(versions.Recover(cf_descs, false));
+
+    // Create mock default ColumnFamilyData
+    auto column_family_set = versions.GetColumnFamilySet();
+    LogsWithPrepTracker dummy_prep_tracker;
+    auto cfd = column_family_set->GetDefault();
+    EXPECT_TRUE(nullptr != cfd);
+    uint64_t file_num = file_number.fetch_add(1);
+    // Create dummy mutex.
+    InstrumentedMutex mutex;
+    InstrumentedMutexLock l(&mutex);
+    return list->TryInstallMemtableFlushResults(
+        cfd, mutable_cf_options, m, &dummy_prep_tracker, &versions, &mutex,
+        file_num, to_delete, nullptr, &log_buffer);
   }
 
   // Calls MemTableList::InstallMemtableFlushResults() and sets up all
   // structures needed to call this function.
-  Status Mock_InstallMemtableFlushResults(
+  Status Mock_InstallMemtableAtomicFlushResults(
       autovector<MemTableList*>& lists, const autovector<uint32_t>& cf_ids,
       const autovector<const MutableCFOptions*>& mutable_cf_options_list,
       const autovector<const autovector<MemTable*>*>& mems_list,
@@ -127,25 +156,6 @@ class MemTableListTest : public testing::Test {
     auto column_family_set = versions.GetColumnFamilySet();
 
     LogsWithPrepTracker dummy_prep_tracker;
-    if (1 == cf_ids.size()) {
-      auto cfd = column_family_set->GetColumnFamily(cf_ids[0]);
-      EXPECT_TRUE(nullptr != cfd);
-      EXPECT_EQ(1, lists.size());
-      MemTableList* list = lists[0];
-      EXPECT_EQ(1, mutable_cf_options_list.size());
-      const MutableCFOptions& mutable_cf_options =
-          *(mutable_cf_options_list.at(0));
-      const autovector<MemTable*>* mems = mems_list.at(0);
-      EXPECT_TRUE(nullptr != mems);
-
-      uint64_t file_num = file_number.fetch_add(1);
-      // Create dummy mutex.
-      InstrumentedMutex mutex;
-      InstrumentedMutexLock l(&mutex);
-      return list->TryInstallMemtableFlushResults(
-          cfd, mutable_cf_options, *mems, &dummy_prep_tracker, &versions,
-          &mutex, file_num, to_delete, nullptr, &log_buffer);
-    }
     autovector<ColumnFamilyData*> cfds;
     for (int i = 0; i != static_cast<int>(cf_ids.size()); ++i) {
       cfds.emplace_back(column_family_set->GetColumnFamily(cf_ids[i]));
@@ -158,13 +168,11 @@ class MemTableListTest : public testing::Test {
       meta.fd = FileDescriptor(file_num, 0, 0);
       file_metas.emplace_back(meta);
     }
-    bool atomic_flush_commit_in_progress = false;
     InstrumentedMutex mutex;
     InstrumentedMutexLock l(&mutex);
-    return MemTableList::TryInstallMemtableFlushResults(
-        lists, cfds, mutable_cf_options_list, mems_list,
-        &atomic_flush_commit_in_progress, &dummy_prep_tracker, &versions,
-        &mutex, file_metas, to_delete, nullptr, &log_buffer);
+    return InstallMemtableAtomicFlushResults(
+        &lists, cfds, mutable_cf_options_list, mems_list, &versions, &mutex,
+        file_metas, to_delete, nullptr, &log_buffer);
   }
 };
 
@@ -730,18 +738,28 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   to_delete.clear();
 }
 
-TEST_F(MemTableListTest, FlushMultipleCFsTest) {
+TEST_F(MemTableListTest, EmptyAtomicFlusTest) {
+  autovector<MemTableList*> lists;
+  autovector<uint32_t> cf_ids;
+  autovector<const MutableCFOptions*> options_list;
+  autovector<const autovector<MemTable*>*> to_flush;
+  autovector<MemTable*> to_delete;
+  Status s = Mock_InstallMemtableAtomicFlushResults(lists, cf_ids, options_list,
+                                                    to_flush, &to_delete);
+  ASSERT_OK(s);
+  ASSERT_TRUE(to_delete.empty());
+}
+
+TEST_F(MemTableListTest, AtomicFlusTest) {
   const int num_cfs = 3;
-  const int num_tables_per_cf = 5;
+  const int num_tables_per_cf = 2;
   SequenceNumber seq = 1;
-  Status s;
 
   auto factory = std::make_shared<SkipListFactory>();
   options.memtable_factory = factory;
   ImmutableCFOptions ioptions(options);
   InternalKeyComparator cmp(BytewiseComparator());
   WriteBufferManager wb(options.db_write_buffer_size);
-  autovector<MemTable*> to_delete;
 
   // Create MemTableLists
   int min_write_buffer_number_to_merge = 3;
@@ -782,134 +800,71 @@ TEST_F(MemTableListTest, FlushMultipleCFsTest) {
   std::vector<autovector<MemTable*>> flush_candidates(num_cfs);
 
   // Nothing to flush
-  for (int i = 0; i != num_cfs; ++i) {
-    auto list = lists[i];
+  for (auto i = 0; i != num_cfs; ++i) {
+    auto* list = lists[i];
     ASSERT_FALSE(list->IsFlushPending());
     ASSERT_FALSE(list->imm_flush_needed.load(std::memory_order_acquire));
     list->PickMemtablesToFlush(nullptr /* memtable_id */, &flush_candidates[i]);
-    ASSERT_EQ(0, static_cast<int>(flush_candidates[i].size()));
+    ASSERT_EQ(0, flush_candidates[i].size());
   }
-
   // Request flush even though there is nothing to flush
-  for (int i = 0; i != num_cfs; ++i) {
-    auto list = lists[i];
+  for (auto i = 0; i != num_cfs; ++i) {
+    auto* list = lists[i];
     list->FlushRequested();
     ASSERT_FALSE(list->IsFlushPending());
     ASSERT_FALSE(list->imm_flush_needed.load(std::memory_order_acquire));
   }
-
-  // Add tables to column families
-  for (int i = 0; i != num_cfs; ++i) {
-    for (int j = 0; j != num_tables_per_cf; ++j) {
+  autovector<MemTable*> to_delete;
+  // Add tables to the immutable memtalbe lists associated with column families
+  for (auto i = 0; i != num_cfs; ++i) {
+    for (auto j = 0; j != num_tables_per_cf; ++j) {
       lists[i]->Add(tables[i][j], &to_delete);
     }
     ASSERT_EQ(num_tables_per_cf, lists[i]->NumNotFlushed());
     ASSERT_TRUE(lists[i]->IsFlushPending());
     ASSERT_TRUE(lists[i]->imm_flush_needed.load(std::memory_order_acquire));
   }
-
+  std::vector<uint64_t> flush_memtable_ids = {1, 1, 0};
+  //          +----+
+  // list[0]: |0  1|
+  // list[1]: |0  1|
+  //          | +--+
+  // list[2]: |0| 1
+  //          +-+
+  // Pick memtables to flush
+  for (auto i = 0; i != num_cfs; ++i) {
+    flush_candidates[i].clear();
+    lists[i]->PickMemtablesToFlush(&flush_memtable_ids[i],
+                                   &flush_candidates[i]);
+    ASSERT_EQ(flush_memtable_ids[i] - 0 + 1,
+              static_cast<uint64_t>(flush_candidates[i].size()));
+  }
+  autovector<MemTableList*> tmp_lists;
+  autovector<uint32_t> tmp_cf_ids;
+  autovector<const MutableCFOptions*> tmp_options_list;
   autovector<const autovector<MemTable*>*> to_flush;
-  std::vector<uint64_t> prev_memtable_ids;
-  // For each column family, determine the memtables to flush
-  for (int k = 0; k != 4; ++k) {
-    std::vector<uint64_t> flush_memtable_ids;
-    if (0 == k) {
-      //          +----+
-      // list[0]: |0  1|  2 3 4
-      // list[1]: |0  1|  2 3 4
-      //          | +--+
-      // list[2]: |0| 1   2 3 4
-      //          +-+
-      flush_memtable_ids = {1, 1, 0};
-    } else if (1 == k) {
-      //          +----+ +---+
-      // list[0]: |0  1| |2 3|  4
-      // list[1]: |0  1| |2 3|  4
-      //          | +--+ +---+
-      // list[2]: |0| 1   2 3   4
-      //          +-+
-      flush_memtable_ids = {3, 3, 0};
-    } else if (2 == k) {
-      //          +-----+ +---+
-      // list[0]: |0   1| |2 3|  4
-      // list[1]: |0   1| |2 3|  4
-      //          | +---+ +---+
-      //          | | +-------+
-      // list[2]: |0| |1   2 3|  4
-      //          +-+ +-------+
-      flush_memtable_ids = {3, 3, 3};
-    } else {
-      //          +-----+ +---+ +-+
-      // list[0]: |0   1| |2 3| |4|
-      // list[1]: |0   1| |2 3| |4|
-      //          | +---+ +---+ | |
-      //          | | +-------+ | |
-      // list[2]: |0| |1   2 3| |4|
-      //          +-+ +-------+ +-+
-      flush_memtable_ids = {4, 4, 4};
-    }
-    assert(num_cfs == static_cast<int>(flush_memtable_ids.size()));
-
-    // Pick memtables to flush
-    for (int i = 0; i != num_cfs; ++i) {
-      flush_candidates[i].clear();
-      lists[i]->PickMemtablesToFlush(&flush_memtable_ids[i],
-                                     &flush_candidates[i]);
-      for (auto mem : flush_candidates[i]) {
-        mem->TEST_AtomicFlushSequenceNumber() = SequenceNumber(k);
-      }
-      if (prev_memtable_ids.empty()) {
-        ASSERT_EQ(flush_memtable_ids[i] - 0 + 1, flush_candidates[i].size());
-      } else {
-        ASSERT_EQ(flush_memtable_ids[i] - prev_memtable_ids[i],
-                  flush_candidates[i].size());
-      }
-      ASSERT_EQ(num_tables_per_cf, lists[i]->NumNotFlushed());
-      ASSERT_FALSE(lists[i]->HasFlushRequested());
-      if (flush_memtable_ids[i] == num_tables_per_cf - 1) {
-        ASSERT_FALSE(
-            lists[i]->imm_flush_needed.load(std::memory_order_acquire));
-      } else {
-        ASSERT_TRUE(lists[i]->imm_flush_needed.load(std::memory_order_acquire));
-      }
-    }
-    prev_memtable_ids = flush_memtable_ids;
-
-    if (k < 3) {
-      for (const auto& mems : flush_candidates) {
-        uint64_t file_num = file_number.fetch_add(1);
-        for (auto m : mems) {
-          m->TEST_SetFlushCompleted(true);
-          m->TEST_SetFileNumber(file_num);
-        }
-      }
-    }
-
-    if (k == 0) {
-      // Rollback first pick of tables
-      for (int i = 0; i != num_cfs; ++i) {
-        auto list = lists[i];
-        const auto& mems = flush_candidates[i];
-        for (auto m : mems) {
-          m->TEST_SetFileNumber(0);
-        }
-        list->RollbackMemtableFlush(flush_candidates[i], 0);
-        ASSERT_TRUE(list->IsFlushPending());
-        ASSERT_TRUE(list->imm_flush_needed.load(std::memory_order_acquire));
-      }
-      prev_memtable_ids.clear();
-    }
-
-    if (k == 3) {
-      for (int i = 0; i != num_cfs; ++i) {
-        to_flush.emplace_back(&flush_candidates[i]);
-      }
+  for (auto i = 0; i != num_cfs; ++i) {
+    if (!flush_candidates[i].empty()) {
+      to_flush.push_back(&flush_candidates[i]);
+      tmp_lists.push_back(lists[i]);
+      tmp_cf_ids.push_back(i);
+      tmp_options_list.push_back(mutable_cf_options_list[i]);
     }
   }
-
-  s = Mock_InstallMemtableFlushResults(lists, cf_ids, mutable_cf_options_list,
-                                       to_flush, &to_delete);
+  Status s = Mock_InstallMemtableAtomicFlushResults(
+      tmp_lists, tmp_cf_ids, tmp_options_list, to_flush, &to_delete);
   ASSERT_OK(s);
+
+  for (auto i = 0; i != num_cfs; ++i) {
+    for (auto j = 0; j != num_tables_per_cf; ++j) {
+      if (static_cast<uint64_t>(j) <= flush_memtable_ids[i]) {
+        ASSERT_LT(0, tables[i][j]->GetFileNumber());
+      }
+    }
+    ASSERT_EQ(
+        static_cast<size_t>(num_tables_per_cf) - flush_candidates[i].size(),
+        lists[i]->NumNotFlushed());
+  }
 
   to_delete.clear();
   for (auto list : lists) {
@@ -932,126 +887,6 @@ TEST_F(MemTableListTest, FlushMultipleCFsTest) {
     ASSERT_EQ(m, m->Unref());
     delete m;
   }
-  to_delete.clear();
-}
-
-TEST_F(MemTableListTest, HasOlderAtomicFlush) {
-  const size_t num_cfs = 3;
-  const size_t num_memtables_per_cf = 2;
-  SequenceNumber seq = 1;
-  Status s;
-
-  auto factory = std::make_shared<SkipListFactory>();
-  options.memtable_factory = factory;
-  ImmutableCFOptions ioptions(options);
-  InternalKeyComparator cmp(BytewiseComparator());
-  WriteBufferManager wb(options.db_write_buffer_size);
-  autovector<MemTable*> to_delete;
-
-  // Create MemTableLists
-  int min_write_buffer_number_to_merge = 3;
-  int max_write_buffer_number_to_maintain = 7;
-  autovector<MemTableList*> lists;
-  for (size_t i = 0; i != num_cfs; ++i) {
-    lists.emplace_back(new MemTableList(min_write_buffer_number_to_merge,
-                                        max_write_buffer_number_to_maintain));
-  }
-
-  autovector<uint32_t> cf_ids;
-  std::vector<std::vector<MemTable*>> tables;
-  autovector<const MutableCFOptions*> mutable_cf_options_list;
-  uint32_t cf_id = 0;
-  for (size_t k = 0; k != num_cfs; ++k) {
-    std::vector<MemTable*> elem;
-    mutable_cf_options_list.emplace_back(new MutableCFOptions(options));
-    uint64_t memtable_id = 0;
-    for (int i = 0; i != num_memtables_per_cf; ++i) {
-      MemTable* mem =
-          new MemTable(cmp, ioptions, *(mutable_cf_options_list.back()), &wb,
-                       kMaxSequenceNumber, cf_id);
-      mem->SetID(memtable_id++);
-      mem->Ref();
-
-      std::string value;
-
-      mem->Add(++seq, kTypeValue, "key1", ToString(i));
-      mem->Add(++seq, kTypeValue, "keyN" + ToString(i), "valueN");
-      mem->Add(++seq, kTypeValue, "keyX" + ToString(i), "value");
-      mem->Add(++seq, kTypeValue, "keyM" + ToString(i), "valueM");
-      mem->Add(++seq, kTypeDeletion, "keyX" + ToString(i), "");
-
-      elem.push_back(mem);
-    }
-    tables.emplace_back(elem);
-    cf_ids.push_back(cf_id++);
-  }
-
-  // Add tables to column families' immutable memtable lists
-  for (size_t i = 0; i != num_cfs; ++i) {
-    for (size_t j = 0; j != num_memtables_per_cf; ++j) {
-      lists[i]->Add(tables[i][j], &to_delete);
-    }
-    lists[i]->FlushRequested();
-    ASSERT_EQ(num_memtables_per_cf, lists[i]->NumNotFlushed());
-    ASSERT_TRUE(lists[i]->IsFlushPending());
-    ASSERT_TRUE(lists[i]->imm_flush_needed.load(std::memory_order_acquire));
-  }
-  std::vector<autovector<MemTable*>> flush_candidates(num_cfs);
-  for (size_t i = 0; i != num_cfs; ++i) {
-    lists[i]->PickMemtablesToFlush(nullptr, &flush_candidates[i]);
-    for (auto m : flush_candidates[i]) {
-      m->TEST_AtomicFlushSequenceNumber() = 123;
-    }
-    lists[i]->RollbackMemtableFlush(flush_candidates[i], 0);
-  }
-  uint64_t memtable_id = num_memtables_per_cf - 1;
-  autovector<MemTable*> other_flush_candidates;
-  lists[0]->PickMemtablesToFlush(&memtable_id, &other_flush_candidates);
-  for (auto m : other_flush_candidates) {
-    m->TEST_AtomicFlushSequenceNumber() = 124;
-    m->TEST_SetFlushCompleted(true);
-    m->TEST_SetFileNumber(1);
-  }
-  autovector<const autovector<MemTable*>*> to_flush;
-  to_flush.emplace_back(&other_flush_candidates);
-  bool has_older_unfinished_atomic_flush = false;
-  bool found_batch_to_commit = false;
-
-  SyncPoint::GetInstance()->SetCallBack(
-      "MemTableList::TryInstallMemtableFlushResults:"
-      "HasOlderUnfinishedAtomicFlush:0",
-      [&](void* /*arg*/) { has_older_unfinished_atomic_flush = true; });
-  SyncPoint::GetInstance()->SetCallBack(
-      "MemTableList::TryInstallMemtableFlushResults:FoundBatchToCommit:0",
-      [&](void* /*arg*/) { found_batch_to_commit = true; });
-  SyncPoint::GetInstance()->EnableProcessing();
-
-  s = Mock_InstallMemtableFlushResults(lists, cf_ids, mutable_cf_options_list,
-                                       to_flush, &to_delete);
-  ASSERT_OK(s);
-  ASSERT_TRUE(has_older_unfinished_atomic_flush);
-  ASSERT_FALSE(found_batch_to_commit);
-
-  SyncPoint::GetInstance()->ClearAllCallBacks();
-
-  ASSERT_TRUE(to_delete.empty());
-  for (auto list : lists) {
-    list->current()->Unref(&to_delete);
-    delete list;
-  }
-  lists.clear();
-  ASSERT_EQ(num_cfs * num_memtables_per_cf, to_delete.size());
-  for (auto m : to_delete) {
-    m->Ref();
-    ASSERT_EQ(m, m->Unref());
-    delete m;
-  }
-  to_delete.clear();
-  for (auto& opts : mutable_cf_options_list) {
-    delete opts;
-    opts = nullptr;
-  }
-  mutable_cf_options_list.clear();
 }
 
 }  // namespace rocksdb

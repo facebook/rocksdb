@@ -404,34 +404,65 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         }
       }
     }
+  }
 
-    if (s.ok()) {
-      autovector<const autovector<MemTable*>*> mems_list;
-      for (int i = 0; i != num_cfs; ++i) {
-        if (cfds[i]->IsDropped()) {
-          continue;
-        }
+  if (s.ok()) {
+    auto wait_to_install_func = [&]() {
+      bool ready = true;
+      for (size_t i = 0; i != cfds.size(); ++i) {
         const auto& mems = jobs[i].GetMemTables();
-        mems_list.emplace_back(&mems);
-      }
-      autovector<ColumnFamilyData*> all_cfds;
-      autovector<MemTableList*> imm_lists;
-      autovector<const MutableCFOptions*> mutable_cf_options_list;
-      for (auto cfd : *versions_->GetColumnFamilySet()) {
-        if (cfd->IsDropped()) {
+        if (cfds[i]->IsDropped()) {
+          // If the column family is dropped, then do not wait.
           continue;
+        } else if (!mems.empty() &&
+                   cfds[i]->imm()->GetEarliestMemTableID() < mems[0]->GetID()) {
+          // If a flush job needs to install the flush result for mems and
+          // mems[0] is not the earliest memtable, it means another thread must
+          // be installing flush results for the same column family, then the
+          // current thread needs to wait.
+          ready = false;
+          break;
+        } else if (mems.empty() && cfds[i]->imm()->GetEarliestMemTableID() <=
+                                       bg_flush_args[i].max_memtable_id_) {
+          // If a flush job does not need to install flush results, then it has
+          // to wait until all memtables up to max_memtable_id_ (inclusive) are
+          // installed.
+          ready = false;
+          break;
         }
-        all_cfds.emplace_back(cfd);
-        imm_lists.emplace_back(cfd->imm());
-        mutable_cf_options_list.emplace_back(cfd->GetLatestMutableCFOptions());
       }
+      return ready;
+    };
 
-      s = MemTableList::TryInstallMemtableFlushResults(
-          imm_lists, all_cfds, mutable_cf_options_list, mems_list,
-          &atomic_flush_commit_in_progress_, &logs_with_prep_tracker_,
-          versions_.get(), &mutex_, file_meta, &job_context->memtables_to_free,
-          directories_.GetDbDir(), log_buffer);
+    bool resuming_from_bg_err = error_handler_.IsDBStopped();
+    while ((!error_handler_.IsDBStopped() ||
+            error_handler_.GetRecoveryError().ok()) &&
+           !wait_to_install_func()) {
+      atomic_flush_install_cv_.Wait();
     }
+
+    s = resuming_from_bg_err ? error_handler_.GetRecoveryError()
+                             : error_handler_.GetBGError();
+  }
+
+  if (s.ok()) {
+    autovector<ColumnFamilyData*> tmp_cfds;
+    autovector<const autovector<MemTable*>*> mems_list;
+    autovector<const MutableCFOptions*> mutable_cf_options_list;
+    for (int i = 0; i != num_cfs; ++i) {
+      const auto& mems = jobs[i].GetMemTables();
+      if (!cfds[i]->IsDropped() && !mems.empty()) {
+        tmp_cfds.emplace_back(cfds[i]);
+        mems_list.emplace_back(&mems);
+        mutable_cf_options_list.emplace_back(
+            cfds[i]->GetLatestMutableCFOptions());
+      }
+    }
+
+    s = InstallMemtableAtomicFlushResults(
+        nullptr /* imm_lists */, tmp_cfds, mutable_cf_options_list, mems_list,
+        versions_.get(), &mutex_, file_meta, &job_context->memtables_to_free,
+        directories_.GetDbDir(), log_buffer);
   }
 
   if (s.ok() || s.IsShutdownInProgress()) {
@@ -2104,6 +2135,7 @@ void DBImpl::BackgroundCallFlush() {
     bg_flush_scheduled_--;
     // See if there's more work to be done
     MaybeScheduleFlushOrCompaction();
+    atomic_flush_install_cv_.SignalAll();
     bg_cv_.SignalAll();
     // IMPORTANT: there should be no code after calling SignalAll. This call may
     // signal the DB destructor that it's OK to proceed with destruction. In
