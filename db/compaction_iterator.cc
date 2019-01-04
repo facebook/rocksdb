@@ -407,7 +407,8 @@ void CompactionIterator::NextFromInput() {
             // is an unexpected Merge or Delete.  We will compact it out
             // either way. We will maintain counts of how many mismatches
             // happened
-            if (next_ikey.type != kTypeValue) {
+            if (next_ikey.type != kTypeValue &&
+                next_ikey.type != kTypeBlobIndex) {
               ++iter_stats_.num_single_del_mismatch;
             }
 
