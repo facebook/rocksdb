@@ -1041,11 +1041,16 @@ TEST_F(DBRangeDelTest, RangeTombstoneEndKeyAsSstableUpperBound) {
     //   L2:
     //     [key000000#1,1, key000000#1,1]
     //     [key000002#6,1, key000004#72057594037927935,15]
+    //
+    // At the same time, verify the compaction does not cause the key at the
+    // endpoint (key000002#6,1) to disappear.
+    ASSERT_EQ(value, Get(Key(2)));
     auto begin_str = Key(3);
     const rocksdb::Slice begin = begin_str;
     dbfull()->TEST_CompactRange(1, &begin, nullptr);
     ASSERT_EQ(1, NumTableFilesAtLevel(1));
     ASSERT_EQ(2, NumTableFilesAtLevel(2));
+    ASSERT_EQ(value, Get(Key(2)));
   }
 
   {

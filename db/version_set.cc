@@ -301,17 +301,28 @@ class FilePicker {
         // On Level-n (n>=1), files are sorted. Binary search to find the
         // earliest file whose largest key >= ikey. Search left bound and
         // right bound are used to narrow the range.
-        if (search_left_bound_ == search_right_bound_) {
-          start_index = search_left_bound_;
-        } else if (search_left_bound_ < search_right_bound_) {
+        if (search_left_bound_ <= search_right_bound_) {
           if (search_right_bound_ == FileIndexer::kLevelMaxIndex) {
             search_right_bound_ =
                 static_cast<int32_t>(curr_file_level_->num_files) - 1;
           }
+          // `search_right_bound_` is an inclusive upper-bound, but since it was
+          // determined based on user key, it is still possible the lookup key
+          // falls to the right of `search_right_bound_`'s corresponding file.
+          // So, pass a limit one higher, which allows us to detect this case.
           start_index =
               FindFileInRange(*internal_comparator_, *curr_file_level_, ikey_,
                               static_cast<uint32_t>(search_left_bound_),
-                              static_cast<uint32_t>(search_right_bound_));
+                              static_cast<uint32_t>(search_right_bound_) + 1);
+          if (start_index == search_right_bound_ + 1) {
+            // `ikey_` comes after `search_right_bound_`. The lookup key does
+            // not exist on this level, so let's skip this level and do a full
+            // binary search on the next level.
+            search_left_bound_ = 0;
+            search_right_bound_ = FileIndexer::kLevelMaxIndex;
+            curr_level_++;
+            continue;
+          }
         } else {
           // search_left_bound > search_right_bound, key does not exist in
           // this level. Since no comparison is done in this level, it will
