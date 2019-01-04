@@ -386,13 +386,15 @@ class MemTable {
 
   uint64_t GetID() const { return id_; }
 
-  SequenceNumber& TEST_AtomicFlushSequenceNumber() {
-    return atomic_flush_seqno_;
+  void SetFlushCompleted(bool completed) { flush_completed_ = completed; }
+
+  uint64_t GetFileNumber() const { return file_number_; }
+
+  void SetFileNumber(uint64_t file_num) { file_number_ = file_num; }
+
+  void SetFlushInProgress(bool in_progress) {
+    flush_in_progress_ = in_progress;
   }
-
-  void TEST_SetFlushCompleted(bool completed) { flush_completed_ = completed; }
-
-  void TEST_SetFileNumber(uint64_t file_num) { file_number_ = file_num; }
 
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };

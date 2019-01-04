@@ -1019,7 +1019,9 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   auto cfd_to_drop =
       versions_->GetColumnFamilySet()->GetColumnFamily(cf_to_drop_name);
   ASSERT_NE(nullptr, cfd_to_drop);
-  cfd_to_drop->Ref(); // Increase its refcount because cfd_to_drop is used later
+  // Increase its refcount because cfd_to_drop is used later, and we need to
+  // prevent it from being deleted.
+  cfd_to_drop->Ref();
   drop_cf_edit.SetColumnFamily(cfd_to_drop->GetID());
   mutex_.Lock();
   s = versions_->LogAndApply(cfd_to_drop,
