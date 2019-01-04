@@ -412,13 +412,21 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       for (size_t i = 0; i != cfds.size(); ++i) {
         const auto& mems = jobs[i].GetMemTables();
         if (cfds[i]->IsDropped()) {
+          // If the column family is dropped, then do not wait.
           continue;
         } else if (!mems.empty() &&
                    cfds[i]->imm()->GetEarliestMemTableID() < mems[0]->GetID()) {
+          // If a flush job needs to install the flush result for mems and
+          // mems[0] is not the earliest memtable, it means another thread must
+          // be installing flush results for the same column family, then the
+          // current thread needs to wait.
           ready = false;
           break;
         } else if (mems.empty() && cfds[i]->imm()->GetEarliestMemTableID() <=
                                        bg_flush_args[i].max_memtable_id_) {
+          // If a flush job does not need to install flush results, then it has
+          // to wait until all memtables up to max_memtable_id_ (inclusive) are
+          // installed.
           ready = false;
           break;
         }

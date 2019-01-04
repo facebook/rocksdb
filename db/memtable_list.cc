@@ -562,7 +562,6 @@ Status InstallMemtableAtomicFlushResults(
 
   Status s;
 
-  assert(num == cfds.size());
   autovector<autovector<VersionEdit*>> edit_lists;
   uint32_t num_entries = 0;
   for (const auto mems : mems_list) {
