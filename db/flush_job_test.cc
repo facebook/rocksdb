@@ -279,7 +279,6 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
           *cfd->GetLatestMutableCFOptions(), kMaxSequenceNumber);
       mem->SetID(i);
       mem->Ref();
-      mem->TEST_AtomicFlushSequenceNumber() = 123;
 
       for (size_t j = 0; j != num_keys_per_memtable; ++j) {
         std::string key(ToString(j + i * num_keys_per_memtable));
@@ -325,17 +324,13 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
     const auto& mems = flush_jobs[i].GetMemTables();
     mems_list.push_back(&mems);
   }
-  autovector<MemTableList*> imm_lists;
   autovector<const MutableCFOptions*> mutable_cf_options_list;
   for (auto cfd : all_cfds) {
-    imm_lists.push_back(cfd->imm());
     mutable_cf_options_list.push_back(cfd->GetLatestMutableCFOptions());
   }
 
-  bool atomic_flush_commit_in_progress = false;
-  Status s = MemTableList::TryInstallMemtableFlushResults(
-      imm_lists, all_cfds, mutable_cf_options_list, mems_list,
-      &atomic_flush_commit_in_progress, nullptr /* logs_prep_tracker */,
+  Status s = InstallMemtableAtomicFlushResults(
+      nullptr /* imm_lists */, all_cfds, mutable_cf_options_list, mems_list,
       versions_.get(), &mutex_, file_metas, &job_context.memtables_to_free,
       nullptr /* db_directory */, nullptr /* log_buffer */);
   ASSERT_OK(s);
