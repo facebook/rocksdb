@@ -425,6 +425,10 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
   write_thread_.JoinBatchGroup(&w);
   if (w.state == WriteThread::STATE_GROUP_LEADER) {
     WriteThread::WriteGroup wal_write_group;
+    // If writer's callback not allow write batching, we have to make sure
+    // there is no pipeline memtable writes. Otherwise, the callback may
+    // read some stale data because newest data is still pending on memtable
+    // writes.
     if (w.callback && !w.callback->AllowWriteBatching()) {
       write_thread_.WaitForMemTableWriters();
     }
@@ -507,7 +511,9 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     assert(w.ShouldWriteToMemtable());
     write_thread_.EnterAsMemTableWriter(&w, &memtable_write_group);
     if (memtable_write_group.size > 1 &&
-        immutable_db_options_.allow_concurrent_memtable_write) {
+        immutable_db_options_.allow_concurrent_memtable_write &&
+        !(memtable_write_group.leader->callback &&
+          !memtable_write_group.leader->callback->AllowWriteBatching())) {
       write_thread_.LaunchParallelMemTableWriters(&memtable_write_group);
     } else {
       memtable_write_group.status = WriteBatchInternal::InsertInto(
