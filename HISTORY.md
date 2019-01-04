@@ -14,6 +14,7 @@
 * Fix a memory leak when files with range tombstones are read in mmap mode and block cache is enabled
 * Fix handling of corrupt range tombstone blocks such that corruptions cannot cause deleted keys to reappear
 * Lock free MultiGet
+* Fix incorrect `NotFound` point lookup result when querying the endpoint of a file that has been extended by a range tombstone.
 * Fix with pipelined write, write leaders's callback failure lead to the whole write group fail.
 
 ## 5.18.0 (11/30/2018)
