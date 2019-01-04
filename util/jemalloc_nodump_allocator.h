@@ -8,6 +8,7 @@
 #include <atomic>
 #include <vector>
 
+#include "port/jemalloc_helper.h"
 #include "port/port.h"
 #include "rocksdb/memory_allocator.h"
 #include "util/core_local.h"
@@ -15,7 +16,6 @@
 
 #if defined(ROCKSDB_JEMALLOC) && defined(ROCKSDB_PLATFORM_POSIX)
 
-#include <jemalloc/jemalloc.h>
 #include <sys/mman.h>
 
 #if (JEMALLOC_VERSION_MAJOR >= 5) && defined(MADV_DONTDUMP)
