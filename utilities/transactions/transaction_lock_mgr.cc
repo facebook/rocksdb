@@ -440,7 +440,10 @@ Status RangeLockMgr::TryLock(PessimisticTransaction* txn,
                              uint32_t column_family_id,
                              const std::string& key, Env* env, bool exclusive)
 {
-  return TryRangeLock(txn, column_family_id, key, key, exclusive);
+  std::string endpoint;
+  convert_key_to_endpoint(rocksdb::Slice(key.data(), key.size()), &endpoint);
+  rocksdb::Slice endp_slice(endpoint.data(), endpoint.length());
+  return TryRangeLock(txn, column_family_id, endp_slice, endp_slice, exclusive);
 }
 
 
@@ -843,8 +846,9 @@ void RangeLockMgr::UnLockAll(const PessimisticTransaction* txn,
   if (txn->owned_locks)
   {
     RangeLockList* range_list= (RangeLockList*)txn->owned_locks.get();
-    lt->release_locks(txn->GetID(), &range_list->buffer);
+    lt->release_locks(txn->GetID(), &range_list->buffer, true);
     range_list->buffer.destroy();
+    range_list->buffer.create();
     toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
   }
 
@@ -865,6 +869,39 @@ void RangeLockMgr::UnLockAll(const PessimisticTransaction* txn,
 
 #endif
 }
+
+int RangeLockMgr::compare_dbt_endpoints(__toku_db*, void *arg,
+                                        const DBT *a_key,
+                                        const DBT *b_key)
+{
+  RangeLockMgr* mgr= (RangeLockMgr*) arg;
+  return mgr->compare_endpoints((const char*)a_key->data, a_key->size,
+                                (const char*)b_key->data, b_key->size);
+}
+
+
+RangeLockMgr::RangeLockMgr(TransactionDB* txn_db) : my_txn_db(txn_db)
+{
+  ltm.create(on_create, on_destroy, on_escalate, NULL);
+  lt= nullptr;
+}
+
+void RangeLockMgr::set_endpoint_cmp_functions(convert_key_to_endpoint_func cvt_func,
+                                              compare_endpoints_func cmp_func)
+{
+  convert_key_to_endpoint= cvt_func;
+  compare_endpoints= cmp_func;
+
+  // The rest is like a constructor:
+  assert(!lt);
+
+  toku::comparator cmp;
+  //cmp.create(toku_builtin_compare_fun, NULL);
+  cmp.create(compare_dbt_endpoints, (void*)this, NULL);
+  DICTIONARY_ID dict_id = { .dictid = 1 };
+  lt= ltm.get_lt(dict_id, cmp , /* on_create_extra*/nullptr);
+}
+
 
 uint64_t RangeLockMgr::get_escalation_count()
 {

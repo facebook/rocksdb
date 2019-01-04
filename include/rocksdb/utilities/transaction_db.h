@@ -229,7 +229,17 @@ struct DeadlockPath {
 
 // Interface for controlling Range Locking manager
 class RangeLockMgrControl {
-public:
+ public:
+
+  typedef void (*convert_key_to_endpoint_func)(const rocksdb::Slice &key,
+                                               std::string *endpoint);
+
+  typedef int (*compare_endpoints_func)(const char *a, size_t a_len,
+                                         const char *b, size_t b_len);
+
+  virtual void set_endpoint_cmp_functions(convert_key_to_endpoint_func cvt_func,
+                                         compare_endpoints_func cmp_func)=0;
+
   virtual int set_max_lock_memory(size_t max_lock_memory) = 0;
   virtual uint64_t get_escalation_count() = 0;
 };

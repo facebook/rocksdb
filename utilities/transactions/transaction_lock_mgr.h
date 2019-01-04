@@ -216,15 +216,7 @@ class RangeLockMgr :
   void UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
               const std::string& key, Env* env) override ;
 
-  RangeLockMgr(TransactionDB* txn_db) : my_txn_db(txn_db)
-  {
-    ltm.create(on_create, on_destroy, on_escalate, NULL);
-    toku::comparator cmp;
-    cmp.create(toku_builtin_compare_fun, NULL);
-    DICTIONARY_ID dict_id = { .dictid = 1 };
-    lt= ltm.get_lt(dict_id, cmp , /* on_create_extra*/nullptr);
-
-  }
+  RangeLockMgr(TransactionDB* txn_db);
 
   void KillLockWait(void *cdata);
 
@@ -237,11 +229,27 @@ class RangeLockMgr :
 
   TransactionLockMgr::LockStatusData GetLockStatusData();
 
+  using RangeLockMgrControl::convert_key_to_endpoint_func;
+  using RangeLockMgrControl::compare_endpoints_func;
+
+  void set_endpoint_cmp_functions(convert_key_to_endpoint_func cvt_func,
+                                  compare_endpoints_func cmp_func) override;
+
  private:
   toku::locktree_manager ltm;
   toku::locktree *lt; // only one tree for now
 
+  // Convert rowkey to endpoint (TODO: shouldn't "rowkey=const" translate into
+  // a pair of [start; end] endpoints in general? They translate into the same
+  // value in our current encoding, but...)
+  convert_key_to_endpoint_func convert_key_to_endpoint;
+
+  // User-provided endpoint comparison function
+  compare_endpoints_func compare_endpoints;
+
   TransactionDB* my_txn_db;
+
+  static int compare_dbt_endpoints(__toku_db*, void *arg, const DBT *a_key, const DBT *b_key);
   
   // Callbacks
   static int  on_create(locktree *lt, void *extra) { return 0; /* no error */ }
