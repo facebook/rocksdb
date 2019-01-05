@@ -1364,7 +1364,7 @@ class DBImpl : public DB {
   // compacted. Consumers of these queues are flush and compaction threads. When
   // column family is put on this queue, we increase unscheduled_flushes_ and
   // unscheduled_compactions_. When these variables are bigger than zero, that
-  // means we need to schedule background threads for compaction and thread.
+  // means we need to schedule background threads for flush and compaction.
   // Once the background threads are scheduled, we decrease unscheduled_flushes_
   // and unscheduled_compactions_. That way we keep track of number of
   // compaction and flush threads we need to schedule. This scheduling is done
