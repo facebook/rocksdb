@@ -846,7 +846,13 @@ void RangeLockMgr::UnLockAll(const PessimisticTransaction* txn,
   if (txn->owned_locks)
   {
     RangeLockList* range_list= (RangeLockList*)txn->owned_locks.get();
-    lt->release_locks(txn->GetID(), &range_list->buffer, true);
+
+    // Don't try to call release_locks() if the buffer is empty! if we are
+    //  not holding any locks, other transaction may be in STO-mode currently
+    //  and our attempt to release an empty set of locks will cause an
+    //  assertion failure.
+    if (range_list->buffer.get_num_ranges())
+      lt->release_locks(txn->GetID(), &range_list->buffer, true);
     range_list->buffer.destroy();
     range_list->buffer.create();
     toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
