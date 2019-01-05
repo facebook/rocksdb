@@ -402,8 +402,9 @@ Status UncompressBlockContents(const UncompressionInfo& uncompression_info,
                                MemoryAllocator* allocator) {
   assert(data[n] != kNoCompression);
   assert(data[n] == uncompression_info.type());
-  return UncompressBlockContentsForCompressionType(
-      uncompression_info, data, n, contents, format_version, ioptions, allocator);
+  return UncompressBlockContentsForCompressionType(uncompression_info, data, n,
+                                                   contents, format_version,
+                                                   ioptions, allocator);
 }
 
 }  // namespace rocksdb

@@ -135,116 +135,61 @@ class ZSTDUncompressCachedData {
 
 namespace rocksdb {
 
-// Holds dictionary and related data, like ZSTD's digested dictionary.
-// Can be used without calling `Init()`, in which case it'll behave as if it
-// were initialized with an empty dictionary.
+// Holds dictionary and related data, like ZSTD's digested compression
+// dictionary.
 struct CompressionDict {
-  enum class Mode {
-    kUninit,
-    kCompression,
-    kUncompression,
-  };
 #if ZSTD_VERSION_NUMBER >= 700
-  union {
-    ZSTD_CDict* zstd_cdict_;
-    ZSTD_DDict* zstd_ddict_;
-  };
+  ZSTD_CDict* zstd_cdict_ = nullptr;
 #endif  // ZSTD_VERSION_NUMBER >= 700
-  Mode mode_ = Mode::kUninit;
   Slice dict_;
 
  public:
-  static const CompressionDict& GetEmptyDict() {
-    static const CompressionDict empty_dict{};
-    return empty_dict;
-  }
-
 #if ZSTD_VERSION_NUMBER >= 700
-  void Init(Slice dict, Mode mode, CompressionType type, int level = -1) {
+  CompressionDict(Slice dict, CompressionType type, int level) {
 #else   // ZSTD_VERSION_NUMBER >= 700
-  void Init(Slice dict, Mode mode, CompressionType /*type*/,
-            int /*level*/ = -1) {
+  CompressionDict(Slice dict, CompressionType /*type*/, int /*level*/) {
 #endif  // ZSTD_VERSION_NUMBER >= 700
-    assert(mode_ == Mode::kUninit);
     dict_ = std::move(dict);
-    mode_ = mode;
-    switch (mode) {
-      case Mode::kUninit:
-        assert(false);
-        break;
-      case Mode::kCompression:
 #if ZSTD_VERSION_NUMBER >= 700
-        zstd_cdict_ = nullptr;
-        if (!dict_.empty() &&
-            (type == kZSTD || type == kZSTDNotFinalCompression)) {
-          if (level == CompressionOptions::kDefaultCompressionLevel) {
-            // 3 is the value of ZSTD_CLEVEL_DEFAULT (not exposed publicly), see
-            // https://github.com/facebook/zstd/issues/1148
-            level = 3;
-          }
-          // Should be safe (but slower) if below call fails as we'll use the
-          // raw dictionary to compress.
-          zstd_cdict_ = ZSTD_createCDict(dict_.data(), dict_.size(), level);
-          assert(zstd_cdict_ != nullptr);
-        }
-#endif  // ZSTD_VERSION_NUMBER >= 700
-        break;
-      case Mode::kUncompression:
-#if ZSTD_VERSION_NUMBER >= 700
-        zstd_ddict_ = nullptr;
-        if (!dict_.empty() &&
-            (type == kZSTD || type == kZSTDNotFinalCompression)) {
-          zstd_ddict_ = ZSTD_createDDict(dict_.data(), dict_.size());
-          assert(zstd_ddict_ != nullptr);
-        }
-#endif  // ZSTD_VERSION_NUMBER >= 700
-        break;
+    zstd_cdict_ = nullptr;
+    if (!dict_.empty() && (type == kZSTD || type == kZSTDNotFinalCompression)) {
+      if (level == CompressionOptions::kDefaultCompressionLevel) {
+        // 3 is the value of ZSTD_CLEVEL_DEFAULT (not exposed publicly), see
+        // https://github.com/facebook/zstd/issues/1148
+        level = 3;
+      }
+      // Should be safe (but slower) if below call fails as we'll use the
+      // raw dictionary to compress.
+      zstd_cdict_ = ZSTD_createCDict(dict_.data(), dict_.size(), level);
+      assert(zstd_cdict_ != nullptr);
     }
+#endif  // ZSTD_VERSION_NUMBER >= 700
   }
 
   ~CompressionDict() {
 #if ZSTD_VERSION_NUMBER >= 700
     size_t res = 0;
-    switch (mode_) {
-      case Mode::kUninit:
-        break;
-      case Mode::kCompression:
-        if (zstd_cdict_ != nullptr) {
-          res = ZSTD_freeCDict(zstd_cdict_);
-        }
-        break;
-      case Mode::kUncompression:
-        if (zstd_ddict_ != nullptr) {
-          res = ZSTD_freeDDict(zstd_ddict_);
-        }
-        break;
+    if (zstd_cdict_ != nullptr) {
+      res = ZSTD_freeCDict(zstd_cdict_);
     }
     assert(res == 0);  // Last I checked they can't fail
     (void)res;         // prevent unused var warning
 #endif                 // ZSTD_VERSION_NUMBER >= 700
   }
 
-#if ZSTD_VERSION_NUMBER >= 700
   const ZSTD_CDict* GetDigestedZstdCDict() const {
-    if (mode_ == Mode::kUninit) {
-      return nullptr;
-    }
-    assert(mode_ == Mode::kCompression);
+#if ZSTD_VERSION_NUMBER >= 700
     return zstd_cdict_;
-  }
-
-  const ZSTD_DDict* GetDigestedZstdDDict() const {
-    if (mode_ == Mode::kUninit) {
-      return nullptr;
-    }
-    assert(mode_ == Mode::kUncompression);
-    return zstd_ddict_;
-  }
+#else   // ZSTD_VERSION_NUMBER >= 700
+    return nullptr;
 #endif  // ZSTD_VERSION_NUMBER >= 700
+  }
 
-  Slice GetRawDict() const {
-    assert(mode_ != Mode::kUninit || dict_.empty());
-    return dict_;
+  Slice GetRawDict() const { return dict_; }
+
+  static const CompressionDict& GetEmptyDict() {
+    static CompressionDict empty_dict{};
+    return empty_dict;
   }
 
   CompressionDict() = default;
@@ -253,6 +198,63 @@ struct CompressionDict {
   CompressionDict& operator=(const CompressionDict&) = delete;
   CompressionDict(CompressionDict&&) = delete;
   CompressionDict& operator=(CompressionDict&&) = delete;
+};
+
+// Holds dictionary and related data, like ZSTD's digested uncompression
+// dictionary.
+struct UncompressionDict {
+#if ZSTD_VERSION_NUMBER >= 700
+  ZSTD_DDict* zstd_ddict_;
+#endif  // ZSTD_VERSION_NUMBER >= 700
+  Slice dict_;
+
+#if ZSTD_VERSION_NUMBER >= 700
+  UncompressionDict(Slice dict, CompressionType type) {
+#else   // ZSTD_VERSION_NUMBER >= 700
+  UncompressionDict(Slice dict, CompressionType /*type*/) {
+#endif  // ZSTD_VERSION_NUMBER >= 700
+    dict_ = std::move(dict);
+#if ZSTD_VERSION_NUMBER >= 700
+    zstd_ddict_ = nullptr;
+    if (!dict_.empty() && (type == kZSTD || type == kZSTDNotFinalCompression)) {
+      zstd_ddict_ = ZSTD_createDDict(dict_.data(), dict_.size());
+      assert(zstd_ddict_ != nullptr);
+    }
+#endif  // ZSTD_VERSION_NUMBER >= 700
+  }
+
+  ~UncompressionDict() {
+#if ZSTD_VERSION_NUMBER >= 700
+    size_t res = 0;
+    if (zstd_ddict_ != nullptr) {
+      res = ZSTD_freeDDict(zstd_ddict_);
+    }
+    assert(res == 0);  // Last I checked they can't fail
+    (void)res;         // prevent unused var warning
+#endif                 // ZSTD_VERSION_NUMBER >= 700
+  }
+
+  const ZSTD_DDict* GetDigestedZstdDDict() const {
+#if ZSTD_VERSION_NUMBER >= 700
+    return zstd_ddict_;
+#else   // ZSTD_VERSION_NUMBER >= 700
+    return nullptr;
+#endif  // ZSTD_VERSION_NUMBER >= 700
+  }
+
+  Slice GetRawDict() const { return dict_; }
+
+  static const UncompressionDict& GetEmptyDict() {
+    static UncompressionDict empty_dict{};
+    return empty_dict;
+  }
+
+  UncompressionDict() = default;
+  // Disable copy/move
+  UncompressionDict(const CompressionDict&) = delete;
+  UncompressionDict& operator=(const CompressionDict&) = delete;
+  UncompressionDict(CompressionDict&&) = delete;
+  UncompressionDict& operator=(CompressionDict&&) = delete;
 };
 
 class CompressionContext {
@@ -350,16 +352,16 @@ class UncompressionContext {
 
 class UncompressionInfo {
   const UncompressionContext& context_;
-  const CompressionDict& dict_;
+  const UncompressionDict& dict_;
   const CompressionType type_;
 
  public:
   UncompressionInfo(const UncompressionContext& _context,
-                    const CompressionDict& _dict, CompressionType _type)
+                    const UncompressionDict& _dict, CompressionType _type)
       : context_(_context), dict_(_dict), type_(_type) {}
 
   const UncompressionContext& context() const { return context_; }
-  const CompressionDict& dict() const { return dict_; }
+  const UncompressionDict& dict() const { return dict_; }
   CompressionType type() const { return type_; }
 };
 
@@ -1178,7 +1180,8 @@ inline bool ZSTD_Compress(const CompressionInfo& info, const char* input,
 // @param compression_dict Data for presetting the compression library's
 //    dictionary.
 inline CacheAllocationPtr ZSTD_Uncompress(
-    const UncompressionInfo& info, const char* input_data, size_t input_length, int* decompress_size, MemoryAllocator* allocator = nullptr) {
+    const UncompressionInfo& info, const char* input_data, size_t input_length,
+    int* decompress_size, MemoryAllocator* allocator = nullptr) {
 #ifdef ZSTD
   uint32_t output_len = 0;
   if (!compression::GetDecompressedSizeInfo(&input_data, &input_length,
@@ -1204,7 +1207,7 @@ inline CacheAllocationPtr ZSTD_Uncompress(
         info.dict().GetRawDict().data(), info.dict().GetRawDict().size());
   }
 #else   // up to v0.4.x
-  (void) info;
+  (void)info;
   actual_output_length =
       ZSTD_decompress(output.get(), output_len, input_data, input_length);
 #endif  // ZSTD_VERSION_NUMBER >= 500

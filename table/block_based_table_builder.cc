@@ -266,6 +266,7 @@ struct BlockBasedTableBuilder::Rep {
   CompressionDict compression_dict;
   CompressionContext compression_ctx;
   std::unique_ptr<UncompressionContext> verify_ctx;
+  UncompressionDict verify_dict;
   TableProperties props;
 
   bool closed = false;  // Either Finish() or Abandon() has been called.
@@ -316,7 +317,13 @@ struct BlockBasedTableBuilder::Rep {
         internal_prefix_transform(_moptions.prefix_extractor.get()),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
+        compression_dict(
+            _compression_dict == nullptr ? Slice() : Slice(*_compression_dict),
+            _compression_type, _compression_opts.level),
         compression_ctx(_compression_type),
+        verify_dict(
+            _compression_dict == nullptr ? Slice() : Slice(*_compression_dict),
+            _compression_type),
         use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
                                             !table_opt.block_align),
         compressed_cache_key_prefix_size(0),
@@ -327,11 +334,6 @@ struct BlockBasedTableBuilder::Rep {
         column_family_name(_column_family_name),
         creation_time(_creation_time),
         oldest_key_time(_oldest_key_time) {
-    if (_compression_dict != nullptr) {
-      compression_dict.Init(*_compression_dict,
-                            CompressionDict::Mode::kCompression,
-                            _compression_type, _compression_opts.level);
-    }
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
       p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
@@ -537,7 +539,7 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
       BlockContents contents;
       UncompressionInfo uncompression_info(
           *r->verify_ctx,
-          is_data_block ? r->compression_dict : CompressionDict::GetEmptyDict(),
+          is_data_block ? r->verify_dict : UncompressionDict::GetEmptyDict(),
           r->compression_type);
       Status stat = UncompressBlockContentsForCompressionType(
           uncompression_info, block_contents.data(), block_contents.size(),

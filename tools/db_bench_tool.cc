@@ -3057,7 +3057,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
                                      FLAGS_compression_type_e);
     UncompressionContext uncompression_ctx(FLAGS_compression_type_e);
     UncompressionInfo uncompression_info(uncompression_ctx,
-                                         CompressionDict::GetEmptyDict(),
+                                         UncompressionDict::GetEmptyDict(),
                                          FLAGS_compression_type_e);
 
     bool ok = CompressSlice(compression_info, input, &compressed);

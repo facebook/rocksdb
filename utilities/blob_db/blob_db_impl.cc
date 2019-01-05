@@ -1103,7 +1103,7 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
       StopWatch decompression_sw(env_, statistics_,
                                  BLOB_DB_DECOMPRESSION_MICROS);
       UncompressionContext context(bfile->compression());
-      UncompressionInfo info(context, CompressionDict::GetEmptyDict(),
+      UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
                              bfile->compression());
       s = UncompressBlockContentsForCompressionType(
           info, blob_value.data(), blob_value.size(), &contents,
