@@ -35,8 +35,8 @@
 namespace rocksdb {
 
 #define ROCKS_LOG_DETAILS(LGR, FMT, ...) \
-  ;  // due to overhead by default skip such lines
-// ROCKS_LOG_DEBUG(LGR, FMT, ##__VA_ARGS__)
+ ROCKS_LOG_DEBUG(LGR, FMT, ##__VA_ARGS__)
+//  ;  // due to overhead by default skip such lines
 
 // A PessimisticTransactionDB that writes data to DB after prepare phase of 2PC.
 // In this way some data in the DB might not be committed. The DB provides
@@ -116,7 +116,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // is visible to the snapshot with sequence number snapshot_seq.
   // Returns true if commit_seq <= snapshot_seq
   inline bool IsInSnapshot(uint64_t prep_seq, uint64_t snapshot_seq,
-                           uint64_t min_uncommitted = 0) const {
+                           uint64_t min_uncommitted = 0,
+                           bool* released = nullptr) const {
     ROCKS_LOG_DETAILS(info_log_,
                       "IsInSnapshot %" PRIu64 " in %" PRIu64
                       " min_uncommitted %" PRIu64,
@@ -211,9 +212,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     // with a commit_seq lower than any live snapshot, including snapshot_seq.
     if (old_commit_map_empty_.load(std::memory_order_acquire)) {
       ROCKS_LOG_DETAILS(
-          info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
-          prep_seq, snapshot_seq, 1);
-      return true;
+          info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32" released=1",
+          prep_seq, snapshot_seq, 0);
+      // This could be used to ensure that the caller is expecting the
+      // snapshot might be released.
+      assert(released);
+      *released = true;
+      return false;
     }
     {
       // We should not normally reach here unless sapshot_seq is old. This is a
@@ -226,7 +231,19 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       if (found) {
         auto& vec = prep_set_entry->second;
         found = std::binary_search(vec.begin(), vec.end(), prep_seq);
+      } else {
+        // coming from compaction
+        ROCKS_LOG_DETAILS(info_log_,
+                          "IsInSnapshot %" PRIu64 " in %" PRIu64
+                          " returns %" PRId32" released=1",
+                          prep_seq, snapshot_seq, 0);
+        // This could be used to ensure that the caller is expecting the
+        // snapshot might be released.
+        assert(released);
+        *released = true;
+        return false;
       }
+
       if (!found) {
         ROCKS_LOG_DETAILS(info_log_,
                           "IsInSnapshot %" PRIu64 " in %" PRIu64
@@ -379,6 +396,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
   friend class WritePreparedTransactionTest_DoubleSnapshot_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
+  friend class WritePreparedTransactionTest_IsInSnapshotReleased_Test;
   friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
   friend class WritePreparedTransactionTest_RollbackTest_Test;
   friend class WriteUnpreparedTxnDB;

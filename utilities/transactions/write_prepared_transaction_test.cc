@@ -1484,6 +1484,65 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotEmptyMapTest) {
   }
 }
 
+TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  WriteOptions woptions;
+  ASSERT_OK(db->Put(woptions, "key", "value"));
+  // snap seq = 1
+  const Snapshot* snap1 = db->GetSnapshot();
+  ASSERT_OK(db->Put(woptions, "key", "value"));
+  ASSERT_OK(db->Put(woptions, "key", "value"));
+  // snap seq = 3
+  const Snapshot* snap2 = db->GetSnapshot();
+  size_t overwrite_seq = wp_db->COMMIT_CACHE_SIZE + 1;
+  wp_db->AddCommitted(overwrite_seq, overwrite_seq);
+  SequenceNumber snap_seq;
+  uint64_t min_uncommitted = 0;
+  bool released;
+
+  released = false;
+  snap_seq = snap1->GetSequenceNumber();
+  ASSERT_LE(1, snap_seq);
+  ASSERT_TRUE(wp_db->IsInSnapshot(1, snap_seq, min_uncommitted, &released));
+  ASSERT_FALSE(released);
+
+  released = false;
+  snap_seq = snap1->GetSequenceNumber();
+  ASSERT_FALSE(wp_db->IsInSnapshot(1, snap_seq + 1, min_uncommitted, &released));
+  ASSERT_TRUE(released);
+
+  snap_seq = snap1->GetSequenceNumber();
+  db->ReleaseSnapshot(snap1);
+
+  released = false;
+  ASSERT_TRUE(wp_db->IsInSnapshot(1, snap_seq, min_uncommitted, &released));
+  ASSERT_FALSE(released);
+
+  released = false;
+  ASSERT_FALSE(wp_db->IsInSnapshot(1, snap_seq + 1, min_uncommitted, &released));
+  ASSERT_TRUE(released);
+  
+  wp_db->AdvanceMaxEvictedSeq(wp_db->max_evicted_seq_, wp_db->max_evicted_seq_ + 1);
+
+  released = false;
+  ASSERT_FALSE(wp_db->IsInSnapshot(1, snap_seq, min_uncommitted, &released));
+  ASSERT_TRUE(released);
+
+  released = false;
+  ASSERT_FALSE(wp_db->IsInSnapshot(1, snap_seq + 1, min_uncommitted, &released));
+  ASSERT_TRUE(released);
+  
+  snap_seq = snap2->GetSequenceNumber();
+
+  released = false;
+  ASSERT_TRUE(wp_db->IsInSnapshot(1, snap_seq, min_uncommitted, &released));
+  ASSERT_FALSE(released);
+
+  released = false;
+  ASSERT_FALSE(wp_db->IsInSnapshot(1, snap_seq + 1, min_uncommitted, &released));
+  ASSERT_TRUE(released);
+}
+
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
 // snapshot, max_committed_seq_, prepared, and commit entries.
 TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
