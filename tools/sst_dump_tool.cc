@@ -159,7 +159,7 @@ Status SstFileDumper::DumpTable(const std::string& out_filename) {
 
 uint64_t SstFileDumper::CalculateCompressedTableSize(
     const TableBuilderOptions& tb_options, size_t block_size,
-    uint64_t& num_data_blocks) {
+    uint64_t* num_data_blocks) {
   std::unique_ptr<WritableFile> out_file;
   std::unique_ptr<Env> env(NewMemEnv(Env::Default()));
   env->NewWritableFile(testFileName, &out_file, soptions_);
@@ -189,7 +189,7 @@ uint64_t SstFileDumper::CalculateCompressedTableSize(
     exit(1);
   }
   uint64_t size = table_builder->FileSize();
-  num_data_blocks = table_builder->GetTableProperties().num_data_blocks;
+  *num_data_blocks = table_builder->GetTableProperties().num_data_blocks;
   env->DeleteFile(testFileName);
   return size;
 }
