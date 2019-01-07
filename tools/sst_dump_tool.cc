@@ -222,7 +222,7 @@ int SstFileDumper::ShowAllCompressionSizes(
           false /* skip_filters */, column_family_name, unknown_level);
       uint64_t num_data_blocks = 0;
       uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size,
-                                                        num_data_blocks);
+                                                        &num_data_blocks);
       fprintf(stdout, "Compression: %-24s", i.second);
       fprintf(stdout, " Size: %10" PRIu64, file_size);
       fprintf(stdout, " Blocks: %6" PRIu64, num_data_blocks);
