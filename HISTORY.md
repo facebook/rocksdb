@@ -11,7 +11,6 @@
 * Introduced `MemoryAllocator`, which lets the user specify custom memory allocator for block based table.
 * Improved `DeleteRange` to prevent read performance degradation. The feature is no longer marked as experimental.
 * Enabled checkpoint on readonly db (DBImplReadOnly).
-* Make DB ignore dropped column families while committing results of atomic flush.
 
 ### Public API Change
 * `DBOptions::use_direct_reads` now affects reads issued by `BackupEngine` on the database's SSTs.
@@ -29,6 +28,7 @@
 * Start populating `NO_FILE_CLOSES` ticker statistic, which was always zero previously.
 * The default value of NewBloomFilterPolicy()'s argument use_block_based_builder is changed to false. Note that this new default may cause large temp memory usage when building very large SST files.
 * Fix a deadlock caused by compaction and file ingestion waiting for each other in the event of write stalls.
+* Make DB ignore dropped column families while committing results of atomic flush.
 
 ## 5.17.0 (10/05/2018)
 ### Public API Change
