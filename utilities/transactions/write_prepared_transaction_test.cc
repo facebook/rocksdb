@@ -1267,12 +1267,12 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
     assert(db != nullptr);
     db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
     seq = db_impl->TEST_GetLastVisibleSequence();
-    ASSERT_EQ(exp_seq, seq);
+    ASSERT_LE(exp_seq, seq);
 
     // Check if flush preserves the last sequence number
     db_impl->Flush(fopt);
     seq = db_impl->GetLatestSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
+    ASSERT_LE(exp_seq, seq);
 
     // Check if recovery after flush preserves the last sequence number
     db_impl->FlushWAL(true);
@@ -1280,7 +1280,7 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
     assert(db != nullptr);
     db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
     seq = db_impl->GetLatestSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
+    ASSERT_LE(exp_seq, seq);
   }
 }
 
@@ -1425,17 +1425,63 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
 }
 
 // After recovery the commit map is empty while the max is set. The code would
-// go through a different path which requires a separate test.
+// go through a different path which requires a separate test. Test that the
+// committed data before the restart is visible to all snapshots.
 TEST_P(WritePreparedTransactionTest, IsInSnapshotEmptyMapTest) {
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-  wp_db->max_evicted_seq_ = 100;
-  ASSERT_FALSE(wp_db->IsInSnapshot(50, 40));
-  ASSERT_TRUE(wp_db->IsInSnapshot(50, 50));
-  ASSERT_TRUE(wp_db->IsInSnapshot(50, 100));
-  ASSERT_TRUE(wp_db->IsInSnapshot(50, 150));
-  ASSERT_FALSE(wp_db->IsInSnapshot(100, 80));
-  ASSERT_TRUE(wp_db->IsInSnapshot(100, 100));
-  ASSERT_TRUE(wp_db->IsInSnapshot(100, 150));
+  for (bool end_with_prepare : {false, true}) {
+    ReOpen();
+    WriteOptions woptions;
+    ASSERT_OK(db->Put(woptions, "key", "value"));
+    ASSERT_OK(db->Put(woptions, "key", "value"));
+    ASSERT_OK(db->Put(woptions, "key", "value"));
+    SequenceNumber prepare_seq = kMaxSequenceNumber;
+    if (end_with_prepare) {
+      TransactionOptions txn_options;
+      Transaction* txn = db->BeginTransaction(woptions, txn_options);
+      ASSERT_OK(txn->SetName("xid0"));
+      ASSERT_OK(txn->Prepare());
+      prepare_seq = txn->GetId();
+      delete txn;
+    }
+    dynamic_cast<WritePreparedTxnDB*>(db)->TEST_Crash();
+    auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    db_impl->FlushWAL(true);
+    ReOpenNoDelete();
+    WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+    ASSERT_GT(wp_db->max_evicted_seq_, 0);  // max after recovery
+    // Take a snapshot right after recovery
+    const Snapshot* snap = db->GetSnapshot();
+    auto snap_seq = snap->GetSequenceNumber();
+    ASSERT_GT(snap_seq, 0);
+
+    for (SequenceNumber seq = 0;
+         seq <= wp_db->max_evicted_seq_ && seq != prepare_seq; seq++) {
+      ASSERT_TRUE(wp_db->IsInSnapshot(seq, snap_seq));
+    }
+    if (end_with_prepare) {
+      ASSERT_FALSE(wp_db->IsInSnapshot(prepare_seq, snap_seq));
+    }
+    // trivial check
+    ASSERT_FALSE(wp_db->IsInSnapshot(snap_seq + 1, snap_seq));
+
+    db->ReleaseSnapshot(snap);
+
+    ASSERT_OK(db->Put(woptions, "key", "value"));
+    // Take a snapshot after some writes
+    snap = db->GetSnapshot();
+    snap_seq = snap->GetSequenceNumber();
+    for (SequenceNumber seq = 0;
+         seq <= wp_db->max_evicted_seq_ && seq != prepare_seq; seq++) {
+      ASSERT_TRUE(wp_db->IsInSnapshot(seq, snap_seq));
+    }
+    if (end_with_prepare) {
+      ASSERT_FALSE(wp_db->IsInSnapshot(prepare_seq, snap_seq));
+    }
+    // trivial check
+    ASSERT_FALSE(wp_db->IsInSnapshot(snap_seq + 1, snap_seq));
+
+    db->ReleaseSnapshot(snap);
+  }
 }
 
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
