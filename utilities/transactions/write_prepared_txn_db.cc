@@ -49,6 +49,14 @@ Status WritePreparedTxnDB::Initialize(
   SequenceNumber prev_max = max_evicted_seq_;
   SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber();
   AdvanceMaxEvictedSeq(prev_max, last_seq);
+  // Create a gap between max and the next snapshot. This simplifies the logic
+  // in IsInSnapshot by not having to consider the special case of max ==
+  // snapshot after recovery. This is tested in IsInSnapshotEmptyMapTest.
+  if (last_seq) {
+    db_impl_->versions_->SetLastAllocatedSequence(last_seq + 1);
+    db_impl_->versions_->SetLastSequence(last_seq + 1);
+    db_impl_->versions_->SetLastPublishedSequence(last_seq + 1);
+  }
 
   db_impl_->SetSnapshotChecker(new WritePreparedSnapshotChecker(this));
   // A callback to commit a single sub-batch
