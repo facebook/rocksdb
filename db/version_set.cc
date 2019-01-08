@@ -3022,9 +3022,7 @@ Status VersionSet::ProcessManifestWrites(
         ColumnFamilyData* cfd = versions[i]->cfd_;
         builder_guards[i]->version_builder()->LoadTableHandlers(
             cfd->internal_stats(), cfd->ioptions()->optimize_filters_for_hits,
-            this->GetColumnFamilySet()->get_table_cache()->GetCapacity() ==
-                TableCache::
-                    kInfiniteCapacity /* prefetch_index_and_filter_in_cache */,
+            true /* prefetch_index_and_filter_in_cache */,
             false /* is_initial_load */,
             mutable_cf_options_ptrs[i]->prefix_extractor.get());
       }
