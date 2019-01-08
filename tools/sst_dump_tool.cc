@@ -189,6 +189,7 @@ uint64_t SstFileDumper::CalculateCompressedTableSize(
     exit(1);
   }
   uint64_t size = table_builder->FileSize();
+  assert(num_data_blocks != nullptr);
   *num_data_blocks = table_builder->GetTableProperties().num_data_blocks;
   env->DeleteFile(testFileName);
   return size;
