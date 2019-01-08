@@ -94,6 +94,10 @@ class DBWithTTLImpl : public DBWithTTL {
   static const int32_t kMinTimestamp = 1368146402;  // 05/09/2013:5:40PM GMT-8
 
   static const int32_t kMaxTimestamp = 2147483647;  // 01/18/2038:7:14PM GMT-8
+
+  void SetTtl(int32_t ttl) override { SetTtl(DefaultColumnFamily(), ttl); }
+
+  void SetTtl(ColumnFamilyHandle *h, int32_t ttl) override;
 };
 
 class TtlIterator : public Iterator {
@@ -207,6 +211,10 @@ class TtlCompactionFilterFactory : public CompactionFilterFactory {
 
     return std::unique_ptr<TtlCompactionFilter>(new TtlCompactionFilter(
         ttl_, env_, nullptr, std::move(user_comp_filter_from_factory)));
+  }
+
+  void SetTtl(int32_t ttl) {
+    ttl_ = ttl;
   }
 
   virtual const char* Name() const override {

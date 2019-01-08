@@ -465,7 +465,17 @@ public enum TickerType {
      */
     NUMBER_RATE_LIMITER_DRAINS((byte) 0x5C),
 
-    TICKER_ENUM_MAX((byte) 0x5D);
+    /**
+     * Number of internal skipped during iteration
+     */
+    NUMBER_ITER_SKIP((byte) 0x5D),
+
+    /**
+     * Number of MultiGet keys found (vs number requested)
+     */
+    NUMBER_MULTIGET_KEYS_FOUND((byte) 0x5E),
+
+    TICKER_ENUM_MAX((byte) 0x5F);
 
 
     private final byte value;

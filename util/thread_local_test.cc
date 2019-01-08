@@ -535,7 +535,7 @@ TEST_F(ThreadLocalTest, CompareAndSwap) {
 
 namespace {
 
-void* AccessThreadLocal(void* arg) {
+void* AccessThreadLocal(void* /*arg*/) {
   TEST_SYNC_POINT("AccessThreadLocal:Start");
   ThreadLocalPtr tlp;
   tlp.Reset(new std::string("hello RocksDB"));

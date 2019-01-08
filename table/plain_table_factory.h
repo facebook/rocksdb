@@ -164,15 +164,16 @@ class PlainTableFactory : public TableFactory {
   static const char kValueTypeSeqId0 = char(~0);
 
   // Sanitizes the specified DB Options.
-  Status SanitizeOptions(const DBOptions& db_opts,
-                         const ColumnFamilyOptions& cf_opts) const override {
+  Status SanitizeOptions(
+      const DBOptions& /*db_opts*/,
+      const ColumnFamilyOptions& /*cf_opts*/) const override {
     return Status::OK();
   }
 
   void* GetOptions() override { return &table_options_; }
 
-  Status GetOptionString(std::string* opt_string,
-                         const std::string& delimiter) const override {
+  Status GetOptionString(std::string* /*opt_string*/,
+                         const std::string& /*delimiter*/) const override {
     return Status::OK();
   }
 

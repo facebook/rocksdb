@@ -43,7 +43,7 @@ struct HashTableTest : public testing::Test {
     }
   };
 
-  static void ClearNode(Node node) {}
+  static void ClearNode(Node /*node*/) {}
 
   HashTable<Node, Hash, Equal> map_;
 };
@@ -73,7 +73,7 @@ struct EvictableHashTableTest : public testing::Test {
     }
   };
 
-  static void ClearNode(Node* node) {}
+  static void ClearNode(Node* /*node*/) {}
 
   EvictableHashTable<Node, Hash, Equal> map_;
 };

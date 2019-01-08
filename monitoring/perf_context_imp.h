@@ -14,7 +14,7 @@ extern PerfContext perf_context;
 #else
 #if defined(OS_SOLARIS)
 extern __thread PerfContext perf_context_;
-#define perf_context (*get_perf_context());
+#define perf_context (*get_perf_context())
 #else
 extern __thread PerfContext perf_context;
 #endif
@@ -41,10 +41,12 @@ extern __thread PerfContext perf_context;
   PerfStepTimer perf_step_timer_##metric(&(perf_context.metric)); \
   perf_step_timer_##metric.Start();
 
-#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition)       \
-  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric), true); \
-  if ((condition)) {                                                    \
-    perf_step_timer_##metric.Start();                                   \
+#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition, stats,      \
+                                               ticker_type)                   \
+  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric), true, stats, \
+                                         ticker_type);                        \
+  if (condition) {                                                            \
+    perf_step_timer_##metric.Start();                                         \
   }
 
 // Update metric with time elapsed since last START. start time is reset

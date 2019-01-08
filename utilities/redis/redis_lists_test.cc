@@ -39,7 +39,7 @@ class RedisListsTest : public testing::Test {
 };
 
 const std::string RedisListsTest::kDefaultDbName =
-    test::TmpDir() + "/redis_lists_test";
+    test::PerThreadDBPath("redis_lists_test");
 Options RedisListsTest::options = Options();
 
 // operator== and operator<< are defined below for vectors (lists)
@@ -886,7 +886,7 @@ int main(int argc, char* argv[]) {
 #else
 #include <stdio.h>
 
-int main(int argc, char* argv[]) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as redis is not supported in ROCKSDB_LITE\n");
   return 0;
 }

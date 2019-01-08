@@ -30,6 +30,7 @@
 
 namespace rocksdb {
 
+inline
 void BlockFetcher::CheckBlockChecksum() {
   // Check the crc of the type and the block contents
   if (read_options_.verify_checksums) {
@@ -62,6 +63,7 @@ void BlockFetcher::CheckBlockChecksum() {
   }
 }
 
+inline
 bool BlockFetcher::TryGetUncompressBlockFromPersistentCache() {
   if (cache_options_.persistent_cache &&
       !cache_options_.persistent_cache->IsCompressed()) {
@@ -83,6 +85,7 @@ bool BlockFetcher::TryGetUncompressBlockFromPersistentCache() {
   return false;
 }
 
+inline
 bool BlockFetcher::TryGetFromPrefetchBuffer() {
   if (prefetch_buffer_ != nullptr &&
       prefetch_buffer_->TryReadFromCache(
@@ -99,6 +102,7 @@ bool BlockFetcher::TryGetFromPrefetchBuffer() {
   return got_from_prefetch_buffer_;
 }
 
+inline
 bool BlockFetcher::TryGetCompressedBlockFromPersistentCache() {
   if (cache_options_.persistent_cache &&
       cache_options_.persistent_cache->IsCompressed()) {
@@ -119,6 +123,7 @@ bool BlockFetcher::TryGetCompressedBlockFromPersistentCache() {
   return false;
 }
 
+inline
 void BlockFetcher::PrepareBufferForBlockFromFile() {
   // cache miss read from device
   if (do_uncompress_ &&
@@ -127,12 +132,12 @@ void BlockFetcher::PrepareBufferForBlockFromFile() {
     // trivially allocated stack buffer instead of needing a full malloc()
     used_buf_ = &stack_buf_[0];
   } else {
-    heap_buf_ =
-        std::unique_ptr<char[]>(new char[block_size_ + kBlockTrailerSize]);
+    heap_buf_.reset(new char[block_size_ + kBlockTrailerSize]);
     used_buf_ = heap_buf_.get();
   }
 }
 
+inline
 void BlockFetcher::InsertCompressedBlockToPersistentCacheIfNeeded() {
   if (status_.ok() && read_options_.fill_cache &&
       cache_options_.persistent_cache &&
@@ -143,6 +148,7 @@ void BlockFetcher::InsertCompressedBlockToPersistentCacheIfNeeded() {
   }
 }
 
+inline
 void BlockFetcher::InsertUncompressedBlockToPersistentCacheIfNeeded() {
   if (status_.ok() && !got_from_prefetch_buffer_ && read_options_.fill_cache &&
       cache_options_.persistent_cache &&
@@ -153,16 +159,19 @@ void BlockFetcher::InsertUncompressedBlockToPersistentCacheIfNeeded() {
   }
 }
 
+inline
 void BlockFetcher::GetBlockContents() {
   if (slice_.data() != used_buf_) {
     // the slice content is not the buffer provided
-    *contents_ = BlockContents(Slice(slice_.data(), block_size_), false,
-                               compression_type);
+    *contents_ = BlockContents(Slice(slice_.data(), block_size_),
+                               immortal_source_, compression_type);
   } else {
-    // page is uncompressed, the buffer either stack or heap provided
+    // page can be either uncompressed or compressed, the buffer either stack
+    // or heap provided. Refer to https://github.com/facebook/rocksdb/pull/4096
     if (got_from_prefetch_buffer_ || used_buf_ == &stack_buf_[0]) {
-      heap_buf_ = std::unique_ptr<char[]>(new char[block_size_]);
-      memcpy(heap_buf_.get(), used_buf_, block_size_);
+      assert(used_buf_ != heap_buf_.get());
+      heap_buf_.reset(new char[block_size_ + kBlockTrailerSize]);
+      memcpy(heap_buf_.get(), used_buf_, block_size_ + kBlockTrailerSize);
     }
     *contents_ = BlockContents(std::move(heap_buf_), block_size_, true,
                                compression_type);
@@ -218,9 +227,10 @@ Status BlockFetcher::ReadBlockContents() {
 
   if (do_uncompress_ && compression_type != kNoCompression) {
     // compressed page, uncompress, update cache
-    status_ = UncompressBlockContents(slice_.data(), block_size_, contents_,
-                                      footer_.version(), compression_dict_,
-                                      ioptions_);
+    UncompressionContext uncompression_ctx(compression_type, compression_dict_);
+    status_ =
+        UncompressBlockContents(uncompression_ctx, slice_.data(), block_size_,
+                                contents_, footer_.version(), ioptions_);
   } else {
     GetBlockContents();
   }

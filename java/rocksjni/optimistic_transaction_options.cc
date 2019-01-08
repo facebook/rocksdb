@@ -19,7 +19,7 @@
  * Signature: ()J
  */
 jlong Java_org_rocksdb_OptimisticTransactionOptions_newOptimisticTransactionOptions(
-    JNIEnv* env, jclass jcls) {
+    JNIEnv* /*env*/, jclass /*jcls*/) {
   rocksdb::OptimisticTransactionOptions* opts =
       new rocksdb::OptimisticTransactionOptions();
   return reinterpret_cast<jlong>(opts);
@@ -31,7 +31,7 @@ jlong Java_org_rocksdb_OptimisticTransactionOptions_newOptimisticTransactionOpti
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_OptimisticTransactionOptions_isSetSnapshot(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
   auto* opts =
       reinterpret_cast<rocksdb::OptimisticTransactionOptions*>(jhandle);
   return opts->set_snapshot;
@@ -42,8 +42,8 @@ jboolean Java_org_rocksdb_OptimisticTransactionOptions_isSetSnapshot(
  * Method:    setSetSnapshot
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_OptimisticTransactionOptions_setSetSnapshot(JNIEnv* env,
-    jobject jobj, jlong jhandle, jboolean jset_snapshot) {
+void Java_org_rocksdb_OptimisticTransactionOptions_setSetSnapshot(
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle, jboolean jset_snapshot) {
   auto* opts =
       reinterpret_cast<rocksdb::OptimisticTransactionOptions*>(jhandle);
   opts->set_snapshot = jset_snapshot;
@@ -55,7 +55,8 @@ void Java_org_rocksdb_OptimisticTransactionOptions_setSetSnapshot(JNIEnv* env,
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_OptimisticTransactionOptions_setComparator(
-    JNIEnv* env, jobject jobj, jlong jhandle, jlong jcomparator_handle) {
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
+    jlong jcomparator_handle) {
   auto* opts =
       reinterpret_cast<rocksdb::OptimisticTransactionOptions*>(jhandle);
   opts->cmp = reinterpret_cast<rocksdb::Comparator*>(jcomparator_handle);
@@ -66,7 +67,7 @@ void Java_org_rocksdb_OptimisticTransactionOptions_setComparator(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_OptimisticTransactionOptions_disposeInternal(JNIEnv* env,
-    jobject jobj, jlong jhandle) {
+void Java_org_rocksdb_OptimisticTransactionOptions_disposeInternal(
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
   delete reinterpret_cast<rocksdb::OptimisticTransactionOptions*>(jhandle);
 }

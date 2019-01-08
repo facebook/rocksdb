@@ -1518,6 +1518,31 @@ public class RocksDB extends RocksObject {
         property, property.length());
   }
 
+ /**
+   * <p> Return sum of the getLongProperty of all the column families</p>
+   *
+   * <p><strong>Note</strong>: As the returned property is of type
+   * {@code uint64_t} on C++ side the returning value can be negative
+   * because Java supports in Java 7 only signed long values.</p>
+   *
+   * <p><strong>Java 7</strong>: To mitigate the problem of the non
+   * existent unsigned long tpye, values should be encapsulated using
+   * {@link java.math.BigInteger} to reflect the correct value. The correct
+   * behavior is guaranteed if {@code 2^64} is added to negative values.</p>
+   *
+   * <p><strong>Java 8</strong>: In Java 8 the value should be treated as
+   * unsigned long using provided methods of type {@link Long}.</p>
+   *
+   * @param property to be fetched.
+   *
+   * @return numerical property value
+   *
+   * @throws RocksDBException if an error happens in the underlying native code.
+   */
+  public long getAggregatedLongProperty(final String property) throws RocksDBException {
+    return getAggregatedLongProperty(nativeHandle_, property, property.length());
+  }
+
   /**
    * <p>Return a heap-allocated iterator over the contents of the
    * database. The result of newIterator() is initially invalid
@@ -1823,6 +1848,8 @@ public class RocksDB extends RocksObject {
    * <li>{@link #compactRange(byte[], byte[], boolean, int, int)}</li>
    * </ul>
    *
+   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
+   *
    * @param reduce_level reduce level after compaction
    * @param target_level target level to compact to
    * @param target_path_id the target path id of output path
@@ -1830,6 +1857,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if an error occurs within the native
    *     part of the library.
    */
+  @Deprecated
   public void compactRange(final boolean reduce_level,
       final int target_level, final int target_path_id)
       throws RocksDBException {
@@ -1855,6 +1883,8 @@ public class RocksDB extends RocksObject {
    * <li>{@link #compactRange(byte[], byte[])}</li>
    * </ul>
    *
+   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
+   *
    * @param begin start of key range (included in range)
    * @param end end of key range (excluded from range)
    * @param reduce_level reduce level after compaction
@@ -1864,6 +1894,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if an error occurs within the native
    *     part of the library.
    */
+  @Deprecated
   public void compactRange(final byte[] begin, final byte[] end,
       final boolean reduce_level, final int target_level,
       final int target_path_id) throws RocksDBException {
@@ -1935,6 +1966,27 @@ public class RocksDB extends RocksObject {
         false, -1, 0, columnFamilyHandle.nativeHandle_);
   }
 
+
+  /**
+   * <p>Range compaction of column family.</p>
+   * <p><strong>Note</strong>: After the database has been compacted,
+   * all data will have been pushed down to the last level containing
+   * any data.</p>
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle} instance.
+   * @param begin start of key range (included in range)
+   * @param end end of key range (excluded from range)
+   * @param compactRangeOptions options for the compaction
+   *
+   * @throws RocksDBException thrown if an error occurs within the native
+   *     part of the library.
+   */
+  public void compactRange(final ColumnFamilyHandle columnFamilyHandle,
+    final byte[] begin, final byte[] end, CompactRangeOptions compactRangeOptions) throws RocksDBException {
+    compactRange(nativeHandle_, begin, begin.length, end, end.length,
+      compactRangeOptions.nativeHandle_, columnFamilyHandle.nativeHandle_);
+  }
+
   /**
    * <p>Range compaction of column family.</p>
    * <p><strong>Note</strong>: After the database has been compacted,
@@ -1957,6 +2009,8 @@ public class RocksDB extends RocksObject {
    * </li>
    * </ul>
    *
+   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
+   *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance.
    * @param reduce_level reduce level after compaction
@@ -1966,6 +2020,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if an error occurs within the native
    *     part of the library.
    */
+  @Deprecated
   public void compactRange(final ColumnFamilyHandle columnFamilyHandle,
       final boolean reduce_level, final int target_level,
       final int target_path_id) throws RocksDBException {
@@ -1994,6 +2049,8 @@ public class RocksDB extends RocksObject {
    * </li>
    * </ul>
    *
+   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
+   *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance.
    * @param begin start of key range (included in range)
@@ -2005,6 +2062,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if an error occurs within the native
    *     part of the library.
    */
+  @Deprecated
   public void compactRange(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] begin, final byte[] end, final boolean reduce_level,
       final int target_level, final int target_path_id)
@@ -2350,6 +2408,8 @@ public class RocksDB extends RocksObject {
       int propertyLength) throws RocksDBException;
   protected native long getLongProperty(long nativeHandle, long cfHandle,
       String property, int propertyLength) throws RocksDBException;
+  protected native long getAggregatedLongProperty(long nativeHandle, String property,
+      int propertyLength) throws RocksDBException;
   protected native long iterator(long handle);
   protected native long iterator(long handle, long readOptHandle);
   protected native long iteratorCF(long handle, long cfHandle);
@@ -2377,6 +2437,9 @@ public class RocksDB extends RocksObject {
   private native void compactRange0(long handle, byte[] begin, int beginLen,
       byte[] end, int endLen, boolean reduce_level, int target_level,
       int target_path_id) throws RocksDBException;
+  private native void compactRange(long handle, byte[] begin, int beginLen,
+    byte[] end, int endLen, long compactRangeOptHandle, long cfHandle)
+    throws RocksDBException;
   private native void compactRange(long handle, boolean reduce_level,
       int target_level, int target_path_id, long cfHandle)
       throws RocksDBException;

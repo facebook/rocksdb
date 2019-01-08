@@ -245,7 +245,7 @@ static const Status notsup;
 class HdfsEnv : public Env {
 
  public:
-  explicit HdfsEnv(const std::string& fsname) {
+  explicit HdfsEnv(const std::string& /*fsname*/) {
     fprintf(stderr, "You have not build rocksdb with HDFS support\n");
     fprintf(stderr, "Please see hdfs/README for details\n");
     abort();
@@ -258,112 +258,125 @@ class HdfsEnv : public Env {
                                    unique_ptr<SequentialFile>* result,
                                    const EnvOptions& options) override;
 
-  virtual Status NewRandomAccessFile(const std::string& fname,
-                                     unique_ptr<RandomAccessFile>* result,
-                                     const EnvOptions& options) override {
+  virtual Status NewRandomAccessFile(const std::string& /*fname*/,
+                                     unique_ptr<RandomAccessFile>* /*result*/,
+                                     const EnvOptions& /*options*/) override {
     return notsup;
   }
 
-  virtual Status NewWritableFile(const std::string& fname,
-                                 unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options) override {
+  virtual Status NewWritableFile(const std::string& /*fname*/,
+                                 unique_ptr<WritableFile>* /*result*/,
+                                 const EnvOptions& /*options*/) override {
     return notsup;
   }
 
-  virtual Status NewDirectory(const std::string& name,
-                              unique_ptr<Directory>* result) override {
+  virtual Status NewDirectory(const std::string& /*name*/,
+                              unique_ptr<Directory>* /*result*/) override {
     return notsup;
   }
 
-  virtual Status FileExists(const std::string& fname) override {
+  virtual Status FileExists(const std::string& /*fname*/) override {
     return notsup;
   }
 
-  virtual Status GetChildren(const std::string& path,
-                             std::vector<std::string>* result) override {
+  virtual Status GetChildren(const std::string& /*path*/,
+                             std::vector<std::string>* /*result*/) override {
     return notsup;
   }
 
-  virtual Status DeleteFile(const std::string& fname) override {
+  virtual Status DeleteFile(const std::string& /*fname*/) override {
     return notsup;
   }
 
-  virtual Status CreateDir(const std::string& name) override { return notsup; }
-
-  virtual Status CreateDirIfMissing(const std::string& name) override {
+  virtual Status CreateDir(const std::string& /*name*/) override {
     return notsup;
   }
 
-  virtual Status DeleteDir(const std::string& name) override { return notsup; }
-
-  virtual Status GetFileSize(const std::string& fname,
-                             uint64_t* size) override {
+  virtual Status CreateDirIfMissing(const std::string& /*name*/) override {
     return notsup;
   }
 
-  virtual Status GetFileModificationTime(const std::string& fname,
-                                         uint64_t* time) override {
+  virtual Status DeleteDir(const std::string& /*name*/) override {
     return notsup;
   }
 
-  virtual Status RenameFile(const std::string& src,
-                            const std::string& target) override {
+  virtual Status GetFileSize(const std::string& /*fname*/,
+                             uint64_t* /*size*/) override {
     return notsup;
   }
 
-  virtual Status LinkFile(const std::string& src,
-                          const std::string& target) override {
+  virtual Status GetFileModificationTime(const std::string& /*fname*/,
+                                         uint64_t* /*time*/) override {
     return notsup;
   }
 
-  virtual Status LockFile(const std::string& fname, FileLock** lock) override {
+  virtual Status RenameFile(const std::string& /*src*/,
+                            const std::string& /*target*/) override {
     return notsup;
   }
 
-  virtual Status UnlockFile(FileLock* lock) override { return notsup; }
-
-  virtual Status NewLogger(const std::string& fname,
-                           shared_ptr<Logger>* result) override {
+  virtual Status LinkFile(const std::string& /*src*/,
+                          const std::string& /*target*/) override {
     return notsup;
   }
 
-  virtual void Schedule(void (*function)(void* arg), void* arg,
-                        Priority pri = LOW, void* tag = nullptr,
-                        void (*unschedFunction)(void* arg) = 0) override {}
+  virtual Status LockFile(const std::string& /*fname*/,
+                          FileLock** /*lock*/) override {
+    return notsup;
+  }
 
-  virtual int UnSchedule(void* tag, Priority pri) override { return 0; }
+  virtual Status UnlockFile(FileLock* /*lock*/) override { return notsup; }
 
-  virtual void StartThread(void (*function)(void* arg), void* arg) override {}
+  virtual Status NewLogger(const std::string& /*fname*/,
+                           shared_ptr<Logger>* /*result*/) override {
+    return notsup;
+  }
+
+  virtual void Schedule(void (* /*function*/)(void* arg), void* /*arg*/,
+                        Priority /*pri*/ = LOW, void* /*tag*/ = nullptr,
+                        void (* /*unschedFunction*/)(void* arg) = 0) override {}
+
+  virtual int UnSchedule(void* /*tag*/, Priority /*pri*/) override { return 0; }
+
+  virtual void StartThread(void (* /*function*/)(void* arg),
+                           void* /*arg*/) override {}
 
   virtual void WaitForJoin() override {}
 
   virtual unsigned int GetThreadPoolQueueLen(
-      Priority pri = LOW) const override {
+      Priority /*pri*/ = LOW) const override {
     return 0;
   }
 
-  virtual Status GetTestDirectory(std::string* path) override { return notsup; }
+  virtual Status GetTestDirectory(std::string* /*path*/) override {
+    return notsup;
+  }
 
   virtual uint64_t NowMicros() override { return 0; }
 
-  virtual void SleepForMicroseconds(int micros) override {}
+  virtual void SleepForMicroseconds(int /*micros*/) override {}
 
-  virtual Status GetHostName(char* name, uint64_t len) override {
+  virtual Status GetHostName(char* /*name*/, uint64_t /*len*/) override {
     return notsup;
   }
 
-  virtual Status GetCurrentTime(int64_t* unix_time) override { return notsup; }
-
-  virtual Status GetAbsolutePath(const std::string& db_path,
-                                 std::string* outputpath) override {
+  virtual Status GetCurrentTime(int64_t* /*unix_time*/) override {
     return notsup;
   }
 
-  virtual void SetBackgroundThreads(int number, Priority pri = LOW) override {}
-  virtual int GetBackgroundThreads(Priority pri = LOW) override { return 0; }
-  virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) override {
+  virtual Status GetAbsolutePath(const std::string& /*db_path*/,
+                                 std::string* /*outputpath*/) override {
+    return notsup;
   }
-  virtual std::string TimeToString(uint64_t number) override { return ""; }
+
+  virtual void SetBackgroundThreads(int /*number*/,
+                                    Priority /*pri*/ = LOW) override {}
+  virtual int GetBackgroundThreads(Priority /*pri*/ = LOW) override {
+    return 0;
+  }
+  virtual void IncBackgroundThreadsIfNeeded(int /*number*/,
+                                            Priority /*pri*/) override {}
+  virtual std::string TimeToString(uint64_t /*number*/) override { return ""; }
 
   virtual uint64_t GetThreadID() const override {
     return 0;

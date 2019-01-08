@@ -22,6 +22,20 @@ namespace rocksdb {
 Env::~Env() {
 }
 
+std::string Env::PriorityToString(Env::Priority priority) {
+  switch (priority) {
+    case Env::Priority::BOTTOM:
+      return "Bottom";
+    case Env::Priority::LOW:
+      return "Low";
+    case Env::Priority::HIGH:
+      return "High";
+    case Env::Priority::TOTAL:
+      assert(false);
+  }
+  return "Invalid";
+}
+
 uint64_t Env::GetThreadID() const {
   std::hash<std::thread::id> hasher;
   return hasher(std::this_thread::get_id());
@@ -73,8 +87,20 @@ RandomAccessFile::~RandomAccessFile() {
 WritableFile::~WritableFile() {
 }
 
-Logger::~Logger() {
+MemoryMappedFileBuffer::~MemoryMappedFileBuffer() {}
+
+Logger::~Logger() {}
+
+Status Logger::Close() {
+  if (!closed_) {
+    closed_ = true;
+    return CloseImpl();
+  } else {
+    return Status::OK();
+  }
 }
+
+Status Logger::CloseImpl() { return Status::NotSupported(); }
 
 FileLock::~FileLock() {
 }
@@ -85,13 +111,17 @@ void LogFlush(Logger *info_log) {
   }
 }
 
-void Log(Logger* info_log, const char* format, ...) {
+static void Logv(Logger *info_log, const char* format, va_list ap) {
   if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::INFO_LEVEL) {
-    va_list ap;
-    va_start(ap, format);
     info_log->Logv(InfoLogLevel::INFO_LEVEL, format, ap);
-    va_end(ap);
   }
+}
+
+void Log(Logger* info_log, const char* format, ...) {
+  va_list ap;
+  va_start(ap, format);
+  Logv(info_log, format, ap);
+  va_end(ap);
 }
 
 void Logger::Logv(const InfoLogLevel log_level, const char* format, va_list ap) {
@@ -116,152 +146,161 @@ void Logger::Logv(const InfoLogLevel log_level, const char* format, va_list ap) 
   }
 }
 
-
-void Log(const InfoLogLevel log_level, Logger* info_log, const char* format,
-         ...) {
+static void Logv(const InfoLogLevel log_level, Logger *info_log, const char *format, va_list ap) {
   if (info_log && info_log->GetInfoLogLevel() <= log_level) {
-    va_list ap;
-    va_start(ap, format);
-
     if (log_level == InfoLogLevel::HEADER_LEVEL) {
       info_log->LogHeader(format, ap);
     } else {
       info_log->Logv(log_level, format, ap);
     }
+  }
+}
 
-    va_end(ap);
+void Log(const InfoLogLevel log_level, Logger* info_log, const char* format,
+         ...) {
+  va_list ap;
+  va_start(ap, format);
+  Logv(log_level, info_log, format, ap);
+  va_end(ap);
+}
+
+static void Headerv(Logger *info_log, const char *format, va_list ap) {
+  if (info_log) {
+    info_log->LogHeader(format, ap);
   }
 }
 
 void Header(Logger* info_log, const char* format, ...) {
-  if (info_log) {
-    va_list ap;
-    va_start(ap, format);
-    info_log->LogHeader(format, ap);
-    va_end(ap);
+  va_list ap;
+  va_start(ap, format);
+  Headerv(info_log, format, ap);
+  va_end(ap);
+}
+
+static void Debugv(Logger* info_log, const char* format, va_list ap) {
+  if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::DEBUG_LEVEL) {
+    info_log->Logv(InfoLogLevel::DEBUG_LEVEL, format, ap);
   }
 }
 
 void Debug(Logger* info_log, const char* format, ...) {
-  if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::DEBUG_LEVEL) {
-    va_list ap;
-    va_start(ap, format);
-    info_log->Logv(InfoLogLevel::DEBUG_LEVEL, format, ap);
-    va_end(ap);
+  va_list ap;
+  va_start(ap, format);
+  Debugv(info_log, format, ap);
+  va_end(ap);
+}
+
+static void Infov(Logger* info_log, const char* format, va_list ap) {
+  if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::INFO_LEVEL) {
+    info_log->Logv(InfoLogLevel::INFO_LEVEL, format, ap);
   }
 }
 
 void Info(Logger* info_log, const char* format, ...) {
-  if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::INFO_LEVEL) {
-    va_list ap;
-    va_start(ap, format);
-    info_log->Logv(InfoLogLevel::INFO_LEVEL, format, ap);
-    va_end(ap);
+  va_list ap;
+  va_start(ap, format);
+  Infov(info_log, format, ap);
+  va_end(ap);
+}
+
+static void Warnv(Logger* info_log, const char* format, va_list ap) {
+  if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::WARN_LEVEL) {
+    info_log->Logv(InfoLogLevel::WARN_LEVEL, format, ap);
   }
 }
 
 void Warn(Logger* info_log, const char* format, ...) {
-  if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::WARN_LEVEL) {
-    va_list ap;
-    va_start(ap, format);
-    info_log->Logv(InfoLogLevel::WARN_LEVEL, format, ap);
-    va_end(ap);
-  }
+  va_list ap;
+  va_start(ap, format);
+  Warnv(info_log, format, ap);
+  va_end(ap);
 }
-void Error(Logger* info_log, const char* format, ...) {
+
+static void Errorv(Logger* info_log, const char* format, va_list ap) {
   if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::ERROR_LEVEL) {
-    va_list ap;
-    va_start(ap, format);
     info_log->Logv(InfoLogLevel::ERROR_LEVEL, format, ap);
-    va_end(ap);
-  }
-}
-void Fatal(Logger* info_log, const char* format, ...) {
-  if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::FATAL_LEVEL) {
-    va_list ap;
-    va_start(ap, format);
-    info_log->Logv(InfoLogLevel::FATAL_LEVEL, format, ap);
-    va_end(ap);
   }
 }
 
-void LogFlush(const shared_ptr<Logger>& info_log) {
-  if (info_log) {
-    info_log->Flush();
+void Error(Logger* info_log, const char* format, ...) {
+  va_list ap;
+  va_start(ap, format);
+  Errorv(info_log, format, ap);
+  va_end(ap);
+}
+
+static void Fatalv(Logger* info_log, const char* format, va_list ap) {
+  if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::FATAL_LEVEL) {
+    info_log->Logv(InfoLogLevel::FATAL_LEVEL, format, ap);
   }
+}
+
+void Fatal(Logger* info_log, const char* format, ...) {
+  va_list ap;
+  va_start(ap, format);
+  Fatalv(info_log, format, ap);
+  va_end(ap);
+}
+
+void LogFlush(const shared_ptr<Logger>& info_log) {
+  LogFlush(info_log.get());
 }
 
 void Log(const InfoLogLevel log_level, const shared_ptr<Logger>& info_log,
          const char* format, ...) {
-  if (info_log) {
-    va_list ap;
-    va_start(ap, format);
-    info_log->Logv(log_level, format, ap);
-    va_end(ap);
-  }
+  va_list ap;
+  va_start(ap, format);
+  Logv(log_level, info_log.get(), format, ap);
+  va_end(ap);
 }
 
 void Header(const shared_ptr<Logger>& info_log, const char* format, ...) {
-  if (info_log) {
-    va_list ap;
-    va_start(ap, format);
-    info_log->LogHeader(format, ap);
-    va_end(ap);
-  }
+  va_list ap;
+  va_start(ap, format);
+  Headerv(info_log.get(), format, ap);
+  va_end(ap);
 }
 
 void Debug(const shared_ptr<Logger>& info_log, const char* format, ...) {
-  if (info_log) {
-    va_list ap;
-    va_start(ap, format);
-    info_log->Logv(InfoLogLevel::DEBUG_LEVEL, format, ap);
-    va_end(ap);
-  }
+  va_list ap;
+  va_start(ap, format);
+  Debugv(info_log.get(), format, ap);
+  va_end(ap);
 }
 
 void Info(const shared_ptr<Logger>& info_log, const char* format, ...) {
-  if (info_log) {
-    va_list ap;
-    va_start(ap, format);
-    info_log->Logv(InfoLogLevel::INFO_LEVEL, format, ap);
-    va_end(ap);
-  }
+  va_list ap;
+  va_start(ap, format);
+  Infov(info_log.get(), format, ap);
+  va_end(ap);
 }
 
 void Warn(const shared_ptr<Logger>& info_log, const char* format, ...) {
-  if (info_log) {
-    va_list ap;
-    va_start(ap, format);
-    info_log->Logv(InfoLogLevel::WARN_LEVEL, format, ap);
-    va_end(ap);
-  }
+  va_list ap;
+  va_start(ap, format);
+  Warnv(info_log.get(), format, ap);
+  va_end(ap);
 }
 
 void Error(const shared_ptr<Logger>& info_log, const char* format, ...) {
-  if (info_log) {
-    va_list ap;
-    va_start(ap, format);
-    info_log->Logv(InfoLogLevel::ERROR_LEVEL, format, ap);
-    va_end(ap);
-  }
+  va_list ap;
+  va_start(ap, format);
+  Errorv(info_log.get(), format, ap);
+  va_end(ap);
 }
 
 void Fatal(const shared_ptr<Logger>& info_log, const char* format, ...) {
-  if (info_log) {
-    va_list ap;
-    va_start(ap, format);
-    info_log->Logv(InfoLogLevel::FATAL_LEVEL, format, ap);
-    va_end(ap);
-  }
+  va_list ap;
+  va_start(ap, format);
+  Fatalv(info_log.get(), format, ap);
+  va_end(ap);
 }
 
 void Log(const shared_ptr<Logger>& info_log, const char* format, ...) {
-  if (info_log) {
-    va_list ap;
-    va_start(ap, format);
-    info_log->Logv(InfoLogLevel::INFO_LEVEL, format, ap);
-    va_end(ap);
-  }
+  va_list ap;
+  va_start(ap, format);
+  Logv(info_log.get(), format, ap);
+  va_end(ap);
 }
 
 Status WriteStringToFile(Env* env, const Slice& data, const std::string& fname,
@@ -365,8 +404,7 @@ EnvOptions Env::OptimizeForCompactionTableWrite(
 EnvOptions Env::OptimizeForCompactionTableRead(
     const EnvOptions& env_options, const ImmutableDBOptions& db_options) const {
   EnvOptions optimized_env_options(env_options);
-  optimized_env_options.use_direct_reads =
-      db_options.use_direct_io_for_flush_and_compaction;
+  optimized_env_options.use_direct_reads = db_options.use_direct_reads;
   return optimized_env_options;
 }
 

@@ -46,13 +46,6 @@ ColBufEncoder *ColBufEncoder::NewColBufEncoder(
   return nullptr;
 }
 
-#ifdef ROCKSDB_UBSAN_RUN
-#if defined(__clang__)
-__attribute__((__no_sanitize__("shift")))
-#elif defined(__GNUC__)
-__attribute__((__no_sanitize_undefined__))
-#endif
-#endif
 size_t FixedLengthColBufEncoder::Append(const char *buf) {
   if (nullable_) {
     if (buf == nullptr) {
@@ -72,7 +65,7 @@ size_t FixedLengthColBufEncoder::Append(const char *buf) {
       col_compression_type_ == kColRleDeltaVarint) {
     int64_t delta = read_val - last_val_;
     // Encode signed delta value
-    delta = (delta << 1) ^ (delta >> 63);
+    delta = (static_cast<uint64_t>(delta) << 1) ^ (delta >> 63);
     write_val = delta;
     last_val_ = read_val;
   } else if (col_compression_type_ == kColDict ||

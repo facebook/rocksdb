@@ -408,6 +408,7 @@ bool HashCuckooRep::QuickInsert(const char* internal_key, const Slice& user_key,
       const auto bucket_user_key = UserKey(stored_key);
       if (bucket_user_key.compare(user_key) == 0) {
         cuckoo_bucket_id = bucket_ids[hid];
+        assert(cuckoo_bucket_id != -1);
         break;
       }
     }
@@ -597,8 +598,8 @@ void HashCuckooRep::Iterator::Seek(const Slice& user_key,
 }
 
 // Retreat to the last entry with a key <= target
-void HashCuckooRep::Iterator::SeekForPrev(const Slice& user_key,
-                                          const char* memtable_key) {
+void HashCuckooRep::Iterator::SeekForPrev(const Slice& /*user_key*/,
+                                          const char* /*memtable_key*/) {
   assert(false);
 }
 
@@ -623,7 +624,7 @@ void HashCuckooRep::Iterator::SeekToLast() {
 
 MemTableRep* HashCuckooRepFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Allocator* allocator,
-    const SliceTransform* transform, Logger* logger) {
+    const SliceTransform* /*transform*/, Logger* /*logger*/) {
   // The estimated average fullness.  The write performance of any close hash
   // degrades as the fullness of the mem-table increases.  Setting kFullness
   // to a value around 0.7 can better avoid write performance degradation while

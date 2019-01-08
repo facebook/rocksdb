@@ -45,6 +45,8 @@ etags
 rocksdb_dump
 rocksdb_undump
 db_test2
+trace_analyzer
+trace_analyzer_test
 
 java/out
 java/target

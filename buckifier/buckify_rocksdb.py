@@ -3,14 +3,11 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 from targets_builder import TARGETSBuilder
-from optparse import OptionParser
 import os
 import fnmatch
 import sys
-import tempfile
 
 from util import ColorString
-import util
 
 # tests to export as libraries for inclusion in other projects
 _EXPORTED_TEST_LIBS = ["env_basic_test"]
@@ -112,12 +109,14 @@ def generate_targets(repo_path):
         "rocksdb_test_lib",
         src_mk.get("MOCK_LIB_SOURCES", []) +
         src_mk.get("TEST_LIB_SOURCES", []) +
-        src_mk.get("EXP_LIB_SOURCES", []),
+        src_mk.get("EXP_LIB_SOURCES", []) +
+        src_mk.get("ANALYZER_LIB_SOURCES", []),
         [":rocksdb_lib"])
     # rocksdb_tools_lib
     TARGETS.add_library(
         "rocksdb_tools_lib",
         src_mk.get("BENCH_LIB_SOURCES", []) +
+        src_mk.get("ANALYZER_LIB_SOURCES", []) +
         ["util/testutil.cc"],
         [":rocksdb_lib"])
 

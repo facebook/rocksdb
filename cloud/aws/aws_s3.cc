@@ -22,6 +22,8 @@
 #include "util/string_util.h"
 
 namespace rocksdb {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 
 /******************** Readablefile ******************/
 
@@ -356,6 +358,7 @@ Status S3WritableFile::Sync() {
   return stat;
 }
 
+#pragma GCC diagnostic pop
 }  // namespace
 
 #endif /* USE_AWS */

@@ -49,7 +49,7 @@ namespace log {
  * |CRC (4B) | Size (2B) | Type (1B) | Payload   |
  * +---------+-----------+-----------+--- ... ---+
  *
- * CRC = 32bit hash computed over the payload using CRC
+ * CRC = 32bit hash computed over the record type and payload using CRC
  * Size = Length of the payload data
  * Type = Type of record
  *        (kZeroType, kFullType, kFirstType, kLastType, kMiddleType )
@@ -84,6 +84,8 @@ class Writer {
   uint64_t get_log_number() const { return log_number_; }
 
   Status WriteBuffer();
+
+  bool TEST_BufferIsEmpty();
 
  private:
   unique_ptr<WritableFileWriter> dest_;

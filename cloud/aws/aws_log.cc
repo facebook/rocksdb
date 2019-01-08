@@ -19,7 +19,7 @@
 namespace rocksdb {
 
 CloudLogWritableFile::CloudLogWritableFile(
-    AwsEnv* env, const std::string& fname, const EnvOptions& options)
+    AwsEnv* env, const std::string& fname, const EnvOptions& /*options*/)
   : env_(env), fname_(fname) {}
 
 CloudLogWritableFile::~CloudLogWritableFile() {}

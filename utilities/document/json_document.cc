@@ -46,9 +46,9 @@ void InitJSONDocument(std::unique_ptr<char[]>* data,
                       Func f) {
   // TODO(stash): maybe add function to FbsonDocument to avoid creating array?
   fbson::FbsonWriter writer;
-  bool res __attribute__((unused)) = writer.writeStartArray();
+  bool res __attribute__((__unused__)) = writer.writeStartArray();
   assert(res);
-  uint32_t bytesWritten __attribute__((unused));
+  uint32_t bytesWritten __attribute__((__unused__));
   bytesWritten = f(writer);
   assert(bytesWritten != 0);
   res = writer.writeEndArray();
@@ -68,7 +68,7 @@ void InitString(std::unique_ptr<char[]>* data,
                 const std::string& s) {
   InitJSONDocument(data, value, std::bind(
       [](fbson::FbsonWriter& writer, const std::string& str) -> uint32_t {
-        bool res __attribute__((unused)) = writer.writeStartString();
+        bool res __attribute__((__unused__)) = writer.writeStartString();
         assert(res);
         auto bytesWritten = writer.writeString(str.c_str(),
                             static_cast<uint32_t>(str.length()));
@@ -114,7 +114,7 @@ bool IsComparable(fbson::FbsonValue* left, fbson::FbsonValue* right) {
 
 void CreateArray(std::unique_ptr<char[]>* data, fbson::FbsonValue** value) {
   fbson::FbsonWriter writer;
-  bool res __attribute__((unused)) = writer.writeStartArray();
+  bool res __attribute__((__unused__)) = writer.writeStartArray();
   assert(res);
   res = writer.writeEndArray();
   assert(res);
@@ -127,7 +127,7 @@ void CreateArray(std::unique_ptr<char[]>* data, fbson::FbsonValue** value) {
 
 void CreateObject(std::unique_ptr<char[]>* data, fbson::FbsonValue** value) {
   fbson::FbsonWriter writer;
-  bool res __attribute__((unused)) = writer.writeStartObject();
+  bool res __attribute__((__unused__)) = writer.writeStartObject();
   assert(res);
   res = writer.writeEndObject();
   assert(res);

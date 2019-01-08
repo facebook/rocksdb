@@ -159,12 +159,12 @@ class LogTest : public ::testing::TestWithParam<int> {
   LogTest()
       : reader_contents_(),
         dest_holder_(test::GetWritableFileWriter(
-            new test::StringSink(&reader_contents_))),
-        source_holder_(
-            test::GetSequentialFileReader(new StringSource(reader_contents_))),
+            new test::StringSink(&reader_contents_), "" /* don't care */)),
+        source_holder_(test::GetSequentialFileReader(
+            new StringSource(reader_contents_), "" /* file name */)),
         writer_(std::move(dest_holder_), 123, GetParam()),
-        reader_(NULL, std::move(source_holder_), &report_, true /*checksum*/,
-                0 /*initial_offset*/, 123) {
+        reader_(nullptr, std::move(source_holder_), &report_,
+                true /* checksum */, 123 /* log_number */) {
     int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
     initial_offset_last_record_offsets_[0] = 0;
     initial_offset_last_record_offsets_[1] = header_size + 10000;
@@ -264,36 +264,6 @@ class LogTest : public ::testing::TestWithParam<int> {
                          static_cast<char>('a' + i));
       Write(record);
     }
-  }
-
-  void CheckOffsetPastEndReturnsNoRecords(uint64_t offset_past_end) {
-    WriteInitialOffsetLog();
-    unique_ptr<SequentialFileReader> file_reader(
-        test::GetSequentialFileReader(new StringSource(reader_contents_)));
-    unique_ptr<Reader> offset_reader(
-        new Reader(NULL, std::move(file_reader), &report_,
-                   true /*checksum*/, WrittenBytes() + offset_past_end, 123));
-    Slice record;
-    std::string scratch;
-    ASSERT_TRUE(!offset_reader->ReadRecord(&record, &scratch));
-  }
-
-  void CheckInitialOffsetRecord(uint64_t initial_offset,
-                                int expected_record_offset) {
-    WriteInitialOffsetLog();
-    unique_ptr<SequentialFileReader> file_reader(
-        test::GetSequentialFileReader(new StringSource(reader_contents_)));
-    unique_ptr<Reader> offset_reader(
-        new Reader(NULL, std::move(file_reader), &report_,
-                   true /*checksum*/, initial_offset, 123));
-    Slice record;
-    std::string scratch;
-    ASSERT_TRUE(offset_reader->ReadRecord(&record, &scratch));
-    ASSERT_EQ(initial_offset_record_sizes_[expected_record_offset],
-              record.size());
-    ASSERT_EQ(initial_offset_last_record_offsets_[expected_record_offset],
-              offset_reader->LastRecordOffset());
-    ASSERT_EQ((char)('a' + expected_record_offset), record.data()[0]);
   }
 
 };
@@ -590,55 +560,6 @@ TEST_P(LogTest, ErrorJoinsRecords) {
   }
 }
 
-TEST_P(LogTest, ReadStart) { CheckInitialOffsetRecord(0, 0); }
-
-TEST_P(LogTest, ReadSecondOneOff) { CheckInitialOffsetRecord(1, 1); }
-
-TEST_P(LogTest, ReadSecondTenThousand) { CheckInitialOffsetRecord(10000, 1); }
-
-TEST_P(LogTest, ReadSecondStart) {
-  int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
-  CheckInitialOffsetRecord(10000 + header_size, 1);
-}
-
-TEST_P(LogTest, ReadThirdOneOff) {
-  int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
-  CheckInitialOffsetRecord(10000 + header_size + 1, 2);
-}
-
-TEST_P(LogTest, ReadThirdStart) {
-  int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
-  CheckInitialOffsetRecord(20000 + 2 * header_size, 2);
-}
-
-TEST_P(LogTest, ReadFourthOneOff) {
-  int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
-  CheckInitialOffsetRecord(20000 + 2 * header_size + 1, 3);
-}
-
-TEST_P(LogTest, ReadFourthFirstBlockTrailer) {
-  CheckInitialOffsetRecord(log::kBlockSize - 4, 3);
-}
-
-TEST_P(LogTest, ReadFourthMiddleBlock) {
-  CheckInitialOffsetRecord(log::kBlockSize + 1, 3);
-}
-
-TEST_P(LogTest, ReadFourthLastBlock) {
-  CheckInitialOffsetRecord(2 * log::kBlockSize + 1, 3);
-}
-
-TEST_P(LogTest, ReadFourthStart) {
-  int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
-  CheckInitialOffsetRecord(
-      2 * (header_size + 1000) + (2 * log::kBlockSize - 1000) + 3 * header_size,
-      3);
-}
-
-TEST_P(LogTest, ReadEnd) { CheckOffsetPastEndReturnsNoRecords(0); }
-
-TEST_P(LogTest, ReadPastEnd) { CheckOffsetPastEndReturnsNoRecords(5); }
-
 TEST_P(LogTest, ClearEofSingleBlock) {
   Write("foo");
   Write("bar");
@@ -718,7 +639,8 @@ TEST_P(LogTest, Recycle) {
     Write("xxxxxxxxxxxxxxxx");
   }
   unique_ptr<WritableFileWriter> dest_holder(test::GetWritableFileWriter(
-      new test::OverwritingStringSink(get_reader_contents())));
+      new test::OverwritingStringSink(get_reader_contents()),
+      "" /* don't care */));
   Writer recycle_writer(std::move(dest_holder), 123, true);
   recycle_writer.AddRecord(Slice("foooo"));
   recycle_writer.AddRecord(Slice("bar"));

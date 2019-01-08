@@ -38,12 +38,24 @@ public:
     skip_list_.Insert(static_cast<char*>(handle));
   }
 
+  virtual bool InsertKey(KeyHandle handle) override {
+    return skip_list_.Insert(static_cast<char*>(handle));
+  }
+
   virtual void InsertWithHint(KeyHandle handle, void** hint) override {
     skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
   }
 
+  virtual bool InsertKeyWithHint(KeyHandle handle, void** hint) override {
+    return skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
+  }
+
   virtual void InsertConcurrently(KeyHandle handle) override {
     skip_list_.InsertConcurrently(static_cast<char*>(handle));
+  }
+
+  virtual bool InsertKeyConcurrently(KeyHandle handle) override {
+    return skip_list_.InsertConcurrently(static_cast<char*>(handle));
   }
 
   // Returns true iff an entry that compares equal to key is in the list.
@@ -270,7 +282,7 @@ public:
 
 MemTableRep* SkipListFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Allocator* allocator,
-    const SliceTransform* transform, Logger* logger) {
+    const SliceTransform* transform, Logger* /*logger*/) {
   return new SkipListRep(compare, allocator, transform, lookahead_);
 }
 

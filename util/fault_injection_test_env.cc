@@ -121,7 +121,7 @@ TestWritableFile::~TestWritableFile() {
 
 Status TestWritableFile::Append(const Slice& data) {
   if (!env_->IsFilesystemActive()) {
-    return Status::Corruption("Not Active");
+    return env_->GetError();
   }
   Status s = target_->Append(data);
   if (s.ok()) {
@@ -172,7 +172,7 @@ Status FaultInjectionTestEnv::NewWritableFile(const std::string& fname,
                                               unique_ptr<WritableFile>* result,
                                               const EnvOptions& soptions) {
   if (!IsFilesystemActive()) {
-    return Status::Corruption("Not Active");
+    return GetError();
   }
   // Not allow overwriting files
   Status s = target()->FileExists(fname);
@@ -197,9 +197,18 @@ Status FaultInjectionTestEnv::NewWritableFile(const std::string& fname,
   return s;
 }
 
+Status FaultInjectionTestEnv::NewRandomAccessFile(
+    const std::string& fname, std::unique_ptr<RandomAccessFile>* result,
+    const EnvOptions& soptions) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+  return target()->NewRandomAccessFile(fname, result, soptions);
+}
+
 Status FaultInjectionTestEnv::DeleteFile(const std::string& f) {
   if (!IsFilesystemActive()) {
-    return Status::Corruption("Not Active");
+    return GetError();
   }
   Status s = EnvWrapper::DeleteFile(f);
   if (!s.ok()) {
@@ -216,7 +225,7 @@ Status FaultInjectionTestEnv::DeleteFile(const std::string& f) {
 Status FaultInjectionTestEnv::RenameFile(const std::string& s,
                                          const std::string& t) {
   if (!IsFilesystemActive()) {
-    return Status::Corruption("Not Active");
+    return GetError();
   }
   Status ret = EnvWrapper::RenameFile(s, t);
 

@@ -192,6 +192,13 @@ TEST_F(FormatTest, UpdateInternalKey) {
   ASSERT_EQ(new_val_type, decoded.type);
 }
 
+TEST_F(FormatTest, RangeTombstoneSerializeEndKey) {
+  RangeTombstone t("a", "b", 2);
+  InternalKey k("b", 3, kTypeValue);
+  const InternalKeyComparator cmp(BytewiseComparator());
+  ASSERT_LT(cmp.Compare(t.SerializeEndKey(), k), 0);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

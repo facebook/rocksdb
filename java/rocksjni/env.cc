@@ -6,18 +6,18 @@
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ rocksdb::Env methods from Java side.
 
+#include "rocksdb/env.h"
 #include "include/org_rocksdb_Env.h"
 #include "include/org_rocksdb_RocksEnv.h"
 #include "include/org_rocksdb_RocksMemEnv.h"
-#include "rocksdb/env.h"
 
 /*
  * Class:     org_rocksdb_Env
  * Method:    getDefaultEnvInternal
  * Signature: ()J
  */
-jlong Java_org_rocksdb_Env_getDefaultEnvInternal(
-    JNIEnv* env, jclass jclazz) {
+jlong Java_org_rocksdb_Env_getDefaultEnvInternal(JNIEnv* /*env*/,
+                                                 jclass /*jclazz*/) {
   return reinterpret_cast<jlong>(rocksdb::Env::Default());
 }
 
@@ -26,9 +26,9 @@ jlong Java_org_rocksdb_Env_getDefaultEnvInternal(
  * Method:    setBackgroundThreads
  * Signature: (JII)V
  */
-void Java_org_rocksdb_Env_setBackgroundThreads(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-    jint num, jint priority) {
+void Java_org_rocksdb_Env_setBackgroundThreads(JNIEnv* /*env*/,
+                                               jobject /*jobj*/, jlong jhandle,
+                                               jint num, jint priority) {
   auto* rocks_env = reinterpret_cast<rocksdb::Env*>(jhandle);
   switch (priority) {
     case org_rocksdb_Env_FLUSH_POOL:
@@ -45,8 +45,9 @@ void Java_org_rocksdb_Env_setBackgroundThreads(
  * Method:    getThreadPoolQueueLen
  * Signature: (JI)I
  */
-jint Java_org_rocksdb_Env_getThreadPoolQueueLen(
-    JNIEnv* env, jobject jobj, jlong jhandle, jint pool_id) {
+jint Java_org_rocksdb_Env_getThreadPoolQueueLen(JNIEnv* /*env*/,
+                                                jobject /*jobj*/, jlong jhandle,
+                                                jint pool_id) {
   auto* rocks_env = reinterpret_cast<rocksdb::Env*>(jhandle);
   switch (pool_id) {
     case org_rocksdb_RocksEnv_FLUSH_POOL:
@@ -62,10 +63,9 @@ jint Java_org_rocksdb_Env_getThreadPoolQueueLen(
  * Method:    createMemEnv
  * Signature: ()J
  */
-jlong Java_org_rocksdb_RocksMemEnv_createMemEnv(
-    JNIEnv* env, jclass jclazz) {
-  return reinterpret_cast<jlong>(rocksdb::NewMemEnv(
-      rocksdb::Env::Default()));
+jlong Java_org_rocksdb_RocksMemEnv_createMemEnv(JNIEnv* /*env*/,
+                                                jclass /*jclazz*/) {
+  return reinterpret_cast<jlong>(rocksdb::NewMemEnv(rocksdb::Env::Default()));
 }
 
 /*
@@ -73,8 +73,9 @@ jlong Java_org_rocksdb_RocksMemEnv_createMemEnv(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_RocksMemEnv_disposeInternal(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
+void Java_org_rocksdb_RocksMemEnv_disposeInternal(JNIEnv* /*env*/,
+                                                  jobject /*jobj*/,
+                                                  jlong jhandle) {
   auto* e = reinterpret_cast<rocksdb::Env*>(jhandle);
   assert(e != nullptr);
   delete e;

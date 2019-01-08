@@ -276,8 +276,10 @@ class WALDumperCommand : public LDBCommand {
   bool print_header_;
   std::string wal_file_;
   bool print_values_;
+  bool is_write_committed_;  // default will be set to true
 
   static const std::string ARG_WAL_FILE;
+  static const std::string ARG_WRITE_COMMITTED;
   static const std::string ARG_PRINT_HEADER;
   static const std::string ARG_PRINT_VALUE;
 };
@@ -518,6 +520,59 @@ class RestoreCommand : public BackupableCommand {
   virtual void DoCommand() override;
   virtual bool NoDBOpen() override { return true; }
   static void Help(std::string& ret);
+};
+
+class WriteExternalSstFilesCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "write_extern_sst"; }
+  WriteExternalSstFilesCommand(
+      const std::vector<std::string>& params,
+      const std::map<std::string, std::string>& options,
+      const std::vector<std::string>& flags);
+
+  virtual void DoCommand() override;
+
+  virtual bool NoDBOpen() override { return false; }
+
+  virtual Options PrepareOptionsForOpenDB() override;
+
+  static void Help(std::string& ret);
+
+ private:
+  std::string output_sst_path_;
+};
+
+class IngestExternalSstFilesCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "ingest_extern_sst"; }
+  IngestExternalSstFilesCommand(
+      const std::vector<std::string>& params,
+      const std::map<std::string, std::string>& options,
+      const std::vector<std::string>& flags);
+
+  virtual void DoCommand() override;
+
+  virtual bool NoDBOpen() override { return false; }
+
+  virtual Options PrepareOptionsForOpenDB() override;
+
+  static void Help(std::string& ret);
+
+ private:
+  std::string input_sst_path_;
+  bool move_files_;
+  bool snapshot_consistency_;
+  bool allow_global_seqno_;
+  bool allow_blocking_flush_;
+  bool ingest_behind_;
+  bool write_global_seqno_;
+
+  static const std::string ARG_MOVE_FILES;
+  static const std::string ARG_SNAPSHOT_CONSISTENCY;
+  static const std::string ARG_ALLOW_GLOBAL_SEQNO;
+  static const std::string ARG_ALLOW_BLOCKING_FLUSH;
+  static const std::string ARG_INGEST_BEHIND;
+  static const std::string ARG_WRITE_GLOBAL_SEQNO;
 };
 
 }  // namespace rocksdb

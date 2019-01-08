@@ -14,6 +14,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/perf_level.h"
@@ -68,27 +69,27 @@ TEST_F(DBPropertiesTest, Empty) {
     ASSERT_OK(db_->DisableFileDeletions());
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
-    ASSERT_EQ("1", num);
+    ASSERT_EQ("0", num);
 
     ASSERT_OK(db_->DisableFileDeletions());
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
-    ASSERT_EQ("2", num);
+    ASSERT_EQ("0", num);
 
     ASSERT_OK(db_->DisableFileDeletions());
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
-    ASSERT_EQ("3", num);
+    ASSERT_EQ("0", num);
 
     ASSERT_OK(db_->EnableFileDeletions(false));
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
-    ASSERT_EQ("2", num);
+    ASSERT_EQ("0", num);
 
     ASSERT_OK(db_->EnableFileDeletions());
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
-    ASSERT_EQ("0", num);
+    ASSERT_EQ("1", num);
   } while (ChangeOptions());
 }
 
@@ -169,6 +170,7 @@ void ResetTableProperties(TableProperties* tp) {
   tp->raw_value_size = 0;
   tp->num_data_blocks = 0;
   tp->num_entries = 0;
+  tp->num_range_deletions = 0;
 }
 
 void ParseTablePropertiesString(std::string tp_string, TableProperties* tp) {
@@ -176,17 +178,18 @@ void ParseTablePropertiesString(std::string tp_string, TableProperties* tp) {
   std::replace(tp_string.begin(), tp_string.end(), ';', ' ');
   std::replace(tp_string.begin(), tp_string.end(), '=', ' ');
   ResetTableProperties(tp);
-
   sscanf(tp_string.c_str(),
-         "# data blocks %" SCNu64 " # entries %" SCNu64 " raw key size %" SCNu64
+         "# data blocks %" SCNu64 " # entries %" SCNu64
+         " # range deletions %" SCNu64 " raw key size %" SCNu64
          " raw average key size %lf "
          " raw value size %" SCNu64
          " raw average value size %lf "
-         " data block size %" SCNu64 " index block size %" SCNu64
-         " filter block size %" SCNu64,
-         &tp->num_data_blocks, &tp->num_entries, &tp->raw_key_size,
-         &dummy_double, &tp->raw_value_size, &dummy_double, &tp->data_size,
-         &tp->index_size, &tp->filter_size);
+         " data block size %" SCNu64 " index block size (user-key? %" SCNu64
+         ", delta-value? %" SCNu64 ") %" SCNu64 " filter block size %" SCNu64,
+         &tp->num_data_blocks, &tp->num_entries, &tp->num_range_deletions,
+         &tp->raw_key_size, &dummy_double, &tp->raw_value_size, &dummy_double,
+         &tp->data_size, &tp->index_key_is_user_key,
+         &tp->index_value_is_delta_encoded, &tp->index_size, &tp->filter_size);
 }
 
 void VerifySimilar(uint64_t a, uint64_t b, double bias) {
@@ -217,19 +220,22 @@ void VerifyTableProperties(const TableProperties& base_tp,
   ASSERT_EQ(base_tp.raw_key_size, new_tp.raw_key_size);
   ASSERT_EQ(base_tp.raw_value_size, new_tp.raw_value_size);
   ASSERT_EQ(base_tp.num_entries, new_tp.num_entries);
+  ASSERT_EQ(base_tp.num_range_deletions, new_tp.num_range_deletions);
 }
 
-void GetExpectedTableProperties(TableProperties* expected_tp,
-                                const int kKeySize, const int kValueSize,
-                                const int kKeysPerTable, const int kTableCount,
-                                const int kBloomBitsPerKey,
-                                const size_t kBlockSize) {
+void GetExpectedTableProperties(
+    TableProperties* expected_tp, const int kKeySize, const int kValueSize,
+    const int kKeysPerTable, const int kRangeDeletionsPerTable,
+    const int kTableCount, const int kBloomBitsPerKey, const size_t kBlockSize,
+    const bool index_key_is_user_key, const bool value_delta_encoding) {
   const int kKeyCount = kTableCount * kKeysPerTable;
+  const int kRangeDeletionCount = kTableCount * kRangeDeletionsPerTable;
   const int kAvgSuccessorSize = kKeySize / 5;
   const int kEncodingSavePerKey = kKeySize / 4;
-  expected_tp->raw_key_size = kKeyCount * (kKeySize + 8);
-  expected_tp->raw_value_size = kKeyCount * kValueSize;
+  expected_tp->raw_key_size = (kKeyCount + kRangeDeletionCount) * (kKeySize + 8);
+  expected_tp->raw_value_size = (kKeyCount + kRangeDeletionCount) * kValueSize;
   expected_tp->num_entries = kKeyCount;
+  expected_tp->num_range_deletions = kRangeDeletionCount;
   expected_tp->num_data_blocks =
       kTableCount *
       (kKeysPerTable * (kKeySize - kEncodingSavePerKey + kValueSize)) /
@@ -237,7 +243,10 @@ void GetExpectedTableProperties(TableProperties* expected_tp,
   expected_tp->data_size =
       kTableCount * (kKeysPerTable * (kKeySize + 8 + kValueSize));
   expected_tp->index_size =
-      expected_tp->num_data_blocks * (kAvgSuccessorSize + 8);
+      expected_tp->num_data_blocks *
+      (kAvgSuccessorSize + (index_key_is_user_key ? 0 : 8) -
+       // discount 1 byte as value size is not encoded in value delta encoding
+       (value_delta_encoding ? 1 : 0));
   expected_tp->filter_size =
       kTableCount * (kKeysPerTable * kBloomBitsPerKey / 8);
 }
@@ -250,8 +259,11 @@ TEST_F(DBPropertiesTest, ValidatePropertyInfo) {
     ASSERT_TRUE(ppt_name_and_info.first.empty() ||
                 !isdigit(ppt_name_and_info.first.back()));
 
-    ASSERT_TRUE((ppt_name_and_info.second.handle_string == nullptr) !=
-                (ppt_name_and_info.second.handle_int == nullptr));
+    int count = 0;
+    count += (ppt_name_and_info.second.handle_string == nullptr) ? 0 : 1;
+    count += (ppt_name_and_info.second.handle_int == nullptr) ? 0 : 1;
+    count += (ppt_name_and_info.second.handle_string_dbimpl == nullptr) ? 0 : 1;
+    ASSERT_TRUE(count == 1);
   }
 }
 
@@ -286,6 +298,7 @@ TEST_F(DBPropertiesTest, ValidateSampleNumber) {
 
 TEST_F(DBPropertiesTest, AggregatedTableProperties) {
   for (int kTableCount = 40; kTableCount <= 100; kTableCount += 30) {
+    const int kRangeDeletionsPerTable = 5;
     const int kKeysPerTable = 100;
     const int kKeySize = 80;
     const int kValueSize = 200;
@@ -304,24 +317,37 @@ TEST_F(DBPropertiesTest, AggregatedTableProperties) {
 
     DestroyAndReopen(options);
 
+    // Hold open a snapshot to prevent range tombstones from being compacted
+    // away.
+    ManagedSnapshot snapshot(db_);
+
     Random rnd(5632);
     for (int table = 1; table <= kTableCount; ++table) {
       for (int i = 0; i < kKeysPerTable; ++i) {
         db_->Put(WriteOptions(), RandomString(&rnd, kKeySize),
                  RandomString(&rnd, kValueSize));
       }
+      for (int i = 0; i < kRangeDeletionsPerTable; i++) {
+        std::string start = RandomString(&rnd, kKeySize);
+        std::string end = start;
+        end.resize(kValueSize);
+        db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), start, end);
+      }
       db_->Flush(FlushOptions());
     }
     std::string property;
     db_->GetProperty(DB::Properties::kAggregatedTableProperties, &property);
+    TableProperties output_tp;
+    ParseTablePropertiesString(property, &output_tp);
+    bool index_key_is_user_key = output_tp.index_key_is_user_key > 0;
+    bool value_is_delta_encoded = output_tp.index_value_is_delta_encoded > 0;
 
     TableProperties expected_tp;
     GetExpectedTableProperties(&expected_tp, kKeySize, kValueSize,
-                               kKeysPerTable, kTableCount, kBloomBitsPerKey,
-                               table_options.block_size);
-
-    TableProperties output_tp;
-    ParseTablePropertiesString(property, &output_tp);
+                               kKeysPerTable, kRangeDeletionsPerTable,
+                               kTableCount, kBloomBitsPerKey,
+                               table_options.block_size, index_key_is_user_key,
+                               value_is_delta_encoded);
 
     VerifyTableProperties(expected_tp, output_tp);
   }
@@ -370,6 +396,13 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
   for (int key = 0; key < key_index; key++) {
     Get(Key(key));
   }
+
+  // Test for getting immutable_db_options_.statistics
+  ASSERT_TRUE(dbfull()->GetProperty(dbfull()->DefaultColumnFamily(),
+                                    "rocksdb.options-statistics", &prop));
+  ASSERT_NE(std::string::npos, prop.find("rocksdb.block.cache.miss"));
+  ASSERT_EQ(std::string::npos, prop.find("rocksdb.db.f.micros"));
+
   ASSERT_TRUE(dbfull()->GetProperty(dbfull()->DefaultColumnFamily(),
                                     "rocksdb.cf-file-histogram", &prop));
   ASSERT_NE(std::string::npos, prop.find("** Level 0 read latency histogram"));
@@ -436,6 +469,7 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
 
 TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   const int kTableCount = 100;
+  const int kRangeDeletionsPerTable = 2;
   const int kKeysPerTable = 10;
   const int kKeySize = 50;
   const int kValueSize = 400;
@@ -461,6 +495,9 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
 
   DestroyAndReopen(options);
 
+  // Hold open a snapshot to prevent range tombstones from being compacted away.
+  ManagedSnapshot snapshot(db_);
+
   std::string level_tp_strings[kMaxLevel];
   std::string tp_string;
   TableProperties level_tps[kMaxLevel];
@@ -469,6 +506,12 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
     for (int i = 0; i < kKeysPerTable; ++i) {
       db_->Put(WriteOptions(), RandomString(&rnd, kKeySize),
                RandomString(&rnd, kValueSize));
+    }
+    for (int i = 0; i < kRangeDeletionsPerTable; i++) {
+      std::string start = RandomString(&rnd, kKeySize);
+      std::string end = start;
+      end.resize(kValueSize);
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), start, end);
     }
     db_->Flush(FlushOptions());
     db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
@@ -485,9 +528,12 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
       sum_tp.raw_value_size += level_tps[level].raw_value_size;
       sum_tp.num_data_blocks += level_tps[level].num_data_blocks;
       sum_tp.num_entries += level_tps[level].num_entries;
+      sum_tp.num_range_deletions += level_tps[level].num_range_deletions;
     }
     db_->GetProperty(DB::Properties::kAggregatedTableProperties, &tp_string);
     ParseTablePropertiesString(tp_string, &tp);
+    bool index_key_is_user_key = tp.index_key_is_user_key > 0;
+    bool value_is_delta_encoded = tp.index_value_is_delta_encoded > 0;
     ASSERT_EQ(sum_tp.data_size, tp.data_size);
     ASSERT_EQ(sum_tp.index_size, tp.index_size);
     ASSERT_EQ(sum_tp.filter_size, tp.filter_size);
@@ -495,13 +541,15 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
     ASSERT_EQ(sum_tp.raw_value_size, tp.raw_value_size);
     ASSERT_EQ(sum_tp.num_data_blocks, tp.num_data_blocks);
     ASSERT_EQ(sum_tp.num_entries, tp.num_entries);
+    ASSERT_EQ(sum_tp.num_range_deletions, tp.num_range_deletions);
     if (table > 3) {
       GetExpectedTableProperties(&expected_tp, kKeySize, kValueSize,
-                                 kKeysPerTable, table, kBloomBitsPerKey,
-                                 table_options.block_size);
+                                 kKeysPerTable, kRangeDeletionsPerTable, table,
+                                 kBloomBitsPerKey, table_options.block_size,
+                                 index_key_is_user_key, value_is_delta_encoded);
       // Gives larger bias here as index block size, filter block size,
       // and data block size become much harder to estimate in this test.
-      VerifyTableProperties(tp, expected_tp, 0.5, 0.4, 0.4, 0.25);
+      VerifyTableProperties(expected_tp, tp, 0.5, 0.4, 0.4, 0.25);
     }
   }
 }
@@ -985,8 +1033,9 @@ class CountingUserTblPropCollector : public TablePropertiesCollector {
     return Status::OK();
   }
 
-  Status AddUserKey(const Slice& user_key, const Slice& value, EntryType type,
-                    SequenceNumber seq, uint64_t file_size) override {
+  Status AddUserKey(const Slice& /*user_key*/, const Slice& /*value*/,
+                    EntryType /*type*/, SequenceNumber /*seq*/,
+                    uint64_t /*file_size*/) override {
     ++count_;
     return Status::OK();
   }
@@ -1027,8 +1076,9 @@ class CountingDeleteTabPropCollector : public TablePropertiesCollector {
  public:
   const char* Name() const override { return "CountingDeleteTabPropCollector"; }
 
-  Status AddUserKey(const Slice& user_key, const Slice& value, EntryType type,
-                    SequenceNumber seq, uint64_t file_size) override {
+  Status AddUserKey(const Slice& /*user_key*/, const Slice& /*value*/,
+                    EntryType type, SequenceNumber /*seq*/,
+                    uint64_t /*file_size*/) override {
     if (type == kEntryDelete) {
       num_deletes_++;
     }
@@ -1055,7 +1105,7 @@ class CountingDeleteTabPropCollectorFactory
     : public TablePropertiesCollectorFactory {
  public:
   virtual TablePropertiesCollector* CreateTablePropertiesCollector(
-      TablePropertiesCollectorFactory::Context context) override {
+      TablePropertiesCollectorFactory::Context /*context*/) override {
     return new CountingDeleteTabPropCollector();
   }
   const char* Name() const override {
@@ -1381,6 +1431,157 @@ TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
 
   // Close before mock_env destructs.
   Close();
+}
+
+TEST_F(DBPropertiesTest, SstFilesSize) {
+  struct TestListener : public EventListener {
+    void OnCompactionCompleted(DB* db,
+                               const CompactionJobInfo& /*info*/) override {
+      assert(callback_triggered == false);
+      assert(size_before_compaction > 0);
+      callback_triggered = true;
+      uint64_t total_sst_size = 0;
+      uint64_t live_sst_size = 0;
+      bool ok = db->GetIntProperty(DB::Properties::kTotalSstFilesSize,
+                                   &total_sst_size);
+      ASSERT_TRUE(ok);
+      // total_sst_size include files before and after compaction.
+      ASSERT_GT(total_sst_size, size_before_compaction);
+      ok =
+          db->GetIntProperty(DB::Properties::kLiveSstFilesSize, &live_sst_size);
+      ASSERT_TRUE(ok);
+      // live_sst_size only include files after compaction.
+      ASSERT_GT(live_sst_size, 0);
+      ASSERT_LT(live_sst_size, size_before_compaction);
+    }
+
+    uint64_t size_before_compaction = 0;
+    bool callback_triggered = false;
+  };
+  std::shared_ptr<TestListener> listener = std::make_shared<TestListener>();
+
+  Options options;
+  options.disable_auto_compactions = true;
+  options.listeners.push_back(listener);
+  Reopen(options);
+
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put("key" + ToString(i), std::string(1000, 'v')));
+  }
+  ASSERT_OK(Flush());
+  for (int i = 0; i < 5; i++) {
+    ASSERT_OK(Delete("key" + ToString(i)));
+  }
+  ASSERT_OK(Flush());
+  uint64_t sst_size;
+  bool ok = db_->GetIntProperty(DB::Properties::kTotalSstFilesSize, &sst_size);
+  ASSERT_TRUE(ok);
+  ASSERT_GT(sst_size, 0);
+  listener->size_before_compaction = sst_size;
+  // Compact to clean all keys and trigger listener.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_TRUE(listener->callback_triggered);
+}
+
+TEST_F(DBPropertiesTest, BlockCacheProperties) {
+  Options options;
+  uint64_t value;
+
+  // Block cache properties are not available for tables other than
+  // block-based table.
+  options.table_factory.reset(NewPlainTableFactory());
+  Reopen(options);
+  ASSERT_FALSE(
+      db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
+  ASSERT_FALSE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  ASSERT_FALSE(
+      db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
+
+  options.table_factory.reset(NewCuckooTableFactory());
+  Reopen(options);
+  ASSERT_FALSE(
+      db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
+  ASSERT_FALSE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  ASSERT_FALSE(
+      db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
+
+  // Block cache properties are not available if block cache is not used.
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+  ASSERT_FALSE(
+      db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
+  ASSERT_FALSE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  ASSERT_FALSE(
+      db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
+
+  // Test with empty block cache.
+  constexpr size_t kCapacity = 100;
+  auto block_cache = NewLRUCache(kCapacity, 0 /*num_shard_bits*/);
+  table_options.block_cache = block_cache;
+  table_options.no_block_cache = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  ASSERT_EQ(0, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
+  ASSERT_EQ(0, value);
+
+  // Insert unpinned item to the cache and check size.
+  constexpr size_t kSize1 = 50;
+  block_cache->Insert("item1", nullptr /*value*/, kSize1, nullptr /*deleter*/);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  ASSERT_EQ(kSize1, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
+  ASSERT_EQ(0, value);
+
+  // Insert pinned item to the cache and check size.
+  constexpr size_t kSize2 = 30;
+  Cache::Handle* item2 = nullptr;
+  block_cache->Insert("item2", nullptr /*value*/, kSize2, nullptr /*deleter*/,
+                      &item2);
+  ASSERT_NE(nullptr, item2);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  ASSERT_EQ(kSize1 + kSize2, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
+  ASSERT_EQ(kSize2, value);
+
+  // Insert another pinned item to make the cache over-sized.
+  constexpr size_t kSize3 = 80;
+  Cache::Handle* item3 = nullptr;
+  block_cache->Insert("item3", nullptr /*value*/, kSize3, nullptr /*deleter*/,
+                      &item3);
+  ASSERT_NE(nullptr, item2);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  // Item 1 is evicted.
+  ASSERT_EQ(kSize2 + kSize3, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
+  ASSERT_EQ(kSize2 + kSize3, value);
+
+  // Check size after release.
+  block_cache->Release(item2);
+  block_cache->Release(item3);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  // item2 will be evicted, while item3 remain in cache after release.
+  ASSERT_EQ(kSize3, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
+  ASSERT_EQ(0, value);
 }
 
 #endif  // ROCKSDB_LITE

@@ -18,7 +18,116 @@ namespace rocksdb {
 class DBWALTest : public DBTestBase {
  public:
   DBWALTest() : DBTestBase("/db_wal_test") {}
+
+#if defined(ROCKSDB_PLATFORM_POSIX)
+  uint64_t GetAllocatedFileSize(std::string file_name) {
+    struct stat sbuf;
+    int err = stat(file_name.c_str(), &sbuf);
+    assert(err == 0);
+    return sbuf.st_blocks * 512;
+  }
+#endif
 };
+
+// A SpecialEnv enriched to give more insight about deleted files
+class EnrichedSpecialEnv : public SpecialEnv {
+ public:
+  explicit EnrichedSpecialEnv(Env* base) : SpecialEnv(base) {}
+  Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
+                           const EnvOptions& soptions) override {
+    InstrumentedMutexLock l(&env_mutex_);
+    if (f == skipped_wal) {
+      deleted_wal_reopened = true;
+      if (IsWAL(f) && largetest_deleted_wal.size() != 0 &&
+          f.compare(largetest_deleted_wal) <= 0) {
+        gap_in_wals = true;
+      }
+    }
+    return SpecialEnv::NewSequentialFile(f, r, soptions);
+  }
+  Status DeleteFile(const std::string& fname) override {
+    if (IsWAL(fname)) {
+      deleted_wal_cnt++;
+      InstrumentedMutexLock l(&env_mutex_);
+      // If this is the first WAL, remember its name and skip deleting it. We
+      // remember its name partly because the application might attempt to
+      // delete the file again.
+      if (skipped_wal.size() != 0 && skipped_wal != fname) {
+        if (largetest_deleted_wal.size() == 0 ||
+            largetest_deleted_wal.compare(fname) < 0) {
+          largetest_deleted_wal = fname;
+        }
+      } else {
+        skipped_wal = fname;
+        return Status::OK();
+      }
+    }
+    return SpecialEnv::DeleteFile(fname);
+  }
+  bool IsWAL(const std::string& fname) {
+    // printf("iswal %s\n", fname.c_str());
+    return fname.compare(fname.size() - 3, 3, "log") == 0;
+  }
+
+  InstrumentedMutex env_mutex_;
+  // the wal whose actual delete was skipped by the env
+  std::string skipped_wal = "";
+  // the largest WAL that was requested to be deleted
+  std::string largetest_deleted_wal = "";
+  // number of WALs that were successfully deleted
+  std::atomic<size_t> deleted_wal_cnt = {0};
+  // the WAL whose delete from fs was skipped is reopened during recovery
+  std::atomic<bool> deleted_wal_reopened = {false};
+  // whether a gap in the WALs was detected during recovery
+  std::atomic<bool> gap_in_wals = {false};
+};
+
+class DBWALTestWithEnrichedEnv : public DBTestBase {
+ public:
+  DBWALTestWithEnrichedEnv() : DBTestBase("/db_wal_test") {
+    enriched_env_ = new EnrichedSpecialEnv(env_->target());
+    auto options = CurrentOptions();
+    options.env = enriched_env_;
+    Reopen(options);
+    delete env_;
+    // to be deleted by the parent class
+    env_ = enriched_env_;
+  }
+
+ protected:
+  EnrichedSpecialEnv* enriched_env_;
+};
+
+// Test that the recovery would successfully avoid the gaps between the logs.
+// One known scenario that could cause this is that the application issue the
+// WAL deletion out of order. For the sake of simplicity in the test, here we
+// create the gap by manipulating the env to skip deletion of the first WAL but
+// not the ones after it.
+TEST_F(DBWALTestWithEnrichedEnv, SkipDeletedWALs) {
+  auto options = last_options_;
+  // To cause frequent WAL deletion
+  options.write_buffer_size = 128;
+  Reopen(options);
+
+  WriteOptions writeOpt = WriteOptions();
+  for (int i = 0; i < 128 * 5; i++) {
+    ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v1"));
+  }
+  FlushOptions fo;
+  fo.wait = true;
+  ASSERT_OK(db_->Flush(fo));
+
+  // some wals are deleted
+  ASSERT_NE(0, enriched_env_->deleted_wal_cnt);
+  // but not the first one
+  ASSERT_NE(0, enriched_env_->skipped_wal.size());
+
+  // Test that the WAL that was not deleted will be skipped during recovery
+  options = last_options_;
+  Reopen(options);
+  ASSERT_FALSE(enriched_env_->deleted_wal_reopened);
+  ASSERT_FALSE(enriched_env_->gap_in_wals);
+}
 
 TEST_F(DBWALTest, WAL) {
   do {
@@ -715,7 +824,7 @@ class RecoveryTestHelper {
       unique_ptr<WritableFile> file;
       ASSERT_OK(db_options.env->NewWritableFile(fname, &file, env_options));
       unique_ptr<WritableFileWriter> file_writer(
-          new WritableFileWriter(std::move(file), env_options));
+          new WritableFileWriter(std::move(file), fname, env_options));
       current_log_writer.reset(
           new log::Writer(std::move(file_writer), current_log_number,
                           db_options.recycle_log_file_num > 0));
@@ -891,7 +1000,7 @@ TEST_F(DBWALTest, kPointInTimeRecoveryCFConsistency) {
 
   // Record the offset at this point
   Env* env = options.env;
-  int wal_file_id = RecoveryTestHelper::kWALFileOffset + 1;
+  uint64_t wal_file_id = dbfull()->TEST_LogfileNumber();
   std::string fname = LogFileName(dbname_, wal_file_id);
   uint64_t offset_to_corrupt;
   ASSERT_OK(env->GetFileSize(fname, &offset_to_corrupt));
@@ -1228,6 +1337,99 @@ TEST_F(DBWALTest, RecoverFromCorruptedWALWithoutFlush) {
     }
   }
 }
+
+// Tests that total log size is recovered if we set
+// avoid_flush_during_recovery=true.
+// Flush should trigger if max_total_wal_size is reached.
+TEST_F(DBWALTest, RestoreTotalLogSizeAfterRecoverWithoutFlush) {
+  class TestFlushListener : public EventListener {
+   public:
+    std::atomic<int> count{0};
+
+    TestFlushListener() = default;
+
+    void OnFlushBegin(DB* /*db*/, const FlushJobInfo& flush_job_info) override {
+      count++;
+      assert(FlushReason::kWriteBufferManager == flush_job_info.flush_reason);
+    }
+  };
+  std::shared_ptr<TestFlushListener> test_listener =
+      std::make_shared<TestFlushListener>();
+
+  constexpr size_t kKB = 1024;
+  constexpr size_t kMB = 1024 * 1024;
+  Options options = CurrentOptions();
+  options.avoid_flush_during_recovery = true;
+  options.max_total_wal_size = 1 * kMB;
+  options.listeners.push_back(test_listener);
+  // Have to open DB in multi-CF mode to trigger flush when
+  // max_total_wal_size is reached.
+  CreateAndReopenWithCF({"one"}, options);
+  // Write some keys and we will end up with one log file which is slightly
+  // smaller than 1MB.
+  std::string value_100k(100 * kKB, 'v');
+  std::string value_300k(300 * kKB, 'v');
+  ASSERT_OK(Put(0, "foo", "v1"));
+  for (int i = 0; i < 9; i++) {
+    ASSERT_OK(Put(1, "key" + ToString(i), value_100k));
+  }
+  // Get log files before reopen.
+  VectorLogPtr log_files_before;
+  ASSERT_OK(dbfull()->GetSortedWalFiles(log_files_before));
+  ASSERT_EQ(1, log_files_before.size());
+  uint64_t log_size_before = log_files_before[0]->SizeFileBytes();
+  ASSERT_GT(log_size_before, 900 * kKB);
+  ASSERT_LT(log_size_before, 1 * kMB);
+  ReopenWithColumnFamilies({"default", "one"}, options);
+  // Write one more value to make log larger than 1MB.
+  ASSERT_OK(Put(1, "bar", value_300k));
+  // Get log files again. A new log file will be opened.
+  VectorLogPtr log_files_after_reopen;
+  ASSERT_OK(dbfull()->GetSortedWalFiles(log_files_after_reopen));
+  ASSERT_EQ(2, log_files_after_reopen.size());
+  ASSERT_EQ(log_files_before[0]->LogNumber(),
+            log_files_after_reopen[0]->LogNumber());
+  ASSERT_GT(log_files_after_reopen[0]->SizeFileBytes() +
+                log_files_after_reopen[1]->SizeFileBytes(),
+            1 * kMB);
+  // Write one more key to trigger flush.
+  ASSERT_OK(Put(0, "foo", "v2"));
+  dbfull()->TEST_WaitForFlushMemTable();
+  // Flushed two column families.
+  ASSERT_EQ(2, test_listener->count.load());
+}
+
+#if defined(ROCKSDB_PLATFORM_POSIX)
+#if defined(ROCKSDB_FALLOCATE_PRESENT)
+// Tests that we will truncate the preallocated space of the last log from
+// previous.
+TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
+  constexpr size_t kKB = 1024;
+  Options options = CurrentOptions();
+  options.avoid_flush_during_recovery = true;
+  DestroyAndReopen(options);
+  size_t preallocated_size =
+      dbfull()->TEST_GetWalPreallocateBlockSize(options.write_buffer_size);
+  ASSERT_OK(Put("foo", "v1"));
+  VectorLogPtr log_files_before;
+  ASSERT_OK(dbfull()->GetSortedWalFiles(log_files_before));
+  ASSERT_EQ(1, log_files_before.size());
+  auto& file_before = log_files_before[0];
+  ASSERT_LT(file_before->SizeFileBytes(), 1 * kKB);
+  // The log file has preallocated space.
+  ASSERT_GE(GetAllocatedFileSize(dbname_ + file_before->PathName()),
+            preallocated_size);
+  Reopen(options);
+  VectorLogPtr log_files_after;
+  ASSERT_OK(dbfull()->GetSortedWalFiles(log_files_after));
+  ASSERT_EQ(1, log_files_after.size());
+  ASSERT_LT(log_files_after[0]->SizeFileBytes(), 1 * kKB);
+  // The preallocated space should be truncated.
+  ASSERT_LT(GetAllocatedFileSize(dbname_ + file_before->PathName()),
+            preallocated_size);
+}
+#endif  // ROCKSDB_FALLOCATE_PRESENT
+#endif  // ROCKSDB_PLATFORM_POSIX
 
 #endif  // ROCKSDB_LITE
 

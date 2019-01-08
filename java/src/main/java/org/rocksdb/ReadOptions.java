@@ -423,6 +423,9 @@ public class ReadOptions extends RocksObject {
     return null;
   }
 
+  // instance variables
+  // NOTE: If you add new member variables, please update the copy constructor above!
+  //
   // Hold a reference to any iterate upper bound that was set on this object
   // until we're destroyed or it's overwritten.  That way the caller can freely
   // leave scope without us losing the Java Slice object, which during close()

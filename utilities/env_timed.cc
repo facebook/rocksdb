@@ -141,7 +141,7 @@ Env* NewTimedEnv(Env* base_env) { return new TimedEnv(base_env); }
 
 #else  // ROCKSDB_LITE
 
-Env* NewTimedEnv(Env* base_env) { return nullptr; }
+Env* NewTimedEnv(Env* /*base_env*/) { return nullptr; }
 
 #endif  // !ROCKSDB_LITE
 

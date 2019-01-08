@@ -35,6 +35,7 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
   Reopen(options);
   FlushOptions no_wait;
   no_wait.wait = false;
+  no_wait.allow_write_stall=true;
 
   SyncPoint::GetInstance()->LoadDependency(
       {{"VersionSet::LogAndApply:WriteManifest",
@@ -55,6 +56,9 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
 #endif  // ROCKSDB_LITE
 }
 
+#ifndef TRAVIS
+// Disable this test temporarily on Travis as it fails intermittently.
+// Github issue: #4151
 TEST_F(DBFlushTest, SyncFail) {
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
       new FaultInjectionTestEnv(env_));
@@ -72,22 +76,27 @@ TEST_F(DBFlushTest, SyncFail) {
   auto* cfd =
       reinterpret_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
           ->cfd();
-  int refs_before = cfd->current()->TEST_refs();
   FlushOptions flush_options;
   flush_options.wait = false;
   ASSERT_OK(dbfull()->Flush(flush_options));
+  // Flush installs a new super-version. Get the ref count after that.
+  auto current_before = cfd->current();
+  int refs_before = cfd->current()->TEST_refs();
   fault_injection_env->SetFilesystemActive(false);
   TEST_SYNC_POINT("DBFlushTest::SyncFail:1");
   TEST_SYNC_POINT("DBFlushTest::SyncFail:2");
   fault_injection_env->SetFilesystemActive(true);
+  // Now the background job will do the flush; wait for it.
   dbfull()->TEST_WaitForFlushMemTable();
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("", FilesPerLevel());  // flush failed.
 #endif                             // ROCKSDB_LITE
-  // Flush job should release ref count to current version.
+  // Backgroun flush job should release ref count to current version.
+  ASSERT_EQ(current_before, cfd->current());
   ASSERT_EQ(refs_before, cfd->current()->TEST_refs());
   Destroy(options);
 }
+#endif  // TRAVIS
 
 TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
   // Verify setting an empty high-pri (flush) thread pool causes flushes to be
@@ -101,7 +110,7 @@ TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
   std::thread::id tid;
   int num_flushes = 0, num_compactions = 0;
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BGWorkFlush", [&](void* arg) {
+      "DBImpl::BGWorkFlush", [&](void* /*arg*/) {
         if (tid == std::thread::id()) {
           tid = std::this_thread::get_id();
         } else {
@@ -110,7 +119,7 @@ TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
         ++num_flushes;
       });
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BGWorkCompaction", [&](void* arg) {
+      "DBImpl::BGWorkCompaction", [&](void* /*arg*/) {
         ASSERT_EQ(tid, std::this_thread::get_id());
         ++num_compactions;
       });
@@ -183,6 +192,26 @@ TEST_P(DBFlushDirectIOTest, DirectIO) {
   ASSERT_OK(dbfull()->Flush(flush_options));
   Destroy(options);
   delete options.env;
+}
+
+TEST_F(DBFlushTest, FlushError) {
+  Options options;
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
+      new FaultInjectionTestEnv(env_));
+  options.write_buffer_size = 100;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;
+  options.disable_auto_compactions = true;
+  options.env = fault_injection_env.get();
+  Reopen(options);
+
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Put("key2", "value2"));
+  fault_injection_env->SetFilesystemActive(false);
+  Status s = dbfull()->TEST_SwitchMemtable();
+  fault_injection_env->SetFilesystemActive(true);
+  Destroy(options);
+  ASSERT_NE(s, Status::OK());
 }
 
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,

@@ -61,7 +61,7 @@ Status writeCloudManifest(Env* local_env, CloudManifest* manifest,
   Status s = local_env->NewWritableFile(tmp_fname, &file, EnvOptions());
   if (s.ok()) {
     s = manifest->WriteToLog(unique_ptr<WritableFileWriter>(
-        new WritableFileWriter(std::move(file), EnvOptions())));
+        new WritableFileWriter(std::move(file), tmp_fname, EnvOptions())));
   }
   if (s.ok()) {
     s = local_env->RenameFile(tmp_fname, fname);
@@ -126,7 +126,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     local_env->CreateDirIfMissing(local_dbname);
   }
 
-  st = DBCloudImpl::SanitizeDirectory(options, local_dbname, read_only);
+  st = DBCloudImpl::SanitizeDirectory(options, local_dbname);
   if (!st.ok()) {
     return st;
   }
@@ -690,8 +690,7 @@ Status DBCloudImpl::GetCloudDbid(CloudEnvImpl* cenv, const Options& options,
 // Create appropriate files in the clone dir
 //
 Status DBCloudImpl::SanitizeDirectory(const Options& options,
-                                      const std::string& local_name,
-                                      bool readonly) {
+                                      const std::string& local_name) {
   EnvOptions soptions;
 
   CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(options.env);

@@ -14,7 +14,7 @@ namespace rocksdb {
 
 namespace {
 struct CorruptionReporter : public log::Reader::Reporter {
-  void Corruption(size_t bytes, const Status& s) override {
+  void Corruption(size_t /*bytes*/, const Status& s) override {
     if (status->ok()) {
       *status = s;
     }
@@ -40,7 +40,7 @@ Status CloudManifest::LoadFromLog(std::unique_ptr<SequentialFileReader> log,
   CorruptionReporter reporter;
   reporter.status = &status;
   log::Reader reader(nullptr, std::move(log), &reporter, true /* checksum */,
-                     0 /* offset */, 0 /* log_num */);
+                     0 /* log_num */);
   Slice record;
   std::string scratch;
   bool headerRead = false;

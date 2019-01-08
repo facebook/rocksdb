@@ -68,6 +68,29 @@ void GenerateRandomKVs(std::vector<std::string> *keys,
   }
 }
 
+// Same as GenerateRandomKVs but the values are BlockHandle
+void GenerateRandomKBHs(std::vector<std::string> *keys,
+                        std::vector<BlockHandle> *values, const int from,
+                        const int len, const int step = 1,
+                        const int padding_size = 0,
+                        const int keys_share_prefix = 1) {
+  Random rnd(302);
+  uint64_t offset = 0;
+
+  // generate different prefix
+  for (int i = from; i < from + len; i += step) {
+    // generate keys that shares the prefix
+    for (int j = 0; j < keys_share_prefix; ++j) {
+      keys->emplace_back(GenerateKey(i, j, padding_size, &rnd));
+
+      uint64_t size = rnd.Uniform(1024 * 16);
+      BlockHandle handle(offset, size);
+      offset += size + kBlockTrailerSize;
+      values->emplace_back(handle);
+    }
+  }
+}
+
 class BlockTest : public testing::Test {};
 
 // block test
@@ -99,7 +122,8 @@ TEST_F(BlockTest, SimpleTest) {
 
   // read contents of block sequentially
   int count = 0;
-  InternalIterator *iter = reader.NewIterator(options.comparator);
+  InternalIterator *iter =
+      reader.NewIterator<DataBlockIter>(options.comparator, options.comparator);
   for (iter->SeekToFirst();iter->Valid(); count++, iter->Next()) {
 
     // read kv from block
@@ -113,7 +137,8 @@ TEST_F(BlockTest, SimpleTest) {
   delete iter;
 
   // read block contents randomly
-  iter = reader.NewIterator(options.comparator);
+  iter =
+      reader.NewIterator<DataBlockIter>(options.comparator, options.comparator);
   for (int i = 0; i < num_records; i++) {
 
     // find a random key in the lookaside array
@@ -129,11 +154,89 @@ TEST_F(BlockTest, SimpleTest) {
   delete iter;
 }
 
+TEST_F(BlockTest, ValueDeltaEncodingTest) {
+  Random rnd(301);
+  Options options = Options();
+  std::unique_ptr<InternalKeyComparator> ic;
+  ic.reset(new test::PlainInternalKeyComparator(options.comparator));
+
+  std::vector<std::string> keys;
+  std::vector<BlockHandle> values;
+  const bool kUseDeltaEncoding = true;
+  const bool kUseValueDeltaEncoding = true;
+  BlockBuilder builder(16, kUseDeltaEncoding, kUseValueDeltaEncoding);
+  int num_records = 100;
+
+  GenerateRandomKBHs(&keys, &values, 0, num_records);
+  // add a bunch of records to a block
+  BlockHandle last_encoded_handle;
+  for (int i = 0; i < num_records; i++) {
+    auto block_handle = values[i];
+    std::string handle_encoding;
+    block_handle.EncodeTo(&handle_encoding);
+    std::string handle_delta_encoding;
+    PutVarsignedint64(&handle_delta_encoding,
+                      block_handle.size() - last_encoded_handle.size());
+    last_encoded_handle = block_handle;
+    const Slice handle_delta_encoding_slice(handle_delta_encoding);
+    builder.Add(keys[i], handle_encoding, &handle_delta_encoding_slice);
+  }
+
+  // read serialized contents of the block
+  Slice rawblock = builder.Finish();
+
+  // create block reader
+  BlockContents contents;
+  contents.data = rawblock;
+  contents.cachable = false;
+  Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+
+  const bool kTotalOrderSeek = true;
+  const bool kIncludesSeq = true;
+  const bool kValueIsFull = !kUseValueDeltaEncoding;
+  IndexBlockIter *kNullIter = nullptr;
+  Statistics *kNullStats = nullptr;
+  // read contents of block sequentially
+  int count = 0;
+  InternalIteratorBase<BlockHandle> *iter = reader.NewIterator<IndexBlockIter>(
+      options.comparator, options.comparator, kNullIter, kNullStats,
+      kTotalOrderSeek, kIncludesSeq, kValueIsFull);
+  for (iter->SeekToFirst(); iter->Valid(); count++, iter->Next()) {
+    // read kv from block
+    Slice k = iter->key();
+    BlockHandle handle = iter->value();
+
+    // compare with lookaside array
+    ASSERT_EQ(k.ToString().compare(keys[count]), 0);
+
+    ASSERT_EQ(values[count].offset(), handle.offset());
+    ASSERT_EQ(values[count].size(), handle.size());
+  }
+  delete iter;
+
+  // read block contents randomly
+  iter = reader.NewIterator<IndexBlockIter>(
+      options.comparator, options.comparator, kNullIter, kNullStats,
+      kTotalOrderSeek, kIncludesSeq, kValueIsFull);
+  for (int i = 0; i < num_records; i++) {
+    // find a random key in the lookaside array
+    int index = rnd.Uniform(num_records);
+    Slice k(keys[index]);
+
+    // search in block for this key
+    iter->Seek(k);
+    ASSERT_TRUE(iter->Valid());
+    BlockHandle handle = iter->value();
+    ASSERT_EQ(values[index].offset(), handle.offset());
+    ASSERT_EQ(values[index].size(), handle.size());
+  }
+  delete iter;
+}
 // return the block contents
 BlockContents GetBlockContents(std::unique_ptr<BlockBuilder> *builder,
                                const std::vector<std::string> &keys,
                                const std::vector<std::string> &values,
-                               const int prefix_group_size = 1) {
+                               const int /*prefix_group_size*/ = 1) {
   builder->reset(new BlockBuilder(1 /* restart interval */));
 
   // Add only half of the keys
@@ -163,7 +266,8 @@ void CheckBlockContents(BlockContents contents, const int max_key,
       NewFixedPrefixTransform(prefix_size));
 
   std::unique_ptr<InternalIterator> regular_iter(
-      reader2.NewIterator(BytewiseComparator()));
+      reader2.NewIterator<DataBlockIter>(BytewiseComparator(),
+                                         BytewiseComparator()));
 
   // Seek existent keys
   for (size_t i = 0; i < keys.size(); i++) {
@@ -388,8 +492,9 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
 
     // read contents of block sequentially
     size_t read_bytes = 0;
-    BlockIter *iter = static_cast<BlockIter *>(
-        reader.NewIterator(options.comparator, nullptr, true, stats.get()));
+    DataBlockIter *iter =
+        static_cast<DataBlockIter *>(reader.NewIterator<DataBlockIter>(
+            options.comparator, options.comparator, nullptr, stats.get()));
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       iter->value();
       read_bytes += iter->TEST_CurrentEntrySize();
@@ -421,8 +526,9 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
                  kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
-    BlockIter *iter = static_cast<BlockIter *>(
-        reader.NewIterator(options.comparator, nullptr, true, stats.get()));
+    DataBlockIter *iter =
+        static_cast<DataBlockIter *>(reader.NewIterator<DataBlockIter>(
+            options.comparator, options.comparator, nullptr, stats.get()));
     for (int i = 0; i < num_records; i++) {
       Slice k(keys[i]);
 
@@ -457,8 +563,9 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
                  kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
-    BlockIter *iter = static_cast<BlockIter *>(
-        reader.NewIterator(options.comparator, nullptr, true, stats.get()));
+    DataBlockIter *iter =
+        static_cast<DataBlockIter *>(reader.NewIterator<DataBlockIter>(
+            options.comparator, options.comparator, nullptr, stats.get()));
     std::unordered_set<int> read_keys;
     for (int i = 0; i < num_records; i++) {
       int index = rnd.Uniform(num_records);

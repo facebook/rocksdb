@@ -134,6 +134,8 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
                        int _output_level, uint64_t _target_file_size,
                        uint64_t _max_compaction_bytes, uint32_t _output_path_id,
                        CompressionType _compression,
+                       CompressionOptions _compression_opts,
+                       uint32_t _max_subcompactions,
                        std::vector<FileMetaData*> _grandparents,
                        bool _manual_compaction, double _score,
                        bool _deletion_compaction,
@@ -143,6 +145,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       output_level_(_output_level),
       max_output_file_size_(_target_file_size),
       max_compaction_bytes_(_max_compaction_bytes),
+      max_subcompactions_(_max_subcompactions),
       immutable_cf_options_(_immutable_cf_options),
       mutable_cf_options_(_mutable_cf_options),
       input_version_(nullptr),
@@ -150,6 +153,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       cfd_(nullptr),
       output_path_id_(_output_path_id),
       output_compression_(_compression),
+      output_compression_opts_(_compression_opts),
       deletion_compaction_(_deletion_compaction),
       inputs_(std::move(_inputs)),
       grandparents_(std::move(_grandparents)),
@@ -162,6 +166,9 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {
     compaction_reason_ = CompactionReason::kManualCompaction;
+  }
+  if (max_subcompactions_ == 0) {
+    max_subcompactions_ = immutable_cf_options_.max_subcompactions;
   }
 
 #ifndef NDEBUG
@@ -405,20 +412,23 @@ void Compaction::Summary(char* output, int len) {
 uint64_t Compaction::OutputFilePreallocationSize() const {
   uint64_t preallocation_size = 0;
 
-  if (max_output_file_size_ != port::kMaxUint64 &&
-      (cfd_->ioptions()->compaction_style == kCompactionStyleLevel ||
-       output_level() > 0)) {
-    preallocation_size = max_output_file_size_;
-  } else {
-    for (const auto& level_files : inputs_) {
-      for (const auto& file : level_files.files) {
-        preallocation_size += file->fd.GetFileSize();
-      }
+  for (const auto& level_files : inputs_) {
+    for (const auto& file : level_files.files) {
+      preallocation_size += file->fd.GetFileSize();
     }
   }
+
+  if (max_output_file_size_ != port::kMaxUint64 &&
+      (immutable_cf_options_.compaction_style == kCompactionStyleLevel ||
+       output_level() > 0)) {
+    preallocation_size = std::min(max_output_file_size_, preallocation_size);
+  }
+
   // Over-estimate slightly so we don't end up just barely crossing
   // the threshold
-  return preallocation_size + (preallocation_size / 10);
+  // No point to prellocate more than 1GB.
+  return std::min(uint64_t{1073741824},
+                  preallocation_size + (preallocation_size / 10));
 }
 
 std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
@@ -439,11 +449,12 @@ bool Compaction::IsOutputLevelEmpty() const {
 }
 
 bool Compaction::ShouldFormSubcompactions() const {
-  if (immutable_cf_options_.max_subcompactions <= 1 || cfd_ == nullptr) {
+  if (max_subcompactions_ <= 1 || cfd_ == nullptr) {
     return false;
   }
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
-    return start_level_ == 0 && output_level_ > 0 && !IsOutputLevelEmpty();
+    return (start_level_ == 0 || is_manual_compaction_) && output_level_ > 0 &&
+           !IsOutputLevelEmpty();
   } else if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
     return number_levels_ > 1 && output_level_ > 0;
   } else {
@@ -462,6 +473,10 @@ uint64_t Compaction::MaxInputFileCreationTime() const {
     }
   }
   return max_creation_time;
+}
+
+int Compaction::GetInputBaseLevel() const {
+  return input_vstorage_->base_level();
 }
 
 }  // namespace rocksdb

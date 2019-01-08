@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 #include <atomic>
+#include <sstream>
 #include <string>
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -26,11 +27,13 @@ std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
 class SequentialFileReader {
  private:
   std::unique_ptr<SequentialFile> file_;
+  std::string file_name_;
   std::atomic<size_t> offset_;  // read offset
 
  public:
-  explicit SequentialFileReader(std::unique_ptr<SequentialFile>&& _file)
-      : file_(std::move(_file)), offset_(0) {}
+  explicit SequentialFileReader(std::unique_ptr<SequentialFile>&& _file,
+                                const std::string& _file_name)
+      : file_(std::move(_file)), file_name_(_file_name), offset_(0) {}
 
   SequentialFileReader(SequentialFileReader&& o) ROCKSDB_NOEXCEPT {
     *this = std::move(o);
@@ -51,6 +54,8 @@ class SequentialFileReader {
   void Rewind();
 
   SequentialFile* file() { return file_.get(); }
+
+  std::string file_name() { return file_name_; }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
 };
@@ -120,6 +125,7 @@ class RandomAccessFileReader {
 class WritableFileWriter {
  private:
   std::unique_ptr<WritableFile> writable_file_;
+  std::string file_name_;
   AlignedBuffer           buf_;
   size_t                  max_buffer_size_;
   // Actually written data size can be used for truncate
@@ -139,8 +145,10 @@ class WritableFileWriter {
 
  public:
   WritableFileWriter(std::unique_ptr<WritableFile>&& file,
-                     const EnvOptions& options, Statistics* stats = nullptr)
+                     const std::string& _file_name, const EnvOptions& options,
+                     Statistics* stats = nullptr)
       : writable_file_(std::move(file)),
+        file_name_(_file_name),
         buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),
         filesize_(0),
@@ -164,7 +172,11 @@ class WritableFileWriter {
 
   ~WritableFileWriter() { Close(); }
 
+  std::string file_name() const { return file_name_; }
+
   Status Append(const Slice& data);
+
+  Status Pad(const size_t pad_bytes);
 
   Status Flush();
 
@@ -187,6 +199,8 @@ class WritableFileWriter {
 
   bool use_direct_io() { return writable_file_->use_direct_io(); }
 
+  bool TEST_BufferIsEmpty() { return buf_.CurrentSize() == 0; }
+
  private:
   // Used when os buffering is OFF and we are writing
   // DMA such as in Direct I/O mode
@@ -199,19 +213,50 @@ class WritableFileWriter {
   Status SyncInternal(bool use_fsync);
 };
 
+// FilePrefetchBuffer can automatically do the readahead if file_reader,
+// readahead_size, and max_readahead_size are passed in.
+// max_readahead_size should be greater than or equal to readahead_size.
+// readahead_size will be doubled on every IO, until max_readahead_size.
 class FilePrefetchBuffer {
  public:
-  FilePrefetchBuffer() : buffer_offset_(0), buffer_len_(0) {}
+  // If `track_min_offset` is true, track minimum offset ever read.
+  FilePrefetchBuffer(RandomAccessFileReader* file_reader = nullptr,
+                     size_t readadhead_size = 0, size_t max_readahead_size = 0,
+                     bool enable = true, bool track_min_offset = false)
+      : buffer_offset_(0),
+        file_reader_(file_reader),
+        readahead_size_(readadhead_size),
+        max_readahead_size_(max_readahead_size),
+        min_offset_read_(port::kMaxSizet),
+        enable_(enable),
+        track_min_offset_(track_min_offset) {}
   Status Prefetch(RandomAccessFileReader* reader, uint64_t offset, size_t n);
-  bool TryReadFromCache(uint64_t offset, size_t n, Slice* result) const;
+  bool TryReadFromCache(uint64_t offset, size_t n, Slice* result);
+
+  // The minimum `offset` ever passed to TryReadFromCache(). Only be tracked
+  // if track_min_offset = true.
+  size_t min_offset_read() const { return min_offset_read_; }
 
  private:
   AlignedBuffer buffer_;
   uint64_t buffer_offset_;
-  size_t buffer_len_;
+  RandomAccessFileReader* file_reader_;
+  size_t readahead_size_;
+  size_t max_readahead_size_;
+  // The minimum `offset` ever passed to TryReadFromCache().
+  size_t min_offset_read_;
+  // if false, TryReadFromCache() always return false, and we only take stats
+  // for track_min_offset_ if track_min_offset_ = true
+  bool enable_;
+  // If true, track minimum `offset` ever passed to TryReadFromCache(), which
+  // can be fetched from min_offset_read().
+  bool track_min_offset_;
 };
 
 extern Status NewWritableFile(Env* env, const std::string& fname,
                               unique_ptr<WritableFile>* result,
                               const EnvOptions& options);
+bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
+                 std::string* output, bool* has_data, Status* result);
+
 }  // namespace rocksdb

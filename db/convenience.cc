@@ -19,9 +19,17 @@ void CancelAllBackgroundWork(DB* db, bool wait) {
 }
 
 Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
-                          const Slice* begin, const Slice* end) {
+                          const Slice* begin, const Slice* end,
+                          bool include_end) {
+  RangePtr range(begin, end);
+  return DeleteFilesInRanges(db, column_family, &range, 1, include_end);
+}
+
+Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
+                           const RangePtr* ranges, size_t n,
+                           bool include_end) {
   return (static_cast_with_check<DBImpl, DB>(db->GetRootDB()))
-      ->DeleteFilesInRange(column_family, begin, end);
+      ->DeleteFilesInRanges(column_family, ranges, n, include_end);
 }
 
 Status VerifySstFileChecksum(const Options& options,
@@ -41,9 +49,11 @@ Status VerifySstFileChecksum(const Options& options,
   unique_ptr<TableReader> table_reader;
   std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(std::move(file), file_path));
+  const bool kImmortal = true;
   s = ioptions.table_factory->NewTableReader(
-      TableReaderOptions(ioptions, env_options, internal_comparator,
-                         false /* skip_filters */, -1 /* level */),
+      TableReaderOptions(ioptions, options.prefix_extractor.get(), env_options,
+                         internal_comparator, false /* skip_filters */,
+                         !kImmortal, -1 /* level */),
       std::move(file_reader), file_size, &table_reader,
       false /* prefetch_index_and_filter_in_cache */);
   if (!s.ok()) {

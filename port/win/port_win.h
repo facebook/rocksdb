@@ -9,8 +9,7 @@
 //
 // See port_example.h for documentation for the following types/functions.
 
-#ifndef STORAGE_LEVELDB_PORT_PORT_WIN_H_
-#define STORAGE_LEVELDB_PORT_PORT_WIN_H_
+#pragma once
 
 // Always want minimum headers
 #ifndef WIN32_LEAN_AND_MEAN
@@ -92,6 +91,7 @@ namespace port {
 // therefore, use the same limits
 
 // For use at db/file_indexer.h kLevelMaxIndex
+const uint32_t kMaxUint32 = UINT32_MAX;
 const int kMaxInt32 = INT32_MAX;
 const int64_t kMaxInt64 = INT64_MAX;
 const uint64_t kMaxUint64 = UINT64_MAX;
@@ -107,6 +107,7 @@ const size_t kMaxSizet = UINT_MAX;
 #define ROCKSDB_NOEXCEPT noexcept
 
 // For use at db/file_indexer.h kLevelMaxIndex
+const uint32_t kMaxUint32 = std::numeric_limits<uint32_t>::max();
 const int kMaxInt32 = std::numeric_limits<int>::max();
 const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
 const int64_t kMaxInt64 = std::numeric_limits<int64_t>::max();
@@ -242,14 +243,9 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 #endif
 
 #ifdef ROCKSDB_JEMALLOC
-#include "jemalloc/jemalloc.h"
 // Separate inlines so they can be replaced if needed
-inline void* jemalloc_aligned_alloc( size_t size, size_t alignment) {
-  return je_aligned_alloc(alignment, size);
-}
-inline void jemalloc_aligned_free(void* p) {
-  je_free(p);
-}
+void* jemalloc_aligned_alloc(size_t size, size_t alignment) ROCKSDB_NOEXCEPT;
+void jemalloc_aligned_free(void* p) ROCKSDB_NOEXCEPT;
 #endif
 
 inline void *cacheline_aligned_alloc(size_t size) {
@@ -344,5 +340,3 @@ using port::pthread_getspecific;
 using port::truncate;
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_PORT_PORT_WIN_H_

@@ -404,6 +404,10 @@ public class ColumnFamilyTest {
             "rocksdb.stats")).isNotNull();
         assertThat(db.getProperty(columnFamilyHandleList.get(1),
             "rocksdb.sstables")).isNotNull();
+        assertThat(db.getAggregatedLongProperty("rocksdb.estimate-num-keys")).
+            isNotNull();
+        assertThat(db.getAggregatedLongProperty("rocksdb.estimate-num-keys")).
+            isGreaterThanOrEqualTo(0);
       } finally {
         for (final ColumnFamilyHandle columnFamilyHandle :
             columnFamilyHandleList) {

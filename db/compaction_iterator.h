@@ -20,8 +20,6 @@
 
 namespace rocksdb {
 
-class CompactionEventListener;
-
 class CompactionIterator {
  public:
   // A wrapper around Compaction. Has a much smaller interface, only what
@@ -32,7 +30,7 @@ class CompactionIterator {
         : compaction_(compaction) {}
 
     virtual ~CompactionProxy() = default;
-    virtual int level(size_t compaction_input_level = 0) const {
+    virtual int level(size_t /*compaction_input_level*/ = 0) const {
       return compaction_->level();
     }
     virtual bool KeyNotExistsBeyondOutputLevel(
@@ -65,11 +63,10 @@ class CompactionIterator {
                      std::vector<SequenceNumber>* snapshots,
                      SequenceNumber earliest_write_conflict_snapshot,
                      const SnapshotChecker* snapshot_checker, Env* env,
-                     bool expect_valid_internal_key,
+                     bool report_detailed_time, bool expect_valid_internal_key,
                      RangeDelAggregator* range_del_agg,
                      const Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
-                     CompactionEventListener* compaction_listener = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
                      const SequenceNumber preserve_deletes_seqnum = 0);
 
@@ -79,11 +76,10 @@ class CompactionIterator {
                      std::vector<SequenceNumber>* snapshots,
                      SequenceNumber earliest_write_conflict_snapshot,
                      const SnapshotChecker* snapshot_checker, Env* env,
-                     bool expect_valid_internal_key,
+                     bool report_detailed_time, bool expect_valid_internal_key,
                      RangeDelAggregator* range_del_agg,
                      std::unique_ptr<CompactionProxy> compaction,
                      const CompactionFilter* compaction_filter = nullptr,
-                     CompactionEventListener* compaction_listener = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
                      const SequenceNumber preserve_deletes_seqnum = 0);
 
@@ -143,13 +139,11 @@ class CompactionIterator {
   const SequenceNumber earliest_write_conflict_snapshot_;
   const SnapshotChecker* const snapshot_checker_;
   Env* env_;
+  bool report_detailed_time_;
   bool expect_valid_internal_key_;
   RangeDelAggregator* range_del_agg_;
   std::unique_ptr<CompactionProxy> compaction_;
   const CompactionFilter* compaction_filter_;
-#ifndef ROCKSDB_LITE
-  CompactionEventListener* compaction_listener_;
-#endif  // !ROCKSDB_LITE
   const std::atomic<bool>* shutting_down_;
   const SequenceNumber preserve_deletes_seqnum_;
   bool bottommost_level_;

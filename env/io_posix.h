@@ -202,7 +202,7 @@ class PosixMmapFile : public WritableFile {
 
   // Means Close() will properly take care of truncate
   // and it does not need any additional information
-  virtual Status Truncate(uint64_t size) override { return Status::OK(); }
+  virtual Status Truncate(uint64_t /*size*/) override { return Status::OK(); }
   virtual Status Close() override;
   virtual Status Append(const Slice& data) override;
   virtual Status Flush() override;
@@ -234,6 +234,12 @@ class PosixRandomRWFile : public RandomRWFile {
  private:
   const std::string filename_;
   int fd_;
+};
+
+struct PosixMemoryMappedFileBuffer : public MemoryMappedFileBuffer {
+  PosixMemoryMappedFileBuffer(void* _base, size_t _length)
+      : MemoryMappedFileBuffer(_base, _length) {}
+  virtual ~PosixMemoryMappedFileBuffer();
 };
 
 class PosixDirectory : public Directory {

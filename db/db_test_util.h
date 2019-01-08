@@ -111,8 +111,6 @@ struct OptionsOverride {
   // These will be used only if filter_policy is set
   bool partition_filters = false;
   uint64_t metadata_block_size = 1024;
-  BlockBasedTableOptions::IndexType index_type =
-      BlockBasedTableOptions::IndexType::kBinarySearch;
 
   // Used as a bit mask of individual enums in which to skip an XF test point
   int skip_policy = 0;
@@ -139,8 +137,8 @@ class SpecialMemTableRep : public MemTableRep {
   // Insert key into the list.
   // REQUIRES: nothing that compares equal to key is currently in the list.
   virtual void Insert(KeyHandle handle) override {
-    memtable_->Insert(handle);
     num_entries_++;
+    memtable_->Insert(handle);
   }
 
   // Returns true iff an entry that compares equal to key is in the list.
@@ -189,7 +187,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
   using MemTableRepFactory::CreateMemTableRep;
   virtual MemTableRep* CreateMemTableRep(
       const MemTableRep::KeyComparator& compare, Allocator* allocator,
-      const SliceTransform* transform, Logger* logger) override {
+      const SliceTransform* transform, Logger* /*logger*/) override {
     return new SpecialMemTableRep(
         allocator, factory_.CreateMemTableRep(compare, allocator, transform, 0),
         num_entries_flush_);
@@ -319,6 +317,9 @@ class SpecialEnv : public EnvWrapper {
         }
       }
       uint64_t GetFileSize() override { return base_->GetFileSize(); }
+      Status Allocate(uint64_t offset, uint64_t len) override {
+        return base_->Allocate(offset, len);
+      }
 
      private:
       SpecialEnv* env_;
@@ -371,6 +372,9 @@ class SpecialEnv : public EnvWrapper {
       }
       bool IsSyncThreadSafe() const override {
         return env_->is_wal_sync_thread_safe_.load();
+      }
+      Status Allocate(uint64_t offset, uint64_t len) override {
+        return base_->Allocate(offset, len);
       }
 
      private:
@@ -453,8 +457,9 @@ class SpecialEnv : public EnvWrapper {
     return s;
   }
 
-  Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
-                           const EnvOptions& soptions) override {
+  virtual Status NewSequentialFile(const std::string& f,
+                                   unique_ptr<SequentialFile>* r,
+                                   const EnvOptions& soptions) override {
     class CountingFile : public SequentialFile {
      public:
       CountingFile(unique_ptr<SequentialFile>&& target,
@@ -576,7 +581,7 @@ class SpecialEnv : public EnvWrapper {
 
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 
-  std::atomic<size_t> compaction_readahead_size_;
+  std::atomic<size_t> compaction_readahead_size_{};
 };
 
 class MockTimeEnv : public EnvWrapper {
@@ -607,7 +612,7 @@ class MockTimeEnv : public EnvWrapper {
   }
 
  private:
-  uint64_t current_time_ = 0;
+  std::atomic<uint64_t> current_time_{0};
 };
 
 #ifndef ROCKSDB_LITE
@@ -695,13 +700,15 @@ class DBTestBase : public testing::Test {
     kConcurrentSkipList = 29,
     kPipelinedWrite = 30,
     kConcurrentWALWrites = 31,
-    kEnd = 32,
-    kDirectIO = 33,
-    kLevelSubcompactions = 34,
-    kUniversalSubcompactions = 35,
-    kBlockBasedTableWithIndexRestartInterval = 36,
-    kBlockBasedTableWithPartitionedIndex = 37,
-    kPartitionedFilterWithNewTableReaderForCompactions = 38,
+    kDirectIO,
+    kLevelSubcompactions,
+    kBlockBasedTableWithIndexRestartInterval,
+    kBlockBasedTableWithPartitionedIndex,
+    kBlockBasedTableWithPartitionedIndexFormat4,
+    kPartitionedFilterWithNewTableReaderForCompactions,
+    kUniversalSubcompactions,
+    // This must be the last line
+    kEnd,
   };
 
   // The types of envs that we want to test with
@@ -746,6 +753,13 @@ class DBTestBase : public testing::Test {
   Env* CreateNewAwsEnv(const std::string& pathPrefix);
   std::shared_ptr<Logger> info_log_;
 #endif
+
+  const int kRangeDelSkipConfigs =
+      // Plain tables do not support range deletions.
+      kSkipPlainTable |
+      // MmapReads disables the iterator pinning that RangeDelAggregator
+      // requires.
+      kSkipMmapReads;
 
   explicit DBTestBase(const std::string path);
 
@@ -820,7 +834,7 @@ class DBTestBase : public testing::Test {
 
   void DestroyAndReopen(const Options& options);
 
-  void Destroy(const Options& options);
+  void Destroy(const Options& options, bool delete_cf_paths = false);
 
   Status ReadOnlyReopen(const Options& options);
 
@@ -880,13 +894,13 @@ class DBTestBase : public testing::Test {
   size_t TotalLiveFiles(int cf = 0);
 
   size_t CountLiveFiles();
-#endif  // ROCKSDB_LITE
 
   int NumTableFilesAtLevel(int level, int cf = 0);
 
   double CompressionRatioAtLevel(int level, int cf = 0);
 
   int TotalTableFiles(int cf = 0, int levels = -1);
+#endif  // ROCKSDB_LITE
 
   // Return spread of files per level
   std::string FilesPerLevel(int cf = 0);
@@ -914,11 +928,14 @@ class DBTestBase : public testing::Test {
 
   void MoveFilesToLevel(int level, int cf = 0);
 
+#ifndef ROCKSDB_LITE
   void DumpFileCounts(const char* label);
+#endif  // ROCKSDB_LITE
 
   std::string DumpSSTableList();
 
-  void GetSstFiles(std::string path, std::vector<std::string>* files);
+  static void GetSstFiles(Env* env, std::string path,
+                          std::vector<std::string>* files);
 
   int GetSstFileCount(std::string path);
 

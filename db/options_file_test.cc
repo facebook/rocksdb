@@ -15,7 +15,7 @@
 namespace rocksdb {
 class OptionsFileTest : public testing::Test {
  public:
-  OptionsFileTest() : dbname_(test::TmpDir() + "/options_file_test") {}
+  OptionsFileTest() : dbname_(test::PerThreadDBPath("options_file_test")) {}
 
   std::string dbname_;
 };
@@ -112,7 +112,7 @@ int main(int argc, char** argv) {
 
 #include <cstdio>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   printf("Skipped as Options file is not supported in RocksDBLite.\n");
   return 0;
 }

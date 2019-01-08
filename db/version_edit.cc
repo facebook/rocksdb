@@ -20,7 +20,7 @@ namespace rocksdb {
 
 // Tag numbers for serialized VersionEdit.  These numbers are written to
 // disk and should not be changed.
-enum Tag {
+enum Tag : uint32_t {
   kComparator = 1,
   kLogNumber = 2,
   kNextFileNumber = 3,
@@ -30,6 +30,7 @@ enum Tag {
   kNewFile = 7,
   // 8 was used for large value refs
   kPrevLogNumber = 9,
+  kMinLogNumberToKeep = 10,
 
   // these are new formats divergent from open source leveldb
   kNewFile2 = 100,
@@ -39,11 +40,18 @@ enum Tag {
   kColumnFamilyAdd = 201,
   kColumnFamilyDrop = 202,
   kMaxColumnFamily = 203,
+
+  kInAtomicGroup = 300,
 };
 
-enum CustomTag {
+enum CustomTag : uint32_t {
   kTerminate = 1,  // The end of customized fields
   kNeedCompaction = 2,
+  // Since Manifest is not entirely currently forward-compatible, and the only
+  // forward-compatible part is the CutsomtTag of kNewFile, we currently encode
+  // kMinLogNumberToKeep as part of a CustomTag as a hack. This should be
+  // removed when manifest becomes forward-comptabile.
+  kMinLogNumberToKeepHack = 3,
   kPathId = 65,
 };
 // If this bit for the custom tag is set, opening DB should fail if
@@ -63,18 +71,22 @@ void VersionEdit::Clear() {
   last_sequence_ = 0;
   next_file_number_ = 0;
   max_column_family_ = 0;
+  min_log_number_to_keep_ = 0;
   has_comparator_ = false;
   has_log_number_ = false;
   has_prev_log_number_ = false;
   has_next_file_number_ = false;
   has_last_sequence_ = false;
   has_max_column_family_ = false;
+  has_min_log_number_to_keep_ = false;
   deleted_files_.clear();
   new_files_.clear();
   column_family_ = 0;
   is_column_family_add_ = 0;
   is_column_family_drop_ = 0;
   column_family_name_.clear();
+  is_in_atomic_group_ = false;
+  remaining_entries_ = 0;
 }
 
 bool VersionEdit::EncodeTo(std::string* dst) const {
@@ -97,19 +109,19 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   if (has_max_column_family_) {
     PutVarint32Varint32(dst, kMaxColumnFamily, max_column_family_);
   }
-
   for (const auto& deleted : deleted_files_) {
     PutVarint32Varint32Varint64(dst, kDeletedFile, deleted.first /* level */,
                                 deleted.second /* file number */);
   }
 
+  bool min_log_num_written = false;
   for (size_t i = 0; i < new_files_.size(); i++) {
     const FileMetaData& f = new_files_[i].second;
     if (!f.smallest.Valid() || !f.largest.Valid()) {
       return false;
     }
     bool has_customized_fields = false;
-    if (f.marked_for_compaction) {
+    if (f.marked_for_compaction || has_min_log_number_to_keep_) {
       PutVarint32(dst, kNewFile4);
       has_customized_fields = true;
     } else if (f.fd.GetPathId() == 0) {
@@ -127,7 +139,7 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint64(dst, f.fd.GetFileSize());
     PutLengthPrefixedSlice(dst, f.smallest.Encode());
     PutLengthPrefixedSlice(dst, f.largest.Encode());
-    PutVarint64Varint64(dst, f.smallest_seqno, f.largest_seqno);
+    PutVarint64Varint64(dst, f.fd.smallest_seqno, f.fd.largest_seqno);
     if (has_customized_fields) {
       // Customized fields' format:
       // +-----------------------------+
@@ -165,6 +177,13 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
         char p = static_cast<char>(1);
         PutLengthPrefixedSlice(dst, Slice(&p, 1));
       }
+      if (has_min_log_number_to_keep_ && !min_log_num_written) {
+        PutVarint32(dst, CustomTag::kMinLogNumberToKeepHack);
+        std::string varint_log_number;
+        PutFixed64(&varint_log_number, min_log_number_to_keep_);
+        PutLengthPrefixedSlice(dst, Slice(varint_log_number));
+        min_log_num_written = true;
+      }
       TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
                                dst);
 
@@ -185,6 +204,11 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   if (is_column_family_drop_) {
     PutVarint32(dst, kColumnFamilyDrop);
   }
+
+  if (is_in_atomic_group_) {
+    PutVarint32(dst, kInAtomicGroup);
+    PutVarint32(dst, remaining_entries_);
+  }
   return true;
 }
 
@@ -198,7 +222,7 @@ static bool GetInternalKey(Slice* input, InternalKey* dst) {
   }
 }
 
-bool VersionEdit::GetLevel(Slice* input, int* level, const char** msg) {
+bool VersionEdit::GetLevel(Slice* input, int* level, const char** /*msg*/) {
   uint32_t v;
   if (GetVarint32(input, &v)) {
     *level = v;
@@ -218,11 +242,16 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
   uint64_t number;
   uint32_t path_id = 0;
   uint64_t file_size;
+  SequenceNumber smallest_seqno;
+  SequenceNumber largest_seqno;
+  // Since this is the only forward-compatible part of the code, we hack new
+  // extension into this record. When we do, we set this boolean to distinguish
+  // the record from the normal NewFile records.
   if (GetLevel(input, &level, &msg) && GetVarint64(input, &number) &&
       GetVarint64(input, &file_size) && GetInternalKey(input, &f.smallest) &&
       GetInternalKey(input, &f.largest) &&
-      GetVarint64(input, &f.smallest_seqno) &&
-      GetVarint64(input, &f.largest_seqno)) {
+      GetVarint64(input, &smallest_seqno) &&
+      GetVarint64(input, &largest_seqno)) {
     // See comments in VersionEdit::EncodeTo() for format of customized fields
     while (true) {
       uint32_t custom_tag;
@@ -252,6 +281,14 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           }
           f.marked_for_compaction = (field[0] == 1);
           break;
+        case kMinLogNumberToKeepHack:
+          // This is a hack to encode kMinLogNumberToKeep in a
+          // forward-compatible fashion.
+          if (!GetFixed64(&field, &min_log_number_to_keep_)) {
+            return "deleted log number malformatted";
+          }
+          has_min_log_number_to_keep_ = true;
+          break;
         default:
           if ((custom_tag & kCustomTagNonSafeIgnoreMask) != 0) {
             // Should not proceed if cannot understand it
@@ -263,7 +300,8 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
   } else {
     return "new-file4 entry";
   }
-  f.fd = FileDescriptor(number, path_id, file_size);
+  f.fd =
+      FileDescriptor(number, path_id, file_size, smallest_seqno, largest_seqno);
   new_files_.push_back(std::make_pair(level, f));
   return nullptr;
 }
@@ -331,6 +369,14 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
+      case kMinLogNumberToKeep:
+        if (GetVarint64(&input, &min_log_number_to_keep_)) {
+          has_min_log_number_to_keep_ = true;
+        } else {
+          msg = "min log number to kee";
+        }
+        break;
+
       case kCompactPointer:
         if (GetLevel(&input, &level, &msg) &&
             GetInternalKey(&input, &key)) {
@@ -375,13 +421,16 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
       case kNewFile2: {
         uint64_t number;
         uint64_t file_size;
+        SequenceNumber smallest_seqno;
+        SequenceNumber largest_seqno;
         if (GetLevel(&input, &level, &msg) && GetVarint64(&input, &number) &&
             GetVarint64(&input, &file_size) &&
             GetInternalKey(&input, &f.smallest) &&
             GetInternalKey(&input, &f.largest) &&
-            GetVarint64(&input, &f.smallest_seqno) &&
-            GetVarint64(&input, &f.largest_seqno)) {
-          f.fd = FileDescriptor(number, 0, file_size);
+            GetVarint64(&input, &smallest_seqno) &&
+            GetVarint64(&input, &largest_seqno)) {
+          f.fd = FileDescriptor(number, 0, file_size, smallest_seqno,
+                                largest_seqno);
           new_files_.push_back(std::make_pair(level, f));
         } else {
           if (!msg) {
@@ -395,13 +444,16 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         uint64_t number;
         uint32_t path_id;
         uint64_t file_size;
+        SequenceNumber smallest_seqno;
+        SequenceNumber largest_seqno;
         if (GetLevel(&input, &level, &msg) && GetVarint64(&input, &number) &&
             GetVarint32(&input, &path_id) && GetVarint64(&input, &file_size) &&
             GetInternalKey(&input, &f.smallest) &&
             GetInternalKey(&input, &f.largest) &&
-            GetVarint64(&input, &f.smallest_seqno) &&
-            GetVarint64(&input, &f.largest_seqno)) {
-          f.fd = FileDescriptor(number, path_id, file_size);
+            GetVarint64(&input, &smallest_seqno) &&
+            GetVarint64(&input, &largest_seqno)) {
+          f.fd = FileDescriptor(number, path_id, file_size, smallest_seqno,
+                                largest_seqno);
           new_files_.push_back(std::make_pair(level, f));
         } else {
           if (!msg) {
@@ -437,6 +489,15 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
 
       case kColumnFamilyDrop:
         is_column_family_drop_ = true;
+        break;
+
+      case kInAtomicGroup:
+        is_in_atomic_group_ = true;
+        if (!GetVarint32(&input, &remaining_entries_)) {
+          if (!msg) {
+            msg = "remaining entries";
+          }
+        }
         break;
 
       default:
@@ -475,6 +536,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  NextFileNumber: ");
     AppendNumberTo(&r, next_file_number_);
   }
+  if (has_min_log_number_to_keep_) {
+    r.append("\n  MinLogNumberToKeep: ");
+    AppendNumberTo(&r, min_log_number_to_keep_);
+  }
   if (has_last_sequence_) {
     r.append("\n  LastSeq: ");
     AppendNumberTo(&r, last_sequence_);
@@ -512,6 +577,11 @@ std::string VersionEdit::DebugString(bool hex_key) const {
   if (has_max_column_family_) {
     r.append("\n  MaxColumnFamily: ");
     AppendNumberTo(&r, max_column_family_);
+  }
+  if (is_in_atomic_group_) {
+    r.append("\n AtomicGroup: ");
+    AppendNumberTo(&r, remaining_entries_);
+    r.append(" entries remains");
   }
   r.append("\n}\n");
   return r;
@@ -581,6 +651,12 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   }
   if (has_max_column_family_) {
     jw << "MaxColumnFamily" << max_column_family_;
+  }
+  if (has_min_log_number_to_keep_) {
+    jw << "MinLogNumberToKeep" << min_log_number_to_keep_;
+  }
+  if (is_in_atomic_group_) {
+    jw << "AtomicGroup" << remaining_entries_;
   }
 
   jw.EndObject();

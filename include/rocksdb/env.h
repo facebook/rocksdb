@@ -14,8 +14,7 @@
 // All Env implementations are safe for concurrent access from
 // multiple threads without any external synchronization.
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_ENV_H_
-#define STORAGE_ROCKSDB_INCLUDE_ENV_H_
+#pragma once
 
 #include <stdint.h>
 #include <cstdarg>
@@ -42,6 +41,7 @@ class SequentialFile;
 class Slice;
 class WritableFile;
 class RandomRWFile;
+class MemoryMappedFileBuffer;
 class Directory;
 struct DBOptions;
 struct ImmutableDBOptions;
@@ -181,9 +181,9 @@ class Env {
   // returns non-OK.
   //
   // The returned file will only be accessed by one thread at a time.
-  virtual Status ReopenWritableFile(const std::string& fname,
-                                    unique_ptr<WritableFile>* result,
-                                    const EnvOptions& options) {
+  virtual Status ReopenWritableFile(const std::string& /*fname*/,
+                                    unique_ptr<WritableFile>* /*result*/,
+                                    const EnvOptions& /*options*/) {
     return Status::NotSupported();
   }
 
@@ -198,10 +198,20 @@ class Env {
   // *result and returns OK.  On failure returns non-OK.
   //
   // The returned file will only be accessed by one thread at a time.
-  virtual Status NewRandomRWFile(const std::string& fname,
-                                 unique_ptr<RandomRWFile>* result,
-                                 const EnvOptions& options) {
+  virtual Status NewRandomRWFile(const std::string& /*fname*/,
+                                 unique_ptr<RandomRWFile>* /*result*/,
+                                 const EnvOptions& /*options*/) {
     return Status::NotSupported("RandomRWFile is not implemented in this Env");
+  }
+
+  // Opens `fname` as a memory-mapped file for read and write (in-place updates
+  // only, i.e., no appends). On success, stores a raw buffer covering the whole
+  // file in `*result`. The file must exist prior to this call.
+  virtual Status NewMemoryMappedFileBuffer(
+      const std::string& /*fname*/,
+      unique_ptr<MemoryMappedFileBuffer>* /*result*/) {
+    return Status::NotSupported(
+        "MemoryMappedFileBuffer is not implemented in this Env");
   }
 
   // Create an object that represents a directory. Will fail if directory
@@ -247,6 +257,11 @@ class Env {
   // Delete the named file.
   virtual Status DeleteFile(const std::string& fname) = 0;
 
+  // Truncate the named file to the specified size.
+  virtual Status Truncate(const std::string& /*fname*/, size_t /*size*/) {
+    return Status::NotSupported("Truncate is not supported for this Env");
+  }
+
   // Create the specified directory. Returns error if directory exists.
   virtual Status CreateDir(const std::string& dirname) = 0;
 
@@ -268,12 +283,19 @@ class Env {
                             const std::string& target) = 0;
 
   // Hard Link file src to target.
-  virtual Status LinkFile(const std::string& src, const std::string& target) {
+  virtual Status LinkFile(const std::string& /*src*/,
+                          const std::string& /*target*/) {
     return Status::NotSupported("LinkFile is not supported for this Env");
   }
 
-  virtual Status AreFilesSame(const std::string& first,
-                              const std::string& second, bool* res) {
+  virtual Status NumFileLinks(const std::string& /*fname*/,
+                              uint64_t* /*count*/) {
+    return Status::NotSupported(
+        "Getting number of file links is not supported for this Env");
+  }
+
+  virtual Status AreFilesSame(const std::string& /*first*/,
+                              const std::string& /*second*/, bool* /*res*/) {
     return Status::NotSupported("AreFilesSame is not supported for this Env");
   }
 
@@ -301,6 +323,8 @@ class Env {
   // Priority for scheduling job in thread pool
   enum Priority { BOTTOM, LOW, HIGH, TOTAL };
 
+  static std::string PriorityToString(Priority priority);
+
   // Priority for requesting bytes in rate limiter scheduler
   enum IOPriority {
     IO_LOW = 0,
@@ -320,11 +344,11 @@ class Env {
   // registered at the time of Schedule is invoked with arg as a parameter.
   virtual void Schedule(void (*function)(void* arg), void* arg,
                         Priority pri = LOW, void* tag = nullptr,
-                        void (*unschedFunction)(void* arg) = 0) = 0;
+                        void (*unschedFunction)(void* arg) = nullptr) = 0;
 
   // Arrange to remove jobs for given arg from the queue_ if they are not
   // already scheduled. Caller is expected to have exclusive lock on arg.
-  virtual int UnSchedule(void* arg, Priority pri) { return 0; }
+  virtual int UnSchedule(void* /*arg*/, Priority /*pri*/) { return 0; }
 
   // Start a new thread, invoking "function(arg)" within the new thread.
   // When "function(arg)" returns, the thread will be destroyed.
@@ -334,7 +358,7 @@ class Env {
   virtual void WaitForJoin() {}
 
   // Get thread pool queue length for specific thread pool.
-  virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const {
+  virtual unsigned int GetThreadPoolQueueLen(Priority /*pri*/ = LOW) const {
     return 0;
   }
 
@@ -362,7 +386,7 @@ class Env {
     return NowMicros() * 1000;
   }
 
-  // Sleep/delay the thread for the perscribed number of micro-seconds.
+  // Sleep/delay the thread for the prescribed number of micro-seconds.
   virtual void SleepForMicroseconds(int micros) = 0;
 
   // Get the current host name.
@@ -382,13 +406,20 @@ class Env {
   virtual void SetBackgroundThreads(int number, Priority pri = LOW) = 0;
   virtual int GetBackgroundThreads(Priority pri = LOW) = 0;
 
+  virtual Status SetAllowNonOwnerAccess(bool /*allow_non_owner_access*/) {
+    return Status::NotSupported("Not supported.");
+  }
+
   // Enlarge number of background worker threads of a specific thread pool
   // for this environment if it is smaller than specified. 'LOW' is the default
   // pool.
   virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) = 0;
 
   // Lower IO priority for threads from the specified pool.
-  virtual void LowerThreadPoolIOPriority(Priority pool = LOW) {}
+  virtual void LowerThreadPoolIOPriority(Priority /*pool*/ = LOW) {}
+
+  // Lower CPU priority for threads from the specified pool.
+  virtual void LowerThreadPoolCPUPriority(Priority /*pool*/ = LOW) {}
 
   // Converts seconds-since-Jan-01-1970 to a printable string
   virtual std::string TimeToString(uint64_t time) = 0;
@@ -432,7 +463,7 @@ class Env {
       const ImmutableDBOptions& db_options) const;
 
   // Returns the status of all threads that belong to the current Env.
-  virtual Status GetThreadList(std::vector<ThreadStatus>* thread_list) {
+  virtual Status GetThreadList(std::vector<ThreadStatus>* /*thread_list*/) {
     return Status::NotSupported("Not supported.");
   }
 
@@ -445,6 +476,15 @@ class Env {
 
   // Returns the ID of the current thread.
   virtual uint64_t GetThreadID() const;
+
+// This seems to clash with a macro on Windows, so #undef it here
+#undef GetFreeSpace
+
+  // Get the amount of free disk space
+  virtual Status GetFreeSpace(const std::string& /*path*/,
+                              uint64_t* /*diskfree*/) {
+    return Status::NotSupported();
+  }
 
  protected:
   // The pointer to an internal structure that will update the
@@ -498,14 +538,14 @@ class SequentialFile {
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
-  virtual Status InvalidateCache(size_t offset, size_t length) {
+  virtual Status InvalidateCache(size_t /*offset*/, size_t /*length*/) {
     return Status::NotSupported("InvalidateCache not supported.");
   }
 
   // Positioned Read for direct I/O
   // If Direct I/O enabled, offset, n, and scratch should be properly aligned
-  virtual Status PositionedRead(uint64_t offset, size_t n, Slice* result,
-                                char* scratch) {
+  virtual Status PositionedRead(uint64_t /*offset*/, size_t /*n*/,
+                                Slice* /*result*/, char* /*scratch*/) {
     return Status::NotSupported();
   }
 };
@@ -531,7 +571,7 @@ class RandomAccessFile {
                       char* scratch) const = 0;
 
   // Readahead the file starting from offset by n bytes for caching.
-  virtual Status Prefetch(uint64_t offset, size_t n) {
+  virtual Status Prefetch(uint64_t /*offset*/, size_t /*n*/) {
     return Status::OK();
   }
 
@@ -550,14 +590,14 @@ class RandomAccessFile {
   // a single varint.
   //
   // Note: these IDs are only valid for the duration of the process.
-  virtual size_t GetUniqueId(char* id, size_t max_size) const {
+  virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
     return 0; // Default implementation to prevent issues with backwards
               // compatibility.
   };
 
   enum AccessPattern { NORMAL, RANDOM, SEQUENTIAL, WILLNEED, DONTNEED };
 
-  virtual void Hint(AccessPattern pattern) {}
+  virtual void Hint(AccessPattern /*pattern*/) {}
 
   // Indicates the upper layers if the current RandomAccessFile implementation
   // uses direct IO.
@@ -570,7 +610,7 @@ class RandomAccessFile {
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
-  virtual Status InvalidateCache(size_t offset, size_t length) {
+  virtual Status InvalidateCache(size_t /*offset*/, size_t /*length*/) {
     return Status::NotSupported("InvalidateCache not supported.");
   }
 };
@@ -621,9 +661,7 @@ class WritableFile {
   // before closing. It is not always possible to keep track of the file
   // size due to whole pages writes. The behavior is undefined if called
   // with other writes to follow.
-  virtual Status Truncate(uint64_t size) {
-    return Status::OK();
-  }
+  virtual Status Truncate(uint64_t /*size*/) { return Status::OK(); }
   virtual Status Close() = 0;
   virtual Status Flush() = 0;
   virtual Status Sync() = 0; // sync data
@@ -690,7 +728,7 @@ class WritableFile {
   }
 
   // For documentation, refer to RandomAccessFile::GetUniqueId()
-  virtual size_t GetUniqueId(char* id, size_t max_size) const {
+  virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
     return 0; // Default implementation to prevent issues with backwards
   }
 
@@ -698,7 +736,7 @@ class WritableFile {
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
   // This call has no effect on dirty pages in the cache.
-  virtual Status InvalidateCache(size_t offset, size_t length) {
+  virtual Status InvalidateCache(size_t /*offset*/, size_t /*length*/) {
     return Status::NotSupported("InvalidateCache not supported.");
   }
 
@@ -708,7 +746,9 @@ class WritableFile {
   // This asks the OS to initiate flushing the cached data to disk,
   // without waiting for completion.
   // Default implementation does nothing.
-  virtual Status RangeSync(uint64_t offset, uint64_t nbytes) { return Status::OK(); }
+  virtual Status RangeSync(uint64_t /*offset*/, uint64_t /*nbytes*/) {
+    return Status::OK();
+  }
 
   // PrepareWrite performs any necessary preparation for a write
   // before the write actually occurs.  This allows for pre-allocation
@@ -735,7 +775,7 @@ class WritableFile {
   }
 
   // Pre-allocates space for a file.
-  virtual Status Allocate(uint64_t offset, uint64_t len) {
+  virtual Status Allocate(uint64_t /*offset*/, uint64_t /*len*/) {
     return Status::OK();
   }
 
@@ -794,6 +834,28 @@ class RandomRWFile {
   RandomRWFile& operator=(const RandomRWFile&) = delete;
 };
 
+// MemoryMappedFileBuffer object represents a memory-mapped file's raw buffer.
+// Subclasses should release the mapping upon destruction.
+class MemoryMappedFileBuffer {
+public:
+  MemoryMappedFileBuffer(void* _base, size_t _length)
+      : base_(_base), length_(_length) {}
+
+  virtual ~MemoryMappedFileBuffer() = 0;
+
+  // We do not want to unmap this twice. We can make this class
+  // movable if desired, however, since
+  MemoryMappedFileBuffer(const MemoryMappedFileBuffer&) = delete;
+  MemoryMappedFileBuffer& operator=(const MemoryMappedFileBuffer&) = delete;
+
+  void*       GetBase() const { return base_;   }
+  size_t      GetLen() const  { return length_; }
+
+protected:
+  void*        base_;
+  const size_t length_;
+};
+
 // Directory object represents collection of files and implements
 // filesystem operations that can be executed on directories.
 class Directory {
@@ -801,6 +863,10 @@ class Directory {
   virtual ~Directory() {}
   // Fsync directory. Can be called concurrently from multiple threads.
   virtual Status Fsync() = 0;
+
+  virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
+    return 0;
+  }
 };
 
 enum InfoLogLevel : unsigned char {
@@ -819,8 +885,13 @@ class Logger {
   size_t kDoNotSupportGetLogFileSize = (std::numeric_limits<size_t>::max)();
 
   explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
-      : log_level_(log_level) {}
+      : closed_(false), log_level_(log_level) {}
   virtual ~Logger();
+
+  // Close the log file. Must be called before destructor. If the return
+  // status is NotSupported(), it means the implementation does cleanup in
+  // the destructor
+  virtual Status Close();
 
   // Write a header to the log file with the specified format
   // It is recommended that you log all header information at the start of the
@@ -847,6 +918,10 @@ class Logger {
   virtual void SetInfoLogLevel(const InfoLogLevel log_level) {
     log_level_ = log_level;
   }
+
+ protected:
+  virtual Status CloseImpl();
+  bool closed_;
 
  private:
   // No copying allowed
@@ -1003,6 +1078,10 @@ class EnvWrapper : public Env {
     return target_->LinkFile(s, t);
   }
 
+  Status NumFileLinks(const std::string& fname, uint64_t* count) override {
+    return target_->NumFileLinks(fname, count);
+  }
+
   Status AreFilesSame(const std::string& first, const std::string& second,
                       bool* res) override {
     return target_->AreFilesSame(first, second, res);
@@ -1015,7 +1094,7 @@ class EnvWrapper : public Env {
   Status UnlockFile(FileLock* l) override { return target_->UnlockFile(l); }
 
   void Schedule(void (*f)(void* arg), void* a, Priority pri,
-                void* tag = nullptr, void (*u)(void* arg) = 0) override {
+                void* tag = nullptr, void (*u)(void* arg) = nullptr) override {
     return target_->Schedule(f, a, pri, tag, u);
   }
 
@@ -1060,12 +1139,20 @@ class EnvWrapper : public Env {
     return target_->GetBackgroundThreads(pri);
   }
 
+  Status SetAllowNonOwnerAccess(bool allow_non_owner_access) override {
+    return target_->SetAllowNonOwnerAccess(allow_non_owner_access);
+  }
+
   void IncBackgroundThreadsIfNeeded(int num, Priority pri) override {
     return target_->IncBackgroundThreadsIfNeeded(num, pri);
   }
 
   void LowerThreadPoolIOPriority(Priority pool = LOW) override {
     target_->LowerThreadPoolIOPriority(pool);
+  }
+
+  void LowerThreadPoolCPUPriority(Priority pool = LOW) override {
+    target_->LowerThreadPoolCPUPriority(pool);
   }
 
   std::string TimeToString(uint64_t time) override {
@@ -1188,5 +1275,3 @@ Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname);
 Env* NewTimedEnv(Env* base_env);
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_ENV_H_

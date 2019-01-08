@@ -178,6 +178,19 @@ Status TransactionBaseImpl::RollbackToSavePoint() {
     return Status::NotFound();
   }
 }
+  
+Status TransactionBaseImpl::PopSavePoint() {
+  if (save_points_ == nullptr ||
+      save_points_->empty()) {
+    // No SavePoint yet.
+    assert(write_batch_.PopSavePoint().IsNotFound());
+    return Status::NotFound();
+  }
+
+  assert(!save_points_->empty()); 
+  save_points_->pop();
+  return write_batch_.PopSavePoint();
+}
 
 Status TransactionBaseImpl::Get(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family,
@@ -623,7 +636,7 @@ void TransactionBaseImpl::UndoGetForUpdate(ColumnFamilyHandle* column_family,
   auto& cf_tracked_keys = tracked_keys_[column_family_id];
   std::string key_str = key.ToString();
   bool can_decrement = false;
-  bool can_unlock __attribute__((unused)) = false;
+  bool can_unlock __attribute__((__unused__)) = false;
 
   if (save_points_ != nullptr && !save_points_->empty()) {
     // Check if this key was fetched ForUpdate in this SavePoint
@@ -699,7 +712,7 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
     // this is used for reconstructing prepared transactions upon
     // recovery. there should not be any meta markers in the batches
     // we are processing.
-    Status MarkBeginPrepare() override { return Status::InvalidArgument(); }
+    Status MarkBeginPrepare(bool) override { return Status::InvalidArgument(); }
 
     Status MarkEndPrepare(const Slice&) override {
       return Status::InvalidArgument();

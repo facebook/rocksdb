@@ -27,7 +27,7 @@ const size_t kFadviseTrigger = 1024 * 1024; // 1MB
 struct SstFileWriter::Rep {
   Rep(const EnvOptions& _env_options, const Options& options,
       Env::IOPriority _io_priority, const Comparator* _user_comparator,
-      ColumnFamilyHandle* _cfh, bool _invalidate_page_cache)
+      ColumnFamilyHandle* _cfh, bool _invalidate_page_cache, bool _skip_filters)
       : env_options(_env_options),
         ioptions(options),
         mutable_cf_options(options),
@@ -35,7 +35,8 @@ struct SstFileWriter::Rep {
         internal_comparator(_user_comparator),
         cfh(_cfh),
         invalidate_page_cache(_invalidate_page_cache),
-        last_fadvise_size(0) {}
+        last_fadvise_size(0),
+        skip_filters(_skip_filters) {}
 
   std::unique_ptr<WritableFileWriter> file_writer;
   std::unique_ptr<TableBuilder> builder;
@@ -49,11 +50,12 @@ struct SstFileWriter::Rep {
   std::string column_family_name;
   ColumnFamilyHandle* cfh;
   // If true, We will give the OS a hint that this file pages is not needed
-  // everytime we write 1MB to the file.
+  // every time we write 1MB to the file.
   bool invalidate_page_cache;
   // The size of the file during the last time we called Fadvise to remove
   // cached pages from page cache.
   uint64_t last_fadvise_size;
+  bool skip_filters;
   Status Add(const Slice& user_key, const Slice& value,
              const ValueType value_type) {
     if (!builder) {
@@ -99,6 +101,42 @@ struct SstFileWriter::Rep {
     return Status::OK();
   }
 
+  Status DeleteRange(const Slice& begin_key, const Slice& end_key) {
+    if (!builder) {
+      return Status::InvalidArgument("File is not opened");
+    }
+
+    RangeTombstone tombstone(begin_key, end_key, 0 /* Sequence Number */);
+    if (file_info.num_range_del_entries == 0) {
+      file_info.smallest_range_del_key.assign(tombstone.start_key_.data(),
+                                              tombstone.start_key_.size());
+      file_info.largest_range_del_key.assign(tombstone.end_key_.data(),
+                                             tombstone.end_key_.size());
+    } else {
+      if (internal_comparator.user_comparator()->Compare(
+              tombstone.start_key_, file_info.smallest_range_del_key) < 0) {
+        file_info.smallest_range_del_key.assign(tombstone.start_key_.data(),
+                                                tombstone.start_key_.size());
+      }
+      if (internal_comparator.user_comparator()->Compare(
+              tombstone.end_key_, file_info.largest_range_del_key) > 0) {
+        file_info.largest_range_del_key.assign(tombstone.end_key_.data(),
+                                               tombstone.end_key_.size());
+      }
+    }
+
+    auto ikey_and_end_key = tombstone.Serialize();
+    builder->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
+
+    // update file info
+    file_info.num_range_del_entries++;
+    file_info.file_size = builder->FileSize();
+
+    InvalidatePageCache(false /* closing */);
+
+    return Status::OK();
+  }
+
   void InvalidatePageCache(bool closing) {
     if (invalidate_page_cache == false) {
       // Fadvise disabled
@@ -122,9 +160,9 @@ SstFileWriter::SstFileWriter(const EnvOptions& env_options,
                              const Comparator* user_comparator,
                              ColumnFamilyHandle* column_family,
                              bool invalidate_page_cache,
-                             Env::IOPriority io_priority)
+                             Env::IOPriority io_priority, bool skip_filters)
     : rep_(new Rep(env_options, options, io_priority, user_comparator,
-                   column_family, invalidate_page_cache)) {
+                   column_family, invalidate_page_cache, skip_filters)) {
   rep_->file_info.file_size = 0;
 }
 
@@ -148,13 +186,21 @@ Status SstFileWriter::Open(const std::string& file_path) {
   sst_file->SetIOPriority(r->io_priority);
 
   CompressionType compression_type;
+  CompressionOptions compression_opts;
   if (r->ioptions.bottommost_compression != kDisableCompressionOption) {
     compression_type = r->ioptions.bottommost_compression;
+    if (r->ioptions.bottommost_compression_opts.enabled) {
+      compression_opts = r->ioptions.bottommost_compression_opts;
+    } else {
+      compression_opts = r->ioptions.compression_opts;
+    }
   } else if (!r->ioptions.compression_per_level.empty()) {
     // Use the compression of the last level if we have per level compression
     compression_type = *(r->ioptions.compression_per_level.rbegin());
+    compression_opts = r->ioptions.compression_opts;
   } else {
     compression_type = r->mutable_cf_options.compression;
+    compression_opts = r->ioptions.compression_opts;
   }
 
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
@@ -187,22 +233,20 @@ Status SstFileWriter::Open(const std::string& file_path) {
   }
 
   TableBuilderOptions table_builder_options(
-      r->ioptions, r->internal_comparator, &int_tbl_prop_collector_factories,
-      compression_type, r->ioptions.compression_opts,
-      nullptr /* compression_dict */, false /* skip_filters */,
-      r->column_family_name, unknown_level);
+      r->ioptions, r->mutable_cf_options, r->internal_comparator,
+      &int_tbl_prop_collector_factories, compression_type, compression_opts,
+      nullptr /* compression_dict */, r->skip_filters, r->column_family_name,
+      unknown_level);
   r->file_writer.reset(
-      new WritableFileWriter(std::move(sst_file), r->env_options));
+      new WritableFileWriter(std::move(sst_file), file_path, r->env_options));
 
   // TODO(tec) : If table_factory is using compressed block cache, we will
   // be adding the external sst file blocks into it, which is wasteful.
   r->builder.reset(r->ioptions.table_factory->NewTableBuilder(
       table_builder_options, cf_id, r->file_writer.get()));
 
+  r->file_info = ExternalSstFileInfo();
   r->file_info.file_path = file_path;
-  r->file_info.file_size = 0;
-  r->file_info.num_entries = 0;
-  r->file_info.sequence_number = 0;
   r->file_info.version = 2;
   return s;
 }
@@ -223,12 +267,18 @@ Status SstFileWriter::Delete(const Slice& user_key) {
   return rep_->Add(user_key, Slice(), ValueType::kTypeDeletion);
 }
 
+Status SstFileWriter::DeleteRange(const Slice& begin_key,
+                                  const Slice& end_key) {
+  return rep_->DeleteRange(begin_key, end_key);
+}
+
 Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   Rep* r = rep_.get();
   if (!r->builder) {
     return Status::InvalidArgument("File is not opened");
   }
-  if (r->file_info.num_entries == 0) {
+  if (r->file_info.num_entries == 0 &&
+      r->file_info.num_range_del_entries == 0) {
     return Status::InvalidArgument("Cannot create sst file with no entries");
   }
 

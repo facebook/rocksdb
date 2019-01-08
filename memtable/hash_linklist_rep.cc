@@ -362,14 +362,14 @@ class HashLinkListRep : public MemTableRep {
 
     // Advance to the first entry with a key >= target
     virtual void Seek(const Slice& internal_key,
-                      const char* memtable_key) override {
+                      const char* /*memtable_key*/) override {
       node_ = hash_link_list_rep_->FindGreaterOrEqualInBucket(head_,
                                                               internal_key);
     }
 
     // Retreat to the last entry with a key <= target
-    virtual void SeekForPrev(const Slice& internal_key,
-                             const char* memtable_key) override {
+    virtual void SeekForPrev(const Slice& /*internal_key*/,
+                             const char* /*memtable_key*/) override {
       // Since we do not support Prev()
       // We simply do not support SeekForPrev
       Reset(nullptr);
@@ -483,10 +483,10 @@ class HashLinkListRep : public MemTableRep {
     }
     virtual void Next() override {}
     virtual void Prev() override {}
-    virtual void Seek(const Slice& user_key,
-                      const char* memtable_key) override {}
-    virtual void SeekForPrev(const Slice& user_key,
-                             const char* memtable_key) override {}
+    virtual void Seek(const Slice& /*user_key*/,
+                      const char* /*memtable_key*/) override {}
+    virtual void SeekForPrev(const Slice& /*user_key*/,
+                             const char* /*memtable_key*/) override {}
     virtual void SeekToFirst() override {}
     virtual void SeekToLast() override {}
 

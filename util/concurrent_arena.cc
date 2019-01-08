@@ -18,9 +18,17 @@ namespace rocksdb {
 __thread size_t ConcurrentArena::tls_cpuid = 0;
 #endif
 
+namespace {
+// If the shard block size is too large, in the worst case, every core
+// allocates a block without populate it. If the shared block size is
+// 1MB, 64 cores will quickly allocate 64MB, and may quickly trigger a
+// flush. Cap the size instead.
+const size_t kMaxShardBlockSize = size_t{128 * 1024};
+}  // namespace
+
 ConcurrentArena::ConcurrentArena(size_t block_size, AllocTracker* tracker,
                                  size_t huge_page_size)
-    : shard_block_size_(block_size / 8),
+    : shard_block_size_(std::min(kMaxShardBlockSize, block_size / 8)),
       shards_(),
       arena_(block_size, tracker, huge_page_size) {
   Fixup();

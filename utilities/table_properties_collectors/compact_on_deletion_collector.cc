@@ -20,7 +20,6 @@ CompactOnDeletionCollector::CompactOnDeletionCollector(
       deletion_trigger_(deletion_trigger),
       need_compaction_(false),
       finished_(false) {
-  assert(bucket_size_ > 0U);
   memset(num_deletions_in_buckets_, 0, sizeof(size_t) * kNumBuckets);
 }
 
@@ -29,11 +28,17 @@ CompactOnDeletionCollector::CompactOnDeletionCollector(
 // @params key    the user key that is inserted into the table.
 // @params value  the value that is inserted into the table.
 // @params file_size  file size up to now
-Status CompactOnDeletionCollector::AddUserKey(
-    const Slice& key, const Slice& value,
-    EntryType type, SequenceNumber seq,
-    uint64_t file_size) {
+Status CompactOnDeletionCollector::AddUserKey(const Slice& /*key*/,
+                                              const Slice& /*value*/,
+                                              EntryType type,
+                                              SequenceNumber /*seq*/,
+                                              uint64_t /*file_size*/) {
   assert(!finished_);
+  if (bucket_size_ == 0) {
+    // This collector is effectively disabled
+    return Status::OK();
+  }
+
   if (need_compaction_) {
     // If the output file already needs to be compacted, skip the check.
     return Status::OK();
@@ -68,16 +73,16 @@ Status CompactOnDeletionCollector::AddUserKey(
 
 TablePropertiesCollector*
 CompactOnDeletionCollectorFactory::CreateTablePropertiesCollector(
-    TablePropertiesCollectorFactory::Context context) {
+    TablePropertiesCollectorFactory::Context /*context*/) {
   return new CompactOnDeletionCollector(
-      sliding_window_size_, deletion_trigger_);
+      sliding_window_size_.load(), deletion_trigger_.load());
 }
 
-std::shared_ptr<TablePropertiesCollectorFactory>
+std::shared_ptr<CompactOnDeletionCollectorFactory>
     NewCompactOnDeletionCollectorFactory(
         size_t sliding_window_size,
         size_t deletion_trigger) {
-  return std::shared_ptr<TablePropertiesCollectorFactory>(
+  return std::shared_ptr<CompactOnDeletionCollectorFactory>(
       new CompactOnDeletionCollectorFactory(
           sliding_window_size, deletion_trigger));
 }

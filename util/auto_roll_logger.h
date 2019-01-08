@@ -80,6 +80,9 @@ class AutoRollLogger : public Logger {
   }
 
   virtual ~AutoRollLogger() {
+    if (logger_ && !closed_) {
+      logger_->Close();
+    }
   }
 
   void SetCallNowMicrosEveryNRecords(uint64_t call_NowMicros_every_N_records) {
@@ -93,6 +96,16 @@ class AutoRollLogger : public Logger {
 
   uint64_t TEST_ctime() const { return ctime_; }
 
+ protected:
+  // Implementation of Close()
+  virtual Status CloseImpl() override {
+    if (logger_) {
+      return logger_->Close();
+    } else {
+      return Status::OK();
+    }
+  }
+
  private:
   bool LogExpired();
   Status ResetLogger();
@@ -103,7 +116,6 @@ class AutoRollLogger : public Logger {
   std::string ValistToString(const char* format, va_list args) const;
   // Write the logs marked as headers to the new log file
   void WriteHeaderInfo();
-
   std::string log_fname_; // Current active info log's file name.
   std::string dbname_;
   std::string db_log_dir_;

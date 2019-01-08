@@ -20,7 +20,7 @@
 #include "util/random.h"
 #include "utilities/table_properties_collectors/compact_on_deletion_collector.h"
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   const int kWindowSizes[] =
       {1000, 10000, 10000, 127, 128, 129, 255, 256, 257, 2, 10000};
   const int kDeletionTriggers[] =
@@ -40,7 +40,7 @@ int main(int argc, char** argv) {
   // randomize tests
   rocksdb::Random rnd(301);
   const int kMaxTestSize = 100000l;
-  for (int random_test = 0; random_test < 100; random_test++) {
+  for (int random_test = 0; random_test < 50; random_test++) {
     int window_size = rnd.Uniform(kMaxTestSize) + 1;
     int deletion_trigger = rnd.Uniform(window_size);
     window_sizes.emplace_back(window_size);
@@ -171,7 +171,7 @@ int main(int argc, char** argv) {
   fprintf(stderr, "PASSED\n");
 }
 #else
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as RocksDBLite does not include utilities.\n");
   return 0;
 }

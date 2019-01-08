@@ -60,6 +60,8 @@ class MockEnv : public EnvWrapper {
 
   virtual Status DeleteFile(const std::string& fname) override;
 
+  virtual Status Truncate(const std::string& fname, size_t size) override;
+
   virtual Status CreateDir(const std::string& dirname) override;
 
   virtual Status CreateDirIfMissing(const std::string& dirname) override;
@@ -91,9 +93,6 @@ class MockEnv : public EnvWrapper {
   virtual Status GetCurrentTime(int64_t* unix_time) override;
   virtual uint64_t NowMicros() override;
   virtual uint64_t NowNanos() override;
-
-  // Non-virtual functions, specific to MockEnv
-  Status Truncate(const std::string& fname, size_t size);
 
   Status CorruptBuffer(const std::string& fname);
 

@@ -9,6 +9,7 @@
 //
 #pragma once
 #include "rocksdb/env.h"
+#include "rocksdb/slice_transform.h"
 
 namespace rocksdb {
 
@@ -33,7 +34,8 @@ class VersionBuilder {
   void Apply(VersionEdit* edit);
   void SaveTo(VersionStorageInfo* vstorage);
   void LoadTableHandlers(InternalStats* internal_stats, int max_threads,
-                         bool prefetch_index_and_filter_in_cache);
+                         bool prefetch_index_and_filter_in_cache,
+                         const SliceTransform* prefix_extractor);
   void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f);
 
  private:

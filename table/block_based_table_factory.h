@@ -26,6 +26,22 @@ struct EnvOptions;
 using std::unique_ptr;
 class BlockBasedTableBuilder;
 
+// A class used to track actual bytes written from the tail in the recent SST
+// file opens, and provide a suggestion for following open.
+class TailPrefetchStats {
+ public:
+  void RecordEffectiveSize(size_t len);
+  // 0 indicates no information to determine.
+  size_t GetSuggestedPrefetchSize();
+
+ private:
+  const static size_t kNumTracked = 32;
+  size_t records_[kNumTracked];
+  port::Mutex mutex_;
+  size_t next_ = 0;
+  size_t num_records_ = 0;
+};
+
 class BlockBasedTableFactory : public TableFactory {
  public:
   explicit BlockBasedTableFactory(
@@ -64,6 +80,7 @@ class BlockBasedTableFactory : public TableFactory {
 
  private:
   BlockBasedTableOptions table_options_;
+  mutable TailPrefetchStats tail_prefetch_stats_;
 };
 
 extern const std::string kHashIndexPrefixesBlock;
@@ -106,6 +123,14 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"hash_index_allow_collision",
          {offsetof(struct BlockBasedTableOptions, hash_index_allow_collision),
           OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
+        {"data_block_index_type",
+         {offsetof(struct BlockBasedTableOptions, data_block_index_type),
+          OptionType::kBlockBasedTableDataBlockIndexType,
+          OptionVerificationType::kNormal, false, 0}},
+        {"data_block_hash_table_util_ratio",
+         {offsetof(struct BlockBasedTableOptions,
+                   data_block_hash_table_util_ratio),
+          OptionType::kDouble, OptionVerificationType::kNormal, false, 0}},
         {"checksum",
          {offsetof(struct BlockBasedTableOptions, checksum),
           OptionType::kChecksumType, OptionVerificationType::kNormal, false,
@@ -152,6 +177,16 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
         {"read_amp_bytes_per_bit",
          {offsetof(struct BlockBasedTableOptions, read_amp_bytes_per_bit),
-          OptionType::kSizeT, OptionVerificationType::kNormal, false, 0}}};
+          OptionType::kSizeT, OptionVerificationType::kNormal, false, 0}},
+        {"enable_index_compression",
+         {offsetof(struct BlockBasedTableOptions, enable_index_compression),
+          OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
+        {"block_align",
+         {offsetof(struct BlockBasedTableOptions, block_align),
+          OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
+        {"pin_top_level_index_and_filter",
+         {offsetof(struct BlockBasedTableOptions,
+                   pin_top_level_index_and_filter),
+          OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}}};
 #endif  // !ROCKSDB_LITE
 }  // namespace rocksdb

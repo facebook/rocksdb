@@ -46,13 +46,14 @@ Status TransactionLogIteratorImpl::OpenLogFile(
     const LogFile* logFile, unique_ptr<SequentialFileReader>* file_reader) {
   Env* env = options_->env;
   unique_ptr<SequentialFile> file;
+  std::string fname;
   Status s;
   EnvOptions optimized_env_options = env->OptimizeForLogRead(soptions_);
   if (logFile->Type() == kArchivedLogFile) {
-    std::string fname = ArchivedLogFileName(dir_, logFile->LogNumber());
+    fname = ArchivedLogFileName(dir_, logFile->LogNumber());
     s = env->NewSequentialFile(fname, &file, optimized_env_options);
   } else {
-    std::string fname = LogFileName(dir_, logFile->LogNumber());
+    fname = LogFileName(dir_, logFile->LogNumber());
     s = env->NewSequentialFile(fname, &file, optimized_env_options);
     if (!s.ok()) {
       //  If cannot open file in DB directory.
@@ -62,7 +63,7 @@ Status TransactionLogIteratorImpl::OpenLogFile(
     }
   }
   if (s.ok()) {
-    file_reader->reset(new SequentialFileReader(std::move(file)));
+    file_reader->reset(new SequentialFileReader(std::move(file), fname));
   }
   return s;
 }
@@ -103,7 +104,7 @@ void TransactionLogIteratorImpl::SeekToStartSequence(
   if (files_->size() <= startFileIndex) {
     return;
   }
-  Status s = OpenLogReader(files_->at(startFileIndex).get());
+  Status s = OpenLogReader(files_->at(static_cast<size_t>(startFileIndex)).get());
   if (!s.ok()) {
     currentStatus_ = s;
     reporter_.Info(currentStatus_.ToString().c_str());
@@ -269,19 +270,21 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
       return Status::OK();
     }
 
-    Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
+    Status PutCF(uint32_t /*cf*/, const Slice& /*key*/,
+                 const Slice& /*val*/) override {
       return Status::OK();
     }
-    Status DeleteCF(uint32_t cf, const Slice& key) override {
+    Status DeleteCF(uint32_t /*cf*/, const Slice& /*key*/) override {
       return Status::OK();
     }
-    Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
+    Status SingleDeleteCF(uint32_t /*cf*/, const Slice& /*key*/) override {
       return Status::OK();
     }
-    Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
+    Status MergeCF(uint32_t /*cf*/, const Slice& /*key*/,
+                   const Slice& /*val*/) override {
       return Status::OK();
     }
-    Status MarkBeginPrepare() override { return Status::OK(); }
+    Status MarkBeginPrepare(bool) override { return Status::OK(); }
     Status MarkRollback(const Slice&) override { return Status::OK(); }
   };
 
@@ -309,9 +312,9 @@ Status TransactionLogIteratorImpl::OpenLogReader(const LogFile* logFile) {
     return s;
   }
   assert(file);
-  currentLogReader_.reset(new log::Reader(
-      options_->info_log, std::move(file), &reporter_,
-      read_options_.verify_checksums_, 0, logFile->LogNumber()));
+  currentLogReader_.reset(
+      new log::Reader(options_->info_log, std::move(file), &reporter_,
+                      read_options_.verify_checksums_, logFile->LogNumber()));
   return Status::OK();
 }
 }  //  namespace rocksdb

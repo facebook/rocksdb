@@ -247,7 +247,7 @@ GeoIterator* GeoDBImpl::SearchRadial(const GeoPosition& pos,
       auto res = std::mismatch(qid.begin(), qid.end(), quadkey->begin());
       if (res.first == qid.end()) {
         GeoPosition obj_pos(atof(parts[3].c_str()), atof(parts[4].c_str()));
-        GeoObject obj(obj_pos, parts[4], iter->value().ToString());
+        GeoObject obj(obj_pos, parts[2], iter->value().ToString());
         values.push_back(obj);
         number_of_values--;
       } else {
@@ -284,10 +284,11 @@ std::string GeoDBImpl::MakeKey2(Slice id) {
 std::string GeoDBImpl::MakeKey1Prefix(std::string quadkey,
                                       Slice id) {
   std::string key = "p:";
-  key.reserve(3 + quadkey.size() + id.size());
+  key.reserve(4 + quadkey.size() + id.size());
   key.append(quadkey);
   key.append(":");
   key.append(id.ToString());
+  key.append(":");
   return key;
 }
 

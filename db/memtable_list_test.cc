@@ -27,7 +27,7 @@ class MemTableListTest : public testing::Test {
   Options options;
 
   MemTableListTest() : db(nullptr) {
-    dbname = test::TmpDir() + "/memtable_list_test";
+    dbname = test::PerThreadDBPath("memtable_list_test");
   }
 
   // Create a test db if not yet created
@@ -82,10 +82,10 @@ class MemTableListTest : public testing::Test {
     // Create dummy mutex.
     InstrumentedMutex mutex;
     InstrumentedMutexLock l(&mutex);
-
-    return list->InstallMemtableFlushResults(cfd, mutable_cf_options, m,
-                                             &versions, &mutex, 1, to_delete,
-                                             nullptr, &log_buffer);
+    LogsWithPrepTracker dummy_prep_tracker;
+    return list->InstallMemtableFlushResults(
+        cfd, mutable_cf_options, m, &dummy_prep_tracker, &versions, &mutex, 1,
+        to_delete, nullptr, &log_buffer);
   }
 };
 

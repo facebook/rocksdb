@@ -21,6 +21,8 @@
 #include "cloud/db_cloud_impl.h"
 
 namespace rocksdb {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 
 namespace detail {
 
@@ -615,7 +617,7 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
       }
       // If we are being paranoic, then we validate that our file size is
       // the same as in cloud storage.
-      if (st.ok() && cloud_env_options.validate_filesize) {
+      if (st.ok() && sstfile && cloud_env_options.validate_filesize) {
         uint64_t remote_size = 0;
         uint64_t local_size = 0;
         Status stax = base_env_->GetFileSize(fname, &local_size);
@@ -1895,6 +1897,7 @@ Status CloudLogController::Retry(Env* env, RetryType func) {
   return stat;
 }
 
+#pragma GCC diagnostic pop
 }  // namespace rocksdb
 
 #endif

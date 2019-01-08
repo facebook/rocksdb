@@ -48,7 +48,7 @@ class CorruptionTest : public testing::Test {
     tiny_cache_ = NewLRUCache(100, 4);
     options_.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
     options_.env = &env_;
-    dbname_ = test::TmpDir() + "/corruption_test";
+    dbname_ = test::PerThreadDBPath("corruption_test");
     DestroyDB(dbname_, options_);
 
     db_ = nullptr;
@@ -333,9 +333,9 @@ TEST_F(CorruptionTest, TableFileIndexData) {
   Corrupt(kTableFile, -2000, 500);
   Reopen();
   dbi = reinterpret_cast<DBImpl*>(db_);
-  // one full file should be readable, since only one was corrupted
+  // one full file may be readable, since only one was corrupted
   // the other file should be fully non-readable, since index was corrupted
-  Check(5000, 5000);
+  Check(0, 5000);
   ASSERT_NOK(dbi->VerifyChecksum());
 }
 
@@ -510,7 +510,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as RepairDB() is not supported in ROCKSDB_LITE\n");
   return 0;
 }

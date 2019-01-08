@@ -30,14 +30,15 @@ Status ManifestReader::GetLiveFiles(const std::string bucket_path,
   unique_ptr<CloudManifest> cloud_manifest;
   {
     unique_ptr<SequentialFile> file;
+    auto cloudManifestFile = CloudManifestFile(bucket_path);
     s = cenv_->NewSequentialFileCloud(
-        bucket_prefix_, CloudManifestFile(bucket_path), &file, EnvOptions());
+        bucket_prefix_, cloudManifestFile, &file, EnvOptions());
     if (!s.ok()) {
       return s;
     }
     s = CloudManifest::LoadFromLog(
         unique_ptr<SequentialFileReader>(
-            new SequentialFileReader(std::move(file))),
+            new SequentialFileReader(std::move(file), cloudManifestFile)),
         &cloud_manifest);
     if (!s.ok()) {
       return s;
@@ -45,23 +46,22 @@ Status ManifestReader::GetLiveFiles(const std::string bucket_path,
   }
   unique_ptr<SequentialFileReader> file_reader;
   {
+    auto manifestFile = ManifestFileWithEpoch(
+        bucket_path, cloud_manifest->GetCurrentEpoch().ToString());
     unique_ptr<SequentialFile> file;
-    s = cenv_->NewSequentialFileCloud(
-        bucket_prefix_,
-        ManifestFileWithEpoch(bucket_path,
-                              cloud_manifest->GetCurrentEpoch().ToString()),
-        &file, EnvOptions());
+    s = cenv_->NewSequentialFileCloud(bucket_prefix_, manifestFile, &file,
+                                      EnvOptions());
     if (!s.ok()) {
       return s;
     }
-    file_reader.reset(new SequentialFileReader(std::move(file)));
+    file_reader.reset(new SequentialFileReader(std::move(file), manifestFile));
   }
 
   // create a callback that gets invoked whil looping through the log records
   VersionSet::LogReporter reporter;
   reporter.status = &s;
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
-                     true /*checksum*/, 0 /*initial_offset*/, 0);
+                     true /*checksum*/, 0);
 
   Slice record;
   std::string scratch;
@@ -113,9 +113,10 @@ Status ManifestReader::GetMaxFileNumberFromManifest(Env* env,
 
   VersionSet::LogReporter reporter;
   reporter.status = &s;
-  log::Reader reader(NULL, unique_ptr<SequentialFileReader>(
-                               new SequentialFileReader(std::move(file))),
-                     &reporter, true /*checksum*/, 0 /*initial_offset*/, 0);
+  log::Reader reader(NULL,
+                     unique_ptr<SequentialFileReader>(
+                         new SequentialFileReader(std::move(file), fname)),
+                     &reporter, true /*checksum*/, 0);
 
   Slice record;
   std::string scratch;

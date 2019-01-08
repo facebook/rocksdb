@@ -39,19 +39,20 @@ static const uint32_t kTestColumnFamilyId = 66;
 static const std::string kTestColumnFamilyName = "test_column_fam";
 
 void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
+                 const MutableCFOptions& moptions,
                  const InternalKeyComparator& internal_comparator,
                  const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
                      int_tbl_prop_collector_factories,
                  std::unique_ptr<WritableFileWriter>* writable,
                  std::unique_ptr<TableBuilder>* builder) {
   unique_ptr<WritableFile> wf(new test::StringSink);
-  writable->reset(new WritableFileWriter(std::move(wf), EnvOptions()));
+  writable->reset(
+      new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
   int unknown_level = -1;
   builder->reset(NewTableBuilder(
-      ioptions, internal_comparator, int_tbl_prop_collector_factories,
-      kTestColumnFamilyId, kTestColumnFamilyName,
-      writable->get(), options.compression, options.compression_opts,
-      unknown_level));
+      ioptions, moptions, internal_comparator, int_tbl_prop_collector_factories,
+      kTestColumnFamilyId, kTestColumnFamilyName, writable->get(),
+      options.compression, options.compression_opts, unknown_level));
 }
 }  // namespace
 
@@ -82,8 +83,9 @@ class RegularKeysStartWithA: public TablePropertiesCollector {
      return Status::OK();
   }
 
-  Status AddUserKey(const Slice& user_key, const Slice& value, EntryType type,
-                    SequenceNumber seq, uint64_t file_size) override {
+  Status AddUserKey(const Slice& user_key, const Slice& /*value*/,
+                    EntryType type, SequenceNumber /*seq*/,
+                    uint64_t file_size) override {
     // simply asssume all user keys are not empty.
     if (user_key.data()[0] == 'A') {
       ++count_;
@@ -133,7 +135,7 @@ class RegularKeysStartWithABackwardCompatible
     return Status::OK();
   }
 
-  Status Add(const Slice& user_key, const Slice& value) override {
+  Status Add(const Slice& user_key, const Slice& /*value*/) override {
     // simply asssume all user keys are not empty.
     if (user_key.data()[0] == 'A') {
       ++count_;
@@ -161,8 +163,8 @@ class RegularKeysStartWithAInternal : public IntTblPropCollector {
     return Status::OK();
   }
 
-  Status InternalAdd(const Slice& user_key, const Slice& value,
-                     uint64_t file_size) override {
+  Status InternalAdd(const Slice& user_key, const Slice& /*value*/,
+                     uint64_t /*file_size*/) override {
     // simply asssume all user keys are not empty.
     if (user_key.data()[0] == 'A') {
       ++count_;
@@ -193,7 +195,7 @@ class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
     }
   }
   virtual IntTblPropCollector* CreateIntTblPropCollector(
-      uint32_t column_family_id) override {
+      uint32_t /*column_family_id*/) override {
     return new RegularKeysStartWithAInternal();
   }
   const char* Name() const override { return "RegularKeysStartWithA"; }
@@ -203,7 +205,7 @@ class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
 
 class FlushBlockEveryThreePolicy : public FlushBlockPolicy {
  public:
-  virtual bool Update(const Slice& key, const Slice& value) override {
+  virtual bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
     return (++count_ % 3U == 0);
   }
 
@@ -220,8 +222,8 @@ class FlushBlockEveryThreePolicyFactory : public FlushBlockPolicyFactory {
   }
 
   FlushBlockPolicy* NewFlushBlockPolicy(
-      const BlockBasedTableOptions& table_options,
-      const BlockBuilder& data_block_builder) const override {
+      const BlockBasedTableOptions& /*table_options*/,
+      const BlockBuilder& /*data_block_builder*/) const override {
     return new FlushBlockEveryThreePolicy;
   }
 };
@@ -250,6 +252,7 @@ void TestCustomizedTablePropertiesCollector(
   std::unique_ptr<TableBuilder> builder;
   std::unique_ptr<WritableFileWriter> writer;
   const ImmutableCFOptions ioptions(options);
+  const MutableCFOptions moptions(options);
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories;
   if (test_int_tbl_prop_collector) {
@@ -258,7 +261,7 @@ void TestCustomizedTablePropertiesCollector(
   } else {
     GetIntTblPropCollectorFactory(ioptions, &int_tbl_prop_collector_factories);
   }
-  MakeBuilder(options, ioptions, internal_comparator,
+  MakeBuilder(options, ioptions, moptions, internal_comparator,
               &int_tbl_prop_collector_factories, &writer, &builder);
 
   SequenceNumber seqNum = 0U;
@@ -277,7 +280,8 @@ void TestCustomizedTablePropertiesCollector(
           new test::StringSource(fwf->contents())));
   TableProperties* props;
   Status s = ReadTableProperties(fake_file_reader.get(), fwf->contents().size(),
-                                 magic_number, ioptions, &props);
+                                 magic_number, ioptions, &props,
+                                 true /* compression_type_missing */);
   std::unique_ptr<TableProperties> props_guard(props);
   ASSERT_OK(s);
 
@@ -400,10 +404,11 @@ void TestInternalKeyPropertiesCollector(
         new InternalKeyPropertiesCollectorFactory);
   }
   const ImmutableCFOptions ioptions(options);
+  MutableCFOptions moptions(options);
 
   for (int iter = 0; iter < 2; ++iter) {
-    MakeBuilder(options, ioptions, pikc, &int_tbl_prop_collector_factories,
-                &writable, &builder);
+    MakeBuilder(options, ioptions, moptions, pikc,
+                &int_tbl_prop_collector_factories, &writable, &builder);
     for (const auto& k : keys) {
       builder->Add(k.Encode(), "val");
     }
@@ -418,7 +423,7 @@ void TestInternalKeyPropertiesCollector(
     TableProperties* props;
     Status s =
         ReadTableProperties(reader.get(), fwf->contents().size(), magic_number,
-                            ioptions, &props);
+                            ioptions, &props, true /* compression_type_missing */);
     ASSERT_OK(s);
 
     std::unique_ptr<TableProperties> props_guard(props);

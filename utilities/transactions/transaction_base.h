@@ -45,6 +45,8 @@ class TransactionBaseImpl : public Transaction {
   void SetSavePoint() override;
 
   Status RollbackToSavePoint() override;
+  
+  Status PopSavePoint() override;
 
   using Transaction::Get;
   Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
@@ -180,14 +182,14 @@ class TransactionBaseImpl : public Transaction {
 
   WriteBatchWithIndex* GetWriteBatch() override;
 
-  virtual void SetLockTimeout(int64_t timeout) override { /* Do nothing */
+  virtual void SetLockTimeout(int64_t /*timeout*/) override { /* Do nothing */
   }
 
   const Snapshot* GetSnapshot() const override {
     return snapshot_ ? snapshot_.get() : nullptr;
   }
 
-  void SetSnapshot() override;
+  virtual void SetSnapshot() override;
   void SetSnapshotOnNextOperation(
       std::shared_ptr<TransactionNotifier> notifier = nullptr) override;
 
@@ -232,7 +234,7 @@ class TransactionBaseImpl : public Transaction {
 
   // iterates over the given batch and makes the appropriate inserts.
   // used for rebuilding prepared transactions after recovery.
-  Status RebuildFromWriteBatch(WriteBatch* src_batch) override;
+  virtual Status RebuildFromWriteBatch(WriteBatch* src_batch) override;
 
   WriteBatch* GetCommitTimeWriteBatch() override;
 
@@ -303,6 +305,7 @@ class TransactionBaseImpl : public Transaction {
   WriteBatchWithIndex write_batch_;
 
  private:
+  friend class WritePreparedTxn;
   // Extra data to be persisted with the commit. Note this is only used when
   // prepare phase is not skipped.
   WriteBatch commit_time_batch_;
@@ -335,7 +338,6 @@ class TransactionBaseImpl : public Transaction {
                  bool read_only, bool exclusive, bool skip_validate = false);
 
   WriteBatchBase* GetBatchForWrite();
-
   void SetSnapshotInternal(const Snapshot* snapshot);
 };
 

@@ -20,7 +20,7 @@ namespace rocksdb {
 class ReduceLevelTest : public testing::Test {
 public:
   ReduceLevelTest() {
-    dbname_ = test::TmpDir() + "/db_reduce_levels_test";
+    dbname_ = test::PerThreadDBPath("db_reduce_levels_test");
     DestroyDB(dbname_, Options());
     db_ = nullptr;
   }
@@ -210,7 +210,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as LDBCommand is not supported in ROCKSDB_LITE\n");
   return 0;
 }

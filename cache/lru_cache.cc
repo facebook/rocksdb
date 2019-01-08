@@ -99,14 +99,20 @@ void LRUHandleTable::Resize() {
   length_ = new_length;
 }
 
-LRUCacheShard::LRUCacheShard()
-    : capacity_(0), high_pri_pool_usage_(0), strict_capacity_limit_(false),
-      high_pri_pool_ratio_(0), high_pri_pool_capacity_(0), usage_(0),
+LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
+                             double high_pri_pool_ratio)
+    : capacity_(0),
+      high_pri_pool_usage_(0),
+      strict_capacity_limit_(strict_capacity_limit),
+      high_pri_pool_ratio_(high_pri_pool_ratio),
+      high_pri_pool_capacity_(0),
+      usage_(0),
       lru_usage_(0) {
   // Make empty circular linked list
   lru_.next = &lru_;
   lru_.prev = &lru_;
   lru_low_pri_ = &lru_;
+  SetCapacity(capacity);
 }
 
 LRUCacheShard::~LRUCacheShard() {}
@@ -193,7 +199,7 @@ void LRUCacheShard::LRU_Remove(LRUHandle* e) {
 void LRUCacheShard::LRU_Insert(LRUHandle* e) {
   assert(e->next == nullptr);
   assert(e->prev == nullptr);
-  if (high_pri_pool_ratio_ > 0 && e->IsHighPri()) {
+  if (high_pri_pool_ratio_ > 0 && (e->IsHighPri() || e->HasHit())) {
     // Inset "e" to head of LRU list.
     e->next = &lru_;
     e->prev = lru_.prev;
@@ -240,22 +246,6 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
   }
 }
 
-void* LRUCacheShard::operator new(size_t size) {
-  return port::cacheline_aligned_alloc(size);
-}
-
-void* LRUCacheShard::operator new[](size_t size) {
-  return port::cacheline_aligned_alloc(size);
-}
-
-void LRUCacheShard::operator delete(void *memblock) {
-  port::cacheline_aligned_free(memblock);
-}
-
-void LRUCacheShard::operator delete[](void* memblock) {
-  port::cacheline_aligned_free(memblock);
-}
-
 void LRUCacheShard::SetCapacity(size_t capacity) {
   autovector<LRUHandle*> last_reference_list;
   {
@@ -285,6 +275,7 @@ Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
       LRU_Remove(e);
     }
     e->refs++;
+    e->SetHit();
   }
   return reinterpret_cast<Cache::Handle*>(e);
 }
@@ -473,15 +464,24 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
                    bool strict_capacity_limit, double high_pri_pool_ratio)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
   num_shards_ = 1 << num_shard_bits;
-  shards_ = new LRUCacheShard[num_shards_];
-  SetCapacity(capacity);
-  SetStrictCapacityLimit(strict_capacity_limit);
+  shards_ = reinterpret_cast<LRUCacheShard*>(
+      port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards_));
+  size_t per_shard = (capacity + (num_shards_ - 1)) / num_shards_;
   for (int i = 0; i < num_shards_; i++) {
-    shards_[i].SetHighPriorityPoolRatio(high_pri_pool_ratio);
+    new (&shards_[i])
+        LRUCacheShard(per_shard, strict_capacity_limit, high_pri_pool_ratio);
   }
 }
 
-LRUCache::~LRUCache() { delete[] shards_; }
+LRUCache::~LRUCache() {
+  if (shards_ != nullptr) {
+    assert(num_shards_ > 0);
+    for (int i = 0; i < num_shards_; i++) {
+      shards_[i].~LRUCacheShard();
+    }
+    port::cacheline_aligned_free(shards_);
+  }
+}
 
 CacheShard* LRUCache::GetShard(int shard) {
   return reinterpret_cast<CacheShard*>(&shards_[shard]);
@@ -505,9 +505,17 @@ uint32_t LRUCache::GetHash(Handle* handle) const {
 
 void LRUCache::DisownData() {
 // Do not drop data if compile with ASAN to suppress leak warning.
+#if defined(__clang__)
+#if !defined(__has_feature) || !__has_feature(address_sanitizer)
+  shards_ = nullptr;
+  num_shards_ = 0;
+#endif
+#else  // __clang__
 #ifndef __SANITIZE_ADDRESS__
   shards_ = nullptr;
+  num_shards_ = 0;
 #endif  // !__SANITIZE_ADDRESS__
+#endif  // __clang__
 }
 
 size_t LRUCache::TEST_GetLRUSize() {

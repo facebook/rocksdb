@@ -18,13 +18,15 @@
 
 #ifdef OS_LINUX
 #  include <sys/syscall.h>
+#  include <sys/resource.h>
 #endif
 
+#include <stdlib.h>
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
-#include <stdlib.h>
+#include <sstream>
 #include <thread>
 #include <vector>
 
@@ -52,6 +54,8 @@ struct ThreadPoolImpl::Impl {
   }
 
   void LowerIOPriority();
+
+  void LowerCPUPriority();
 
   void WakeUpAllThreads() {
     bgsignal_.notify_all();
@@ -97,6 +101,7 @@ private:
   static void* BGThreadWrapper(void* arg);
 
   bool low_io_priority_;
+  bool low_cpu_priority_;
   Env::Priority priority_;
   Env*         env_;
 
@@ -125,6 +130,7 @@ inline
 ThreadPoolImpl::Impl::Impl()
     :
       low_io_priority_(false),
+      low_cpu_priority_(false),
       priority_(Env::LOW),
       env_(nullptr),
       total_threads_limit_(0),
@@ -171,9 +177,16 @@ void ThreadPoolImpl::Impl::LowerIOPriority() {
   low_io_priority_ = true;
 }
 
+inline
+void ThreadPoolImpl::Impl::LowerCPUPriority() {
+  std::lock_guard<std::mutex> lock(mu_);
+  low_cpu_priority_ = true;
+}
 
 void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
   bool low_io_priority = false;
+  bool low_cpu_priority = false;
+
   while (true) {
 // Wait until there is an item that is ready to run
     std::unique_lock<std::mutex> lock(mu_);
@@ -213,9 +226,20 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
                      std::memory_order_relaxed);
 
     bool decrease_io_priority = (low_io_priority != low_io_priority_);
+    bool decrease_cpu_priority = (low_cpu_priority != low_cpu_priority_);
     lock.unlock();
 
 #ifdef OS_LINUX
+    if (decrease_cpu_priority) {
+      setpriority(
+          PRIO_PROCESS,
+          // Current thread.
+          0,
+          // Lowest priority possible.
+          19);
+      low_cpu_priority = true;
+    }
+
     if (decrease_io_priority) {
 #define IOPRIO_CLASS_SHIFT (13)
 #define IOPRIO_PRIO_VALUE(class, data) (((class) << IOPRIO_CLASS_SHIFT) | data)
@@ -236,6 +260,7 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
     }
 #else
     (void)decrease_io_priority;  // avoid 'unused variable' error
+    (void)decrease_cpu_priority;
 #endif
     func();
   }
@@ -313,11 +338,14 @@ void ThreadPoolImpl::Impl::StartBGThreads() {
 #if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
 #if __GLIBC_PREREQ(2, 12)
     auto th_handle = p_t.native_handle();
-    char name_buf[16];
-    snprintf(name_buf, sizeof name_buf, "rocksdb:bg%" ROCKSDB_PRIszt,
-             bgthreads_.size());
-    name_buf[sizeof name_buf - 1] = '\0';
-    pthread_setname_np(th_handle, name_buf);
+    std::string thread_priority = Env::PriorityToString(GetThreadPriority());
+    std::ostringstream thread_name_stream;
+    thread_name_stream << "rocksdb:";
+    for (char c : thread_priority) {
+      thread_name_stream << static_cast<char>(tolower(c));
+    }
+    thread_name_stream << bgthreads_.size();
+    pthread_setname_np(th_handle, thread_name_stream.str().c_str());
 #endif
 #endif
     bgthreads_.push_back(std::move(p_t));
@@ -421,6 +449,10 @@ void ThreadPoolImpl::LowerIOPriority() {
   impl_->LowerIOPriority();
 }
 
+void ThreadPoolImpl::LowerCPUPriority() {
+  impl_->LowerCPUPriority();
+}
+
 void ThreadPoolImpl::IncBackgroundThreadsIfNeeded(int num) {
   impl_->SetBackgroundThreadsInternal(num, false);
 }
@@ -437,16 +469,12 @@ void ThreadPoolImpl::SubmitJob(std::function<void()>&& job) {
 
 void ThreadPoolImpl::Schedule(void(*function)(void* arg1), void* arg,
   void* tag, void(*unschedFunction)(void* arg)) {
-
-  std::function<void()> fn = [arg, function] { function(arg); };
-
-  std::function<void()> unfn;
-  if (unschedFunction != nullptr) {
-    auto uf = [arg, unschedFunction] { unschedFunction(arg); };
-    unfn = std::move(uf);
+  if (unschedFunction == nullptr) {
+    impl_->Submit(std::bind(function, arg), std::function<void()>(), tag);
+  } else {
+    impl_->Submit(std::bind(function, arg), std::bind(unschedFunction, arg),
+                  tag);
   }
-
-  impl_->Submit(std::move(fn), std::move(unfn), tag);
 }
 
 int ThreadPoolImpl::UnSchedule(void* arg) {

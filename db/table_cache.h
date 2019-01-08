@@ -31,7 +31,6 @@ class Arena;
 struct FileDescriptor;
 class GetContext;
 class HistogramImpl;
-class InternalIterator;
 
 class TableCache {
  public:
@@ -53,16 +52,11 @@ class TableCache {
   InternalIterator* NewIterator(
       const ReadOptions& options, const EnvOptions& toptions,
       const InternalKeyComparator& internal_comparator,
-      const FileDescriptor& file_fd, RangeDelAggregator* range_del_agg,
+      const FileMetaData& file_meta, RangeDelAggregator* range_del_agg,
+      const SliceTransform* prefix_extractor = nullptr,
       TableReader** table_reader_ptr = nullptr,
       HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
       Arena* arena = nullptr, bool skip_filters = false, int level = -1);
-
-  InternalIterator* NewRangeTombstoneIterator(
-      const ReadOptions& options, const EnvOptions& toptions,
-      const InternalKeyComparator& internal_comparator,
-      const FileDescriptor& file_fd, HistogramImpl* file_read_hist,
-      bool skip_filters, int level);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call (*handle_result)(arg, found_key, found_value) repeatedly until
@@ -74,9 +68,11 @@ class TableCache {
   // @param level The level this table is at, -1 for "not set / don't know"
   Status Get(const ReadOptions& options,
              const InternalKeyComparator& internal_comparator,
-             const FileDescriptor& file_fd, const Slice& k,
-             GetContext* get_context, HistogramImpl* file_read_hist = nullptr,
-             bool skip_filters = false, int level = -1);
+             const FileMetaData& file_meta, const Slice& k,
+             GetContext* get_context,
+             const SliceTransform* prefix_extractor = nullptr,
+             HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
+             int level = -1);
 
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
@@ -91,6 +87,7 @@ class TableCache {
   Status FindTable(const EnvOptions& toptions,
                    const InternalKeyComparator& internal_comparator,
                    const FileDescriptor& file_fd, Cache::Handle**,
+                   const SliceTransform* prefix_extractor = nullptr,
                    const bool no_io = false, bool record_read_stats = true,
                    HistogramImpl* file_read_hist = nullptr,
                    bool skip_filters = false, int level = -1,
@@ -109,6 +106,7 @@ class TableCache {
                             const InternalKeyComparator& internal_comparator,
                             const FileDescriptor& file_meta,
                             std::shared_ptr<const TableProperties>* properties,
+                            const SliceTransform* prefix_extractor = nullptr,
                             bool no_io = false);
 
   // Return total memory usage of the table reader of the file.
@@ -116,7 +114,8 @@ class TableCache {
   size_t GetMemoryUsageByTableReader(
       const EnvOptions& toptions,
       const InternalKeyComparator& internal_comparator,
-      const FileDescriptor& fd);
+      const FileDescriptor& fd,
+      const SliceTransform* prefix_extractor = nullptr);
 
   // Release the handle from a cache
   void ReleaseHandle(Cache::Handle* handle);
@@ -124,6 +123,14 @@ class TableCache {
   // Capacity of the backing Cache that indicates inifinite TableCache capacity.
   // For example when max_open_files is -1 we set the backing Cache to this.
   static const int kInfiniteCapacity = 0x400000;
+
+  // The tables opened with this TableCache will be immortal, i.e., their
+  // lifetime is as long as that of the DB.
+  void SetTablesAreImmortal() {
+    if (cache_->GetCapacity() >= kInfiniteCapacity) {
+      immortal_tables_ = true;
+    }
+  }
 
  private:
   // Build a table reader
@@ -133,6 +140,7 @@ class TableCache {
                         size_t readahead, bool record_read_stats,
                         HistogramImpl* file_read_hist,
                         unique_ptr<TableReader>* table_reader,
+                        const SliceTransform* prefix_extractor = nullptr,
                         bool skip_filters = false, int level = -1,
                         bool prefetch_index_and_filter_in_cache = true,
                         bool for_compaction = false);
@@ -141,6 +149,7 @@ class TableCache {
   const EnvOptions& env_options_;
   Cache* const cache_;
   std::string row_cache_id_;
+  bool immortal_tables_;
 };
 
 }  // namespace rocksdb

@@ -29,6 +29,10 @@ void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
     replay_log->push_back(type);
     PutLengthPrefixedSlice(replay_log, value);
   }
+#else
+  (void)replay_log;
+  (void)type;
+  (void)value;
 #endif  // ROCKSDB_LITE
 }
 
@@ -77,7 +81,7 @@ void GetContext::MarkKeyMayExist() {
   }
 }
 
-void GetContext::SaveValue(const Slice& value, SequenceNumber seq) {
+void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/) {
   assert(state_ == kNotFound);
   appendToReplayLog(replay_log_, kTypeValue, value);
 
@@ -87,18 +91,83 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber seq) {
   }
 }
 
-void GetContext::RecordCounters(Tickers ticker, size_t val) {
-  if (ticker == Tickers::TICKER_ENUM_MAX) {
-    return;
+void GetContext::ReportCounters() {
+  if (get_context_stats_.num_cache_hit > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_HIT, get_context_stats_.num_cache_hit);
   }
-  tickers_value[ticker] += static_cast<uint64_t>(val);
+  if (get_context_stats_.num_cache_index_hit > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_INDEX_HIT,
+               get_context_stats_.num_cache_index_hit);
+  }
+  if (get_context_stats_.num_cache_data_hit > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_DATA_HIT,
+               get_context_stats_.num_cache_data_hit);
+  }
+  if (get_context_stats_.num_cache_filter_hit > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_FILTER_HIT,
+               get_context_stats_.num_cache_filter_hit);
+  }
+  if (get_context_stats_.num_cache_index_miss > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_INDEX_MISS,
+               get_context_stats_.num_cache_index_miss);
+  }
+  if (get_context_stats_.num_cache_filter_miss > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_FILTER_MISS,
+               get_context_stats_.num_cache_filter_miss);
+  }
+  if (get_context_stats_.num_cache_data_miss > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_DATA_MISS,
+               get_context_stats_.num_cache_data_miss);
+  }
+  if (get_context_stats_.num_cache_bytes_read > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_BYTES_READ,
+               get_context_stats_.num_cache_bytes_read);
+  }
+  if (get_context_stats_.num_cache_miss > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_MISS,
+               get_context_stats_.num_cache_miss);
+  }
+  if (get_context_stats_.num_cache_add > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_ADD, get_context_stats_.num_cache_add);
+  }
+  if (get_context_stats_.num_cache_bytes_write > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_BYTES_WRITE,
+               get_context_stats_.num_cache_bytes_write);
+  }
+  if (get_context_stats_.num_cache_index_add > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_INDEX_ADD,
+               get_context_stats_.num_cache_index_add);
+  }
+  if (get_context_stats_.num_cache_index_bytes_insert > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_INDEX_BYTES_INSERT,
+               get_context_stats_.num_cache_index_bytes_insert);
+  }
+  if (get_context_stats_.num_cache_data_add > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_DATA_ADD,
+               get_context_stats_.num_cache_data_add);
+  }
+  if (get_context_stats_.num_cache_data_bytes_insert > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_DATA_BYTES_INSERT,
+               get_context_stats_.num_cache_data_bytes_insert);
+  }
+  if (get_context_stats_.num_cache_filter_add > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_FILTER_ADD,
+               get_context_stats_.num_cache_filter_add);
+  }
+  if (get_context_stats_.num_cache_filter_bytes_insert > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_FILTER_BYTES_INSERT,
+               get_context_stats_.num_cache_filter_bytes_insert);
+  }
 }
 
 bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
-                           const Slice& value, Cleanable* value_pinner) {
+                           const Slice& value, bool* matched,
+                           Cleanable* value_pinner) {
+  assert(matched);
   assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||
          merge_context_ != nullptr);
   if (ucmp_->Equal(parsed_key.user_key, user_key_)) {
+    *matched = true;
     // If the value is not in the snapshot, skip it
     if (!CheckCallback(parsed_key.sequence)) {
       return true;  // to continue to the next seq
@@ -193,7 +262,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           merge_context_->PushOperand(value, false);
         }
         if (merge_operator_ != nullptr &&
-            merge_operator_->ShouldMerge(merge_context_->GetOperands())) {
+            merge_operator_->ShouldMerge(merge_context_->GetOperandsDirectionBackward())) {
           state_ = kFound;
           if (LIKELY(pinnable_val_ != nullptr)) {
             Status merge_status = MergeHelper::TimedFullMerge(
@@ -231,13 +300,18 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
     assert(ret);
     (void)ret;
 
+    bool dont_care __attribute__((__unused__));
     // Since SequenceNumber is not stored and unknown, we will use
     // kMaxSequenceNumber.
     get_context->SaveValue(
         ParsedInternalKey(user_key, kMaxSequenceNumber, type), value,
-        value_pinner);
+        &dont_care, value_pinner);
   }
 #else   // ROCKSDB_LITE
+  (void)replay_log;
+  (void)user_key;
+  (void)get_context;
+  (void)value_pinner;
   assert(false);
 #endif  // ROCKSDB_LITE
 }

@@ -45,14 +45,14 @@ Status CloudEnvImpl::LoadLocalCloudManifest(const std::string& dbname) {
     cloud_manifest_.reset();
   }
   unique_ptr<SequentialFile> file;
-  auto s = GetBaseEnv()->NewSequentialFile(CloudManifestFile(dbname), &file,
-                                           EnvOptions());
+  auto cloudManifestFile = CloudManifestFile(dbname);
+  auto s = GetBaseEnv()->NewSequentialFile(cloudManifestFile, &file, EnvOptions());
   if (!s.ok()) {
     return s;
   }
   return CloudManifest::LoadFromLog(
       unique_ptr<SequentialFileReader>(
-          new SequentialFileReader(std::move(file))),
+          new SequentialFileReader(std::move(file), cloudManifestFile)),
       &cloud_manifest_);
 }
 

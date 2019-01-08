@@ -74,13 +74,28 @@ class MergeContext {
     return (*operand_list_)[index];
   }
 
-  // Return all the operands.
+  // Same as GetOperandsDirectionForward
   const std::vector<Slice>& GetOperands() {
+    return GetOperandsDirectionForward();
+  }
+
+  // Return all the operands in the order as they were merged (passed to FullMerge or FullMergeV2)
+  const std::vector<Slice>& GetOperandsDirectionForward() {
     if (!operand_list_) {
       return empty_operand_list;
     }
 
     SetDirectionForward();
+    return *operand_list_;
+  }
+
+  // Return all the operands in the reversed order relative to how they were merged (passed to FullMerge or FullMergeV2)
+  const std::vector<Slice>& GetOperandsDirectionBackward() {
+    if (!operand_list_) {
+      return empty_operand_list;
+    }
+
+    SetDirectionBackward();
     return *operand_list_;
   }
 

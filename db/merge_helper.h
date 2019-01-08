@@ -3,8 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef MERGE_HELPER_H
-#define MERGE_HELPER_H
+#pragma once
 
 #include <deque>
 #include <string>
@@ -13,6 +12,7 @@
 #include "db/dbformat.h"
 #include "db/merge_context.h"
 #include "db/range_del_aggregator.h"
+#include "db/snapshot_checker.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
@@ -25,7 +25,6 @@ class Iterator;
 class Logger;
 class MergeOperator;
 class Statistics;
-class InternalIterator;
 
 class MergeHelper {
  public:
@@ -33,7 +32,8 @@ class MergeHelper {
               const MergeOperator* user_merge_operator,
               const CompactionFilter* compaction_filter, Logger* logger,
               bool assert_valid_internal_key, SequenceNumber latest_snapshot,
-              int level = 0, Statistics* stats = nullptr,
+              const SnapshotChecker* snapshot_checker = nullptr, int level = 0,
+              Statistics* stats = nullptr,
               const std::atomic<bool>* shutting_down = nullptr);
 
   // Wrapper around MergeOperator::FullMergeV2() that records perf statistics.
@@ -145,6 +145,7 @@ class MergeHelper {
   bool assert_valid_internal_key_; // enforce no internal key corruption?
   bool allow_single_operand_;
   SequenceNumber latest_snapshot_;
+  const SnapshotChecker* const snapshot_checker_;
   int level_;
 
   // the scratch area that holds the result of MergeUntil
@@ -191,5 +192,3 @@ class MergeOutputIterator {
 };
 
 } // namespace rocksdb
-
-#endif

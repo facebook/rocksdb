@@ -10,6 +10,9 @@
 
 namespace rocksdb {
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+
 // An implementation of Env that forwards all calls to another Env.
 // May be useful to clients who wish to override just part of the
 // functionality of another Env.
@@ -23,8 +26,8 @@ class CloudEnvWrapper : public CloudEnvImpl {
 
   virtual ~CloudEnvWrapper();
 
-  virtual Status EmptyBucket(const std::string& bucket,
-                             const std::string& path_prefix) override {
+  virtual Status EmptyBucket(const std::string& /*bucket*/,
+                             const std::string& /*path_prefix*/) override {
     return notsup_;
   }
   virtual Status NewSequentialFileCloud(const std::string& bucket_prefix,
@@ -251,4 +254,5 @@ class CloudEnvWrapper : public CloudEnvImpl {
   const CloudEnvOptions options_;
 };
 
+#pragma GCC diagnostic pop
 }  // namespace rocksdb
