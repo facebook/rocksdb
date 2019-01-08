@@ -2315,6 +2315,9 @@ INSTANTIATE_TEST_CASE_P(
 #endif  // ROCKSDB_LITE
 
 // Group commit test:
+#ifndef TRAVIS
+// Disable this test temporarily on Travis as it fails intermittently.
+// Github issue: #4151
 namespace {
 
 static const int kGCNumThreads = 4;
@@ -2341,9 +2344,6 @@ static void GCThreadBody(void* arg) {
 
 }  // namespace
 
-#ifndef TRAVIS
-// Disable this test temporarily on Travis as it fails intermittently.
-// Github issue: #4151
 TEST_F(DBTest, GroupCommitTest) {
   do {
     Options options = CurrentOptions();
