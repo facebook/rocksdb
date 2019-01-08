@@ -116,10 +116,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // is visible to the snapshot with sequence number snapshot_seq.
   // Returns true if commit_seq <= snapshot_seq
   // If the snapshot_seq is already released and snapshot_seq <= max, sets
-  // *released to true and returns true as well.
+  // *snap_released to true and returns true as well.
   inline bool IsInSnapshot(uint64_t prep_seq, uint64_t snapshot_seq,
                            uint64_t min_uncommitted = 0,
-                           bool* released = nullptr) const {
+                           bool* snap_released = nullptr) const {
     ROCKS_LOG_DETAILS(info_log_,
                       "IsInSnapshot %" PRIu64 " in %" PRIu64
                       " min_uncommitted %" PRIu64,
@@ -217,11 +217,11 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                         "IsInSnapshot %" PRIu64 " in %" PRIu64
                         " returns %" PRId32 " released=1",
                         prep_seq, snapshot_seq, 0);
-      assert(released);
+      assert(snap_released);
       // This snapshot is not valid anymore. We cannot tell if prep_seq is
       // committed before or after the snapshot. Return true but also set
-      // released to true.
-      *released = true;
+      // snap_released to true.
+      *snap_released = true;
       return true;
     }
     {
@@ -243,9 +243,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                           prep_seq, snapshot_seq, 0);
         // This snapshot is not valid anymore. We cannot tell if prep_seq is
         // committed before or after the snapshot. Return true but also set
-        // released to true.
-        assert(released);
-        *released = true;
+        // snap_released to true.
+        assert(snap_released);
+        *snap_released = true;
         return true;
       }
 
