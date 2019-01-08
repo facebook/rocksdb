@@ -218,7 +218,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       // snapshot might be released.
       assert(released);
       *released = true;
-      return false;
+      return true;
     }
     {
       // We should not normally reach here unless sapshot_seq is old. This is a
@@ -241,7 +241,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         // snapshot might be released.
         assert(released);
         *released = true;
-        return false;
+        return true;
       }
 
       if (!found) {
