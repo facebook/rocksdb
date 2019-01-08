@@ -537,7 +537,7 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
     UpdateSnapshots(snapshots, new_snapshots_version);
     if (!snapshots.empty()) {
       WriteLock wl(&old_commit_map_mutex_);
-      for (auto snap: snapshots) {
+      for (auto snap : snapshots) {
         // This allows IsInSnapshot to tell apart the reads from in valid
         // snapshots from the reads from committed values in valid snapshots.
         old_commit_map_[snap];

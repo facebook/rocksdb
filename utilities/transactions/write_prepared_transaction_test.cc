@@ -1515,7 +1515,8 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
   snap_seq = snap1->GetSequenceNumber();
   // Invaid snapshot lower than max
   ASSERT_LE(snap_seq + 1, wp_db->max_evicted_seq_);
-  ASSERT_TRUE(wp_db->IsInSnapshot(seq, snap_seq + 1, min_uncommitted, &released));
+  ASSERT_TRUE(
+      wp_db->IsInSnapshot(seq, snap_seq + 1, min_uncommitted, &released));
   ASSERT_TRUE(released);
 
   db->ReleaseSnapshot(snap1);
@@ -1528,11 +1529,13 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
 
   released = false;
   // Invaid snapshot lower than max
-  ASSERT_TRUE(wp_db->IsInSnapshot(seq, snap_seq + 1, min_uncommitted, &released));
+  ASSERT_TRUE(
+      wp_db->IsInSnapshot(seq, snap_seq + 1, min_uncommitted, &released));
   ASSERT_TRUE(released);
-  
+
   // This make the snapshot release to reflect in txn db structures
-  wp_db->AdvanceMaxEvictedSeq(wp_db->max_evicted_seq_, wp_db->max_evicted_seq_ + 1);
+  wp_db->AdvanceMaxEvictedSeq(wp_db->max_evicted_seq_,
+                              wp_db->max_evicted_seq_ + 1);
 
   released = false;
   // Released snapshot lower than max
@@ -1541,9 +1544,10 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
 
   released = false;
   // Invaid snapshot lower than max
-  ASSERT_TRUE(wp_db->IsInSnapshot(seq, snap_seq + 1, min_uncommitted, &released));
+  ASSERT_TRUE(
+      wp_db->IsInSnapshot(seq, snap_seq + 1, min_uncommitted, &released));
   ASSERT_TRUE(released);
-  
+
   snap_seq = snap2->GetSequenceNumber();
 
   released = false;

@@ -213,9 +213,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     // snapshot. If there was no overlapping commit entry, then it is committed
     // with a commit_seq lower than any live snapshot, including snapshot_seq.
     if (old_commit_map_empty_.load(std::memory_order_acquire)) {
-      ROCKS_LOG_DETAILS(
-          info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32" released=1",
-          prep_seq, snapshot_seq, 0);
+      ROCKS_LOG_DETAILS(info_log_,
+                        "IsInSnapshot %" PRIu64 " in %" PRIu64
+                        " returns %" PRId32 " released=1",
+                        prep_seq, snapshot_seq, 0);
       assert(released);
       // This snapshot is not valid anymore. We cannot tell if prep_seq is
       // committed before or after the snapshot. Return true but also set
@@ -238,7 +239,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         // coming from compaction
         ROCKS_LOG_DETAILS(info_log_,
                           "IsInSnapshot %" PRIu64 " in %" PRIu64
-                          " returns %" PRId32" released=1",
+                          " returns %" PRId32 " released=1",
                           prep_seq, snapshot_seq, 0);
         // This snapshot is not valid anymore. We cannot tell if prep_seq is
         // committed before or after the snapshot. Return true but also set
