@@ -1484,6 +1484,80 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotEmptyMapTest) {
   }
 }
 
+// Shows the contract of IsInSnapshot when called on invalid/released snapshots
+TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  WriteOptions woptions;
+  ASSERT_OK(db->Put(woptions, "key", "value"));
+  // snap seq = 1
+  const Snapshot* snap1 = db->GetSnapshot();
+  ASSERT_OK(db->Put(woptions, "key", "value"));
+  ASSERT_OK(db->Put(woptions, "key", "value"));
+  // snap seq = 3
+  const Snapshot* snap2 = db->GetSnapshot();
+  const SequenceNumber seq = 1;
+  // Evict seq out of commit cache
+  size_t overwrite_seq = wp_db->COMMIT_CACHE_SIZE + seq;
+  wp_db->AddCommitted(overwrite_seq, overwrite_seq);
+  SequenceNumber snap_seq;
+  uint64_t min_uncommitted = 0;
+  bool released;
+
+  released = false;
+  snap_seq = snap1->GetSequenceNumber();
+  ASSERT_LE(seq, snap_seq);
+  // Valid snapshot lower than max
+  ASSERT_LE(snap_seq, wp_db->max_evicted_seq_);
+  ASSERT_TRUE(wp_db->IsInSnapshot(seq, snap_seq, min_uncommitted, &released));
+  ASSERT_FALSE(released);
+
+  released = false;
+  snap_seq = snap1->GetSequenceNumber();
+  // Invaid snapshot lower than max
+  ASSERT_LE(snap_seq + 1, wp_db->max_evicted_seq_);
+  ASSERT_TRUE(
+      wp_db->IsInSnapshot(seq, snap_seq + 1, min_uncommitted, &released));
+  ASSERT_TRUE(released);
+
+  db->ReleaseSnapshot(snap1);
+
+  released = false;
+  // Released snapshot lower than max
+  ASSERT_TRUE(wp_db->IsInSnapshot(seq, snap_seq, min_uncommitted, &released));
+  // The release does not take affect until the next max advance
+  ASSERT_FALSE(released);
+
+  released = false;
+  // Invaid snapshot lower than max
+  ASSERT_TRUE(
+      wp_db->IsInSnapshot(seq, snap_seq + 1, min_uncommitted, &released));
+  ASSERT_TRUE(released);
+
+  // This make the snapshot release to reflect in txn db structures
+  wp_db->AdvanceMaxEvictedSeq(wp_db->max_evicted_seq_,
+                              wp_db->max_evicted_seq_ + 1);
+
+  released = false;
+  // Released snapshot lower than max
+  ASSERT_TRUE(wp_db->IsInSnapshot(seq, snap_seq, min_uncommitted, &released));
+  ASSERT_TRUE(released);
+
+  released = false;
+  // Invaid snapshot lower than max
+  ASSERT_TRUE(
+      wp_db->IsInSnapshot(seq, snap_seq + 1, min_uncommitted, &released));
+  ASSERT_TRUE(released);
+
+  snap_seq = snap2->GetSequenceNumber();
+
+  released = false;
+  // Unreleased snapshot lower than max
+  ASSERT_TRUE(wp_db->IsInSnapshot(seq, snap_seq, min_uncommitted, &released));
+  ASSERT_FALSE(released);
+
+  db->ReleaseSnapshot(snap2);
+}
+
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
 // snapshot, max_committed_seq_, prepared, and commit entries.
 TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {

@@ -115,8 +115,11 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // Check whether the transaction that wrote the value with sequence number seq
   // is visible to the snapshot with sequence number snapshot_seq.
   // Returns true if commit_seq <= snapshot_seq
+  // If the snapshot_seq is already released and snapshot_seq <= max, sets
+  // *snap_released to true and returns true as well.
   inline bool IsInSnapshot(uint64_t prep_seq, uint64_t snapshot_seq,
-                           uint64_t min_uncommitted = 0) const {
+                           uint64_t min_uncommitted = 0,
+                           bool* snap_released = nullptr) const {
     ROCKS_LOG_DETAILS(info_log_,
                       "IsInSnapshot %" PRIu64 " in %" PRIu64
                       " min_uncommitted %" PRIu64,
@@ -210,9 +213,15 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     // snapshot. If there was no overlapping commit entry, then it is committed
     // with a commit_seq lower than any live snapshot, including snapshot_seq.
     if (old_commit_map_empty_.load(std::memory_order_acquire)) {
-      ROCKS_LOG_DETAILS(
-          info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
-          prep_seq, snapshot_seq, 1);
+      ROCKS_LOG_DETAILS(info_log_,
+                        "IsInSnapshot %" PRIu64 " in %" PRIu64
+                        " returns %" PRId32 " released=1",
+                        prep_seq, snapshot_seq, 0);
+      assert(snap_released);
+      // This snapshot is not valid anymore. We cannot tell if prep_seq is
+      // committed before or after the snapshot. Return true but also set
+      // snap_released to true.
+      *snap_released = true;
       return true;
     }
     {
@@ -226,7 +235,20 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       if (found) {
         auto& vec = prep_set_entry->second;
         found = std::binary_search(vec.begin(), vec.end(), prep_seq);
+      } else {
+        // coming from compaction
+        ROCKS_LOG_DETAILS(info_log_,
+                          "IsInSnapshot %" PRIu64 " in %" PRIu64
+                          " returns %" PRId32 " released=1",
+                          prep_seq, snapshot_seq, 0);
+        // This snapshot is not valid anymore. We cannot tell if prep_seq is
+        // committed before or after the snapshot. Return true but also set
+        // snap_released to true.
+        assert(snap_released);
+        *snap_released = true;
+        return true;
       }
+
       if (!found) {
         ROCKS_LOG_DETAILS(info_log_,
                           "IsInSnapshot %" PRIu64 " in %" PRIu64
@@ -379,6 +401,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
   friend class WritePreparedTransactionTest_DoubleSnapshot_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
+  friend class WritePreparedTransactionTest_IsInSnapshotReleased_Test;
   friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
   friend class WritePreparedTransactionTest_RollbackTest_Test;
   friend class WriteUnpreparedTxnDB;

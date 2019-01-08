@@ -372,15 +372,14 @@ Status WriteUnpreparedTxn::RollbackInternal() {
   assert(GetId() != kMaxSequenceNumber);
   assert(GetId() > 0);
   const auto& cf_map = *wupt_db_->GetCFHandleMap();
-  // In WritePrepared, the txn is is the same as prepare seq
-  auto last_visible_txn = GetId() - 1;
+  auto read_at_seq = kMaxSequenceNumber;
   Status s;
 
   ReadOptions roptions;
   // Note that we do not use WriteUnpreparedTxnReadCallback because we do not
   // need to read our own writes when reading prior versions of the key for
   // rollback.
-  WritePreparedTxnReadCallback callback(wpt_db_, last_visible_txn, 0);
+  WritePreparedTxnReadCallback callback(wpt_db_, read_at_seq, 0);
   for (const auto& cfkey : write_set_keys_) {
     const auto cfid = cfkey.first;
     const auto& keys = cfkey.second;
