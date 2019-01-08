@@ -3759,6 +3759,58 @@ class AtomicFlushStressTest : public StressTest {
     return s;
   }
 
+#ifdef ROCKSDB_LITE
+  virtual Status TestCheckpoint(
+      ThreadState* /* thread */,
+      const std::vector<int>& /* rand_column_families */,
+      const std::vector<int64_t>& /* rand_keys */) {
+    assert(false);
+    fprintf(stderr,
+            "RocksDB lite does not support "
+            "TestCheckpoint\n");
+    std::terminate();
+  }
+#else
+  virtual Status TestCheckpoint(
+      ThreadState* thread, const std::vector<int>& /* rand_column_families */,
+      const std::vector<int64_t>& /* rand_keys */) {
+    std::string checkpoint_dir =
+        FLAGS_db + "/.checkpoint" + ToString(thread->tid);
+    DestroyDB(checkpoint_dir, Options());
+    Checkpoint* checkpoint = nullptr;
+    Status s = Checkpoint::Create(db_, &checkpoint);
+    if (s.ok()) {
+      s = checkpoint->CreateCheckpoint(checkpoint_dir);
+    }
+    std::vector<ColumnFamilyHandle*> cf_handles;
+    DB* checkpoint_db = nullptr;
+    if (s.ok()) {
+      delete checkpoint;
+      checkpoint = nullptr;
+      Options options(options_);
+      options.listeners.clear();
+      std::vector<ColumnFamilyDescriptor> cf_descs;
+      // TODO(ajkr): `column_family_names_` is not safe to access here when
+      // `clear_column_family_one_in != 0`. But we can't easily switch to
+      // `ListColumnFamilies` to get names because it won't necessarily give
+      // the same order as `column_family_names_`.
+      if (FLAGS_clear_column_family_one_in == 0) {
+        for (const auto& name : column_family_names_) {
+          cf_descs.emplace_back(name, ColumnFamilyOptions(options));
+        }
+        s = DB::OpenForReadOnly(DBOptions(options), checkpoint_dir, cf_descs,
+                                &cf_handles, &checkpoint_db);
+      }
+    }
+    DestroyDB(checkpoint_dir, Options());
+    if (!s.ok()) {
+      fprintf(stderr, "A checkpoint operation failed with: %s\n",
+              s.ToString().c_str());
+    }
+    return s;
+  }
+#endif  // !ROCKSDB_LITE
+
   virtual void VerifyDb(ThreadState* thread) const {
     ReadOptions options(FLAGS_verify_checksum, true);
     // We must set total_order_seek to true because we are doing a SeekToFirst
