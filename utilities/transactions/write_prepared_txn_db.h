@@ -115,6 +115,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // Check whether the transaction that wrote the value with sequence number seq
   // is visible to the snapshot with sequence number snapshot_seq.
   // Returns true if commit_seq <= snapshot_seq
+  // If the snapshot_seq is already released and snapshot_seq <= max, sets
+  // *released to true and returns true as well.
   inline bool IsInSnapshot(uint64_t prep_seq, uint64_t snapshot_seq,
                            uint64_t min_uncommitted = 0,
                            bool* released = nullptr) const {
