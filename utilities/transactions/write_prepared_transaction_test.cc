@@ -1550,6 +1550,8 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
   // Unreleased snapshot lower than max
   ASSERT_TRUE(wp_db->IsInSnapshot(seq, snap_seq, min_uncommitted, &released));
   ASSERT_FALSE(released);
+
+  db->ReleaseSnapshot(snap2);
 }
 
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
