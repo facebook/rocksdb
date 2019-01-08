@@ -231,6 +231,8 @@ int SstFileDumper::ShowAllCompressionSizes(
         opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_COMPRESSED);
       const uint64_t not_compressed_blocks =
         opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_NOT_COMPRESSED);
+      // When the option enable_index_compression is true,
+      // NUMBER_BLOCK_COMPRESSED is incremented for index block(s).
       if( (compressed_blocks + not_compressed_blocks) > num_data_blocks ){
         num_data_blocks = compressed_blocks + not_compressed_blocks;
       }
