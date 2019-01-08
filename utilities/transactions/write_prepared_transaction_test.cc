@@ -1508,7 +1508,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
 
   released = false;
   snap_seq = snap1->GetSequenceNumber();
-  ASSERT_FALSE(wp_db->IsInSnapshot(1, snap_seq + 1, min_uncommitted, &released));
+  ASSERT_TRUE(wp_db->IsInSnapshot(1, snap_seq + 1, min_uncommitted, &released));
   ASSERT_TRUE(released);
 
   snap_seq = snap1->GetSequenceNumber();
@@ -1519,17 +1519,17 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
   ASSERT_FALSE(released);
 
   released = false;
-  ASSERT_FALSE(wp_db->IsInSnapshot(1, snap_seq + 1, min_uncommitted, &released));
+  ASSERT_TRUE(wp_db->IsInSnapshot(1, snap_seq + 1, min_uncommitted, &released));
   ASSERT_TRUE(released);
   
   wp_db->AdvanceMaxEvictedSeq(wp_db->max_evicted_seq_, wp_db->max_evicted_seq_ + 1);
 
   released = false;
-  ASSERT_FALSE(wp_db->IsInSnapshot(1, snap_seq, min_uncommitted, &released));
+  ASSERT_TRUE(wp_db->IsInSnapshot(1, snap_seq, min_uncommitted, &released));
   ASSERT_TRUE(released);
 
   released = false;
-  ASSERT_FALSE(wp_db->IsInSnapshot(1, snap_seq + 1, min_uncommitted, &released));
+  ASSERT_TRUE(wp_db->IsInSnapshot(1, snap_seq + 1, min_uncommitted, &released));
   ASSERT_TRUE(released);
   
   snap_seq = snap2->GetSequenceNumber();
@@ -1539,7 +1539,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
   ASSERT_FALSE(released);
 
   released = false;
-  ASSERT_FALSE(wp_db->IsInSnapshot(1, snap_seq + 1, min_uncommitted, &released));
+  ASSERT_TRUE(wp_db->IsInSnapshot(1, snap_seq + 1, min_uncommitted, &released));
   ASSERT_TRUE(released);
 }
 
