@@ -54,13 +54,13 @@ class KafkaController : public CloudLogController {
 
   virtual const std::string GetTypeName() { return "kafka"; }
 
-  virtual Status CreateStream(const std::string& bucket_prefix) {
+  virtual Status CreateStream(const std::string& /* bucket_prefix */) {
     // Kafka client cannot create a topic. Topics are either manually created
     // or implicitly created on first write if auto.create.topics.enable is
     // true.
     return status_;
   }
-  virtual Status WaitForStreamReady(const std::string& bucket_prefix) {
+  virtual Status WaitForStreamReady(const std::string& /* bucket_prefix */) {
     // Kafka topics don't need to be waited on.
     return status_;
   }
