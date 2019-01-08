@@ -1654,16 +1654,16 @@ Status AwsEnv::GetObject(const std::string& bucket_name_prefix,
     localenv->DeleteFile(tmp_destination);
     const auto& error = get_outcome.GetError();
     std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
+    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+        "[s3] GetObject %s/%s error %s.", s3_bucket.c_str(),
+        bucket_object_path.c_str(), errmsg.c_str());
     auto errorType = error.GetErrorType();
     if (errorType == Aws::S3::S3Errors::NO_SUCH_BUCKET ||
         errorType == Aws::S3::S3Errors::NO_SUCH_KEY ||
         errorType == Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
-      return Status::NotFound(errmsg);
+      return Status::NotFound(std::move(errmsg));
     }
-    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[s3] GetObject bucket %s bucketpath %s error %s.", s3_bucket.c_str(),
-        bucket_object_path.c_str(), errmsg.c_str());
-    return Status::IOError(errmsg);
+    return Status::IOError(std::move(errmsg));
   }
 
   // Check if our local file is the same as S3 promised
@@ -1677,7 +1677,7 @@ Status AwsEnv::GetObject(const std::string& bucket_name_prefix,
     localenv->DeleteFile(tmp_destination);
     s = Status::IOError("Partial download of a file " + local_destination);
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[s3] GetObject bucket %s bucketpath %s local size %ld != cloud size "
+        "[s3] GetObject %s/%s local size %ld != cloud size "
         "%ld. %s",
         s3_bucket.c_str(), bucket_object_path.c_str(), file_size,
         get_outcome.GetResult().GetContentLength(), s.ToString().c_str());
@@ -1687,7 +1687,7 @@ Status AwsEnv::GetObject(const std::string& bucket_name_prefix,
     s = localenv->RenameFile(tmp_destination, local_destination);
   }
   Log(InfoLogLevel::INFO_LEVEL, info_log_,
-      "[s3] GetObject bucket %s bucketpath %s size %ld. %s", s3_bucket.c_str(),
+      "[s3] GetObject %s/%s size %ld. %s", s3_bucket.c_str(),
       bucket_object_path.c_str(), file_size, s.ToString().c_str());
   return s;
 }
