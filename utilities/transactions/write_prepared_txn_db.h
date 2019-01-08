@@ -35,8 +35,8 @@
 namespace rocksdb {
 
 #define ROCKS_LOG_DETAILS(LGR, FMT, ...) \
- ROCKS_LOG_DEBUG(LGR, FMT, ##__VA_ARGS__)
-//  ;  // due to overhead by default skip such lines
+  ;  // due to overhead by default skip such lines
+// ROCKS_LOG_DEBUG(LGR, FMT, ##__VA_ARGS__)
 
 // A PessimisticTransactionDB that writes data to DB after prepare phase of 2PC.
 // In this way some data in the DB might not be committed. The DB provides
@@ -214,9 +214,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       ROCKS_LOG_DETAILS(
           info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32" released=1",
           prep_seq, snapshot_seq, 0);
-      // This could be used to ensure that the caller is expecting the
-      // snapshot might be released.
       assert(released);
+      // This snapshot is not valid anymore. We cannot tell if prep_seq is
+      // committed before or after the snapshot. Return true but also set
+      // released to true.
       *released = true;
       return true;
     }
@@ -237,8 +238,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                           "IsInSnapshot %" PRIu64 " in %" PRIu64
                           " returns %" PRId32" released=1",
                           prep_seq, snapshot_seq, 0);
-        // This could be used to ensure that the caller is expecting the
-        // snapshot might be released.
+        // This snapshot is not valid anymore. We cannot tell if prep_seq is
+        // committed before or after the snapshot. Return true but also set
+        // released to true.
         assert(released);
         *released = true;
         return true;
