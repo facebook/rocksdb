@@ -1346,11 +1346,15 @@ TEST_F(DBTest2, FirstSnapshotTest) {
   db_->ReleaseSnapshot(s1);
 }
 
-class PinL0IndexAndFilterBlocksTest : public DBTestBase,
-                                      public testing::WithParamInterface<bool> {
+class PinL0IndexAndFilterBlocksTest
+    : public DBTestBase,
+      public testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   PinL0IndexAndFilterBlocksTest() : DBTestBase("/db_pin_l0_index_bloom_test") {}
-  virtual void SetUp() override { infinite_max_files_ = GetParam(); }
+  virtual void SetUp() override {
+    infinite_max_files_ = std::get<0>(GetParam());
+    disallow_preload_ = std::get<1>(GetParam());
+  }
 
   void CreateTwoLevels(Options* options, bool close_afterwards) {
     if (infinite_max_files_) {
@@ -1387,6 +1391,7 @@ class PinL0IndexAndFilterBlocksTest : public DBTestBase,
   }
 
   bool infinite_max_files_;
+  bool disallow_preload_;
 };
 
 TEST_P(PinL0IndexAndFilterBlocksTest,
@@ -1477,7 +1482,7 @@ TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
   uint64_t im = TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS);
   uint64_t ih = TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT);
 
-  if (!infinite_max_files_) {
+  if (disallow_preload_) {
     // Now we have two files. We narrow the max open files to allow 3 entries
     // so that preloading SST files won't happen.
     options.max_open_files = 13;
@@ -1497,7 +1502,7 @@ TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 
-  if (infinite_max_files_) {
+  if (!disallow_preload_) {
     // After reopen, cache miss are increased by one because we read (and only
     // read) filter and index on L0
     ASSERT_EQ(fm + 1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
@@ -1525,7 +1530,7 @@ TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
 
   // this should be read from L1
   value = Get(1, "a");
-  if (infinite_max_files_) {
+  if (!disallow_preload_) {
     // In inifinite max files case, there's a cache miss in executing Get()
     // because index and filter are not prefetched before.
     ASSERT_EQ(fm + 2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
@@ -1543,10 +1548,45 @@ TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
     ASSERT_EQ(im + 2, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
     ASSERT_EQ(ih + 1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
   }
+
+  // Force a full compaction to one single file. There will be a block
+  // cache read for both of index and filter. If prefetch doesn't explicitly
+  // happen, it will happen when verifying the file.
+  Compact(1, "a", "zzzzz");
+  dbfull()->TEST_WaitForCompact();
+
+  if (!disallow_preload_) {
+    ASSERT_EQ(fm + 3, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+    ASSERT_EQ(fh, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+    ASSERT_EQ(im + 3, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+    ASSERT_EQ(ih + 2, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+  } else {
+    ASSERT_EQ(fm + 3, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+    ASSERT_EQ(fh + 1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+    ASSERT_EQ(im + 3, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+    ASSERT_EQ(ih + 3, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+  }
+
+  // Bloom and index hit will happen when a Get() happens.
+  value = Get(1, "a");
+  if (!disallow_preload_) {
+    ASSERT_EQ(fm + 3, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+    ASSERT_EQ(fh + 1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+    ASSERT_EQ(im + 3, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+    ASSERT_EQ(ih + 3, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+  } else {
+    ASSERT_EQ(fm + 3, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+    ASSERT_EQ(fh + 2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+    ASSERT_EQ(im + 3, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+    ASSERT_EQ(ih + 4, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+  }
 }
 
 INSTANTIATE_TEST_CASE_P(PinL0IndexAndFilterBlocksTest,
-                        PinL0IndexAndFilterBlocksTest, ::testing::Bool());
+                        PinL0IndexAndFilterBlocksTest,
+                        ::testing::Values(std::make_tuple(true, false),
+                                          std::make_tuple(false, false),
+                                          std::make_tuple(false, true)));
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest2, MaxCompactionBytesTest) {
