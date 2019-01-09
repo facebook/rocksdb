@@ -8,6 +8,7 @@
 ### Public API Change
 * Transaction::GetForUpdate is extended with a do_validate parameter with default value of true. If false it skips validating the snapshot before doing the read. Similarly ::Merge, ::Put, ::Delete, and ::SingleDelete are extended with assume_tracked with default value of false. If true it indicates that call is assumed to be after a ::GetForUpdate.
 * `TableProperties::num_entries` and `TableProperties::num_deletions` now also account for number of range tombstones.
+* Remove geodb, spatial_db, document_db, json_document, date_tiered_db, and redis_lists.
 
 ### Bug Fixes
 * Fix a deadlock caused by compaction and file ingestion waiting for each other in the event of write stalls.
@@ -94,7 +95,6 @@
 * With LRUCache, when high_pri_pool_ratio > 0, midpoint insertion strategy will be enabled to put low-pri items to the tail of low-pri list (the midpoint) when they first inserted into the cache. This is to make cache entries never get hit age out faster, improving cache efficiency when large background scan presents.
 * For users of `Statistics` objects created via `CreateDBStatistics()`, the format of the string returned by its `ToString()` method has changed.
 * The "rocksdb.num.entries" table property no longer counts range deletion tombstones as entries.
-* Remove geodb, spatial_db, document_db, json_document, date_tiered_db, and redis_lists.
 
 ### New Features
 * Changes the format of index blocks by storing the key in their raw form rather than converting them to InternalKey. This saves 8 bytes per index key. The feature is backward compatible but not forward compatible. It is disabled by default unless format_version 3 or above is used.
