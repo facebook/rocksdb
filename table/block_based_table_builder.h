@@ -140,6 +140,7 @@ Slice CompressBlock(const Slice& raw, const CompressionInfo& info,
                     CompressionType* type, uint32_t format_version,
                     std::string* compressed_output,
                     std::string* sampled_output_fast,
-                    std::string* sampled_output_slow);
+                    std::string* sampled_output_slow,
+                    bool doSample = false);
 
 }  // namespace rocksdb

@@ -2,6 +2,7 @@
 
 ## 6.0.0 (2/19/2019)
 ### New Features
+* FIXME-SD: explanation
 * Enabled checkpoint on readonly db (DBImplReadOnly).
 * Make DB ignore dropped column families while committing results of atomic flush.
 * RocksDB may choose to preopen some files even if options.max_open_files != -1. This may make DB open slightly longer.
