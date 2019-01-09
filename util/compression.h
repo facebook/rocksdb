@@ -288,6 +288,7 @@ class CompressionContext {
 #endif  // ZSTD && (ZSTD_VERSION_NUMBER >= 500)
  public:
   explicit CompressionContext(CompressionType comp_type) : type_(comp_type) {
+    (void)type_;
     CreateNativeContext();
   }
   ~CompressionContext() { DestroyNativeContext(); }
