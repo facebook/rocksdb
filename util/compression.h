@@ -177,13 +177,11 @@ struct CompressionDict {
 #endif                 // ZSTD_VERSION_NUMBER >= 700
   }
 
-  const ZSTD_CDict* GetDigestedZstdCDict() const {
 #if ZSTD_VERSION_NUMBER >= 700
+  const ZSTD_CDict* GetDigestedZstdCDict() const {
     return zstd_cdict_;
-#else   // ZSTD_VERSION_NUMBER >= 700
-    return nullptr;
-#endif  // ZSTD_VERSION_NUMBER >= 700
   }
+#endif  // ZSTD_VERSION_NUMBER >= 700
 
   Slice GetRawDict() const { return dict_; }
 
@@ -234,13 +232,11 @@ struct UncompressionDict {
 #endif                 // ZSTD_VERSION_NUMBER >= 700
   }
 
-  const ZSTD_DDict* GetDigestedZstdDDict() const {
 #if ZSTD_VERSION_NUMBER >= 700
+  const ZSTD_DDict* GetDigestedZstdDDict() const {
     return zstd_ddict_;
-#else   // ZSTD_VERSION_NUMBER >= 700
-    return nullptr;
-#endif  // ZSTD_VERSION_NUMBER >= 700
   }
+#endif  // ZSTD_VERSION_NUMBER >= 700
 
   Slice GetRawDict() const { return dict_; }
 
@@ -1221,6 +1217,17 @@ inline CacheAllocationPtr ZSTD_Uncompress(
   (void)decompress_size;
   (void)allocator;
   return nullptr;
+#endif
+}
+
+inline bool ZSTD_TrainDictionarySupported() {
+#ifdef ZSTD
+  // Dictionary trainer is available since v0.6.1 for static linking, but not
+  // available for dynamic linking until v1.1.3. For now we enable the feature
+  // in v1.1.3+ only.
+  return (ZSTD_versionNumber() >= 10103);
+#else
+  return false;
 #endif
 }
 
