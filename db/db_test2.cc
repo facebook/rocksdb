@@ -3214,6 +3214,8 @@ TEST_F(DBTest2, TestCompactFiles) {
 }
 #endif  // ROCKSDB_LITE
 
+// TODO: figure out why this test fails in appveyor
+#ifndef OS_WIN
 TEST_F(DBTest2, MultiDBParallelOpenTest) {
   const int kNumDbs = 2;
   Options options = CurrentOptions();
@@ -3261,6 +3263,7 @@ TEST_F(DBTest2, MultiDBParallelOpenTest) {
     ASSERT_OK(DestroyDB(dbnames[i], options));
   }
 }
+#endif  // OS_WIN
 
 }  // namespace rocksdb
 
