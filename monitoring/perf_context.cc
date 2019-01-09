@@ -9,23 +9,16 @@
 
 namespace rocksdb {
 
-#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
-PerfContext perf_context;
-#else
-#if defined(OS_SOLARIS)
-__thread PerfContext perf_context_;
-#else
-thread_local PerfContext perf_context;
-#endif
-#endif
-
 PerfContext* get_perf_context() {
 #if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
+  static PerfContext perf_context;
   return &perf_context;
 #else
 #if defined(OS_SOLARIS)
+  static __thread PerfContext perf_context_;
   return &perf_context_;
 #else
+  static thread_local PerfContext perf_context;
   return &perf_context;
 #endif
 #endif

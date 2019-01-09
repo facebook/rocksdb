@@ -213,6 +213,12 @@ struct PerfContext {
 
   std::map<uint32_t, PerfContextByLevel>* level_to_perf_context;
   bool per_level_perf_context_enabled;
+
+ private:
+  PerfContext() {}
+  PerfContext(const PerfContext&) = delete;
+  PerfContext(PerfContext&&) = delete;
+  friend PerfContext* get_perf_context();
 };
 
 // Get Thread-local PerfContext object pointer

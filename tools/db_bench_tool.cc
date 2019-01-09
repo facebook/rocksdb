@@ -2864,7 +2864,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
 
     SetPerfLevel(static_cast<PerfLevel> (shared->perf_level));
-    perf_context.EnablePerLevelPerfContext();
+    get_perf_context()->EnablePerLevelPerfContext();
     thread->stats.Start(thread->tid);
     (arg->bm->*(arg->method))(thread);
     thread->stats.Stop();
