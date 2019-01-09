@@ -21,7 +21,8 @@ class TestReadCallback : public ReadCallback {
       : snapshot_checker_(snapshot_checker), snapshot_seq_(snapshot_seq) {}
 
   bool IsVisible(SequenceNumber seq) override {
-    return snapshot_checker_->IsInSnapshot(seq, snapshot_seq_);
+    return snapshot_checker_->CheckInSnapshot(seq, snapshot_seq_) ==
+           SnapshotCheckerResult::kInSnapshot;
   }
 
  private:
@@ -547,8 +548,15 @@ TEST_F(DBMergeOperatorTest, SnapshotCheckerAndReadCallback) {
   DestroyAndReopen(options);
 
   class TestSnapshotChecker : public SnapshotChecker {
-    bool IsInSnapshot(SequenceNumber seq,
-                      SequenceNumber snapshot_seq) const override {
+   public:
+    SnapshotCheckerResult CheckInSnapshot(
+        SequenceNumber seq, SequenceNumber snapshot_seq) const override {
+      return IsInSnapshot(seq, snapshot_seq)
+                 ? SnapshotCheckerResult::kInSnapshot
+                 : SnapshotCheckerResult::kNotInSnapshot;
+    }
+
+    bool IsInSnapshot(SequenceNumber seq, SequenceNumber snapshot_seq) const {
       switch (snapshot_seq) {
         case 0:
           return seq == 0;

@@ -132,6 +132,14 @@ class CompactionIterator {
   // or seqnum be zero-ed out even if all other conditions for it are met.
   inline bool ikeyNotNeededForIncrementalSnapshot();
 
+  inline bool KeyCommitted(SequenceNumber sequence) {
+    return snapshot_checker_ == nullptr ||
+           snapshot_checker_->CheckInSnapshot(sequence, kMaxSequenceNumber) ==
+               SnapshotCheckerResult::kInSnapshot;
+  }
+
+  bool IsInEarliestSnapshot(SequenceNumber sequence);
+
   InternalIterator* input_;
   const Comparator* cmp_;
   MergeHelper* merge_helper_;
