@@ -86,7 +86,7 @@ class SnapshotList {
   }
 
   // retrieve all snapshot numbers up until max_seq. They are sorted in
-  // ascending order.
+  // ascending order (with no duplicates).
   std::vector<SequenceNumber> GetAll(
       SequenceNumber* oldest_write_conflict_snapshot = nullptr,
       const SequenceNumber& max_seq = kMaxSequenceNumber) const {
@@ -104,7 +104,10 @@ class SnapshotList {
       if (s->next_->number_ > max_seq) {
         break;
       }
-      ret.push_back(s->next_->number_);
+      // Avoid duplicates
+      if (ret.empty() || ret.back() != s->next_->number_) {
+        ret.push_back(s->next_->number_);
+      }
 
       if (oldest_write_conflict_snapshot != nullptr &&
           *oldest_write_conflict_snapshot == kMaxSequenceNumber &&

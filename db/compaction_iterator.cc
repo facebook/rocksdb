@@ -80,7 +80,7 @@ CompactionIterator::CompactionIterator(
 #ifndef NDEBUG
   // findEarliestVisibleSnapshot assumes this ordering.
   for (size_t i = 1; i < snapshots_->size(); ++i) {
-    assert(snapshots_->at(i - 1) <= snapshots_->at(i));
+    assert(snapshots_->at(i - 1) < snapshots_->at(i));
   }
 #endif
   if (compaction_filter_ != nullptr) {
