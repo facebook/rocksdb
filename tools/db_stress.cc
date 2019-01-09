@@ -3802,6 +3802,14 @@ class AtomicFlushStressTest : public StressTest {
                                 &cf_handles, &checkpoint_db);
       }
     }
+    if (checkpoint_db != nullptr) {
+      for (auto cfh : cf_handles) {
+        delete cfh;
+      }
+      cf_handles.clear();
+      delete checkpoint_db;
+      checkpoint_db = nullptr;
+    }
     DestroyDB(checkpoint_dir, Options());
     if (!s.ok()) {
       fprintf(stderr, "A checkpoint operation failed with: %s\n",
