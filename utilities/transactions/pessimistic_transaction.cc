@@ -473,11 +473,11 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
       return Status::OK();
     }
     virtual Status DeleteRangeCF(uint32_t /*column_family_id*/,
-                              const Slice& /*begin_key*/,
-                              const Slice& /*end_key*/) {
+                                 const Slice& /*begin_key*/,
+                                 const Slice& /*end_key*/) override {
       // TODO: Add range lock support
       return Status::OK();
-   }
+    }
   };
 
   // Iterating on this handler will add all keys in this batch into keys

@@ -759,12 +759,17 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
 // duplicate keys.
 struct SubBatchCounter : public WriteBatch::Handler {
   explicit SubBatchCounter(std::map<uint32_t, const Comparator*>& comparators)
-      : comparators_(comparators), batches_(1) {}
+      : comparators_(comparators), batches_(1), seenDeleteRange_(false) {}
   std::map<uint32_t, const Comparator*>& comparators_;
   using CFKeys = std::set<Slice, SetComparator>;
   std::map<uint32_t, CFKeys> keys_;
   size_t batches_;
-  size_t BatchCount() { return batches_; }
+  bool seenDeleteRange_;
+  size_t BatchCount() {
+    // Current DeleteRange can't co-exists with others
+    assert(!seenDeleteRange_ || batches_ == 1);
+    return batches_;
+  }
   void AddKey(const uint32_t cf, const Slice& key);
   void InitWithComp(const uint32_t cf);
   Status MarkNoop(bool) override { return Status::OK(); }
@@ -786,13 +791,11 @@ struct SubBatchCounter : public WriteBatch::Handler {
     AddKey(cf, key);
     return Status::OK();
   }
-
-  Status DeleteRangeCF(uint32_t /*column_family_id*/,
-                            const Slice& /*begin_key*/,
-                            const Slice& /*end_key*/) {
-    // TODO: Add range lock support
+  Status DeleteRangeCF(uint32_t /*column_family_id*/, const Slice& /*begin_key*/,
+                       const Slice& /*end_key*/) override {
+    // Current DelegateRange can't co-exist with others
     return Status::OK();
- }
+  }
   Status MarkBeginPrepare(bool) override { return Status::OK(); }
   Status MarkRollback(const Slice&) override { return Status::OK(); }
   bool WriteAfterCommit() const override { return false; }
