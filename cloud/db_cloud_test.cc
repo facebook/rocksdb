@@ -41,6 +41,7 @@ class CloudTest : public testing::Test {
     db_ = nullptr;
 
     DestroyDir(dbname_);
+    base_env_->CreateDirIfMissing(dbname_);
     base_env_->NewLogger(test::TmpDir(base_env_) + "/rocksdb-cloud.log",
                          &options_.info_log);
     options_.info_log->SetInfoLogLevel(InfoLogLevel::DEBUG_LEVEL);
