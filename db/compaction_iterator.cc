@@ -77,19 +77,21 @@ CompactionIterator::CompactionIterator(
       merge_out_iter_(merge_helper_),
       current_key_committed_(false) {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
+  assert(snapshots_ != nullptr);
   bottommost_level_ =
       compaction_ == nullptr ? false : compaction_->bottommost_level();
   if (compaction_ != nullptr) {
     level_ptrs_ = std::vector<size_t>(compaction_->number_levels(), 0);
   }
-
   if (snapshots_->size() == 0) {
     // optimize for fast path if there are no snapshots
     visible_at_tip_ = true;
+    earliest_snapshot_iter_ = snapshots_->end();
     earliest_snapshot_ = kMaxSequenceNumber;
     latest_snapshot_ = 0;
   } else {
     visible_at_tip_ = false;
+    earliest_snapshot_iter_ = snapshots_->begin();
     earliest_snapshot_ = snapshots_->at(0);
     latest_snapshot_ = snapshots_->back();
   }
@@ -658,21 +660,18 @@ inline bool CompactionIterator::ikeyNotNeededForIncrementalSnapshot() {
 
 bool CompactionIterator::IsInEarliestSnapshot(SequenceNumber sequence) {
   assert(snapshot_checker_ != nullptr);
+  assert(earliest_snapshot_ == kMaxSequenceNumber ||
+         (earliest_snapshot_iter_ != snapshots_->end() &&
+          *earliest_snapshot_iter_ == earliest_snapshot_));
   auto in_snapshot =
       snapshot_checker_->CheckInSnapshot(sequence, earliest_snapshot_);
-  auto snapshots_iter = snapshots_->end();
   while (UNLIKELY(in_snapshot == SnapshotCheckerResult::kSnapshotReleased)) {
-    if (snapshots_iter == snapshots_->end()) {
-      snapshots_iter = std::lower_bound(snapshots_->begin(), snapshots_->end(),
-                                        earliest_snapshot_ + 1);
-    } else {
-      snapshots_iter++;
-    }
-    if (snapshots_iter == snapshots_->end()) {
+    earliest_snapshot_iter_++;
+    if (earliest_snapshot_iter_ == snapshots_->end()) {
       earliest_snapshot_ = kMaxSequenceNumber;
       return true;
     } else {
-      earliest_snapshot_ = *snapshots_iter;
+      earliest_snapshot_ = *earliest_snapshot_iter_;
       in_snapshot =
           snapshot_checker_->CheckInSnapshot(sequence, earliest_snapshot_);
     }
