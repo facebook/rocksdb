@@ -1,8 +1,6 @@
 # Rocksdb Change Log
 ## Unreleased
 ### New Features
-* Enabled checkpoint on readonly db (DBImplReadOnly).
-* Make DB ignore dropped column families while committing results of atomic flush.
 * RocksDB may choose to preopen some files even if options.max_open_files != -1. This may make DB open slightly longer.
 * For users of dictionary compression with ZSTD v0.7.0+, we now reuse the same digested dictionary when compressing each of an SST file's data blocks for faster compression speeds.
 
@@ -11,16 +9,18 @@
 * `TableProperties::num_entries` and `TableProperties::num_deletions` now also account for number of range tombstones.
 * Remove geodb, spatial_db, document_db, json_document, date_tiered_db, and redis_lists.
 * With "ldb ----try_load_options", when wal_dir specified by the option file doesn't exist, ignore it.
-* Change time resolution in FileOperationInfo.
 * Deleting Blob files also go through SStFileManager.
 
 ### Bug Fixes
-* Fix a deadlock caused by compaction and file ingestion waiting for each other in the event of write stalls.
 * Fix a memory leak when files with range tombstones are read in mmap mode and block cache is enabled
 * Fix handling of corrupt range tombstone blocks such that corruptions cannot cause deleted keys to reappear
 * Lock free MultiGet
 * Fix incorrect `NotFound` point lookup result when querying the endpoint of a file that has been extended by a range tombstone.
 * Fix with pipelined write, write leaders's callback failure lead to the whole write group fail.
+
+## 5.18.2 (1/23/2019)
+### Public API Change
+* Change time resolution in FileOperationInfo.
 
 ## 5.18.0 (11/30/2018)
 ### New Features
@@ -33,6 +33,7 @@
 * Add xxhash64 checksum support
 * Introduced `MemoryAllocator`, which lets the user specify custom memory allocator for block based table.
 * Improved `DeleteRange` to prevent read performance degradation. The feature is no longer marked as experimental.
+* Enabled checkpoint on readonly db (DBImplReadOnly).
 
 ### Public API Change
 * `DBOptions::use_direct_reads` now affects reads issued by `BackupEngine` on the database's SSTs.
@@ -49,6 +50,8 @@
 * Fixed Get correctness bug in the presence of range tombstones where merge operands covered by a range tombstone always result in NotFound.
 * Start populating `NO_FILE_CLOSES` ticker statistic, which was always zero previously.
 * The default value of NewBloomFilterPolicy()'s argument use_block_based_builder is changed to false. Note that this new default may cause large temp memory usage when building very large SST files.
+* Fix a deadlock caused by compaction and file ingestion waiting for each other in the event of write stalls.
+* Make DB ignore dropped column families while committing results of atomic flush.
 
 ## 5.17.0 (10/05/2018)
 ### Public API Change
