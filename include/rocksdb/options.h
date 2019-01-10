@@ -220,7 +220,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // using a fast (lz4) and slow (zstd) compression algorithm.
   // The compressibility is reported as stats and the stored
   // data is left uncompressed (unless compression is also requested).
-  uint64_t sample_for_compression;
+  uint64_t sample_for_compression = 0;
 
   // Compression algorithm that will be used for the bottommost level that
   // contain files.
