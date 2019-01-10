@@ -279,7 +279,7 @@ Status KafkaController::TailStream() {
         // Apply the payload to local filesystem
         status_ = Apply(sl);
         if (!status_.ok()) {
-          Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+          Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
               "[%s] error processing message size %ld "
               "extracted from stream %s %s",
               GetTypeName().c_str(), message->len(),

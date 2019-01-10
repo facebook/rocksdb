@@ -41,7 +41,9 @@ class CloudTest : public testing::Test {
     db_ = nullptr;
 
     DestroyDir(dbname_);
-    CreateLoggerFromOptions(dbname_, options_, &options_.info_log);
+    base_env_->NewLogger(test::TmpDir(base_env_) + "/rocksdb-cloud.log",
+                         &options_.info_log);
+    options_.info_log->SetInfoLogLevel(InfoLogLevel::DEBUG_LEVEL);
 
     // Get cloud credentials
     AwsEnv::GetTestCredentials(&cloud_env_options_.credentials.access_key_id,

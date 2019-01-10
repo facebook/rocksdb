@@ -89,11 +89,24 @@ Status CloudLogController::Apply(const Slice& in) {
       st = env_->GetPosixEnv()->NewRandomRWFile(
           pathname, &result, EnvOptions());
 
+      if (!st.ok()) {
+          // create the file
+          unique_ptr<WritableFile> tmp_writable_file;
+          env_->GetPosixEnv()->NewWritableFile(pathname, &tmp_writable_file,
+                                               EnvOptions());
+          tmp_writable_file.reset();
+          // Try again.
+          st = env_->GetPosixEnv()->NewRandomRWFile(
+                  pathname, &result, EnvOptions());
+      }
+
       if (st.ok()) {
         cache_fds_[pathname] = std::move(result);
         Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
             "[%s] Tailer: Successfully opened file %s and cached",
             GetTypeName().c_str(), pathname.c_str());
+      } else {
+          return st;
       }
     }
 
