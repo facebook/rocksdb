@@ -322,8 +322,9 @@ struct BlockBasedTableBuilder::Rep {
             _compression_type, _compression_opts.level),
         compression_ctx(_compression_type),
         verify_dict(
-            _compression_dict == nullptr ? Slice() : Slice(*_compression_dict),
-            _compression_type),
+            _compression_dict == nullptr ? std::string() : *_compression_dict,
+            _compression_type == kZSTD ||
+                _compression_type == kZSTDNotFinalCompression),
         use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
                                             !table_opt.block_align),
         compressed_cache_key_prefix_size(0),

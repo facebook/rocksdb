@@ -11,6 +11,13 @@
 
 #include <algorithm>
 #include <limits>
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+#ifdef OS_FREEBSD
+#include <malloc_np.h>
+#else  // OS_FREEBSD
+#include <malloc.h>
+#endif  // OS_FREEBSD
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
 #include <string>
 
 #include "rocksdb/options.h"
@@ -204,17 +211,27 @@ struct UncompressionDict {
 #if ZSTD_VERSION_NUMBER >= 700
   ZSTD_DDict* zstd_ddict_;
 #endif  // ZSTD_VERSION_NUMBER >= 700
-  Slice dict_;
+  // Block containing the data for the compression dictionary. It may be
+  // redundant with the data held in `zstd_ddict_`.
+  // TODO(ajkr): use `ZSTD_createDDict_byReference` once it is exposed publicly.
+  std::string dict_;
+  // This `Statistics` pointer is intended to be used upon block cache eviction,
+  // so only needs to be populated on `UncompressionDict`s that'll be inserted
+  // into block cache.
+  Statistics* statistics_;
 
 #if ZSTD_VERSION_NUMBER >= 700
-  UncompressionDict(Slice dict, CompressionType type) {
+  UncompressionDict(std::string dict, bool using_zstd,
+                    Statistics* _statistics = nullptr) {
 #else   // ZSTD_VERSION_NUMBER >= 700
-  UncompressionDict(Slice dict, CompressionType /*type*/) {
+  UncompressionDict(std::string dict, bool /*using_zstd*/,
+                    Statistics* _statistics = nullptr) {
 #endif  // ZSTD_VERSION_NUMBER >= 700
     dict_ = std::move(dict);
+    statistics_ = _statistics;
 #if ZSTD_VERSION_NUMBER >= 700
     zstd_ddict_ = nullptr;
-    if (!dict_.empty() && (type == kZSTD || type == kZSTDNotFinalCompression)) {
+    if (!dict_.empty() && using_zstd) {
       zstd_ddict_ = ZSTD_createDDict(dict_.data(), dict_.size());
       assert(zstd_ddict_ != nullptr);
     }
@@ -243,6 +260,29 @@ struct UncompressionDict {
   static const UncompressionDict& GetEmptyDict() {
     static UncompressionDict empty_dict{};
     return empty_dict;
+  }
+
+  Statistics* statistics() const { return statistics_; }
+
+  size_t ApproximateMemoryUsage() {
+    size_t usage = 0;
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+    usage += malloc_usable_size((void*)this);
+#if ZSTD_VERSION_NUMBER >= 700
+    usage += malloc_usable_size((void*)zstd_ddict_);
+#endif  // ZSTD_VERSION_NUMBER >= 700
+#else   // ROCKSDB_MALLOC_USABLE_SIZE
+    usage += sizeof(struct UncompressionDict);
+#if ZSTD_VERSION_NUMBER >= 700
+    if (zstd_ddict_ != nullptr) {
+      // Magic number comes from what I saw last time I ran `ZSTD_sizeof_DDict`
+      // which is not exposed publicly.
+      usage += 23640;
+    }
+#endif  // ZSTD_VERSION_NUMBER >= 700
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+    usage += dict_.size();
+    return usage;
   }
 
   UncompressionDict() = default;

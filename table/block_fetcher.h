@@ -19,14 +19,14 @@ class BlockFetcher {
   // The only relevant option is options.verify_checksums for now.
   // On failure return non-OK.
   // On success fill *result and return OK - caller owns *result
-  // @param compression_dict Data for presetting the compression library's
+  // @param uncompression_dict Data for presetting the compression library's
   //    dictionary.
   BlockFetcher(RandomAccessFileReader* file,
                FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                const ReadOptions& read_options, const BlockHandle& handle,
                BlockContents* contents, const ImmutableCFOptions& ioptions,
                bool do_uncompress, bool maybe_compressed,
-               const Slice& compression_dict,
+               const UncompressionDict& uncompression_dict,
                const PersistentCacheOptions& cache_options,
                MemoryAllocator* memory_allocator = nullptr,
                MemoryAllocator* memory_allocator_compressed = nullptr)
@@ -39,7 +39,7 @@ class BlockFetcher {
         ioptions_(ioptions),
         do_uncompress_(do_uncompress),
         maybe_compressed_(maybe_compressed),
-        compression_dict_(compression_dict),
+        uncompression_dict_(uncompression_dict),
         cache_options_(cache_options),
         memory_allocator_(memory_allocator),
         memory_allocator_compressed_(memory_allocator_compressed) {}
@@ -58,7 +58,7 @@ class BlockFetcher {
   const ImmutableCFOptions& ioptions_;
   bool do_uncompress_;
   bool maybe_compressed_;
-  const Slice& compression_dict_;
+  const UncompressionDict& uncompression_dict_;
   const PersistentCacheOptions& cache_options_;
   MemoryAllocator* memory_allocator_;
   MemoryAllocator* memory_allocator_compressed_;

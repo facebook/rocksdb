@@ -189,13 +189,12 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
   ReadOptions read_options;
   read_options.verify_checksums = false;
   Status s;
-  Slice compression_dict;
   PersistentCacheOptions cache_options;
 
-  BlockFetcher block_fetcher(file, prefetch_buffer, footer, read_options,
-                             handle, &block_contents, ioptions,
-                             false /* decompress */, false /*maybe_compressed*/,
-                             compression_dict, cache_options, memory_allocator);
+  BlockFetcher block_fetcher(
+      file, prefetch_buffer, footer, read_options, handle, &block_contents,
+      ioptions, false /* decompress */, false /*maybe_compressed*/,
+      UncompressionDict::GetEmptyDict(), cache_options, memory_allocator);
   s = block_fetcher.ReadBlockContents();
   // property block is never compressed. Need to add uncompress logic if we are
   // to compress it..
@@ -332,14 +331,13 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   BlockContents metaindex_contents;
   ReadOptions read_options;
   read_options.verify_checksums = false;
-  Slice compression_dict;
   PersistentCacheOptions cache_options;
 
-  BlockFetcher block_fetcher(file, nullptr /* prefetch_buffer */, footer,
-                             read_options, metaindex_handle,
-                             &metaindex_contents, ioptions,
-                             false /* decompress */, false /*maybe_compressed*/,
-                             compression_dict, cache_options, memory_allocator);
+  BlockFetcher block_fetcher(
+      file, nullptr /* prefetch_buffer */, footer, read_options,
+      metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
+      false /*maybe_compressed*/, UncompressionDict::GetEmptyDict(),
+      cache_options, memory_allocator);
   s = block_fetcher.ReadBlockContents();
   if (!s.ok()) {
     return s;
@@ -402,13 +400,12 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
   BlockContents metaindex_contents;
   ReadOptions read_options;
   read_options.verify_checksums = false;
-  Slice compression_dict;
   PersistentCacheOptions cache_options;
   BlockFetcher block_fetcher(
       file, nullptr /* prefetch_buffer */, footer, read_options,
       metaindex_handle, &metaindex_contents, ioptions,
       false /* do decompression */, false /*maybe_compressed*/,
-      compression_dict, cache_options, memory_allocator);
+      UncompressionDict::GetEmptyDict(), cache_options, memory_allocator);
   s = block_fetcher.ReadBlockContents();
   if (!s.ok()) {
     return s;
@@ -445,13 +442,13 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
   BlockContents metaindex_contents;
   ReadOptions read_options;
   read_options.verify_checksums = false;
-  Slice compression_dict;
   PersistentCacheOptions cache_options;
 
   BlockFetcher block_fetcher(file, prefetch_buffer, footer, read_options,
                              metaindex_handle, &metaindex_contents, ioptions,
                              false /* decompress */, false /*maybe_compressed*/,
-                             compression_dict, cache_options, memory_allocator);
+                             UncompressionDict::GetEmptyDict(), cache_options,
+                             memory_allocator);
   status = block_fetcher.ReadBlockContents();
   if (!status.ok()) {
     return status;
@@ -478,7 +475,7 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
   BlockFetcher block_fetcher2(
       file, prefetch_buffer, footer, read_options, block_handle, contents,
       ioptions, false /* decompress */, false /*maybe_compressed*/,
-      compression_dict, cache_options, memory_allocator);
+      UncompressionDict::GetEmptyDict(), cache_options, memory_allocator);
   return block_fetcher2.ReadBlockContents();
 }
 

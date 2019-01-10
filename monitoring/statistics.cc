@@ -168,6 +168,16 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {NUMBER_MULTIGET_KEYS_FOUND, "rocksdb.number.multiget.keys.found"},
     {NO_ITERATOR_CREATED, "rocksdb.num.iterator.created"},
     {NO_ITERATOR_DELETED, "rocksdb.num.iterator.deleted"},
+    {BLOCK_CACHE_COMPRESSION_DICT_MISS,
+     "rocksdb.block.cache.compression.dict.miss"},
+    {BLOCK_CACHE_COMPRESSION_DICT_HIT,
+     "rocksdb.block.cache.compression.dict.hit"},
+    {BLOCK_CACHE_COMPRESSION_DICT_ADD,
+     "rocksdb.block.cache.compression.dict.add"},
+    {BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT,
+     "rocksdb.block.cache.compression.dict.bytes.insert"},
+    {BLOCK_CACHE_COMPRESSION_DICT_BYTES_EVICT,
+     "rocksdb.block.cache.compression.dict.bytes.evict"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

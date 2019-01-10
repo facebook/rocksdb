@@ -5,6 +5,7 @@
 * Make DB ignore dropped column families while committing results of atomic flush.
 * RocksDB may choose to preopen some files even if options.max_open_files != -1. This may make DB open slightly longer.
 * For users of dictionary compression with ZSTD v0.7.0+, we now reuse the same digested dictionary when compressing each of an SST file's data blocks for faster compression speeds.
+* Dictionaries used for decompression, including ZSTD digested dictionaries when applicable, are now stored in block cache when `cache_index_and_filter_blocks == true`.
 
 ### Public API Change
 * CompactionPri = kMinOverlappingRatio also uses compensated file size, which boosts file with lots of tombstones to be compacted first.

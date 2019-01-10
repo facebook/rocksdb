@@ -320,12 +320,19 @@ enum Tickers : uint32_t {
   // # of times snapshot_mutex_ is acquired in the fast path.
   TXN_SNAPSHOT_MUTEX_OVERHEAD,
 
-  // Number of keys actually found in MultiGet calls (vs number requested by caller)
+  // Number of keys actually found in MultiGet calls (vs number requested by
+  // caller)
   // NUMBER_MULTIGET_KEYS_READ gives the number requested by caller
   NUMBER_MULTIGET_KEYS_FOUND,
 
   NO_ITERATOR_CREATED,  // number of iterators created
   NO_ITERATOR_DELETED,  // number of iterators deleted
+
+  BLOCK_CACHE_COMPRESSION_DICT_MISS,
+  BLOCK_CACHE_COMPRESSION_DICT_HIT,
+  BLOCK_CACHE_COMPRESSION_DICT_ADD,
+  BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT,
+  BLOCK_CACHE_COMPRESSION_DICT_BYTES_EVICT,
   TICKER_ENUM_MAX
 };
 
