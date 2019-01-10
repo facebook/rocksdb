@@ -778,6 +778,7 @@ class DBTestBase : public testing::Test {
   }
 
   static bool ShouldSkipOptions(int option_config, int skip_mask = kNoSkip);
+  static bool ShouldSkipAwsOptions(int option_config);
 
   // Switch to a fresh database with the next option configuration to
   // test.  Return false if there are no more configurations to test.

@@ -170,6 +170,11 @@ bool DBTestBase::ShouldSkipOptions(int option_config, int skip_mask) {
     return false;
 }
 
+bool DBTestBase::ShouldSkipAwsOptions(int option_config) {
+    // AWS Env doesn't work with DirectIO
+    return option_config == kDirectIO;
+}
+
 // Switch to a fresh database with the next option configuration to
 // test.  Return false if there are no more configurations to test.
 bool DBTestBase::ChangeOptions(int skip_mask) {
@@ -177,6 +182,9 @@ bool DBTestBase::ChangeOptions(int skip_mask) {
    for (option_config_++; option_config_ < kEnd; option_config_++) {
      if (ShouldSkipOptions(option_config_, skip_mask)) {
        continue;
+     }
+     if (option_env_ == kAwsEnv && ShouldSkipAwsOptions(option_config_)) {
+         continue;
      }
      break;
    }
@@ -682,6 +690,15 @@ void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
     AwsEnv* aenv = static_cast<AwsEnv *>(s3_env_);
     Status st = aenv->EmptyBucket("dbtest." + AwsEnv::GetTestBucketSuffix(), dbname_);
     ASSERT_TRUE(st.ok() || st.IsNotFound());
+    for (int r = 0; r < 10; ++r) {
+      // The existance is not propagated atomically in S3, so wait until
+      // IDENTITY file no longer exists.
+      if (aenv->FileExists(dbname_ + "/IDENTITY").ok()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10 * (r + 1)));
+        continue;
+      }
+      break;
+    }
   }
 #endif
 }
