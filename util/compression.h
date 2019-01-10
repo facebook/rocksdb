@@ -326,6 +326,7 @@ class CompressionContext {
   ~CompressionContext() { DestroyNativeContext(); }
   CompressionContext(const CompressionContext&) = delete;
   CompressionContext& operator=(const CompressionContext&) = delete;
+  temp
 };
 
 class CompressionInfo {
