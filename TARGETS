@@ -255,14 +255,9 @@ cpp_library(
         "utilities/checkpoint/checkpoint_impl.cc",
         "utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc",
         "utilities/convenience/info_log_finder.cc",
-        "utilities/date_tiered/date_tiered_db_impl.cc",
         "utilities/debug.cc",
-        "utilities/document/document_db.cc",
-        "utilities/document/json_document.cc",
-        "utilities/document/json_document_builder.cc",
         "utilities/env_mirror.cc",
         "utilities/env_timed.cc",
-        "utilities/geodb/geodb_impl.cc",
         "utilities/leveldb_options/leveldb_options.cc",
         "utilities/lua/rocks_lua_compaction_filter.cc",
         "utilities/memory/memory_util.cc",
@@ -279,9 +274,7 @@ cpp_library(
         "utilities/persistent_cache/block_cache_tier_metadata.cc",
         "utilities/persistent_cache/persistent_cache_tier.cc",
         "utilities/persistent_cache/volatile_tier_impl.cc",
-        "utilities/redis/redis_lists.cc",
         "utilities/simulator_cache/sim_cache.cc",
-        "utilities/spatialdb/spatial_db.cc",
         "utilities/table_properties_collectors/compact_on_deletion_collector.cc",
         "utilities/trace/file_trace_reader_writer.cc",
         "utilities/transactions/optimistic_transaction.cc",
@@ -319,9 +312,6 @@ cpp_library(
         "util/testharness.cc",
         "util/testutil.cc",
         "utilities/cassandra/test_utils.cc",
-        "utilities/col_buf_decoder.cc",
-        "utilities/col_buf_encoder.cc",
-        "utilities/column_aware_encoding_util.cc",
     ],
     auto_headers = AutoHeaders.RECURSIVE_GLOB,
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
@@ -445,11 +435,6 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
-        "column_aware_encoding_test",
-        "utilities/column_aware_encoding_test.cc",
-        "serial",
-    ],
-    [
         "column_family_test",
         "db/column_family_test.cc",
         "serial",
@@ -517,11 +502,6 @@ ROCKS_TESTS = [
     [
         "data_block_hash_index_test",
         "table/data_block_hash_index_test.cc",
-        "serial",
-    ],
-    [
-        "date_tiered_test",
-        "utilities/date_tiered/date_tiered_test.cc",
         "serial",
     ],
     [
@@ -685,11 +665,6 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
-        "document_db_test",
-        "utilities/document/document_db_test.cc",
-        "serial",
-    ],
-    [
         "dynamic_bloom_test",
         "util/dynamic_bloom_test.cc",
         "serial",
@@ -765,11 +740,6 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
-        "geodb_test",
-        "utilities/geodb/geodb_test.cc",
-        "serial",
-    ],
-    [
         "hash_table_test",
         "utilities/persistent_cache/hash_table_test.cc",
         "serial",
@@ -797,11 +767,6 @@ ROCKS_TESTS = [
     [
         "iostats_context_test",
         "monitoring/iostats_context_test.cc",
-        "serial",
-    ],
-    [
-        "json_document_test",
-        "utilities/document/json_document_test.cc",
         "serial",
     ],
     [
@@ -967,11 +932,6 @@ ROCKS_TESTS = [
     [
         "slice_transform_test",
         "util/slice_transform_test.cc",
-        "serial",
-    ],
-    [
-        "spatial_db_test",
-        "utilities/spatialdb/spatial_db_test.cc",
         "serial",
     ],
     [

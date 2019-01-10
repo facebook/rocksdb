@@ -403,7 +403,7 @@ BENCHTOOLOBJECTS = $(BENCH_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
 
 ANALYZETOOLOBJECTS = $(ANALYZER_LIB_SOURCES:.cc=.o)
 
-EXPOBJECTS = $(EXP_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
+EXPOBJECTS = $(LIBOBJECTS) $(TESTUTIL)
 
 TESTS = \
 	db_basic_test \
@@ -482,7 +482,6 @@ TESTS = \
 	merger_test \
 	util_merge_operators_test \
 	options_file_test \
-	redis_test \
 	reduce_levels_test \
 	plain_table_db_test \
 	comparator_db_test \
@@ -496,12 +495,8 @@ TESTS = \
 	cassandra_row_merge_test \
 	cassandra_serialize_test \
 	ttl_test \
-	date_tiered_test \
 	backupable_db_test \
-	document_db_test \
-	json_document_test \
 	sim_cache_test \
-	spatial_db_test \
 	version_edit_test \
 	version_set_test \
 	compaction_picker_test \
@@ -513,7 +508,6 @@ TESTS = \
 	deletefile_test \
 	obsolete_files_test \
 	table_test \
-	geodb_test \
 	delete_scheduler_test \
 	options_test \
 	options_settable_test \
@@ -530,7 +524,6 @@ TESTS = \
 	compaction_job_test \
 	thread_list_test \
 	sst_dump_test \
-	column_aware_encoding_test \
 	compact_files_test \
 	optimistic_transaction_test \
 	write_callback_test \
@@ -604,7 +597,7 @@ TEST_LIBS = \
 	librocksdb_env_basic_test.a
 
 # TODO: add back forward_iterator_bench, after making it build in all environemnts.
-BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench column_aware_encoding_exp persistent_cache_bench range_del_aggregator_bench
+BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench persistent_cache_bench range_del_aggregator_bench
 
 # if user didn't config LIBNAME, set the default
 ifeq ($(LIBNAME),)
@@ -1153,9 +1146,6 @@ cassandra_row_merge_test: utilities/cassandra/cassandra_row_merge_test.o utiliti
 cassandra_serialize_test: utilities/cassandra/cassandra_serialize_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-redis_test: utilities/redis/redis_lists_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
 hash_table_test: utilities/persistent_cache/hash_table_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1294,16 +1284,7 @@ backupable_db_test: utilities/backupable/backupable_db_test.o $(LIBOBJECTS) $(TE
 checkpoint_test: utilities/checkpoint/checkpoint_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-document_db_test: utilities/document/document_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
-json_document_test: utilities/document/json_document_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
 sim_cache_test: utilities/simulator_cache/sim_cache_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
-spatial_db_test: utilities/spatialdb/spatial_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 env_mirror_test: utilities/env_mirror_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1321,9 +1302,6 @@ object_registry_test: utilities/object_registry_test.o $(LIBOBJECTS) $(TESTHARNE
 	$(AM_LINK)
 
 ttl_test: utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
-date_tiered_test: utilities/date_tiered/date_tiered_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 write_batch_with_index_test: utilities/write_batch_with_index/write_batch_with_index_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1452,9 +1430,6 @@ deletefile_test: db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS)
 obsolete_files_test: db/obsolete_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-geodb_test: utilities/geodb/geodb_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
 rocksdb_dump: tools/dump/rocksdb_dump.o $(LIBOBJECTS)
 	$(AM_LINK)
 
@@ -1503,9 +1478,6 @@ timer_queue_test: util/timer_queue_test.o $(LIBOBJECTS) $(TESTHARNESS)
 sst_dump_test: tools/sst_dump_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-column_aware_encoding_test: utilities/column_aware_encoding_test.o $(TESTHARNESS) $(EXPOBJECTS)
-	$(AM_LINK)
-
 optimistic_transaction_test: utilities/transactions/optimistic_transaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1543,9 +1515,6 @@ sst_dump: tools/sst_dump.o $(LIBOBJECTS)
 	$(AM_LINK)
 
 blob_dump: tools/blob_dump.o $(LIBOBJECTS)
-	$(AM_LINK)
-
-column_aware_encoding_exp: utilities/column_aware_encoding_exp.o $(EXPOBJECTS)
 	$(AM_LINK)
 
 repair_test: db/repair_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1973,7 +1942,7 @@ endif
 #  	Source files dependencies detection
 # ---------------------------------------------------------------------------
 
-all_sources = $(LIB_SOURCES) $(MAIN_SOURCES) $(MOCK_LIB_SOURCES) $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(TEST_LIB_SOURCES) $(EXP_LIB_SOURCES) $(ANALYZER_LIB_SOURCES)
+all_sources = $(LIB_SOURCES) $(MAIN_SOURCES) $(MOCK_LIB_SOURCES) $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(TEST_LIB_SOURCES) $(ANALYZER_LIB_SOURCES)
 DEPFILES = $(all_sources:.cc=.cc.d)
 
 # Add proper dependency support so changing a .h file forces a .cc file to

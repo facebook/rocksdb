@@ -643,18 +643,10 @@ set(SOURCES
         utilities/cassandra/format.cc
         utilities/cassandra/merge_operator.cc
         utilities/checkpoint/checkpoint_impl.cc
-        utilities/col_buf_decoder.cc
-        utilities/col_buf_encoder.cc
-        utilities/column_aware_encoding_util.cc
         utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc
-        utilities/date_tiered/date_tiered_db_impl.cc
         utilities/debug.cc
-        utilities/document/document_db.cc
-        utilities/document/json_document.cc
-        utilities/document/json_document_builder.cc
         utilities/env_mirror.cc
         utilities/env_timed.cc
-        utilities/geodb/geodb_impl.cc
         utilities/leveldb_options/leveldb_options.cc
         utilities/lua/rocks_lua_compaction_filter.cc
         utilities/memory/memory_util.cc
@@ -671,9 +663,7 @@ set(SOURCES
         utilities/persistent_cache/block_cache_tier_metadata.cc
         utilities/persistent_cache/persistent_cache_tier.cc
         utilities/persistent_cache/volatile_tier_impl.cc
-        utilities/redis/redis_lists.cc
         utilities/simulator_cache/sim_cache.cc
-        utilities/spatialdb/spatial_db.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
         utilities/trace/file_trace_reader_writer.cc
         utilities/transactions/optimistic_transaction_db_impl.cc
@@ -975,11 +965,6 @@ if(WITH_TESTS)
         utilities/cassandra/cassandra_row_merge_test.cc
         utilities/cassandra/cassandra_serialize_test.cc
         utilities/checkpoint/checkpoint_test.cc
-        utilities/column_aware_encoding_test.cc
-        utilities/date_tiered/date_tiered_test.cc
-        utilities/document/document_db_test.cc
-        utilities/document/json_document_test.cc
-        utilities/geodb/geodb_test.cc
         utilities/lua/rocks_lua_test.cc
         utilities/memory/memory_test.cc
         utilities/merge_operators/string_append/stringappend_test.cc
@@ -988,8 +973,6 @@ if(WITH_TESTS)
         utilities/options/options_util_test.cc
         utilities/persistent_cache/hash_table_test.cc
         utilities/persistent_cache/persistent_cache_test.cc
-        utilities/redis/redis_lists_test.cc
-        utilities/spatialdb/spatial_db_test.cc
         utilities/simulator_cache/sim_cache_test.cc
         utilities/table_properties_collectors/compact_on_deletion_collector_test.cc
         utilities/transactions/optimistic_transaction_test.cc
@@ -1009,7 +992,6 @@ if(WITH_TESTS)
     db/range_del_aggregator_bench.cc
     tools/db_bench.cc
     table/table_reader_bench.cc
-    utilities/column_aware_encoding_exp.cc
     utilities/persistent_cache/hash_table_bench.cc)
   add_library(testharness OBJECT util/testharness.cc)
   foreach(sourcefile ${BENCHMARKS})
