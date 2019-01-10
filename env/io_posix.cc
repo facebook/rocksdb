@@ -95,8 +95,8 @@ size_t GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
   if (parent_begin == std::string::npos) {
     return kDefaultPageSize;
   }
-  if (device_dir.substr(parent_begin + 1, parent_end - parent_begin - 1) !=
-      "block") {
+  std::string substr = device_dir.substr(parent_begin + 1, parent_end - parent_begin - 1);
+  if (substr != "block" && substr.compare(0, 4, "nvme")) {
     device_dir = device_dir.substr(0, parent_end);
   }
   std::string fname = device_dir + "/queue/logical_block_size";
