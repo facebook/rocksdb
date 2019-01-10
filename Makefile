@@ -403,7 +403,7 @@ BENCHTOOLOBJECTS = $(BENCH_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
 
 ANALYZETOOLOBJECTS = $(ANALYZER_LIB_SOURCES:.cc=.o)
 
-EXPOBJECTS = $(EXP_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
+EXPOBJECTS = $(LIBOBJECTS) $(TESTUTIL)
 
 TESTS = \
 	db_basic_test \
@@ -1942,7 +1942,7 @@ endif
 #  	Source files dependencies detection
 # ---------------------------------------------------------------------------
 
-all_sources = $(LIB_SOURCES) $(MAIN_SOURCES) $(MOCK_LIB_SOURCES) $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(TEST_LIB_SOURCES) $(EXP_LIB_SOURCES) $(ANALYZER_LIB_SOURCES)
+all_sources = $(LIB_SOURCES) $(MAIN_SOURCES) $(MOCK_LIB_SOURCES) $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(TEST_LIB_SOURCES) $(ANALYZER_LIB_SOURCES)
 DEPFILES = $(all_sources:.cc=.cc.d)
 
 # Add proper dependency support so changing a .h file forces a .cc file to

@@ -242,10 +242,6 @@ MOCK_LIB_SOURCES = \
 BENCH_LIB_SOURCES = \
   tools/db_bench_tool.cc                                        \
 
-EXP_LIB_SOURCES = \
-  utilities/col_buf_decoder.cc                                  \
-  utilities/col_buf_encoder.cc                                  \
-
 TEST_LIB_SOURCES = \
   db/db_test_util.cc                                            \
   util/testharness.cc                                           \

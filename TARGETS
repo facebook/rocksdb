@@ -312,8 +312,6 @@ cpp_library(
         "util/testharness.cc",
         "util/testutil.cc",
         "utilities/cassandra/test_utils.cc",
-        "utilities/col_buf_decoder.cc",
-        "utilities/col_buf_encoder.cc",
     ],
     auto_headers = AutoHeaders.RECURSIVE_GLOB,
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
