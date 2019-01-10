@@ -1346,6 +1346,40 @@ TEST_F(DBTest2, FirstSnapshotTest) {
   db_->ReleaseSnapshot(s1);
 }
 
+#ifndef ROCKSDB_LITE
+TEST_F(DBTest2, DuplicateSnapshot) {
+  Options options;
+  options = CurrentOptions(options);
+  std::vector<const Snapshot*> snapshots;
+  DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+  SequenceNumber oldest_ww_snap, first_ww_snap;
+
+  Put("k", "v");  // inc seq
+  snapshots.push_back(db_->GetSnapshot());
+  snapshots.push_back(db_->GetSnapshot());
+  Put("k", "v");  // inc seq
+  snapshots.push_back(db_->GetSnapshot());
+  snapshots.push_back(dbi->GetSnapshotForWriteConflictBoundary());
+  first_ww_snap = snapshots.back()->GetSequenceNumber();
+  Put("k", "v");  // inc seq
+  snapshots.push_back(dbi->GetSnapshotForWriteConflictBoundary());
+  snapshots.push_back(db_->GetSnapshot());
+  Put("k", "v");  // inc seq
+  snapshots.push_back(db_->GetSnapshot());
+
+  {
+    InstrumentedMutexLock l(dbi->mutex());
+    auto seqs = dbi->snapshots().GetAll(&oldest_ww_snap);
+    ASSERT_EQ(seqs.size(), 4);  // duplicates are not counted
+    ASSERT_EQ(oldest_ww_snap, first_ww_snap);
+  }
+
+  for (auto s : snapshots) {
+    db_->ReleaseSnapshot(s);
+  }
+}
+#endif  // ROCKSDB_LITE
+
 class PinL0IndexAndFilterBlocksTest
     : public DBTestBase,
       public testing::WithParamInterface<std::tuple<bool, bool>> {
