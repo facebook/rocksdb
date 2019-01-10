@@ -786,6 +786,13 @@ struct SubBatchCounter : public WriteBatch::Handler {
     AddKey(cf, key);
     return Status::OK();
   }
+
+  Status DeleteRangeCF(uint32_t /*column_family_id*/,
+                            const Slice& /*begin_key*/,
+                            const Slice& /*end_key*/) {
+    // TODO: Add range lock support
+    return Status::OK();
+ }
   Status MarkBeginPrepare(bool) override { return Status::OK(); }
   Status MarkRollback(const Slice&) override { return Status::OK(); }
   bool WriteAfterCommit() const override { return false; }
