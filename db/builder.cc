@@ -70,17 +70,17 @@ Status BuildTable(
         range_del_iters,
     FileMetaData* meta, const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-    int_tbl_prop_collector_factories,
+        int_tbl_prop_collector_factories,
     uint32_t column_family_id, const std::string& column_family_name,
     std::vector<SequenceNumber> snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
     SnapshotChecker* snapshot_checker, const CompressionType compression,
-    uint64_t sample_for_compression,
-    const CompressionOptions& compression_opts, bool paranoid_file_checks,
-    InternalStats* internal_stats, TableFileCreationReason reason,
-    EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
-    TableProperties* table_properties, int level, const uint64_t creation_time,
-    const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint) {
+    uint64_t sample_for_compression, const CompressionOptions& compression_opts,
+    bool paranoid_file_checks, InternalStats* internal_stats,
+    TableFileCreationReason reason, EventLogger* event_logger, int job_id,
+    const Env::IOPriority io_priority, TableProperties* table_properties,
+    int level, const uint64_t creation_time, const uint64_t oldest_key_time,
+    Env::WriteLifeTimeHint write_hint) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());

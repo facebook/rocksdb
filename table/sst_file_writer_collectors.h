@@ -33,9 +33,10 @@ class SstFileWriterPropertiesCollector : public IntTblPropCollector {
     return Status::OK();
   }
 
-  virtual void SampledBlockStats(uint64_t /* sampledBlockRawBytes */,
-                                 uint64_t /* sampledBlockCompressedBytesFast */,
-                                 uint64_t /* sampledBlockCompressedBytesSlow */) override {
+  virtual void SampledBlockStats(
+      uint64_t /* sampledBlockRawBytes */,
+      uint64_t /* sampledBlockCompressedBytesFast */,
+      uint64_t /* sampledBlockCompressedBytesSlow */) override {
     // Intentionally left blank. Have no interest in collecting stats for
     // sampled blocks.
     return;

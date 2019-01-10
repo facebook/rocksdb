@@ -116,30 +116,22 @@ bool CompressBlockInternal(
       return Zlib_Compress(
           compression_info,
           GetCompressFormatForVersion(kZlibCompression, format_version),
-          raw.data(),
-          raw.size(),
-          compressed_output);
+          raw.data(), raw.size(), compressed_output);
     case kBZip2Compression:
       return BZip2_Compress(
           compression_info,
           GetCompressFormatForVersion(kBZip2Compression, format_version),
-          raw.data(),
-          raw.size(),
-          compressed_output);
+          raw.data(), raw.size(), compressed_output);
     case kLZ4Compression:
       return LZ4_Compress(
           compression_info,
           GetCompressFormatForVersion(kLZ4Compression, format_version),
-          raw.data(),
-          raw.size(),
-          compressed_output);
+          raw.data(), raw.size(), compressed_output);
     case kLZ4HCCompression:
       return LZ4HC_Compress(
           compression_info,
           GetCompressFormatForVersion(kLZ4HCCompression, format_version),
-          raw.data(),
-          raw.size(),
-          compressed_output);
+          raw.data(), raw.size(), compressed_output);
     case kXpressCompression:
       return XPRESS_Compress(raw.data(), raw.size(), compressed_output);
     case kZSTD:
@@ -152,7 +144,7 @@ bool CompressBlockInternal(
   }
 }
 
-} // namespace
+}  // namespace
 
 // format_version is the block format as defined in include/rocksdb/table.h
 Slice CompressBlock(
@@ -176,7 +168,7 @@ Slice CompressBlock(
   // The users can use these stats to decide if it is worthwhile
   // enabling compression and they also get a hint about which
   // compression algorithm wil be beneficial.
-  if (info.sample_for_compression() &&
+  if (do_sample && info.sample_for_compression() &&
       Random::GetTLSInstance()->OneIn((int)info.sample_for_compression()) &&
       sampled_output_fast && sampled_output_slow) {
     // Sampling with a fast compression algorithm
@@ -209,12 +201,8 @@ Slice CompressBlock(
 
   // Actually compress the data
   if (*type != kNoCompression) {
-    if (CompressBlockInternal(
-            raw,
-            compression_ctx,
-            compression_ctx.type(),
-            format_version,
-            compressed_output) &&
+    if (CompressBlockInternal(raw, compression_ctx, compression_ctx.type(),
+                              format_version, compressed_output) &&
         GoodCompressionRatio(compressed_output->size(), raw.size())) {
       return *compressed_output;
     }
@@ -261,9 +249,10 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
     return Status::OK();
   }
 
-  virtual void SampledBlockStats(uint64_t /* sampledBlockRawBytes */,
-                                 uint64_t /* sampledBlockCompressedBytesFast */,
-                                 uint64_t /* sampledBlockCompressedBytesSlow */) override {
+  virtual void SampledBlockStats(
+      uint64_t /* sampledBlockRawBytes */,
+      uint64_t /* sampledBlockCompressedBytesFast */,
+      uint64_t /* sampledBlockCompressedBytesSlow */) override {
     // Intentionally left blank. Have no interest in collecting stats for
     // sampled blocks.
     return;

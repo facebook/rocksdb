@@ -42,8 +42,7 @@ Status UserKeyTablePropertiesCollector::InternalAdd(const Slice& key,
 }
 
 void UserKeyTablePropertiesCollector::SampledBlockStats(
-    uint64_t sampledBLockRawBytes,
-    uint64_t sampledBlockCompressedBytesFast,
+    uint64_t sampledBLockRawBytes, uint64_t sampledBlockCompressedBytesFast,
     uint64_t sampledBlockCompressedBytesSlow) {
   return collector_->SampledBlockStats(sampledBLockRawBytes,
                                        sampledBlockCompressedBytesFast,

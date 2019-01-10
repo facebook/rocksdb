@@ -93,9 +93,10 @@ class TablePropertiesCollector {
   }
 
   // Called on randomly sampled blocks if sampling is requested
-  virtual void SampledBlockStats(uint64_t /* sampledBlockRawBytes */,
-                                 uint64_t /* sampledBlockCompressedBytesFast */,
-                                 uint64_t /* sampledBlockCompressedBytesSlow */) {
+  virtual void SampledBlockStats(
+      uint64_t /* sampledBlockRawBytes */,
+      uint64_t /* sampledBlockCompressedBytesFast */,
+      uint64_t /* sampledBlockCompressedBytesSlow */) {
     // Nothing to do here. Callback registers can override.
     return;
   }

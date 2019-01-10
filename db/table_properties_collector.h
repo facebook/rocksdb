@@ -64,9 +64,9 @@ class UserKeyTablePropertiesCollector : public IntTblPropCollector {
   virtual Status InternalAdd(const Slice& key, const Slice& value,
                              uint64_t file_size) override;
 
-  virtual void SampledBlockStats(uint64_t sampledBlockRawBytes,
-                                 uint64_t sampledBlockCompressedBytesFast,
-                                 uint64_t sampledBlockCompressedBytesSlow) override;
+  virtual void SampledBlockStats(
+      uint64_t sampledBlockRawBytes, uint64_t sampledBlockCompressedBytesFast,
+      uint64_t sampledBlockCompressedBytesSlow) override;
 
   virtual Status Finish(UserCollectedProperties* properties) override;
 

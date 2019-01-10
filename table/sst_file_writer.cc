@@ -202,7 +202,8 @@ Status SstFileWriter::Open(const std::string& file_path) {
     compression_type = r->mutable_cf_options.compression;
     compression_opts = r->ioptions.compression_opts;
   }
-  uint64_t sample_for_compression = r->mutable_cf_options.sample_for_compression;
+  uint64_t sample_for_compression =
+      r->mutable_cf_options.sample_for_compression;
 
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories;
