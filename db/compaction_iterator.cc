@@ -669,13 +669,13 @@ bool CompactionIterator::IsInEarliestSnapshot(SequenceNumber sequence) {
     earliest_snapshot_iter_++;
     if (earliest_snapshot_iter_ == snapshots_->end()) {
       earliest_snapshot_ = kMaxSequenceNumber;
-      return true;
     } else {
       earliest_snapshot_ = *earliest_snapshot_iter_;
-      in_snapshot =
-          snapshot_checker_->CheckInSnapshot(sequence, earliest_snapshot_);
     }
+    in_snapshot =
+        snapshot_checker_->CheckInSnapshot(sequence, earliest_snapshot_);
   }
+  assert(in_snapshot != SnapshotCheckerResult::kSnapshotReleased);
   return in_snapshot == SnapshotCheckerResult::kInSnapshot;
 }
 
