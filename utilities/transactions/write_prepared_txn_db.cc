@@ -567,7 +567,8 @@ const Snapshot* WritePreparedTxnDB::GetSnapshot() {
 const std::vector<SequenceNumber> WritePreparedTxnDB::GetSnapshotListFromDB(
     SequenceNumber max) {
   ROCKS_LOG_DETAILS(info_log_, "GetSnapshotListFromDB with max %" PRIu64, max);
-  InstrumentedMutex(db_impl_->mutex());
+  InstrumentedMutexLock dblock(db_impl_->mutex());
+  db_impl_->mutex()->AssertHeld();
   return db_impl_->snapshots().GetAll(nullptr, max);
 }
 
