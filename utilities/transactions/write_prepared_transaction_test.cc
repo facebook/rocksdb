@@ -353,6 +353,7 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
       : TransactionTestBase(use_stackable_db, two_write_queue, write_policy){};
 
  protected:
+  // TODO(mayabndeh): Avoid duplicating PessimisticTransaction::Open logic here.
   void DestroyAndReopenWithExtraOptions(size_t snapshot_cache_bits,
                                         size_t commit_cache_bits) {
     delete db;

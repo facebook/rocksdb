@@ -512,11 +512,11 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     // reflect any uncommitted data that is not added to prepared_txns_ yet.
     // Otherwise, if there is no concurrent txn, this value simply reflects that
     // latest value in the memtable.
+    if (!delayed_prepared_.empty()) {
+      assert(!delayed_prepared_empty_.load());
+      return *delayed_prepared_.begin();
+    }
     if (prepared_txns_.empty()) {
-      if (!delayed_prepared_.empty()) {
-        assert(!delayed_prepared_empty_.load());
-        return *delayed_prepared_.begin();
-      }
       return db_impl_->GetLatestSequenceNumber() + 1;
     } else {
       return std::min(prepared_txns_.top(),
