@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -147,8 +148,8 @@ struct FileOperationInfo {
   const std::string& path;
   uint64_t offset;
   size_t length;
-  time_t start_timestamp;
-  time_t finish_timestamp;
+  std::chrono::system_clock::time_point start_timestamp;
+  std::chrono::system_clock::time_point finish_timestamp;
   Status status;
   FileOperationInfo(const std::string& _path) : path(_path) {}
 };

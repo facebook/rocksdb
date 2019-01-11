@@ -99,11 +99,10 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
         }
         Slice tmp;
 
-        time_t start_ts = 0;
+        std::chrono::system_clock::time_point start_ts;
         uint64_t orig_offset = 0;
         if (ShouldNotifyListeners()) {
-          start_ts = std::chrono::system_clock::to_time_t(
-              std::chrono::system_clock::now());
+          start_ts = std::chrono::system_clock::now();
           orig_offset = aligned_offset + buf.CurrentSize();
         }
         s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, &tmp,
@@ -145,10 +144,9 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
         Slice tmp_result;
 
 #ifndef ROCKSDB_LITE
-        time_t start_ts = 0;
+        std::chrono::system_clock::time_point start_ts;
         if (ShouldNotifyListeners()) {
-          start_ts = std::chrono::system_clock::to_time_t(
-              std::chrono::system_clock::now());
+          start_ts = std::chrono::system_clock::now();
         }
 #endif
         s = file_->Read(offset + pos, allowed, &tmp_result, scratch + pos);
@@ -444,11 +442,10 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
       TEST_SYNC_POINT("WritableFileWriter::Flush:BeforeAppend");
 
 #ifndef ROCKSDB_LITE
-      time_t start_ts = 0;
+      std::chrono::system_clock::time_point start_ts;
       uint64_t old_size = writable_file_->GetFileSize();
       if (ShouldNotifyListeners()) {
-        start_ts = std::chrono::system_clock::to_time_t(
-            std::chrono::system_clock::now());
+        start_ts = std::chrono::system_clock::now();
         old_size = next_write_offset_;
       }
 #endif
@@ -520,10 +517,9 @@ Status WritableFileWriter::WriteDirect() {
     {
       IOSTATS_TIMER_GUARD(write_nanos);
       TEST_SYNC_POINT("WritableFileWriter::Flush:BeforeAppend");
-      time_t start_ts(0);
+      std::chrono::system_clock::time_point start_ts;
       if (ShouldNotifyListeners()) {
-        start_ts = std::chrono::system_clock::to_time_t(
-            std::chrono::system_clock::now());
+        start_ts = std::chrono::system_clock::now();
       }
       // direct writes must be positional
       s = writable_file_->PositionedAppend(Slice(src, size), write_offset);
