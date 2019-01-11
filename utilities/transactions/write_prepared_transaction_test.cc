@@ -1448,6 +1448,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotEmptyMapTest) {
     db_impl->FlushWAL(true);
     ReOpenNoDelete();
     WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+    assert(wp_db != nullptr);
     ASSERT_GT(wp_db->max_evicted_seq_, 0);  // max after recovery
     // Take a snapshot right after recovery
     const Snapshot* snap = db->GetSnapshot();
