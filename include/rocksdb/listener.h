@@ -145,13 +145,18 @@ struct TableFileDeletionInfo {
 };
 
 struct FileOperationInfo {
+  using TimePoint = std::chrono::time_point<std::chrono::system_clock,
+                                            std::chrono::nanoseconds>;
+
   const std::string& path;
   uint64_t offset;
   size_t length;
-  std::chrono::system_clock::time_point start_timestamp;
-  std::chrono::system_clock::time_point finish_timestamp;
+  const TimePoint& start_timestamp;
+  const TimePoint& finish_timestamp;
   Status status;
-  FileOperationInfo(const std::string& _path) : path(_path) {}
+  FileOperationInfo(const std::string& _path, const TimePoint& start,
+                    const TimePoint& finish)
+      : path(_path), start_timestamp(start), finish_timestamp(finish) {}
 };
 
 struct FlushJobInfo {
