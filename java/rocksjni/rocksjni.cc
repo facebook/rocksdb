@@ -2081,9 +2081,9 @@ jlongArray Java_org_rocksdb_RocksDB_getApproximateMemTableStats(
   db->GetApproximateMemTableStats(cf_handle, range, &count, &sizes);
 
   // prepare results
-  std::unique_ptr<jlong[]> results(new jlong[2]);
-  results[0] = static_cast<jlong>(count);
-  results[1] = static_cast<jlong>(sizes);
+  jlong results[2] = {
+      static_cast<jlong>(count),
+      static_cast<jlong>(sizes)};
 
   const jsize jcount = static_cast<jsize>(count);
   jlongArray jsizes = env->NewLongArray(jcount);
