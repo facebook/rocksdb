@@ -2076,6 +2076,7 @@ TEST_P(WritePreparedTransactionTest, SmallestUncommittedOptimization) {
   // snapshot2 should get min_uncommitted from delayed_prepared_ set.
   auto snapshot2 = db->GetSnapshot();
   ASSERT_OK(transaction->Commit());
+  delete transaction;
   VerifyKeys({{"key1", "NOT_FOUND"}});
   VerifyKeys({{"key1", "value1"}}, snapshot1);
   VerifyKeys({{"key1", "value1"}}, snapshot2);
