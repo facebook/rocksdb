@@ -2033,7 +2033,7 @@ jlongArray Java_org_rocksdb_RocksDB_getApproximateSizes(
   env->ReleaseLongArrayElements(jrange_slice_handles, jranges, JNI_ABORT);
 
   // prepare results
-  std::unique_ptr<jlong[]> results(new jlong[range_count]);
+  auto results = std::unique_ptr<jlong[]>(new jlong[range_count]);
   for (size_t i = 0; i < range_count; ++i) {
     results.get()[i] = static_cast<jlong>(sizes.get()[i]);
   }
