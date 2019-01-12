@@ -126,7 +126,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     local_env->CreateDirIfMissing(local_dbname);
   }
 
-  st = DBCloudImpl::SanitizeDirectory(options, local_dbname);
+  st = DBCloudImpl::SanitizeDirectory(options, local_dbname, read_only);
   if (!st.ok()) {
     return st;
   }
@@ -690,7 +690,8 @@ Status DBCloudImpl::GetCloudDbid(CloudEnvImpl* cenv, const Options& options,
 // Create appropriate files in the clone dir
 //
 Status DBCloudImpl::SanitizeDirectory(const Options& options,
-                                      const std::string& local_name) {
+                                      const std::string& local_name,
+                                      bool read_only) {
   EnvOptions soptions;
 
   CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(options.env);
@@ -735,7 +736,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
           "No destination bucket. "
           "Set options.max_open_files = -1");
     }
-    if (!cenv->GetCloudEnvOptions().keep_local_sst_files) {
+    if (!cenv->GetCloudEnvOptions().keep_local_sst_files && !read_only) {
       Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] SanitizeDirectory error.  "
           " No destination bucket specified. Set options.keep_local_sst_files "

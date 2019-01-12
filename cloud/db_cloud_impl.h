@@ -47,7 +47,8 @@ class DBCloudImpl : public DBCloud {
                           const std::string& local_dir);
 
   static Status SanitizeDirectory(const Options& options,
-                                  const std::string& clone_name);
+                                  const std::string& clone_name,
+                                  bool read_only);
 
   static Status CreateNewIdentityFile(CloudEnv* cenv, const Options& options,
                                       const std::string& dbid,
