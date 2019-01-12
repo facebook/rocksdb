@@ -244,8 +244,7 @@ Status DBImpl::FlushMemTablesToOutputFiles(
   Status status;
   for (auto& arg : bg_flush_args) {
     ColumnFamilyData* cfd = arg.cfd_;
-    const MutableCFOptions& mutable_cf_options =
-        *cfd->GetLatestMutableCFOptions();
+    MutableCFOptions mutable_cf_options = *cfd->GetLatestMutableCFOptions();
     SuperVersionContext* superversion_context = arg.superversion_context_;
     Status s = FlushMemTableToOutputFile(cfd, mutable_cf_options, made_progress,
                                          job_context, superversion_context,
@@ -298,7 +297,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   }
   autovector<Directory*> distinct_output_dirs;
   std::vector<FlushJob> jobs;
+  std::vector<MutableCFOptions> all_mutable_cf_options;
   int num_cfs = static_cast<int>(cfds.size());
+  all_mutable_cf_options.reserve(num_cfs);
   for (int i = 0; i < num_cfs; ++i) {
     auto cfd = cfds[i];
     Directory* data_dir = GetDataDir(cfd, 0U);
@@ -317,8 +318,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       distinct_output_dirs.emplace_back(data_dir);
     }
 
-    const MutableCFOptions& mutable_cf_options =
-        *cfd->GetLatestMutableCFOptions();
+    all_mutable_cf_options.emplace_back(*cfd->GetLatestMutableCFOptions());
+    const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.back();
     const uint64_t* max_memtable_id = &(bg_flush_args[i].max_memtable_id_);
     jobs.emplace_back(
         dbname_, cfds[i], immutable_db_options_, mutable_cf_options,
@@ -454,8 +455,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       if (!cfds[i]->IsDropped() && !mems.empty()) {
         tmp_cfds.emplace_back(cfds[i]);
         mems_list.emplace_back(&mems);
-        mutable_cf_options_list.emplace_back(
-            cfds[i]->GetLatestMutableCFOptions());
+        mutable_cf_options_list.emplace_back(&all_mutable_cf_options[i]);
       }
     }
 
@@ -1461,6 +1461,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
 void DBImpl::GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
                                   FlushRequest* req) {
   assert(req != nullptr);
+  req->reserve(cfds.size());
   for (const auto cfd : cfds) {
     if (nullptr == cfd) {
       // cfd may be null, see DBImpl::ScheduleFlushes
