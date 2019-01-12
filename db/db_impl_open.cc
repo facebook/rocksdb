@@ -422,8 +422,12 @@ Status DBImpl::Recover(
     std::vector<std::string> filenames;
     s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
     if (!s.ok()) {
-      return Status::InvalidArgument("wal_dir not found",
-                                     immutable_db_options_.wal_dir);
+      if (s.IsNotFound()) {
+        return Status::InvalidArgument("wal_dir not found",
+                                       immutable_db_options_.wal_dir);
+      } else {
+        return s;
+      }
     }
 
     std::vector<uint64_t> logs;
