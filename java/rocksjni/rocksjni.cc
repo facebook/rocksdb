@@ -2092,7 +2092,7 @@ jlongArray Java_org_rocksdb_RocksDB_getApproximateMemTableStats(
     return nullptr;
   }
 
-  env->SetLongArrayRegion(jsizes, 0, jcount, results.get());
+  env->SetLongArrayRegion(jsizes, 0, jcount, results);
   if (env->ExceptionCheck()) {
     // exception thrown: ArrayIndexOutOfBoundsException
     env->DeleteLocalRef(jsizes);
@@ -2115,9 +2115,9 @@ void Java_org_rocksdb_RocksDB_compactRange(
     jlong jcf_handle) {
   jboolean has_exception = JNI_FALSE;
 
-  std::unique_ptr<rocksdb::Slice> begin = nullptr;
+  std::string str_begin;
   if (jbegin_len > 0) {
-    auto str_begin = rocksdb::JniUtil::byteString<std::string>(env, jbegin, jbegin_len,
+    str_begin = rocksdb::JniUtil::byteString<std::string>(env, jbegin, jbegin_len,
         [](const char* str, const size_t len) {
             return std::string(str, len);
         },
@@ -2126,12 +2126,11 @@ void Java_org_rocksdb_RocksDB_compactRange(
       // exception occurred
       return;
     }
-    begin = std::unique_ptr<rocksdb::Slice>(new rocksdb::Slice(str_begin));
   }
 
-  std::unique_ptr<rocksdb::Slice> end = nullptr;
+  std::string str_end;
   if (jend_len > 0) {
-    auto str_end = rocksdb::JniUtil::byteString<std::string>(env, jend, jend_len,
+    str_end = rocksdb::JniUtil::byteString<std::string>(env, jend, jend_len,
         [](const char* str, const size_t len) {
             return std::string(str, len);
         },
@@ -2140,7 +2139,6 @@ void Java_org_rocksdb_RocksDB_compactRange(
       // exception occurred
       return;
     }
-    end = std::unique_ptr<rocksdb::Slice>(new rocksdb::Slice(str_end));
   }
 
   rocksdb::CompactRangeOptions *compact_range_opts = nullptr;
@@ -2154,6 +2152,7 @@ void Java_org_rocksdb_RocksDB_compactRange(
   }
 
   auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+
   rocksdb::ColumnFamilyHandle* cf_handle;
   if (jcf_handle == 0) {
     cf_handle = db->DefaultColumnFamily();
@@ -2162,7 +2161,15 @@ void Java_org_rocksdb_RocksDB_compactRange(
         reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
   }
 
-  auto s = db->CompactRange(*compact_range_opts, cf_handle, begin.get(), end.get());
+  rocksdb::Status s;
+  if (jbegin_len > 0 || jend_len > 0) {
+    const rocksdb::Slice begin(str_begin);
+    const rocksdb::Slice end(str_end);
+    s = db->CompactRange(*compact_range_opts, cf_handle, &begin, &end);
+  } else {
+    s = db->CompactRange(*compact_range_opts, cf_handle, nullptr, nullptr);
+  }
+
   if (jcompact_range_opts_handle == 0) {
     delete compact_range_opts;
   }
