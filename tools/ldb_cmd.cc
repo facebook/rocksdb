@@ -332,6 +332,12 @@ void LDBCommand::OpenDB() {
       db_ = nullptr;
       return;
     }
+    if (options_.env->FileExists(options_.wal_dir).IsNotFound()) {
+      options_.wal_dir = db_path_;
+      fprintf(
+          stderr,
+          "wal_dir loaded from the option file doesn't exist. Ignore it.\n");
+    }
   }
   options_ = PrepareOptionsForOpenDB();
   if (!exec_state_.IsNotStarted()) {
