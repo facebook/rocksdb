@@ -2080,6 +2080,8 @@ TEST_P(WritePreparedTransactionTest, SmallestUncommittedOptimization) {
   VerifyKeys({{"key1", "NOT_FOUND"}});
   VerifyKeys({{"key1", "value1"}}, snapshot1);
   VerifyKeys({{"key1", "value1"}}, snapshot2);
+  db->ReleaseSnapshot(snapshot1);
+  db->ReleaseSnapshot(snapshot2);
 }
 
 // A more complex test to verify compaction/flush should keep keys visible
