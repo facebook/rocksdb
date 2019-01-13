@@ -131,7 +131,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     return st;
   }
 
-  if (!read_only && cenv->GetCloudType() != CloudType::kCloudNone) {
+  if (cenv->GetCloudType() != CloudType::kCloudNone) {
     st = DBCloudImpl::MaybeMigrateManifestFile(local_env, options, local_dbname);
     if (st.ok()) {
       // Init cloud manifest
