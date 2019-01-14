@@ -2259,6 +2259,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
   ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
   auto snapshot2 = db->GetSnapshot();
   ASSERT_OK(transaction->Commit());
+  delete transaction;
   VerifyKeys({{"key1", "value1_2"}});
   VerifyKeys({{"key1", "value1_1"}}, snapshot1);
   VerifyKeys({{"key1", "value1_1"}}, snapshot2);
@@ -2281,6 +2282,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
   ASSERT_OK(db->Flush(FlushOptions()));
   VerifyKeys({{"key1", "value1_2"}});
   VerifyKeys({{"key1", "value1_1"}}, snapshot2);
+  db->ReleaseSnapshot(snapshot2);
 }
 
 TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
@@ -2300,6 +2302,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
   ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
   auto snapshot2 = db->GetSnapshot();
   ASSERT_OK(transaction->Commit());
+  delete transaction;
   VerifyKeys({{"key1", "NOT_FOUND"}});
   VerifyKeys({{"key1", "value1"}}, snapshot1);
   VerifyKeys({{"key1", "value1"}}, snapshot2);
@@ -2330,6 +2333,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
   // at least one version of the key, for write-conflict check.
   VerifyInternalKeys({{"key1", "", del_seq, kTypeDeletion},
                       {"key1", "value1", 0, kTypeValue}});
+  db->ReleaseSnapshot(snapshot2);
 }
 
 // A more complex test to verify compaction/flush should keep keys visible
