@@ -22,7 +22,7 @@ SnapshotCheckerResult WritePreparedSnapshotChecker::CheckInSnapshot(
     SequenceNumber /*sequence*/, SequenceNumber /*snapshot_sequence*/) const {
   // Should never be called in LITE mode.
   assert(false);
-  return SnapshotChecker::kInSnapshot;
+  return SnapshotCheckerResult::kInSnapshot;
 }
 
 #else
