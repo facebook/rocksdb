@@ -152,10 +152,10 @@ Slice CompressBlock(
     const CompressionInfo& info,
     CompressionType* type,
     uint32_t format_version,
+    bool do_sample,
     std::string* compressed_output,
     std::string* sampled_output_fast,
-    std::string* sampled_output_slow,
-    bool do_sample) {
+    std::string* sampled_output_slow) {
   *type = compression_info.type();
 
   if (info.type() == kNoCompression &&
@@ -631,10 +631,11 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
 
     std::string sampled_output_fast;
     std::string sampled_output_slow;
-    block_contents =
-        CompressBlock(raw_block_contents, compression_info, &type,
-                      r->table_options.format_version, &r->compressed_output,
-                      &sampled_output_fast, &sampled_output_slow, is_data_block);
+    block_contents = CompressBlock(raw_block_contents, compression_info,
+                                   &type, r->table_options.format_version,
+                                   is_data_block, /* do_sample */
+                                   &r->compressed_output, &sampled_output_fast,
+                                   &sampled_output_slow);
 
     // notify collectors on block add
     NotifyCollectTableCollectorsOnSampledBlock(r->table_properties_collectors,
