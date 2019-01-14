@@ -27,8 +27,8 @@ namespace rocksdb {
 template <typename T>
 T* NewCustomObject(const std::string& target, std::unique_ptr<T>* res_guard);
 
-// Returns a new T when called with a string. Populates the unique_ptr argument
-// if granting ownership to caller.
+// Returns a new T when called with a string. Populates the std::unique_ptr
+// argument if granting ownership to caller.
 template <typename T>
 using FactoryFunc = std::function<T*(const std::string&, std::unique_ptr<T>*)>;
 

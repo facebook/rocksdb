@@ -18,7 +18,7 @@ CompactionIterator::CompactionIterator(
     SequenceNumber earliest_write_conflict_snapshot,
     const SnapshotChecker* snapshot_checker, Env* env,
     bool report_detailed_time, bool expect_valid_internal_key,
-    RangeDelAggregator* range_del_agg, const Compaction* compaction,
+    CompactionRangeDelAggregator* range_del_agg, const Compaction* compaction,
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum)
@@ -36,7 +36,7 @@ CompactionIterator::CompactionIterator(
     SequenceNumber earliest_write_conflict_snapshot,
     const SnapshotChecker* snapshot_checker, Env* env,
     bool report_detailed_time, bool expect_valid_internal_key,
-    RangeDelAggregator* range_del_agg,
+    CompactionRangeDelAggregator* range_del_agg,
     std::unique_ptr<CompactionProxy> compaction,
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
@@ -80,7 +80,7 @@ CompactionIterator::CompactionIterator(
 #ifndef NDEBUG
   // findEarliestVisibleSnapshot assumes this ordering.
   for (size_t i = 1; i < snapshots_->size(); ++i) {
-    assert(snapshots_->at(i - 1) <= snapshots_->at(i));
+    assert(snapshots_->at(i - 1) < snapshots_->at(i));
   }
 #endif
   if (compaction_filter_ != nullptr) {
@@ -407,7 +407,8 @@ void CompactionIterator::NextFromInput() {
             // is an unexpected Merge or Delete.  We will compact it out
             // either way. We will maintain counts of how many mismatches
             // happened
-            if (next_ikey.type != kTypeValue) {
+            if (next_ikey.type != kTypeValue &&
+                next_ikey.type != kTypeBlobIndex) {
               ++iter_stats_.num_single_del_mismatch;
             }
 

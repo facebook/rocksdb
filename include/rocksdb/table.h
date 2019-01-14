@@ -48,6 +48,7 @@ enum ChecksumType : char {
   kNoChecksum = 0x0,
   kCRC32c = 0x1,
   kxxHash = 0x2,
+  kxxHash64 = 0x3,
 };
 
 // For advanced user only
@@ -138,6 +139,8 @@ struct BlockBasedTableOptions {
 
   // If non-NULL use the specified cache for compressed blocks.
   // If NULL, rocksdb will not use a compressed block cache.
+  // Note: though it looks similar to `block_cache`, RocksDB doesn't put the
+  //       same type of object there.
   std::shared_ptr<Cache> block_cache_compressed = nullptr;
 
   // Approximate size of user data packed per block.  Note that the
@@ -450,10 +453,10 @@ class TableFactory : public Extension {
   // NewTableReader() is called in three places:
   // (1) TableCache::FindTable() calls the function when table cache miss
   //     and cache the table object returned.
-  // (2) SstFileReader (for SST Dump) opens the table and dump the table
+  // (2) SstFileDumper (for SST Dump) opens the table and dump the table
   //     contents using the iterator of the table.
-  // (3) DBImpl::IngestExternalFile() calls this function to read the contents of
-  //     the sst file it's attempting to add
+  // (3) DBImpl::IngestExternalFile() calls this function to read the contents
+  //     of the sst file it's attempting to add
   //
   // table_reader_options is a TableReaderOptions which contain all the
   //    needed parameters and configuration to open the table.
@@ -462,8 +465,8 @@ class TableFactory : public Extension {
   // table_reader is the output table reader.
   virtual Status NewTableReader(
       const TableReaderOptions& table_reader_options,
-      unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-      unique_ptr<TableReader>* table_reader,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table_reader,
       bool prefetch_index_and_filter_in_cache = true) const = 0;
 
   // Return a table builder to write to a file for this table type.

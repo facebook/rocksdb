@@ -291,7 +291,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "concurrent_prepare=false;"
                              "two_write_queues=false;"
                              "manual_wal_flush=false;"
-                             "seq_per_batch=false;",
+                             "seq_per_batch=false;"
+                             "atomic_flush=false",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
@@ -350,6 +351,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<TableFactory>)},
       {offset_of(&ColumnFamilyOptions::cf_paths),
        sizeof(std::vector<DbPath>)},
+      {offset_of(&ColumnFamilyOptions::compaction_thread_limiter),
+       sizeof(std::shared_ptr<ConcurrentTaskLimiter>)},
   };
 
   char* options_ptr = new char[sizeof(ColumnFamilyOptions)];
@@ -388,6 +391,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   options->soft_rate_limit = 0;
   options->purge_redundant_kvs_while_flush = false;
   options->max_mem_compaction_level = 0;
+  options->compaction_filter = nullptr;
 
   char* new_options_ptr = new char[sizeof(ColumnFamilyOptions)];
   ColumnFamilyOptions* new_options =

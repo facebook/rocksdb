@@ -271,7 +271,12 @@ class autovector {
 
   template <class... Args>
   void emplace_back(Args&&... args) {
-    push_back(value_type(args...));
+    if (num_stack_items_ < kSize) {
+      values_[num_stack_items_++] =
+          std::move(value_type(std::forward<Args>(args)...));
+    } else {
+      vect_.emplace_back(std::forward<Args>(args)...);
+    }
   }
 
   void pop_back() {

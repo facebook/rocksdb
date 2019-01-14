@@ -230,7 +230,7 @@ TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
 TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   DBOptions options;
   NoSleepEnv nse(Env::Default());
-  shared_ptr<Logger> logger;
+  std::shared_ptr<Logger> logger;
 
   // Normal logger
   ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
@@ -273,7 +273,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
 
 TEST_F(AutoRollLoggerTest, LogFlushWhileRolling) {
   DBOptions options;
-  shared_ptr<Logger> logger;
+  std::shared_ptr<Logger> logger;
 
   InitTestDb();
   options.max_log_file_size = 1024 * 5;

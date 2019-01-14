@@ -118,7 +118,8 @@ class Repairer {
         wc_(db_options_.delayed_write_rate),
         vset_(dbname_, &immutable_db_options_, env_options_,
               raw_table_cache_.get(), &wb_, &wc_),
-        next_file_number_(1) {
+        next_file_number_(1),
+        db_lock_(nullptr) {
     for (const auto& cfd : column_families) {
       cf_name_to_opts_[cfd.name] = cfd.options;
     }
@@ -344,13 +345,13 @@ class Repairer {
 
     // Open the log file
     std::string logname = LogFileName(db_options_.wal_dir, log);
-    unique_ptr<SequentialFile> lfile;
+    std::unique_ptr<SequentialFile> lfile;
     Status status = env_->NewSequentialFile(
         logname, &lfile, env_->OptimizeForLogRead(env_options_));
     if (!status.ok()) {
       return status;
     }
-    unique_ptr<SequentialFileReader> lfile_reader(
+    std::unique_ptr<SequentialFileReader> lfile_reader(
         new SequentialFileReader(std::move(lfile), logname));
 
     // Create the log reader.
@@ -363,7 +364,8 @@ class Repairer {
     // propagating bad information (like overly large sequence
     // numbers).
     log::Reader reader(db_options_.info_log, std::move(lfile_reader), &reporter,
-                       true /*enable checksum*/, log);
+                       true /*enable checksum*/, log,
+                       false /* retry_after_eof */);
 
     // Initialize per-column family memtables
     for (auto* cfd : *vset_.GetColumnFamilySet()) {
@@ -415,10 +417,16 @@ class Repairer {
       SnapshotChecker* snapshot_checker = DisableGCSnapshotChecker::Instance();
 
       auto write_hint = cfd->CalculateSSTWriteHint(0);
+      std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
+          range_del_iters;
+      auto range_del_iter =
+          mem->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
+      if (range_del_iter != nullptr) {
+        range_del_iters.emplace_back(range_del_iter);
+      }
       status = BuildTable(
           dbname_, env_, *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
-          env_options_, table_cache_, iter.get(),
-          std::unique_ptr<InternalIterator>(mem->NewRangeTombstoneIterator(ro)),
+          env_options_, table_cache_, iter.get(), std::move(range_del_iters),
           &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
           {}, kMaxSequenceNumber, snapshot_checker, kNoCompression,

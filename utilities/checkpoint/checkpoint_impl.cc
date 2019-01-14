@@ -133,7 +133,7 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
     s = db_->GetEnv()->RenameFile(full_private_path, checkpoint_dir);
   }
   if (s.ok()) {
-    unique_ptr<Directory> checkpoint_directory;
+    std::unique_ptr<Directory> checkpoint_directory;
     db_->GetEnv()->NewDirectory(checkpoint_dir, &checkpoint_directory);
     if (checkpoint_directory != nullptr) {
       s = checkpoint_directory->Fsync();

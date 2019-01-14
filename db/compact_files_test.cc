@@ -357,6 +357,51 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
   }
 }
 
+TEST_F(CompactFilesTest, GetCompactionJobInfo) {
+  Options options;
+  options.create_if_missing = true;
+  // Disable RocksDB background compaction.
+  options.compaction_style = kCompactionStyleNone;
+  options.level0_slowdown_writes_trigger = 1000;
+  options.level0_stop_writes_trigger = 1000;
+  options.write_buffer_size = 65536;
+  options.max_write_buffer_number = 2;
+  options.compression = kNoCompression;
+  options.max_compaction_bytes = 5000;
+
+  // Add listener
+  FlushedFileCollector* collector = new FlushedFileCollector();
+  options.listeners.emplace_back(collector);
+
+  DB* db = nullptr;
+  DestroyDB(db_name_, options);
+  Status s = DB::Open(options, db_name_, &db);
+  assert(s.ok());
+  assert(db);
+
+  // create couple files
+  for (int i = 0; i < 500; ++i) {
+    db->Put(WriteOptions(), ToString(i), std::string(1000, 'a' + (i % 26)));
+  }
+  reinterpret_cast<DBImpl*>(db)->TEST_WaitForFlushMemTable();
+  auto l0_files_1 = collector->GetFlushedFiles();
+  CompactionOptions co;
+  co.compression = CompressionType::kLZ4Compression;
+  CompactionJobInfo compaction_job_info;
+  ASSERT_OK(
+      db->CompactFiles(co, l0_files_1, 0, -1, nullptr, &compaction_job_info));
+  ASSERT_EQ(compaction_job_info.base_input_level, 0);
+  ASSERT_EQ(compaction_job_info.cf_id, db->DefaultColumnFamily()->GetID());
+  ASSERT_EQ(compaction_job_info.cf_name, db->DefaultColumnFamily()->GetName());
+  ASSERT_EQ(compaction_job_info.compaction_reason,
+            CompactionReason::kManualCompaction);
+  ASSERT_EQ(compaction_job_info.compression, CompressionType::kLZ4Compression);
+  ASSERT_EQ(compaction_job_info.output_level, 0);
+  ASSERT_OK(compaction_job_info.status);
+  // no assertion failure
+  delete db;
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

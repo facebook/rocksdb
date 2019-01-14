@@ -235,6 +235,34 @@ void Java_org_rocksdb_Options_setMergeOperator(JNIEnv* /*env*/,
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setCompactionFilterHandle
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setCompactionFilterHandle(
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jopt_handle,
+    jlong jcompactionfilter_handle) {
+  reinterpret_cast<rocksdb::Options*>(jopt_handle)->
+      compaction_filter = reinterpret_cast<rocksdb::CompactionFilter*>
+  (jcompactionfilter_handle);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setCompactionFilterFactoryHandle
+ * Signature: (JJ)V
+ */
+void JNICALL Java_org_rocksdb_Options_setCompactionFilterFactoryHandle(
+    JNIEnv* /* env */, jobject /* jobj */, jlong jopt_handle,
+    jlong jcompactionfilterfactory_handle) {
+  auto* cff_factory =
+      reinterpret_cast<std::shared_ptr<rocksdb::CompactionFilterFactory> *>(
+          jcompactionfilterfactory_handle);
+  reinterpret_cast<rocksdb::Options*>(jopt_handle)->
+      compaction_filter_factory = *cff_factory;
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    setWriteBufferSize
  * Signature: (JJ)I
  */
@@ -1970,8 +1998,8 @@ jbyte Java_org_rocksdb_Options_compressionType(JNIEnv* /*env*/,
  * @param jcompression_levels A reference to a java byte array
  *     where each byte indicates a compression level
  *
- * @return A unique_ptr to the vector, or unique_ptr(nullptr) if a JNI exception
- * occurs
+ * @return A std::unique_ptr to the vector, or std::unique_ptr(nullptr) if a JNI
+ * exception occurs
  */
 std::unique_ptr<std::vector<rocksdb::CompressionType>>
 rocksdb_compression_vector_helper(JNIEnv* env, jbyteArray jcompression_levels) {
@@ -5530,6 +5558,20 @@ void Java_org_rocksdb_DBOptions_setDbWriteBufferSize(
     jlong jdb_write_buffer_size) {
   auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
   opt->db_write_buffer_size = static_cast<size_t>(jdb_write_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setWriteBufferManager
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DBOptions_setWriteBufferManager(JNIEnv* /*env*/, jobject /*jobj*/,
+                                                      jlong jdb_options_handle,
+                                                      jlong jwrite_buffer_manager_handle) {
+  auto* write_buffer_manager =
+      reinterpret_cast<std::shared_ptr<rocksdb::WriteBufferManager> *>(jwrite_buffer_manager_handle);
+  reinterpret_cast<rocksdb::DBOptions*>(jdb_options_handle)->write_buffer_manager =
+      *write_buffer_manager;
 }
 
 /*

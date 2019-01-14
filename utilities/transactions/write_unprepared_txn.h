@@ -48,25 +48,31 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
 
   using TransactionBaseImpl::Put;
   virtual Status Put(ColumnFamilyHandle* column_family, const Slice& key,
-                     const Slice& value) override;
+                     const Slice& value,
+                     const bool assume_tracked = false) override;
   virtual Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
-                     const SliceParts& value) override;
+                     const SliceParts& value,
+                     const bool assume_tracked = false) override;
 
   using TransactionBaseImpl::Merge;
   virtual Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
-                       const Slice& value) override;
+                       const Slice& value,
+                       const bool assume_tracked = false) override;
 
   using TransactionBaseImpl::Delete;
+  virtual Status Delete(ColumnFamilyHandle* column_family, const Slice& key,
+                        const bool assume_tracked = false) override;
   virtual Status Delete(ColumnFamilyHandle* column_family,
-                        const Slice& key) override;
-  virtual Status Delete(ColumnFamilyHandle* column_family,
-                        const SliceParts& key) override;
+                        const SliceParts& key,
+                        const bool assume_tracked = false) override;
 
   using TransactionBaseImpl::SingleDelete;
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
-                              const Slice& key) override;
+                              const Slice& key,
+                              const bool assume_tracked = false) override;
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
-                              const SliceParts& key) override;
+                              const SliceParts& key,
+                              const bool assume_tracked = false) override;
 
   virtual Status RebuildFromWriteBatch(WriteBatch*) override {
     // This function was only useful for recovering prepared transactions, but

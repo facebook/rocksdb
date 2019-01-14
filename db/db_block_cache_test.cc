@@ -173,7 +173,7 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
   delete iter;
   iter = nullptr;
 
-  // Release interators and access cache again.
+  // Release iterators and access cache again.
   for (size_t i = 0; i < kNumBlocks - 1; i++) {
     iterators[i].reset();
     CheckCacheCounters(options, 0, 0, 0, 0);
@@ -349,7 +349,7 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
   // 200 bytes are enough to hold the first two blocks
   std::shared_ptr<Cache> cache = NewLRUCache(200, 0, false);
   table_options.block_cache = cache;
-  table_options.filter_policy.reset(NewBloomFilterPolicy(20));
+  table_options.filter_policy.reset(NewBloomFilterPolicy(20, true));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, options);
 

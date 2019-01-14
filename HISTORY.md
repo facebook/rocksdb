@@ -1,14 +1,51 @@
 # Rocksdb Change Log
 ## Unreleased
 ### New Features
-* Introduced `CacheAllocator`, which lets the user specify custom allocator for memory in block cache.
-* Introduced `PerfContextByLevel` as part of `PerfContext` which allows storing perf context at each level. Also replaced `__thread` with `thread_local` keyword for perf_context.
+* Enabled checkpoint on readonly db (DBImplReadOnly).
+* Make DB ignore dropped column families while committing results of atomic flush.
+* RocksDB may choose to preopen some files even if options.max_open_files != -1. This may make DB open slightly longer.
+
+### Public API Change
+* Transaction::GetForUpdate is extended with a do_validate parameter with default value of true. If false it skips validating the snapshot before doing the read. Similarly ::Merge, ::Put, ::Delete, and ::SingleDelete are extended with assume_tracked with default value of false. If true it indicates that call is assumed to be after a ::GetForUpdate.
+* `TableProperties::num_entries` and `TableProperties::num_deletions` now also account for number of range tombstones.
+* Remove geodb, spatial_db, document_db, json_document, date_tiered_db, and redis_lists.
+* With "ldb ----try_load_options", when wal_dir specified by the option file doesn't exist, ignore it.
+
+### Bug Fixes
+* Fix a deadlock caused by compaction and file ingestion waiting for each other in the event of write stalls.
+* Fix a memory leak when files with range tombstones are read in mmap mode and block cache is enabled
+* Fix handling of corrupt range tombstone blocks such that corruptions cannot cause deleted keys to reappear
+* Lock free MultiGet
+* Fix incorrect `NotFound` point lookup result when querying the endpoint of a file that has been extended by a range tombstone.
+* Fix with pipelined write, write leaders's callback failure lead to the whole write group fail.
+
+## 5.18.0 (11/30/2018)
+### New Features
+* Introduced `JemallocNodumpAllocator` memory allocator. When being use, block cache will be excluded from core dump.
+* Introduced `PerfContextByLevel` as part of `PerfContext` which allows storing perf context at each level. Also replaced `__thread` with `thread_local` keyword for perf_context. Added per-level perf context for bloom filter and `Get` query.
+* With level_compaction_dynamic_level_bytes = true, level multiplier may be adjusted automatically when Level 0 to 1 compaction is lagged behind.
+* Introduced DB option `atomic_flush`. If true, RocksDB supports flushing multiple column families and atomically committing the result to MANIFEST. Useful when WAL is disabled.
+* Added `num_deletions` and `num_merge_operands` members to `TableProperties`.
+* Added "rocksdb.min-obsolete-sst-number-to-keep" DB property that reports the lower bound on SST file numbers that are being kept from deletion, even if the SSTs are obsolete.
+* Add xxhash64 checksum support
+* Introduced `MemoryAllocator`, which lets the user specify custom memory allocator for block based table.
+* Improved `DeleteRange` to prevent read performance degradation. The feature is no longer marked as experimental.
+
+### Public API Change
+* `DBOptions::use_direct_reads` now affects reads issued by `BackupEngine` on the database's SSTs.
+* `NO_ITERATORS` is divided into two counters `NO_ITERATOR_CREATED` and `NO_ITERATOR_DELETE`. Both of them are only increasing now, just as other counters.
 
 ### Bug Fixes
 * Fix corner case where a write group leader blocked due to write stall blocks other writers in queue with WriteOptions::no_slowdown set.
 * Fix in-memory range tombstone truncation to avoid erroneously covering newer keys at a lower level, and include range tombstones in compacted files whose largest key is the range tombstone's start key.
 * Properly set the stop key for a truncated manual CompactRange
 * Fix slow flush/compaction when DB contains many snapshots. The problem became noticeable to us in DBs with 100,000+ snapshots, though it will affect others at different thresholds.
+* Fix the bug that WriteBatchWithIndex's SeekForPrev() doesn't see the entries with the same key.
+* Fix the bug where user comparator was sometimes fed with InternalKey instead of the user key. The bug manifests when during GenerateBottommostFiles.
+* Fix a bug in WritePrepared txns where if the number of old snapshots goes beyond the snapshot cache size (128 default) the rest will not be checked when evicting a commit entry from the commit cache.
+* Fixed Get correctness bug in the presence of range tombstones where merge operands covered by a range tombstone always result in NotFound.
+* Start populating `NO_FILE_CLOSES` ticker statistic, which was always zero previously.
+* The default value of NewBloomFilterPolicy()'s argument use_block_based_builder is changed to false. Note that this new default may cause large temp memory usage when building very large SST files.
 
 ## 5.17.0 (10/05/2018)
 ### Public API Change

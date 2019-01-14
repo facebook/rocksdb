@@ -138,9 +138,8 @@ class Env {
   //
   // The returned file will only be accessed by one thread at a time.
   virtual Status NewSequentialFile(const std::string& fname,
-                                   unique_ptr<SequentialFile>* result,
-                                   const EnvOptions& options)
-                                   = 0;
+                                   std::unique_ptr<SequentialFile>* result,
+                                   const EnvOptions& options) = 0;
 
   // Create a brand new random access read-only file with the
   // specified name.  On success, stores a pointer to the new file in
@@ -150,9 +149,8 @@ class Env {
   //
   // The returned file may be concurrently accessed by multiple threads.
   virtual Status NewRandomAccessFile(const std::string& fname,
-                                     unique_ptr<RandomAccessFile>* result,
-                                     const EnvOptions& options)
-                                     = 0;
+                                     std::unique_ptr<RandomAccessFile>* result,
+                                     const EnvOptions& options) = 0;
   // These values match Linux definition
   // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/fcntl.h#n56
   enum WriteLifeTimeHint {
@@ -172,7 +170,7 @@ class Env {
   //
   // The returned file will only be accessed by one thread at a time.
   virtual Status NewWritableFile(const std::string& fname,
-                                 unique_ptr<WritableFile>* result,
+                                 std::unique_ptr<WritableFile>* result,
                                  const EnvOptions& options) = 0;
 
   // Create an object that writes to a new file with the specified
@@ -183,7 +181,7 @@ class Env {
   //
   // The returned file will only be accessed by one thread at a time.
   virtual Status ReopenWritableFile(const std::string& /*fname*/,
-                                    unique_ptr<WritableFile>* /*result*/,
+                                    std::unique_ptr<WritableFile>* /*result*/,
                                     const EnvOptions& /*options*/) {
     return Status::NotSupported();
   }
@@ -191,7 +189,7 @@ class Env {
   // Reuse an existing file by renaming it and opening it as writable.
   virtual Status ReuseWritableFile(const std::string& fname,
                                    const std::string& old_fname,
-                                   unique_ptr<WritableFile>* result,
+                                   std::unique_ptr<WritableFile>* result,
                                    const EnvOptions& options);
 
   // Open `fname` for random read and write, if file doesn't exist the file
@@ -200,7 +198,7 @@ class Env {
   //
   // The returned file will only be accessed by one thread at a time.
   virtual Status NewRandomRWFile(const std::string& /*fname*/,
-                                 unique_ptr<RandomRWFile>* /*result*/,
+                                 std::unique_ptr<RandomRWFile>* /*result*/,
                                  const EnvOptions& /*options*/) {
     return Status::NotSupported("RandomRWFile is not implemented in this Env");
   }
@@ -210,7 +208,7 @@ class Env {
   // file in `*result`. The file must exist prior to this call.
   virtual Status NewMemoryMappedFileBuffer(
       const std::string& /*fname*/,
-      unique_ptr<MemoryMappedFileBuffer>* /*result*/) {
+      std::unique_ptr<MemoryMappedFileBuffer>* /*result*/) {
     return Status::NotSupported(
         "MemoryMappedFileBuffer is not implemented in this Env");
   }
@@ -223,7 +221,7 @@ class Env {
   // *result and returns OK. On failure stores nullptr in *result and
   // returns non-OK.
   virtual Status NewDirectory(const std::string& name,
-                              unique_ptr<Directory>* result) = 0;
+                              std::unique_ptr<Directory>* result) = 0;
 
   // Returns OK if the named file exists.
   //         NotFound if the named file does not exist,
@@ -371,7 +369,7 @@ class Env {
 
   // Create and return a log file for storing informational messages.
   virtual Status NewLogger(const std::string& fname,
-                           shared_ptr<Logger>* result) = 0;
+                           std::shared_ptr<Logger>* result) = 0;
 
   // Returns the number of micro-seconds since some fixed point in time.
   // It is often used as system time such as in GenericRateLimiter
@@ -386,6 +384,9 @@ class Env {
   virtual uint64_t NowNanos() {
     return NowMicros() * 1000;
   }
+
+  // 0 indicates not supported.
+  virtual uint64_t NowCPUNanos() { return 0; }
 
   // Sleep/delay the thread for the prescribed number of micro-seconds.
   virtual void SleepForMicroseconds(int micros) = 0;
@@ -951,24 +952,32 @@ class FileLock {
   void operator=(const FileLock&);
 };
 
-extern void LogFlush(const shared_ptr<Logger>& info_log);
+extern void LogFlush(const std::shared_ptr<Logger>& info_log);
 
 extern void Log(const InfoLogLevel log_level,
-                const shared_ptr<Logger>& info_log, const char* format, ...);
+                const std::shared_ptr<Logger>& info_log, const char* format,
+                ...);
 
 // a set of log functions with different log levels.
-extern void Header(const shared_ptr<Logger>& info_log, const char* format, ...);
-extern void Debug(const shared_ptr<Logger>& info_log, const char* format, ...);
-extern void Info(const shared_ptr<Logger>& info_log, const char* format, ...);
-extern void Warn(const shared_ptr<Logger>& info_log, const char* format, ...);
-extern void Error(const shared_ptr<Logger>& info_log, const char* format, ...);
-extern void Fatal(const shared_ptr<Logger>& info_log, const char* format, ...);
+extern void Header(const std::shared_ptr<Logger>& info_log, const char* format,
+                   ...);
+extern void Debug(const std::shared_ptr<Logger>& info_log, const char* format,
+                  ...);
+extern void Info(const std::shared_ptr<Logger>& info_log, const char* format,
+                 ...);
+extern void Warn(const std::shared_ptr<Logger>& info_log, const char* format,
+                 ...);
+extern void Error(const std::shared_ptr<Logger>& info_log, const char* format,
+                  ...);
+extern void Fatal(const std::shared_ptr<Logger>& info_log, const char* format,
+                  ...);
 
 // Log the specified data to *info_log if info_log is non-nullptr.
 // The default info log level is InfoLogLevel::INFO_LEVEL.
-extern void Log(const shared_ptr<Logger>& info_log, const char* format, ...)
+extern void Log(const std::shared_ptr<Logger>& info_log, const char* format,
+                ...)
 #   if defined(__GNUC__) || defined(__clang__)
-    __attribute__((__format__ (__printf__, 2, 3)))
+    __attribute__((__format__(__printf__, 2, 3)))
 #   endif
     ;
 
@@ -1014,37 +1023,38 @@ class EnvWrapper : public Env {
   Env* target() const { return target_; }
 
   // The following text is boilerplate that forwards all methods to target()
-  Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
+  Status NewSequentialFile(const std::string& f,
+                           std::unique_ptr<SequentialFile>* r,
                            const EnvOptions& options) override {
     return target_->NewSequentialFile(f, r, options);
   }
   Status NewRandomAccessFile(const std::string& f,
-                             unique_ptr<RandomAccessFile>* r,
+                             std::unique_ptr<RandomAccessFile>* r,
                              const EnvOptions& options) override {
     return target_->NewRandomAccessFile(f, r, options);
   }
-  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
+  Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& options) override {
     return target_->NewWritableFile(f, r, options);
   }
   Status ReopenWritableFile(const std::string& fname,
-                            unique_ptr<WritableFile>* result,
+                            std::unique_ptr<WritableFile>* result,
                             const EnvOptions& options) override {
     return target_->ReopenWritableFile(fname, result, options);
   }
   Status ReuseWritableFile(const std::string& fname,
                            const std::string& old_fname,
-                           unique_ptr<WritableFile>* r,
+                           std::unique_ptr<WritableFile>* r,
                            const EnvOptions& options) override {
     return target_->ReuseWritableFile(fname, old_fname, r, options);
   }
   Status NewRandomRWFile(const std::string& fname,
-                         unique_ptr<RandomRWFile>* result,
+                         std::unique_ptr<RandomRWFile>* result,
                          const EnvOptions& options) override {
     return target_->NewRandomRWFile(fname, result, options);
   }
   Status NewDirectory(const std::string& name,
-                      unique_ptr<Directory>* result) override {
+                      std::unique_ptr<Directory>* result) override {
     return target_->NewDirectory(name, result);
   }
   Status FileExists(const std::string& f) override {
@@ -1122,7 +1132,7 @@ class EnvWrapper : public Env {
     return target_->GetTestDirectory(path);
   }
   Status NewLogger(const std::string& fname,
-                   shared_ptr<Logger>* result) override {
+                   std::shared_ptr<Logger>* result) override {
     return target_->NewLogger(fname, result);
   }
   uint64_t NowMicros() override { return target_->NowMicros(); }
@@ -1233,35 +1243,56 @@ class WritableFileWrapper : public WritableFile {
   Status Sync() override { return target_->Sync(); }
   Status Fsync() override { return target_->Fsync(); }
   bool IsSyncThreadSafe() const override { return target_->IsSyncThreadSafe(); }
+
+  bool use_direct_io() const override { return target_->use_direct_io(); }
+
+  size_t GetRequiredBufferAlignment() const override {
+    return target_->GetRequiredBufferAlignment();
+  }
+
   void SetIOPriority(Env::IOPriority pri) override {
     target_->SetIOPriority(pri);
   }
+
   Env::IOPriority GetIOPriority() override { return target_->GetIOPriority(); }
+
+  void SetWriteLifeTimeHint(Env::WriteLifeTimeHint hint) override {
+    target_->SetWriteLifeTimeHint(hint);
+  }
+
+  Env::WriteLifeTimeHint GetWriteLifeTimeHint() override {
+    return target_->GetWriteLifeTimeHint();
+  }
+
   uint64_t GetFileSize() override { return target_->GetFileSize(); }
-  void GetPreallocationStatus(size_t* block_size,
-                              size_t* last_allocated_block) override {
-    target_->GetPreallocationStatus(block_size, last_allocated_block);
-  }
-  size_t GetUniqueId(char* id, size_t max_size) const override {
-    return target_->GetUniqueId(id, max_size);
-  }
-  Status InvalidateCache(size_t offset, size_t length) override {
-    return target_->InvalidateCache(offset, length);
-  }
 
   void SetPreallocationBlockSize(size_t size) override {
     target_->SetPreallocationBlockSize(size);
   }
+
+  void GetPreallocationStatus(size_t* block_size,
+                              size_t* last_allocated_block) override {
+    target_->GetPreallocationStatus(block_size, last_allocated_block);
+  }
+
+  size_t GetUniqueId(char* id, size_t max_size) const override {
+    return target_->GetUniqueId(id, max_size);
+  }
+
+  Status InvalidateCache(size_t offset, size_t length) override {
+    return target_->InvalidateCache(offset, length);
+  }
+
+  Status RangeSync(uint64_t offset, uint64_t nbytes) override {
+    return target_->RangeSync(offset, nbytes);
+  }
+
   void PrepareWrite(size_t offset, size_t len) override {
     target_->PrepareWrite(offset, len);
   }
 
- protected:
   Status Allocate(uint64_t offset, uint64_t len) override {
     return target_->Allocate(offset, len);
-  }
-  Status RangeSync(uint64_t offset, uint64_t nbytes) override {
-    return target_->RangeSync(offset, nbytes);
   }
 
  private:

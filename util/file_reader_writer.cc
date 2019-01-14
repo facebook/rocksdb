@@ -327,7 +327,9 @@ Status WritableFileWriter::Flush() {
   if (buf_.CurrentSize() > 0) {
     if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
-      s = WriteDirect();
+      if (pending_sync_) {
+        s = WriteDirect();
+      }
 #endif  // !ROCKSDB_LITE
     } else {
       s = WriteBuffered(buf_.BufferStart(), buf_.CurrentSize());
@@ -802,7 +804,7 @@ std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
 }
 
 Status NewWritableFile(Env* env, const std::string& fname,
-                       unique_ptr<WritableFile>* result,
+                       std::unique_ptr<WritableFile>* result,
                        const EnvOptions& options) {
   Status s = env->NewWritableFile(fname, result, options);
   TEST_KILL_RANDOM("NewWritableFile:0", rocksdb_kill_odds * REDUCE_ODDS2);

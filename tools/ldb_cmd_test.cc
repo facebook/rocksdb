@@ -12,6 +12,8 @@ using std::string;
 using std::vector;
 using std::map;
 
+namespace rocksdb {
+
 class LdbCmdTest : public testing::Test {};
 
 TEST_F(LdbCmdTest, HexToString) {
@@ -46,6 +48,40 @@ TEST_F(LdbCmdTest, HexToStringBadInputs) {
     }
   }
 }
+
+TEST_F(LdbCmdTest, MemEnv) {
+  std::unique_ptr<Env> env(NewMemEnv(Env::Default()));
+  Options opts;
+  opts.env = env.get();
+  opts.create_if_missing = true;
+
+  DB* db = nullptr;
+  std::string dbname = test::TmpDir();
+  ASSERT_OK(DB::Open(opts, dbname, &db));
+
+  WriteOptions wopts;
+  for (int i = 0; i < 100; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    ASSERT_OK(db->Put(wopts, buf, buf));
+  }
+  FlushOptions fopts;
+  fopts.wait = true;
+  ASSERT_OK(db->Flush(fopts));
+
+  delete db;
+
+  char arg1[] = "./ldb";
+  char arg2[1024];
+  snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
+  char arg3[] = "dump_live_files";
+  char* argv[] = {arg1, arg2, arg3};
+
+  rocksdb::LDBTool tool;
+  tool.Run(3, argv, opts);
+}
+
+} // namespace rocksdb
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

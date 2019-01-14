@@ -309,6 +309,7 @@ class VersionStorageInfo {
   }
 
   int base_level() const { return base_level_; }
+  double level_multiplier() const { return level_multiplier_; }
 
   // REQUIRES: lock is held
   // Set the index that is used to offset into files_by_compaction_pri_ to find
@@ -407,9 +408,9 @@ class VersionStorageInfo {
   // @param last_level Level after which we check for overlap
   // @param last_l0_idx If `last_level == 0`, index of L0 file after which we
   //    check for overlap; otherwise, must be -1
-  bool RangeMightExistAfterSortedRun(const Slice& smallest_key,
-                                     const Slice& largest_key, int last_level,
-                                     int last_l0_idx);
+  bool RangeMightExistAfterSortedRun(const Slice& smallest_user_key,
+                                     const Slice& largest_user_key,
+                                     int last_level, int last_l0_idx);
 
  private:
   const InternalKeyComparator* internal_comparator_;
@@ -434,6 +435,8 @@ class VersionStorageInfo {
   // Level that L0 data should be compacted to. All levels < base_level_ should
   // be empty. -1 if it is not level-compaction so it's not applicable.
   int base_level_;
+
+  double level_multiplier_;
 
   // A list for the same set of files that are stored in files_,
   // but files in each level are now sorted based on file
@@ -564,9 +567,10 @@ class Version {
   // REQUIRES: lock is not held
   void Get(const ReadOptions&, const LookupKey& key, PinnableSlice* value,
            Status* status, MergeContext* merge_context,
-           RangeDelAggregator* range_del_agg, bool* value_found = nullptr,
-           bool* key_exists = nullptr, SequenceNumber* seq = nullptr,
-           ReadCallback* callback = nullptr, bool* is_blob = nullptr);
+           SequenceNumber* max_covering_tombstone_seq,
+           bool* value_found = nullptr, bool* key_exists = nullptr,
+           SequenceNumber* seq = nullptr, ReadCallback* callback = nullptr,
+           bool* is_blob = nullptr);
 
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.
@@ -601,7 +605,7 @@ class Version {
   // REQUIRES: lock is held
   // On success, *props will be populated with all SSTables' table properties.
   // The keys of `props` are the sst file name, the values of `props` are the
-  // tables' properties, represented as shared_ptr.
+  // tables' properties, represented as std::shared_ptr.
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props);
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props, int level);
   Status GetPropertiesOfTablesInRange(const Range* range, std::size_t n,
@@ -1049,7 +1053,7 @@ class VersionSet {
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
   // Opened lazily
-  unique_ptr<log::Writer> descriptor_log_;
+  std::unique_ptr<log::Writer> descriptor_log_;
 
   // generates a increasing version number for every new version
   uint64_t current_version_number_;

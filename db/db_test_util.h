@@ -46,6 +46,7 @@
 #include "table/scoped_arena_iterator.h"
 #include "util/compression.h"
 #include "util/filename.h"
+#include "util/mock_time_env.h"
 #include "util/mutexlock.h"
 
 #include "util/string_util.h"
@@ -168,7 +169,7 @@ class SpecialMemTableRep : public MemTableRep {
   virtual ~SpecialMemTableRep() override {}
 
  private:
-  unique_ptr<MemTableRep> memtable_;
+  std::unique_ptr<MemTableRep> memtable_;
   int num_entries_flush_;
   int num_entries_;
 };
@@ -206,15 +207,15 @@ class SpecialEnv : public EnvWrapper {
  public:
   explicit SpecialEnv(Env* base);
 
-  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
+  Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& soptions) override {
     class SSTableFile : public WritableFile {
      private:
       SpecialEnv* env_;
-      unique_ptr<WritableFile> base_;
+      std::unique_ptr<WritableFile> base_;
 
      public:
-      SSTableFile(SpecialEnv* env, unique_ptr<WritableFile>&& base)
+      SSTableFile(SpecialEnv* env, std::unique_ptr<WritableFile>&& base)
           : env_(env), base_(std::move(base)) {}
       Status Append(const Slice& data) override {
         if (env_->table_write_callback_) {
@@ -294,7 +295,7 @@ class SpecialEnv : public EnvWrapper {
     };
     class ManifestFile : public WritableFile {
      public:
-      ManifestFile(SpecialEnv* env, unique_ptr<WritableFile>&& b)
+      ManifestFile(SpecialEnv* env, std::unique_ptr<WritableFile>&& b)
           : env_(env), base_(std::move(b)) {}
       Status Append(const Slice& data) override {
         if (env_->manifest_write_error_.load(std::memory_order_acquire)) {
@@ -321,11 +322,11 @@ class SpecialEnv : public EnvWrapper {
 
      private:
       SpecialEnv* env_;
-      unique_ptr<WritableFile> base_;
+      std::unique_ptr<WritableFile> base_;
     };
     class WalFile : public WritableFile {
      public:
-      WalFile(SpecialEnv* env, unique_ptr<WritableFile>&& b)
+      WalFile(SpecialEnv* env, std::unique_ptr<WritableFile>&& b)
           : env_(env), base_(std::move(b)) {
         env_->num_open_wal_file_.fetch_add(1);
       }
@@ -377,7 +378,7 @@ class SpecialEnv : public EnvWrapper {
 
      private:
       SpecialEnv* env_;
-      unique_ptr<WritableFile> base_;
+      std::unique_ptr<WritableFile> base_;
     };
 
     if (non_writeable_rate_.load(std::memory_order_acquire) > 0) {
@@ -419,11 +420,11 @@ class SpecialEnv : public EnvWrapper {
   }
 
   Status NewRandomAccessFile(const std::string& f,
-                             unique_ptr<RandomAccessFile>* r,
+                             std::unique_ptr<RandomAccessFile>* r,
                              const EnvOptions& soptions) override {
     class CountingFile : public RandomAccessFile {
      public:
-      CountingFile(unique_ptr<RandomAccessFile>&& target,
+      CountingFile(std::unique_ptr<RandomAccessFile>&& target,
                    anon::AtomicCounter* counter,
                    std::atomic<size_t>* bytes_read)
           : target_(std::move(target)),
@@ -438,7 +439,7 @@ class SpecialEnv : public EnvWrapper {
       }
 
      private:
-      unique_ptr<RandomAccessFile> target_;
+      std::unique_ptr<RandomAccessFile> target_;
       anon::AtomicCounter* counter_;
       std::atomic<size_t>* bytes_read_;
     };
@@ -456,11 +457,11 @@ class SpecialEnv : public EnvWrapper {
   }
 
   virtual Status NewSequentialFile(const std::string& f,
-                                   unique_ptr<SequentialFile>* r,
+                                   std::unique_ptr<SequentialFile>* r,
                                    const EnvOptions& soptions) override {
     class CountingFile : public SequentialFile {
      public:
-      CountingFile(unique_ptr<SequentialFile>&& target,
+      CountingFile(std::unique_ptr<SequentialFile>&& target,
                    anon::AtomicCounter* counter)
           : target_(std::move(target)), counter_(counter) {}
       virtual Status Read(size_t n, Slice* result, char* scratch) override {
@@ -470,7 +471,7 @@ class SpecialEnv : public EnvWrapper {
       virtual Status Skip(uint64_t n) override { return target_->Skip(n); }
 
      private:
-      unique_ptr<SequentialFile> target_;
+      std::unique_ptr<SequentialFile> target_;
       anon::AtomicCounter* counter_;
     };
 
@@ -500,6 +501,11 @@ class SpecialEnv : public EnvWrapper {
       *unix_time += addon_time_.load();
     }
     return s;
+  }
+
+  virtual uint64_t NowCPUNanos() override {
+    now_cpu_count_.fetch_add(1);
+    return target()->NowCPUNanos();
   }
 
   virtual uint64_t NowNanos() override {
@@ -571,6 +577,8 @@ class SpecialEnv : public EnvWrapper {
 
   std::atomic<int64_t> addon_time_;
 
+  std::atomic<int> now_cpu_count_;
+
   std::atomic<int> delete_count_;
 
   std::atomic<bool> time_elapse_only_sleep_;
@@ -580,37 +588,6 @@ class SpecialEnv : public EnvWrapper {
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 
   std::atomic<size_t> compaction_readahead_size_{};
-};
-
-class MockTimeEnv : public EnvWrapper {
- public:
-  explicit MockTimeEnv(Env* base) : EnvWrapper(base) {}
-
-  virtual Status GetCurrentTime(int64_t* time) override {
-    assert(time != nullptr);
-    assert(current_time_ <=
-           static_cast<uint64_t>(std::numeric_limits<int64_t>::max()));
-    *time = static_cast<int64_t>(current_time_);
-    return Status::OK();
-  }
-
-  virtual uint64_t NowMicros() override {
-    assert(current_time_ <= std::numeric_limits<uint64_t>::max() / 1000000);
-    return current_time_ * 1000000;
-  }
-
-  virtual uint64_t NowNanos() override {
-    assert(current_time_ <= std::numeric_limits<uint64_t>::max() / 1000000000);
-    return current_time_ * 1000000000;
-  }
-
-  void set_current_time(uint64_t time) {
-    assert(time >= current_time_);
-    current_time_ = time;
-  }
-
- private:
-  std::atomic<uint64_t> current_time_{0};
 };
 
 #ifndef ROCKSDB_LITE
@@ -705,6 +682,7 @@ class DBTestBase : public testing::Test {
     kBlockBasedTableWithPartitionedIndexFormat4,
     kPartitionedFilterWithNewTableReaderForCompactions,
     kUniversalSubcompactions,
+    kxxHash64Checksum,
     // This must be the last line
     kEnd,
   };
@@ -776,6 +754,9 @@ class DBTestBase : public testing::Test {
   // Jump from kDefault to kFilter to kFullFilter
   bool ChangeFilterOptions();
 
+  // Switch between different DB options for file ingestion tests.
+  bool ChangeOptionsForFileIngestionTest();
+
   // Return the current option configuration.
   Options CurrentOptions(const anon::OptionsOverride& options_override =
                              anon::OptionsOverride()) const;
@@ -829,6 +810,8 @@ class DBTestBase : public testing::Test {
 
   Status Flush(int cf = 0);
 
+  Status Flush(const std::vector<int>& cf_ids);
+
   Status Put(const Slice& k, const Slice& v, WriteOptions wo = WriteOptions());
 
   Status Put(int cf, const Slice& k, const Slice& v,
@@ -856,6 +839,10 @@ class DBTestBase : public testing::Test {
                   const Snapshot* snapshot = nullptr);
 
   Status Get(const std::string& k, PinnableSlice* v);
+
+  std::vector<std::string> MultiGet(std::vector<int> cfs,
+                                    const std::vector<std::string>& k,
+                                    const Snapshot* snapshot = nullptr);
 
   uint64_t GetNumSnapshots();
 

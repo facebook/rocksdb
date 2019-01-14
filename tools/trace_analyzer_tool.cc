@@ -139,7 +139,7 @@ DEFINE_bool(no_key, false,
 DEFINE_bool(print_overall_stats, true,
             " Print the stats of the whole trace, "
             "like total requests, keys, and etc.");
-DEFINE_bool(print_key_distribution, false, "Print the key size distribution.");
+DEFINE_bool(output_key_distribution, false, "Print the key size distribution.");
 DEFINE_bool(
     output_value_distribution, false,
     "Out put the value size distribution, only available for Put and Merge.\n"
@@ -158,6 +158,9 @@ DEFINE_int32(value_interval, 8,
              "To output the value distribution, we need to set the value "
              "intervals and make the statistic of the value size distribution "
              "in different intervals. The default is 8.");
+DEFINE_double(sample_ratio, 1.0,
+              "If the trace size is extremely huge or user want to sample "
+              "the trace when analyzing, sample ratio can be set (0, 1.0]");
 
 namespace rocksdb {
 
@@ -280,6 +283,13 @@ TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
   begin_time_ = 0;
   end_time_ = 0;
   time_series_start_ = 0;
+  cur_time_sec_ = 0;
+  if (FLAGS_sample_ratio > 1.0 || FLAGS_sample_ratio <= 0) {
+    sample_max_ = 1;
+  } else {
+    sample_max_ = static_cast<uint32_t>(1.0 / FLAGS_sample_ratio);
+  }
+
   ta_.resize(kTaTypeNum);
   ta_[0].type_name = "get";
   if (FLAGS_analyze_get) {
@@ -329,6 +339,9 @@ TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
   } else {
     ta_[7].enabled = false;
   }
+  for (int i = 0; i < kTaTypeNum; i++) {
+    ta_[i].sample_count = 0;
+  }
 }
 
 TraceAnalyzer::~TraceAnalyzer() {}
@@ -361,6 +374,13 @@ Status TraceAnalyzer::PrepareProcessing() {
     qps_stats_name =
         output_path_ + "/" + FLAGS_output_prefix + "-qps_stats.txt";
     s = env_->NewWritableFile(qps_stats_name, &qps_f_, env_options_);
+    if (!s.ok()) {
+      return s;
+    }
+
+    qps_stats_name =
+        output_path_ + "/" + FLAGS_output_prefix + "-cf_qps_stats.txt";
+    s = env_->NewWritableFile(qps_stats_name, &cf_qps_f_, env_options_);
     if (!s.ok()) {
       return s;
     }
@@ -523,7 +543,7 @@ Status TraceAnalyzer::MakeStatistics() {
         }
 
         // Generate the key size distribution data
-        if (FLAGS_print_key_distribution) {
+        if (FLAGS_output_key_distribution) {
           if (stat.second.a_key_size_stats.find(record.first.size()) ==
               stat.second.a_key_size_stats.end()) {
             stat.second.a_key_size_stats[record.first.size()] = 1;
@@ -567,17 +587,31 @@ Status TraceAnalyzer::MakeStatistics() {
 
       // find the medium of the key size
       uint64_t k_count = 0;
+      bool get_mid = false;
       for (auto& record : stat.second.a_key_size_stats) {
         k_count += record.second;
-        if (k_count >= stat.second.a_key_mid) {
+        if (!get_mid && k_count >= stat.second.a_key_mid) {
           stat.second.a_key_mid = record.first;
-          break;
+          get_mid = true;
+        }
+        if (FLAGS_output_key_distribution && stat.second.a_key_size_f) {
+          ret = sprintf(buffer_, "%" PRIu64 " %" PRIu64 "\n", record.first,
+                        record.second);
+          if (ret < 0) {
+            return Status::IOError("Format output failed");
+          }
+          std::string printout(buffer_);
+          s = stat.second.a_key_size_f->Append(printout);
+          if (!s.ok()) {
+            fprintf(stderr, "Write key size distribution file failed\n");
+            return s;
+          }
         }
       }
 
       // output the value size distribution
       uint64_t v_begin = 0, v_end = 0, v_count = 0;
-      bool get_mid = false;
+      get_mid = false;
       for (auto& record : stat.second.a_value_size_stats) {
         v_begin = v_end;
         v_end = (record.first + 1) * FLAGS_value_interval;
@@ -823,6 +857,32 @@ Status TraceAnalyzer::MakeStatisticQPS() {
         stat.second.a_ave_qps = (static_cast<double>(cf_qps_sum)) / duration;
       }
 
+      // Output the accessed unique key number change overtime
+      if (stat.second.a_key_num_f) {
+        uint64_t cur_uni_key =
+            static_cast<uint64_t>(stat.second.a_key_stats.size());
+        double cur_ratio = 0.0;
+        uint64_t cur_num = 0;
+        for (uint32_t i = 0; i < duration; i++) {
+          auto find_time = stat.second.uni_key_num.find(i);
+          if (find_time != stat.second.uni_key_num.end()) {
+            cur_ratio = (static_cast<double>(find_time->second)) / cur_uni_key;
+            cur_num = find_time->second;
+          }
+          ret = sprintf(buffer_, "%" PRIu64 " %.12f\n", cur_num, cur_ratio);
+          if (ret < 0) {
+            return Status::IOError("Format the output failed");
+          }
+          std::string printout(buffer_);
+          s = stat.second.a_key_num_f->Append(printout);
+          if (!s.ok()) {
+            fprintf(stderr,
+                    "Write accessed unique key number change file failed\n");
+            return s;
+          }
+        }
+      }
+
       // output the prefix of top k access peak
       if (FLAGS_output_prefix_cut > 0 && stat.second.a_top_qps_prefix_f) {
         while (!stat.second.top_k_qps_sec.empty()) {
@@ -882,6 +942,33 @@ Status TraceAnalyzer::MakeStatisticQPS() {
         qps_sum[type] += type_qps[i][type];
         if (type_qps[i][type] > qps_peak[type]) {
           qps_peak[type] = type_qps[i][type];
+        }
+      }
+    }
+  }
+
+  if (cf_qps_f_) {
+    int cfs_size = static_cast<uint32_t>(cfs_.size());
+    uint32_t v;
+    for (uint32_t i = 0; i < duration; i++) {
+      for (int cf = 0; cf < cfs_size; cf++) {
+        if (cfs_[cf].cf_qps.find(i) != cfs_[cf].cf_qps.end()) {
+          v = cfs_[cf].cf_qps[i];
+        } else {
+          v = 0;
+        }
+        if (cf < cfs_size - 1) {
+          ret = sprintf(buffer_, "%u ", v);
+        } else {
+          ret = sprintf(buffer_, "%u\n", v);
+        }
+        if (ret < 0) {
+          return Status::IOError("Format the output failed");
+        }
+        std::string printout(buffer_);
+        s = cf_qps_f_->Append(printout);
+        if (!s.ok()) {
+          return s;
         }
       }
     }
@@ -1015,7 +1102,7 @@ Status TraceAnalyzer::ReProcessing() {
           }
 
           // Make the statistics fo the key size distribution
-          if (FLAGS_print_key_distribution) {
+          if (FLAGS_output_key_distribution) {
             if (cfs_[cf_id].w_key_size_stats.find(input_key.size()) ==
                 cfs_[cf_id].w_key_size_stats.end()) {
               cfs_[cf_id].w_key_size_stats[input_key.size()] = 1;
@@ -1134,6 +1221,11 @@ Status TraceAnalyzer::KeyStatsInsertion(const uint32_t& type,
       tmp_qps_map[prefix] = 1;
       ta_[type].stats[cf_id].a_qps_prefix_stats[time_in_sec] = tmp_qps_map;
     }
+    if (time_in_sec != cur_time_sec_) {
+      ta_[type].stats[cf_id].uni_key_num[cur_time_sec_] =
+          static_cast<uint64_t>(ta_[type].stats[cf_id].a_key_stats.size());
+      cur_time_sec_ = time_in_sec;
+    }
   } else {
     found_stats->second.a_count++;
     found_stats->second.a_key_size_sqsum += MultiplyCheckOverflow(
@@ -1153,6 +1245,11 @@ Status TraceAnalyzer::KeyStatsInsertion(const uint32_t& type,
       if (!FLAGS_print_correlation.empty()) {
         s = StatsUnitCorrelationUpdate(found_key->second, type, ts, key);
       }
+    }
+    if (time_in_sec != cur_time_sec_) {
+      found_stats->second.uni_key_num[cur_time_sec_] =
+          static_cast<uint64_t>(found_stats->second.a_key_stats.size());
+      cur_time_sec_ = time_in_sec;
     }
 
     auto found_value =
@@ -1192,6 +1289,10 @@ Status TraceAnalyzer::KeyStatsInsertion(const uint32_t& type,
     cf_unit.w_count = 0;
     cf_unit.a_count = 0;
     cfs_[cf_id] = cf_unit;
+  }
+
+  if (FLAGS_output_qps_stats) {
+    cfs_[cf_id].cf_qps[time_in_sec]++;
   }
 
   if (FLAGS_output_time_series) {
@@ -1256,6 +1357,9 @@ Status TraceAnalyzer::OpenStatsOutputFiles(const std::string& type,
   if (FLAGS_output_key_stats) {
     s = CreateOutputFile(type, new_stats.cf_name, "accessed_key_stats.txt",
                          &new_stats.a_key_f);
+    s = CreateOutputFile(type, new_stats.cf_name,
+                         "accessed_unique_key_num_change.txt",
+                         &new_stats.a_key_num_f);
     if (!FLAGS_key_space_dir.empty()) {
       s = CreateOutputFile(type, new_stats.cf_name, "whole_key_stats.txt",
                            &new_stats.w_key_f);
@@ -1292,6 +1396,12 @@ Status TraceAnalyzer::OpenStatsOutputFiles(const std::string& type,
     s = CreateOutputFile(type, new_stats.cf_name,
                          "accessed_value_size_distribution.txt",
                          &new_stats.a_value_size_f);
+  }
+
+  if (FLAGS_output_key_distribution) {
+    s = CreateOutputFile(type, new_stats.cf_name,
+                         "accessed_key_size_distribution.txt",
+                         &new_stats.a_key_size_f);
   }
 
   if (FLAGS_output_qps_stats) {
@@ -1333,6 +1443,10 @@ void TraceAnalyzer::CloseOutputFiles() {
         stat.second.a_key_f->Close();
       }
 
+      if (stat.second.a_key_num_f) {
+        stat.second.a_key_num_f->Close();
+      }
+
       if (stat.second.a_count_dist_f) {
         stat.second.a_count_dist_f->Close();
       }
@@ -1343,6 +1457,10 @@ void TraceAnalyzer::CloseOutputFiles() {
 
       if (stat.second.a_value_size_f) {
         stat.second.a_value_size_f->Close();
+      }
+
+      if (stat.second.a_key_size_f) {
+        stat.second.a_key_size_f->Close();
       }
 
       if (stat.second.a_qps_f) {
@@ -1378,6 +1496,15 @@ Status TraceAnalyzer::HandleGet(uint32_t column_family_id,
     }
   }
 
+  if (ta_[TraceOperationType::kGet].sample_count >= sample_max_) {
+    ta_[TraceOperationType::kGet].sample_count = 0;
+  }
+  if (ta_[TraceOperationType::kGet].sample_count > 0) {
+    ta_[TraceOperationType::kGet].sample_count++;
+    return Status::OK();
+  }
+  ta_[TraceOperationType::kGet].sample_count++;
+
   if (!ta_[TraceOperationType::kGet].enabled) {
     return Status::OK();
   }
@@ -1405,6 +1532,15 @@ Status TraceAnalyzer::HandlePut(uint32_t column_family_id, const Slice& key,
     }
   }
 
+  if (ta_[TraceOperationType::kPut].sample_count >= sample_max_) {
+    ta_[TraceOperationType::kPut].sample_count = 0;
+  }
+  if (ta_[TraceOperationType::kPut].sample_count > 0) {
+    ta_[TraceOperationType::kPut].sample_count++;
+    return Status::OK();
+  }
+  ta_[TraceOperationType::kPut].sample_count++;
+
   if (!ta_[TraceOperationType::kPut].enabled) {
     return Status::OK();
   }
@@ -1429,6 +1565,15 @@ Status TraceAnalyzer::HandleDelete(uint32_t column_family_id,
     }
   }
 
+  if (ta_[TraceOperationType::kDelete].sample_count >= sample_max_) {
+    ta_[TraceOperationType::kDelete].sample_count = 0;
+  }
+  if (ta_[TraceOperationType::kDelete].sample_count > 0) {
+    ta_[TraceOperationType::kDelete].sample_count++;
+    return Status::OK();
+  }
+  ta_[TraceOperationType::kDelete].sample_count++;
+
   if (!ta_[TraceOperationType::kDelete].enabled) {
     return Status::OK();
   }
@@ -1452,6 +1597,15 @@ Status TraceAnalyzer::HandleSingleDelete(uint32_t column_family_id,
       return Status::Corruption("Failed to write the trace sequence to file");
     }
   }
+
+  if (ta_[TraceOperationType::kSingleDelete].sample_count >= sample_max_) {
+    ta_[TraceOperationType::kSingleDelete].sample_count = 0;
+  }
+  if (ta_[TraceOperationType::kSingleDelete].sample_count > 0) {
+    ta_[TraceOperationType::kSingleDelete].sample_count++;
+    return Status::OK();
+  }
+  ta_[TraceOperationType::kSingleDelete].sample_count++;
 
   if (!ta_[TraceOperationType::kSingleDelete].enabled) {
     return Status::OK();
@@ -1478,6 +1632,15 @@ Status TraceAnalyzer::HandleDeleteRange(uint32_t column_family_id,
     }
   }
 
+  if (ta_[TraceOperationType::kRangeDelete].sample_count >= sample_max_) {
+    ta_[TraceOperationType::kRangeDelete].sample_count = 0;
+  }
+  if (ta_[TraceOperationType::kRangeDelete].sample_count > 0) {
+    ta_[TraceOperationType::kRangeDelete].sample_count++;
+    return Status::OK();
+  }
+  ta_[TraceOperationType::kRangeDelete].sample_count++;
+
   if (!ta_[TraceOperationType::kRangeDelete].enabled) {
     return Status::OK();
   }
@@ -1503,6 +1666,15 @@ Status TraceAnalyzer::HandleMerge(uint32_t column_family_id, const Slice& key,
       return Status::Corruption("Failed to write the trace sequence to file");
     }
   }
+
+  if (ta_[TraceOperationType::kMerge].sample_count >= sample_max_) {
+    ta_[TraceOperationType::kMerge].sample_count = 0;
+  }
+  if (ta_[TraceOperationType::kMerge].sample_count > 0) {
+    ta_[TraceOperationType::kMerge].sample_count++;
+    return Status::OK();
+  }
+  ta_[TraceOperationType::kMerge].sample_count++;
 
   if (!ta_[TraceOperationType::kMerge].enabled) {
     return Status::OK();
@@ -1539,6 +1711,15 @@ Status TraceAnalyzer::HandleIter(uint32_t column_family_id,
       return Status::Corruption("Failed to write the trace sequence to file");
     }
   }
+
+  if (ta_[type].sample_count >= sample_max_) {
+    ta_[type].sample_count = 0;
+  }
+  if (ta_[type].sample_count > 0) {
+    ta_[type].sample_count++;
+    return Status::OK();
+  }
+  ta_[type].sample_count++;
 
   if (!ta_[type].enabled) {
     return Status::OK();
@@ -1601,6 +1782,8 @@ void TraceAnalyzer::PrintStatistics() {
       ta_[type].total_succ_access += stat.a_succ_count;
       printf("*********************************************************\n");
       printf("colume family id: %u\n", stat.cf_id);
+      printf("Total number of queries to this cf by %s: %" PRIu64 "\n",
+             ta_[type].type_name.c_str(), stat.a_count);
       printf("Total unique keys in this cf: %" PRIu64 "\n", total_a_keys);
       printf("Average key size: %f key size medium: %" PRIu64
              " Key size Variation: %f\n",
@@ -1644,15 +1827,6 @@ void TraceAnalyzer::PrintStatistics() {
                  stat.top_k_prefix_ave.top().second.c_str(),
                  stat.top_k_prefix_ave.top().first);
           stat.top_k_prefix_ave.pop();
-        }
-      }
-
-      // print the key size distribution
-      if (FLAGS_print_key_distribution) {
-        printf("The key size distribution\n");
-        for (auto& record : stat.a_key_size_stats) {
-          printf("key_size %" PRIu64 " nums: %" PRIu64 "\n", record.first,
-                 record.second);
         }
       }
 
@@ -1705,6 +1879,8 @@ void TraceAnalyzer::PrintStatistics() {
       printf("Average QPS per second: %f Peak QPS: %u\n", qps_ave_[kTaTypeNum],
              qps_peak_[kTaTypeNum]);
     }
+    printf("The statistics related to query number need to times: %u\n",
+           sample_max_);
     printf("Total_requests: %" PRIu64 " Total_accessed_keys: %" PRIu64
            " Total_gets: %" PRIu64 " Total_write_batch: %" PRIu64 "\n",
            total_requests_, total_access_keys_, total_gets_, total_writes_);

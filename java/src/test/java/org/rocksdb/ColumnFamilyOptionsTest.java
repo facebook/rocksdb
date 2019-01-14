@@ -7,6 +7,7 @@ package org.rocksdb;
 
 import org.junit.ClassRule;
 import org.junit.Test;
+import org.rocksdb.test.RemoveEmptyValueCompactionFilterFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -576,4 +577,23 @@ public class ColumnFamilyOptionsTest {
           isEqualTo(booleanValue);
     }
   }
+
+  @Test
+  public void compactionFilter() {
+    try(final ColumnFamilyOptions options = new ColumnFamilyOptions();
+        final RemoveEmptyValueCompactionFilter cf = new RemoveEmptyValueCompactionFilter()) {
+      options.setCompactionFilter(cf);
+      assertThat(options.compactionFilter()).isEqualTo(cf);
+    }
+  }
+
+  @Test
+  public void compactionFilterFactory() {
+    try(final ColumnFamilyOptions options = new ColumnFamilyOptions();
+        final RemoveEmptyValueCompactionFilterFactory cff = new RemoveEmptyValueCompactionFilterFactory()) {
+      options.setCompactionFilterFactory(cff);
+      assertThat(options.compactionFilterFactory()).isEqualTo(cff);
+    }
+  }
+
 }

@@ -20,6 +20,7 @@ int main() {
 #include <vector>
 
 #include "db/range_del_aggregator.h"
+#include "db/range_tombstone_fragmenter.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "util/coding.h"
@@ -33,7 +34,7 @@ using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
 DEFINE_int32(num_range_tombstones, 1000, "number of range tombstones created");
 
-DEFINE_int32(num_runs, 10000, "number of test runs");
+DEFINE_int32(num_runs, 1000, "number of test runs");
 
 DEFINE_int32(tombstone_start_upper_bound, 1000,
              "exclusive upper bound on range tombstone start keys");
@@ -45,8 +46,6 @@ DEFINE_double(tombstone_width_mean, 100.0, "average range tombstone width");
 
 DEFINE_double(tombstone_width_stddev, 0.0,
               "standard deviation of range tombstone width");
-
-DEFINE_bool(use_collapsed, true, "use the collapsed range tombstone map");
 
 DEFINE_int32(seed, 0, "random number generator seed");
 
@@ -84,6 +83,8 @@ std::ostream& operator<<(std::ostream& os, const Stats& s) {
   os.copyfmt(fmt_holder);
   return os;
 }
+
+auto icmp = rocksdb::InternalKeyComparator(rocksdb::BytewiseComparator());
 
 }  // anonymous namespace
 
@@ -181,14 +182,14 @@ int main(int argc, char** argv) {
         std::vector<rocksdb::PersistentRangeTombstone>(
             FLAGS_num_range_tombstones);
   }
-  auto mode = FLAGS_use_collapsed
-                  ? rocksdb::RangeDelPositioningMode::kForwardTraversal
-                  : rocksdb::RangeDelPositioningMode::kFullScan;
+  auto mode = rocksdb::RangeDelPositioningMode::kForwardTraversal;
 
   for (int i = 0; i < FLAGS_num_runs; i++) {
-    auto icmp = rocksdb::InternalKeyComparator(rocksdb::BytewiseComparator());
-    rocksdb::RangeDelAggregator range_del_agg(icmp, {} /* snapshots */,
-                                              FLAGS_use_collapsed);
+    rocksdb::ReadRangeDelAggregator range_del_agg(
+        &icmp, rocksdb::kMaxSequenceNumber /* upper_bound */);
+
+    std::vector<std::unique_ptr<rocksdb::FragmentedRangeTombstoneList> >
+        fragmented_range_tombstone_lists(FLAGS_add_tombstones_per_run);
 
     for (auto& persistent_range_tombstones : all_persistent_range_tombstones) {
       // TODO(abhimadan): consider whether creating the range tombstones right
@@ -196,16 +197,27 @@ int main(int argc, char** argv) {
       // real workloads.
       for (int j = 0; j < FLAGS_num_range_tombstones; j++) {
         uint64_t start = rnd.Uniform(FLAGS_tombstone_start_upper_bound);
-        uint64_t end = start + std::max(1.0, normal_dist(random_gen));
+        uint64_t end = static_cast<uint64_t>(
+            std::round(start + std::max(1.0, normal_dist(random_gen))));
         persistent_range_tombstones[j] = rocksdb::PersistentRangeTombstone(
             rocksdb::Key(start), rocksdb::Key(end), j);
       }
 
       auto range_del_iter =
           rocksdb::MakeRangeDelIterator(persistent_range_tombstones);
+      fragmented_range_tombstone_lists.emplace_back(
+          new rocksdb::FragmentedRangeTombstoneList(
+              rocksdb::MakeRangeDelIterator(persistent_range_tombstones),
+              icmp));
+      std::unique_ptr<rocksdb::FragmentedRangeTombstoneIterator>
+          fragmented_range_del_iter(
+              new rocksdb::FragmentedRangeTombstoneIterator(
+                  fragmented_range_tombstone_lists.back().get(), icmp,
+                  rocksdb::kMaxSequenceNumber));
+
       rocksdb::StopWatchNano stop_watch_add_tombstones(rocksdb::Env::Default(),
                                                        true /* auto_start */);
-      range_del_agg.AddTombstones(std::move(range_del_iter));
+      range_del_agg.AddTombstones(std::move(fragmented_range_del_iter));
       stats.time_add_tombstones += stop_watch_add_tombstones.ElapsedNanos();
     }
 
@@ -221,7 +233,7 @@ int main(int argc, char** argv) {
       parsed_key.user_key = key_string;
 
       rocksdb::StopWatchNano stop_watch_should_delete(rocksdb::Env::Default(),
-          true /* auto_start */);
+                                                      true /* auto_start */);
       range_del_agg.ShouldDelete(parsed_key, mode);
       uint64_t call_time = stop_watch_should_delete.ElapsedNanos();
 

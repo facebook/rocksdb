@@ -39,10 +39,10 @@
 #include "table/full_filter_block.h"
 #include "table/table_builder.h"
 
-#include "util/cache_allocator.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
+#include "util/memory_allocator.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"
@@ -417,9 +417,11 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   if (!ok()) return;
   ValueType value_type = ExtractValueType(key);
   if (IsValueType(value_type)) {
-    if (r->props.num_entries > 0) {
+#ifndef NDEBUG
+    if (r->props.num_entries > r->props.num_range_deletions) {
       assert(r->internal_comparator.Compare(key, Slice(r->last_key)) > 0);
     }
+#endif  // NDEBUG
 
     auto should_flush = r->flush_block_policy->Update(key, value);
     if (should_flush) {
@@ -447,10 +449,6 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
 
     r->last_key.assign(key.data(), key.size());
     r->data_block.Add(key, value);
-    r->props.num_entries++;
-    r->props.raw_key_size += key.size();
-    r->props.raw_value_size += value.size();
-
     r->index_builder->OnKeyAdded(key);
     NotifyCollectTableCollectorsOnAdd(key, value, r->offset,
                                       r->table_properties_collectors,
@@ -458,14 +456,23 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
 
   } else if (value_type == kTypeRangeDeletion) {
     r->range_del_block.Add(key, value);
-    ++r->props.num_range_deletions;
-    r->props.raw_key_size += key.size();
-    r->props.raw_value_size += value.size();
     NotifyCollectTableCollectorsOnAdd(key, value, r->offset,
                                       r->table_properties_collectors,
                                       r->ioptions.info_log);
   } else {
     assert(false);
+  }
+
+  r->props.num_entries++;
+  r->props.raw_key_size += key.size();
+  r->props.raw_value_size += value.size();
+  if (value_type == kTypeDeletion || value_type == kTypeSingleDeletion) {
+    r->props.num_deletions++;
+  } else if (value_type == kTypeRangeDeletion) {
+    r->props.num_deletions++;
+    r->props.num_range_deletions++;
+  } else if (value_type == kTypeMerge) {
+    r->props.num_merge_operands++;
   }
 }
 
@@ -610,6 +617,18 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
         EncodeFixed32(trailer_without_type, XXH32_digest(xxh));
         break;
       }
+      case kxxHash64: {
+        XXH64_state_t* const state = XXH64_createState();
+        XXH64_reset(state, 0);
+        XXH64_update(state, block_contents.data(),
+                static_cast<uint32_t>(block_contents.size()));
+        XXH64_update(state, trailer, 1);  // Extend  to cover block type
+        EncodeFixed32(trailer_without_type,
+          static_cast<uint32_t>(XXH64_digest(state) & // lower 32 bits
+                                   uint64_t{0xffffffff}));
+        XXH64_freeState(state);
+        break;
+      }
     }
 
     assert(r->status.ok());
@@ -637,9 +656,9 @@ Status BlockBasedTableBuilder::status() const {
   return rep_->status;
 }
 
-static void DeleteCachedBlock(const Slice& /*key*/, void* value) {
-  Block* block = reinterpret_cast<Block*>(value);
-  delete block;
+static void DeleteCachedBlockContents(const Slice& /*key*/, void* value) {
+  BlockContents* bc = reinterpret_cast<BlockContents*>(value);
+  delete bc;
 }
 
 //
@@ -656,13 +675,15 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     size_t size = block_contents.size();
 
     auto ubuf =
-        AllocateBlock(size + 1, block_cache_compressed->cache_allocator());
+        AllocateBlock(size + 1, block_cache_compressed->memory_allocator());
     memcpy(ubuf.get(), block_contents.data(), size);
     ubuf[size] = type;
 
-    BlockContents results(std::move(ubuf), size, true, type);
-
-    Block* block = new Block(std::move(results), kDisableGlobalSequenceNumber);
+    BlockContents* block_contents_to_cache =
+        new BlockContents(std::move(ubuf), size);
+#ifndef NDEBUG
+    block_contents_to_cache->is_raw_block = true;
+#endif  // NDEBUG
 
     // make cache key by appending the file offset to the cache prefix id
     char* end = EncodeVarint64(
@@ -673,8 +694,10 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
               (end - r->compressed_cache_key_prefix));
 
     // Insert into compressed block cache.
-    block_cache_compressed->Insert(key, block, block->ApproximateMemoryUsage(),
-                                   &DeleteCachedBlock);
+    block_cache_compressed->Insert(
+        key, block_contents_to_cache,
+        block_contents_to_cache->ApproximateMemoryUsage(),
+        &DeleteCachedBlockContents);
 
     // Invalidate OS cache.
     r->file->InvalidateCache(static_cast<size_t>(r->offset), size);
@@ -854,6 +877,35 @@ void BlockBasedTableBuilder::WriteRangeDelBlock(
   }
 }
 
+void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
+                                         BlockHandle& index_block_handle) {
+  Rep* r = rep_;
+  // No need to write out new footer if we're using default checksum.
+  // We're writing legacy magic number because we want old versions of RocksDB
+  // be able to read files generated with new release (just in case if
+  // somebody wants to roll back after an upgrade)
+  // TODO(icanadi) at some point in the future, when we're absolutely sure
+  // nobody will roll back to RocksDB 2.x versions, retire the legacy magic
+  // number and always write new table files with new magic number
+  bool legacy = (r->table_options.format_version == 0);
+  // this is guaranteed by BlockBasedTableBuilder's constructor
+  assert(r->table_options.checksum == kCRC32c ||
+         r->table_options.format_version != 0);
+  Footer footer(
+      legacy ? kLegacyBlockBasedTableMagicNumber : kBlockBasedTableMagicNumber,
+      r->table_options.format_version);
+  footer.set_metaindex_handle(metaindex_block_handle);
+  footer.set_index_handle(index_block_handle);
+  footer.set_checksum(r->table_options.checksum);
+  std::string footer_encoding;
+  footer.EncodeTo(&footer_encoding);
+  assert(r->status.ok());
+  r->status = r->file->Append(footer_encoding);
+  if (r->status.ok()) {
+    r->offset += footer_encoding.size();
+  }
+}
+
 Status BlockBasedTableBuilder::Finish() {
   Rep* r = rep_;
   bool empty_data_block = r->data_block.empty();
@@ -868,13 +920,14 @@ Status BlockBasedTableBuilder::Finish() {
         &r->last_key, nullptr /* no next data block */, r->pending_handle);
   }
 
-  // Write meta blocks and metaindex block with the following order.
+  // Write meta blocks, metaindex block and footer in the following order.
   //    1. [meta block: filter]
   //    2. [meta block: index]
   //    3. [meta block: compression dictionary]
   //    4. [meta block: range deletion tombstone]
   //    5. [meta block: properties]
   //    6. [metaindex block]
+  //    7. Footer
   BlockHandle metaindex_block_handle, index_block_handle;
   MetaIndexBuilder meta_index_builder;
   WriteFilterBlock(&meta_index_builder);
@@ -887,33 +940,8 @@ Status BlockBasedTableBuilder::Finish() {
     WriteRawBlock(meta_index_builder.Finish(), kNoCompression,
                   &metaindex_block_handle);
   }
-
-  // Write footer
   if (ok()) {
-    // No need to write out new footer if we're using default checksum.
-    // We're writing legacy magic number because we want old versions of RocksDB
-    // be able to read files generated with new release (just in case if
-    // somebody wants to roll back after an upgrade)
-    // TODO(icanadi) at some point in the future, when we're absolutely sure
-    // nobody will roll back to RocksDB 2.x versions, retire the legacy magic
-    // number and always write new table files with new magic number
-    bool legacy = (r->table_options.format_version == 0);
-    // this is guaranteed by BlockBasedTableBuilder's constructor
-    assert(r->table_options.checksum == kCRC32c ||
-           r->table_options.format_version != 0);
-    Footer footer(legacy ? kLegacyBlockBasedTableMagicNumber
-                         : kBlockBasedTableMagicNumber,
-                  r->table_options.format_version);
-    footer.set_metaindex_handle(metaindex_block_handle);
-    footer.set_index_handle(index_block_handle);
-    footer.set_checksum(r->table_options.checksum);
-    std::string footer_encoding;
-    footer.EncodeTo(&footer_encoding);
-    assert(r->status.ok());
-    r->status = r->file->Append(footer_encoding);
-    if (r->status.ok()) {
-      r->offset += footer_encoding.size();
-    }
+    WriteFooter(metaindex_block_handle, index_block_handle);
   }
 
   return r->status;

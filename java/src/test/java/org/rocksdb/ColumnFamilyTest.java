@@ -229,9 +229,50 @@ public class ColumnFamilyTest {
                 new ColumnFamilyOptions()));
         db.put(tmpColumnFamilyHandle, "key".getBytes(), "value".getBytes());
         db.dropColumnFamily(tmpColumnFamilyHandle);
+        assertThat(tmpColumnFamilyHandle.isOwningHandle()).isTrue();
       } finally {
         if (tmpColumnFamilyHandle != null) {
           tmpColumnFamilyHandle.close();
+        }
+        for (ColumnFamilyHandle columnFamilyHandle : columnFamilyHandleList) {
+          columnFamilyHandle.close();
+        }
+      }
+    }
+  }
+
+  @Test
+  public void createWriteDropColumnFamilies() throws RocksDBException {
+    final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(
+        new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+        new ColumnFamilyDescriptor("new_cf".getBytes()));
+    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
+    try (final DBOptions options = new DBOptions()
+        .setCreateIfMissing(true)
+        .setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(options,
+             dbFolder.getRoot().getAbsolutePath(), cfDescriptors,
+             columnFamilyHandleList)) {
+      ColumnFamilyHandle tmpColumnFamilyHandle = null;
+      ColumnFamilyHandle tmpColumnFamilyHandle2 = null;
+      try {
+        tmpColumnFamilyHandle = db.createColumnFamily(
+            new ColumnFamilyDescriptor("tmpCF".getBytes(),
+                new ColumnFamilyOptions()));
+        tmpColumnFamilyHandle2 = db.createColumnFamily(
+            new ColumnFamilyDescriptor("tmpCF2".getBytes(),
+                new ColumnFamilyOptions()));
+        db.put(tmpColumnFamilyHandle, "key".getBytes(), "value".getBytes());
+        db.put(tmpColumnFamilyHandle2, "key".getBytes(), "value".getBytes());
+        db.dropColumnFamilies(Arrays.asList(tmpColumnFamilyHandle, tmpColumnFamilyHandle2));
+        assertThat(tmpColumnFamilyHandle.isOwningHandle()).isTrue();
+        assertThat(tmpColumnFamilyHandle2.isOwningHandle()).isTrue();
+      } finally {
+        if (tmpColumnFamilyHandle != null) {
+          tmpColumnFamilyHandle.close();
+        }
+        if (tmpColumnFamilyHandle2 != null) {
+          tmpColumnFamilyHandle2.close();
         }
         for (ColumnFamilyHandle columnFamilyHandle : columnFamilyHandleList) {
           columnFamilyHandle.close();

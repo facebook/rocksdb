@@ -10,6 +10,7 @@
 #include "db/table_cache.h"
 
 #include "db/dbformat.h"
+#include "db/range_tombstone_fragmenter.h"
 #include "db/version_edit.h"
 #include "util/filename.h"
 
@@ -41,8 +42,10 @@ static void UnrefEntry(void* arg1, void* arg2) {
   cache->Release(h);
 }
 
-static void DeleteTableReader(void* arg1, void* /*arg2*/) {
+static void DeleteTableReader(void* arg1, void* arg2) {
   TableReader* table_reader = reinterpret_cast<TableReader*>(arg1);
+  Statistics* stats = reinterpret_cast<Statistics*>(arg2);
+  RecordTick(stats, NO_FILE_CLOSES);
   delete table_reader;
 }
 
@@ -91,12 +94,12 @@ Status TableCache::GetTableReader(
     const EnvOptions& env_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
     bool sequential_mode, size_t readahead, bool record_read_stats,
-    HistogramImpl* file_read_hist, unique_ptr<TableReader>* table_reader,
+    HistogramImpl* file_read_hist, std::unique_ptr<TableReader>* table_reader,
     const SliceTransform* prefix_extractor, bool skip_filters, int level,
     bool prefetch_index_and_filter_in_cache, bool for_compaction) {
   std::string fname =
       TableFileName(ioptions_.cf_paths, fd.GetNumber(), fd.GetPathId());
-  unique_ptr<RandomAccessFile> file;
+  std::unique_ptr<RandomAccessFile> file;
   Status s = ioptions_.env->NewRandomAccessFile(fname, &file, env_options);
 
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
@@ -144,7 +147,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
                              HistogramImpl* file_read_hist, bool skip_filters,
                              int level,
                              bool prefetch_index_and_filter_in_cache) {
-  PERF_TIMER_GUARD(find_table_nanos);
+  PERF_TIMER_GUARD_WITH_ENV(find_table_nanos, ioptions_.env);
   Status s;
   uint64_t number = fd.GetNumber();
   Slice key = GetSliceForFileNumber(&number);
@@ -156,7 +159,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
     if (no_io) {  // Don't do IO and return a not-found status
       return Status::Incomplete("Table not found in table_cache, no_io is set");
     }
-    unique_ptr<TableReader> table_reader;
+    std::unique_ptr<TableReader> table_reader;
     s = GetTableReader(env_options, internal_comparator, fd,
                        false /* sequential mode */, 0 /* readahead */,
                        record_read_stats, file_read_hist, &table_reader,
@@ -216,7 +219,7 @@ InternalIterator* TableCache::NewIterator(
 
   auto& fd = file_meta.fd;
   if (create_new_table_reader) {
-    unique_ptr<TableReader> table_reader_unique_ptr;
+    std::unique_ptr<TableReader> table_reader_unique_ptr;
     s = GetTableReader(
         env_options, icomparator, fd, true /* sequential_mode */, readahead,
         !for_compaction /* record stats */, nullptr, &table_reader_unique_ptr,
@@ -248,7 +251,8 @@ InternalIterator* TableCache::NewIterator(
     }
     if (create_new_table_reader) {
       assert(handle == nullptr);
-      result->RegisterCleanup(&DeleteTableReader, table_reader, nullptr);
+      result->RegisterCleanup(&DeleteTableReader, table_reader,
+                              ioptions_.statistics);
     } else if (handle != nullptr) {
       result->RegisterCleanup(&UnrefEntry, cache_, handle);
       handle = nullptr;  // prevent from releasing below
@@ -263,8 +267,9 @@ InternalIterator* TableCache::NewIterator(
   }
   if (s.ok() && range_del_agg != nullptr && !options.ignore_range_deletions) {
     if (range_del_agg->AddFile(fd.GetNumber())) {
-      std::unique_ptr<InternalIterator> range_del_iter(
-          table_reader->NewRangeTombstoneIterator(options));
+      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+          static_cast<FragmentedRangeTombstoneIterator*>(
+              table_reader->NewRangeTombstoneIterator(options)));
       if (range_del_iter != nullptr) {
         s = range_del_iter->status();
       }
@@ -277,8 +282,8 @@ InternalIterator* TableCache::NewIterator(
         if (largest_compaction_key != nullptr) {
           largest = largest_compaction_key;
         }
-        s = range_del_agg->AddTombstones(std::move(range_del_iter), smallest,
-                                         largest);
+        range_del_agg->AddTombstones(std::move(range_del_iter), smallest,
+                                     largest);
       }
     }
   }
@@ -372,18 +377,16 @@ Status TableCache::Get(const ReadOptions& options,
         t = GetTableReaderFromHandle(handle);
       }
     }
-    if (s.ok() && get_context->range_del_agg() != nullptr &&
+    SequenceNumber* max_covering_tombstone_seq =
+        get_context->max_covering_tombstone_seq();
+    if (s.ok() && max_covering_tombstone_seq != nullptr &&
         !options.ignore_range_deletions) {
-      std::unique_ptr<InternalIterator> range_del_iter(
+      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
           t->NewRangeTombstoneIterator(options));
       if (range_del_iter != nullptr) {
-        s = range_del_iter->status();
-      }
-      if (s.ok()) {
-        s = get_context->range_del_agg()->AddTombstones(
-            std::move(range_del_iter),
-            &file_meta.smallest,
-            &file_meta.largest);
+        *max_covering_tombstone_seq = std::max(
+            *max_covering_tombstone_seq,
+            range_del_iter->MaxCoveringTombstoneSeqnum(ExtractUserKey(k)));
       }
     }
     if (s.ok()) {

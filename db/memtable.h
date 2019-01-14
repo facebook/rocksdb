@@ -16,7 +16,7 @@
 #include <unordered_map>
 #include <vector>
 #include "db/dbformat.h"
-#include "db/range_del_aggregator.h"
+#include "db/range_tombstone_fragmenter.h"
 #include "db/read_callback.h"
 #include "db/version_edit.h"
 #include "monitoring/instrumented_mutex.h"
@@ -158,7 +158,8 @@ class MemTable {
   //        those allocated in arena.
   InternalIterator* NewIterator(const ReadOptions& read_options, Arena* arena);
 
-  InternalIterator* NewRangeTombstoneIterator(const ReadOptions& read_options);
+  FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
+      const ReadOptions& read_options, SequenceNumber read_seq);
 
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.
@@ -187,17 +188,19 @@ class MemTable {
   // On success, *s may be set to OK, NotFound, or MergeInProgress.  Any other
   // status returned indicates a corruption or other unexpected error.
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           SequenceNumber* seq, const ReadOptions& read_opts,
-           ReadCallback* callback = nullptr, bool* is_blob_index = nullptr);
+           MergeContext* merge_context,
+           SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
+           const ReadOptions& read_opts, ReadCallback* callback = nullptr,
+           bool* is_blob_index = nullptr);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+           MergeContext* merge_context,
+           SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
            bool* is_blob_index = nullptr) {
     SequenceNumber seq;
-    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts,
-               callback, is_blob_index);
+    return Get(key, value, s, merge_context, max_covering_tombstone_seq, &seq,
+               read_opts, callback, is_blob_index);
   }
 
   // Attempts to update the new_value inplace, else does normal Add
@@ -383,13 +386,15 @@ class MemTable {
 
   uint64_t GetID() const { return id_; }
 
-  SequenceNumber& TEST_AtomicFlushSequenceNumber() {
-    return atomic_flush_seqno_;
+  void SetFlushCompleted(bool completed) { flush_completed_ = completed; }
+
+  uint64_t GetFileNumber() const { return file_number_; }
+
+  void SetFileNumber(uint64_t file_num) { file_number_ = file_num; }
+
+  void SetFlushInProgress(bool in_progress) {
+    flush_in_progress_ = in_progress;
   }
-
-  void TEST_SetFlushCompleted(bool completed) { flush_completed_ = completed; }
-
-  void TEST_SetFileNumber(uint64_t file_num) { file_number_ = file_num; }
 
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
@@ -404,9 +409,9 @@ class MemTable {
   const size_t kArenaBlockSize;
   AllocTracker mem_tracker_;
   ConcurrentArena arena_;
-  unique_ptr<MemTableRep> table_;
-  unique_ptr<MemTableRep> range_del_table_;
-  bool is_range_del_table_empty_;
+  std::unique_ptr<MemTableRep> table_;
+  std::unique_ptr<MemTableRep> range_del_table_;
+  std::atomic_bool is_range_del_table_empty_;
 
   // Total data size of all data inserted
   std::atomic<uint64_t> data_size_;

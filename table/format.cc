@@ -19,12 +19,12 @@
 #include "table/block_based_table_reader.h"
 #include "table/block_fetcher.h"
 #include "table/persistent_cache_helper.h"
-#include "util/cache_allocator.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
 #include "util/logging.h"
+#include "util/memory_allocator.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"
@@ -280,7 +280,7 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
 Status UncompressBlockContentsForCompressionType(
     const UncompressionContext& uncompression_ctx, const char* data, size_t n,
     BlockContents* contents, uint32_t format_version,
-    const ImmutableCFOptions& ioptions, CacheAllocator* allocator) {
+    const ImmutableCFOptions& ioptions, MemoryAllocator* allocator) {
   CacheAllocationPtr ubuf;
 
   assert(uncompression_ctx.type() != kNoCompression &&
@@ -301,7 +301,7 @@ Status UncompressBlockContentsForCompressionType(
       if (!Snappy_Uncompress(data, n, ubuf.get())) {
         return Status::Corruption(snappy_corrupt_msg);
       }
-      *contents = BlockContents(std::move(ubuf), ulength, true, kNoCompression);
+      *contents = BlockContents(std::move(ubuf), ulength);
       break;
     }
     case kZlibCompression:
@@ -314,8 +314,7 @@ Status UncompressBlockContentsForCompressionType(
           "Zlib not supported or corrupted Zlib compressed block contents";
         return Status::Corruption(zlib_corrupt_msg);
       }
-      *contents =
-          BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
+      *contents = BlockContents(std::move(ubuf), decompress_size);
       break;
     case kBZip2Compression:
       ubuf = BZip2_Uncompress(
@@ -327,8 +326,7 @@ Status UncompressBlockContentsForCompressionType(
           "Bzip2 not supported or corrupted Bzip2 compressed block contents";
         return Status::Corruption(bzip2_corrupt_msg);
       }
-      *contents =
-          BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
+      *contents = BlockContents(std::move(ubuf), decompress_size);
       break;
     case kLZ4Compression:
       ubuf = LZ4_Uncompress(
@@ -340,8 +338,7 @@ Status UncompressBlockContentsForCompressionType(
           "LZ4 not supported or corrupted LZ4 compressed block contents";
         return Status::Corruption(lz4_corrupt_msg);
       }
-      *contents =
-          BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
+      *contents = BlockContents(std::move(ubuf), decompress_size);
       break;
     case kLZ4HCCompression:
       ubuf = LZ4_Uncompress(
@@ -353,8 +350,7 @@ Status UncompressBlockContentsForCompressionType(
           "LZ4HC not supported or corrupted LZ4HC compressed block contents";
         return Status::Corruption(lz4hc_corrupt_msg);
       }
-      *contents =
-          BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
+      *contents = BlockContents(std::move(ubuf), decompress_size);
       break;
     case kXpressCompression:
       // XPRESS allocates memory internally, thus no support for custom
@@ -365,8 +361,7 @@ Status UncompressBlockContentsForCompressionType(
           "XPRESS not supported or corrupted XPRESS compressed block contents";
         return Status::Corruption(xpress_corrupt_msg);
       }
-      *contents =
-        BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
+      *contents = BlockContents(std::move(ubuf), decompress_size);
       break;
     case kZSTD:
     case kZSTDNotFinalCompression:
@@ -377,8 +372,7 @@ Status UncompressBlockContentsForCompressionType(
             "ZSTD not supported or corrupted ZSTD compressed block contents";
         return Status::Corruption(zstd_corrupt_msg);
       }
-      *contents =
-          BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
+      *contents = BlockContents(std::move(ubuf), decompress_size);
       break;
     default:
       return Status::Corruption("bad block type");
@@ -405,7 +399,7 @@ Status UncompressBlockContents(const UncompressionContext& uncompression_ctx,
                                const char* data, size_t n,
                                BlockContents* contents, uint32_t format_version,
                                const ImmutableCFOptions& ioptions,
-                               CacheAllocator* allocator) {
+                               MemoryAllocator* allocator) {
   assert(data[n] != kNoCompression);
   assert(data[n] == uncompression_ctx.type());
   return UncompressBlockContentsForCompressionType(uncompression_ctx, data, n,

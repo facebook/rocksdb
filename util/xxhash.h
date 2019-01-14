@@ -59,6 +59,14 @@ It depends on successfully passing SMHasher test set.
 
 #pragma once
 
+#include <stdlib.h>
+
+#if !defined(__VMS) &&       \
+    (defined(__cplusplus) || \
+     (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) /* C99 */))
+#include <stdint.h>
+#endif
+
 #if defined (__cplusplus)
 namespace rocksdb {
 #endif
@@ -67,6 +75,7 @@ namespace rocksdb {
 //****************************
 // Type
 //****************************
+/* size_t */
 typedef enum { XXH_OK=0, XXH_ERROR } XXH_errorcode;
 
 
@@ -157,7 +166,74 @@ To free memory context, use XXH32_digest(), or free().
 #define XXH32_result XXH32_digest
 #define XXH32_getIntermediateResult XXH32_intermediateDigest
 
+/*-**********************************************************************
+ *  64-bit hash
+ ************************************************************************/
+typedef unsigned long long XXH64_hash_t;
 
+/*! XXH64() :
+    Calculate the 64-bit hash of sequence of length "len" stored at memory
+   address "input". "seed" can be used to alter the result predictably. This
+   function runs faster on 64-bit systems, but slower on 32-bit systems (see
+   benchmark).
+*/
+XXH64_hash_t XXH64(const void* input, size_t length, unsigned long long seed);
+
+/*======   Streaming   ======*/
+typedef struct XXH64_state_s XXH64_state_t; /* incomplete type */
+XXH64_state_t* XXH64_createState(void);
+XXH_errorcode XXH64_freeState(XXH64_state_t* statePtr);
+void XXH64_copyState(XXH64_state_t* dst_state, const XXH64_state_t* src_state);
+
+XXH_errorcode XXH64_reset(XXH64_state_t* statePtr, unsigned long long seed);
+XXH_errorcode XXH64_update(XXH64_state_t* statePtr, const void* input,
+                           size_t length);
+XXH64_hash_t XXH64_digest(const XXH64_state_t* statePtr);
+
+/*======   Canonical representation   ======*/
+typedef struct {
+  unsigned char digest[8];
+} XXH64_canonical_t;
+void XXH64_canonicalFromHash(XXH64_canonical_t* dst, XXH64_hash_t hash);
+XXH64_hash_t XXH64_hashFromCanonical(const XXH64_canonical_t* src);
+
+/* These definitions are only present to allow
+ * static allocation of XXH state, on stack or in a struct for example.
+ * Never **ever** use members directly. */
+
+#if !defined(__VMS) &&       \
+    (defined(__cplusplus) || \
+     (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) /* C99 */))
+
+struct XXH64_state_s {
+  uint64_t total_len;
+  uint64_t v1;
+  uint64_t v2;
+  uint64_t v3;
+  uint64_t v4;
+  uint64_t mem64[4];
+  uint32_t memsize;
+  uint32_t reserved[2]; /* never read nor write, might be removed in a future
+                           version */
+};                      /* typedef'd to XXH64_state_t */
+
+#else
+
+#ifndef XXH_NO_LONG_LONG /* remove 64-bit support */
+struct XXH64_state_s {
+  unsigned long long total_len;
+  unsigned long long v1;
+  unsigned long long v2;
+  unsigned long long v3;
+  unsigned long long v4;
+  unsigned long long mem64[4];
+  unsigned memsize;
+  unsigned reserved[2]; /* never read nor write, might be removed in a future
+                           version */
+};                      /* typedef'd to XXH64_state_t */
+#endif
+
+#endif
 
 #if defined (__cplusplus)
 }  // namespace rocksdb

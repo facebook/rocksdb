@@ -166,7 +166,7 @@ class PosixEnv : public Env {
   }
 
   virtual Status NewSequentialFile(const std::string& fname,
-                                   unique_ptr<SequentialFile>* result,
+                                   std::unique_ptr<SequentialFile>* result,
                                    const EnvOptions& options) override {
     result->reset();
     int fd = -1;
@@ -216,7 +216,7 @@ class PosixEnv : public Env {
   }
 
   virtual Status NewRandomAccessFile(const std::string& fname,
-                                     unique_ptr<RandomAccessFile>* result,
+                                     std::unique_ptr<RandomAccessFile>* result,
                                      const EnvOptions& options) override {
     result->reset();
     Status s;
@@ -273,7 +273,7 @@ class PosixEnv : public Env {
   }
 
   virtual Status OpenWritableFile(const std::string& fname,
-                                  unique_ptr<WritableFile>* result,
+                                  std::unique_ptr<WritableFile>* result,
                                   const EnvOptions& options,
                                   bool reopen = false) {
     result->reset();
@@ -357,20 +357,20 @@ class PosixEnv : public Env {
   }
 
   virtual Status NewWritableFile(const std::string& fname,
-                                 unique_ptr<WritableFile>* result,
+                                 std::unique_ptr<WritableFile>* result,
                                  const EnvOptions& options) override {
     return OpenWritableFile(fname, result, options, false);
   }
 
   virtual Status ReopenWritableFile(const std::string& fname,
-                                    unique_ptr<WritableFile>* result,
+                                    std::unique_ptr<WritableFile>* result,
                                     const EnvOptions& options) override {
     return OpenWritableFile(fname, result, options, true);
   }
 
   virtual Status ReuseWritableFile(const std::string& fname,
                                    const std::string& old_fname,
-                                   unique_ptr<WritableFile>* result,
+                                   std::unique_ptr<WritableFile>* result,
                                    const EnvOptions& options) override {
     result->reset();
     Status s;
@@ -454,7 +454,7 @@ class PosixEnv : public Env {
   }
 
   virtual Status NewRandomRWFile(const std::string& fname,
-                                 unique_ptr<RandomRWFile>* result,
+                                 std::unique_ptr<RandomRWFile>* result,
                                  const EnvOptions& options) override {
     int fd = -1;
     int flags = cloexec_flags(O_RDWR, &options);
@@ -479,7 +479,7 @@ class PosixEnv : public Env {
 
   virtual Status NewMemoryMappedFileBuffer(
       const std::string& fname,
-      unique_ptr<MemoryMappedFileBuffer>* result) override {
+      std::unique_ptr<MemoryMappedFileBuffer>* result) override {
     int fd = -1;
     Status status;
     int flags = cloexec_flags(O_RDWR, nullptr);
@@ -536,7 +536,7 @@ class PosixEnv : public Env {
     }
 
   virtual Status NewDirectory(const std::string& name,
-                              unique_ptr<Directory>* result) override {
+                              std::unique_ptr<Directory>* result) override {
     result->reset();
     int fd;
     int flags = cloexec_flags(0, nullptr);
@@ -830,7 +830,7 @@ class PosixEnv : public Env {
   }
 
   virtual Status NewLogger(const std::string& fname,
-                           shared_ptr<Logger>* result) override {
+                           std::shared_ptr<Logger>* result) override {
     FILE* f;
     {
       IOSTATS_TIMER_GUARD(open_nanos);
@@ -880,6 +880,15 @@ class PosixEnv : public Env {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(
        std::chrono::steady_clock::now().time_since_epoch()).count();
 #endif
+  }
+
+  virtual uint64_t NowCPUNanos() override {
+#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_AIX)
+    struct timespec ts;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
+#endif
+    return 0;
   }
 
   virtual void SleepForMicroseconds(int micros) override { usleep(micros); }

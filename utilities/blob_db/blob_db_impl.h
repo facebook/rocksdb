@@ -255,10 +255,11 @@ class BlobDBImpl : public BlobDB {
 
   // find an existing blob log file based on the expiration unix epoch
   // if such a file does not exist, return nullptr
-  std::shared_ptr<BlobFile> SelectBlobFileTTL(uint64_t expiration);
+  Status SelectBlobFileTTL(uint64_t expiration,
+                           std::shared_ptr<BlobFile>* blob_file);
 
   // find an existing blob log file to append the value to
-  std::shared_ptr<BlobFile> SelectBlobFile();
+  Status SelectBlobFile(std::shared_ptr<BlobFile>* blob_file);
 
   std::shared_ptr<BlobFile> FindBlobFileLocked(uint64_t expiration) const;
 
@@ -309,8 +310,8 @@ class BlobDBImpl : public BlobDB {
 
   // returns a Writer object for the file. If writer is not
   // already present, creates one. Needs Write Mutex to be held
-  std::shared_ptr<Writer> CheckOrCreateWriterLocked(
-      const std::shared_ptr<BlobFile>& bfile);
+  Status CheckOrCreateWriterLocked(const std::shared_ptr<BlobFile>& blob_file,
+                                   std::shared_ptr<Writer>* writer);
 
   // Iterate through keys and values on Blob and write into
   // separate file the remaining blobs and delete/update pointers
@@ -347,7 +348,8 @@ class BlobDBImpl : public BlobDB {
   ColumnFamilyOptions cf_options_;
   EnvOptions env_options_;
 
-  // Raw pointer of statistic. db_options_ has a shared_ptr to hold ownership.
+  // Raw pointer of statistic. db_options_ has a std::shared_ptr to hold
+  // ownership.
   Statistics* statistics_;
 
   // by default this is "blob_dir" under dbname_

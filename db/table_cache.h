@@ -122,6 +122,8 @@ class TableCache {
   // Release the handle from a cache
   void ReleaseHandle(Cache::Handle* handle);
 
+  Cache* get_cache() const { return cache_; }
+
   // Capacity of the backing Cache that indicates inifinite TableCache capacity.
   // For example when max_open_files is -1 we set the backing Cache to this.
   static const int kInfiniteCapacity = 0x400000;
@@ -141,7 +143,7 @@ class TableCache {
                         const FileDescriptor& fd, bool sequential_mode,
                         size_t readahead, bool record_read_stats,
                         HistogramImpl* file_read_hist,
-                        unique_ptr<TableReader>* table_reader,
+                        std::unique_ptr<TableReader>* table_reader,
                         const SliceTransform* prefix_extractor = nullptr,
                         bool skip_filters = false, int level = -1,
                         bool prefetch_index_and_filter_in_cache = true,

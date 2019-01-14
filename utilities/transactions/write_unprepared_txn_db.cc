@@ -29,6 +29,29 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
   // rollback batch.
   w_options.disableWAL = true;
 
+  class InvalidSnapshotReadCallback : public ReadCallback {
+   public:
+    InvalidSnapshotReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot,
+                                SequenceNumber min_uncommitted)
+        : db_(db), snapshot_(snapshot), min_uncommitted_(min_uncommitted) {}
+
+    // Will be called to see if the seq number visible; if not it moves on to
+    // the next seq number.
+    inline virtual bool IsVisible(SequenceNumber seq) override {
+      // Becomes true if it cannot tell by comparing seq with snapshot seq since
+      // the snapshot_ is not a real snapshot.
+      bool released = false;
+      auto ret = db_->IsInSnapshot(seq, snapshot_, min_uncommitted_, &released);
+      assert(!released || ret);
+      return ret;
+    }
+
+   private:
+    WritePreparedTxnDB* db_;
+    SequenceNumber snapshot_;
+    SequenceNumber min_uncommitted_;
+  };
+
   // Iterate starting with largest sequence number.
   for (auto it = rtxn->batches_.rbegin(); it != rtxn->batches_.rend(); it++) {
     auto last_visible_txn = it->first - 1;
@@ -38,7 +61,7 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
     struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
       DBImpl* db_;
       ReadOptions roptions;
-      WritePreparedTxnReadCallback callback;
+      InvalidSnapshotReadCallback callback;
       WriteBatch* rollback_batch_;
       std::map<uint32_t, const Comparator*>& comparators_;
       std::map<uint32_t, ColumnFamilyHandle*>& handles_;

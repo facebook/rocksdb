@@ -145,6 +145,6 @@ class FilterPolicy {
 // ignores trailing spaces, it would be incorrect to use a
 // FilterPolicy (like NewBloomFilterPolicy) that does not ignore
 // trailing spaces in keys.
-extern const FilterPolicy* NewBloomFilterPolicy(int bits_per_key,
-    bool use_block_based_builder = true);
+extern const FilterPolicy* NewBloomFilterPolicy(
+    int bits_per_key, bool use_block_based_builder = false);
 }

@@ -9,6 +9,7 @@
 
 #pragma once
 #include <memory>
+#include "db/range_tombstone_fragmenter.h"
 #include "rocksdb/slice_transform.h"
 #include "table/internal_iterator.h"
 
@@ -44,7 +45,7 @@ class TableReader {
                                         bool skip_filters = false,
                                         bool for_compaction = false) = 0;
 
-  virtual InternalIterator* NewRangeTombstoneIterator(
+  virtual FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& /*read_options*/) {
     return nullptr;
   }

@@ -29,7 +29,7 @@ std::string GetDirName(const std::string filename) {
 
 // A basic file truncation function suitable for this test.
 Status Truncate(Env* env, const std::string& filename, uint64_t length) {
-  unique_ptr<SequentialFile> orig_file;
+  std::unique_ptr<SequentialFile> orig_file;
   const EnvOptions options;
   Status s = env->NewSequentialFile(filename, &orig_file, options);
   if (!s.ok()) {
@@ -46,7 +46,7 @@ Status Truncate(Env* env, const std::string& filename, uint64_t length) {
 #endif
   if (s.ok()) {
     std::string tmp_name = GetDirName(filename) + "/truncate.tmp";
-    unique_ptr<WritableFile> tmp_file;
+    std::unique_ptr<WritableFile> tmp_file;
     s = env->NewWritableFile(tmp_name, &tmp_file, options);
     if (s.ok()) {
       s = tmp_file->Append(result);
@@ -103,7 +103,7 @@ Status TestDirectory::Fsync() {
 }
 
 TestWritableFile::TestWritableFile(const std::string& fname,
-                                   unique_ptr<WritableFile>&& f,
+                                   std::unique_ptr<WritableFile>&& f,
                                    FaultInjectionTestEnv* env)
     : state_(fname),
       target_(std::move(f)),
@@ -157,8 +157,8 @@ Status TestWritableFile::Sync() {
 }
 
 Status FaultInjectionTestEnv::NewDirectory(const std::string& name,
-                                           unique_ptr<Directory>* result) {
-  unique_ptr<Directory> r;
+                                           std::unique_ptr<Directory>* result) {
+  std::unique_ptr<Directory> r;
   Status s = target()->NewDirectory(name, &r);
   assert(s.ok());
   if (!s.ok()) {
@@ -168,9 +168,9 @@ Status FaultInjectionTestEnv::NewDirectory(const std::string& name,
   return Status::OK();
 }
 
-Status FaultInjectionTestEnv::NewWritableFile(const std::string& fname,
-                                              unique_ptr<WritableFile>* result,
-                                              const EnvOptions& soptions) {
+Status FaultInjectionTestEnv::NewWritableFile(
+    const std::string& fname, std::unique_ptr<WritableFile>* result,
+    const EnvOptions& soptions) {
   if (!IsFilesystemActive()) {
     return GetError();
   }
@@ -183,6 +183,27 @@ Status FaultInjectionTestEnv::NewWritableFile(const std::string& fname,
     return s;
   }
   s = target()->NewWritableFile(fname, result, soptions);
+  if (s.ok()) {
+    result->reset(new TestWritableFile(fname, std::move(*result), this));
+    // WritableFileWriter* file is opened
+    // again then it will be truncated - so forget our saved state.
+    UntrackFile(fname);
+    MutexLock l(&mutex_);
+    open_files_.insert(fname);
+    auto dir_and_name = GetDirAndName(fname);
+    auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
+    list.insert(dir_and_name.second);
+  }
+  return s;
+}
+
+Status FaultInjectionTestEnv::ReopenWritableFile(
+    const std::string& fname, std::unique_ptr<WritableFile>* result,
+    const EnvOptions& soptions) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+  Status s = target()->ReopenWritableFile(fname, result, soptions);
   if (s.ok()) {
     result->reset(new TestWritableFile(fname, std::move(*result), this));
     // WritableFileWriter* file is opened

@@ -696,6 +696,10 @@ TEST_F(PerfContextTest, PerfContextByLevelGetSet) {
   PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 7);
   PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 7);
   PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_true_positive, 1, 2);
+  PERF_COUNTER_BY_LEVEL_ADD(block_cache_hit_count, 1, 0);
+  PERF_COUNTER_BY_LEVEL_ADD(block_cache_hit_count, 5, 2);
+  PERF_COUNTER_BY_LEVEL_ADD(block_cache_miss_count, 2, 3);
+  PERF_COUNTER_BY_LEVEL_ADD(block_cache_miss_count, 4, 1);
   ASSERT_EQ(
       0, (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
   ASSERT_EQ(
@@ -706,6 +710,14 @@ TEST_F(PerfContextTest, PerfContextByLevelGetSet) {
                    .bloom_filter_full_positive);
   ASSERT_EQ(1, (*(get_perf_context()->level_to_perf_context))[2]
                    .bloom_filter_full_true_positive);
+  ASSERT_EQ(1, (*(get_perf_context()->level_to_perf_context))[0]
+                  .block_cache_hit_count);
+  ASSERT_EQ(5, (*(get_perf_context()->level_to_perf_context))[2]
+                  .block_cache_hit_count);
+  ASSERT_EQ(2, (*(get_perf_context()->level_to_perf_context))[3]
+                  .block_cache_miss_count);
+  ASSERT_EQ(4, (*(get_perf_context()->level_to_perf_context))[1]
+                  .block_cache_miss_count);
   std::string zero_excluded = get_perf_context()->ToString(true);
   ASSERT_NE(std::string::npos,
             zero_excluded.find("bloom_filter_useful = 1@level5, 2@level7"));
@@ -713,6 +725,10 @@ TEST_F(PerfContextTest, PerfContextByLevelGetSet) {
             zero_excluded.find("bloom_filter_full_positive = 1@level0"));
   ASSERT_NE(std::string::npos,
             zero_excluded.find("bloom_filter_full_true_positive = 1@level2"));
+  ASSERT_NE(std::string::npos,
+            zero_excluded.find("block_cache_hit_count = 1@level0, 5@level2"));
+  ASSERT_NE(std::string::npos,
+            zero_excluded.find("block_cache_miss_count = 4@level1, 2@level3"));
 }
 }  // namespace rocksdb
 

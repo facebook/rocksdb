@@ -731,6 +731,71 @@ TEST_P(WritePreparedTransactionTest, MaybeUpdateOldCommitMap) {
   MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
 }
 
+// Reproduce the bug with two snapshots with the same seuqence number and test
+// that the release of the first snapshot will not affect the reads by the other
+// snapshot
+TEST_P(WritePreparedTransactionTest, DoubleSnapshot) {
+  TransactionOptions txn_options;
+  Status s;
+
+  // Insert initial value
+  ASSERT_OK(db->Put(WriteOptions(), "key", "value1"));
+
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  Transaction* txn =
+      wp_db->BeginTransaction(WriteOptions(), txn_options, nullptr);
+  ASSERT_OK(txn->SetName("txn"));
+  ASSERT_OK(txn->Put("key", "value2"));
+  ASSERT_OK(txn->Prepare());
+  // Three snapshots with the same seq number
+  const Snapshot* snapshot0 = wp_db->GetSnapshot();
+  const Snapshot* snapshot1 = wp_db->GetSnapshot();
+  const Snapshot* snapshot2 = wp_db->GetSnapshot();
+  ASSERT_OK(txn->Commit());
+  SequenceNumber cache_size = wp_db->COMMIT_CACHE_SIZE;
+  SequenceNumber overlap_seq = txn->GetId() + cache_size;
+  delete txn;
+
+  // 4th snapshot with a larger seq
+  const Snapshot* snapshot3 = wp_db->GetSnapshot();
+  // Cause an eviction to advance max evicted seq number
+  // This also fetches the 4 snapshots from db since their seq is lower than the
+  // new max
+  wp_db->AddCommitted(overlap_seq, overlap_seq);
+
+  ReadOptions ropt;
+  // It should see the value before commit
+  ropt.snapshot = snapshot2;
+  PinnableSlice pinnable_val;
+  s = wp_db->Get(ropt, wp_db->DefaultColumnFamily(), "key", &pinnable_val);
+  ASSERT_OK(s);
+  ASSERT_TRUE(pinnable_val == "value1");
+  pinnable_val.Reset();
+
+  wp_db->ReleaseSnapshot(snapshot1);
+
+  // It should still see the value before commit
+  s = wp_db->Get(ropt, wp_db->DefaultColumnFamily(), "key", &pinnable_val);
+  ASSERT_OK(s);
+  ASSERT_TRUE(pinnable_val == "value1");
+  pinnable_val.Reset();
+
+  // Cause an eviction to advance max evicted seq number and trigger updating
+  // the snapshot list
+  overlap_seq += cache_size;
+  wp_db->AddCommitted(overlap_seq, overlap_seq);
+
+  // It should still see the value before commit
+  s = wp_db->Get(ropt, wp_db->DefaultColumnFamily(), "key", &pinnable_val);
+  ASSERT_OK(s);
+  ASSERT_TRUE(pinnable_val == "value1");
+  pinnable_val.Reset();
+
+  wp_db->ReleaseSnapshot(snapshot0);
+  wp_db->ReleaseSnapshot(snapshot2);
+  wp_db->ReleaseSnapshot(snapshot3);
+}
+
 // Test that the entries in old_commit_map_ get garbage collected properly
 TEST_P(WritePreparedTransactionTest, OldCommitMapGC) {
   const size_t snapshot_cache_bits = 0;
@@ -816,6 +881,7 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
   std::vector<SequenceNumber> snapshots = {100l, 200l, 300l, 400l, 500l,
                                            600l, 700l, 800l, 900l};
   const size_t snapshot_cache_bits = 2;
+  const uint64_t cache_size = 1ul << snapshot_cache_bits;
   // Safety check to express the intended size in the test. Can be adjusted if
   // the snapshots lists changed.
   assert((1ul << snapshot_cache_bits) * 2 + 1 == snapshots.size());
@@ -842,6 +908,57 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
                          commit_entry.commit_seq >= snapshots.front() &&
                          commit_entry.prep_seq <= snapshots.back();
     ASSERT_EQ(expect_update, !wp_db->old_commit_map_empty_);
+  }
+
+  // Test that search will include multiple snapshot from snapshot cache
+  {
+    // exclude first and last item in the cache
+    CommitEntry commit_entry = {snapshots.front() + 1,
+                                snapshots[cache_size - 1] - 1};
+    wp_db->old_commit_map_empty_ = true;  // reset
+    wp_db->old_commit_map_.clear();
+    wp_db->CheckAgainstSnapshots(commit_entry);
+    ASSERT_EQ(wp_db->old_commit_map_.size(), cache_size - 2);
+  }
+
+  // Test that search will include multiple snapshot from old snapshots
+  {
+    // include two in the middle
+    CommitEntry commit_entry = {snapshots[cache_size] + 1,
+                                snapshots[cache_size + 2] + 1};
+    wp_db->old_commit_map_empty_ = true;  // reset
+    wp_db->old_commit_map_.clear();
+    wp_db->CheckAgainstSnapshots(commit_entry);
+    ASSERT_EQ(wp_db->old_commit_map_.size(), 2);
+  }
+
+  // Test that search will include both snapshot cache and old snapshots
+  // Case 1: includes all in snapshot cache
+  {
+    CommitEntry commit_entry = {snapshots.front() - 1, snapshots.back() + 1};
+    wp_db->old_commit_map_empty_ = true;  // reset
+    wp_db->old_commit_map_.clear();
+    wp_db->CheckAgainstSnapshots(commit_entry);
+    ASSERT_EQ(wp_db->old_commit_map_.size(), snapshots.size());
+  }
+
+  // Case 2: includes all snapshot caches except the smallest
+  {
+    CommitEntry commit_entry = {snapshots.front() + 1, snapshots.back() + 1};
+    wp_db->old_commit_map_empty_ = true;  // reset
+    wp_db->old_commit_map_.clear();
+    wp_db->CheckAgainstSnapshots(commit_entry);
+    ASSERT_EQ(wp_db->old_commit_map_.size(), snapshots.size() - 1);
+  }
+
+  // Case 3: includes only the largest of snapshot cache
+  {
+    CommitEntry commit_entry = {snapshots[cache_size - 1] - 1,
+                                snapshots.back() + 1};
+    wp_db->old_commit_map_empty_ = true;  // reset
+    wp_db->old_commit_map_.clear();
+    wp_db->CheckAgainstSnapshots(commit_entry);
+    ASSERT_EQ(wp_db->old_commit_map_.size(), snapshots.size() - cache_size + 1);
   }
 }
 
@@ -1150,12 +1267,12 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
     assert(db != nullptr);
     db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
     seq = db_impl->TEST_GetLastVisibleSequence();
-    ASSERT_EQ(exp_seq, seq);
+    ASSERT_LE(exp_seq, seq);
 
     // Check if flush preserves the last sequence number
     db_impl->Flush(fopt);
     seq = db_impl->GetLatestSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
+    ASSERT_LE(exp_seq, seq);
 
     // Check if recovery after flush preserves the last sequence number
     db_impl->FlushWAL(true);
@@ -1163,7 +1280,7 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
     assert(db != nullptr);
     db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
     seq = db_impl->GetLatestSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
+    ASSERT_LE(exp_seq, seq);
   }
 }
 
@@ -1308,17 +1425,138 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
 }
 
 // After recovery the commit map is empty while the max is set. The code would
-// go through a different path which requires a separate test.
+// go through a different path which requires a separate test. Test that the
+// committed data before the restart is visible to all snapshots.
 TEST_P(WritePreparedTransactionTest, IsInSnapshotEmptyMapTest) {
+  for (bool end_with_prepare : {false, true}) {
+    ReOpen();
+    WriteOptions woptions;
+    ASSERT_OK(db->Put(woptions, "key", "value"));
+    ASSERT_OK(db->Put(woptions, "key", "value"));
+    ASSERT_OK(db->Put(woptions, "key", "value"));
+    SequenceNumber prepare_seq = kMaxSequenceNumber;
+    if (end_with_prepare) {
+      TransactionOptions txn_options;
+      Transaction* txn = db->BeginTransaction(woptions, txn_options);
+      ASSERT_OK(txn->SetName("xid0"));
+      ASSERT_OK(txn->Prepare());
+      prepare_seq = txn->GetId();
+      delete txn;
+    }
+    dynamic_cast<WritePreparedTxnDB*>(db)->TEST_Crash();
+    auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    db_impl->FlushWAL(true);
+    ReOpenNoDelete();
+    WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+    assert(wp_db != nullptr);
+    ASSERT_GT(wp_db->max_evicted_seq_, 0);  // max after recovery
+    // Take a snapshot right after recovery
+    const Snapshot* snap = db->GetSnapshot();
+    auto snap_seq = snap->GetSequenceNumber();
+    ASSERT_GT(snap_seq, 0);
+
+    for (SequenceNumber seq = 0;
+         seq <= wp_db->max_evicted_seq_ && seq != prepare_seq; seq++) {
+      ASSERT_TRUE(wp_db->IsInSnapshot(seq, snap_seq));
+    }
+    if (end_with_prepare) {
+      ASSERT_FALSE(wp_db->IsInSnapshot(prepare_seq, snap_seq));
+    }
+    // trivial check
+    ASSERT_FALSE(wp_db->IsInSnapshot(snap_seq + 1, snap_seq));
+
+    db->ReleaseSnapshot(snap);
+
+    ASSERT_OK(db->Put(woptions, "key", "value"));
+    // Take a snapshot after some writes
+    snap = db->GetSnapshot();
+    snap_seq = snap->GetSequenceNumber();
+    for (SequenceNumber seq = 0;
+         seq <= wp_db->max_evicted_seq_ && seq != prepare_seq; seq++) {
+      ASSERT_TRUE(wp_db->IsInSnapshot(seq, snap_seq));
+    }
+    if (end_with_prepare) {
+      ASSERT_FALSE(wp_db->IsInSnapshot(prepare_seq, snap_seq));
+    }
+    // trivial check
+    ASSERT_FALSE(wp_db->IsInSnapshot(snap_seq + 1, snap_seq));
+
+    db->ReleaseSnapshot(snap);
+  }
+}
+
+// Shows the contract of IsInSnapshot when called on invalid/released snapshots
+TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-  wp_db->max_evicted_seq_ = 100;
-  ASSERT_FALSE(wp_db->IsInSnapshot(50, 40));
-  ASSERT_TRUE(wp_db->IsInSnapshot(50, 50));
-  ASSERT_TRUE(wp_db->IsInSnapshot(50, 100));
-  ASSERT_TRUE(wp_db->IsInSnapshot(50, 150));
-  ASSERT_FALSE(wp_db->IsInSnapshot(100, 80));
-  ASSERT_TRUE(wp_db->IsInSnapshot(100, 100));
-  ASSERT_TRUE(wp_db->IsInSnapshot(100, 150));
+  WriteOptions woptions;
+  ASSERT_OK(db->Put(woptions, "key", "value"));
+  // snap seq = 1
+  const Snapshot* snap1 = db->GetSnapshot();
+  ASSERT_OK(db->Put(woptions, "key", "value"));
+  ASSERT_OK(db->Put(woptions, "key", "value"));
+  // snap seq = 3
+  const Snapshot* snap2 = db->GetSnapshot();
+  const SequenceNumber seq = 1;
+  // Evict seq out of commit cache
+  size_t overwrite_seq = wp_db->COMMIT_CACHE_SIZE + seq;
+  wp_db->AddCommitted(overwrite_seq, overwrite_seq);
+  SequenceNumber snap_seq;
+  uint64_t min_uncommitted = 0;
+  bool released;
+
+  released = false;
+  snap_seq = snap1->GetSequenceNumber();
+  ASSERT_LE(seq, snap_seq);
+  // Valid snapshot lower than max
+  ASSERT_LE(snap_seq, wp_db->max_evicted_seq_);
+  ASSERT_TRUE(wp_db->IsInSnapshot(seq, snap_seq, min_uncommitted, &released));
+  ASSERT_FALSE(released);
+
+  released = false;
+  snap_seq = snap1->GetSequenceNumber();
+  // Invaid snapshot lower than max
+  ASSERT_LE(snap_seq + 1, wp_db->max_evicted_seq_);
+  ASSERT_TRUE(
+      wp_db->IsInSnapshot(seq, snap_seq + 1, min_uncommitted, &released));
+  ASSERT_TRUE(released);
+
+  db->ReleaseSnapshot(snap1);
+
+  released = false;
+  // Released snapshot lower than max
+  ASSERT_TRUE(wp_db->IsInSnapshot(seq, snap_seq, min_uncommitted, &released));
+  // The release does not take affect until the next max advance
+  ASSERT_FALSE(released);
+
+  released = false;
+  // Invaid snapshot lower than max
+  ASSERT_TRUE(
+      wp_db->IsInSnapshot(seq, snap_seq + 1, min_uncommitted, &released));
+  ASSERT_TRUE(released);
+
+  // This make the snapshot release to reflect in txn db structures
+  wp_db->AdvanceMaxEvictedSeq(wp_db->max_evicted_seq_,
+                              wp_db->max_evicted_seq_ + 1);
+
+  released = false;
+  // Released snapshot lower than max
+  ASSERT_TRUE(wp_db->IsInSnapshot(seq, snap_seq, min_uncommitted, &released));
+  ASSERT_TRUE(released);
+
+  released = false;
+  // Invaid snapshot lower than max
+  ASSERT_TRUE(
+      wp_db->IsInSnapshot(seq, snap_seq + 1, min_uncommitted, &released));
+  ASSERT_TRUE(released);
+
+  snap_seq = snap2->GetSequenceNumber();
+
+  released = false;
+  // Unreleased snapshot lower than max
+  ASSERT_TRUE(wp_db->IsInSnapshot(seq, snap_seq, min_uncommitted, &released));
+  ASSERT_FALSE(released);
+
+  db->ReleaseSnapshot(snap2);
 }
 
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of

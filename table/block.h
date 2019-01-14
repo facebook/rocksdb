@@ -153,14 +153,12 @@ class Block {
 
   size_t size() const { return size_; }
   const char* data() const { return data_; }
-  bool cachable() const { return contents_.cachable; }
   // The additional memory space taken by the block data.
   size_t usable_size() const { return contents_.usable_size(); }
   uint32_t NumRestarts() const;
+  bool own_bytes() const { return contents_.own_bytes(); }
+
   BlockBasedTableOptions::DataBlockIndexType IndexType() const;
-  CompressionType compression_type() const {
-    return contents_.compression_type;
-  }
 
   // If comparator is InternalKeyComparator, user_comparator is its user
   // comparator; they are equal otherwise.
@@ -180,6 +178,14 @@ class Block {
   // If `prefix_index` is not nullptr this block will do hash lookup for the key
   // prefix. If total_order_seek is true, prefix_index_ is ignored.
   //
+  // If `block_contents_pinned` is true, the caller will guarantee that when
+  // the cleanup functions are transferred from the iterator to other
+  // classes, e.g. PinnableSlice, the pointer to the bytes will still be
+  // valid. Either the iterator holds cache handle or ownership of some resource
+  // and release them in a release function, or caller is sure that the data
+  // will not go away (for example, it's from mmapped file which will not be
+  // closed).
+  //
   // NOTE: for the hash based lookup, if a key prefix doesn't match any key,
   // the iterator will simply be set as "invalid", rather than returning
   // the key that is just pass the target key.
@@ -188,7 +194,8 @@ class Block {
       const Comparator* comparator, const Comparator* user_comparator,
       TBlockIter* iter = nullptr, Statistics* stats = nullptr,
       bool total_order_seek = true, bool key_includes_seq = true,
-      bool value_is_full = true, BlockPrefixIndex* prefix_index = nullptr);
+      bool value_is_full = true, bool block_contents_pinned = false,
+      BlockPrefixIndex* prefix_index = nullptr);
 
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const;
@@ -295,7 +302,9 @@ class BlockIter : public InternalIteratorBase<TValue> {
   Slice value_;
   Status status_;
   bool key_pinned_;
-  // whether the block data is guaranteed to outlive this iterator
+  // Whether the block data is guaranteed to outlive this iterator, and
+  // as long as the cleanup functions are transferred to another class,
+  // e.g. PinnableSlice, the pointer to the bytes will still be valid.
   bool block_contents_pinned_;
   SequenceNumber global_seqno_;
 

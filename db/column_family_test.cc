@@ -47,7 +47,7 @@ class EnvCounter : public EnvWrapper {
   int GetNumberOfNewWritableFileCalls() {
     return num_new_writable_file_;
   }
-  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
+  Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& soptions) override {
     ++num_new_writable_file_;
     return EnvWrapper::NewWritableFile(f, r, soptions);
@@ -486,9 +486,9 @@ class ColumnFamilyTestBase : public testing::Test {
   void CopyFile(const std::string& source, const std::string& destination,
                 uint64_t size = 0) {
     const EnvOptions soptions;
-    unique_ptr<SequentialFile> srcfile;
+    std::unique_ptr<SequentialFile> srcfile;
     ASSERT_OK(env_->NewSequentialFile(source, &srcfile, soptions));
-    unique_ptr<WritableFile> destfile;
+    std::unique_ptr<WritableFile> destfile;
     ASSERT_OK(env_->NewWritableFile(destination, &destfile, soptions));
 
     if (size == 0) {
@@ -2042,7 +2042,7 @@ TEST_P(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
 }
 #endif  // !ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE  // Tailing interator not supported
+#ifndef ROCKSDB_LITE  // Tailing iterator not supported
 namespace {
 std::string IterStatus(Iterator* iter) {
   std::string result;

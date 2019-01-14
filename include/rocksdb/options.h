@@ -34,6 +34,7 @@ class Cache;
 class CompactionFilter;
 class CompactionFilterFactory;
 class Comparator;
+class ConcurrentTaskLimiter;
 class Env;
 enum InfoLogLevel : unsigned char;
 class SstFileManager;
@@ -188,8 +189,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   size_t write_buffer_size = 64 << 20;
 
-  // Compress blocks using the specified compression algorithm.  This
-  // parameter can be changed dynamically.
+  // Compress blocks using the specified compression algorithm.
   //
   // Default: kSnappyCompression, if it's supported. If snappy is not linked
   // with the library, the default is kNoCompression.
@@ -212,6 +212,8 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // - kZlibCompression: Z_DEFAULT_COMPRESSION (currently -1)
   // - kLZ4HCCompression: 0
   // - For all others, we do not specify a compression level
+  //
+  // Dynamically changeable through SetOptions() API
   CompressionType compression;
 
   // Compression algorithm that will be used for the bottommost level that
@@ -291,6 +293,14 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // If left empty, db_paths will be used.
   // Default: empty
   std::vector<DbPath> cf_paths;
+
+  // Compaction concurrent thread limiter for the column family.
+  // If non-nullptr, use given concurrent thread limiter to control 
+  // the max outstanding compaction tasks. Limiter can be shared with
+  // multiple column families across db instances.
+  //
+  // Default: nullptr
+  std::shared_ptr<ConcurrentTaskLimiter> compaction_thread_limiter = nullptr;
 
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
@@ -416,7 +426,10 @@ struct DBOptions {
   // files opened are always kept open. You can estimate number of files based
   // on target_file_size_base and target_file_size_multiplier for level-based
   // compaction. For universal-style compaction, you can usually set it to -1.
+  //
   // Default: -1
+  //
+  // Dynamically changeable through SetDBOptions() API.
   int max_open_files = -1;
 
   // If max_open_files is -1, DB will open all files on DB::Open(). You can
@@ -431,7 +444,10 @@ struct DBOptions {
   // [sum of all write_buffer_size * max_write_buffer_number] * 4
   // This option takes effect only when there are more than one column family as
   // otherwise the wal size is dictated by the write_buffer_size.
+  //
   // Default: 0
+  //
+  // Dynamically changeable through SetDBOptions() API.
   uint64_t max_total_wal_size = 0;
 
   // If non-null, then we should collect metrics about database operations
@@ -492,13 +508,23 @@ struct DBOptions {
   // value is 6 hours. The files that get out of scope by compaction
   // process will still get automatically delete on every compaction,
   // regardless of this setting
+  //
+  // Default: 6 hours
+  //
+  // Dynamically changeable through SetDBOptions() API.
   uint64_t delete_obsolete_files_period_micros = 6ULL * 60 * 60 * 1000000;
 
   // Maximum number of concurrent background jobs (compactions and flushes).
+  //
+  // Default: 2
+  //
+  // Dynamically changeable through SetDBOptions() API.
   int max_background_jobs = 2;
 
   // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
   // value of max_background_jobs. This option is ignored.
+  //
+  // Dynamically changeable through SetDBOptions() API.
   int base_background_compactions = -1;
 
   // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
@@ -513,7 +539,10 @@ struct DBOptions {
   // If you're increasing this, also consider increasing number of threads in
   // LOW priority thread pool. For more information, see
   // Env::SetBackgroundThreads
+  //
   // Default: -1
+  //
+  // Dynamically changeable through SetDBOptions() API.
   int max_background_compactions = -1;
 
   // This value represents the maximum number of threads that will
@@ -642,7 +671,10 @@ struct DBOptions {
   bool skip_log_error_on_recovery = false;
 
   // if not zero, dump rocksdb.stats to LOG every stats_dump_period_sec
+  //
   // Default: 600 (10 min)
+  //
+  // Dynamically changeable through SetDBOptions() API.
   unsigned int stats_dump_period_sec = 600;
 
   // If set true, will hint the underlying file system that the file
@@ -709,6 +741,8 @@ struct DBOptions {
   // true.
   //
   // Default: 0
+  //
+  // Dynamically changeable through SetDBOptions() API.
   size_t compaction_readahead_size = 0;
 
   // This is a maximum buffer size that is used by WinMmapReadableFile in
@@ -735,6 +769,8 @@ struct DBOptions {
   // write requests if the logical sector size is unusual
   //
   // Default: 1024 * 1024 (1 MB)
+  //
+  // Dynamically changeable through SetDBOptions() API.
   size_t writable_file_max_buffer_size = 1024 * 1024;
 
 
@@ -757,17 +793,23 @@ struct DBOptions {
   // to smooth out write I/Os over time. Users shouldn't rely on it for
   // persistency guarantee.
   // Issue one request for every bytes_per_sync written. 0 turns it off.
-  // Default: 0
   //
   // You may consider using rate_limiter to regulate write rate to device.
   // When rate limiter is enabled, it automatically enables bytes_per_sync
   // to 1MB.
   //
   // This option applies to table files
+  //
+  // Default: 0, turned off
+  //
+  // Dynamically changeable through SetDBOptions() API.
   uint64_t bytes_per_sync = 0;
 
   // Same as bytes_per_sync, but applies to WAL files
+  //
   // Default: 0, turned off
+  //
+  // Dynamically changeable through SetDBOptions() API.
   uint64_t wal_bytes_per_sync = 0;
 
   // A vector of EventListeners which callback functions will be called
@@ -795,6 +837,8 @@ struct DBOptions {
   // Unit: byte per second.
   //
   // Default: 0
+  //
+  // Dynamically changeable through SetDBOptions() API.
   uint64_t delayed_write_rate = 0;
 
   // By default, a single write thread queue is maintained. The thread gets
@@ -949,6 +993,20 @@ struct DBOptions {
   // relies on manual invocation of FlushWAL to write the WAL buffer to its
   // file.
   bool manual_wal_flush = false;
+
+  // If true, RocksDB supports flushing multiple column families and committing
+  // their results atomically to MANIFEST. Note that it is not
+  // necessary to set atomic_flush to true if WAL is always enabled since WAL
+  // allows the database to be restored to the last persistent state in WAL.
+  // This option is useful when there are column families with writes NOT
+  // protected by WAL.
+  // For manual flush, application has to specify which column families to
+  // flush atomically in DB::Flush.
+  // For auto-triggered flush, RocksDB atomically flushes ALL column families.
+  //
+  // Currently, any WAL-enabled writes after atomic flush may be replayed
+  // independently if the process crashes later and tries to recover.
+  bool atomic_flush = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1294,6 +1352,11 @@ struct IngestExternalFileOptions {
   bool write_global_seqno = true;
 };
 
-struct TraceOptions {};
+// TraceOptions is used for StartTrace
+struct TraceOptions {
+  // To avoid the trace file size grows large than the storage space,
+  // user can set the max trace file size in Bytes. Default is 64GB
+  uint64_t max_trace_file_size = uint64_t{64} * 1024 * 1024 * 1024;
+};
 
 }  // namespace rocksdb

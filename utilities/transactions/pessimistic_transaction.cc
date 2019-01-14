@@ -232,7 +232,7 @@ Status WriteCommittedTxn::PrepareInternal() {
   WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_);
   Status s =
       db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                          /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
+                          /*callback*/ nullptr, &log_number_, /*log_ref*/ 0,
                           /* disable_memtable*/ true);
   return s;
 }
@@ -322,12 +322,27 @@ Status PessimisticTransaction::Commit() {
 }
 
 Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
-  Status s = db_->Write(write_options_, GetWriteBatch()->GetWriteBatch());
+  uint64_t seq_used = kMaxSequenceNumber;
+  auto s =
+      db_impl_->WriteImpl(write_options_, GetWriteBatch()->GetWriteBatch(),
+                          /*callback*/ nullptr, /*log_used*/ nullptr,
+                          /*log_ref*/ 0, /*disable_memtable*/ false, &seq_used);
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
+  if (s.ok()) {
+    SetId(seq_used);
+  }
   return s;
 }
 
 Status WriteCommittedTxn::CommitBatchInternal(WriteBatch* batch, size_t) {
-  Status s = db_->Write(write_options_, batch);
+  uint64_t seq_used = kMaxSequenceNumber;
+  auto s = db_impl_->WriteImpl(write_options_, batch, /*callback*/ nullptr,
+                               /*log_used*/ nullptr, /*log_ref*/ 0,
+                               /*disable_memtable*/ false, &seq_used);
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
+  if (s.ok()) {
+    SetId(seq_used);
+  }
   return s;
 }
 
@@ -345,8 +360,15 @@ Status WriteCommittedTxn::CommitInternal() {
   // in non recovery mode and simply insert the values
   WriteBatchInternal::Append(working_batch, GetWriteBatch()->GetWriteBatch());
 
-  auto s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
-                               log_number_);
+  uint64_t seq_used = kMaxSequenceNumber;
+  auto s =
+      db_impl_->WriteImpl(write_options_, working_batch, /*callback*/ nullptr,
+                          /*log_used*/ nullptr, /*log_ref*/ log_number_,
+                          /*disable_memtable*/ false, &seq_used);  
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
+  if (s.ok()) {
+    SetId(seq_used);
+  }
   return s;
 }
 
@@ -493,7 +515,9 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
 // the snapshot time.
 Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
                                        const Slice& key, bool read_only,
-                                       bool exclusive, bool skip_validate) {
+                                       bool exclusive, const bool do_validate,
+                                       const bool assume_tracked) {
+  assert(!assume_tracked || !do_validate);
   Status s;
   if (UNLIKELY(skip_concurrency_control_)) {
     return s;
@@ -537,7 +561,11 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   // any writes since this transaction's snapshot.
   // TODO(agiardullo): could optimize by supporting shared txn locks in the
   // future
-  if (skip_validate || snapshot_ == nullptr) {
+  if (!do_validate || snapshot_ == nullptr) {
+    if (assume_tracked && !previously_locked) {
+      s = Status::InvalidArgument(
+          "assume_tracked is set but it is not tracked yet");
+    }
     // Need to remember the earliest sequence number that we know that this
     // key has not been modified after.  This is useful if this same
     // transaction
@@ -606,7 +634,7 @@ Status PessimisticTransaction::ValidateSnapshot(
   // Otherwise we have either
   // 1: tracked_at_seq == kMaxSequenceNumber, i.e., first time tracking the key
   // 2: snap_seq < tracked_at_seq: last time we lock the key was via
-  // skip_validate option which means we had skipped ValidateSnapshot. In both
+  // do_validate=false which means we had skipped ValidateSnapshot. In both
   // cases we should do ValidateSnapshot now.
 
   *tracked_at_seq = snap_seq;

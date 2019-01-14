@@ -43,6 +43,8 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
       command line flags processing. You can compile rocksdb library even
       if you don't have gflags installed.
 
+* If you wish to build the RocksJava static target, then cmake is required for building Snappy.
+
 ## Supported platforms
 
 * **Linux - Ubuntu**

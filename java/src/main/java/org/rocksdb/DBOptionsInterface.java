@@ -174,6 +174,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    *    first db_path (db_name if db_paths is empty).
    *
    * @param sstFileManager The SST File Manager for the db.
+   * @return the instance of the current object.
    */
   T setSstFileManager(SstFileManager sstFileManager);
 
@@ -1003,6 +1004,15 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    * @return the reference of the current options.
    */
   T setWriteBufferManager(final WriteBufferManager writeBufferManager);
+
+  /**
+   * Reference to {@link WriteBufferManager} used by it. <br>
+   *
+   * Default: null (Disabled)
+   *
+   * @return a reference to WriteBufferManager
+   */
+  WriteBufferManager writeBufferManager();
 
   /**
    * Amount of data to build up in memtables across all column

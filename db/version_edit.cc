@@ -263,7 +263,7 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
         break;
       }
       if (!GetLengthPrefixedSlice(input, &field)) {
-        return "new-file4 custom field lenth prefixed slice error";
+        return "new-file4 custom field length prefixed slice error";
       }
       switch (custom_tag) {
         case kPathId:
@@ -579,7 +579,7 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     AppendNumberTo(&r, max_column_family_);
   }
   if (is_in_atomic_group_) {
-    r.append("\n AtomicGroup: ");
+    r.append("\n  AtomicGroup: ");
     AppendNumberTo(&r, remaining_entries_);
     r.append(" entries remains");
   }

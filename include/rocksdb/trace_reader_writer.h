@@ -24,6 +24,7 @@ class TraceWriter {
 
   virtual Status Write(const Slice& data) = 0;
   virtual Status Close() = 0;
+  virtual uint64_t GetFileSize() = 0;
 };
 
 // TraceReader allows reading RocksDB traces from any system, one operation at

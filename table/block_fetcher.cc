@@ -19,12 +19,12 @@
 #include "table/block_based_table_reader.h"
 #include "table/format.h"
 #include "table/persistent_cache_helper.h"
-#include "util/cache_allocator.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
 #include "util/logging.h"
+#include "util/memory_allocator.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"
@@ -48,6 +48,12 @@ void BlockFetcher::CheckBlockChecksum() {
         break;
       case kxxHash:
         actual = XXH32(data, static_cast<int>(block_size_) + 1, 0);
+        break;
+      case kxxHash64:
+        actual =static_cast<uint32_t> (
+             XXH64(data, static_cast<int>(block_size_) + 1, 0) &
+              uint64_t{0xffffffff}
+          );
         break;
       default:
         status_ = Status::Corruption(
@@ -134,8 +140,13 @@ void BlockFetcher::PrepareBufferForBlockFromFile() {
     // If we've got a small enough hunk of data, read it in to the
     // trivially allocated stack buffer instead of needing a full malloc()
     used_buf_ = &stack_buf_[0];
+  } else if (maybe_compressed_ && !do_uncompress_) {
+    compressed_buf_ = AllocateBlock(block_size_ + kBlockTrailerSize,
+                                    memory_allocator_compressed_);
+    used_buf_ = compressed_buf_.get();
   } else {
-    heap_buf_ = AllocateBlock(block_size_ + kBlockTrailerSize, allocator_);
+    heap_buf_ =
+        AllocateBlock(block_size_ + kBlockTrailerSize, memory_allocator_);
     used_buf_ = heap_buf_.get();
   }
 }
@@ -162,29 +173,45 @@ void BlockFetcher::InsertUncompressedBlockToPersistentCacheIfNeeded() {
   }
 }
 
+inline void BlockFetcher::CopyBufferToHeap() {
+  assert(used_buf_ != heap_buf_.get());
+  heap_buf_ = AllocateBlock(block_size_ + kBlockTrailerSize, memory_allocator_);
+  memcpy(heap_buf_.get(), used_buf_, block_size_ + kBlockTrailerSize);
+}
+
 inline
 void BlockFetcher::GetBlockContents() {
   if (slice_.data() != used_buf_) {
     // the slice content is not the buffer provided
-    *contents_ = BlockContents(Slice(slice_.data(), block_size_),
-                               immortal_source_, compression_type);
+    *contents_ = BlockContents(Slice(slice_.data(), block_size_));
   } else {
     // page can be either uncompressed or compressed, the buffer either stack
     // or heap provided. Refer to https://github.com/facebook/rocksdb/pull/4096
     if (got_from_prefetch_buffer_ || used_buf_ == &stack_buf_[0]) {
-      assert(used_buf_ != heap_buf_.get());
-      heap_buf_ = AllocateBlock(block_size_ + kBlockTrailerSize, allocator_);
-      memcpy(heap_buf_.get(), used_buf_, block_size_ + kBlockTrailerSize);
+      CopyBufferToHeap();
+    } else if (used_buf_ == compressed_buf_.get()) {
+      if (compression_type_ == kNoCompression &&
+          memory_allocator_ != memory_allocator_compressed_) {
+        CopyBufferToHeap();
+      } else {
+        heap_buf_ = std::move(compressed_buf_);
+      }
     }
-    *contents_ = BlockContents(std::move(heap_buf_), block_size_, true,
-                               compression_type);
+    *contents_ = BlockContents(std::move(heap_buf_), block_size_);
   }
+#ifndef NDEBUG
+  contents_->is_raw_block = true;
+#endif
 }
 
 Status BlockFetcher::ReadBlockContents() {
   block_size_ = static_cast<size_t>(handle_.size());
 
   if (TryGetUncompressBlockFromPersistentCache()) {
+    compression_type_ = kNoCompression;
+#ifndef NDEBUG
+    contents_->is_raw_block = true;
+#endif  // NDEBUG
     return Status::OK();
   }
   if (TryGetFromPrefetchBuffer()) {
@@ -225,15 +252,16 @@ Status BlockFetcher::ReadBlockContents() {
 
   PERF_TIMER_GUARD(block_decompress_time);
 
-  compression_type =
-      static_cast<rocksdb::CompressionType>(slice_.data()[block_size_]);
+  compression_type_ = get_block_compression_type(slice_.data(), block_size_);
 
-  if (do_uncompress_ && compression_type != kNoCompression) {
+  if (do_uncompress_ && compression_type_ != kNoCompression) {
     // compressed page, uncompress, update cache
-    UncompressionContext uncompression_ctx(compression_type, compression_dict_);
+    UncompressionContext uncompression_ctx(compression_type_,
+                                           compression_dict_);
     status_ = UncompressBlockContents(uncompression_ctx, slice_.data(),
                                       block_size_, contents_, footer_.version(),
-                                      ioptions_, allocator_);
+                                      ioptions_, memory_allocator_);
+    compression_type_ = kNoCompression;
   } else {
     GetBlockContents();
   }

@@ -674,5 +674,16 @@ int InternalKeyComparator::CompareKeySeq(const Slice& akey,
   return r;
 }
 
+struct ParsedInternalKeyComparator {
+  explicit ParsedInternalKeyComparator(const InternalKeyComparator* c)
+      : cmp(c) {}
+
+  bool operator()(const ParsedInternalKey& a,
+                  const ParsedInternalKey& b) const {
+    return cmp->Compare(a, b) < 0;
+  }
+
+  const InternalKeyComparator* cmp;
+};
 
 }  // namespace rocksdb

@@ -1699,9 +1699,41 @@ jlong Java_org_rocksdb_RocksDB_createColumnFamily(JNIEnv* env, jobject /*jdb*/,
 void Java_org_rocksdb_RocksDB_dropColumnFamily(JNIEnv* env, jobject /*jdb*/,
                                                jlong jdb_handle,
                                                jlong jcf_handle) {
-  auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
   auto* db_handle = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
   rocksdb::Status s = db_handle->DropColumnFamily(cf_handle);
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    dropColumnFamilies
+ * Signature: (J[J)V
+ */
+void Java_org_rocksdb_RocksDB_dropColumnFamilies(
+    JNIEnv* env, jobject, jlong jdb_handle, jlongArray jcolumn_family_handles) {
+  auto* db_handle = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+
+  std::vector<rocksdb::ColumnFamilyHandle*> cf_handles;
+  if (jcolumn_family_handles != nullptr) {
+    const jsize len_cols = env->GetArrayLength(jcolumn_family_handles);
+
+    jlong* jcfh = env->GetLongArrayElements(jcolumn_family_handles, nullptr);
+    if (jcfh == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return;
+    }
+
+    for (jsize i = 0; i < len_cols; i++) {
+      auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcfh[i]);
+      cf_handles.push_back(cf_handle);
+    }
+    env->ReleaseLongArrayElements(jcolumn_family_handles, jcfh, JNI_ABORT);
+  }
+
+  rocksdb::Status s = db_handle->DropColumnFamilies(cf_handles);
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }

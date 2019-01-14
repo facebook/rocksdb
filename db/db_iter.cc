@@ -134,15 +134,14 @@ class DBIter final: public Iterator {
         prefix_same_as_start_(read_options.prefix_same_as_start),
         pin_thru_lifetime_(read_options.pin_data),
         total_order_seek_(read_options.total_order_seek),
-        range_del_agg_(cf_options.internal_comparator, s,
-                       true /* collapse_deletions */),
+        range_del_agg_(&cf_options.internal_comparator, s),
         read_callback_(read_callback),
         db_impl_(db_impl),
         cfd_(cfd),
         allow_blob_(allow_blob),
         is_blob_(false),
         start_seqnum_(read_options.iter_start_seqnum) {
-    RecordTick(statistics_, NO_ITERATORS);
+    RecordTick(statistics_, NO_ITERATOR_CREATED);
     prefix_extractor_ = mutable_cf_options.prefix_extractor.get();
     max_skip_ = max_sequential_skip_in_iterations;
     max_skippable_internal_keys_ = read_options.max_skippable_internal_keys;
@@ -158,9 +157,7 @@ class DBIter final: public Iterator {
     if (pinned_iters_mgr_.PinningEnabled()) {
       pinned_iters_mgr_.ReleasePinnedData();
     }
-    // Compiler warning issue filed:
-    // https://github.com/facebook/rocksdb/issues/3013
-    RecordTick(statistics_, NO_ITERATORS, uint64_t(-1));
+    RecordTick(statistics_, NO_ITERATOR_DELETED);
     ResetInternalKeysSkippedCounter();
     local_stats_.BumpGlobalStatistics(statistics_);
     if (!arena_mode_) {
@@ -174,7 +171,7 @@ class DBIter final: public Iterator {
     iter_ = iter;
     iter_->SetPinnedItersMgr(&pinned_iters_mgr_);
   }
-  virtual RangeDelAggregator* GetRangeDelAggregator() {
+  virtual ReadRangeDelAggregator* GetRangeDelAggregator() {
     return &range_del_agg_;
   }
 
@@ -344,7 +341,7 @@ class DBIter final: public Iterator {
   const bool total_order_seek_;
   // List of operands for merge operator.
   MergeContext merge_context_;
-  RangeDelAggregator range_del_agg_;
+  ReadRangeDelAggregator range_del_agg_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
   ReadCallback* read_callback_;
@@ -1482,7 +1479,7 @@ Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
 
 ArenaWrappedDBIter::~ArenaWrappedDBIter() { db_iter_->~DBIter(); }
 
-RangeDelAggregator* ArenaWrappedDBIter::GetRangeDelAggregator() {
+ReadRangeDelAggregator* ArenaWrappedDBIter::GetRangeDelAggregator() {
   return db_iter_->GetRangeDelAggregator();
 }
 
@@ -1558,7 +1555,8 @@ Status ArenaWrappedDBIter::Refresh() {
          allow_refresh_);
 
     InternalIterator* internal_iter = db_impl_->NewInternalIterator(
-        read_options_, cfd_, sv, &arena_, db_iter_->GetRangeDelAggregator());
+        read_options_, cfd_, sv, &arena_, db_iter_->GetRangeDelAggregator(),
+        latest_seq);
     SetIterUnderDBIter(internal_iter);
   } else {
     db_iter_->set_sequence(latest_seq);

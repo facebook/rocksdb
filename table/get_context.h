@@ -6,7 +6,6 @@
 #pragma once
 #include <string>
 #include "db/merge_context.h"
-#include "db/range_del_aggregator.h"
 #include "db/read_callback.h"
 #include "rocksdb/env.h"
 #include "rocksdb/statistics.h"
@@ -52,8 +51,9 @@ class GetContext {
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
              const Slice& user_key, PinnableSlice* value, bool* value_found,
-             MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-             Env* env, SequenceNumber* seq = nullptr,
+             MergeContext* merge_context,
+             SequenceNumber* max_covering_tombstone_seq, Env* env,
+             SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr);
 
@@ -76,7 +76,9 @@ class GetContext {
 
   GetState State() const { return state_; }
 
-  RangeDelAggregator* range_del_agg() { return range_del_agg_; }
+  SequenceNumber* max_covering_tombstone_seq() {
+    return max_covering_tombstone_seq_;
+  }
 
   PinnedIteratorsManager* pinned_iters_mgr() { return pinned_iters_mgr_; }
 
@@ -111,7 +113,7 @@ class GetContext {
   PinnableSlice* pinnable_val_;
   bool* value_found_;  // Is value set correctly? Used by KeyMayExist
   MergeContext* merge_context_;
-  RangeDelAggregator* range_del_agg_;
+  SequenceNumber* max_covering_tombstone_seq_;
   Env* env_;
   // If a key is found, seq_ will be set to the SequenceNumber of most recent
   // write to the key or kMaxSequenceNumber if unknown
