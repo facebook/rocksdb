@@ -211,8 +211,7 @@ class RangeLockMgr :
     Same as above, but *keys is guaranteed to hold all the locks obtained by
     the transaction.
   */
-  void UnLockAll(const PessimisticTransaction* txn, const TransactionKeyMap* keys,
-              Env* env);
+  void UnLockAll(const PessimisticTransaction* txn, Env* env);
   void UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
               const std::string& key, Env* env) override ;
 

@@ -27,6 +27,7 @@ TransactionBaseImpl::TransactionBaseImpl(DB* db,
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
       start_time_(db_->GetEnv()->NowMicros()),
       write_batch_(cmp_, 0, true, 0),
+      do_key_tracking_(true),
       indexing_enabled_(true) {
   assert(dynamic_cast<DBImpl*>(db_) != nullptr);
   log_number_ = 0;
@@ -142,35 +143,37 @@ Status TransactionBaseImpl::RollbackToSavePoint() {
     Status s = write_batch_.RollbackToSavePoint();
     assert(s.ok());
 
-    // Rollback any keys that were tracked since the last savepoint
-    const TransactionKeyMap& key_map = save_point.new_keys_;
-    for (const auto& key_map_iter : key_map) {
-      uint32_t column_family_id = key_map_iter.first;
-      auto& keys = key_map_iter.second;
+    if (do_key_tracking_) {
+      // Rollback any keys that were tracked since the last savepoint
+      const TransactionKeyMap& key_map = save_point.new_keys_;
+      for (const auto& key_map_iter : key_map) {
+        uint32_t column_family_id = key_map_iter.first;
+        auto& keys = key_map_iter.second;
 
-      auto& cf_tracked_keys = tracked_keys_[column_family_id];
+        auto& cf_tracked_keys = tracked_keys_[column_family_id];
 
-      for (const auto& key_iter : keys) {
-        const std::string& key = key_iter.first;
-        uint32_t num_reads = key_iter.second.num_reads;
-        uint32_t num_writes = key_iter.second.num_writes;
+        for (const auto& key_iter : keys) {
+          const std::string& key = key_iter.first;
+          uint32_t num_reads = key_iter.second.num_reads;
+          uint32_t num_writes = key_iter.second.num_writes;
 
-        auto tracked_keys_iter = cf_tracked_keys.find(key);
-        assert(tracked_keys_iter != cf_tracked_keys.end());
+          auto tracked_keys_iter = cf_tracked_keys.find(key);
+          assert(tracked_keys_iter != cf_tracked_keys.end());
 
-        // Decrement the total reads/writes of this key by the number of
-        // reads/writes done since the last SavePoint.
-        if (num_reads > 0) {
-          assert(tracked_keys_iter->second.num_reads >= num_reads);
-          tracked_keys_iter->second.num_reads -= num_reads;
-        }
-        if (num_writes > 0) {
-          assert(tracked_keys_iter->second.num_writes >= num_writes);
-          tracked_keys_iter->second.num_writes -= num_writes;
-        }
-        if (tracked_keys_iter->second.num_reads == 0 &&
-            tracked_keys_iter->second.num_writes == 0) {
-          cf_tracked_keys.erase(tracked_keys_iter);
+          // Decrement the total reads/writes of this key by the number of
+          // reads/writes done since the last SavePoint.
+          if (num_reads > 0) {
+            assert(tracked_keys_iter->second.num_reads >= num_reads);
+            tracked_keys_iter->second.num_reads -= num_reads;
+          }
+          if (num_writes > 0) {
+            assert(tracked_keys_iter->second.num_writes >= num_writes);
+            tracked_keys_iter->second.num_writes -= num_writes;
+          }
+          if (tracked_keys_iter->second.num_reads == 0 &&
+              tracked_keys_iter->second.num_writes == 0) {
+            cf_tracked_keys.erase(tracked_keys_iter);
+          }
         }
       }
     }
@@ -666,7 +669,7 @@ void TransactionBaseImpl::TrackKey(TransactionKeyMap* key_map, uint32_t cfh_id,
 
 std::unique_ptr<TransactionKeyMap>
 TransactionBaseImpl::GetTrackedKeysSinceSavePoint() {
-  if (save_points_ != nullptr && !save_points_->empty()) {
+  if (save_points_ != nullptr && !save_points_->empty() && do_key_tracking_) {
     // Examine the number of reads/writes performed on all keys written
     // since the last SavePoint and compare to the total number of reads/writes
     // for each key.

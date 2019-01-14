@@ -340,6 +340,11 @@ class TransactionBaseImpl : public Transaction {
   std::unique_ptr<std::stack<TransactionBaseImpl::SavePoint,
                              autovector<TransactionBaseImpl::SavePoint>>>
       save_points_;
+ protected:
+  // Whether to do key key tracking (in tracked_keys_).
+  // By default, key tracking is enabled. Pessimistic transactions with
+  // range locking don't do key tracking.
+  bool do_key_tracking_;
 
  private:
   friend class WritePreparedTxn;

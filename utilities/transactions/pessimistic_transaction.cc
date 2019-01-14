@@ -50,6 +50,7 @@ PessimisticTransaction::PessimisticTransaction(
       skip_concurrency_control_(false) {
   txn_db_impl_ = static_cast_with_check<PessimisticTransactionDB>(txn_db);
   db_impl_ = static_cast_with_check<DBImpl>(db_);
+  do_key_tracking_ = ! txn_db_impl_->use_range_locking;
   if (init) {
     Initialize(txn_options);
   }
@@ -133,7 +134,8 @@ WriteCommittedTxn::WriteCommittedTxn(TransactionDB* txn_db,
 
 Status PessimisticTransaction::CommitBatch(WriteBatch* batch) {
   TransactionKeyMap keys_to_unlock;
-  Status s = LockBatch(batch, &keys_to_unlock);
+
+  Status s = do_key_tracking_? LockBatch(batch, &keys_to_unlock): Status::OK();
 
   if (!s.ok()) {
     return s;
@@ -164,7 +166,7 @@ Status PessimisticTransaction::CommitBatch(WriteBatch* batch) {
     s = Status::InvalidArgument("Transaction is not in state for commit.");
   }
 
-  txn_db_impl_->UnLock(this, &keys_to_unlock);
+  txn_db_impl_->UnLock(this, &keys_to_unlock, /*all_keys_hint=*/true);
 
   return s;
 }
@@ -446,12 +448,14 @@ Status PessimisticTransaction::RollbackToSavePoint() {
     return Status::InvalidArgument("Transaction is beyond state for rollback.");
   }
 
-  // Unlock any keys locked since last transaction
-  const std::unique_ptr<TransactionKeyMap>& keys =
-      GetTrackedKeysSinceSavePoint();
+  if (do_key_tracking_) {
+    // Unlock any keys locked since last transaction
+    const std::unique_ptr<TransactionKeyMap>& keys =
+        GetTrackedKeysSinceSavePoint();
 
-  if (keys) {
-    txn_db_impl_->UnLock(this, keys.get());
+    if (keys) {
+      txn_db_impl_->UnLock(this, keys.get());
+    }
   }
 
   return TransactionBaseImpl::RollbackToSavePoint();
@@ -550,6 +554,12 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   std::string key_str = key.ToString();
   bool previously_locked;
   bool lock_upgrade = false;
+
+  // If we are not doing key tracking, just get the lock and return (this
+  // also assumes locks are "idempotent")
+  if (!do_key_tracking_) {
+    return txn_db_impl_->TryLock(this, cfh_id, key_str, exclusive);
+  }
 
   // lock this key if this transactions hasn't already locked it
   SequenceNumber tracked_at_seq = kMaxSequenceNumber;

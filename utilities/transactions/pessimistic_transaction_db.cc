@@ -427,7 +427,7 @@ void PessimisticTransactionDB::UnLock(PessimisticTransaction* txn,
   if (use_range_locking)
   {
     if (all_keys_hint)
-      range_lock_mgr_.UnLockAll(txn, keys, GetEnv());
+      range_lock_mgr_.UnLockAll(txn, GetEnv());
     else
       range_lock_mgr_.UnLock(txn, keys, GetEnv());
   }

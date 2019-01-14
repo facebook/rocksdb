@@ -833,8 +833,7 @@ void RangeLockMgr::UnLock(const PessimisticTransaction* txn,
   toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
 }
 
-void RangeLockMgr::UnLockAll(const PessimisticTransaction* txn,
-                            const TransactionKeyMap* key_map, Env* env) {
+void RangeLockMgr::UnLockAll(const PessimisticTransaction* txn, Env* env) {
 
   // owned_locks may hold nullptr if the transaction has never acquired any
   // locks.
