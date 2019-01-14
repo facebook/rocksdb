@@ -25,6 +25,8 @@ void CloudEnvOptions::Dump(Logger* log) const {
          create_bucket_if_missing ? "true" : "false");
   Header(log, "                         COptions.run_purger: %s",
          run_purger ? "true" : "false");
+  Header(log, "           COptions.ephemeral_resync_on_open: %s",
+         ephemeral_resync_on_open ? "true" : "false");
   Header(log, "             COptions.skip_dbid_verification: %s",
          skip_dbid_verification ? "true" : "false");
 }

@@ -151,12 +151,14 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     }
 
     // Do the cleanup, but don't fail if the cleanup fails.
-    st = cenv->DeleteInvisibleFiles(local_dbname);
-    if (!st.ok()) {
-      Log(InfoLogLevel::INFO_LEVEL, options.info_log,
-          "Failed to delete invisible files: %s", st.ToString().c_str());
-      // Ignore the fail
-      st = Status::OK();
+    if (!read_only) {
+      st = cenv->DeleteInvisibleFiles(local_dbname);
+      if (!st.ok()) {
+        Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+            "Failed to delete invisible files: %s", st.ToString().c_str());
+        // Ignore the fail
+        st = Status::OK();
+      }
     }
   }
 
