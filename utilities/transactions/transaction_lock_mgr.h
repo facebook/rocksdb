@@ -255,7 +255,7 @@ class RangeLockMgr :
   static int  on_create(locktree *lt, void *extra) { return 0; /* no error */ }
   static void on_destroy(locktree *lt) {}
   static void on_escalate(TXNID txnid, const locktree *lt, 
-                          const range_buffer &buffer, void *extra) {}
+                          const range_buffer &buffer, void *extra);
 
 };
 

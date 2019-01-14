@@ -318,26 +318,36 @@ void RangeLockMgr::KillLockWait(void *cdata)
   We store them in toku::range_buffer because toku::locktree::release_locks()
   accepts that as an argument.
 
-  TODO: lock escalation in the lock table should affect this structure, too?
+  Note: the list of locks may differ slighly from the contents of the lock
+  tree, due to concurrency between lock acquisition, lock release, and lock
+  escalation. See MDEV-18227 and RangeLockMgr::UnLockAll for details.
+  This property is currently harmless.
 */
 class RangeLockList: public PessimisticTransaction::LockStorage
 {
 public:
-  virtual ~RangeLockList()
-  {
+  virtual ~RangeLockList() {
     buffer.destroy();
   }
 
-  RangeLockList()
-  {
+  RangeLockList() : releasing_locks(false) {
     buffer.create();
   }
 
   void append(const DBT *left_key, const DBT *right_key) {
+    MutexLock l(&mutex_);
+    // there's only one thread that calls this function.
+    // the same thread will do lock release.
+    assert(!releasing_locks);
     buffer.append(left_key, right_key);
   }
 
+  /* Ranges that we are holding the locks on. */
   toku::range_buffer buffer;
+
+  /* Synchronization. See RangeLockMgr::UnLockAll for details */
+  port::Mutex mutex_;
+  bool releasing_locks;
 };
 
 // Get a range lock on [start_key; end_key] range
@@ -355,8 +365,8 @@ Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
 
   toku_fill_dbt(&start_key_dbt, start_key.data(), start_key.size());
   toku_fill_dbt(&end_key_dbt, end_key.data(), end_key.size());
-  request.set(lt, txn->GetID(), &start_key_dbt, &end_key_dbt, toku::lock_request::WRITE,
-              false /* not a big txn */, (void*)txn->GetID() /*client_extra*/);
+  request.set(lt, (TXNID)txn, &start_key_dbt, &end_key_dbt, toku::lock_request::WRITE,
+              false /* not a big txn */, (void*)txn->GetID()/*client_extra, for KILL*/);
   
   uint64_t killed_time_msec = 0; // TODO: what should this have?
   uint64_t wait_time_msec = txn->GetLockTimeout();
@@ -795,7 +805,7 @@ range_lock_mgr_release_lock_int(toku::locktree *lt,
   toku::range_buffer range_buf;
   range_buf.create();
   range_buf.append(&key_dbt, &key_dbt);
-  lt->release_locks(txn->GetID(), &range_buf);
+  lt->release_locks((TXNID)txn, &range_buf);
   range_buf.destroy();
 }
 
@@ -825,21 +835,6 @@ void RangeLockMgr::UnLock(const PessimisticTransaction* txn,
 
 void RangeLockMgr::UnLockAll(const PessimisticTransaction* txn,
                             const TransactionKeyMap* key_map, Env* env) {
-#if 0
-  //TODO: collecting multiple locks into a buffer and then making one call
-  // to lock_tree::release_locks() will be faster.
-  for (auto& key_map_iter : *key_map) {
-    uint32_t column_family_id = key_map_iter.first;
-    auto& keys = key_map_iter.second;
-
-    for (auto& key_iter : keys) {
-      const std::string& key = key_iter.first;
-      range_lock_mgr_release_lock_int(lt, txn, column_family_id, key, true);
-    }
-  }
-
-  toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
-#endif
 
   // owned_locks may hold nullptr if the transaction has never acquired any
   // locks.
@@ -847,33 +842,49 @@ void RangeLockMgr::UnLockAll(const PessimisticTransaction* txn,
   {
     RangeLockList* range_list= (RangeLockList*)txn->owned_locks.get();
 
+    {
+      MutexLock l(&range_list->mutex_);
+      /*
+        The lt->release_locks() call below will walk range_list->buffer. We
+        need to prevent lock escalation callback from replacing
+        range_list->buffer while we are doing that.
+
+        Additional complication here is internal mutex(es) in the locktree
+        (let's call them latches):
+        - Lock escalation first obtains latches on the lock tree
+        - Then, it calls RangeLockMgr::on_escalate to replace transaction's
+          range_list->buffer.
+          = Access to that buffer must be synchronized, so it will want to
+          acquire the range_list->mutex_.
+
+        While in this function we would want to do the reverse:
+        - Acquire range_list->mutex_ to prevent access to the range_list.
+        - Then, lt->release_locks() call will walk through the range_list
+        - and acquire latches on parts of the lock tree to remove locks from
+          it.
+
+        How do we avoid the deadlock? Thei ideas is that here we set
+        releasing_locks=true, and release the mutex.
+        All other users of the range_list must:
+        - Acquire the mutex, then check that releasing_locks=false.
+          (the code in this function doesnt do that as there's only one thread
+           that does lock release)
+      */
+      range_list->releasing_locks= true;
+    }
+
     // Don't try to call release_locks() if the buffer is empty! if we are
-    //  not holding any locks, other transaction may be in STO-mode currently
-    //  and our attempt to release an empty set of locks will cause an
-    //  assertion failure.
+    //  not holding any locks, the lock tree might be on STO-mode with another
+    //  transaction, and our attempt to release an empty set of locks will
+    //  cause an assertion failure.
     if (range_list->buffer.get_num_ranges())
-      lt->release_locks(txn->GetID(), &range_list->buffer, true);
+      lt->release_locks((TXNID)txn, &range_list->buffer, true);
     range_list->buffer.destroy();
     range_list->buffer.create();
+    range_list->releasing_locks= false;
+
     toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
   }
-
-#if 0
-  Original usage:
-   void release_locks(TXNID txnid, const range_buffer *ranges);
-
-    // release all of the locks this txn has ever successfully
-    // acquired and stored in the range buffer for this locktree
-    lt->release_locks(txnid, ranges->buffer);
-    lt->get_manager()->note_mem_released(ranges->buffer->total_memory_size());
-    ranges->buffer->destroy();
-    toku_free(ranges->buffer);
-
-    // all of our locks have been released, so first try to wake up
-    // pending lock requests, then release our reference on the lt
-    toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
-
-#endif
 }
 
 int RangeLockMgr::compare_dbt_endpoints(__toku_db*, void *arg,
@@ -890,6 +901,46 @@ RangeLockMgr::RangeLockMgr(TransactionDB* txn_db) : my_txn_db(txn_db)
 {
   ltm.create(on_create, on_destroy, on_escalate, NULL);
   lt= nullptr;
+}
+
+
+/*
+  @brief  Lock Escalation Callback function
+
+  @param txnid   Transaction whose locks got escalated
+  @param lt      Lock Tree where escalation is happening (currently there is only one)
+  @param buffer  Escalation result: list of locks that this transaction now
+                 owns in this lock tree.
+  @param extra   Callback context
+*/
+
+void RangeLockMgr::on_escalate(TXNID txnid, const locktree *lt,
+                               const range_buffer &buffer, void *extra)
+{
+  auto txn= (PessimisticTransaction*)txnid;
+
+  RangeLockList* trx_locks= (RangeLockList*)txn->owned_locks.get();
+
+  MutexLock l(&trx_locks->mutex_);
+  if (trx_locks->releasing_locks) {
+    /*
+      Do nothing. The transaction is releasing its locks, so it will not care
+      about having a correct list of ranges. (In TokuDB,
+      toku_db_txn_escalate_callback() makes use of this property, too)
+    */
+    return;
+  }
+
+  // TODO: are we tracking this mem: lt->get_manager()->note_mem_released(trx_locks->ranges.buffer->total_memory_size());
+  trx_locks->buffer.destroy();
+  trx_locks->buffer.create();
+  toku::range_buffer::iterator iter(&buffer);
+  toku::range_buffer::iterator::record rec;
+  while (iter.current(&rec)) {
+      trx_locks->buffer.append(rec.get_left_key(), rec.get_right_key());
+      iter.next();
+  }
+  // TODO: same as above: lt->get_manager()->note_mem_used(ranges.buffer->total_memory_size());
 }
 
 void RangeLockMgr::set_endpoint_cmp_functions(convert_key_to_endpoint_func cvt_func,
@@ -986,7 +1037,7 @@ struct LOCK_PRINT_CONTEXT {
 
 static 
 void push_into_lock_status_data(void* param, const DBT *left, 
-                                const DBT *right, TXNID txnid)
+                                const DBT *right, TXNID txnid_arg)
 {
   struct LOCK_PRINT_CONTEXT *ctx= (LOCK_PRINT_CONTEXT*)param;
   struct KeyLockInfo info;
@@ -1002,6 +1053,7 @@ void push_into_lock_status_data(void* param, const DBT *left,
     info.key2.append((const char*)right->data, right->size);
   }
 
+  TXNID txnid= ((PessimisticTransaction*)txnid_arg)->GetID();
   info.ids.push_back(txnid);
   ctx->data->insert({ctx->cfh_id, info});
 }
