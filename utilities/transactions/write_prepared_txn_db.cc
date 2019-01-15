@@ -612,6 +612,7 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
       // Without prepare it would simply skip the commit
       txn0->Prepare();
       txn0->Commit();
+      delete txn0;
       snap_impl = db_impl_->GetSnapshotImpl(for_ww_conflict_check);
       assert(snap_impl);
       retry++;

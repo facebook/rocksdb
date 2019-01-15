@@ -1223,7 +1223,9 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
     }
     for (int i = 0; i < 10; i++) {
       auto snap = db->GetSnapshot();
-      ASSERT_LT(wp_db->max_evicted_seq_, snap->GetSequenceNumber());
+      if (snap->GetSequenceNumber() != 0) {
+        ASSERT_LT(wp_db->max_evicted_seq_, snap->GetSequenceNumber());
+      }  // seq 0 is ok to be less than max since nothing is visible to it
       db->ReleaseSnapshot(snap);
     }
   });
@@ -1258,6 +1260,8 @@ TEST_P(WritePreparedTransactionTest, TxnInitialize) {
 
   txn0->Rollback();
   txn1->Rollback();
+  delete txn0;
+  delete txn1;
 }
 
 // This tests that transactions with duplicate keys perform correctly after max
