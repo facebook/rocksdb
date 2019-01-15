@@ -422,8 +422,19 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
                       "Evicting %" PRIu64 ",%" PRIu64 " with max %" PRIu64,
                       evicted.prep_seq, evicted.commit_seq, prev_max);
     if (prev_max < evicted.commit_seq) {
-      // Inc max in larger steps to avoid frequent updates
-      auto max_evicted_seq = evicted.commit_seq + INC_STEP_FOR_MAX_EVICTED;
+      auto last = db_impl_->GetLastPublishedSequence() - 1;
+      SequenceNumber max_evicted_seq;
+      if (LIKELY(evicted.commit_seq <= last)) {
+        // Inc max in larger steps to avoid frequent updates
+        max_evicted_seq =
+            std::min(evicted.commit_seq + INC_STEP_FOR_MAX_EVICTED, last);
+      } else {
+        // legit when a commit entry in a write batch overwrite the previous one
+        max_evicted_seq = evicted.commit_seq;
+      }
+    ROCKS_LOG_DETAILS(info_log_,
+                      "%lu Evicting %" PRIu64 ",%" PRIu64 " with max %" PRIu64 " => %lu",
+                      prepare_seq, evicted.prep_seq, evicted.commit_seq, prev_max, max_evicted_seq);
       AdvanceMaxEvictedSeq(prev_max, max_evicted_seq);
     }
     // After each eviction from commit cache, check if the commit entry should

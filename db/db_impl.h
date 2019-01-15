@@ -238,6 +238,13 @@ class DBImpl : public DB {
   virtual Status SyncWAL() override;
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
+  virtual SequenceNumber GetLastPublishedSequence() const {
+    if (last_seq_same_as_publish_seq_) {
+      return versions_->LastSequence();
+    } else {
+      return versions_->LastPublishedSequence();
+    }
+  }
   // REQUIRES: joined the main write queue if two_write_queues is disabled, and
   // the second write queue otherwise.
   virtual void SetLastPublishedSequence(SequenceNumber seq);
