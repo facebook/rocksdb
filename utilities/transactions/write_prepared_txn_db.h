@@ -520,10 +520,6 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       return *delayed_prepared_.begin();
     }
     if (prepared_txns_.empty()) {
-      if (!delayed_prepared_.empty()) {
-        assert(!delayed_prepared_empty_.load());
-        return *delayed_prepared_.begin();
-      }
       return db_impl_->GetLatestSequenceNumber() + 1;
     } else {
       return std::min(prepared_txns_.top(),
