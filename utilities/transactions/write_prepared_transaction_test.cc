@@ -2278,7 +2278,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
   SyncPoint::GetInstance()->SetCallBack("CompactionIterator:AfterInit",
                                         callback);
   SyncPoint::GetInstance()->EnableProcessing();
-  
+
   ASSERT_OK(db->Flush(FlushOptions()));
   VerifyKeys({{"key1", "value1_2"}});
   VerifyKeys({{"key1", "value1_1"}}, snapshot2);

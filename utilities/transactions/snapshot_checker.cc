@@ -9,7 +9,6 @@
 #include <assert.h>
 #endif  // ROCKSDB_LITE
 
-#include "db/snapshot_checker.h"
 #include "utilities/transactions/write_prepared_txn_db.h"
 
 namespace rocksdb {
