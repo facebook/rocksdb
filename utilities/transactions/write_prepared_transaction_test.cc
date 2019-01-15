@@ -2071,6 +2071,7 @@ TEST_P(WritePreparedTransactionTest, SmallestUncommittedOptimization) {
     ASSERT_OK(transaction->Prepare());
     // snapshot1 should get min_uncommitted from prepared_txns_ heap.
     auto snapshot1 = db->GetSnapshot();
+    ASSERT_EQ(transaction->GetId(), ((SnapshotImpl*)snapshot1)->min_uncommitted_);
     // Add a commit to advance max_evicted_seq and move the prepared transaction
     // into delayed_prepared_ set.
     ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
@@ -2084,6 +2085,7 @@ TEST_P(WritePreparedTransactionTest, SmallestUncommittedOptimization) {
     }
     // snapshot2 should get min_uncommitted from delayed_prepared_ set.
     auto snapshot2 = db->GetSnapshot();
+    ASSERT_EQ(transaction->GetId(), ((SnapshotImpl*)snapshot1)->min_uncommitted_);
     ASSERT_OK(transaction->Commit());
     delete transaction;
     if (has_recent_prepare) {
