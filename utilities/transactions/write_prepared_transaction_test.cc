@@ -1231,6 +1231,28 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
   db->ReleaseSnapshot(snap);
 }
 
+// Test that the txn Initilize calls the overridden functions
+TEST_P(WritePreparedTransactionTest, TxnInitialize) {
+  TransactionOptions txn_options;
+  WriteOptions write_options;
+  Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_OK(txn0->SetName("xid"));
+  ASSERT_OK(txn0->Put(Slice("key"), Slice("value1")));
+  ASSERT_OK(txn0->Prepare());
+
+  // SetSnapshot is overridden to update min_uncommitted_
+  txn_options.set_snapshot = true;
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  auto snap = txn1->GetSnapshot();
+  auto snap_impl = reinterpret_cast<const SnapshotImpl*>(snap);
+  // If ::Initialize calls the overriden SetSnapshot, min_uncommitted_ must be
+  // udpated
+  ASSERT_GT(snap_impl->min_uncommitted_, 0);
+
+  txn0->Rollback();
+  txn1->Rollback();
+}
+
 // This tests that transactions with duplicate keys perform correctly after max
 // is advancing their prepared sequence numbers. This will not be the case if
 // for example the txn does not add the prepared seq for the second sub-batch to
