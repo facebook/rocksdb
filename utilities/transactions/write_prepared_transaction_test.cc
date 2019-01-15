@@ -353,7 +353,7 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
       : TransactionTestBase(use_stackable_db, two_write_queue, write_policy){};
 
  protected:
-  // TODO(mayabndeh): Avoid duplicating PessimisticTransaction::Open logic here.
+  // TODO(myabandeh): Avoid duplicating PessimisticTransaction::Open logic here.
   void DestroyAndReopenWithExtraOptions(size_t snapshot_cache_bits,
                                         size_t commit_cache_bits) {
     delete db;
@@ -376,8 +376,8 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
 
     // The following is equivalent of WrapDB().
     txn_db_options.write_policy = WRITE_PREPARED;
-    auto* wp_db = new WritePreparedTxnDB(base_db, txn_db_options, snapshot_cache_bits,
-                                commit_cache_bits);
+    auto* wp_db = new WritePreparedTxnDB(
+        base_db, txn_db_options, snapshot_cache_bits, commit_cache_bits);
     wp_db->UpdateCFComparatorMap(handles);
     ASSERT_OK(wp_db->Initialize(compaction_enabled_cf_indices, handles));
 
@@ -1182,6 +1182,53 @@ TEST_P(WritePreparedTransactionTest, NewSnapshotLargerThanMax) {
     txn->Rollback();
     delete txn;
   }
+}
+
+// A new snapshot should always be always larger than max_evicted_seq_
+// In very rare cases max could be below last published seq. Test that
+// taking snapshot will wait for max to catch up.
+TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 0;    // only 1 entry => frequent eviction
+  DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
+  WriteOptions woptions;
+  TransactionOptions txn_options;
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+
+  const int writes = 50;
+  const int batch_cnt = 4;
+  rocksdb::port::Thread t1([&]() {
+    for (int i = 0; i < writes; i++) {
+      WriteBatch batch;
+      // For duplicate keys cause 4 commit entires, each evicting an entry that
+      // is not published yet, thus causing max ecited seq go higher than last
+      // published.
+      for (int b = 0; b < batch_cnt; b++) {
+        batch.Put("foo", "foo");
+      }
+      db->Write(woptions, &batch);
+    }
+  });
+
+  rocksdb::port::Thread t2([&]() {
+    while (wp_db->max_evicted_seq_ == 0) {  // wait for insert thread
+      std::this_thread::yield();
+    }
+    for (int i = 0; i < 10; i++) {
+      auto snap = db->GetSnapshot();
+      ASSERT_LT(wp_db->max_evicted_seq_, snap->GetSequenceNumber());
+      db->ReleaseSnapshot(snap);
+    }
+  });
+
+  t1.join();
+  t2.join();
+
+  // Make sure that the test has worked and seq number has advanced as we
+  // thought
+  auto snap = db->GetSnapshot();
+  ASSERT_GT(snap->GetSequenceNumber(), batch_cnt * writes - 1);
+  db->ReleaseSnapshot(snap);
 }
 
 // This tests that transactions with duplicate keys perform correctly after max
@@ -2104,8 +2151,8 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
 }
 
 TEST_P(WritePreparedTransactionTest, SmallestUncommittedOptimization) {
-  const size_t snapshot_cache_bits = 7; // same as default
-  const size_t commit_cache_bits = 0; // disable commit cache
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 0;    // disable commit cache
   for (bool has_recent_prepare : {true, false}) {
     DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
 
@@ -2117,7 +2164,8 @@ TEST_P(WritePreparedTransactionTest, SmallestUncommittedOptimization) {
     ASSERT_OK(transaction->Prepare());
     // snapshot1 should get min_uncommitted from prepared_txns_ heap.
     auto snapshot1 = db->GetSnapshot();
-    ASSERT_EQ(transaction->GetId(), ((SnapshotImpl*)snapshot1)->min_uncommitted_);
+    ASSERT_EQ(transaction->GetId(),
+              ((SnapshotImpl*)snapshot1)->min_uncommitted_);
     // Add a commit to advance max_evicted_seq and move the prepared transaction
     // into delayed_prepared_ set.
     ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
@@ -2131,7 +2179,8 @@ TEST_P(WritePreparedTransactionTest, SmallestUncommittedOptimization) {
     }
     // snapshot2 should get min_uncommitted from delayed_prepared_ set.
     auto snapshot2 = db->GetSnapshot();
-    ASSERT_EQ(transaction->GetId(), ((SnapshotImpl*)snapshot1)->min_uncommitted_);
+    ASSERT_EQ(transaction->GetId(),
+              ((SnapshotImpl*)snapshot1)->min_uncommitted_);
     ASSERT_OK(transaction->Commit());
     delete transaction;
     if (has_recent_prepare) {
