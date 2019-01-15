@@ -1971,6 +1971,9 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   }
   // returns null if the underlying memtable does not support snapshot.
   if (!is_snapshot_supported_) {
+    if (lock) {
+      mutex_.Unlock();
+    }
     delete s;
     return nullptr;
   }
