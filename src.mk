@@ -65,7 +65,7 @@ LIB_SOURCES =                                                   \
   env/env_posix.cc                                              \
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
-  extensions/extensions_factory.cc                              \
+  extensions/extension.cc                                       \
   memtable/alloc_tracker.cc                                     \
   memtable/hash_cuckoo_rep.cc                                   \
   memtable/hash_linklist_rep.cc                                 \

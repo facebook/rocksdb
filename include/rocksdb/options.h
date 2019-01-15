@@ -923,11 +923,6 @@ struct DBOptions {
   WalFilter* wal_filter = nullptr;
 #endif  // ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE
-  std::vector<std::shared_ptr<ExtensionFactory> > extension_factories;
-#endif
-  Status AddExtensionFactory(const std::string & name, const std::string & method = "GetExtensionFactory");
-
   // If true, then DB::Open / CreateColumnFamily / DropColumnFamily
   // / SetOptions will fail if options file is not detected or properly
   // persisted.

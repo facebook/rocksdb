@@ -433,7 +433,7 @@ extern TableFactory* NewCuckooTableFactory(
 class RandomAccessFileReader;
 
 // A base class for table factories.
-class TableFactory : public Extension {
+class TableFactory {
  public:
   virtual ~TableFactory() {}
 

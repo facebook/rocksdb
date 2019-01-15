@@ -143,7 +143,7 @@ public:
 				const std::string & value,
 				bool input_strings_escaped);
   Status SetOption(const std::string & name,
-			   const std::string & value) {
+		   const std::string & value) {
     return SetOption(name, value, kInputStringsEscaped);
   }
 
