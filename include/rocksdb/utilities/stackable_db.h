@@ -107,6 +107,15 @@ class StackableDB : public DB {
     return db_->IngestExternalFile(column_family, external_files, options);
   }
 
+  using DB::IngestExternalFiles;
+  virtual Status IngestExternalFiles(
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const std::vector<std::vector<std::string>>& external_files,
+      const std::vector<IngestExternalFileOptions>& ingestion_options_list) {
+    return db_->IngestExternalFiles(column_families, external_files,
+                                    ingestion_options_list);
+  }
+
   virtual Status VerifyChecksum() override { return db_->VerifyChecksum(); }
 
   using DB::KeyMayExist;

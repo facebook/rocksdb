@@ -346,6 +346,13 @@ class DBImpl : public DB {
       const std::vector<std::string>& external_files,
       const IngestExternalFileOptions& ingestion_options) override;
 
+  using DB::IngestExternalFiles;
+  virtual Status IngestExternalFiles(
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const std::vector<std::vector<std::string>>& external_files,
+      const std::vector<IngestExternalFileOptions>& ingestion_options_list)
+      override;
+
   virtual Status VerifyChecksum() override;
 
   using DB::StartTrace;

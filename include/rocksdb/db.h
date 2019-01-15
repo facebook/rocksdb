@@ -1051,6 +1051,11 @@ class DB {
     return IngestExternalFile(DefaultColumnFamily(), external_files, options);
   }
 
+  virtual Status IngestExternalFiles(
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const std::vector<std::vector<std::string>>& external_files,
+      const std::vector<IngestExternalFileOptions>& ingestion_options_list) = 0;
+
   virtual Status VerifyChecksum() = 0;
 
   // AddFile() is deprecated, please use IngestExternalFile()
