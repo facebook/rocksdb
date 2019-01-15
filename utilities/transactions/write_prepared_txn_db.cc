@@ -565,13 +565,53 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
 }
 
 const Snapshot* WritePreparedTxnDB::GetSnapshot() {
-  // Note: SmallestUnCommittedSeq must be called before GetSnapshotImpl. Refer
-  // to WritePreparedTxn::SetSnapshot for more explanation.
+  const bool kForWWConflictCheck = true;
+  return GetSnapshotInternal(!kForWWConflictCheck);
+}
+
+SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(bool for_ww_conflict_check) {
+  // Note: for this optimization setting the last sequence number and obtaining
+  // the smallest uncommitted seq should be done atomically. However to avoid
+  // the mutex overhead, we call SmallestUnCommittedSeq BEFORE taking the
+  // snapshot. Since we always updated the list of unprepared seq (via
+  // AddPrepared) AFTER the last sequence is updated, this guarantees that the
+  // smallest uncommitted seq that we pair with the snapshot is smaller or equal
+  // the value that would be obtained otherwise atomically. That is ok since
+  // this optimization works as long as min_uncommitted is less than or equal
+  // than the smallest uncommitted seq when the snapshot was taken.
   auto min_uncommitted = WritePreparedTxnDB::SmallestUnCommittedSeq();
-  const bool FOR_WW_CONFLICT_CHECK = true;
-  SnapshotImpl* snap_impl = db_impl_->GetSnapshotImpl(!FOR_WW_CONFLICT_CHECK);
+  SnapshotImpl* snap_impl = db_impl_->GetSnapshotImpl(for_ww_conflict_check);
   assert(snap_impl);
+  SequenceNumber snap_seq = snap_impl->GetSequenceNumber();
+  if (UNLIKELY(snap_seq != 0 && snap_seq <= max_evicted_seq_)) {
+    // There is a very rare case in which the commit entry evict another commit
+    // entry that is not published yet thus advancing max evicted seq beyond the
+    // last published seq. This case is not likely in real-world setup so we
+    // handle it with a few retires.
+    size_t retry = 0;
+    while (snap_impl->GetSequenceNumber() <= max_evicted_seq_ && retry < 100) {
+      ROCKS_LOG_WARN(info_log_, "GetSnapshot retry %" PRIu64,
+                        snap_impl->GetSequenceNumber());
+      ReleaseSnapshot(snap_impl);
+      std::this_thread::yield();
+      snap_impl = db_impl_->GetSnapshotImpl(for_ww_conflict_check);
+      assert(snap_impl);
+      retry++;
+    }
+    assert(snap_impl->GetSequenceNumber() > max_evicted_seq_);
+    if (snap_impl->GetSequenceNumber() <= max_evicted_seq_) {
+      throw std::runtime_error("Snapshot seq " +
+                               ToString(snap_impl->GetSequenceNumber()) +
+                               " after " + ToString(retry) +
+                               " retries is still less than max_evicted_seq_" +
+                               ToString(max_evicted_seq_.load()));
+    }
+  }
   EnhanceSnapshot(snap_impl, min_uncommitted);
+  ROCKS_LOG_DETAILS(
+      db_impl_->immutable_db_options().info_log,
+      "GetSnapshot %" PRIu64 " ww:%" PRIi32 " min_uncommitted: %" PRIu64,
+      for_ww_conflict_check, snapshot->GetSequenceNumber(), min_uncommitted);
   return snap_impl;
 }
 

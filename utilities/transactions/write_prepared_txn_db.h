@@ -374,6 +374,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   void UpdateCFComparatorMap(ColumnFamilyHandle* handle) override;
 
   virtual const Snapshot* GetSnapshot() override;
+  SnapshotImpl* GetSnapshotInternal(bool for_ww_conflict_check);
 
  protected:
   virtual Status VerifyCFOptions(

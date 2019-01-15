@@ -37,7 +37,7 @@ TransactionID PessimisticTransaction::GenTxnID() {
 
 PessimisticTransaction::PessimisticTransaction(
     TransactionDB* txn_db, const WriteOptions& write_options,
-    const TransactionOptions& txn_options)
+    const TransactionOptions& txn_options, const bool init)
     : TransactionBaseImpl(txn_db->GetRootDB(), write_options),
       txn_db_impl_(nullptr),
       expiration_time_(0),
@@ -51,7 +51,9 @@ PessimisticTransaction::PessimisticTransaction(
   txn_db_impl_ =
       static_cast_with_check<PessimisticTransactionDB, TransactionDB>(txn_db);
   db_impl_ = static_cast_with_check<DBImpl, DB>(db_);
-  Initialize(txn_options);
+  if (init) {
+    Initialize(txn_options);
+  }
 }
 
 void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
