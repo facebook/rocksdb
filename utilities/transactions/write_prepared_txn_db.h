@@ -143,6 +143,14 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
           prep_seq, snapshot_seq, 0);
       return false;
     }
+    if (prep_seq < min_uncommitted) {
+      ROCKS_LOG_DETAILS(info_log_,
+                        "IsInSnapshot %" PRIu64 " in %" PRIu64
+                        " returns %" PRId32
+                        " because of min_uncommitted %" PRIu64,
+                        prep_seq, snapshot_seq, 1, min_uncommitted);
+      return true;
+    }
     if (!delayed_prepared_empty_.load(std::memory_order_acquire)) {
       // We should not normally reach here
       WPRecordTick(TXN_PREPARE_MUTEX_OVERHEAD);
@@ -157,17 +165,6 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                           prep_seq, snapshot_seq, 0);
         return false;
       }
-    }
-    // Note: since min_uncommitted does not include the delayed_prepared_ we
-    // should check delayed_prepared_ first before applying this optimization.
-    // TODO(myabandeh): include delayed_prepared_ in min_uncommitted
-    if (prep_seq < min_uncommitted) {
-      ROCKS_LOG_DETAILS(info_log_,
-                        "IsInSnapshot %" PRIu64 " in %" PRIu64
-                        " returns %" PRId32
-                        " because of min_uncommitted %" PRIu64,
-                        prep_seq, snapshot_seq, 1, min_uncommitted);
-      return true;
     }
     auto indexed_seq = prep_seq % COMMIT_CACHE_SIZE;
     CommitEntry64b dont_care;
@@ -512,6 +509,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     // reflect any uncommitted data that is not added to prepared_txns_ yet.
     // Otherwise, if there is no concurrent txn, this value simply reflects that
     // latest value in the memtable.
+    if (!delayed_prepared_.empty()) {
+      assert(!delayed_prepared_empty_.load());
+      return *delayed_prepared_.begin();
+    }
     if (prepared_txns_.empty()) {
       return db_impl_->GetLatestSequenceNumber() + 1;
     } else {
