@@ -12,6 +12,7 @@
 
 #include "options/cf_options.h"
 #include "options/db_options.h"
+#include "rocksdb/configurable.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -43,68 +44,6 @@ Status GetTableFactoryFromMap(
     const std::unordered_map<std::string, std::string>& opt_map,
     std::shared_ptr<TableFactory>* table_factory,
     bool ignore_unknown_options = false);
-
-enum class OptionType {
-  kBoolean,
-  kInt,
-  kVectorInt,
-  kUInt,
-  kUInt32T,
-  kUInt64T,
-  kSizeT,
-  kString,
-  kDouble,
-  kCompactionStyle,
-  kCompactionPri,
-  kSliceTransform,
-  kCompressionType,
-  kVectorCompressionType,
-  kTableFactory,
-  kComparator,
-  kCompactionFilter,
-  kCompactionFilterFactory,
-  kCompactionOptionsFIFO,
-  kCompactionOptionsUniversal,
-  kCompactionStopStyle,
-  kMergeOperator,
-  kMemTableRepFactory,
-  kBlockBasedTableIndexType,
-  kBlockBasedTableDataBlockIndexType,
-  kFilterPolicy,
-  kFlushBlockPolicyFactory,
-  kChecksumType,
-  kEncodingType,
-  kWALRecoveryMode,
-  kAccessHint,
-  kInfoLogLevel,
-  kLRUCacheOptions,
-  kUnknown
-};
-
-enum class OptionVerificationType {
-  kNormal,
-  kByName,               // The option is pointer typed so we can only verify
-                         // based on it's name.
-  kByNameAllowNull,      // Same as kByName, but it also allows the case
-                         // where one of them is a nullptr.
-  kByNameAllowFromNull,  // Same as kByName, but it also allows the case
-                         // where the old option is nullptr.
-  kDeprecated            // The option is no longer used in rocksdb. The RocksDB
-                         // OptionsParser will still accept this option if it
-                         // happen to exists in some Options file.  However,
-                         // the parser will not include it in serialization
-                         // and verification processes.
-};
-
-// A struct for storing constant option information such as option name,
-// option type, and offset.
-struct OptionTypeInfo {
-  int offset;
-  OptionType type;
-  OptionVerificationType verification;
-  bool is_mutable;
-  int mutable_offset;
-};
 
 // A helper function that converts "opt_address" to a std::string
 // based on the specified OptionType.
