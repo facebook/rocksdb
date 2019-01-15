@@ -2283,6 +2283,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
   VerifyKeys({{"key1", "value1_2"}});
   VerifyKeys({{"key1", "value1_1"}}, snapshot2);
   db->ReleaseSnapshot(snapshot2);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
@@ -2313,7 +2314,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
     // CompactionIterator need to double check and find out snapshot2 is now
     // the earliest existing snapshot.
     if (compaction != nullptr) {
-      db->ReleaseSnapshot(snapshot1);
+      // db->ReleaseSnapshot(snapshot1);
       // Add some keys to advance max_evicted_seq.
       ASSERT_OK(db->Put(WriteOptions(), "key3", "value3"));
       ASSERT_OK(db->Put(WriteOptions(), "key4", "value4"));
@@ -2334,6 +2335,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
   VerifyInternalKeys({{"key1", "", del_seq, kTypeDeletion},
                       {"key1", "value1", 0, kTypeValue}});
   db->ReleaseSnapshot(snapshot2);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 // A more complex test to verify compaction/flush should keep keys visible
