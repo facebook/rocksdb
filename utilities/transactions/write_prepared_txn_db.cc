@@ -608,10 +608,13 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
       snprintf(name, 64, "txn%" ROCKSDB_PRIszt,
                hasher(std::this_thread::get_id()));
       assert(strlen(name) < 64 - 1);
-      txn0->SetName(name);
+      Status s = txn0->SetName(name);
+      assert(s.ok());
       // Without prepare it would simply skip the commit
-      txn0->Prepare();
-      txn0->Commit();
+      s = txn0->Prepare();
+      assert(s.ok());
+      s = txn0->Commit();
+      assert(s.ok());
       delete txn0;
       snap_impl = db_impl_->GetSnapshotImpl(for_ww_conflict_check);
       assert(snap_impl);
