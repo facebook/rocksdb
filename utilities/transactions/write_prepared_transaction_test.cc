@@ -2314,7 +2314,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
     // CompactionIterator need to double check and find out snapshot2 is now
     // the earliest existing snapshot.
     if (compaction != nullptr) {
-      // db->ReleaseSnapshot(snapshot1);
+      db->ReleaseSnapshot(snapshot1);
       // Add some keys to advance max_evicted_seq.
       ASSERT_OK(db->Put(WriteOptions(), "key3", "value3"));
       ASSERT_OK(db->Put(WriteOptions(), "key4", "value4"));
