@@ -36,6 +36,7 @@ class CompactionFilterFactory;
 class Comparator;
 class ConcurrentTaskLimiter;
 class Env;
+class ExtensionLoader;
 enum InfoLogLevel : unsigned char;
 class SstFileManager;
 class FilterPolicy;
@@ -923,6 +924,13 @@ struct DBOptions {
   WalFilter* wal_filter = nullptr;
 #endif  // ROCKSDB_LITE
 
+#ifndef ROCKSDB_LITE
+  std::shared_ptr<ExtensionLoader> extensions;
+
+  Status AddExtensionLibrary(const std::string & name,
+			     const std::string & method,
+			     const std::string & arg);
+#endif
   // If true, then DB::Open / CreateColumnFamily / DropColumnFamily
   // / SetOptions will fail if options file is not detected or properly
   // persisted.

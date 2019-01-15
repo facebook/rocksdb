@@ -1306,7 +1306,13 @@ public:
 
     virtual const char* Name() const = 0;
 
-    // Append data to the end of the file
+   template<typename T>
+  T * LoadFunction(const std::string & sym_name, std::function<T> *function) {
+    T *symbol =  reinterpret_cast<T *>(LoadSymbol(sym_name));
+    *function = symbol;
+    return symbol;
+  }
+protected:
     // Note: A WriteabelFile object must support either Append or
     // PositionedAppend, so the users cannot mix the two.
     virtual FunctionPtr LoadSymbol(const std::string & sym_name) = 0;

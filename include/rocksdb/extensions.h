@@ -1,13 +1,15 @@
-// An Env is an interface used by the rocksdb implementation to access
-// operating system functionality like the filesystem etc.  Callers
-// may wish to provide a custom Env object when opening a database to
-// get fine gain control; e.g., to rate limit file system operations.
-//
-// All Env implementations are safe for concurrent access from
-// multiple threads without any external synchronization.
+// An Extension is an abstract class used by the rocksdb to provide
+// extensions to the base functionality provided by rocksdb.
+// Extensions can be built into rocksdb or loaded and configured by
+// dynamically loaded libraries.  This functionality allows users to
+// extend the core rocksdb functionality by changing configuration
+// options, rather than requiring changes to the base source code.
 
 #pragma once
 
+#include <functional>
+#include <memory>
+#include <regex>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -17,8 +19,8 @@
 #include "rocksdb/status.h"
 
 namespace rocksdb {
-struct DBOptions;
 struct ColumnFamilyOptions;
+struct DBOptions;
   
 using std::unique_ptr;
 using std::shared_ptr;
@@ -33,8 +35,7 @@ public:
   virtual ~Extension() {}
   // Names starting with "rocksdb." are reserved and should not be used
   // by any clients of this package.
-  virtual const char *Name() const = 0;
-  virtual const std::string & Type() const = 0;
+  virtual const char* Name() const = 0;
 
   // Configures the options for this extension based on the input parameters.
   // Returns an OK status if configuration was successful.
@@ -113,7 +114,6 @@ public:
   }
   
   // Sanitizes the specified DB Options and ColumnFamilyOptions.
-  //
   // If the function cannot find a way to sanitize the input DB Options,
   // a non-ok Status will be returned.
   virtual Status SanitizeOptions(const DBOptions &) const {

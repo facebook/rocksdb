@@ -15,7 +15,6 @@
 
 #include <inttypes.h>
 #include <limits>
-
 #include "monitoring/statistics.h"
 #include "options/db_options.h"
 #include "options/options_helper.h"
@@ -23,6 +22,7 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
+#include "rocksdb/extension_loader.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
@@ -102,11 +102,26 @@ ColumnFamilyOptions::ColumnFamilyOptions()
 ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
     : ColumnFamilyOptions(*static_cast<const ColumnFamilyOptions*>(&options)) {}
 
-DBOptions::DBOptions() {}
+DBOptions::DBOptions() {
+  extensions = ExtensionLoader::Get();
+}
 DBOptions::DBOptions(const Options& options)
     : DBOptions(*static_cast<const DBOptions*>(&options)) {}
 
-  
+#ifndef ROCKSDB_LITE
+Status DBOptions::AddExtensionLibrary(const std::string & name,
+				      const std::string & method,
+				      const std::string & arg) {
+  shared_ptr<DynamicLibrary> library;
+  Status status = env->LoadLibrary(name, &library);
+  if (status.ok()) {
+    status = extensions->RegisterLibrary(library, method, arg);
+  }
+  return status;
+}
+
+#endif
+
 
 
 void DBOptions::Dump(Logger* log) const {

@@ -509,6 +509,7 @@ TESTS = \
 	obsolete_files_test \
 	table_test \
 	delete_scheduler_test \
+	extension_test \
 	options_test \
 	options_settable_test \
 	options_util_test \
@@ -1455,6 +1456,9 @@ compact_files_test: db/compact_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 options_test: options/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+extension_test: extensions/extension_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 options_settable_test: options/options_settable_test.o $(LIBOBJECTS) $(TESTHARNESS)
