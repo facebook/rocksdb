@@ -2060,28 +2060,42 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
 TEST_P(WritePreparedTransactionTest, SmallestUncommittedOptimization) {
   const size_t snapshot_cache_bits = 7; // same as default
   const size_t commit_cache_bits = 0; // disable commit cache
-  DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
+  for (bool has_recent_prepare : {true, false}) {
+    DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
 
-  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
-  auto* transaction =
-      db->BeginTransaction(WriteOptions(), TransactionOptions(), nullptr);
-  ASSERT_OK(transaction->SetName("txn"));
-  ASSERT_OK(transaction->Delete("key1"));
-  ASSERT_OK(transaction->Prepare());
-  // snapshot1 should get min_uncommitted from prepared_txns_ heap.
-  auto snapshot1 = db->GetSnapshot();
-  // Add a commit to advance max_evicted_seq and move the prepared transaction
-  // into delayed_prepared_ set.
-  ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
-  // snapshot2 should get min_uncommitted from delayed_prepared_ set.
-  auto snapshot2 = db->GetSnapshot();
-  ASSERT_OK(transaction->Commit());
-  delete transaction;
-  VerifyKeys({{"key1", "NOT_FOUND"}});
-  VerifyKeys({{"key1", "value1"}}, snapshot1);
-  VerifyKeys({{"key1", "value1"}}, snapshot2);
-  db->ReleaseSnapshot(snapshot1);
-  db->ReleaseSnapshot(snapshot2);
+    ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
+    auto* transaction =
+        db->BeginTransaction(WriteOptions(), TransactionOptions(), nullptr);
+    ASSERT_OK(transaction->SetName("txn"));
+    ASSERT_OK(transaction->Delete("key1"));
+    ASSERT_OK(transaction->Prepare());
+    // snapshot1 should get min_uncommitted from prepared_txns_ heap.
+    auto snapshot1 = db->GetSnapshot();
+    // Add a commit to advance max_evicted_seq and move the prepared transaction
+    // into delayed_prepared_ set.
+    ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
+    Transaction* txn2 = nullptr;
+    if (has_recent_prepare) {
+      txn2 =
+          db->BeginTransaction(WriteOptions(), TransactionOptions(), nullptr);
+      ASSERT_OK(txn2->SetName("txn2"));
+      ASSERT_OK(txn2->Put("key3", "value3"));
+      ASSERT_OK(txn2->Prepare());
+    }
+    // snapshot2 should get min_uncommitted from delayed_prepared_ set.
+    auto snapshot2 = db->GetSnapshot();
+    ASSERT_OK(transaction->Commit());
+    delete transaction;
+    if (has_recent_prepare) {
+      ASSERT_OK(txn2->Commit());
+      delete txn2;
+    }
+    VerifyKeys({{"key1", "NOT_FOUND"}});
+    VerifyKeys({{"key1", "value1"}}, snapshot1);
+    VerifyKeys({{"key1", "value1"}}, snapshot2);
+    db->ReleaseSnapshot(snapshot1);
+    db->ReleaseSnapshot(snapshot2);
+  }
 }
 
 // A more complex test to verify compaction/flush should keep keys visible
