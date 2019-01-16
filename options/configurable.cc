@@ -34,16 +34,13 @@ bool Configurable::ParseOption(const std::string &,
 const OptionTypeInfo *Configurable::FindOption(const OptionTypeMap & type_map,
 					       const std::string & option) const {
   auto iter = type_map.find(option);  // Look up the value in the map
-  std::cout << "MJR: Looking for option: " << option << "; found=" <<(iter == type_map.end()) << std::endl;
   if (iter == type_map.end()) {
     const std::string & prefix = GetOptionPrefix();
     size_t length = prefix.size();
     if (option.compare(0, length, prefix) == 0) {
       iter = type_map.find(option.substr(length));
-      std::cout << "MJR: Looking for short option: " << option .substr(length) << "; found=" <<(iter == type_map.end()) << std::endl;
     } else {
       iter = type_map.find(prefix + option);
-      std::cout << "MJR: Looking for long option: " << (prefix+option) << "; found=" << (iter == type_map.end()) << std::endl;
     }
   }
   if (iter != type_map.end()) {
