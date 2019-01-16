@@ -33,6 +33,7 @@ WritePreparedSnapshotChecker::WritePreparedSnapshotChecker(
 SnapshotCheckerResult WritePreparedSnapshotChecker::CheckInSnapshot(
     SequenceNumber sequence, SequenceNumber snapshot_sequence) const {
   bool snapshot_released = false;
+  // TODO(myabandeh): set min_uncommitted
   bool in_snapshot = txn_db_->IsInSnapshot(
       sequence, snapshot_sequence, 0 /*min_uncommitted*/, &snapshot_released);
   if (snapshot_released) {
