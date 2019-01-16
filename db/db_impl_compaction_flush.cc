@@ -2909,18 +2909,18 @@ void DBImpl::SetSnapshotChecker(SnapshotChecker* snapshot_checker) {
 void DBImpl::GetSnapshotContext(
     JobContext* job_context, std::vector<SequenceNumber>* snapshot_seqs,
     SequenceNumber* earliest_write_conflict_snapshot,
-    SnapshotChecker** snapshot_checker) {
+    SnapshotChecker** snapshot_checker_ptr) {
   mutex_.AssertHeld();
   assert(job_context != nullptr);
   assert(snapshot_seqs != nullptr);
   assert(earliest_write_conflict_snapshot != nullptr);
-  assert(snapshot_checker != nullptr);
+  assert(snapshot_checker_ptr != nullptr);
 
-  *snapshot_checker = snapshot_checker_.get();
-  if (use_custom_gc_ && snapshot_checker == nullptr) {
-    *snapshot_checker = DisableGCSnapshotChecker::Instance();
+  *snapshot_checker_ptr = snapshot_checker_ptr_.get();
+  if (use_custom_gc_ && *snapshot_checker_ptr == nullptr) {
+    *snapshot_checker_ptr = DisableGCSnapshotChecker::Instance();
   }
-  if (*snapshot_checker != nullptr) {
+  if (*snapshot_checker_ptr != nullptr) {
     // If snapshot_checker is used, that means the flush/compaction may
     // contain values not visible to snapshot taken after
     // flush/compaction job starts. Take a snapshot and it will appear
