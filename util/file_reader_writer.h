@@ -64,15 +64,13 @@ class SequentialFileReader {
 class RandomAccessFileReader {
  private:
 #ifndef ROCKSDB_LITE
-  void NotifyOnFileReadFinish(uint64_t offset, size_t length, time_t start_ts,
+  void NotifyOnFileReadFinish(uint64_t offset, size_t length,
+                              const FileOperationInfo::TimePoint& start_ts,
+                              const FileOperationInfo::TimePoint& finish_ts,
                               const Status& status) const {
-    FileOperationInfo info(file_name_);
+    FileOperationInfo info(file_name_, start_ts, finish_ts);
     info.offset = offset;
     info.length = length;
-    info.start_timestamp = start_ts;
-    time_t finish_ts =
-        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    info.finish_timestamp = finish_ts;
     info.status = status;
 
     for (auto& listener : listeners_) {
@@ -157,15 +155,13 @@ class RandomAccessFileReader {
 class WritableFileWriter {
  private:
 #ifndef ROCKSDB_LITE
-  void NotifyOnFileWriteFinish(uint64_t offset, size_t length, time_t start_ts,
+  void NotifyOnFileWriteFinish(uint64_t offset, size_t length,
+                               const FileOperationInfo::TimePoint& start_ts,
+                               const FileOperationInfo::TimePoint& finish_ts,
                                const Status& status) {
-    FileOperationInfo info(file_name_);
+    FileOperationInfo info(file_name_, start_ts, finish_ts);
     info.offset = offset;
     info.length = length;
-    info.start_timestamp = start_ts;
-    time_t finish_ts =
-        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    info.finish_timestamp = finish_ts;
     info.status = status;
 
     for (auto& listener : listeners_) {

@@ -10,6 +10,7 @@
 * `TableProperties::num_entries` and `TableProperties::num_deletions` now also account for number of range tombstones.
 * Remove geodb, spatial_db, document_db, json_document, date_tiered_db, and redis_lists.
 * With "ldb ----try_load_options", when wal_dir specified by the option file doesn't exist, ignore it.
+* Change time resolution in FileOperationInfo.
 
 ### Bug Fixes
 * Fix a deadlock caused by compaction and file ingestion waiting for each other in the event of write stalls.
