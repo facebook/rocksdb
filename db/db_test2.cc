@@ -1763,7 +1763,7 @@ TEST_F(DBTest2, TestPerfContextCpuTime) {
 
   SetPerfLevel(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
   ASSERT_EQ("bar", Get("foo"));
-  ASSERT_EQ(env_->now_cpu_count_.load(), 2);
+  ASSERT_GT(env_->now_cpu_count_.load(), 2);
   ASSERT_LT(get_perf_context()->get_cpu_nanos, kDummyAddonTime);
   ASSERT_GT(get_perf_context()->find_table_nanos, kDummyAddonTime);
 

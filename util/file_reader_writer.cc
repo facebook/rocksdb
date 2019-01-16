@@ -77,6 +77,7 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
     StopWatch sw(env_, stats_, hist_type_,
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                 true /*delay_enabled*/);
+    auto prev_perf_level = GetPerfLevel();
     IOSTATS_TIMER_GUARD(read_nanos);
     if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
@@ -105,8 +106,11 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
           start_ts = std::chrono::system_clock::now();
           orig_offset = aligned_offset + buf.CurrentSize();
         }
-        s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, &tmp,
-                        buf.Destination());
+        {
+          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
+          s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, &tmp,
+                          buf.Destination());
+        }
         if (ShouldNotifyListeners()) {
           auto finish_ts = std::chrono::system_clock::now();
           NotifyOnFileReadFinish(orig_offset, tmp.size(), start_ts, finish_ts,
@@ -151,7 +155,10 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
           start_ts = std::chrono::system_clock::now();
         }
 #endif
-        s = file_->Read(offset + pos, allowed, &tmp_result, scratch + pos);
+        {
+          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
+          s = file_->Read(offset + pos, allowed, &tmp_result, scratch + pos);
+        }
 #ifndef ROCKSDB_LITE
         if (ShouldNotifyListeners()) {
           auto finish_ts = std::chrono::system_clock::now();
@@ -176,10 +183,12 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
       *result = Slice(res_scratch, s.ok() ? pos : 0);
     }
     IOSTATS_ADD_IF_POSITIVE(bytes_read, result->size());
+    SetPerfLevel(prev_perf_level);
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
     file_read_hist_->Add(elapsed);
   }
+
   return s;
 }
 
@@ -409,11 +418,14 @@ Status WritableFileWriter::SyncInternal(bool use_fsync) {
   Status s;
   IOSTATS_TIMER_GUARD(fsync_nanos);
   TEST_SYNC_POINT("WritableFileWriter::SyncInternal:0");
+  auto prev_perf_level = GetPerfLevel();
+  IOSTATS_CPU_TIMER_GUARD(cpu_write_nanos, env_);
   if (use_fsync) {
     s = writable_file_->Fsync();
   } else {
     s = writable_file_->Sync();
   }
+  SetPerfLevel(prev_perf_level);
   return s;
 }
 
@@ -453,7 +465,12 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
         old_size = next_write_offset_;
       }
 #endif
-      s = writable_file_->Append(Slice(src, allowed));
+      {
+        auto prev_perf_level = GetPerfLevel();
+        IOSTATS_CPU_TIMER_GUARD(cpu_write_nanos, env_);
+        s = writable_file_->Append(Slice(src, allowed));
+        SetPerfLevel(prev_perf_level);
+      }
 #ifndef ROCKSDB_LITE
       if (ShouldNotifyListeners()) {
         auto finish_ts = std::chrono::system_clock::now();

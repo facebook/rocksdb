@@ -121,9 +121,9 @@ Status BuildTable(
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
 
-      file_writer.reset(new WritableFileWriter(std::move(file), fname,
-                                               env_options, ioptions.statistics,
-                                               ioptions.listeners));
+      file_writer.reset(
+          new WritableFileWriter(std::move(file), fname, env_options, env,
+                                 ioptions.statistics, ioptions.listeners));
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,
