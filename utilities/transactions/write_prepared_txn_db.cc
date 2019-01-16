@@ -597,25 +597,9 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
       ROCKS_LOG_WARN(info_log_, "GetSnapshot retry %" PRIu64,
                      snap_impl->GetSequenceNumber());
       ReleaseSnapshot(snap_impl);
-      // Inserting an empty value will i) let the max evicted entry to be
-      // published, i.e., max == last_published, increase the last published to
-      // be one beyond max, i.e., max < last_published.
-      WriteOptions woptions;
-      TransactionOptions txn_options;
-      Transaction* txn0 = BeginTransaction(woptions, txn_options, nullptr);
-      std::hash<std::thread::id> hasher;
-      char name[64];
-      snprintf(name, 64, "txn%" ROCKSDB_PRIszt,
-               hasher(std::this_thread::get_id()));
-      assert(strlen(name) < 64 - 1);
-      Status s = txn0->SetName(name);
-      assert(s.ok());
-      // Without prepare it would simply skip the commit
-      s = txn0->Prepare();
-      assert(s.ok());
-      s = txn0->Commit();
-      assert(s.ok());
-      delete txn0;
+      // Wait for last visible seq to catch up with max, and also go beyond it
+      // by one.
+      AdvanceSeqByOne();
       snap_impl = db_impl_->GetSnapshotImpl(for_ww_conflict_check);
       assert(snap_impl);
       retry++;
@@ -635,6 +619,27 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
       "GetSnapshot %" PRIu64 " ww:%" PRIi32 " min_uncommitted: %" PRIu64,
       for_ww_conflict_check, snap_impl->GetSequenceNumber(), min_uncommitted);
   return snap_impl;
+}
+
+void WritePreparedTxnDB::AdvanceSeqByOne() {
+  // Inserting an empty value will i) let the max evicted entry to be
+  // published, i.e., max == last_published, increase the last published to
+  // be one beyond max, i.e., max < last_published.
+  WriteOptions woptions;
+  TransactionOptions txn_options;
+  Transaction* txn0 = BeginTransaction(woptions, txn_options, nullptr);
+  std::hash<std::thread::id> hasher;
+  char name[64];
+  snprintf(name, 64, "txn%" ROCKSDB_PRIszt, hasher(std::this_thread::get_id()));
+  assert(strlen(name) < 64 - 1);
+  Status s = txn0->SetName(name);
+  assert(s.ok());
+  // Without prepare it would simply skip the commit
+  s = txn0->Prepare();
+  assert(s.ok());
+  s = txn0->Commit();
+  assert(s.ok());
+  delete txn0;
 }
 
 const std::vector<SequenceNumber> WritePreparedTxnDB::GetSnapshotListFromDB(

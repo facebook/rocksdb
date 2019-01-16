@@ -1240,6 +1240,21 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
   db->ReleaseSnapshot(snap);
 }
 
+TEST_P(WritePreparedTransactionTest, AdvanceSeqByOne) {
+  auto snap = db->GetSnapshot();
+  auto seq1 = snap->GetSequenceNumber();
+  db->ReleaseSnapshot(snap);
+
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  wp_db->AdvanceSeqByOne();
+
+  snap = db->GetSnapshot();
+  auto seq2 = snap->GetSequenceNumber();
+  db->ReleaseSnapshot(snap);
+
+  ASSERT_LT(seq1, seq2);
+}
+
 // Test that the txn Initilize calls the overridden functions
 TEST_P(WritePreparedTransactionTest, TxnInitialize) {
   TransactionOptions txn_options;
