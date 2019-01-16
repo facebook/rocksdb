@@ -97,9 +97,6 @@ void BlobDBOptions::Dump(Logger* log) const {
       log, "          BlobDBOptions.garbage_collection_interval_secs: %" PRIu64,
       garbage_collection_interval_secs);
   ROCKS_LOG_HEADER(
-      log, "BlobDBOptions.garbage_collection_deletion_size_threshold: %lf",
-      garbage_collection_deletion_size_threshold);
-  ROCKS_LOG_HEADER(
       log, "                  BlobDBOptions.disable_background_tasks: %d",
       disable_background_tasks);
 }
