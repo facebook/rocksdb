@@ -153,21 +153,6 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                         prep_seq, snapshot_seq, 1, min_uncommitted);
       return true;
     }
-    if (!delayed_prepared_empty_.load(std::memory_order_acquire)) {
-      // We should not normally reach here
-      WPRecordTick(TXN_PREPARE_MUTEX_OVERHEAD);
-      ReadLock rl(&prepared_mutex_);
-      ROCKS_LOG_WARN(info_log_, "prepared_mutex_ overhead %" PRIu64,
-                     static_cast<uint64_t>(delayed_prepared_.size()));
-      if (delayed_prepared_.find(prep_seq) != delayed_prepared_.end()) {
-        // Then it is not committed yet
-        ROCKS_LOG_DETAILS(info_log_,
-                          "IsInSnapshot %" PRIu64 " in %" PRIu64
-                          " returns %" PRId32,
-                          prep_seq, snapshot_seq, 0);
-        return false;
-      }
-    }
     auto indexed_seq = prep_seq % COMMIT_CACHE_SIZE;
     CommitEntry64b dont_care;
     CommitEntry cached;
@@ -192,6 +177,21 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
           info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
           prep_seq, snapshot_seq, 0);
       return false;
+    }
+    if (!delayed_prepared_empty_.load(std::memory_order_acquire)) {
+      // We should not normally reach here
+      WPRecordTick(TXN_PREPARE_MUTEX_OVERHEAD);
+      ReadLock rl(&prepared_mutex_);
+      ROCKS_LOG_WARN(info_log_, "prepared_mutex_ overhead %" PRIu64,
+                     static_cast<uint64_t>(delayed_prepared_.size()));
+      if (delayed_prepared_.find(prep_seq) != delayed_prepared_.end()) {
+        // Then it is not committed yet
+        ROCKS_LOG_DETAILS(info_log_,
+                          "IsInSnapshot %" PRIu64 " in %" PRIu64
+                          " returns %" PRId32,
+                          prep_seq, snapshot_seq, 0);
+        return false;
+      }
     }
     // When advancing max_evicted_seq_, we move older entires from prepared to
     // delayed_prepared_. Also we move evicted entries from commit cache to
