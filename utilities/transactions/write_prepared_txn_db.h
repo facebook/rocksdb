@@ -374,6 +374,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   void UpdateCFComparatorMap(ColumnFamilyHandle* handle) override;
 
   virtual const Snapshot* GetSnapshot() override;
+  SnapshotImpl* GetSnapshotInternal(bool for_ww_conflict_check);
 
  protected:
   virtual Status VerifyCFOptions(
@@ -395,10 +396,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_AdvanceMaxEvictedSeqBasicTest_Test;
   friend class
       WritePreparedTransactionTest_AdvanceMaxEvictedSeqWithDuplicatesTest_Test;
+  friend class WritePreparedTransactionTest_AdvanceSeqByOne_Test;
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
   friend class WritePreparedTransactionTest_DoubleSnapshot_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotReleased_Test;
+  friend class WritePreparedTransactionTest_NewSnapshotLargerThanMax_Test;
+  friend class WritePreparedTransactionTest_MaxCatchupWithNewSnapshot_Test;
   friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
   friend class WritePreparedTransactionTest_RollbackTest_Test;
   friend class WriteUnpreparedTxnDB;
@@ -563,6 +567,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                                const uint64_t& commit_seq,
                                const uint64_t& snapshot_seq,
                                const bool next_is_larger);
+
+  // A trick to increase the last visible sequence number by one and also wait
+  // for the in-flight commits to be visible.
+  void AdvanceSeqByOne();
 
   // The list of live snapshots at the last time that max_evicted_seq_ advanced.
   // The list stored into two data structures: in snapshot_cache_ that is

@@ -353,7 +353,7 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
       : TransactionTestBase(use_stackable_db, two_write_queue, write_policy){};
 
  protected:
-  // TODO(mayabndeh): Avoid duplicating PessimisticTransaction::Open logic here.
+  // TODO(myabandeh): Avoid duplicating PessimisticTransaction::Open logic here.
   void DestroyAndReopenWithExtraOptions(size_t snapshot_cache_bits,
                                         size_t commit_cache_bits) {
     delete db;
@@ -376,8 +376,8 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
 
     // The following is equivalent of WrapDB().
     txn_db_options.write_policy = WRITE_PREPARED;
-    auto* wp_db = new WritePreparedTxnDB(base_db, txn_db_options, snapshot_cache_bits,
-                                commit_cache_bits);
+    auto* wp_db = new WritePreparedTxnDB(
+        base_db, txn_db_options, snapshot_cache_bits, commit_cache_bits);
     wp_db->UpdateCFComparatorMap(handles);
     ASSERT_OK(wp_db->Initialize(compaction_enabled_cf_indices, handles));
 
@@ -831,6 +831,13 @@ TEST_P(WritePreparedTransactionTest, DoubleSnapshot) {
   wp_db->ReleaseSnapshot(snapshot3);
 }
 
+size_t UniqueCnt(std::vector<SequenceNumber> vec) {
+  std::set<SequenceNumber> aset;
+  for (auto i : vec) {
+    aset.insert(i);
+  }
+  return aset.size();
+}
 // Test that the entries in old_commit_map_ get garbage collected properly
 TEST_P(WritePreparedTransactionTest, OldCommitMapGC) {
   const size_t snapshot_cache_bits = 0;
@@ -879,9 +886,9 @@ TEST_P(WritePreparedTransactionTest, OldCommitMapGC) {
     ASSERT_FALSE(wp_db->old_commit_map_empty_.load());
     ReadLock rl(&wp_db->old_commit_map_mutex_);
     ASSERT_EQ(3, wp_db->old_commit_map_.size());
-    ASSERT_EQ(2, wp_db->old_commit_map_[snap_seq1].size());
-    ASSERT_EQ(1, wp_db->old_commit_map_[snap_seq2].size());
-    ASSERT_EQ(1, wp_db->old_commit_map_[snap_seq3].size());
+    ASSERT_EQ(2, UniqueCnt(wp_db->old_commit_map_[snap_seq1]));
+    ASSERT_EQ(1, UniqueCnt(wp_db->old_commit_map_[snap_seq2]));
+    ASSERT_EQ(1, UniqueCnt(wp_db->old_commit_map_[snap_seq3]));
   }
 
   // Verify that the 2nd snapshot is cleaned up after the release
@@ -890,8 +897,8 @@ TEST_P(WritePreparedTransactionTest, OldCommitMapGC) {
     ASSERT_FALSE(wp_db->old_commit_map_empty_.load());
     ReadLock rl(&wp_db->old_commit_map_mutex_);
     ASSERT_EQ(2, wp_db->old_commit_map_.size());
-    ASSERT_EQ(2, wp_db->old_commit_map_[snap_seq1].size());
-    ASSERT_EQ(1, wp_db->old_commit_map_[snap_seq3].size());
+    ASSERT_EQ(2, UniqueCnt(wp_db->old_commit_map_[snap_seq1]));
+    ASSERT_EQ(1, UniqueCnt(wp_db->old_commit_map_[snap_seq3]));
   }
 
   // Verify that the 1st snapshot is cleaned up after the release
@@ -900,7 +907,7 @@ TEST_P(WritePreparedTransactionTest, OldCommitMapGC) {
     ASSERT_FALSE(wp_db->old_commit_map_empty_.load());
     ReadLock rl(&wp_db->old_commit_map_mutex_);
     ASSERT_EQ(1, wp_db->old_commit_map_.size());
-    ASSERT_EQ(1, wp_db->old_commit_map_[snap_seq3].size());
+    ASSERT_EQ(1, UniqueCnt(wp_db->old_commit_map_[snap_seq3]));
   }
 
   // Verify that the 3rd snapshot is cleaned up after the release
@@ -1137,6 +1144,139 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
     ASSERT_TRUE(i < wp_db->SNAPSHOT_CACHE_SIZE);
     ASSERT_EQ(*sit, wp_db->snapshot_cache_[i]);
   }
+}
+
+// A new snapshot should always be always larger than max_evicted_seq_
+// Otherwise the snapshot does not go through AdvanceMaxEvictedSeq
+TEST_P(WritePreparedTransactionTest, NewSnapshotLargerThanMax) {
+  WriteOptions woptions;
+  TransactionOptions txn_options;
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  Transaction* txn0 = db->BeginTransaction(woptions, txn_options);
+  ASSERT_OK(txn0->Put(Slice("key"), Slice("value")));
+  ASSERT_OK(txn0->Commit());
+  const SequenceNumber seq = txn0->GetId();  // is also prepare seq
+  delete txn0;
+  std::vector<Transaction*> txns;
+  // Inc seq without committing anything
+  for (int i = 0; i < 10; i++) {
+    Transaction* txn = db->BeginTransaction(woptions, txn_options);
+    ASSERT_OK(txn->SetName("xid" + std::to_string(i)));
+    ASSERT_OK(txn->Put(Slice("key" + std::to_string(i)), Slice("value")));
+    ASSERT_OK(txn->Prepare());
+    txns.push_back(txn);
+  }
+
+  // The new commit is seq + 10
+  ASSERT_OK(db->Put(woptions, "key", "value"));
+  auto snap = wp_db->GetSnapshot();
+  const SequenceNumber last_seq = snap->GetSequenceNumber();
+  wp_db->ReleaseSnapshot(snap);
+  ASSERT_LT(seq, last_seq);
+  // Otherwise our test is not effective
+  ASSERT_LT(last_seq - seq, wp_db->INC_STEP_FOR_MAX_EVICTED);
+
+  // Evict seq out of commit cache
+  const SequenceNumber overwrite_seq = seq + wp_db->COMMIT_CACHE_SIZE;
+  // Check that the next write could make max go beyond last
+  auto last_max = wp_db->max_evicted_seq_.load();
+  wp_db->AddCommitted(overwrite_seq, overwrite_seq);
+  // Check that eviction has advanced the max
+  ASSERT_LT(last_max, wp_db->max_evicted_seq_.load());
+  // Check that the new max has not advanced the last seq
+  ASSERT_LT(wp_db->max_evicted_seq_.load(), last_seq);
+  for (auto txn : txns) {
+    txn->Rollback();
+    delete txn;
+  }
+}
+
+// A new snapshot should always be always larger than max_evicted_seq_
+// In very rare cases max could be below last published seq. Test that
+// taking snapshot will wait for max to catch up.
+TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 0;    // only 1 entry => frequent eviction
+  DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
+  WriteOptions woptions;
+  TransactionOptions txn_options;
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+
+  const int writes = 50;
+  const int batch_cnt = 4;
+  rocksdb::port::Thread t1([&]() {
+    for (int i = 0; i < writes; i++) {
+      WriteBatch batch;
+      // For duplicate keys cause 4 commit entires, each evicting an entry that
+      // is not published yet, thus causing max ecited seq go higher than last
+      // published.
+      for (int b = 0; b < batch_cnt; b++) {
+        batch.Put("foo", "foo");
+      }
+      db->Write(woptions, &batch);
+    }
+  });
+
+  rocksdb::port::Thread t2([&]() {
+    while (wp_db->max_evicted_seq_ == 0) {  // wait for insert thread
+      std::this_thread::yield();
+    }
+    for (int i = 0; i < 10; i++) {
+      auto snap = db->GetSnapshot();
+      if (snap->GetSequenceNumber() != 0) {
+        ASSERT_LT(wp_db->max_evicted_seq_, snap->GetSequenceNumber());
+      }  // seq 0 is ok to be less than max since nothing is visible to it
+      db->ReleaseSnapshot(snap);
+    }
+  });
+
+  t1.join();
+  t2.join();
+
+  // Make sure that the test has worked and seq number has advanced as we
+  // thought
+  auto snap = db->GetSnapshot();
+  ASSERT_GT(snap->GetSequenceNumber(), batch_cnt * writes - 1);
+  db->ReleaseSnapshot(snap);
+}
+
+TEST_P(WritePreparedTransactionTest, AdvanceSeqByOne) {
+  auto snap = db->GetSnapshot();
+  auto seq1 = snap->GetSequenceNumber();
+  db->ReleaseSnapshot(snap);
+
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  wp_db->AdvanceSeqByOne();
+
+  snap = db->GetSnapshot();
+  auto seq2 = snap->GetSequenceNumber();
+  db->ReleaseSnapshot(snap);
+
+  ASSERT_LT(seq1, seq2);
+}
+
+// Test that the txn Initilize calls the overridden functions
+TEST_P(WritePreparedTransactionTest, TxnInitialize) {
+  TransactionOptions txn_options;
+  WriteOptions write_options;
+  Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_OK(txn0->SetName("xid"));
+  ASSERT_OK(txn0->Put(Slice("key"), Slice("value1")));
+  ASSERT_OK(txn0->Prepare());
+
+  // SetSnapshot is overridden to update min_uncommitted_
+  txn_options.set_snapshot = true;
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  auto snap = txn1->GetSnapshot();
+  auto snap_impl = reinterpret_cast<const SnapshotImpl*>(snap);
+  // If ::Initialize calls the overriden SetSnapshot, min_uncommitted_ must be
+  // udpated
+  ASSERT_GT(snap_impl->min_uncommitted_, 0);
+
+  txn0->Rollback();
+  txn1->Rollback();
+  delete txn0;
+  delete txn1;
 }
 
 // This tests that transactions with duplicate keys perform correctly after max
@@ -2059,8 +2199,8 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
 }
 
 TEST_P(WritePreparedTransactionTest, SmallestUncommittedOptimization) {
-  const size_t snapshot_cache_bits = 7; // same as default
-  const size_t commit_cache_bits = 0; // disable commit cache
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 0;    // disable commit cache
   for (bool has_recent_prepare : {true, false}) {
     DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
 
@@ -2072,7 +2212,8 @@ TEST_P(WritePreparedTransactionTest, SmallestUncommittedOptimization) {
     ASSERT_OK(transaction->Prepare());
     // snapshot1 should get min_uncommitted from prepared_txns_ heap.
     auto snapshot1 = db->GetSnapshot();
-    ASSERT_EQ(transaction->GetId(), ((SnapshotImpl*)snapshot1)->min_uncommitted_);
+    ASSERT_EQ(transaction->GetId(),
+              ((SnapshotImpl*)snapshot1)->min_uncommitted_);
     // Add a commit to advance max_evicted_seq and move the prepared transaction
     // into delayed_prepared_ set.
     ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
@@ -2086,7 +2227,8 @@ TEST_P(WritePreparedTransactionTest, SmallestUncommittedOptimization) {
     }
     // snapshot2 should get min_uncommitted from delayed_prepared_ set.
     auto snapshot2 = db->GetSnapshot();
-    ASSERT_EQ(transaction->GetId(), ((SnapshotImpl*)snapshot1)->min_uncommitted_);
+    ASSERT_EQ(transaction->GetId(),
+              ((SnapshotImpl*)snapshot1)->min_uncommitted_);
     ASSERT_OK(transaction->Commit());
     delete transaction;
     if (has_recent_prepare) {

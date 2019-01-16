@@ -31,8 +31,13 @@ struct WriteOptions;
 WritePreparedTxn::WritePreparedTxn(WritePreparedTxnDB* txn_db,
                                    const WriteOptions& write_options,
                                    const TransactionOptions& txn_options)
-    : PessimisticTransaction(txn_db, write_options, txn_options),
-      wpt_db_(txn_db) {}
+    : PessimisticTransaction(txn_db, write_options, txn_options, false),
+      wpt_db_(txn_db) {
+  // Call Initialize outside PessimisticTransaction constructor otherwise it
+  // would skip overridden functions in WritePreparedTxn since they are not
+  // defined yet in the constructor of PessimisticTransaction
+  Initialize(txn_options);
+}
 
 void WritePreparedTxn::Initialize(const TransactionOptions& txn_options) {
   PessimisticTransaction::Initialize(txn_options);
@@ -413,20 +418,8 @@ Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
 }
 
 void WritePreparedTxn::SetSnapshot() {
-  // Note: for this optimization setting the last sequence number and obtaining
-  // the smallest uncommitted seq should be done atomically. However to avoid
-  // the mutex overhead, we call SmallestUnCommittedSeq BEFORE taking the
-  // snapshot. Since we always updated the list of unprepared seq (via
-  // AddPrepared) AFTER the last sequence is updated, this guarantees that the
-  // smallest uncommitted seq that we pair with the snapshot is smaller or equal
-  // the value that would be obtained otherwise atomically. That is ok since
-  // this optimization works as long as min_uncommitted is less than or equal
-  // than the smallest uncommitted seq when the snapshot was taken.
-  auto min_uncommitted = wpt_db_->SmallestUnCommittedSeq();
-  const bool FOR_WW_CONFLICT_CHECK = true;
-  SnapshotImpl* snapshot = dbimpl_->GetSnapshotImpl(FOR_WW_CONFLICT_CHECK);
-  assert(snapshot);
-  wpt_db_->EnhanceSnapshot(snapshot, min_uncommitted);
+  const bool kForWWConflictCheck = true;
+  SnapshotImpl* snapshot = wpt_db_->GetSnapshotInternal(kForWWConflictCheck);
   SetSnapshotInternal(snapshot);
 }
 

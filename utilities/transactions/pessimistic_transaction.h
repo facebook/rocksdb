@@ -38,7 +38,8 @@ class PessimisticTransactionDB;
 class PessimisticTransaction : public TransactionBaseImpl {
  public:
   PessimisticTransaction(TransactionDB* db, const WriteOptions& write_options,
-                         const TransactionOptions& txn_options);
+                         const TransactionOptions& txn_options,
+                         const bool init = true);
 
   virtual ~PessimisticTransaction();
 
