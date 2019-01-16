@@ -2916,7 +2916,7 @@ void DBImpl::GetSnapshotContext(
   assert(earliest_write_conflict_snapshot != nullptr);
   assert(snapshot_checker_ptr != nullptr);
 
-  *snapshot_checker_ptr = snapshot_checker_ptr_.get();
+  *snapshot_checker_ptr = snapshot_checker_.get();
   if (use_custom_gc_ && *snapshot_checker_ptr == nullptr) {
     *snapshot_checker_ptr = DisableGCSnapshotChecker::Instance();
   }
