@@ -634,10 +634,14 @@ void WritePreparedTxnDB::AdvanceSeqByOne() {
   assert(strlen(name) < 64 - 1);
   Status s = txn0->SetName(name);
   assert(s.ok());
-  // Without prepare it would simply skip the commit
-  s = txn0->Prepare();
+  if (s.ok()) {
+    // Without prepare it would simply skip the commit
+    s = txn0->Prepare();
+  }
   assert(s.ok());
-  s = txn0->Commit();
+  if (s.ok()) {
+    s = txn0->Commit();
+  }
   assert(s.ok());
   delete txn0;
 }
