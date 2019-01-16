@@ -9,6 +9,23 @@
 #include "port/likely.h"
 #include "rocksdb/listener.h"
 #include "table/internal_iterator.h"
+#include "util/sync_point.h"
+
+#define DEFINITELY_IN_SNAPSHOT(seq, snapshot)                       \
+  ((seq) <= (snapshot) &&                                           \
+   (snapshot_checker_ == nullptr ||                                 \
+    LIKELY(snapshot_checker_->CheckInSnapshot((seq), (snapshot)) == \
+           SnapshotCheckerResult::kInSnapshot)))
+
+#define DEFINITELY_NOT_IN_SNAPSHOT(seq, snapshot)                     \
+  ((seq) > (snapshot) ||                                              \
+   (snapshot_checker_ != nullptr &&                                   \
+    UNLIKELY(snapshot_checker_->CheckInSnapshot((seq), (snapshot)) == \
+             SnapshotCheckerResult::kNotInSnapshot)))
+
+#define IN_EARLIEST_SNAPSHOT(seq) \
+  ((seq) <= earliest_snapshot_ && \
+   (snapshot_checker_ == nullptr || LIKELY(IsInEarliestSnapshot(seq))))
 
 namespace rocksdb {
 
@@ -61,19 +78,21 @@ CompactionIterator::CompactionIterator(
       merge_out_iter_(merge_helper_),
       current_key_committed_(false) {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
+  assert(snapshots_ != nullptr);
   bottommost_level_ =
       compaction_ == nullptr ? false : compaction_->bottommost_level();
   if (compaction_ != nullptr) {
     level_ptrs_ = std::vector<size_t>(compaction_->number_levels(), 0);
   }
-
   if (snapshots_->size() == 0) {
     // optimize for fast path if there are no snapshots
     visible_at_tip_ = true;
+    earliest_snapshot_iter_ = snapshots_->end();
     earliest_snapshot_ = kMaxSequenceNumber;
     latest_snapshot_ = 0;
   } else {
     visible_at_tip_ = false;
+    earliest_snapshot_iter_ = snapshots_->begin();
     earliest_snapshot_ = snapshots_->at(0);
     latest_snapshot_ = snapshots_->back();
   }
@@ -163,10 +182,7 @@ void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   if (compaction_filter_ != nullptr &&
       (ikey_.type == kTypeValue || ikey_.type == kTypeBlobIndex) &&
       (visible_at_tip_ || ignore_snapshots_ ||
-       ikey_.sequence > latest_snapshot_ ||
-       (snapshot_checker_ != nullptr &&
-        UNLIKELY(!snapshot_checker_->IsInSnapshot(ikey_.sequence,
-                                                  latest_snapshot_))))) {
+       DEFINITELY_NOT_IN_SNAPSHOT(ikey_.sequence, latest_snapshot_))) {
     // If the user has specified a compaction filter and the sequence
     // number is greater than any external snapshot, then invoke the
     // filter. If the return value of the compaction filter is true,
@@ -270,9 +286,7 @@ void CompactionIterator::NextFromInput() {
       has_outputted_key_ = false;
       current_user_key_sequence_ = kMaxSequenceNumber;
       current_user_key_snapshot_ = 0;
-      current_key_committed_ =
-          (snapshot_checker_ == nullptr ||
-           snapshot_checker_->IsInSnapshot(ikey_.sequence, kMaxSequenceNumber));
+      current_key_committed_ = KeyCommitted(ikey_.sequence);
 
       // Apply the compaction filter to the first committed version of the user
       // key.
@@ -294,8 +308,7 @@ void CompactionIterator::NextFromInput() {
       // to query snapshot_checker_ in that case.
       if (UNLIKELY(!current_key_committed_)) {
         assert(snapshot_checker_ != nullptr);
-        current_key_committed_ =
-            snapshot_checker_->IsInSnapshot(ikey_.sequence, kMaxSequenceNumber);
+        current_key_committed_ = KeyCommitted(ikey_.sequence);
         // Apply the compaction filter to the first committed version of the
         // user key.
         if (current_key_committed_) {
@@ -379,10 +392,8 @@ void CompactionIterator::NextFromInput() {
           cmp_->Equal(ikey_.user_key, next_ikey.user_key)) {
         // Check whether the next key belongs to the same snapshot as the
         // SingleDelete.
-        if (prev_snapshot == 0 || next_ikey.sequence > prev_snapshot ||
-            (snapshot_checker_ != nullptr &&
-             UNLIKELY(!snapshot_checker_->IsInSnapshot(next_ikey.sequence,
-                                                       prev_snapshot)))) {
+        if (prev_snapshot == 0 ||
+            DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot)) {
           if (next_ikey.type == kTypeSingleDeletion) {
             // We encountered two SingleDeletes in a row.  This could be due to
             // unexpected user input.
@@ -394,11 +405,8 @@ void CompactionIterator::NextFromInput() {
             ++iter_stats_.num_record_drop_obsolete;
             ++iter_stats_.num_single_del_mismatch;
           } else if (has_outputted_key_ ||
-                     (ikey_.sequence <= earliest_write_conflict_snapshot_ &&
-                      (snapshot_checker_ == nullptr ||
-                       LIKELY(snapshot_checker_->IsInSnapshot(
-                           ikey_.sequence,
-                           earliest_write_conflict_snapshot_))))) {
+                     DEFINITELY_IN_SNAPSHOT(
+                         ikey_.sequence, earliest_write_conflict_snapshot_)) {
             // Found a matching value, we can drop the single delete and the
             // value.  It is safe to drop both records since we've already
             // outputted a key in this snapshot, or there is no earlier
@@ -446,10 +454,7 @@ void CompactionIterator::NextFromInput() {
         // iteration. If the next key is corrupt, we return before the
         // comparison, so the value of has_current_user_key does not matter.
         has_current_user_key_ = false;
-        if (compaction_ != nullptr && ikey_.sequence <= earliest_snapshot_ &&
-            (snapshot_checker_ == nullptr ||
-             LIKELY(snapshot_checker_->IsInSnapshot(ikey_.sequence,
-                                                    earliest_snapshot_))) &&
+        if (compaction_ != nullptr && IN_EARLIEST_SNAPSHOT(ikey_.sequence) &&
             compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
                                                        &level_ptrs_)) {
           // Key doesn't exist outside of this range.
@@ -482,10 +487,7 @@ void CompactionIterator::NextFromInput() {
       ++iter_stats_.num_record_drop_hidden;  // (A)
       input_->Next();
     } else if (compaction_ != nullptr && ikey_.type == kTypeDeletion &&
-               ikey_.sequence <= earliest_snapshot_ &&
-               (snapshot_checker_ == nullptr ||
-                LIKELY(snapshot_checker_->IsInSnapshot(ikey_.sequence,
-                                                       earliest_snapshot_))) &&
+               IN_EARLIEST_SNAPSHOT(ikey_.sequence) &&
                ikeyNotNeededForIncrementalSnapshot() &&
                compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
                                                           &level_ptrs_)) {
@@ -522,13 +524,10 @@ void CompactionIterator::NextFromInput() {
       input_->Next();
       // Skip over all versions of this key that happen to occur in the same snapshot
       // range as the delete
-      while (input_->Valid() &&
-             ParseInternalKey(input_->key(), &next_ikey) &&
+      while (input_->Valid() && ParseInternalKey(input_->key(), &next_ikey) &&
              cmp_->Equal(ikey_.user_key, next_ikey.user_key) &&
-             (prev_snapshot == 0 || next_ikey.sequence > prev_snapshot ||
-              (snapshot_checker_ != nullptr &&
-               UNLIKELY(!snapshot_checker_->IsInSnapshot(next_ikey.sequence,
-                                                         prev_snapshot))))) {
+             (prev_snapshot == 0 ||
+              DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot))) {
         input_->Next();
       }
       // If you find you still need to output a row with this key, we need to output the
@@ -619,13 +618,9 @@ void CompactionIterator::PrepareOutput() {
   //
   // Can we do the same for levels above bottom level as long as
   // KeyNotExistsBeyondOutputLevel() return true?
-  if ((compaction_ != nullptr &&
-      !compaction_->allow_ingest_behind()) &&
-      ikeyNotNeededForIncrementalSnapshot() &&
-      bottommost_level_ && valid_ && ikey_.sequence <= earliest_snapshot_ &&
-      (snapshot_checker_ == nullptr || LIKELY(snapshot_checker_->IsInSnapshot(
-        ikey_.sequence, earliest_snapshot_))) &&
-      ikey_.type != kTypeMerge &&
+  if ((compaction_ != nullptr && !compaction_->allow_ingest_behind()) &&
+      ikeyNotNeededForIncrementalSnapshot() && bottommost_level_ && valid_ &&
+      IN_EARLIEST_SNAPSHOT(ikey_.sequence) && ikey_.type != kTypeMerge &&
       !cmp_->Equal(compaction_->GetLargestUserKey(), ikey_.user_key)) {
     assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
     ikey_.sequence = 0;
@@ -648,7 +643,8 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
     auto cur = *snapshots_iter;
     assert(in <= cur);
     if (snapshot_checker_ == nullptr ||
-        snapshot_checker_->IsInSnapshot(in, cur)) {
+        snapshot_checker_->CheckInSnapshot(in, cur) ==
+            SnapshotCheckerResult::kInSnapshot) {
       return cur;
     }
     *prev_snapshot = cur;
@@ -661,6 +657,27 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
 inline bool CompactionIterator::ikeyNotNeededForIncrementalSnapshot() {
   return (!compaction_->preserve_deletes()) ||
          (ikey_.sequence < preserve_deletes_seqnum_);
+}
+
+bool CompactionIterator::IsInEarliestSnapshot(SequenceNumber sequence) {
+  assert(snapshot_checker_ != nullptr);
+  assert(earliest_snapshot_ == kMaxSequenceNumber ||
+         (earliest_snapshot_iter_ != snapshots_->end() &&
+          *earliest_snapshot_iter_ == earliest_snapshot_));
+  auto in_snapshot =
+      snapshot_checker_->CheckInSnapshot(sequence, earliest_snapshot_);
+  while (UNLIKELY(in_snapshot == SnapshotCheckerResult::kSnapshotReleased)) {
+    earliest_snapshot_iter_++;
+    if (earliest_snapshot_iter_ == snapshots_->end()) {
+      earliest_snapshot_ = kMaxSequenceNumber;
+    } else {
+      earliest_snapshot_ = *earliest_snapshot_iter_;
+    }
+    in_snapshot =
+        snapshot_checker_->CheckInSnapshot(sequence, earliest_snapshot_);
+  }
+  assert(in_snapshot != SnapshotCheckerResult::kSnapshotReleased);
+  return in_snapshot == SnapshotCheckerResult::kInSnapshot;
 }
 
 }  // namespace rocksdb

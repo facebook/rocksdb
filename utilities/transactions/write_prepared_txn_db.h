@@ -124,6 +124,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                       "IsInSnapshot %" PRIu64 " in %" PRIu64
                       " min_uncommitted %" PRIu64,
                       prep_seq, snapshot_seq, min_uncommitted);
+    // Caller is responsible to initialize snap_released.
+    assert(snap_released == nullptr || *snap_released == false);
     // Here we try to infer the return value without looking into prepare list.
     // This would help avoiding synchronization over a shared map.
     // TODO(myabandeh): optimize this. This sequence of checks must be correct

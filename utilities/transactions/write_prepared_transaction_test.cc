@@ -2243,6 +2243,101 @@ TEST_P(WritePreparedTransactionTest, SmallestUncommittedOptimization) {
   }
 }
 
+TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 0;    // minimum commit cache
+  DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
+
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1_1"));
+  auto* transaction =
+      db->BeginTransaction(WriteOptions(), TransactionOptions(), nullptr);
+  ASSERT_OK(transaction->SetName("txn"));
+  ASSERT_OK(transaction->Put("key1", "value1_2"));
+  ASSERT_OK(transaction->Prepare());
+  auto snapshot1 = db->GetSnapshot();
+  // Increment sequence number.
+  ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
+  auto snapshot2 = db->GetSnapshot();
+  ASSERT_OK(transaction->Commit());
+  delete transaction;
+  VerifyKeys({{"key1", "value1_2"}});
+  VerifyKeys({{"key1", "value1_1"}}, snapshot1);
+  VerifyKeys({{"key1", "value1_1"}}, snapshot2);
+  // Add a flush to avoid compaction to fallback to trivial move.
+
+  auto callback = [&](void*) {
+    // Release snapshot1 after CompactionIterator init.
+    // CompactionIterator need to figure out the earliest snapshot
+    // that can see key1:value1_2 is kMaxSequenceNumber, not
+    // snapshot1 or snapshot2.
+    db->ReleaseSnapshot(snapshot1);
+    // Add some keys to advance max_evicted_seq.
+    ASSERT_OK(db->Put(WriteOptions(), "key3", "value3"));
+    ASSERT_OK(db->Put(WriteOptions(), "key4", "value4"));
+  };
+  SyncPoint::GetInstance()->SetCallBack("CompactionIterator:AfterInit",
+                                        callback);
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db->Flush(FlushOptions()));
+  VerifyKeys({{"key1", "value1_2"}});
+  VerifyKeys({{"key1", "value1_1"}}, snapshot2);
+  db->ReleaseSnapshot(snapshot2);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 0;    // minimum commit cache
+  DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
+
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
+  auto* transaction =
+      db->BeginTransaction(WriteOptions(), TransactionOptions(), nullptr);
+  ASSERT_OK(transaction->SetName("txn"));
+  ASSERT_OK(transaction->Delete("key1"));
+  ASSERT_OK(transaction->Prepare());
+  SequenceNumber del_seq = db->GetLatestSequenceNumber();
+  auto snapshot1 = db->GetSnapshot();
+  // Increment sequence number.
+  ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
+  auto snapshot2 = db->GetSnapshot();
+  ASSERT_OK(transaction->Commit());
+  delete transaction;
+  VerifyKeys({{"key1", "NOT_FOUND"}});
+  VerifyKeys({{"key1", "value1"}}, snapshot1);
+  VerifyKeys({{"key1", "value1"}}, snapshot2);
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  auto callback = [&](void* compaction) {
+    // Release snapshot1 after CompactionIterator init.
+    // CompactionIterator need to double check and find out snapshot2 is now
+    // the earliest existing snapshot.
+    if (compaction != nullptr) {
+      db->ReleaseSnapshot(snapshot1);
+      // Add some keys to advance max_evicted_seq.
+      ASSERT_OK(db->Put(WriteOptions(), "key3", "value3"));
+      ASSERT_OK(db->Put(WriteOptions(), "key4", "value4"));
+    }
+  };
+  SyncPoint::GetInstance()->SetCallBack("CompactionIterator:AfterInit",
+                                        callback);
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Dummy keys to avoid compaction trivially move files and get around actual
+  // compaction logic.
+  ASSERT_OK(db->Put(WriteOptions(), "a", "dummy"));
+  ASSERT_OK(db->Put(WriteOptions(), "z", "dummy"));
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  // Only verify for key1. Both the put and delete for the key should be kept.
+  // Since the delete tombstone is not visible to snapshot2, we need to keep
+  // at least one version of the key, for write-conflict check.
+  VerifyInternalKeys({{"key1", "", del_seq, kTypeDeletion},
+                      {"key1", "value1", 0, kTypeValue}});
+  db->ReleaseSnapshot(snapshot2);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 // A more complex test to verify compaction/flush should keep keys visible
 // to snapshots.
 TEST_P(WritePreparedTransactionTest,
