@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.18.2 (01/23/2019)
+### Public API Change
+* Change time resolution in FileOperationInfo.
+
 ## 5.18.0 (11/30/2018)
 ### New Features
 * Introduced `JemallocNodumpAllocator` memory allocator. When being use, block cache will be excluded from core dump.
