@@ -91,6 +91,7 @@ CompactionIterator::CompactionIterator(
     ignore_snapshots_ = false;
   }
   input_->SetPinnedItersMgr(&pinned_iters_mgr_);
+  TEST_SYNC_POINT_CALLBACK("CompactionIterator:AfterInit", compaction_.get());
 }
 
 CompactionIterator::~CompactionIterator() {

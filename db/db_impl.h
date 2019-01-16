@@ -700,6 +700,12 @@ class DBImpl : public DB {
 
   void SetSnapshotChecker(SnapshotChecker* snapshot_checker);
 
+  // Fill JobContext with snapshot information needed by flush and compaction.
+  void GetSnapshotContext(JobContext* job_context,
+                          std::vector<SequenceNumber>* snapshot_seqs,
+                          SequenceNumber* earliest_write_conflict_snapshot,
+                          SnapshotChecker** snapshot_checker);
+
   // Not thread-safe.
   void SetRecoverableStatePreReleaseCallback(PreReleaseCallback* callback);
 
@@ -1148,7 +1154,8 @@ class DBImpl : public DB {
   // helper function to call after some of the logs_ were synced
   void MarkLogsSynced(uint64_t up_to, bool synced_dir, const Status& status);
 
-  SnapshotImpl* GetSnapshotImpl(bool is_write_conflict_boundary);
+  SnapshotImpl* GetSnapshotImpl(bool is_write_conflict_boundary,
+                                bool lock = true);
 
   uint64_t GetMaxTotalWalSize() const;
 

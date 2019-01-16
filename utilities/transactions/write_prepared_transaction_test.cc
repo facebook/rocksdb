@@ -2374,6 +2374,34 @@ TEST_P(WritePreparedTransactionTest,
   delete transaction;
 }
 
+TEST_P(WritePreparedTransactionTest, CommitAndSnapshotDuringCompaction) {
+  options.disable_auto_compactions = true;
+  ReOpen();
+
+  const Snapshot* snapshot = nullptr;
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
+  auto* txn = db->BeginTransaction(WriteOptions());
+  ASSERT_OK(txn->SetName("txn"));
+  ASSERT_OK(txn->Put("key1", "value2"));
+  ASSERT_OK(txn->Prepare());
+
+  auto callback = [&](void*) {
+    // Snapshot is taken after compaction start. It should be taken into
+    // consideration for whether to compact out value1.
+    snapshot = db->GetSnapshot();
+    ASSERT_OK(txn->Commit());
+    delete txn;
+  };
+  SyncPoint::GetInstance()->SetCallBack("CompactionIterator:AfterInit",
+                                        callback);
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(db->Flush(FlushOptions()));
+  ASSERT_NE(nullptr, snapshot);
+  VerifyKeys({{"key1", "value2"}});
+  VerifyKeys({{"key1", "value1"}}, snapshot);
+  db->ReleaseSnapshot(snapshot);
+}
+
 TEST_P(WritePreparedTransactionTest, Iterate) {
   auto verify_state = [](Iterator* iter, const std::string& key,
                          const std::string& value) {

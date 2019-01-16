@@ -137,14 +137,12 @@ Status DBImpl::FlushMemTableToOutputFile(
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
 
+  std::vector<SequenceNumber> snapshot_seqs;
   SequenceNumber earliest_write_conflict_snapshot;
-  std::vector<SequenceNumber> snapshot_seqs =
-      snapshots_.GetAll(&earliest_write_conflict_snapshot);
+  SnapshotChecker* snapshot_checker;
+  GetSnapshotContext(job_context, &snapshot_seqs,
+                     &earliest_write_conflict_snapshot, &snapshot_checker);
 
-  auto snapshot_checker = snapshot_checker_.get();
-  if (use_custom_gc_ && snapshot_checker == nullptr) {
-    snapshot_checker = DisableGCSnapshotChecker::Instance();
-  }
   FlushJob flush_job(
       dbname_, cfd, immutable_db_options_, mutable_cf_options,
       nullptr /* memtable_id */, env_options_for_compaction_, versions_.get(),
@@ -287,14 +285,12 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   }
 #endif /* !NDEBUG */
 
+  std::vector<SequenceNumber> snapshot_seqs;
   SequenceNumber earliest_write_conflict_snapshot;
-  std::vector<SequenceNumber> snapshot_seqs =
-      snapshots_.GetAll(&earliest_write_conflict_snapshot);
+  SnapshotChecker* snapshot_checker;
+  GetSnapshotContext(job_context, &snapshot_seqs,
+                     &earliest_write_conflict_snapshot, &snapshot_checker);
 
-  auto snapshot_checker = snapshot_checker_.get();
-  if (use_custom_gc_ && snapshot_checker == nullptr) {
-    snapshot_checker = DisableGCSnapshotChecker::Instance();
-  }
   autovector<Directory*> distinct_output_dirs;
   std::vector<FlushJob> jobs;
   std::vector<MutableCFOptions> all_mutable_cf_options;
@@ -936,17 +932,15 @@ Status DBImpl::CompactFilesImpl(
   // deletion compaction currently not allowed in CompactFiles.
   assert(!c->deletion_compaction());
 
+  std::vector<SequenceNumber> snapshot_seqs;
   SequenceNumber earliest_write_conflict_snapshot;
-  std::vector<SequenceNumber> snapshot_seqs =
-      snapshots_.GetAll(&earliest_write_conflict_snapshot);
+  SnapshotChecker* snapshot_checker;
+  GetSnapshotContext(job_context, &snapshot_seqs,
+                     &earliest_write_conflict_snapshot, &snapshot_checker);
 
   auto pending_outputs_inserted_elem =
       CaptureCurrentFileNumberInPendingOutputs();
 
-  auto snapshot_checker = snapshot_checker_.get();
-  if (use_custom_gc_ && snapshot_checker == nullptr) {
-    snapshot_checker = DisableGCSnapshotChecker::Instance();
-  }
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJobStats compaction_job_stats;
   CompactionJob compaction_job(
@@ -2576,14 +2570,11 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     output_level = c->output_level();
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:NonTrivial",
                              &output_level);
+    std::vector<SequenceNumber> snapshot_seqs;
     SequenceNumber earliest_write_conflict_snapshot;
-    std::vector<SequenceNumber> snapshot_seqs =
-        snapshots_.GetAll(&earliest_write_conflict_snapshot);
-
-    auto snapshot_checker = snapshot_checker_.get();
-    if (use_custom_gc_ && snapshot_checker == nullptr) {
-      snapshot_checker = DisableGCSnapshotChecker::Instance();
-    }
+    SnapshotChecker* snapshot_checker;
+    GetSnapshotContext(job_context, &snapshot_seqs,
+                       &earliest_write_conflict_snapshot, &snapshot_checker);
     assert(is_snapshot_supported_ || snapshots_.empty());
     CompactionJob compaction_job(
         job_context->job_id, c.get(), immutable_db_options_,
@@ -2913,5 +2904,32 @@ void DBImpl::SetSnapshotChecker(SnapshotChecker* snapshot_checker) {
   // using by a compaction job.
   assert(!snapshot_checker_);
   snapshot_checker_.reset(snapshot_checker);
+}
+
+void DBImpl::GetSnapshotContext(
+    JobContext* job_context, std::vector<SequenceNumber>* snapshot_seqs,
+    SequenceNumber* earliest_write_conflict_snapshot,
+    SnapshotChecker** snapshot_checker_ptr) {
+  mutex_.AssertHeld();
+  assert(job_context != nullptr);
+  assert(snapshot_seqs != nullptr);
+  assert(earliest_write_conflict_snapshot != nullptr);
+  assert(snapshot_checker_ptr != nullptr);
+
+  *snapshot_checker_ptr = snapshot_checker_.get();
+  if (use_custom_gc_ && *snapshot_checker_ptr == nullptr) {
+    *snapshot_checker_ptr = DisableGCSnapshotChecker::Instance();
+  }
+  if (*snapshot_checker_ptr != nullptr) {
+    // If snapshot_checker is used, that means the flush/compaction may
+    // contain values not visible to snapshot taken after
+    // flush/compaction job starts. Take a snapshot and it will appear
+    // in snapshot_seqs and force compaction iterator to consider such
+    // snapshots.
+    const Snapshot* job_snapshot =
+        GetSnapshotImpl(false /*write_conflict_boundary*/, false /*lock*/);
+    job_context->job_snapshot.reset(new ManagedSnapshot(this, job_snapshot));
+  }
+  *snapshot_seqs = snapshots_.GetAll(earliest_write_conflict_snapshot);
 }
 }  // namespace rocksdb
