@@ -2563,7 +2563,8 @@ TEST_P(WritePreparedTransactionTest, IteratorRefreshNotSupported) {
 // stresses such cacese.
 TEST_P(WritePreparedTransactionTest, CommitOfOldPrepared) {
   const size_t snapshot_cache_bits = 7;  // same as default
-  const size_t commit_cache_bits = 0;    // only 1 entry => frequent eviction
+  for (const size_t commit_cache_bits: {0, 2, 3}) {
+  for (const size_t sub_batch_cnt: {1, 2, 3}) {
   DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
   std::atomic<const Snapshot*> snap;
   snap.store(nullptr);
@@ -2596,7 +2597,9 @@ TEST_P(WritePreparedTransactionTest, CommitOfOldPrepared) {
           db->BeginTransaction(WriteOptions(), TransactionOptions());
       ASSERT_OK(txn->SetName("xid"));
       std::string val_str = "value" + ToString(i);
+      for (size_t b = 0; b < sub_batch_cnt; b++) {
       ASSERT_OK(txn->Put(Slice("key"), val_str));
+      }
       ASSERT_OK(txn->Prepare());
       // Let an eviction to kick in
       std::this_thread::yield();
@@ -2623,6 +2626,10 @@ TEST_P(WritePreparedTransactionTest, CommitOfOldPrepared) {
   });
   write_thread.join();
   eviction_thread.join();
+  }
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
 }
 
 // Test that updating the commit map will not affect the existing snapshots

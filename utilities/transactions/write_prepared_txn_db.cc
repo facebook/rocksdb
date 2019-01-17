@@ -443,6 +443,21 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
     // After each eviction from commit cache, check if the commit entry should
     // be kept around because it overlaps with a live snapshot.
     CheckAgainstSnapshots(evicted);
+  if (UNLIKELY(!delayed_prepared_empty_.load(std::memory_order_acquire))) {
+    WriteLock wl(&prepared_mutex_);
+    for (auto dp: delayed_prepared_) {
+      if (dp == evicted.prep_seq) {
+        // This is a rare case that txn is committed but prepared_txns_ is not
+        // cleaned up yet. Refer to delayed_prepared_commits_ definition for why
+        // it should be kept updated.
+        delayed_prepared_commits_[evicted.prep_seq] = evicted.commit_seq;
+        ROCKS_LOG_DEBUG(info_log_,
+                        "delayed_prepared_commits_[%" PRIu64 "]=%" PRIu64,
+                        evicted.prep_seq, evicted.commit_seq);
+        break;
+      }
+    }
+  }
   }
   bool succ =
       ExchangeCommitEntry(indexed_seq, evicted_64b, {prepare_seq, commit_seq});
@@ -468,6 +483,9 @@ void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
   TEST_SYNC_POINT_CALLBACK(
       "RemovePrepared:Start",
       const_cast<void*>(reinterpret_cast<const void*>(&prepare_seq)));
+  ROCKS_LOG_DETAILS(info_log_,
+                    "RemovePrepared %" PRIu64 " cnt: %" ROCKSDB_PRIszt,
+                    prepare_seq, batch_cnt);
   WriteLock wl(&prepared_mutex_);
   for (size_t i = 0; i < batch_cnt; i++) {
     prepared_txns_.erase(prepare_seq + i);
@@ -500,10 +518,12 @@ void WritePreparedTxnDB::MarkDelayedPreparedCommitted(
                         "MarkDelayedPreparedCommitted %" PRIu64 " -> %" PRIu64,
                         prepare_seq, commit_seq);
     } else {
-      ROCKS_LOG_DETAILS(info_log_, "MarkDelayedPreparedCommitted not found");
+      ROCKS_LOG_DETAILS(info_log_,
+                        "MarkDelayedPreparedCommitted %" PRIu64 " not found");
     }
   } else {
-    ROCKS_LOG_DETAILS(info_log_, "MarkDelayedPreparedCommitted empty");
+    ROCKS_LOG_DETAILS(info_log_,
+                      "MarkDelayedPreparedCommitted %" PRIu64 " empty");
   }
 }
 
@@ -540,8 +560,9 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
                                               const SequenceNumber& new_max,
                                               const CommitEntry& evicted) {
   ROCKS_LOG_DETAILS(info_log_,
-                    "AdvanceMaxEvictedSeq overhead %" PRIu64 " => %" PRIu64,
-                    prev_max, new_max);
+                    "AdvanceMaxEvictedSeq overhead %" PRIu64 " => %" PRIu64
+                    " evicted: %" PRIu64,
+                    prev_max, new_max, evicted.prep_seq);
   // Declare the intention before getting snapshot from the DB. This helps a
   // concurrent GetSnapshot to wait to catch up with future_max_evicted_seq_ if
   // it has not already. Otherwise the new snapshot is when we ask DB for
@@ -559,6 +580,11 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
   // normal cases.
   {
     WriteLock wl(&prepared_mutex_);
+    ROCKS_LOG_DETAILS(
+        info_log_,
+        "AdvanceMaxEvictedSeq prepared_txns_.empty() %d top: %" PRIu64,
+        prepared_txns_.empty(),
+        prepared_txns_.empty() ? 0 : prepared_txns_.top());
     while (!prepared_txns_.empty() && prepared_txns_.top() <= new_max) {
       auto to_be_popped = prepared_txns_.top();
       delayed_prepared_.insert(to_be_popped);
@@ -567,12 +593,6 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
                      " new_max=%" PRIu64 " oldmax=%" PRIu64,
                      static_cast<uint64_t>(delayed_prepared_.size()),
                      to_be_popped, new_max, prev_max);
-      if (evicted.prep_seq == to_be_popped) {
-        // This is a rare case that txn is committed but prepared_txns_ is not
-        // cleaned up yet. Refer to delayed_prepared_commits_ definition for why
-        // it should be kept updated.
-        delayed_prepared_commits_[evicted.prep_seq] = evicted.commit_seq;
-      }
       prepared_txns_.pop();
       delayed_prepared_empty_.store(false, std::memory_order_release);
     }
