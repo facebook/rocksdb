@@ -14,7 +14,9 @@
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {
-
+struct TableBuilderOptions;
+class TableReader;
+  
 class SstFileDumper {
  public:
   explicit SstFileDumper(const Options& options, const std::string& file_name,

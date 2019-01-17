@@ -43,6 +43,8 @@ enum class OptionType {
   kAccessHint,
   kInfoLogLevel,
   kLRUCacheOptions,
+  kEnum,
+  kExtension,
   kUnknown
 };
 
@@ -75,12 +77,16 @@ typedef std::unordered_map<std::string, OptionTypeInfo> OptionTypeMap;
 
 class Configurable {
  public:
-
   static const bool kIgnoreUnknownOptions /* = false */;
   static const bool kInputStringsEscaped /* = false */;
   static const std::string kPropNameValue  /* = "name" */;
   static const std::string kPropOptValue /* = "options" */;
   static const std::string kOptionsPrefix /* = "rocksdb." */;
+private:
+  const OptionTypeMap *optionsMap_;
+
+protected:
+  Configurable(const OptionTypeMap *map = nullptr) : optionsMap_(map) { }
 public:
   virtual ~Configurable() {}
 
@@ -120,16 +126,12 @@ public:
   bool OptionMatchesName(const std::string & option, 
 			 const std::string & name) const;
 
-  const OptionTypeInfo *FindOption(const OptionTypeMap & type_map,
-				   const std::string & option) const;
+  const OptionTypeInfo *FindOption(const std::string & option) const;
   virtual const std::string & GetOptionPrefix() const {
     return kOptionsPrefix;
   }
 
-  virtual void *GetOptions() { return nullptr; }
-  virtual const OptionTypeMap *GetOptionTypeMap() const {
-    return nullptr;
-  }
+  virtual void *GetOptionsPtr() { return nullptr; }
 
   // Updates the named option to the input value, returning OK if successful.
   // Parameters:
@@ -139,14 +141,14 @@ public:
   //           NotFound        if the name is not a valid option
   //           InvalidArgument if the value is valid for the named option
   //           NotSupported    If the name/value is not supported
-  virtual Status SetOption(const std::string & name,
-				const std::string & value,
-				bool input_strings_escaped);
-  Status SetOption(const std::string & name,
-		   const std::string & value) {
-    return SetOption(name, value, kInputStringsEscaped);
+  virtual Status ConfigureOption(const std::string & name,
+				 const std::string & value,
+				 bool input_strings_escaped);
+  Status ConfigureOption(const std::string & name,
+			 const std::string & value) {
+    return ConfigureOption(name, value, kInputStringsEscaped);
   }
-
+  
   // Sanitizes the specified DB Options and ColumnFamilyOptions.
   // If the function cannot find a way to sanitize the input DB Options,
   // a non-ok Status will be returned.
@@ -154,27 +156,13 @@ public:
     return Status::OK();
   }
  protected:
-  virtual bool ParseOption(const std::string & name,
+  Status ParseOption(const OptionType & optType, char *optAddr,
+		     const std::string & name, const std::string & value);
+  Status ParseOption(const OptionTypeInfo *opt_info, void *opt_base,
+		     const std::string & name, const std::string & value);
+  virtual Status ParseEnum(const std::string & name,
 			   const std::string & value,
-			   const OptionTypeInfo *option,
-			   char *opt_ptr);
-  virtual bool ParseEnum(const std::string &,
-			 const std::string &,
-			 char *) {
-    return false;
-  }
-  
-  Status ConfigureOption(const OptionTypeInfo & opt_info,
-			 char  *opts_ptr,
-			 const std::string & name,
-			 const std::string & value,
-			 bool input_strings_escaped);
-  
-  Status ConfigureOption(const OptionTypeMap *type_map,
-			 char  *opts_ptr,
-			 const std::string & name,
-			 const std::string & value,
-			 bool input_strings_escaped);
+			   char * addr);
 public:
   // Checks to see if the named "option" matches "prefix" or "prefix.name"
   // This method is used to separate the "value" into its pieces

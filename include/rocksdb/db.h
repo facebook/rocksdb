@@ -16,7 +16,6 @@
 #include <unordered_map>
 #include <vector>
 #include "rocksdb/iterator.h"
-#include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
 #include "rocksdb/options.h"
 #include "rocksdb/snapshot.h"
@@ -50,12 +49,11 @@ struct CompactRangeOptions;
 struct TableProperties;
 struct ExternalSstFileInfo;
 class WriteBatch;
+class ColumnFamilyHandle;
 class Env;
 class EventListener;
 class TraceWriter;
-#ifdef ROCKSDB_LITE
-class CompactionJobInfo;
-#endif
+struct CompactionJobInfo;
 
 using std::unique_ptr;
 

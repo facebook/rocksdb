@@ -19,7 +19,7 @@
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
-#include "rocksdb/listener.h"
+#include "rocksdb/types.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -36,6 +36,7 @@ class CompactionFilterFactory;
 class Comparator;
 class ConcurrentTaskLimiter;
 class Env;
+class EventListener;
 class ExtensionLoader;
 enum InfoLogLevel : unsigned char;
 class SstFileManager;
@@ -49,6 +50,7 @@ class Slice;
 class Statistics;
 class InternalKeyComparator;
 class WalFilter;
+struct TableProperties;
 
 // DB contents are stored in a set of blocks, each of which holds a
 // sequence of key,value pairs.  Each block may be compressed before

@@ -14,6 +14,7 @@
 #include <vector>
 #include <string>
 #include "rocksdb/cache.h"
+#include "rocksdb/types.h"
 #include "db/dbformat.h"
 #include "util/arena.h"
 #include "util/autovector.h"
@@ -21,7 +22,8 @@
 namespace rocksdb {
 
 class VersionSet;
-
+  class TableReader;
+  
 const uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
 
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);

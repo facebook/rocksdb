@@ -14,7 +14,6 @@
 #include <string>
 
 #include "rocksdb/options.h"
-#include "rocksdb/table.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
 #include "util/memory_allocator.h"
