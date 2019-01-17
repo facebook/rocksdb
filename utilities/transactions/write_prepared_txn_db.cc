@@ -444,7 +444,7 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
                         " => %lu",
                         prepare_seq, evicted.prep_seq, evicted.commit_seq,
                         prev_max, max_evicted_seq);
-      AdvanceMaxEvictedSeq(prev_max, max_evicted_seq, evicted);
+      AdvanceMaxEvictedSeq(prev_max, max_evicted_seq);
     }
     // After each eviction from commit cache, check if the commit entry should
     // be kept around because it overlaps with a live snapshot.
@@ -563,12 +563,11 @@ bool WritePreparedTxnDB::ExchangeCommitEntry(const uint64_t indexed_seq,
 }
 
 void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
-                                              const SequenceNumber& new_max,
-                                              const CommitEntry& evicted) {
+                                              const SequenceNumber& new_max) {
   ROCKS_LOG_DETAILS(info_log_,
-                    "AdvanceMaxEvictedSeq overhead %" PRIu64 " => %" PRIu64
-                    " evicted: %" PRIu64,
-                    prev_max, new_max, evicted.prep_seq);
+                    "AdvanceMaxEvictedSeq overhead %" PRIu64
+                    " => %" PRIu64 prev_max,
+                    new_max);
   // Declare the intention before getting snapshot from the DB. This helps a
   // concurrent GetSnapshot to wait to catch up with future_max_evicted_seq_ if
   // it has not already. Otherwise the new snapshot is when we ask DB for

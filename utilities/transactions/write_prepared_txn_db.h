@@ -517,8 +517,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // a serial invocation in which the last invocation is the one with the
   // largest new_max value.
   void AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
-                            const SequenceNumber& new_max,
-                            const CommitEntry& evicted = {});
+                            const SequenceNumber& new_max);
 
   inline SequenceNumber SmallestUnCommittedSeq() {
     // Since we update the prepare_heap always from the main write queue via
