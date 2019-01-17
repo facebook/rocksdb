@@ -2558,7 +2558,9 @@ TEST_P(WritePreparedTransactionTest, IteratorRefreshNotSupported) {
   delete iter;
 }
 
-// When an old prepared entry gets committed, there is a gap between the time that it is published and when it is cleaned up from old_prepared_. This test stresses such cacese.
+// When an old prepared entry gets committed, there is a gap between the time
+// that it is published and when it is cleaned up from old_prepared_. This test
+// stresses such cacese.
 TEST_P(WritePreparedTransactionTest, CommitOfOldPrepared) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // only 1 entry => frequent eviction
@@ -2571,54 +2573,53 @@ TEST_P(WritePreparedTransactionTest, CommitOfOldPrepared) {
   // Take a snapshot after publish and before RemovePrepared:Start
   auto callback = [&](void* param) {
     SequenceNumber prep_seq = *((SequenceNumber*)param);
-    if (prep_seq  == exp_prepare) { // only for write_thread
-    ASSERT_EQ(nullptr, snap.load());
-    snap.store(db->GetSnapshot());
-    ReadOptions roptions;
-    roptions.snapshot = snap.load();
-    auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &value);
-    ASSERT_OK(s);
+    if (prep_seq == exp_prepare) {  // only for write_thread
+      ASSERT_EQ(nullptr, snap.load());
+      snap.store(db->GetSnapshot());
+      ReadOptions roptions;
+      roptions.snapshot = snap.load();
+      auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &value);
+      ASSERT_OK(s);
     }
   };
   SyncPoint::GetInstance()->SetCallBack("RemovePrepared:Start", callback);
   SyncPoint::GetInstance()->EnableProcessing();
   // Thread to cause frequent evictions
-  rocksdb::port::Thread eviction_thread(
-      [&]() { 
-      for (int i = 0; i < 100; i++) {
-      db->Put(WriteOptions(), Slice("key1"), Slice("value1")); 
-      }
-      });
+  rocksdb::port::Thread eviction_thread([&]() {
+    for (int i = 0; i < 100; i++) {
+      db->Put(WriteOptions(), Slice("key1"), Slice("value1"));
+    }
+  });
   rocksdb::port::Thread write_thread([&]() {
-      for (int i = 0; i < 100; i++) {
-    Transaction* txn =
-        db->BeginTransaction(WriteOptions(), TransactionOptions());
-    ASSERT_OK(txn->SetName("xid"));
-    std::string val_str = "value" + ToString(i);
-    ASSERT_OK(txn->Put(Slice("key"), val_str));
-    ASSERT_OK(txn->Prepare());
-    // Let an eviction to kick in
-    std::this_thread::yield();
+    for (int i = 0; i < 100; i++) {
+      Transaction* txn =
+          db->BeginTransaction(WriteOptions(), TransactionOptions());
+      ASSERT_OK(txn->SetName("xid"));
+      std::string val_str = "value" + ToString(i);
+      ASSERT_OK(txn->Put(Slice("key"), val_str));
+      ASSERT_OK(txn->Prepare());
+      // Let an eviction to kick in
+      std::this_thread::yield();
 
-    exp_prepare.store(txn->GetId());
-    ASSERT_OK(txn->Commit());
-    delete txn;
+      exp_prepare.store(txn->GetId());
+      ASSERT_OK(txn->Commit());
+      delete txn;
 
-    // Read with the snapshot taken before delayed_prepared_ cleanup
-    ReadOptions roptions;
-    roptions.snapshot = snap.load();
-    ASSERT_NE(nullptr, roptions.snapshot);
-    PinnableSlice value2;
-    auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &value2);
-    ASSERT_OK(s);
-    // It should see its own write
-    ASSERT_TRUE(val_str == value2);
-    // The value read by snapshot should not change
-    ASSERT_STREQ(value2.ToString().c_str(), value.ToString().c_str());
+      // Read with the snapshot taken before delayed_prepared_ cleanup
+      ReadOptions roptions;
+      roptions.snapshot = snap.load();
+      ASSERT_NE(nullptr, roptions.snapshot);
+      PinnableSlice value2;
+      auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &value2);
+      ASSERT_OK(s);
+      // It should see its own write
+      ASSERT_TRUE(val_str == value2);
+      // The value read by snapshot should not change
+      ASSERT_STREQ(value2.ToString().c_str(), value.ToString().c_str());
 
-    db->ReleaseSnapshot(roptions.snapshot);
-    snap.store(nullptr);
-      }
+      db->ReleaseSnapshot(roptions.snapshot);
+      snap.store(nullptr);
+    }
   });
   write_thread.join();
   eviction_thread.join();

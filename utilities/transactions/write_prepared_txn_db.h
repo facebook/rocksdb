@@ -188,19 +188,20 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         // This is the order: 1) delayed_prepared_commits_ update, 2) publish 3)
         // delayed_prepared_ clean up. So check if it is the case of a late
         // clenaup.
-        auto it =delayed_prepared_commits_.find(prep_seq);
+        auto it = delayed_prepared_commits_.find(prep_seq);
         if (it == delayed_prepared_commits_.end()) {
-        // Then it is not committed yet
-        ROCKS_LOG_DETAILS(info_log_,
-                          "IsInSnapshot %" PRIu64 " in %" PRIu64
-                          " returns %" PRId32,
-                          prep_seq, snapshot_seq, 0);
-        return false;
+          // Then it is not committed yet
+          ROCKS_LOG_DETAILS(info_log_,
+                            "IsInSnapshot %" PRIu64 " in %" PRIu64
+                            " returns %" PRId32,
+                            prep_seq, snapshot_seq, 0);
+          return false;
         } else {
-        ROCKS_LOG_DETAILS(info_log_,
-                          "IsInSnapshot %" PRIu64 " in %" PRIu64
-                          " commit: %" PRIu64 " returns %" PRId32,
-                          prep_seq, snapshot_seq, it->second, snapshot_seq <= it->second);
+          ROCKS_LOG_DETAILS(info_log_,
+                            "IsInSnapshot %" PRIu64 " in %" PRIu64
+                            " commit: %" PRIu64 " returns %" PRId32,
+                            prep_seq, snapshot_seq, it->second,
+                            snapshot_seq <= it->second);
           return it->second <= snapshot_seq;
         }
       }

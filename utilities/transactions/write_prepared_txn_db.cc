@@ -465,7 +465,9 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
 
 void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
                                         const size_t batch_cnt) {
-  TEST_SYNC_POINT_CALLBACK("RemovePrepared:Start", const_cast<void*>(reinterpret_cast<const void*>(&prepare_seq)));
+  TEST_SYNC_POINT_CALLBACK(
+      "RemovePrepared:Start",
+      const_cast<void*>(reinterpret_cast<const void*>(&prepare_seq)));
   WriteLock wl(&prepared_mutex_);
   for (size_t i = 0; i < batch_cnt; i++) {
     prepared_txns_.erase(prepare_seq + i);
@@ -474,9 +476,8 @@ void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
       delayed_prepared_.erase(prepare_seq + i);
       auto it = delayed_prepared_commits_.find(prepare_seq + i);
       if (it != delayed_prepared_commits_.end()) {
-      ROCKS_LOG_DETAILS(info_log_,
-                        "delayed_prepared_commits_.erase %" PRIu64,
-                        prepare_seq + i);
+        ROCKS_LOG_DETAILS(info_log_, "delayed_prepared_commits_.erase %" PRIu64,
+                          prepare_seq + i);
         delayed_prepared_commits_.erase(it);
       }
       bool is_empty = delayed_prepared_.empty();
@@ -499,12 +500,10 @@ void WritePreparedTxnDB::MarkDelayedPreparedCommitted(
                         "MarkDelayedPreparedCommitted %" PRIu64 " -> %" PRIu64,
                         prepare_seq, commit_seq);
     } else {
-      ROCKS_LOG_DETAILS(info_log_,
-                        "MarkDelayedPreparedCommitted not found");
+      ROCKS_LOG_DETAILS(info_log_, "MarkDelayedPreparedCommitted not found");
     }
   } else {
-      ROCKS_LOG_DETAILS(info_log_,
-                        "MarkDelayedPreparedCommitted empty");
+    ROCKS_LOG_DETAILS(info_log_, "MarkDelayedPreparedCommitted empty");
   }
 }
 
@@ -641,7 +640,8 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
     // last published seq. This case is not likely in real-world setup so we
     // handle it with a few retries.
     size_t retry = 0;
-    while (snap_impl->GetSequenceNumber() <= future_max_evicted_seq_ && retry < 100) {
+    while (snap_impl->GetSequenceNumber() <= future_max_evicted_seq_ &&
+           retry < 100) {
       ROCKS_LOG_WARN(info_log_, "GetSnapshot retry %" PRIu64,
                      snap_impl->GetSequenceNumber());
       ReleaseSnapshot(snap_impl);
@@ -654,11 +654,11 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
     }
     assert(snap_impl->GetSequenceNumber() > future_max_evicted_seq_);
     if (snap_impl->GetSequenceNumber() <= future_max_evicted_seq_) {
-      throw std::runtime_error("Snapshot seq " +
-                               ToString(snap_impl->GetSequenceNumber()) +
-                               " after " + ToString(retry) +
-                               " retries is still less than futre_max_evicted_seq_" +
-                               ToString(future_max_evicted_seq_.load()));
+      throw std::runtime_error(
+          "Snapshot seq " + ToString(snap_impl->GetSequenceNumber()) +
+          " after " + ToString(retry) +
+          " retries is still less than futre_max_evicted_seq_" +
+          ToString(future_max_evicted_seq_.load()));
     }
   }
   EnhanceSnapshot(snap_impl, min_uncommitted);
