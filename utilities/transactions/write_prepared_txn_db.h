@@ -398,6 +398,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       const ColumnFamilyOptions& cf_options) override;
 
  private:
+  friend class WritePreparedCommitEntryPreReleaseCallback;
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
   friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
   friend class WritePreparedTransactionTest_CommitMapTest_Test;
@@ -754,7 +755,6 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
     if (prep_seq_ != kMaxSequenceNumber) {
       for (size_t i = 0; i < prep_batch_cnt_; i++) {
         db_->AddCommitted(prep_seq_ + i, last_commit_seq);
-        db_->MarkDelayedPreparedCommitted(prep_seq_ + i, last_commit_seq);
       }
     }  // else there was no prepare phase
     if (includes_data_) {
@@ -765,7 +765,22 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
         // This would make debugging easier by having all the batches having
         // the same sequence number.
         db_->AddCommitted(commit_seq + i, last_commit_seq);
-        db_->MarkDelayedPreparedCommitted(commit_seq + i, last_commit_seq);
+      }
+    }
+    bool delayed_exist =
+        !db_->delayed_prepared_empty_.load(std::memory_order_acquire);
+    // Refer to delayed_prepared_commits_ for more details
+    if (UNLIKELY(delayed_exist)) {
+      if (prep_seq_ != kMaxSequenceNumber) {
+        for (size_t i = 0; i < prep_batch_cnt_; i++) {
+          db_->MarkDelayedPreparedCommitted(prep_seq_ + i, last_commit_seq);
+        }
+      }
+      if (includes_data_) {
+        assert(data_batch_cnt_);
+        for (size_t i = 0; i < data_batch_cnt_; i++) {
+          db_->MarkDelayedPreparedCommitted(commit_seq + i, last_commit_seq);
+        }
       }
     }
     if (db_impl_->immutable_db_options().two_write_queues && publish_seq_) {

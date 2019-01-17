@@ -492,6 +492,7 @@ void WritePreparedTxnDB::MarkDelayedPreparedCommitted(
   WriteLock wl(&prepared_mutex_);
   bool was_empty = delayed_prepared_.empty();
   if (!was_empty) {
+    assert(!delayed_prepared_empty_);
     if (delayed_prepared_.find(prepare_seq) != delayed_prepared_.end()) {
       delayed_prepared_commits_[prepare_seq] = commit_seq;
       ROCKS_LOG_DETAILS(info_log_,
