@@ -1199,7 +1199,6 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
   const size_t commit_cache_bits = 0;    // only 1 entry => frequent eviction
   DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
   WriteOptions woptions;
-  TransactionOptions txn_options;
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
 
   const int writes = 50;
