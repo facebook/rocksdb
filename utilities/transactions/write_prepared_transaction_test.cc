@@ -2354,6 +2354,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction3) {
     ASSERT_OK(txn_dummy->Put("dummy", "dummy"));
     ASSERT_OK(txn_dummy->Prepare());
     ASSERT_OK(txn_dummy->Commit());
+    delete txn_dummy;
   };
 
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
