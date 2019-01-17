@@ -2316,7 +2316,8 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction2) {
       if (count_value == 2) {
         // Processing v1.
         db->ReleaseSnapshot(s1);
-        // Add some keys to advance max_evicted_seq.
+        // Add some keys to advance max_evicted_seq and update
+        // old_commit_map.
         ASSERT_OK(db->Put(WriteOptions(), "key3", "dummy"));
         ASSERT_OK(db->Put(WriteOptions(), "key4", "dummy"));
       }
