@@ -665,8 +665,9 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
     // last published seq. This case is not likely in real-world setup so we
     // handle it with a few retries.
     size_t retry = 0;
-    while (snap_impl->GetSequenceNumber() <= future_max_evicted_seq_ &&
-           retry < 100) {
+    SequenceNumber max;
+    while ((max = future_max_evicted_seq_.load()) &&
+           snap_impl->GetSequenceNumber() <= max && retry < 100) {
       ROCKS_LOG_WARN(info_log_, "GetSnapshot retry %" PRIu64,
                      snap_impl->GetSequenceNumber());
       ReleaseSnapshot(snap_impl);
@@ -677,13 +678,12 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
       assert(snap_impl);
       retry++;
     }
-    assert(snap_impl->GetSequenceNumber() > future_max_evicted_seq_);
-    if (snap_impl->GetSequenceNumber() <= future_max_evicted_seq_) {
+    assert(snap_impl->GetSequenceNumber() > max);
+    if (snap_impl->GetSequenceNumber() <= max) {
       throw std::runtime_error(
           "Snapshot seq " + ToString(snap_impl->GetSequenceNumber()) +
           " after " + ToString(retry) +
-          " retries is still less than futre_max_evicted_seq_" +
-          ToString(future_max_evicted_seq_.load()));
+          " retries is still less than futre_max_evicted_seq_" + ToString(max));
     }
   }
   EnhanceSnapshot(snap_impl, min_uncommitted);
