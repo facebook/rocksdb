@@ -1960,21 +1960,32 @@ const Snapshot* DBImpl::GetSnapshotForWriteConflictBoundary() {
 }
 #endif  // ROCKSDB_LITE
 
-SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary) {
+SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
+                                      bool lock) {
   int64_t unix_time = 0;
   env_->GetCurrentTime(&unix_time);  // Ignore error
   SnapshotImpl* s = new SnapshotImpl;
 
-  InstrumentedMutexLock l(&mutex_);
+  if (lock) {
+    mutex_.Lock();
+  }
   // returns null if the underlying memtable does not support snapshot.
   if (!is_snapshot_supported_) {
+    if (lock) {
+      mutex_.Unlock();
+    }
     delete s;
     return nullptr;
   }
   auto snapshot_seq = last_seq_same_as_publish_seq_
                           ? versions_->LastSequence()
                           : versions_->LastPublishedSequence();
-  return snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
+  SnapshotImpl* snapshot =
+      snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
+  if (lock) {
+    mutex_.Unlock();
+  }
+  return snapshot;
 }
 
 void DBImpl::ReleaseSnapshot(const Snapshot* s) {

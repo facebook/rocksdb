@@ -166,9 +166,11 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       break;
     } else if (stop_before > 0 && ikey.sequence <= stop_before &&
                LIKELY(snapshot_checker_ == nullptr ||
-                      snapshot_checker_->IsInSnapshot(ikey.sequence,
-                                                      stop_before))) {
-      // hit an entry that's visible by the previous snapshot, can't touch that
+                      snapshot_checker_->CheckInSnapshot(ikey.sequence,
+                                                         stop_before) !=
+                          SnapshotCheckerResult::kNotInSnapshot)) {
+      // hit an entry that's possibly visible by the previous snapshot, can't
+      // touch that
       break;
     }
 

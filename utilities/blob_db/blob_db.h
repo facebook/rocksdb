@@ -52,7 +52,7 @@ struct BlobDBOptions {
   // and so on
   uint64_t ttl_range_secs = 3600;
 
-  // The smallest value to store in blob log. Value larger than this threshold
+  // The smallest value to store in blob log. Values smaller than this threshold
   // will be inlined in base DB together with the key.
   uint64_t min_blob_size = 0;
 
@@ -75,10 +75,6 @@ struct BlobDBOptions {
 
   // Time interval to trigger garbage collection, in seconds.
   uint64_t garbage_collection_interval_secs = 60;
-
-  // If garbage collection is enabled, blob files with deleted size no less
-  // than this ratio will become candidates to be cleanup.
-  double garbage_collection_deletion_size_threshold = 0.75;
 
   // Disable all background job. Used for test only.
   bool disable_background_tasks = false;

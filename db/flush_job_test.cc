@@ -365,17 +365,17 @@ TEST_F(FlushJobTest, Snapshots) {
   auto new_mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions(),
                                            kMaxSequenceNumber);
 
-  std::vector<SequenceNumber> snapshots;
   std::set<SequenceNumber> snapshots_set;
   int keys = 10000;
   int max_inserts_per_keys = 8;
 
   Random rnd(301);
   for (int i = 0; i < keys / 2; ++i) {
-    snapshots.push_back(rnd.Uniform(keys * (max_inserts_per_keys / 2)) + 1);
-    snapshots_set.insert(snapshots.back());
+    snapshots_set.insert(rnd.Uniform(keys * (max_inserts_per_keys / 2)) + 1);
   }
-  std::sort(snapshots.begin(), snapshots.end());
+  // set has already removed the duplicate snapshots
+  std::vector<SequenceNumber> snapshots(snapshots_set.begin(),
+                                        snapshots_set.end());
 
   new_mem->Ref();
   SequenceNumber current_seqno = 0;

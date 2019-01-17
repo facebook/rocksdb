@@ -905,6 +905,7 @@ class TestFileOperationListener : public EventListener {
     if (info.status.ok()) {
       ++file_reads_success_;
     }
+    ReportDuration(info);
   }
 
   void OnFileWriteFinish(const FileOperationInfo& info) override {
@@ -912,6 +913,7 @@ class TestFileOperationListener : public EventListener {
     if (info.status.ok()) {
       ++file_writes_success_;
     }
+    ReportDuration(info);
   }
 
   bool ShouldBeNotifiedOnFileIO() override { return true; }
@@ -920,6 +922,13 @@ class TestFileOperationListener : public EventListener {
   std::atomic<size_t> file_reads_success_;
   std::atomic<size_t> file_writes_;
   std::atomic<size_t> file_writes_success_;
+
+ private:
+  void ReportDuration(const FileOperationInfo& info) const {
+    auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        info.finish_timestamp - info.start_timestamp);
+    ASSERT_GT(duration.count(), 0);
+  }
 };
 
 TEST_F(EventListenerTest, OnFileOperationTest) {

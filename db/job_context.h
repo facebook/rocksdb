@@ -175,6 +175,9 @@ struct JobContext {
   size_t num_alive_log_files = 0;
   uint64_t size_log_to_delete = 0;
 
+  // Snapshot taken before flush/compaction job.
+  std::unique_ptr<ManagedSnapshot> job_snapshot;
+
   explicit JobContext(int _job_id, bool create_superversion = false) {
     job_id = _job_id;
     manifest_file_number = 0;
@@ -204,6 +207,7 @@ struct JobContext {
 
     memtables_to_free.clear();
     logs_to_free.clear();
+    job_snapshot.reset();
   }
 
   ~JobContext() {

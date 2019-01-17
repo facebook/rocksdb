@@ -211,8 +211,8 @@ struct PerfContext {
 
   uint64_t get_cpu_nanos;
 
-  std::map<uint32_t, PerfContextByLevel>* level_to_perf_context;
-  bool per_level_perf_context_enabled;
+  std::map<uint32_t, PerfContextByLevel>* level_to_perf_context = nullptr;
+  bool per_level_perf_context_enabled = false;
 };
 
 // Get Thread-local PerfContext object pointer

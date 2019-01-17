@@ -190,13 +190,17 @@ class TestSnapshotChecker : public SnapshotChecker {
       : last_committed_sequence_(last_committed_sequence),
         snapshots_(snapshots) {}
 
-  bool IsInSnapshot(SequenceNumber seq,
-                    SequenceNumber snapshot_seq) const override {
+  SnapshotCheckerResult CheckInSnapshot(
+      SequenceNumber seq, SequenceNumber snapshot_seq) const override {
     if (snapshot_seq == kMaxSequenceNumber) {
-      return seq <= last_committed_sequence_;
+      return seq <= last_committed_sequence_
+                 ? SnapshotCheckerResult::kInSnapshot
+                 : SnapshotCheckerResult::kNotInSnapshot;
     }
     assert(snapshots_.count(snapshot_seq) > 0);
-    return seq <= snapshots_.at(snapshot_seq);
+    return seq <= snapshots_.at(snapshot_seq)
+               ? SnapshotCheckerResult::kInSnapshot
+               : SnapshotCheckerResult::kNotInSnapshot;
   }
 
  private:

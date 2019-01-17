@@ -76,7 +76,7 @@ void BlobDBOptions::Dump(Logger* log) const {
       log, "                               BlobDBOptions.max_db_size: %" PRIu64,
       max_db_size);
   ROCKS_LOG_HEADER(
-      log, "                            BlobDBOptions.ttl_range_secs: %" PRIu32,
+      log, "                            BlobDBOptions.ttl_range_secs: %" PRIu64,
       ttl_range_secs);
   ROCKS_LOG_HEADER(
       log, "                             BlobDBOptions.min_blob_size: %" PRIu64,
@@ -96,9 +96,6 @@ void BlobDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(
       log, "          BlobDBOptions.garbage_collection_interval_secs: %" PRIu64,
       garbage_collection_interval_secs);
-  ROCKS_LOG_HEADER(
-      log, "BlobDBOptions.garbage_collection_deletion_size_threshold: %lf",
-      garbage_collection_deletion_size_threshold);
   ROCKS_LOG_HEADER(
       log, "                  BlobDBOptions.disable_background_tasks: %d",
       disable_background_tasks);
