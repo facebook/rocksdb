@@ -327,7 +327,7 @@ Status WritePreparedTxn::RollbackInternal() {
   const uint64_t NO_REF_LOG = 0;
   uint64_t seq_used = kMaxSequenceNumber;
   const size_t ONE_BATCH = 1;
-  // We commit the rolled back prepared batches. ALthough this is
+  // We commit the rolled back prepared batches. Although this is
   // counter-intuitive, i) it is safe to do so, since the prepared batches are
   // already canceled out by the rollback batch, ii) adding the commit entry to
   // CommitCache will allow us to benefit from the existing mechanism in
@@ -339,7 +339,7 @@ Status WritePreparedTxn::RollbackInternal() {
   // Note: the rollback batch does not need AddPrepared since it is written to
   // DB in one shot. min_uncommitted still works since it requires capturing
   // data that is written to DB but not yet committed, while
-  // the roolback batch commits with PreReleaseCallback.
+  // the rollback batch commits with PreReleaseCallback.
   s = db_impl_->WriteImpl(write_options_, &rollback_batch, nullptr, nullptr,
                           NO_REF_LOG, !DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           do_one_write ? &update_commit_map : nullptr);
