@@ -394,15 +394,21 @@ void WritePreparedTxnDB::Init(const TransactionDBOptions& /* unused */) {
 }
 
 void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
-  ROCKS_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Prepareing", seq);
-  assert(seq > max_evicted_seq_);
-  if (seq <= max_evicted_seq_) {
-    throw std::runtime_error(
-        "Added prepare_seq is larger than max_evicted_seq_: " + ToString(seq) +
-        " <= " + ToString(max_evicted_seq_.load()));
-  }
+  ROCKS_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Prepareing with max %" PRIu64,
+                    seq, max_evicted_seq_.load());
   WriteLock wl(&prepared_mutex_);
-  prepared_txns_.push(seq);
+  if (UNLIKELY(seq <= max_evicted_seq_)) {
+    // This should not happen in normal case
+    ROCKS_LOG_ERROR(
+        info_log_,
+        "Added prepare_seq is not larger than max_evicted_seq_: %" PRIu64
+        " <= %" PRIu64,
+        seq, max_evicted_seq_.load());
+    delayed_prepared_.insert(seq);
+    delayed_prepared_empty_.store(false, std::memory_order_release);
+  } else {
+    prepared_txns_.push(seq);
+  }
 }
 
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
