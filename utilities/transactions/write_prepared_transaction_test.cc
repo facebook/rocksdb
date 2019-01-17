@@ -2558,6 +2558,67 @@ TEST_P(WritePreparedTransactionTest, IteratorRefreshNotSupported) {
   delete iter;
 }
 
+TEST_P(WritePreparedTransactionTest, CommitOfOldPrepared) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 0;    // only 1 entry => frequent eviction
+  DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
+  std::atomic<const Snapshot*> snap;
+  snap.store(nullptr);
+  std::atomic<const SequenceNumber> exp_prepare = {0};
+  PinnableSlice value;
+  auto callback = [&](void* param) {
+    SequenceNumber prep_seq = *((SequenceNumber*)param);
+    if (prep_seq  == exp_prepare) {
+    ASSERT_EQ(nullptr, snap.load());
+    snap.store(db->GetSnapshot());
+    ReadOptions roptions;
+    roptions.snapshot = snap.load();
+    auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &value);
+    ASSERT_OK(s);
+    }
+  };
+  SyncPoint::GetInstance()->SetCallBack("RemovePrepared:Start", callback);
+  SyncPoint::GetInstance()->EnableProcessing();
+  rocksdb::port::Thread write_thread(
+      [&]() { 
+      for (int i = 0; i < 100; i++) {
+      db->Put(WriteOptions(), Slice("key1"), Slice("value1")); 
+      }
+      });
+  rocksdb::port::Thread read_thread([&]() {
+      for (int i = 0; i < 100; i++) {
+    Transaction* txn =
+        db->BeginTransaction(WriteOptions(), TransactionOptions());
+    ASSERT_OK(txn->SetName("xid"));
+    std::string val_str = "value" + ToString(i);
+    ASSERT_OK(txn->Put(Slice("key"), val_str));
+    ASSERT_OK(txn->Prepare());
+    std::this_thread::yield();
+
+    exp_prepare.store(txn->GetId());
+    ASSERT_OK(txn->Commit());
+    delete txn;
+
+    ReadOptions roptions;
+    roptions.snapshot = snap.load();
+    ASSERT_NE(nullptr, roptions.snapshot);
+    PinnableSlice v;
+    auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &v);
+    ASSERT_OK(s);
+    ASSERT_TRUE(val_str == v);
+  db->GetDBOptions().info_log->Flush();
+    assert(v == value);
+    ASSERT_STREQ(v.ToString().c_str(), value.ToString().c_str());
+    //printf("v %.*s\n", (int) v.size(), v.data());
+
+    db->ReleaseSnapshot(roptions.snapshot);
+    snap.store(nullptr);
+      }
+  });
+  read_thread.join();
+  write_thread.join();
+}
+
 // Test that updating the commit map will not affect the existing snapshots
 TEST_P(WritePreparedTransactionTest, AtomicCommit) {
   for (bool skip_prepare : {true, false}) {
