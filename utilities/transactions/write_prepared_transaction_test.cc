@@ -2574,7 +2574,7 @@ TEST_P(WritePreparedTransactionTest, CommitOfOldPrepared) {
       // Take a snapshot after publish and before RemovePrepared:Start
       auto callback = [&](void* param) {
         SequenceNumber prep_seq = *((SequenceNumber*)param);
-        if (prep_seq == exp_prepare) {  // only for write_thread
+        if (prep_seq == exp_prepare.load()) {  // only for write_thread
           ASSERT_EQ(nullptr, snap.load());
           snap.store(db->GetSnapshot());
           ReadOptions roptions;
