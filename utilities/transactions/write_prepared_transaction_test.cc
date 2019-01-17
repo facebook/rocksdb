@@ -1199,7 +1199,6 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
   const size_t commit_cache_bits = 0;    // only 1 entry => frequent eviction
   DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
   WriteOptions woptions;
-  TransactionOptions txn_options;
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
 
   const int writes = 50;
@@ -2568,7 +2567,7 @@ TEST_P(WritePreparedTransactionTest, CommitOfOldPrepared) {
       DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
       std::atomic<const Snapshot*> snap;
       snap.store(nullptr);
-      std::atomic<const SequenceNumber> exp_prepare = {0};
+      std::atomic<SequenceNumber> exp_prepare = {0};
       // Value is synchronized via snap
       PinnableSlice value;
       // Take a snapshot after publish and before RemovePrepared:Start
