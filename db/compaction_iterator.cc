@@ -657,17 +657,19 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
     return snapshots_iter != snapshots_->end()
       ? *snapshots_iter : kMaxSequenceNumber;
   }
+  bool has_released_snapshot = !released_snapshots_.empty();
   for (; snapshots_iter != snapshots_->end(); ++snapshots_iter) {
     auto cur = *snapshots_iter;
     assert(in <= cur);
     // Skip if cur is in released_snapshots.
-    if (released_snapshots_.count(cur) == 0) {
-      auto res = snapshot_checker_->CheckInSnapshot(in, cur);
-      if (res == SnapshotCheckerResult::kInSnapshot) {
-        return cur;
-      } else if (res == SnapshotCheckerResult::kSnapshotReleased) {
-        released_snapshots_.insert(cur);
-      }
+    if (has_released_snapshot && released_snapshots_.count(cur) > 0) {
+      continue;
+    }
+    auto res = snapshot_checker_->CheckInSnapshot(in, cur);
+    if (res == SnapshotCheckerResult::kInSnapshot) {
+      return cur;
+    } else if (res == SnapshotCheckerResult::kSnapshotReleased) {
+      released_snapshots_.insert(cur);
     }
     *prev_snapshot = cur;
   }
