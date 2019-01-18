@@ -512,27 +512,6 @@ void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
   }
 }
 
-void WritePreparedTxnDB::MarkDelayedPreparedCommitted(
-    const uint64_t prepare_seq, const uint64_t commit_seq) {
-  WriteLock wl(&prepared_mutex_);
-  bool was_empty = delayed_prepared_.empty();
-  if (!was_empty) {
-    assert(!delayed_prepared_empty_);
-    if (delayed_prepared_.find(prepare_seq) != delayed_prepared_.end()) {
-      delayed_prepared_commits_[prepare_seq] = commit_seq;
-      ROCKS_LOG_DETAILS(info_log_,
-                        "MarkDelayedPreparedCommitted %" PRIu64 " -> %" PRIu64,
-                        prepare_seq, commit_seq);
-    } else {
-      ROCKS_LOG_DETAILS(info_log_,
-                        "MarkDelayedPreparedCommitted %" PRIu64 " not found");
-    }
-  } else {
-    ROCKS_LOG_DETAILS(info_log_,
-                      "MarkDelayedPreparedCommitted %" PRIu64 " empty");
-  }
-}
-
 bool WritePreparedTxnDB::GetCommitEntry(const uint64_t indexed_seq,
                                         CommitEntry64b* entry_64b,
                                         CommitEntry* entry) const {

@@ -280,9 +280,6 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   void AddPrepared(uint64_t seq);
   // Remove the transaction with prepare sequence seq from the prepared list
   void RemovePrepared(const uint64_t seq, const size_t batch_cnt = 1);
-  // A delayed prepared must be mark committed separately since its commit entry
-  // is outside max_evicted_seq_ limit.
-  void MarkDelayedPreparedCommitted(const uint64_t, const uint64_t);
   // Add the transaction with prepare sequence prepare_seq and comtit sequence
   // commit_seq to the commit map. loop_cnt is to detect infinite loops.
   void AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
@@ -658,7 +655,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // delayed_prepared_commits_, 3) publish seq, 3) clean up delayed_prepared_.
   // delayed_prepared_commits_ will help us tell apart the unprepared txns from
   // the ones that are committed but not cleaned up yet.
-  std::map<SequenceNumber, SequenceNumber> delayed_prepared_commits_;
+  std::unordered_map<SequenceNumber, SequenceNumber> delayed_prepared_commits_;
   // Update when delayed_prepared_.empty() changes. Expected to be true
   // normally.
   std::atomic<bool> delayed_prepared_empty_ = {true};
@@ -765,22 +762,6 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
         // This would make debugging easier by having all the batches having
         // the same sequence number.
         db_->AddCommitted(commit_seq + i, last_commit_seq);
-      }
-    }
-    bool delayed_exist =
-        !db_->delayed_prepared_empty_.load(std::memory_order_acquire);
-    // Refer to delayed_prepared_commits_ for more details
-    if (UNLIKELY(delayed_exist)) {
-      if (prep_seq_ != kMaxSequenceNumber) {
-        for (size_t i = 0; i < prep_batch_cnt_; i++) {
-          db_->MarkDelayedPreparedCommitted(prep_seq_ + i, last_commit_seq);
-        }
-      }
-      if (includes_data_) {
-        assert(data_batch_cnt_);
-        for (size_t i = 0; i < data_batch_cnt_; i++) {
-          db_->MarkDelayedPreparedCommitted(commit_seq + i, last_commit_seq);
-        }
       }
     }
     if (db_impl_->immutable_db_options().two_write_queues && publish_seq_) {
