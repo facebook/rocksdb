@@ -645,7 +645,7 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
     // handle it with a few retries.
     size_t retry = 0;
     SequenceNumber max;
-    while ((max = future_max_evicted_seq_.load()) &&
+    while ((max = future_max_evicted_seq_.load()) != 0 &&
            snap_impl->GetSequenceNumber() <= max && retry < 100) {
       ROCKS_LOG_WARN(info_log_,
                      "GetSnapshot snap: %" PRIu64 " max: %" PRIu64
