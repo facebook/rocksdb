@@ -2565,8 +2565,7 @@ TEST_P(WritePreparedTransactionTest, CommitOfOldPrepared) {
   for (const size_t commit_cache_bits : {0, 2, 3}) {
     for (const size_t sub_batch_cnt : {1, 2, 3}) {
       DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
-      std::atomic<const Snapshot*> snap;
-      snap.store(nullptr);
+      std::atomic<const Snapshot*> snap = {nullptr};
       std::atomic<SequenceNumber> exp_prepare = {0};
       // Value is synchronized via snap
       PinnableSlice value;
