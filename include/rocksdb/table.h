@@ -62,6 +62,10 @@ struct BlockBasedTableOptions {
   // TODO(kailiu) Temporarily disable this feature by making the default value
   // to be false.
   //
+  // TODO(ajkr) we need to update names of variables controlling meta-block
+  // caching as they should now apply to range tombstone and compression
+  // dictionary meta-blocks, in addition to index and filter meta-blocks.
+  //
   // Indicating if we'd put index/filter blocks to the block cache.
   // If not specified, each "table reader" object will pre-load index/filter
   // block during table initialization.

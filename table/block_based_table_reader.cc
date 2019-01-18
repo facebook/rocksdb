@@ -951,10 +951,10 @@ Status BlockBasedTable::ReadPropertiesBlock(
       rep->blocks_maybe_compressed = rep->table_properties->compression_name !=
                                      CompressionTypeToString(kNoCompression);
       rep->blocks_definitely_zstd_compressed =
-          rep->table_properties->compression_name ==
-              CompressionTypeToString(kZSTD) ||
-          rep->table_properties->compression_name ==
-              CompressionTypeToString(kZSTDNotFinalCompression);
+          (rep->table_properties->compression_name ==
+               CompressionTypeToString(kZSTD) ||
+           rep->table_properties->compression_name ==
+               CompressionTypeToString(kZSTDNotFinalCompression));
     }
   } else {
     ROCKS_LOG_ERROR(rep->ioptions.info_log,
@@ -1939,6 +1939,8 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
         block.value = block_value.release();
       }
     }
+    // TODO(ajkr): also pin compression dictionary block when
+    // `pin_l0_filter_and_index_blocks_in_cache == true`.
     uncompression_dict_storage.Release(block_cache);
   }
 

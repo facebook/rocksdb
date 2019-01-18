@@ -266,21 +266,18 @@ struct UncompressionDict {
 
   size_t ApproximateMemoryUsage() {
     size_t usage = 0;
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-    usage += malloc_usable_size((void*)this);
-#if ZSTD_VERSION_NUMBER >= 700
-    usage += malloc_usable_size((void*)zstd_ddict_);
-#endif  // ZSTD_VERSION_NUMBER >= 700
-#else   // ROCKSDB_MALLOC_USABLE_SIZE
     usage += sizeof(struct UncompressionDict);
 #if ZSTD_VERSION_NUMBER >= 700
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+    usage += malloc_usable_size((void*)zstd_ddict_);
+#else   // ROCKSDB_MALLOC_USABLE_SIZE
     if (zstd_ddict_ != nullptr) {
       // Magic number comes from what I saw last time I ran `ZSTD_sizeof_DDict`
-      // which is not exposed publicly.
+      // which is not exposed publicly. That was done using ZSTD 1.3.5.
       usage += 23640;
     }
-#endif  // ZSTD_VERSION_NUMBER >= 700
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
+#endif  // ZSTD_VERSION_NUMBER >= 700
     usage += dict_.size();
     return usage;
   }
@@ -295,11 +292,10 @@ struct UncompressionDict {
 
 class CompressionContext {
  private:
-  const CompressionType type_;
 #if defined(ZSTD) && (ZSTD_VERSION_NUMBER >= 500)
   ZSTD_CCtx* zstd_ctx_ = nullptr;
-  void CreateNativeContext() {
-    if (type_ == kZSTD || type_ == kZSTDNotFinalCompression) {
+  void CreateNativeContext(CompressionType type) {
+    if (type == kZSTD || type == kZSTDNotFinalCompression) {
 #ifdef ROCKSDB_ZSTD_CUSTOM_MEM
       zstd_ctx_ =
           ZSTD_createCCtx_advanced(port::GetJeZstdAllocationOverrides());
@@ -317,19 +313,18 @@ class CompressionContext {
  public:
   // callable inside ZSTD_Compress
   ZSTD_CCtx* ZSTDPreallocCtx() const {
-    assert(type_ == kZSTD || type_ == kZSTDNotFinalCompression);
+    assert(zstd_ctx_ != nullptr);
     return zstd_ctx_;
   }
 
 #else   // ZSTD && (ZSTD_VERSION_NUMBER >= 500)
  private:
-  void CreateNativeContext() {}
+  void CreateNativeContext(CompressionType /* type */) {}
   void DestroyNativeContext() {}
 #endif  // ZSTD && (ZSTD_VERSION_NUMBER >= 500)
  public:
-  explicit CompressionContext(CompressionType comp_type) : type_(comp_type) {
-    (void)type_;
-    CreateNativeContext();
+  explicit CompressionContext(CompressionType type) {
+    CreateNativeContext(type);
   }
   ~CompressionContext() { DestroyNativeContext(); }
   CompressionContext(const CompressionContext&) = delete;
@@ -356,24 +351,22 @@ class CompressionInfo {
 
 class UncompressionContext {
  private:
-  const CompressionType type_;
   CompressionContextCache* ctx_cache_ = nullptr;
   ZSTDUncompressCachedData uncomp_cached_data_;
 
  public:
   struct NoCache {};
   // Do not use context cache, used by TableBuilder
-  UncompressionContext(NoCache, CompressionType comp_type) : type_(comp_type) {}
+  UncompressionContext(NoCache, CompressionType /* type */) {}
 
-  explicit UncompressionContext(CompressionType comp_type) : type_(comp_type) {
-    if (type_ == kZSTD || type_ == kZSTDNotFinalCompression) {
+  explicit UncompressionContext(CompressionType type) {
+    if (type == kZSTD || type == kZSTDNotFinalCompression) {
       ctx_cache_ = CompressionContextCache::Instance();
       uncomp_cached_data_ = ctx_cache_->GetCachedZSTDUncompressData();
     }
   }
   ~UncompressionContext() {
-    if ((type_ == kZSTD || type_ == kZSTDNotFinalCompression) &&
-        uncomp_cached_data_.GetCacheIndex() != -1) {
+    if (uncomp_cached_data_.GetCacheIndex() != -1) {
       assert(ctx_cache_ != nullptr);
       ctx_cache_->ReturnCachedZSTDUncompressData(
           uncomp_cached_data_.GetCacheIndex());

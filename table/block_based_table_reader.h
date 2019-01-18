@@ -493,9 +493,12 @@ struct BlockBasedTable::Rep {
 
   // Footer contains the fixed table information
   Footer footer;
-  // index_reader, filter, and uncompression_dict will be populated and used
-  // only when options.block_cache is nullptr; otherwise we will get the index
-  // block via the block cache.
+  // `index_reader`, `filter`, and `uncompression_dict` will be populated (i.e.,
+  // non-nullptr) and used only when options.block_cache is nullptr or when
+  // `cache_index_and_filter_blocks == false`. Otherwise, we will get the index,
+  // filter, and compression dictionary blocks via the block cache. In that case
+  // `dummy_index_reader_offset`, `filter_handle`, and `compression_dict_handle`
+  // are used to lookup these meta-blocks in block cache.
   std::unique_ptr<IndexReader> index_reader;
   std::unique_ptr<FilterBlockReader> filter;
   std::unique_ptr<UncompressionDict> uncompression_dict;
