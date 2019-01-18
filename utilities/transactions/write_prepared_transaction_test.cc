@@ -2586,12 +2586,14 @@ TEST_P(WritePreparedTransactionTest, CommitOfOldPrepared) {
       SyncPoint::GetInstance()->EnableProcessing();
       // Thread to cause frequent evictions
       rocksdb::port::Thread eviction_thread([&]() {
-        for (int i = 0; i < 100; i++) {
+        // Too many txns might cause commit_seq - prepare_seq in another thread
+        // to go beyond DELTA_UPPERBOUND
+        for (int i = 0; i < 25 * (1 << commit_cache_bits); i++) {
           db->Put(WriteOptions(), Slice("key1"), Slice("value1"));
         }
       });
       rocksdb::port::Thread write_thread([&]() {
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 25 * (1 << commit_cache_bits); i++) {
           Transaction* txn =
               db->BeginTransaction(WriteOptions(), TransactionOptions());
           ASSERT_OK(txn->SetName("xid"));

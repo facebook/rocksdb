@@ -668,8 +668,10 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
     SequenceNumber max;
     while ((max = future_max_evicted_seq_.load()) &&
            snap_impl->GetSequenceNumber() <= max && retry < 100) {
-      ROCKS_LOG_WARN(info_log_, "GetSnapshot retry %" PRIu64,
-                     snap_impl->GetSequenceNumber());
+      ROCKS_LOG_WARN(info_log_,
+                     "GetSnapshot snap: %" PRIu64 " max: %" PRIu64
+                     " retry %" ROCKSDB_PRIszt,
+                     snap_impl->GetSequenceNumber(), max, retry);
       ReleaseSnapshot(snap_impl);
       // Wait for last visible seq to catch up with max, and also go beyond it
       // by one.
