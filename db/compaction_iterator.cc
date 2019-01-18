@@ -691,7 +691,12 @@ bool CompactionIterator::IsInEarliestSnapshot(SequenceNumber sequence) {
   auto in_snapshot =
       snapshot_checker_->CheckInSnapshot(sequence, earliest_snapshot_);
   while (UNLIKELY(in_snapshot == SnapshotCheckerResult::kSnapshotReleased)) {
+    // Avoid the the current earliest_snapshot_ being return as
+    // earliest visible snapshot for the next value. So if a value's sequence
+    // is zero-ed out by PrepareOutput(), the next value will be compact out.
+    released_snapshot_.insert(earliest_snapshot_);
     earliest_snapshot_iter_++;
+
     if (earliest_snapshot_iter_ == snapshots_->end()) {
       earliest_snapshot_ = kMaxSequenceNumber;
     } else {
