@@ -357,9 +357,8 @@ Status WritePreparedTxn::RollbackInternal() {
                     prepare_seq);
   // Commit the batch by writing an empty batch to the queue that will release
   // the commit sequence number to readers.
-  const size_t ZERO_COMMITS = 0;
-  WritePreparedCommitEntryPreReleaseCallback update_commit_map_with_prepare(
-      wpt_db_, db_impl_, prepare_seq, ONE_BATCH, ZERO_COMMITS);
+  WritePreparedRollbackPreReleaseCallback update_commit_map_with_prepare(
+      wpt_db_, db_impl_, GetId(), prepare_seq, prepare_batch_cnt_);
   WriteBatch empty_batch;
   empty_batch.PutLogData(Slice());
   // In the absence of Prepare markers, use Noop as a batch separator
@@ -368,18 +367,10 @@ Status WritePreparedTxn::RollbackInternal() {
                           NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           &update_commit_map_with_prepare);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
-  // Mark the txn as rolled back
-  uint64_t& rollback_seq = seq_used;
+  ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
+                    "RollbackInternal (status=%s) commit: %" PRIu64,
+                    s.ToString().c_str(), GetId());
   if (s.ok()) {
-    // Note: it is safe to do it after PreReleaseCallback via WriteImpl since
-    // all the writes by the prpared batch are already blinded by the rollback
-    // batch. The only reason we commit the prepared batch here is to benefit
-    // from the existing mechanism in CommitCache that takes care of the rare
-    // cases that the prepare seq is visible to a snsapshot but max evicted seq
-    // advances that prepare seq.
-    for (size_t i = 0; i < prepare_batch_cnt_; i++) {
-      wpt_db_->AddCommitted(GetId() + i, rollback_seq);
-    }
     wpt_db_->RemovePrepared(GetId(), prepare_batch_cnt_);
   }
 
