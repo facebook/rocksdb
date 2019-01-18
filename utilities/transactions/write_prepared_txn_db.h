@@ -153,21 +153,6 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                         prep_seq, snapshot_seq, 1, min_uncommitted);
       return true;
     }
-    if (!delayed_prepared_empty_.load(std::memory_order_acquire)) {
-      // We should not normally reach here
-      WPRecordTick(TXN_PREPARE_MUTEX_OVERHEAD);
-      ReadLock rl(&prepared_mutex_);
-      ROCKS_LOG_WARN(info_log_, "prepared_mutex_ overhead %" PRIu64,
-                     static_cast<uint64_t>(delayed_prepared_.size()));
-      if (delayed_prepared_.find(prep_seq) != delayed_prepared_.end()) {
-        // Then it is not committed yet
-        ROCKS_LOG_DETAILS(info_log_,
-                          "IsInSnapshot %" PRIu64 " in %" PRIu64
-                          " returns %" PRId32,
-                          prep_seq, snapshot_seq, 0);
-        return false;
-      }
-    }
     auto indexed_seq = prep_seq % COMMIT_CACHE_SIZE;
     CommitEntry64b dont_care;
     CommitEntry cached;
@@ -192,6 +177,34 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
           info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
           prep_seq, snapshot_seq, 0);
       return false;
+    }
+    if (!delayed_prepared_empty_.load(std::memory_order_acquire)) {
+      // We should not normally reach here
+      WPRecordTick(TXN_PREPARE_MUTEX_OVERHEAD);
+      ReadLock rl(&prepared_mutex_);
+      ROCKS_LOG_WARN(info_log_, "prepared_mutex_ overhead %" PRIu64,
+                     static_cast<uint64_t>(delayed_prepared_.size()));
+      if (delayed_prepared_.find(prep_seq) != delayed_prepared_.end()) {
+        // This is the order: 1) delayed_prepared_commits_ update, 2) publish 3)
+        // delayed_prepared_ clean up. So check if it is the case of a late
+        // clenaup.
+        auto it = delayed_prepared_commits_.find(prep_seq);
+        if (it == delayed_prepared_commits_.end()) {
+          // Then it is not committed yet
+          ROCKS_LOG_DETAILS(info_log_,
+                            "IsInSnapshot %" PRIu64 " in %" PRIu64
+                            " returns %" PRId32,
+                            prep_seq, snapshot_seq, 0);
+          return false;
+        } else {
+          ROCKS_LOG_DETAILS(info_log_,
+                            "IsInSnapshot %" PRIu64 " in %" PRIu64
+                            " commit: %" PRIu64 " returns %" PRId32,
+                            prep_seq, snapshot_seq, it->second,
+                            snapshot_seq <= it->second);
+          return it->second <= snapshot_seq;
+        }
+      }
     }
     // When advancing max_evicted_seq_, we move older entires from prepared to
     // delayed_prepared_. Also we move evicted entries from commit cache to
@@ -267,7 +280,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   void AddPrepared(uint64_t seq);
   // Remove the transaction with prepare sequence seq from the prepared list
   void RemovePrepared(const uint64_t seq, const size_t batch_cnt = 1);
-  // Add the transaction with prepare sequence prepare_seq and commit sequence
+  // Add the transaction with prepare sequence prepare_seq and comtit sequence
   // commit_seq to the commit map. loop_cnt is to detect infinite loops.
   void AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
                     uint8_t loop_cnt = 0);
@@ -383,6 +396,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       const ColumnFamilyOptions& cf_options) override;
 
  private:
+  friend class WritePreparedCommitEntryPreReleaseCallback;
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
   friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
   friend class WritePreparedTransactionTest_CommitMapTest_Test;
@@ -614,6 +628,12 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // commit_cache_. So commit_cache_ must first be checked before consulting
   // with max_evicted_seq_.
   std::atomic<uint64_t> max_evicted_seq_ = {};
+  // Order: 1) update future_max_evicted_seq_ = new_max, 2)
+  // GetSnapshotListFromDB(new_max), max_evicted_seq_ = new_max. Since
+  // GetSnapshotInternal guarantess that the snapshot seq is larger than
+  // future_max_evicted_seq_, this guarantes that if a snapshot is not larger
+  // than max has already being looked at via a GetSnapshotListFromDB(new_max).
+  std::atomic<uint64_t> future_max_evicted_seq_ = {};
   // Advance max_evicted_seq_ by this value each time it needs an update. The
   // larger the value, the less frequent advances we would have. We do not want
   // it to be too large either as it would cause stalls by doing too much
@@ -631,6 +651,11 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // time max_evicted_seq_ advances their sequence number. This is expected to
   // be empty normally. Thread-safety is provided with prepared_mutex_.
   std::set<uint64_t> delayed_prepared_;
+  // Commit of a delayed prepared: 1) update commit cache, 2) update
+  // delayed_prepared_commits_, 3) publish seq, 3) clean up delayed_prepared_.
+  // delayed_prepared_commits_ will help us tell apart the unprepared txns from
+  // the ones that are committed but not cleaned up yet.
+  std::unordered_map<SequenceNumber, SequenceNumber> delayed_prepared_commits_;
   // Update when delayed_prepared_.empty() changes. Expected to be true
   // normally.
   std::atomic<bool> delayed_prepared_empty_ = {true};

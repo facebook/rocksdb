@@ -2557,6 +2557,81 @@ TEST_P(WritePreparedTransactionTest, IteratorRefreshNotSupported) {
   delete iter;
 }
 
+// When an old prepared entry gets committed, there is a gap between the time
+// that it is published and when it is cleaned up from old_prepared_. This test
+// stresses such cacese.
+TEST_P(WritePreparedTransactionTest, CommitOfOldPrepared) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  for (const size_t commit_cache_bits : {0, 2, 3}) {
+    for (const size_t sub_batch_cnt : {1, 2, 3}) {
+      DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
+      std::atomic<const Snapshot*> snap = {nullptr};
+      std::atomic<SequenceNumber> exp_prepare = {0};
+      // Value is synchronized via snap
+      PinnableSlice value;
+      // Take a snapshot after publish and before RemovePrepared:Start
+      auto callback = [&](void* param) {
+        SequenceNumber prep_seq = *((SequenceNumber*)param);
+        if (prep_seq == exp_prepare.load()) {  // only for write_thread
+          ASSERT_EQ(nullptr, snap.load());
+          snap.store(db->GetSnapshot());
+          ReadOptions roptions;
+          roptions.snapshot = snap.load();
+          auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &value);
+          ASSERT_OK(s);
+        }
+      };
+      SyncPoint::GetInstance()->SetCallBack("RemovePrepared:Start", callback);
+      SyncPoint::GetInstance()->EnableProcessing();
+      // Thread to cause frequent evictions
+      rocksdb::port::Thread eviction_thread([&]() {
+        // Too many txns might cause commit_seq - prepare_seq in another thread
+        // to go beyond DELTA_UPPERBOUND
+        for (int i = 0; i < 25 * (1 << commit_cache_bits); i++) {
+          db->Put(WriteOptions(), Slice("key1"), Slice("value1"));
+        }
+      });
+      rocksdb::port::Thread write_thread([&]() {
+        for (int i = 0; i < 25 * (1 << commit_cache_bits); i++) {
+          Transaction* txn =
+              db->BeginTransaction(WriteOptions(), TransactionOptions());
+          ASSERT_OK(txn->SetName("xid"));
+          std::string val_str = "value" + ToString(i);
+          for (size_t b = 0; b < sub_batch_cnt; b++) {
+            ASSERT_OK(txn->Put(Slice("key"), val_str));
+          }
+          ASSERT_OK(txn->Prepare());
+          // Let an eviction to kick in
+          std::this_thread::yield();
+
+          exp_prepare.store(txn->GetId());
+          ASSERT_OK(txn->Commit());
+          delete txn;
+
+          // Read with the snapshot taken before delayed_prepared_ cleanup
+          ReadOptions roptions;
+          roptions.snapshot = snap.load();
+          ASSERT_NE(nullptr, roptions.snapshot);
+          PinnableSlice value2;
+          auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &value2);
+          ASSERT_OK(s);
+          // It should see its own write
+          ASSERT_TRUE(val_str == value2);
+          // The value read by snapshot should not change
+          ASSERT_STREQ(value2.ToString().c_str(), value.ToString().c_str());
+
+          db->ReleaseSnapshot(roptions.snapshot);
+          snap.store(nullptr);
+        }
+      });
+      write_thread.join();
+      eviction_thread.join();
+    }
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
+}
+
 // Test that updating the commit map will not affect the existing snapshots
 TEST_P(WritePreparedTransactionTest, AtomicCommit) {
   for (bool skip_prepare : {true, false}) {

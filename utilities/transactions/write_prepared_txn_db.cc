@@ -394,15 +394,21 @@ void WritePreparedTxnDB::Init(const TransactionDBOptions& /* unused */) {
 }
 
 void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
-  ROCKS_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Prepareing", seq);
-  assert(seq > max_evicted_seq_);
-  if (seq <= max_evicted_seq_) {
-    throw std::runtime_error(
-        "Added prepare_seq is larger than max_evicted_seq_: " + ToString(seq) +
-        " <= " + ToString(max_evicted_seq_.load()));
-  }
+  ROCKS_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Prepareing with max %" PRIu64,
+                    seq, max_evicted_seq_.load());
   WriteLock wl(&prepared_mutex_);
-  prepared_txns_.push(seq);
+  if (UNLIKELY(seq <= max_evicted_seq_)) {
+    // This should not happen in normal case
+    ROCKS_LOG_ERROR(
+        info_log_,
+        "Added prepare_seq is not larger than max_evicted_seq_: %" PRIu64
+        " <= %" PRIu64,
+        seq, max_evicted_seq_.load());
+    delayed_prepared_.insert(seq);
+    delayed_prepared_empty_.store(false, std::memory_order_release);
+  } else {
+    prepared_txns_.push(seq);
+  }
 }
 
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
@@ -443,6 +449,21 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
     // After each eviction from commit cache, check if the commit entry should
     // be kept around because it overlaps with a live snapshot.
     CheckAgainstSnapshots(evicted);
+    if (UNLIKELY(!delayed_prepared_empty_.load(std::memory_order_acquire))) {
+      WriteLock wl(&prepared_mutex_);
+      for (auto dp : delayed_prepared_) {
+        if (dp == evicted.prep_seq) {
+          // This is a rare case that txn is committed but prepared_txns_ is not
+          // cleaned up yet. Refer to delayed_prepared_commits_ definition for
+          // why it should be kept updated.
+          delayed_prepared_commits_[evicted.prep_seq] = evicted.commit_seq;
+          ROCKS_LOG_DEBUG(info_log_,
+                          "delayed_prepared_commits_[%" PRIu64 "]=%" PRIu64,
+                          evicted.prep_seq, evicted.commit_seq);
+          break;
+        }
+      }
+    }
   }
   bool succ =
       ExchangeCommitEntry(indexed_seq, evicted_64b, {prepare_seq, commit_seq});
@@ -465,12 +486,24 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
 
 void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
                                         const size_t batch_cnt) {
+  TEST_SYNC_POINT_CALLBACK(
+      "RemovePrepared:Start",
+      const_cast<void*>(reinterpret_cast<const void*>(&prepare_seq)));
+  ROCKS_LOG_DETAILS(info_log_,
+                    "RemovePrepared %" PRIu64 " cnt: %" ROCKSDB_PRIszt,
+                    prepare_seq, batch_cnt);
   WriteLock wl(&prepared_mutex_);
   for (size_t i = 0; i < batch_cnt; i++) {
     prepared_txns_.erase(prepare_seq + i);
     bool was_empty = delayed_prepared_.empty();
     if (!was_empty) {
       delayed_prepared_.erase(prepare_seq + i);
+      auto it = delayed_prepared_commits_.find(prepare_seq + i);
+      if (it != delayed_prepared_commits_.end()) {
+        ROCKS_LOG_DETAILS(info_log_, "delayed_prepared_commits_.erase %" PRIu64,
+                          prepare_seq + i);
+        delayed_prepared_commits_.erase(it);
+      }
       bool is_empty = delayed_prepared_.empty();
       if (was_empty != is_empty) {
         delayed_prepared_empty_.store(is_empty, std::memory_order_release);
@@ -511,8 +544,19 @@ bool WritePreparedTxnDB::ExchangeCommitEntry(const uint64_t indexed_seq,
 void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
                                               const SequenceNumber& new_max) {
   ROCKS_LOG_DETAILS(info_log_,
-                    "AdvanceMaxEvictedSeq overhead %" PRIu64 " => %" PRIu64,
-                    prev_max, new_max);
+                    "AdvanceMaxEvictedSeq overhead %" PRIu64
+                    " => %" PRIu64 prev_max,
+                    new_max);
+  // Declare the intention before getting snapshot from the DB. This helps a
+  // concurrent GetSnapshot to wait to catch up with future_max_evicted_seq_ if
+  // it has not already. Otherwise the new snapshot is when we ask DB for
+  // snapshots smaller than future max.
+  auto updated_future_max = prev_max;
+  while (updated_future_max < new_max &&
+         !future_max_evicted_seq_.compare_exchange_weak(
+             updated_future_max, new_max, std::memory_order_acq_rel,
+             std::memory_order_relaxed)) {
+  };
   // When max_evicted_seq_ advances, move older entries from prepared_txns_
   // to delayed_prepared_. This guarantees that if a seq is lower than max,
   // then it is not in prepared_txns_ ans save an expensive, synchronized
@@ -520,6 +564,11 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
   // normal cases.
   {
     WriteLock wl(&prepared_mutex_);
+    ROCKS_LOG_DETAILS(
+        info_log_,
+        "AdvanceMaxEvictedSeq prepared_txns_.empty() %d top: %" PRIu64,
+        prepared_txns_.empty(),
+        prepared_txns_.empty() ? 0 : prepared_txns_.top());
     while (!prepared_txns_.empty() && prepared_txns_.top() <= new_max) {
       auto to_be_popped = prepared_txns_.top();
       delayed_prepared_.insert(to_be_popped);
@@ -587,15 +636,21 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
   SnapshotImpl* snap_impl = db_impl_->GetSnapshotImpl(for_ww_conflict_check);
   assert(snap_impl);
   SequenceNumber snap_seq = snap_impl->GetSequenceNumber();
-  if (UNLIKELY(snap_seq != 0 && snap_seq <= max_evicted_seq_)) {
+  // Note: Check against future_max_evicted_seq_ (in contrast with
+  // max_evicted_seq_) in case there is a concurrent AdvanceMaxEvictedSeq.
+  if (UNLIKELY(snap_seq != 0 && snap_seq <= future_max_evicted_seq_)) {
     // There is a very rare case in which the commit entry evicts another commit
     // entry that is not published yet thus advancing max evicted seq beyond the
     // last published seq. This case is not likely in real-world setup so we
     // handle it with a few retries.
     size_t retry = 0;
-    while (snap_impl->GetSequenceNumber() <= max_evicted_seq_ && retry < 100) {
-      ROCKS_LOG_WARN(info_log_, "GetSnapshot retry %" PRIu64,
-                     snap_impl->GetSequenceNumber());
+    SequenceNumber max;
+    while ((max = future_max_evicted_seq_.load()) != 0 &&
+           snap_impl->GetSequenceNumber() <= max && retry < 100) {
+      ROCKS_LOG_WARN(info_log_,
+                     "GetSnapshot snap: %" PRIu64 " max: %" PRIu64
+                     " retry %" ROCKSDB_PRIszt,
+                     snap_impl->GetSequenceNumber(), max, retry);
       ReleaseSnapshot(snap_impl);
       // Wait for last visible seq to catch up with max, and also go beyond it
       // by one.
@@ -604,20 +659,19 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
       assert(snap_impl);
       retry++;
     }
-    assert(snap_impl->GetSequenceNumber() > max_evicted_seq_);
-    if (snap_impl->GetSequenceNumber() <= max_evicted_seq_) {
-      throw std::runtime_error("Snapshot seq " +
-                               ToString(snap_impl->GetSequenceNumber()) +
-                               " after " + ToString(retry) +
-                               " retries is still less than max_evicted_seq_" +
-                               ToString(max_evicted_seq_.load()));
+    assert(snap_impl->GetSequenceNumber() > max);
+    if (snap_impl->GetSequenceNumber() <= max) {
+      throw std::runtime_error(
+          "Snapshot seq " + ToString(snap_impl->GetSequenceNumber()) +
+          " after " + ToString(retry) +
+          " retries is still less than futre_max_evicted_seq_" + ToString(max));
     }
   }
   EnhanceSnapshot(snap_impl, min_uncommitted);
   ROCKS_LOG_DETAILS(
       db_impl_->immutable_db_options().info_log,
       "GetSnapshot %" PRIu64 " ww:%" PRIi32 " min_uncommitted: %" PRIu64,
-      for_ww_conflict_check, snap_impl->GetSequenceNumber(), min_uncommitted);
+      snap_impl->GetSequenceNumber(), for_ww_conflict_check, min_uncommitted);
   return snap_impl;
 }
 
