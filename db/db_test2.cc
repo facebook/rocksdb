@@ -3214,6 +3214,57 @@ TEST_F(DBTest2, TestCompactFiles) {
 }
 #endif  // ROCKSDB_LITE
 
+// TODO: figure out why this test fails in appveyor
+#ifndef OS_WIN
+TEST_F(DBTest2, MultiDBParallelOpenTest) {
+  const int kNumDbs = 2;
+  Options options = CurrentOptions();
+  std::vector<std::string> dbnames;
+  for (int i = 0; i < kNumDbs; ++i) {
+    dbnames.emplace_back(test::TmpDir(env_) + "/db" + ToString(i));
+    ASSERT_OK(DestroyDB(dbnames.back(), options));
+  }
+
+  // Verify empty DBs can be created in parallel
+  std::vector<std::thread> open_threads;
+  std::vector<DB*> dbs{static_cast<unsigned int>(kNumDbs), nullptr};
+  options.create_if_missing = true;
+  for (int i = 0; i < kNumDbs; ++i) {
+    open_threads.emplace_back(
+        [&](int dbnum) {
+          ASSERT_OK(DB::Open(options, dbnames[dbnum], &dbs[dbnum]));
+        },
+        i);
+  }
+
+  // Now add some data and close, so next we can verify non-empty DBs can be
+  // recovered in parallel
+  for (int i = 0; i < kNumDbs; ++i) {
+    open_threads[i].join();
+    ASSERT_OK(dbs[i]->Put(WriteOptions(), "xi", "gua"));
+    delete dbs[i];
+  }
+
+  // Verify non-empty DBs can be recovered in parallel
+  dbs.clear();
+  open_threads.clear();
+  for (int i = 0; i < kNumDbs; ++i) {
+    open_threads.emplace_back(
+        [&](int dbnum) {
+          ASSERT_OK(DB::Open(options, dbnames[dbnum], &dbs[dbnum]));
+        },
+        i);
+  }
+
+  // Wait and cleanup
+  for (int i = 0; i < kNumDbs; ++i) {
+    open_threads[i].join();
+    delete dbs[i];
+    ASSERT_OK(DestroyDB(dbnames[i], options));
+  }
+}
+#endif  // OS_WIN
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

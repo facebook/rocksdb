@@ -256,11 +256,12 @@ Status BlockFetcher::ReadBlockContents() {
 
   if (do_uncompress_ && compression_type_ != kNoCompression) {
     // compressed page, uncompress, update cache
-    UncompressionContext uncompression_ctx(compression_type_,
-                                           compression_dict_);
-    status_ = UncompressBlockContents(uncompression_ctx, slice_.data(),
-                                      block_size_, contents_, footer_.version(),
-                                      ioptions_, memory_allocator_);
+    UncompressionContext context(compression_type_);
+    UncompressionDict dict(compression_dict_, compression_type_);
+    UncompressionInfo info(context, dict, compression_type_);
+    status_ = UncompressBlockContents(info, slice_.data(), block_size_,
+                                      contents_, footer_.version(), ioptions_,
+                                      memory_allocator_);
     compression_type_ = kNoCompression;
   } else {
     GetBlockContents();
