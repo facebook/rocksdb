@@ -791,6 +791,47 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
   bool publish_seq_;
 };
 
+// For two_write_queues commit both the aborted batch and the cleanup batch and then published the seq
+class WritePreparedRollbackPreReleaseCallback : public PreReleaseCallback {
+ public:
+  WritePreparedRollbackPreReleaseCallback(WritePreparedTxnDB* db,
+                                             DBImpl* db_impl,
+                                             SequenceNumber prep_seq,
+                                             SequenceNumber rollback_seq,
+                                             size_t prep_batch_cnt)
+      : db_(db),
+        db_impl_(db_impl),
+        prep_seq_(prep_seq),
+        rollback_seq_(rollback_seq),
+        prep_batch_cnt_(prep_batch_cnt) {
+    assert(prep_seq != kMaxSequenceNumber);
+    assert(rollback_seq != kMaxSequenceNumber);
+    assert(prep_batch_cnt_ > 0);
+  }
+
+  virtual Status Callback(SequenceNumber commit_seq,
+                          bool is_mem_disabled) override {
+    assert(is_mem_disabled);  // implies the 2nd queue
+#ifdef NDEBUG
+    (void)is_mem_disabled;
+#endif
+    const uint64_t last_commit_seq = commit_seq;
+    db_->AddCommitted(rollback_seq_, last_commit_seq);
+    for (size_t i = 0; i < prep_batch_cnt_; i++) {
+      db_->AddCommitted(prep_seq_ + i, last_commit_seq);
+    }
+    db_impl_->SetLastPublishedSequence(last_commit_seq);
+    return Status::OK();
+  }
+
+ private:
+  WritePreparedTxnDB* db_;
+  DBImpl* db_impl_;
+  SequenceNumber prep_seq_;
+  SequenceNumber rollback_seq_;
+  size_t prep_batch_cnt_;
+};
+
 // Count the number of sub-batches inside a batch. A sub-batch does not have
 // duplicate keys.
 struct SubBatchCounter : public WriteBatch::Handler {

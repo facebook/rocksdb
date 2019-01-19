@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <deque>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "db/compaction.h"
@@ -144,6 +145,12 @@ class CompactionIterator {
   const Comparator* cmp_;
   MergeHelper* merge_helper_;
   const std::vector<SequenceNumber>* snapshots_;
+  // List of snapshots released during compaction.
+  // findEarliestVisibleSnapshot() find them out from return of
+  // snapshot_checker, and make sure they will not be returned as
+  // earliest visible snapshot of an older value.
+  // See WritePreparedTransactionTest::ReleaseSnapshotDuringCompaction3.
+  std::unordered_set<SequenceNumber> released_snapshots_;
   std::vector<SequenceNumber>::const_iterator earliest_snapshot_iter_;
   const SequenceNumber earliest_write_conflict_snapshot_;
   const SnapshotChecker* const snapshot_checker_;

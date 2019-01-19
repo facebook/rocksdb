@@ -258,6 +258,7 @@ void CompactionIterator::NextFromInput() {
       valid_ = true;
       break;
     }
+    TEST_SYNC_POINT_CALLBACK("CompactionIterator:ProcessKV", &ikey_);
 
     // Update input statistics
     if (ikey_.type == kTypeDeletion || ikey_.type == kTypeSingleDeletion) {
@@ -473,17 +474,30 @@ void CompactionIterator::NextFromInput() {
       if (valid_) {
         at_next_ = true;
       }
-    } else if (last_snapshot == current_user_key_snapshot_) {
+    } else if (last_snapshot == current_user_key_snapshot_ ||
+               (last_snapshot > 0 &&
+                last_snapshot < current_user_key_snapshot_)) {
       // If the earliest snapshot is which this key is visible in
       // is the same as the visibility of a previous instance of the
       // same key, then this kv is not visible in any snapshot.
       // Hidden by an newer entry for same user key
-      // TODO(noetzli): why not > ?
       //
       // Note: Dropping this key will not affect TransactionDB write-conflict
       // checking since there has already been a record returned for this key
       // in this snapshot.
       assert(last_sequence >= current_user_key_sequence_);
+
+      // Note2: if last_snapshot < current_user_key_snapshot, it can only
+      // mean last_snapshot is released between we process last value and
+      // this value, and findEarliestVisibleSnapshot returns the next snapshot
+      // as current_user_key_snapshot. In this case last value and current
+      // value are both in current_user_key_snapshot currently.
+      assert(last_snapshot == current_user_key_snapshot_ ||
+             (snapshot_checker_ != nullptr &&
+              snapshot_checker_->CheckInSnapshot(current_user_key_sequence_,
+                                                 last_snapshot) ==
+                  SnapshotCheckerResult::kSnapshotReleased));
+
       ++iter_stats_.num_record_drop_hidden;  // (A)
       input_->Next();
     } else if (compaction_ != nullptr && ikey_.type == kTypeDeletion &&
@@ -639,13 +653,23 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
     *prev_snapshot = *std::prev(snapshots_iter);
     assert(*prev_snapshot < in);
   }
+  if (snapshot_checker_ == nullptr) {
+    return snapshots_iter != snapshots_->end()
+      ? *snapshots_iter : kMaxSequenceNumber;
+  }
+  bool has_released_snapshot = !released_snapshots_.empty();
   for (; snapshots_iter != snapshots_->end(); ++snapshots_iter) {
     auto cur = *snapshots_iter;
     assert(in <= cur);
-    if (snapshot_checker_ == nullptr ||
-        snapshot_checker_->CheckInSnapshot(in, cur) ==
-            SnapshotCheckerResult::kInSnapshot) {
+    // Skip if cur is in released_snapshots.
+    if (has_released_snapshot && released_snapshots_.count(cur) > 0) {
+      continue;
+    }
+    auto res = snapshot_checker_->CheckInSnapshot(in, cur);
+    if (res == SnapshotCheckerResult::kInSnapshot) {
       return cur;
+    } else if (res == SnapshotCheckerResult::kSnapshotReleased) {
+      released_snapshots_.insert(cur);
     }
     *prev_snapshot = cur;
   }
@@ -667,7 +691,12 @@ bool CompactionIterator::IsInEarliestSnapshot(SequenceNumber sequence) {
   auto in_snapshot =
       snapshot_checker_->CheckInSnapshot(sequence, earliest_snapshot_);
   while (UNLIKELY(in_snapshot == SnapshotCheckerResult::kSnapshotReleased)) {
+    // Avoid the the current earliest_snapshot_ being return as
+    // earliest visible snapshot for the next value. So if a value's sequence
+    // is zero-ed out by PrepareOutput(), the next value will be compact out.
+    released_snapshots_.insert(earliest_snapshot_);
     earliest_snapshot_iter_++;
+
     if (earliest_snapshot_iter_ == snapshots_->end()) {
       earliest_snapshot_ = kMaxSequenceNumber;
     } else {

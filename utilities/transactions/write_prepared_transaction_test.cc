@@ -2242,6 +2242,10 @@ TEST_P(WritePreparedTransactionTest, SmallestUncommittedOptimization) {
   }
 }
 
+// Insert two values, v1 and v2, for a key. Between prepare and commit of v2
+// take two snapshots, s1 and s2. Release s1 during compaction.
+// Test to make sure compaction doesn't get confused and think s1 can see both
+// values, and thus compact out the older value by mistake.
 TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // minimum commit cache
@@ -2282,6 +2286,110 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
   VerifyKeys({{"key1", "value1_2"}});
   VerifyKeys({{"key1", "value1_1"}}, snapshot2);
   db->ReleaseSnapshot(snapshot2);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+// Insert two values, v1 and v2, for a key. Take two snapshots, s1 and s2,
+// after committing v2. Release s1 during compaction, right after compaction
+// processes v2 and before processes v1. Test to make sure compaction doesn't
+// get confused and believe v1 and v2 are visible to different snapshot
+// (v1 by s2, v2 by s1) and refuse to compact out v1.
+TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction2) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 0;    // minimum commit cache
+  DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
+
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value2"));
+  SequenceNumber v2_seq = db->GetLatestSequenceNumber();
+  auto* s1 = db->GetSnapshot();
+  // Advance sequence number.
+  ASSERT_OK(db->Put(WriteOptions(), "key2", "dummy"));
+  auto* s2 = db->GetSnapshot();
+
+  int count_value = 0;
+  auto callback = [&](void* arg) {
+    auto* ikey = reinterpret_cast<ParsedInternalKey*>(arg);
+    if (ikey->user_key == "key1") {
+      count_value++;
+      if (count_value == 2) {
+        // Processing v1.
+        db->ReleaseSnapshot(s1);
+        // Add some keys to advance max_evicted_seq and update
+        // old_commit_map.
+        ASSERT_OK(db->Put(WriteOptions(), "key3", "dummy"));
+        ASSERT_OK(db->Put(WriteOptions(), "key4", "dummy"));
+      }
+    }
+  };
+  SyncPoint::GetInstance()->SetCallBack("CompactionIterator:ProcessKV",
+                                        callback);
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db->Flush(FlushOptions()));
+  // value1 should be compact out.
+  VerifyInternalKeys({{"key1", "value2", v2_seq, kTypeValue}});
+
+  // cleanup
+  db->ReleaseSnapshot(s2);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+// Insert two values, v1 and v2, for a key. Insert another dummy key
+// so to evict the commit cache for v2, while v1 is still in commit cache.
+// Take two snapshots, s1 and s2. Release s1 during compaction.
+// Since commit cache for v2 is evicted, and old_commit_map don't have
+// s1 (it is released),
+// TODO(myabandeh): how can we be sure that the v2's commit info is evicted
+// (and not v1's)? Instead of putting a dummy, we can directly call
+// AddCommitted(v2_seq + cache_size, ...) to evict v2's entry from commit cache.
+TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction3) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 1;    // commit cache size = 2
+  DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
+
+  // Add a dummy key to evict v2 commit cache, but keep v1 commit cache.
+  // It also advance max_evicted_seq and can trigger old_commit_map cleanup.
+  auto add_dummy = [&]() {
+    auto* txn_dummy =
+        db->BeginTransaction(WriteOptions(), TransactionOptions(), nullptr);
+    ASSERT_OK(txn_dummy->SetName("txn_dummy"));
+    ASSERT_OK(txn_dummy->Put("dummy", "dummy"));
+    ASSERT_OK(txn_dummy->Prepare());
+    ASSERT_OK(txn_dummy->Commit());
+    delete txn_dummy;
+  };
+
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
+  auto* txn =
+      db->BeginTransaction(WriteOptions(), TransactionOptions(), nullptr);
+  ASSERT_OK(txn->SetName("txn"));
+  ASSERT_OK(txn->Put("key1", "value2"));
+  ASSERT_OK(txn->Prepare());
+  // TODO(myabandeh): replace it with GetId()?
+  auto v2_seq = db->GetLatestSequenceNumber();
+  ASSERT_OK(txn->Commit());
+  delete txn;
+  auto* s1 = db->GetSnapshot();
+  // Dummy key to advance sequence number.
+  add_dummy();
+  auto* s2 = db->GetSnapshot();
+
+  auto callback = [&](void*) {
+    db->ReleaseSnapshot(s1);
+    // Add some dummy entries to trigger s1 being cleanup from old_commit_map.
+    add_dummy();
+    add_dummy();
+  };
+  SyncPoint::GetInstance()->SetCallBack("CompactionIterator:AfterInit",
+                                        callback);
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db->Flush(FlushOptions()));
+  // value1 should be compact out.
+  VerifyInternalKeys({{"key1", "value2", v2_seq, kTypeValue}});
+
+  db->ReleaseSnapshot(s2);
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
