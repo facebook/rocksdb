@@ -3112,142 +3112,8 @@ Status DBImpl::IngestExternalFile(
     ColumnFamilyHandle* column_family,
     const std::vector<std::string>& external_files,
     const IngestExternalFileOptions& ingestion_options) {
-  if (external_files.empty()) {
-    return Status::InvalidArgument("external_files is empty");
-  }
-
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  auto cfd = cfh->cfd();
-
-  // Ingest should immediately fail if ingest_behind is requested,
-  // but the DB doesn't support it.
-  if (ingestion_options.ingest_behind) {
-    if (!immutable_db_options_.allow_ingest_behind) {
-      return Status::InvalidArgument(
-          "Can't ingest_behind file in DB with allow_ingest_behind=false");
-    }
-  }
-  uint64_t next_file_number = 0;
-  std::list<uint64_t>::iterator pending_output_elem;
-  Status status = ReserveFileNumbersBeforeIngestion(
-      cfd, static_cast<uint64_t>(external_files.size()), &pending_output_elem,
-      &next_file_number);
-  if (!status.ok()) {
-    InstrumentedMutexLock l(&mutex_);
-    ReleaseFileNumberFromPendingOutputs(pending_output_elem);
-    return status;
-  }
-
-  ExternalSstFileIngestionJob ingestion_job(env_, versions_.get(), cfd,
-                                            immutable_db_options_, env_options_,
-                                            &snapshots_, ingestion_options);
-  SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
-  status =
-      ingestion_job.Prepare(external_files, next_file_number, super_version);
-  CleanupSuperVersion(super_version);
-  if (!status.ok()) {
-    InstrumentedMutexLock l(&mutex_);
-    ReleaseFileNumberFromPendingOutputs(pending_output_elem);
-    return status;
-  }
-
-  SuperVersionContext sv_context(/* create_superversion */ true);
-  TEST_SYNC_POINT("DBImpl::AddFile:Start");
-  {
-    // Lock db mutex
-    InstrumentedMutexLock l(&mutex_);
-    TEST_SYNC_POINT("DBImpl::AddFile:MutexLock");
-
-    // Stop writes to the DB by entering both write threads
-    WriteThread::Writer w;
-    write_thread_.EnterUnbatched(&w, &mutex_);
-    WriteThread::Writer nonmem_w;
-    if (two_write_queues_) {
-      nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
-    }
-
-    num_running_ingest_file_++;
-    TEST_SYNC_POINT("DBImpl::IngestExternalFile:AfterIncIngestFileCounter");
-
-    // We cannot ingest a file into a dropped CF
-    if (cfd->IsDropped()) {
-      status = Status::InvalidArgument(
-          "Cannot ingest an external file into a dropped CF");
-    }
-
-    // Figure out if we need to flush the memtable first
-    if (status.ok()) {
-      bool need_flush = false;
-      status = ingestion_job.NeedsFlush(&need_flush, cfd->GetSuperVersion());
-      TEST_SYNC_POINT_CALLBACK("DBImpl::IngestExternalFile:NeedFlush",
-                               &need_flush);
-      if (status.ok() && need_flush) {
-        FlushOptions flush_opts;
-        flush_opts.allow_write_stall = true;
-        if (immutable_db_options_.atomic_flush) {
-          autovector<ColumnFamilyData*> cfds;
-          SelectColumnFamiliesForAtomicFlush(&cfds);
-          mutex_.Unlock();
-          status = AtomicFlushMemTables(cfds, flush_opts,
-                                        FlushReason::kExternalFileIngestion,
-                                        true /* writes_stopped */);
-        } else {
-          mutex_.Unlock();
-          status = FlushMemTable(cfd, flush_opts,
-                                 FlushReason::kExternalFileIngestion,
-                                 true /* writes_stopped */);
-        }
-        mutex_.Lock();
-      }
-    }
-
-    // Run the ingestion job
-    if (status.ok()) {
-      status = ingestion_job.Run();
-    }
-
-    // Install job edit [Mutex will be unlocked here]
-    auto mutable_cf_options = cfd->GetLatestMutableCFOptions();
-    if (status.ok()) {
-      status =
-          versions_->LogAndApply(cfd, *mutable_cf_options, ingestion_job.edit(),
-                                 &mutex_, directories_.GetDbDir());
-    }
-    if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(cfd, &sv_context, *mutable_cf_options);
-    }
-
-    // Resume writes to the DB
-    if (two_write_queues_) {
-      nonmem_write_thread_.ExitUnbatched(&nonmem_w);
-    }
-    write_thread_.ExitUnbatched(&w);
-
-    // Update stats
-    if (status.ok()) {
-      ingestion_job.UpdateStats();
-    }
-
-    ReleaseFileNumberFromPendingOutputs(pending_output_elem);
-
-    num_running_ingest_file_--;
-    if (num_running_ingest_file_ == 0) {
-      bg_cv_.SignalAll();
-    }
-
-    TEST_SYNC_POINT("DBImpl::AddFile:MutexUnlock");
-  }
-  // mutex_ is unlocked here
-
-  // Cleanup
-  sv_context.Clean();
-  ingestion_job.Cleanup(status);
-
-  if (status.ok()) {
-    NotifyOnExternalFileIngested(cfd, ingestion_job);
-  }
-
-  return status;
+  return IngestExternalFiles({column_family}, {external_files},
+                             {ingestion_options});
 }
 
 Status DBImpl::IngestExternalFiles(
@@ -3256,11 +3122,6 @@ Status DBImpl::IngestExternalFiles(
     const std::vector<IngestExternalFileOptions>& ingestion_options_list) {
   if (column_families.empty()) {
     return Status::InvalidArgument("column_families is empty");
-  } else if (column_families.size() == 1) {
-    assert(external_files.size() == 1);
-    assert(ingestion_options_list.size() == 1);
-    return IngestExternalFile(column_families.front(), external_files.front(),
-                              ingestion_options_list.front());
   }
   // Ingest multiple external SST files atomically.
   size_t num_cfs = column_families.size();
@@ -3353,15 +3214,22 @@ Status DBImpl::IngestExternalFiles(
   }
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeJobsRun:0");
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeJobsRun:1");
+  TEST_SYNC_POINT("DBImpl::AddFile:Start");
   {
     InstrumentedMutexLock l(&mutex_);
+    TEST_SYNC_POINT("DBImpl::AddFile:MutexLock");
+
+    // Stop writes to the DB by entering both write threads
     WriteThread::Writer w;
     write_thread_.EnterUnbatched(&w, &mutex_);
     WriteThread::Writer nonmem_w;
     if (two_write_queues_) {
       nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
     }
+
     num_running_ingest_file_ += static_cast<int>(num_cfs);
+    TEST_SYNC_POINT("DBImpl::IngestExternalFile:AfterIncIngestFileCounter");
+
     bool at_least_one_cf_need_flush = false;
     std::vector<bool> need_flush(num_cfs, false);
     for (size_t i = 0; i != num_cfs; ++i) {
@@ -3380,6 +3248,9 @@ Status DBImpl::IngestExternalFiles(
         break;
       }
     }
+    TEST_SYNC_POINT_CALLBACK("DBImpl::IngestExternalFile:NeedFlush",
+                             &at_least_one_cf_need_flush);
+
     if (status.ok() && at_least_one_cf_need_flush) {
       FlushOptions flush_opts;
       flush_opts.allow_write_stall = true;
@@ -3448,6 +3319,13 @@ Status DBImpl::IngestExternalFiles(
       versions_->SetLastAllocatedSequence(last_seqno);
       versions_->SetLastPublishedSequence(last_seqno);
       versions_->SetLastSequence(last_seqno);
+    } else {
+      for (size_t i = 0; i != num_cfs; ++i) {
+        if (!cfds[i]->IsDropped()) {
+          InstallSuperVersionAndScheduleWork(
+              cfds[i], &sv_ctxs[i], *cfds[i]->GetLatestMutableCFOptions());
+        }
+      }
     }
 
     // Resume writes to the DB
@@ -3466,7 +3344,11 @@ Status DBImpl::IngestExternalFiles(
     if (0 == num_running_ingest_file_) {
       bg_cv_.SignalAll();
     }
+    TEST_SYNC_POINT("DBImpl::AddFile:MutexUnlock");
   }
+  // mutex_ is unlocked here
+
+  // Cleanup
   for (size_t i = 0; i != num_cfs; ++i) {
     sv_ctxs[i].Clean();
     // This may rollback jobs that have completed successfully. This is
