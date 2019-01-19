@@ -2341,6 +2341,9 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction2) {
 // Take two snapshots, s1 and s2. Release s1 during compaction.
 // Since commit cache for v2 is evicted, and old_commit_map don't have
 // s1 (it is released),
+// TODO(myabandeh): how can we be sure that the v2's commit info is evicted
+// (and not v1's)? Instead of putting a dummy, we can directly call
+// AddCommitted(v2_seq + cache_size, ...) to evict v2's entry from commit cache.
 TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction3) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 1;    // commit cache size = 2
@@ -2364,6 +2367,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction3) {
   ASSERT_OK(txn->SetName("txn"));
   ASSERT_OK(txn->Put("key1", "value2"));
   ASSERT_OK(txn->Prepare());
+  // TODO(myabandeh): replace it with GetId()?
   auto v2_seq = db->GetLatestSequenceNumber();
   ASSERT_OK(txn->Commit());
   delete txn;
