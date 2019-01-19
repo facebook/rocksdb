@@ -3116,7 +3116,6 @@ Status DBImpl::IngestExternalFile(
     return Status::InvalidArgument("external_files is empty");
   }
 
-  Status status;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
 
@@ -3128,44 +3127,20 @@ Status DBImpl::IngestExternalFile(
           "Can't ingest_behind file in DB with allow_ingest_behind=false");
     }
   }
-
-  ExternalSstFileIngestionJob ingestion_job(env_, versions_.get(), cfd,
-                                            immutable_db_options_, env_options_,
-                                            &snapshots_, ingestion_options);
-
-  SuperVersionContext dummy_sv_ctx(/* create_superversion */ true);
-  VersionEdit dummy_edit;
   uint64_t next_file_number = 0;
   std::list<uint64_t>::iterator pending_output_elem;
-  {
-    InstrumentedMutexLock l(&mutex_);
-    if (error_handler_.IsDBStopped()) {
-      // Don't ingest files when there is a bg_error
-      return error_handler_.GetBGError();
-    }
-
-    // Make sure that bg cleanup wont delete the files that we are ingesting
-    pending_output_elem = CaptureCurrentFileNumberInPendingOutputs();
-
-    // If crash happen after a hard link established, Recover function may
-    // reuse the file number that has already assigned to the internal file,
-    // and this will overwrite the external file. To protect the external
-    // file, we have to make sure the file number will never being reused.
-    next_file_number = versions_->FetchAddFileNumber(external_files.size());
-    auto cf_options = cfd->GetLatestMutableCFOptions();
-    status = versions_->LogAndApply(cfd, *cf_options, &dummy_edit, &mutex_,
-                                    directories_.GetDbDir());
-    if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx, *cf_options);
-    }
-  }
-  dummy_sv_ctx.Clean();
+  Status status = ReserveFileNumbersBeforeIngestion(
+      cfd, static_cast<uint64_t>(external_files.size()), &pending_output_elem,
+      &next_file_number);
   if (!status.ok()) {
     InstrumentedMutexLock l(&mutex_);
     ReleaseFileNumberFromPendingOutputs(pending_output_elem);
     return status;
   }
 
+  ExternalSstFileIngestionJob ingestion_job(env_, versions_.get(), cfd,
+                                            immutable_db_options_, env_options_,
+                                            &snapshots_, ingestion_options);
   SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
   status =
       ingestion_job.Prepare(external_files, next_file_number, super_version);
@@ -3314,48 +3289,26 @@ Status DBImpl::IngestExternalFiles(
   for (auto* cfh : column_families) {
     cfds.push_back(static_cast<ColumnFamilyHandleImpl*>(cfh)->cfd());
   }
-  std::vector<ExternalSstFileIngestionJob> ingestion_jobs;
-  for (size_t i = 0; i != num_cfs; ++i) {
-    ingestion_jobs.emplace_back(env_, versions_.get(), cfds[i],
-                                immutable_db_options_, env_options_,
-                                &snapshots_, ingestion_options_list[i]);
-  }
-  SuperVersionContext dummy_sv_ctx(true /* create_superversion */);
-  Status status;
   std::list<uint64_t>::iterator pending_output_elem;
-  uint64_t next_file_number = 0;
-  {
-    InstrumentedMutexLock l(&mutex_);
-    if (error_handler_.IsDBStopped()) {
-      // Do not ingest files when there is a bg_error
-      return error_handler_.GetBGError();
-    }
-    pending_output_elem = CaptureCurrentFileNumberInPendingOutputs();
-    size_t total = 0;
-    for (const auto files : external_files) {
-      total += files.size();
-    }
-    next_file_number =
-        versions_->FetchAddFileNumber(static_cast<uint64_t>(total));
-    auto cf_options = cfds[0]->GetLatestMutableCFOptions();
-    VersionEdit dummy_edit;
-    // If crash happen after a hard link established, Recover function may
-    // reuse the file number that has already assigned to the internal file,
-    // and this will overwrite the external file. To protect the external
-    // file, we have to make sure the file number will never being reused.
-    status = versions_->LogAndApply(cfds[0], *cf_options, &dummy_edit, &mutex_,
-                                    directories_.GetDbDir());
-    if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(cfds[0], &dummy_sv_ctx, *cf_options);
-    }
+  size_t total = 0;
+  for (const auto files : external_files) {
+    total += files.size();
   }
-  dummy_sv_ctx.Clean();
+  uint64_t next_file_number = 0;
+  Status status = ReserveFileNumbersBeforeIngestion(
+      cfds[0], total, &pending_output_elem, &next_file_number);
   if (!status.ok()) {
     InstrumentedMutexLock l(&mutex_);
     ReleaseFileNumberFromPendingOutputs(pending_output_elem);
     return status;
   }
 
+  std::vector<ExternalSstFileIngestionJob> ingestion_jobs;
+  for (size_t i = 0; i != num_cfs; ++i) {
+    ingestion_jobs.emplace_back(env_, versions_.get(), cfds[i],
+                                immutable_db_options_, env_options_,
+                                &snapshots_, ingestion_options_list[i]);
+  }
   std::vector<std::pair<bool, Status>> exec_results;
   for (size_t i = 0; i != num_cfs; ++i) {
     exec_results.emplace_back(false, Status::OK());
@@ -3646,6 +3599,35 @@ Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id,
   return s;
 }
 
+Status DBImpl::ReserveFileNumbersBeforeIngestion(
+    ColumnFamilyData* cfd, uint64_t num,
+    std::list<uint64_t>::iterator* pending_output_elem,
+    uint64_t* next_file_number) {
+  Status s;
+  SuperVersionContext dummy_sv_ctx(true /* create_superversion */);
+  assert(nullptr != pending_output_elem);
+  assert(nullptr != next_file_number);
+  InstrumentedMutexLock l(&mutex_);
+  if (error_handler_.IsDBStopped()) {
+    // Do not ingest files when there is a bg_error
+    return error_handler_.GetBGError();
+  }
+  *pending_output_elem = CaptureCurrentFileNumberInPendingOutputs();
+  *next_file_number = versions_->FetchAddFileNumber(static_cast<uint64_t>(num));
+  auto cf_options = cfd->GetLatestMutableCFOptions();
+  VersionEdit dummy_edit;
+  // If crash happen after a hard link established, Recover function may
+  // reuse the file number that has already assigned to the internal file,
+  // and this will overwrite the external file. To protect the external
+  // file, we have to make sure the file number will never being reused.
+  s = versions_->LogAndApply(cfd, *cf_options, &dummy_edit, &mutex_,
+                             directories_.GetDbDir());
+  if (s.ok()) {
+    InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx, *cf_options);
+  }
+  dummy_sv_ctx.Clean();
+  return s;
+}
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
