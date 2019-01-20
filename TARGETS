@@ -20,6 +20,7 @@ ROCKSDB_COMPILER_FLAGS = [
     "-DBZIP2",
     "-DLZ4",
     "-DZSTD",
+    "-DZSTD_STATIC_LINKING_ONLY",
     "-DGFLAGS=gflags",
     "-DNUMA",
     "-DTBB",

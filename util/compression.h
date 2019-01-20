@@ -61,6 +61,16 @@ ZSTD_customMem GetJeZstdAllocationOverrides();
 #endif  // defined(ROCKSDB_JEMALLOC) && defined(OS_WIN) &&
         // defined(ZSTD_STATIC_LINKING_ONLY)
 
+// We require `ZSTD_sizeof_DDict` and `ZSTD_createDDict_byReference` to use
+// `ZSTD_DDict`. The former was introduced in v1.0.0 and the latter was
+// introduced in v1.1.3. But an important bug fix for `ZSTD_sizeof_DDict` came
+// in v1.1.4, so that is the version we require. As of today's latest version
+// (v1.3.8), they are both still in the experimental API, which means they are
+// only exported when the compiler flag `ZSTD_STATIC_LINKING_ONLY` is set.
+#if defined(ZSTD_STATIC_LINKING_ONLY) && ZSTD_VERSION_NUMBER >= 10104
+#define ROCKSDB_ZSTD_DDICT
+#endif  // defined(ZSTD_STATIC_LINKING_ONLY) && ZSTD_VERSION_NUMBER >= 10104
+
 // Cached data represents a portion that can be re-used
 // If, in the future we have more than one native context to
 // cache we can arrange this as a tuple
@@ -208,52 +218,51 @@ struct CompressionDict {
 // Holds dictionary and related data, like ZSTD's digested uncompression
 // dictionary.
 struct UncompressionDict {
-#if ZSTD_VERSION_NUMBER >= 700
+#ifdef ROCKSDB_ZSTD_DDICT
   ZSTD_DDict* zstd_ddict_;
-#endif  // ZSTD_VERSION_NUMBER >= 700
+#endif  // ROCKSDB_ZSTD_DDICT
   // Block containing the data for the compression dictionary. It may be
   // redundant with the data held in `zstd_ddict_`.
-  // TODO(ajkr): use `ZSTD_createDDict_byReference` once it is exposed publicly.
   std::string dict_;
   // This `Statistics` pointer is intended to be used upon block cache eviction,
   // so only needs to be populated on `UncompressionDict`s that'll be inserted
   // into block cache.
   Statistics* statistics_;
 
-#if ZSTD_VERSION_NUMBER >= 700
+#ifdef ROCKSDB_ZSTD_DDICT
   UncompressionDict(std::string dict, bool using_zstd,
                     Statistics* _statistics = nullptr) {
-#else   // ZSTD_VERSION_NUMBER >= 700
+#else   // ROCKSDB_ZSTD_DDICT
   UncompressionDict(std::string dict, bool /*using_zstd*/,
                     Statistics* _statistics = nullptr) {
-#endif  // ZSTD_VERSION_NUMBER >= 700
+#endif  // ROCKSDB_ZSTD_DDICT
     dict_ = std::move(dict);
     statistics_ = _statistics;
-#if ZSTD_VERSION_NUMBER >= 700
+#ifdef ROCKSDB_ZSTD_DDICT
     zstd_ddict_ = nullptr;
     if (!dict_.empty() && using_zstd) {
-      zstd_ddict_ = ZSTD_createDDict(dict_.data(), dict_.size());
+      zstd_ddict_ = ZSTD_createDDict_byReference(dict_.data(), dict_.size());
       assert(zstd_ddict_ != nullptr);
     }
-#endif  // ZSTD_VERSION_NUMBER >= 700
+#endif  // ROCKSDB_ZSTD_DDICT
   }
 
   ~UncompressionDict() {
-#if ZSTD_VERSION_NUMBER >= 700
+#ifdef ROCKSDB_ZSTD_DDICT
     size_t res = 0;
     if (zstd_ddict_ != nullptr) {
       res = ZSTD_freeDDict(zstd_ddict_);
     }
     assert(res == 0);  // Last I checked they can't fail
     (void)res;         // prevent unused var warning
-#endif                 // ZSTD_VERSION_NUMBER >= 700
+#endif  // ROCKSDB_ZSTD_DDICT
   }
 
-#if ZSTD_VERSION_NUMBER >= 700
+#ifdef ROCKSDB_ZSTD_DDICT
   const ZSTD_DDict* GetDigestedZstdDDict() const {
     return zstd_ddict_;
   }
-#endif  // ZSTD_VERSION_NUMBER >= 700
+#endif  // ROCKSDB_ZSTD_DDICT
 
   Slice GetRawDict() const { return dict_; }
 
@@ -267,17 +276,9 @@ struct UncompressionDict {
   size_t ApproximateMemoryUsage() {
     size_t usage = 0;
     usage += sizeof(struct UncompressionDict);
-#if ZSTD_VERSION_NUMBER >= 700
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-    usage += malloc_usable_size((void*)zstd_ddict_);
-#else   // ROCKSDB_MALLOC_USABLE_SIZE
-    if (zstd_ddict_ != nullptr) {
-      // Magic number comes from what I saw last time I ran `ZSTD_sizeof_DDict`
-      // which is not exposed publicly. That was done using ZSTD 1.3.5.
-      usage += 23640;
-    }
-#endif  // ROCKSDB_MALLOC_USABLE_SIZE
-#endif  // ZSTD_VERSION_NUMBER >= 700
+#ifdef ROCKSDB_ZSTD_DDICT
+    usage += ZSTD_sizeof_DDict(zstd_ddict_);
+#endif  // ROCKSDB_ZSTD_DDICT
     usage += dict_.size();
     return usage;
   }
@@ -1224,13 +1225,13 @@ inline CacheAllocationPtr ZSTD_Uncompress(
 #if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
   ZSTD_DCtx* context = info.context().GetZSTDContext();
   assert(context != nullptr);
-#if ZSTD_VERSION_NUMBER >= 700  // v0.7.0+
+#ifdef ROCKSDB_ZSTD_DDICT
   if (info.dict().GetDigestedZstdDDict() != nullptr) {
     actual_output_length = ZSTD_decompress_usingDDict(
         context, output.get(), output_len, input_data, input_length,
         info.dict().GetDigestedZstdDDict());
   }
-#endif  // ZSTD_VERSION_NUMBER >= 700
+#endif  // ROCKSDB_ZSTD_DDICT
   if (actual_output_length == 0) {
     actual_output_length = ZSTD_decompress_usingDict(
         context, output.get(), output_len, input_data, input_length,
