@@ -373,8 +373,8 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
         if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
           // We've advanced far enough
           if (user_cmp->Compare(user_key, f->smallest.user_key()) >= 0) {
-            // Key falls in this file's range, so definitely
-            // exists beyond output level
+            // Key falls in this file's range, so it may
+            // exist beyond output level
             return false;
           }
           break;
