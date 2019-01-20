@@ -456,8 +456,7 @@ TEST_F(CompactionJobTest, NonAssocMerge) {
 
   auto expected_results =
       mock::MakeMockFile({{KeyStr("a", 0U, kTypeValue), "3,4,5"},
-                          {KeyStr("b", 2U, kTypeMerge), "2"},
-                          {KeyStr("b", 1U, kTypeMerge), "1"}});
+                          {KeyStr("b", 2U, kTypeValue), "1,2"}});
 
   SetLastSequence(5U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
@@ -484,7 +483,7 @@ TEST_F(CompactionJobTest, MergeOperandFilter) {
 
   auto expected_results =
       mock::MakeMockFile({{KeyStr("a", 0U, kTypeValue), test::EncodeInt(8U)},
-                          {KeyStr("b", 2U, kTypeMerge), test::EncodeInt(2U)}});
+                          {KeyStr("b", 2U, kTypeValue), test::EncodeInt(2U)}});
 
   SetLastSequence(5U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
