@@ -164,7 +164,8 @@ jlong Java_org_rocksdb_FlinkCompactionFilter_configureFlinkCompactionFilter(
   auto use_system_time = (bool)(jb_use_system_time == JNI_TRUE);
   auto config_holder = *(reinterpret_cast<std::shared_ptr<FlinkCompactionFilter::ConfigHolder>*>(handle));
   auto list_iter_factory = createListElementIterFactory(env, ji_list_elem_len, jlist_iter_factory);
-  config_holder->Configure(FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, use_system_time, list_iter_factory});
+  auto config = new FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, use_system_time, list_iter_factory};
+  config_holder->Configure(config);
   return handle;
 }
 

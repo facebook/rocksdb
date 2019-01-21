@@ -75,7 +75,8 @@ void Init(FlinkCompactionFilter::StateType stype,
   state_type = stype;
   value_type = vtype;
 
-  config_holder.Configure(FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, false, nullptr});
+  auto config = new FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, false, nullptr};
+  config_holder.Configure(config);
 }
 
 void InitList(CompactionFilter::ValueType vtype, bool first_elem_expired=false, size_t timestamp_offset = 0) {
@@ -86,7 +87,8 @@ void InitList(CompactionFilter::ValueType vtype, bool first_elem_expired=false, 
   value_type = vtype;
 
   auto fixed_len_iter_factory = new FlinkCompactionFilter::FixedListElementIterFactory(LIST_ELEM_FIXED_LEN);
-  config_holder.Configure(FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, false, fixed_len_iter_factory});
+  auto config = new FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, false, fixed_len_iter_factory};
+  config_holder.Configure(config);
 }
 
 CompactionFilter::Decision decide(size_t data_size = sizeof(data)) {

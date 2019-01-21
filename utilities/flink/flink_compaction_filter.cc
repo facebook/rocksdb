@@ -18,8 +18,8 @@ CompactionFilter::Decision FlinkCompactionFilter::FilterV2(
     int /*level*/, const Slice& key, ValueType value_type,
     const Slice& existing_value, std::string* new_value,
     std::string* /*skip_until*/) const {
-  const Config config = config_holder_->GetConfig();
-  CreateListElementIterIfNull(config.list_element_iter_factory_);
+  const Config* config = config_holder_->GetConfig();
+  CreateListElementIterIfNull(config->list_element_iter_factory_);
 
   const char* data = existing_value.data();
 
@@ -27,12 +27,12 @@ CompactionFilter::Decision FlinkCompactionFilter::FilterV2(
     "Call FlinkCompactionFilter::FilterV2 - Key: %s, Data: %s, Value type: %d, "
     "State type: %d, TTL: %d ms, useSystemTime: %d, timestamp_offset: %d",
     key.ToString().c_str(), existing_value.ToString(true).c_str(), value_type,
-    config.state_type_, config.ttl_, config.useSystemTime_, config.timestamp_offset_);
+    config->state_type_, config->ttl_, config->useSystemTime_, config->timestamp_offset_);
 
   // too short value to have timestamp at all
-  const bool tooShortValue = existing_value.size() < config.timestamp_offset_ + TIMESTAMP_BYTE_SIZE;
+  const bool tooShortValue = existing_value.size() < config->timestamp_offset_ + TIMESTAMP_BYTE_SIZE;
 
-  const StateType state_type = config.state_type_;
+  const StateType state_type = config->state_type_;
   const bool value_or_merge = value_type == ValueType::kValue || value_type == ValueType::kMergeOperand;
   const bool value_state = state_type == StateType::Value && value_type == ValueType::kValue;
   const bool list_entry = state_type == StateType::List && value_or_merge;
@@ -43,18 +43,18 @@ CompactionFilter::Decision FlinkCompactionFilter::FilterV2(
   if (!tooShortValue && toDecide) {
     decision = list_iter ?
             ListDecide(existing_value, config, new_value) :
-            Decide(data, config, config.timestamp_offset_);
+            Decide(data, config, config->timestamp_offset_);
   }
   Debug(logger_.get(), "Decision: %d", decision);
   return decision;
 }
 
 CompactionFilter::Decision FlinkCompactionFilter::ListDecide(
-        const Slice& existing_value, const Config& config, std::string* new_value) const {
+        const Slice& existing_value, const Config* config, std::string* new_value) const {
   list_element_iter_->SetListBytes(existing_value);
   std::size_t offset = 0;
   while (offset < existing_value.size()) {
-    Decision decision = Decide(existing_value.data(), config, offset + config.timestamp_offset_);
+    Decision decision = Decide(existing_value.data(), config, offset + config->timestamp_offset_);
     if (decision != Decision::kKeep) {
       offset = ListNextOffset(offset);
       if (offset >= JAVA_MAX_SIZE) {
@@ -95,10 +95,10 @@ void FlinkCompactionFilter::SetUnexpiredListValue(
 }
 
 CompactionFilter::Decision FlinkCompactionFilter::Decide(
-    const char* ts_bytes, const Config& config, const std::size_t timestamp_offset) const {
+    const char* ts_bytes, const Config* config, const std::size_t timestamp_offset) const {
   int64_t timestamp = DeserializeTimestamp(ts_bytes, timestamp_offset);
-  const int64_t ttlWithoutOverflow = timestamp > 0 ? std::min(JAVA_MAX_LONG - timestamp, config.ttl_) : config.ttl_;
-  const int64_t currentTimestamp = CurrentTimestamp(config.useSystemTime_);
+  const int64_t ttlWithoutOverflow = timestamp > 0 ? std::min(JAVA_MAX_LONG - timestamp, config->ttl_) : config->ttl_;
+  const int64_t currentTimestamp = CurrentTimestamp(config->useSystemTime_);
   Debug(logger_.get(), "Last access timestamp: %ld ms, ttlWithoutOverflow: %ld ms, Current timestamp: %ld ms",
     timestamp, ttlWithoutOverflow, currentTimestamp);
   return timestamp + ttlWithoutOverflow <= currentTimestamp ? Decision::kRemove : Decision::kKeep;
