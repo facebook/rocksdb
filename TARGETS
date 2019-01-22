@@ -1,4 +1,5 @@
 load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
+load("@fbcode_macros//build_defs:cpp_library.bzl", "cpp_library")
 load(":defs.bzl", "test_binary")
 
 REPO_PATH = package_name() + "/"
