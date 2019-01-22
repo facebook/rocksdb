@@ -12,6 +12,7 @@
 * Remove geodb, spatial_db, document_db, json_document, date_tiered_db, and redis_lists.
 * With "ldb ----try_load_options", when wal_dir specified by the option file doesn't exist, ignore it.
 * Change time resolution in FileOperationInfo.
+* Deleting Blob files also go through SStFileManager.
 
 ### Bug Fixes
 * Fix a deadlock caused by compaction and file ingestion waiting for each other in the event of write stalls.
