@@ -46,6 +46,7 @@
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/range_tombstone_fragmenter.h"
+#include "db/stats_history.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
 #include "db/transaction_log_impl.h"
@@ -644,18 +645,6 @@ void DBImpl::StartTimedTasks() {
   }
 }
 
-int DBImpl::GetStatsHistorySize() {
-  int size_total = sizeof(stats_history_);
-  for (const auto& stats : stats_history_) {
-    size_total += sizeof(stats.first) + sizeof(stats.second);
-    if (stats.second.size() != 0) {
-      auto s = stats.second.begin();
-      size_total += (sizeof(s->first) + sizeof(s->second)) * stats.second.size();
-    }
-  }
-  return size_total;
-}
-
 void DBImpl::PersistStats() {
   TEST_SYNC_POINT("DBImpl::PersistStats:1");
 #ifndef ROCKSDB_LITE
@@ -694,7 +683,6 @@ void DBImpl::PersistStats() {
     const uint64_t now_micros = env_->NowMicros();
     stats_history_[now_micros] = stats_map;
     // delete older stats snapshots to control memory consumption
-    // fprintf(stdout, "total size of stats_history_ is %d\n", GetStatsHistorySize());
     int num_stats_to_delete =
         static_cast<int>(stats_history_.size()) -
         static_cast<int>(mutable_db_options_.max_stats_history_count);
@@ -711,27 +699,31 @@ void DBImpl::PersistStats() {
 #endif  // !ROCKSDB_LITE
 }
 
-Status DBImpl::GetStatsHistory(GetStatsOptions& stats_opts,
-  std::map<uint64_t, std::map<std::string, std::string> >& stats_history) {
-  stats_history = FindStatsBetween(stats_opts.start_time, stats_opts.end_time);
-  return Status::OK();
-}
-
-std::map<uint64_t, std::map<std::string, std::string> >
-DBImpl::FindStatsBetween(uint64_t start_time, uint64_t end_time) {
-  std::map<uint64_t, std::map<std::string, std::string> > stats_history;
-  // first dump whatever is in-memory that satisfies the time range
+bool DBImpl::FindStatsByTime(uint64_t start_time, uint64_t end_time,
+                             uint64_t* new_time,
+                             std::map<std::string, std::string>* stats_map) {
+  // lock when search for start_time
   {
     InstrumentedMutexLock l(&mutex_);
-    for (const auto& stats : stats_history_) {
-      if (stats.first >= start_time && stats.first < end_time) {
-        stats_history[stats.first] = stats.second;
-      }
+    auto it = stats_history_.lower_bound(start_time);
+    if (it != stats_history_.end() && it->first < end_time) {
+      // make a copy for timestamp and stats_map
+      *new_time = it->first;
+      *stats_map = it->second;
+      return true;
     }
-    // TODO: if persistent_stats column family is available, create iterator to scan
-    // history and add to stats_history map
+    else {
+      return false;
     }
-  return stats_history;
+  }
+}
+
+Status DBImpl::GetStatsHistory(GetStatsOptions& stats_opts,
+  StatsHistoryIterator** stats_iterator) {
+  StatsHistoryIterator* new_iterator = new StatsHistoryIterator(
+      /*!immutable_db_options_.persist_stats_to_disk*/ false, stats_opts, this);
+  *stats_iterator = new_iterator;
+  return new_iterator->status();
 }
 
 void DBImpl::DumpStats() {

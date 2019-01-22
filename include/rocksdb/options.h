@@ -1062,12 +1062,6 @@ enum ReadTier {
   kMemtableTier = 0x3     // data in memtable. used for memtable-only iterators.
 };
 
-// Options that controls GetStatsHistory calls
-struct GetStatsOptions {
-  uint64_t start_time;
-  uint64_t end_time;
-};
-
 // Options that control read operations
 struct ReadOptions {
   // If "snapshot" is non-nullptr, read as of the supplied snapshot

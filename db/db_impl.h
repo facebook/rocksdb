@@ -727,10 +727,16 @@ class DBImpl : public DB {
 
   // return a map of DBStats and CFstats, specify time window etc in stats_opts
   virtual Status GetStatsHistory(GetStatsOptions& stats_opts,
-    std::map<uint64_t, std::map<std::string, std::string>>& stats_history) override;
+    StatsHistoryIterator** stats_iterator) override;
 
-  // return the total size in bytes of all stats history stored in memory
-  int GetStatsHistorySize();
+  // return list of currently supported stats counters
+  // TODO: add mapping from counter to counter name string, e.g. "BLOCK_CACHE_MISS"
+  // std::vector<std::string> GetSupportedStatsCounters() override;
+
+  // find stats map from stats_history_ with smallest timestamp in
+  // the range of [start_time, end_time)
+  bool FindStatsByTime(uint64_t start_time, uint64_t end_time,
+      uint64_t* new_time, std::map<std::string, std::string>* stats_map);
 
  protected:
   Env* const env_;
@@ -1614,9 +1620,6 @@ class DBImpl : public DB {
   Env::WriteLifeTimeHint CalculateWALWriteHint() {
     return Env::WLTH_SHORT;
   }
-
-  std::map<uint64_t, std::map<std::string, std::string>>
-  FindStatsBetween(uint64_t start_time, uint64_t end_time);
 
   // When set, we use a separate queue for writes that dont write to memtable.
   // In 2PC these are the writes at Prepare phase.

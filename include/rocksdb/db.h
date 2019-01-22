@@ -47,11 +47,13 @@ struct WriteOptions;
 struct FlushOptions;
 struct CompactionOptions;
 struct CompactRangeOptions;
+struct GetStatsOptions;
 struct TableProperties;
 struct ExternalSstFileInfo;
 class WriteBatch;
 class Env;
 class EventListener;
+class StatsHistoryIterator;
 class TraceWriter;
 #ifdef ROCKSDB_LITE
 class CompactionJobInfo;
@@ -1202,7 +1204,7 @@ class DB {
 
   // return a map of DBStats and CFstats, specify time window etc in stats_opts
   virtual Status GetStatsHistory(GetStatsOptions& /*stats_opts*/,
-    std::map<uint64_t, std::map<std::string, std::string> >& /*stats_history*/) {
+    StatsHistoryIterator** /*stats_iterator*/) {
     return Status::NotSupported("GetStatsHistory() is not implemented.");
   }
 

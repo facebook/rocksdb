@@ -13,6 +13,7 @@
 #include "db/column_family.h"
 #include "db/db_impl.h"
 #include "db/db_test_util.h"
+#include "db/stats_history.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
@@ -624,36 +625,28 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
   GetStatsOptions stats_opts;
   stats_opts.start_time = 0;
   stats_opts.end_time = env_->NowMicros();
-  std::map<uint64_t, std::map<std::string, std::string> >
-      stats_history;
-  db_->GetStatsHistory(stats_opts, stats_history);
+  StatsHistoryIterator* stats_iter = nullptr;
+  db_->GetStatsHistory(stats_opts, &stats_iter);
   // disabled stats snapshots
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "0"}}));
   size_t stats_count = 0;
-  for (const auto& stats : stats_history) {
-    stats_count += stats.second.size();
+  for (stats_iter->SeekToFirst(); stats_iter->Valid(); stats_iter->Next()) {
+    stats_count += stats_iter->value().size();
     // for (const auto& stat : stats.second) {
     //   fprintf(stdout, "time = %ld, key = %s, value = %s\n", static_cast<long> (stats.first), stat.first.c_str(), stat.second.c_str());
     // }
   }
+  delete stats_iter;
   ASSERT_GE(stats_count, 0);
   env_->SleepForMicroseconds(8000000);  // Wait a bit and verify no more stats are found
   stats_opts.end_time = env_->NowMicros();
-  db_->GetStatsHistory(stats_opts, stats_history);
+  db_->GetStatsHistory(stats_opts, &stats_iter);
   size_t stats_count_new = 0;
-  for (const auto& stats : stats_history) {
-    stats_count_new += stats.second.size();
+  for (stats_iter->SeekToFirst(); stats_iter->Valid(); stats_iter->Next()) {
+    stats_count_new += stats_iter->value().size();
   }
   ASSERT_EQ(stats_count_new, stats_count);
-  // test stats history garbage collection
-  ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "1"}}));
-  env_->SleepForMicroseconds(5000000);
-  db_->GetStatsHistory(stats_opts, stats_history);
-  ASSERT_GE(stats_history.size(), 1);
-  ASSERT_OK(dbfull()->SetDBOptions({{"max_stats_history_count", "1"}}));
-  env_->SleepForMicroseconds(2000000);
-  db_->GetStatsHistory(stats_opts, stats_history);
-  ASSERT_LT(stats_history.size(), 2);
+  // TODO: test stats history garbage collection
 }
 
 

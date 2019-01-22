@@ -47,6 +47,7 @@ LIB_SOURCES =                                                   \
   db/range_tombstone_fragmenter.cc                              \
   db/repair.cc                                                  \
   db/snapshot_impl.cc                                           \
+  db/stats_history.cc                                           \
   db/table_cache.cc                                             \
   db/table_properties_collector.cc                              \
   db/transaction_log_impl.cc                                    \
