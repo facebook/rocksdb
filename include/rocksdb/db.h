@@ -110,6 +110,16 @@ struct RangePtr {
   RangePtr(const Slice* s, const Slice* l) : start(s), limit(l) { }
 };
 
+struct IngestExternalFileArg {
+  ColumnFamilyHandle* column_family;
+  const std::vector<std::string> external_files;
+  const IngestExternalFileOptions options;
+  IngestExternalFileArg(ColumnFamilyHandle* cfh,
+                        const std::vector<std::string>& files,
+                        const IngestExternalFileOptions& ingest_options)
+      : column_family(cfh), external_files(files), options(ingest_options) {}
+};
+
 // A collections of table properties objects, where
 //  key: is the table's file name.
 //  value: the table properties object of the given table.
@@ -1051,10 +1061,10 @@ class DB {
     return IngestExternalFile(DefaultColumnFamily(), external_files, options);
   }
 
+  // IngestExternalFiles() will ingest files for multiple column families, and
+  // record the result atomically to the MANIFEST.
   virtual Status IngestExternalFiles(
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      const std::vector<std::vector<std::string>>& external_files,
-      const std::vector<IngestExternalFileOptions>& ingestion_options_list) = 0;
+      const std::vector<IngestExternalFileArg>& args) = 0;
 
   virtual Status VerifyChecksum() = 0;
 

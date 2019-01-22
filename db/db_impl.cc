@@ -3112,31 +3112,29 @@ Status DBImpl::IngestExternalFile(
     ColumnFamilyHandle* column_family,
     const std::vector<std::string>& external_files,
     const IngestExternalFileOptions& ingestion_options) {
-  return IngestExternalFiles({column_family}, {external_files},
-                             {ingestion_options});
+  std::vector<IngestExternalFileArg> args(
+      1,
+      IngestExternalFileArg(column_family, external_files, ingestion_options));
+  return IngestExternalFiles(args);
 }
 
 Status DBImpl::IngestExternalFiles(
-    const std::vector<ColumnFamilyHandle*>& column_families,
-    const std::vector<std::vector<std::string>>& external_files,
-    const std::vector<IngestExternalFileOptions>& ingestion_options_list) {
-  if (column_families.empty()) {
+    const std::vector<IngestExternalFileArg>& args) {
+  if (args.empty()) {
     return Status::InvalidArgument("column_families is empty");
   }
   // Ingest multiple external SST files atomically.
-  size_t num_cfs = column_families.size();
-  assert(external_files.size() == num_cfs);
+  size_t num_cfs = args.size();
   for (size_t i = 0; i != num_cfs; ++i) {
-    if (external_files[i].empty()) {
+    if (args[i].external_files.empty()) {
       char err_msg[128] = {0};
       snprintf(err_msg, 128, "external_files[%d] is empty",
                static_cast<int>(i));
       return Status::InvalidArgument(err_msg);
     }
   }
-  assert(ingestion_options_list.size() == num_cfs);
-  for (size_t i = 0; i != num_cfs; ++i) {
-    const auto& ingest_opts = ingestion_options_list.at(i);
+  for (const auto& arg : args) {
+    const auto& ingest_opts = arg.options;
     if (ingest_opts.ingest_behind &&
         !immutable_db_options_.allow_ingest_behind) {
       return Status::InvalidArgument(
@@ -3146,18 +3144,15 @@ Status DBImpl::IngestExternalFiles(
 
   // TODO (yanqin) maybe handle the case in which column_families have
   // duplicates
-  autovector<ColumnFamilyData*> cfds;
-  for (auto* cfh : column_families) {
-    cfds.push_back(static_cast<ColumnFamilyHandleImpl*>(cfh)->cfd());
-  }
   std::list<uint64_t>::iterator pending_output_elem;
   size_t total = 0;
-  for (const auto files : external_files) {
-    total += files.size();
+  for (const auto& arg : args) {
+    total += arg.external_files.size();
   }
   uint64_t next_file_number = 0;
   Status status = ReserveFileNumbersBeforeIngestion(
-      cfds[0], total, &pending_output_elem, &next_file_number);
+      static_cast<ColumnFamilyHandleImpl*>(args[0].column_family)->cfd(), total,
+      &pending_output_elem, &next_file_number);
   if (!status.ok()) {
     InstrumentedMutexLock l(&mutex_);
     ReleaseFileNumberFromPendingOutputs(pending_output_elem);
@@ -3165,32 +3160,39 @@ Status DBImpl::IngestExternalFiles(
   }
 
   std::vector<ExternalSstFileIngestionJob> ingestion_jobs;
-  for (size_t i = 0; i != num_cfs; ++i) {
-    ingestion_jobs.emplace_back(env_, versions_.get(), cfds[i],
+  for (const auto& arg : args) {
+    auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
+    ingestion_jobs.emplace_back(env_, versions_.get(), cfd,
                                 immutable_db_options_, env_options_,
-                                &snapshots_, ingestion_options_list[i]);
+                                &snapshots_, arg.options);
   }
   std::vector<std::pair<bool, Status>> exec_results;
   for (size_t i = 0; i != num_cfs; ++i) {
     exec_results.emplace_back(false, Status::OK());
   }
-  // TODO(yanqin) make jobs parallel
+  // TODO(yanqin) maybe make jobs run in parallel
   for (size_t i = 1; i != num_cfs; ++i) {
     uint64_t start_file_number =
-        next_file_number + external_files[i - 1].size();
-    SuperVersion* super_version = cfds[i]->GetReferencedSuperVersion(&mutex_);
+        next_file_number + args[i - 1].external_files.size();
+    auto* cfd =
+        static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
+    SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
     exec_results[i].second = ingestion_jobs[i].Prepare(
-        external_files[i], start_file_number, super_version);
+        args[i].external_files, start_file_number, super_version);
     exec_results[i].first = true;
     CleanupSuperVersion(super_version);
   }
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeLastJobPrepare:0");
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeLastJobPrepare:1");
-  SuperVersion* super_version = cfds[0]->GetReferencedSuperVersion(&mutex_);
-  exec_results[0].second = ingestion_jobs[0].Prepare(
-      external_files[0], next_file_number, super_version);
-  exec_results[0].first = true;
-  CleanupSuperVersion(super_version);
+  {
+    auto* cfd =
+        static_cast<ColumnFamilyHandleImpl*>(args[0].column_family)->cfd();
+    SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
+    exec_results[0].second = ingestion_jobs[0].Prepare(
+        args[0].external_files, next_file_number, super_version);
+    exec_results[0].first = true;
+    CleanupSuperVersion(super_version);
+  }
   for (const auto& exec_result : exec_results) {
     if (!exec_result.second.ok()) {
       status = exec_result.second;
@@ -3233,7 +3235,9 @@ Status DBImpl::IngestExternalFiles(
     bool at_least_one_cf_need_flush = false;
     std::vector<bool> need_flush(num_cfs, false);
     for (size_t i = 0; i != num_cfs; ++i) {
-      if (cfds[i]->IsDropped()) {
+      auto* cfd =
+          static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
+      if (cfd->IsDropped()) {
         // TODO (yanqin) investigate whether we should abort ingestion or
         // proceed with other non-dropped column families.
         status = Status::InvalidArgument(
@@ -3241,7 +3245,7 @@ Status DBImpl::IngestExternalFiles(
         break;
       }
       bool tmp = false;
-      status = ingestion_jobs[i].NeedsFlush(&tmp, cfds[i]->GetSuperVersion());
+      status = ingestion_jobs[i].NeedsFlush(&tmp, cfd->GetSuperVersion());
       need_flush[i] = tmp;
       at_least_one_cf_need_flush = (at_least_one_cf_need_flush || tmp);
       if (!status.ok()) {
@@ -3266,7 +3270,10 @@ Status DBImpl::IngestExternalFiles(
         for (size_t i = 0; i != num_cfs; ++i) {
           if (need_flush[i]) {
             mutex_.Unlock();
-            status = FlushMemTable(cfds[i], flush_opts,
+            auto* cfd =
+                static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)
+                    ->cfd();
+            status = FlushMemTable(cfd, flush_opts,
                                    FlushReason::kExternalFileIngestion,
                                    true /* writes_stopped */);
             mutex_.Lock();
@@ -3294,11 +3301,13 @@ Status DBImpl::IngestExternalFiles(
       autovector<autovector<VersionEdit*>> edit_lists;
       uint32_t num_entries = 0;
       for (size_t i = 0; i != num_cfs; ++i) {
-        if (cfds[i]->IsDropped()) {
+        auto* cfd =
+            static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
+        if (cfd->IsDropped()) {
           continue;
         }
-        cfds_to_commit.push_back(cfds[i]);
-        mutable_cf_options_list.push_back(cfds[i]->GetLatestMutableCFOptions());
+        cfds_to_commit.push_back(cfd);
+        mutable_cf_options_list.push_back(cfd->GetLatestMutableCFOptions());
         autovector<VersionEdit*> edit_list;
         edit_list.push_back(ingestion_jobs[i].edit());
         edit_lists.push_back(edit_list);
@@ -3321,9 +3330,11 @@ Status DBImpl::IngestExternalFiles(
       versions_->SetLastSequence(last_seqno);
     } else {
       for (size_t i = 0; i != num_cfs; ++i) {
-        if (!cfds[i]->IsDropped()) {
-          InstallSuperVersionAndScheduleWork(
-              cfds[i], &sv_ctxs[i], *cfds[i]->GetLatestMutableCFOptions());
+        auto* cfd =
+            static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
+        if (!cfd->IsDropped()) {
+          InstallSuperVersionAndScheduleWork(cfd, &sv_ctxs[i],
+                                             *cfd->GetLatestMutableCFOptions());
         }
       }
     }
@@ -3357,8 +3368,10 @@ Status DBImpl::IngestExternalFiles(
   }
   if (status.ok()) {
     for (size_t i = 0; i != num_cfs; ++i) {
-      if (!cfds[i]->IsDropped()) {
-        NotifyOnExternalFileIngested(cfds[i], ingestion_jobs[i]);
+      auto* cfd =
+          static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
+      if (!cfd->IsDropped()) {
+        NotifyOnExternalFileIngested(cfd, ingestion_jobs[i]);
       }
     }
   }
