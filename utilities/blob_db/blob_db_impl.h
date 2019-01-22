@@ -47,21 +47,6 @@ struct BlobCompactionContext;
 class BlobDBImpl;
 class BlobFile;
 
-// this implements the callback from the WAL which ensures that the
-// blob record is present in the blob log. If fsync/fdatasync in not
-// happening on every write, there is the probability that keys in the
-// blob log can lag the keys in blobs
-// TODO(yiwu): implement the WAL filter.
-class BlobReconcileWalFilter : public WalFilter {
- public:
-  virtual WalFilter::WalProcessingOption LogRecordFound(
-      unsigned long long log_number, const std::string& log_file_name,
-      const WriteBatch& batch, WriteBatch* new_batch,
-      bool* batch_changed) override;
-
-  virtual const char* Name() const override { return "BlobDBWalReconciler"; }
-};
-
 // Comparator to sort "TTL" aware Blob files based on the lower value of
 // TTL range.
 struct BlobFileComparatorTTL {

@@ -45,13 +45,6 @@ int kBlockBasedTableVersionFormat = 2;
 namespace rocksdb {
 namespace blob_db {
 
-WalFilter::WalProcessingOption BlobReconcileWalFilter::LogRecordFound(
-    unsigned long long /*log_number*/, const std::string& /*log_file_name*/,
-    const WriteBatch& /*batch*/, WriteBatch* /*new_batch*/,
-    bool* /*batch_changed*/) {
-  return WalFilter::WalProcessingOption::kContinueProcessing;
-}
-
 bool BlobFileComparator::operator()(
     const std::shared_ptr<BlobFile>& lhs,
     const std::shared_ptr<BlobFile>& rhs) const {
