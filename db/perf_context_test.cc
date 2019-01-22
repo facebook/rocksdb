@@ -688,6 +688,63 @@ TEST_F(PerfContextTest, MergeOperatorTime) {
   delete db;
 }
 
+TEST_F(PerfContextTest, CopyAndMove) {
+  // Assignment operator
+  {
+    get_perf_context()->Reset();
+    get_perf_context()->EnablePerLevelPerfContext();
+    PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 5);
+    ASSERT_EQ(
+        1, (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
+    PerfContext perfContextAssign;
+    perfContextAssign = *get_perf_context();
+    ASSERT_EQ(
+        1, (*(perfContextAssign.level_to_perf_context))[5].bloom_filter_useful);
+    get_perf_context()->ClearPerLevelPerfContext();
+    get_perf_context()->Reset();
+    ASSERT_EQ(
+        1, (*(perfContextAssign.level_to_perf_context))[5].bloom_filter_useful);
+    perfContextAssign.ClearPerLevelPerfContext();
+    perfContextAssign.Reset();
+  }
+  // Copy constructor
+  {
+    get_perf_context()->Reset();
+    get_perf_context()->EnablePerLevelPerfContext();
+    PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 5);
+    ASSERT_EQ(
+        1, (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
+    PerfContext perfContextCopy(*get_perf_context());
+    ASSERT_EQ(
+        1, (*(perfContextCopy.level_to_perf_context))[5].bloom_filter_useful);
+    get_perf_context()->ClearPerLevelPerfContext();
+    get_perf_context()->Reset();
+    ASSERT_EQ(
+        1, (*(perfContextCopy.level_to_perf_context))[5].bloom_filter_useful);
+    perfContextCopy.ClearPerLevelPerfContext();
+    perfContextCopy.Reset();
+  }
+  // Move constructor
+  {
+    get_perf_context()->Reset();
+    get_perf_context()->EnablePerLevelPerfContext();
+    PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 5);
+    ASSERT_EQ(
+        1, (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
+    PerfContext perfContextMove = std::move(*get_perf_context());
+    ASSERT_EQ(
+        1, (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
+    ASSERT_EQ(
+        1, (*(perfContextMove.level_to_perf_context))[5].bloom_filter_useful);
+    get_perf_context()->ClearPerLevelPerfContext();
+    get_perf_context()->Reset();
+    ASSERT_EQ(
+        1, (*(perfContextMove.level_to_perf_context))[5].bloom_filter_useful);
+    perfContextMove.ClearPerLevelPerfContext();
+    perfContextMove.Reset();
+  }
+}
+
 TEST_F(PerfContextTest, PerfContextByLevelGetSet) {
   get_perf_context()->Reset();
   get_perf_context()->EnablePerLevelPerfContext();
