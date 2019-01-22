@@ -85,15 +85,17 @@ public:
   public:
     ~ConfigHolder() {
       Config* config = config_.load();
-      delete config->list_element_iter_factory_;
-      delete config;
+      if (config != &DISABLED_CONFIG) {
+        delete config->list_element_iter_factory_;
+        delete config;
+      }
     }
 
     // at the moment Flink configures filters (can be already created) only once when user creates state
     // otherwise it can lead to ListElementIter leak in Config
     // or race between its delete in Configure() and usage in FilterV2()
     void Configure(Config* config) {
-      assert(GetConfig()->state_type_ == Disabled);
+      assert(GetConfig() == &DISABLED_CONFIG);
       config_ = config;
     }
 
@@ -110,7 +112,8 @@ public:
     }
 
   private:
-    std::atomic<Config*> config_ = { new Config{Disabled, 0, std::numeric_limits<int64_t>::max(), true, nullptr} };
+    Config DISABLED_CONFIG = Config{Disabled, 0, std::numeric_limits<int64_t>::max(), true, nullptr};
+    std::atomic<Config*> config_ = { &DISABLED_CONFIG };
     std::atomic<std::int64_t> current_timestamp_ = { std::numeric_limits<int64_t>::min() };
   };
 

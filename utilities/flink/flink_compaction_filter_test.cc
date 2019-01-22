@@ -55,10 +55,9 @@ std::string stub = ""; // NOLINT
 
 FlinkCompactionFilter::StateType state_type;
 CompactionFilter::ValueType value_type;
-FlinkCompactionFilter::ConfigHolder config_holder; // NOLINT
-ConsoleLogger logger; // NOLINT
-FlinkCompactionFilter filter = FlinkCompactionFilter( // NOLINT
-        shared_ptr<FlinkCompactionFilter::ConfigHolder>(&config_holder), shared_ptr<rocksdb::Logger>(&logger));
+FlinkCompactionFilter::ConfigHolder* config_holder; // NOLINT
+ConsoleLogger* logger; // NOLINT
+FlinkCompactionFilter* filter; // NOLINT
 
 void SetTimestamp(int64_t timestamp = time, size_t offset = 0, char* value = data) {
   for (unsigned long i = 0; i < sizeof(uint64_t); i++) {
@@ -69,31 +68,42 @@ void SetTimestamp(int64_t timestamp = time, size_t offset = 0, char* value = dat
 
 void Init(FlinkCompactionFilter::StateType stype,
           CompactionFilter::ValueType vtype,
-          size_t timestamp_offset = TEST_TIMESTAMP_OFFSET) {
-  time = rnd(mt);
-  SetTimestamp(time, timestamp_offset);
+          FlinkCompactionFilter::ListElementIterFactory* fixed_len_iter_factory,
+          size_t timestamp_offset) {
   state_type = stype;
   value_type = vtype;
 
-  auto config = new FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, false, nullptr};
-  config_holder.Configure(config);
+  logger = new ConsoleLogger();
+  config_holder = new FlinkCompactionFilter::ConfigHolder();
+  filter = new FlinkCompactionFilter(
+          shared_ptr<FlinkCompactionFilter::ConfigHolder>(config_holder), shared_ptr<rocksdb::Logger>(logger));
+  auto config = new FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, false, fixed_len_iter_factory};
+  config_holder->Configure(config);
+}
+
+void InitValue(FlinkCompactionFilter::StateType stype,
+               CompactionFilter::ValueType vtype,
+               size_t timestamp_offset = TEST_TIMESTAMP_OFFSET) {
+  time = rnd(mt);
+  SetTimestamp(time, timestamp_offset);
+  Init(stype, vtype, nullptr, timestamp_offset);
 }
 
 void InitList(CompactionFilter::ValueType vtype, bool first_elem_expired=false, size_t timestamp_offset = 0) {
   time = rnd(mt);
   SetTimestamp(first_elem_expired ? time - ttl - 20 : time, timestamp_offset); // elem 1 ts
   SetTimestamp(time, LIST_ELEM_FIXED_LEN + timestamp_offset); // elem 2 ts
-  state_type = LIST;
-  value_type = vtype;
-
   auto fixed_len_iter_factory = new FlinkCompactionFilter::FixedListElementIterFactory(LIST_ELEM_FIXED_LEN);
-  auto config = new FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, false, fixed_len_iter_factory};
-  config_holder.Configure(config);
+  Init(LIST, vtype, fixed_len_iter_factory, timestamp_offset);
+}
+
+void Deinit() {
+  delete filter;
 }
 
 CompactionFilter::Decision decide(size_t data_size = sizeof(data)) {
-  config_holder.SetCurrentTimestamp(time);
-  return filter.FilterV2(0, key, value_type, Slice(data, data_size), &new_list, &stub);
+  config_holder->SetCurrentTimestamp(time);
+  return filter->FilterV2(0, key, value_type, Slice(data, data_size), &new_list, &stub);
 }
 
 TEST(FlinkStateTtlTest, CheckStateTypeEnumOrder) { // NOLINT
@@ -106,60 +116,71 @@ TEST(FlinkStateTtlTest, CheckStateTypeEnumOrder) { // NOLINT
 }
 
 TEST(FlinkStateTtlTest, SkipShortDataWithoutTimestamp) { // NOLINT
-  Init(VALUE, KVALUE);
+  InitValue(VALUE, KVALUE);
   EXPIRE;
   EXPECT_EQ(decide(TIMESTAMP_BYTE_SIZE - 1), KKEEP);
+  Deinit();
 }
 
 TEST(FlinkValueStateTtlTest, Unexpired) { // NOLINT
-  Init(VALUE, KVALUE);
+  InitValue(VALUE, KVALUE);
   EXPECT_EQ(decide(), KKEEP);
+  Deinit();
 }
 
 TEST(FlinkValueStateTtlTest, Expired) { // NOLINT
-  Init(VALUE, KVALUE);
+  InitValue(VALUE, KVALUE);
   EXPIRE;
   EXPECT_EQ(decide(), KREMOVE);
+  Deinit();
 }
 
 TEST(FlinkValueStateTtlTest, WrongFilterValueType) { // NOLINT
-  Init(VALUE, KMERGE);
+  InitValue(VALUE, KMERGE);
   EXPIRE;
   EXPECT_EQ(decide(), KKEEP);
+  Deinit();
 }
 
 TEST(FlinkListStateTtlTest, Unexpired) { // NOLINT
   InitList(KMERGE);
   EXPECT_EQ(decide(), KKEEP);
+  Deinit();
 
   InitList(KVALUE);
   EXPECT_EQ(decide(), KKEEP);
+  Deinit();
 }
 
 TEST(FlinkListStateTtlTest, Expired) { // NOLINT
   InitList(KMERGE);
   EXPIRE;
   EXPECT_EQ(decide(), KREMOVE);
+  Deinit();
 
   InitList(KVALUE);
   EXPIRE;
   EXPECT_EQ(decide(), KREMOVE);
+  Deinit();
 }
 
 TEST(FlinkListStateTtlTest, HalfExpired) { // NOLINT
   InitList(KMERGE, true);
   EXPECT_EQ(decide(), KCHANGE);
   EXPECT_ARR_EQ(new_list.data(), data + LIST_ELEM_FIXED_LEN, LIST_ELEM_FIXED_LEN);
+  Deinit();
 
   InitList(KVALUE, true);
   EXPECT_EQ(decide(), KCHANGE);
   EXPECT_ARR_EQ(new_list.data(), data + LIST_ELEM_FIXED_LEN, LIST_ELEM_FIXED_LEN);
+  Deinit();
 }
 
 TEST(FlinkListStateTtlTest, WrongFilterValueType) { // NOLINT
   InitList(KBLOB);
   EXPIRE;
   EXPECT_EQ(decide(), KKEEP);
+  Deinit();
 }
 
 } // namespace flink
