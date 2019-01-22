@@ -201,7 +201,7 @@ InternalIteratorBase<TValue>* NewEmptyInternalIterator(Arena* arena) {
   if (arena == nullptr) {
     return NewEmptyInternalIterator<TValue>();
   } else {
-    auto mem = arena->AllocateAligned(sizeof(EmptyIterator));
+    auto mem = arena->AllocateAligned(sizeof(EmptyInternalIterator));
     return new (mem) EmptyInternalIterator<TValue>(Status::OK());
   }
 }
