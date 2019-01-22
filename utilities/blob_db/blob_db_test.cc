@@ -689,31 +689,11 @@ TEST_F(BlobDBTest, DISABLED_GCOldestSimpleBlobFileWhenOutOfSpace) {
 
 TEST_F(BlobDBTest, ReadWhileGC) {
   // run the same test for Get(), MultiGet() and Iterator each.
-  std::shared_ptr<SstFileManager> sst_file_manager(
-      NewSstFileManager(mock_env_.get()));
-  sst_file_manager->SetDeleteRateBytesPerSecond(1);
-  SstFileManagerImpl *sfm =
-      static_cast<SstFileManagerImpl *>(sst_file_manager.get());
   for (int i = 0; i < 2; i++) {
     BlobDBOptions bdb_options;
     bdb_options.min_blob_size = 0;
     bdb_options.disable_background_tasks = true;
-
-    Options db_options;
-
-    int files_deleted_directly = 0;
-    int files_scheduled_to_delete = 0;
-    rocksdb::SyncPoint::GetInstance()->SetCallBack(
-        "SstFileManagerImpl::ScheduleFileDeletion",
-        [&](void * /*arg*/) { files_scheduled_to_delete++; });
-    rocksdb::SyncPoint::GetInstance()->SetCallBack(
-        "DeleteScheduler::DeleteFile",
-        [&](void * /*arg*/) { files_deleted_directly++; });
-    if (i == 0) {
-      db_options.sst_file_manager = sst_file_manager;
-    }
-
-    Open(bdb_options, db_options);
+    Open(bdb_options);
     blob_db_->Put(WriteOptions(), "foo", "bar");
     auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
     ASSERT_EQ(1, blob_files.size());
@@ -770,30 +750,63 @@ TEST_F(BlobDBTest, ReadWhileGC) {
     ASSERT_EQ(bfile_number, obsolete_files[0]->BlobFileNumber());
     TEST_SYNC_POINT("BlobDBTest::ReadWhileGC:2");
     reader.join();
+    SyncPoint::GetInstance()->DisableProcessing();
 
     // The file is deleted this time
     blob_db_impl()->TEST_DeleteObsoleteFiles();
-    SyncPoint::GetInstance()->DisableProcessing();
     blob_files = blob_db_impl()->TEST_GetBlobFiles();
     ASSERT_EQ(1, blob_files.size());
     ASSERT_NE(bfile_number, blob_files[0]->BlobFileNumber());
     ASSERT_EQ(0, blob_db_impl()->TEST_GetObsoleteFiles().size());
     VerifyDB({{"foo", "bar"}});
-    // Even if SSTFileManager is not set, DB is creating a dummy one.
-    ASSERT_EQ(1, files_scheduled_to_delete);
-    if (i == 0) {
-      // Delete is rate limited
-      ASSERT_EQ(0, files_deleted_directly);
-    } else {
-      ASSERT_EQ(1, files_deleted_directly);
-    }
     Destroy();
-    if (i == 0) {
-      // Make sure that DestroyBlobDB() also goes through delete scheduler.
-      ASSERT_GE(2, files_scheduled_to_delete);
-    }
-    sfm->WaitForEmptyTrash();
   }
+}
+
+TEST_F(BlobDBTest, SstFileManager) {
+  // run the same test for Get(), MultiGet() and Iterator each.
+  std::shared_ptr<SstFileManager> sst_file_manager(
+      NewSstFileManager(mock_env_.get()));
+  sst_file_manager->SetDeleteRateBytesPerSecond(1);
+  SstFileManagerImpl *sfm =
+      static_cast<SstFileManagerImpl *>(sst_file_manager.get());
+
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  Options db_options;
+
+  int files_deleted_directly = 0;
+  int files_scheduled_to_delete = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::ScheduleFileDeletion",
+      [&](void * /*arg*/) { files_scheduled_to_delete++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteFile",
+      [&](void * /*arg*/) { files_deleted_directly++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+  db_options.sst_file_manager = sst_file_manager;
+
+  Open(bdb_options, db_options);
+
+  // Create one obselete file and clean it.
+  blob_db_->Put(WriteOptions(), "foo", "bar");
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(1, blob_files.size());
+  std::shared_ptr<BlobFile> bfile = blob_files[0];
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(bfile));
+  GCStats gc_stats;
+  ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(bfile, &gc_stats));
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+
+  // Even if SSTFileManager is not set, DB is creating a dummy one.
+  ASSERT_EQ(1, files_scheduled_to_delete);
+  ASSERT_EQ(0, files_deleted_directly);
+  Destroy();
+  // Make sure that DestroyBlobDB() also goes through delete scheduler.
+  ASSERT_GE(2, files_scheduled_to_delete);
+  ASSERT_EQ(0, files_deleted_directly);
+  SyncPoint::GetInstance()->DisableProcessing();
+  sfm->WaitForEmptyTrash();
 }
 
 TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
