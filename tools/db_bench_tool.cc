@@ -4647,6 +4647,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       if (rand_num < 0) {
         rand_num = rand_num * (-1);
       }
+      assert(range_ != 0);
       int pos = static_cast<int>(rand_num % range_);
       for (int i = 0; i < static_cast<int>(type_.size()); i++) {
         if (pos < type_[i]) {
