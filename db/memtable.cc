@@ -110,10 +110,10 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
   assert(!ShouldScheduleFlush());
 
   if (prefix_extractor_ && moptions_.memtable_prefix_bloom_bits > 0) {
-    prefix_bloom_.reset(new DynamicBloom(
-        &arena_, moptions_.memtable_prefix_bloom_bits, ioptions.bloom_locality,
-        6 /* hard coded 6 probes */, nullptr, moptions_.memtable_huge_page_size,
-        ioptions.info_log));
+    prefix_bloom_.reset(
+        new DynamicBloom(&arena_, moptions_.memtable_prefix_bloom_bits,
+                         ioptions.bloom_locality, 6 /* hard coded 6 probes */,
+                         moptions_.memtable_huge_page_size, ioptions.info_log));
   }
 }
 

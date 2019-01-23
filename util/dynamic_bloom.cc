@@ -32,20 +32,13 @@ uint32_t GetTotalBitsForLocality(uint32_t total_bits) {
 
 DynamicBloom::DynamicBloom(Allocator* allocator, uint32_t total_bits,
                            uint32_t locality, uint32_t num_probes,
-                           uint32_t (*hash_func)(const Slice& key),
-                           size_t huge_page_tlb_size,
-                           Logger* logger)
-    : DynamicBloom(num_probes, hash_func) {
+                           size_t huge_page_tlb_size, Logger* logger)
+    : DynamicBloom(num_probes) {
   SetTotalBits(allocator, total_bits, locality, huge_page_tlb_size, logger);
 }
 
-DynamicBloom::DynamicBloom(uint32_t num_probes,
-                           uint32_t (*hash_func)(const Slice& key))
-    : kTotalBits(0),
-      kNumBlocks(0),
-      kNumProbes(num_probes),
-      hash_func_(hash_func == nullptr ? &BloomHash : hash_func),
-      data_(nullptr) {}
+DynamicBloom::DynamicBloom(uint32_t num_probes)
+    : kTotalBits(0), kNumBlocks(0), kNumProbes(num_probes), data_(nullptr) {}
 
 void DynamicBloom::SetRawData(unsigned char* raw_data, uint32_t total_bits,
                               uint32_t num_blocks) {
