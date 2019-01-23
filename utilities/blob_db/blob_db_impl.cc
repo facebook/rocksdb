@@ -26,6 +26,7 @@
 #include "util/cast_util.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
+#include "util/file_util.h"
 #include "util/filename.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
@@ -1742,7 +1743,8 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
                    bfile->PathName().c_str());
 
     blob_files_.erase(bfile->BlobFileNumber());
-    Status s = env_->DeleteFile(bfile->PathName());
+    Status s = DeleteSSTFile(&(db_impl_->immutable_db_options()),
+                             bfile->PathName(), blob_dir_);
     if (!s.ok()) {
       ROCKS_LOG_ERROR(db_options_.info_log,
                       "File failed to be deleted as obsolete %s",
@@ -1832,7 +1834,7 @@ Status DestroyBlobDB(const std::string& dbname, const Options& options,
     uint64_t number;
     FileType type;
     if (ParseFileName(f, &number, &type) && type == kBlobFile) {
-      Status del = env->DeleteFile(blobdir + "/" + f);
+      Status del = DeleteSSTFile(&soptions, blobdir + "/" + f, blobdir);
       if (status.ok() && !del.ok()) {
         status = del;
       }
