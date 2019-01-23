@@ -295,7 +295,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   std::vector<DbPath> cf_paths;
 
   // Compaction concurrent thread limiter for the column family.
-  // If non-nullptr, use given concurrent thread limiter to control 
+  // If non-nullptr, use given concurrent thread limiter to control
   // the max outstanding compaction tasks. Limiter can be shared with
   // multiple column families across db instances.
   //
@@ -1344,6 +1344,11 @@ struct IngestExternalFileOptions {
   // 2. Without writing external SST file, it's possible to do checksum.
   // We have a plan to set this option to false by default in the future.
   bool write_global_seqno = true;
+  // Set to true if you would like to verify the checksums of each block of the
+  // external SST file before ingestion.
+  // Warning: setting this to true causes slowdown in file ingestion because
+  // the external SST file has to be read.
+  bool verify_checksums_before_ingest = false;
 };
 
 // TraceOptions is used for StartTrace
