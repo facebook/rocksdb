@@ -7,6 +7,7 @@
 * For users of dictionary compression with ZSTD v0.7.0+, we now reuse the same digested dictionary when compressing each of an SST file's data blocks for faster compression speeds.
 
 ### Public API Change
+* CompactionPri = kMinOverlappingRatio also uses compensated file size, which boosts file with lots of tombstones to be compacted first.
 * Transaction::GetForUpdate is extended with a do_validate parameter with default value of true. If false it skips validating the snapshot before doing the read. Similarly ::Merge, ::Put, ::Delete, and ::SingleDelete are extended with assume_tracked with default value of false. If true it indicates that call is assumed to be after a ::GetForUpdate.
 * `TableProperties::num_entries` and `TableProperties::num_deletions` now also account for number of range tombstones.
 * Remove geodb, spatial_db, document_db, json_document, date_tiered_db, and redis_lists.
