@@ -85,8 +85,8 @@ class CompactionPickerTest : public testing::Test {
 
   void Add(int level, uint32_t file_number, const char* smallest,
            const char* largest, uint64_t file_size = 1, uint32_t path_id = 0,
-           SequenceNumber smallest_seq = 100,
-           SequenceNumber largest_seq = 100) {
+           SequenceNumber smallest_seq = 100, SequenceNumber largest_seq = 100,
+           size_t compensated_file_size = 0) {
     assert(level < vstorage_->num_levels());
     FileMetaData* f = new FileMetaData;
     f->fd = FileDescriptor(file_number, path_id, file_size);
@@ -94,7 +94,8 @@ class CompactionPickerTest : public testing::Test {
     f->largest = InternalKey(largest, largest_seq, kTypeValue);
     f->fd.smallest_seqno = smallest_seq;
     f->fd.largest_seqno = largest_seq;
-    f->compensated_file_size = file_size;
+    f->compensated_file_size =
+        (compensated_file_size != 0) ? compensated_file_size : file_size;
     f->refs = 0;
     vstorage_->AddFile(level, f);
     files_.emplace_back(f);
@@ -615,6 +616,35 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping3) {
   ASSERT_EQ(1U, compaction->num_input_files(0));
   // Picking file 8 because overlapping ratio is the biggest.
   ASSERT_EQ(8U, compaction->input(0, 0)->fd.GetNumber());
+}
+
+TEST_F(CompactionPickerTest, CompactionPriMinOverlapping4) {
+  NewVersionStorage(6, kCompactionStyleLevel);
+  ioptions_.compaction_pri = kMinOverlappingRatio;
+  mutable_cf_options_.max_bytes_for_level_base = 10000000;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+
+  // file 7 and 8 over lap with the same file, but file 8 is smaller so
+  // it will be picked.
+  // Overlaps with file 26, 27. And the file is compensated so will be
+  // picked up.
+  Add(2, 6U, "150", "167", 60000000U, 0, 100, 100, 180000000U);
+  Add(2, 7U, "168", "169", 60000000U);  // Overlaps with file 27
+  Add(2, 8U, "201", "300", 61000000U);  // Overlaps with file 28
+
+  Add(3, 26U, "160", "165", 60000000U);
+  // Boosted file size in output level is not considered.
+  Add(3, 27U, "166", "170", 60000000U, 0, 100, 100, 260000000U);
+  Add(3, 28U, "180", "400", 60000000U);
+  Add(3, 29U, "401", "500", 60000000U);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  // Picking file 8 because overlapping ratio is the biggest.
+  ASSERT_EQ(6U, compaction->input(0, 0)->fd.GetNumber());
 }
 
 // This test exhibits the bug where we don't properly reset parent_index in

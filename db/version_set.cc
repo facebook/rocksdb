@@ -1887,9 +1887,9 @@ void SortFileByOverlappingRatio(
       next_level_it++;
     }
 
-    assert(file->fd.file_size != 0);
+    assert(file->compensated_file_size != 0);
     file_to_order[file->fd.GetNumber()] =
-        overlapping_bytes * 1024u / file->fd.file_size;
+        overlapping_bytes * 1024u / file->compensated_file_size;
   }
 
   std::sort(temp->begin(), temp->end(),
