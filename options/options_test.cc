@@ -1528,6 +1528,7 @@ TEST_F(OptionsParserTest, DifferentDefault) {
   const std::string kOptionsFileName = "test-persisted-options.ini";
 
   ColumnFamilyOptions cf_level_opts;
+  ASSERT_EQ(CompactionPri::kMinOverlappingRatio, cf_level_opts.compaction_pri);
   cf_level_opts.OptimizeLevelStyleCompaction();
 
   ColumnFamilyOptions cf_univ_opts;
@@ -1597,6 +1598,14 @@ TEST_F(OptionsParserTest, DifferentDefault) {
     Options old_default_opts;
     old_default_opts.OldDefaults(5, 2);
     ASSERT_EQ(16 * 1024U * 1024U, old_default_opts.delayed_write_rate);
+    ASSERT_TRUE(old_default_opts.compaction_pri ==
+                CompactionPri::kByCompensatedSize);
+  }
+  {
+    Options old_default_opts;
+    old_default_opts.OldDefaults(5, 18);
+    ASSERT_TRUE(old_default_opts.compaction_pri ==
+                CompactionPri::kByCompensatedSize);
   }
 
   Options small_opts;

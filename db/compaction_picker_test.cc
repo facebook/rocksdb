@@ -59,6 +59,9 @@ class CompactionPickerTest : public testing::Test {
         log_buffer_(InfoLogLevel::INFO_LEVEL, &logger_),
         file_num_(1),
         vstorage_(nullptr) {
+    // ioptions_.compaction_pri = kMinOverlappingRatio has its own set of
+    // tests to cover.
+    ioptions_.compaction_pri = kByCompensatedSize;
     fifo_options_.max_table_files_size = 1;
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
     ioptions_.cf_paths.emplace_back("dummy",
