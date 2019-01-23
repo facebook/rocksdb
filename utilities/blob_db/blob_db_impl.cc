@@ -211,27 +211,27 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
 }
 
 void BlobDBImpl::StartBackgroundTasks() {
-  if(!reclaim_open_files_thread_) {
+  if (!reclaim_open_files_thread_) {
     reclaim_open_files_thread_.reset(new rocksdb::RepeatableThread(
         [this]() { BlobDBImpl::ReclaimOpenFiles(false); }, "rclaimr", env_,
         kReclaimOpenFilesPeriodMillisecs));
   }
-  if(!gc_thread_) {
+  if (!gc_thread_) {
     gc_thread_.reset(new rocksdb::RepeatableThread(
         [this]() { BlobDBImpl::RunGC(false); }, "gc", env_,
         bdb_options_.garbage_collection_interval_secs * 1000));
   }
-  if(!cleanup_obselete_files_thread_) {
+  if (!cleanup_obselete_files_thread_) {
     cleanup_obselete_files_thread_.reset(new rocksdb::RepeatableThread(
         [this]() { BlobDBImpl::DeleteObsoleteFiles(false); }, "obsdltr", env_,
         kDeleteObsoleteFilesPeriodMillisecs));
   }
-  if(!sanity_checker_thread_) {
+  if (!sanity_checker_thread_) {
     sanity_checker_thread_.reset(new rocksdb::RepeatableThread(
         [this]() { BlobDBImpl::SanityCheck(false); }, "sanchkr", env_,
         kSanityCheckPeriodMillisecs));
   }
-  if(!evict_expired_files_thread_) {
+  if (!evict_expired_files_thread_) {
     evict_expired_files_thread_.reset(new rocksdb::RepeatableThread(
         [this]() { BlobDBImpl::EvictExpiredFiles(false); }, "evicter", env_,
         kEvictExpiredFilesPeriodMillisecs));
