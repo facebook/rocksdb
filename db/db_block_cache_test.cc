@@ -631,6 +631,74 @@ TEST_F(DBBlockCacheTest, CompressedCache) {
   }
 }
 
+TEST_F(DBBlockCacheTest, CacheCompressionDict) {
+  const int kNumFiles = 4;
+  const int kNumEntriesPerFile = 32;
+  const int kNumBytesPerEntry = 1024;
+
+  // Try all the available libraries that support dictionary compression
+  std::vector<CompressionType> compression_types;
+#ifdef ZLIB
+  compression_types.push_back(kZlibCompression);
+#endif  // ZLIB
+#if LZ4_VERSION_NUMBER >= 10400
+  compression_types.push_back(kLZ4Compression);
+  compression_types.push_back(kLZ4HCCompression);
+#endif  // LZ4_VERSION_NUMBER >= 10400
+#if ZSTD_VERSION_NUMBER >= 500
+  compression_types.push_back(kZSTD);
+#endif  // ZSTD_VERSION_NUMBER >= 500
+  Random rnd(301);
+  for (auto compression_type : compression_types) {
+    Options options = CurrentOptions();
+    options.compression = compression_type;
+    options.compression_opts.max_dict_bytes = 4096;
+    options.create_if_missing = true;
+    options.num_levels = 2;
+    options.statistics = rocksdb::CreateDBStatistics();
+    options.target_file_size_base = kNumEntriesPerFile * kNumBytesPerEntry;
+    BlockBasedTableOptions table_options;
+    table_options.cache_index_and_filter_blocks = true;
+    table_options.block_cache.reset(new MockCache());
+    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    DestroyAndReopen(options);
+
+    for (int i = 0; i < kNumFiles; ++i) {
+      ASSERT_EQ(i, NumTableFilesAtLevel(0, 0));
+      for (int j = 0; j < kNumEntriesPerFile; ++j) {
+        std::string value = RandomString(&rnd, kNumBytesPerEntry);
+        ASSERT_OK(Put(Key(j * kNumFiles + i), value.c_str()));
+      }
+      ASSERT_OK(Flush());
+    }
+    dbfull()->TEST_WaitForCompact();
+    ASSERT_EQ(0, NumTableFilesAtLevel(0));
+    ASSERT_EQ(kNumFiles, NumTableFilesAtLevel(1));
+
+    // Seek to a key in a file. It should cause the SST's dictionary meta-block
+    // to be read.
+    RecordCacheCounters(options);
+    ASSERT_EQ(0,
+              TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
+    ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_ADD));
+    ASSERT_EQ(
+        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+        0);
+    ReadOptions read_options;
+    ASSERT_NE("NOT_FOUND", Get(Key(kNumFiles * kNumEntriesPerFile - 1)));
+    // Two blocks missed/added: dictionary and data block
+    // One block hit: index since it's prefetched
+    CheckCacheCounters(options, 2 /* expected_misses */, 1 /* expected_hits */,
+                       2 /* expected_inserts */, 0 /* expected_failures */);
+    ASSERT_EQ(1,
+              TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
+    ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_ADD));
+    ASSERT_GT(
+        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+        0);
+  }
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

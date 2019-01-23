@@ -255,7 +255,7 @@ struct UncompressionDict {
     }
     assert(res == 0);  // Last I checked they can't fail
     (void)res;         // prevent unused var warning
-#endif  // ROCKSDB_ZSTD_DDICT
+#endif                 // ROCKSDB_ZSTD_DDICT
   }
 
 #ifdef ROCKSDB_ZSTD_DDICT
