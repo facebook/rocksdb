@@ -96,6 +96,26 @@ BlobDBImpl::~BlobDBImpl() {
   // CancelAllBackgroundWork(db_, true);
   Status s __attribute__((__unused__)) = Close();
   assert(s.ok());
+  if (reclaim_open_files_thread_) {
+    reclaim_open_files_thread_->cancel();
+    reclaim_open_files_thread_.reset();
+  }
+  if (gc_thread_) {
+    gc_thread_->cancel();
+    gc_thread_.reset();
+  }
+  if (cleanup_obselete_files_thread_) {
+    cleanup_obselete_files_thread_->cancel();
+    cleanup_obselete_files_thread_.reset();
+  }
+  if (sanity_checker_thread_) {
+    sanity_checker_thread_->cancel();
+    sanity_checker_thread_.reset();
+  }
+  if (evict_expired_files_thread_) {
+    evict_expired_files_thread_->cancel();
+    evict_expired_files_thread_.reset();
+  }
 }
 
 Status BlobDBImpl::Close() {
@@ -192,21 +212,31 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
 }
 
 void BlobDBImpl::StartBackgroundTasks() {
-  // store a call to a member function and object
-  tqueue_.add(
-      kReclaimOpenFilesPeriodMillisecs,
-      std::bind(&BlobDBImpl::ReclaimOpenFiles, this, std::placeholders::_1));
-  tqueue_.add(static_cast<int64_t>(
-                  bdb_options_.garbage_collection_interval_secs * 1000),
-              std::bind(&BlobDBImpl::RunGC, this, std::placeholders::_1));
-  tqueue_.add(
-      kDeleteObsoleteFilesPeriodMillisecs,
-      std::bind(&BlobDBImpl::DeleteObsoleteFiles, this, std::placeholders::_1));
-  tqueue_.add(kSanityCheckPeriodMillisecs,
-              std::bind(&BlobDBImpl::SanityCheck, this, std::placeholders::_1));
-  tqueue_.add(
-      kEvictExpiredFilesPeriodMillisecs,
-      std::bind(&BlobDBImpl::EvictExpiredFiles, this, std::placeholders::_1));
+  if(!reclaim_open_files_thread_) {
+    reclaim_open_files_thread_.reset(new rocksdb::RepeatableThread(
+        [this]() { BlobDBImpl::ReclaimOpenFiles(false); }, "rclaimr", env_,
+        kReclaimOpenFilesPeriodMillisecs));
+  }
+  if(!gc_thread_) {
+    gc_thread_.reset(new rocksdb::RepeatableThread(
+        [this]() { BlobDBImpl::RunGC(false); }, "gc", env_,
+        bdb_options_.garbage_collection_interval_secs * 1000));
+  }
+  if(!cleanup_obselete_files_thread_) {
+    cleanup_obselete_files_thread_.reset(new rocksdb::RepeatableThread(
+        [this]() { BlobDBImpl::DeleteObsoleteFiles(false); }, "obsdltr", env_,
+        kDeleteObsoleteFilesPeriodMillisecs));
+  }
+  if(!sanity_checker_thread_) {
+    sanity_checker_thread_.reset(new rocksdb::RepeatableThread(
+        [this]() { BlobDBImpl::SanityCheck(false); }, "sanchkr", env_,
+        kSanityCheckPeriodMillisecs));
+  }
+  if(!evict_expired_files_thread_) {
+    evict_expired_files_thread_.reset(new rocksdb::RepeatableThread(
+        [this]() { BlobDBImpl::EvictExpiredFiles(false); }, "evicter", env_,
+        kEvictExpiredFilesPeriodMillisecs));
+  }
 }
 
 Status BlobDBImpl::GetAllBlobFiles(std::set<uint64_t>* file_numbers) {

@@ -27,6 +27,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/wal_filter.h"
 #include "util/mutexlock.h"
+#include "util/repeatable_thread.h"
 #include "util/timer_queue.h"
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_file.h"
@@ -370,8 +371,11 @@ class BlobDBImpl : public BlobDB {
   // Flag to check whether Close() has been called on this DB
   bool closed_;
 
-  // timer based queue to execute tasks
-  TimerQueue tqueue_;
+  std::unique_ptr<rocksdb::RepeatableThread> reclaim_open_files_thread_;
+  std::unique_ptr<rocksdb::RepeatableThread> gc_thread_;
+  std::unique_ptr<rocksdb::RepeatableThread> cleanup_obselete_files_thread_;
+  std::unique_ptr<rocksdb::RepeatableThread> sanity_checker_thread_;
+  std::unique_ptr<rocksdb::RepeatableThread> evict_expired_files_thread_;
 
   // number of files opened for random access/GET
   // counter is used to monitor and close excess RA files.
