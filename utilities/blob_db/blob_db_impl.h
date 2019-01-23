@@ -28,7 +28,6 @@
 #include "rocksdb/wal_filter.h"
 #include "util/mutexlock.h"
 #include "util/repeatable_thread.h"
-#include "util/timer_queue.h"
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_file.h"
 #include "utilities/blob_db/blob_log_format.h"
@@ -268,8 +267,6 @@ class BlobDBImpl : public BlobDB {
   // task will close random readers, which are kept around for
   // efficiency
   std::pair<bool, int64_t> ReclaimOpenFiles(bool aborted);
-
-  std::pair<bool, int64_t> RemoveTimerQ(TimerQueue* tq, bool aborted);
 
   // Adds the background tasks to the timer queue
   void StartBackgroundTasks();

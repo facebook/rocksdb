@@ -42,7 +42,6 @@ $RunOnly.Add("compact_on_deletion_collector_test") | Out-Null
 $RunOnly.Add("merge_test") | Out-Null
 $RunOnly.Add("stringappend_test") | Out-Null # Apparently incorrectly written
 $RunOnly.Add("backupable_db_test") | Out-Null # Disabled
-$RunOnly.Add("timer_queue_test") | Out-Null # Not a gtest
 
 if($RunAll -and $SuiteRun -ne "") {
     Write-Error "$RunAll and $SuiteRun are not compatible"
@@ -67,7 +66,7 @@ $BinariesFolder = -Join($RootFolder, "\build\Debug\")
 
 if($WorkFolder -eq "") {
 
-    # If TEST_TMPDIR is set use it    
+    # If TEST_TMPDIR is set use it
     [string]$var = $Env:TEST_TMPDIR
     if($var -eq "") {
         $WorkFolder = -Join($RootFolder, "\db_tests\")
@@ -92,7 +91,7 @@ $ExcludeCasesSet = New-Object System.Collections.Generic.HashSet[string]
 if($ExcludeCases -ne "") {
     Write-Host "ExcludeCases: $ExcludeCases"
     $l = $ExcludeCases -split ' '
-    ForEach($t in $l) { 
+    ForEach($t in $l) {
       $ExcludeCasesSet.Add($t) | Out-Null
     }
 }
@@ -101,7 +100,7 @@ $ExcludeExesSet = New-Object System.Collections.Generic.HashSet[string]
 if($ExcludeExes -ne "") {
     Write-Host "ExcludeExe: $ExcludeExes"
     $l = $ExcludeExes -split ' '
-    ForEach($t in $l) { 
+    ForEach($t in $l) {
       $ExcludeExesSet.Add($t) | Out-Null
     }
 }
@@ -252,7 +251,7 @@ if($Run -ne "") {
 
   $DiscoveredExe = @()
   dir -Path $search_path | ForEach-Object {
-     $DiscoveredExe += ($_.Name)     
+     $DiscoveredExe += ($_.Name)
   }
 
   # Remove exclusions
@@ -292,7 +291,7 @@ if($SuiteRun -ne "") {
 
   $ListOfExe = @()
   dir -Path $search_path | ForEach-Object {
-     $ListOfExe += ($_.Name)     
+     $ListOfExe += ($_.Name)
   }
 
   # Exclude those in RunOnly from running as suites
@@ -347,7 +346,7 @@ function RunJobs($Suites, $TestCmds, [int]$ConcurrencyVal)
 
     # Wait for all to finish and get the results
     while(($JobToLog.Count -gt 0) -or
-          ($TestCmds.Count -gt 0) -or 
+          ($TestCmds.Count -gt 0) -or
            ($Suites.Count -gt 0)) {
 
         # Make sure we have maximum concurrent jobs running if anything
@@ -467,8 +466,8 @@ RunJobs -Suites $CasesToRun -TestCmds $TestExes -ConcurrencyVal $Concurrency
 
 $EndDate = (Get-Date)
 
-New-TimeSpan -Start $StartDate -End $EndDate | 
-  ForEach-Object { 
+New-TimeSpan -Start $StartDate -End $EndDate |
+  ForEach-Object {
     "Elapsed time: {0:g}" -f $_
   }
 
@@ -482,5 +481,3 @@ if(!$script:success) {
  }
 
  exit 0
-
- 
