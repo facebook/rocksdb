@@ -4773,7 +4773,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         } else if (value_size > value_max) {
           value_size = value_size % value_max;
         }
-        s = db_with_cfh->db->Put(write_options_, key, gen.Generate(value_size));
+        s = db_with_cfh->db->Put(
+            write_options_, key,
+            gen.Generate(static_cast<unsigned int>(value_size)));
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
           exit(1);
