@@ -368,6 +368,7 @@ class BlobDBImpl : public BlobDB {
   // Flag to check whether Close() has been called on this DB
   bool closed_;
 
+  // Threads that run at fixed intervals
   std::unique_ptr<rocksdb::RepeatableThread> reclaim_open_files_thread_;
   std::unique_ptr<rocksdb::RepeatableThread> gc_thread_;
   std::unique_ptr<rocksdb::RepeatableThread> cleanup_obselete_files_thread_;
