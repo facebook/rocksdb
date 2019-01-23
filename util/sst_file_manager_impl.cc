@@ -403,6 +403,7 @@ bool SstFileManagerImpl::CancelErrorRecovery(ErrorHandler* handler) {
 
 Status SstFileManagerImpl::ScheduleFileDeletion(
     const std::string& file_path, const std::string& path_to_sync) {
+  TEST_SYNC_POINT("SstFileManagerImpl::ScheduleFileDeletion");
   return delete_scheduler_.DeleteFile(file_path, path_to_sync);
 }
 
