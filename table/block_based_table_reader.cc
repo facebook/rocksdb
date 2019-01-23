@@ -2518,7 +2518,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         DataBlockIter biter;
         NewDataBlockIterator<DataBlockIter>(
             rep_, read_options, iiter->value(), &biter, false,
-            true /* key_includes_seq */, get_context);
+            true /* key_includes_seq */, true /* index_key_is_full */,
+            get_context);
 
         if (read_options.read_tier == kBlockCacheTier &&
             biter.status().IsIncomplete()) {
