@@ -528,8 +528,8 @@ struct AdvancedColumnFamilyOptions {
 
   // If level compaction_style = kCompactionStyleLevel, for each level,
   // which files are prioritized to be picked to compact.
-  // Default: kByCompensatedSize
-  CompactionPri compaction_pri = kByCompensatedSize;
+  // Default: kMinOverlappingRatio
+  CompactionPri compaction_pri = kMinOverlappingRatio;
 
   // The options needed to support Universal Style compactions
   //

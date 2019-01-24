@@ -23,6 +23,9 @@
 * Fix incorrect `NotFound` point lookup result when querying the endpoint of a file that has been extended by a range tombstone.
 * Fix with pipelined write, write leaders's callback failure lead to the whole write group fail.
 
+### Change Default Options
+* Change options.compaction_pri's default to kMinOverlappingRatio
+
 ## 5.18.0 (11/30/2018)
 ### New Features
 * Introduced `JemallocNodumpAllocator` memory allocator. When being use, block cache will be excluded from core dump.

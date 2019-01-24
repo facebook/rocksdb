@@ -439,6 +439,10 @@ DBOptions* DBOptions::OldDefaults(int rocksdb_major_version,
 
 ColumnFamilyOptions* ColumnFamilyOptions::OldDefaults(
     int rocksdb_major_version, int rocksdb_minor_version) {
+  if (rocksdb_major_version < 5 ||
+      (rocksdb_major_version == 5 && rocksdb_minor_version <= 18)) {
+    compaction_pri = CompactionPri::kByCompensatedSize;
+  }
   if (rocksdb_major_version < 4 ||
       (rocksdb_major_version == 4 && rocksdb_minor_version < 7)) {
     write_buffer_size = 4 << 20;
@@ -452,7 +456,6 @@ ColumnFamilyOptions* ColumnFamilyOptions::OldDefaults(
   } else if (rocksdb_major_version == 5 && rocksdb_minor_version < 2) {
     level0_stop_writes_trigger = 30;
   }
-  compaction_pri = CompactionPri::kByCompensatedSize;
 
   return this;
 }
