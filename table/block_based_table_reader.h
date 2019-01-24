@@ -259,7 +259,7 @@ class BlockBasedTable : public TableReader {
   //    block.
   static Status MaybeReadBlockAndLoadToCache(
       FilePrefetchBuffer* prefetch_buffer, Rep* rep, const ReadOptions& ro,
-      const BlockHandle& handle, Slice compression_dict,
+      const BlockHandle& handle, const UncompressionDict& uncompression_dict,
       CachableEntry<Block>* block_entry, bool is_index = false,
       GetContext* get_context = nullptr);
 
@@ -274,6 +274,10 @@ class BlockBasedTable : public TableReader {
       FilePrefetchBuffer* prefetch_buffer, const BlockHandle& filter_blk_handle,
       const bool is_a_filter_partition, bool no_io, GetContext* get_context,
       const SliceTransform* prefix_extractor = nullptr) const;
+
+  static CachableEntry<UncompressionDict> GetUncompressionDict(
+      Rep* rep, FilePrefetchBuffer* prefetch_buffer, bool no_io,
+      GetContext* get_context);
 
   // Get the iterator from the index reader.
   // If input_iter is not set, return new Iterator
@@ -295,15 +299,16 @@ class BlockBasedTable : public TableReader {
   // block_cache_compressed.
   // On success, Status::OK with be returned and @block will be populated with
   // pointer to the block as well as its block handle.
-  // @param compression_dict Data for presetting the compression library's
+  // @param uncompression_dict Data for presetting the compression library's
   //    dictionary.
   static Status GetDataBlockFromCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed, Rep* rep,
       const ReadOptions& read_options,
       BlockBasedTable::CachableEntry<Block>* block,
-      const Slice& compression_dict, size_t read_amp_bytes_per_bit,
-      bool is_index = false, GetContext* get_context = nullptr);
+      const UncompressionDict& uncompression_dict,
+      size_t read_amp_bytes_per_bit, bool is_index = false,
+      GetContext* get_context = nullptr);
 
   // Put a raw block (maybe compressed) to the corresponding block caches.
   // This method will perform decompression against raw_block if needed and then
@@ -313,7 +318,7 @@ class BlockBasedTable : public TableReader {
   //
   // Allocated memory managed by raw_block_contents will be transferred to
   // PutDataBlockToCache(). After the call, the object will be invalid.
-  // @param compression_dict Data for presetting the compression library's
+  // @param uncompression_dict Data for presetting the compression library's
   //    dictionary.
   static Status PutDataBlockToCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
@@ -321,7 +326,7 @@ class BlockBasedTable : public TableReader {
       const ReadOptions& read_options, const ImmutableCFOptions& ioptions,
       CachableEntry<Block>* block, BlockContents* raw_block_contents,
       CompressionType raw_block_comp_type, uint32_t format_version,
-      const Slice& compression_dict, SequenceNumber seq_no,
+      const UncompressionDict& uncompression_dict, SequenceNumber seq_no,
       size_t read_amp_bytes_per_bit, MemoryAllocator* memory_allocator,
       bool is_index = false, Cache::Priority pri = Cache::Priority::LOW,
       GetContext* get_context = nullptr);
@@ -367,9 +372,9 @@ class BlockBasedTable : public TableReader {
       Rep* rep, FilePrefetchBuffer* prefetch_buffer,
       InternalIterator* meta_iter,
       const InternalKeyComparator& internal_comparator);
-  static Status ReadCompressionDictBlock(Rep* rep,
-                                         FilePrefetchBuffer* prefetch_buffer,
-                                         InternalIterator* meta_iter);
+  static Status ReadCompressionDictBlock(
+      Rep* rep, FilePrefetchBuffer* prefetch_buffer,
+      std::unique_ptr<const BlockContents>* compression_dict_block);
   static Status PrefetchIndexAndFilterBlocks(
       Rep* rep, FilePrefetchBuffer* prefetch_buffer,
       InternalIterator* meta_iter, BlockBasedTable* new_table,
@@ -488,11 +493,15 @@ struct BlockBasedTable::Rep {
 
   // Footer contains the fixed table information
   Footer footer;
-  // index_reader and filter will be populated and used only when
-  // options.block_cache is nullptr; otherwise we will get the index block via
-  // the block cache.
+  // `index_reader`, `filter`, and `uncompression_dict` will be populated (i.e.,
+  // non-nullptr) and used only when options.block_cache is nullptr or when
+  // `cache_index_and_filter_blocks == false`. Otherwise, we will get the index,
+  // filter, and compression dictionary blocks via the block cache. In that case
+  // `dummy_index_reader_offset`, `filter_handle`, and `compression_dict_handle`
+  // are used to lookup these meta-blocks in block cache.
   std::unique_ptr<IndexReader> index_reader;
   std::unique_ptr<FilterBlockReader> filter;
+  std::unique_ptr<UncompressionDict> uncompression_dict;
 
   enum class FilterType {
     kNoFilter,
@@ -502,13 +511,9 @@ struct BlockBasedTable::Rep {
   };
   FilterType filter_type;
   BlockHandle filter_handle;
+  BlockHandle compression_dict_handle;
 
   std::shared_ptr<const TableProperties> table_properties;
-  // Block containing the data for the compression dictionary. We take ownership
-  // for the entire block struct, even though we only use its Slice member. This
-  // is easier because the Slice member depends on the continued existence of
-  // another member ("allocation").
-  std::unique_ptr<const BlockContents> compression_dict_block;
   BlockBasedTableOptions::IndexType index_type;
   bool hash_index_allow_collision;
   bool whole_key_filtering;
@@ -544,6 +549,12 @@ struct BlockBasedTable::Rep {
   // If false, blocks in this file are definitely all uncompressed. Knowing this
   // before reading individual blocks enables certain optimizations.
   bool blocks_maybe_compressed = true;
+
+  // If true, data blocks in this file are definitely ZSTD compressed. If false
+  // they might not be. When false we skip creating a ZSTD digested
+  // uncompression dictionary. Even if we get a false negative, things should
+  // still work, just not as quickly.
+  bool blocks_definitely_zstd_compressed = false;
 
   bool closed = false;
   const bool immortal_table;

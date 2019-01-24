@@ -107,6 +107,10 @@ void GetContext::ReportCounters() {
     RecordTick(statistics_, BLOCK_CACHE_FILTER_HIT,
                get_context_stats_.num_cache_filter_hit);
   }
+  if (get_context_stats_.num_cache_compression_dict_hit > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_COMPRESSION_DICT_HIT,
+               get_context_stats_.num_cache_compression_dict_hit);
+  }
   if (get_context_stats_.num_cache_index_miss > 0) {
     RecordTick(statistics_, BLOCK_CACHE_INDEX_MISS,
                get_context_stats_.num_cache_index_miss);
@@ -118,6 +122,10 @@ void GetContext::ReportCounters() {
   if (get_context_stats_.num_cache_data_miss > 0) {
     RecordTick(statistics_, BLOCK_CACHE_DATA_MISS,
                get_context_stats_.num_cache_data_miss);
+  }
+  if (get_context_stats_.num_cache_compression_dict_miss > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_COMPRESSION_DICT_MISS,
+               get_context_stats_.num_cache_compression_dict_miss);
   }
   if (get_context_stats_.num_cache_bytes_read > 0) {
     RecordTick(statistics_, BLOCK_CACHE_BYTES_READ,
@@ -157,6 +165,14 @@ void GetContext::ReportCounters() {
   if (get_context_stats_.num_cache_filter_bytes_insert > 0) {
     RecordTick(statistics_, BLOCK_CACHE_FILTER_BYTES_INSERT,
                get_context_stats_.num_cache_filter_bytes_insert);
+  }
+  if (get_context_stats_.num_cache_compression_dict_add > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_COMPRESSION_DICT_ADD,
+               get_context_stats_.num_cache_compression_dict_add);
+  }
+  if (get_context_stats_.num_cache_compression_dict_bytes_insert > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT,
+               get_context_stats_.num_cache_compression_dict_bytes_insert);
   }
 }
 
