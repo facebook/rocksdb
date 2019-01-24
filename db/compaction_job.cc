@@ -1236,6 +1236,13 @@ Status CompactionJob::FinishCompactionOutputFile(
       has_overlapping_endpoints = false;
     }
 
+    // The end key of the subcompaction must be bigger or equal to the upper
+    // bound. If the end of subcompaction is null or the upper bound is null,
+    // it means that this file is the last file in the compaction. So there
+    // will be no overlapping between this file and others.
+    assert(sub_compact->end == nullptr ||
+           upper_bound == nullptr ||
+           ucmp->Compare(*upper_bound , *sub_compact->end) <= 0);
     auto it = range_del_agg->NewIterator(lower_bound, upper_bound,
                                          has_overlapping_endpoints);
     // Position the range tombstone output iterator. There may be tombstone
