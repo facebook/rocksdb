@@ -108,6 +108,23 @@ class MergeOperator {
     Slice& existing_operand;
   };
 
+  // This function applies a stack of merge operands in chrionological order
+  // on top of an existing value. There are two ways in which this method is
+  // being used:
+  // a) During Get() operation, it used to calculate the final value of a key
+  // b) During compaction, in order to collapse some operands with the based
+  //    value.
+  //
+  // Note: The name of the method is somewhat misleading, as both in the cases
+  // of Get() or compaction it may be called on a subset of operands:
+  // K:    0    +1    +2    +7    +4     +5      2     +1     +2
+  //                              ^
+  //                              |
+  //                          snapshot
+  // In the example above, Get(K) operation will call FullMerge with a base
+  // value of 2 and operands [+1, +2]. Compaction process might decide to
+  // collapse the beginning of the history up to the snapshot by performing
+  // full Merge with base value of 0 and operands [+1, +2, +7, +3].
   virtual bool FullMergeV2(const MergeOperationInput& merge_in,
                            MergeOperationOutput* merge_out) const;
 
@@ -182,11 +199,11 @@ class MergeOperator {
   //       consistent MergeOperator between DB opens.
   virtual const char* Name() const = 0;
 
-  // Determines whether the MergeOperator can be called with just a single
+  // Determines whether the PartialMerge can be called with just a single
   // merge operand.
-  // Override and return true for allowing a single operand. Both FullMergeV2
-  // and PartialMerge/PartialMergeMulti should be overridden and implemented
-  // correctly to handle a single operand.
+  // Override and return true for allowing a single operand. PartialMerge
+  // and PartialMergeMulti should be overridden and implemented
+  // correctly to properly handle a single operand.
   virtual bool AllowSingleOperand() const { return false; }
 
   // Allows to control when to invoke a full merge during Get.

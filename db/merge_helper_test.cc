@@ -130,7 +130,7 @@ TEST_F(MergeHelperTest, SingleOperand) {
 
   AddKeyVal("a", 50, kTypeMerge, test::EncodeInt(1U));
 
-  ASSERT_TRUE(Run(31, true).IsMergeInProgress());
+  ASSERT_TRUE(Run(31, false).IsMergeInProgress());
   ASSERT_FALSE(iter_->Valid());
   ASSERT_EQ(test::KeyStr("a", 50, kTypeMerge), merge_helper_->keys()[0]);
   ASSERT_EQ(test::EncodeInt(1U), merge_helper_->values()[0]);

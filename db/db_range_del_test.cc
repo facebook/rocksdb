@@ -1138,6 +1138,14 @@ TEST_F(DBRangeDelTest, KeyAtOverlappingEndpointReappears) {
   options.target_file_size_base = kFileBytes;
   Reopen(options);
 
+  // Push dummy data to L3 so that our actual test files on L0-L2
+  // will not be considered "bottommost" level, otherwise compaction
+  // may prevent us from creating overlapping user keys
+  // as on the bottommost layer MergeHelper
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", "dummy"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  MoveFilesToLevel(3);
+
   Random rnd(301);
   const Snapshot* snapshot = nullptr;
   for (int i = 0; i < kNumFiles; ++i) {
@@ -1159,8 +1167,9 @@ TEST_F(DBRangeDelTest, KeyAtOverlappingEndpointReappears) {
   std::string value;
   ASSERT_TRUE(db_->Get(ReadOptions(), "key", &value).IsNotFound());
 
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr /* begin_key */,
-                              nullptr /* end_key */));
+  dbfull()->TEST_CompactRange(0 /* level */, nullptr /* begin */,
+                              nullptr /* end */, nullptr /* column_family */,
+                              true /* disallow_trivial_move */);
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
   // Now we have multiple files at L1 all containing a single user key, thus
   // guaranteeing overlap in the file endpoints.
