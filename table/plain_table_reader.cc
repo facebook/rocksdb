@@ -104,7 +104,7 @@ PlainTableReader::PlainTableReader(
       user_key_len_(static_cast<uint32_t>(table_properties->fixed_key_len)),
       prefix_extractor_(prefix_extractor),
       enable_bloom_(false),
-      bloom_(6, nullptr),
+      bloom_(6),
       file_info_(std::move(file), storage_options,
                  static_cast<uint32_t>(table_properties->data_size)),
       ioptions_(ioptions),
