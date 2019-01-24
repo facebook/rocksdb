@@ -4667,23 +4667,26 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     int64_t seek = 0;
     int64_t seek_found = 0;
     int64_t bytes = 0;
-    int64_t value_max = FLAGS_mix_max_value_size;
+    int64_t value_max = 64*1024*1024;
     int64_t scan_len_max = FLAGS_mix_max_scan_len;
     double write_rate = 1000000.0;
     double read_rate = 1000000.0;
-    std::vector<double> ratio;
-    char value_buffer[2 * value_max];
+    std::vector<double> ratio(3);
+    char value_buffer[65*1024*1024];
     QueryDecider query;
     RandomGenerator gen;
     Status s;
+    if(value_max > FLAGS_mix_max_value_size) {
+      value_max = FLAGS_mix_max_value_size;
+    }
 
     ReadOptions options(FLAGS_verify_checksum, true);
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
     PinnableSlice pinnable_val;
-    ratio.push_back(FLAGS_mix_get_ratio);
-    ratio.push_back(FLAGS_mix_put_ratio);
-    ratio.push_back(FLAGS_mix_seek_ratio);
+    ratio[0] = FLAGS_mix_get_ratio;
+    ratio[1] = FLAGS_mix_put_ratio;
+    ratio[2] = FLAGS_mix_seek_ratio;
     query.Initiate(ratio);
 
     // the limit of qps initiation
@@ -4817,7 +4820,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         }
       }
     }
-    char msg[100];
+    char msg[256];
     snprintf(msg, sizeof(msg),
              "( Gets:%" PRIu64 " Puts:%" PRIu64 " Seek:%" PRIu64 " of %" PRIu64
              " in %" PRIu64 " found)\n",
