@@ -670,14 +670,13 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
 
 Status
 PessimisticTransaction::GetRangeLock(ColumnFamilyHandle* column_family,
-                                     const Slice& start_key,
-                                     const Slice& end_key)
-{
+                                     const Slice& start_endp,
+                                     const Slice& end_endp) {
   ColumnFamilyHandle* cfh =
       column_family ? column_family : db_impl_->DefaultColumnFamily();
   uint32_t cfh_id= GetColumnFamilyID(cfh);
 
-  return txn_db_impl_->TryRangeLock(this, cfh_id, start_key, end_key);
+  return txn_db_impl_->TryRangeLock(this, cfh_id, start_endp, end_endp);
 }
 
 // Return OK() if this key has not been modified more recently than the

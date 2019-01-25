@@ -187,8 +187,7 @@ using namespace toku;
 */
 class RangeLockMgr :
   public BaseLockMgr, 
-  public RangeLockMgrControl 
-{
+  public RangeLockMgrControl {
  public:
   void AddColumnFamily(uint32_t column_family_id) override { /* do nothing */ }
   void RemoveColumnFamily(uint32_t column_family_id) override { /* do nothing */ }

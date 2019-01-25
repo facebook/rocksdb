@@ -410,12 +410,11 @@ Status PessimisticTransactionDB::TryLock(PessimisticTransaction* txn,
 Status
 PessimisticTransactionDB::TryRangeLock(PessimisticTransaction *txn,
                                        uint32_t cfh_id,
-                                       const Slice& start_key,
-                                       const Slice& end_key)
-{
+                                       const Slice& start_endp,
+                                       const Slice& end_endp) {
   if (use_range_locking) {
-    return range_lock_mgr_.TryRangeLock(txn, cfh_id, start_key,
-                                        end_key, /*exclusive=*/false);
+    return range_lock_mgr_.TryRangeLock(txn, cfh_id, start_endp,
+                                        end_endp, /*exclusive=*/false);
   }
   else
     return Status::NotSupported();
