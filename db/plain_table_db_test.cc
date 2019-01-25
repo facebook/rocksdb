@@ -559,6 +559,7 @@ TEST_P(PlainTableDBTest, Immortable) {
   for (EncodingType encoding_type : {kPlain, kPrefix}) {
     Options options = CurrentOptions();
     options.create_if_missing = true;
+    options.max_open_files = -1;
     // Set only one bucket to force bucket conflict.
     // Test index interval for the same prefix to be 1, 2 and 4
     PlainTableOptions plain_table_options;
