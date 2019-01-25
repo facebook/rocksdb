@@ -696,16 +696,16 @@ TEST_F(PerfContextTest, CopyAndMove) {
     PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 5);
     ASSERT_EQ(
         1, (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
-    PerfContext perfContextAssign;
-    perfContextAssign = *get_perf_context();
+    PerfContext perf_context_assign;
+    perf_context_assign = *get_perf_context();
     ASSERT_EQ(
-        1, (*(perfContextAssign.level_to_perf_context))[5].bloom_filter_useful);
+        1, (*(perf_context_assign.level_to_perf_context))[5].bloom_filter_useful);
     get_perf_context()->ClearPerLevelPerfContext();
     get_perf_context()->Reset();
     ASSERT_EQ(
-        1, (*(perfContextAssign.level_to_perf_context))[5].bloom_filter_useful);
-    perfContextAssign.ClearPerLevelPerfContext();
-    perfContextAssign.Reset();
+        1, (*(perf_context_assign.level_to_perf_context))[5].bloom_filter_useful);
+    perf_context_assign.ClearPerLevelPerfContext();
+    perf_context_assign.Reset();
   }
   // Copy constructor
   {
@@ -714,15 +714,15 @@ TEST_F(PerfContextTest, CopyAndMove) {
     PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 5);
     ASSERT_EQ(
         1, (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
-    PerfContext perfContextCopy(*get_perf_context());
+    PerfContext perf_context_copy(*get_perf_context());
     ASSERT_EQ(
-        1, (*(perfContextCopy.level_to_perf_context))[5].bloom_filter_useful);
+        1, (*(perf_context_copy.level_to_perf_context))[5].bloom_filter_useful);
     get_perf_context()->ClearPerLevelPerfContext();
     get_perf_context()->Reset();
     ASSERT_EQ(
-        1, (*(perfContextCopy.level_to_perf_context))[5].bloom_filter_useful);
-    perfContextCopy.ClearPerLevelPerfContext();
-    perfContextCopy.Reset();
+        1, (*(perf_context_copy.level_to_perf_context))[5].bloom_filter_useful);
+    perf_context_copy.ClearPerLevelPerfContext();
+    perf_context_copy.Reset();
   }
   // Move constructor
   {
@@ -731,17 +731,17 @@ TEST_F(PerfContextTest, CopyAndMove) {
     PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 5);
     ASSERT_EQ(
         1, (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
-    PerfContext perfContextMove = std::move(*get_perf_context());
+    PerfContext perf_context_move = std::move(*get_perf_context());
     ASSERT_EQ(
         1, (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
     ASSERT_EQ(
-        1, (*(perfContextMove.level_to_perf_context))[5].bloom_filter_useful);
+        1, (*(perf_context_move.level_to_perf_context))[5].bloom_filter_useful);
     get_perf_context()->ClearPerLevelPerfContext();
     get_perf_context()->Reset();
     ASSERT_EQ(
-        1, (*(perfContextMove.level_to_perf_context))[5].bloom_filter_useful);
-    perfContextMove.ClearPerLevelPerfContext();
-    perfContextMove.Reset();
+        1, (*(perf_context_move.level_to_perf_context))[5].bloom_filter_useful);
+    perf_context_move.ClearPerLevelPerfContext();
+    perf_context_move.Reset();
   }
 }
 
