@@ -3128,13 +3128,12 @@ Status DBImpl::IngestExternalFiles(
   for (size_t i = 0; i != num_cfs; ++i) {
     if (args[i].external_files.empty()) {
       char err_msg[128] = {0};
-      snprintf(err_msg, 128, "external_files[%d] is empty",
-               static_cast<int>(i));
+      snprintf(err_msg, 128, "external_files[%zu] is empty", i);
       return Status::InvalidArgument(err_msg);
     }
   }
   for (const auto& arg : args) {
-    const auto& ingest_opts = arg.options;
+    const IngestExternalFileOptions& ingest_opts = arg.options;
     if (ingest_opts.ingest_behind &&
         !immutable_db_options_.allow_ingest_behind) {
       return Status::InvalidArgument(
