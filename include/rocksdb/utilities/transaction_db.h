@@ -323,7 +323,7 @@ class TransactionDB : public StackableDB {
   bool use_range_locking;
   virtual RangeLockMgrControl* get_range_lock_manager() { return nullptr; }
 
-  virtual void KillLockWait(void *cdata){};
+  virtual void KillLockWait(TransactionID txnid){};
  protected:
   // To Create an TransactionDB, call Open()
   // The ownership of db is transferred to the base StackableDB

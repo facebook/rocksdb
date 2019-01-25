@@ -216,7 +216,7 @@ class RangeLockMgr :
 
   RangeLockMgr(TransactionDB* txn_db);
 
-  void KillLockWait(void *cdata);
+  void KillLockWait(TransactionID txnid);
 
   int set_max_lock_memory(size_t max_lock_memory) override
   {

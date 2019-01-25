@@ -780,8 +780,8 @@ public:
 };
 
 
-void RangeLockMgr::KillLockWait(void *cdata) {
-  ltm.kill_waiter(cdata);
+void RangeLockMgr::KillLockWait(TransactionID txnid) {
+  ltm.kill_waiter((void*)txnid);
 }
 
 // Get a range lock on [start_key; end_key] range
@@ -796,8 +796,14 @@ Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
 
   toku_fill_dbt(&start_key_dbt, start_key.data(), start_key.size());
   toku_fill_dbt(&end_key_dbt, end_key.data(), end_key.size());
-  request.set(lt, (TXNID)txn, &start_key_dbt, &end_key_dbt, toku::lock_request::WRITE,
-              false /* not a big txn */, (void*)txn->GetID()/*client_extra, for KILL*/);
+
+  // Use the txnid as "extra" in the lock_request. Then, KillLockWait()
+  // will be able to use kill_waiter(txn_id) to kill the wait if needed
+  TransactionID wait_txn_id = txn->GetID();
+
+  request.set(lt, (TXNID)txn, &start_key_dbt, &end_key_dbt,
+              toku::lock_request::WRITE, false /* not a big txn */,
+              (void*)wait_txn_id);
   
   uint64_t killed_time_msec = 0; // TODO: what should this have?
   uint64_t wait_time_msec = txn->GetLockTimeout();
