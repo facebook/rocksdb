@@ -8,7 +8,7 @@
 
 
 BASEDIR=`dirname $BASH_SOURCE`
-source "$BASEDIR/dependencies7.sh"
+source "$BASEDIR/dependencies_platform007.sh"
 
 CFLAGS=""
 

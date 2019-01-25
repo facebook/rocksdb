@@ -54,10 +54,10 @@ function get_lib_base()
 }
 
 ###########################################################
-#                   7.x dependencies                      #
+#                platform007 dependencies                 #
 ###########################################################
 
-OUTPUT="$BASEDIR/dependencies7.sh"
+OUTPUT="$BASEDIR/dependencies_platform007.sh"
 
 rm -f "$OUTPUT"
 touch "$OUTPUT"
