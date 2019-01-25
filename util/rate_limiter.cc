@@ -92,7 +92,12 @@ GenericRateLimiter::~GenericRateLimiter() {
 // This API allows user to dynamically change rate limiter's bytes per second.
 void GenericRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
   assert(bytes_per_second > 0);
-  rate_bytes_per_sec_ = bytes_per_second;
+  if (auto_tuned_) {
+    rate_bytes_per_sec_ = bytes_per_second/2;
+  } else {
+    rate_bytes_per_sec_ = bytes_per_second;
+  }
+  
   refill_bytes_per_period_.store(
       CalculateRefillBytesPerPeriod(bytes_per_second),
       std::memory_order_relaxed);
