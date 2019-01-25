@@ -75,7 +75,7 @@ class PlainTableReader: public TableReader {
                      uint64_t file_size, std::unique_ptr<TableReader>* table,
                      const int bloom_bits_per_key, double hash_table_ratio,
                      size_t index_sparseness, size_t huge_page_tlb_size,
-                     bool full_scan_mode,
+                     bool full_scan_mode, const bool immortal_table = false,
                      const SliceTransform* prefix_extractor = nullptr);
 
   InternalIterator* NewIterator(const ReadOptions&,
@@ -157,6 +157,7 @@ class PlainTableReader: public TableReader {
   CacheAllocationPtr bloom_block_alloc_;
 
   const ImmutableCFOptions& ioptions_;
+  std::unique_ptr<Cleanable> dummy_cleanable_;
   uint64_t file_size_;
   std::shared_ptr<const TableProperties> table_properties_;
 
