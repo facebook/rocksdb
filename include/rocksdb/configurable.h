@@ -82,11 +82,13 @@ class Configurable {
   static const std::string kPropNameValue  /* = "name" */;
   static const std::string kPropOptValue /* = "options" */;
   static const std::string kOptionsPrefix /* = "rocksdb." */;
-private:
-  const OptionTypeMap *optionsMap_;
-
 protected:
-  Configurable(const OptionTypeMap *map = nullptr) : optionsMap_(map) { }
+  const std::string    optionsPrefix_;
+  const OptionTypeMap *optionsMap_;
+protected:
+  Configurable() : optionsPrefix_(kOptionsPrefix), optionsMap_(nullptr) { }
+  Configurable(const std::string & prefix,
+	       const OptionTypeMap *map) : optionsPrefix_(prefix), optionsMap_(map) { }
 public:
   virtual ~Configurable() {}
 
@@ -99,9 +101,9 @@ public:
   //   ignore_unusued_options  If true and there are any unused options,
   //                           they will be ignored and OK will be returne
   //   unused_opts             The set of any unused option names from the map
-  virtual Status ConfigureFromMap(const std::unordered_map<std::string, std::string> &,
-				  bool input_strings_escaped,
-				  std::unordered_set<std::string> *unused);
+  Status ConfigureFromMap(const std::unordered_map<std::string, std::string> &,
+			  bool input_strings_escaped,
+			  std::unordered_set<std::string> *unused);
   Status ConfigureFromMap(const std::unordered_set<std::string> &, 
 			  const std::unordered_map<std::string, std::string> &,
 			  bool,
@@ -123,14 +125,6 @@ public:
 			     bool input_strings_escaped);
   Status ConfigureFromString(const std::string & opts);
 
-  bool OptionMatchesName(const std::string & option, 
-			 const std::string & name) const;
-
-  const OptionTypeInfo *FindOption(const std::string & option) const;
-  virtual const std::string & GetOptionPrefix() const {
-    return kOptionsPrefix;
-  }
-
   virtual void *GetOptionsPtr() { return nullptr; }
 
   // Updates the named option to the input value, returning OK if successful.
@@ -141,13 +135,11 @@ public:
   //           NotFound        if the name is not a valid option
   //           InvalidArgument if the value is valid for the named option
   //           NotSupported    If the name/value is not supported
-  virtual Status ConfigureOption(const std::string & name,
-				 const std::string & value,
-				 bool input_strings_escaped);
   Status ConfigureOption(const std::string & name,
-			 const std::string & value) {
-    return ConfigureOption(name, value, kInputStringsEscaped);
-  }
+			 const std::string & value,
+			 bool input_strings_escaped);
+  Status ConfigureOption(const std::string & name,
+			 const std::string & value);
   
   // Sanitizes the specified DB Options and ColumnFamilyOptions.
   // If the function cannot find a way to sanitize the input DB Options,
@@ -156,13 +148,22 @@ public:
     return Status::OK();
   }
  protected:
-  Status ParseOption(const OptionType & optType, char *optAddr,
-		     const std::string & name, const std::string & value);
-  Status ParseOption(const OptionTypeInfo *opt_info, void *opt_base,
-		     const std::string & name, const std::string & value);
+  const OptionTypeInfo *FindOption(const std::string & option) const;
+  std::string GetOptionName(const std::string & longName) const;
+  virtual Status SetOption(const OptionType & optType,
+			   char *optAddr,
+			   const std::string & name,
+			   const std::string & value);
+  virtual Status SetOptions(const std::unordered_map<std::string, std::string> &,
+			    bool input_strings_escaped,
+			    std::unordered_set<std::string> *unused);
   virtual Status ParseEnum(const std::string & name,
 			   const std::string & value,
 			   char * addr);
+  virtual Status ParseExtension(const std::string & name,
+				const std::string & value);
+  virtual Status ParseUnknown(const std::string & name,
+			      const std::string & value);
 public:
   // Checks to see if the named "option" matches "prefix" or "prefix.name"
   // This method is used to separate the "value" into its pieces

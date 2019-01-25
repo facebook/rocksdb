@@ -30,7 +30,29 @@ public:
   using Configurable::ConfigureFromMap;
   using Configurable::ConfigureFromString;
   using Configurable::SanitizeOptions;
+  using Configurable::ConfigureOption;
+protected:
+  using Configurable::ParseUnknown;
+  using Configurable::ParseExtension;
   using Configurable::SetOption;
+  using Configurable::SetOptions;
+protected:
+  Extension() : Configurable() { } 
+  Extension(const std::string & prefix, const OptionTypeMap *map = nullptr) : Configurable(prefix, map) { }
+public:
+  static Status ConfigureExtension(Extension * extension,
+				   const std::string & name,
+				   const std::unordered_map<std::string, std::string> & options);
+  static bool ConfigureExtension(const std::string & property,
+				 Extension * extension,
+				 const std::string & name,
+				 const std::string & value,
+				 Status * status);
+  static bool IsExtensionOption(const std::string & property,
+				const std::string & option,
+				const std::string & value,
+				std::string * extNamme,
+				std::unordered_map<std::string, std::string> * extOpts);
 public:
   virtual ~Extension() {}
   // Names starting with "rocksdb." are reserved and should not be used
@@ -48,11 +70,11 @@ public:
   //   ignore_unusued_options  If true and there are any unused options,
   //                           they will be ignored and OK will be returne
   //   unused_opts             The set of any unused option names from the map
-  virtual Status ConfigureFromMap(const DBOptions & dbOpts,
-				  const ColumnFamilyOptions * cfOpts,
-				  const std::unordered_map<std::string, std::string> &,
-				  bool input_strings_escaped,
-				  std::unordered_set<std::string> *unused);  
+  Status ConfigureFromMap(const DBOptions & dbOpts,
+			  const ColumnFamilyOptions * cfOpts,
+			  const std::unordered_map<std::string, std::string> &,
+			  bool input_strings_escaped,
+			  std::unordered_set<std::string> *unused);  
   Status ConfigureFromMap(const DBOptions & dbOpts,
 			  const ColumnFamilyOptions * cfOpts,
 			  const std::unordered_map<std::string, std::string> & map,
@@ -92,25 +114,22 @@ public:
 			     bool input_strings_escaped);
   Status ConfigureFromString(const DBOptions & dbOpts,
 			     const std::string & opt_str);
+  Status ConfigureOption(const DBOptions &,
+			 const ColumnFamilyOptions *,
+			 const std::string & name,
+			 const std::string & value,
+			 bool input_strings_escaped);
   
-  virtual Status SetOption(const DBOptions &,
-			   const ColumnFamilyOptions *,
-			   const std::string & name,
-			   const std::string & value,
-			   bool input_strings_escaped) {
-    return SetOption(name, value, input_strings_escaped);
+  Status ConfigureOption(const DBOptions & dbOpts,
+			 const std::string & name,
+			 const std::string & value,
+			 bool input_strings_escaped)  {
+    return ConfigureOption(dbOpts, nullptr, name, value, input_strings_escaped);
   }
-
-  Status SetOption(const DBOptions & dbOpts,
-		   const std::string & name,
-		   const std::string & value,
-		   bool input_strings_escaped)  {
-    return SetOption(dbOpts, nullptr, name, value, input_strings_escaped);
-  }
-  Status SetOption(const DBOptions & dbOpts,
+  Status ConfigureOption(const DBOptions & dbOpts,
 		   const std::string & name,
 		   const std::string & value) {
-    return SetOption(dbOpts, name, value, Configurable::kInputStringsEscaped);
+    return ConfigureOption(dbOpts, name, value, Configurable::kInputStringsEscaped);
   }
   
   // Sanitizes the specified DB Options and ColumnFamilyOptions.
@@ -124,6 +143,22 @@ public:
     return SanitizeOptions(dbOpts);
   }
 protected:
+  virtual Status SetOptions(const DBOptions & dbOpts,
+			    const ColumnFamilyOptions * cfOpts,
+			    const std::unordered_map<std::string, std::string> &,
+			    bool input_strings_escaped,
+			    std::unordered_set<std::string> *unused);  
+  virtual Status SetOption(const DBOptions & dbOpts,
+			   const ColumnFamilyOptions * cfOpts,
+			   const OptionType & optType,
+			   char *optAddr,
+			   const std::string & name,
+			   const std::string & value);
+  virtual Status ParseExtension(const DBOptions & dbOpts, const ColumnFamilyOptions *cfOpts,
+				const std::string & name, const std::string & value);
+  virtual Status ParseUnknown(const DBOptions & dbOpts, const ColumnFamilyOptions *cfOpts,
+			      const std::string & name, const std::string & value);
+  Status ConfigureExtension(Extension *extension, const std::string & name, const std::string & value);
   // Updates the parameters for the input extension
   // Parameters:
   //     extension             The extension to update
@@ -137,17 +172,10 @@ protected:
   // If the prefix matches this extension type but not this extension,
   //    InvalidArgument is returned.
   Status SetExtensionOption(Extension * extension,
-			    const std::string & prefix,
+			    const std::string & key,
 			    const std::string & name,
-			    const std::string & value,
-			    bool input_strings_escaped);
-  Status ConfigureOption(const OptionTypeMap *type_map,
-			 char *opt_base,
-			 const DBOptions & dbOpts,
-			 const ColumnFamilyOptions * cfOpts,
-			 const std::string & name,
-			 const std::string & value,
-			 bool input_strings_escaped);
+			    const std::string & value);
+
 };
 }  // namespace rocksdb
 

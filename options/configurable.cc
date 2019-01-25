@@ -6,8 +6,7 @@
 #include "rocksdb/configurable.h"
 #include "rocksdb/status.h"
 #include "options/options_helper.h"
-
-#include <iostream>
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -17,80 +16,103 @@ const std::string Configurable::kPropNameValue = "name";
 const std::string Configurable::kPropOptValue = "options";
 const std::string Configurable::kOptionsPrefix = "rocksdb.";
   
-
-bool Configurable::ParseOption(const std::string &,
-			       const std::string & value,
-			       const OptionTypeInfo *opt_info,
-			       char *opt_base) {
-  if (opt_info == nullptr || opt_base == nullptr) {       // Didn't find it, use SetOption
-    return false;
-  } else if (opt_info->verification == OptionVerificationType::kDeprecated) {
-    return true;
+std::string Configurable::GetOptionName(const std::string & longName) const {
+  auto prefixLen = optionsPrefix_.length();
+  if (longName.compare(0, prefixLen, optionsPrefix_) == 0) {
+    return longName.substr(prefixLen);
   } else {
-    return ParseOptionHelper(opt_base + opt_info->offset, opt_info->type, value);
+    return longName;
   }
 }
   
-const OptionTypeInfo *Configurable::FindOption(const OptionTypeMap & type_map,
-					       const std::string & option) const {
-  auto iter = type_map.find(option);  // Look up the value in the map
-  if (iter == type_map.end()) {
-    const std::string & prefix = GetOptionPrefix();
-    size_t length = prefix.size();
-    if (option.compare(0, length, prefix) == 0) {
-      iter = type_map.find(option.substr(length));
-    } else {
-      iter = type_map.find(prefix + option);
+const OptionTypeInfo *Configurable::FindOption(const std::string & option) const {
+  if (optionsMap_ != nullptr) {
+    auto iter = optionsMap_->find(option);  // Look up the value in the map
+    if (iter == optionsMap_->end()) {
+      auto period = option.find_last_of('.');
+      if (period != std::string::npos && period < option.length()) {
+	const char *suffix = option.c_str() + period + 1;
+	if (kPropNameValue == suffix || kPropOptValue == suffix) {
+	  iter = optionsMap_->find(option.substr(0, period));
+	}
+      }
+    }
+    if (iter != optionsMap_->end()) {
+      return &iter->second;
     }
   }
-  if (iter != type_map.end()) {
-    return &iter->second;
-  } else {
-    return nullptr;
-  }
+  return nullptr;
 }
 
-bool Configurable::OptionMatchesName(const std::string & option,
-				     const std::string & name) const {
-  if (option == name) {
-    return true;
-  } else {
-    const std::string & prefix = GetOptionPrefix();
-    size_t length = prefix.size();
-    return ((option.compare(0, length, prefix) == 0) && 
-	    (option.compare(length, name.size(), name) == 0));
-  }
+
+Status Configurable::ParseEnum(const std::string & name, const std::string &, char *) {
+  return Status::NotFound("Could not find enum property:", name);
+}
+
+Status Configurable::ParseExtension(const std::string & name, const std::string &) {
+  return Status::NotFound("Could not find extension property:", name);
+}
+
+Status Configurable::ParseUnknown(const std::string & name, const std::string &) {
+  return Status::NotFound("Could not find property:", name);
 }
   
-
-Status Configurable::ConfigureOption(const OptionTypeMap *type_map,
-				     char *opt_base,
-				     const std::string & name,
-				     const std::string & value,
-				     bool input_strings_escaped) {
-  if (opt_base == nullptr || type_map == nullptr) { // If there is no type map or options
-    return SetOption(name, value, input_strings_escaped); // Simply call SetOption
-  } else {                                          // Have a type map
-    auto opt_info = FindOption(*type_map, name);  // Look up the value in the map
-    if (ParseOption(name, value, opt_info, opt_base)) {
+  
+Status Configurable::SetOption(const OptionType & optType, char *optAddr,
+			       const std::string & name, const std::string & value) {
+  try {
+    if (optType == OptionType::kUnknown) {
+      return ParseUnknown(name, value);
+    } else if (optAddr == nullptr) {
+      return Status::NotFound("Could not find property:", name);
+    } else if (optType == OptionType::kExtension) {
+      return ParseExtension(name, value);
+    } else if (optType == OptionType::kEnum) {
+      return ParseEnum(name, value, optAddr);
+    } else if (ParseOptionHelper(optAddr, optType, value)) {
       return Status::OK();
     } else {
-      return SetOption(name, value, input_strings_escaped);
+      return Status::InvalidArgument("Error parsing:", name);
     }
+  } catch (std::exception& e) {
+    return Status::InvalidArgument("Error parsing " + name + ":" +
+				   std::string(e.what()));
   }
 }
   
-Status Configurable::ConfigureFromMap(
-          const std::unordered_map<std::string, std::string> & opts_map,
-	  bool input_strings_escaped,
-	  std::unordered_set<std::string> *unused_opts) {
+Status Configurable::ConfigureOption(const std::string & name,
+				     const std::string & value,
+				     bool input_strings_escaped) {
+  const std::string & optionName  = GetOptionName(name);
+  const std::string & optionValue = input_strings_escaped ? UnescapeOptionString(value) : value;
+  void * optionsPtr  = GetOptionsPtr();
+  if (optionsPtr != nullptr && optionsMap_ != nullptr) {
+    auto optInfo = FindOption(optionName);  // Look up the value in the map
+    if (optInfo != nullptr) {
+      if (optInfo->verification == OptionVerificationType::kDeprecated) {
+	return Status::OK();
+      } else {
+	char * optAddr = reinterpret_cast<char *>(optionsPtr) + optInfo->offset;
+	return SetOption(optInfo->type, optAddr, optionName, optionValue);
+      }
+    }
+  }
+  return SetOption(OptionType::kUnknown, nullptr, optionName, optionValue);
+}
+  
+
+Status Configurable::ConfigureOption(const std::string & name,
+				     const std::string & value) {
+  return ConfigureOption(name, value, kInputStringsEscaped);
+}
+  
+Status Configurable::SetOptions(const std::unordered_map<std::string, std::string> & opts_map,
+				bool input_strings_escaped,
+				std::unordered_set<std::string> *unused_opts) {
   Status s;
-  char *opts_base = reinterpret_cast<char*>(GetOptions());
-  const OptionTypeMap *type_map = GetOptionTypeMap();
-  unused_opts->clear();
   bool foundOne = false;
   for (const auto& o : opts_map) {
-    s = ConfigureOption(type_map, opts_base, o.first, o.second, input_strings_escaped);
+    s = ConfigureOption(o.first, o.second, input_strings_escaped);
     if (s.IsNotFound()) {
       unused_opts->insert(o.first);
     } else if (! s.ok()) {
@@ -102,7 +124,7 @@ Status Configurable::ConfigureFromMap(
   while (foundOne  && ! unused_opts->empty()) {
     foundOne = false;
     for (auto it = unused_opts->begin(); it != unused_opts->end(); ) {
-      s = ConfigureOption(type_map, opts_base, *it, opts_map.at(*it), input_strings_escaped);
+      s = ConfigureOption(*it, opts_map.at(*it), input_strings_escaped);
       if (s.ok()) {
 	foundOne = true;
 	it = unused_opts->erase(it);
@@ -115,11 +137,17 @@ Status Configurable::ConfigureFromMap(
   }
   return Status::OK();
 }
-
-Status Configurable::ConfigureFromMap(
-          const std::unordered_map<std::string, std::string> & opts_map,
-	  bool input_strings_escaped,
-	  bool ignore_unused_options) {
+    
+Status Configurable::ConfigureFromMap(const std::unordered_map<std::string, std::string> & opts_map,
+				      bool input_strings_escaped,
+				      std::unordered_set<std::string> *unused_opts) {
+  unused_opts->clear();
+  return SetOptions(opts_map, input_strings_escaped, unused_opts);
+}
+  
+Status Configurable::ConfigureFromMap(const std::unordered_map<std::string, std::string> & opts_map,
+				      bool input_strings_escaped,
+				      bool ignore_unused_options) {
   
   std::unordered_set<std::string> unused_opts;
   Status s = ConfigureFromMap(opts_map, input_strings_escaped, &unused_opts);
@@ -176,62 +204,5 @@ Status Configurable::ConfigureFromString(const std::string & opt_str) {
   return ConfigureFromString(opt_str, kInputStringsEscaped);
 }
     
-Status Configurable::SetOption(const std::string & name,
-			    const std::string & value,
-			    bool ) {
-  const OptionTypeMap *type_map = GetOptionTypeMap();
-  char *opt_base = reinterpret_cast<char*>(GetOptions());
-  if (type_map != nullptr && opt_base != nullptr) {
-    auto opt_info = FindOption(*type_map, name);  // Look up the value in the map
-    if (ParseOption(name, value, opt_info, opt_base)) {
-      return Status::OK();
-    }
-  }
-  return Status::NotFound("Unrecognized property: ", name);
-}
 
-Status Configurable::PrefixMatchesOption(const std::string & prefix,
-				      const std::string & option,
-				      const std::string & value,
-				      std::string * name,
-				      std::string * props) {
-  size_t prefixLen = prefix.size();
-  size_t optionLen = option.size();
-  Status s = Status::NotFound();
-  name->clear();
-  props->clear();
-
-  if (optionLen >= prefixLen) {
-    if (option.compare(0, prefixLen, prefix) == 0) {
-      if (prefixLen == optionLen) {
-	std::unordered_map<std::string, std::string> map;
-	s = StringToMap(value, &map);
-	if (s.ok()) {
-	  bool isValid = true;
-	  for (auto it : map) {
-	    if (it.first == kPropNameValue) {
-	      isValid = true;
-	      *name = it.second;
-	    } else if (it.first == kPropOptValue) {
-	      *props = it.second;
-	    } else {
-	      isValid = false;
-	      break;
-	    }
-	  }
-	  if (! isValid) {
-	    s = Status::InvalidArgument("Invalid property value:", option);
-	  }
-	}
-      } else if (option.at(prefixLen) == '.' &&
-		 option.compare(prefixLen+1,
-				kPropNameValue.size(),
-				kPropNameValue) == 0) {
-	*name = value;
-	s = Status::OK();
-      }
-    }
-  }
-  return s;
-}
 }  // namespace rocksdb

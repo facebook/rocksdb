@@ -33,45 +33,98 @@ DEFINE_bool(enable_print, false, "Print options generated to console.");
 namespace rocksdb {
 class MockExtension;
 struct MockOptions {
-  bool        sanitize;
+  int         intOpt = -1;
+  bool        boolOpt = false;
+  std::string strOpt = "unknown";
   std::shared_ptr<MockExtension> inner;
 };
 
 static OptionTypeMap mockOptionsMap =
 {
- {"sanitize",
-  {offsetof(struct MockOptions, sanitize),
-   OptionType::kBoolean, OptionVerificationType::kByName,
-   false, 0}
- }
+ {"bool", {offsetof(struct MockOptions, boolOpt),
+	       OptionType::kBoolean, OptionVerificationType::kByName,
+	       false, 0}},
+ {"int", {offsetof(struct MockOptions, intOpt),
+	       OptionType::kInt, OptionVerificationType::kByName,
+	       false, 0}},
+ {"string", {offsetof(struct MockOptions, strOpt),
+	       OptionType::kString, OptionVerificationType::kByName,
+	       false, 0}},
+ { "inner",   {offsetof(struct MockOptions, inner),
+	       OptionType::kExtension, OptionVerificationType::kByName,
+	       false, 0}}
 };
 
-
+static const std::string MockPrefix = "test.mock";
 class MockExtension : public Extension {
 private:
   const std::string name_;
 protected:
-  std::string prefix_;
-  MockOptions options_;
+  using Extension::ParseExtension;
+  using Extension::SanitizeOptions;
 public:
-  using Extension::SetOption;
+  using Extension::ConfigureOption;
+  MockOptions options_;
   static const std::string kType;
   static const std::string & Type() { return kType; }
 public:
-  MockExtension(const std::string & name) : name_(name) {
-    if (name.compare(0, 9, "test.mock") == 0) {
-      prefix_ = "mock.";
-    } else {
-      prefix_ = name + ".";
-    }
+  MockExtension(const std::string & name,
+		const std::string & prefix,
+		const OptionTypeMap *map = nullptr) : Extension(prefix, map), name_(name) {
+    reset();
+
   }
-  
-  virtual const std::string & GetOptionPrefix() const override {
-    return prefix_;
+  void reset() {
+    if (options_.inner) {
+      options_.inner->reset();
+      options_.inner.reset();
+    }
+    options_.intOpt = -1;
+    options_.boolOpt = false;
+    options_.strOpt.clear();
   }
   
   virtual const char *Name() const override { return name_.c_str(); }
 
+  virtual Status ParseExtension(const std::string & name, const std::string & value) override {
+    Status status = Status::OK();
+    if (! ConfigureExtension("inner", options_.inner.get(), name, value, &status)) {
+      status = Extension::ParseExtension(name, value);
+    }
+    return status;
+  }
+  
+  virtual Status ParseExtension(const DBOptions & dbOpts, const ColumnFamilyOptions *cfOpts,
+				const std::string & name, const std::string & value) override {
+    Status status = Status::OK();
+    if (! ConfigureSharedExtension("inner", dbOpts, cfOpts, name, value, &options_.inner, &status)) {
+      status = Extension::ParseExtension(dbOpts, cfOpts, name, value);
+    }
+    return status;
+  }
+  
+  virtual Status ParseUnknown(const DBOptions & dbOpts, const ColumnFamilyOptions *cfOpts,
+			      const std::string & name, const std::string & value) override {
+    Status status = ParseUnknown(name, value);
+    if (! status.ok() && options_.inner) {
+      Status inner = options_.inner->ConfigureOption(dbOpts, cfOpts, name, value, false);
+      if (inner.ok()) {
+	return inner;
+      }
+    }
+    return status;
+  }
+  
+  virtual Status ParseUnknown(const std::string & name, const std::string & value) override {
+    if (options_.inner) {
+      Status status = options_.inner->ConfigureOption(name, value, false);
+      if (! status.IsNotFound()) {
+	return status;
+      }
+    }
+    return Extension::ParseUnknown(name, value);
+  }
+  
   virtual Status SanitizeOptions(const DBOptions & dbOpts) const override {
     if (options_.inner) {
       Status s = options_.inner->SanitizeOptions(dbOpts);
@@ -79,58 +132,63 @@ public:
 	return s;
       }
     }
-    if (options_.sanitize) {
-      return Extension::SanitizeOptions(dbOpts);
+    return Extension::SanitizeOptions(dbOpts);
+  }
+
+  virtual Status SanitizeOptions() const override {
+    if (options_.intOpt < 0) {
+      return Status::InvalidArgument("Int option < 0");
+    } else if (! options_.boolOpt) {
+      return Status::InvalidArgument("Bool opt is false");
+    } else if (options_.strOpt.empty()) {
+      return Status::InvalidArgument("String option is not set");
     } else {
-      return Status::InvalidArgument("Sanitized=false");
+      return Extension::SanitizeOptions();
     }
   }  
 };
 
 class MockExtensionWithOptions : public MockExtension {
+protected:
+  using Extension::ParseExtension;
 public:
-  MockExtensionWithOptions(const std::string & name) : MockExtension(name) { }
-  virtual Status SetOption(const std::string & name,
-			   const std::string & value,
-			   bool input_strings_escaped) override {
-    Status status = SetExtensionOption(options_.inner.get(),
-				       prefix_ + "inner",
-				       name, value, input_strings_escaped);
-    if (status.IsNotFound()) {
-      if (name == (prefix_ + "sanitize")) {
-	options_.sanitize = ParseBoolean(name, value);
-	status = Status::OK();
-      } else {
-	status = Extension::SetOption(name, value, input_strings_escaped);
-      }
+  MockExtensionWithOptions(const std::string & name,
+			   const std::string & prefix) :
+    MockExtension(name, prefix) { }
+  
+  virtual Status ParseUnknown(const DBOptions & dbOpts, const ColumnFamilyOptions *cfOpts,
+			      const std::string & name, const std::string & value) override {
+    Status status = Status::OK();
+    if (! ConfigureSharedExtension("inner", dbOpts, cfOpts, name, value, &options_.inner, &status)) {
+      status = MockExtension::ParseUnknown(dbOpts, cfOpts, name, value);
     }
     return status;
   }
   
-  virtual Status SetOption(const DBOptions & dbOpts,
-			   const ColumnFamilyOptions *cfOpts,
-			   const std::string & name,
-			   const std::string & value,
-			   bool input_strings_escaped) override {
-    Status s = SetSharedOption(dbOpts, cfOpts, name, value,
-			       input_strings_escaped, 
-			       prefix_ + "inner", &options_.inner);
-    if (s.IsNotFound()) {
-      return Extension::SetOption(dbOpts, cfOpts, name, value, input_strings_escaped);
-    } else {
-      return s;
+
+  virtual Status ParseUnknown(const std::string & name, const std::string & value) override {
+    Status status = Status::OK();
+    if (name == "bool") {
+	options_.boolOpt = ParseBoolean(name, value);
+    } else if (name == "int") {
+	options_.intOpt = ParseInt(value);
+    } else if (name == "string") {
+	options_.strOpt = value;
+    } else if (! ConfigureExtension("inner", options_.inner.get(), name, value, &status)) {
+      status = MockExtension::ParseUnknown(name, value);
     }
+    return status;
   }
 };
 
 class MockExtensionWithMap : public MockExtension {
 public:
-  MockExtensionWithMap(const std::string & name) : MockExtension(name) {
+  MockExtensionWithMap(const std::string & name,
+		       const std::string & prefix) :
+    MockExtension(name, prefix, &mockOptionsMap) {
   }
-  virtual void *GetOptions() override { return &options_; }
-  virtual const OptionTypeMap *GetOptionTypeMap() const override {
-    return &mockOptionsMap;
-  }
+protected:
+  virtual void *GetOptionsPtr() override { return &options_; }
 };
   
 const std::string MockExtension::kType = "test-extension";
@@ -140,7 +198,12 @@ Extension *MockExtensionOptionsFactory(const std::string & name,
 				       const DBOptions &,
 				       const ColumnFamilyOptions *,
 				       std::unique_ptr<Extension>* guard) {
-  guard->reset(new MockExtensionWithOptions(name));
+  auto period = name.find_last_of('.');
+  if (period != std::string::npos) {
+    guard->reset(new MockExtensionWithOptions(name.substr(period + 1), name.substr(0, period + 1)));
+  } else {
+    guard->reset(new MockExtensionWithOptions(name, MockPrefix));
+  }
   return guard->get();
 }
   
@@ -148,7 +211,12 @@ Extension *MockExtensionMapFactory(const std::string & name,
 				   const DBOptions &,
 				   const ColumnFamilyOptions *,
 				   std::unique_ptr<Extension>* guard) {
-  guard->reset(new MockExtensionWithMap(name));
+  auto period = name.find_last_of('.');
+  if (period != std::string::npos) {
+    guard->reset(new MockExtensionWithMap(name.substr(period + 1), name.substr(0, period + 1)));
+  } else {
+    guard->reset(new MockExtensionWithMap(name, MockPrefix));
+  }
   return guard->get();
 }
   
@@ -162,38 +230,68 @@ extern "C" {
 class ExtensionTest : public testing::Test {
 public:
   DBOptions dbOptions_;
-  std::string pattern_;
   ExtensionTest() {
-    pattern_ = "test.mock";
-    dbOptions_.extensions->RegisterFactory(MockExtension::Type(), pattern_,
-					   MockExtensionOptionsFactory);
   }
 };
-  
+
 class ExtensionTestWithParam :
-    public ExtensionTest,
-    public ::testing::WithParamInterface<std::pair<bool, std::string> > {
+    public ExtensionTest, public ::testing::WithParamInterface<std::pair<std::string, std::string> > {
 public:
   bool useMap_;
+  std::string name_;
+  std::string prefix_;
   ExtensionTestWithParam() {
-    std::pair<bool, std::string> param_pair = GetParam();
-    useMap_  = param_pair.first;
-    pattern_ = param_pair.second;
-    RegisterFactory(pattern_);
+    std::pair<std::string, std::string> param_pair = GetParam();
+    name_    = param_pair.first;
+    prefix_  = param_pair.second;
+    useMap_  = name_.find("map") != std::string::npos;
+    RegisterFactory(MockPrefix + "." + name_);
   }    
 
   void RegisterFactory(const std::string & pattern) {
-    if (useMap_) {
-      dbOptions_.extensions->RegisterFactory(MockExtension::Type(), pattern,
-					     MockExtensionMapFactory);
-    } else {
-      dbOptions_.extensions->RegisterFactory(MockExtension::Type(), pattern,
-					     MockExtensionOptionsFactory);
-    }
+    const bool useMap = useMap_;
+    dbOptions_.extensions->RegisterFactory(
+					   MockExtension::kType,
+					   pattern,
+					   [useMap, pattern](const std::string & name,
+					      const DBOptions &,
+					      const ColumnFamilyOptions *,
+					      std::unique_ptr<Extension> * guard) {
+					     auto wildcard = pattern.find_last_of('*');
+					     std::string prefix = MockPrefix;
+					     if (wildcard != std::string::npos) {
+					       auto period = name.find_last_of('.');
+					       prefix = name.substr(period+1) + "." + MockPrefix;
+					     }
+					     if (useMap) { 
+					       guard->reset(new MockExtensionWithMap(name, prefix + "."));
+					     } else {
+					       guard->reset(new MockExtensionWithOptions(name, prefix + "."));
+					     }
+					     return guard->get();
+					   });
+  }
+  
+  void AssertNewMockExtension(bool isValid, std::shared_ptr<MockExtension> * mock) {
+    AssertNewSharedExtension(dbOptions_, MockPrefix + "." + name_, isValid, mock);
   }
 };
 
 
+static const std::string kUnknownType="unknown";
+class UnknownExtension : public Extension {
+public:
+  static const std::string & Type() { return kUnknownType; }
+  const char *Name() const override { return "unknown"; }
+public:
+};
+  
+TEST_F(ExtensionTest, UnknownExtensionType) {
+  std::shared_ptr<UnknownExtension> unknown;
+  unknown.reset(new UnknownExtension());
+  AssertNewSharedExtension(dbOptions_, "bad.2", false, &unknown);
+}
+  
 TEST_F(ExtensionTest, RegisterLocalExtensions) {
   std::shared_ptr<MockExtension> extension;
   DBOptions dbOpt1, dbOpt2;
@@ -257,7 +355,7 @@ TEST_F(ExtensionTest, NewGuardedExtension) {
 					    const DBOptions &,
 					    const ColumnFamilyOptions *,
 					    std::unique_ptr<Extension> * guard) {
-					   guard->reset(new MockExtension(name));
+					   guard->reset(new MockExtension(name, name + "."));
 					   return guard->get();
 					 });
   AssertNewUniqueExtension(dbOptions_, "guarded", true, &ext, &guard, true);
@@ -277,7 +375,7 @@ TEST_F(ExtensionTest, NewUnguardedExtension) {
 					    const ColumnFamilyOptions *,
 					    std::unique_ptr<Extension> * guard) {
 					   guard->reset();
-					   return new MockExtension(name);
+					   return new MockExtension(name, name + ".");
 					 });
   AssertNewUniqueExtension(dbOptions_, "unguarded", true, &ext, &guard, false);
   Status status = NewSharedExtension("unguarded", dbOptions_, nullptr, &shared);
@@ -290,95 +388,356 @@ TEST_F(ExtensionTest, CreateFromPattern) {
   std::shared_ptr<MockExtension> ext;
   dbOptions_.extensions->RegisterFactory(MockExtension::kType, "good.*",
 					 MockExtensionOptionsFactory);
-  AssertNewSharedExtension(dbOptions_, "good.1", true, &ext);
-  AssertNewSharedExtension(dbOptions_, "good.2", true, &ext);
+  AssertNewSharedExtension(dbOptions_, "good.1", true, &ext, "1");
+  AssertNewSharedExtension(dbOptions_, "good.2", true, &ext, "2");
   AssertNewSharedExtension(dbOptions_, "bad.2", false, &ext);
 }
-  
-TEST_P(ExtensionTestWithParam, SetOptions) {
-  std::shared_ptr<MockExtension> extension;
-  AssertNewSharedExtension(dbOptions_, pattern_, true, &extension);
-  ASSERT_EQ(Status::NotFound(), extension->SetOption("unknown", "bad"));  
-  ASSERT_OK(extension->SetOption("mock.sanitize", "true"));
-}
 
-TEST_P(ExtensionTestWithParam, SanitizeOptions) {
-  std::shared_ptr<MockExtension> ext;
-  AssertNewSharedExtension(dbOptions_, pattern_, true, &ext);
-  ASSERT_OK(ext->SetOption("mock.sanitize", "false"));
-  ASSERT_EQ(Status::InvalidArgument(), ext->SanitizeOptions(dbOptions_));
-  ASSERT_OK(ext->SetOption("mock.sanitize", "true"));
-  ASSERT_OK(ext->SanitizeOptions(dbOptions_));
+#define AssertInnerExtension(expected, result, inner, name)	\
+  { if (expected.ok()) {	      \
+      ASSERT_OK(result);              \
+      ASSERT_NE(inner, nullptr);      \
+      ASSERT_EQ(inner->Name(), name); \
+    } else {                          \
+      ASSERT_EQ(expected, result);    \
+      ASSERT_EQ(inner, nullptr);      \
+    }                                 \
+  }
+
+static Status OK = Status::OK();
+static Status NotFound = Status::NotFound();
+static Status Invalid  = Status::InvalidArgument();
+  
+#define AssertConfigureProperty(expected, result, actual, value)	\
+  { if (expected.ok()) {	      \
+      ASSERT_OK(result); ASSERT_EQ(actual, value); \
+    } else {                          \
+      ASSERT_EQ(expected, result);    \
+    }                                 \
+  }
+
+TEST_P(ExtensionTestWithParam, ConfigureOptions) {
+  std::shared_ptr<MockExtension> extension;
+  AssertNewMockExtension(true, &extension);
+  ASSERT_EQ(Invalid, extension->SanitizeOptions(dbOptions_));
+  AssertConfigureProperty(NotFound, extension->ConfigureOption("unknown", "bad"), true, true);
+  AssertConfigureProperty(OK,       extension->ConfigureOption(prefix_ + "bool",   "true"), true, extension->options_.boolOpt);
+  AssertConfigureProperty(OK,       extension->ConfigureOption(prefix_ + "int",    "1"),       1, extension->options_.intOpt);
+  AssertConfigureProperty(OK,       extension->ConfigureOption(prefix_ + "string", "hi"),   "hi", extension->options_.strOpt);
+  ASSERT_OK(extension->SanitizeOptions(dbOptions_));
 }
 
 TEST_P(ExtensionTestWithParam, ConfigureOptionsFromString) {
   std::shared_ptr<MockExtension> ext;
-  AssertNewSharedExtension(dbOptions_, pattern_, true, &ext);
-  ASSERT_OK(ext->ConfigureFromString(dbOptions_, "mock.sanitize=true"));
-  ASSERT_OK(ext->SanitizeOptions(dbOptions_));
-  ASSERT_OK(ext->ConfigureFromString(dbOptions_, "mock.sanitize=false"));
-  ASSERT_EQ(Status::InvalidArgument(), ext->SanitizeOptions(dbOptions_));
-  ASSERT_OK(ext->ConfigureFromString(dbOptions_, nullptr,
-				     "mock.sanitize=true;"
-				     "unknown.options=x",
-				     false, true));
-  ASSERT_OK(ext->SanitizeOptions(dbOptions_));
-  ASSERT_EQ(Status::NotFound(), 
-	    ext->ConfigureFromString(dbOptions_,
-				     "mock.sanitize=true;"
-				     "unknown.options=x"));
-  ASSERT_OK(ext->SanitizeOptions(dbOptions_));
+  AssertNewMockExtension(true, &ext);
+  AssertConfigureProperty(OK, ext->ConfigureFromString(dbOptions_,
+						       prefix_+ "int=1"), 1, ext->options_.intOpt);
+  AssertConfigureProperty(OK, ext->ConfigureFromString(dbOptions_,
+						       prefix_ + "bool=true;" +
+						       prefix_ + "int=2;" +
+						       prefix_ + "string=string"), 2, ext->options_.intOpt);
+  ASSERT_EQ(true, ext->options_.boolOpt);
+  ASSERT_EQ("string", ext->options_.strOpt);
+  ASSERT_OK(ext->ConfigureFromString(dbOptions_, nullptr, prefix_ + "unknown=x",false, true));
+  AssertConfigureProperty(NotFound, ext->ConfigureFromString(dbOptions_, prefix_ + "unknown.options=x"), true, true);
 }
-  
+
 TEST_P(ExtensionTestWithParam, ConfigureOptionsFromMap) {
-  std::shared_ptr<MockExtension> guard;
-  std::unordered_map<std::string, std::string> opt_map;
-  opt_map["mock.sanitize"]="false";
-  AssertNewSharedExtension(dbOptions_, pattern_, true, &guard);
-
-  ASSERT_OK(guard->ConfigureFromMap(dbOptions_, opt_map));
-  ASSERT_EQ(Status::InvalidArgument(), guard->SanitizeOptions(dbOptions_));
-
-  opt_map["mock.sanitize"]="true";
-  ASSERT_OK(guard->ConfigureFromMap(dbOptions_, opt_map));
-  ASSERT_OK(guard->SanitizeOptions(dbOptions_));
-  
-  opt_map["unknown.options"]="true";
-  ASSERT_OK(guard->ConfigureFromMap(dbOptions_, nullptr, opt_map, false, true));
-  ASSERT_OK(guard->SanitizeOptions(dbOptions_));
-
-  ASSERT_EQ(Status::NotFound(),
-	    guard->ConfigureFromMap(dbOptions_, opt_map));
-}
-
-TEST_P(ExtensionTestWithParam, ConfigureFromProperties) {
   std::shared_ptr<MockExtension> ext;
-  RegisterFactory("mock.*");
-  AssertNewSharedExtension(dbOptions_, "mock.root", true, &ext);
-  ASSERT_OK(ext->SetOption(dbOptions_, "mock.root.inner",
-			   "name=mock.child;"
-			   "options={mock.child.inner={name=mock.grand}}"));
-  ASSERT_OK(ext->ConfigureFromString(dbOptions_,
-				     "mock.root.inner={"
-				     "name=mock.1;"
-				     "options={mock.1.inner={name=mock.2;"
-				     "options={mock.2.sanitize=true}}}}"));
-  ASSERT_EQ(Status::InvalidArgument(),
-	    ext->SetOption(dbOptions_, "mock.root.inner",
-			   "name=bad.child;"));
-  ASSERT_EQ(Status::NotFound(),
-	    ext->SetOption(dbOptions_, "mock.root.inner",
-			   "name=mock.child;"
-			   "options={mock.child.unknown=unknown}"));
-  ASSERT_EQ(Status::NotFound(),
-	    ext->SetOption(dbOptions_, "mock.root.inner",
-			   "name=mock.child;"
-			   "options={mock.child.unknown=unknown}"));
+  std::unordered_map<std::string, std::string> opt_map;
+  AssertNewMockExtension(true, &ext);
+  opt_map[prefix_ + "bool"]="true";
+  opt_map[prefix_ + "int"]="1";
+  opt_map[prefix_ + "string"]="string";
+
+  AssertConfigureProperty(OK, ext->ConfigureFromMap(dbOptions_, opt_map), 1, ext->options_.intOpt);
+  ASSERT_EQ(true, ext->options_.boolOpt);
+  ASSERT_EQ("string", ext->options_.strOpt);
+
+  opt_map[prefix_ + "unknown.options"]="true";
+  AssertConfigureProperty(OK, ext->ConfigureFromMap(dbOptions_, nullptr, opt_map, false, true), true, ext->options_.boolOpt);
+  AssertConfigureProperty(NotFound, ext->ConfigureFromMap(dbOptions_, opt_map), "string", ext->options_.strOpt);
+}
+
+
+TEST_P(ExtensionTestWithParam, ParseExtensionOptions) {
+  std::string onePrefix = std::string("one.") + MockPrefix + ".";
+  std::string oneName   = MockPrefix + "." + name_ + ".one";
+  std::string twoPrefix = std::string("two.") + MockPrefix + ".";
+  std::string twoName   = MockPrefix + "." + name_ + ".two";
+  
+  RegisterFactory(MockPrefix + ".*");
+  std::shared_ptr<MockExtension> ext;
+  AssertNewMockExtension(true, &ext);
+
+  // Cannot find inner options until an inner exists
+  AssertConfigureProperty(NotFound, ext->ConfigureOption(dbOptions_, onePrefix + "int", "1"), true, true);
+  AssertConfigureProperty(NotFound, ext->ConfigureOption(dbOptions_, twoPrefix + "int", "1"), true, true);
+  
+  // Cannot create inner extension without the dbOptions
+  AssertInnerExtension(NotFound, ext->ConfigureOption(prefix_ + "inner.name", oneName), ext->options_.inner, oneName);
+  AssertInnerExtension(NotFound, ext->ConfigureOption(prefix_ + "inner", std::string("name=") + oneName), ext->options_.inner, oneName);
+
+  // Cannot configure inner extension without an one...
+  AssertInnerExtension(NotFound, ext->ConfigureOption(prefix_ + "inner.options", "int=1"), ext->options_.inner, oneName);
+  AssertInnerExtension(NotFound, ext->ConfigureOption(prefix_ + "inner", "int=1"), ext->options_.inner, oneName);
+  // ... Even if dbOptions are specified
+  AssertInnerExtension(NotFound, ext->ConfigureOption(dbOptions_, prefix_ + "inner.options", "int=1"), ext->options_.inner, oneName);
+  AssertInnerExtension(NotFound, ext->ConfigureOption(dbOptions_, prefix_ + "inner", "int=1"), ext->options_.inner, oneName);
+
+  // Cannot create an inner extension with a bad name
+  AssertInnerExtension(Invalid, ext->ConfigureOption(dbOptions_, prefix_ + "inner.name", "bad"), ext->options_.inner, "bad");
+
+  // Create a valid inner extension via "inner.name"
+  AssertInnerExtension(OK, ext->ConfigureOption(dbOptions_, prefix_ + "inner.name", oneName), ext->options_.inner, oneName);
+  // No we can set a simple property with or without the dbOptions argument
+  AssertConfigureProperty(OK, ext->ConfigureOption(            prefix_ + "inner.options", "int=1"), 1, ext->options_.inner->options_.intOpt);
+  AssertConfigureProperty(OK, ext->ConfigureOption(dbOptions_, prefix_ + "inner.options", "int=2"), 2, ext->options_.inner->options_.intOpt);
+  AssertConfigureProperty(OK, ext->ConfigureOption(dbOptions_, onePrefix + "int",        "3"),    3, ext->options_.inner->options_.intOpt);
+  // Even though "one" exists, two does not and its properties cannot be set
+  AssertConfigureProperty(NotFound, ext->ConfigureOption(dbOptions_, twoPrefix + "int", "1"), true, true);
+  ext->options_.inner.reset(); ASSERT_EQ(ext->options_.inner, nullptr);
+
+  // Create a valid inner extension via "inner" and no options
+  AssertInnerExtension(OK, ext->ConfigureOption(dbOptions_, prefix_ + "inner", std::string("name=") + oneName), ext->options_.inner, oneName);
+  AssertConfigureProperty(OK, ext->ConfigureOption(prefix_ + "inner.options", "int=1"), 1, ext->options_.inner->options_.intOpt);
+  ext->options_.inner.reset(); ASSERT_EQ(ext->options_.inner, nullptr);
+
+  // Create a valid inner extension via "inner" and options
+  AssertInnerExtension(OK, ext->ConfigureOption(dbOptions_, prefix_ + "inner", std::string("int=4;name=") + oneName), ext->options_.inner, oneName);
+  ASSERT_EQ(4, ext->options_.inner->options_.intOpt);
+
+  // Still cannot create an extension with a bad name...
+  AssertConfigureProperty(Invalid, ext->ConfigureOption(dbOptions_, prefix_ + "inner.name", "bad"), true, true);
+  // ... but it doesn't change the one that already existed
+  ASSERT_NE(ext->options_.inner, nullptr);
+  ASSERT_EQ(ext->options_.inner->Name(), oneName);
+  ASSERT_EQ(4, ext->options_.inner->options_.intOpt);
+  // ... but a second name can replace the first instance
+  AssertInnerExtension(OK, ext->ConfigureOption(dbOptions_, prefix_ + "inner", std::string("name=") + twoName), ext->options_.inner, twoName);
+  
+  // Now attempt to set up an "inner inner"
+  AssertInnerExtension(OK, ext->ConfigureOption(dbOptions_, twoPrefix + "inner.name", oneName), ext->options_.inner->options_.inner, oneName);
+  // And we can set both one and two prefix options
+  AssertConfigureProperty(OK, ext->ConfigureOption(dbOptions_, onePrefix + "int", "1"), 1, ext->options_.inner->options_.inner->options_.intOpt);
+  AssertConfigureProperty(OK, ext->ConfigureOption(dbOptions_, twoPrefix + "int", "2"), 2, ext->options_.inner->options_.intOpt);
+  ASSERT_EQ(1,  ext->options_.inner->options_.inner->options_.intOpt);
+  ext->options_.inner.reset(); ASSERT_EQ(ext->options_.inner, nullptr);
+  // Now set both of "one" and "two" in one command
+  AssertInnerExtension(OK, ext->ConfigureOption(dbOptions_, prefix_ + "inner",
+						std::string("name=") + oneName + ";" +
+						"int=10;" + 
+						"inner={name=" + twoName + "; int=20}"), ext->options_.inner, oneName);
+  ASSERT_NE(ext->options_.inner->options_.inner, nullptr);
+  ASSERT_EQ(ext->options_.inner->options_.inner->Name(), twoName);
+  ASSERT_EQ(10, ext->options_.inner->options_.intOpt);
+  ASSERT_EQ(20, ext->options_.inner->options_.inner->options_.intOpt);
 }
   
-INSTANTIATE_TEST_CASE_P(ExtensionFromOptionTest, ExtensionTestWithParam,
-			::testing::Values(std::pair<bool, std::string>(false, "test.mock.opt")));
-  //INSTANTIATE_TEST_CASE_P(ExtensionFromMapTest,  ExtensionTestWithParam, ::testing::Values(true));
+  
+
+TEST_P(ExtensionTestWithParam, ParseExtensionFromString) {
+  std::string onePrefix = std::string("one.") + MockPrefix + ".";
+  std::string oneName   = MockPrefix + "." + name_ + ".one";
+  std::string twoPrefix = std::string("two.") + MockPrefix + ".";
+  std::string twoName   = MockPrefix + "." + name_ + ".two";
+  
+  RegisterFactory(MockPrefix + ".*");
+  std::shared_ptr<MockExtension> ext;
+  AssertNewMockExtension(true, &ext);
+
+  // Cannot find inner options until an inner exists
+  AssertConfigureProperty(NotFound, ext->ConfigureFromString(dbOptions_, onePrefix + "int=1"), true, true);
+  AssertConfigureProperty(NotFound, ext->ConfigureFromString(dbOptions_, twoPrefix + "int=1"), true, true);
+  
+  // Cannot create inner extension without the dbOptions
+  AssertInnerExtension(NotFound, ext->ConfigureFromString(prefix_ + "inner.name=" + oneName), ext->options_.inner, oneName);
+  AssertInnerExtension(NotFound, ext->ConfigureFromString(prefix_ + "inner=name=" + oneName), ext->options_.inner, oneName);
+
+  // Cannot configure inner extension without an one...
+  AssertInnerExtension(NotFound, ext->ConfigureFromString(prefix_ + "inner.options=int=1"), ext->options_.inner, oneName);
+  AssertInnerExtension(NotFound, ext->ConfigureFromString(prefix_ + "inner=int=1"), ext->options_.inner, oneName);
+  // ... Even if dbOptions are specified
+  AssertInnerExtension(NotFound, ext->ConfigureFromString(dbOptions_, prefix_ + "inner.options=int=1"), ext->options_.inner, oneName);
+  AssertInnerExtension(NotFound, ext->ConfigureFromString(dbOptions_, prefix_ + "inner=int=1"), ext->options_.inner, oneName);
+
+  // Cannot create an inner extension with a bad name
+  AssertInnerExtension(Invalid, ext->ConfigureFromString(dbOptions_, prefix_ + "inner.name=bad"), ext->options_.inner, "bad");
+
+  // Create a valid inner extension via "inner.name"
+  AssertInnerExtension(OK, ext->ConfigureFromString(dbOptions_, prefix_ + "inner.name=" + oneName), ext->options_.inner, oneName);
+  // No we can set a simple property with or without the dbOptions argument
+  AssertConfigureProperty(OK, ext->ConfigureFromString(            prefix_ + "inner.options=int=1"), 1, ext->options_.inner->options_.intOpt);
+  AssertConfigureProperty(OK, ext->ConfigureFromString(dbOptions_, prefix_ + "inner.options=int=2"), 2, ext->options_.inner->options_.intOpt);
+  AssertConfigureProperty(OK, ext->ConfigureFromString(dbOptions_, onePrefix + "int=3"),    3, ext->options_.inner->options_.intOpt);
+  // Even though "one" exists, two does not and its properties cannot be set
+  AssertConfigureProperty(NotFound, ext->ConfigureFromString(dbOptions_, twoPrefix + "int=4"), 3, ext->options_.inner->options_.intOpt);
+  ext->options_.inner.reset(); ASSERT_EQ(ext->options_.inner, nullptr);
+
+  // Create a valid inner extension via "inner" via name and options
+  AssertInnerExtension(OK, ext->ConfigureFromString(dbOptions_,
+						    prefix_ + "inner.name=" + oneName + ";" + 
+						    prefix_ + "inner.options=int=1"), ext->options_.inner, oneName);
+  ASSERT_EQ(ext->options_.inner->options_.intOpt, 1);
+  ext->options_.inner.reset(); ASSERT_EQ(ext->options_.inner, nullptr);
+  
+  // Create a valid inner extension via "inner" and options
+  AssertInnerExtension(OK, ext->ConfigureFromString(dbOptions_, prefix_ + "inner={int=4;name=" + oneName + "}"), ext->options_.inner, oneName);
+  ASSERT_EQ(4, ext->options_.inner->options_.intOpt);
+
+  // Still cannot create an extension with a bad name...
+  AssertConfigureProperty(Invalid, ext->ConfigureFromString(dbOptions_, prefix_ + "inner.name=bad"), true, true);
+  // ... but it doesn't change the one that already existed
+  ASSERT_NE(ext->options_.inner, nullptr);
+  ASSERT_EQ(ext->options_.inner->Name(), oneName);
+  ASSERT_EQ(4, ext->options_.inner->options_.intOpt);
+  // ... but a second name can replace the first instance
+  AssertInnerExtension(OK, ext->ConfigureFromString(dbOptions_, prefix_ + "inner={name=" + twoName + "}"), ext->options_.inner, twoName);
+  
+  // Now attempt to set up an "inner inner"
+  AssertInnerExtension(OK, ext->ConfigureFromString(dbOptions_,
+						    twoPrefix + "inner.name=" + oneName + ";" + 
+						    onePrefix + "int=1;" + twoPrefix + "int=2"),
+		       ext->options_.inner->options_.inner, oneName);
+  ASSERT_EQ(1, ext->options_.inner->options_.inner->options_.intOpt);
+  ASSERT_EQ(2, ext->options_.inner->options_.intOpt);
+  ext->options_.inner.reset(); ASSERT_EQ(ext->options_.inner, nullptr);
+  // Now set both of "one" and "two" in one command
+  AssertInnerExtension(OK, ext->ConfigureFromString(dbOptions_,
+						    prefix_ + "inner={name=" + oneName + ";" +
+						    "int=20;" + "inner={name=" + twoName + "; int=30}};" +
+						    prefix_ + "int=10"), ext->options_.inner, oneName);
+  ASSERT_NE(ext->options_.inner->options_.inner, nullptr);
+  ASSERT_EQ(ext->options_.inner->options_.inner->Name(), twoName);
+  ASSERT_EQ(10, ext->options_.intOpt);
+  ASSERT_EQ(20, ext->options_.inner->options_.intOpt);
+  ASSERT_EQ(30, ext->options_.inner->options_.inner->options_.intOpt);
+  // Now set both of "one" and "two" in one command over multiple options
+  ext->options_.inner.reset(); ASSERT_EQ(ext->options_.inner, nullptr);
+  AssertInnerExtension(OK, ext->ConfigureFromString(dbOptions_,
+						    prefix_ + "int=100;" +
+						    prefix_ + "inner={name=" + oneName + "}; " +
+						    onePrefix + "inner.name=" + twoName + "; " +
+						    onePrefix + "inner.options=int=300;" +
+						    onePrefix + "int=200"),
+		       ext->options_.inner, oneName);
+  ASSERT_NE(ext->options_.inner->options_.inner, nullptr);
+  ASSERT_EQ(ext->options_.inner->options_.inner->Name(), twoName);
+  ASSERT_EQ(100, ext->options_.intOpt);
+  ASSERT_EQ(200, ext->options_.inner->options_.intOpt);
+  ASSERT_EQ(300, ext->options_.inner->options_.inner->options_.intOpt);
+
+}
+
+TEST_P(ExtensionTestWithParam, ParseExtensionFromMap) {
+  std::string onePrefix = std::string("one.") + MockPrefix + ".";
+  std::string oneName   = MockPrefix + "." + name_ + ".one";
+  std::string twoPrefix = std::string("two.") + MockPrefix + ".";
+  std::string twoName   = MockPrefix + "." + name_ + ".two";
+  
+  RegisterFactory(MockPrefix + ".*");
+  std::shared_ptr<MockExtension> ext;
+  std::unordered_map<std::string, std::string> options;
+  AssertNewMockExtension(true, &ext);
+
+  // Cannot find inner options until an inner exists
+  options.clear(); options[onePrefix + "int"] = "1"; AssertConfigureProperty(NotFound, ext->ConfigureFromMap(dbOptions_, options), true, true);
+  options.clear(); options[twoPrefix + "int"] = "2"; AssertConfigureProperty(NotFound, ext->ConfigureFromMap(dbOptions_, options), true, true);
+  
+  // Cannot create inner extension without the dbOptions
+  options.clear(); options[prefix_ + "inner.name"] = oneName;      AssertInnerExtension(NotFound, ext->ConfigureFromMap(options), ext->options_.inner, oneName);
+  options.clear(); options[prefix_ + "inner"] = "name=" + oneName; AssertInnerExtension(NotFound, ext->ConfigureFromMap(options), ext->options_.inner, oneName);
+
+  // Cannot configure inner extension without an one...
+  options.clear(); options[prefix_ + "inner.options"] = "int=1";
+  AssertInnerExtension(NotFound, ext->ConfigureFromMap(options), ext->options_.inner, oneName);
+  AssertInnerExtension(NotFound, ext->ConfigureFromMap(dbOptions_, options), ext->options_.inner, oneName);
+
+  options.clear(); options[prefix_ + "inner"] = "int=1";
+  AssertInnerExtension(NotFound, ext->ConfigureFromMap(options), ext->options_.inner, oneName);
+  AssertInnerExtension(NotFound, ext->ConfigureFromMap(dbOptions_, options), ext->options_.inner, oneName);
+
+  // Cannot create an inner extension with a bad name
+  options.clear(); options[prefix_ + "inner.name"] = "bad"; AssertInnerExtension(Invalid, ext->ConfigureFromMap(dbOptions_, options), ext->options_.inner, "bad");
+
+  // Create a valid inner extension via "inner.name"
+  options[prefix_ + "inner.name"] = oneName;
+  AssertInnerExtension(OK, ext->ConfigureFromMap(dbOptions_, options), ext->options_.inner, oneName);
+  // No we can set a simple property with or without the dbOptions argument
+  options.clear();
+  options[prefix_ + "inner.options"]="int=1"; AssertConfigureProperty(OK, ext->ConfigureFromMap(            options), 1, ext->options_.inner->options_.intOpt);
+  options[prefix_ + "inner.options"]="int=2"; AssertConfigureProperty(OK, ext->ConfigureFromMap(dbOptions_, options), 2, ext->options_.inner->options_.intOpt);
+  options.clear();
+  options[onePrefix + "int"]="3"; AssertConfigureProperty(OK,       ext->ConfigureFromMap(dbOptions_, options), 3, ext->options_.inner->options_.intOpt);
+  // Even though "one" exists, two does not and its properties cannot be set
+  options[twoPrefix + "int"]="4"; AssertConfigureProperty(NotFound, ext->ConfigureFromMap(dbOptions_, options), 3, ext->options_.inner->options_.intOpt);
+  ext->options_.inner.reset(); ASSERT_EQ(ext->options_.inner, nullptr);
+
+  // Create a valid inner extension via "inner" via name and options
+  options.clear();
+  options[prefix_ + "inner.name"]    = oneName;
+  options[prefix_ + "inner.options"] = "int=1";
+  AssertInnerExtension(OK, ext->ConfigureFromMap(dbOptions_, options), ext->options_.inner, oneName);
+  ASSERT_EQ(ext->options_.inner->options_.intOpt, 1);
+
+  // Still cannot create an extension with a bad name...
+  options[prefix_ + "inner.name"]    = "bad";
+  AssertConfigureProperty(Invalid, ext->ConfigureFromMap(dbOptions_, options), true, true);
+  // ... but it doesn't change the one that already existed
+  ASSERT_NE(ext->options_.inner, nullptr);
+  ASSERT_EQ(ext->options_.inner->Name(), oneName);
+  ASSERT_EQ(1, ext->options_.inner->options_.intOpt);
+
+  // ... but a second name can replace the first instance
+  options.clear();
+  options[prefix_ + "inner"] = "int=4;name=" + twoName;
+  AssertInnerExtension(OK, ext->ConfigureFromMap(dbOptions_, options), ext->options_.inner, twoName);
+  
+  // Now attempt to set up an "inner inner"
+  options.clear();
+  options[twoPrefix + "inner.name"] = oneName;
+  options[onePrefix + "int"]="1";
+  options[twoPrefix + "int"]="2";
+  
+  AssertInnerExtension(OK, ext->ConfigureFromMap(dbOptions_, options), ext->options_.inner->options_.inner, oneName);
+  ASSERT_EQ(1, ext->options_.inner->options_.inner->options_.intOpt);
+  ASSERT_EQ(2, ext->options_.inner->options_.intOpt);
+  ext->options_.inner.reset(); ASSERT_EQ(ext->options_.inner, nullptr);
+  // Now set both of "one" and "two" in one command
+  options.clear();
+  ext->options_.inner.reset(); ASSERT_EQ(ext->options_.inner, nullptr);
+  options[prefix_ + "int"]= "10";
+  options[prefix_ + "inner"]="name=" + oneName + ";int=20; inner={int=30;name=" + twoName + "}";
+  AssertInnerExtension(OK, ext->ConfigureFromMap(dbOptions_, options), ext->options_.inner, oneName);
+  ASSERT_NE(ext->options_.inner->options_.inner, nullptr);
+  ASSERT_EQ(ext->options_.inner->options_.inner->Name(), twoName);
+  ASSERT_EQ(10, ext->options_.intOpt);
+  ASSERT_EQ(20, ext->options_.inner->options_.intOpt);
+  ASSERT_EQ(30, ext->options_.inner->options_.inner->options_.intOpt);
+  // Now set both of "one" and "two" in one command over multiple options
+  options.clear();
+  ext->options_.inner.reset(); ASSERT_EQ(ext->options_.inner, nullptr);
+  options[prefix_   + "int"]= "100";
+  options[prefix_   + "inner.name"]=oneName;
+  options[onePrefix + "inner.name"] = twoName;
+  options[onePrefix + "int"]= "200";
+  options[twoPrefix + "int"]= "300";
+  AssertInnerExtension(OK, ext->ConfigureFromMap(dbOptions_, options), ext->options_.inner, oneName);
+  ASSERT_NE(ext->options_.inner->options_.inner, nullptr);
+  ASSERT_EQ(ext->options_.inner->options_.inner->Name(), twoName);
+  ASSERT_EQ(100, ext->options_.intOpt);
+  ASSERT_EQ(200, ext->options_.inner->options_.intOpt);
+  ASSERT_EQ(300, ext->options_.inner->options_.inner->options_.intOpt);
+}
+
+INSTANTIATE_TEST_CASE_P(ExtensionFromOptionTest, ExtensionTestWithParam, 
+			::testing::Values(std::pair<std::string, std::string>("opt", MockPrefix + "."), 
+					  std::pair<std::string, std::string>("opt", "")
+					  ));
+INSTANTIATE_TEST_CASE_P(ExtensionFromMapTest,  ExtensionTestWithParam, 
+			::testing::Values(std::pair<std::string, std::string>("map", MockPrefix + "."), 
+					  std::pair<std::string, std::string>("map", "")
+					  ));
 
 #endif  // !ROCKSDB_LITE
 }  // namespace rocksdb

@@ -30,6 +30,7 @@ ExtensionLoader::RegisterFactory(const std::string & type,
 				 const FactoryFunction & factory) {
   std::vector<std::pair<std::regex, FactoryFunction> > & vector = factories[type];
   std::regex pattern(name);
+  
   vector.emplace_back(std::move(pattern), factory);
   return factory;
 }
@@ -69,6 +70,7 @@ ExtensionLoader::FactoryFunction ExtensionLoader::FindFactory(
 						  const std::string & type, 
 						  const std::string & name) {
   auto entries = factories.find(type);
+  
   if (entries != factories.end()) {
     for (const auto& entry : entries->second) {
       if (std::regex_match(name, entry.first)) {
