@@ -1063,6 +1063,14 @@ class DB {
 
   // IngestExternalFiles() will ingest files for multiple column families, and
   // record the result atomically to the MANIFEST.
+  // If this function returns OK, all column families' ingestion must succeed.
+  // If this function returns NOK, or the process crashes, then non-of the
+  // files will be ingested into the database after recovery.
+  // Note that it is possible for application to observe a mixed state during
+  // the execution of this function. If a user issues two consecutive Get calls
+  // to two different column families, one of the Get calls may return ingested
+  // data, while the other may return data before ingestion.
+  // In this sense, it's not strictly 'atomic'.
   virtual Status IngestExternalFiles(
       const std::vector<IngestExternalFileArg>& args) = 0;
 
