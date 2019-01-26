@@ -4667,12 +4667,14 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     int64_t seek = 0;
     int64_t seek_found = 0;
     int64_t bytes = 0;
-    int64_t value_max = 64*1024*1024;
+    const int64_t default_value_max = 64*1024*1024;
+    int64_t value_max = default_value_max;
     int64_t scan_len_max = FLAGS_mix_max_scan_len;
     double write_rate = 1000000.0;
     double read_rate = 1000000.0;
-    std::vector<double> ratio(3);
-    char value_buffer[65*1024*1024];
+    std::vector<double> ratio {FLAGS_mix_get_ratio, 
+	    FLAGS_mix_put_ratio, FLAGS_mix_seek_ratio};
+    char value_buffer[default_value_max];
     QueryDecider query;
     RandomGenerator gen;
     Status s;
@@ -4684,9 +4686,6 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
     PinnableSlice pinnable_val;
-    ratio[0] = FLAGS_mix_get_ratio;
-    ratio[1] = FLAGS_mix_put_ratio;
-    ratio[2] = FLAGS_mix_seek_ratio;
     query.Initiate(ratio);
 
     // the limit of qps initiation
