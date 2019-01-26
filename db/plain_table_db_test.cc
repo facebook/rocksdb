@@ -555,7 +555,7 @@ TEST_P(PlainTableDBTest, Flush2) {
   }
 }
 
-TEST_P(PlainTableDBTest, Immortable) {
+TEST_P(PlainTableDBTest, Immortal) {
   for (EncodingType encoding_type : {kPlain, kPrefix}) {
     Options options = CurrentOptions();
     options.create_if_missing = true;
