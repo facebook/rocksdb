@@ -2432,7 +2432,7 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_CommitFail) {
       {"DBImpl::IngestExternalFiles:BeforeJobsRun:0",
        "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_CommitFail:"
        "0"},
-      {"ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies:CommitFail:"
+      {"ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_CommitFail:"
        "1",
        "DBImpl::IngestExternalFiles:BeforeJobsRun:1"},
   });
@@ -2464,10 +2464,79 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_CommitFail) {
       "0");
   fault_injection_env->SetFilesystemActive(false);
   TEST_SYNC_POINT(
-      "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies:CommitFail:"
+      "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_CommitFail:"
       "1");
   ingest_thread.join();
 
+  fault_injection_env->SetFilesystemActive(true);
+  Close();
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+  int cf = 0;
+  for (const auto& verify_map : true_data) {
+    for (const auto& elem : verify_map) {
+      const std::string& key = elem.first;
+      ASSERT_EQ("NOT_FOUND", Get(cf, key));
+    }
+    ++cf;
+  }
+  Close();
+  Destroy(options, true /* delete_cf_paths */);
+}
+
+TEST_P(ExternalSSTFileTest,
+       IngestFilesIntoMultipleColumnFamilies_PartialManifestWriteFail) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
+      new FaultInjectionTestEnv(env_));
+  Options options = CurrentOptions();
+  options.env = fault_injection_env.get();
+
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  SyncPoint::GetInstance()->ClearTrace();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0",
+       "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_"
+       "PartialManifestWriteFail:0"},
+      {"ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_"
+       "PartialManifestWriteFail:1",
+       "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:1"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<ColumnFamilyHandle*> column_families;
+  column_families.push_back(handles_[0]);
+  column_families.push_back(handles_[1]);
+  std::vector<IngestExternalFileOptions> ifos(column_families.size());
+  for (auto& ifo : ifos) {
+    ifo.allow_global_seqno = true;        // Always allow global_seqno
+    ifo.write_global_seqno = GetParam();  // May or may not write global_seqno
+  }
+  std::vector<std::vector<std::pair<std::string, std::string>>> data;
+  data.push_back(
+      {std::make_pair("foo1", "fv1"), std::make_pair("foo2", "fv2")});
+  data.push_back(
+      {std::make_pair("bar1", "bv1"), std::make_pair("bar2", "bv2")});
+  // Resize the true_data vector upon construction to avoid re-alloc
+  std::vector<std::map<std::string, std::string>> true_data(
+      column_families.size());
+  port::Thread ingest_thread([&]() {
+    Status s = GenerateAndAddExternalFiles(options, column_families, ifos, data,
+                                           -1, true, true_data);
+    ASSERT_NOK(s);
+  });
+  TEST_SYNC_POINT(
+      "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_"
+      "PartialManifestWriteFail:0");
+  fault_injection_env->SetFilesystemActive(false);
+  TEST_SYNC_POINT(
+      "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_"
+      "PartialManifestWriteFail:1");
+  ingest_thread.join();
+
+  fault_injection_env->DropUnsyncedFileData();
   fault_injection_env->SetFilesystemActive(true);
   Close();
   ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
