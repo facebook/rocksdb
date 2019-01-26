@@ -221,6 +221,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               // If the backing resources for the value are provided, pin them
               pinnable_val_->PinSlice(value, value_pinner);
             } else {
+              TEST_SYNC_POINT_CALLBACK("GetContext::SaveValue::PinSelf", this);
+
               // Otherwise copy the value
               pinnable_val_->PinSelf(value);
             }

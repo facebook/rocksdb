@@ -120,7 +120,8 @@ Status PlainTableReader::Open(
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     std::unique_ptr<TableReader>* table_reader, const int bloom_bits_per_key,
     double hash_table_ratio, size_t index_sparseness, size_t huge_page_tlb_size,
-    bool full_scan_mode, const SliceTransform* prefix_extractor) {
+    bool full_scan_mode, const bool immortal_table,
+    const SliceTransform* prefix_extractor) {
   if (file_size > PlainTableIndex::kMaxFileSize) {
     return Status::NotSupported("File is too large for PlainTableReader!");
   }
@@ -179,6 +180,10 @@ Status PlainTableReader::Open(
     // Flag to indicate it is a full scan mode so that none of the indexes
     // can be used.
     new_reader->full_scan_mode_ = true;
+  }
+
+  if (immortal_table && new_reader->file_info_.is_mmap_mode) {
+    new_reader->dummy_cleanable_.reset(new Cleanable());
   }
 
   *table_reader = std::move(new_reader);
@@ -598,7 +603,8 @@ Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
     // can we enable the fast path?
     if (internal_comparator_.Compare(found_key, parsed_target) >= 0) {
       bool dont_care __attribute__((__unused__));
-      if (!get_context->SaveValue(found_key, found_value, &dont_care)) {
+      if (!get_context->SaveValue(found_key, found_value, &dont_care,
+                                  dummy_cleanable_.get())) {
         break;
       }
     }
