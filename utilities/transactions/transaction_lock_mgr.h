@@ -215,6 +215,7 @@ class RangeLockMgr :
               const std::string& key, Env* env) override ;
 
   RangeLockMgr(TransactionDB* txn_db);
+  ~RangeLockMgr();
 
   void KillLockWait(TransactionID txnid);
 
