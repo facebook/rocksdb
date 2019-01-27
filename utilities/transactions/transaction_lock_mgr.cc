@@ -1046,10 +1046,9 @@ RangeLockMgr::set_endpoint_cmp_functions(convert_key_to_endpoint_func cvt_func,
   // The rest is like a constructor:
   assert(!lt);
 
-  toku::comparator cmp;
-  cmp.create(compare_dbt_endpoints, (void*)this, NULL);
+  cmp_.create(compare_dbt_endpoints, (void*)this, NULL);
   DICTIONARY_ID dict_id = { .dictid = 1 };
-  lt= ltm.get_lt(dict_id, cmp , /* on_create_extra*/nullptr);
+  lt= ltm.get_lt(dict_id, cmp_, /* on_create_extra*/nullptr);
 }
 
 RangeLockMgr::~RangeLockMgr() {
@@ -1057,6 +1056,7 @@ RangeLockMgr::~RangeLockMgr() {
     ltm.release_lt(lt);
   }
   ltm.destroy();
+  cmp_.destroy();
 }
 
 uint64_t RangeLockMgr::get_escalation_count() {

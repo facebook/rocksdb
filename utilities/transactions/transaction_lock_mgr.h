@@ -238,6 +238,8 @@ class RangeLockMgr :
   toku::locktree_manager ltm;
   toku::locktree *lt; // only one tree for now
 
+  toku::comparator cmp_;
+
   // Convert rowkey to endpoint (TODO: shouldn't "rowkey=const" translate into
   // a pair of [start; end] endpoints in general? They translate into the same
   // value in our current encoding, but...)
