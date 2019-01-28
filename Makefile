@@ -826,7 +826,7 @@ check_0:
 	test -t 1 && eta=--eta || eta=; \
 	{ \
 		printf './%s\n' $(filter-out $(PARALLEL_TEST),$(TESTS)); \
-		find t -name run-* -print; \
+		find t -name 'run-*' -print; \
 	} \
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
@@ -843,7 +843,7 @@ valgrind_check_0:
 	test -t 1 && eta=--eta || eta=;					\
 	{								\
 	  printf './%s\n' $(filter-out $(PARALLEL_TEST) %skiplist_test options_settable_test, $(TESTS));		\
-	  find t -name run-* -print; \
+	  find t -name 'run-*' -print; \
 	}								\
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
