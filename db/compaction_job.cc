@@ -1405,10 +1405,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   auto sfm =
       static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
   if (sfm && meta != nullptr && meta->fd.GetPathId() == 0) {
-    auto fn =
-        TableFileName(sub_compact->compaction->immutable_cf_options()->cf_paths,
-                      meta->fd.GetNumber(), meta->fd.GetPathId());
-    sfm->OnAddFile(fn);
+    sfm->OnAddFile(fname);
     if (sfm->IsMaxAllowedSpaceReached()) {
       // TODO(ajkr): should we return OK() if max space was reached by the final
       // compaction output file (similarly to how flush works when full)?
