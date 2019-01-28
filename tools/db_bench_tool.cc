@@ -4817,7 +4817,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         }
       }
     }
-    char msg[100];
+    char msg[256];
     snprintf(msg, sizeof(msg),
              "( Gets:%" PRIu64 " Puts:%" PRIu64 " Seek:%" PRIu64 " of %" PRIu64
              " in %" PRIu64 " found)\n",
