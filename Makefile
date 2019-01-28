@@ -817,7 +817,6 @@ J ?= 100%
 # Use this regexp to select the subset of tests whose names match.
 tests-regexp = .
 
-t_run = $(wildcard t/run-*)
 .PHONY: check_0
 check_0:
 	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD); \
@@ -827,7 +826,7 @@ check_0:
 	test -t 1 && eta=--eta || eta=; \
 	{ \
 		printf './%s\n' $(filter-out $(PARALLEL_TEST),$(TESTS)); \
-		printf '%s\n' $(t_run); \
+		find t -name 'run-*' -print; \
 	} \
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
@@ -844,7 +843,7 @@ valgrind_check_0:
 	test -t 1 && eta=--eta || eta=;					\
 	{								\
 	  printf './%s\n' $(filter-out $(PARALLEL_TEST) %skiplist_test options_settable_test, $(TESTS));		\
-	  printf '%s\n' $(t_run);					\
+	  find t -name 'run-*' -print; \
 	}								\
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
