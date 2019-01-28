@@ -294,47 +294,8 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   assert(props != nullptr);
   table_properties_.reset(props);
 
-  BlockContents index_block_contents;
-  Status s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
-                           file_size_, kPlainTableMagicNumber, ioptions_,
-                           PlainTableIndexBuilder::kPlainTableIndexBlock,
-                           &index_block_contents,
-                           true /* compression_type_missing */);
-
-  bool index_in_file = s.ok();
-
-  BlockContents bloom_block_contents;
-  bool bloom_in_file = false;
-  // We only need to read the bloom block if index block is in file.
-  if (index_in_file) {
-    s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
-                      file_size_, kPlainTableMagicNumber, ioptions_,
-                      BloomBlockBuilder::kBloomBlock, &bloom_block_contents,
-                      true /* compression_type_missing */);
-    bloom_in_file = s.ok() && bloom_block_contents.data.size() > 0;
-  }
-
-  Slice* bloom_block;
-  if (bloom_in_file) {
-    // If bloom_block_contents.allocation is not empty (which will be the case
-    // for non-mmap mode), it holds the alloated memory for the bloom block.
-    // It needs to be kept alive to keep `bloom_block` valid.
-    bloom_block_alloc_ = std::move(bloom_block_contents.allocation);
-    bloom_block = &bloom_block_contents.data;
-  } else {
-    bloom_block = nullptr;
-  }
-
-  Slice* index_block;
-  if (index_in_file) {
-    // If index_block_contents.allocation is not empty (which will be the case
-    // for non-mmap mode), it holds the alloated memory for the index block.
-    // It needs to be kept alive to keep `index_block` valid.
-    index_block_alloc_ = std::move(index_block_contents.allocation);
-    index_block = &index_block_contents.data;
-  } else {
-    index_block = nullptr;
-  }
+  // index_in_file and bloom_in_file features are deprecated.
+  // Even if they exist in file, ignore them and always reconstruct.
 
   if ((prefix_extractor_ == nullptr) && (hash_table_ratio != 0)) {
     // moptions.prefix_extractor is requried for a hash-based look-up.
@@ -347,77 +308,36 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   // offset) and append it to IndexRecordList, which is a data structure created
   // to store them.
 
-  if (!index_in_file) {
-    // Allocate bloom filter here for total order mode.
-    if (IsTotalOrderMode()) {
-      uint32_t num_bloom_bits =
-          static_cast<uint32_t>(table_properties_->num_entries) *
-          bloom_bits_per_key;
-      if (num_bloom_bits > 0) {
-        enable_bloom_ = true;
-        bloom_.SetTotalBits(&arena_, num_bloom_bits, ioptions_.bloom_locality,
-                            huge_page_tlb_size, ioptions_.info_log);
-      }
+  // Allocate bloom filter here for total order mode.
+  if (IsTotalOrderMode()) {
+    uint32_t num_bloom_bits =
+        static_cast<uint32_t>(table_properties_->num_entries) *
+        bloom_bits_per_key;
+    if (num_bloom_bits > 0) {
+      enable_bloom_ = true;
+      bloom_.SetTotalBits(&arena_, num_bloom_bits, ioptions_.bloom_locality,
+                          huge_page_tlb_size, ioptions_.info_log);
     }
-  } else if (bloom_in_file) {
-    enable_bloom_ = true;
-    auto num_blocks_property = props->user_collected_properties.find(
-        PlainTablePropertyNames::kNumBloomBlocks);
-
-    uint32_t num_blocks = 0;
-    if (num_blocks_property != props->user_collected_properties.end()) {
-      Slice temp_slice(num_blocks_property->second);
-      if (!GetVarint32(&temp_slice, &num_blocks)) {
-        num_blocks = 0;
-      }
-    }
-    // cast away const qualifier, because bloom_ won't be changed
-    bloom_.SetRawData(
-        const_cast<unsigned char*>(
-            reinterpret_cast<const unsigned char*>(bloom_block->data())),
-        static_cast<uint32_t>(bloom_block->size()) * 8, num_blocks);
-  } else {
-    // Index in file but no bloom in file. Disable bloom filter in this case.
-    enable_bloom_ = false;
-    bloom_bits_per_key = 0;
   }
-
   PlainTableIndexBuilder index_builder(&arena_, ioptions_, prefix_extractor_,
                                        index_sparseness, hash_table_ratio,
                                        huge_page_tlb_size);
 
   std::vector<uint32_t> prefix_hashes;
-  if (!index_in_file) {
-    s = PopulateIndexRecordList(&index_builder, &prefix_hashes);
-    if (!s.ok()) {
-      return s;
-    }
-  } else {
-    s = index_.InitFromRawData(*index_block);
-    if (!s.ok()) {
-      return s;
-    }
+  Status s = PopulateIndexRecordList(&index_builder, &prefix_hashes);
+  if (!s.ok()) {
+    return s;
   }
-
-  if (!index_in_file) {
-    // Calculated bloom filter size and allocate memory for
-    // bloom filter based on the number of prefixes, then fill it.
-    AllocateAndFillBloom(bloom_bits_per_key, index_.GetNumPrefixes(),
-                         huge_page_tlb_size, &prefix_hashes);
-  }
+  // Calculated bloom filter size and allocate memory for
+  // bloom filter based on the number of prefixes, then fill it.
+  AllocateAndFillBloom(bloom_bits_per_key, index_.GetNumPrefixes(),
+                       huge_page_tlb_size, &prefix_hashes);
 
   // Fill two table properties.
-  if (!index_in_file) {
-    props->user_collected_properties["plain_table_hash_table_size"] =
-        ToString(index_.GetIndexSize() * PlainTableIndex::kOffsetLen);
-    props->user_collected_properties["plain_table_sub_index_size"] =
-        ToString(index_.GetSubIndexSize());
-  } else {
-    props->user_collected_properties["plain_table_hash_table_size"] =
-        ToString(0);
-    props->user_collected_properties["plain_table_sub_index_size"] =
-        ToString(0);
-  }
+  props->user_collected_properties["plain_table_hash_table_size"] =
+      ToString(index_.GetIndexSize() * PlainTableIndex::kOffsetLen);
+  props->user_collected_properties["plain_table_sub_index_size"] =
+      ToString(index_.GetSubIndexSize());
 
   return Status::OK();
 }

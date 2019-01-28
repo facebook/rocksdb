@@ -20,7 +20,6 @@
 #include "table/plain_table_factory.h"
 #include "db/dbformat.h"
 #include "table/block_builder.h"
-#include "table/bloom_block.h"
 #include "table/plain_table_index.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
@@ -62,34 +61,17 @@ PlainTableBuilder::PlainTableBuilder(
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, WritableFileWriter* file, uint32_t user_key_len,
     EncodingType encoding_type, size_t index_sparseness,
-    uint32_t bloom_bits_per_key, const std::string& column_family_name,
-    uint32_t num_probes, size_t huge_page_tlb_size, double hash_table_ratio,
-    bool store_index_in_file)
+    const std::string& column_family_name)
     : ioptions_(ioptions),
       moptions_(moptions),
-      bloom_block_(num_probes),
       file_(file),
-      bloom_bits_per_key_(bloom_bits_per_key),
-      huge_page_tlb_size_(huge_page_tlb_size),
       encoder_(encoding_type, user_key_len, moptions.prefix_extractor.get(),
                index_sparseness),
-      store_index_in_file_(store_index_in_file),
       prefix_extractor_(moptions.prefix_extractor.get()) {
-  // Build index block and save it in the file if hash_table_ratio > 0
-  if (store_index_in_file_) {
-    assert(hash_table_ratio > 0 || IsTotalOrderMode());
-    index_builder_.reset(new PlainTableIndexBuilder(
-        &arena_, ioptions, moptions.prefix_extractor.get(), index_sparseness,
-        hash_table_ratio, huge_page_tlb_size_));
-    properties_.user_collected_properties
-        [PlainTablePropertyNames::kBloomVersion] = "1";  // For future use
-  }
-
   properties_.fixed_key_len = user_key_len;
 
   // for plain table, we put all the data in a big chuck.
   properties_.num_data_blocks = 1;
-  // Fill it later if store_index_in_file_ == true
   properties_.index_size = 0;
   properties_.filter_size = 0;
   // To support roll-back to previous version, now still use version 0 for
@@ -130,26 +112,11 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
     return;
   }
 
-  // Store key hash
-  if (store_index_in_file_) {
-    if (moptions_.prefix_extractor == nullptr) {
-      keys_or_prefixes_hashes_.push_back(GetSliceHash(internal_key.user_key));
-    } else {
-      Slice prefix =
-          moptions_.prefix_extractor->Transform(internal_key.user_key);
-      keys_or_prefixes_hashes_.push_back(GetSliceHash(prefix));
-    }
-  }
-
   // Write value
   assert(offset_ <= std::numeric_limits<uint32_t>::max());
-  auto prev_offset = static_cast<uint32_t>(offset_);
   // Write out the key
   encoder_.AppendKey(key, file_, &offset_, meta_bytes_buf,
                      &meta_bytes_buf_size);
-  if (SaveIndexInFile()) {
-    index_builder_->AddKeyPrefix(GetPrefix(internal_key), prev_offset);
-  }
 
   // Write value length
   uint32_t value_size = static_cast<uint32_t>(value.size());
@@ -194,46 +161,6 @@ Status PlainTableBuilder::Finish() {
   //  5. [footer]
 
   MetaIndexBuilder meta_index_builer;
-
-  if (store_index_in_file_ && (properties_.num_entries > 0)) {
-    assert(properties_.num_entries <= std::numeric_limits<uint32_t>::max());
-    Status s;
-    BlockHandle bloom_block_handle;
-    if (bloom_bits_per_key_ > 0) {
-      bloom_block_.SetTotalBits(
-          &arena_,
-          static_cast<uint32_t>(properties_.num_entries) * bloom_bits_per_key_,
-          ioptions_.bloom_locality, huge_page_tlb_size_, ioptions_.info_log);
-
-      PutVarint32(&properties_.user_collected_properties
-                       [PlainTablePropertyNames::kNumBloomBlocks],
-                  bloom_block_.GetNumBlocks());
-
-      bloom_block_.AddKeysHashes(keys_or_prefixes_hashes_);
-
-      Slice bloom_finish_result = bloom_block_.Finish();
-
-      properties_.filter_size = bloom_finish_result.size();
-      s = WriteBlock(bloom_finish_result, file_, &offset_, &bloom_block_handle);
-
-      if (!s.ok()) {
-        return s;
-      }
-      meta_index_builer.Add(BloomBlockBuilder::kBloomBlock, bloom_block_handle);
-    }
-    BlockHandle index_block_handle;
-    Slice index_finish_result = index_builder_->Finish();
-
-    properties_.index_size = index_finish_result.size();
-    s = WriteBlock(index_finish_result, file_, &offset_, &index_block_handle);
-
-    if (!s.ok()) {
-      return s;
-    }
-
-    meta_index_builer.Add(PlainTableIndexBuilder::kPlainTableIndexBlock,
-                          index_block_handle);
-  }
 
   // Calculate bloom block size and index block size
   PropertyBlockBuilder property_block_builder;

@@ -20,8 +20,7 @@
 jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
     JNIEnv * /*env*/, jobject /*jobj*/, jint jkey_size,
     jint jbloom_bits_per_key, jdouble jhash_table_ratio, jint jindex_sparseness,
-    jint jhuge_page_tlb_size, jbyte jencoding_type, jboolean jfull_scan_mode,
-    jboolean jstore_index_in_file) {
+    jint jhuge_page_tlb_size, jbyte jencoding_type, jboolean jfull_scan_mode) {
   rocksdb::PlainTableOptions options = rocksdb::PlainTableOptions();
   options.user_key_len = jkey_size;
   options.bloom_bits_per_key = jbloom_bits_per_key;
@@ -30,7 +29,6 @@ jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
   options.huge_page_tlb_size = jhuge_page_tlb_size;
   options.encoding_type = static_cast<rocksdb::EncodingType>(jencoding_type);
   options.full_scan_mode = jfull_scan_mode;
-  options.store_index_in_file = jstore_index_in_file;
   return reinterpret_cast<jlong>(rocksdb::NewPlainTableFactory(options));
 }
 

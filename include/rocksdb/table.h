@@ -351,10 +351,11 @@ struct PlainTableOptions {
   //                  using the index.
   bool full_scan_mode = false;
 
+  // THIS FEATURE IS REMOVED.
   // @store_index_in_file: compute plain table index and bloom filter during
   //                       file building and store it in file. When reading
   //                       file, index will be mmaped instead of recomputation.
-  bool store_index_in_file = false;
+  // bool store_index_in_file = false;
 };
 
 // -- Plain Table with prefix-only seek

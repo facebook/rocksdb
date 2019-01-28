@@ -42,10 +42,8 @@ TableBuilder* PlainTableFactory::NewTableBuilder(
       table_builder_options.ioptions, table_builder_options.moptions,
       table_builder_options.int_tbl_prop_collector_factories, column_family_id,
       file, table_options_.user_key_len, table_options_.encoding_type,
-      table_options_.index_sparseness, table_options_.bloom_bits_per_key,
-      table_builder_options.column_family_name, 6,
-      table_options_.huge_page_tlb_size, table_options_.hash_table_ratio,
-      table_options_.store_index_in_file);
+      table_options_.index_sparseness,
+      table_builder_options.column_family_name);
 }
 
 std::string PlainTableFactory::GetPrintableTableOptions() const {
@@ -57,26 +55,14 @@ std::string PlainTableFactory::GetPrintableTableOptions() const {
   snprintf(buffer, kBufferSize, "  user_key_len: %u\n",
            table_options_.user_key_len);
   ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  bloom_bits_per_key: %d\n",
-           table_options_.bloom_bits_per_key);
-  ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  hash_table_ratio: %lf\n",
-           table_options_.hash_table_ratio);
-  ret.append(buffer);
   snprintf(buffer, kBufferSize, "  index_sparseness: %" ROCKSDB_PRIszt "\n",
            table_options_.index_sparseness);
-  ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  huge_page_tlb_size: %" ROCKSDB_PRIszt "\n",
-           table_options_.huge_page_tlb_size);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  encoding_type: %d\n",
            table_options_.encoding_type);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  full_scan_mode: %d\n",
            table_options_.full_scan_mode);
-  ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  store_index_in_file: %d\n",
-           table_options_.store_index_in_file);
   ret.append(buffer);
   return ret;
 }
