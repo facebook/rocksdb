@@ -4672,8 +4672,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     int64_t scan_len_max = FLAGS_mix_max_scan_len;
     double write_rate = 1000000.0;
     double read_rate = 1000000.0;
-    std::vector<double> ratio {FLAGS_mix_get_ratio, 
-	    FLAGS_mix_put_ratio, FLAGS_mix_seek_ratio};
+    std::vector<double> ratio {FLAGS_mix_get_ratio,
+        FLAGS_mix_put_ratio, FLAGS_mix_seek_ratio};
     char value_buffer[default_value_max];
     QueryDecider query;
     RandomGenerator gen;
