@@ -71,14 +71,6 @@ public class PlainTableConfigTest {
     assertThat(plainTableConfig.fullScanMode()).isTrue();  }
 
   @Test
-  public void storeIndexInFile() {
-    PlainTableConfig plainTableConfig = new PlainTableConfig();
-    plainTableConfig.setStoreIndexInFile(true);
-    assertThat(plainTableConfig.storeIndexInFile()).
-        isTrue();
-  }
-
-  @Test
   public void plainTableConfig() {
     try(final Options opt = new Options()) {
       final PlainTableConfig plainTableConfig = new PlainTableConfig();
