@@ -1743,8 +1743,8 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
                    bfile->PathName().c_str());
 
     blob_files_.erase(bfile->BlobFileNumber());
-    Status s = DeleteSSTFile(&(db_impl_->immutable_db_options()),
-                             bfile->PathName(), blob_dir_);
+    Status s = DeleteDBFile(&(db_impl_->immutable_db_options()),
+                             bfile->PathName(), blob_dir_, true);
     if (!s.ok()) {
       ROCKS_LOG_ERROR(db_options_.info_log,
                       "File failed to be deleted as obsolete %s",
@@ -1834,7 +1834,7 @@ Status DestroyBlobDB(const std::string& dbname, const Options& options,
     uint64_t number;
     FileType type;
     if (ParseFileName(f, &number, &type) && type == kBlobFile) {
-      Status del = DeleteSSTFile(&soptions, blobdir + "/" + f, blobdir);
+      Status del = DeleteDBFile(&soptions, blobdir + "/" + f, blobdir, true);
       if (status.ok() && !del.ok()) {
         status = del;
       }
