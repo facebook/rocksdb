@@ -111,9 +111,12 @@ class SstFileManagerImpl : public SstFileManager {
   // not guaranteed
   bool CancelErrorRecovery(ErrorHandler* db);
 
-  // Mark file as trash and schedule it's deletion.
+  // Mark file as trash and schedule it's deletion. If force_bg is set, it
+  // forces the file to be deleting in the background regardless of DB size,
+  // except when rate limited delete is disabled
   virtual Status ScheduleFileDeletion(const std::string& file_path,
-                                      const std::string& dir_to_sync);
+                                      const std::string& dir_to_sync,
+                                      const bool force_bg = false);
 
   // Wait for all files being deleteing in the background to finish or for
   // destructor to be called.
