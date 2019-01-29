@@ -15,7 +15,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   end
 
   config.vm.provider "virtualbox" do |v|
-    v.memory = 2048
+    v.memory = 6048
     v.cpus = 4
     v.customize ["modifyvm", :id, "--nictype1", "virtio" ]
   end

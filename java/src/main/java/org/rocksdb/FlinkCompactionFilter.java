@@ -37,18 +37,15 @@ public class FlinkCompactionFilter
           long configHolderHandle, long currentTimestamp);
 
   public interface ListElementIter {
-    void setListBytes(byte[] list);
-    int nextOffset(int currentOffset);
-  }
-
-  public static abstract class AbstractListElementIter implements ListElementIter {
-    protected byte[] list;
-
-    @Override
-    public void setListBytes(byte[] list) {
-      assert list != null;
-      this.list = list;
-    }
+    /**
+     * Gets offset of the first unexpired element in the list.
+     *
+     * @param list serialised list of elements with timestamp
+     * @param ttl time-to-live of the list elements
+     * @param currentTimestamp current timestamp to check expiration against
+     * @return offset of the first unexpired element in the list
+     */
+    int nextUnexpiredOffset(byte[] list, long ttl, long currentTimestamp);
   }
 
   public interface ListElementIterFactory {

@@ -319,13 +319,21 @@ public class FlinkCompactionFilterTest {
             private static class ListElementIterFactory implements FlinkCompactionFilter.ListElementIterFactory {
                 @Override
                 public FlinkCompactionFilter.ListElementIter createListElementIter() {
-                    return new FlinkCompactionFilter.AbstractListElementIter() {
+                    return new FlinkCompactionFilter.ListElementIter() {
                         @Override
-                        public int nextOffset(int currentOffset) {
-                            int elemLen = ByteBuffer
-                                    .wrap(list, currentOffset, list.length - currentOffset)
-                                    .getInt(8);
-                            return currentOffset + 13 + elemLen;
+                        public int nextUnexpiredOffset(byte[] list, long ttl, long currentTimestamp) {
+                            int currentOffset = 0;
+                            while (currentOffset < list.length) {
+                                ByteBuffer bf = ByteBuffer
+                                        .wrap(list, currentOffset, list.length - currentOffset);
+                                long timestamp = bf.getLong();
+                                if (timestamp + ttl > currentTimestamp) {
+                                    break;
+                                }
+                                int elemLen = bf.getInt(8);
+                                currentOffset += 13 + elemLen;
+                            }
+                            return currentOffset;
                         }
                     };
                 }

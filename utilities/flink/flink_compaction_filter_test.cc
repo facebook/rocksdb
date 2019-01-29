@@ -93,7 +93,8 @@ void InitList(CompactionFilter::ValueType vtype, bool first_elem_expired=false, 
   time = rnd(mt);
   SetTimestamp(first_elem_expired ? time - ttl - 20 : time, timestamp_offset); // elem 1 ts
   SetTimestamp(time, LIST_ELEM_FIXED_LEN + timestamp_offset); // elem 2 ts
-  auto fixed_len_iter_factory = new FlinkCompactionFilter::FixedListElementIterFactory(LIST_ELEM_FIXED_LEN);
+  auto fixed_len_iter_factory =
+          new FlinkCompactionFilter::FixedListElementIterFactory(LIST_ELEM_FIXED_LEN, static_cast<std::size_t>(0));
   Init(LIST, vtype, fixed_len_iter_factory, timestamp_offset);
 }
 

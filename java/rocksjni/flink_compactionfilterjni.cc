@@ -22,33 +22,24 @@ public:
         // exception occurred accessing class
         return;
       }
-      m_jset_list_data_methodid = env->GetMethodID(jclazz, "setListBytes", "([B)V");
-      assert(m_jset_list_data_methodid != nullptr);
-      m_jnext_offset_methodid = env->GetMethodID(jclazz, "nextOffset", "(I)I");
-      assert(m_jnext_offset_methodid != nullptr);
+      m_jnext_unexpired_offset_methodid = env->GetMethodID(jclazz, "nextUnexpiredOffset", "([BJJ)I");
+      assert(m_jnext_unexpired_offset_methodid != nullptr);
 
   }
 
-  inline void SetListBytes(const rocksdb::Slice& list) const override {
+  std::size_t NextUnexpiredOffset(const rocksdb::Slice& list, int64_t ttl, int64_t current_timestamp) const override {
     jboolean attached_thread = JNI_FALSE;
     JNIEnv* env = getJniEnv(&attached_thread);
     jbyteArray jlist = rocksdb::JniUtil::copyBytes(env, list);
     CheckAndRethrowException(env);
     if (jlist == nullptr) {
-      return;
+      return static_cast<std::size_t>(-1);
     }
-    env->CallVoidMethod(m_jcallback_obj, m_jset_list_data_methodid, jlist);
+    auto jl_ttl = static_cast<jlong>(ttl);
+    auto jl_current_timestamp = static_cast<jlong>(current_timestamp);
+    jint next_offset = env->CallIntMethod(m_jcallback_obj, m_jnext_unexpired_offset_methodid, jlist, jl_ttl, jl_current_timestamp);
     CheckAndRethrowException(env);
     env->DeleteLocalRef(jlist);
-    releaseJniEnv(attached_thread);
-  };
-
-  inline std::size_t NextOffset(std::size_t current_offset) const override {
-    jboolean attached_thread = JNI_FALSE;
-    JNIEnv* env = getJniEnv(&attached_thread);
-    auto ji_current_offset = static_cast<jint>(current_offset);
-    jint next_offset = env->CallIntMethod(m_jcallback_obj, m_jnext_offset_methodid, ji_current_offset);
-    CheckAndRethrowException(env);
     releaseJniEnv(attached_thread);
     return static_cast<std::size_t>(next_offset);
   };
@@ -61,8 +52,7 @@ private:
     }
   }
 
-  jmethodID m_jset_list_data_methodid;
-  jmethodID m_jnext_offset_methodid;
+  jmethodID m_jnext_unexpired_offset_methodid;
 };
 
 class JavaListElementIterFactory : public rocksdb::flink::FlinkCompactionFilter::ListElementIterFactory, rocksdb::JniCallback {
@@ -78,7 +68,7 @@ public:
         assert(m_jcreate_iter_methodid != nullptr);
     }
 
-    FlinkCompactionFilter::ListElementIter* CreateListElementIter() const override {
+    FlinkCompactionFilter::ListElementIter* CreateListElementIter(std::shared_ptr<rocksdb::Logger> /*logger*/) const override {
         jboolean attached_thread = JNI_FALSE;
         JNIEnv* env = getJniEnv(&attached_thread);
         auto jlist_iter = env->CallObjectMethod(m_jcallback_obj, m_jcreate_iter_methodid);
@@ -104,7 +94,7 @@ static FlinkCompactionFilter::ListElementIterFactory* createListElementIterFacto
   FlinkCompactionFilter::ListElementIterFactory* list_iter_factory = nullptr;
   if (ji_list_elem_len > 0) {
     auto fixed_size = static_cast<std::size_t>(ji_list_elem_len);
-    list_iter_factory = new FlinkCompactionFilter::FixedListElementIterFactory(fixed_size);
+    list_iter_factory = new FlinkCompactionFilter::FixedListElementIterFactory(fixed_size, static_cast<std::size_t>(0));
   } else if (jlist_iter_factory != nullptr) {
     list_iter_factory = new JavaListElementIterFactory(env, jlist_iter_factory);
   }
@@ -157,7 +147,8 @@ jlong Java_org_rocksdb_FlinkCompactionFilter_createNewFlinkCompactionFilter0(
 jlong Java_org_rocksdb_FlinkCompactionFilter_configureFlinkCompactionFilter(
         JNIEnv* env, jclass /* jcls */,
         jlong handle, jint ji_state_type, jint ji_timestamp_offset,
-        jlong jl_ttl_milli, jboolean jb_use_system_time, jint ji_list_elem_len, jobject jlist_iter_factory) {
+        jlong jl_ttl_milli, jboolean jb_use_system_time, jint ji_list_elem_len,
+        jobject jlist_iter_factory) {
   auto state_type = static_cast<FlinkCompactionFilter::StateType>(ji_state_type);
   auto timestamp_offset = static_cast<size_t>(ji_timestamp_offset);
   auto ttl = static_cast<int64_t>(jl_ttl_milli);

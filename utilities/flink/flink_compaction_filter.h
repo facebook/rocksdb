@@ -38,19 +38,18 @@ public:
   class ListElementIter {
   public:
     virtual ~ListElementIter() = default;
-    virtual void SetListBytes(const Slice& list) const = 0;
-    virtual std::size_t NextOffset(std::size_t current_offset) const = 0;
+    virtual std::size_t NextUnexpiredOffset(const Slice& list, int64_t ttl, int64_t current_timestamp) const = 0;
   };
 
   class FixedListElementIter : public ListElementIter {
   public:
-    explicit FixedListElementIter(std::size_t fixed_size) : fixed_size_(fixed_size) {}
-    void SetListBytes(const Slice& /* list */) const override {};
-    inline std::size_t NextOffset(std::size_t current_offset) const override {
-        return current_offset + fixed_size_;
-    };
+    explicit FixedListElementIter(std::size_t fixed_size, std::size_t timestamp_offset, std::shared_ptr<Logger> logger) :
+            fixed_size_(fixed_size), timestamp_offset_(timestamp_offset), logger_(std::move(logger)) {}
+    std::size_t NextUnexpiredOffset(const Slice& list, int64_t ttl, int64_t current_timestamp) const override;
   private:
       std::size_t fixed_size_;
+      std::size_t timestamp_offset_;
+      std::shared_ptr<Logger> logger_;
   };
 
   // Factory is needed to create one iterator per filter/thread
@@ -58,17 +57,19 @@ public:
   class ListElementIterFactory {
   public:
     virtual ~ListElementIterFactory() = default;
-    virtual ListElementIter* CreateListElementIter() const = 0;
+    virtual ListElementIter* CreateListElementIter(std::shared_ptr<Logger> logger) const = 0;
   };
 
   class FixedListElementIterFactory : public ListElementIterFactory {
   public:
-    explicit FixedListElementIterFactory(std::size_t fixed_size) : fixed_size_(fixed_size) {}
-    FixedListElementIter* CreateListElementIter() const override {
-        return new FixedListElementIter(fixed_size_);
+    explicit FixedListElementIterFactory(std::size_t fixed_size, std::size_t timestamp_offset) :
+            fixed_size_(fixed_size), timestamp_offset_(timestamp_offset) {}
+    FixedListElementIter* CreateListElementIter(std::shared_ptr<Logger> logger) const override {
+        return new FixedListElementIter(fixed_size_, timestamp_offset_, logger);
     };
   private:
     std::size_t fixed_size_;
+    std::size_t timestamp_offset_;
   };
 
   struct Config {
@@ -136,20 +137,16 @@ public:
 private:
   Decision ListDecide(const Slice& existing_value, const Config* config, std::string* new_value) const;
 
-  inline std::size_t ListNextOffset(std::size_t offset) const;
+  inline std::size_t ListNextOffset(const Slice& existing_value, std::size_t offset, int64_t ttl, int64_t current_timestamp) const;
 
   inline void SetUnexpiredListValue(
           const Slice& existing_value, std::size_t offset, std::string* new_value) const;
-
-  inline Decision Decide(const char* ts_bytes, const Config* config, std::size_t timestamp_offset) const;
-
-  inline int64_t DeserializeTimestamp(const char *src, std::size_t offset) const;
 
   inline int64_t CurrentTimestamp(bool useSystemTime) const;
 
   inline void CreateListElementIterIfNull(ListElementIterFactory* list_element_iter_factory) const {
     if (!list_element_iter_ && list_element_iter_factory) {
-      const_cast<FlinkCompactionFilter*>(this)->list_element_iter_ = list_element_iter_factory->CreateListElementIter();
+      const_cast<FlinkCompactionFilter*>(this)->list_element_iter_ = list_element_iter_factory->CreateListElementIter(logger_);
     }
   }
 
