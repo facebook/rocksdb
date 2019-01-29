@@ -482,7 +482,7 @@ Status DBImpl::Recover(
     if (!logs.empty()) {
       // Recover in the order in which the logs were generated
       std::sort(logs.begin(), logs.end());
-      s = RecoverLogFiles(logs, &next_sequence, read_only);
+      s = RecoverLogFiles(logs, &next_sequence, read_only, false);
       if (!s.ok()) {
         // Clear memtables if recovery failed
         for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -520,7 +520,8 @@ Status DBImpl::Recover(
 
 // REQUIRES: log_numbers are sorted in ascending order
 Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
-                               SequenceNumber* next_sequence, bool read_only) {
+                               SequenceNumber* next_sequence, bool read_only,
+                               bool secondary) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
@@ -662,7 +663,6 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       }
       WriteBatchInternal::SetContents(&batch, record);
       SequenceNumber sequence = WriteBatchInternal::Sequence(&batch);
-
       if (immutable_db_options_.wal_recovery_mode ==
           WALRecoveryMode::kPointInTimeRecovery) {
         // In point-in-time recovery mode, if sequence id of log files are
@@ -762,10 +762,11 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // we just ignore the update.
       // That's why we set ignore missing column families to true
       bool has_valid_writes = false;
+
       status = WriteBatchInternal::InsertInto(
           &batch, column_family_memtables_.get(), &flush_scheduler_, true,
           log_number, this, false /* concurrent_memtable_writes */,
-          next_sequence, &has_valid_writes, seq_per_batch_, batch_per_txn_);
+          next_sequence, &has_valid_writes, seq_per_batch_, batch_per_txn_, secondary);
       MaybeIgnoreError(&status);
       if (!status.ok()) {
         // We are treating this as a failure while reading since we read valid
@@ -787,7 +788,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
           auto iter = version_edits.find(cfd->GetID());
           assert(iter != version_edits.end());
           VersionEdit* edit = &iter->second;
-          status = WriteLevel0TableForRecovery(job_id, cfd, cfd->mem(), edit);
+          if (!secondary) {
+            status = WriteLevel0TableForRecovery(job_id, cfd, cfd->mem(), edit);
+          }
           if (!status.ok()) {
             // Reflect errors immediately so that conditions like full
             // file-systems cause the DB::Open() to fail.
@@ -839,6 +842,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       versions_->SetLastPublishedSequence(last_sequence);
       versions_->SetLastSequence(last_sequence);
     }
+
   }
   // Compare the corrupted log number to all columnfamily's current log number.
   // Abort Open() if any column family's log number is greater than
@@ -915,8 +919,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // VersionSet::next_file_number_ always to be strictly greater than any
       // log number
       versions_->MarkFileNumberUsed(max_log_number + 1);
-      status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                      edit, &mutex_);
+      if (!secondary) {
+        status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
+                                        edit, &mutex_);
+      }
       if (!status.ok()) {
         // Recovery failed
         break;

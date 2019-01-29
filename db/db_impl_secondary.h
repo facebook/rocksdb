@@ -145,6 +145,10 @@ class DBImplSecondary : public DBImpl {
   std::unique_ptr<log::FragmentBufferedReader> manifest_reader_;
   std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
   std::unique_ptr<Status> manifest_reader_status_;
+
+  // the largest WAL file number that has been processed during
+  // `DBImplSecondary::Recover` stage
+  uint64_t max_log_number_processed;
 };
 }  // namespace rocksdb
 

@@ -52,9 +52,43 @@ Status DBImplSecondary::Recover(
     default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
     single_column_family_mode_ =
         versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;
+
+    // Recover from all newer log files than the ones named in the
+    // descriptor (new log files may have been added by the previous
+    // incarnation without registering them in the descriptor).
+    //
+    // Note that prev_log_number() is no longer used, but we pay
+    // attention to it in case we are recovering a database
+    // produced by an older version of rocksdb.
+    std::vector<std::string> filenames;
+    s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
+    if (s.IsNotFound()) {
+      return Status::InvalidArgument("wal_dir not found",
+                                     immutable_db_options_.wal_dir);
+    } else if (!s.ok()) {
+      return s;
+    }
+
+    std::vector<uint64_t> logs;
+    for (size_t i = 0; i < filenames.size(); i++) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(filenames[i], &number, &type) && type == kLogFile) {
+        logs.push_back(number);
+      }
+    }
+
+    if (!logs.empty()) {
+      // Recover in the order in which the logs were generated
+      std::sort(logs.begin(), logs.end());
+      SequenceNumber next_sequence(kMaxSequenceNumber);
+      s = RecoverLogFiles(logs, &next_sequence, false, true);
+      max_log_number_processed = logs.back();
+    }
   }
 
-  // TODO: attempt to recover from WAL files.
+  // TODO: update options_file_number_ needed?
+
   return s;
 }
 

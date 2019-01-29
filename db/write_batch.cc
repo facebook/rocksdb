@@ -1067,6 +1067,8 @@ class MemTableInserter : public WriteBatch::Handler {
   bool write_after_commit_;
   // Whether memtable write can be done before prepare
   bool write_before_prepare_;
+  // whether to avoid memtable flush
+  bool avoid_memtable_flush_;
   // Whether this batch was unprepared or not
   bool unprepared_batch_;
   using DupDetector = std::aligned_storage<sizeof(DuplicateDetector)>::type;
@@ -1105,7 +1107,7 @@ class MemTableInserter : public WriteBatch::Handler {
                    uint64_t recovering_log_number, DB* db,
                    bool concurrent_memtable_writes,
                    bool* has_valid_writes = nullptr, bool seq_per_batch = false,
-                   bool batch_per_txn = true)
+                   bool batch_per_txn = true, bool avoid_memtable_flush = false)
       : sequence_(_sequence),
         cf_mems_(cf_mems),
         flush_scheduler_(flush_scheduler),
@@ -1126,6 +1128,7 @@ class MemTableInserter : public WriteBatch::Handler {
         // WriteUnprepared can write WriteBatches per transaction, so
         // batch_per_txn being false indicates write_before_prepare.
         write_before_prepare_(!batch_per_txn),
+        avoid_memtable_flush_(avoid_memtable_flush),
         unprepared_batch_(false),
         duplicate_detector_(),
         dup_dectector_on_(false) {
@@ -1587,6 +1590,7 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
   void CheckMemtableFull() {
+    if (avoid_memtable_flush_) return;
     if (flush_scheduler_ != nullptr) {
       auto* cfd = cf_mems_->current();
       assert(cfd != nullptr);
@@ -1812,11 +1816,11 @@ Status WriteBatchInternal::InsertInto(
     FlushScheduler* flush_scheduler, bool ignore_missing_column_families,
     uint64_t log_number, DB* db, bool concurrent_memtable_writes,
     SequenceNumber* next_seq, bool* has_valid_writes, bool seq_per_batch,
-    bool batch_per_txn) {
+    bool batch_per_txn, bool avoid_memtable_flush) {
   MemTableInserter inserter(Sequence(batch), memtables, flush_scheduler,
                             ignore_missing_column_families, log_number, db,
                             concurrent_memtable_writes, has_valid_writes,
-                            seq_per_batch, batch_per_txn);
+                            seq_per_batch, batch_per_txn, avoid_memtable_flush);
   Status s = batch->Iterate(&inserter);
   if (next_seq != nullptr) {
     *next_seq = inserter.sequence();

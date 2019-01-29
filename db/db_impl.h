@@ -845,6 +845,10 @@ class DBImpl : public DB {
 
   void EraseThreadStatusDbInfo() const;
 
+  // REQUIRES: log_numbers are sorted in ascending order
+  Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
+                         SequenceNumber* next_sequence, bool read_only, bool secondary);
+
   // If disable_memtable is set the application logic must guarantee that the
   // batch will still be skipped from memtable during the recovery. An excption
   // to this is seq_per_batch_ mode, in which since each batch already takes one
@@ -1034,10 +1038,6 @@ class DBImpl : public DB {
   Status AtomicFlushMemTablesToOutputFiles(
       const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
       JobContext* job_context, LogBuffer* log_buffer, Env::Priority thread_pri);
-
-  // REQUIRES: log_numbers are sorted in ascending order
-  Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
-                         SequenceNumber* next_sequence, bool read_only);
 
   // The following two methods are used to flush a memtable to
   // storage. The first one is used at database RecoveryTime (when the
