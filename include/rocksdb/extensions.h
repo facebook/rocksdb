@@ -48,6 +48,11 @@ public:
 				 const std::string & name,
 				 const std::string & value,
 				 Status * status);
+  // Returns true if the input option matches the input extension property.
+  // If "property.options="options", then extName will be empty and extOpts will be the name-value paris in value
+  // Ir "property.name"=options", then extName will be set to value and the extOpts map will be emprt
+  // If "property" == "options", then "value" is treated as a map of named value pairs.
+  //    If a name property exists, it is removed from the map and extName is set to its value
   static bool IsExtensionOption(const std::string & property,
 				const std::string & option,
 				const std::string & value,
@@ -143,39 +148,28 @@ public:
     return SanitizeOptions(dbOpts);
   }
 protected:
+  // Sets the properties named in the input map to their corresponding value.
+  // unused contains a collection of named properties that were specified in the input map
+  // but for which no property existed
   virtual Status SetOptions(const DBOptions & dbOpts,
 			    const ColumnFamilyOptions * cfOpts,
 			    const std::unordered_map<std::string, std::string> &,
 			    bool input_strings_escaped,
 			    std::unordered_set<std::string> *unused);  
+  // Sets the named option to the input value, where th optType is the type of the option,
+  // and the optAddr is the offset of this named property in this object
   virtual Status SetOption(const DBOptions & dbOpts,
 			   const ColumnFamilyOptions * cfOpts,
 			   const OptionType & optType,
 			   char *optAddr,
 			   const std::string & name,
 			   const std::string & value);
+  // Parses the name and value as an Extension object.
   virtual Status ParseExtension(const DBOptions & dbOpts, const ColumnFamilyOptions *cfOpts,
 				const std::string & name, const std::string & value);
+  // Parses the name and value as aobject of unknown type.
   virtual Status ParseUnknown(const DBOptions & dbOpts, const ColumnFamilyOptions *cfOpts,
 			      const std::string & name, const std::string & value);
-  Status ConfigureExtension(Extension *extension, const std::string & name, const std::string & value);
-  // Updates the parameters for the input extension
-  // Parameters:
-  //     extension             The extension to update
-  //     prefix                The prefix representing the name of this extension
-  //     name                  The name of the option to update
-  //     value                 The value to set for the named option
-  // If the extension exists and the named option exists in the extension,
-  //    the extension is updated
-  // If the prefix represents *this* extension (see PrefixMatchesOption), then
-  //    the extension with the properties from the value
-  // If the prefix matches this extension type but not this extension,
-  //    InvalidArgument is returned.
-  Status SetExtensionOption(Extension * extension,
-			    const std::string & key,
-			    const std::string & name,
-			    const std::string & value);
-
 };
 }  // namespace rocksdb
 

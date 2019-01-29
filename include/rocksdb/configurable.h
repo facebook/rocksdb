@@ -1,4 +1,8 @@
-// A Configurable is an is an abstract class used by the rocksdb that
+// A Configurable is an is an abstract class used by the rocksdb that can be configured from:
+// - One or more "name/value" strings
+// - A string repesenting the set of name=value properties
+// - A map of name/value properties.
+
 
 #pragma once
 
@@ -83,8 +87,8 @@ class Configurable {
   static const std::string kPropOptValue /* = "options" */;
   static const std::string kOptionsPrefix /* = "rocksdb." */;
 protected:
-  const std::string    optionsPrefix_;
-  const OptionTypeMap *optionsMap_;
+  const std::string    optionsPrefix_; // The prefix for properties of this instance (e.g. rocksdb.my.property.,")
+  const OptionTypeMap *optionsMap_;    // Pointer to the map of name/options used to configure this object
 protected:
   Configurable() : optionsPrefix_(kOptionsPrefix), optionsMap_(nullptr) { }
   Configurable(const std::string & prefix,
@@ -148,20 +152,31 @@ public:
     return Status::OK();
   }
  protected:
+  // Returns the option info for the named optiub
   const OptionTypeInfo *FindOption(const std::string & option) const;
+  // Given a prefixed name (e.g. rocksdb.my.type.name), returns the short name ("name")
   std::string GetOptionName(const std::string & longName) const;
+  // Sets the named option to the input value, where th optType is the type of the option,
+  // and the optAddr is the offset of this named property in this object
   virtual Status SetOption(const OptionType & optType,
 			   char *optAddr,
 			   const std::string & name,
 			   const std::string & value);
+  // Sets the properties named in the input map to their corresponding value.
+  // unused contains a collection of named properties that were specified in the input map
+  // but for which no property existed
   virtual Status SetOptions(const std::unordered_map<std::string, std::string> &,
 			    bool input_strings_escaped,
 			    std::unordered_set<std::string> *unused);
+  // Parses the name and value into addr, where name is the name of the enum class and value is the string representation
+  // of the enumerated value.
   virtual Status ParseEnum(const std::string & name,
 			   const std::string & value,
 			   char * addr);
+  // Parses the name and value as an Extension object.
   virtual Status ParseExtension(const std::string & name,
 				const std::string & value);
+  // Parses the name and value as aobject of unknown type.
   virtual Status ParseUnknown(const std::string & name,
 			      const std::string & value);
 public:

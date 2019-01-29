@@ -108,7 +108,6 @@ public:
   Status RegisterLibrary(const std::shared_ptr<DynamicLibrary> & library,
 			 const std::string & method,
 			 const std::string & arg);
-
   
   /**
    * Finds the FactoryFunction for the specified extension type and name.
@@ -119,11 +118,29 @@ public:
    */
   FactoryFunction FindFactory(const std::string  & type, const std::string & name);
 
+  /**
+   * Creates a new extension of the input name/type and stores the shared result
+   * @param type     The type of factory to create.
+   * @param name     The name of factory to create.
+   * @param dbOpts   Options passed to the Extension Factory
+   * @param cfOpts   Options passed to the Extension Factory
+   * @param result   The newly created object
+   * @returns        OK if the extension was successfully created, 
+   */
   Status CreateSharedExtension(const std::string & type,
 			       const std::string & name,
 			       const DBOptions & dbOpts,
 			       const ColumnFamilyOptions * cfOpts,
 			       std::shared_ptr<Extension> *result);
+  /**
+   * Creates a new extension of the input name/type and stores the unique result
+   * @param type     The type of factory to create.
+   * @param name     The name of factory to create.
+   * @param dbOpts   Options passed to the Extension Factory
+   * @param cfOpts   Options passed to the Extension Factory
+   * @param result   The newly created object
+   * @returns        OK if the extension was successfully created, 
+   */
   Extension *CreateUniqueExtension(const std::string & type,
 				   const std::string & name,
 				   const DBOptions & dbOpts,

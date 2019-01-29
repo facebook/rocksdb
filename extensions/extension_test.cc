@@ -416,6 +416,22 @@ static Status Invalid  = Status::InvalidArgument();
     }                                 \
   }
 
+TEST_P(ExtensionTestWithParam, BadConversions) {
+  std::shared_ptr<MockExtension> extension;
+  AssertNewMockExtension(true, &extension);
+  //AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "bool",   "1"),      true, extension->options_.boolOpt);
+  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "bool",   "string"), true, extension->options_.boolOpt);
+  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "int",    "string"),     1, extension->options_.intOpt);
+  AssertNewMockExtension(true, &extension->options_.inner);
+  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "inner.options", "bool=string"), true, extension->options_.inner->options_.boolOpt);
+  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "inner.options", "int=string"),     1, extension->options_.inner->options_.intOpt);
+  extension->options_.inner->reset();
+  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "inner", "options=bool=string;name="+MockPrefix + "." + name_), true, extension->options_.inner->options_.boolOpt);
+  extension->options_.inner->reset();
+  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "inner", "options=int=string;name="+MockPrefix + "." + name_),     1, extension->options_.inner->options_.intOpt);
+
+}
+  
 TEST_P(ExtensionTestWithParam, ConfigureOptions) {
   std::shared_ptr<MockExtension> extension;
   AssertNewMockExtension(true, &extension);
@@ -458,7 +474,6 @@ TEST_P(ExtensionTestWithParam, ConfigureOptionsFromMap) {
   AssertConfigureProperty(OK, ext->ConfigureFromMap(dbOptions_, nullptr, opt_map, false, true), true, ext->options_.boolOpt);
   AssertConfigureProperty(NotFound, ext->ConfigureFromMap(dbOptions_, opt_map), "string", ext->options_.strOpt);
 }
-
 
 TEST_P(ExtensionTestWithParam, ParseExtensionOptions) {
   std::string onePrefix = std::string("one.") + MockPrefix + ".";

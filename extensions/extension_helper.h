@@ -1,6 +1,4 @@
-// Class for loading Extensions into Extension objects into a rocksdb instance
-// Extension classes are registered by name and type with an ExtensionLoader and 
-// can be created and configured on demand later as required.
+// Template methods for creating and loading extensions
 
 #pragma once
 
@@ -88,6 +86,11 @@ Status CastUniqueExtension(Extension *from,
   return Status::OK();
 }
 
+/**
+ * Creates a new unique extension of type T of the appropriate name
+ * and returns the result. 
+ * If guard is set on return, the guard controls the lifetime of the returned result.
+ */
 template<typename T>
 Status NewUniqueExtension(const std::string & name,
 			  const DBOptions & dbOpts, 
@@ -111,7 +114,7 @@ Status NewUniqueExtension(const std::string & name,
    
 /**
  * Creates a new Extension of type T if the current one is not appropriate (either
- * the extension is null or the wrong name.
+ * the extension is null or the wrong name and stores it in a shared pointer.
  * @param name     The name of the returned extension
  * @param dbOpts   Database options for creating this extension
  * @param cfOpts   Optional column family options for creating this extension
@@ -133,6 +136,20 @@ Status GetSharedExtension(const DBOptions & dbOpts,
   }
 }
   
+/**
+ * Checks if the input property/name are for an extension.  If so, the name/value are parsed and
+ * a new extension may (depending on the values) be created and/or configured.
+ * @param property    The name of the configuration property for this extension
+ * @param dbOpts      Parameter for creating and configuring the result
+ * @param cfOpts      Parameter for creating and configuring the result
+ * @param name        The name of the supplied property for this extension.  This name is compared
+ *                    to the input property to see if the name represents this extension
+ * @param value       The settings/value of the property being configured
+ * @param result      The returned extension.  Depending on the property/name/value parameters, 
+ *                    the extension may be created and/or configured
+ * @param status      If the property represents this extension, the returned status for this operation.
+ * @result            True if the name represents this property, false otherwise.
+ */
 template<typename T>
 bool ConfigureSharedExtension(const std::string & property,
 			      const DBOptions & dbOpts, 
@@ -162,6 +179,18 @@ bool ConfigureSharedExtension(const std::string & property,
 }
 
 
+/**
+ * Creates a new Extension of type T if the current one is not appropriate (either
+ * the extension is null or the wrong name and stores it in a unique pointer.
+ * @param name     The name of the returned extension
+ * @param dbOpts   Database options for creating this extension
+ * @param cfOpts   Optional column family options for creating this extension
+ * @param result   The resuting new T extension 
+ * @return         OK if the new extension was successfully created
+ *                 InvalidArgument if the named extension of type T could not
+ *                                 be found.
+ *                 NotSupported if the class types do not match
+ */
 template<typename T>
 Status GetUniqueExtension(const DBOptions & dbOpts, 
 			  const ColumnFamilyOptions * cfOpts,
