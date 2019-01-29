@@ -105,6 +105,7 @@ Status DeleteDBFile(const ImmutableDBOptions* db_options,
   }
 #else
   (void)dir_to_sync;
+  (void)force_bg;
   // SstFileManager is not supported in ROCKSDB_LITE
   return db_options->env->DeleteFile(fname);
 #endif
