@@ -812,6 +812,53 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithBadBlockChecksum) {
   } while (ChangeOptionsForFileIngestionTest());
 }
 
+TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
+  SyncPoint::GetInstance()->DisableProcessing();
+  int file_id = 0;
+  EnvOptions env_options;
+  do {
+    Options options = CurrentOptions();
+    std::string file_path = sst_files_dir_ + ToString(file_id++);
+    SstFileWriter sst_file_writer(env_options, options);
+    Status s = sst_file_writer.Open(file_path);
+    ASSERT_OK(s);
+    for (int i = 0; i != 100; ++i) {
+      std::string key = Key(i);
+      std::string value = Key(i) + ToString(0);
+      ASSERT_OK(sst_file_writer.Put(key, value));
+    }
+    ASSERT_OK(sst_file_writer.Finish());
+    {
+      // Get file size
+      uint64_t file_size = 0;
+      ASSERT_OK(env_->GetFileSize(file_path, &file_size));
+      ASSERT_GT(file_size, 8);
+      std::unique_ptr<RandomRWFile> rwfile;
+      ASSERT_OK(env_->NewRandomRWFile(file_path, &rwfile, EnvOptions()));
+      // Manually corrupt the file
+      // We deterministically corrupt the first byte because we currently
+      // cannot choose a random offset. The reason for this limitation is that
+      // we do not checksum property block at present.
+      const uint64_t offset = 0;
+      char scratch[8] = {0};
+      Slice buf;
+      ASSERT_OK(rwfile->Read(offset, sizeof(scratch), &buf, scratch));
+      scratch[0] ^= 0xff;  // flip one bit
+      ASSERT_OK(rwfile->Write(offset, buf));
+    }
+    // Ingest file.
+    IngestExternalFileOptions ifo;
+    ifo.write_global_seqno = std::get<0>(GetParam());
+    ifo.verify_checksums_before_ingest = std::get<1>(GetParam());
+    s = db_->IngestExternalFile({file_path}, ifo);
+    if (ifo.verify_checksums_before_ingest) {
+      ASSERT_NOK(s);
+    } else {
+      ASSERT_OK(s);
+    }
+  } while (ChangeOptionsForFileIngestionTest());
+}
+
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
                         testing::Values(std::make_tuple(true, true),
                                         std::make_tuple(true, false),
