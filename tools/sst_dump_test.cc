@@ -60,8 +60,7 @@ void createSST(const Options& opts, const std::string& file_name) {
       TableBuilderOptions(
           imoptions, moptions, ikc, &int_tbl_prop_collector_factories,
           CompressionType::kNoCompression, CompressionOptions(),
-          nullptr /* compression_dict */, false /* skip_filters */,
-          column_family_name, unknown_level),
+          false /* skip_filters */, column_family_name, unknown_level),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 
