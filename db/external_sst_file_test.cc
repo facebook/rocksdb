@@ -2329,7 +2329,10 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_Success) {
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
     ifo.allow_global_seqno = true;        // Always allow global_seqno
-    ifo.write_global_seqno = GetParam();  // May or may not write global_seqno
+    // May or may not write global_seqno
+    ifo.write_global_seqno = std::get<0>(GetParam());
+    // Whether to verify checksums before ingestion
+    ifo.verify_checksums_before_ingest = std::get<1>(GetParam());
   }
   std::vector<std::vector<std::pair<std::string, std::string>>> data;
   data.push_back(
@@ -2381,7 +2384,10 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_PrepareFail) {
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
     ifo.allow_global_seqno = true;        // Always allow global_seqno
-    ifo.write_global_seqno = GetParam();  // May or may not write global_seqno
+    // May or may not write global_seqno
+    ifo.write_global_seqno = std::get<0>(GetParam());
+    // Whether to verify block checksums before ingest
+    ifo.verify_checksums_before_ingest = std::get<1>(GetParam());
   }
   std::vector<std::vector<std::pair<std::string, std::string>>> data;
   data.push_back(
@@ -2444,7 +2450,10 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_CommitFail) {
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
     ifo.allow_global_seqno = true;        // Always allow global_seqno
-    ifo.write_global_seqno = GetParam();  // May or may not write global_seqno
+    // May or may not write global_seqno
+    ifo.write_global_seqno = std::get<0>(GetParam());
+    // Whether to verify block checksums before ingestion
+    ifo.verify_checksums_before_ingest = std::get<1>(GetParam());
   }
   std::vector<std::vector<std::pair<std::string, std::string>>> data;
   data.push_back(
@@ -2512,7 +2521,10 @@ TEST_P(ExternalSSTFileTest,
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
     ifo.allow_global_seqno = true;        // Always allow global_seqno
-    ifo.write_global_seqno = GetParam();  // May or may not write global_seqno
+    // May or may not write global_seqno
+    ifo.write_global_seqno = std::get<0>(GetParam());
+    // Whether to verify block checksums before ingestion
+    ifo.verify_checksums_before_ingest = std::get<1>(GetParam());
   }
   std::vector<std::vector<std::pair<std::string, std::string>>> data;
   data.push_back(
