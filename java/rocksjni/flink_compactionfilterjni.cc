@@ -14,10 +14,22 @@
 
 using namespace rocksdb::flink;
 
-class JavaListElementIter : public rocksdb::flink::FlinkCompactionFilter::ListElementIter, rocksdb::JniCallback {
+class JniCallbackBase : public rocksdb::JniCallback {
 public:
-  JavaListElementIter(JNIEnv* env, jobject jlist_iter) : JniCallback(env, jlist_iter) {
-      jclass jclazz = rocksdb::JavaClass::getJClass(env, "org/rocksdb/FlinkCompactionFilter$ListElementIter");
+    JniCallbackBase(JNIEnv *env, jobject jcallback_obj) : JniCallback(env, jcallback_obj) {}
+protected:
+    inline void CheckAndRethrowException(JNIEnv* env) const {
+    if (env->ExceptionCheck()) {
+      env->ExceptionDescribe();
+      env->Throw(env->ExceptionOccurred());
+    }
+  }
+};
+
+class JavaListElementFilter : public rocksdb::flink::FlinkCompactionFilter::ListElementFilter, JniCallbackBase {
+public:
+  JavaListElementFilter(JNIEnv* env, jobject jlist_filter) : JniCallbackBase(env, jlist_filter) {
+      jclass jclazz = rocksdb::JavaClass::getJClass(env, "org/rocksdb/FlinkCompactionFilter$ListElementFilter");
       if(jclazz == nullptr) {
         // exception occurred accessing class
         return;
@@ -45,63 +57,74 @@ public:
   };
 
 private:
-  inline void CheckAndRethrowException(JNIEnv* env) const {
-    if (env->ExceptionCheck()) {
-      env->ExceptionDescribe();
-      env->Throw(env->ExceptionOccurred());
-    }
-  }
-
   jmethodID m_jnext_unexpired_offset_methodid;
 };
 
-class JavaListElementIterFactory : public rocksdb::flink::FlinkCompactionFilter::ListElementIterFactory, rocksdb::JniCallback {
+class JavaListElemenFilterFactory : public rocksdb::flink::FlinkCompactionFilter::ListElementFilterFactory, JniCallbackBase {
 public:
-    JavaListElementIterFactory(JNIEnv* env, jobject jlist_iter_factory) : JniCallback(env, jlist_iter_factory) {
-        jclass jclazz = rocksdb::JavaClass::getJClass(env, "org/rocksdb/FlinkCompactionFilter$ListElementIterFactory");
+    JavaListElemenFilterFactory(JNIEnv* env, jobject jlist_filter_factory) : JniCallbackBase(env, jlist_filter_factory) {
+        jclass jclazz = rocksdb::JavaClass::getJClass(env, "org/rocksdb/FlinkCompactionFilter$ListElementFilterFactory");
         if(jclazz == nullptr) {
             // exception occurred accessing class
             return;
         }
-        m_jcreate_iter_methodid = env->GetMethodID(jclazz,
-                "createListElementIter", "()Lorg/rocksdb/FlinkCompactionFilter$ListElementIter;");
-        assert(m_jcreate_iter_methodid != nullptr);
+        m_jcreate_filter_methodid = env->GetMethodID(jclazz,
+                "createListElementFilter", "()Lorg/rocksdb/FlinkCompactionFilter$ListElementFilter;");
+        assert(m_jcreate_filter_methodid != nullptr);
     }
 
-    FlinkCompactionFilter::ListElementIter* CreateListElementIter(std::shared_ptr<rocksdb::Logger> /*logger*/) const override {
+    FlinkCompactionFilter::ListElementFilter* CreateListElementFilter(std::shared_ptr<rocksdb::Logger> /*logger*/) const override {
         jboolean attached_thread = JNI_FALSE;
         JNIEnv* env = getJniEnv(&attached_thread);
-        auto jlist_iter = env->CallObjectMethod(m_jcallback_obj, m_jcreate_iter_methodid);
-        auto list_iter = new JavaListElementIter(env, jlist_iter);
+        auto jlist_filter = env->CallObjectMethod(m_jcallback_obj, m_jcreate_filter_methodid);
+        auto list_filter = new JavaListElementFilter(env, jlist_filter);
         CheckAndRethrowException(env);
         releaseJniEnv(attached_thread);
-        return list_iter;
+        return list_filter;
     };
 
 private:
-    inline void CheckAndRethrowException(JNIEnv* env) const {
-        if (env->ExceptionCheck()) {
-            env->ExceptionDescribe();
-            env->Throw(env->ExceptionOccurred());
-        }
-    }
-
-    jmethodID m_jcreate_iter_methodid;
+    jmethodID m_jcreate_filter_methodid;
 };
 
-static FlinkCompactionFilter::ListElementIterFactory* createListElementIterFactory(
-        JNIEnv* env, jint ji_list_elem_len, jobject jlist_iter_factory) {
-  FlinkCompactionFilter::ListElementIterFactory* list_iter_factory = nullptr;
+class JavaTimeProvider : public rocksdb::flink::FlinkCompactionFilter::TimeProvider, JniCallbackBase {
+public:
+    JavaTimeProvider(JNIEnv* env, jobject jtime_provider) : JniCallbackBase(env, jtime_provider) {
+        jclass jclazz = rocksdb::JavaClass::getJClass(env, "org/rocksdb/FlinkCompactionFilter$TimeProvider");
+        if(jclazz == nullptr) {
+            // exception occurred accessing class
+            return;
+        }
+        m_jcurrent_timestamp_methodid = env->GetMethodID(jclazz, "currentTimestamp", "()J");
+        assert(m_jcurrent_timestamp_methodid != nullptr);
+    }
+
+    int64_t CurrentTimestamp() const override {
+        jboolean attached_thread = JNI_FALSE;
+        JNIEnv* env = getJniEnv(&attached_thread);
+        auto jtimestamp = env->CallLongMethod(m_jcallback_obj, m_jcurrent_timestamp_methodid);
+        CheckAndRethrowException(env);
+        releaseJniEnv(attached_thread);
+        return static_cast<int64_t>(jtimestamp);
+    };
+
+private:
+    jmethodID m_jcurrent_timestamp_methodid;
+};
+
+static FlinkCompactionFilter::ListElementFilterFactory* createListElementFilterFactory(
+        JNIEnv *env, jint ji_list_elem_len, jobject jlist_filter_factory) {
+  FlinkCompactionFilter::ListElementFilterFactory* list_filter_factory = nullptr;
   if (ji_list_elem_len > 0) {
     auto fixed_size = static_cast<std::size_t>(ji_list_elem_len);
-    list_iter_factory = new FlinkCompactionFilter::FixedListElementIterFactory(fixed_size, static_cast<std::size_t>(0));
-  } else if (jlist_iter_factory != nullptr) {
-    list_iter_factory = new JavaListElementIterFactory(env, jlist_iter_factory);
+    list_filter_factory = new FlinkCompactionFilter::FixedListElementFilterFactory(fixed_size, static_cast<std::size_t>(0));
+  } else if (jlist_filter_factory != nullptr) {
+    list_filter_factory = new JavaListElemenFilterFactory(env, jlist_filter_factory);
   }
-  return list_iter_factory;
+  return list_filter_factory;
 }
 
-/*
+/*x
  * Class:     org_rocksdb_FlinkCompactionFilter
  * Method:    createNewFlinkCompactionFilterConfigHolder
  * Signature: ()J
@@ -128,48 +151,40 @@ void Java_org_rocksdb_FlinkCompactionFilter_disposeFlinkCompactionFilterConfigHo
 /*
  * Class:     org_rocksdb_FlinkCompactionFilter
  * Method:    createNewFlinkCompactionFilter0
- * Signature: (JJ)J
+ * Signature: (JJJ)J
  */
 jlong Java_org_rocksdb_FlinkCompactionFilter_createNewFlinkCompactionFilter0(
-        JNIEnv* /* env */, jclass /* jcls */, jlong config_holder_handle, jlong logger_handle) {
+        JNIEnv* env, jclass /* jcls */, jlong config_holder_handle, jobject jtime_provider, jlong logger_handle) {
   using namespace rocksdb::flink;
   auto config_holder = *(reinterpret_cast<std::shared_ptr<FlinkCompactionFilter::ConfigHolder>*>(config_holder_handle));
+  auto time_provider = new JavaTimeProvider(env, jtime_provider);
   auto logger = logger_handle == 0 ? nullptr :
           *(reinterpret_cast<std::shared_ptr<rocksdb::LoggerJniCallback>*>(logger_handle));
-  return reinterpret_cast<jlong>(new FlinkCompactionFilter(config_holder, logger));
+  return reinterpret_cast<jlong>(new FlinkCompactionFilter(
+          config_holder, std::unique_ptr<FlinkCompactionFilter::TimeProvider>(time_provider), logger));
 }
 
 /*
  * Class:     org_rocksdb_FlinkCompactionFilter
  * Method:    configureFlinkCompactionFilter
- * Signature: (JIIJZILorg/rocksdb/FlinkCompactionFilter$ListElementIter;)J
+ * Signature: (JIIJJILorg/rocksdb/FlinkCompactionFilter$ListElementFilter;)Z
  */
-jlong Java_org_rocksdb_FlinkCompactionFilter_configureFlinkCompactionFilter(
+jboolean Java_org_rocksdb_FlinkCompactionFilter_configureFlinkCompactionFilter(
         JNIEnv* env, jclass /* jcls */,
-        jlong handle, jint ji_state_type, jint ji_timestamp_offset,
-        jlong jl_ttl_milli, jboolean jb_use_system_time, jint ji_list_elem_len,
-        jobject jlist_iter_factory) {
+        jlong handle,
+        jint ji_state_type,
+        jint ji_timestamp_offset,
+        jlong jl_ttl_milli,
+        jlong jquery_time_after_num_entries,
+        jint ji_list_elem_len,
+        jobject jlist_filter_factory) {
   auto state_type = static_cast<FlinkCompactionFilter::StateType>(ji_state_type);
   auto timestamp_offset = static_cast<size_t>(ji_timestamp_offset);
   auto ttl = static_cast<int64_t>(jl_ttl_milli);
-  auto use_system_time = (bool)(jb_use_system_time == JNI_TRUE);
+  auto query_time_after_num_entries = static_cast<int64_t>(jquery_time_after_num_entries);
   auto config_holder = *(reinterpret_cast<std::shared_ptr<FlinkCompactionFilter::ConfigHolder>*>(handle));
-  auto list_iter_factory = createListElementIterFactory(env, ji_list_elem_len, jlist_iter_factory);
-  auto config = new FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, use_system_time, list_iter_factory};
-  config_holder->Configure(config);
-  return handle;
-}
-
-/*
- * Class:     org_rocksdb_FlinkCompactionFilter
- * Method:    setCurrentTimestamp
- * Signature: (JJ)J
- */
-jlong Java_org_rocksdb_FlinkCompactionFilter_setCurrentTimestamp(
-        JNIEnv* /* env */, jclass /* jcls */, jlong handle, jlong jl_current_timestamp) {
-  using namespace rocksdb::flink;
-  auto config_holder = *(reinterpret_cast<std::shared_ptr<FlinkCompactionFilter::ConfigHolder>*>(handle));
-  auto current_timestamp = static_cast<int64_t>(jl_current_timestamp);
-  config_holder->SetCurrentTimestamp(current_timestamp);
-  return handle;
+  auto list_filter_factory = createListElementFilterFactory(env, ji_list_elem_len, jlist_filter_factory);
+  auto config = new FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, query_time_after_num_entries,
+                                                  std::unique_ptr<FlinkCompactionFilter::ListElementFilterFactory>(list_filter_factory)};
+  return static_cast<jboolean>(config_holder->Configure(config));
 }

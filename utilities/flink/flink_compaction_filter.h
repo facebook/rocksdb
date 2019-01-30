@@ -16,10 +16,11 @@
 namespace rocksdb {
 namespace flink {
 
-#define BITS_PER_BYTE static_cast<size_t>(8)
-#define TIMESTAMP_BYTE_SIZE static_cast<size_t>(8)
-#define JAVA_MAX_LONG static_cast<int64_t>(0x7fffffffffffffff)
-#define JAVA_MAX_SIZE static_cast<std::size_t>(0x7fffffff)
+static const std::size_t BITS_PER_BYTE = static_cast<std::size_t>(8);
+static const std::size_t TIMESTAMP_BYTE_SIZE = static_cast<std::size_t>(8);
+static const int64_t JAVA_MIN_LONG = static_cast<int64_t>(0x8000000000000000);
+static const int64_t JAVA_MAX_LONG = static_cast<int64_t>(0x7fffffffffffffff);
+static const std::size_t JAVA_MAX_SIZE = static_cast<std::size_t>(0x7fffffff);
 
 /**
  * Compaction filter for removing expired Flink state entries with ttl.
@@ -35,15 +36,22 @@ public:
     List
   };
 
-  class ListElementIter {
+  // Provides current timestamp to check expiration, it must thread safe.
+  class TimeProvider {
   public:
-    virtual ~ListElementIter() = default;
+    virtual ~TimeProvider() = default;
+    virtual int64_t CurrentTimestamp() const = 0;
+  };
+
+  class ListElementFilter {
+  public:
+    virtual ~ListElementFilter() = default;
     virtual std::size_t NextUnexpiredOffset(const Slice& list, int64_t ttl, int64_t current_timestamp) const = 0;
   };
 
-  class FixedListElementIter : public ListElementIter {
+  class FixedListElementFilter : public ListElementFilter {
   public:
-    explicit FixedListElementIter(std::size_t fixed_size, std::size_t timestamp_offset, std::shared_ptr<Logger> logger) :
+    explicit FixedListElementFilter(std::size_t fixed_size, std::size_t timestamp_offset, std::shared_ptr<Logger> logger) :
             fixed_size_(fixed_size), timestamp_offset_(timestamp_offset), logger_(std::move(logger)) {}
     std::size_t NextUnexpiredOffset(const Slice& list, int64_t ttl, int64_t current_timestamp) const override;
   private:
@@ -52,20 +60,20 @@ public:
       std::shared_ptr<Logger> logger_;
   };
 
-  // Factory is needed to create one iterator per filter/thread
-  // and avoid concurrent access to list state bytes between methods SetListBytes and NextOffset
-  class ListElementIterFactory {
+  // Factory is needed to create one filter per filter/thread
+  // and avoid concurrent access to the filter state
+  class ListElementFilterFactory {
   public:
-    virtual ~ListElementIterFactory() = default;
-    virtual ListElementIter* CreateListElementIter(std::shared_ptr<Logger> logger) const = 0;
+    virtual ~ListElementFilterFactory() = default;
+    virtual ListElementFilter* CreateListElementFilter(std::shared_ptr<Logger> logger) const = 0;
   };
 
-  class FixedListElementIterFactory : public ListElementIterFactory {
+  class FixedListElementFilterFactory : public ListElementFilterFactory {
   public:
-    explicit FixedListElementIterFactory(std::size_t fixed_size, std::size_t timestamp_offset) :
+    explicit FixedListElementFilterFactory(std::size_t fixed_size, std::size_t timestamp_offset) :
             fixed_size_(fixed_size), timestamp_offset_(timestamp_offset) {}
-    FixedListElementIter* CreateListElementIter(std::shared_ptr<Logger> logger) const override {
-        return new FixedListElementIter(fixed_size_, timestamp_offset_, logger);
+    FixedListElementFilter* CreateListElementFilter(std::shared_ptr<Logger> logger) const override {
+        return new FixedListElementFilter(fixed_size_, timestamp_offset_, logger);
     };
   private:
     std::size_t fixed_size_;
@@ -76,56 +84,28 @@ public:
     StateType state_type_;
     std::size_t timestamp_offset_;
     int64_t ttl_;
-    bool useSystemTime_;
-    ListElementIterFactory* list_element_iter_factory_;
+    int64_t query_time_after_num_entries_;
+    std::unique_ptr<ListElementFilterFactory> list_element_filter_factory_;
   };
 
   // Allows to configure at once all FlinkCompactionFilters created by the factory
   // which holds the shared ConfigHolder.
   class ConfigHolder {
   public:
-    ~ConfigHolder() {
-      Config* config = config_.load();
-      if (config != &DISABLED_CONFIG) {
-        delete config->list_element_iter_factory_;
-        delete config;
-      }
-    }
-
-    // at the moment Flink configures filters (can be already created) only once when user creates state
-    // otherwise it can lead to ListElementIter leak in Config
-    // or race between its delete in Configure() and usage in FilterV2()
-    void Configure(Config* config) {
-      assert(GetConfig() == &DISABLED_CONFIG);
-      config_ = config;
-    }
-
-    void SetCurrentTimestamp(int64_t current_timestamp) {
-      current_timestamp_ = current_timestamp;
-    }
-
-    Config* GetConfig() {
-        return config_.load();
-    }
-
-    std::int64_t GetCurrentTimestamp() {
-      return current_timestamp_.load();
-    }
-
+    explicit ConfigHolder();
+    ~ConfigHolder();
+    bool Configure(Config* config);
+    Config* GetConfig();
   private:
-    Config DISABLED_CONFIG = Config{Disabled, 0, std::numeric_limits<int64_t>::max(), true, nullptr};
-    std::atomic<Config*> config_ = { &DISABLED_CONFIG };
-    std::atomic<std::int64_t> current_timestamp_ = { std::numeric_limits<int64_t>::min() };
+    std::atomic<Config*> config_;
   };
 
-  explicit FlinkCompactionFilter(std::shared_ptr<ConfigHolder> config_holder) :
-          config_holder_(std::move(config_holder)), logger_(nullptr) {};
-  explicit FlinkCompactionFilter(std::shared_ptr<ConfigHolder> config_holder, std::shared_ptr<Logger> logger) :
-          config_holder_(std::move(config_holder)), logger_(std::move(logger)) {};
+  explicit FlinkCompactionFilter(std::shared_ptr<ConfigHolder> config_holder,
+                                 std::unique_ptr<TimeProvider> time_provider);
 
-  ~FlinkCompactionFilter() override {
-    delete list_element_iter_;
-  }
+  explicit FlinkCompactionFilter(std::shared_ptr<ConfigHolder> config_holder,
+                                 std::unique_ptr<TimeProvider> time_provider,
+                                 std::shared_ptr<Logger> logger);
 
   const char* Name() const override;
   Decision FilterV2(int level, const Slice& key, ValueType value_type,
@@ -135,25 +115,42 @@ public:
   bool IgnoreSnapshots() const override { return true; }
 
 private:
-  Decision ListDecide(const Slice& existing_value, const Config* config, std::string* new_value) const;
+  inline void InitConfigIfNotYet() const;
 
-  inline std::size_t ListNextOffset(const Slice& existing_value, std::size_t offset, int64_t ttl, int64_t current_timestamp) const;
+  Decision ListDecide(const Slice& existing_value, std::string* new_value) const;
+
+  inline std::size_t ListNextUnexpiredOffset(const Slice &existing_value, std::size_t offset, int64_t ttl) const;
 
   inline void SetUnexpiredListValue(
           const Slice& existing_value, std::size_t offset, std::string* new_value) const;
 
-  inline int64_t CurrentTimestamp(bool useSystemTime) const;
-
-  inline void CreateListElementIterIfNull(ListElementIterFactory* list_element_iter_factory) const {
-    if (!list_element_iter_ && list_element_iter_factory) {
-      const_cast<FlinkCompactionFilter*>(this)->list_element_iter_ = list_element_iter_factory->CreateListElementIter(logger_);
+  inline void CreateListElementFilterIfNull() const {
+    if (!list_element_filter_ && config_cached_->list_element_filter_factory_) {
+      const_cast<FlinkCompactionFilter*>(this)->list_element_filter_ =
+              std::unique_ptr<ListElementFilter>(config_cached_->list_element_filter_factory_->CreateListElementFilter(logger_));
     }
   }
 
+  inline void UpdateCurrentTimestampIfStale() const {
+    bool is_stale = record_counter_ >= config_cached_->query_time_after_num_entries_;
+    if (is_stale) {
+      const_cast<FlinkCompactionFilter*>(this)->record_counter_ = 0;
+      const_cast<FlinkCompactionFilter*>(this)->current_timestamp_ = time_provider_->CurrentTimestamp();
+    }
+    const_cast<FlinkCompactionFilter*>(this)->record_counter_ = record_counter_ + 1;
+  }
+
   std::shared_ptr<ConfigHolder> config_holder_;
+  std::unique_ptr<TimeProvider> time_provider_;
   std::shared_ptr<Logger> logger_;
-  ListElementIter* list_element_iter_ = nullptr;
+  Config* config_cached_;
+  std::unique_ptr<ListElementFilter> list_element_filter_;
+  int64_t current_timestamp_ = std::numeric_limits<int64_t>::max();
+  int64_t record_counter_ = std::numeric_limits<int64_t>::max();
 };
+
+static const FlinkCompactionFilter::Config DISABLED_CONFIG = FlinkCompactionFilter::Config{
+    FlinkCompactionFilter::StateType::Disabled, 0, std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max(), nullptr};
 
 }  // namespace flink
 }  // namespace rocksdb

@@ -19,24 +19,22 @@ public class FlinkCompactionFilter
     List
   }
 
-  public FlinkCompactionFilter(ConfigHolder configHolder) {
-    this(configHolder, null);
+  public FlinkCompactionFilter(ConfigHolder configHolder, TimeProvider timeProvider) {
+    this(configHolder, timeProvider,null);
   }
 
-  public FlinkCompactionFilter(ConfigHolder configHolder, Logger logger) {
-    super(createNewFlinkCompactionFilter0(configHolder.nativeHandle_, logger == null ? 0 : logger.nativeHandle_));
+  public FlinkCompactionFilter(ConfigHolder configHolder, TimeProvider timeProvider, Logger logger) {
+    super(createNewFlinkCompactionFilter0(configHolder.nativeHandle_, timeProvider, logger == null ? 0 : logger.nativeHandle_));
   }
 
-  private native static long createNewFlinkCompactionFilter0(long configHolderHandle, long loggerHandle);
+  private native static long createNewFlinkCompactionFilter0(long configHolderHandle, TimeProvider timeProvider, long loggerHandle);
   private native static long createNewFlinkCompactionFilterConfigHolder();
   private native static void disposeFlinkCompactionFilterConfigHolder(long configHolderHandle);
-  private native static long configureFlinkCompactionFilter(
-          long configHolderHandle, int stateType, int timestampOffset, long ttl, boolean useSystemTime,
-          int fixedElementLength, ListElementIterFactory listElementIterFactory);
-  private native static long setCurrentTimestamp(
-          long configHolderHandle, long currentTimestamp);
+  private native static boolean configureFlinkCompactionFilter(
+          long configHolderHandle, int stateType, int timestampOffset, long ttl, long queryTimeAfterNumEntries,
+          int fixedElementLength, ListElementFilterFactory listElementFilterFactory);
 
-  public interface ListElementIter {
+  public interface ListElementFilter {
     /**
      * Gets offset of the first unexpired element in the list.
      *
@@ -45,47 +43,62 @@ public class FlinkCompactionFilter
      * @param currentTimestamp current timestamp to check expiration against
      * @return offset of the first unexpired element in the list
      */
+    @SuppressWarnings("unused")
     int nextUnexpiredOffset(byte[] list, long ttl, long currentTimestamp);
   }
 
-  public interface ListElementIterFactory {
-    ListElementIter createListElementIter();
+  public interface ListElementFilterFactory {
+    @SuppressWarnings("unused")
+    ListElementFilter createListElementFilter();
   }
 
   public static class Config {
     final StateType stateType;
     final int timestampOffset;
     final long ttl;
-    final boolean useSystemTime;
+    final long queryTimeAfterNumEntries;
     final int fixedElementLength;
-    final ListElementIterFactory listElementIterFactory;
+    final ListElementFilterFactory listElementFilterFactory;
 
     private Config(
-            StateType stateType, int timestampOffset, long ttl, boolean useSystemTime,
-            int fixedElementLength, ListElementIterFactory listElementIterFactory) {
+            StateType stateType, int timestampOffset, long ttl, long queryTimeAfterNumEntries,
+            int fixedElementLength, ListElementFilterFactory listElementFilterFactory) {
       this.stateType = stateType;
       this.timestampOffset = timestampOffset;
       this.ttl = ttl;
-      this.useSystemTime = useSystemTime;
+      this.queryTimeAfterNumEntries = queryTimeAfterNumEntries;
       this.fixedElementLength = fixedElementLength;
-      this.listElementIterFactory = listElementIterFactory;
+      this.listElementFilterFactory = listElementFilterFactory;
     }
 
-    public static Config create(StateType stateType, int timestampOffset, long ttl, boolean useSystemTime) {
-      return new Config(stateType, timestampOffset, ttl, useSystemTime, -1, null);
+    @SuppressWarnings("WeakerAccess")
+    public static Config createNotList(StateType stateType, int timestampOffset, long ttl, long queryTimeAfterNumEntries) {
+      return new Config(stateType, timestampOffset, ttl, queryTimeAfterNumEntries, -1, null);
     }
 
-    public static Config createForFixedElementList(int timestampOffset, long ttl, boolean useSystemTime, int fixedElementLength) {
-      return new Config(StateType.List, timestampOffset, ttl, useSystemTime, fixedElementLength, null);
+    @SuppressWarnings("unused")
+    public static Config createForValue(long ttl, long queryTimeAfterNumEntries) {
+      return createNotList(StateType.Value, 0, ttl, queryTimeAfterNumEntries);
     }
 
-    public static Config createForList(int timestampOffset, long ttl, boolean useSystemTime, ListElementIterFactory listElementIterFactory) {
-      return new Config(StateType.List, timestampOffset, ttl, useSystemTime, -1, listElementIterFactory);
+    @SuppressWarnings("unused")
+    public static Config createForMap(long ttl, long queryTimeAfterNumEntries) {
+      return createNotList(StateType.Value, 1, ttl, queryTimeAfterNumEntries);
+    }
+
+    @SuppressWarnings("WeakerAccess")
+    public static Config createForFixedElementList(long ttl, long queryTimeAfterNumEntries, int fixedElementLength) {
+      return new Config(StateType.List, 0, ttl, queryTimeAfterNumEntries, fixedElementLength, null);
+    }
+
+    @SuppressWarnings("WeakerAccess")
+    public static Config createForList(long ttl, long queryTimeAfterNumEntries, ListElementFilterFactory listElementFilterFactory) {
+      return new Config(StateType.List, 0, ttl, queryTimeAfterNumEntries, -1, listElementFilterFactory);
     }
   }
 
   private static class ConfigHolder extends RocksObject {
-    protected ConfigHolder() {
+    ConfigHolder() {
       super(createNewFlinkCompactionFilterConfigHolder());
     }
 
@@ -95,15 +108,25 @@ public class FlinkCompactionFilter
     }
   }
 
-  public static class FlinkCompactionFilterFactory extends AbstractCompactionFilterFactory<FlinkCompactionFilter> {
-    private final Logger logger;
-    private final ConfigHolder configHolder = new ConfigHolder();
+  /** Provides current timestamp to check expiration, it must be thread safe. */
+  public interface TimeProvider {
+    long currentTimestamp();
+  }
 
-    public FlinkCompactionFilterFactory() {
-      this(null);
+  public static class FlinkCompactionFilterFactory extends AbstractCompactionFilterFactory<FlinkCompactionFilter> {
+    private final ConfigHolder configHolder;
+    private final TimeProvider timeProvider;
+    private final Logger logger;
+
+    @SuppressWarnings("unused")
+    public FlinkCompactionFilterFactory(TimeProvider timeProvider) {
+      this(timeProvider, null);
     }
 
-    public FlinkCompactionFilterFactory(Logger logger) {
+    @SuppressWarnings("WeakerAccess")
+    public FlinkCompactionFilterFactory(TimeProvider timeProvider, Logger logger) {
+      this.configHolder = new ConfigHolder();
+      this.timeProvider = timeProvider;
       this.logger = logger;
     }
 
@@ -118,7 +141,7 @@ public class FlinkCompactionFilter
 
     @Override
     public FlinkCompactionFilter createCompactionFilter(Context context) {
-      return new FlinkCompactionFilter(configHolder, logger);
+      return new FlinkCompactionFilter(configHolder, timeProvider, logger);
     }
 
     @Override
@@ -126,14 +149,14 @@ public class FlinkCompactionFilter
       return "FlinkCompactionFilterFactory";
     }
 
+    @SuppressWarnings("WeakerAccess")
     public void configure(Config config) {
-      configureFlinkCompactionFilter(configHolder.nativeHandle_, config.stateType.ordinal(), config.timestampOffset,
-              config.ttl, config.useSystemTime,
-              config.fixedElementLength, config.listElementIterFactory);
-    }
-
-    public void setCurrentTimestamp(long currentTimestamp) {
-      FlinkCompactionFilter.setCurrentTimestamp(configHolder.nativeHandle_, currentTimestamp);
+      boolean already_configured = !configureFlinkCompactionFilter(
+              configHolder.nativeHandle_, config.stateType.ordinal(), config.timestampOffset,
+              config.ttl, config.queryTimeAfterNumEntries, config.fixedElementLength, config.listElementFilterFactory);
+      if (already_configured) {
+        throw new IllegalStateException("Compaction filter is already configured");
+      }
     }
   }
 }

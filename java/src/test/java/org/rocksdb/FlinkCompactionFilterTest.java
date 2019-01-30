@@ -24,19 +24,28 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.rocksdb.FlinkCompactionFilter.StateType;
+import org.rocksdb.FlinkCompactionFilter.TimeProvider;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class FlinkCompactionFilterTest {
+    private static final int LONG_LENGTH = 8;
+    private static final int INT_LENGTH = 4;
     private static final String MERGE_OPERATOR_NAME = "stringappendtest";
     private static final byte DELIMITER = ',';
     private static final long TTL = 100;
+    private static final long QUERY_TIME_AFTER_NUM_ENTRIES = 100;
+    private static final int TEST_TIMESTAMP_OFFSET = 2;
+    private static final Random rnd = new Random();
 
+    private TestTimeProvider timeProvider;
     private List<StateContext> stateContexts;
     private List<ColumnFamilyDescriptor> cfDescs;
     private List<ColumnFamilyHandle> cfHandles;
@@ -46,16 +55,18 @@ public class FlinkCompactionFilterTest {
 
     @Before
     public void init() {
-        stateContexts = new ArrayList<>(StateType.values().length);
+        timeProvider = new TestTimeProvider();
+        timeProvider.time = rnd.nextLong();
+        stateContexts = Arrays.asList(
+                new StateContext(StateType.Value, timeProvider, TEST_TIMESTAMP_OFFSET),
+                new FixedElementListStateContext(timeProvider),
+                new NonFixedElementListStateContext(timeProvider)
+        );
         cfDescs = new ArrayList<>();
         cfHandles = new ArrayList<>();
         cfDescs.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
-        for (StateType type : StateType.values()) {
-            if (type != StateType.Disabled) {
-                StateContext stateContext = StateContext.create(type);
-                stateContexts.add(stateContext);
-                cfDescs.add(stateContext.getCfDesc());
-            }
+        for (StateContext stateContext : stateContexts) {
+            cfDescs.add(stateContext.getCfDesc());
         }
     }
 
@@ -89,8 +100,9 @@ public class FlinkCompactionFilterTest {
                     stateContext.checkUnexpired(rocksDb);
                 }
 
+                timeProvider.time += TTL + TTL / 2; // expire state
+
                 for (StateContext stateContext : stateContexts) {
-                    stateContext.expire();
                     stateContext.checkUnexpired(rocksDb);
                     rocksDb.compactRange(stateContext.columnFamilyHandle);
                     stateContext.checkExpired(rocksDb);
@@ -119,10 +131,6 @@ public class FlinkCompactionFilterTest {
     }
 
     private static class StateContext {
-        private static final int LONG_LENGTH = 8;
-        private static final int INT_LENGTH = 4;
-        private static final int TEST_TIMESTAMP_OFFSET = 2;
-
         private final String cf;
         final String key;
         final ColumnFamilyDescriptor cfDesc;
@@ -132,28 +140,12 @@ public class FlinkCompactionFilterTest {
 
         ColumnFamilyHandle columnFamilyHandle;
 
-        static StateContext create(StateType type) {
-            if (type == StateType.List) {
-                return new ListStateContext();
-            } else {
-                return new StateContext(type, TEST_TIMESTAMP_OFFSET);
-            }
-        }
-
-        void expire() {
-            filterFactory.setCurrentTimestamp(currentTime + TTL + TTL / 2);
-        }
-
-        private StateContext(StateType type, int timestampOffset) {
-            this(type, timestampOffset, 0L);
-        }
-
-        private StateContext(StateType type, int timestampOffset, long currentTime) {
-            this.currentTime = currentTime;
+        private StateContext(StateType type, TimeProvider timeProvider, int timestampOffset) {
+            this.currentTime = timeProvider.currentTimestamp();
             userValue = type.name() + "StateValue";
-            cf = type.name() + "StateCf";
+            cf = getClass().getSimpleName() + "StateCf";
             key = type.name() + "StateKey";
-            filterFactory = new FlinkCompactionFilter.FlinkCompactionFilterFactory(createLogger());
+            filterFactory = new FlinkCompactionFilter.FlinkCompactionFilterFactory(timeProvider, createLogger());
             filterFactory.configure(createConfig(type, timestampOffset));
             cfDesc = new ColumnFamilyDescriptor(getASCII(cf), getOptionsWithFilter(filterFactory));
         }
@@ -170,7 +162,7 @@ public class FlinkCompactionFilterTest {
         }
 
         FlinkCompactionFilter.Config createConfig(StateType type, int timestampOffset) {
-            return FlinkCompactionFilter.Config.create(type, timestampOffset, TTL, false);
+            return FlinkCompactionFilter.Config.createNotList(type, timestampOffset, TTL, QUERY_TIME_AFTER_NUM_ENTRIES);
         }
 
         private static ColumnFamilyOptions getOptionsWithFilter(
@@ -178,10 +170,6 @@ public class FlinkCompactionFilterTest {
             return new ColumnFamilyOptions()
                     .setCompactionFilterFactory(filterFactory)
                     .setMergeOperatorName(MERGE_OPERATOR_NAME);
-        }
-
-        private static byte[] getASCII(String str) {
-            return str.getBytes(StandardCharsets.US_ASCII);
         }
 
         public String getKey() {
@@ -204,7 +192,7 @@ public class FlinkCompactionFilterTest {
             return valueWithTimestamp(TEST_TIMESTAMP_OFFSET);
         }
 
-        byte[] valueWithTimestamp(int offset) {
+        byte[] valueWithTimestamp(@SuppressWarnings("SameParameterValue") int offset) {
             return valueWithTimestamp(offset, currentTime);
         }
 
@@ -241,104 +229,129 @@ public class FlinkCompactionFilterTest {
         void checkExpired(RocksDB db) throws RocksDBException {
             assertThat(getValueWithTimestamp(db)).isEqualTo(expiredValue());
         }
+    }
 
-        private static class ListStateContext extends StateContext {
-            private static FlinkCompactionFilter.ListElementIterFactory ELEM_ITER_FACTORY = new ListElementIterFactory();
+    private static class FixedElementListStateContext extends StateContext {
+        private FixedElementListStateContext(TimeProvider timeProvider) {
+            super(StateType.List, timeProvider,0);
+        }
 
-            private ListStateContext() {
-                super(StateType.List, 0);
+        @Override
+        FlinkCompactionFilter.Config createConfig(StateType type, int timestampOffset) {
+            //return FlinkCompactionFilter.Config.createForList(TTL, QUERY_TIME_AFTER_NUM_ENTRIES, ELEM_FILTER_FACTORY);
+            return FlinkCompactionFilter.Config.createForFixedElementList(TTL, QUERY_TIME_AFTER_NUM_ENTRIES, 13 + userValue.getBytes().length);
+        }
+
+        @Override
+        void updateValueWithTimestamp(RocksDB db) throws RocksDBException {
+            db.merge(columnFamilyHandle, getASCII(key), listExpired(3));
+            db.merge(columnFamilyHandle, getASCII(key), mixedList(2, 3));
+            db.merge(columnFamilyHandle, getASCII(key), listUnexpired(4));
+        }
+
+        @Override
+        byte[] unexpiredValue() {
+            return mixedList(5, 7);
+        }
+
+        byte[] mergeBytes(byte[] ... bytes) {
+            int length = 0;
+            for (byte[] a : bytes) {
+                length += a.length;
             }
-
-            @Override
-            FlinkCompactionFilter.Config createConfig(StateType type, int timestampOffset) {
-                return FlinkCompactionFilter.Config.createForList(timestampOffset, TTL, false, ELEM_ITER_FACTORY);
+            ByteBuffer buffer = ByteBuffer.allocate(length);
+            for (byte[] a : bytes) {
+                buffer.put(a);
             }
+            return buffer.array();
+        }
 
-            @Override
-            void updateValueWithTimestamp(RocksDB db) throws RocksDBException {
-                db.merge(columnFamilyHandle, getASCII(key), listExpired(3));
-                db.merge(columnFamilyHandle, getASCII(key), mixedList(2, 3));
-                db.merge(columnFamilyHandle, getASCII(key), listUnexpired(4));
-            }
+        @Override
+        byte[] expiredValue() {
+            return listUnexpired(7);
+        }
 
-            @Override
-            byte[] unexpiredValue() {
-                return mixedList(5, 7);
-            }
+        private byte[] mixedList(int numberOfExpiredElements, int numberOfUnexpiredElements) {
+            assert numberOfExpiredElements > 0;
+            assert numberOfUnexpiredElements > 0;
+            return mergeBytes(
+                    listExpired(numberOfExpiredElements),
+                    new byte[] {DELIMITER},
+                    listUnexpired(numberOfUnexpiredElements));
+        }
 
-            byte[] mergeBytes(byte[] ... bytes) {
-                int length = 0;
-                for (byte[] a : bytes) {
-                    length += a.length;
+        private byte[] listExpired(int numberOfElements) {
+            return list(numberOfElements, currentTime);
+        }
+
+        private byte[] listUnexpired(int numberOfElements) {
+            return list(numberOfElements, currentTime + TTL);
+        }
+
+        private byte[] list(int numberOfElements, long timestamp) {
+            ByteBuffer buffer = getByteBufferForList(numberOfElements);
+            for (int i = 0; i < numberOfElements; i++) {
+                appendValueWithTimestamp(buffer, userValue, timestamp);
+                if (i < numberOfElements - 1) {
+                    buffer.put(DELIMITER);
                 }
-                ByteBuffer buffer = ByteBuffer.allocate(length);
-                for (byte[] a : bytes) {
-                    buffer.put(a);
-                }
-                return buffer.array();
             }
+            return buffer.array();
+        }
 
+        private ByteBuffer getByteBufferForList(int numberOfElements) {
+            int length = ((LONG_LENGTH + INT_LENGTH + userValue.length() + 1) * numberOfElements) - 1;
+            return ByteBuffer.allocate(length);
+        }
+    }
+
+    private static class NonFixedElementListStateContext extends FixedElementListStateContext {
+        private static FlinkCompactionFilter.ListElementFilterFactory ELEM_FILTER_FACTORY = new ListElementFilterFactory();
+
+        private NonFixedElementListStateContext(TimeProvider timeProvider) {
+            super(timeProvider);
+        }
+
+        @Override
+        FlinkCompactionFilter.Config createConfig(StateType type, int timestampOffset) {
+            //return FlinkCompactionFilter.Config.createForList(TTL, QUERY_TIME_AFTER_NUM_ENTRIES, ELEM_FILTER_FACTORY);
+            return FlinkCompactionFilter.Config.createForList(TTL, QUERY_TIME_AFTER_NUM_ENTRIES, ELEM_FILTER_FACTORY);
+        }
+
+        private static class ListElementFilterFactory implements FlinkCompactionFilter.ListElementFilterFactory {
             @Override
-            byte[] expiredValue() {
-                return listUnexpired(7);
-            }
-
-            private byte[] mixedList(int numberOfExpiredElements, int numberOfUnexpiredElements) {
-                assert numberOfExpiredElements > 0;
-                assert numberOfUnexpiredElements > 0;
-                return mergeBytes(
-                        listExpired(numberOfExpiredElements),
-                        new byte[] {DELIMITER},
-                        listUnexpired(numberOfUnexpiredElements));
-            }
-
-            private byte[] listExpired(int numberOfElements) {
-                return list(numberOfElements, currentTime);
-            }
-
-            private byte[] listUnexpired(int numberOfElements) {
-                return list(numberOfElements, currentTime + TTL);
-            }
-
-            private byte[] list(int numberOfElements, long timestamp) {
-                ByteBuffer buffer = getByteBufferForList(numberOfElements);
-                for (int i = 0; i < numberOfElements; i++) {
-                    appendValueWithTimestamp(buffer, userValue, timestamp);
-                    if (i < numberOfElements - 1) {
-                        buffer.put(DELIMITER);
-                    }
-                }
-                return buffer.array();
-            }
-
-            private ByteBuffer getByteBufferForList(int numberOfElements) {
-                int length = ((LONG_LENGTH + INT_LENGTH + userValue.length() + 1) * numberOfElements) - 1;
-                return ByteBuffer.allocate(length);
-            }
-
-            private static class ListElementIterFactory implements FlinkCompactionFilter.ListElementIterFactory {
-                @Override
-                public FlinkCompactionFilter.ListElementIter createListElementIter() {
-                    return new FlinkCompactionFilter.ListElementIter() {
-                        @Override
-                        public int nextUnexpiredOffset(byte[] list, long ttl, long currentTimestamp) {
-                            int currentOffset = 0;
-                            while (currentOffset < list.length) {
-                                ByteBuffer bf = ByteBuffer
-                                        .wrap(list, currentOffset, list.length - currentOffset);
-                                long timestamp = bf.getLong();
-                                if (timestamp + ttl > currentTimestamp) {
-                                    break;
-                                }
-                                int elemLen = bf.getInt(8);
-                                currentOffset += 13 + elemLen;
+            public FlinkCompactionFilter.ListElementFilter createListElementFilter() {
+                return new FlinkCompactionFilter.ListElementFilter() {
+                    @Override
+                    public int nextUnexpiredOffset(byte[] list, long ttl, long currentTimestamp) {
+                        int currentOffset = 0;
+                        while (currentOffset < list.length) {
+                            ByteBuffer bf = ByteBuffer
+                                    .wrap(list, currentOffset, list.length - currentOffset);
+                            long timestamp = bf.getLong();
+                            if (timestamp + ttl > currentTimestamp) {
+                                break;
                             }
-                            return currentOffset;
+                            int elemLen = bf.getInt(8);
+                            currentOffset += 13 + elemLen;
                         }
-                    };
-                }
+                        return currentOffset;
+                    }
+                };
             }
         }
     }
 
+    private static byte[] getASCII(String str) {
+        return str.getBytes(StandardCharsets.US_ASCII);
+    }
+
+    private static class TestTimeProvider implements TimeProvider {
+        private long time;
+
+        @Override
+        public long currentTimestamp() {
+            return time;
+        }
+    }
 }
