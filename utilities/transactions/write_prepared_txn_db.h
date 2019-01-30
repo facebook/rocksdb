@@ -791,14 +791,15 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
   bool publish_seq_;
 };
 
-// For two_write_queues commit both the aborted batch and the cleanup batch and then published the seq
+// For two_write_queues commit both the aborted batch and the cleanup batch and
+// then published the seq
 class WritePreparedRollbackPreReleaseCallback : public PreReleaseCallback {
  public:
   WritePreparedRollbackPreReleaseCallback(WritePreparedTxnDB* db,
-                                             DBImpl* db_impl,
-                                             SequenceNumber prep_seq,
-                                             SequenceNumber rollback_seq,
-                                             size_t prep_batch_cnt)
+                                          DBImpl* db_impl,
+                                          SequenceNumber prep_seq,
+                                          SequenceNumber rollback_seq,
+                                          size_t prep_batch_cnt)
       : db_(db),
         db_impl_(db_impl),
         prep_seq_(prep_seq),

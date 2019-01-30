@@ -195,9 +195,7 @@ struct CompressionDict {
   }
 
 #if ZSTD_VERSION_NUMBER >= 700
-  const ZSTD_CDict* GetDigestedZstdCDict() const {
-    return zstd_cdict_;
-  }
+  const ZSTD_CDict* GetDigestedZstdCDict() const { return zstd_cdict_; }
 #endif  // ZSTD_VERSION_NUMBER >= 700
 
   Slice GetRawDict() const { return dict_; }
@@ -259,9 +257,7 @@ struct UncompressionDict {
   }
 
 #ifdef ROCKSDB_ZSTD_DDICT
-  const ZSTD_DDict* GetDigestedZstdDDict() const {
-    return zstd_ddict_;
-  }
+  const ZSTD_DDict* GetDigestedZstdDDict() const { return zstd_ddict_; }
 #endif  // ROCKSDB_ZSTD_DDICT
 
   Slice GetRawDict() const { return dict_; }
