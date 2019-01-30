@@ -634,6 +634,9 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     }
 
     assert(r->status.ok());
+    TEST_SYNC_POINT_CALLBACK(
+        "BlockBasedTableBuilder::WriteRawBlock:TamperWithChecksum",
+        static_cast<char*>(trailer));
     r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (r->status.ok()) {
       r->status = InsertBlockInCache(block_contents, type, handle);
