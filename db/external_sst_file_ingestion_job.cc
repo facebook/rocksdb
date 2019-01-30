@@ -316,6 +316,13 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     return status;
   }
 
+  if (ingestion_options_.verify_checksums_before_ingest) {
+    status = table_reader->VerifyChecksum();
+  }
+  if (!status.ok()) {
+    return status;
+  }
+
   // Get the external file properties
   auto props = table_reader->GetTableProperties();
   const auto& uprops = props->user_collected_properties;

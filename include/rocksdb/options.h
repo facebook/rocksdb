@@ -1336,6 +1336,11 @@ struct IngestExternalFileOptions {
   // 2. Without writing external SST file, it's possible to do checksum.
   // We have a plan to set this option to false by default in the future.
   bool write_global_seqno = true;
+  // Set to true if you would like to verify the checksums of each block of the
+  // external SST file before ingestion.
+  // Warning: setting this to true causes slowdown in file ingestion because
+  // the external SST file has to be read.
+  bool verify_checksums_before_ingest = false;
 };
 
 // TraceOptions is used for StartTrace
