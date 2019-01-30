@@ -1203,7 +1203,8 @@ class DB {
   virtual DB* GetRootDB() { return this; }
 
   // return a map of DBStats and CFstats, specify time window etc in stats_opts
-  virtual Status GetStatsHistory(GetStatsOptions& /*stats_opts*/,
+  virtual Status GetStatsHistory(uint64_t /*start_time*/,
+    uint64_t /*end_time*/, GetStatsOptions& /*stats_opts*/,
     StatsHistoryIterator** /*stats_iterator*/) {
     return Status::NotSupported("GetStatsHistory() is not implemented.");
   }

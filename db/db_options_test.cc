@@ -13,12 +13,12 @@
 #include "db/column_family.h"
 #include "db/db_impl.h"
 #include "db/db_test_util.h"
-#include "db/stats_history.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/rate_limiter.h"
+#include "rocksdb/stats_history.h"
 #include "util/random.h"
 #include "util/sync_point.h"
 #include "util/testutil.h"
@@ -623,10 +623,8 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   env_->SleepForMicroseconds(8000000);  // Wait for stats persist to finish
   GetStatsOptions stats_opts;
-  stats_opts.start_time = 0;
-  stats_opts.end_time = env_->NowMicros();
   StatsHistoryIterator* stats_iter = nullptr;
-  db_->GetStatsHistory(stats_opts, &stats_iter);
+  db_->GetStatsHistory(0, env_->NowMicros(), stats_opts, &stats_iter);
   // disabled stats snapshots
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "0"}}));
   size_t stats_count = 0;
@@ -639,8 +637,7 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
   delete stats_iter;
   ASSERT_GE(stats_count, 0);
   env_->SleepForMicroseconds(8000000);  // Wait a bit and verify no more stats are found
-  stats_opts.end_time = env_->NowMicros();
-  db_->GetStatsHistory(stats_opts, &stats_iter);
+  db_->GetStatsHistory(0, env_->NowMicros(), stats_opts, &stats_iter);
   size_t stats_count_new = 0;
   for (stats_iter->SeekToFirst(); stats_iter->Valid(); stats_iter->Next()) {
     stats_count_new += stats_iter->value().size();

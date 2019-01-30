@@ -34,6 +34,7 @@ LIB_SOURCES =                                                   \
   db/flush_job.cc                                               \
   db/flush_scheduler.cc                                         \
   db/forward_iterator.cc                                        \
+  db/in_memory_stats_history.cc                                 \
   db/internal_stats.cc                                          \
   db/logs_with_prep_tracker.cc                                  \
   db/log_reader.cc                                              \
@@ -47,7 +48,6 @@ LIB_SOURCES =                                                   \
   db/range_tombstone_fragmenter.cc                              \
   db/repair.cc                                                  \
   db/snapshot_impl.cc                                           \
-  db/stats_history.cc                                           \
   db/table_cache.cc                                             \
   db/table_properties_collector.cc                              \
   db/transaction_log_impl.cc                                    \

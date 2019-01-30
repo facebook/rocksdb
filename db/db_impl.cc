@@ -37,6 +37,7 @@
 #include "db/external_sst_file_ingestion_job.h"
 #include "db/flush_job.h"
 #include "db/forward_iterator.h"
+#include "db/in_memory_stats_history.h"
 #include "db/job_context.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -46,7 +47,6 @@
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/range_tombstone_fragmenter.h"
-#include "db/stats_history.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
 #include "db/transaction_log_impl.h"
@@ -71,6 +71,7 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
+#include "rocksdb/stats_history.h"
 #include "rocksdb/table.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block.h"
@@ -718,9 +719,10 @@ bool DBImpl::FindStatsByTime(uint64_t start_time, uint64_t end_time,
   }
 }
 
-Status DBImpl::GetStatsHistory(GetStatsOptions& stats_opts,
-  StatsHistoryIterator** stats_iterator) {
-  StatsHistoryIterator* new_iterator = new StatsHistoryIterator(
+Status DBImpl::GetStatsHistory(uint64_t start_time, uint64_t end_time,
+  GetStatsOptions& stats_opts, StatsHistoryIterator** stats_iterator) {
+  StatsHistoryIterator* new_iterator = new InMemoryStatsHistoryIterator(
+    start_time, end_time,
       /*!immutable_db_options_.persist_stats_to_disk*/ false, stats_opts, this);
   *stats_iterator = new_iterator;
   return new_iterator->status();

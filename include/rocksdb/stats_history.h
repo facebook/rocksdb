@@ -1,10 +1,10 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// //  This source code is licensed under both the GPLv2 (found in the
-// //  COPYING file in the root directory) and Apache 2.0 License
-// //  (found in the LICENSE.Apache file in the root directory).
-// // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-// // Use of this source code is governed by a BSD-style license that can be
-// // found in the LICENSE file. See the AUTHORS file for names of contributors.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
 
@@ -37,8 +37,6 @@ enum AggregationOps : uint32_t {
 
 // Options that controls GetStatsHistory calls
 struct GetStatsOptions {
-  uint64_t start_time;
-  uint64_t end_time;
   // list of counters to query, call GetSupportedStatsCounters to get full list
   std::vector<Tickers> tickers;
   // aggregation operation like avg, sum, min, max, count, percentiles, etc
@@ -47,45 +45,39 @@ struct GetStatsOptions {
 
 class StatsHistoryIterator {
 public:
-  StatsHistoryIterator(bool /*in_memory*/, GetStatsOptions& /*stats_opts*/,
-                       DBImpl* /*db_impl*/);
-  bool Valid();
+  StatsHistoryIterator() {}
+  virtual ~StatsHistoryIterator() {}
+
+  virtual bool Valid() const = 0;
 
   // Position at the first key in the source.  The iterator is Valid()
   // after this call iff the source is not empty.
-  void SeekToFirst();
+  virtual void SeekToFirst() = 0;
 
   // Moves to the next entry in the source.  After this call, Valid() is
   // true iff the iterator was not positioned at the last entry in the source.
   // REQUIRES: Valid()
-  void Next(); // advance to next stats history
+  virtual void Next() = 0;
+
+  // virtual StatsRecord& GetStatsRecord() = 0; // stats history creation timestamp
 
   // Return the key for the current entry.  The underlying storage for
   // the returned slice is valid only until the next modification of
   // the iterator.
   // REQUIRES: Valid()
-  uint64_t key(); // stats history creation timestamp
+  virtual uint64_t key() const = 0; // stats history creation timestamp
 
   // Return the value for the current entry.  The underlying storage for
   // the returned slice is valid only until the next modification of
   // the iterator.
   // REQUIRES: Valid()
   // stats history map saved at time in `key()`
-  const std::map<std::string, std::string>& value() const;
+  virtual const std::map<std::string, std::string>& value() const = 0;
 
   // If an error has occurred, return it.  Else return an ok status.
-  Status status();
+  virtual Status status() const = 0;
 
-  // Advance the iterator to any valid timestamp >= time_start
-  void AdvanceIteratorByTime(uint64_t start_time, uint64_t end_time);
 private:
-  uint64_t key_;
-  std::map<std::string, std::string> value_;
-  Status status_;
-  bool in_memory_;
-  bool valid_;
-  GetStatsOptions stats_opts_;
-  DBImpl* db_impl_;
 
   // No copying allowed
   StatsHistoryIterator(const StatsHistoryIterator&);

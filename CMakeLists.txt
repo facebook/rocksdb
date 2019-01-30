@@ -501,6 +501,7 @@ set(SOURCES
         db/flush_scheduler.cc
         db/forward_iterator.cc
         db/internal_stats.cc
+        db/in_memory_stats_history.cc
         db/logs_with_prep_tracker.cc
         db/log_reader.cc
         db/log_writer.cc
@@ -513,7 +514,6 @@ set(SOURCES
         db/range_tombstone_fragmenter.cc
         db/repair.cc
         db/snapshot_impl.cc
-        db/stats_history.cc
         db/table_cache.cc
         db/table_properties_collector.cc
         db/transaction_log_impl.cc

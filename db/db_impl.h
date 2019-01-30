@@ -63,6 +63,7 @@ namespace rocksdb {
 
 class Arena;
 class ArenaWrappedDBIter;
+class InMemoryStatsHistoryIterator;
 class MemTable;
 class TableCache;
 class TaskLimiterToken;
@@ -726,7 +727,8 @@ class DBImpl : public DB {
                                       std::unique_ptr<Directory>* directory);
 
   // return a map of DBStats and CFstats, specify time window etc in stats_opts
-  virtual Status GetStatsHistory(GetStatsOptions& stats_opts,
+  virtual Status GetStatsHistory(uint64_t start_time, uint64_t end_time,
+    GetStatsOptions& stats_opts,
     StatsHistoryIterator** stats_iterator) override;
 
   // return list of currently supported stats counters
