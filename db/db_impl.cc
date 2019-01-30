@@ -646,8 +646,21 @@ void DBImpl::StartTimedTasks() {
   }
 }
 
+size_t DBImpl::GetStatsHistorySize() const {
+  if (stats_history_.empty()) return 0;
+  size_t size_total = sizeof(stats_history_);
+  for (const auto& stats : stats_history_) {
+    size_total += sizeof(stats.first) + sizeof(stats.second);
+    if (stats.second.size() != 0) {
+      auto s = stats.second.begin();
+      size_total += (sizeof(s->first) + sizeof(s->second)) * stats.second.size();
+    }
+  }
+  return size_total;
+}
+
 void DBImpl::PersistStats() {
-  TEST_SYNC_POINT("DBImpl::PersistStats:1");
+  TEST_SYNC_POINT("DBImpl::PersistStats:Entry");
 #ifndef ROCKSDB_LITE
   const DBPropertyInfo* cf_property_info =
       GetPropertyInfo(DB::Properties::kCFStats);
@@ -659,8 +672,10 @@ void DBImpl::PersistStats() {
   if (shutdown_initiated_) {
     return;
   }
+  uint64_t now_micros = 0;
   {
     InstrumentedMutexLock l(&mutex_);
+    now_micros = env_->NowMicros();
     default_cf_internal_stats_->GetMapProperty(
         *db_property_info, DB::Properties::kDBStats, &stats_map);
     std::map<std::string, std::string> cf_stats_map;
@@ -673,30 +688,29 @@ void DBImpl::PersistStats() {
             *cf_property_info, DB::Properties::kCFFileHistogram, &cf_stats_map);
         // add column family name to the key string
         for (const auto& cf_stats : cf_stats_map) {
-          std::string key_with_cf_name = cfd->GetName() + "." + cf_stats.first;
+          std::string key_with_cf_name = cfd->GetName() + "::" + cf_stats.first;
           stats_map[key_with_cf_name] = cf_stats.second;
         }
       }
     }
-    TEST_SYNC_POINT("DBImpl::PersistStats:2");
+  }
+  // TODO(Zhongyi): also persist immutable_db_options_.statistics
+  TEST_SYNC_POINT("DBImpl::PersistStats:StatsCopied");
+  {
+    InstrumentedMutexLock l(&stats_history_mutex_);
     WriteOptions wo;
     ColumnFamilyOptions cf_options;
-    const uint64_t now_micros = env_->NowMicros();
     stats_history_[now_micros] = stats_map;
     // delete older stats snapshots to control memory consumption
-    int num_stats_to_delete =
-        static_cast<int>(stats_history_.size()) -
-        static_cast<int>(mutable_db_options_.max_stats_history_count);
-    if (num_stats_to_delete > 0) {
-      auto it = stats_history_.begin();
-      for (int i = 0; i < num_stats_to_delete; ++i) {
-        if (it != stats_history_.end()) {
-          it = stats_history_.erase(it);
-        }
-      }
+    bool GC_needed = GetStatsHistorySize() >
+        immutable_db_options_.stats_history_buffer_size;
+    while (GC_needed && !stats_history_.empty()) {
+      stats_history_.erase(stats_history_.begin());
+      GC_needed = GetStatsHistorySize() >
+          immutable_db_options_.stats_history_buffer_size;
     }
-    // TODO: also persist stats to disk
   }
+  // TODO: persist stats to disk
 #endif  // !ROCKSDB_LITE
 }
 
@@ -705,7 +719,7 @@ bool DBImpl::FindStatsByTime(uint64_t start_time, uint64_t end_time,
                              std::map<std::string, std::string>* stats_map) {
   // lock when search for start_time
   {
-    InstrumentedMutexLock l(&mutex_);
+    InstrumentedMutexLock l(&stats_history_mutex_);
     auto it = stats_history_.lower_bound(start_time);
     if (it != stats_history_.end() && it->first < end_time) {
       // make a copy for timestamp and stats_map
@@ -722,8 +736,7 @@ bool DBImpl::FindStatsByTime(uint64_t start_time, uint64_t end_time,
 Status DBImpl::GetStatsHistory(uint64_t start_time, uint64_t end_time,
   GetStatsOptions& stats_opts, StatsHistoryIterator** stats_iterator) {
   StatsHistoryIterator* new_iterator = new InMemoryStatsHistoryIterator(
-    start_time, end_time,
-      /*!immutable_db_options_.persist_stats_to_disk*/ false, stats_opts, this);
+    start_time, end_time, stats_opts, this);
   *stats_iterator = new_iterator;
   return new_iterator->status();
 }

@@ -254,5 +254,9 @@ void DBImpl::TEST_WaitForPersistStatsRun(std::function<void()> callback) const {
     thread_persist_stats_->TEST_WaitForRun(callback);
   }
 }
+
+size_t DBImpl::TEST_GetStatsHistorySize() const {
+  return GetStatsHistorySize();
+}
 }  // namespace rocksdb
 #endif  // NDEBUG

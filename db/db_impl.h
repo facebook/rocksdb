@@ -481,6 +481,7 @@ class DBImpl : public DB {
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   void TEST_WaitForDumpStatsRun(std::function<void()> callback) const;
   void TEST_WaitForPersistStatsRun(std::function<void()> callback) const;
+  size_t TEST_GetStatsHistorySize() const;
 
 #endif  // NDEBUG
 
@@ -1147,6 +1148,8 @@ class DBImpl : public DB {
 
   void PrintStatistics();
 
+  size_t GetStatsHistorySize() const;
+
   // persist stats to column family "_persistent_stats"
   void PersistStats();
 
@@ -1192,6 +1195,8 @@ class DBImpl : public DB {
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
 
+  // In addition to mutex_, log_write_mutex_ protected writes to stats_history_
+  InstrumentedMutex stats_history_mutex_;
   // In addition to mutex_, log_write_mutex_ protected writes to logs_ and
   // logfile_number_. With two_write_queues it also protects alive_log_files_,
   // and log_empty_. Refer to the definition of each variable below for more

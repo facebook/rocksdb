@@ -20,25 +20,21 @@ bool InMemoryStatsHistoryIterator::Valid() const { return valid_; }
 
 Status InMemoryStatsHistoryIterator::status() const { return status_; }
 
-void InMemoryStatsHistoryIterator::SeekToFirst() {
-  AdvanceIteratorByTime(start_time_, end_time_);
-}
-
 void InMemoryStatsHistoryIterator::Next() {
   // increment start_time by 1 to avoid infinite loop
-  AdvanceIteratorByTime(key()+1, end_time_);
+  AdvanceIteratorByTime(GetStatsTime()+1, end_time_);
 }
 
-uint64_t InMemoryStatsHistoryIterator::key() const {
-  return key_;
+uint64_t InMemoryStatsHistoryIterator::GetStatsTime() const {
+  return time_;
 }
 
-const std::map<std::string, std::string>& InMemoryStatsHistoryIterator::value() const {
-  return value_;
+const std::map<std::string, std::string>& InMemoryStatsHistoryIterator::GetStatsMap() const {
+  return stats_map_;
 }
 
 // advance the iterator to the next time between [start_time, end_time)
-// if success, update key_ and value_ with new_time and stats_map
+// if success, update time_ and stats_map_ with new_time and stats_map
 void InMemoryStatsHistoryIterator::AdvanceIteratorByTime(uint64_t start_time, uint64_t end_time) {
   // try to find next entry in stats_history_ map
   std::map<std::string, std::string> stats_map;
@@ -48,8 +44,8 @@ void InMemoryStatsHistoryIterator::AdvanceIteratorByTime(uint64_t start_time, ui
     found = db_impl_->FindStatsByTime(start_time, end_time, &new_time, &stats_map);
   }
   if (found) {
-    value_.swap(stats_map);
-    key_ = new_time;
+    stats_map_.swap(stats_map);
+    time_ = new_time;
     valid_ = true;
   } else {
     valid_ = false;

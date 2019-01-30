@@ -553,7 +553,7 @@ TEST_F(DBOptionsTest, StatsPersistScheduling) {
   options.env = mock_env.get();
   int counter = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::PersistStats:1", [&](void* /*arg*/) { counter++; });
+      "DBImpl::PersistStats:Entry", [&](void* /*arg*/) { counter++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   Reopen(options);
   ASSERT_EQ(5, dbfull()->GetDBOptions().stats_persist_period_sec);
@@ -587,7 +587,7 @@ TEST_F(DBOptionsTest, PersistentStatsFreshInstall) {
   options.env = mock_env.get();
   int counter = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::PersistStats:1", [&](void* /*arg*/) { counter++; });
+      "DBImpl::PersistStats:Entry", [&](void* /*arg*/) { counter++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   Reopen(options);
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "5"}}));
@@ -625,27 +625,65 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
   GetStatsOptions stats_opts;
   StatsHistoryIterator* stats_iter = nullptr;
   db_->GetStatsHistory(0, env_->NowMicros(), stats_opts, &stats_iter);
+  ASSERT_TRUE(stats_iter != nullptr);
   // disabled stats snapshots
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "0"}}));
   size_t stats_count = 0;
-  for (stats_iter->SeekToFirst(); stats_iter->Valid(); stats_iter->Next()) {
-    stats_count += stats_iter->value().size();
-    // for (const auto& stat : stats.second) {
-    //   fprintf(stdout, "time = %ld, key = %s, value = %s\n", static_cast<long> (stats.first), stat.first.c_str(), stat.second.c_str());
-    // }
+  for (; stats_iter->Valid(); stats_iter->Next()) {
+    auto stats_map = stats_iter->GetStatsMap();
+    stats_count += stats_map.size();
   }
   delete stats_iter;
   ASSERT_GE(stats_count, 0);
   env_->SleepForMicroseconds(8000000);  // Wait a bit and verify no more stats are found
   db_->GetStatsHistory(0, env_->NowMicros(), stats_opts, &stats_iter);
+  ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count_new = 0;
-  for (stats_iter->SeekToFirst(); stats_iter->Valid(); stats_iter->Next()) {
-    stats_count_new += stats_iter->value().size();
+  for (; stats_iter->Valid(); stats_iter->Next()) {
+    stats_count_new += stats_iter->GetStatsMap().size();
   }
   ASSERT_EQ(stats_count_new, stats_count);
-  // TODO: test stats history garbage collection
 }
 
+TEST_F(DBOptionsTest, InMemoryStatsHistoryGC) {
+  Options options;
+  options.create_if_missing = true;
+  options.stats_persist_period_sec = 1;
+  options.env = env_;
+  CreateColumnFamilies({"pikachu"}, options);
+  ASSERT_OK(Put("foo", "bar"));
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  env_->SleepForMicroseconds(8000000);  // Wait for stats persist to finish
+  GetStatsOptions stats_opts;
+  StatsHistoryIterator* stats_iter = nullptr;
+  db_->GetStatsHistory(0, env_->NowMicros(), stats_opts, &stats_iter);
+  ASSERT_TRUE(stats_iter != nullptr);
+  size_t stats_count = 0;
+  for (; stats_iter->Valid(); stats_iter->Next()) {
+    auto stats_map = stats_iter->GetStatsMap();
+    stats_count += stats_map.size();
+  }
+  delete stats_iter;
+  size_t stats_history_size = dbfull()->TEST_GetStatsHistorySize();
+  ASSERT_GE(stats_history_size, 20000);
+  Close();
+  // capping memory cost at 20000 bytes
+  options.stats_history_buffer_size = 20000;
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  env_->SleepForMicroseconds(8000000);  // Wait for stats persist to finish
+  db_->GetStatsHistory(0, env_->NowMicros(), stats_opts, &stats_iter);
+  ASSERT_TRUE(stats_iter != nullptr);
+  size_t stats_count_reopen = 0;
+  for (; stats_iter->Valid(); stats_iter->Next()) {
+    auto stats_map = stats_iter->GetStatsMap();
+    stats_count_reopen += stats_map.size();
+  }
+  delete stats_iter;
+  size_t stats_history_size_reopen = dbfull()->TEST_GetStatsHistorySize();
+  ASSERT_LE(stats_history_size_reopen, 20000);
+  ASSERT_LE(stats_count_reopen, stats_count);
+  Close();
+}
 
 static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
   dbfull->TEST_LockMutex();

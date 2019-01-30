@@ -19,28 +19,9 @@ namespace rocksdb {
 
 class DBImpl;
 
-enum AggregationOps : uint32_t {
-  AVG = 0,
-  SUM,
-  MIN,
-  MAX,
-  COUNT,
-  COUNT_DISTINCT,
-  P25,
-  P50,
-  P75,
-  P90,
-  P99,
-
-  AGGREGATION_ENUM_MAX,
-};
-
 // Options that controls GetStatsHistory calls
 struct GetStatsOptions {
-  // list of counters to query, call GetSupportedStatsCounters to get full list
-  std::vector<Tickers> tickers;
-  // aggregation operation like avg, sum, min, max, count, percentiles, etc
-  AggregationOps aggr_ops;
+  std::vector<std::string> tickers;
 };
 
 class StatsHistoryIterator {
@@ -50,39 +31,23 @@ public:
 
   virtual bool Valid() const = 0;
 
-  // Position at the first key in the source.  The iterator is Valid()
-  // after this call iff the source is not empty.
-  virtual void SeekToFirst() = 0;
-
-  // Moves to the next entry in the source.  After this call, Valid() is
+  // Moves to the next stats history record.  After this call, Valid() is
   // true iff the iterator was not positioned at the last entry in the source.
   // REQUIRES: Valid()
   virtual void Next() = 0;
 
-  // virtual StatsRecord& GetStatsRecord() = 0; // stats history creation timestamp
+  // Return the time stamp (in microseconds) for the stats history record.
+  // REQUIRES: Valid()
+  virtual uint64_t GetStatsTime() const = 0; // stats history creation timestamp
 
-  // Return the key for the current entry.  The underlying storage for
-  // the returned slice is valid only until the next modification of
+  // Return the current stats history as an std::map. The underlying storage
+  // for the returned map is valid only until the next modification of
   // the iterator.
   // REQUIRES: Valid()
-  virtual uint64_t key() const = 0; // stats history creation timestamp
-
-  // Return the value for the current entry.  The underlying storage for
-  // the returned slice is valid only until the next modification of
-  // the iterator.
-  // REQUIRES: Valid()
-  // stats history map saved at time in `key()`
-  virtual const std::map<std::string, std::string>& value() const = 0;
+  virtual const std::map<std::string, std::string>& GetStatsMap() const = 0;
 
   // If an error has occurred, return it.  Else return an ok status.
   virtual Status status() const = 0;
-
-private:
-
-  // No copying allowed
-  StatsHistoryIterator(const StatsHistoryIterator&);
-  void operator=(const StatsHistoryIterator&);
 };
-
 
 }  // namespace rocksdb

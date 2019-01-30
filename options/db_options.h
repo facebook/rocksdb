@@ -56,6 +56,7 @@ struct ImmutableDBOptions {
   DBOptions::AccessHint access_hint_on_compaction_start;
   bool new_table_reader_for_compaction_inputs;
   size_t random_access_max_buffer_size;
+  unsigned int stats_history_buffer_size;
   bool use_adaptive_mutex;
   std::vector<std::shared_ptr<EventListener>> listeners;
   bool enable_thread_tracking;
@@ -98,7 +99,6 @@ struct MutableDBOptions {
   uint64_t delete_obsolete_files_period_micros;
   unsigned int stats_dump_period_sec;
   unsigned int stats_persist_period_sec;
-  unsigned int max_stats_history_count;
   int max_open_files;
   uint64_t bytes_per_sync;
   uint64_t wal_bytes_per_sync;

@@ -13,36 +13,39 @@ namespace rocksdb {
 class InMemoryStatsHistoryIterator final: public StatsHistoryIterator {
 public:
   InMemoryStatsHistoryIterator(uint64_t start_time, uint64_t end_time,
-                               bool in_memory, GetStatsOptions& stats_opts,
+                               GetStatsOptions& stats_opts,
                                DBImpl* db_impl)
     : start_time_(start_time),
       end_time_(end_time),
-      in_memory_(in_memory),
       valid_(true),
       stats_opts_(stats_opts),
       db_impl_(db_impl) {
+    AdvanceIteratorByTime(start_time_, end_time_);
   }
   virtual ~InMemoryStatsHistoryIterator();
   virtual bool Valid() const override;
   virtual Status status() const override;
 
-  virtual void SeekToFirst() override;
-
   virtual void Next() override;
-  virtual uint64_t key() const override;
+  virtual uint64_t GetStatsTime() const override;
 
-  virtual const std::map<std::string, std::string>& value() const override;
+  virtual const std::map<std::string, std::string>& GetStatsMap() const override;
 
 private:
-  // advance the iterator to the next time between [start_time, end_time)
+  // advance the iterator to the next stats history record with timestamp
+  // between [start_time, end_time)
   void AdvanceIteratorByTime(uint64_t start_time, uint64_t end_time);
 
-  uint64_t key_;
+  // No copying allowed
+  InMemoryStatsHistoryIterator(const InMemoryStatsHistoryIterator&) = delete;
+  InMemoryStatsHistoryIterator(InMemoryStatsHistoryIterator&&) = delete;
+  void operator=(const InMemoryStatsHistoryIterator&) = delete;
+
+  uint64_t time_;
   uint64_t start_time_;
   uint64_t end_time_;
-  std::map<std::string, std::string> value_;
+  std::map<std::string, std::string> stats_map_;
   Status status_;
-  bool in_memory_;
   bool valid_;
   GetStatsOptions stats_opts_;
   DBImpl* db_impl_;
