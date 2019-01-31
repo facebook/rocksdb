@@ -168,11 +168,15 @@ class MemTableListTest : public testing::Test {
       meta.fd = FileDescriptor(file_num, 0, 0);
       file_metas.emplace_back(meta);
     }
+    autovector<FileMetaData*> file_meta_ptrs;
+    for (auto& meta : file_metas) {
+      file_meta_ptrs.push_back(&meta);
+    }
     InstrumentedMutex mutex;
     InstrumentedMutexLock l(&mutex);
     return InstallMemtableAtomicFlushResults(
         &lists, cfds, mutable_cf_options_list, mems_list, &versions, &mutex,
-        file_metas, to_delete, nullptr, &log_buffer);
+        file_meta_ptrs, to_delete, nullptr, &log_buffer);
   }
 };
 

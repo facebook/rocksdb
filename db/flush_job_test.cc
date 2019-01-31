@@ -319,6 +319,10 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
     ASSERT_OK(job.Run(nullptr /**/, &meta));
     file_metas.emplace_back(meta);
   }
+  autovector<FileMetaData*> file_meta_ptrs;
+  for (auto& meta : file_metas) {
+    file_meta_ptrs.push_back(&meta);
+  }
   autovector<const autovector<MemTable*>*> mems_list;
   for (size_t i = 0; i != all_cfds.size(); ++i) {
     const auto& mems = flush_jobs[i].GetMemTables();
@@ -331,7 +335,7 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
 
   Status s = InstallMemtableAtomicFlushResults(
       nullptr /* imm_lists */, all_cfds, mutable_cf_options_list, mems_list,
-      versions_.get(), &mutex_, file_metas, &job_context.memtables_to_free,
+      versions_.get(), &mutex_, file_meta_ptrs, &job_context.memtables_to_free,
       nullptr /* db_directory */, nullptr /* log_buffer */);
   ASSERT_OK(s);
 
