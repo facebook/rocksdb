@@ -340,8 +340,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     file_meta.emplace_back();
 
 #ifndef ROCKSDB_LITE
-    const MutableCFOptions& mutable_cf_options =
-        *cfds[i]->GetLatestMutableCFOptions();
+    const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.at(i);
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options,
                        job_context->job_id, jobs[i].GetTableProperties());
@@ -476,7 +475,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       }
       InstallSuperVersionAndScheduleWork(cfds[i],
                                          &job_context->superversion_contexts[i],
-                                         *cfds[i]->GetLatestMutableCFOptions());
+                                         all_mutable_cf_options[i]);
       VersionStorageInfo::LevelSummaryStorage tmp;
       ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
                        cfds[i]->GetName().c_str(),
@@ -492,8 +491,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       if (cfds[i]->IsDropped()) {
         continue;
       }
-      NotifyOnFlushCompleted(cfds[i], &file_meta[i],
-                             *cfds[i]->GetLatestMutableCFOptions(),
+      NotifyOnFlushCompleted(cfds[i], &file_meta[i], all_mutable_cf_options[i],
                              job_context->job_id, jobs[i].GetTableProperties());
       if (sfm) {
         std::string file_path = MakeTableFileName(
