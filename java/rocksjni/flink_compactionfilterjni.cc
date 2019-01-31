@@ -26,6 +26,9 @@ protected:
   }
 };
 
+// This list element filter operates on list state for which byte length of elements is unknown (variable),
+// the list element serializer has to be used in this case to compute the offset of the next element.
+// The filter wraps java object implenented in Flink. The java object holds element serializer and performs filtering.
 class JavaListElementFilter : public rocksdb::flink::FlinkCompactionFilter::ListElementFilter, JniCallbackBase {
 public:
   JavaListElementFilter(JNIEnv* env, jobject jlist_filter) : JniCallbackBase(env, jlist_filter) {

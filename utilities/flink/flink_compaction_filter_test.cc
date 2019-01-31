@@ -74,6 +74,10 @@ void SetTimestamp(int64_t timestamp, size_t offset = 0, char* value = data) {
   }
 }
 
+CompactionFilter::Decision decide(size_t data_size = sizeof(data)) {
+  return filter->FilterV2(0, key, value_type, Slice(data, data_size), &new_list, &stub);
+}
+
 void Init(FlinkCompactionFilter::StateType stype,
           CompactionFilter::ValueType vtype,
           FlinkCompactionFilter::ListElementFilterFactory* fixed_len_filter_factory,
@@ -90,6 +94,7 @@ void Init(FlinkCompactionFilter::StateType stype,
   filter = new FlinkCompactionFilter(config_holder, std::unique_ptr<FlinkCompactionFilter::TimeProvider>(time_provider), logger);
   auto config = new FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, QUERY_TIME_AFTER_NUM_ENTRIES,
                                                   unique_ptr<FlinkCompactionFilter::ListElementFilterFactory>(fixed_len_filter_factory)};
+  EXPECT_EQ(decide(), KKEEP); // test disabled config
   EXPECT_TRUE(config_holder->Configure(config));
   EXPECT_FALSE(config_holder->Configure(config));
 }
@@ -119,10 +124,6 @@ void Deinit() {
   delete filter;
 }
 
-CompactionFilter::Decision decide(size_t data_size = sizeof(data)) {
-  return filter->FilterV2(0, key, value_type, Slice(data, data_size), &new_list, &stub);
-}
-
 TEST(FlinkStateTtlTest, CheckStateTypeEnumOrder) { // NOLINT
   // if the order changes it also needs to be adjusted in Java client:
   // in org.rocksdb.FlinkCompactionFilter
@@ -150,14 +151,17 @@ TEST(FlinkValueStateTtlTest, Expired) { // NOLINT
   Deinit();
 }
 
-TEST(FlinkValueStateTtlTest, TimeUpdate) { // NOLINT
+TEST(FlinkValueStateTtlTest, CachedTimeUpdate) { // NOLINT
   InitValue(VALUE, KVALUE);
-  EXPECT_EQ(decide(), KKEEP);
-  EXPIRE;
-  for (int64_t i = 0; i < QUERY_TIME_AFTER_NUM_ENTRIES - 1; i++) {
+  EXPECT_EQ(decide(), KKEEP); // also implicitly cache current timestamp
+  EXPIRE; // advance current timestamp to expire but cached should be used
+  // QUERY_TIME_AFTER_NUM_ENTRIES - 2:
+  // -1 -> for decide disabled in InitValue
+  // and -1 -> for decide right after InitValue
+  for (int64_t i = 0; i < QUERY_TIME_AFTER_NUM_ENTRIES - 2; i++) {
     EXPECT_EQ(decide(), KKEEP);
   }
-  EXPECT_EQ(decide(), KREMOVE);
+  EXPECT_EQ(decide(), KREMOVE); // advanced current timestamp should be updated in cache and expire state
   Deinit();
 }
 

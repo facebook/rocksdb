@@ -38,6 +38,10 @@ public class FlinkCompactionFilter
     /**
      * Gets offset of the first unexpired element in the list.
      *
+     * <p>Native code wraps this java object and calls it for list state
+     * for which element byte length is unknown and Flink custom type serializer has to be used
+     * to compute offset of the next element in serialized form.
+     *
      * @param list serialised list of elements with timestamp
      * @param ttl time-to-live of the list elements
      * @param currentTimestamp current timestamp to check expiration against
@@ -56,6 +60,7 @@ public class FlinkCompactionFilter
     final StateType stateType;
     final int timestampOffset;
     final long ttl;
+    /** Number of state entries to process by compaction filter before updating current timestamp. */
     final long queryTimeAfterNumEntries;
     final int fixedElementLength;
     final ListElementFilterFactory listElementFilterFactory;

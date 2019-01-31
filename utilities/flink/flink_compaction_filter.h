@@ -43,12 +43,17 @@ public:
     virtual int64_t CurrentTimestamp() const = 0;
   };
 
+  // accepts serialized list state and checks elements for expiration starting from the head
+  // stops upon discovery of unexpired element and returns its offset
+  // or returns offset greater or equal to list byte length.
   class ListElementFilter {
   public:
     virtual ~ListElementFilter() = default;
     virtual std::size_t NextUnexpiredOffset(const Slice& list, int64_t ttl, int64_t current_timestamp) const = 0;
   };
 
+  // this filter can operate directly on list state bytes
+  // because the byte length of list element and last acess timestamp position are known.
   class FixedListElementFilter : public ListElementFilter {
   public:
     explicit FixedListElementFilter(std::size_t fixed_size, std::size_t timestamp_offset, std::shared_ptr<Logger> logger) :
@@ -84,12 +89,13 @@ public:
     StateType state_type_;
     std::size_t timestamp_offset_;
     int64_t ttl_;
+    // Number of state entries to process by compaction filter before updating current timestamp.
     int64_t query_time_after_num_entries_;
     std::unique_ptr<ListElementFilterFactory> list_element_filter_factory_;
   };
 
-  // Allows to configure at once all FlinkCompactionFilters created by the factory
-  // which holds the shared ConfigHolder.
+  // Allows to configure at once all FlinkCompactionFilters created by the factory.
+  // The ConfigHolder holds the shared Config.
   class ConfigHolder {
   public:
     explicit ConfigHolder();
