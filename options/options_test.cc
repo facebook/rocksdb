@@ -1605,6 +1605,57 @@ TEST_F(OptionsParserTest, DifferentDefault) {
   ASSERT_EQ(5000, small_opts.max_open_files);
 }
 
+TEST_F(OptionsParserTest, AddCompactionFactoryTest) {
+  DBOptions dbOpts;
+  ColumnFamilyOptions cfOpts;
+  
+  dbOpts.extensions->RegisterFactory(
+				     CompactionFilterFactory::Type(),
+				     "Test",
+				     [](const std::string & name,
+					const DBOptions & ,
+					const ColumnFamilyOptions *,
+					std::unique_ptr<Extension> * guard) {
+				       guard->reset(new test::ChanglingCompactionFilterFactory(name));
+				       return guard->get();
+				     });
+  ASSERT_NOK(cfOpts.SetCompactionFilterFactory(dbOpts, "Unknown", ""));
+  ASSERT_OK(cfOpts.SetCompactionFilterFactory(dbOpts, "Test", ""));
+  ASSERT_NE(cfOpts.compaction_filter_factory.get(), nullptr);
+  ASSERT_EQ(cfOpts.compaction_filter_factory->Name(), std::string("TestCompactionFilterFactory"));
+  // Failure to sett to an unknown does not change what is already there.
+  ASSERT_NOK(cfOpts.SetCompactionFilterFactory(dbOpts, "Unknown", ""));
+  ASSERT_NE(cfOpts.compaction_filter_factory.get(), nullptr);
+  ASSERT_EQ(cfOpts.compaction_filter_factory->Name(), std::string("TestCompactionFilterFactory"));
+}
+  
+TEST_F(OptionsParserTest, AddCompactionFilterTest) {
+  DBOptions dbOpts;
+  ColumnFamilyOptions cfOpts;
+  
+  dbOpts.extensions->RegisterFactory(
+				     CompactionFilter::Type(),
+				     "Test",
+				     [](const std::string & name,
+					const DBOptions & ,
+					const ColumnFamilyOptions *,
+					std::unique_ptr<Extension> * guard) {
+				       guard->reset(new test::ChanglingCompactionFilter(name));
+				       return guard->get();
+				     });
+  ASSERT_NOK(cfOpts.SetCompactionFilter(dbOpts, "Unknown", ""));
+  ASSERT_OK(cfOpts.SetCompactionFilter(dbOpts, "Test", ""));
+  ASSERT_NE(cfOpts.compaction_filter, nullptr);
+  ASSERT_EQ(cfOpts.compaction_filter->Name(), std::string("TestCompactionFilter"));
+  // Setting to an unknown does not change what is already there.
+  ASSERT_NOK(cfOpts.SetCompactionFilter(dbOpts, "Unknown", ""));
+  ASSERT_NE(cfOpts.compaction_filter, nullptr);
+  ASSERT_EQ(cfOpts.compaction_filter->Name(), std::string("TestCompactionFilter"));
+
+  delete cfOpts.compaction_filter;
+  
+}
+  
 class OptionsSanityCheckTest : public OptionsParserTest {
  public:
   OptionsSanityCheckTest() {}

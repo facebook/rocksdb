@@ -8,6 +8,7 @@
 #include <memory>
 #include "rocksdb/extension_loader.h"
 #include "rocksdb/env.h"
+#include "rocksdb/extensions.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 

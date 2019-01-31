@@ -33,6 +33,7 @@ struct CompactionFilterContext {
 
 class CompactionFilter : public Extension {
  public:
+  static const char *Type() { return "compaction-filter"; }
   enum ValueType {
     kValue,
     kMergeOperand,
@@ -196,6 +197,7 @@ class CompactionFilter : public Extension {
 // application to know about different compactions
 class CompactionFilterFactory : public Extension {
  public:
+  static const char *Type() { return "compaction-filter-factory"; }
   virtual ~CompactionFilterFactory() { }
 
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(

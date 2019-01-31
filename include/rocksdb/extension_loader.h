@@ -12,8 +12,6 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "rocksdb/options.h"
-#include "rocksdb/extensions.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {

@@ -19,6 +19,7 @@
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
+#include "rocksdb/extension_loader.h"
 #include "rocksdb/types.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/version.h"
@@ -170,7 +171,10 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   //
   // Default: nullptr
   std::shared_ptr<CompactionFilterFactory> compaction_filter_factory = nullptr;
-
+#ifndef ROCKSDB_LITE
+  Status SetCompactionFilter(const DBOptions & dbOpts, const std::string & name, const std::string & options);
+  Status SetCompactionFilterFactory(const DBOptions & dbOpts, const std::string & name, const std::string & options);
+#endif
   // -------------------
   // Parameters that affect performance
 

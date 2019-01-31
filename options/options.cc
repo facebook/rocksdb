@@ -104,6 +104,42 @@ ColumnFamilyOptions::ColumnFamilyOptions()
 ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
     : ColumnFamilyOptions(*static_cast<const ColumnFamilyOptions*>(&options)) {}
 
+#ifndef ROCKSDB_LITE
+Status ColumnFamilyOptions::SetCompactionFilterFactory(const DBOptions & dbOpts,
+						       const std::string & name, const std::string & options) {
+  std::shared_ptr<CompactionFilterFactory> factory;
+  Status status = NewSharedExtension(name, dbOpts, this, &factory);
+  if (status.ok()) {
+    status = factory->ConfigureFromString(dbOpts, this, options);
+    if (status.ok()) {
+      status = factory->SanitizeOptions(dbOpts, *this);
+      if (status.ok()) {
+	compaction_filter_factory = factory;
+      }
+    }
+  }
+  return status;
+}
+
+Status ColumnFamilyOptions::SetCompactionFilter(const DBOptions & dbOpts,
+						const std::string & name, const std::string & options) {
+  CompactionFilter *filter;
+  std::unique_ptr<CompactionFilter> guard;
+  Status status = NewUniqueExtension(name, dbOpts, this, &filter, &guard);
+  if (status.ok()) {
+    status = filter->ConfigureFromString(dbOpts, this, options);
+    if (status.ok()) {
+      status = filter->SanitizeOptions(dbOpts, *this);
+      if (status.ok()) {
+	compaction_filter = filter;
+	guard.release();
+      }
+    }
+  }
+  return status;
+}
+#endif
+
 DBOptions::DBOptions() {
   extensions = ExtensionLoader::Get();
 }
