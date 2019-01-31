@@ -332,20 +332,18 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     jobs.back().PickMemTable();
   }
 
-  autovector<FileMetaData> file_meta;
+  std::vector<FileMetaData> file_meta(num_cfs);
   Status s;
   assert(num_cfs == static_cast<int>(jobs.size()));
 
-  for (int i = 0; i != num_cfs; ++i) {
-    file_meta.emplace_back();
-
 #ifndef ROCKSDB_LITE
+  for (int i = 0; i != num_cfs; ++i) {
     const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.at(i);
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options,
                        job_context->job_id, jobs[i].GetTableProperties());
-#endif /* !ROCKSDB_LITE */
   }
+#endif /* !ROCKSDB_LITE */
 
   if (logfile_number_ > 0) {
     // TODO (yanqin) investigate whether we should sync the closed logs for
