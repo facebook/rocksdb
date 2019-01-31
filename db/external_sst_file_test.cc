@@ -2381,8 +2381,8 @@ TEST_P(ExternalSSTFileTest,
   options.env = fault_injection_env.get();
   CreateAndReopenWithCF({"pikachu"}, options);
   const std::vector<std::map<std::string, std::string>> data_before_ingestion =
-      {{{"foo1", "fv1_0"}, {"foo2", "fv2_0"}},
-       {{"bar1", "bv1_0"}, {"bar2", "bv2_0"}}};
+      {{{"foo1", "fv1_0"}, {"foo2", "fv2_0"}, {"foo3", "fv3_0"}},
+       {{"bar1", "bv1_0"}, {"bar2", "bv2_0"}, {"bar3", "bv3_0"}}};
   for (size_t i = 0; i != handles_.size(); ++i) {
     int cf = static_cast<int>(i);
     const auto& orig_data = data_before_ingestion[i];
@@ -2416,8 +2416,20 @@ TEST_P(ExternalSSTFileTest,
   read_opts.total_order_seek = true;
   read_opts.snapshot = dbfull()->GetSnapshot();
   std::vector<Iterator*> iters(handles_.size());
+
+  // Range scan checks first kv of each CF before ingestion starts.
   for (size_t i = 0; i != handles_.size(); ++i) {
     iters[i] = dbfull()->NewIterator(read_opts, handles_[i]);
+    iters[i]->SeekToFirst();
+    ASSERT_TRUE(iters[i]->Valid());
+    const std::string& key = iters[i]->key().ToString();
+    const std::string& value = iters[i]->value().ToString();
+    const std::map<std::string, std::string>& orig_data =
+        data_before_ingestion[i];
+    std::map<std::string, std::string>::const_iterator it = orig_data.find(key);
+    ASSERT_NE(orig_data.end(), it);
+    ASSERT_EQ(it->second, value);
+    iters[i]->Next();
   }
   port::Thread ingest_thread([&]() {
     ASSERT_OK(GenerateAndAddExternalFiles(options, column_families, ifos, data,
@@ -2429,9 +2441,9 @@ TEST_P(ExternalSSTFileTest,
   // Should see only data before ingestion
   for (size_t i = 0; i != handles_.size(); ++i) {
     const auto& orig_data = data_before_ingestion[i];
-    for (iters[i]->SeekToFirst(); iters[i]->Valid(); iters[i]->Next()) {
-      std::string key = iters[i]->key().ToString();
-      std::string value = iters[i]->value().ToString();
+    for (; iters[i]->Valid(); iters[i]->Next()) {
+      const std::string& key = iters[i]->key().ToString();
+      const std::string& value = iters[i]->value().ToString();
       std::map<std::string, std::string>::const_iterator it =
           orig_data.find(key);
       ASSERT_NE(orig_data.end(), it);
