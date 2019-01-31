@@ -35,6 +35,7 @@ class MockExtension;
 struct MockOptions {
   int         intOpt = -1;
   bool        boolOpt = false;
+  const bool  constOpt = true;
   std::string strOpt = "unknown";
   std::shared_ptr<MockExtension> inner;
 };
@@ -43,16 +44,22 @@ static OptionTypeMap mockOptionsMap =
 {
  {"bool", {offsetof(struct MockOptions, boolOpt),
 	       OptionType::kBoolean, OptionVerificationType::kByName,
-	       false, 0}},
+	       true, 0}},
  {"int", {offsetof(struct MockOptions, intOpt),
 	       OptionType::kInt, OptionVerificationType::kByName,
-	       false, 0}},
+	       true, 0}},
  {"string", {offsetof(struct MockOptions, strOpt),
 	       OptionType::kString, OptionVerificationType::kByName,
-	       false, 0}},
+	       true, 0}},
  { "inner",   {offsetof(struct MockOptions, inner),
 	       OptionType::kExtension, OptionVerificationType::kByName,
-	       false, 0}}
+	       true, 0}},
+ { "constant",   {offsetof(struct MockOptions, inner),
+		  OptionType::kBoolean, OptionVerificationType::kByName,
+		  false, 0}},
+ { "deprecated",   {offsetof(struct MockOptions, inner),
+		    OptionType::kBoolean, OptionVerificationType::kDeprecated,
+		    true, 0}}
 };
 
 static const std::string MockPrefix = "test.mock";
@@ -209,7 +216,7 @@ Extension *MockExtensionOptionsFactory(const std::string & name,
   if (period != std::string::npos) {
     guard->reset(new MockExtensionWithOptions(name.substr(period + 1), name.substr(0, period + 1)));
   } else {
-    guard->reset(new MockExtensionWithOptions(name, MockPrefix));
+    guard->reset(new MockExtensionWithOptions(name, MockPrefix + "."));
   }
   return guard->get();
 }
@@ -222,7 +229,7 @@ Extension *MockExtensionMapFactory(const std::string & name,
   if (period != std::string::npos) {
     guard->reset(new MockExtensionWithMap(name.substr(period + 1), name.substr(0, period + 1)));
   } else {
-    guard->reset(new MockExtensionWithMap(name, MockPrefix));
+    guard->reset(new MockExtensionWithMap(name, MockPrefix + "."));
   }
   return guard->get();
 }
@@ -422,6 +429,49 @@ static Status Invalid  = Status::InvalidArgument();
       ASSERT_EQ(expected, result);    \
     }                                 \
   }
+  
+TEST_F(ExtensionTest, ImmutableOptions) {
+  std::shared_ptr<MockExtension> extension;
+  dbOptions_.extensions->RegisterFactory(MockExtension::Type(), "constant", MockExtensionMapFactory);
+
+  AssertNewSharedExtension(dbOptions_, "constant", true, &extension);
+  AssertNewSharedExtension(dbOptions_, "constant", true, &extension->options_.inner);
+  AssertConfigureProperty(Invalid, extension->ConfigureOption("constant", "false"),
+			  true, extension->options_.constOpt);
+  AssertConfigureProperty(Invalid, extension->ConfigureOption(dbOptions_, "constant", "false"),
+			  true, extension->options_.constOpt);
+  AssertConfigureProperty(Invalid, extension->ConfigureOption(MockPrefix + ".constant", "false"),
+			  true, extension->options_.constOpt);
+
+  AssertConfigureProperty(Invalid, extension->ConfigureOption("inner.options", "constant=false"),
+			  true, extension->options_.inner->options_.constOpt);
+  AssertConfigureProperty(Invalid, extension->ConfigureOption(dbOptions_, "inner.options", "constant=false"),
+			  true, extension->options_.inner->options_.constOpt);
+  AssertConfigureProperty(Invalid, extension->ConfigureOption(MockPrefix + ".inner.options", "constant=false"),
+			  true, extension->options_.inner->options_.constOpt);
+}
+  
+TEST_F(ExtensionTest, DeprecatedOptions) {
+  std::shared_ptr<MockExtension> extension;
+  dbOptions_.extensions->RegisterFactory(MockExtension::Type(), "deprecated", MockExtensionMapFactory);
+
+  AssertNewSharedExtension(dbOptions_, "deprecated", true, &extension);
+  AssertNewSharedExtension(dbOptions_, "deprecated", true, &extension->options_.inner);
+
+  AssertConfigureProperty(OK, extension->ConfigureOption("deprecated", "false"),
+			  true, extension->options_.constOpt);
+  AssertConfigureProperty(OK, extension->ConfigureOption(dbOptions_, "deprecated", "false"),
+			  true, extension->options_.constOpt);
+  AssertConfigureProperty(OK, extension->ConfigureOption(MockPrefix + ".deprecated", "false"),
+			  true, extension->options_.constOpt);
+  
+  AssertConfigureProperty(OK, extension->ConfigureOption("inner.options", "deprecated=false"),
+			  true, extension->options_.inner->options_.constOpt);
+  AssertConfigureProperty(OK, extension->ConfigureOption(dbOptions_, "inner.options", "deprecated=false"),
+			  true, extension->options_.inner->options_.constOpt);
+  AssertConfigureProperty(OK, extension->ConfigureOption(MockPrefix + ".inner.options", "deprecated=false"),
+			  true, extension->options_.inner->options_.constOpt);
+}
 
 TEST_P(ExtensionTestWithParam, BadConversions) {
   std::shared_ptr<MockExtension> extension;
@@ -438,7 +488,7 @@ TEST_P(ExtensionTestWithParam, BadConversions) {
   AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "inner", "options=int=string;name="+MockPrefix + "." + name_),     1, extension->options_.inner->options_.intOpt);
 
 }
-  
+    
 TEST_P(ExtensionTestWithParam, ConfigureOptions) {
   std::shared_ptr<MockExtension> extension;
   AssertNewMockExtension(true, &extension);

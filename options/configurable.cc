@@ -94,7 +94,9 @@ Status Configurable::ConfigureOption(const std::string & name,
     // Look up the value in the map
     auto optInfo = FindOption(optionName, optionsMap);  
     if (optInfo != nullptr) {
-      if (optInfo->verification == OptionVerificationType::kDeprecated) {
+      if (!optInfo->is_mutable) {
+        return Status::InvalidArgument("Option not changeable: " + name);
+      } else if (optInfo->verification == OptionVerificationType::kDeprecated) {
 	return Status::OK();
       } else {
 	char * optAddr = reinterpret_cast<char *>(optionsPtr) + optInfo->offset;

@@ -45,7 +45,9 @@ Status Extension::ConfigureOption(const DBOptions & dbOpts,
   if (optionsPtr != nullptr && optionsMap != nullptr) {
     auto optInfo = FindOption(optionName, optionsMap);  // Look up the value in the map
     if (optInfo != nullptr) {
-      if (optInfo->verification == OptionVerificationType::kDeprecated) {
+      if (!optInfo->is_mutable) {
+        return Status::InvalidArgument("Option not changeable: " + name);
+      } else if (optInfo->verification == OptionVerificationType::kDeprecated) {
 	return Status::OK();
       } else {
 	char * optAddr = reinterpret_cast<char *>(optionsPtr) + optInfo->offset;
