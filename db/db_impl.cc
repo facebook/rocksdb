@@ -3334,6 +3334,14 @@ Status DBImpl::IngestExternalFiles(
         if (!cfd->IsDropped()) {
           InstallSuperVersionAndScheduleWork(cfd, &sv_ctxs[i],
                                              *cfd->GetLatestMutableCFOptions());
+#ifndef NDEBUG
+          if (0 == i && num_cfs > 1) {
+            TEST_SYNC_POINT(
+                "DBImpl::IngestExternalFiles:InstallSVForFirstCF:0");
+            TEST_SYNC_POINT(
+                "DBImpl::IngestExternalFiles:InstallSVForFirstCF:1");
+          }
+#endif  // !NDEBUG
         }
       }
     }

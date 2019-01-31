@@ -1067,10 +1067,10 @@ class DB {
   // If this function returns NOK, or the process crashes, then non-of the
   // files will be ingested into the database after recovery.
   // Note that it is possible for application to observe a mixed state during
-  // the execution of this function. If a user issues two consecutive Get calls
-  // to two different column families, one of the Get calls may return ingested
-  // data, while the other may return data before ingestion.
-  // In this sense, it's not strictly 'atomic'.
+  // the execution of this function. If the user performs range scan over the
+  // column families with iterators, iterator on one column family may return
+  // ingested data, while iterator on other column family returns old data.
+  // Users can use snapshot for a consistent view of data.
   virtual Status IngestExternalFiles(
       const std::vector<IngestExternalFileArg>& args) = 0;
 
