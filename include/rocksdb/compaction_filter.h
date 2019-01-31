@@ -12,6 +12,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "rocksdb/extensions.h"
 
 namespace rocksdb {
 
@@ -30,7 +31,7 @@ struct CompactionFilterContext {
 // CompactionFilter allows an application to modify/delete a key-value at
 // the time of compaction.
 
-class CompactionFilter {
+class CompactionFilter : public Extension {
  public:
   enum ValueType {
     kValue,
@@ -193,7 +194,7 @@ class CompactionFilter {
 
 // Each compaction will create a new CompactionFilter allowing the
 // application to know about different compactions
-class CompactionFilterFactory {
+class CompactionFilterFactory : public Extension {
  public:
   virtual ~CompactionFilterFactory() { }
 

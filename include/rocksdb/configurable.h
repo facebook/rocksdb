@@ -87,12 +87,12 @@ class Configurable {
   static const std::string kPropOptValue /* = "options" */;
   static const std::string kOptionsPrefix /* = "rocksdb." */;
 protected:
-  const std::string    optionsPrefix_; // The prefix for properties of this instance (e.g. rocksdb.my.property.,")
-  const OptionTypeMap *optionsMap_;    // Pointer to the map of name/options used to configure this object
-protected:
-  Configurable() : optionsPrefix_(kOptionsPrefix), optionsMap_(nullptr) { }
-  Configurable(const std::string & prefix,
-	       const OptionTypeMap *map) : optionsPrefix_(prefix), optionsMap_(map) { }
+  virtual const OptionTypeMap *GetOptionsMap() const {
+    return nullptr;
+  }
+  virtual const std::string & GetOptionsPrefix() const {
+    return kOptionsPrefix;
+  }
 public:
   virtual ~Configurable() {}
 
@@ -153,7 +153,8 @@ public:
   }
  protected:
   // Returns the option info for the named optiub
-  const OptionTypeInfo *FindOption(const std::string & option) const;
+  const OptionTypeInfo *FindOption(const std::string & option,
+				   const OptionTypeMap * optionsMap) const;
   // Given a prefixed name (e.g. rocksdb.my.type.name), returns the short name ("name")
   std::string GetOptionName(const std::string & longName) const;
   // Sets the named option to the input value, where th optType is the type of the option,

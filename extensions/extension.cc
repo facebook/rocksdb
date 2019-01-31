@@ -41,8 +41,9 @@ Status Extension::ConfigureOption(const DBOptions & dbOpts,
   const std::string & optionName  = GetOptionName(name);
   const std::string & optionValue = input_strings_escaped ? UnescapeOptionString(value) : value;
   void * optionsPtr  = GetOptionsPtr();
-  if (optionsPtr != nullptr && optionsMap_ != nullptr) {
-    auto optInfo = FindOption(optionName);  // Look up the value in the map
+  const OptionTypeMap *optionsMap = GetOptionsMap();
+  if (optionsPtr != nullptr && optionsMap != nullptr) {
+    auto optInfo = FindOption(optionName, optionsMap);  // Look up the value in the map
     if (optInfo != nullptr) {
       if (optInfo->verification == OptionVerificationType::kDeprecated) {
 	return Status::OK();

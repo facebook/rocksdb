@@ -37,8 +37,6 @@ protected:
   using Configurable::SetOption;
   using Configurable::SetOptions;
 protected:
-  Extension() : Configurable() { } 
-  Extension(const std::string & prefix, const OptionTypeMap *map = nullptr) : Configurable(prefix, map) { }
 public:
   static Status ConfigureExtension(Extension * extension,
 				   const std::string & name,

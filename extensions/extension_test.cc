@@ -56,24 +56,28 @@ static OptionTypeMap mockOptionsMap =
 };
 
 static const std::string MockPrefix = "test.mock";
+
 class MockExtension : public Extension {
 private:
   const std::string name_;
+  const std::string prefix_;
 protected:
   using Extension::ParseExtension;
   using Extension::SanitizeOptions;
 public:
   using Extension::ConfigureOption;
   MockOptions options_;
-  static const std::string kType;
-  static const std::string & Type() { return kType; }
+    static const char * Type() { return "test-extension"; };
 public:
   MockExtension(const std::string & name,
-		const std::string & prefix,
-		const OptionTypeMap *map = nullptr) : Extension(prefix, map), name_(name) {
+		const std::string & prefix) : name_(name), prefix_(prefix) {
     reset();
 
   }
+  virtual const std::string & GetOptionsPrefix() const override {
+    return prefix_;
+  }
+  
   void reset() {
     if (options_.inner) {
       options_.inner->reset();
@@ -185,13 +189,16 @@ class MockExtensionWithMap : public MockExtension {
 public:
   MockExtensionWithMap(const std::string & name,
 		       const std::string & prefix) :
-    MockExtension(name, prefix, &mockOptionsMap) {
+    MockExtension(name, prefix) {
   }
+  virtual const OptionTypeMap *GetOptionsMap() const override {
+    return &mockOptionsMap;
+  }
+  
 protected:
   virtual void *GetOptionsPtr() override { return &options_; }
 };
   
-const std::string MockExtension::kType = "test-extension";
 
 #ifndef ROCKSDB_LITE
 Extension *MockExtensionOptionsFactory(const std::string & name,
@@ -251,7 +258,7 @@ public:
   void RegisterFactory(const std::string & pattern) {
     const bool useMap = useMap_;
     dbOptions_.extensions->RegisterFactory(
-					   MockExtension::kType,
+					   MockExtension::Type(),
 					   pattern,
 					   [useMap, pattern](const std::string & name,
 					      const DBOptions &,
@@ -349,7 +356,7 @@ TEST_F(ExtensionTest, NewGuardedExtension) {
   
   AssertNewUniqueExtension(dbOptions_, "guarded", false, &ext, &guard, true);
   dbOptions_.extensions->RegisterFactory(
-					 MockExtension::kType,
+					 MockExtension::Type(),
 					 "guarded",
 					 [](const std::string & name,
 					    const DBOptions &,
@@ -368,7 +375,7 @@ TEST_F(ExtensionTest, NewUnguardedExtension) {
   std::unique_ptr<MockExtension> guard;
   
   AssertNewUniqueExtension(dbOptions_, "unguarded", false, &ext, &guard, false);
-  dbOptions_.extensions->RegisterFactory(MockExtension::kType,
+  dbOptions_.extensions->RegisterFactory(MockExtension::Type(),
 					 "unguarded",
 					 [](const std::string & name,
 					    const DBOptions &,
@@ -386,7 +393,7 @@ TEST_F(ExtensionTest, NewUnguardedExtension) {
   
 TEST_F(ExtensionTest, CreateFromPattern) {
   std::shared_ptr<MockExtension> ext;
-  dbOptions_.extensions->RegisterFactory(MockExtension::kType, "good.*",
+  dbOptions_.extensions->RegisterFactory(MockExtension::Type(), "good.*",
 					 MockExtensionOptionsFactory);
   AssertNewSharedExtension(dbOptions_, "good.1", true, &ext, "1");
   AssertNewSharedExtension(dbOptions_, "good.2", true, &ext, "2");

@@ -17,27 +17,30 @@ const std::string Configurable::kPropOptValue = "options";
 const std::string Configurable::kOptionsPrefix = "rocksdb.";
   
 std::string Configurable::GetOptionName(const std::string & longName) const {
-  auto prefixLen = optionsPrefix_.length();
-  if (longName.compare(0, prefixLen, optionsPrefix_) == 0) {
+  const std::string & prefix = GetOptionsPrefix();
+  auto prefixLen = prefix.length();
+  if (longName.compare(0, prefixLen, prefix) == 0) {
     return longName.substr(prefixLen);
   } else {
     return longName;
   }
 }
   
-const OptionTypeInfo *Configurable::FindOption(const std::string & option) const {
-  if (optionsMap_ != nullptr) {
-    auto iter = optionsMap_->find(option);  // Look up the value in the map
-    if (iter == optionsMap_->end()) {
+const OptionTypeInfo *Configurable::FindOption(
+				     const std::string & option,
+				     const OptionTypeMap *optionsMap) const {
+  if (optionsMap != nullptr) {
+    auto iter = optionsMap->find(option);  // Look up the value in the map
+    if (iter == optionsMap->end()) {
       auto period = option.find_last_of('.');
       if (period != std::string::npos && period < option.length()) {
 	const char *suffix = option.c_str() + period + 1;
 	if (kPropNameValue == suffix || kPropOptValue == suffix) {
-	  iter = optionsMap_->find(option.substr(0, period));
+	  iter = optionsMap->find(option.substr(0, period));
 	}
       }
     }
-    if (iter != optionsMap_->end()) {
+    if (iter != optionsMap->end()) {
       return &iter->second;
     }
   }
@@ -86,8 +89,10 @@ Status Configurable::ConfigureOption(const std::string & name,
   const std::string & optionName  = GetOptionName(name);
   const std::string & optionValue = input_strings_escaped ? UnescapeOptionString(value) : value;
   void * optionsPtr  = GetOptionsPtr();
-  if (optionsPtr != nullptr && optionsMap_ != nullptr) {
-    auto optInfo = FindOption(optionName);  // Look up the value in the map
+  const OptionTypeMap *optionsMap = GetOptionsMap();
+  if (optionsPtr != nullptr && optionsMap != nullptr) {
+    // Look up the value in the map
+    auto optInfo = FindOption(optionName, optionsMap);  
     if (optInfo != nullptr) {
       if (optInfo->verification == OptionVerificationType::kDeprecated) {
 	return Status::OK();
