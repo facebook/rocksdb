@@ -15,6 +15,7 @@
 
 #include <inttypes.h>
 #include <limits>
+#include "extensions/extension_helper.h"
 #include "monitoring/statistics.h"
 #include "options/db_options.h"
 #include "options/options_helper.h"
@@ -23,6 +24,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/extension_loader.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
@@ -120,6 +122,20 @@ Status DBOptions::AddExtensionLibrary(const std::string & name,
   return status;
 }
 
+Status DBOptions::AddEventListener(const std::string & name, const std::string & options) {
+  std::shared_ptr<EventListener> listener;
+  Status status = NewSharedExtension(name, *this, nullptr, &listener);
+  if (status.ok()) {
+    status = listener->ConfigureFromString(*this, options);
+    if (status.ok()) {
+      status = listener->SanitizeOptions(*this);
+      if (status.ok()) {
+	listeners.emplace_back(listener);
+      }
+    }
+  }
+  return status;
+}
 #endif
 
 

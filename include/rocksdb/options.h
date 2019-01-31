@@ -819,7 +819,6 @@ struct DBOptions {
   // when specific RocksDB event happens.
   std::vector<std::shared_ptr<EventListener>> listeners;
 
-  Status AddEventListener(const std::string & name);
   // If true, then the status of the threads involved in this DB will
   // be tracked and available via GetThreadList() API.
   //
@@ -932,6 +931,7 @@ struct DBOptions {
   Status AddExtensionLibrary(const std::string & name,
 			     const std::string & method,
 			     const std::string & arg);
+  Status AddEventListener(const std::string & name, const std::string & options);
 #endif
   // If true, then DB::Open / CreateColumnFamily / DropColumnFamily
   // / SetOptions will fail if options file is not detected or properly

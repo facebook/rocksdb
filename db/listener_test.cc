@@ -14,6 +14,7 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/extension_loader.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
@@ -163,6 +164,7 @@ class TestFlushListener : public EventListener {
       : slowdown_count(0), stop_count(0), db_closed(), env_(env) {
     db_closed = false;
   }
+  virtual const char *Name() const override { return "flush"; }
   void OnTableFileCreated(
       const TableFileCreationInfo& info) override {
     // remember the info for later checking the FlushJobInfo.
@@ -900,6 +902,7 @@ class TestFileOperationListener : public EventListener {
     file_writes_success_.store(0);
   }
 
+  virtual const char *Name() const override { return "operation"; }
   void OnFileReadFinish(const FileOperationInfo& info) override {
     ++file_reads_;
     if (info.status.ok()) {
@@ -944,6 +947,34 @@ TEST_F(EventListenerTest, OnFileOperationTest) {
   ASSERT_GT(listener->file_reads_.load(), 0);
 }
 
+TEST_F(EventListenerTest, AddListenerTest) {
+  DBOptions dbOpts;
+  dbOpts.extensions->RegisterFactory(
+				     EventListener::Type(),
+				     "operation",
+				     [](const std::string & ,
+					const DBOptions &,
+					const ColumnFamilyOptions *,
+					std::unique_ptr<Extension> * guard) {
+				       guard->reset(new TestFileOperationListener());
+				       return guard->get();
+				     });
+  dbOpts.extensions->RegisterFactory(
+				     EventListener::Type(),
+				     "flush",
+				     [](const std::string & ,
+					const DBOptions & dbOpts,
+					const ColumnFamilyOptions *,
+					std::unique_ptr<Extension> * guard) {
+				       guard->reset(new TestFlushListener(dbOpts.env));
+				       return guard->get();
+				     });
+  ASSERT_OK(dbOpts.AddEventListener("operation", ""));
+  ASSERT_OK(dbOpts.AddEventListener("flush", ""));
+  ASSERT_EQ(dbOpts.listeners.size(), 2);
+  ASSERT_EQ(dbOpts.listeners[0]->Name(), std::string("operation"));
+  ASSERT_EQ(dbOpts.listeners[1]->Name(), std::string("flush"));
+}
 }  // namespace rocksdb
 
 #endif  // ROCKSDB_LITE
