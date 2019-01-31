@@ -161,18 +161,23 @@ class MemTableListTest : public testing::Test {
       cfds.emplace_back(column_family_set->GetColumnFamily(cf_ids[i]));
       EXPECT_NE(nullptr, cfds[i]);
     }
-    autovector<FileMetaData> file_metas;
+    std::vector<FileMetaData> file_metas;
+    file_metas.reserve(cf_ids.size());
     for (size_t i = 0; i != cf_ids.size(); ++i) {
       FileMetaData meta;
       uint64_t file_num = file_number.fetch_add(1);
       meta.fd = FileDescriptor(file_num, 0, 0);
       file_metas.emplace_back(meta);
     }
+    autovector<FileMetaData*> file_meta_ptrs;
+    for (auto& meta : file_metas) {
+      file_meta_ptrs.push_back(&meta);
+    }
     InstrumentedMutex mutex;
     InstrumentedMutexLock l(&mutex);
     return InstallMemtableAtomicFlushResults(
         &lists, cfds, mutable_cf_options_list, mems_list, &versions, &mutex,
-        file_metas, to_delete, nullptr, &log_buffer);
+        file_meta_ptrs, to_delete, nullptr, &log_buffer);
   }
 };
 

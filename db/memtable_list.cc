@@ -533,7 +533,7 @@ Status InstallMemtableAtomicFlushResults(
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,
     const autovector<const autovector<MemTable*>*>& mems_list, VersionSet* vset,
-    InstrumentedMutex* mu, const autovector<FileMetaData>& file_metas,
+    InstrumentedMutex* mu, const autovector<FileMetaData*>& file_metas,
     autovector<MemTable*>* to_delete, Directory* db_directory,
     LogBuffer* log_buffer) {
   AutoThreadOperationStageUpdater stage_updater(
@@ -553,10 +553,11 @@ Status InstallMemtableAtomicFlushResults(
       assert((*mems_list[k])[0]->GetID() == imm->GetEarliestMemTableID());
     }
 #endif
+    assert(nullptr != file_metas[k]);
     for (size_t i = 0; i != mems_list[k]->size(); ++i) {
       assert(i == 0 || (*mems_list[k])[i]->GetEdits()->NumEntries() == 0);
       (*mems_list[k])[i]->SetFlushCompleted(true);
-      (*mems_list[k])[i]->SetFileNumber(file_metas[k].fd.GetNumber());
+      (*mems_list[k])[i]->SetFileNumber(file_metas[k]->fd.GetNumber());
     }
   }
 

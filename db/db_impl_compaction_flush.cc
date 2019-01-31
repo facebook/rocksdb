@@ -332,21 +332,18 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     jobs.back().PickMemTable();
   }
 
-  autovector<FileMetaData> file_meta;
+  std::vector<FileMetaData> file_meta(num_cfs);
   Status s;
   assert(num_cfs == static_cast<int>(jobs.size()));
 
-  for (int i = 0; i != num_cfs; ++i) {
-    file_meta.emplace_back();
-
 #ifndef ROCKSDB_LITE
-    const MutableCFOptions& mutable_cf_options =
-        *cfds[i]->GetLatestMutableCFOptions();
+  for (int i = 0; i != num_cfs; ++i) {
+    const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.at(i);
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options,
                        job_context->job_id, jobs[i].GetTableProperties());
-#endif /* !ROCKSDB_LITE */
   }
+#endif /* !ROCKSDB_LITE */
 
   if (logfile_number_ > 0) {
     // TODO (yanqin) investigate whether we should sync the closed logs for
@@ -450,19 +447,21 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     autovector<ColumnFamilyData*> tmp_cfds;
     autovector<const autovector<MemTable*>*> mems_list;
     autovector<const MutableCFOptions*> mutable_cf_options_list;
+    autovector<FileMetaData*> tmp_file_meta;
     for (int i = 0; i != num_cfs; ++i) {
       const auto& mems = jobs[i].GetMemTables();
       if (!cfds[i]->IsDropped() && !mems.empty()) {
         tmp_cfds.emplace_back(cfds[i]);
         mems_list.emplace_back(&mems);
         mutable_cf_options_list.emplace_back(&all_mutable_cf_options[i]);
+        tmp_file_meta.emplace_back(&file_meta[i]);
       }
     }
 
     s = InstallMemtableAtomicFlushResults(
         nullptr /* imm_lists */, tmp_cfds, mutable_cf_options_list, mems_list,
-        versions_.get(), &mutex_, file_meta, &job_context->memtables_to_free,
-        directories_.GetDbDir(), log_buffer);
+        versions_.get(), &mutex_, tmp_file_meta,
+        &job_context->memtables_to_free, directories_.GetDbDir(), log_buffer);
   }
 
   if (s.ok() || s.IsShutdownInProgress()) {
@@ -474,7 +473,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       }
       InstallSuperVersionAndScheduleWork(cfds[i],
                                          &job_context->superversion_contexts[i],
-                                         *cfds[i]->GetLatestMutableCFOptions());
+                                         all_mutable_cf_options[i]);
       VersionStorageInfo::LevelSummaryStorage tmp;
       ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
                        cfds[i]->GetName().c_str(),
@@ -490,8 +489,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       if (cfds[i]->IsDropped()) {
         continue;
       }
-      NotifyOnFlushCompleted(cfds[i], &file_meta[i],
-                             *cfds[i]->GetLatestMutableCFOptions(),
+      NotifyOnFlushCompleted(cfds[i], &file_meta[i], all_mutable_cf_options[i],
                              job_context->job_id, jobs[i].GetTableProperties());
       if (sfm) {
         std::string file_path = MakeTableFileName(
