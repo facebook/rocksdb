@@ -308,7 +308,9 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
     k++;
   }
   HistogramData hist;
-  autovector<FileMetaData> file_metas;
+  std::vector<FileMetaData> file_metas;
+  // Call reserve to avoid auto-resizing
+  file_metas.reserve(flush_jobs.size());
   mutex_.Lock();
   for (auto& job : flush_jobs) {
     job.PickMemTable();

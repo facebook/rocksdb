@@ -161,7 +161,8 @@ class MemTableListTest : public testing::Test {
       cfds.emplace_back(column_family_set->GetColumnFamily(cf_ids[i]));
       EXPECT_NE(nullptr, cfds[i]);
     }
-    autovector<FileMetaData> file_metas;
+    std::vector<FileMetaData> file_metas;
+    file_metas.reserve(cf_ids.size());
     for (size_t i = 0; i != cf_ids.size(); ++i) {
       FileMetaData meta;
       uint64_t file_num = file_number.fetch_add(1);
