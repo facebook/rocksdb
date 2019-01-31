@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## 5.18.2 (01/23/2019)
+## 5.18.2 (01/31/2019)
 ### Public API Change
 * Change time resolution in FileOperationInfo.
 * Deleting Blob files also go through SStFileManager.
