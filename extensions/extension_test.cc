@@ -424,9 +424,11 @@ static Status Invalid  = Status::InvalidArgument();
   
 #define AssertConfigureProperty(expected, result, actual, value)	\
   { if (expected.ok()) {	      \
-      ASSERT_OK(result); ASSERT_EQ(actual, value); \
+      ASSERT_OK(result); \
+      ASSERT_EQ(actual, value);	      \
     } else {                          \
       ASSERT_EQ(expected, result);    \
+      ASSERT_EQ(actual, value);	      \
     }                                 \
   }
   
@@ -476,16 +478,15 @@ TEST_F(ExtensionTest, DeprecatedOptions) {
 TEST_P(ExtensionTestWithParam, BadConversions) {
   std::shared_ptr<MockExtension> extension;
   AssertNewMockExtension(true, &extension);
-  //AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "bool",   "1"),      true, extension->options_.boolOpt);
-  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "bool",   "string"), true, extension->options_.boolOpt);
-  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "int",    "string"),     1, extension->options_.intOpt);
+  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "bool",   "string"), false, extension->options_.boolOpt);
+  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "int",    "string"),    -1, extension->options_.intOpt);
   AssertNewMockExtension(true, &extension->options_.inner);
-  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "inner.options", "bool=string"), true, extension->options_.inner->options_.boolOpt);
-  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "inner.options", "int=string"),     1, extension->options_.inner->options_.intOpt);
+  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "inner.options", "bool=string"), false, extension->options_.inner->options_.boolOpt);
+  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "inner.options", "int=string"),     -1, extension->options_.inner->options_.intOpt);
   extension->options_.inner->reset();
-  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "inner", "options=bool=string;name="+MockPrefix + "." + name_), true, extension->options_.inner->options_.boolOpt);
+  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "inner", "options=bool=string;name="+MockPrefix + "." + name_), false, extension->options_.inner->options_.boolOpt);
   extension->options_.inner->reset();
-  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "inner", "options=int=string;name="+MockPrefix + "." + name_),     1, extension->options_.inner->options_.intOpt);
+  AssertConfigureProperty(Invalid, extension->ConfigureOption(prefix_ + "inner", "options=int=string;name="+MockPrefix + "." + name_),     -1, extension->options_.inner->options_.intOpt);
 
 }
     
