@@ -69,7 +69,7 @@ class WriteBatchBase {
                               const SliceParts& key);
   virtual Status SingleDelete(const SliceParts& key);
 
-  // If the database contains mappings in the range ["begin_key", "end_key"],
+  // If the database contains mappings in the range ["begin_key", "end_key"),
   // erase them. Else do nothing.
   virtual Status DeleteRange(ColumnFamilyHandle* column_family,
                              const Slice& begin_key, const Slice& end_key) = 0;
