@@ -1135,8 +1135,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     sub_compact->compaction_job_stats.file_prepare_write_nanos +=
         IOSTATS(prepare_write_nanos) - prev_prepare_write_nanos;
     sub_compact->compaction_job_stats.cpu_micros -=
-            (IOSTATS(cpu_write_nanos) - prev_cpu_write_nanos
-            + IOSTATS(cpu_read_nanos) - prev_cpu_read_nanos) / 1000;
+        (IOSTATS(cpu_write_nanos) - prev_cpu_write_nanos +
+         IOSTATS(cpu_read_nanos) - prev_cpu_read_nanos) /
+        1000;
     if (prev_perf_level != PerfLevel::kEnableTimeAndCPUTimeExceptForMutex) {
       SetPerfLevel(prev_perf_level);
     }
