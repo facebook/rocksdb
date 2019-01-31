@@ -264,26 +264,25 @@ public:
 
   void RegisterFactory(const std::string & pattern) {
     const bool useMap = useMap_;
-    dbOptions_.extensions->RegisterFactory(
-					   MockExtension::Type(),
-					   pattern,
-					   [useMap, pattern](const std::string & name,
-					      const DBOptions &,
-					      const ColumnFamilyOptions *,
-					      std::unique_ptr<Extension> * guard) {
-					     auto wildcard = pattern.find_last_of('*');
-					     std::string prefix = MockPrefix;
-					     if (wildcard != std::string::npos) {
-					       auto period = name.find_last_of('.');
-					       prefix = name.substr(period+1) + "." + MockPrefix;
-					     }
-					     if (useMap) { 
-					       guard->reset(new MockExtensionWithMap(name, prefix + "."));
-					     } else {
-					       guard->reset(new MockExtensionWithOptions(name, prefix + "."));
-					     }
-					     return guard->get();
-					   });
+    dbOptions_.RegisterFactory(MockExtension::Type(),
+			       pattern,
+			       [useMap, pattern](const std::string & name,
+						 const DBOptions &,
+						 const ColumnFamilyOptions *,
+						 std::unique_ptr<Extension> * guard) {
+				 auto wildcard = pattern.find_last_of('*');
+				 std::string prefix = MockPrefix;
+				 if (wildcard != std::string::npos) {
+				   auto period = name.find_last_of('.');
+				   prefix = name.substr(period+1) + "." + MockPrefix;
+				 }
+				 if (useMap) { 
+				   guard->reset(new MockExtensionWithMap(name, prefix + "."));
+				 } else {
+				   guard->reset(new MockExtensionWithOptions(name, prefix + "."));
+				 }
+				 return guard->get();
+			       });
   }
   
   void AssertNewMockExtension(bool isValid, std::shared_ptr<MockExtension> * mock) {
@@ -311,10 +310,10 @@ TEST_F(ExtensionTest, RegisterLocalExtensions) {
   DBOptions dbOpt1, dbOpt2;
   const char *name1 = "test1";
   const char *name2= "test2";
-  dbOpt1.extensions->RegisterFactory(MockExtension::Type(), name1,
-				     MockExtensionOptionsFactory);
-  dbOpt2.extensions->RegisterFactory(MockExtension::Type(), name2,
-				     MockExtensionOptionsFactory);
+  dbOpt1.RegisterFactory(MockExtension::Type(), name1,
+			 MockExtensionOptionsFactory);
+  dbOpt2.RegisterFactory(MockExtension::Type(), name2,
+			 MockExtensionOptionsFactory);
   AssertNewSharedExtension(dbOpt1, name1, true, &extension);
   AssertNewSharedExtension(dbOpt1, name2, false, &extension);
   AssertNewSharedExtension(dbOpt2, name1, false, &extension);
@@ -362,16 +361,15 @@ TEST_F(ExtensionTest, NewGuardedExtension) {
   std::shared_ptr<MockExtension> shared;
   
   AssertNewUniqueExtension(dbOptions_, "guarded", false, &ext, &guard, true);
-  dbOptions_.extensions->RegisterFactory(
-					 MockExtension::Type(),
-					 "guarded",
-					 [](const std::string & name,
-					    const DBOptions &,
-					    const ColumnFamilyOptions *,
-					    std::unique_ptr<Extension> * guard) {
-					   guard->reset(new MockExtension(name, name + "."));
-					   return guard->get();
-					 });
+  dbOptions_.RegisterFactory(MockExtension::Type(),
+			     "guarded",
+			     [](const std::string & name,
+				const DBOptions &,
+				const ColumnFamilyOptions *,
+				std::unique_ptr<Extension> * guard) {
+			       guard->reset(new MockExtension(name, name + "."));
+			       return guard->get();
+			     });
   AssertNewUniqueExtension(dbOptions_, "guarded", true, &ext, &guard, true);
   AssertNewSharedExtension(dbOptions_, "guarded", true, &shared);
 }
@@ -382,15 +380,15 @@ TEST_F(ExtensionTest, NewUnguardedExtension) {
   std::unique_ptr<MockExtension> guard;
   
   AssertNewUniqueExtension(dbOptions_, "unguarded", false, &ext, &guard, false);
-  dbOptions_.extensions->RegisterFactory(MockExtension::Type(),
-					 "unguarded",
-					 [](const std::string & name,
-					    const DBOptions &,
-					    const ColumnFamilyOptions *,
-					    std::unique_ptr<Extension> * guard) {
-					   guard->reset();
-					   return new MockExtension(name, name + ".");
-					 });
+  dbOptions_.RegisterFactory(MockExtension::Type(),
+			     "unguarded",
+			     [](const std::string & name,
+				const DBOptions &,
+				const ColumnFamilyOptions *,
+				std::unique_ptr<Extension> * guard) {
+			       guard->reset();
+			       return new MockExtension(name, name + ".");
+			     });
   AssertNewUniqueExtension(dbOptions_, "unguarded", true, &ext, &guard, false);
   Status status = NewSharedExtension("unguarded", dbOptions_, nullptr, &shared);
   ASSERT_TRUE(status.IsNotSupported());
@@ -400,8 +398,7 @@ TEST_F(ExtensionTest, NewUnguardedExtension) {
   
 TEST_F(ExtensionTest, CreateFromPattern) {
   std::shared_ptr<MockExtension> ext;
-  dbOptions_.extensions->RegisterFactory(MockExtension::Type(), "good.*",
-					 MockExtensionOptionsFactory);
+  dbOptions_.RegisterFactory(MockExtension::Type(), "good.*", MockExtensionOptionsFactory);
   AssertNewSharedExtension(dbOptions_, "good.1", true, &ext, "1");
   AssertNewSharedExtension(dbOptions_, "good.2", true, &ext, "2");
   AssertNewSharedExtension(dbOptions_, "bad.2", false, &ext);
@@ -434,7 +431,7 @@ static Status Invalid  = Status::InvalidArgument();
   
 TEST_F(ExtensionTest, ImmutableOptions) {
   std::shared_ptr<MockExtension> extension;
-  dbOptions_.extensions->RegisterFactory(MockExtension::Type(), "constant", MockExtensionMapFactory);
+  dbOptions_.RegisterFactory(MockExtension::Type(), "constant", MockExtensionMapFactory);
 
   AssertNewSharedExtension(dbOptions_, "constant", true, &extension);
   AssertNewSharedExtension(dbOptions_, "constant", true, &extension->options_.inner);
@@ -455,7 +452,7 @@ TEST_F(ExtensionTest, ImmutableOptions) {
   
 TEST_F(ExtensionTest, DeprecatedOptions) {
   std::shared_ptr<MockExtension> extension;
-  dbOptions_.extensions->RegisterFactory(MockExtension::Type(), "deprecated", MockExtensionMapFactory);
+  dbOptions_.RegisterFactory(MockExtension::Type(), "deprecated", MockExtensionMapFactory);
 
   AssertNewSharedExtension(dbOptions_, "deprecated", true, &extension);
   AssertNewSharedExtension(dbOptions_, "deprecated", true, &extension->options_.inner);

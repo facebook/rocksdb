@@ -158,6 +158,13 @@ Status DBOptions::AddExtensionLibrary(const std::string & name,
   return status;
 }
 
+const ExtensionLoader::FactoryFunction &
+        DBOptions::RegisterFactory(const std::string & type,
+				   const std::string & name,
+				   const ExtensionLoader::FactoryFunction & function) {
+  return extensions->RegisterFactory(type, name, function);
+}
+  
 Status DBOptions::AddEventListener(const std::string & name, const std::string & options) {
   std::shared_ptr<EventListener> listener;
   Status status = NewSharedExtension(name, *this, nullptr, &listener);

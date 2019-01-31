@@ -935,6 +935,16 @@ struct DBOptions {
   Status AddExtensionLibrary(const std::string & name,
 			     const std::string & method,
 			     const std::string & arg);
+  /**
+   * Registers the input function with this extension loader
+   * @param type     The type of extension returned by the factory.
+   * @param name     The name/pattern to match for this factory.
+   * @param function The factory function for creating this extension
+   * @return         The input factory
+   */
+  const ExtensionLoader::FactoryFunction & RegisterFactory(const std::string & type,
+							   const std::string & name,
+							   const ExtensionLoader::FactoryFunction & function);
   Status AddEventListener(const std::string & name, const std::string & options);
 #endif
   // If true, then DB::Open / CreateColumnFamily / DropColumnFamily

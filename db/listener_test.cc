@@ -14,7 +14,6 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "rocksdb/extension_loader.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
@@ -949,26 +948,24 @@ TEST_F(EventListenerTest, OnFileOperationTest) {
 
 TEST_F(EventListenerTest, AddListenerTest) {
   DBOptions dbOpts;
-  dbOpts.extensions->RegisterFactory(
-				     EventListener::Type(),
-				     "operation",
-				     [](const std::string & ,
-					const DBOptions &,
-					const ColumnFamilyOptions *,
-					std::unique_ptr<Extension> * guard) {
-				       guard->reset(new TestFileOperationListener());
-				       return guard->get();
-				     });
-  dbOpts.extensions->RegisterFactory(
-				     EventListener::Type(),
-				     "flush",
-				     [](const std::string & ,
-					const DBOptions & dbOpts,
-					const ColumnFamilyOptions *,
-					std::unique_ptr<Extension> * guard) {
-				       guard->reset(new TestFlushListener(dbOpts.env));
-				       return guard->get();
-				     });
+  dbOpts.RegisterFactory(EventListener::Type(),
+			 "operation",
+			 [](const std::string & ,
+			    const DBOptions &,
+			    const ColumnFamilyOptions *,
+			    std::unique_ptr<Extension> * guard) {
+			      guard->reset(new TestFileOperationListener());
+			      return guard->get();
+			 });
+  dbOpts.RegisterFactory(EventListener::Type(),
+			 "flush",
+			 [](const std::string & ,
+			    const DBOptions & dbOpts,
+			    const ColumnFamilyOptions *,
+			    std::unique_ptr<Extension> * guard) {
+			      guard->reset(new TestFlushListener(dbOpts.env));
+			      return guard->get();
+			 });
   ASSERT_OK(dbOpts.AddEventListener("operation", ""));
   ASSERT_OK(dbOpts.AddEventListener("flush", ""));
   ASSERT_EQ(dbOpts.listeners.size(), 2);

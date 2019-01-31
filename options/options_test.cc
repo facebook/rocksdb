@@ -1609,16 +1609,15 @@ TEST_F(OptionsParserTest, AddCompactionFactoryTest) {
   DBOptions dbOpts;
   ColumnFamilyOptions cfOpts;
   
-  dbOpts.extensions->RegisterFactory(
-				     CompactionFilterFactory::Type(),
-				     "Test",
-				     [](const std::string & name,
-					const DBOptions & ,
-					const ColumnFamilyOptions *,
-					std::unique_ptr<Extension> * guard) {
-				       guard->reset(new test::ChanglingCompactionFilterFactory(name));
-				       return guard->get();
-				     });
+  dbOpts.RegisterFactory(CompactionFilterFactory::Type(),
+			 "Test",
+			 [](const std::string & name,
+			    const DBOptions & ,
+			    const ColumnFamilyOptions *,
+			    std::unique_ptr<Extension> * guard) {
+			      guard->reset(new test::ChanglingCompactionFilterFactory(name));
+			      return guard->get();
+			 });
   ASSERT_NOK(cfOpts.SetCompactionFilterFactory(dbOpts, "Unknown", ""));
   ASSERT_OK(cfOpts.SetCompactionFilterFactory(dbOpts, "Test", ""));
   ASSERT_NE(cfOpts.compaction_filter_factory.get(), nullptr);
@@ -1633,16 +1632,15 @@ TEST_F(OptionsParserTest, AddCompactionFilterTest) {
   DBOptions dbOpts;
   ColumnFamilyOptions cfOpts;
   
-  dbOpts.extensions->RegisterFactory(
-				     CompactionFilter::Type(),
-				     "Test",
-				     [](const std::string & name,
-					const DBOptions & ,
-					const ColumnFamilyOptions *,
-					std::unique_ptr<Extension> * guard) {
-				       guard->reset(new test::ChanglingCompactionFilter(name));
-				       return guard->get();
-				     });
+  dbOpts.RegisterFactory(CompactionFilter::Type(),
+			 "Test",
+			 [](const std::string & name,
+			    const DBOptions & ,
+			    const ColumnFamilyOptions *,
+			    std::unique_ptr<Extension> * guard) {
+			       guard->reset(new test::ChanglingCompactionFilter(name));
+			       return guard->get();
+			 });
   ASSERT_NOK(cfOpts.SetCompactionFilter(dbOpts, "Unknown", ""));
   ASSERT_OK(cfOpts.SetCompactionFilter(dbOpts, "Test", ""));
   ASSERT_NE(cfOpts.compaction_filter, nullptr);
