@@ -40,8 +40,7 @@ Status DBImplSecondary::Recover(
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
   }
-  // Initial max_total_in_memory_state_ before recovery logs. Log recovery
-  // may check this value to decide whether to flush.
+  // Initial max_total_in_memory_state_ before recovery logs.
   max_total_in_memory_state_ = 0;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
@@ -75,8 +74,8 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   StopWatch sw(env_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  auto cfd = cfh->cfd();
+  auto cfh = static_cast<ColumnFamilyHandleImpl*>(column_family);
+  ColumnFamilyData* cfd = cfh->cfd();
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
@@ -86,7 +85,6 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   // Acquire SuperVersion
   SuperVersion* super_version = GetAndRefSuperVersion(cfd);
   SequenceNumber snapshot = versions_->LastSequence();
-  ;
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq = 0;
   Status s;
@@ -144,17 +142,14 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
   auto cfd = cfh->cfd();
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (read_options.tailing) {
-    SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
-    auto iter = new ForwardIterator(this, read_options, cfd, super_version);
-    result = NewDBIterator(
-        env_, read_options, *cfd->ioptions(), super_version->mutable_cf_options,
-        cfd->user_comparator(), iter, kMaxSequenceNumber,
-        super_version->mutable_cf_options.max_sequential_skip_in_iterations,
-        read_callback, this, cfd);
+    return NewErrorIterator(Status::NotSupported(
+        "tailing iterator not supported in secondary mode"));
+  } else if (read_options.snapshot != nullptr) {
+    // TODO (yanqin) support snapshot.
+    return NewErrorIterator(
+        Status::NotSupported("snapshot not supported in secondary mode"));
   } else {
-    auto snapshot = read_options.snapshot != nullptr
-                        ? read_options.snapshot->GetSequenceNumber()
-                        : versions_->LastSequence();
+    auto snapshot = versions_->LastSequence();
     result = NewIteratorImpl(read_options, cfd, snapshot, read_callback);
   }
   return result;
@@ -194,32 +189,19 @@ Status DBImplSecondary::NewIterators(
   iterators->clear();
   iterators->reserve(column_families.size());
   if (read_options.tailing) {
-    for (auto cfh : column_families) {
-      auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
-      SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
-      auto iter = new ForwardIterator(this, read_options, cfd, super_version);
-      iterators->push_back(NewDBIterator(
-          env_, read_options, *cfd->ioptions(),
-          super_version->mutable_cf_options, cfd->user_comparator(), iter,
-          kMaxSequenceNumber,
-          super_version->mutable_cf_options.max_sequential_skip_in_iterations,
-          read_callback, this, cfd));
-    }
+    return Status::NotSupported(
+        "tailing iterator not supported in secondary mode");
+  } else if (read_options.snapshot != nullptr) {
+    // TODO (yanqin) support snapshot.
+    return Status::NotSupported("snapshot not supported in secondary mode");
   } else {
-    SequenceNumber latest_snapshot = versions_->LastSequence();
-    SequenceNumber read_seq =
-        read_options.snapshot != nullptr
-            ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
-                  ->number_
-            : latest_snapshot;
-
+    SequenceNumber read_seq = versions_->LastSequence();
     for (auto cfh : column_families) {
-      auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
+      ColumnFamilyData* cfd = static_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
       iterators->push_back(
           NewIteratorImpl(read_options, cfd, read_seq, read_callback));
     }
   }
-
   return Status::OK();
 }
 

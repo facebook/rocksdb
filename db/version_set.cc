@@ -3339,7 +3339,8 @@ Status VersionSet::ReadAndApply(
       if (!s.ok()) {
         break;
       }
-      auto cfd = column_family_set_->GetColumnFamily(edit.column_family_);
+      ColumnFamilyData* cfd =
+          column_family_set_->GetColumnFamily(edit.column_family_);
       if (active_version_builders_.find(edit.column_family_) ==
           active_version_builders_.end()) {
         std::unique_ptr<BaseReferencedVersionBuilder> builder_guard(
