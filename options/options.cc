@@ -105,18 +105,22 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
     : ColumnFamilyOptions(*static_cast<const ColumnFamilyOptions*>(&options)) {}
 
 #ifndef ROCKSDB_LITE
+Status ColumnFamilyOptions::SetMergeOperator(const DBOptions & dbOpts,
+					     const std::string & name, const std::string & options) {
+  std::shared_ptr<MergeOperator> mergeOperator;
+  Status status = NewSharedExtension(name, dbOpts, this, options, &mergeOperator);
+  if (status.ok()) {
+    this->merge_operator = mergeOperator;
+  }
+  return status;
+}
+
 Status ColumnFamilyOptions::SetCompactionFilterFactory(const DBOptions & dbOpts,
 						       const std::string & name, const std::string & options) {
   std::shared_ptr<CompactionFilterFactory> factory;
-  Status status = NewSharedExtension(name, dbOpts, this, &factory);
+  Status status = NewSharedExtension(name, dbOpts, this, options, &factory);
   if (status.ok()) {
-    status = factory->ConfigureFromString(dbOpts, this, options);
-    if (status.ok()) {
-      status = factory->SanitizeOptions(dbOpts, *this);
-      if (status.ok()) {
-	compaction_filter_factory = factory;
-      }
-    }
+    compaction_filter_factory = factory;
   }
   return status;
 }
@@ -125,16 +129,10 @@ Status ColumnFamilyOptions::SetCompactionFilter(const DBOptions & dbOpts,
 						const std::string & name, const std::string & options) {
   CompactionFilter *filter;
   std::unique_ptr<CompactionFilter> guard;
-  Status status = NewUniqueExtension(name, dbOpts, this, &filter, &guard);
+  Status status = NewUniqueExtension(name, dbOpts, this, options, &filter, &guard);
   if (status.ok()) {
-    status = filter->ConfigureFromString(dbOpts, this, options);
-    if (status.ok()) {
-      status = filter->SanitizeOptions(dbOpts, *this);
-      if (status.ok()) {
-	compaction_filter = filter;
-	guard.release();
-      }
-    }
+    compaction_filter = filter;
+    guard.release();
   }
   return status;
 }
@@ -167,15 +165,9 @@ const ExtensionLoader::FactoryFunction &
   
 Status DBOptions::AddEventListener(const std::string & name, const std::string & options) {
   std::shared_ptr<EventListener> listener;
-  Status status = NewSharedExtension(name, *this, nullptr, &listener);
+  Status status = NewSharedExtension(name, *this, nullptr, options, &listener);
   if (status.ok()) {
-    status = listener->ConfigureFromString(*this, options);
-    if (status.ok()) {
-      status = listener->SanitizeOptions(*this);
-      if (status.ok()) {
-	listeners.emplace_back(listener);
-      }
-    }
+    listeners.emplace_back(listener);
   }
   return status;
 }

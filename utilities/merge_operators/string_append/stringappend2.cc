@@ -9,6 +9,7 @@
 #include <string>
 #include <assert.h>
 
+#include "rocksdb/extension_loader.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/merge_operator.h"
 #include "utilities/merge_operators.h"
@@ -114,4 +115,13 @@ MergeOperators::CreateStringAppendTESTOperator() {
   return std::make_shared<StringAppendTESTOperator>(',');
 }
 
+static ExtensionLoader::FactoryFunction StringAppendTestOperatorFactory =
+  ExtensionLoader::Default()->RegisterFactory(MergeOperator::Type(), "stringappendtest", 
+					      [](const std::string &,
+						 const DBOptions & ,
+						 const ColumnFamilyOptions *,
+						 std::unique_ptr<Extension> * guard) {
+						guard->reset(new StringAppendTESTOperator(','));
+					      return guard->get();
+					      });
 } // namespace rocksdb

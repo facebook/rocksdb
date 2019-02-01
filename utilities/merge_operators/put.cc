@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <memory>
+#include "rocksdb/extension_loader.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/merge_operator.h"
 #include "utilities/merge_operators.h"
@@ -83,4 +84,22 @@ std::shared_ptr<MergeOperator> MergeOperators::CreateDeprecatedPutOperator() {
 std::shared_ptr<MergeOperator> MergeOperators::CreatePutOperator() {
   return std::make_shared<PutOperatorV2>();
 }
+static ExtensionLoader::FactoryFunction PutV1OperatorFactory =
+  ExtensionLoader::Default()->RegisterFactory(MergeOperator::Type(), "put_v1", 
+					      [](const std::string &,
+						 const DBOptions & ,
+						 const ColumnFamilyOptions *,
+						 std::unique_ptr<Extension> * guard) {
+						guard->reset(new PutOperator());
+					      return guard->get();
+					      });
+static ExtensionLoader::FactoryFunction PutV2OperatorFactory =
+  ExtensionLoader::Default()->RegisterFactory(MergeOperator::Type(), "put", 
+					      [](const std::string &,
+						 const DBOptions & ,
+						 const ColumnFamilyOptions *,
+						 std::unique_ptr<Extension> * guard) {
+						guard->reset(new PutOperatorV2());
+					      return guard->get();
+					      });
 }

@@ -5,6 +5,7 @@
 
 #include <memory>
 
+#include "rocksdb/extension_loader.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
 #include "utilities/merge_operators.h"
@@ -74,4 +75,15 @@ namespace rocksdb {
 std::shared_ptr<MergeOperator> MergeOperators::CreateMaxOperator() {
   return std::make_shared<MaxOperator>();
 }
-}
+  
+static ExtensionLoader::FactoryFunction MaxOperatorFactory =
+  ExtensionLoader::Default()->RegisterFactory(MergeOperator::Type(), "max", 
+					      [](const std::string &,
+						 const DBOptions & ,
+						 const ColumnFamilyOptions *,
+						 std::unique_ptr<Extension> * guard) {
+						guard->reset(new MaxOperator());
+					      return guard->get();
+					      });
+}  // namespace rocksdb
+

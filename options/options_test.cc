@@ -1605,7 +1605,7 @@ TEST_F(OptionsParserTest, DifferentDefault) {
   ASSERT_EQ(5000, small_opts.max_open_files);
 }
 
-TEST_F(OptionsParserTest, AddCompactionFactoryTest) {
+TEST_F(OptionsParserTest, SetCompactionFactoryTest) {
   DBOptions dbOpts;
   ColumnFamilyOptions cfOpts;
   
@@ -1628,7 +1628,30 @@ TEST_F(OptionsParserTest, AddCompactionFactoryTest) {
   ASSERT_EQ(cfOpts.compaction_filter_factory->Name(), std::string("TestCompactionFilterFactory"));
 }
   
-TEST_F(OptionsParserTest, AddCompactionFilterTest) {
+TEST_F(OptionsParserTest, SetMergeOperatorTest) {
+  DBOptions dbOpts;
+  ColumnFamilyOptions cfOpts;
+  
+  dbOpts.RegisterFactory(MergeOperator::Type(),
+			 "Test",
+			 [](const std::string & name,
+			    const DBOptions & ,
+			    const ColumnFamilyOptions *,
+			    std::unique_ptr<Extension> * guard) {
+			      guard->reset(new test::ChanglingMergeOperator(name));
+			      return guard->get();
+			 });
+  ASSERT_NOK(cfOpts.SetMergeOperator(dbOpts, "Unknown", ""));
+  ASSERT_OK(cfOpts.SetMergeOperator(dbOpts, "Test", ""));
+  ASSERT_NE(cfOpts.merge_operator.get(), nullptr);
+  ASSERT_EQ(cfOpts.merge_operator->Name(), std::string("TestMergeOperator"));
+  // Failure to sett to an unknown does not change what is already there.
+  ASSERT_NOK(cfOpts.SetMergeOperator(dbOpts, "Unknown", ""));
+  ASSERT_NE(cfOpts.merge_operator.get(), nullptr);
+  ASSERT_EQ(cfOpts.merge_operator->Name(), std::string("TestMergeOperator"));
+}
+  
+TEST_F(OptionsParserTest, SetCompactionFilterTest) {
   DBOptions dbOpts;
   ColumnFamilyOptions cfOpts;
   

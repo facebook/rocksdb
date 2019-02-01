@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "rocksdb/env.h"
+#include "rocksdb/extension_loader.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
 #include "util/coding.h"
@@ -68,4 +69,13 @@ std::shared_ptr<MergeOperator> MergeOperators::CreateUInt64AddOperator() {
   return std::make_shared<UInt64AddOperator>();
 }
 
+static ExtensionLoader::FactoryFunction Uint64AddOperatorFactory =
+  ExtensionLoader::Default()->RegisterFactory(MergeOperator::Type(), "uint64add", 
+					      [](const std::string &,
+						 const DBOptions & ,
+						 const ColumnFamilyOptions *,
+						 std::unique_ptr<Extension> * guard) {
+						guard->reset(new UInt64AddOperator());
+						return guard->get();
+					      });
 }

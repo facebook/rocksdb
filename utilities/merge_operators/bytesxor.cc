@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <string>
 
+#include "rocksdb/extension_loader.h"
 #include "utilities/merge_operators/bytesxor.h"
 
 namespace rocksdb {
@@ -14,6 +15,15 @@ std::shared_ptr<MergeOperator> MergeOperators::CreateBytesXOROperator() {
   return std::make_shared<BytesXOROperator>();
 }
 
+static ExtensionLoader::FactoryFunction BytesXOROperatorFactory =
+  ExtensionLoader::Default()->RegisterFactory(MergeOperator::Type(), "bytesxor", 
+					      [](const std::string &,
+						 const DBOptions & ,
+						 const ColumnFamilyOptions *,
+						 std::unique_ptr<Extension> * guard) {
+						guard->reset(new BytesXOROperator());
+						return guard->get();
+					      });
 bool BytesXOROperator::Merge(const Slice& /*key*/,
                             const Slice* existing_value,
                             const Slice& value,

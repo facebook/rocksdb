@@ -10,10 +10,11 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/extensions.h"
 #include "rocksdb/slice.h"
 
 namespace rocksdb {
-
+struct DBOptions;
 class Slice;
 class Logger;
 
@@ -43,9 +44,27 @@ class Logger;
 //
 // Refer to rocksdb-merge wiki for more details and example implementations.
 //
-class MergeOperator {
+  class MergeOperator : public Extension {
+  public:
+    // Attempts to create a new merge operator based on the parameters supplied.
+    // On success, result is populated with the newly created object.
+    // On failure, the status is returned and result is not updated
+    // @param operatorName   [required] The name of the merge operator being created
+    // @param dbOpts         [optional] The DBOptions to use for creating this operator
+    // @oaram properties     [optional] Optional properties to use to configure the new operator
+    // @param result         [required] Returns the new merge operator (on success)
+    static Status CreateMergeOperator(const std::string & operatorName,
+				      std::shared_ptr<MergeOperator> *result);
+    static Status CreateMergeOperator(const DBOptions & dbOpts,
+				      const std::string & operatorName,
+				      std::shared_ptr<MergeOperator> *result);
+    static Status CreateMergeOperator(const DBOptions & dbOpts,
+				      const std::string & operatorName,
+				      const std::string & properties,
+				      std::shared_ptr<MergeOperator> *result);
  public:
   virtual ~MergeOperator() {}
+  static const char *Type() { return "merge-operator"; }
 
   // Gives the client a way to express the read -> modify -> write semantics
   // key:      (IN)    The key that's associated with this merge operation.
@@ -180,7 +199,7 @@ class MergeOperator {
   // TODO: the name is currently not stored persistently and thus
   //       no checking is enforced. Client is responsible for providing
   //       consistent MergeOperator between DB opens.
-  virtual const char* Name() const = 0;
+  virtual const char* Name() const override = 0;
 
   // Determines whether the MergeOperator can be called with just a single
   // merge operand.

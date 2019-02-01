@@ -172,6 +172,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Default: nullptr
   std::shared_ptr<CompactionFilterFactory> compaction_filter_factory = nullptr;
 #ifndef ROCKSDB_LITE
+  Status SetMergeOperator(const DBOptions & dbOpts, const std::string & name, const std::string & options);
   Status SetCompactionFilter(const DBOptions & dbOpts, const std::string & name, const std::string & options);
   Status SetCompactionFilterFactory(const DBOptions & dbOpts, const std::string & name, const std::string & options);
 #endif

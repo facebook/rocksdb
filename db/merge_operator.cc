@@ -6,10 +6,31 @@
 /**
  * Back-end implementation details specific to the Merge Operator.
  */
-
+#include "extensions/extension_helper.h"
+#include "rocksdb/options.h"
 #include "rocksdb/merge_operator.h"
 
 namespace rocksdb {
+
+Status MergeOperator::CreateMergeOperator(const std::string & operatorName,
+					  std::shared_ptr<MergeOperator> *result) {
+  DBOptions dbOpts;
+  return CreateMergeOperator(dbOpts, operatorName, result);
+}
+
+Status MergeOperator::CreateMergeOperator(const DBOptions & dbOpts,
+					  const std::string & operatorName,
+					  std::shared_ptr<MergeOperator> *result) {
+  return NewSharedExtension(operatorName, dbOpts, nullptr, result);
+}
+  
+Status MergeOperator::CreateMergeOperator(const DBOptions & dbOpts,
+					  const std::string & operatorName,
+					  const std::string & operatorProps,
+					  std::shared_ptr<MergeOperator> *result) {
+  return NewSharedExtension(operatorName, dbOpts, nullptr, operatorProps, result);
+}
+  
 
 bool MergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
                                 MergeOperationOutput* merge_out) const {
