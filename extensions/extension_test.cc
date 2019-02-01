@@ -81,8 +81,8 @@ public:
     reset();
 
   }
-  virtual const std::string & GetOptionsPrefix() const override {
-    return prefix_;
+  virtual const char *GetOptionsPrefix() const override {
+    return prefix_.c_str();
   }
   
   void reset() {

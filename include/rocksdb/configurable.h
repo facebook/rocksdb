@@ -90,8 +90,8 @@ protected:
   virtual const OptionTypeMap *GetOptionsMap() const {
     return nullptr;
   }
-  virtual const std::string & GetOptionsPrefix() const {
-    return kOptionsPrefix;
+  virtual const char *GetOptionsPrefix() const {
+    return "rocksdb.";
   }
 public:
   virtual ~Configurable() {}
