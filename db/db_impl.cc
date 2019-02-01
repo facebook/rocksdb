@@ -3284,8 +3284,6 @@ Status DBImpl::IngestExternalFiles(
       }
     }
     // Run ingestion jobs.
-    // After each run, versions_->last_seqno will be changed.
-    const SequenceNumber last_seqno = versions_->LastSequence();
     if (status.ok()) {
       for (size_t i = 0; i != num_cfs; ++i) {
         status = ingestion_jobs[i].Run();
@@ -3295,6 +3293,20 @@ Status DBImpl::IngestExternalFiles(
       }
     }
     if (status.ok()) {
+      bool should_increment_last_seqno =
+          ingestion_jobs[0].ShouldIncrementLastSequence();
+#ifndef NDEBUG
+      for (size_t i = 1; i != num_cfs; ++i) {
+        assert(should_increment_last_seqno ==
+               ingestion_jobs[i].ShouldIncrementLastSequence());
+      }
+#endif
+      if (should_increment_last_seqno) {
+        const SequenceNumber last_seqno = versions_->LastSequence();
+        versions_->SetLastAllocatedSequence(last_seqno + 1);
+        versions_->SetLastPublishedSequence(last_seqno + 1);
+        versions_->SetLastSequence(last_seqno + 1);
+      }
       autovector<ColumnFamilyData*> cfds_to_commit;
       autovector<const MutableCFOptions*> mutable_cf_options_list;
       autovector<autovector<VersionEdit*>> edit_lists;
@@ -3322,12 +3334,8 @@ Status DBImpl::IngestExternalFiles(
           versions_->LogAndApply(cfds_to_commit, mutable_cf_options_list,
                                  edit_lists, &mutex_, directories_.GetDbDir());
     }
-    // If writing to MANIFEST fails, then restore last sequence number
-    if (!status.ok()) {
-      versions_->SetLastAllocatedSequence(last_seqno);
-      versions_->SetLastPublishedSequence(last_seqno);
-      versions_->SetLastSequence(last_seqno);
-    } else {
+
+    if (status.ok()) {
       for (size_t i = 0; i != num_cfs; ++i) {
         auto* cfd =
             static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
