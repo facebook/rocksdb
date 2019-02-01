@@ -1023,6 +1023,7 @@ Status DBImpl::CompactFilesImpl(
   if (bg_compaction_scheduled_ == 0) {
     bg_cv_.SignalAll();
   }
+  MaybeScheduleFlushOrCompaction();
   TEST_SYNC_POINT("CompactFilesImpl:End");
 
   return status;
