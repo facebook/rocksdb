@@ -634,8 +634,7 @@ void CompactionIterator::PrepareOutput() {
   // KeyNotExistsBeyondOutputLevel() return true?
   if ((compaction_ != nullptr && !compaction_->allow_ingest_behind()) &&
       ikeyNotNeededForIncrementalSnapshot() && bottommost_level_ && valid_ &&
-      IN_EARLIEST_SNAPSHOT(ikey_.sequence) && ikey_.type != kTypeMerge &&
-      !cmp_->Equal(compaction_->GetLargestUserKey(), ikey_.user_key)) {
+      IN_EARLIEST_SNAPSHOT(ikey_.sequence) && ikey_.type != kTypeMerge) {
     assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
     ikey_.sequence = 0;
     current_key_.UpdateInternalKey(0, ikey_.type);

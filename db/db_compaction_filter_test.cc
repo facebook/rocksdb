@@ -357,7 +357,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
     }
   }
   ASSERT_EQ(total, 100000);
-  ASSERT_EQ(count, 1);
+  ASSERT_EQ(count, 0);
 
   // overwrite all the 100K keys once again.
   for (int i = 0; i < 100000; i++) {
@@ -664,7 +664,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
       iter->Next();
     }
     ASSERT_EQ(total, 700);
-    ASSERT_EQ(count, 1);
+    ASSERT_EQ(count, 0);
   }
 }
 #endif  // ROCKSDB_LITE
