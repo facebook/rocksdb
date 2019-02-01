@@ -984,18 +984,17 @@ Status BlockBasedTableBuilder::Finish() {
   Random64 generator{r->creation_time};
   std::string compression_dict_samples;
   std::vector<size_t> compression_dict_sample_lens;
-  const std::string* prev_data = nullptr;
   if (!r->data_block_and_keys_buffers.empty()) {
-    do {
-      if (prev_data != nullptr) {
-        compression_dict_samples.append(*prev_data);
-        compression_dict_sample_lens.emplace_back(prev_data->size());
-      }
+    while (compression_dict_samples.size() < kSampleBytes) {
       size_t rand_idx =
           generator.Uniform(r->data_block_and_keys_buffers.size());
-      prev_data = &r->data_block_and_keys_buffers[rand_idx].first;
-    } while (compression_dict_samples.size() + prev_data->size() <
-             kSampleBytes);
+      size_t copy_len =
+          std::min(kSampleBytes - compression_dict_samples.size(),
+                   r->data_block_and_keys_buffers[rand_idx].first.size());
+      compression_dict_samples.append(
+          r->data_block_and_keys_buffers[rand_idx].first, 0, copy_len);
+      compression_dict_sample_lens.emplace_back(copy_len);
+    }
   }
 
   // final data block flushed, now we can generate dictionary from the samples.
