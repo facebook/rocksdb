@@ -130,6 +130,17 @@ public:
 			       const DBOptions & dbOpts,
 			       const ColumnFamilyOptions * cfOpts,
 			       std::shared_ptr<Extension> *result);
+  Status CreateSharedExtension(const std::string & type,
+			       const std::string & name,
+			       const ColumnFamilyOptions * cfOpts,
+			       std::shared_ptr<Extension> *result);
+  Status CreateSharedExtension(const std::string & type,
+			       const std::string & name,
+			       const DBOptions & dbOpts,
+			       std::shared_ptr<Extension> *result);
+  Status CreateSharedExtension(const std::string & type,
+			       const std::string & name,
+			       std::shared_ptr<Extension> *result);
   /**
    * Creates a new extension of the input name/type and stores the unique result
    * @param type     The type of factory to create.
@@ -143,6 +154,17 @@ public:
 				   const std::string & name,
 				   const DBOptions & dbOpts,
 				   const ColumnFamilyOptions * cfOpts,
+				   std::unique_ptr<Extension> *guard);
+  Extension *CreateUniqueExtension(const std::string & type,
+				   const std::string & name,
+				   const DBOptions & dbOpts,
+				   std::unique_ptr<Extension> *guard);
+  Extension *CreateUniqueExtension(const std::string & type,
+				   const std::string & name,
+				   const ColumnFamilyOptions * cfOpts,
+				   std::unique_ptr<Extension> *guard);
+  Extension *CreateUniqueExtension(const std::string & type,
+				   const std::string & name,
 				   std::unique_ptr<Extension> *guard);
 
   /**

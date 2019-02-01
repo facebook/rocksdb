@@ -91,6 +91,73 @@ TEST_F(UtilMergeOperatorTest, MaxMergeOperator) {
   EXPECT_EQ("a", PartialMerge("a", ""));
 }
 
+TEST_F(UtilMergeOperatorTest, CreateMergeOperatorsFromString) {
+  merge_operator_ = MergeOperators::CreateFromStringId("Unknown");
+  ASSERT_EQ(merge_operator_, nullptr);
+
+  merge_operator_ = MergeOperators::CreateFromStringId("put");
+  ASSERT_NE(merge_operator_, nullptr);
+  ASSERT_EQ(merge_operator_->Name(), std::string("PutOperator"));
+
+  merge_operator_ = MergeOperators::CreateFromStringId("put_v1");
+  ASSERT_NE(merge_operator_, nullptr);
+  ASSERT_EQ(merge_operator_->Name(), std::string("PutOperator"));
+
+  merge_operator_ = MergeOperators::CreateFromStringId("uint64add");
+  ASSERT_NE(merge_operator_, nullptr);
+  ASSERT_EQ(merge_operator_->Name(), std::string("UInt64AddOperator"));
+
+  merge_operator_ = MergeOperators::CreateFromStringId("stringappend");
+  ASSERT_NE(merge_operator_, nullptr);
+  ASSERT_EQ(merge_operator_->Name(), std::string("StringAppendOperator"));
+
+  merge_operator_ = MergeOperators::CreateFromStringId("stringappendtest");
+  ASSERT_NE(merge_operator_, nullptr);
+  ASSERT_EQ(merge_operator_->Name(), std::string("StringAppendTESTOperator"));
+
+  merge_operator_ = MergeOperators::CreateFromStringId("max");
+  ASSERT_NE(merge_operator_, nullptr);
+  ASSERT_EQ(merge_operator_->Name(), std::string("MaxOperator"));
+
+  merge_operator_ = MergeOperators::CreateFromStringId("bytesxor");
+  ASSERT_NE(merge_operator_, nullptr);
+  ASSERT_EQ(merge_operator_->Name(), std::string("BytesXOR"));
+}
+  
+TEST_F(UtilMergeOperatorTest, LoadMergeOperators) {
+
+  ASSERT_NOK(MergeOperator::CreateMergeOperator("unknown",  &merge_operator_));
+  ASSERT_EQ(merge_operator_, nullptr);
+
+  ASSERT_OK(MergeOperator::CreateMergeOperator("put", &merge_operator_));
+  ASSERT_NE(merge_operator_, nullptr);
+  ASSERT_EQ(merge_operator_->Name(), std::string("PutOperator"));
+
+  ASSERT_OK(MergeOperator::CreateMergeOperator("put_v1", &merge_operator_));
+  ASSERT_NE(merge_operator_, nullptr);
+  ASSERT_EQ(merge_operator_->Name(), std::string("PutOperator"));
+
+  ASSERT_OK(MergeOperator::CreateMergeOperator("uint64add", &merge_operator_));
+  ASSERT_NE(merge_operator_, nullptr);
+  ASSERT_EQ(merge_operator_->Name(), std::string("UInt64AddOperator"));
+
+  ASSERT_OK(MergeOperator::CreateMergeOperator("stringappend", &merge_operator_));
+  ASSERT_NE(merge_operator_, nullptr);
+  ASSERT_EQ(merge_operator_->Name(), std::string("StringAppendOperator"));
+
+  ASSERT_OK(MergeOperator::CreateMergeOperator("stringappendtest", &merge_operator_));
+  ASSERT_NE(merge_operator_, nullptr);
+  ASSERT_EQ(merge_operator_->Name(), std::string("StringAppendTESTOperator"));
+
+  ASSERT_OK(MergeOperator::CreateMergeOperator("max", &merge_operator_));
+  ASSERT_NE(merge_operator_, nullptr);
+  ASSERT_EQ(merge_operator_->Name(), std::string("MaxOperator"));
+
+  ASSERT_OK(MergeOperator::CreateMergeOperator("bytesxor", &merge_operator_));
+  ASSERT_NE(merge_operator_, nullptr);
+  ASSERT_EQ(merge_operator_->Name(), std::string("BytesXOR"));
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

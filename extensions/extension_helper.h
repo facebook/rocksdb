@@ -9,7 +9,6 @@
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
-
 #include "rocksdb/options.h"
 #include "rocksdb/extensions.h"
 #include "rocksdb/extension_loader.h"
@@ -64,6 +63,38 @@ Status NewSharedExtension(const std::string & name,
     return Status::NotSupported("Cannot share extension: ", name);
   }
 }
+  
+template<typename T>
+Status NewSharedExtension(const std::string & name,
+			  const DBOptions & dbOpts, 
+			  const ColumnFamilyOptions * cfOpts,
+			  const std::string & opt_str,
+			  std::shared_ptr<T> * result)  {
+  std::shared_ptr<Extension> extension;
+  Status s =  dbOpts.extensions->CreateSharedExtension(T::Type(), name,
+						       dbOpts, cfOpts, 
+						       &extension);
+  if (! s.ok()) {
+    return s;
+  } else if (extension) {
+    s = extension->ConfigureFromString(dbOpts, cfOpts, opt_str);
+    if (s.ok()) {
+      if (cfOpts != nullptr) {
+	s = extension->SanitizeOptions(dbOpts, *cfOpts);
+      } else {
+	s = extension->SanitizeOptions(dbOpts);
+      }
+    }
+    if (s.ok()) {
+      return CastSharedExtension(extension, result);
+    } else {
+      return s;
+    }
+  } else {
+    return Status::NotSupported("Cannot share extension: ", name);
+  }
+}
+  
 /**
  * Converts the base shared Extension from to the Derived Extension to.
  * If the cast fails, returns NotSupported.  Otherwise, returns OK
@@ -111,7 +142,28 @@ Status NewUniqueExtension(const std::string & name,
     return Status::InvalidArgument("Could not find extension: ", name);
   }
 }
-   
+
+template<typename T>
+Status NewUniqueExtension(const std::string & name,
+			  const DBOptions & dbOpts, 
+			  const ColumnFamilyOptions * cfOpts,
+			  const std::string & opt_str,
+			  T ** result,
+			  std::unique_ptr<T> * guard)  {
+  Status status = NewUniqueExtension(name, dbOpts, cfOpts, result, guard);
+  if (status.ok() && ! opt_str.empty()) {
+    status = (*result)->ConfigureFromString(dbOpts, cfOpts, opt_str);
+  }
+  if (status.ok()) {
+    if (cfOpts != nullptr) {
+      status = (*result)->SanitizeOptions(dbOpts, *cfOpts);
+    } else {
+      status = (*result)->SanitizeOptions(dbOpts);
+    }
+  }
+  return status;
+}
+  
 /**
  * Creates a new Extension of type T if the current one is not appropriate (either
  * the extension is null or the wrong name and stores it in a shared pointer.

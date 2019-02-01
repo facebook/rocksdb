@@ -101,11 +101,33 @@ Extension *ExtensionLoader::CreateUniqueExtension(const std::string & type,
   }
 }
 
+Extension *ExtensionLoader::CreateUniqueExtension(const std::string & type,
+						  const std::string & name,
+						  const DBOptions & dbOpts,
+						  std::unique_ptr<Extension> *guard) {
+  return CreateUniqueExtension(type, name, dbOpts, nullptr, guard);
+}
+  
+Extension *ExtensionLoader::CreateUniqueExtension(const std::string & type,
+						  const std::string & name,
+						  const ColumnFamilyOptions * cfOpts,
+						  std::unique_ptr<Extension> *guard) {
+  DBOptions dbOpts;
+  return CreateUniqueExtension(type, name, dbOpts, cfOpts, guard);
+}
+
+  Extension *ExtensionLoader::CreateUniqueExtension(const std::string & type,
+						  const std::string & name,
+						  std::unique_ptr<Extension> *guard) {
+  return CreateUniqueExtension(type, name, nullptr, guard);
+}
+  
 Status ExtensionLoader::CreateSharedExtension(const std::string & type,
 					      const std::string & name,
 					      const DBOptions & dbOpts,
 					      const ColumnFamilyOptions * cfOpts,
 					      std::shared_ptr<Extension> *result) {
+  std::unordered_map<std::string, std::string> options_map;
   std::unique_ptr<Extension> guard;
   result->reset();
   Extension *extension = CreateUniqueExtension(type, name, dbOpts, cfOpts, &guard);
@@ -117,6 +139,27 @@ Status ExtensionLoader::CreateSharedExtension(const std::string & type,
   } else {
     return Status::NotSupported("Cannot share extension", name);
   }
+}
+Status ExtensionLoader::CreateSharedExtension(const std::string & type,
+					      const std::string & name,
+					      const DBOptions & dbOpts,
+					      std::shared_ptr<Extension> *result) {
+  return CreateSharedExtension(type, name, dbOpts, nullptr, result);
+}
+
+Status ExtensionLoader::CreateSharedExtension(const std::string & type,
+					      const std::string & name,
+					      const ColumnFamilyOptions * cfOpts,
+					      std::shared_ptr<Extension> *result) {
+  DBOptions dbOpts;
+  return CreateSharedExtension(type, name, dbOpts, cfOpts, result);
+}
+  
+Status ExtensionLoader::CreateSharedExtension(const std::string & type,
+					      const std::string & name,
+					      std::shared_ptr<Extension> *result) {
+  DBOptions dbOpts;
+  return CreateSharedExtension(type, name, nullptr, result);
 }
   
 void ExtensionLoader::Dump(Logger*) const {
