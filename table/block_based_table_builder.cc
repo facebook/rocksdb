@@ -553,9 +553,8 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
       compression_dict = r->compression_dict.get();
     }
     assert(compression_dict != nullptr);
-    CompressionInfo compression_info(
-        r->compression_opts, r->compression_ctx,
-        *compression_dict, r->compression_type);
+    CompressionInfo compression_info(r->compression_opts, r->compression_ctx,
+                                     *compression_dict, r->compression_type);
     block_contents =
         CompressBlock(raw_block_contents, compression_info, &type,
                       r->table_options.format_version, &r->compressed_output);
@@ -573,8 +572,8 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
       }
       assert(verify_dict != nullptr);
       BlockContents contents;
-      UncompressionInfo uncompression_info(
-          *r->verify_ctx, *verify_dict, r->compression_type);
+      UncompressionInfo uncompression_info(*r->verify_ctx, *verify_dict,
+                                           r->compression_type);
       Status stat = UncompressBlockContentsForCompressionType(
           uncompression_info, block_contents.data(), block_contents.size(),
           &contents, r->table_options.format_version, r->ioptions);
@@ -977,10 +976,9 @@ Status BlockBasedTableBuilder::Finish() {
   assert(!r->closed);
   r->closed = true;
 
-  const size_t kSampleBytes =
-      r->compression_opts.zstd_max_train_bytes > 0
-          ? r->compression_opts.zstd_max_train_bytes
-          : r->compression_opts.max_dict_bytes;
+  const size_t kSampleBytes = r->compression_opts.zstd_max_train_bytes > 0
+                                  ? r->compression_opts.zstd_max_train_bytes
+                                  : r->compression_opts.max_dict_bytes;
   Random64 generator{r->creation_time};
   std::string compression_dict_samples;
   std::vector<size_t> compression_dict_sample_lens;
@@ -1001,17 +999,17 @@ Status BlockBasedTableBuilder::Finish() {
   // OK if compression_dict_samples is empty, we'll just get empty dictionary.
   std::string dict;
   if (r->compression_opts.zstd_max_train_bytes > 0) {
-    dict = ZSTD_TrainDictionary(
-        compression_dict_samples, compression_dict_sample_lens,
-        r->compression_opts.max_dict_bytes);
+    dict = ZSTD_TrainDictionary(compression_dict_samples,
+                                compression_dict_sample_lens,
+                                r->compression_opts.max_dict_bytes);
   } else {
     dict = std::move(compression_dict_samples);
   }
-  r->compression_dict.reset(new CompressionDict(
-      dict, r->compression_type, r->compression_opts.level));
+  r->compression_dict.reset(new CompressionDict(dict, r->compression_type,
+                                                r->compression_opts.level));
   r->verify_dict.reset(new UncompressionDict(
       dict, r->compression_type == kZSTD ||
-            r->compression_type == kZSTDNotFinalCompression));
+                r->compression_type == kZSTDNotFinalCompression));
 
   for (size_t i = 0; i < r->data_block_and_keys_buffers.size(); ++i) {
     const auto& data_block = r->data_block_and_keys_buffers[i].first;
