@@ -458,7 +458,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
 
     // Note: PartitionedFilterBlockBuilder requires key being added to filter
     // builder after being added to index builder.
-    if (r->filter_builder != nullptr) {
+    if (!IsBuffered() && r->filter_builder != nullptr) {
       r->filter_builder->Add(ExtractUserKey(key));
     }
 
@@ -474,7 +474,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
     } else {
       r->index_builder->OnKeyAdded(key);
     }
-    NotifyCollectTableCollectorsOnAdd(key, value, r->offset,
+    NotifyCollectTableCollectorsOnAdd(key, value, FileSize(),
                                       r->table_properties_collectors,
                                       r->ioptions.info_log);
 
@@ -1011,24 +1011,29 @@ Status BlockBasedTableBuilder::Finish() {
       dict, r->compression_type == kZSTD ||
                 r->compression_type == kZSTDNotFinalCompression));
 
-  for (size_t i = 0; i < r->data_block_and_keys_buffers.size(); ++i) {
+  for (size_t i = 0; ok() && i < r->data_block_and_keys_buffers.size(); ++i) {
     const auto& data_block = r->data_block_and_keys_buffers[i].first;
     auto& keys = r->data_block_and_keys_buffers[i].second;
     assert(!data_block.empty() && !keys.empty());
 
     for (const auto& key : keys) {
+      if (r->filter_builder != nullptr) {
+        r->filter_builder->Add(ExtractUserKey(key));
+      }
       r->index_builder->OnKeyAdded(key);
     }
     WriteBlock(Slice(data_block), &r->pending_handle, true /* is_data_block */);
-    Slice first_key_in_next_block;
-    Slice* first_key_in_next_block_ptr = nullptr;
-    if (i + 1 < r->data_block_and_keys_buffers.size()) {
-      first_key_in_next_block =
-          r->data_block_and_keys_buffers[i + 1].second.front();
-      first_key_in_next_block_ptr = &first_key_in_next_block;
+    if (ok()) {
+      Slice first_key_in_next_block;
+      Slice* first_key_in_next_block_ptr = nullptr;
+      if (i + 1 < r->data_block_and_keys_buffers.size()) {
+        first_key_in_next_block =
+            r->data_block_and_keys_buffers[i + 1].second.front();
+        first_key_in_next_block_ptr = &first_key_in_next_block;
+      }
+      r->index_builder->AddIndexEntry(&keys.back(), first_key_in_next_block_ptr,
+                                      r->pending_handle);
     }
-    r->index_builder->AddIndexEntry(&keys.back(), first_key_in_next_block_ptr,
-                                    r->pending_handle);
   }
   r->data_block_and_keys_buffers.clear();
 
