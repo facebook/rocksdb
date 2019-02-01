@@ -10,6 +10,7 @@
 #include "rocksdb/utilities/db_ttl.h"
 #include "util/testharness.h"
 #include "util/random.h"
+#include "util/string_util.h"
 #include "utilities/merge_operators.h"
 #include "utilities/cassandra/cassandra_compaction_filter.h"
 #include "utilities/cassandra/merge_operator.h"
@@ -91,32 +92,24 @@ class CassandraStore {
 
   DBImpl* dbfull() { return reinterpret_cast<DBImpl*>(db_.get()); }
 };
-
-class TestCompactionFilterFactory : public CompactionFilterFactory {
-public:
- explicit TestCompactionFilterFactory(bool purge_ttl_on_expiration,
-                                      int32_t gc_grace_period_in_seconds)
-     : purge_ttl_on_expiration_(purge_ttl_on_expiration),
-       gc_grace_period_in_seconds_(gc_grace_period_in_seconds) {}
-
- virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-     const CompactionFilter::Context& /*context*/) override {
-   return std::unique_ptr<CompactionFilter>(new CassandraCompactionFilter(
-       purge_ttl_on_expiration_, gc_grace_period_in_seconds_));
-  }
-
-  virtual const char* Name() const override {
-    return "TestCompactionFilterFactory";
-  }
-
-private:
-  bool purge_ttl_on_expiration_;
-  int32_t gc_grace_period_in_seconds_;
-};
-
-
 // The class for unit-testing
 class CassandraFunctionalTest : public testing::Test {
+public:
+  static std::string GetGracePeriod(int32_t period) {
+    std::string property = "gc_grace_seconds";
+    return property + "=" + ToString(period);
+  }
+  
+  static std::string GetTTL(bool purge) {
+    std::string property = "purge_ttl_on_expiration";
+    return property + ((purge) ? "=true" : "=false");
+  }
+  
+  static std::string GetMergeOperands(size_t limit) {
+    std::string property = "merge_operands_limit";
+    return property + "=" + ToString(limit);
+  }			       
+  
 public:
   CassandraFunctionalTest() {
     DestroyDB(kDbName, Options());    // Start each test with a fresh DB
@@ -125,9 +118,14 @@ public:
   std::shared_ptr<DB> OpenDb() {
     DB* db;
     Options options;
+    options.AddExtensionLibrary("", "loadCassandraExtensions", "cassandra");
     options.create_if_missing = true;
+    options.SetMergeOperator("cassandra", GetGracePeriod(gc_grace_period_in_seconds_));
+    options.SetCompactionFilterFactory("cassandra",
+				       GetGracePeriod(gc_grace_period_in_seconds_) + ";" +
+				       GetTTL(purge_ttl_on_expiration_));
     options.merge_operator.reset(new CassandraValueMergeOperator(gc_grace_period_in_seconds_));
-    auto* cf_factory = new TestCompactionFilterFactory(
+    auto* cf_factory = new CassandraCompactionFilterFactory(
         purge_ttl_on_expiration_, gc_grace_period_in_seconds_);
     options.compaction_filter_factory.reset(cf_factory);
     EXPECT_OK(DB::Open(options, kDbName, &db));
@@ -304,6 +302,51 @@ TEST_F(CassandraFunctionalTest, CompactionShouldRemoveTombstoneFromPut) {
   ASSERT_FALSE(std::get<0>(store.Get("k1")));
 }
 
+TEST_F(CassandraFunctionalTest, LoadMergeOperator) {
+    Options options;
+    ASSERT_OK(options.AddExtensionLibrary("", "loadCassandraExtensions", "cassandra"));
+    std::string cassandraPrefix = "cassandra.rocksdb.";
+    ASSERT_OK(options.SetMergeOperator("cassandra", GetGracePeriod(gc_grace_period_in_seconds_)));
+    ASSERT_NE(options.merge_operator, nullptr);
+    ASSERT_EQ(options.merge_operator->Name(), std::string("CassandraValueMergeOperator"));
+    ASSERT_OK(options.merge_operator->ConfigureFromString(cassandraPrefix + GetGracePeriod(gc_grace_period_in_seconds_)));
+    ASSERT_OK(options.merge_operator->ConfigureFromString(cassandraPrefix + GetMergeOperands(123)));
+    ASSERT_EQ(options.merge_operator->ConfigureFromString(cassandraPrefix + GetTTL(true)), Status::NotFound());
+}
+
+
+TEST_F(CassandraFunctionalTest, LoadCompactionFilterFactory) {
+    Options options;
+    ASSERT_OK(options.AddExtensionLibrary("", "loadCassandraExtensions", "cassandra"));
+    std::string cassandraPrefix = "cassandra.rocksdb.";
+    ASSERT_OK(options.SetCompactionFilterFactory("cassandra", GetGracePeriod(gc_grace_period_in_seconds_)));
+    ASSERT_NE(options.compaction_filter_factory, nullptr);
+    ASSERT_EQ(options.compaction_filter_factory->Name(), std::string("CassandraCompactionFilterFactory"));
+    ASSERT_OK(options.compaction_filter_factory->ConfigureFromString(cassandraPrefix + GetGracePeriod(111)));
+    ASSERT_OK(options.compaction_filter_factory->ConfigureFromString(cassandraPrefix + GetTTL(true)));
+    ASSERT_EQ(options.compaction_filter_factory->ConfigureFromString(cassandraPrefix + GetMergeOperands(123)),
+	      Status::NotFound());
+}
+
+TEST_F(CassandraFunctionalTest, LoadCompactionFilter) {
+    Options options;
+    ASSERT_OK(options.AddExtensionLibrary("", "loadCassandraExtensions", "cassandra"));
+    std::string cassandraPrefix = "cassandra.rocksdb.";
+    ASSERT_OK(options.SetCompactionFilter("cassandra", GetGracePeriod(gc_grace_period_in_seconds_)));
+    ASSERT_NE(options.compaction_filter, nullptr);
+    ASSERT_EQ(options.compaction_filter->Name(), std::string("CassandraCompactionFilter"));
+    const CompactionFilter *old_filter = options.compaction_filter;
+    ASSERT_EQ(options.SetCompactionFilter("cassandra", cassandraPrefix + GetMergeOperands(123)), Status::NotFound());
+    ASSERT_EQ(options.compaction_filter, old_filter);
+    
+    ASSERT_OK(options.SetCompactionFilter("cassandra", cassandraPrefix + GetGracePeriod(111) + ";" + GetTTL(true)));
+    ASSERT_NE(options.compaction_filter, nullptr);
+    ASSERT_NE(options.compaction_filter, old_filter);
+    ASSERT_EQ(options.compaction_filter->Name(), std::string("CassandraCompactionFilter"));
+
+    delete old_filter;
+    delete options.compaction_filter;
+}
 } // namespace cassandra
 } // namespace rocksdb
 

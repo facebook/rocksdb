@@ -9,13 +9,42 @@
 #include <assert.h>
 
 #include "rocksdb/slice.h"
+#include "rocksdb/options.h"
 #include "rocksdb/merge_operator.h"
-#include "utilities/merge_operators.h"
 #include "utilities/cassandra/format.h"
 
 namespace rocksdb {
 namespace cassandra {
+  
+static rocksdb::Extension *NewCassandraMergeOperator(const std::string &,
+						      const DBOptions &,
+						      const ColumnFamilyOptions *,
+						      std::unique_ptr<Extension>* guard) {
+  guard->reset(new CassandraValueMergeOperator(0, 0));
+  return guard->get();
+}
+  
+void CassandraValueMergeOperator::RegisterFactory(ExtensionLoader & loader) {
+  loader.RegisterFactory(MergeOperator::Type(), "cassandra", NewCassandraMergeOperator);
+}
+void CassandraValueMergeOperator::RegisterFactory(DBOptions & dbOpts) {
+  RegisterFactory(*(dbOpts.extensions));
+}
+  
+static OptionTypeMap CassandraMergeOperatorOptionsMap =
+{
+ {"merge_operands_limit", {offsetof(struct CassandraMergeOperatorOptions, operands_limit),
+	       OptionType::kSizeT, OptionVerificationType::kNormal,
+	       true, 0}},
+ {"gc_grace_seconds", {offsetof(struct CassandraMergeOperatorOptions, gc_grace_period_in_seconds),
+	       OptionType::kUInt32T, OptionVerificationType::kNormal,
+	       true, 0}}
+};
 
+const OptionTypeMap *CassandraValueMergeOperator::GetOptionsMap() const {
+  return &CassandraMergeOperatorOptionsMap;
+}
+  
 // Implementation for the merge operation (merges two Cassandra values)
 bool CassandraValueMergeOperator::FullMergeV2(
     const MergeOperationInput& merge_in,
@@ -34,7 +63,7 @@ bool CassandraValueMergeOperator::FullMergeV2(
   }
 
   RowValue merged = RowValue::Merge(std::move(row_values));
-  merged = merged.RemoveTombstones(gc_grace_period_in_seconds_);
+  merged = merged.RemoveTombstones(options_.gc_grace_period_in_seconds);
   merge_out->new_value.reserve(merged.Size());
   merged.Serialize(&(merge_out->new_value));
 

@@ -5,6 +5,8 @@
 
 #include "utilities/cassandra/cassandra_compaction_filter.h"
 #include <string>
+#include "rocksdb/extension_loader.h"
+#include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "utilities/cassandra/format.h"
 
@@ -12,10 +14,42 @@
 namespace rocksdb {
 namespace cassandra {
 
+#ifndef ROCKSDB_LITE
+static rocksdb::Extension *NewCassandraCompactionFilter(const std::string & ,
+							       const rocksdb::DBOptions &,
+							       const rocksdb::ColumnFamilyOptions *,
+							       std::unique_ptr<rocksdb::Extension>* guard) {
+  guard->reset(new rocksdb::cassandra::CassandraCompactionFilter(false, 0));
+  return guard->get();
+}
+
+void CassandraCompactionFilter::RegisterFactory(ExtensionLoader & loader) {
+  loader.RegisterFactory(CompactionFilter::Type(), "cassandra", NewCassandraCompactionFilter);
+}
+  
+void CassandraCompactionFilter::RegisterFactory(DBOptions & dbOpts) {
+  RegisterFactory(*(dbOpts.extensions));
+}
+  
+#endif
 const char* CassandraCompactionFilter::Name() const {
   return "CassandraCompactionFilter";
 }
 
+static OptionTypeMap CassandraCompactionFilterOptionsMap =
+{
+ {"purge_ttl_on_expiration", {offsetof(struct CassandraFilterOptions, purge_ttl_on_expiration),
+	       OptionType::kBoolean, OptionVerificationType::kNormal,
+	       true, 0}},
+ {"gc_grace_seconds", {offsetof(struct CassandraFilterOptions, gc_grace_period_in_seconds),
+	       OptionType::kUInt32T, OptionVerificationType::kNormal,
+	       true, 0}}
+};
+  
+const OptionTypeMap *CassandraCompactionFilter::GetOptionsMap() const {
+  return &CassandraCompactionFilterOptionsMap;
+}
+  
 CompactionFilter::Decision CassandraCompactionFilter::FilterV2(
     int /*level*/, const Slice& /*key*/, ValueType value_type,
     const Slice& existing_value, std::string* new_value,
@@ -24,12 +58,12 @@ CompactionFilter::Decision CassandraCompactionFilter::FilterV2(
   RowValue row_value = RowValue::Deserialize(
     existing_value.data(), existing_value.size());
   RowValue compacted =
-      purge_ttl_on_expiration_
+      options_.purge_ttl_on_expiration
           ? row_value.RemoveExpiredColumns(&value_changed)
           : row_value.ConvertExpiredColumnsToTombstones(&value_changed);
 
   if (value_type == ValueType::kValue) {
-    compacted = compacted.RemoveTombstones(gc_grace_period_in_seconds_);
+    compacted = compacted.RemoveTombstones(options_.gc_grace_period_in_seconds);
   }
 
   if(compacted.Empty()) {
@@ -44,5 +78,29 @@ CompactionFilter::Decision CassandraCompactionFilter::FilterV2(
   return Decision::kKeep;
 }
 
+#ifndef ROCKSDB_LITE
+static rocksdb::Extension *NewCassandraCompactionFilterFactory(const std::string & ,
+							       const rocksdb::DBOptions &,
+							       const rocksdb::ColumnFamilyOptions *,
+							       std::unique_ptr<rocksdb::Extension>* guard) {
+  guard->reset(new rocksdb::cassandra::CassandraCompactionFilterFactory(false, 0));
+  return guard->get();
+}
+
+void CassandraCompactionFilterFactory::RegisterFactory(ExtensionLoader & loader) {
+  loader.RegisterFactory(CompactionFilterFactory::Type(), "cassandra", NewCassandraCompactionFilterFactory);
+}
+void CassandraCompactionFilterFactory::RegisterFactory(DBOptions & dbOpts) {
+  RegisterFactory(*(dbOpts.extensions));
+}
+#endif
+
+const char* CassandraCompactionFilterFactory::Name() const {
+  return "CassandraCompactionFilterFactory";
+}
+
+const OptionTypeMap *CassandraCompactionFilterFactory::GetOptionsMap() const {
+  return &CassandraCompactionFilterOptionsMap;
+}
 }  // namespace cassandra
 }  // namespace rocksdb

@@ -428,6 +428,19 @@ void Options::DumpCFOptions(Logger* log) const {
   ColumnFamilyOptions::Dump(log);
 }  // Options::DumpCFOptions
 
+#ifndef ROCKSDB_LITE
+Status Options::SetMergeOperator(const std::string & name, const std::string & options) {
+  return ColumnFamilyOptions::SetMergeOperator(*this, name, options);
+}
+  
+Status Options::SetCompactionFilter(const std::string & name, const std::string & options) {
+  return ColumnFamilyOptions::SetCompactionFilter(*this, name, options);
+}
+  
+Status Options::SetCompactionFilterFactory(const std::string & name, const std::string & options) {
+  return ColumnFamilyOptions::SetCompactionFilterFactory(*this, name, options);
+}
+#endif
 //
 // The goal of this method is to create a configuration that
 // allows an application to write all files into L0 and

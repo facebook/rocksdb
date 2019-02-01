@@ -9,6 +9,8 @@
 #include "rocksdb/slice.h"
 
 namespace rocksdb {
+struct DBOptions;
+class ExtensionLoader;
 namespace cassandra {
 
 /**
@@ -22,21 +24,58 @@ namespace cassandra {
  * Compaction filter is also in charge of removing tombstone that has been
  * promoted to kValue type after serials of merging in compaction.
  */
+struct CassandraFilterOptions {
+  bool purge_ttl_on_expiration;
+  uint32_t gc_grace_period_in_seconds;
+};
+
 class CassandraCompactionFilter : public CompactionFilter {
 public:
- explicit CassandraCompactionFilter(bool purge_ttl_on_expiration,
-                                    int32_t gc_grace_period_in_seconds)
-     : purge_ttl_on_expiration_(purge_ttl_on_expiration),
-       gc_grace_period_in_seconds_(gc_grace_period_in_seconds) {}
+#ifndef ROCKSDB_LITE
+  static void RegisterFactory(DBOptions & dbOpts);
+  static void RegisterFactory(ExtensionLoader & loader);
+#endif
+public:
+  explicit CassandraCompactionFilter(bool purge_ttl_on_expiration,
+                                    uint32_t gc_grace_period_in_seconds) {
+   options_.purge_ttl_on_expiration = purge_ttl_on_expiration;
+   options_.gc_grace_period_in_seconds = gc_grace_period_in_seconds;
+ }
 
- const char* Name() const override;
+ virtual void *GetOptionsPtr() override { return &options_; }
+ virtual const char *GetOptionsPrefix() const override { return "cassandra.rocksdb."; }
+ virtual const OptionTypeMap *GetOptionsMap() const override;
+ virtual const char* Name() const override;
  virtual Decision FilterV2(int level, const Slice& key, ValueType value_type,
                            const Slice& existing_value, std::string* new_value,
                            std::string* skip_until) const override;
 
 private:
-  bool purge_ttl_on_expiration_;
-  int32_t gc_grace_period_in_seconds_;
+  CassandraFilterOptions options_;
+};
+
+class CassandraCompactionFilterFactory : public CompactionFilterFactory {
+public:
+#ifndef ROCKSDB_LITE
+  static void RegisterFactory(DBOptions & dbOpts);
+  static void RegisterFactory(ExtensionLoader & loader);
+#endif
+public:
+ explicit CassandraCompactionFilterFactory(bool purge_ttl_on_expiration,
+					    uint32_t gc_grace_period_in_seconds) {
+   options_.purge_ttl_on_expiration = purge_ttl_on_expiration;
+   options_.gc_grace_period_in_seconds = gc_grace_period_in_seconds;
+ }
+ virtual void *GetOptionsPtr() override { return &options_; }
+ virtual const char *GetOptionsPrefix() const override { return "cassandra.rocksdb."; }
+ virtual const OptionTypeMap *GetOptionsMap() const override;
+ virtual const char* Name() const override;
+  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(const CompactionFilter::Context& /*context*/) override {
+   return std::unique_ptr<CompactionFilter>(new CassandraCompactionFilter(
+       options_.purge_ttl_on_expiration, options_.gc_grace_period_in_seconds));
+  }
+private:
+  CassandraFilterOptions options_;
 };
 }  // namespace cassandra
 }  // namespace rocksdb

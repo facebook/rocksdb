@@ -1061,6 +1061,11 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
   // Use this if your DB is very small (like under 1GB) and you don't want to
   // spend lots of memory for memtables.
   Options* OptimizeForSmallDb();
+#ifndef ROCKSDB_LITE
+  Status SetMergeOperator(const std::string & name, const std::string & options);
+  Status SetCompactionFilter(const std::string & name, const std::string & options);
+  Status SetCompactionFilterFactory(const std::string & name, const std::string & options);
+#endif
 };
 
 //
