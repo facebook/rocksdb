@@ -76,7 +76,8 @@ struct TableBuilderOptions {
       CompressionType _compression_type,
       const CompressionOptions& _compression_opts, bool _skip_filters,
       const std::string& _column_family_name, int _level,
-      const uint64_t _creation_time = 0, const int64_t _oldest_key_time = 0)
+      const uint64_t _creation_time = 0, const int64_t _oldest_key_time = 0,
+      bool _is_bottommost_level = false)
       : ioptions(_ioptions),
         moptions(_moptions),
         internal_comparator(_internal_comparator),
@@ -87,7 +88,8 @@ struct TableBuilderOptions {
         column_family_name(_column_family_name),
         level(_level),
         creation_time(_creation_time),
-        oldest_key_time(_oldest_key_time) {}
+        oldest_key_time(_oldest_key_time),
+        is_bottommost_level(_is_bottommost_level) {}
   const ImmutableCFOptions& ioptions;
   const MutableCFOptions& moptions;
   const InternalKeyComparator& internal_comparator;
@@ -100,6 +102,7 @@ struct TableBuilderOptions {
   int level; // what level this table/file is on, -1 for "not set, don't know"
   const uint64_t creation_time;
   const int64_t oldest_key_time;
+  const bool is_bottommost_level;
 };
 
 // TableBuilder provides the interface used to build a Table

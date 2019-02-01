@@ -49,7 +49,7 @@ TableBuilder* NewTableBuilder(
     WritableFileWriter* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts, int level,
     const bool skip_filters, const uint64_t creation_time,
-    const uint64_t oldest_key_time) {
+    const uint64_t oldest_key_time, const bool is_bottommost_level) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -57,7 +57,8 @@ TableBuilder* NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, internal_comparator,
                           int_tbl_prop_collector_factories, compression_type,
                           compression_opts, skip_filters, column_family_name,
-                          level, creation_time, oldest_key_time),
+                          level, creation_time, oldest_key_time,
+                          is_bottommost_level),
       column_family_id, file);
 }
 

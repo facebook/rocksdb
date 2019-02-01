@@ -218,7 +218,8 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
       table_builder_options.skip_filters,
       table_builder_options.column_family_name,
       table_builder_options.creation_time,
-      table_builder_options.oldest_key_time);
+      table_builder_options.oldest_key_time,
+      table_builder_options.is_bottommost_level);
 
   return table_builder;
 }
