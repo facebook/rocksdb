@@ -9,6 +9,7 @@
 //
 // WriteBatch::rep_ :=
 //    sequence: fixed64
+//    timestamp: fixed64 <<<<<---- not using now.
 //    count: fixed32
 //    data: record[count]
 // record :=
@@ -619,6 +620,14 @@ void WriteBatchInternal::SetSequence(WriteBatch* b, SequenceNumber seq) {
   EncodeFixed64(&b->rep_[0], seq);
 }
 
+// uint64_t WriteBatchInternal::Timestamp(const WriteBatch* b) {
+//   return DecodeFixed64(b->rep_.data() + 8);
+// }
+//
+// void WriteBatchInternal::SetTimestamp(WriteBatch* b, uint64_t ts) {
+//   EncodeFixed64(&b->rep_[8], ts);
+// }
+
 size_t WriteBatchInternal::GetFirstOffset(WriteBatch* /*b*/) {
   return WriteBatchInternal::kHeader;
 }
@@ -1042,6 +1051,7 @@ class MemTableInserter : public WriteBatch::Handler {
   FlushScheduler* const flush_scheduler_;
   const bool ignore_missing_column_families_;
   const uint64_t recovering_log_number_;
+  const uint64_t timestamp_;
   // log number that all Memtables inserted into should reference
   uint64_t log_number_ref_;
   DBImpl* db_;
@@ -1107,12 +1117,13 @@ class MemTableInserter : public WriteBatch::Handler {
                    uint64_t recovering_log_number, DB* db,
                    bool concurrent_memtable_writes,
                    bool* has_valid_writes = nullptr, bool seq_per_batch = false,
-                   bool batch_per_txn = true)
+                   bool batch_per_txn = true, uint64_t _timestamp = 0)
       : sequence_(_sequence),
         cf_mems_(cf_mems),
         flush_scheduler_(flush_scheduler),
         ignore_missing_column_families_(ignore_missing_column_families),
         recovering_log_number_(recovering_log_number),
+        timestamp_(_timestamp),
         log_number_ref_(0),
         db_(reinterpret_cast<DBImpl*>(db)),
         concurrent_memtable_writes_(concurrent_memtable_writes),
@@ -1168,6 +1179,8 @@ class MemTableInserter : public WriteBatch::Handler {
   void set_log_number_ref(uint64_t log) { log_number_ref_ = log; }
 
   SequenceNumber sequence() const { return sequence_; }
+
+  uint64_t timestamp() const { return timestamp_; }
 
   void PostProcess() {
     assert(concurrent_memtable_writes_);
@@ -1250,9 +1263,9 @@ class MemTableInserter : public WriteBatch::Handler {
     // any kind of transactions including the ones that use seq_per_batch
     assert(!seq_per_batch_ || !moptions->inplace_update_support);
     if (!moptions->inplace_update_support) {
-      bool mem_res =
-          mem->Add(sequence_, value_type, key, value,
-                   concurrent_memtable_writes_, get_post_process_info(mem));
+      bool mem_res = mem->Add(sequence_, value_type, key, value,
+                              concurrent_memtable_writes_,
+                              get_post_process_info(mem), timestamp_);
       if (UNLIKELY(!mem_res)) {
         assert(seq_per_batch_);
         ret_status = Status::TryAgain("key+seq exists");
@@ -1333,9 +1346,9 @@ class MemTableInserter : public WriteBatch::Handler {
                     const Slice& value, ValueType delete_type) {
     Status ret_status;
     MemTable* mem = cf_mems_->GetMemTable();
-    bool mem_res =
-        mem->Add(sequence_, delete_type, key, value,
-                 concurrent_memtable_writes_, get_post_process_info(mem));
+    bool mem_res = mem->Add(sequence_, delete_type, key, value,
+                            concurrent_memtable_writes_,
+                            get_post_process_info(mem), timestamp_);
     if (UNLIKELY(!mem_res)) {
       assert(seq_per_batch_);
       ret_status = Status::TryAgain("key+seq exists");
@@ -1760,11 +1773,12 @@ Status WriteBatchInternal::InsertInto(
     WriteThread::WriteGroup& write_group, SequenceNumber sequence,
     ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
     bool ignore_missing_column_families, uint64_t recovery_log_number, DB* db,
-    bool concurrent_memtable_writes, bool seq_per_batch, bool batch_per_txn) {
+    bool concurrent_memtable_writes, bool seq_per_batch, bool batch_per_txn,
+    uint64_t timestamp) {
   MemTableInserter inserter(
       sequence, memtables, flush_scheduler, ignore_missing_column_families,
       recovery_log_number, db, concurrent_memtable_writes,
-      nullptr /*has_valid_writes*/, seq_per_batch, batch_per_txn);
+      nullptr /*has_valid_writes*/, seq_per_batch, batch_per_txn, timestamp);
   for (auto w : write_group) {
     if (w->CallbackFailed()) {
       continue;
@@ -1792,7 +1806,7 @@ Status WriteBatchInternal::InsertInto(
     ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
     bool ignore_missing_column_families, uint64_t log_number, DB* db,
     bool concurrent_memtable_writes, bool seq_per_batch, size_t batch_cnt,
-    bool batch_per_txn) {
+    bool batch_per_txn, uint64_t timestamp) {
 #ifdef NDEBUG
   (void)batch_cnt;
 #endif
@@ -1800,8 +1814,9 @@ Status WriteBatchInternal::InsertInto(
   MemTableInserter inserter(
       sequence, memtables, flush_scheduler, ignore_missing_column_families,
       log_number, db, concurrent_memtable_writes, nullptr /*has_valid_writes*/,
-      seq_per_batch, batch_per_txn);
+      seq_per_batch, batch_per_txn, timestamp);
   SetSequence(writer->batch, sequence);
+  // SetTimestamp(writer->batch, timestamp);
   inserter.set_log_number_ref(writer->log_ref);
   Status s = writer->batch->Iterate(&inserter);
   assert(!seq_per_batch || batch_cnt != 0);
@@ -1817,11 +1832,11 @@ Status WriteBatchInternal::InsertInto(
     FlushScheduler* flush_scheduler, bool ignore_missing_column_families,
     uint64_t log_number, DB* db, bool concurrent_memtable_writes,
     SequenceNumber* next_seq, bool* has_valid_writes, bool seq_per_batch,
-    bool batch_per_txn) {
+    bool batch_per_txn, uint64_t timestamp) {
   MemTableInserter inserter(Sequence(batch), memtables, flush_scheduler,
                             ignore_missing_column_families, log_number, db,
                             concurrent_memtable_writes, has_valid_writes,
-                            seq_per_batch, batch_per_txn);
+                            seq_per_batch, batch_per_txn, timestamp);
   Status s = batch->Iterate(&inserter);
   if (next_seq != nullptr) {
     *next_seq = inserter.sequence();

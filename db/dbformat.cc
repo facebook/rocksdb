@@ -77,17 +77,19 @@ void UnPackSequenceAndType(uint64_t packed, uint64_t* seq, ValueType* t) {
 void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {
   result->append(key.user_key.data(), key.user_key.size());
   PutFixed64(result, PackSequenceAndType(key.sequence, key.type));
+  PutFixed64(result, 0);
 }
 
 void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
                              ValueType t) {
   PutFixed64(result, PackSequenceAndType(s, t));
+  PutFixed64(result, 0);
 }
 
 std::string ParsedInternalKey::DebugString(bool hex) const {
-  char buf[50];
-  snprintf(buf, sizeof(buf), "' seq:%" PRIu64 ", type:%d", sequence,
-           static_cast<int>(type));
+  char buf[70];
+  snprintf(buf, sizeof(buf), "' seq:%" PRIu64 ", type:%d, timestamp:%" PRIu64,
+           sequence, static_cast<int>(type), timestamp);
   std::string result = "'";
   result += user_key.ToString(hex);
   result += buf;
@@ -145,6 +147,7 @@ void InternalKeyComparator::FindShortestSeparator(
     // User key has become shorter physically, but larger logically.
     // Tack on the earliest possible number to the shortened user key.
     PutFixed64(&tmp, PackSequenceAndType(kMaxSequenceNumber,kValueTypeForSeek));
+    PutFixed64(&tmp, 0);  // timestamp
     assert(this->Compare(*start, tmp) < 0);
     assert(this->Compare(tmp, limit) < 0);
     start->swap(tmp);
@@ -160,14 +163,16 @@ void InternalKeyComparator::FindShortSuccessor(std::string* key) const {
     // User key has become shorter physically, but larger logically.
     // Tack on the earliest possible number to the shortened user key.
     PutFixed64(&tmp, PackSequenceAndType(kMaxSequenceNumber,kValueTypeForSeek));
+    PutFixed64(&tmp, 0);  // timestamp
     assert(this->Compare(*key, tmp) < 0);
     key->swap(tmp);
   }
 }
 
-LookupKey::LookupKey(const Slice& _user_key, SequenceNumber s) {
+LookupKey::LookupKey(const Slice& _user_key, SequenceNumber s,
+                     uint64_t timestamp) {
   size_t usize = _user_key.size();
-  size_t needed = usize + 13;  // A conservative estimate
+  size_t needed = usize + 21;  // A conservative estimate
   char* dst;
   if (needed <= sizeof(space_)) {
     dst = space_;
@@ -176,11 +181,13 @@ LookupKey::LookupKey(const Slice& _user_key, SequenceNumber s) {
   }
   start_ = dst;
   // NOTE: We don't support users keys of more than 2GB :)
-  dst = EncodeVarint32(dst, static_cast<uint32_t>(usize + 8));
+  dst = EncodeVarint32(dst, static_cast<uint32_t>(usize + 16));
   kstart_ = dst;
   memcpy(dst, _user_key.data(), usize);
   dst += usize;
   EncodeFixed64(dst, PackSequenceAndType(s, kValueTypeForSeek));
+  dst += 8;
+  EncodeFixed64(dst, timestamp);
   dst += 8;
   end_ = dst;
 }

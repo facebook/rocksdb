@@ -122,6 +122,7 @@ class WriteThread {
     PreReleaseCallback* pre_release_callback;
     uint64_t log_used;  // log number that this batch was inserted into
     uint64_t log_ref;   // log number that memtable insert should reference
+    uint64_t timestamp;
     WriteCallback* callback;
     bool made_waitable;          // records lazy construction of mutex and cv
     std::atomic<uint8_t> state;  // write under StateMutex() or pre-link
@@ -145,6 +146,7 @@ class WriteThread {
           pre_release_callback(nullptr),
           log_used(0),
           log_ref(0),
+          timestamp(0),
           callback(nullptr),
           made_waitable(false),
           state(STATE_INIT),
@@ -166,6 +168,7 @@ class WriteThread {
           pre_release_callback(_pre_release_callback),
           log_used(0),
           log_ref(_log_ref),
+          timestamp(write_options.timestamp),
           callback(_callback),
           made_waitable(false),
           state(STATE_INIT),

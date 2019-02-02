@@ -295,7 +295,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   std::vector<DbPath> cf_paths;
 
   // Compaction concurrent thread limiter for the column family.
-  // If non-nullptr, use given concurrent thread limiter to control 
+  // If non-nullptr, use given concurrent thread limiter to control
   // the max outstanding compaction tasks. Limiter can be shared with
   // multiple column families across db instances.
   //
@@ -1097,6 +1097,8 @@ struct ReadOptions {
   // Default: 0
   uint64_t max_skippable_internal_keys;
 
+  uint64_t timestamp;
+
   // Specify if this read request should process data that ALREADY
   // resides on a particular cache. If the required data is not
   // found at the specified cache, then Status::Incomplete is returned.
@@ -1184,6 +1186,7 @@ struct ReadOptions {
 
 // Options that control write operations
 struct WriteOptions {
+  uint64_t timestamp;
   // If true, the write will be flushed from the operating system
   // buffer cache (by calling WritableFile::Sync()) before the write
   // is considered complete.  If this flag is true, writes will be
@@ -1228,7 +1231,8 @@ struct WriteOptions {
   bool low_pri;
 
   WriteOptions()
-      : sync(false),
+      : timestamp(0),
+        sync(false),
         disableWAL(false),
         ignore_missing_column_families(false),
         no_slowdown(false),

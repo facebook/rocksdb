@@ -250,7 +250,7 @@ void MemTableRep::InsertConcurrently(KeyHandle /*handle*/) {
 
 Slice MemTableRep::UserKey(const char* key) const {
   Slice slice = GetLengthPrefixedSlice(key);
-  return Slice(slice.data(), slice.size() - 8);
+  return Slice(slice.data(), slice.size() - 8 - 8);
 }
 
 KeyHandle MemTableRep::Allocate(const size_t len, char** buf) {
@@ -462,7 +462,8 @@ MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
 bool MemTable::Add(SequenceNumber s, ValueType type,
                    const Slice& key, /* user key */
                    const Slice& value, bool allow_concurrent,
-                   MemTablePostProcessInfo* post_process_info) {
+                   MemTablePostProcessInfo* post_process_info,
+                   uint64_t timestamp) {
   // Format of an entry is concatenation of:
   //  key_size     : varint32 of internal_key.size()
   //  key bytes    : char[internal_key.size()]
@@ -470,7 +471,8 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
   //  value bytes  : char[value.size()]
   uint32_t key_size = static_cast<uint32_t>(key.size());
   uint32_t val_size = static_cast<uint32_t>(value.size());
-  uint32_t internal_key_size = key_size + 8;
+  // key + sequence_number + timestamp
+  uint32_t internal_key_size = key_size + 8 + 8;
   const uint32_t encoded_len = VarintLength(internal_key_size) +
                                internal_key_size + VarintLength(val_size) +
                                val_size;
@@ -485,6 +487,8 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
   p += key_size;
   uint64_t packed = PackSequenceAndType(s, type);
   EncodeFixed64(p, packed);
+  p += 8;
+  EncodeFixed64(p, timestamp);
   p += 8;
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
@@ -581,6 +585,7 @@ struct Saver {
   bool* merge_in_progress;
   std::string* value;
   SequenceNumber seq;
+  uint64_t timestamp;
   const MergeOperator* merge_operator;
   // the merge operations encountered;
   MergeContext* merge_context;
@@ -599,6 +604,13 @@ struct Saver {
     }
     return true;
   }
+
+  bool CheckTimestamp(uint64_t row_ts) {
+    if (timestamp > 0) {
+      return (timestamp >= row_ts);
+    }
+    return true;
+  }
 };
 }  // namespace
 
@@ -613,8 +625,9 @@ static bool SaveValue(void* arg, const char* entry) {
 
   // entry format is:
   //    klength  varint32
-  //    userkey  char[klength-8]
+  //    userkey  char[klength-16]
   //    tag      uint64
+  //    ts       uint64
   //    vlength  varint32
   //    value    char[vlength]
   // Check that it belongs to same user key.  We do not check the
@@ -623,18 +636,27 @@ static bool SaveValue(void* arg, const char* entry) {
   uint32_t key_length;
   const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
   if (s->mem->GetInternalKeyComparator().user_comparator()->Equal(
-          Slice(key_ptr, key_length - 8), s->key->user_key())) {
+          Slice(key_ptr, key_length - 8 - 8), s->key->user_key())) {
     // Correct user key
-    const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
+    const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8 - 8);
     ValueType type;
     SequenceNumber seq;
     UnPackSequenceAndType(tag, &seq, &type);
+    uint64_t row_ts = DecodeFixed64(key_ptr + key_length - 8);
+
     // If the value is not in the snapshot, skip it
     if (!s->CheckCallback(seq)) {
       return true;  // to continue to the next seq
     }
 
+    // Passed sequence check but if the value is not as per the timestamp
+    // requirements, skip it
+    if (!s->CheckTimestamp(row_ts)) {
+      return true;  // to continue to the next timestamp
+    }
+
     s->seq = seq;
+    // s->timestamp = row_ts;
 
     if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
         max_covering_tombstone_seq > seq) {
@@ -775,6 +797,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.key = &key;
     saver.value = value;
     saver.seq = kMaxSequenceNumber;
+    saver.timestamp = read_opts.timestamp;
     saver.mem = this;
     saver.merge_context = merge_context;
     saver.max_covering_tombstone_seq = *max_covering_tombstone_seq;
@@ -813,6 +836,7 @@ void MemTable::Update(SequenceNumber seq,
     //    key_length  varint32
     //    userkey  char[klength-8]
     //    tag      uint64
+    //    timestamp uint64
     //    vlength  varint32
     //    value    char[vlength]
     // Check that it belongs to same user key.  We do not check the
@@ -822,9 +846,9 @@ void MemTable::Update(SequenceNumber seq,
     uint32_t key_length = 0;
     const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
     if (comparator_.comparator.user_comparator()->Equal(
-            Slice(key_ptr, key_length - 8), lkey.user_key())) {
+            Slice(key_ptr, key_length - 8 - 8), lkey.user_key())) {
       // Correct user key
-      const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
+      const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8 - 8);
       ValueType type;
       SequenceNumber existing_seq;
       UnPackSequenceAndType(tag, &existing_seq, &type);
@@ -870,8 +894,9 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
   if (iter->Valid()) {
     // entry format is:
     //    key_length  varint32
-    //    userkey  char[klength-8]
+    //    userkey  char[klength-8-8]
     //    tag      uint64
+    //    timestamp uint64
     //    vlength  varint32
     //    value    char[vlength]
     // Check that it belongs to same user key.  We do not check the
@@ -881,9 +906,9 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
     uint32_t key_length = 0;
     const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
     if (comparator_.comparator.user_comparator()->Equal(
-            Slice(key_ptr, key_length - 8), lkey.user_key())) {
+            Slice(key_ptr, key_length - 8 - 8), lkey.user_key())) {
       // Correct user key
-      const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
+      const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8 - 8);
       ValueType type;
       uint64_t unused;
       UnPackSequenceAndType(tag, &unused, &type);
@@ -952,7 +977,7 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
     uint32_t key_length = 0;
     const char* iter_key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
     if (!comparator_.comparator.user_comparator()->Equal(
-            Slice(iter_key_ptr, key_length - 8), key.user_key())) {
+            Slice(iter_key_ptr, key_length - 8 - 8), key.user_key())) {
       break;
     }
 

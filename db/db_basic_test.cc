@@ -36,8 +36,57 @@ TEST_F(DBBasicTest, OpenWhenOpen) {
 }
 
 #ifndef ROCKSDB_LITE
-TEST_F(DBBasicTest, ReadOnlyDB) {
+// operations with and without timestamp to the same DB
+TEST_F(DBBasicTest, Timestamp1) {
   ASSERT_OK(Put("foo", "v1"));
+  WriteOptions writeOpt = WriteOptions();
+  writeOpt.timestamp = 100;
+  ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v2"));
+
+  // Read from memtable
+  ASSERT_EQ("v1", Get("foo"));
+  ReadOptions ro;
+  ro.timestamp = 100;
+  std::string result;
+  ASSERT_OK(db_->Get(ro, "bar", &result));
+  ASSERT_EQ("v2", result);
+
+  Flush();
+
+  // Read after flush
+  ASSERT_EQ("v1", Get("foo"));
+  ASSERT_OK(db_->Get(ro, "bar", &result));
+  ASSERT_EQ("v2", result);
+  Close();
+}
+
+TEST_F(DBBasicTest, Timestamp2) {
+  WriteOptions wo = WriteOptions();
+  wo.timestamp = 100;
+  ASSERT_OK(dbfull()->Put(wo, "foo", "v1"));
+  Flush();
+
+  wo.timestamp = 200;
+  ASSERT_OK(dbfull()->Put(wo, "foo", "v2"));
+
+  ReadOptions ro;
+
+  // read data with older timestamp.
+  // you should get the older value even if it is overwritten.
+  ro.timestamp = 100;
+  std::string result;
+  ASSERT_OK(db_->Get(ro, "foo", &result));
+  ASSERT_EQ("v1", result);
+
+  // read latest timestamp
+  ro.timestamp = 200;
+  ASSERT_OK(db_->Get(ro, "foo", &result));
+  ASSERT_EQ("v2", result);
+
+  Close();
+}
+
+TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_OK(Put("bar", "v2"));
   ASSERT_OK(Put("foo", "v3"));
   Close();
