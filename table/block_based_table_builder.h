@@ -92,10 +92,14 @@ class BlockBasedTableBuilder : public TableBuilder {
  private:
   bool ok() const { return status().ok(); }
 
-  // Should the uncompressed data blocks be buffered in memory. Then, they will
-  // all be written during `Finish()` instead of after each `Flush()`, as the
-  // compression dictionary will only be finalized then.
+  // True if currently buffering uncompressed data blocks in-memory. See
+  // `Rep::State` API comment for details of the states.
   bool IsBuffered() const;
+
+  // Transition state from buffered to unbuffered. See `Rep::State` API comment
+  // for details of the states.
+  // REQUIRES: `IsBuffered() == true`
+  void EnterUnbuffered();
 
   // Call block's Finish() method
   // and then write the compressed block contents to file.

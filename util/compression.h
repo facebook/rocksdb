@@ -158,13 +158,13 @@ struct CompressionDict {
 #if ZSTD_VERSION_NUMBER >= 700
   ZSTD_CDict* zstd_cdict_ = nullptr;
 #endif  // ZSTD_VERSION_NUMBER >= 700
-  Slice dict_;
+  std::string dict_;
 
  public:
 #if ZSTD_VERSION_NUMBER >= 700
-  CompressionDict(Slice dict, CompressionType type, int level) {
+  CompressionDict(std::string dict, CompressionType type, int level) {
 #else   // ZSTD_VERSION_NUMBER >= 700
-  CompressionDict(Slice dict, CompressionType /*type*/, int /*level*/) {
+  CompressionDict(std::string dict, CompressionType /*type*/, int /*level*/) {
 #endif  // ZSTD_VERSION_NUMBER >= 700
     dict_ = std::move(dict);
 #if ZSTD_VERSION_NUMBER >= 700

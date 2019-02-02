@@ -279,7 +279,31 @@ struct BlockBasedTableBuilder::Rep {
 
   TableProperties props;
 
-  bool closed = false;  // Either Finish() or Abandon() has been called.
+  // States of the builder.
+  //
+  // - `kBuffered`: This is the initial state where zero or more data blocks are
+  //   accumulated uncompressed in-memory. From this state, call
+  //   `EnterUnbuffered()` to finalize the compression dictionary if enabled,
+  //   compress/write out any buffered blocks, and proceed to the `kUnbuffered`
+  //   state.
+  //
+  // - `kUnbuffered`: This is the state when compression dictionary is finalized
+  //   either because it wasn't enabled in the first place or it's been created
+  //   from sampling previously buffered data. In this state, blocks are simply
+  //   compressed/written out as they fill up. From this state, call `Finish()`
+  //   to complete the file (write meta-blocks, etc.), or `Abandon()` to delete
+  //   the partially created file.
+  //
+  // - `kClosed`: This indicates either `Finish()` or `Abandon()` has been
+  //   called, so the table builder is no longer usable. We must be in this
+  //   state by the time the destructor runs.
+  enum class State {
+    kBuffered,
+    kUnbuffered,
+    kClosed,
+  };
+  State state;
+
   const bool use_delta_encoding_for_index_values;
   std::unique_ptr<FilterBlockBuilder> filter_builder;
   char compressed_cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
@@ -330,6 +354,8 @@ struct BlockBasedTableBuilder::Rep {
         compression_dict(),
         compression_ctx(_compression_type),
         verify_dict(),
+        state((_is_bottommost_level && _compression_opts.max_dict_bytes > 0) ?
+            State::kBuffered : State::kUnbuffered),
         use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
                                             !table_opt.block_align),
         compressed_cache_key_prefix_size(0),
@@ -422,13 +448,14 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
 }
 
 BlockBasedTableBuilder::~BlockBasedTableBuilder() {
-  assert(rep_->closed);  // Catch errors where caller forgot to call Finish()
+  // Catch errors where caller forgot to call Finish()
+  assert(rep_->state == Rep::State::kClosed);
   delete rep_;
 }
 
 void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   Rep* r = rep_;
-  assert(!r->closed);
+  assert(rep_->state != Rep::State::kClosed);
   if (!ok()) return;
   ValueType value_type = ExtractValueType(key);
   if (IsValueType(value_type)) {
@@ -442,6 +469,12 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
     if (should_flush) {
       assert(!r->data_block.empty());
       Flush();
+
+      // TODO(ajkr): use the target file size
+      const uint64_t kNumBytes = 1048576;
+      if (IsBuffered() && FileSize() > kNumBytes) {
+        EnterUnbuffered();
+      }
 
       // Add item to index block.
       // We do not emit the index entry for a block until we have seen the
@@ -502,15 +535,14 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
 
 void BlockBasedTableBuilder::Flush() {
   Rep* r = rep_;
-  assert(!r->closed);
+  assert(rep_->state != Rep::State::kClosed);
   if (!ok()) return;
   if (r->data_block.empty()) return;
   WriteBlock(&r->data_block, &r->pending_handle, true /* is_data_block */);
 }
 
 bool BlockBasedTableBuilder::IsBuffered() const {
-  return rep_->is_bottommost_level &&
-         rep_->compression_opts.max_dict_bytes > 0 && !rep_->closed;
+  return rep_->state == Rep::State::kBuffered;
 }
 
 void BlockBasedTableBuilder::WriteBlock(BlockBuilder* block,
@@ -963,19 +995,10 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
   }
 }
 
-Status BlockBasedTableBuilder::Finish() {
+void BlockBasedTableBuilder::EnterUnbuffered() {
+  assert(IsBuffered());
   Rep* r = rep_;
-  bool empty_data_block = r->data_block.empty();
-  Flush();
-  // To make sure properties block is able to keep the accurate size of index
-  // block, we will finish writing all index entries first.
-  if (ok() && !IsBuffered() && !empty_data_block) {
-    r->index_builder->AddIndexEntry(
-        &r->last_key, nullptr /* no next data block */, r->pending_handle);
-  }
-  assert(!r->closed);
-  r->closed = true;
-
+  r->state = Rep::State::kUnbuffered;
   const size_t kSampleBytes = r->compression_opts.zstd_max_train_bytes > 0
                                   ? r->compression_opts.zstd_max_train_bytes
                                   : r->compression_opts.max_dict_bytes;
@@ -1023,19 +1046,31 @@ Status BlockBasedTableBuilder::Finish() {
       r->index_builder->OnKeyAdded(key);
     }
     WriteBlock(Slice(data_block), &r->pending_handle, true /* is_data_block */);
-    if (ok()) {
-      Slice first_key_in_next_block;
-      Slice* first_key_in_next_block_ptr = nullptr;
-      if (i + 1 < r->data_block_and_keys_buffers.size()) {
-        first_key_in_next_block =
-            r->data_block_and_keys_buffers[i + 1].second.front();
-        first_key_in_next_block_ptr = &first_key_in_next_block;
-      }
+    if (ok() && i + 1 < r->data_block_and_keys_buffers.size()) {
+      Slice first_key_in_next_block =
+          r->data_block_and_keys_buffers[i + 1].second.front();
+      Slice* first_key_in_next_block_ptr = &first_key_in_next_block;
       r->index_builder->AddIndexEntry(&keys.back(), first_key_in_next_block_ptr,
                                       r->pending_handle);
     }
   }
   r->data_block_and_keys_buffers.clear();
+}
+
+Status BlockBasedTableBuilder::Finish() {
+  Rep* r = rep_;
+  assert(r->state != Rep::State::kClosed);
+  bool empty_data_block = r->data_block.empty();
+  Flush();
+  if (IsBuffered()) {
+    EnterUnbuffered();
+  }
+  // To make sure properties block is able to keep the accurate size of index
+  // block, we will finish writing all index entries first.
+  if (ok() && !empty_data_block) {
+    r->index_builder->AddIndexEntry(
+        &r->last_key, nullptr /* no next data block */, r->pending_handle);
+  }
 
   // Write meta blocks, metaindex block and footer in the following order.
   //    1. [meta block: filter]
@@ -1060,14 +1095,13 @@ Status BlockBasedTableBuilder::Finish() {
   if (ok()) {
     WriteFooter(metaindex_block_handle, index_block_handle);
   }
-
+  r->state = Rep::State::kClosed;
   return r->status;
 }
 
 void BlockBasedTableBuilder::Abandon() {
-  Rep* r = rep_;
-  assert(!r->closed);
-  r->closed = true;
+  assert(rep_->state != Rep::State::kClosed);
+  rep_->state = Rep::State::kClosed;
 }
 
 uint64_t BlockBasedTableBuilder::NumEntries() const {
