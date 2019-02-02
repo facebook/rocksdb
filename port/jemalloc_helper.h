@@ -30,7 +30,7 @@ extern "C" int mallctlbymib(const size_t*, size_t, void*, size_t*, void*,
 extern "C" void malloc_stats_print(void (*)(void*, const char*), void*,
                                    const char*) __attribute__((__weak__));
 extern "C" size_t malloc_usable_size(JEMALLOC_USABLE_SIZE_CONST void*)
-    JEMALLOC_CXX_THROW __attribute__((__weak__));
+    __attribute__((__weak__));
 
 // Check if Jemalloc is linked with the binary. Note the main program might be
 // using a different memory allocator even this method return true.
@@ -43,7 +43,7 @@ static inline bool HasJemalloc() {
          sallocx != nullptr && dallocx != nullptr && sdallocx != nullptr &&
          nallocx != nullptr && mallctl != nullptr &&
          mallctlnametomib != nullptr && mallctlbymib != nullptr &&
-         malloc_stats_print != nullptr && malloc_usable_size != nullptr;
+         malloc_stats_print != nullptr;
 }
 
 #endif  // ROCKSDB_JEMALLOC
