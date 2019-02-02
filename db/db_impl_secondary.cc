@@ -224,7 +224,7 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
 }
 
 Status DB::OpenAsSecondary(const Options& options, const std::string& dbname,
-                           const std::string& secondary_dbname, DB** dbptr) {
+                           const std::string& secondary_path, DB** dbptr) {
   *dbptr = nullptr;
 
   DBOptions db_options(options);
@@ -233,7 +233,7 @@ Status DB::OpenAsSecondary(const Options& options, const std::string& dbname,
   column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
   std::vector<ColumnFamilyHandle*> handles;
 
-  Status s = DB::OpenAsSecondary(db_options, dbname, secondary_dbname,
+  Status s = DB::OpenAsSecondary(db_options, dbname, secondary_path,
                                  column_families, &handles, dbptr);
   if (s.ok()) {
     assert(handles.size() == 1);
@@ -244,7 +244,7 @@ Status DB::OpenAsSecondary(const Options& options, const std::string& dbname,
 
 Status DB::OpenAsSecondary(
     const DBOptions& db_options, const std::string& dbname,
-    const std::string& secondary_dbname,
+    const std::string& secondary_path,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
   *dbptr = nullptr;
@@ -259,15 +259,15 @@ Status DB::OpenAsSecondary(
   if (nullptr == tmp_opts.info_log) {
     Env* env = tmp_opts.env;
     assert(env != nullptr);
-    std::string secondary_db_abs_path;
-    env->GetAbsolutePath(secondary_dbname, &secondary_db_abs_path);
-    std::string fname = InfoLogFileName(secondary_dbname, secondary_db_abs_path,
+    std::string secondary_abs_path;
+    env->GetAbsolutePath(secondary_path, &secondary_abs_path);
+    std::string fname = InfoLogFileName(secondary_path, secondary_abs_path,
                                         tmp_opts.db_log_dir);
 
-    env->CreateDirIfMissing(secondary_dbname);
+    env->CreateDirIfMissing(secondary_path);
     if (tmp_opts.log_file_time_to_roll > 0 || tmp_opts.max_log_file_size > 0) {
       AutoRollLogger* result = new AutoRollLogger(
-          env, secondary_dbname, tmp_opts.db_log_dir,
+          env, secondary_path, tmp_opts.db_log_dir,
           tmp_opts.max_log_file_size, tmp_opts.log_file_time_to_roll,
           tmp_opts.info_log_level);
       Status s = result->GetStatus();
@@ -279,8 +279,8 @@ Status DB::OpenAsSecondary(
     }
     if (nullptr == tmp_opts.info_log) {
       env->RenameFile(fname, OldInfoLogFileName(
-                                 secondary_dbname, env->NowMicros(),
-                                 secondary_db_abs_path, tmp_opts.db_log_dir));
+                                 secondary_path, env->NowMicros(),
+                                 secondary_abs_path, tmp_opts.db_log_dir));
       Status s = env->NewLogger(fname, &(tmp_opts.info_log));
       if (tmp_opts.info_log != nullptr) {
         tmp_opts.info_log->SetInfoLogLevel(tmp_opts.info_log_level);
@@ -333,14 +333,14 @@ Status DB::OpenAsSecondary(
 
 Status DB::OpenAsSecondary(const Options& /*options*/,
                            const std::string& /*name*/,
-                           const std::string& /*secondary_name*/,
+                           const std::string& /*secondary_path*/,
                            DB** /*dbptr*/) {
   return Status::NotSupported("Not supported in ROCKSDB_LITE.");
 }
 
 Status DB::OpenAsSecondary(
     const DBOptions& /*db_options*/, const std::string& /*dbname*/,
-    const std::string& /*secondary_name*/,
+    const std::string& /*secondary_path*/,
     const std::vector<ColumnFamilyDescriptor>& /*column_families*/,
     std::vector<ColumnFamilyHandle*>* /*handles*/, DB** /*dbptr*/) {
   return Status::NotSupported("Not supported in ROCKSDB_LITE.");

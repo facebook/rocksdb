@@ -163,11 +163,11 @@ class DB {
       bool error_if_log_file_exist = false);
 
   static Status OpenAsSecondary(const Options& options, const std::string& name,
-                                const std::string& secondary_name, DB** dbptr);
+                                const std::string& secondary_path, DB** dbptr);
 
   static Status OpenAsSecondary(
       const DBOptions& db_options, const std::string& name,
-      const std::string& secondary_name,
+      const std::string& secondary_path,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
 

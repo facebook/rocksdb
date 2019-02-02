@@ -3406,13 +3406,14 @@ Status VersionSet::ReadAndApply(
       column_family_set_->UpdateMaxColumnFamily(max_column_family);
       MarkMinLogNumberToKeep2PC(min_log_number_to_keep);
     }
-    if (s.ok()) {
-      // It's possible that we have finished reading the current MANIFEST, and
-      // the primary has created a new MANIFEST.
-      log::Reader::Reporter* reporter = reader->GetReporter();
-      s = MaybeSwitchManifest(reporter, manifest_reader);
-      reader = manifest_reader->get();
-    }
+    // It's possible that:
+    // 1) s.IsCorruption(), indicating the current MANIFEST is corrupted.
+    // 2) we have finished reading the current MANIFEST.
+    // 3) we have encountered an IOError reading the current MANIFEST.
+    // We need to look for the next MANIFEST and start from there. If we cannot
+    // find the next MANIFEST, we should exit the loop.
+    s = MaybeSwitchManifest(reader->GetReporter(), manifest_reader);
+    reader = manifest_reader->get();
     if (s.ok() && reader->file()->file_name() == old_manifest_path) {
       break;
     }
@@ -3432,7 +3433,6 @@ Status VersionSet::ReadAndApply(
       }
     }
   }
-
   return s;
 }
 

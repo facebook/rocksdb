@@ -18,28 +18,28 @@ namespace rocksdb {
 #ifndef ROCKSDB_LITE
 class DBSecondaryTest : public DBTestBase {
  public:
-  DBSecondaryTest() : DBTestBase("/db_secondary_test"), secondary_dbname_() {
-    secondary_dbname_ =
+  DBSecondaryTest() : DBTestBase("/db_secondary_test"), secondary_path_() {
+    secondary_path_ =
         test::PerThreadDBPath(env_, "/db_secondary_test_secondary");
   }
 
   ~DBSecondaryTest() {
     if (getenv("KEEP_DB") != nullptr) {
       fprintf(stdout, "Secondary DB is still at %s\n",
-              secondary_dbname_.c_str());
+              secondary_path_.c_str());
     } else {
       Options options;
       options.env = env_;
-      EXPECT_OK(DestroyDB(secondary_dbname_, options));
+      EXPECT_OK(DestroyDB(secondary_path_, options));
     }
   }
 
  protected:
   Status ReopenAsSecondary(const Options& options) {
-    return DB::OpenAsSecondary(options, dbname_, secondary_dbname_, &db_);
+    return DB::OpenAsSecondary(options, dbname_, secondary_path_, &db_);
   }
 
-  std::string secondary_dbname_;
+  std::string secondary_path_;
 };
 
 TEST_F(DBSecondaryTest, ReopenAsSecondary) {
@@ -91,7 +91,7 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
   options1.env = env_;
   options1.max_open_files = -1;
   Status s =
-      DB::OpenAsSecondary(options1, dbname_, secondary_dbname_, &db_secondary);
+      DB::OpenAsSecondary(options1, dbname_, secondary_path_, &db_secondary);
   ASSERT_OK(s);
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -159,7 +159,7 @@ TEST_F(DBSecondaryTest, SwitchToNewManifestDuringOpen) {
     Options options1;
     options1.env = env_;
     options1.max_open_files = -1;
-    Status s = DB::OpenAsSecondary(options1, dbname_, secondary_dbname_,
+    Status s = DB::OpenAsSecondary(options1, dbname_, secondary_path_,
                                    &db_secondary);
     ASSERT_OK(s);
     delete db_secondary;
@@ -185,7 +185,7 @@ TEST_F(DBSecondaryTest, MissingTableFileDuringOpen) {
   Options options1;
   options1.env = env_;
   options1.max_open_files = -1;
-  Status s = DB::OpenAsSecondary(options1, dbname_, secondary_dbname_, &db1);
+  Status s = DB::OpenAsSecondary(options1, dbname_, secondary_path_, &db1);
   ASSERT_OK(s);
   ReadOptions ropts;
   ropts.verify_checksums = true;
@@ -232,7 +232,7 @@ TEST_F(DBSecondaryTest, MissingTableFile) {
   Options options1;
   options1.env = env_;
   options1.max_open_files = -1;
-  Status s = DB::OpenAsSecondary(options1, dbname_, secondary_dbname_, &db1);
+  Status s = DB::OpenAsSecondary(options1, dbname_, secondary_path_, &db1);
   ASSERT_OK(s);
 
   for (int i = 0; i != options.level0_file_num_compaction_trigger; ++i) {

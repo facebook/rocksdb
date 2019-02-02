@@ -122,6 +122,8 @@ class DBImplSecondary : public DBImpl {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
+  // Try to catch up with the primary by reading as much as possible from the
+  // log files until there is nothing more to read or encounters an error.
   Status TryCatchUpWithPrimary();
 
  private:
