@@ -414,6 +414,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       WritePreparedTransactionTest_AdvanceMaxEvictedSeqWithDuplicatesTest_Test;
   friend class WritePreparedTransactionTest_AdvanceSeqByOne_Test;
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
+  friend class WritePreparedTransactionTest_CleanupSnapshotEqualToMax_Test;
   friend class WritePreparedTransactionTest_DoubleSnapshot_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotReleased_Test;

@@ -1239,6 +1239,29 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
   db->ReleaseSnapshot(snap);
 }
 
+TEST_P(WritePreparedTransactionTest, CleanupSnapshotEqualToMax) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 0;    // only 1 entry => frequent eviction
+  DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
+  WriteOptions woptions;
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  ASSERT_OK(db->Put(woptions, "key", "value"));
+  auto snap = db->GetSnapshot();
+  auto snap_seq = snap->GetSequenceNumber();
+  ASSERT_OK(db->Put(woptions, "key", "value"));
+  ASSERT_EQ(snap_seq, wp_db->max_evicted_seq_);
+  ASSERT_EQ(1, wp_db->snapshots_total_);
+  ASSERT_EQ(1, wp_db->old_commit_map_.size());
+
+  db->ReleaseSnapshot(snap);
+
+  ASSERT_OK(db->Put(woptions, "key", "value"));
+
+  ASSERT_EQ(0, wp_db->snapshots_total_);
+  ASSERT_TRUE(wp_db->snapshots_all_.empty());
+  ASSERT_EQ(0, wp_db->old_commit_map_.size());
+}
+
 TEST_P(WritePreparedTransactionTest, AdvanceSeqByOne) {
   auto snap = db->GetSnapshot();
   auto seq1 = snap->GetSequenceNumber();
