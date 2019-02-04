@@ -3564,7 +3564,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     options.stats_persist_period_sec =
         static_cast<unsigned int>(FLAGS_stats_persist_period_sec);
     options.stats_history_buffer_size =
-        static_cast<unsigned int>(FLAGS_stats_history_buffer_size);
+        static_cast<size_t>(FLAGS_stats_history_buffer_size);
 
     options.compression_opts.level = FLAGS_compression_level;
     options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;

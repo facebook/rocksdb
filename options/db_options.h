@@ -56,7 +56,7 @@ struct ImmutableDBOptions {
   DBOptions::AccessHint access_hint_on_compaction_start;
   bool new_table_reader_for_compaction_inputs;
   size_t random_access_max_buffer_size;
-  unsigned int stats_history_buffer_size;
+  size_t stats_history_buffer_size;
   bool use_adaptive_mutex;
   std::vector<std::shared_ptr<EventListener>> listeners;
   bool enable_thread_tracking;

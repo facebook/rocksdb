@@ -481,7 +481,7 @@ class DBImpl : public DB {
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   void TEST_WaitForDumpStatsRun(std::function<void()> callback) const;
   void TEST_WaitForPersistStatsRun(std::function<void()> callback) const;
-  size_t TEST_GetStatsHistorySize() const;
+  size_t TEST_EstiamteStatsHistorySize() const;
 
 #endif  // NDEBUG
 
@@ -727,19 +727,21 @@ class DBImpl : public DB {
   static Status CreateAndNewDirectory(Env* env, const std::string& dirname,
                                       std::unique_ptr<Directory>* directory);
 
-  // return a map of DBStats and CFstats, specify time window etc in stats_opts
-  virtual Status GetStatsHistory(uint64_t start_time, uint64_t end_time,
-    GetStatsOptions& stats_opts,
-    StatsHistoryIterator** stats_iterator) override;
+  // Given a time window, return an iterator for accessing stats history
+  virtual Status GetStatsHistory(
+      uint64_t start_time, uint64_t end_time,
+      StatsHistoryIterator** stats_iterator) override;
 
   // return list of currently supported stats counters
-  // TODO: add mapping from counter to counter name string, e.g. "BLOCK_CACHE_MISS"
-  // std::vector<std::string> GetSupportedStatsCounters() override;
+  // TODO: add mapping from counter to counter name string, e.g.
+  // "BLOCK_CACHE_MISS" std::vector<std::string> GetSupportedStatsCounters()
+  // override;
 
   // find stats map from stats_history_ with smallest timestamp in
   // the range of [start_time, end_time)
   bool FindStatsByTime(uint64_t start_time, uint64_t end_time,
-      uint64_t* new_time, std::map<std::string, std::string>* stats_map);
+                       uint64_t* new_time,
+                       std::map<std::string, std::string>* stats_map);
 
  protected:
   Env* const env_;
@@ -1148,7 +1150,7 @@ class DBImpl : public DB {
 
   void PrintStatistics();
 
-  size_t GetStatsHistorySize() const;
+  size_t EstiamteStatsHistorySize() const;
 
   // persist stats to column family "_persistent_stats"
   void PersistStats();

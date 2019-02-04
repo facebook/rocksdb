@@ -10,16 +10,14 @@
 
 namespace rocksdb {
 
-class InMemoryStatsHistoryIterator final: public StatsHistoryIterator {
-public:
+class InMemoryStatsHistoryIterator final : public StatsHistoryIterator {
+ public:
   InMemoryStatsHistoryIterator(uint64_t start_time, uint64_t end_time,
-                               GetStatsOptions& stats_opts,
                                DBImpl* db_impl)
-    : start_time_(start_time),
-      end_time_(end_time),
-      valid_(true),
-      stats_opts_(stats_opts),
-      db_impl_(db_impl) {
+      : start_time_(start_time),
+        end_time_(end_time),
+        valid_(true),
+        db_impl_(db_impl) {
     AdvanceIteratorByTime(start_time_, end_time_);
   }
   virtual ~InMemoryStatsHistoryIterator();
@@ -29,9 +27,10 @@ public:
   virtual void Next() override;
   virtual uint64_t GetStatsTime() const override;
 
-  virtual const std::map<std::string, std::string>& GetStatsMap() const override;
+  virtual const std::map<std::string, std::string>& GetStatsMap()
+      const override;
 
-private:
+ private:
   // advance the iterator to the next stats history record with timestamp
   // between [start_time, end_time)
   void AdvanceIteratorByTime(uint64_t start_time, uint64_t end_time);
@@ -47,7 +46,6 @@ private:
   std::map<std::string, std::string> stats_map_;
   Status status_;
   bool valid_;
-  GetStatsOptions stats_opts_;
   DBImpl* db_impl_;
 };
 

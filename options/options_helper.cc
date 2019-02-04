@@ -1503,7 +1503,7 @@ std::unordered_map<std::string, OptionTypeInfo>
           offsetof(struct MutableDBOptions, stats_persist_period_sec)}},
         {"stats_history_buffer_size",
          {offsetof(struct DBOptions, stats_history_buffer_size),
-          OptionType::kUInt, OptionVerificationType::kNormal, false,
+          OptionType::kSizeT, OptionVerificationType::kNormal, false,
           offsetof(struct ImmutableDBOptions, stats_history_buffer_size)}},
         {"fail_if_options_file_error",
          {offsetof(struct DBOptions, fail_if_options_file_error),

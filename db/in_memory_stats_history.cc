@@ -6,15 +6,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "db/db_impl.h"
 #include "db/in_memory_stats_history.h"
-
+#include "db/db_impl.h"
 
 namespace rocksdb {
 
-InMemoryStatsHistoryIterator::~InMemoryStatsHistoryIterator() {
-
-}
+InMemoryStatsHistoryIterator::~InMemoryStatsHistoryIterator() {}
 
 bool InMemoryStatsHistoryIterator::Valid() const { return valid_; }
 
@@ -22,35 +19,27 @@ Status InMemoryStatsHistoryIterator::status() const { return status_; }
 
 void InMemoryStatsHistoryIterator::Next() {
   // increment start_time by 1 to avoid infinite loop
-  AdvanceIteratorByTime(GetStatsTime()+1, end_time_);
+  AdvanceIteratorByTime(GetStatsTime() + 1, end_time_);
 }
 
-uint64_t InMemoryStatsHistoryIterator::GetStatsTime() const {
-  return time_;
-}
+uint64_t InMemoryStatsHistoryIterator::GetStatsTime() const { return time_; }
 
-const std::map<std::string, std::string>& InMemoryStatsHistoryIterator::GetStatsMap() const {
+const std::map<std::string, std::string>&
+InMemoryStatsHistoryIterator::GetStatsMap() const {
   return stats_map_;
 }
 
 // advance the iterator to the next time between [start_time, end_time)
 // if success, update time_ and stats_map_ with new_time and stats_map
-void InMemoryStatsHistoryIterator::AdvanceIteratorByTime(uint64_t start_time, uint64_t end_time) {
+void InMemoryStatsHistoryIterator::AdvanceIteratorByTime(uint64_t start_time,
+                                                         uint64_t end_time) {
   // try to find next entry in stats_history_ map
-  std::map<std::string, std::string> stats_map;
-  uint64_t new_time = 0;
-  bool found = false;
   if (db_impl_ != nullptr) {
-    found = db_impl_->FindStatsByTime(start_time, end_time, &new_time, &stats_map);
-  }
-  if (found) {
-    stats_map_.swap(stats_map);
-    time_ = new_time;
-    valid_ = true;
+    valid_ =
+        db_impl_->FindStatsByTime(start_time, end_time, &time_, &stats_map_);
   } else {
     valid_ = false;
   }
 }
-
 
 }  // namespace rocksdb

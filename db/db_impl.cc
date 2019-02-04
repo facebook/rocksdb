@@ -70,8 +70,8 @@
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/statistics.h"
-#include "rocksdb/status.h"
 #include "rocksdb/stats_history.h"
+#include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block.h"
@@ -646,16 +646,19 @@ void DBImpl::StartTimedTasks() {
   }
 }
 
-size_t DBImpl::GetStatsHistorySize() const {
+// esitmate the total size of stats_history_
+size_t DBImpl::EstiamteStatsHistorySize() const {
   if (stats_history_.empty()) return 0;
   size_t size_total = sizeof(stats_history_);
-  for (const auto& stats : stats_history_) {
-    size_total += sizeof(stats.first) + sizeof(stats.second);
-    if (stats.second.size() != 0) {
-      auto s = stats.second.begin();
-      size_total += (sizeof(s->first) + sizeof(s->second)) * stats.second.size();
-    }
+  if (stats_history_.size() == 0) return size_total;
+  std::map<std::string, std::string> sample_slice(stats_history_.begin()->second);
+  // slice_per_slice = sizeof(uint64_t) +
+  //                   sizeof(std::map<std::string, std::string>)
+  size_t size_per_slice = sizeof(stats_history_.begin()->first);
+  for (const auto& pairs : sample_slice) {
+    size_per_slice += sizeof(pairs.first) + sizeof(pairs.second);
   }
+  size_total = size_per_slice * stats_history_.size();
   return size_total;
 }
 
@@ -702,12 +705,12 @@ void DBImpl::PersistStats() {
     ColumnFamilyOptions cf_options;
     stats_history_[now_micros] = stats_map;
     // delete older stats snapshots to control memory consumption
-    bool GC_needed = GetStatsHistorySize() >
-        immutable_db_options_.stats_history_buffer_size;
-    while (GC_needed && !stats_history_.empty()) {
+    bool purge_needed = EstiamteStatsHistorySize() >
+                        immutable_db_options_.stats_history_buffer_size;
+    while (purge_needed && !stats_history_.empty()) {
       stats_history_.erase(stats_history_.begin());
-      GC_needed = GetStatsHistorySize() >
-          immutable_db_options_.stats_history_buffer_size;
+      purge_needed = EstiamteStatsHistorySize() >
+                     immutable_db_options_.stats_history_buffer_size;
     }
   }
   // TODO: persist stats to disk
@@ -726,17 +729,16 @@ bool DBImpl::FindStatsByTime(uint64_t start_time, uint64_t end_time,
       *new_time = it->first;
       *stats_map = it->second;
       return true;
-    }
-    else {
+    } else {
       return false;
     }
   }
 }
 
 Status DBImpl::GetStatsHistory(uint64_t start_time, uint64_t end_time,
-  GetStatsOptions& stats_opts, StatsHistoryIterator** stats_iterator) {
-  StatsHistoryIterator* new_iterator = new InMemoryStatsHistoryIterator(
-    start_time, end_time, stats_opts, this);
+                               StatsHistoryIterator** stats_iterator) {
+  StatsHistoryIterator* new_iterator =
+      new InMemoryStatsHistoryIterator(start_time, end_time, this);
   *stats_iterator = new_iterator;
   return new_iterator->status();
 }

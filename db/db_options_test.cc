@@ -622,9 +622,8 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
   ASSERT_OK(Put("foo", "bar"));
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   env_->SleepForMicroseconds(8000000);  // Wait for stats persist to finish
-  GetStatsOptions stats_opts;
   StatsHistoryIterator* stats_iter = nullptr;
-  db_->GetStatsHistory(0, env_->NowMicros(), stats_opts, &stats_iter);
+  db_->GetStatsHistory(0, env_->NowMicros(), &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   // disabled stats snapshots
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "0"}}));
@@ -635,8 +634,9 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
   }
   delete stats_iter;
   ASSERT_GE(stats_count, 0);
-  env_->SleepForMicroseconds(8000000);  // Wait a bit and verify no more stats are found
-  db_->GetStatsHistory(0, env_->NowMicros(), stats_opts, &stats_iter);
+  env_->SleepForMicroseconds(
+      8000000);  // Wait a bit and verify no more stats are found
+  db_->GetStatsHistory(0, env_->NowMicros(), &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count_new = 0;
   for (; stats_iter->Valid(); stats_iter->Next()) {
@@ -654,9 +654,8 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryGC) {
   ASSERT_OK(Put("foo", "bar"));
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   env_->SleepForMicroseconds(8000000);  // Wait for stats persist to finish
-  GetStatsOptions stats_opts;
   StatsHistoryIterator* stats_iter = nullptr;
-  db_->GetStatsHistory(0, env_->NowMicros(), stats_opts, &stats_iter);
+  db_->GetStatsHistory(0, env_->NowMicros(), &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count = 0;
   for (; stats_iter->Valid(); stats_iter->Next()) {
@@ -664,14 +663,14 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryGC) {
     stats_count += stats_map.size();
   }
   delete stats_iter;
-  size_t stats_history_size = dbfull()->TEST_GetStatsHistorySize();
-  ASSERT_GE(stats_history_size, 20000);
+  size_t stats_history_size = dbfull()->TEST_EstiamteStatsHistorySize();
+  ASSERT_GE(stats_history_size, 1000);
   Close();
   // capping memory cost at 20000 bytes
   options.stats_history_buffer_size = 20000;
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   env_->SleepForMicroseconds(8000000);  // Wait for stats persist to finish
-  db_->GetStatsHistory(0, env_->NowMicros(), stats_opts, &stats_iter);
+  db_->GetStatsHistory(0, env_->NowMicros(), &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count_reopen = 0;
   for (; stats_iter->Valid(); stats_iter->Next()) {
@@ -679,7 +678,7 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryGC) {
     stats_count_reopen += stats_map.size();
   }
   delete stats_iter;
-  size_t stats_history_size_reopen = dbfull()->TEST_GetStatsHistorySize();
+  size_t stats_history_size_reopen = dbfull()->TEST_EstiamteStatsHistorySize();
   ASSERT_LE(stats_history_size_reopen, 20000);
   ASSERT_LE(stats_count_reopen, stats_count);
   Close();

@@ -684,7 +684,7 @@ struct DBOptions {
   // if not zero, periodically take stats snapshots and store in memory, the
   // memory size for stats snapshots is capped at stats_history_buffer_size
   // Default: 1MB
-  unsigned int stats_history_buffer_size = 1024*1024;
+  size_t stats_history_buffer_size = 1024 * 1024;
 
   // If set true, will hint the underlying file system that the file
   // access pattern is random, when a sst file is opened.

@@ -19,13 +19,8 @@ namespace rocksdb {
 
 class DBImpl;
 
-// Options that controls GetStatsHistory calls
-struct GetStatsOptions {
-  std::vector<std::string> tickers;
-};
-
 class StatsHistoryIterator {
-public:
+ public:
   StatsHistoryIterator() {}
   virtual ~StatsHistoryIterator() {}
 
@@ -36,11 +31,12 @@ public:
   // REQUIRES: Valid()
   virtual void Next() = 0;
 
-  // Return the time stamp (in microseconds) for the stats history record.
+  // Return the time stamp (in microseconds) when stats history is recorded.
   // REQUIRES: Valid()
-  virtual uint64_t GetStatsTime() const = 0; // stats history creation timestamp
+  virtual uint64_t GetStatsTime() const = 0;
 
-  // Return the current stats history as an std::map. The underlying storage
+  // Return the current stats history as an std::map which specifies the
+  // mapping from stats name to stats value . The underlying storage
   // for the returned map is valid only until the next modification of
   // the iterator.
   // REQUIRES: Valid()
