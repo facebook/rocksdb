@@ -119,7 +119,7 @@ PerfContext::PerfContext(const PerfContext& other) {
     ClearPerLevelPerfContext();
   }
   if (other.level_to_perf_context != nullptr) {
-    EnablePerLevelPerfContext();
+    level_to_perf_context = new std::map<uint32_t, PerfContextByLevel>();
     *level_to_perf_context = *other.level_to_perf_context;
   }
   per_level_perf_context_enabled = other.per_level_perf_context_enabled;
@@ -208,8 +208,8 @@ PerfContext::PerfContext(PerfContext&& other) {
     ClearPerLevelPerfContext();
   }
   if (other.level_to_perf_context != nullptr) {
-    EnablePerLevelPerfContext();
-    *level_to_perf_context = *other.level_to_perf_context;
+    level_to_perf_context = new std::map<uint32_t, PerfContextByLevel>();
+    *level_to_perf_context = std::move(*other.level_to_perf_context);
   }
   per_level_perf_context_enabled = other.per_level_perf_context_enabled;
   // after move, destroy other.level_to_perf_context
@@ -217,6 +217,8 @@ PerfContext::PerfContext(PerfContext&& other) {
 #endif
 }
 
+// TODO(Zhongyi): reduce code duplication between copy constructor and
+// assignment operator
 PerfContext& PerfContext::operator=(const PerfContext& other) {
 #ifndef NPERF_CONTEXT
   user_key_comparison_count = other.user_key_comparison_count;
@@ -299,7 +301,7 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
     ClearPerLevelPerfContext();
   }
   if (other.level_to_perf_context != nullptr) {
-    EnablePerLevelPerfContext();
+    level_to_perf_context = new std::map<uint32_t, PerfContextByLevel>();
     *level_to_perf_context = *other.level_to_perf_context;
   }
   per_level_perf_context_enabled = other.per_level_perf_context_enabled;
