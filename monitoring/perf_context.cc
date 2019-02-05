@@ -208,12 +208,10 @@ PerfContext::PerfContext(PerfContext&& other) {
     ClearPerLevelPerfContext();
   }
   if (other.level_to_perf_context != nullptr) {
-    level_to_perf_context = new std::map<uint32_t, PerfContextByLevel>();
-    *level_to_perf_context = std::move(*other.level_to_perf_context);
+    level_to_perf_context = other.level_to_perf_context;
+    other.level_to_perf_context = nullptr;
   }
   per_level_perf_context_enabled = other.per_level_perf_context_enabled;
-  // after move, destroy other.level_to_perf_context
-  other.ClearPerLevelPerfContext();
 #endif
 }
 
