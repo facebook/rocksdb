@@ -318,6 +318,7 @@ struct BlockBasedTableBuilder::Rep {
   uint64_t creation_time = 0;
   uint64_t oldest_key_time = 0;
   const bool is_bottommost_level;
+  const uint64_t target_file_size;
 
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
 
@@ -330,7 +331,8 @@ struct BlockBasedTableBuilder::Rep {
       const CompressionType _compression_type,
       const CompressionOptions& _compression_opts, const bool skip_filters,
       const std::string& _column_family_name, const uint64_t _creation_time,
-      const uint64_t _oldest_key_time, const bool _is_bottommost_level)
+      const uint64_t _oldest_key_time, const bool _is_bottommost_level,
+      const uint64_t _target_file_size)
       : ioptions(_ioptions),
         moptions(_moptions),
         table_options(table_opt),
@@ -354,8 +356,9 @@ struct BlockBasedTableBuilder::Rep {
         compression_dict(),
         compression_ctx(_compression_type),
         verify_dict(),
-        state((_is_bottommost_level && _compression_opts.max_dict_bytes > 0) ?
-            State::kBuffered : State::kUnbuffered),
+        state((_is_bottommost_level && _compression_opts.max_dict_bytes > 0)
+                  ? State::kBuffered
+                  : State::kUnbuffered),
         use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
                                             !table_opt.block_align),
         compressed_cache_key_prefix_size(0),
@@ -366,7 +369,8 @@ struct BlockBasedTableBuilder::Rep {
         column_family_name(_column_family_name),
         creation_time(_creation_time),
         oldest_key_time(_oldest_key_time),
-        is_bottommost_level(_is_bottommost_level) {
+        is_bottommost_level(_is_bottommost_level),
+        target_file_size(_target_file_size) {
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
       p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
@@ -417,7 +421,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     const CompressionType compression_type,
     const CompressionOptions& compression_opts, const bool skip_filters,
     const std::string& column_family_name, const uint64_t creation_time,
-    const uint64_t oldest_key_time, const bool is_bottommost_level) {
+    const uint64_t oldest_key_time, const bool is_bottommost_level,
+    const uint64_t target_file_size) {
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
       sanitized_table_options.checksum != kCRC32c) {
@@ -434,7 +439,7 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
                  internal_comparator, int_tbl_prop_collector_factories,
                  column_family_id, file, compression_type, compression_opts,
                  skip_filters, column_family_name, creation_time,
-                 oldest_key_time, is_bottommost_level);
+                 oldest_key_time, is_bottommost_level, target_file_size);
 
   if (rep_->filter_builder != nullptr) {
     rep_->filter_builder->StartBlock(0);
@@ -470,9 +475,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       assert(!r->data_block.empty());
       Flush();
 
-      // TODO(ajkr): use the target file size
-      const uint64_t kNumBytes = 1048576;
-      if (IsBuffered() && FileSize() > kNumBytes) {
+      if (IsBuffered() && r->data_begin_offset > r->target_file_size) {
         EnterUnbuffered();
       }
 
@@ -507,7 +510,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
     } else {
       r->index_builder->OnKeyAdded(key);
     }
-    NotifyCollectTableCollectorsOnAdd(key, value, FileSize(),
+    NotifyCollectTableCollectorsOnAdd(key, value, r->offset,
                                       r->table_properties_collectors,
                                       r->ioptions.info_log);
 
@@ -1108,14 +1111,7 @@ uint64_t BlockBasedTableBuilder::NumEntries() const {
   return rep_->props.num_entries;
 }
 
-uint64_t BlockBasedTableBuilder::FileSize() const {
-  if (IsBuffered()) {
-    // TODO(ajkr): try to estimate the compressed size
-    return static_cast<uint64_t>(rep_->data_begin_offset);
-  } else {
-    return rep_->offset;
-  }
-}
+uint64_t BlockBasedTableBuilder::FileSize() const { return rep_->offset; }
 
 bool BlockBasedTableBuilder::NeedCompact() const {
   for (const auto& collector : rep_->table_properties_collectors) {
