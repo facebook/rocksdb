@@ -217,7 +217,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
           return it->second <= snapshot_seq;
         }
       } else {
-        // 2nd query to commit cache. Refre to was_empty comment above.
+        // 2nd query to commit cache. Refer to was_empty comment above.
         exist = GetCommitEntry(indexed_seq, &dont_care, &cached);
         if (exist && prep_seq == cached.prep_seq) {
           ROCKS_LOG_DETAILS(
