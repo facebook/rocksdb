@@ -1054,7 +1054,7 @@ enum RepFactory {
 #ifdef USE_AWS
 rocksdb::Env* CreateAwsEnv(const std::string& dbpath,
                             std::unique_ptr<rocksdb::Env>* result) {
-  fprintf(stderr, "Creating AwsEnv for path %s ", dbpath.c_str());
+  fprintf(stderr, "Creating AwsEnv for path %s\n", dbpath.c_str());
   std::shared_ptr<rocksdb::Logger> info_log;
   info_log.reset(new rocksdb::StderrLogger(
 		     rocksdb::InfoLogLevel::WARN_LEVEL));
