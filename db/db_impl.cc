@@ -1319,10 +1319,13 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     ReturnAndCleanupSuperVersion(cfd, sv);
 
     RecordTick(stats_, NUMBER_KEYS_READ);
-    size_t size = pinnable_val->size();
-    RecordTick(stats_, BYTES_READ, size);
+    size_t size = 0;
+    if (s.ok()) {
+      size = pinnable_val->size();
+      RecordTick(stats_, BYTES_READ, size);
+      PERF_COUNTER_ADD(get_read_bytes, size);
+    }
     MeasureTime(stats_, BYTES_PER_READ, size);
-    PERF_COUNTER_ADD(get_read_bytes, size);
   }
   return s;
 }
