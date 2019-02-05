@@ -695,15 +695,18 @@ TEST_F(PerfContextTest, CopyAndMove) {
     get_perf_context()->EnablePerLevelPerfContext();
     PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 5);
     ASSERT_EQ(
-        1, (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
+        1,
+        (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
     PerfContext perf_context_assign;
     perf_context_assign = *get_perf_context();
     ASSERT_EQ(
-        1, (*(perf_context_assign.level_to_perf_context))[5].bloom_filter_useful);
+        1,
+        (*(perf_context_assign.level_to_perf_context))[5].bloom_filter_useful);
     get_perf_context()->ClearPerLevelPerfContext();
     get_perf_context()->Reset();
     ASSERT_EQ(
-        1, (*(perf_context_assign.level_to_perf_context))[5].bloom_filter_useful);
+        1,
+        (*(perf_context_assign.level_to_perf_context))[5].bloom_filter_useful);
     perf_context_assign.ClearPerLevelPerfContext();
     perf_context_assign.Reset();
   }
@@ -713,7 +716,8 @@ TEST_F(PerfContextTest, CopyAndMove) {
     get_perf_context()->EnablePerLevelPerfContext();
     PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 5);
     ASSERT_EQ(
-        1, (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
+        1,
+        (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
     PerfContext perf_context_copy(*get_perf_context());
     ASSERT_EQ(
         1, (*(perf_context_copy.level_to_perf_context))[5].bloom_filter_useful);
@@ -730,7 +734,8 @@ TEST_F(PerfContextTest, CopyAndMove) {
     get_perf_context()->EnablePerLevelPerfContext();
     PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 5);
     ASSERT_EQ(
-        1, (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
+        1,
+        (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
     PerfContext perf_context_move = std::move(*get_perf_context());
     ASSERT_EQ(
         1, (*(perf_context_move.level_to_perf_context))[5].bloom_filter_useful);
@@ -757,9 +762,9 @@ TEST_F(PerfContextTest, PerfContextDisableEnable) {
                    .bloom_filter_full_positive);
   // this was set when per level perf context is disabled, should not be copied
   ASSERT_NE(
-     1, (*(perf_context_copy.level_to_perf_context))[5].bloom_filter_useful);
-  ASSERT_EQ(1, (*(perf_context_copy.level_to_perf_context))[0]
-                 .block_cache_hit_count);
+      1, (*(perf_context_copy.level_to_perf_context))[5].bloom_filter_useful);
+  ASSERT_EQ(
+      1, (*(perf_context_copy.level_to_perf_context))[0].block_cache_hit_count);
   perf_context_copy.ClearPerLevelPerfContext();
   perf_context_copy.Reset();
   get_perf_context()->ClearPerLevelPerfContext();

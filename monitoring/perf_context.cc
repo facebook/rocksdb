@@ -77,7 +77,8 @@ PerfContext::PerfContext(const PerfContext& other) {
   write_memtable_time = other.write_memtable_time;
   write_delay_time = other.write_delay_time;
   write_thread_wait_nanos = other.write_thread_wait_nanos;
-  write_scheduling_flushes_compactions_time = other.write_scheduling_flushes_compactions_time;
+  write_scheduling_flushes_compactions_time =
+      other.write_scheduling_flushes_compactions_time;
   db_mutex_lock_nanos = other.db_mutex_lock_nanos;
   db_condition_wait_nanos = other.db_condition_wait_nanos;
   merge_operator_time_nanos = other.merge_operator_time_nanos;
@@ -102,13 +103,15 @@ PerfContext::PerfContext(const PerfContext& other) {
   env_new_directory_nanos = other.env_new_directory_nanos;
   env_file_exists_nanos = other.env_file_exists_nanos;
   env_get_children_nanos = other.env_get_children_nanos;
-  env_get_children_file_attributes_nanos = other.env_get_children_file_attributes_nanos;
+  env_get_children_file_attributes_nanos =
+      other.env_get_children_file_attributes_nanos;
   env_delete_file_nanos = other.env_delete_file_nanos;
   env_create_dir_nanos = other.env_create_dir_nanos;
   env_create_dir_if_missing_nanos = other.env_create_dir_if_missing_nanos;
   env_delete_dir_nanos = other.env_delete_dir_nanos;
   env_get_file_size_nanos = other.env_get_file_size_nanos;
-  env_get_file_modification_time_nanos = other.env_get_file_modification_time_nanos;
+  env_get_file_modification_time_nanos =
+      other.env_get_file_modification_time_nanos;
   env_rename_file_nanos = other.env_rename_file_nanos;
   env_link_file_nanos = other.env_link_file_nanos;
   env_lock_file_nanos = other.env_lock_file_nanos;
@@ -126,7 +129,7 @@ PerfContext::PerfContext(const PerfContext& other) {
 #endif
 }
 
-PerfContext::PerfContext(PerfContext&& other) {
+PerfContext::PerfContext(PerfContext&& other) noexcept {
 #ifndef NPERF_CONTEXT
   user_key_comparison_count = other.user_key_comparison_count;
   block_cache_hit_count = other.block_cache_hit_count;
@@ -166,7 +169,8 @@ PerfContext::PerfContext(PerfContext&& other) {
   write_memtable_time = other.write_memtable_time;
   write_delay_time = other.write_delay_time;
   write_thread_wait_nanos = other.write_thread_wait_nanos;
-  write_scheduling_flushes_compactions_time = other.write_scheduling_flushes_compactions_time;
+  write_scheduling_flushes_compactions_time =
+      other.write_scheduling_flushes_compactions_time;
   db_mutex_lock_nanos = other.db_mutex_lock_nanos;
   db_condition_wait_nanos = other.db_condition_wait_nanos;
   merge_operator_time_nanos = other.merge_operator_time_nanos;
@@ -191,13 +195,15 @@ PerfContext::PerfContext(PerfContext&& other) {
   env_new_directory_nanos = other.env_new_directory_nanos;
   env_file_exists_nanos = other.env_file_exists_nanos;
   env_get_children_nanos = other.env_get_children_nanos;
-  env_get_children_file_attributes_nanos = other.env_get_children_file_attributes_nanos;
+  env_get_children_file_attributes_nanos =
+      other.env_get_children_file_attributes_nanos;
   env_delete_file_nanos = other.env_delete_file_nanos;
   env_create_dir_nanos = other.env_create_dir_nanos;
   env_create_dir_if_missing_nanos = other.env_create_dir_if_missing_nanos;
   env_delete_dir_nanos = other.env_delete_dir_nanos;
   env_get_file_size_nanos = other.env_get_file_size_nanos;
-  env_get_file_modification_time_nanos = other.env_get_file_modification_time_nanos;
+  env_get_file_modification_time_nanos =
+      other.env_get_file_modification_time_nanos;
   env_rename_file_nanos = other.env_rename_file_nanos;
   env_link_file_nanos = other.env_link_file_nanos;
   env_lock_file_nanos = other.env_lock_file_nanos;
@@ -257,7 +263,8 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
   write_memtable_time = other.write_memtable_time;
   write_delay_time = other.write_delay_time;
   write_thread_wait_nanos = other.write_thread_wait_nanos;
-  write_scheduling_flushes_compactions_time = other.write_scheduling_flushes_compactions_time;
+  write_scheduling_flushes_compactions_time =
+      other.write_scheduling_flushes_compactions_time;
   db_mutex_lock_nanos = other.db_mutex_lock_nanos;
   db_condition_wait_nanos = other.db_condition_wait_nanos;
   merge_operator_time_nanos = other.merge_operator_time_nanos;
@@ -282,13 +289,15 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
   env_new_directory_nanos = other.env_new_directory_nanos;
   env_file_exists_nanos = other.env_file_exists_nanos;
   env_get_children_nanos = other.env_get_children_nanos;
-  env_get_children_file_attributes_nanos = other.env_get_children_file_attributes_nanos;
+  env_get_children_file_attributes_nanos =
+      other.env_get_children_file_attributes_nanos;
   env_delete_file_nanos = other.env_delete_file_nanos;
   env_create_dir_nanos = other.env_create_dir_nanos;
   env_create_dir_if_missing_nanos = other.env_create_dir_if_missing_nanos;
   env_delete_dir_nanos = other.env_delete_dir_nanos;
   env_get_file_size_nanos = other.env_get_file_size_nanos;
-  env_get_file_modification_time_nanos = other.env_get_file_modification_time_nanos;
+  env_get_file_modification_time_nanos =
+      other.env_get_file_modification_time_nanos;
   env_rename_file_nanos = other.env_rename_file_nanos;
   env_link_file_nanos = other.env_link_file_nanos;
   env_lock_file_nanos = other.env_lock_file_nanos;

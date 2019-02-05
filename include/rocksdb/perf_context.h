@@ -49,7 +49,7 @@ struct PerfContext {
 
   PerfContext(const PerfContext&);
   PerfContext& operator=(const PerfContext&);
-  PerfContext(PerfContext&&);
+  PerfContext(PerfContext&&) noexcept;
 
   void Reset(); // reset all performance counters to zero
 
