@@ -16,6 +16,7 @@
 * Change time resolution in FileOperationInfo.
 * Deleting Blob files also go through SStFileManager.
 * Remove PlainTable's store_index_in_file feature. When opening an existing DB with index in SST files, the index and bloom filter will still be rebuild while SST files are opened, in the same way as there is no index in the file.
+* The counter stat `number.block.not_compressed` now also counts blocks not compressed due to poor compression ratio.
 
 ### Bug Fixes
 * Fix a deadlock caused by compaction and file ingestion waiting for each other in the event of write stalls.
