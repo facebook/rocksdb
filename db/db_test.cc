@@ -5440,6 +5440,7 @@ TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
   dbfull()->TEST_WaitForCompact();
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBTest, CompactFilesShouldTriggerAutoCompaction) {
   Options options = CurrentOptions();
   options.max_background_compactions = 1;
@@ -5500,6 +5501,7 @@ TEST_F(DBTest, CompactFilesShouldTriggerAutoCompaction) {
   ASSERT_LE(cf_meta_data.levels[0].files.size(),
       options.level0_file_num_compaction_trigger);
 }
+#endif  // ROCKSDB_LITE
 
 // Github issue #595
 // Large write batch with column families
