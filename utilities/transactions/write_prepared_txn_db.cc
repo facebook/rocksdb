@@ -489,6 +489,8 @@ void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
   TEST_SYNC_POINT_CALLBACK(
       "RemovePrepared:Start",
       const_cast<void*>(reinterpret_cast<const void*>(&prepare_seq)));
+  TEST_SYNC_POINT("WritePreparedTxnDB::RemovePrepared:pause");
+  TEST_SYNC_POINT("WritePreparedTxnDB::RemovePrepared:resume");
   ROCKS_LOG_DETAILS(info_log_,
                     "RemovePrepared %" PRIu64 " cnt: %" ROCKSDB_PRIszt,
                     prepare_seq, batch_cnt);
@@ -544,9 +546,8 @@ bool WritePreparedTxnDB::ExchangeCommitEntry(const uint64_t indexed_seq,
 void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
                                               const SequenceNumber& new_max) {
   ROCKS_LOG_DETAILS(info_log_,
-                    "AdvanceMaxEvictedSeq overhead %" PRIu64
-                    " => %" PRIu64 prev_max,
-                    new_max);
+                    "AdvanceMaxEvictedSeq overhead %" PRIu64 " => %" PRIu64,
+                    prev_max, new_max);
   // Declare the intention before getting snapshot from the DB. This helps a
   // concurrent GetSnapshot to wait to catch up with future_max_evicted_seq_ if
   // it has not already. Otherwise the new snapshot is when we ask DB for
