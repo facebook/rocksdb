@@ -1,5 +1,6 @@
 # Rocksdb Change Log
 ## Cherry-picks
+* Fix potential DB hang while using CompactFiles.
 * Fix with pipelined write, write leaders's callback failure lead to the whole write group fail.
 
 ## 5.18.3 (2/11/2019)
