@@ -41,7 +41,7 @@ make check J=1
 ### Measure Performance
 To run dbbench,
    db_bench --env_uri="s3://" --aws_access_id=xxx and --aws_secret_key=yyy
-This will create files in a bucket named rockset.dbbench.$USER where $USER is the name of the user who is runnibg the benchmark.
+This will create files in a bucket named rockset.dbbench.$USER where $USER is the name of the user who is running the benchmark.
 
 
 
