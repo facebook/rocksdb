@@ -32,8 +32,6 @@ AWS_ACCESS_KEY_ID     : your aws access credentials
 
 AWS_SECRET_ACCESS_KEY : your secret key
 
-AWS_BUCKET_NAME       : the name of your S3 test bucket
-
 AWS_DEFAULT_REGION : the AWS region of your client (e.g. us-west-2)
 
 ### Run Unit Tests
@@ -43,6 +41,7 @@ make check J=1
 ### Measure Performance
 To run dbbench,
    db_bench --env_uri="s3://" --aws_access_id=xxx and --aws_secret_key=yyy
+This will create files in a bucket named rockset.dbbench.<userid> where <userid> is the name of the user who is runnibg the benchmark.
 
 
 
