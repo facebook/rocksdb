@@ -860,12 +860,29 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
 }
 
 TEST_P(ExternalSSTFileBasicTest, IngestExternalFileWithCorruptedPropsBlock) {
-  int file_id = 0;
-  Random64 rand(time(nullptr));
   bool verify_checksums_before_ingest = std::get<1>(GetParam());
   if (!verify_checksums_before_ingest) {
     return;
   }
+  uint64_t props_block_offset = 0;
+  size_t props_block_size = 0;
+  const auto& get_props_block_offset = [&](void* arg) {
+    props_block_offset = *reinterpret_cast<uint64_t*>(arg);
+  };
+  const auto& get_props_block_size = [&](void* arg) {
+    props_block_size = *reinterpret_cast<uint64_t*>(arg);
+  };
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::WritePropertiesBlock:GetPropsBlockOffset",
+      get_props_block_offset);
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::WritePropertiesBlock:GetPropsBlockSize",
+      get_props_block_size);
+  SyncPoint::GetInstance()->EnableProcessing();
+  int file_id = 0;
+  Random64 rand(time(nullptr));
   do {
     std::string file_path = sst_files_dir_ + ToString(file_id++);
     Options options = CurrentOptions();
@@ -880,18 +897,16 @@ TEST_P(ExternalSSTFileBasicTest, IngestExternalFileWithCorruptedPropsBlock) {
     ASSERT_OK(sst_file_writer.Finish());
 
     {
-      // Get file size
-      uint64_t file_size = 0;
-      ASSERT_OK(env_->GetFileSize(file_path, &file_size));
-      ASSERT_GT(file_size, 8);
       std::unique_ptr<RandomRWFile> rwfile;
       ASSERT_OK(env_->NewRandomRWFile(file_path, &rwfile, EnvOptions()));
       // Manually corrupt the file
-      uint64_t offset = rand.Next() % (file_size - 8);
+      ASSERT_GT(props_block_size, 8);
+      uint64_t offset =
+          props_block_offset + rand.Next() % (props_block_size - 8);
       char scratch[8] = {0};
       Slice buf;
       ASSERT_OK(rwfile->Read(offset, sizeof(scratch), &buf, scratch));
-      scratch[0] ^= 0xff; // flip one bit
+      scratch[0] ^= 0xff;  // flip one bit
       ASSERT_OK(rwfile->Write(offset, buf));
     }
 

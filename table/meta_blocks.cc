@@ -174,7 +174,9 @@ bool NotifyCollectTableCollectorsOnFinish(
 Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
                       FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                       const ImmutableCFOptions& ioptions,
-                      TableProperties** table_properties,
+                      TableProperties** table_properties, bool verify_checksum,
+                      BlockHandle* ret_block_handle,
+                      BlockContents* ret_block_contents,
                       bool /*compression_type_missing*/,
                       MemoryAllocator* memory_allocator) {
   assert(table_properties);
@@ -187,7 +189,7 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
 
   BlockContents block_contents;
   ReadOptions read_options;
-  read_options.verify_checksums = false;
+  read_options.verify_checksums = verify_checksum;
   Status s;
   PersistentCacheOptions cache_options;
 
@@ -255,9 +257,12 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
     }
 
     auto key = iter.key().ToString();
-    // properties block is strictly sorted with no duplicate key.
-    assert(last_key.empty() ||
-           BytewiseComparator()->Compare(key, last_key) > 0);
+    // properties block should be strictly sorted with no duplicate key.
+    if (!last_key.empty() &&
+        BytewiseComparator()->Compare(key, last_key) <= 0) {
+      s = Status::Corruption("properties unsorted");
+      break;
+    }
     last_key = key;
 
     auto raw_val = iter.value();
@@ -306,6 +311,12 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
   }
   if (s.ok()) {
     *table_properties = new_table_properties;
+    if (ret_block_handle != nullptr) {
+      *ret_block_handle = handle;
+    }
+    if (ret_block_contents != nullptr) {
+      *ret_block_contents = std::move(block_contents);
+    }
   } else {
     delete new_table_properties;
   }
@@ -359,9 +370,11 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
 
   TableProperties table_properties;
   if (found_properties_block == true) {
-    s = ReadProperties(meta_iter->value(), file, nullptr /* prefetch_buffer */,
-                       footer, ioptions, properties, compression_type_missing,
-                       memory_allocator);
+    s = ReadProperties(
+        meta_iter->value(), file, nullptr /* prefetch_buffer */, footer,
+        ioptions, properties, false /* verify_checksum */,
+        nullptr /* ret_block_hanel */, nullptr /* ret_block_contents */,
+        compression_type_missing, memory_allocator);
   } else {
     s = Status::NotFound();
   }
