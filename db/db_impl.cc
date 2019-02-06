@@ -651,7 +651,7 @@ size_t DBImpl::EstiamteStatsHistorySize() const {
   if (stats_history_.empty()) return 0;
   size_t size_total = sizeof(stats_history_);
   if (stats_history_.size() == 0) return size_total;
-  std::map<std::string, std::string> sample_slice(stats_history_.begin()->second);
+  std::map<std::string, uint64_t> sample_slice(stats_history_.begin()->second);
   // slice_per_slice = sizeof(uint64_t) +
   //                   sizeof(std::map<std::string, std::string>)
   size_t size_per_slice = sizeof(stats_history_.begin()->first);
@@ -665,45 +665,33 @@ size_t DBImpl::EstiamteStatsHistorySize() const {
 void DBImpl::PersistStats() {
   TEST_SYNC_POINT("DBImpl::PersistStats:Entry");
 #ifndef ROCKSDB_LITE
-  const DBPropertyInfo* cf_property_info =
-      GetPropertyInfo(DB::Properties::kCFStats);
-  assert(cf_property_info != nullptr);
-  const DBPropertyInfo* db_property_info =
-      GetPropertyInfo(DB::Properties::kDBStats);
-  assert(db_property_info != nullptr);
-  std::map<std::string, std::string> stats_map;
   if (shutdown_initiated_) {
     return;
   }
-  uint64_t now_micros = 0;
-  {
-    InstrumentedMutexLock l(&mutex_);
-    now_micros = env_->NowMicros();
-    default_cf_internal_stats_->GetMapProperty(
-        *db_property_info, DB::Properties::kDBStats, &stats_map);
-    std::map<std::string, std::string> cf_stats_map;
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->initialized()) {
-        cfd->internal_stats()->GetMapProperty(
-            *cf_property_info, DB::Properties::kCFStatsNoFileHistogram,
-            &cf_stats_map);
-        cfd->internal_stats()->GetMapProperty(
-            *cf_property_info, DB::Properties::kCFFileHistogram, &cf_stats_map);
-        // add column family name to the key string
-        for (const auto& cf_stats : cf_stats_map) {
-          std::string key_with_cf_name = cfd->GetName() + "::" + cf_stats.first;
-          stats_map[key_with_cf_name] = cf_stats.second;
-        }
-      }
-    }
+  uint64_t now_micros = env_->NowMicros();
+  Statistics* statistics = immutable_db_options_.statistics.get();
+  if (!statistics) {
+    return;
   }
+
   // TODO(Zhongyi): also persist immutable_db_options_.statistics
   TEST_SYNC_POINT("DBImpl::PersistStats:StatsCopied");
   {
+    std::map<std::string, uint64_t> stats_map = statistics->getTickerMap();
     InstrumentedMutexLock l(&stats_history_mutex_);
-    WriteOptions wo;
-    ColumnFamilyOptions cf_options;
-    stats_history_[now_micros] = stats_map;
+    // calculate the delta from last time
+    if (stats_slice_initialized_) {
+      std::map<std::string, uint64_t> stats_delta;
+      for (const auto& stat : stats_map) {
+        if (stats_slice_.find(stat.first) != stats_slice_.end()) {
+          stats_delta[stat.first] = stat.second - stats_slice_[stat.first];
+        }
+      }
+      stats_history_[now_micros] = stats_delta;
+    }
+    stats_slice_initialized_ = true;
+    stats_slice_ = stats_map;
+
     // delete older stats snapshots to control memory consumption
     bool purge_needed = EstiamteStatsHistorySize() >
                         immutable_db_options_.stats_history_buffer_size;
@@ -719,7 +707,7 @@ void DBImpl::PersistStats() {
 
 bool DBImpl::FindStatsByTime(uint64_t start_time, uint64_t end_time,
                              uint64_t* new_time,
-                             std::map<std::string, std::string>* stats_map) {
+                             std::map<std::string, uint64_t>* stats_map) {
   // lock when search for start_time
   {
     InstrumentedMutexLock l(&stats_history_mutex_);

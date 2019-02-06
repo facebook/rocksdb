@@ -741,7 +741,7 @@ class DBImpl : public DB {
   // the range of [start_time, end_time)
   bool FindStatsByTime(uint64_t start_time, uint64_t end_time,
                        uint64_t* new_time,
-                       std::map<std::string, std::string>* stats_map);
+                       std::map<std::string, uint64_t>* stats_map);
 
  protected:
   Env* const env_;
@@ -1321,7 +1321,11 @@ class DBImpl : public DB {
 
   bool is_snapshot_supported_;
 
-  std::map<uint64_t, std::map<std::string, std::string>> stats_history_;
+  std::map<uint64_t, std::map<std::string, uint64_t>> stats_history_;
+
+  std::map<std::string, uint64_t> stats_slice_;
+
+  bool stats_slice_initialized_ = false;
 
   // Class to maintain directories for all database paths other than main one.
   class Directories {

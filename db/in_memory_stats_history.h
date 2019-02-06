@@ -27,7 +27,7 @@ class InMemoryStatsHistoryIterator final : public StatsHistoryIterator {
   virtual void Next() override;
   virtual uint64_t GetStatsTime() const override;
 
-  virtual const std::map<std::string, std::string>& GetStatsMap()
+  virtual const std::map<std::string, uint64_t>& GetStatsMap()
       const override;
 
  private:
@@ -43,7 +43,7 @@ class InMemoryStatsHistoryIterator final : public StatsHistoryIterator {
   uint64_t time_;
   uint64_t start_time_;
   uint64_t end_time_;
-  std::map<std::string, std::string> stats_map_;
+  std::map<std::string, uint64_t> stats_map_;
   Status status_;
   bool valid_;
   DBImpl* db_impl_;

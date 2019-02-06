@@ -24,7 +24,7 @@ void InMemoryStatsHistoryIterator::Next() {
 
 uint64_t InMemoryStatsHistoryIterator::GetStatsTime() const { return time_; }
 
-const std::map<std::string, std::string>&
+const std::map<std::string, uint64_t>&
 InMemoryStatsHistoryIterator::GetStatsMap() const {
   return stats_map_;
 }

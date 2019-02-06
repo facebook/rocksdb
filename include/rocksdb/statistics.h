@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <string>
 #include <memory>
+#include <map>
 #include <vector>
 
 #include "rocksdb/status.h"
@@ -478,6 +479,12 @@ class Statistics {
     // Do nothing by default
     return std::string("ToString(): not implemented");
   }
+
+  virtual std::map<std::string, uint64_t> getTickerMap() const {
+    // Do nothing by default
+    std::map<std::string, uint64_t> empty_map;
+    return empty_map;
+  };
 
   // Override this function to disable particular histogram collection
   virtual bool HistEnabledForType(uint32_t type) const {

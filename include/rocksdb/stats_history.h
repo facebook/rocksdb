@@ -40,7 +40,7 @@ class StatsHistoryIterator {
   // for the returned map is valid only until the next modification of
   // the iterator.
   // REQUIRES: Valid()
-  virtual const std::map<std::string, std::string>& GetStatsMap() const = 0;
+  virtual const std::map<std::string, uint64_t>& GetStatsMap() const = 0;
 
   // If an error has occurred, return it.  Else return an ok status.
   virtual Status status() const = 0;

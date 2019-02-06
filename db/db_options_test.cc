@@ -617,6 +617,7 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
   Options options;
   options.create_if_missing = true;
   options.stats_persist_period_sec = 5;
+  options.statistics = rocksdb::CreateDBStatistics();
   options.env = env_;
   CreateColumnFamilies({"pikachu"}, options);
   ASSERT_OK(Put("foo", "bar"));
@@ -643,31 +644,66 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
     stats_count_new += stats_iter->GetStatsMap().size();
   }
   ASSERT_EQ(stats_count_new, stats_count);
+  delete stats_iter;
 }
 
 TEST_F(DBOptionsTest, InMemoryStatsHistoryGC) {
   Options options;
   options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
   options.stats_persist_period_sec = 1;
   options.env = env_;
   CreateColumnFamilies({"pikachu"}, options);
   ASSERT_OK(Put("foo", "bar"));
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
-  env_->SleepForMicroseconds(8000000);  // Wait for stats persist to finish
+  // some random operation to populate statistics
+  ASSERT_OK(Delete("foo"));
+  ASSERT_OK(Put("sol", "sol"));
+  ASSERT_OK(Put("epic", "epic"));
+  ASSERT_OK(Put("ltd", "ltd"));
+  ASSERT_EQ("sol", Get("sol"));
+  ASSERT_EQ("epic", Get("epic"));
+  ASSERT_EQ("ltd", Get("ltd"));
+  Iterator* iterator = db_->NewIterator(ReadOptions());
+  for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()){
+    ASSERT_TRUE(iterator->key() == iterator->value());
+  }
+  delete iterator;
+  ASSERT_OK(Flush());
+  ASSERT_OK(Delete("sol"));
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  // Wait for stats persist to finish
+  env_->SleepForMicroseconds(4000000);
+
+  // second round of ops
+  ASSERT_OK(Put("saigon", "saigon"));
+  ASSERT_OK(Put("noodle talk", "noodle talk"));
+  ASSERT_OK(Put("ping bistro", "ping bistro"));
+  iterator = db_->NewIterator(ReadOptions());
+  for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()){
+    ASSERT_TRUE(iterator->key() == iterator->value());
+  }
+  delete iterator;
+  ASSERT_OK(Flush());
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  env_->SleepForMicroseconds(4000000);
   StatsHistoryIterator* stats_iter = nullptr;
   db_->GetStatsHistory(0, env_->NowMicros(), &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count = 0;
+  int slice_count = 0;
   for (; stats_iter->Valid(); stats_iter->Next()) {
+    slice_count++;
     auto stats_map = stats_iter->GetStatsMap();
     stats_count += stats_map.size();
   }
   delete stats_iter;
   size_t stats_history_size = dbfull()->TEST_EstiamteStatsHistorySize();
-  ASSERT_GE(stats_history_size, 1000);
+  ASSERT_GE(slice_count, 0);
+  ASSERT_GE(stats_history_size, 2000);
   Close();
   // capping memory cost at 20000 bytes
-  options.stats_history_buffer_size = 20000;
+  options.stats_history_buffer_size = 2000;
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   env_->SleepForMicroseconds(8000000);  // Wait for stats persist to finish
   db_->GetStatsHistory(0, env_->NowMicros(), &stats_iter);
@@ -679,7 +715,7 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryGC) {
   }
   delete stats_iter;
   size_t stats_history_size_reopen = dbfull()->TEST_EstiamteStatsHistorySize();
-  ASSERT_LE(stats_history_size_reopen, 20000);
+  ASSERT_LE(stats_history_size_reopen, 2000);
   ASSERT_LE(stats_count_reopen, stats_count);
   Close();
 }
