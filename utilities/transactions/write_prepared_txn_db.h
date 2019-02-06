@@ -153,10 +153,21 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                         prep_seq, snapshot_seq, 1, min_uncommitted);
       return true;
     }
+    // Commit of delayed prepared has two non-atomic steps: add to commit cache,
+    // remove from delayed prepared. Our reads from these two is also
+    // non-atomic. By looking into commit cache first thus we might not find the
+    // prep_seq neither in commit cache not in delayed_prepared_. To fix that i)
+    // we check if there was any delayed prepared BEFORE looking into commit
+    // cache, ii) if there was, we complete the search steps to be these: i)
+    // commit cache, ii) delayed prepared, commit cache again. In this way if
+    // the first query to commit cache missed the commit, the 2nd will catch it.
+    bool was_empty = delayed_prepared_empty_.load(std::memory_order_acquire);
     auto indexed_seq = prep_seq % COMMIT_CACHE_SIZE;
     CommitEntry64b dont_care;
     CommitEntry cached;
     bool exist = GetCommitEntry(indexed_seq, &dont_care, &cached);
+    TEST_SYNC_POINT("WritePreparedTxnDB::IsInSnapshot:GetCommitEntry:pause");
+    TEST_SYNC_POINT("WritePreparedTxnDB::IsInSnapshot:GetCommitEntry:resume");
     if (exist && prep_seq == cached.prep_seq) {
       // It is committed and also not evicted from commit cache
       ROCKS_LOG_DETAILS(
@@ -178,12 +189,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
           prep_seq, snapshot_seq, 0);
       return false;
     }
-    if (!delayed_prepared_empty_.load(std::memory_order_acquire)) {
+    if (!was_empty) {
       // We should not normally reach here
       WPRecordTick(TXN_PREPARE_MUTEX_OVERHEAD);
       ReadLock rl(&prepared_mutex_);
-      ROCKS_LOG_WARN(info_log_, "prepared_mutex_ overhead %" PRIu64,
-                     static_cast<uint64_t>(delayed_prepared_.size()));
+      ROCKS_LOG_WARN(info_log_,
+                     "prepared_mutex_ overhead %" PRIu64 " for %" PRIu64,
+                     static_cast<uint64_t>(delayed_prepared_.size()), prep_seq);
       if (delayed_prepared_.find(prep_seq) != delayed_prepared_.end()) {
         // This is the order: 1) delayed_prepared_commits_ update, 2) publish 3)
         // delayed_prepared_ clean up. So check if it is the case of a late
@@ -203,6 +215,16 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                             prep_seq, snapshot_seq, it->second,
                             snapshot_seq <= it->second);
           return it->second <= snapshot_seq;
+        }
+      } else {
+        // 2nd query to commit cache. Refer to was_empty comment above.
+        exist = GetCommitEntry(indexed_seq, &dont_care, &cached);
+        if (exist && prep_seq == cached.prep_seq) {
+          ROCKS_LOG_DETAILS(
+              info_log_,
+              "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+              prep_seq, snapshot_seq, cached.commit_seq <= snapshot_seq);
+          return cached.commit_seq <= snapshot_seq;
         }
       }
     }

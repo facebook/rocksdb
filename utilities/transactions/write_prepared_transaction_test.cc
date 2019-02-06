@@ -2696,6 +2696,80 @@ TEST_P(WritePreparedTransactionTest, IteratorRefreshNotSupported) {
   delete iter;
 }
 
+// Committing an delayed prepared has two non-atomic steps: update commit cache,
+// remove seq from delayed_prepared_. The read in IsInSnapshot also involves two
+// non-atomic steps of checking these two data structures. This test breaks each
+// in the middle to ensure correctness in spite of non-atomic execution.
+// Note: This test is limitted to the case where snapshot is larger than the
+// max_evicted_seq_.
+TEST_P(WritePreparedTransactionTest, NonAtomicCommitOfOldPrepared) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 3;    // 8 entries
+  for (auto split_read : {true, false}) {
+    DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
+    // Fill up the commit cache
+    std::string init_value("value1");
+    for (int i = 0; i < 10; i++) {
+      db->Put(WriteOptions(), Slice("key1"), Slice(init_value));
+    }
+    // Prepare a transaction but do not commit it
+    Transaction* txn =
+        db->BeginTransaction(WriteOptions(), TransactionOptions());
+    ASSERT_OK(txn->SetName("xid"));
+    ASSERT_OK(txn->Put(Slice("key1"), Slice("value2")));
+    ASSERT_OK(txn->Prepare());
+    // Commit a bunch of entires to advance max evicted seq and make the
+    // prepared a delayed prepared
+    for (int i = 0; i < 10; i++) {
+      db->Put(WriteOptions(), Slice("key3"), Slice("value3"));
+    }
+    // The snapshot should not see the delayed prepared entry
+    auto snap = db->GetSnapshot();
+
+    if (split_read) {
+      // split right after reading from the commit cache
+      rocksdb::SyncPoint::GetInstance()->LoadDependency(
+          {{"WritePreparedTxnDB::IsInSnapshot:GetCommitEntry:pause",
+            "AtomicCommitOfOldPrepared:Commit:before"},
+           {"AtomicCommitOfOldPrepared:Commit:after",
+            "WritePreparedTxnDB::IsInSnapshot:GetCommitEntry:resume"}});
+    } else {  // split commit
+      // split right before removing from delayed_preparped_
+      rocksdb::SyncPoint::GetInstance()->LoadDependency(
+          {{"WritePreparedTxnDB::RemovePrepared:pause",
+            "AtomicCommitOfOldPrepared:Read:before"},
+           {"AtomicCommitOfOldPrepared:Read:after",
+            "WritePreparedTxnDB::RemovePrepared:resume"}});
+    }
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    rocksdb::port::Thread commit_thread([&]() {
+      TEST_SYNC_POINT("AtomicCommitOfOldPrepared:Commit:before");
+      ASSERT_OK(txn->Commit());
+      TEST_SYNC_POINT("AtomicCommitOfOldPrepared:Commit:after");
+      delete txn;
+    });
+
+    rocksdb::port::Thread read_thread([&]() {
+      TEST_SYNC_POINT("AtomicCommitOfOldPrepared:Read:before");
+      ReadOptions roptions;
+      roptions.snapshot = snap;
+      PinnableSlice value;
+      auto s = db->Get(roptions, db->DefaultColumnFamily(), "key1", &value);
+      ASSERT_OK(s);
+      // It should not see the commit of delayed prpared
+      ASSERT_TRUE(value == init_value);
+      TEST_SYNC_POINT("AtomicCommitOfOldPrepared:Read:after");
+      db->ReleaseSnapshot(snap);
+    });
+
+    read_thread.join();
+    commit_thread.join();
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
+}
+
 // When an old prepared entry gets committed, there is a gap between the time
 // that it is published and when it is cleaned up from old_prepared_. This test
 // stresses such cacese.
