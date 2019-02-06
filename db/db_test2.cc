@@ -1123,7 +1123,8 @@ TEST_F(DBTest2, PresetCompressionDict) {
         dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
         ASSERT_EQ(j + 1, NumTableFilesAtLevel(0, 1));
       }
-      db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
+      dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1],
+                                  true /* disallow_trivial_move */);
       ASSERT_EQ(0, NumTableFilesAtLevel(0, 1));
       ASSERT_GT(NumTableFilesAtLevel(1, 1), 0);
 
