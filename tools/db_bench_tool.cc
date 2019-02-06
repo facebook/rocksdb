@@ -1083,6 +1083,7 @@ rocksdb::Env* CreateAwsEnv(const std::string& dbpath,
 			 std::move(info_log),
 			 &s);
   assert(st.ok());
+  ((rocksdb::CloudEnvImpl*)s)->TEST_DisableCloudManifest();
   // If we are keeping wal in cloud storage, then tail it as well.
   // so that our unit tests can run to completion.
   if (!coptions.keep_local_log_files) {
