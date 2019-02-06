@@ -215,11 +215,11 @@ TEST_F(DBBasicTest, PutSingleDeleteGet) {
     ASSERT_EQ("v2", Get(1, "foo2"));
     ASSERT_OK(SingleDelete(1, "foo"));
     ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
-    // Skip HashCuckooRep as it does not support single delete. FIFO and
-    // universal compaction do not apply to the test case. Skip MergePut
-    // because single delete does not get removed when it encounters a merge.
-  } while (ChangeOptions(kSkipHashCuckoo | kSkipFIFOCompaction |
-                         kSkipUniversalCompaction | kSkipMergePut));
+    // Ski FIFO and universal compaction because they do not apply to the test
+    // case. Skip MergePut because single delete does not get removed when it
+    // encounters a merge.
+  } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
+                         kSkipMergePut));
 }
 
 TEST_F(DBBasicTest, EmptyFlush) {
@@ -237,11 +237,11 @@ TEST_F(DBBasicTest, EmptyFlush) {
     ASSERT_OK(Flush(1));
 
     ASSERT_EQ("[ ]", AllEntriesFor("a", 1));
-    // Skip HashCuckooRep as it does not support single delete. FIFO and
-    // universal compaction do not apply to the test case. Skip MergePut
-    // because merges cannot be combined with single deletions.
-  } while (ChangeOptions(kSkipHashCuckoo | kSkipFIFOCompaction |
-                         kSkipUniversalCompaction | kSkipMergePut));
+    // Skip FIFO and  universal compaction as they do not apply to the test
+    // case. Skip MergePut because merges cannot be combined with single
+    // deletions.
+  } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
+                         kSkipMergePut));
 }
 
 TEST_F(DBBasicTest, GetFromVersions) {
@@ -265,11 +265,6 @@ TEST_F(DBBasicTest, GetSnapshot) {
       std::string key = (i == 0) ? std::string("foo") : std::string(200, 'x');
       ASSERT_OK(Put(1, key, "v1"));
       const Snapshot* s1 = db_->GetSnapshot();
-      if (option_config_ == kHashCuckoo) {
-        // Unsupported case.
-        ASSERT_TRUE(s1 == nullptr);
-        break;
-      }
       ASSERT_OK(Put(1, key, "v2"));
       ASSERT_EQ("v2", Get(1, key));
       ASSERT_EQ("v1", Get(1, key, s1));
@@ -510,7 +505,7 @@ TEST_F(DBBasicTest, Snapshot) {
     ASSERT_EQ(0U, GetNumSnapshots());
     ASSERT_EQ("0v4", Get(0, "foo"));
     ASSERT_EQ("1v4", Get(1, "foo"));
-  } while (ChangeOptions(kSkipHashCuckoo));
+  } while (ChangeOptions());
 }
 
 #endif  // ROCKSDB_LITE
@@ -566,8 +561,7 @@ TEST_F(DBBasicTest, CompactBetweenSnapshots) {
                            nullptr);
     ASSERT_EQ("sixth", Get(1, "foo"));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ sixth ]");
-    // skip HashCuckooRep as it does not support snapshot
-  } while (ChangeOptions(kSkipHashCuckoo | kSkipFIFOCompaction));
+  } while (ChangeOptions(kSkipFIFOCompaction));
 }
 
 TEST_F(DBBasicTest, DBOpen_Options) {

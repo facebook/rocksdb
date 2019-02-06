@@ -703,8 +703,8 @@ TEST_F(OptionsTest, GetMemTableRepFactoryFromString) {
                                              &new_mem_factory));
 
   ASSERT_NOK(GetMemTableRepFactoryFromString("cuckoo", &new_mem_factory));
-  ASSERT_OK(GetMemTableRepFactoryFromString("cuckoo:1024", &new_mem_factory));
-  ASSERT_EQ(std::string(new_mem_factory->Name()), "HashCuckooRepFactory");
+  // CuckooHash memtable is already removed.
+  ASSERT_NOK(GetMemTableRepFactoryFromString("cuckoo:1024", &new_mem_factory));
 
   ASSERT_NOK(GetMemTableRepFactoryFromString("bad_factory", &new_mem_factory));
 }

@@ -72,8 +72,8 @@ TEST_F(DBRangeDelTest, CompactionOutputHasOnlyRangeTombstone) {
     // Skip cuckoo memtables, which do not support snapshots. Skip non-leveled
     // compactions as the above assertions about the number of files in a level
     // do not hold true.
-  } while (ChangeOptions(kRangeDelSkipConfigs | kSkipHashCuckoo |
-                         kSkipUniversalCompaction | kSkipFIFOCompaction));
+  } while (ChangeOptions(kRangeDelSkipConfigs | kSkipUniversalCompaction |
+                         kSkipFIFOCompaction));
 }
 
 TEST_F(DBRangeDelTest, CompactionOutputFilesExactlyFilled) {
@@ -645,8 +645,7 @@ TEST_F(DBRangeDelTest, GetCoveredKeyFromSst) {
     std::string value;
     ASSERT_TRUE(db_->Get(read_opts, "key", &value).IsNotFound());
     db_->ReleaseSnapshot(snapshot);
-    // Cuckoo memtables do not support snapshots.
-  } while (ChangeOptions(kRangeDelSkipConfigs | kSkipHashCuckoo));
+  } while (ChangeOptions(kRangeDelSkipConfigs));
 }
 
 TEST_F(DBRangeDelTest, GetCoveredMergeOperandFromMemtable) {
