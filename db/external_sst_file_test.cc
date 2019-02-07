@@ -2328,7 +2328,7 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_Success) {
   column_families.push_back(handles_[1]);
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
-    ifo.allow_global_seqno = true;        // Always allow global_seqno
+    ifo.allow_global_seqno = true;  // Always allow global_seqno
     // May or may not write global_seqno
     ifo.write_global_seqno = std::get<0>(GetParam());
     // Whether to verify checksums before ingestion
@@ -2500,7 +2500,7 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_PrepareFail) {
   column_families.push_back(handles_[1]);
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
-    ifo.allow_global_seqno = true;        // Always allow global_seqno
+    ifo.allow_global_seqno = true;  // Always allow global_seqno
     // May or may not write global_seqno
     ifo.write_global_seqno = std::get<0>(GetParam());
     // Whether to verify block checksums before ingest
@@ -2566,7 +2566,7 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_CommitFail) {
   column_families.push_back(handles_[1]);
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
-    ifo.allow_global_seqno = true;        // Always allow global_seqno
+    ifo.allow_global_seqno = true;  // Always allow global_seqno
     // May or may not write global_seqno
     ifo.write_global_seqno = std::get<0>(GetParam());
     // Whether to verify block checksums before ingestion
@@ -2637,7 +2637,7 @@ TEST_P(ExternalSSTFileTest,
   column_families.push_back(handles_[1]);
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
-    ifo.allow_global_seqno = true;        // Always allow global_seqno
+    ifo.allow_global_seqno = true;  // Always allow global_seqno
     // May or may not write global_seqno
     ifo.write_global_seqno = std::get<0>(GetParam());
     // Whether to verify block checksums before ingestion

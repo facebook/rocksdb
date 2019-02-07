@@ -112,8 +112,8 @@ struct RangePtr {
 
 struct IngestExternalFileArg {
   ColumnFamilyHandle* column_family;
-  const std::vector<std::string> external_files;
-  const IngestExternalFileOptions options;
+  std::vector<std::string> external_files;
+  IngestExternalFileOptions options;
   IngestExternalFileArg(ColumnFamilyHandle* cfh,
                         const std::vector<std::string>& files,
                         const IngestExternalFileOptions& ingest_options)
@@ -1071,6 +1071,9 @@ class DB {
   // column families with iterators, iterator on one column family may return
   // ingested data, while iterator on other column family returns old data.
   // Users can use snapshot for a consistent view of data.
+  //
+  // REQUIRES: each arg corresponds to a different column family: namely, for
+  // 0 <= i < j < len(args), args[i].column_family != args[j].column_family.
   virtual Status IngestExternalFiles(
       const std::vector<IngestExternalFileArg>& args) = 0;
 

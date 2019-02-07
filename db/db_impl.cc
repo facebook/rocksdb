@@ -3121,7 +3121,17 @@ Status DBImpl::IngestExternalFile(
 Status DBImpl::IngestExternalFiles(
     const std::vector<IngestExternalFileArg>& args) {
   if (args.empty()) {
-    return Status::InvalidArgument("column_families is empty");
+    return Status::InvalidArgument("ingestion arg list is empty");
+  }
+  {
+    std::unordered_set<ColumnFamilyHandle*> unique_cfhs;
+    for (const auto& arg : args) {
+      if (unique_cfhs.count(arg.column_family) > 0) {
+        return Status::InvalidArgument(
+            "ingestion args have duplicate column families");
+      }
+      unique_cfhs.insert(arg.column_family);
+    }
   }
   // Ingest multiple external SST files atomically.
   size_t num_cfs = args.size();
