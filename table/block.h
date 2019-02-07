@@ -395,7 +395,11 @@ class DataBlockIter final : public BlockIter<Slice> {
 
   virtual void Next() override;
 
+  void SlowNext();
+
   virtual void SeekToFirst() override;
+
+  void SlowSeekToFirst();
 
   virtual void SeekToLast() override;
 
@@ -439,6 +443,7 @@ class DataBlockIter final : public BlockIter<Slice> {
   DataBlockHashIndex* data_block_hash_index_;
   const Comparator* user_comparator_;
 
+  template <typename DecodeEntryFunc>
   inline bool ParseNextDataKey(const char* limit = nullptr);
 
   inline int Compare(const IterKey& ikey, const Slice& b) const {

@@ -250,7 +250,7 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
   };
 
   std::string last_key;
-  for (iter.SeekToFirst(); iter.Valid(); iter.Next()) {
+  for (iter.SlowSeekToFirst(); iter.Valid(); iter.SlowNext()) {
     s = iter.status();
     if (!s.ok()) {
       break;

@@ -992,10 +992,11 @@ Status BlockBasedTable::ReadPropertiesBlock(
                  props_block_contents.data.size() + kBlockTrailerSize);
           const auto seqno_pos_iter = table_properties->properties_offsets.find(
               ExternalSstFilePropertyNames::kGlobalSeqno);
-          assert(seqno_pos_iter != table_properties->properties_offsets.end());
-          uint64_t global_seqno_offset = seqno_pos_iter->second;
-          EncodeFixed64(
-              tmp_buf + global_seqno_offset - props_block_handle.offset(), 0);
+          if (seqno_pos_iter != table_properties->properties_offsets.end()) {
+            uint64_t global_seqno_offset = seqno_pos_iter->second;
+            EncodeFixed64(
+                tmp_buf + global_seqno_offset - props_block_handle.offset(), 0);
+          }
           uint32_t value = DecodeFixed32(tmp_buf + block_size + 1);
           s = rocksdb::VerifyChecksum(rep->footer.checksum(), tmp_buf,
                                       block_size + 1, value);
