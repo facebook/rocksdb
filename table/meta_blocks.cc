@@ -176,7 +176,7 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
                       const ImmutableCFOptions& ioptions,
                       TableProperties** table_properties, bool verify_checksum,
                       BlockHandle* ret_block_handle,
-                      BlockContents* ret_block_contents,
+                      CacheAllocationPtr* verification_buf,
                       bool /*compression_type_missing*/,
                       MemoryAllocator* memory_allocator) {
   assert(table_properties);
@@ -314,8 +314,12 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
     if (ret_block_handle != nullptr) {
       *ret_block_handle = handle;
     }
-    if (ret_block_contents != nullptr) {
-      *ret_block_contents = std::move(block_contents);
+    if (verification_buf != nullptr) {
+      size_t len = handle.size() + kBlockTrailerSize;
+      *verification_buf = rocksdb::AllocateBlock(len, memory_allocator);
+      if (verification_buf->get() != nullptr) {
+        memcpy(verification_buf->get(), block_contents.data.data(), len);
+      }
     }
   } else {
     delete new_table_properties;

@@ -978,31 +978,28 @@ Status BlockBasedTable::ReadPropertiesBlock(
       // block, copy it to a memory buffer, change the global seqno to its
       // original value, i.e. 0, and verify the checksum again.
       BlockHandle props_block_handle;
-      BlockContents props_block_contents;
-      s = ReadProperties(
-          meta_iter->value(), rep->file.get(), prefetch_buffer, rep->footer,
-          rep->ioptions, &table_properties, false /* verify_checksum */,
-          &props_block_handle, &props_block_contents,
-          false /* compression_type_missing */, nullptr /* memory_allocator */);
-      if (s.ok()) {
+      CacheAllocationPtr tmp_buf;
+      s = ReadProperties(meta_iter->value(), rep->file.get(), prefetch_buffer,
+                         rep->footer, rep->ioptions, &table_properties,
+                         false /* verify_checksum */, &props_block_handle,
+                         &tmp_buf, false /* compression_type_missing */,
+                         nullptr /* memory_allocator */);
+      if (s.ok() && tmp_buf) {
+        const auto seqno_pos_iter = table_properties->properties_offsets.find(
+            ExternalSstFilePropertyNames::kGlobalSeqno);
         size_t block_size = props_block_handle.size();
-        char* tmp_buf = new char[block_size + kBlockTrailerSize];
-        if (tmp_buf) {
-          memcpy(tmp_buf, props_block_contents.data.data(),
-                 props_block_contents.data.size() + kBlockTrailerSize);
-          const auto seqno_pos_iter = table_properties->properties_offsets.find(
-              ExternalSstFilePropertyNames::kGlobalSeqno);
-          if (seqno_pos_iter != table_properties->properties_offsets.end()) {
-            uint64_t global_seqno_offset = seqno_pos_iter->second;
-            EncodeFixed64(
-                tmp_buf + global_seqno_offset - props_block_handle.offset(), 0);
-          }
-          uint32_t value = DecodeFixed32(tmp_buf + block_size + 1);
-          s = rocksdb::VerifyChecksum(rep->footer.checksum(), tmp_buf,
-                                      block_size + 1, value);
-          delete[] tmp_buf;
-          tmp_buf = nullptr;
+        if (seqno_pos_iter != table_properties->properties_offsets.end()) {
+          uint64_t global_seqno_offset = seqno_pos_iter->second;
+          EncodeFixed64(
+              tmp_buf.get() + global_seqno_offset - props_block_handle.offset(),
+              0);
         }
+        uint32_t value = DecodeFixed32(tmp_buf.get() + block_size + 1);
+        s = rocksdb::VerifyChecksum(rep->footer.checksum(), tmp_buf.get(),
+                                    block_size + 1, value);
+      } else if (table_properties != nullptr) {
+        delete table_properties;
+        table_properties = nullptr;
       }
     }
 
@@ -1011,6 +1008,10 @@ Status BlockBasedTable::ReadPropertiesBlock(
                      "Encountered error while reading data from properties "
                      "block %s",
                      s.ToString().c_str());
+      if (table_properties != nullptr) {
+        delete table_properties;
+        table_properties = nullptr;
+      }
     } else {
       assert(table_properties != nullptr);
       rep->table_properties.reset(table_properties);
