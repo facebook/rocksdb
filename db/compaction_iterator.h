@@ -168,8 +168,6 @@ class CompactionIterator {
   SequenceNumber earliest_snapshot_;
   SequenceNumber latest_snapshot_;
 
-  bool ignore_snapshots_;
-
   // State
   //
   // Points to a copy of the current compaction iterator output (current_key_)

@@ -99,7 +99,7 @@ struct RocksLuaCompactionFilterOptions {
   bool ignore_value = false;
 
   // A boolean flag to determine whether to ignore snapshots.
-  bool ignore_snapshots = false;
+  bool ignore_snapshots = true;
 
   // When specified a non-null pointer, the first "error_limit_per_filter"
   // errors of each CompactionFilter that is lua related will be included
