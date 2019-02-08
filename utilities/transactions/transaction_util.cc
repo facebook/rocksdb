@@ -24,7 +24,8 @@ namespace rocksdb {
 
 Status TransactionUtil::CheckKeyForConflicts(
     DBImpl* db_impl, ColumnFamilyHandle* column_family, const std::string& key,
-    SequenceNumber snap_seq, bool cache_only, ReadCallback* snap_checker, SequenceNumber min_uncommitted) {
+    SequenceNumber snap_seq, bool cache_only, ReadCallback* snap_checker,
+    SequenceNumber min_uncommitted) {
   Status result;
 
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
