@@ -10,6 +10,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "db/dbformat.h"
 #include "db/read_callback.h"
 
 #include "rocksdb/db.h"
@@ -51,11 +52,11 @@ class TransactionUtil {
   //
   // Returns OK on success, BUSY if there is a conflicting write, or other error
   // status for any unexpected errors.
-  static Status CheckKeyForConflicts(DBImpl* db_impl,
-                                     ColumnFamilyHandle* column_family,
-                                     const std::string& key,
-                                     SequenceNumber snap_seq, bool cache_only,
-                                     ReadCallback* snap_checker = nullptr);
+  static Status CheckKeyForConflicts(
+      DBImpl* db_impl, ColumnFamilyHandle* column_family,
+      const std::string& key, SequenceNumber snap_seq, bool cache_only,
+      ReadCallback* snap_checker = nullptr,
+      SequenceNumber min_uncommitted = kMaxSequenceNumber);
 
   // For each key,SequenceNumber pair in the TransactionKeyMap, this function
   // will verify there have been no writes to the key in the db since that
@@ -74,7 +75,8 @@ class TransactionUtil {
   static Status CheckKey(DBImpl* db_impl, SuperVersion* sv,
                          SequenceNumber earliest_seq, SequenceNumber snap_seq,
                          const std::string& key, bool cache_only,
-                         ReadCallback* snap_checker = nullptr);
+                         ReadCallback* snap_checker = nullptr,
+                         SequenceNumber min_uncommitted = kMaxSequenceNumber);
 };
 
 }  // namespace rocksdb
