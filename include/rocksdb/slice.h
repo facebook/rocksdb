@@ -202,6 +202,7 @@ class PinnableSlice : public Slice, public Cleanable {
   void Reset() {
     Cleanable::Reset();
     pinned_ = false;
+    size_ = 0;
   }
 
   inline std::string* GetSelf() { return buf_; }
