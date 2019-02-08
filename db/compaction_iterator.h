@@ -151,7 +151,6 @@ class CompactionIterator {
   bool visible_at_tip_;
   SequenceNumber earliest_snapshot_;
   SequenceNumber latest_snapshot_;
-  bool ignore_snapshots_;
 
   // State
   //

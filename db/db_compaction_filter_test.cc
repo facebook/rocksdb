@@ -699,44 +699,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextCfId) {
 }
 
 #ifndef ROCKSDB_LITE
-// Compaction filters should only be applied to records that are newer than the
-// latest snapshot. This test inserts records and applies a delete filter.
-TEST_F(DBTestCompactionFilter, CompactionFilterSnapshot) {
-  Options options = CurrentOptions();
-  options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
-  options.disable_auto_compactions = true;
-  options.create_if_missing = true;
-  DestroyAndReopen(options);
-
-  // Put some data.
-  const Snapshot* snapshot = nullptr;
-  for (int table = 0; table < 4; ++table) {
-    for (int i = 0; i < 10; ++i) {
-      Put(ToString(table * 100 + i), "val");
-    }
-    Flush();
-
-    if (table == 0) {
-      snapshot = db_->GetSnapshot();
-    }
-  }
-  assert(snapshot != nullptr);
-
-  cfilter_count = 0;
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  // The filter should delete 10 records.
-  ASSERT_EQ(30U, cfilter_count);
-
-  // Release the snapshot and compact again -> now all records should be
-  // removed.
-  db_->ReleaseSnapshot(snapshot);
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_EQ(0U, CountLiveFiles());
-}
-
-// Compaction filters should only be applied to records that are newer than the
-// latest snapshot. However, if the compaction filter asks to ignore snapshots
-// records newer than the snapshot will also be processed
+// Compaction filters aplies to all records, regardless snapshots.
 TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
   std::string five = ToString(5);
   Options options = CurrentOptions();
@@ -872,6 +835,38 @@ TEST_F(DBTestCompactionFilter, SkipUntilWithBloomFilter) {
   s = db_->Get(ReadOptions(), "0000000050", &val);
   ASSERT_OK(s);
   EXPECT_EQ("v50", val);
+}
+
+class TestNotSupportedFilter : public CompactionFilter {
+ public:
+  bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
+              std::string* /*new_value*/,
+              bool* /*value_changed*/) const override {
+    return true;
+  }
+
+  virtual const char* Name() const override { return "NotSupported"; }
+  bool IgnoreSnapshots() const override { return false; }
+};
+
+TEST_F(DBTestCompactionFilter, IgnoreSnapshotsFalse) {
+  Options options = CurrentOptions();
+  options.compaction_filter = new TestNotSupportedFilter();
+  DestroyAndReopen(options);
+
+  Put("a", "v10");
+  Put("z", "v20");
+  Flush();
+
+  Put("a", "v10");
+  Put("z", "v20");
+  Flush();
+
+  // Comapction should fail because IgnoreSnapshots() = false
+  EXPECT_TRUE(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
+                  .IsNotSupported());
+
+  delete options.compaction_filter;
 }
 
 }  // namespace rocksdb
