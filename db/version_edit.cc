@@ -44,6 +44,9 @@ enum Tag : uint32_t {
   kInAtomicGroup = 300,
 };
 
+// Mask for an identified tag from the future which can be safely ignored.
+uint32_t kTagSafeIgnoreMask = 1 << 13;
+
 enum CustomTag : uint32_t {
   kTerminate = 1,  // The end of customized fields
   kNeedCompaction = 2,
@@ -501,7 +504,21 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
 
       default:
-        msg = "unknown tag";
+        if (tag & kTagSafeIgnoreMask) {
+          // Tag from future which can be safely ignored.
+          // The next field must be the length of the entry.
+          uint32_t field_len;
+          if (!GetVarint32(&input, &field_len) ||
+              static_cast<size_t>(field_len) > input.size()) {
+            if (!msg) {
+              msg = "safely ignoreable tag length error";
+            }
+          } else {
+            input.remove_prefix(static_cast<size_t>(field_len));
+          }
+        } else {
+          msg = "unknown tag";
+        }
         break;
     }
   }
