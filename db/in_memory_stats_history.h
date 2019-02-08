@@ -6,6 +6,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#pragma once
+
 #include "rocksdb/stats_history.h"
 
 namespace rocksdb {
@@ -20,7 +22,7 @@ class InMemoryStatsHistoryIterator final : public StatsHistoryIterator {
         db_impl_(db_impl) {
     AdvanceIteratorByTime(start_time_, end_time_);
   }
-  virtual ~InMemoryStatsHistoryIterator();
+  virtual ~InMemoryStatsHistoryIterator() override;
   virtual bool Valid() const override;
   virtual Status status() const override;
 
@@ -37,8 +39,9 @@ class InMemoryStatsHistoryIterator final : public StatsHistoryIterator {
 
   // No copying allowed
   InMemoryStatsHistoryIterator(const InMemoryStatsHistoryIterator&) = delete;
-  InMemoryStatsHistoryIterator(InMemoryStatsHistoryIterator&&) = delete;
   void operator=(const InMemoryStatsHistoryIterator&) = delete;
+  InMemoryStatsHistoryIterator(InMemoryStatsHistoryIterator&&) = delete;
+  InMemoryStatsHistoryIterator& operator=(InMemoryStatsHistoryIterator&&) = delete;
 
   uint64_t time_;
   uint64_t start_time_;

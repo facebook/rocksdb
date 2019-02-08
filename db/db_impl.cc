@@ -389,18 +389,15 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Shutdown: canceling all background work");
 
-  InstrumentedMutexLock l(&mutex_);
-  // To avoid deadlock, `thread_dump_stats_->cancel()` needs to be called
-  // before grabbing db mutex because the actual worker function
-  // `DBImpl::DumpStats()` also holds db mutex
   if (thread_dump_stats_ != nullptr) {
-    thread_dump_stats_->cancel(&mutex_);
-    thread_dump_stats_.reset();
+   thread_dump_stats_->cancel();
+   thread_dump_stats_.reset();
   }
   if (thread_persist_stats_ != nullptr) {
-    thread_persist_stats_->cancel(&mutex_);
-    thread_persist_stats_.reset();
+   thread_persist_stats_->cancel();
+   thread_persist_stats_.reset();
   }
+  InstrumentedMutexLock l(&mutex_);
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
@@ -648,15 +645,18 @@ void DBImpl::StartTimedTasks() {
 
 // esitmate the total size of stats_history_
 size_t DBImpl::EstiamteStatsHistorySize() const {
-  if (stats_history_.empty()) return 0;
-  size_t size_total = sizeof(stats_history_);
+  size_t size_total =
+      sizeof(std::map<uint64_t, std::map<std::string, uint64_t>>);
   if (stats_history_.size() == 0) return size_total;
+  size_t size_per_slice = sizeof(uint64_t) +
+                          sizeof(std::map<std::string, uint64_t>);
+  // non-empty map, stats_history_.begin() guaranteed to exist
   std::map<std::string, uint64_t> sample_slice(stats_history_.begin()->second);
-  // slice_per_slice = sizeof(uint64_t) +
-  //                   sizeof(std::map<std::string, std::string>)
-  size_t size_per_slice = sizeof(stats_history_.begin()->first);
   for (const auto& pairs : sample_slice) {
-    size_per_slice += sizeof(pairs.first) + sizeof(pairs.second);
+    size_per_slice +=
+        // include '\0' at the end
+        (pairs.first.size() + 1) * sizeof(std::string::value_type) +
+        sizeof(pairs.second);
   }
   size_total = size_per_slice * stats_history_.size();
   return size_total;
@@ -673,11 +673,19 @@ void DBImpl::PersistStats() {
   if (!statistics) {
     return;
   }
+  size_t stats_history_size_limit = 0;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    stats_history_size_limit = mutable_db_options_.stats_history_buffer_size;
+  }
 
   // TODO(Zhongyi): also persist immutable_db_options_.statistics
   TEST_SYNC_POINT("DBImpl::PersistStats:StatsCopied");
   {
-    std::map<std::string, uint64_t> stats_map = statistics->getTickerMap();
+    std::map<std::string, uint64_t> stats_map;
+    if (!statistics->getTickerMap(&stats_map)) {
+      return;
+    }
     InstrumentedMutexLock l(&stats_history_mutex_);
     // calculate the delta from last time
     if (stats_slice_initialized_) {
@@ -693,12 +701,10 @@ void DBImpl::PersistStats() {
     stats_slice_ = stats_map;
 
     // delete older stats snapshots to control memory consumption
-    bool purge_needed = EstiamteStatsHistorySize() >
-                        immutable_db_options_.stats_history_buffer_size;
+    bool purge_needed = EstiamteStatsHistorySize() > stats_history_size_limit;
     while (purge_needed && !stats_history_.empty()) {
       stats_history_.erase(stats_history_.begin());
-      purge_needed = EstiamteStatsHistorySize() >
-                     immutable_db_options_.stats_history_buffer_size;
+      purge_needed = EstiamteStatsHistorySize() > stats_history_size_limit;
     }
   }
   // TODO: persist stats to disk
@@ -904,9 +910,9 @@ Status DBImpl::SetDBOptions(
       if (new_options.stats_dump_period_sec !=
           mutable_db_options_.stats_dump_period_sec) {
           if (thread_dump_stats_) {
-            // No need to explicitly call mutex_.Unlock as
-            // repeatable_thread->cancel will do that
-            thread_dump_stats_->cancel(&mutex_);
+            mutex_.Unlock();
+            thread_dump_stats_->cancel();
+            mutex_.Lock();
           }
           if (new_options.stats_dump_period_sec > 0) {
             thread_dump_stats_.reset(new rocksdb::RepeatableThread(
@@ -920,7 +926,9 @@ Status DBImpl::SetDBOptions(
       if (new_options.stats_persist_period_sec !=
           mutable_db_options_.stats_persist_period_sec) {
         if (thread_persist_stats_) {
-          thread_persist_stats_->cancel(&mutex_);
+          mutex_.Unlock();
+          thread_persist_stats_->cancel();
+          mutex_.Lock();
         }
         if (new_options.stats_persist_period_sec > 0) {
           thread_persist_stats_.reset(new rocksdb::RepeatableThread(

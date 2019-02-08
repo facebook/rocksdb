@@ -647,7 +647,7 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
   delete stats_iter;
 }
 
-TEST_F(DBOptionsTest, InMemoryStatsHistoryGC) {
+TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
   Options options;
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
@@ -700,12 +700,11 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryGC) {
   delete stats_iter;
   size_t stats_history_size = dbfull()->TEST_EstiamteStatsHistorySize();
   ASSERT_GE(slice_count, 0);
-  ASSERT_GE(stats_history_size, 2000);
-  Close();
-  // capping memory cost at 20000 bytes
-  options.stats_history_buffer_size = 2000;
-  ReopenWithColumnFamilies({"default", "pikachu"}, options);
-  env_->SleepForMicroseconds(8000000);  // Wait for stats persist to finish
+  ASSERT_GE(stats_history_size, 6000);
+  // capping memory cost at 2000 bytes
+  ASSERT_OK(dbfull()->SetDBOptions({{"stats_history_buffer_size", "6000"}}));
+  ASSERT_EQ(6000, dbfull()->GetDBOptions().stats_history_buffer_size);
+  env_->SleepForMicroseconds(2000000);  // Wait for stats persist to finish
   db_->GetStatsHistory(0, env_->NowMicros(), &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count_reopen = 0;
@@ -715,8 +714,8 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryGC) {
   }
   delete stats_iter;
   size_t stats_history_size_reopen = dbfull()->TEST_EstiamteStatsHistorySize();
-  ASSERT_LE(stats_history_size_reopen, 2000);
-  ASSERT_LE(stats_count_reopen, stats_count);
+  ASSERT_TRUE(stats_history_size_reopen < 6000 && stats_history_size_reopen > 0);
+  ASSERT_TRUE(stats_count_reopen < stats_count && stats_count_reopen > 0);
   Close();
 }
 

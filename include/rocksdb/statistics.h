@@ -480,10 +480,9 @@ class Statistics {
     return std::string("ToString(): not implemented");
   }
 
-  virtual std::map<std::string, uint64_t> getTickerMap() const {
+  virtual bool getTickerMap(std::map<std::string, uint64_t>*) const {
     // Do nothing by default
-    std::map<std::string, uint64_t> empty_map;
-    return empty_map;
+    return false;
   };
 
   // Override this function to disable particular histogram collection

@@ -34,14 +34,7 @@ class RepeatableThread {
         thread_([this] { thread(); }) {
   }
 
-  // allow caller to pass a mutex and temporarily unlock the mutex during
-  // the process of cancel. Useful when function_ also need to lock the same
-  // mutex
-  void cancel(InstrumentedMutex* mutex = nullptr) {
-    if (mutex != nullptr) {
-      mutex->Unlock();
-    }
-    // actually doing canceling work
+  void cancel() {
     {
       MutexLock l(&mutex_);
       if (!running_) {
@@ -51,9 +44,6 @@ class RepeatableThread {
       cond_var_.SignalAll();
     }
     thread_.join();
-    if (mutex != nullptr) {
-      mutex->Lock();
-    }
   }
 
   ~RepeatableThread() { cancel(); }

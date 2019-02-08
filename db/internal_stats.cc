@@ -367,8 +367,7 @@ const std::unordered_map<std::string, DBPropertyInfo>
          {false, &InternalStats::HandleCFFileHistogram, nullptr, nullptr,
           nullptr}},
         {DB::Properties::kDBStats,
-         {false, &InternalStats::HandleDBStats, nullptr,
-          &InternalStats::HandleDBMapStats, nullptr}},
+         {false, &InternalStats::HandleDBStats, nullptr, nullptr, nullptr}},
         {DB::Properties::kSSTables,
          {false, &InternalStats::HandleSsTables, nullptr, nullptr, nullptr}},
         {DB::Properties::kAggregatedTableProperties,
@@ -606,12 +605,6 @@ bool InternalStats::HandleCFFileHistogram(std::string* value,
 
 bool InternalStats::HandleDBStats(std::string* value, Slice /*suffix*/) {
   DumpDBStats(value);
-  return true;
-}
-
-bool InternalStats::HandleDBMapStats(
-    std::map<std::string, std::string>* db_stats) {
-  DumpDBMapStats(db_stats);
   return true;
 }
 
@@ -1061,63 +1054,6 @@ void InternalStats::DumpDBStats(std::string* value) {
   db_stats_snapshot_.wal_synced = wal_synced;
   db_stats_snapshot_.write_with_wal = write_with_wal;
   db_stats_snapshot_.write_stall_micros = write_stall_micros;
-}
-
-void InternalStats::DumpDBMapStats(
-    std::map<std::string, std::string>* db_stats) {
-  double seconds_up = (env_->NowMicros() - started_at_ + 1) / kMicrosInSec;
-  double interval_seconds_up = seconds_up - db_stats_snapshot_.seconds_up;
-  (*db_stats)["seconds_up"] = ToString(seconds_up);
-  (*db_stats)["interval_seconds_up"] = ToString(interval_seconds_up);
-  // Cumulative
-  (*db_stats)["user_bytes_written"] =
-      ToString(GetDBStats(InternalStats::BYTES_WRITTEN));
-  (*db_stats)["num_keys_written"] =
-      ToString(GetDBStats(InternalStats::NUMBER_KEYS_WRITTEN));
-  (*db_stats)["write_other"] =
-      ToString(GetDBStats(InternalStats::WRITE_DONE_BY_OTHER));
-  (*db_stats)["write_self"] =
-      ToString(GetDBStats(InternalStats::WRITE_DONE_BY_SELF));
-  (*db_stats)["wal_bytes"] =
-      ToString(GetDBStats(InternalStats::WAL_FILE_BYTES));
-  (*db_stats)["wal_synced"] =
-      ToString(GetDBStats(InternalStats::WAL_FILE_SYNCED));
-  (*db_stats)["write_with_wal"] =
-      ToString(GetDBStats(InternalStats::WRITE_WITH_WAL));
-  (*db_stats)["write_stall_micros"] =
-      ToString(GetDBStats(InternalStats::WRITE_STALL_MICROS));
-
-  const int kHumanMicrosLen = 32;
-  char human_micros[kHumanMicrosLen];
-
-  // Stall
-  AppendHumanMicros(GetDBStats(InternalStats::WRITE_STALL_MICROS), human_micros,
-                    kHumanMicrosLen, true);
-  (*db_stats)["write_stall_micros_readable"] = std::string(human_micros);
-
-  // Interval
-  (*db_stats)["interval_write_other"] =
-      ToString(GetDBStats(InternalStats::WRITE_DONE_BY_OTHER) -
-               db_stats_snapshot_.write_other);
-  (*db_stats)["interval_write_self"] =
-      ToString(GetDBStats(InternalStats::WRITE_DONE_BY_SELF) -
-               db_stats_snapshot_.write_self);
-  (*db_stats)["interval_num_keys_written"] =
-      ToString(GetDBStats(InternalStats::NUMBER_KEYS_WRITTEN) -
-               db_stats_snapshot_.num_keys_written);
-  (*db_stats)["interval_write_with_wal"] =
-      ToString(GetDBStats(InternalStats::WRITE_WITH_WAL) -
-               db_stats_snapshot_.write_with_wal);
-  (*db_stats)["interval_wal_synced"] =
-      ToString(GetDBStats(InternalStats::WAL_FILE_SYNCED) -
-               db_stats_snapshot_.wal_synced);
-  (*db_stats)["interval_wal_bytes"] = ToString(
-      GetDBStats(InternalStats::WAL_FILE_BYTES) - db_stats_snapshot_.wal_bytes);
-  // Stall
-  AppendHumanMicros(GetDBStats(InternalStats::WRITE_STALL_MICROS) -
-                        db_stats_snapshot_.write_stall_micros,
-                    human_micros, kHumanMicrosLen, true);
-  (*db_stats)["interval_stall_micros_readable"] = std::string(human_micros);
 }
 
 /**
