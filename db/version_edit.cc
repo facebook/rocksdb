@@ -513,8 +513,9 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
             if (!msg) {
               msg = "safely ignorrable form future length error";
             }
+          } else {
+            input.remove_prefix(static_cast<size_t>(field_len));
           }
-          input.remove_prefix(static_cast<size_t>(field_len));
         } else {
           msg = "unknown tag";
         }
