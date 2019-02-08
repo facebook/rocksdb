@@ -1342,8 +1342,7 @@ struct IngestExternalFileOptions {
   // you set this option to false, which brings two benefits:
   // 1. No extra random write for global_seqno during ingestion.
   // 2. Without writing external SST file, it's possible to do checksum.
-  // We have a plan to set this option to false by default in the future.
-  bool write_global_seqno = true;
+  bool write_global_seqno = false;
   // Set to true if you would like to verify the checksums of each block of the
   // external SST file before ingestion.
   // Warning: setting this to true causes slowdown in file ingestion because
