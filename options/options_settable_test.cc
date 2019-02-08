@@ -448,7 +448,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "disable_auto_compactions=false;"
       "report_bg_io_stats=true;"
       "ttl=60;"
-      "compaction_options_fifo={max_table_files_size=3;ttl=100;allow_"
+      "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;};",
       new_options));
 

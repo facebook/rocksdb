@@ -24,6 +24,7 @@
 * Remove PlainTable's store_index_in_file feature. When opening an existing DB with index in SST files, the index and bloom filter will still be rebuild while SST files are opened, in the same way as there is no index in the file.
 * Remove CuckooHash memtable.
 * The counter stat `number.block.not_compressed` now also counts blocks not compressed due to poor compression ratio.
+* Remove 'ttl' param from 'CompactionOptionsFIFO'. The option has been deprecated and 'ttl' in 'ColumnFamilyOptions' is used instead.
 
 ### Bug Fixes
 * Fix a deadlock caused by compaction and file ingestion waiting for each other in the event of write stalls.
