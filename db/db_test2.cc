@@ -2884,7 +2884,6 @@ TEST_F(DBTest2, TraceWithLimit) {
 
 TEST_F(DBTest2, TraceWithSampling) {
   Options options = CurrentOptions();
-  options.merge_operator = MergeOperators::CreatePutOperator();
   ReadOptions ro;
   WriteOptions wo;
   TraceOptions trace_opts;
@@ -2923,7 +2922,6 @@ TEST_F(DBTest2, TraceWithSampling) {
   DB* db2 = nullptr;
   std::vector<ColumnFamilyDescriptor> column_families;
   ColumnFamilyOptions cf_options;
-  cf_options.merge_operator = MergeOperators::CreatePutOperator();
   column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
   column_families.push_back(
       ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));

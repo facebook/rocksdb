@@ -77,7 +77,7 @@ class Tracer {
   Env* env_;
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
-  uint64_t write_request_count_;
+  uint64_t trace_request_count_;
 };
 
 // Replay RocksDB operations from a trace.

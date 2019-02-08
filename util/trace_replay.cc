@@ -36,18 +36,16 @@ Tracer::Tracer(Env* env, const TraceOptions& trace_options,
     : env_(env),
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)),
-      write_request_count_ (0) {
+      trace_request_count_ (0) {
   WriteHeader();
 }
 
 Tracer::~Tracer() { trace_writer_.reset(); }
 
 Status Tracer::Write(WriteBatch* write_batch) {
-  ++write_request_count_;
   if (ShouldSkipTrace()) {
     return Status::OK();
   }
-  write_request_count_ = 0;
   Trace trace;
   trace.ts = env_->NowMicros();
   trace.type = kTraceWrite;
@@ -56,11 +54,9 @@ Status Tracer::Write(WriteBatch* write_batch) {
 }
 
 Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
-  ++write_request_count_;
   if (ShouldSkipTrace()) {
     return Status::OK();
   }
-  write_request_count_ = 0;
   Trace trace;
   trace.ts = env_->NowMicros();
   trace.type = kTraceGet;
@@ -69,11 +65,9 @@ Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
 }
 
 Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key) {
-  ++write_request_count_;
   if (ShouldSkipTrace()) {
     return Status::OK();
   }
-  write_request_count_ = 0;
   Trace trace;
   trace.ts = env_->NowMicros();
   trace.type = kTraceIteratorSeek;
@@ -82,11 +76,9 @@ Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key) {
 }
 
 Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
-  ++write_request_count_;
   if (ShouldSkipTrace()) {
     return Status::OK();
   }
-  write_request_count_ = 0;
   Trace trace;
   trace.ts = env_->NowMicros();
   trace.type = kTraceIteratorSeekForPrev;
@@ -98,9 +90,11 @@ bool Tracer::ShouldSkipTrace() {
   if (IsTraceFileOverMax()) {
     return true;
   }
-  if (write_request_count_ < trace_options_.sampling_frequency) {
+  ++trace_request_count_;
+  if (trace_request_count_ < trace_options_.sampling_frequency) {
     return true;
   }
+  trace_request_count_ = 0;
   return false;
 }
 
