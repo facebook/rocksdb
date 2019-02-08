@@ -63,14 +63,18 @@ struct DecodeEntry {
   }
 };
 
-struct DecodeEntrySlow {
+// Helper routine: similar to DecodeEntry but does not have assertions.
+// Instead, returns nullptr so that caller can detect and report failure.
+struct CheckAndDecodeEntry {
   inline const char* operator()(const char* p, const char* limit,
                                 uint32_t* shared, uint32_t* non_shared,
                                 uint32_t* value_length) {
     // We need 2 bytes for shared and non_shared size. We also need one more
     // byte either for value size or the actual value in case of value delta
     // encoding.
-    assert(limit - p >= 3);
+    if (limit - p < 3) {
+      return nullptr;
+    }
     *shared = reinterpret_cast<const unsigned char*>(p)[0];
     *non_shared = reinterpret_cast<const unsigned char*>(p)[1];
     *value_length = reinterpret_cast<const unsigned char*>(p)[2];
@@ -128,9 +132,9 @@ void DataBlockIter::Next() {
   ParseNextDataKey<DecodeEntry>();
 }
 
-void DataBlockIter::SlowNext() {
+void DataBlockIter::NextOrReport() {
   assert(Valid());
-  ParseNextDataKey<DecodeEntrySlow>();
+  ParseNextDataKey<CheckAndDecodeEntry>();
 }
 
 void IndexBlockIter::Next() {
@@ -444,12 +448,12 @@ void DataBlockIter::SeekToFirst() {
   ParseNextDataKey<DecodeEntry>();
 }
 
-void DataBlockIter::SlowSeekToFirst() {
+void DataBlockIter::SeekToFirstOrReport() {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
   SeekToRestartPoint(0);
-  ParseNextDataKey<DecodeEntrySlow>();
+  ParseNextDataKey<CheckAndDecodeEntry>();
 }
 
 void IndexBlockIter::SeekToFirst() {

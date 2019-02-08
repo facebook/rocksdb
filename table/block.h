@@ -395,11 +395,17 @@ class DataBlockIter final : public BlockIter<Slice> {
 
   virtual void Next() override;
 
-  void SlowNext();
+  // Try to advance to the next entry in the block. If there is data corruption
+  // or error, report it to the caller instead of aborting the process. May
+  // incur higher CPU overhead because we need to perform check on every entry.
+  void NextOrReport();
 
   virtual void SeekToFirst() override;
 
-  void SlowSeekToFirst();
+  // Try to seek to the first entry in the block. If there is data corruption
+  // or error, report it to caller instead of aborting the process. May incur
+  // higher CPU overhead because we need to perform check on every entry.
+  void SeekToFirstOrReport();
 
   virtual void SeekToLast() override;
 
