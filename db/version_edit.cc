@@ -511,7 +511,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           if (!GetVarint32(&input, &field_len) ||
               static_cast<size_t>(field_len) > input.size()) {
             if (!msg) {
-              msg = "safely ignorrable form future length error";
+              msg = "safely ignoreable tag length error";
             }
           } else {
             input.remove_prefix(static_cast<size_t>(field_len));
