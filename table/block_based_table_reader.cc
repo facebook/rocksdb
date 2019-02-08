@@ -997,10 +997,11 @@ Status BlockBasedTable::ReadPropertiesBlock(
         uint32_t value = DecodeFixed32(tmp_buf.get() + block_size + 1);
         s = rocksdb::VerifyChecksum(rep->footer.checksum(), tmp_buf.get(),
                                     block_size + 1, value);
-      } else if (table_properties != nullptr) {
-        delete table_properties;
-        table_properties = nullptr;
       }
+    }
+    std::unique_ptr<TableProperties> props_guard;
+    if (table_properties != nullptr) {
+      props_guard.reset(table_properties);
     }
 
     if (!s.ok()) {
@@ -1008,13 +1009,9 @@ Status BlockBasedTable::ReadPropertiesBlock(
                      "Encountered error while reading data from properties "
                      "block %s",
                      s.ToString().c_str());
-      if (table_properties != nullptr) {
-        delete table_properties;
-        table_properties = nullptr;
-      }
     } else {
       assert(table_properties != nullptr);
-      rep->table_properties.reset(table_properties);
+      rep->table_properties.reset(props_guard.release());
       rep->blocks_maybe_compressed = rep->table_properties->compression_name !=
                                      CompressionTypeToString(kNoCompression);
       rep->blocks_definitely_zstd_compressed =
