@@ -332,8 +332,7 @@ TEST_P(MergeOperatorPinningTest, Randomized) {
 
     VerifyDBFromMap(true_data);
 
-    // Skip HashCuckoo since it does not support merge operators
-  } while (ChangeOptions(kSkipMergePut | kSkipHashCuckoo));
+  } while (ChangeOptions(kSkipMergePut));
 }
 
 class MergeOperatorHook : public MergeOperator {

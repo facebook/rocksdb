@@ -179,9 +179,7 @@ TEST_P(DBIteratorTest, NonBlockingIteration) {
 
     // This test verifies block cache behaviors, which is not used by plain
     // table format.
-    // Exclude kHashCuckoo as it does not support iteration currently
-  } while (ChangeOptions(kSkipPlainTable | kSkipNoSeekToLast | kSkipHashCuckoo |
-                         kSkipMmapReads));
+  } while (ChangeOptions(kSkipPlainTable | kSkipNoSeekToLast | kSkipMmapReads));
 }
 
 TEST_P(DBIteratorTest, IterSeekBeforePrev) {
@@ -765,8 +763,7 @@ TEST_P(DBIteratorTest, IterWithSnapshot) {
     }
     db_->ReleaseSnapshot(snapshot);
     delete iter;
-    // skip as HashCuckooRep does not support snapshot
-  } while (ChangeOptions(kSkipHashCuckoo));
+  } while (ChangeOptions());
 }
 
 TEST_P(DBIteratorTest, IteratorPinsRef) {

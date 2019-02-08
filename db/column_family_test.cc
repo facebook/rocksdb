@@ -14,6 +14,7 @@
 
 #include "db/db_impl.h"
 #include "db/db_test_util.h"
+#include "memtable/hash_skiplist_rep.h"
 #include "options/options_parser.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
@@ -1206,29 +1207,32 @@ TEST_P(ColumnFamilyTest, DifferentWriteBufferSizes) {
 }
 #endif  // !ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE  // Cuckoo is not supported in lite
-TEST_P(ColumnFamilyTest, MemtableNotSupportSnapshot) {
-  db_options_.allow_concurrent_memtable_write = false;
-  Open();
-  auto* s1 = dbfull()->GetSnapshot();
-  ASSERT_TRUE(s1 != nullptr);
-  dbfull()->ReleaseSnapshot(s1);
+// The test is commented out because we want to test that snapshot is
+// not created for memtables not supported it, but There isn't a memtable
+// that doesn't support snapshot right now. If we have one later, we can
+// re-enable the test.
+//
+// #ifndef ROCKSDB_LITE  // Cuckoo is not supported in lite
+//   TEST_P(ColumnFamilyTest, MemtableNotSupportSnapshot) {
+//   db_options_.allow_concurrent_memtable_write = false;
+//   Open();
+//   auto* s1 = dbfull()->GetSnapshot();
+//   ASSERT_TRUE(s1 != nullptr);
+//   dbfull()->ReleaseSnapshot(s1);
 
-  // Add a column family that doesn't support snapshot
-  ColumnFamilyOptions first;
-  first.memtable_factory.reset(NewHashCuckooRepFactory(1024 * 1024));
-  CreateColumnFamilies({"first"}, {first});
-  auto* s2 = dbfull()->GetSnapshot();
-  ASSERT_TRUE(s2 == nullptr);
+//   // Add a column family that doesn't support snapshot
+//   ColumnFamilyOptions first;
+//   first.memtable_factory.reset(new DummyMemtableNotSupportingSnapshot());
+//   CreateColumnFamilies({"first"}, {first});
+//   auto* s2 = dbfull()->GetSnapshot();
+//   ASSERT_TRUE(s2 == nullptr);
 
-  // Add a column family that supports snapshot. Snapshot stays not supported.
-  ColumnFamilyOptions second;
-  CreateColumnFamilies({"second"}, {second});
-  auto* s3 = dbfull()->GetSnapshot();
-  ASSERT_TRUE(s3 == nullptr);
-  Close();
-}
-#endif  // !ROCKSDB_LITE
+//   // Add a column family that supports snapshot. Snapshot stays not
+//   supported. ColumnFamilyOptions second; CreateColumnFamilies({"second"},
+//   {second}); auto* s3 = dbfull()->GetSnapshot(); ASSERT_TRUE(s3 == nullptr);
+//   Close();
+// }
+// #endif  // !ROCKSDB_LITE
 
 class TestComparator : public Comparator {
   int Compare(const rocksdb::Slice& /*a*/,
