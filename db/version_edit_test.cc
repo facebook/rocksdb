@@ -203,16 +203,17 @@ TEST_F(VersionEditTest, IgnorableField) {
   std::string encoded;
 
   // Size of ignorable field is too large
-  PutVarint32Varint64(&encoded, 2 /* LogNumber */, 66);
+  PutVarint32Varint64(&encoded, 2 /* kLogNumber */, 66);
   // This is a customized ignorable tag
-  PutVarint32Varint64(&encoded, 10000 /* A field with kTagSafeIgnoreMask set */,
+  PutVarint32Varint64(&encoded,
+                      0x2710 /* A field with kTagSafeIgnoreMask set */,
                       5 /* fieldlength 5 */);
   encoded += "abc";  // Only fills 3 bytes,
   ASSERT_NOK(ve.DecodeFrom(encoded));
 
   encoded.clear();
   // Error when seeing unidentified tag that is not ignorable
-  PutVarint32Varint64(&encoded, 2 /* LogNumber */, 66);
+  PutVarint32Varint64(&encoded, 2 /* kLogNumber */, 66);
   // This is a customized ignorable tag
   PutVarint32Varint64(&encoded, 666 /* A field with kTagSafeIgnoreMask unset */,
                       3 /* fieldlength 3 */);
@@ -222,12 +223,13 @@ TEST_F(VersionEditTest, IgnorableField) {
 
   // Safely ignore an identified but safely ignorable entry
   encoded.clear();
-  PutVarint32Varint64(&encoded, 2 /* LogNumber */, 66);
+  PutVarint32Varint64(&encoded, 2 /* kLogNumber */, 66);
   // This is a customized ignorable tag
-  PutVarint32Varint64(&encoded, 10000 /* A field with kTagSafeIgnoreMask set */,
+  PutVarint32Varint64(&encoded,
+                      0x2710 /* A field with kTagSafeIgnoreMask set */,
                       3 /* fieldlength 3 */);
   encoded += "abc";  //  Fill 3 bytes
-  PutVarint32Varint64(&encoded, 3 /* next file number */, 88);
+  PutVarint32Varint64(&encoded, 3 /* kNextFileNumber */, 88);
 
   ASSERT_OK(ve.DecodeFrom(encoded));
 
