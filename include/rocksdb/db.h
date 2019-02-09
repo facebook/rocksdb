@@ -111,13 +111,9 @@ struct RangePtr {
 };
 
 struct IngestExternalFileArg {
-  ColumnFamilyHandle* column_family;
+  ColumnFamilyHandle* column_family = nullptr;
   std::vector<std::string> external_files;
   IngestExternalFileOptions options;
-  IngestExternalFileArg(ColumnFamilyHandle* cfh,
-                        const std::vector<std::string>& files,
-                        const IngestExternalFileOptions& ingest_options)
-      : column_family(cfh), external_files(files), options(ingest_options) {}
 };
 
 // A collections of table properties objects, where

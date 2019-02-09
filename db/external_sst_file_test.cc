@@ -219,7 +219,7 @@ class ExternalSSTFileTest
     assert(ifos.size() == num_cfs);
     assert(data.size() == num_cfs);
     Status s;
-    std::vector<IngestExternalFileArg> args;
+    std::vector<IngestExternalFileArg> args(num_cfs);
     for (size_t i = 0; i != num_cfs; ++i) {
       std::string external_file_path;
       s = GenerateOneExternalFile(
@@ -230,9 +230,10 @@ class ExternalSSTFileTest
         return s;
       }
       ++file_id;
-      args.emplace_back(column_families[i],
-                        std::vector<std::string>(1, external_file_path),
-                        ifos[i]);
+
+      args[i].column_family = column_families[i];
+      args[i].external_files.push_back(external_file_path);
+      args[i].options = ifos[i];
     }
     s = db_->IngestExternalFiles(args);
     return s;

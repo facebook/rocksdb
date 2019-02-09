@@ -3112,10 +3112,11 @@ Status DBImpl::IngestExternalFile(
     ColumnFamilyHandle* column_family,
     const std::vector<std::string>& external_files,
     const IngestExternalFileOptions& ingestion_options) {
-  std::vector<IngestExternalFileArg> args(
-      1,
-      IngestExternalFileArg(column_family, external_files, ingestion_options));
-  return IngestExternalFiles(args);
+  IngestExternalFileArg arg;
+  arg.column_family = column_family;
+  arg.external_files = external_files;
+  arg.options = ingestion_options;
+  return IngestExternalFiles({arg});
 }
 
 Status DBImpl::IngestExternalFiles(
@@ -3126,7 +3127,9 @@ Status DBImpl::IngestExternalFiles(
   {
     std::unordered_set<ColumnFamilyHandle*> unique_cfhs;
     for (const auto& arg : args) {
-      if (unique_cfhs.count(arg.column_family) > 0) {
+      if (arg.column_family == nullptr) {
+        return Status::InvalidArgument("column family handle is null");
+      } else if (unique_cfhs.count(arg.column_family) > 0) {
         return Status::InvalidArgument(
             "ingestion args have duplicate column families");
       }
