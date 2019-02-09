@@ -100,11 +100,7 @@ struct TransactionDBOptions {
   // 8m entry, 64MB size
   size_t wp_commit_cache_bits = static_cast<size_t>(23);
 
-  friend class SnapshotConcurrentAccessTest_SnapshotConcurrentAccessTest_Test;
   friend class WritePreparedTxnDB;
-  friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
-  friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
-  friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
   friend class WritePreparedTransactionTestBase;
 };
 
