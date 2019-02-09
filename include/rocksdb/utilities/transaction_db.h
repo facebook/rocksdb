@@ -93,6 +93,19 @@ struct TransactionDBOptions {
   // logic in myrocks. This hack of simply not rolling back merge operands works
   // for the special way that myrocks uses this operands.
   bool rollback_merge_operands = false;
+
+  private:
+  // 128 entries
+  size_t wp_snapshot_cache_bits = static_cast<size_t>(7);
+  // 8m entry, 64MB size
+  size_t wp_commit_cache_bits = static_cast<size_t>(23);
+
+  friend class SnapshotConcurrentAccessTest_SnapshotConcurrentAccessTest_Test;
+  friend class WritePreparedTxnDB;
+  friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
+  friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
+  friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
+  friend class WritePreparedTransactionTestBase;
 };
 
 struct TransactionOptions {

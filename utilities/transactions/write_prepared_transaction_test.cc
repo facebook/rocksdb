@@ -324,13 +324,6 @@ class WritePreparedTxnDBMock : public WritePreparedTxnDB {
  public:
   WritePreparedTxnDBMock(DBImpl* db_impl, TransactionDBOptions& opt)
       : WritePreparedTxnDB(db_impl, opt) {}
-  WritePreparedTxnDBMock(DBImpl* db_impl, TransactionDBOptions& opt,
-                         size_t snapshot_cache_size)
-      : WritePreparedTxnDB(db_impl, opt, snapshot_cache_size) {}
-  WritePreparedTxnDBMock(DBImpl* db_impl, TransactionDBOptions& opt,
-                         size_t snapshot_cache_size, size_t commit_cache_size)
-      : WritePreparedTxnDB(db_impl, opt, snapshot_cache_size,
-                           commit_cache_size) {}
   void SetDBSnapshots(const std::vector<SequenceNumber>& snapshots) {
     snapshots_ = snapshots;
   }
@@ -376,8 +369,9 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
 
     // The following is equivalent of WrapDB().
     txn_db_options.write_policy = WRITE_PREPARED;
-    auto* wp_db = new WritePreparedTxnDB(
-        base_db, txn_db_options, snapshot_cache_bits, commit_cache_bits);
+    txn_db_options.wp_snapshot_cache_bits = snapshot_cache_bits;
+    txn_db_options.wp_commit_cache_bits = commit_cache_bits;
+    auto* wp_db = new WritePreparedTxnDB(base_db, txn_db_options);
     wp_db->UpdateCFComparatorMap(handles);
     ASSERT_OK(wp_db->Initialize(compaction_enabled_cf_indices, handles));
 
@@ -843,8 +837,10 @@ TEST_P(WritePreparedTransactionTest, OldCommitMapGC) {
   const size_t snapshot_cache_bits = 0;
   const size_t commit_cache_bits = 0;
   DBImpl* mock_db = new DBImpl(options, dbname);
-  std::unique_ptr<WritePreparedTxnDBMock> wp_db(new WritePreparedTxnDBMock(
-      mock_db, txn_db_options, snapshot_cache_bits, commit_cache_bits));
+  txn_db_options.wp_snapshot_cache_bits = snapshot_cache_bits;
+  txn_db_options.wp_commit_cache_bits = commit_cache_bits;
+  std::unique_ptr<WritePreparedTxnDBMock> wp_db(
+      new WritePreparedTxnDBMock(mock_db, txn_db_options));
 
   SequenceNumber seq = 0;
   // Take the first snapshot that overlaps with two txn
@@ -928,8 +924,9 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
   // the snapshots lists changed.
   assert((1ul << snapshot_cache_bits) * 2 + 1 == snapshots.size());
   DBImpl* mock_db = new DBImpl(options, dbname);
+  txn_db_options.wp_snapshot_cache_bits = snapshot_cache_bits;
   std::unique_ptr<WritePreparedTxnDBMock> wp_db(
-      new WritePreparedTxnDBMock(mock_db, txn_db_options, snapshot_cache_bits));
+      new WritePreparedTxnDBMock(mock_db, txn_db_options));
   SequenceNumber version = 1000l;
   ASSERT_EQ(0, wp_db->snapshots_total_);
   wp_db->UpdateSnapshots(snapshots, version);
@@ -1023,8 +1020,9 @@ TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccessTest) {
   // Choose the cache size so that the new snapshot list could replace all the
   // existing items in the cache and also have some overflow.
   DBImpl* mock_db = new DBImpl(options, dbname);
+  txn_db_options.wp_snapshot_cache_bits = snapshot_cache_bits;
   std::unique_ptr<WritePreparedTxnDBMock> wp_db(
-      new WritePreparedTxnDBMock(mock_db, txn_db_options, snapshot_cache_bits));
+      new WritePreparedTxnDBMock(mock_db, txn_db_options));
   const size_t extra = 2;
   size_t loop_id = 0;
   // Add up to extra items that do not fit into the cache
@@ -1807,8 +1805,10 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
       // The set of commit seq numbers to be excluded from IsInSnapshot queries
       std::set<uint64_t> commit_seqs;
       DBImpl* mock_db = new DBImpl(options, dbname);
-      std::unique_ptr<WritePreparedTxnDBMock> wp_db(new WritePreparedTxnDBMock(
-          mock_db, txn_db_options, snapshot_cache_bits, commit_cache_bits));
+      txn_db_options.wp_snapshot_cache_bits = snapshot_cache_bits;
+      txn_db_options.wp_commit_cache_bits = commit_cache_bits;
+      std::unique_ptr<WritePreparedTxnDBMock> wp_db(
+          new WritePreparedTxnDBMock(mock_db, txn_db_options));
       // We continue until max advances a bit beyond the snapshot.
       while (!snapshot || wp_db->max_evicted_seq_ < snapshot + 100) {
         // do prepare for a transaction
