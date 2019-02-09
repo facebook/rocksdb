@@ -2772,7 +2772,7 @@ TEST_P(WritePreparedTransactionTest, NonAtomicCommitOfOldPrepared) {
 
 // When an old prepared entry gets committed, there is a gap between the time
 // that it is published and when it is cleaned up from old_prepared_. This test
-// stresses such cacese.
+// stresses such cases.
 TEST_P(WritePreparedTransactionTest, CommitOfOldPrepared) {
   const size_t snapshot_cache_bits = 7;  // same as default
   for (const size_t commit_cache_bits : {0, 2, 3}) {

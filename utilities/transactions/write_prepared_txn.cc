@@ -405,7 +405,7 @@ Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
   WritePreparedTxnReadCallback snap_checker(wpt_db_, snap_seq, min_uncommitted);
   return TransactionUtil::CheckKeyForConflicts(db_impl_, cfh, key.ToString(),
                                                snap_seq, false /* cache_only */,
-                                               &snap_checker);
+                                               &snap_checker, min_uncommitted);
 }
 
 void WritePreparedTxn::SetSnapshot() {

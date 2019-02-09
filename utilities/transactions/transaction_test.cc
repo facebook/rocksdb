@@ -197,37 +197,53 @@ TEST_P(TransactionTest, AssumeExclusiveTracked) {
 
 // This test clarifies the contract of ValidateSnapshot
 TEST_P(TransactionTest, ValidateSnapshotTest) {
-  for (bool with_2pc : {true, false}) {
-    ASSERT_OK(ReOpen());
-    WriteOptions write_options;
-    ReadOptions read_options;
-    std::string value;
+  for (bool with_flush : {true}) {
+    for (bool with_2pc : {true}) {
+      ASSERT_OK(ReOpen());
+      WriteOptions write_options;
+      ReadOptions read_options;
+      std::string value;
 
-    assert(db != nullptr);
-    Transaction* txn1 =
-        db->BeginTransaction(write_options, TransactionOptions());
-    ASSERT_TRUE(txn1);
-    ASSERT_OK(txn1->Put(Slice("foo"), Slice("bar1")));
-    if (with_2pc) {
-      ASSERT_OK(txn1->SetName("xid1"));
-      ASSERT_OK(txn1->Prepare());
+      assert(db != nullptr);
+      Transaction* txn1 =
+          db->BeginTransaction(write_options, TransactionOptions());
+      ASSERT_TRUE(txn1);
+      ASSERT_OK(txn1->Put(Slice("foo"), Slice("bar1")));
+      if (with_2pc) {
+        ASSERT_OK(txn1->SetName("xid1"));
+        ASSERT_OK(txn1->Prepare());
+      }
+
+      if (with_flush) {
+        auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+        db_impl->TEST_FlushMemTable(true);
+        // Make sure the flushed memtable is not kept in memory
+        int max_memtable_in_history =
+            std::max(options.max_write_buffer_number,
+                     options.max_write_buffer_number_to_maintain) +
+            1;
+        for (int i = 0; i < max_memtable_in_history; i++) {
+          db->Put(write_options, Slice("key"), Slice("value"));
+          db_impl->TEST_FlushMemTable(true);
+        }
+      }
+
+      Transaction* txn2 =
+          db->BeginTransaction(write_options, TransactionOptions());
+      ASSERT_TRUE(txn2);
+      txn2->SetSnapshot();
+
+      ASSERT_OK(txn1->Commit());
+      delete txn1;
+
+      auto pes_txn2 = dynamic_cast<PessimisticTransaction*>(txn2);
+      // Test the simple case where the key is not tracked yet
+      auto trakced_seq = kMaxSequenceNumber;
+      auto s = pes_txn2->ValidateSnapshot(db->DefaultColumnFamily(), "foo",
+                                          &trakced_seq);
+      ASSERT_TRUE(s.IsBusy());
+      delete txn2;
     }
-
-    Transaction* txn2 =
-        db->BeginTransaction(write_options, TransactionOptions());
-    ASSERT_TRUE(txn2);
-    txn2->SetSnapshot();
-
-    ASSERT_OK(txn1->Commit());
-    delete txn1;
-
-    auto pes_txn2 = dynamic_cast<PessimisticTransaction*>(txn2);
-    // Test the simple case where the key is not tracked yet
-    auto trakced_seq = kMaxSequenceNumber;
-    auto s = pes_txn2->ValidateSnapshot(db->DefaultColumnFamily(), "foo",
-                                        &trakced_seq);
-    ASSERT_TRUE(s.IsBusy());
-    delete txn2;
   }
 }
 
