@@ -1356,6 +1356,9 @@ struct TraceOptions {
   // To avoid the trace file size grows large than the storage space,
   // user can set the max trace file size in Bytes. Default is 64GB
   uint64_t max_trace_file_size = uint64_t{64} * 1024 * 1024 * 1024;
+  // Specify trace sampling option, i.e. capture one per how many requests.
+  // Default to 1 (capture every request).
+  uint64_t sampling_frequency = 1;
 };
 
 }  // namespace rocksdb

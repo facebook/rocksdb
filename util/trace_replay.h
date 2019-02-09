@@ -72,10 +72,12 @@ class Tracer {
   Status WriteHeader();
   Status WriteFooter();
   Status WriteTrace(const Trace& trace);
+  bool ShouldSkipTrace();
 
   Env* env_;
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
+  uint64_t trace_request_count_;
 };
 
 // Replay RocksDB operations from a trace.
