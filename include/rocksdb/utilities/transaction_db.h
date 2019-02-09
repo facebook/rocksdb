@@ -94,7 +94,7 @@ struct TransactionDBOptions {
   // for the special way that myrocks uses this operands.
   bool rollback_merge_operands = false;
 
-  private:
+ private:
   // 128 entries
   size_t wp_snapshot_cache_bits = static_cast<size_t>(7);
   // 8m entry, 64MB size

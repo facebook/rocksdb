@@ -43,8 +43,8 @@ namespace rocksdb {
 // mechanisms to tell such data apart from committed data.
 class WritePreparedTxnDB : public PessimisticTransactionDB {
  public:
-  explicit WritePreparedTxnDB(
-      DB* db, const TransactionDBOptions& txn_db_options)
+  explicit WritePreparedTxnDB(DB* db,
+                              const TransactionDBOptions& txn_db_options)
       : PessimisticTransactionDB(db, txn_db_options),
         SNAPSHOT_CACHE_BITS(txn_db_options.wp_snapshot_cache_bits),
         SNAPSHOT_CACHE_SIZE(static_cast<size_t>(1ull << SNAPSHOT_CACHE_BITS)),
@@ -54,8 +54,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     Init(txn_db_options);
   }
 
-  explicit WritePreparedTxnDB(
-      StackableDB* db, const TransactionDBOptions& txn_db_options)
+  explicit WritePreparedTxnDB(StackableDB* db,
+                              const TransactionDBOptions& txn_db_options)
       : PessimisticTransactionDB(db, txn_db_options),
         SNAPSHOT_CACHE_BITS(txn_db_options.wp_snapshot_cache_bits),
         SNAPSHOT_CACHE_SIZE(static_cast<size_t>(1ull << SNAPSHOT_CACHE_BITS)),

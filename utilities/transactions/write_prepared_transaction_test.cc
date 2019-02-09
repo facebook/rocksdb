@@ -811,7 +811,7 @@ TEST_P(WritePreparedTransactionTest, OldCommitMapGC) {
   const size_t snapshot_cache_bits = 0;
   const size_t commit_cache_bits = 0;
   DBImpl* mock_db = new DBImpl(options, dbname);
-      UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
   std::unique_ptr<WritePreparedTxnDBMock> wp_db(
       new WritePreparedTxnDBMock(mock_db, txn_db_options));
 
@@ -897,7 +897,7 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
   // the snapshots lists changed.
   assert((1ul << snapshot_cache_bits) * 2 + 1 == snapshots.size());
   DBImpl* mock_db = new DBImpl(options, dbname);
-      UpdateTransactionDBOptions(snapshot_cache_bits);
+  UpdateTransactionDBOptions(snapshot_cache_bits);
   std::unique_ptr<WritePreparedTxnDBMock> wp_db(
       new WritePreparedTxnDBMock(mock_db, txn_db_options));
   SequenceNumber version = 1000l;
@@ -993,7 +993,7 @@ TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccessTest) {
   // Choose the cache size so that the new snapshot list could replace all the
   // existing items in the cache and also have some overflow.
   DBImpl* mock_db = new DBImpl(options, dbname);
-      UpdateTransactionDBOptions(snapshot_cache_bits);
+  UpdateTransactionDBOptions(snapshot_cache_bits);
   std::unique_ptr<WritePreparedTxnDBMock> wp_db(
       new WritePreparedTxnDBMock(mock_db, txn_db_options));
   const size_t extra = 2;
@@ -1168,7 +1168,7 @@ TEST_P(WritePreparedTransactionTest, NewSnapshotLargerThanMax) {
 TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // only 1 entry => frequent eviction
-      UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
   ReOpen();
   WriteOptions woptions;
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -1216,7 +1216,7 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
 TEST_P(WritePreparedTransactionTest, CleanupSnapshotEqualToMax) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // only 1 entry => frequent eviction
-      UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
   ReOpen();
   WriteOptions woptions;
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -2206,8 +2206,8 @@ TEST_P(WritePreparedTransactionTest, SmallestUncommittedOptimization) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // disable commit cache
   for (bool has_recent_prepare : {true, false}) {
-      UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
-  ReOpen();
+    UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+    ReOpen();
 
     ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
     auto* transaction =
@@ -2255,7 +2255,7 @@ TEST_P(WritePreparedTransactionTest, SmallestUncommittedOptimization) {
 TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // minimum commit cache
-      UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
   ReOpen();
 
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1_1"));
@@ -2304,7 +2304,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
 TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction2) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // minimum commit cache
-      UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
   ReOpen();
 
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
@@ -2354,7 +2354,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction2) {
 TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction3) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 1;    // commit cache size = 2
-      UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
   ReOpen();
 
   // Add a dummy key to evict v2 commit cache, but keep v1 commit cache.
@@ -2405,7 +2405,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction3) {
 TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // minimum commit cache
-      UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
   ReOpen();
 
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
@@ -2685,8 +2685,8 @@ TEST_P(WritePreparedTransactionTest, NonAtomicCommitOfOldPrepared) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 3;    // 8 entries
   for (auto split_read : {true, false}) {
-      UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
-  ReOpen();
+    UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+    ReOpen();
     // Fill up the commit cache
     std::string init_value("value1");
     for (int i = 0; i < 10; i++) {
