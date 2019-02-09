@@ -700,10 +700,10 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
   delete stats_iter;
   size_t stats_history_size = dbfull()->TEST_EstiamteStatsHistorySize();
   ASSERT_GE(slice_count, 0);
-  ASSERT_GE(stats_history_size, 6000);
+  ASSERT_GE(stats_history_size, 12000);
   // capping memory cost at 2000 bytes
-  ASSERT_OK(dbfull()->SetDBOptions({{"stats_history_buffer_size", "6000"}}));
-  ASSERT_EQ(6000, dbfull()->GetDBOptions().stats_history_buffer_size);
+  ASSERT_OK(dbfull()->SetDBOptions({{"stats_history_buffer_size", "12000"}}));
+  ASSERT_EQ(12000, dbfull()->GetDBOptions().stats_history_buffer_size);
   env_->SleepForMicroseconds(2000000);  // Wait for stats persist to finish
   db_->GetStatsHistory(0, env_->NowMicros(), &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
@@ -714,7 +714,7 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
   }
   delete stats_iter;
   size_t stats_history_size_reopen = dbfull()->TEST_EstiamteStatsHistorySize();
-  ASSERT_TRUE(stats_history_size_reopen < 6000 && stats_history_size_reopen > 0);
+  ASSERT_TRUE(stats_history_size_reopen < 12000 && stats_history_size_reopen > 0);
   ASSERT_TRUE(stats_count_reopen < stats_count && stats_count_reopen > 0);
   Close();
 }
