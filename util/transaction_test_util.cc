@@ -80,7 +80,7 @@ bool RandomTransactionInserter::OptimisticTransactionDBInsert(
   optimistic_txn_ =
       db->BeginTransaction(write_options_, txn_options, optimistic_txn_);
 
-  return DoInsert(nullptr, optimistic_txn_, true);
+  return DoInsert(db, optimistic_txn_, true);
 }
 
 bool RandomTransactionInserter::DBInsert(DB* db) {
