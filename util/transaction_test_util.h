@@ -40,7 +40,8 @@ class RandomTransactionInserter {
   explicit RandomTransactionInserter(
       Random64* rand, const WriteOptions& write_options = WriteOptions(),
       const ReadOptions& read_options = ReadOptions(), uint64_t num_keys = 1000,
-      uint16_t num_sets = 3, const uint64_t cmt_delay_ms = 0, const uint64_t first_id = 0);
+      uint16_t num_sets = 3, const uint64_t cmt_delay_ms = 0,
+      const uint64_t first_id = 0);
 
   ~RandomTransactionInserter();
 
@@ -78,7 +79,8 @@ class RandomTransactionInserter {
 
   // Returns OK if Invariant is true.
   static Status Verify(DB* db, uint16_t num_sets, uint64_t num_keys_per_set = 0,
-                       bool take_snapshot = false, Random64* rand = nullptr, uint64_t delay_ms = 0);
+                       bool take_snapshot = false, Random64* rand = nullptr,
+                       uint64_t delay_ms = 0);
 
   // Returns the status of the previous Insert operation
   Status GetLastStatus() { return last_status_; }
