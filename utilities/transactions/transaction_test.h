@@ -455,8 +455,8 @@ class MySQLStyleTransactionTest
  public:
   MySQLStyleTransactionTest()
       : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
-                            std::get<2>(GetParam()))
-      , with_slow_threads_(std::get<3>(GetParam())){};
+                            std::get<2>(GetParam())),
+        with_slow_threads_(std::get<3>(GetParam())){};
 
  protected:
   // Also emulate slow threads by addin artiftial delays

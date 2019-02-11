@@ -656,8 +656,8 @@ WriteBatchBase* TransactionBaseImpl::GetBatchForWrite() {
 void TransactionBaseImpl::ReleaseSnapshot(const Snapshot* snapshot, DB* db) {
   if (snapshot != nullptr) {
     ROCKS_LOG_DETAILS(dbimpl_->immutable_db_options().info_log,
-                   "ReleaseSnapshot %" PRIu64 " Set",
-                   snapshot->GetSequenceNumber());
+                      "ReleaseSnapshot %" PRIu64 " Set",
+                      snapshot->GetSequenceNumber());
     db->ReleaseSnapshot(snapshot);
   }
 }
