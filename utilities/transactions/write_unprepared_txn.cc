@@ -85,7 +85,8 @@ void WriteUnpreparedTxn::Initialize(const TransactionOptions& txn_options) {
 
 Status WriteUnpreparedTxn::Put(ColumnFamilyHandle* column_family,
                                const Slice& key, const Slice& value,
-                               const bool assume_tracked) {
+                               const bool assume_tracked,
+                               const bool /*skip_lock*/) {
   Status s = MaybeFlushWriteBatchToDB();
   if (!s.ok()) {
     return s;
@@ -95,7 +96,8 @@ Status WriteUnpreparedTxn::Put(ColumnFamilyHandle* column_family,
 
 Status WriteUnpreparedTxn::Put(ColumnFamilyHandle* column_family,
                                const SliceParts& key, const SliceParts& value,
-                               const bool assume_tracked) {
+                               const bool assume_tracked,
+                               const bool /*skip_lock*/) {
   Status s = MaybeFlushWriteBatchToDB();
   if (!s.ok()) {
     return s;

@@ -46,7 +46,7 @@ class TransactionBaseImpl : public Transaction {
   void SetSavePoint() override;
 
   Status RollbackToSavePoint() override;
-  
+
   Status PopSavePoint() override;
 
   using Transaction::Get;
@@ -113,14 +113,16 @@ class TransactionBaseImpl : public Transaction {
                         ColumnFamilyHandle* column_family) override;
 
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,
-             const Slice& value, const bool assume_tracked = false) override;
+             const Slice& value, const bool assume_tracked = false,
+             const bool skip_lock = false) override;
   Status Put(const Slice& key, const Slice& value) override {
     return Put(nullptr, key, value);
   }
 
   Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
              const SliceParts& value,
-             const bool assume_tracked = false) override;
+             const bool assume_tracked = false,
+             const bool skip_lock = false) override;
   Status Put(const SliceParts& key, const SliceParts& value) override {
     return Put(nullptr, key, value);
   }

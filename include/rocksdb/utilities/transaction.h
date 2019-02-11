@@ -308,11 +308,13 @@ class Transaction {
   //  (See max_write_buffer_number_to_maintain)
   // or other errors on unexpected failures.
   virtual Status Put(ColumnFamilyHandle* column_family, const Slice& key,
-                     const Slice& value, const bool assume_tracked = false) = 0;
+                     const Slice& value, const bool assume_tracked = false,
+                     const bool skip_lock = false) = 0;
   virtual Status Put(const Slice& key, const Slice& value) = 0;
   virtual Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
                      const SliceParts& value,
-                     const bool assume_tracked = false) = 0;
+                     const bool assume_tracked = false,
+                     const bool skip_lock = false) = 0;
   virtual Status Put(const SliceParts& key, const SliceParts& value) = 0;
 
   virtual Status Merge(ColumnFamilyHandle* column_family, const Slice& key,

@@ -49,10 +49,12 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   using TransactionBaseImpl::Put;
   virtual Status Put(ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value,
-                     const bool assume_tracked = false) override;
+                     const bool assume_tracked = false,
+                     const bool skip_lock = false) override;
   virtual Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
                      const SliceParts& value,
-                     const bool assume_tracked = false) override;
+                     const bool assume_tracked = false,
+                     const bool skip_lock = false) override;
 
   using TransactionBaseImpl::Merge;
   virtual Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
