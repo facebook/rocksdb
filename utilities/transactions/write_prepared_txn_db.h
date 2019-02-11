@@ -34,10 +34,6 @@
 
 namespace rocksdb {
 
-#define ROCKS_LOG_DETAILS(LGR, FMT, ...) \
-  ;  // due to overhead by default skip such lines
-// ROCKS_LOG_DEBUG(LGR, FMT, ##__VA_ARGS__)
-
 // A PessimisticTransactionDB that writes data to DB after prepare phase of 2PC.
 // In this way some data in the DB might not be committed. The DB provides
 // mechanisms to tell such data apart from committed data.
