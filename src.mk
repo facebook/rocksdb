@@ -180,7 +180,6 @@ LIB_SOURCES =                                                   \
   utilities/env_mirror.cc                                       \
   utilities/env_timed.cc                                        \
   utilities/leveldb_options/leveldb_options.cc                  \
-  utilities/lua/rocks_lua_compaction_filter.cc                  \
   utilities/memory/memory_util.cc                               \
   utilities/merge_operators/max.cc                              \
   utilities/merge_operators/put.cc                              \
@@ -383,7 +382,6 @@ MAIN_SOURCES =                                                          \
   utilities/cassandra/cassandra_row_merge_test.cc                       \
   utilities/cassandra/cassandra_serialize_test.cc                       \
   utilities/checkpoint/checkpoint_test.cc                               \
-  utilities/lua/rocks_lua_test.cc                                       \
   utilities/memory/memory_test.cc                                       \
   utilities/merge_operators/string_append/stringappend_test.cc          \
   utilities/object_registry_test.cc                                     \
