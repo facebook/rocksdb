@@ -120,7 +120,7 @@ class RandomTransactionInserter {
   Transaction* txn_ = nullptr;
   Transaction* optimistic_txn_ = nullptr;
 
-  int txn_id_;
+  uint64_t txn_id_;
   // The delay between ::Prepare and ::Commit
   const uint64_t cmt_delay_ms_;
 
