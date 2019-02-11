@@ -21,6 +21,10 @@
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
+
+#include "db/dbformat.h"
+#include "db/snapshot_impl.h"
+#include "util/logging.h"
 #include "util/random.h"
 #include "util/string_util.h"
 
@@ -28,13 +32,14 @@ namespace rocksdb {
 
 RandomTransactionInserter::RandomTransactionInserter(
     Random64* rand, const WriteOptions& write_options,
-    const ReadOptions& read_options, uint64_t num_keys, uint16_t num_sets)
+    const ReadOptions& read_options, uint64_t num_keys, uint16_t num_sets, const uint64_t cmt_delay_ms, const uint64_t first_id)
     : rand_(rand),
       write_options_(write_options),
       read_options_(read_options),
       num_keys_(num_keys),
       num_sets_(num_sets),
-      txn_id_(0) {}
+      txn_id_(first_id),
+      cmt_delay_ms_(cmt_delay_ms) {}
 
 RandomTransactionInserter::~RandomTransactionInserter() {
   if (txn_ != nullptr) {
@@ -54,14 +59,14 @@ bool RandomTransactionInserter::TransactionDBInsert(
   snprintf(name, 64, "txn%" ROCKSDB_PRIszt "-%d",
            hasher(std::this_thread::get_id()), txn_id_++);
   assert(strlen(name) < 64 - 1);
-  txn_->SetName(name);
+  assert(txn_->SetName(name).ok());
 
   bool take_snapshot = rand_->OneIn(2);
   if (take_snapshot) {
     txn_->SetSnapshot();
     read_options_.snapshot = txn_->GetSnapshot();
   }
-  auto res = DoInsert(nullptr, txn_, false);
+  auto res = DoInsert(db, txn_, false);
   if (take_snapshot) {
     read_options_.snapshot = nullptr;
   }
@@ -178,20 +183,34 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
       }
       bytes_inserted_ += key.size() + sum.size();
     }
+    ROCKS_LOG_DEBUG(db->GetDBOptions().info_log, 
+    "Insert (%s) %s snap: %lu key:%s value: %lu+%lu=%lu\n", txn->GetName().c_str(), s.ToString().c_str(), txn->GetSnapshot()->GetSequenceNumber(), full_key.c_str(), int_value, incr, int_value + incr);
   }
 
   if (s.ok()) {
     if (txn != nullptr) {
-      if (!is_optimistic && !rand_->OneIn(10)) {
-        // also try commit without prpare
+      bool prepare_first = !is_optimistic && !rand_->OneIn(10);
+      if (prepare_first) {
+        // Also try commit without prepare
         s = txn->Prepare();
         assert(s.ok());
+        ROCKS_LOG_DEBUG(db->GetDBOptions().info_log,
+                       "Prepare of %lu %s (%s)\n", txn->GetId(),
+                       s.ToString().c_str(), txn->GetName().c_str());
+        db->GetDBOptions().env->SleepForMicroseconds(cmt_delay_ms_ * 1000);
       }
       if (!rand_->OneIn(20)) {
         s = txn->Commit();
+        assert(!prepare_first || s.ok());
+        ROCKS_LOG_DEBUG(db->GetDBOptions().info_log,
+                       "Commit of %lu %s (%s)\n", txn->GetId(),
+                       s.ToString().c_str(), txn->GetName().c_str());
       } else {
         // Also try 5% rollback
         s = txn->Rollback();
+        ROCKS_LOG_DEBUG(db->GetDBOptions().info_log, "Rollback %lu %s %s\n",
+                        txn->GetId(), txn->GetName().c_str(),
+                        s.ToString().c_str());
         assert(s.ok());
       }
       assert(is_optimistic || s.ok());
@@ -226,6 +245,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
       }
     }
   } else {
+    ROCKS_LOG_DEBUG(db->GetDBOptions().info_log, "Error %s for txn %s", s.ToString().c_str(), txn->GetName().c_str());
     if (txn != nullptr) {
       assert(txn->Rollback().ok());
     }
@@ -246,7 +266,11 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
 // Verify that the sum of the keys in each set are equal
 Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
                                          uint64_t num_keys_per_set,
-                                         bool take_snapshot, Random64* rand) {
+                                         bool take_snapshot, Random64* rand,
+                                         uint64_t delay_ms) {
+  // delay_ms is the delay between taking a snapshot and doing the reads. It
+  // emulates reads from a long-running backup job.
+  assert(delay_ms == 0 || take_snapshot);
   uint64_t prev_total = 0;
   uint32_t prev_i = 0;
   bool prev_assigned = false;
@@ -254,6 +278,7 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
   ReadOptions roptions;
   if (take_snapshot) {
     roptions.snapshot = db->GetSnapshot();
+    db->GetDBOptions().env->SleepForMicroseconds(delay_ms * 1000);
   }
 
   std::vector<uint16_t> set_vec(num_sets);
@@ -271,7 +296,9 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
 
     // Use either point lookup or iterator. Point lookups are slower so we use
     // it less often.
-    if (num_keys_per_set != 0 && rand && rand->OneIn(10)) {  // use point lookup
+    const bool use_point_lookup =
+        num_keys_per_set != 0 && rand && rand->OneIn(10);
+    if (use_point_lookup) {
       ReadOptions read_options;
       for (uint64_t k = 0; k < num_keys_per_set; k++) {
         std::string dont_care;
@@ -299,17 +326,29 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
                   value.ToString().c_str());
           return Status::Corruption();
         }
+        ROCKS_LOG_DEBUG(
+            db->GetDBOptions().info_log, "VerifyRead at %lu (%lu): %.*s value: %lu\n",
+            roptions.snapshot ? roptions.snapshot->GetSequenceNumber() : 0,
+            roptions.snapshot ? ((SnapshotImpl*)roptions.snapshot)->min_uncommitted_ : 0,
+            key.size(), key.data(), int_value);
         total += int_value;
       }
       delete iter;
     }
 
     if (prev_assigned && total != prev_total) {
+      db->GetDBOptions().info_log->Flush();
       fprintf(stdout,
-              "RandomTransactionVerify found inconsistent totals. "
-              "Set[%" PRIu32 "]: %" PRIu64 ", Set[%" PRIu32 "]: %" PRIu64 " \n",
-              prev_i, prev_total, set_i, total);
+              "RandomTransactionVerify found inconsistent totals using pointlookup? %d "
+              "Set[%" PRIu32 "]: %" PRIu64 ", Set[%" PRIu32 "]: %" PRIu64 " at snapshot %lu\n", use_point_lookup,
+              prev_i, prev_total, set_i, total, roptions.snapshot ? roptions.snapshot->GetSequenceNumber() : 0);
+      fflush(stdout);
       return Status::Corruption();
+    } else {
+    ROCKS_LOG_DEBUG(db->GetDBOptions().info_log, 
+          "RandomTransactionVerify pass pointlookup? %d total: %lu snap: %lu\n",
+          use_point_lookup, total,
+          roptions.snapshot ? roptions.snapshot->GetSequenceNumber() : 0);
     }
     prev_total = total;
     prev_i = set_i;
