@@ -25,6 +25,8 @@
 
 namespace rocksdb {
 
+const int kMicrosInSec = 1000000;
+
 class DBOptionsTest : public DBTestBase {
  public:
   DBOptionsTest() : DBTestBase("/db_options_test") {}
@@ -513,6 +515,7 @@ TEST_F(DBOptionsTest, SetStatsDumpPeriodSec) {
         dbfull()->SetDBOptions({{"stats_dump_period_sec", ToString(num)}}));
     ASSERT_EQ(num, dbfull()->GetDBOptions().stats_dump_period_sec);
   }
+  Close();
 }
 
 TEST_F(DBOptionsTest, RunStatsDumpPeriodSec) {
@@ -537,7 +540,9 @@ TEST_F(DBOptionsTest, RunStatsDumpPeriodSec) {
   // Test cacel job through SetOptions
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_dump_period_sec", "0"}}));
   int old_val = counter;
-  env_->SleepForMicroseconds(10000000);
+  for (int i = 6; i < 20; ++i) {
+    mock_env->set_current_time(i);
+  }
   ASSERT_EQ(counter, old_val);
   Close();
 }
@@ -563,16 +568,18 @@ TEST_F(DBOptionsTest, StatsPersistScheduling) {
   // Test cacel job through SetOptions
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "0"}}));
   int old_counter = counter;
-  env_->SleepForMicroseconds(10000000);
+  for (int i = 6; i < 20; ++i) {
+    mock_env->set_current_time(i);
+  }
   ASSERT_EQ(counter, old_counter);
 
   // Test resume job through SetOptions
-  // TODO(Zhongyi): use mock_time_env for more robust test
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "5"}}));
   ASSERT_EQ(5, dbfull()->GetDBOptions().stats_persist_period_sec);
-  env_->SleepForMicroseconds(6000000);
+  for (int i = 20; i < 40; ++i) {
+    mock_env->set_current_time(i);
+  }
   ASSERT_GE(counter, old_counter);
-
   Close();
 }
 
@@ -618,13 +625,19 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
   options.create_if_missing = true;
   options.stats_persist_period_sec = 5;
   options.statistics = rocksdb::CreateDBStatistics();
-  options.env = env_;
+  std::unique_ptr<rocksdb::MockTimeEnv> mock_env;
+  mock_env.reset(new rocksdb::MockTimeEnv(env_));
+  mock_env->set_current_time(0);  // in seconds
+  options.env = mock_env.get();
   CreateColumnFamilies({"pikachu"}, options);
   ASSERT_OK(Put("foo", "bar"));
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
-  env_->SleepForMicroseconds(8000000);  // Wait for stats persist to finish
+
+  int mock_time = 1;
+  // Wait for stats persist to finish
+  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
   StatsHistoryIterator* stats_iter = nullptr;
-  db_->GetStatsHistory(0, env_->NowMicros(), &stats_iter);
+  db_->GetStatsHistory(0, 6 * kMicrosInSec, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   // disabled stats snapshots
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "0"}}));
@@ -634,10 +647,12 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
     stats_count += stats_map.size();
   }
   delete stats_iter;
-  ASSERT_GE(stats_count, 0);
-  env_->SleepForMicroseconds(
-      8000000);  // Wait a bit and verify no more stats are found
-  db_->GetStatsHistory(0, env_->NowMicros(), &stats_iter);
+  ASSERT_GT(stats_count, 0);
+  // Wait a bit and verify no more stats are found
+  for (mock_time = 6; mock_time < 20; ++mock_time) {
+    mock_env->set_current_time(mock_time);
+  }
+  db_->GetStatsHistory(0, 20 * kMicrosInSec, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count_new = 0;
   for (; stats_iter->Valid(); stats_iter->Next()) {
@@ -645,6 +660,7 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
   }
   ASSERT_EQ(stats_count_new, stats_count);
   delete stats_iter;
+  Close();
 }
 
 TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
@@ -652,7 +668,10 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
   options.stats_persist_period_sec = 1;
-  options.env = env_;
+  std::unique_ptr<rocksdb::MockTimeEnv> mock_env;
+  mock_env.reset(new rocksdb::MockTimeEnv(env_));
+  mock_env->set_current_time(0);  // in seconds
+  options.env = mock_env.get();
   CreateColumnFamilies({"pikachu"}, options);
   ASSERT_OK(Put("foo", "bar"));
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
@@ -672,8 +691,11 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
   ASSERT_OK(Flush());
   ASSERT_OK(Delete("sol"));
   db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  int mock_time = 1;
   // Wait for stats persist to finish
-  env_->SleepForMicroseconds(4000000);
+  for (; mock_time < 5; ++mock_time) {
+    mock_env->set_current_time(mock_time);
+  }
 
   // second round of ops
   ASSERT_OK(Put("saigon", "saigon"));
@@ -686,9 +708,11 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
   delete iterator;
   ASSERT_OK(Flush());
   db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
-  env_->SleepForMicroseconds(4000000);
+  for (; mock_time < 10; ++mock_time) {
+    dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(mock_time); });
+  }
   StatsHistoryIterator* stats_iter = nullptr;
-  db_->GetStatsHistory(0, env_->NowMicros(), &stats_iter);
+  db_->GetStatsHistory(0, 10 * kMicrosInSec, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count = 0;
   int slice_count = 0;
@@ -699,13 +723,16 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
   }
   delete stats_iter;
   size_t stats_history_size = dbfull()->TEST_EstiamteStatsHistorySize();
-  ASSERT_GE(slice_count, 0);
+  ASSERT_GT(slice_count, 0);
   ASSERT_GE(stats_history_size, 12000);
   // capping memory cost at 2000 bytes
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_history_buffer_size", "12000"}}));
   ASSERT_EQ(12000, dbfull()->GetDBOptions().stats_history_buffer_size);
-  env_->SleepForMicroseconds(2000000);  // Wait for stats persist to finish
-  db_->GetStatsHistory(0, env_->NowMicros(), &stats_iter);
+  // Wait for stats persist to finish
+  for (; mock_time < 20; ++mock_time) {
+    dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(mock_time); });
+  }
+  db_->GetStatsHistory(0, 20 * kMicrosInSec, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count_reopen = 0;
   for (; stats_iter->Valid(); stats_iter->Next()) {
