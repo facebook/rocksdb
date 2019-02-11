@@ -43,27 +43,23 @@ namespace rocksdb {
 // mechanisms to tell such data apart from committed data.
 class WritePreparedTxnDB : public PessimisticTransactionDB {
  public:
-  explicit WritePreparedTxnDB(
-      DB* db, const TransactionDBOptions& txn_db_options,
-      size_t snapshot_cache_bits = DEF_SNAPSHOT_CACHE_BITS,
-      size_t commit_cache_bits = DEF_COMMIT_CACHE_BITS)
+  explicit WritePreparedTxnDB(DB* db,
+                              const TransactionDBOptions& txn_db_options)
       : PessimisticTransactionDB(db, txn_db_options),
-        SNAPSHOT_CACHE_BITS(snapshot_cache_bits),
+        SNAPSHOT_CACHE_BITS(txn_db_options.wp_snapshot_cache_bits),
         SNAPSHOT_CACHE_SIZE(static_cast<size_t>(1ull << SNAPSHOT_CACHE_BITS)),
-        COMMIT_CACHE_BITS(commit_cache_bits),
+        COMMIT_CACHE_BITS(txn_db_options.wp_commit_cache_bits),
         COMMIT_CACHE_SIZE(static_cast<size_t>(1ull << COMMIT_CACHE_BITS)),
         FORMAT(COMMIT_CACHE_BITS) {
     Init(txn_db_options);
   }
 
-  explicit WritePreparedTxnDB(
-      StackableDB* db, const TransactionDBOptions& txn_db_options,
-      size_t snapshot_cache_bits = DEF_SNAPSHOT_CACHE_BITS,
-      size_t commit_cache_bits = DEF_COMMIT_CACHE_BITS)
+  explicit WritePreparedTxnDB(StackableDB* db,
+                              const TransactionDBOptions& txn_db_options)
       : PessimisticTransactionDB(db, txn_db_options),
-        SNAPSHOT_CACHE_BITS(snapshot_cache_bits),
+        SNAPSHOT_CACHE_BITS(txn_db_options.wp_snapshot_cache_bits),
         SNAPSHOT_CACHE_SIZE(static_cast<size_t>(1ull << SNAPSHOT_CACHE_BITS)),
-        COMMIT_CACHE_BITS(commit_cache_bits),
+        COMMIT_CACHE_BITS(txn_db_options.wp_commit_cache_bits),
         COMMIT_CACHE_SIZE(static_cast<size_t>(1ull << COMMIT_CACHE_BITS)),
         FORMAT(COMMIT_CACHE_BITS) {
     Init(txn_db_options);
@@ -619,8 +615,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // The list sorted in ascending order. Thread-safety for writes is provided
   // with snapshots_mutex_ and concurrent reads are safe due to std::atomic for
   // each entry. In x86_64 architecture such reads are compiled to simple read
-  // instructions. 128 entries
-  static const size_t DEF_SNAPSHOT_CACHE_BITS = static_cast<size_t>(7);
+  // instructions.
   const size_t SNAPSHOT_CACHE_BITS;
   const size_t SNAPSHOT_CACHE_SIZE;
   std::unique_ptr<std::atomic<SequenceNumber>[]> snapshot_cache_;
@@ -638,8 +633,6 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // A heap of prepared transactions. Thread-safety is provided with
   // prepared_mutex_.
   PreparedHeap prepared_txns_;
-  // 8m entry, 64MB size
-  static const size_t DEF_COMMIT_CACHE_BITS = static_cast<size_t>(23);
   const size_t COMMIT_CACHE_BITS;
   const size_t COMMIT_CACHE_SIZE;
   const CommitEntry64bFormat FORMAT;
