@@ -323,11 +323,13 @@ class Transaction {
   virtual Status Merge(const Slice& key, const Slice& value) = 0;
 
   virtual Status Delete(ColumnFamilyHandle* column_family, const Slice& key,
-                        const bool assume_tracked = false) = 0;
+                        const bool assume_tracked = false,
+                        const bool skip_lock = false) = 0;
   virtual Status Delete(const Slice& key) = 0;
   virtual Status Delete(ColumnFamilyHandle* column_family,
                         const SliceParts& key,
-                        const bool assume_tracked = false) = 0;
+                        const bool assume_tracked = false,
+                        const bool skip_lock = false) = 0;
   virtual Status Delete(const SliceParts& key) = 0;
 
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
