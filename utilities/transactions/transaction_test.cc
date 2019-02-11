@@ -67,9 +67,7 @@ INSTANTIATE_TEST_CASE_P(
 INSTANTIATE_TEST_CASE_P(
     MySQLStyleTransactionTest, MySQLStyleTransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED, false),
-                      std::make_tuple(false, false, WRITE_COMMITTED, true),
                       std::make_tuple(false, true, WRITE_COMMITTED, false),
-                      std::make_tuple(false, true, WRITE_COMMITTED, true),
                       std::make_tuple(false, false, WRITE_PREPARED, false),
                       std::make_tuple(false, false, WRITE_PREPARED, true),
                       std::make_tuple(false, true, WRITE_PREPARED, false),
