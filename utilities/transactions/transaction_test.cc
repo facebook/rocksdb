@@ -66,12 +66,18 @@ INSTANTIATE_TEST_CASE_P(
 #ifndef ROCKSDB_VALGRIND_RUN
 INSTANTIATE_TEST_CASE_P(
     MySQLStyleTransactionTest, MySQLStyleTransactionTest,
-    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
-                      std::make_tuple(false, true, WRITE_COMMITTED),
-                      std::make_tuple(false, false, WRITE_PREPARED),
-                      std::make_tuple(false, true, WRITE_PREPARED),
-                      std::make_tuple(false, false, WRITE_UNPREPARED),
-                      std::make_tuple(false, true, WRITE_UNPREPARED)));
+    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED, false),
+                      std::make_tuple(false, false, WRITE_COMMITTED, true),
+                      std::make_tuple(false, true, WRITE_COMMITTED, false),
+                      std::make_tuple(false, true, WRITE_COMMITTED, true),
+                      std::make_tuple(false, false, WRITE_PREPARED, false),
+                      std::make_tuple(false, false, WRITE_PREPARED, true),
+                      std::make_tuple(false, true, WRITE_PREPARED, false),
+                      std::make_tuple(false, true, WRITE_PREPARED, true),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, false),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, true),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, false),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, true)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
@@ -5096,11 +5102,13 @@ TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
   for (uint32_t i = 0; i < num_checkers; i++) {
     threads.emplace_back(call_checker);
   }
-  for (uint32_t i = 0; i < num_slow_checkers; i++) {
-    threads.emplace_back(call_slow_checker);
-  }
-  for (uint32_t i = 0; i < num_slow_workers; i++) {
-    threads.emplace_back(call_slow_inserter);
+  if (with_slow_threads_) {
+    for (uint32_t i = 0; i < num_slow_checkers; i++) {
+      threads.emplace_back(call_slow_checker);
+    }
+    for (uint32_t i = 0; i < num_slow_workers; i++) {
+      threads.emplace_back(call_slow_inserter);
+    }
   }
 
   // Wait for all threads to finish

@@ -448,6 +448,19 @@ class TransactionTest : public TransactionTestBase,
 
 class TransactionStressTest : public TransactionTest {};
 
-class MySQLStyleTransactionTest : public TransactionTest {};
+class MySQLStyleTransactionTest
+    : public TransactionTestBase,
+      virtual public ::testing::WithParamInterface<
+          std::tuple<bool, bool, TxnDBWritePolicy, bool>> {
+ public:
+  MySQLStyleTransactionTest()
+      : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
+                            std::get<2>(GetParam()))
+      , with_slow_threads_(std::get<3>(GetParam())){};
+
+ protected:
+  // Also emulate slow threads by addin artiftial delays
+  const bool with_slow_threads_;
+};
 
 }  // namespace rocksdb
