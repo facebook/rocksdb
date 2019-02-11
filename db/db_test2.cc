@@ -1039,6 +1039,8 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
 }
 
 TEST_F(DBTest2, PresetCompressionDict) {
+  // Verifies that compression ratio improves when dictionary is enabled, and
+  // improves even further when the dictionary is trained by ZSTD.
   const size_t kBlockSizeBytes = 4 << 10;
   const size_t kL0FileBytes = 128 << 10;
   const size_t kApproxPerBlockOverheadBytes = 50;
@@ -1148,6 +1150,67 @@ TEST_F(DBTest2, PresetCompressionDict) {
       DestroyAndReopen(options);
     }
   }
+}
+
+TEST_F(DBTest2, PresetCompressionDictLocality) {
+  if (!ZSTD_Supported()) {
+    return;
+  }
+  // Verifies that compression dictionary is generated from local data, in
+  // particular, from data in the same SST.
+  const int kNumEntriesPerFile = 1 << 10;  // 1KB
+  const int kNumBytesPerEntry = 1 << 10;   // 1KB
+  const int kNumCompressibleFiles = 3;
+  Options options = CurrentOptions();
+  options.compression = kZSTD;
+  options.compression_opts.max_dict_bytes = 1 << 14;        // 16KB
+  options.compression_opts.zstd_max_train_bytes = 1 << 18;  // 256KB
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.target_file_size_base = kNumEntriesPerFile * kNumBytesPerEntry;
+  BlockBasedTableOptions table_options;
+  table_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  Reopen(options);
+
+  // Alternate between highly compressible file and uncompressible file. After
+  // compaction, if dictionaries contain local data, a pair of highly
+  // compressible file and uncompressible file should be merged into roughly one
+  // file.
+  Random rnd(301);
+  for (int i = 0; i < 2 * kNumCompressibleFiles - 1; ++i) {
+    std::string value;
+    const bool compressible = i % 2 == 0;
+    for (int j = 0; j < kNumEntriesPerFile; ++j) {
+      if (!compressible || j == 0) {
+        // For an uncompressible file, use different value every time.
+        // For a highly compressible file, generate a value once on the first
+        // iteration and then reuse it on subsequent iterations.
+        value = RandomString(&rnd, kNumBytesPerEntry);
+      }
+      ASSERT_OK(Put(Key(i * kNumEntriesPerFile + j), value));
+    }
+    ASSERT_OK(Flush());
+    MoveFilesToLevel(1);
+    ASSERT_EQ(NumTableFilesAtLevel(1), i + 1);
+  }
+  CompactRangeOptions compact_range_opts;
+  compact_range_opts.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_range_opts, nullptr, nullptr));
+  ASSERT_EQ(NumTableFilesAtLevel(1), kNumCompressibleFiles);
+
+  // Scanning through the DB will load all compression dictionary blocks into
+  // block cache. There should be one dictionary per SST file.
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_ADD));
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  iter->SeekToFirst();
+  while (iter->Valid()) {
+    iter->Next();
+  }
+  ASSERT_EQ(kNumCompressibleFiles,
+            TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_ADD));
+  delete iter;
+  iter = nullptr;
 }
 
 class CompactionCompressionListener : public EventListener {
