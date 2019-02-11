@@ -859,6 +859,66 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
   } while (ChangeOptionsForFileIngestionTest());
 }
 
+TEST_P(ExternalSSTFileBasicTest, IngestExternalFileWithCorruptedPropsBlock) {
+  bool verify_checksums_before_ingest = std::get<1>(GetParam());
+  if (!verify_checksums_before_ingest) {
+    return;
+  }
+  uint64_t props_block_offset = 0;
+  size_t props_block_size = 0;
+  const auto& get_props_block_offset = [&](void* arg) {
+    props_block_offset = *reinterpret_cast<uint64_t*>(arg);
+  };
+  const auto& get_props_block_size = [&](void* arg) {
+    props_block_size = *reinterpret_cast<uint64_t*>(arg);
+  };
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::WritePropertiesBlock:GetPropsBlockOffset",
+      get_props_block_offset);
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::WritePropertiesBlock:GetPropsBlockSize",
+      get_props_block_size);
+  SyncPoint::GetInstance()->EnableProcessing();
+  int file_id = 0;
+  Random64 rand(time(nullptr));
+  do {
+    std::string file_path = sst_files_dir_ + ToString(file_id++);
+    Options options = CurrentOptions();
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    Status s = sst_file_writer.Open(file_path);
+    ASSERT_OK(s);
+    for (int i = 0; i != 100; ++i) {
+      std::string key = Key(i);
+      std::string value = Key(i) + ToString(0);
+      ASSERT_OK(sst_file_writer.Put(key, value));
+    }
+    ASSERT_OK(sst_file_writer.Finish());
+
+    {
+      std::unique_ptr<RandomRWFile> rwfile;
+      ASSERT_OK(env_->NewRandomRWFile(file_path, &rwfile, EnvOptions()));
+      // Manually corrupt the file
+      ASSERT_GT(props_block_size, 8);
+      uint64_t offset =
+          props_block_offset + rand.Next() % (props_block_size - 8);
+      char scratch[8] = {0};
+      Slice buf;
+      ASSERT_OK(rwfile->Read(offset, sizeof(scratch), &buf, scratch));
+      scratch[0] ^= 0xff;  // flip one bit
+      ASSERT_OK(rwfile->Write(offset, buf));
+    }
+
+    // Ingest file.
+    IngestExternalFileOptions ifo;
+    ifo.write_global_seqno = std::get<0>(GetParam());
+    ifo.verify_checksums_before_ingest = true;
+    s = db_->IngestExternalFile({file_path}, ifo);
+    ASSERT_NOK(s);
+  } while (ChangeOptionsForFileIngestionTest());
+}
+
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
                         testing::Values(std::make_tuple(true, true),
                                         std::make_tuple(true, false),

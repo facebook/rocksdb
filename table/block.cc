@@ -63,6 +63,39 @@ struct DecodeEntry {
   }
 };
 
+// Helper routine: similar to DecodeEntry but does not have assertions.
+// Instead, returns nullptr so that caller can detect and report failure.
+struct CheckAndDecodeEntry {
+  inline const char* operator()(const char* p, const char* limit,
+                                uint32_t* shared, uint32_t* non_shared,
+                                uint32_t* value_length) {
+    // We need 2 bytes for shared and non_shared size. We also need one more
+    // byte either for value size or the actual value in case of value delta
+    // encoding.
+    if (limit - p < 3) {
+      return nullptr;
+    }
+    *shared = reinterpret_cast<const unsigned char*>(p)[0];
+    *non_shared = reinterpret_cast<const unsigned char*>(p)[1];
+    *value_length = reinterpret_cast<const unsigned char*>(p)[2];
+    if ((*shared | *non_shared | *value_length) < 128) {
+      // Fast path: all three values are encoded in one byte each
+      p += 3;
+    } else {
+      if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) return nullptr;
+      if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) return nullptr;
+      if ((p = GetVarint32Ptr(p, limit, value_length)) == nullptr) {
+        return nullptr;
+      }
+    }
+
+    if (static_cast<uint32_t>(limit - p) < (*non_shared + *value_length)) {
+      return nullptr;
+    }
+    return p;
+  }
+};
+
 struct DecodeKey {
   inline const char* operator()(const char* p, const char* limit,
                                 uint32_t* shared, uint32_t* non_shared) {
@@ -96,7 +129,12 @@ struct DecodeKeyV4 {
 
 void DataBlockIter::Next() {
   assert(Valid());
-  ParseNextDataKey();
+  ParseNextDataKey<DecodeEntry>();
+}
+
+void DataBlockIter::NextOrReport() {
+  assert(Valid());
+  ParseNextDataKey<CheckAndDecodeEntry>();
 }
 
 void IndexBlockIter::Next() {
@@ -179,7 +217,7 @@ void DataBlockIter::Prev() {
   SeekToRestartPoint(restart_index_);
 
   do {
-    if (!ParseNextDataKey()) {
+    if (!ParseNextDataKey<DecodeEntry>()) {
       break;
     }
     Slice current_key = key();
@@ -218,7 +256,7 @@ void DataBlockIter::Seek(const Slice& target) {
   // Linear search (within restart block) for first key >= target
 
   while (true) {
-    if (!ParseNextDataKey() || Compare(key_, seek_key) >= 0) {
+    if (!ParseNextDataKey<DecodeEntry>() || Compare(key_, seek_key) >= 0) {
       return;
     }
   }
@@ -297,7 +335,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     //
     // TODO(fwu): check the left and write boundary of the restart interval
     // to avoid linear seek a target key that is out of range.
-    if (!ParseNextDataKey(limit) || Compare(key_, target) >= 0) {
+    if (!ParseNextDataKey<DecodeEntry>(limit) || Compare(key_, target) >= 0) {
       // we stop at the first potential matching user key.
       break;
     }
@@ -391,7 +429,7 @@ void DataBlockIter::SeekForPrev(const Slice& target) {
   SeekToRestartPoint(index);
   // Linear search (within restart block) for first key >= seek_key
 
-  while (ParseNextDataKey() && Compare(key_, seek_key) < 0) {
+  while (ParseNextDataKey<DecodeEntry>() && Compare(key_, seek_key) < 0) {
   }
   if (!Valid()) {
     SeekToLast();
@@ -407,7 +445,15 @@ void DataBlockIter::SeekToFirst() {
     return;
   }
   SeekToRestartPoint(0);
-  ParseNextDataKey();
+  ParseNextDataKey<DecodeEntry>();
+}
+
+void DataBlockIter::SeekToFirstOrReport() {
+  if (data_ == nullptr) {  // Not init yet
+    return;
+  }
+  SeekToRestartPoint(0);
+  ParseNextDataKey<CheckAndDecodeEntry>();
 }
 
 void IndexBlockIter::SeekToFirst() {
@@ -423,7 +469,7 @@ void DataBlockIter::SeekToLast() {
     return;
   }
   SeekToRestartPoint(num_restarts_ - 1);
-  while (ParseNextDataKey() && NextEntryOffset() < restarts_) {
+  while (ParseNextDataKey<DecodeEntry>() && NextEntryOffset() < restarts_) {
     // Keep skipping
   }
 }
@@ -447,6 +493,7 @@ void BlockIter<TValue>::CorruptionError() {
   value_.clear();
 }
 
+template <typename DecodeEntryFunc>
 bool DataBlockIter::ParseNextDataKey(const char* limit) {
   current_ = NextEntryOffset();
   const char* p = data_ + current_;
@@ -463,7 +510,7 @@ bool DataBlockIter::ParseNextDataKey(const char* limit) {
 
   // Decode next entry
   uint32_t shared, non_shared, value_length;
-  p = DecodeEntry()(p, limit, &shared, &non_shared, &value_length);
+  p = DecodeEntryFunc()(p, limit, &shared, &non_shared, &value_length);
   if (p == nullptr || key_.Size() < shared) {
     CorruptionError();
     return false;

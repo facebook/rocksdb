@@ -96,7 +96,9 @@ bool NotifyCollectTableCollectorsOnFinish(
 Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
                       FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                       const ImmutableCFOptions& ioptions,
-                      TableProperties** table_properties,
+                      TableProperties** table_properties, bool verify_checksum,
+                      BlockHandle* block_handle,
+                      CacheAllocationPtr* verification_buf,
                       bool compression_type_missing = false,
                       MemoryAllocator* memory_allocator = nullptr);
 
