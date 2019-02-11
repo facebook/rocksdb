@@ -1,5 +1,6 @@
 # Rocksdb Change Log
 ## Cherry-picks
+* Enable properties block checksum verification for block-based tables.
 * Add support for block checksums verification for external SST files before ingestion.
 * Disallow CompactionFilter::IgnoreSnapshots() = false, because it is not very useful and the behavior is confusing. The filter will filter everything if there is no snapshot declared by the time the compaction starts. However, users can define a snapshot after the compaction starts and before it finishes and this new snapshot won't be repeatable, because after the compaction finishes, some keys may be dropped. 
 * Fix potential DB hang while using CompactFiles.
