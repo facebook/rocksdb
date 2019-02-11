@@ -62,7 +62,8 @@ bool RandomTransactionInserter::TransactionDBInsert(
   assert(strlen(name) < 64 - 1);
   assert(txn_->SetName(name).ok());
 
-  bool take_snapshot = rand_->OneIn(2);
+  // Take a snapshot if set_snapshot was not set or with 50% change otherwise
+  bool take_snapshot = txn_->GetSnapshot() == nullptr || rand_->OneIn(2);
   if (take_snapshot) {
     txn_->SetSnapshot();
     read_options_.snapshot = txn_->GetSnapshot();
