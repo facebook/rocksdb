@@ -948,6 +948,12 @@ void BlockBasedTableBuilder::WriteCompressionDictBlock(
     if (ok()) {
       WriteRawBlock(rep_->compression_dict->GetRawDict(), kNoCompression,
                     &compression_dict_block_handle);
+#ifndef NDEBUG
+      Slice compression_dict = rep_->compression_dict->GetRawDict();
+      TEST_SYNC_POINT_CALLBACK(
+          "BlockBasedTableBuilder::WriteCompressionDictBlock:RawDict",
+          &compression_dict);
+#endif  // NDEBUG
     }
     if (ok()) {
       meta_index_builder->Add(kCompressionDictBlock,

@@ -1156,11 +1156,13 @@ TEST_F(DBTest2, PresetCompressionDictLocality) {
   if (!ZSTD_Supported()) {
     return;
   }
-  // Verifies that compression dictionary is generated from local data, in
-  // particular, from data in the same SST.
+  // Verifies that compression dictionary is generated from local data. The
+  // verification simply checks all output SSTs have different compression
+  // dictionaries. We do not verify effectiveness as that'd likely be flaky in
+  // the future.
   const int kNumEntriesPerFile = 1 << 10;  // 1KB
   const int kNumBytesPerEntry = 1 << 10;   // 1KB
-  const int kNumCompressibleFiles = 3;
+  const int kNumFiles = 4;
   Options options = CurrentOptions();
   options.compression = kZSTD;
   options.compression_opts.max_dict_bytes = 1 << 14;        // 16KB
@@ -1172,45 +1174,46 @@ TEST_F(DBTest2, PresetCompressionDictLocality) {
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   Reopen(options);
 
-  // Alternate between highly compressible file and uncompressible file. After
-  // compaction, if dictionaries contain local data, a pair of highly
-  // compressible file and uncompressible file should be merged into roughly one
-  // file.
   Random rnd(301);
-  for (int i = 0; i < 2 * kNumCompressibleFiles - 1; ++i) {
-    std::string value;
-    const bool compressible = i % 2 == 0;
+  for (int i = 0; i < kNumFiles; ++i) {
     for (int j = 0; j < kNumEntriesPerFile; ++j) {
-      if (!compressible || j == 0) {
-        // For an uncompressible file, use different value every time.
-        // For a highly compressible file, generate a value once on the first
-        // iteration and then reuse it on subsequent iterations.
-        value = RandomString(&rnd, kNumBytesPerEntry);
-      }
-      ASSERT_OK(Put(Key(i * kNumEntriesPerFile + j), value));
+      ASSERT_OK(Put(Key(i * kNumEntriesPerFile + j),
+                    RandomString(&rnd, kNumBytesPerEntry)));
     }
     ASSERT_OK(Flush());
     MoveFilesToLevel(1);
     ASSERT_EQ(NumTableFilesAtLevel(1), i + 1);
   }
+
+  // Store all the dictionaries generated during a full compaction.
+  std::vector<std::string> compression_dicts;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::WriteCompressionDictBlock:RawDict",
+      [&](void* arg) {
+        compression_dicts.emplace_back(static_cast<Slice*>(arg)->ToString());
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   CompactRangeOptions compact_range_opts;
   compact_range_opts.bottommost_level_compaction =
       BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(compact_range_opts, nullptr, nullptr));
-  ASSERT_EQ(NumTableFilesAtLevel(1), kNumCompressibleFiles);
 
-  // Scanning through the DB will load all compression dictionary blocks into
-  // block cache. There should be one dictionary per SST file.
-  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_ADD));
-  Iterator* iter = db_->NewIterator(ReadOptions());
-  iter->SeekToFirst();
-  while (iter->Valid()) {
-    iter->Next();
+  // Dictionary compression should not be so good as to compress four totally
+  // random files into one. If it does then there's probably something wrong
+  // with the test.
+  ASSERT_GT(NumTableFilesAtLevel(1), 1);
+
+  // Furthermore, there should be one compression dictionary generated per file.
+  // And they should all be different from each other.
+  ASSERT_EQ(NumTableFilesAtLevel(1),
+            static_cast<int>(compression_dicts.size()));
+  for (size_t i = 1; i < compression_dicts.size(); ++i) {
+    std::string& a = compression_dicts[i - 1];
+    std::string& b = compression_dicts[i];
+    size_t alen = a.size();
+    size_t blen = b.size();
+    ASSERT_TRUE(alen != blen || memcmp(a.data(), b.data(), alen) != 0);
   }
-  ASSERT_EQ(kNumCompressibleFiles,
-            TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_ADD));
-  delete iter;
-  iter = nullptr;
 }
 
 class CompactionCompressionListener : public EventListener {
