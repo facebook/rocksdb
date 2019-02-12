@@ -185,12 +185,14 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
       }
       bytes_inserted_ += key.size() + sum.size();
     }
-    ROCKS_LOG_DEBUG(db->GetDBOptions().info_log,
-                    "Insert (%s) %s snap: %" PRIu64 " key:%s value: %" PRIu64
-                    "+%" PRIu64 "=%" PRIu64,
-                    txn->GetName().c_str(), s.ToString().c_str(),
-                    txn->GetSnapshot()->GetSequenceNumber(), full_key.c_str(),
-                    int_value, incr, int_value + incr);
+    if (txn != nullptr) {
+      ROCKS_LOG_DEBUG(db->GetDBOptions().info_log,
+                      "Insert (%s) %s snap: %" PRIu64 " key:%s value: %" PRIu64
+                      "+%" PRIu64 "=%" PRIu64,
+                      txn->GetName().c_str(), s.ToString().c_str(),
+                      txn->GetSnapshot()->GetSequenceNumber(), full_key.c_str(),
+                      int_value, incr, int_value + incr);
+    }
   }
 
   if (s.ok()) {
@@ -252,10 +254,10 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
       }
     }
   } else {
-    ROCKS_LOG_DEBUG(db->GetDBOptions().info_log, "Error %s for txn %s",
-                    s.ToString().c_str(), txn->GetName().c_str());
     if (txn != nullptr) {
       assert(txn->Rollback().ok());
+      ROCKS_LOG_DEBUG(db->GetDBOptions().info_log, "Error %s for txn %s",
+                      s.ToString().c_str(), txn->GetName().c_str());
     }
   }
 
