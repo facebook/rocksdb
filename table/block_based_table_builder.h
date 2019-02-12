@@ -37,8 +37,6 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Create a builder that will store the contents of the table it is
   // building in *file.  Does not close the file.  It is up to the
   // caller to close the file after calling Finish().
-  // @param compression_dict Data for presetting the compression library's
-  //    dictionary, or nullptr.
   BlockBasedTableBuilder(
       const ImmutableCFOptions& ioptions, const MutableCFOptions& moptions,
       const BlockBasedTableOptions& table_options,
@@ -47,10 +45,11 @@ class BlockBasedTableBuilder : public TableBuilder {
           int_tbl_prop_collector_factories,
       uint32_t column_family_id, WritableFileWriter* file,
       const CompressionType compression_type,
-      const CompressionOptions& compression_opts,
-      const std::string* compression_dict, const bool skip_filters,
+      const CompressionOptions& compression_opts, const bool skip_filters,
       const std::string& column_family_name, const uint64_t creation_time = 0,
-      const uint64_t oldest_key_time = 0);
+      const uint64_t oldest_key_time = 0,
+      const bool is_bottommost_level = false,
+      const uint64_t target_file_size = 0);
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~BlockBasedTableBuilder();
@@ -93,6 +92,11 @@ class BlockBasedTableBuilder : public TableBuilder {
 
  private:
   bool ok() const { return status().ok(); }
+
+  // Transition state from buffered to unbuffered. See `Rep::State` API comment
+  // for details of the states.
+  // REQUIRES: `rep_->state == kBuffered`
+  void EnterUnbuffered();
 
   // Call block's Finish() method
   // and then write the compressed block contents to file.

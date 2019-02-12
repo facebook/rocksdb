@@ -48,17 +48,18 @@ TableBuilder* NewTableBuilder(
     uint32_t column_family_id, const std::string& column_family_name,
     WritableFileWriter* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts, int level,
-    const std::string* compression_dict, const bool skip_filters,
-    const uint64_t creation_time, const uint64_t oldest_key_time) {
+    const bool skip_filters, const uint64_t creation_time,
+    const uint64_t oldest_key_time, const bool is_bottommost_level,
+    const uint64_t target_file_size) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
   return ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, internal_comparator,
                           int_tbl_prop_collector_factories, compression_type,
-                          compression_opts, compression_dict, skip_filters,
-                          column_family_name, level, creation_time,
-                          oldest_key_time),
+                          compression_opts, skip_filters, column_family_name,
+                          level, creation_time, oldest_key_time,
+                          is_bottommost_level, target_file_size),
       column_family_id, file);
 }
 
@@ -128,8 +129,7 @@ Status BuildTable(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,
           column_family_name, file_writer.get(), compression, compression_opts,
-          level, nullptr /* compression_dict */, false /* skip_filters */,
-          creation_time, oldest_key_time);
+          level, false /* skip_filters */, creation_time, oldest_key_time);
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),

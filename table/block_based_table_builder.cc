@@ -254,6 +254,13 @@ struct BlockBasedTableBuilder::Rep {
   Status status;
   size_t alignment;
   BlockBuilder data_block;
+  // Buffers uncompressed data blocks and keys to replay later. Needed when
+  // compression dictionary is enabled so we can finalize the dictionary before
+  // compressing any data blocks.
+  // TODO(ajkr): ideally we don't buffer all keys and all uncompressed data
+  // blocks as it's redundant, but it's easier to implement for now.
+  std::vector<std::pair<std::string, std::vector<std::string>>>
+      data_block_and_keys_buffers;
   BlockBuilder range_del_block;
 
   InternalKeySliceTransform internal_prefix_transform;
@@ -263,13 +270,40 @@ struct BlockBasedTableBuilder::Rep {
   std::string last_key;
   CompressionType compression_type;
   CompressionOptions compression_opts;
-  CompressionDict compression_dict;
+  std::unique_ptr<CompressionDict> compression_dict;
   CompressionContext compression_ctx;
   std::unique_ptr<UncompressionContext> verify_ctx;
-  UncompressionDict verify_dict;
+  std::unique_ptr<UncompressionDict> verify_dict;
+
+  size_t data_begin_offset = 0;
+
   TableProperties props;
 
-  bool closed = false;  // Either Finish() or Abandon() has been called.
+  // States of the builder.
+  //
+  // - `kBuffered`: This is the initial state where zero or more data blocks are
+  //   accumulated uncompressed in-memory. From this state, call
+  //   `EnterUnbuffered()` to finalize the compression dictionary if enabled,
+  //   compress/write out any buffered blocks, and proceed to the `kUnbuffered`
+  //   state.
+  //
+  // - `kUnbuffered`: This is the state when compression dictionary is finalized
+  //   either because it wasn't enabled in the first place or it's been created
+  //   from sampling previously buffered data. In this state, blocks are simply
+  //   compressed/written out as they fill up. From this state, call `Finish()`
+  //   to complete the file (write meta-blocks, etc.), or `Abandon()` to delete
+  //   the partially created file.
+  //
+  // - `kClosed`: This indicates either `Finish()` or `Abandon()` has been
+  //   called, so the table builder is no longer usable. We must be in this
+  //   state by the time the destructor runs.
+  enum class State {
+    kBuffered,
+    kUnbuffered,
+    kClosed,
+  };
+  State state;
+
   const bool use_delta_encoding_for_index_values;
   std::unique_ptr<FilterBlockBuilder> filter_builder;
   char compressed_cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
@@ -283,6 +317,8 @@ struct BlockBasedTableBuilder::Rep {
   const std::string& column_family_name;
   uint64_t creation_time = 0;
   uint64_t oldest_key_time = 0;
+  const bool is_bottommost_level;
+  const uint64_t target_file_size;
 
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
 
@@ -293,10 +329,10 @@ struct BlockBasedTableBuilder::Rep {
           int_tbl_prop_collector_factories,
       uint32_t _column_family_id, WritableFileWriter* f,
       const CompressionType _compression_type,
-      const CompressionOptions& _compression_opts,
-      const std::string* _compression_dict, const bool skip_filters,
+      const CompressionOptions& _compression_opts, const bool skip_filters,
       const std::string& _column_family_name, const uint64_t _creation_time,
-      const uint64_t _oldest_key_time)
+      const uint64_t _oldest_key_time, const bool _is_bottommost_level,
+      const uint64_t _target_file_size)
       : ioptions(_ioptions),
         moptions(_moptions),
         table_options(table_opt),
@@ -317,14 +353,12 @@ struct BlockBasedTableBuilder::Rep {
         internal_prefix_transform(_moptions.prefix_extractor.get()),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
-        compression_dict(
-            _compression_dict == nullptr ? Slice() : Slice(*_compression_dict),
-            _compression_type, _compression_opts.level),
+        compression_dict(),
         compression_ctx(_compression_type),
-        verify_dict(
-            _compression_dict == nullptr ? std::string() : *_compression_dict,
-            _compression_type == kZSTD ||
-                _compression_type == kZSTDNotFinalCompression),
+        verify_dict(),
+        state((_is_bottommost_level && _compression_opts.max_dict_bytes > 0)
+                  ? State::kBuffered
+                  : State::kUnbuffered),
         use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
                                             !table_opt.block_align),
         compressed_cache_key_prefix_size(0),
@@ -334,7 +368,9 @@ struct BlockBasedTableBuilder::Rep {
         column_family_id(_column_family_id),
         column_family_name(_column_family_name),
         creation_time(_creation_time),
-        oldest_key_time(_oldest_key_time) {
+        oldest_key_time(_oldest_key_time),
+        is_bottommost_level(_is_bottommost_level),
+        target_file_size(_target_file_size) {
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
       p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
@@ -383,10 +419,10 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, WritableFileWriter* file,
     const CompressionType compression_type,
-    const CompressionOptions& compression_opts,
-    const std::string* compression_dict, const bool skip_filters,
+    const CompressionOptions& compression_opts, const bool skip_filters,
     const std::string& column_family_name, const uint64_t creation_time,
-    const uint64_t oldest_key_time) {
+    const uint64_t oldest_key_time, const bool is_bottommost_level,
+    const uint64_t target_file_size) {
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
       sanitized_table_options.checksum != kCRC32c) {
@@ -399,11 +435,11 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     sanitized_table_options.format_version = 1;
   }
 
-  rep_ =
-      new Rep(ioptions, moptions, sanitized_table_options, internal_comparator,
-              int_tbl_prop_collector_factories, column_family_id, file,
-              compression_type, compression_opts, compression_dict,
-              skip_filters, column_family_name, creation_time, oldest_key_time);
+  rep_ = new Rep(ioptions, moptions, sanitized_table_options,
+                 internal_comparator, int_tbl_prop_collector_factories,
+                 column_family_id, file, compression_type, compression_opts,
+                 skip_filters, column_family_name, creation_time,
+                 oldest_key_time, is_bottommost_level, target_file_size);
 
   if (rep_->filter_builder != nullptr) {
     rep_->filter_builder->StartBlock(0);
@@ -417,13 +453,14 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
 }
 
 BlockBasedTableBuilder::~BlockBasedTableBuilder() {
-  assert(rep_->closed);  // Catch errors where caller forgot to call Finish()
+  // Catch errors where caller forgot to call Finish()
+  assert(rep_->state == Rep::State::kClosed);
   delete rep_;
 }
 
 void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   Rep* r = rep_;
-  assert(!r->closed);
+  assert(rep_->state != Rep::State::kClosed);
   if (!ok()) return;
   ValueType value_type = ExtractValueType(key);
   if (IsValueType(value_type)) {
@@ -438,6 +475,11 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       assert(!r->data_block.empty());
       Flush();
 
+      if (r->state == Rep::State::kBuffered &&
+          r->data_begin_offset > r->target_file_size) {
+        EnterUnbuffered();
+      }
+
       // Add item to index block.
       // We do not emit the index entry for a block until we have seen the
       // first key for the next data block.  This allows us to use shorter
@@ -446,20 +488,29 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       // "the r" as the key for the index block entry since it is >= all
       // entries in the first block and < all entries in subsequent
       // blocks.
-      if (ok()) {
+      if (ok() && r->state == Rep::State::kUnbuffered) {
         r->index_builder->AddIndexEntry(&r->last_key, &key, r->pending_handle);
       }
     }
 
     // Note: PartitionedFilterBlockBuilder requires key being added to filter
     // builder after being added to index builder.
-    if (r->filter_builder != nullptr) {
+    if (r->state == Rep::State::kUnbuffered && r->filter_builder != nullptr) {
       r->filter_builder->Add(ExtractUserKey(key));
     }
 
     r->last_key.assign(key.data(), key.size());
     r->data_block.Add(key, value);
-    r->index_builder->OnKeyAdded(key);
+    if (r->state == Rep::State::kBuffered) {
+      // Buffer keys to be replayed during `Finish()` once compression
+      // dictionary has been finalized.
+      if (r->data_block_and_keys_buffers.empty() || should_flush) {
+        r->data_block_and_keys_buffers.emplace_back();
+      }
+      r->data_block_and_keys_buffers.back().second.emplace_back(key.ToString());
+    } else {
+      r->index_builder->OnKeyAdded(key);
+    }
     NotifyCollectTableCollectorsOnAdd(key, value, r->offset,
                                       r->table_properties_collectors,
                                       r->ioptions.info_log);
@@ -488,15 +539,10 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
 
 void BlockBasedTableBuilder::Flush() {
   Rep* r = rep_;
-  assert(!r->closed);
+  assert(rep_->state != Rep::State::kClosed);
   if (!ok()) return;
   if (r->data_block.empty()) return;
   WriteBlock(&r->data_block, &r->pending_handle, true /* is_data_block */);
-  if (r->filter_builder != nullptr) {
-    r->filter_builder->StartBlock(r->offset);
-  }
-  r->props.data_size = r->offset;
-  ++r->props.num_data_blocks;
 }
 
 void BlockBasedTableBuilder::WriteBlock(BlockBuilder* block,
@@ -523,11 +569,24 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
   StopWatchNano timer(r->ioptions.env,
     ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics));
 
+  if (r->state == Rep::State::kBuffered) {
+    assert(is_data_block);
+    assert(!r->data_block_and_keys_buffers.empty());
+    r->data_block_and_keys_buffers.back().first = raw_block_contents.ToString();
+    r->data_begin_offset += r->data_block_and_keys_buffers.back().first.size();
+    return;
+  }
+
   if (raw_block_contents.size() < kCompressionSizeLimit) {
-    CompressionInfo compression_info(
-        r->compression_opts, r->compression_ctx,
-        is_data_block ? r->compression_dict : CompressionDict::GetEmptyDict(),
-        r->compression_type);
+    const CompressionDict* compression_dict;
+    if (!is_data_block || r->compression_dict == nullptr) {
+      compression_dict = &CompressionDict::GetEmptyDict();
+    } else {
+      compression_dict = r->compression_dict.get();
+    }
+    assert(compression_dict != nullptr);
+    CompressionInfo compression_info(r->compression_opts, r->compression_ctx,
+                                     *compression_dict, r->compression_type);
     block_contents =
         CompressBlock(raw_block_contents, compression_info, &type,
                       r->table_options.format_version, &r->compressed_output);
@@ -537,11 +596,16 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     // compressed data and compare to the input.
     if (type != kNoCompression && r->table_options.verify_compression) {
       // Retrieve the uncompressed contents into a new buffer
+      const UncompressionDict* verify_dict;
+      if (!is_data_block || r->verify_dict == nullptr) {
+        verify_dict = &UncompressionDict::GetEmptyDict();
+      } else {
+        verify_dict = r->verify_dict.get();
+      }
+      assert(verify_dict != nullptr);
       BlockContents contents;
-      UncompressionInfo uncompression_info(
-          *r->verify_ctx,
-          is_data_block ? r->verify_dict : UncompressionDict::GetEmptyDict(),
-          r->compression_type);
+      UncompressionInfo uncompression_info(*r->verify_ctx, *verify_dict,
+                                           r->compression_type);
       Status stat = UncompressBlockContentsForCompressionType(
           uncompression_info, block_contents.data(), block_contents.size(),
           &contents, r->table_options.format_version, r->ioptions);
@@ -587,6 +651,13 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
 
   WriteRawBlock(block_contents, type, handle, is_data_block);
   r->compressed_output.clear();
+  if (is_data_block) {
+    if (r->filter_builder != nullptr) {
+      r->filter_builder->StartBlock(r->offset);
+    }
+    r->props.data_size = r->offset;
+    ++r->props.num_data_blocks;
+  }
 }
 
 void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
@@ -873,11 +944,18 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
 
 void BlockBasedTableBuilder::WriteCompressionDictBlock(
     MetaIndexBuilder* meta_index_builder) {
-  if (rep_->compression_dict.GetRawDict().size()) {
+  if (rep_->compression_dict != nullptr &&
+      rep_->compression_dict->GetRawDict().size()) {
     BlockHandle compression_dict_block_handle;
     if (ok()) {
-      WriteRawBlock(rep_->compression_dict.GetRawDict(), kNoCompression,
+      WriteRawBlock(rep_->compression_dict->GetRawDict(), kNoCompression,
                     &compression_dict_block_handle);
+#ifndef NDEBUG
+      Slice compression_dict = rep_->compression_dict->GetRawDict();
+      TEST_SYNC_POINT_CALLBACK(
+          "BlockBasedTableBuilder::WriteCompressionDictBlock:RawDict",
+          &compression_dict);
+#endif  // NDEBUG
     }
     if (ok()) {
       meta_index_builder->Add(kCompressionDictBlock,
@@ -925,13 +1003,77 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
   }
 }
 
+void BlockBasedTableBuilder::EnterUnbuffered() {
+  Rep* r = rep_;
+  assert(r->state == Rep::State::kBuffered);
+  r->state = Rep::State::kUnbuffered;
+  const size_t kSampleBytes = r->compression_opts.zstd_max_train_bytes > 0
+                                  ? r->compression_opts.zstd_max_train_bytes
+                                  : r->compression_opts.max_dict_bytes;
+  Random64 generator{r->creation_time};
+  std::string compression_dict_samples;
+  std::vector<size_t> compression_dict_sample_lens;
+  if (!r->data_block_and_keys_buffers.empty()) {
+    while (compression_dict_samples.size() < kSampleBytes) {
+      size_t rand_idx =
+          generator.Uniform(r->data_block_and_keys_buffers.size());
+      size_t copy_len =
+          std::min(kSampleBytes - compression_dict_samples.size(),
+                   r->data_block_and_keys_buffers[rand_idx].first.size());
+      compression_dict_samples.append(
+          r->data_block_and_keys_buffers[rand_idx].first, 0, copy_len);
+      compression_dict_sample_lens.emplace_back(copy_len);
+    }
+  }
+
+  // final data block flushed, now we can generate dictionary from the samples.
+  // OK if compression_dict_samples is empty, we'll just get empty dictionary.
+  std::string dict;
+  if (r->compression_opts.zstd_max_train_bytes > 0) {
+    dict = ZSTD_TrainDictionary(compression_dict_samples,
+                                compression_dict_sample_lens,
+                                r->compression_opts.max_dict_bytes);
+  } else {
+    dict = std::move(compression_dict_samples);
+  }
+  r->compression_dict.reset(new CompressionDict(dict, r->compression_type,
+                                                r->compression_opts.level));
+  r->verify_dict.reset(new UncompressionDict(
+      dict, r->compression_type == kZSTD ||
+                r->compression_type == kZSTDNotFinalCompression));
+
+  for (size_t i = 0; ok() && i < r->data_block_and_keys_buffers.size(); ++i) {
+    const auto& data_block = r->data_block_and_keys_buffers[i].first;
+    auto& keys = r->data_block_and_keys_buffers[i].second;
+    assert(!data_block.empty());
+    assert(!keys.empty());
+
+    for (const auto& key : keys) {
+      if (r->filter_builder != nullptr) {
+        r->filter_builder->Add(ExtractUserKey(key));
+      }
+      r->index_builder->OnKeyAdded(key);
+    }
+    WriteBlock(Slice(data_block), &r->pending_handle, true /* is_data_block */);
+    if (ok() && i + 1 < r->data_block_and_keys_buffers.size()) {
+      Slice first_key_in_next_block =
+          r->data_block_and_keys_buffers[i + 1].second.front();
+      Slice* first_key_in_next_block_ptr = &first_key_in_next_block;
+      r->index_builder->AddIndexEntry(&keys.back(), first_key_in_next_block_ptr,
+                                      r->pending_handle);
+    }
+  }
+  r->data_block_and_keys_buffers.clear();
+}
+
 Status BlockBasedTableBuilder::Finish() {
   Rep* r = rep_;
+  assert(r->state != Rep::State::kClosed);
   bool empty_data_block = r->data_block.empty();
   Flush();
-  assert(!r->closed);
-  r->closed = true;
-
+  if (r->state == Rep::State::kBuffered) {
+    EnterUnbuffered();
+  }
   // To make sure properties block is able to keep the accurate size of index
   // block, we will finish writing all index entries first.
   if (ok() && !empty_data_block) {
@@ -962,23 +1104,20 @@ Status BlockBasedTableBuilder::Finish() {
   if (ok()) {
     WriteFooter(metaindex_block_handle, index_block_handle);
   }
-
+  r->state = Rep::State::kClosed;
   return r->status;
 }
 
 void BlockBasedTableBuilder::Abandon() {
-  Rep* r = rep_;
-  assert(!r->closed);
-  r->closed = true;
+  assert(rep_->state != Rep::State::kClosed);
+  rep_->state = Rep::State::kClosed;
 }
 
 uint64_t BlockBasedTableBuilder::NumEntries() const {
   return rep_->props.num_entries;
 }
 
-uint64_t BlockBasedTableBuilder::FileSize() const {
-  return rep_->offset;
-}
+uint64_t BlockBasedTableBuilder::FileSize() const { return rep_->offset; }
 
 bool BlockBasedTableBuilder::NeedCompact() const {
   for (const auto& collector : rep_->table_properties_collectors) {
