@@ -8,9 +8,9 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <string>
-#include <memory>
 #include <map>
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "rocksdb/status.h"

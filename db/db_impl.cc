@@ -390,12 +390,12 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
                  "Shutdown: canceling all background work");
 
   if (thread_dump_stats_ != nullptr) {
-   thread_dump_stats_->cancel();
-   thread_dump_stats_.reset();
+    thread_dump_stats_->cancel();
+    thread_dump_stats_.reset();
   }
   if (thread_persist_stats_ != nullptr) {
-   thread_persist_stats_->cancel();
-   thread_persist_stats_.reset();
+    thread_persist_stats_->cancel();
+    thread_persist_stats_.reset();
   }
   InstrumentedMutexLock l(&mutex_);
   if (!shutting_down_.load(std::memory_order_acquire) &&
@@ -648,14 +648,13 @@ size_t DBImpl::EstiamteStatsHistorySize() const {
   size_t size_total =
       sizeof(std::map<uint64_t, std::map<std::string, uint64_t>>);
   if (stats_history_.size() == 0) return size_total;
-  size_t size_per_slice = sizeof(uint64_t) +
-                          sizeof(std::map<std::string, uint64_t>);
+  size_t size_per_slice =
+      sizeof(uint64_t) + sizeof(std::map<std::string, uint64_t>);
   // non-empty map, stats_history_.begin() guaranteed to exist
   std::map<std::string, uint64_t> sample_slice(stats_history_.begin()->second);
   for (const auto& pairs : sample_slice) {
-    size_per_slice += pairs.first.capacity() +
-                      sizeof(pairs.first) +
-                      sizeof(pairs.second);
+    size_per_slice +=
+        pairs.first.capacity() + sizeof(pairs.first) + sizeof(pairs.second);
   }
   size_total = size_per_slice * stats_history_.size();
   return size_total;

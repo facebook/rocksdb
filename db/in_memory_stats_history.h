@@ -29,8 +29,7 @@ class InMemoryStatsHistoryIterator final : public StatsHistoryIterator {
   virtual void Next() override;
   virtual uint64_t GetStatsTime() const override;
 
-  virtual const std::map<std::string, uint64_t>& GetStatsMap()
-      const override;
+  virtual const std::map<std::string, uint64_t>& GetStatsMap() const override;
 
  private:
   // advance the iterator to the next stats history record with timestamp
@@ -41,7 +40,8 @@ class InMemoryStatsHistoryIterator final : public StatsHistoryIterator {
   InMemoryStatsHistoryIterator(const InMemoryStatsHistoryIterator&) = delete;
   void operator=(const InMemoryStatsHistoryIterator&) = delete;
   InMemoryStatsHistoryIterator(InMemoryStatsHistoryIterator&&) = delete;
-  InMemoryStatsHistoryIterator& operator=(InMemoryStatsHistoryIterator&&) = delete;
+  InMemoryStatsHistoryIterator& operator=(InMemoryStatsHistoryIterator&&) =
+      delete;
 
   uint64_t time_;
   uint64_t start_time_;

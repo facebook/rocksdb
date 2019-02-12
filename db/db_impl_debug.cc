@@ -255,6 +255,10 @@ void DBImpl::TEST_WaitForPersistStatsRun(std::function<void()> callback) const {
   }
 }
 
+bool DBImpl::TEST_IsPersistentStatsEnabled() const {
+  return thread_persist_stats_ && thread_persist_stats_->IsRunning();
+}
+
 size_t DBImpl::TEST_EstiamteStatsHistorySize() const {
   return EstiamteStatsHistorySize();
 }
