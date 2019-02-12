@@ -143,12 +143,14 @@ class TransactionBaseImpl : public Transaction {
   Status Delete(const SliceParts& key) override { return Delete(nullptr, key); }
 
   Status SingleDelete(ColumnFamilyHandle* column_family, const Slice& key,
-                      const bool assume_tracked = false) override;
+                      const bool assume_tracked = false,
+                      const bool skip_lock = false) override;
   Status SingleDelete(const Slice& key) override {
     return SingleDelete(nullptr, key);
   }
   Status SingleDelete(ColumnFamilyHandle* column_family, const SliceParts& key,
-                      const bool assume_tracked = false) override;
+                      const bool assume_tracked = false,
+                      const bool skip_lock = false) override;
   Status SingleDelete(const SliceParts& key) override {
     return SingleDelete(nullptr, key);
   }

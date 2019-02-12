@@ -138,7 +138,8 @@ Status WriteUnpreparedTxn::Delete(ColumnFamilyHandle* column_family,
 
 Status WriteUnpreparedTxn::SingleDelete(ColumnFamilyHandle* column_family,
                                         const Slice& key,
-                                        const bool assume_tracked) {
+                                        const bool assume_tracked,
+                                        const bool /*skip_lock*/) {
   Status s = MaybeFlushWriteBatchToDB();
   if (!s.ok()) {
     return s;
@@ -148,7 +149,8 @@ Status WriteUnpreparedTxn::SingleDelete(ColumnFamilyHandle* column_family,
 
 Status WriteUnpreparedTxn::SingleDelete(ColumnFamilyHandle* column_family,
                                         const SliceParts& key,
-                                        const bool assume_tracked) {
+                                        const bool assume_tracked,
+                                        const bool /*skip_lock*/) {
   Status s = MaybeFlushWriteBatchToDB();
   if (!s.ok()) {
     return s;

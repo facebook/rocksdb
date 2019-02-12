@@ -73,10 +73,12 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   using TransactionBaseImpl::SingleDelete;
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
                               const Slice& key,
-                              const bool assume_tracked = false) override;
+                              const bool assume_tracked = false,
+                              const bool skip_lock = false) override;
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
                               const SliceParts& key,
-                              const bool assume_tracked = false) override;
+                              const bool assume_tracked = false,
+                              const bool skip_lock = false) override;
 
   virtual Status RebuildFromWriteBatch(WriteBatch*) override {
     // This function was only useful for recovering prepared transactions, but

@@ -334,11 +334,13 @@ class Transaction {
 
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
                               const Slice& key,
-                              const bool assume_tracked = false) = 0;
+                              const bool assume_tracked = false,
+                              const bool skip_lock = false) = 0;
   virtual Status SingleDelete(const Slice& key) = 0;
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
                               const SliceParts& key,
-                              const bool assume_tracked = false) = 0;
+                              const bool assume_tracked = false,
+                              const bool skip_lock = false) = 0;
   virtual Status SingleDelete(const SliceParts& key) = 0;
 
   // PutUntracked() will write a Put to the batch of operations to be committed
