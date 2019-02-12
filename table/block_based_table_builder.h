@@ -93,13 +93,9 @@ class BlockBasedTableBuilder : public TableBuilder {
  private:
   bool ok() const { return status().ok(); }
 
-  // True if currently buffering uncompressed data blocks in-memory. See
-  // `Rep::State` API comment for details of the states.
-  bool IsBuffered() const;
-
   // Transition state from buffered to unbuffered. See `Rep::State` API comment
   // for details of the states.
-  // REQUIRES: `IsBuffered() == true`
+  // REQUIRES: `rep_->state == kBuffered`
   void EnterUnbuffered();
 
   // Call block's Finish() method

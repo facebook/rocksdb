@@ -475,7 +475,8 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       assert(!r->data_block.empty());
       Flush();
 
-      if (IsBuffered() && r->data_begin_offset > r->target_file_size) {
+      if (r->state == Rep::State::kBuffered &&
+          r->data_begin_offset > r->target_file_size) {
         EnterUnbuffered();
       }
 
@@ -487,20 +488,20 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       // "the r" as the key for the index block entry since it is >= all
       // entries in the first block and < all entries in subsequent
       // blocks.
-      if (ok() && !IsBuffered()) {
+      if (ok() && r->state == Rep::State::kUnbuffered) {
         r->index_builder->AddIndexEntry(&r->last_key, &key, r->pending_handle);
       }
     }
 
     // Note: PartitionedFilterBlockBuilder requires key being added to filter
     // builder after being added to index builder.
-    if (!IsBuffered() && r->filter_builder != nullptr) {
+    if (r->state == Rep::State::kUnbuffered && r->filter_builder != nullptr) {
       r->filter_builder->Add(ExtractUserKey(key));
     }
 
     r->last_key.assign(key.data(), key.size());
     r->data_block.Add(key, value);
-    if (IsBuffered()) {
+    if (r->state == Rep::State::kBuffered) {
       // Buffer keys to be replayed during `Finish()` once compression
       // dictionary has been finalized.
       if (r->data_block_and_keys_buffers.empty() || should_flush) {
@@ -544,10 +545,6 @@ void BlockBasedTableBuilder::Flush() {
   WriteBlock(&r->data_block, &r->pending_handle, true /* is_data_block */);
 }
 
-bool BlockBasedTableBuilder::IsBuffered() const {
-  return rep_->state == Rep::State::kBuffered;
-}
-
 void BlockBasedTableBuilder::WriteBlock(BlockBuilder* block,
                                         BlockHandle* handle,
                                         bool is_data_block) {
@@ -572,7 +569,7 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
   StopWatchNano timer(r->ioptions.env,
     ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics));
 
-  if (IsBuffered()) {
+  if (r->state == Rep::State::kBuffered) {
     assert(is_data_block);
     assert(!r->data_block_and_keys_buffers.empty());
     r->data_block_and_keys_buffers.back().first = raw_block_contents.ToString();
@@ -999,8 +996,8 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
 }
 
 void BlockBasedTableBuilder::EnterUnbuffered() {
-  assert(IsBuffered());
   Rep* r = rep_;
+  assert(r->state == Rep::State::kBuffered);
   r->state = Rep::State::kUnbuffered;
   const size_t kSampleBytes = r->compression_opts.zstd_max_train_bytes > 0
                                   ? r->compression_opts.zstd_max_train_bytes
@@ -1040,7 +1037,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
   for (size_t i = 0; ok() && i < r->data_block_and_keys_buffers.size(); ++i) {
     const auto& data_block = r->data_block_and_keys_buffers[i].first;
     auto& keys = r->data_block_and_keys_buffers[i].second;
-    assert(!data_block.empty() && !keys.empty());
+    assert(!data_block.empty());
+    assert(!keys.empty());
 
     for (const auto& key : keys) {
       if (r->filter_builder != nullptr) {
@@ -1065,7 +1063,7 @@ Status BlockBasedTableBuilder::Finish() {
   assert(r->state != Rep::State::kClosed);
   bool empty_data_block = r->data_block.empty();
   Flush();
-  if (IsBuffered()) {
+  if (r->state == Rep::State::kBuffered) {
     EnterUnbuffered();
   }
   // To make sure properties block is able to keep the accurate size of index
