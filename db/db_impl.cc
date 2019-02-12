@@ -613,7 +613,7 @@ const Status DBImpl::CreateArchivalDirectory() {
 void DBImpl::PrintStatistics() {
   auto dbstats = immutable_db_options_.statistics.get();
   if (dbstats) {
-    ROCKS_LOG_WARN(immutable_db_options_.info_log, "STATISTICS:\n %s",
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "STATISTICS:\n %s",
                    dbstats->ToString().c_str());
   }
 }
@@ -665,16 +665,16 @@ void DBImpl::DumpStats() {
     }
   }
   TEST_SYNC_POINT("DBImpl::DumpStats:2");
-  ROCKS_LOG_WARN(immutable_db_options_.info_log,
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "------- DUMPING STATS -------");
-  ROCKS_LOG_WARN(immutable_db_options_.info_log, "%s", stats.c_str());
+  ROCKS_LOG_INFO(immutable_db_options_.info_log, "%s", stats.c_str());
   if (immutable_db_options_.dump_malloc_stats) {
     stats.clear();
     DumpMallocStats(&stats);
     if (!stats.empty()) {
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "------- Malloc STATS -------");
-      ROCKS_LOG_WARN(immutable_db_options_.info_log, "%s", stats.c_str());
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "%s", stats.c_str());
     }
   }
 #endif  // !ROCKSDB_LITE
