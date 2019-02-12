@@ -157,7 +157,6 @@ struct CompactionJob::SubcompactionState {
   uint64_t overlapped_bytes = 0;
   // A flag determine whether the key has been seen in ShouldStopBefore()
   bool seen_key = false;
-  std::string compression_dict;
 
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
                      uint64_t size = 0)
@@ -173,8 +172,7 @@ struct CompactionJob::SubcompactionState {
         approx_size(size),
         grandparent_index(0),
         overlapped_bytes(0),
-        seen_key(false),
-        compression_dict() {
+        seen_key(false) {
     assert(compaction != nullptr);
   }
 
@@ -197,7 +195,6 @@ struct CompactionJob::SubcompactionState {
     grandparent_index = std::move(o.grandparent_index);
     overlapped_bytes = std::move(o.overlapped_bytes);
     seen_key = std::move(o.seen_key);
-    compression_dict = std::move(o.compression_dict);
     return *this;
   }
 
@@ -865,42 +862,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     prev_cpu_read_nanos = IOSTATS(cpu_read_nanos);
   }
 
-  const MutableCFOptions* mutable_cf_options =
-      sub_compact->compaction->mutable_cf_options();
-
-  // To build compression dictionary, we sample the first output file, assuming
-  // it'll reach the maximum length. We optionally pass these samples through
-  // zstd's dictionary trainer, or just use them directly. Then, the dictionary
-  // is used for compressing subsequent output files in the same subcompaction.
-  const bool kUseZstdTrainer =
-      sub_compact->compaction->output_compression_opts().zstd_max_train_bytes >
-      0;
-  const size_t kSampleBytes =
-      kUseZstdTrainer
-          ? sub_compact->compaction->output_compression_opts()
-                .zstd_max_train_bytes
-          : sub_compact->compaction->output_compression_opts().max_dict_bytes;
-  const int kSampleLenShift = 6;  // 2^6 = 64-byte samples
-  std::set<size_t> sample_begin_offsets;
-  if (bottommost_level_ && kSampleBytes > 0) {
-    const size_t kMaxSamples = kSampleBytes >> kSampleLenShift;
-    const size_t kOutFileLen =
-        static_cast<size_t>(MaxFileSizeForLevel(*mutable_cf_options,
-            compact_->compaction->output_level(),
-            cfd->ioptions()->compaction_style,
-            compact_->compaction->GetInputBaseLevel(),
-            cfd->ioptions()->level_compaction_dynamic_level_bytes));
-    if (kOutFileLen != port::kMaxSizet) {
-      const size_t kOutFileNumSamples = kOutFileLen >> kSampleLenShift;
-      Random64 generator{versions_->NewFileNumber()};
-      for (size_t i = 0; i < kMaxSamples; ++i) {
-        sample_begin_offsets.insert(
-            static_cast<size_t>(generator.Uniform(kOutFileNumSamples))
-            << kSampleLenShift);
-      }
-    }
-  }
-
   MergeHelper merge(
       env_, cfd->user_comparator(), cfd->ioptions()->merge_operator,
       compaction_filter, db_options_.info_log.get(),
@@ -938,12 +899,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                                   sub_compact->current_output_file_size);
   }
   const auto& c_iter_stats = c_iter->iter_stats();
-  auto sample_begin_offset_iter = sample_begin_offsets.cbegin();
-  // data_begin_offset and dict_sample_data are only valid while generating
-  // dictionary from the first output file.
-  size_t data_begin_offset = 0;
-  std::string dict_sample_data;
-  dict_sample_data.reserve(kSampleBytes);
 
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
@@ -978,55 +933,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     sub_compact->current_output()->meta.UpdateBoundaries(
         key, c_iter->ikey().sequence);
     sub_compact->num_output_records++;
-
-    if (sub_compact->outputs.size() == 1) {  // first output file
-      // Check if this key/value overlaps any sample intervals; if so, appends
-      // overlapping portions to the dictionary.
-      for (const auto& data_elmt : {key, value}) {
-        size_t data_end_offset = data_begin_offset + data_elmt.size();
-        while (sample_begin_offset_iter != sample_begin_offsets.cend() &&
-               *sample_begin_offset_iter < data_end_offset) {
-          size_t sample_end_offset =
-              *sample_begin_offset_iter + (1 << kSampleLenShift);
-          // Invariant: Because we advance sample iterator while processing the
-          // data_elmt containing the sample's last byte, the current sample
-          // cannot end before the current data_elmt.
-          assert(data_begin_offset < sample_end_offset);
-
-          size_t data_elmt_copy_offset, data_elmt_copy_len;
-          if (*sample_begin_offset_iter <= data_begin_offset) {
-            // The sample starts before data_elmt starts, so take bytes starting
-            // at the beginning of data_elmt.
-            data_elmt_copy_offset = 0;
-          } else {
-            // data_elmt starts before the sample starts, so take bytes starting
-            // at the below offset into data_elmt.
-            data_elmt_copy_offset =
-                *sample_begin_offset_iter - data_begin_offset;
-          }
-          if (sample_end_offset <= data_end_offset) {
-            // The sample ends before data_elmt ends, so take as many bytes as
-            // needed.
-            data_elmt_copy_len =
-                sample_end_offset - (data_begin_offset + data_elmt_copy_offset);
-          } else {
-            // data_elmt ends before the sample ends, so take all remaining
-            // bytes in data_elmt.
-            data_elmt_copy_len =
-                data_end_offset - (data_begin_offset + data_elmt_copy_offset);
-          }
-          dict_sample_data.append(&data_elmt.data()[data_elmt_copy_offset],
-                                  data_elmt_copy_len);
-          if (sample_end_offset > data_end_offset) {
-            // Didn't finish sample. Try to finish it with the next data_elmt.
-            break;
-          }
-          // Next sample may require bytes from same data_elmt.
-          sample_begin_offset_iter++;
-        }
-        data_begin_offset = data_end_offset;
-      }
-    }
 
     // Close output file if it is big enough. Two possibilities determine it's
     // time to close it: (1) the current key should be this file's last key, (2)
@@ -1069,18 +975,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                                      &range_del_out_stats, next_key);
       RecordDroppedKeys(range_del_out_stats,
                         &sub_compact->compaction_job_stats);
-      if (sub_compact->outputs.size() == 1) {
-        // Use samples from first output file to create dictionary for
-        // compression of subsequent files.
-        if (kUseZstdTrainer) {
-          sub_compact->compression_dict = ZSTD_TrainDictionary(
-              dict_sample_data, kSampleLenShift,
-              sub_compact->compaction->output_compression_opts()
-                  .max_dict_bytes);
-        } else {
-          sub_compact->compression_dict = std::move(dict_sample_data);
-        }
-      }
     }
   }
 
@@ -1606,8 +1500,9 @@ Status CompactionJob::OpenCompactionOutputFile(
       cfd->GetID(), cfd->GetName(), sub_compact->outfile.get(),
       sub_compact->compaction->output_compression(),
       sub_compact->compaction->output_compression_opts(),
-      sub_compact->compaction->output_level(), &sub_compact->compression_dict,
-      skip_filters, output_file_creation_time));
+      sub_compact->compaction->output_level(), skip_filters,
+      output_file_creation_time, 0 /* oldest_key_time */, bottommost_level_,
+      sub_compact->compaction->max_output_file_size()));
   LogFlush(db_options_.info_log);
   return s;
 }

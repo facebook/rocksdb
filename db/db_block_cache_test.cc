@@ -633,7 +633,7 @@ TEST_F(DBBlockCacheTest, CompressedCache) {
 
 TEST_F(DBBlockCacheTest, CacheCompressionDict) {
   const int kNumFiles = 4;
-  const int kNumEntriesPerFile = 32;
+  const int kNumEntriesPerFile = 128;
   const int kNumBytesPerEntry = 1024;
 
   // Try all the available libraries that support dictionary compression

@@ -4999,7 +4999,9 @@ Status TransactionStressTestInserter(TransactionDB* db,
   WriteOptions write_options;
   ReadOptions read_options;
   TransactionOptions txn_options;
-  txn_options.set_snapshot = true;
+  // Inside the inserter we might also retake the snapshot. We do both since two
+  // separte functions are engaged for each.
+  txn_options.set_snapshot = _rand.OneIn(2);
 
   RandomTransactionInserter inserter(&_rand, write_options, read_options,
                                      num_keys_per_set,

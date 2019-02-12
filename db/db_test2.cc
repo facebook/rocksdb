@@ -1039,17 +1039,17 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
 }
 
 TEST_F(DBTest2, PresetCompressionDict) {
+  // Verifies that compression ratio improves when dictionary is enabled, and
+  // improves even further when the dictionary is trained by ZSTD.
   const size_t kBlockSizeBytes = 4 << 10;
   const size_t kL0FileBytes = 128 << 10;
   const size_t kApproxPerBlockOverheadBytes = 50;
   const int kNumL0Files = 5;
-  const int kZstdTrainFactor = 16;
 
   Options options;
   options.env = CurrentOptions().env; // Make sure to use any custom env that the test is configured with.
   options.allow_concurrent_memtable_write = false;
   options.arena_block_size = kBlockSizeBytes;
-  options.compaction_style = kCompactionStyleUniversal;
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
   options.level0_file_num_compaction_trigger = kNumL0Files;
@@ -1091,16 +1091,15 @@ TEST_F(DBTest2, PresetCompressionDict) {
           options.compression_opts.zstd_max_train_bytes = 0;
           break;
         case 1:
-          options.compression_opts.max_dict_bytes = kBlockSizeBytes;
+          options.compression_opts.max_dict_bytes = 4 * kBlockSizeBytes;
           options.compression_opts.zstd_max_train_bytes = 0;
           break;
         case 2:
           if (compression_type != kZSTD) {
             continue;
           }
-          options.compression_opts.max_dict_bytes = kBlockSizeBytes;
-          options.compression_opts.zstd_max_train_bytes =
-              kZstdTrainFactor * kBlockSizeBytes;
+          options.compression_opts.max_dict_bytes = 4 * kBlockSizeBytes;
+          options.compression_opts.zstd_max_train_bytes = kL0FileBytes;
           break;
         default:
           assert(false);
@@ -1110,20 +1109,24 @@ TEST_F(DBTest2, PresetCompressionDict) {
       options.table_factory.reset(NewBlockBasedTableFactory(table_options));
       CreateAndReopenWithCF({"pikachu"}, options);
       Random rnd(301);
-      std::string seq_data =
-          RandomString(&rnd, kBlockSizeBytes - kApproxPerBlockOverheadBytes);
+      std::string seq_datas[10];
+      for (int j = 0; j < 10; ++j) {
+        seq_datas[j] =
+            RandomString(&rnd, kBlockSizeBytes - kApproxPerBlockOverheadBytes);
+      }
 
       ASSERT_EQ(0, NumTableFilesAtLevel(0, 1));
       for (int j = 0; j < kNumL0Files; ++j) {
         for (size_t k = 0; k < kL0FileBytes / kBlockSizeBytes + 1; ++k) {
-          ASSERT_OK(Put(1, Key(static_cast<int>(
-                               j * (kL0FileBytes / kBlockSizeBytes) + k)),
-                        seq_data));
+          auto key_num = j * (kL0FileBytes / kBlockSizeBytes) + k;
+          ASSERT_OK(Put(1, Key(static_cast<int>(key_num)),
+                        seq_datas[(key_num / 10) % 10]));
         }
         dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
         ASSERT_EQ(j + 1, NumTableFilesAtLevel(0, 1));
       }
-      db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
+      dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1],
+                                  true /* disallow_trivial_move */);
       ASSERT_EQ(0, NumTableFilesAtLevel(0, 1));
       ASSERT_GT(NumTableFilesAtLevel(1, 1), 0);
 
@@ -1138,7 +1141,7 @@ TEST_F(DBTest2, PresetCompressionDict) {
 
       for (size_t j = 0; j < kNumL0Files * (kL0FileBytes / kBlockSizeBytes);
            j++) {
-        ASSERT_EQ(seq_data, Get(1, Key(static_cast<int>(j))));
+        ASSERT_EQ(seq_datas[(j / 10) % 10], Get(1, Key(static_cast<int>(j))));
       }
       if (i) {
         ASSERT_GT(prev_out_bytes, out_bytes);
@@ -1146,6 +1149,70 @@ TEST_F(DBTest2, PresetCompressionDict) {
       prev_out_bytes = out_bytes;
       DestroyAndReopen(options);
     }
+  }
+}
+
+TEST_F(DBTest2, PresetCompressionDictLocality) {
+  if (!ZSTD_Supported()) {
+    return;
+  }
+  // Verifies that compression dictionary is generated from local data. The
+  // verification simply checks all output SSTs have different compression
+  // dictionaries. We do not verify effectiveness as that'd likely be flaky in
+  // the future.
+  const int kNumEntriesPerFile = 1 << 10;  // 1KB
+  const int kNumBytesPerEntry = 1 << 10;   // 1KB
+  const int kNumFiles = 4;
+  Options options = CurrentOptions();
+  options.compression = kZSTD;
+  options.compression_opts.max_dict_bytes = 1 << 14;        // 16KB
+  options.compression_opts.zstd_max_train_bytes = 1 << 18;  // 256KB
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.target_file_size_base = kNumEntriesPerFile * kNumBytesPerEntry;
+  BlockBasedTableOptions table_options;
+  table_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  Reopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < kNumFiles; ++i) {
+    for (int j = 0; j < kNumEntriesPerFile; ++j) {
+      ASSERT_OK(Put(Key(i * kNumEntriesPerFile + j),
+                    RandomString(&rnd, kNumBytesPerEntry)));
+    }
+    ASSERT_OK(Flush());
+    MoveFilesToLevel(1);
+    ASSERT_EQ(NumTableFilesAtLevel(1), i + 1);
+  }
+
+  // Store all the dictionaries generated during a full compaction.
+  std::vector<std::string> compression_dicts;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::WriteCompressionDictBlock:RawDict",
+      [&](void* arg) {
+        compression_dicts.emplace_back(static_cast<Slice*>(arg)->ToString());
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  CompactRangeOptions compact_range_opts;
+  compact_range_opts.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_range_opts, nullptr, nullptr));
+
+  // Dictionary compression should not be so good as to compress four totally
+  // random files into one. If it does then there's probably something wrong
+  // with the test.
+  ASSERT_GT(NumTableFilesAtLevel(1), 1);
+
+  // Furthermore, there should be one compression dictionary generated per file.
+  // And they should all be different from each other.
+  ASSERT_EQ(NumTableFilesAtLevel(1),
+            static_cast<int>(compression_dicts.size()));
+  for (size_t i = 1; i < compression_dicts.size(); ++i) {
+    std::string& a = compression_dicts[i - 1];
+    std::string& b = compression_dicts[i];
+    size_t alen = a.size();
+    size_t blen = b.size();
+    ASSERT_TRUE(alen != blen || memcmp(a.data(), b.data(), alen) != 0);
   }
 }
 

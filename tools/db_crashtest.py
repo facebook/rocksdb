@@ -26,6 +26,7 @@ default_params = {
     "block_size": 16384,
     "cache_size": 1048576,
     "checkpoint_one_in": 1000000,
+    "compression_type": "snappy",
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
     "clear_column_family_one_in": 0,

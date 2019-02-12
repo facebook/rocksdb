@@ -9,6 +9,8 @@
 * Add support for block checksums verification for external SST files before ingestion.
 * Add a place holder in manifest which indicate a record from future that can be safely ignored.
 * Add support for trace sampling.
+* Enable properties block checksum verification for block-based tables.
+* For all users of dictionary compression, we now generate a separate dictionary for compressing each bottom-level SST file. Previously we reused a single dictionary for a whole compaction to bottom level. The new approach achieves better compression ratios; however, it uses more memory and CPU for buffering/sampling data blocks and training dictionaries.
 
 ### Public API Change
 * Disallow CompactionFilter::IgnoreSnapshots() = false, because it is not very useful and the behavior is confusing. The filter will filter everything if there is no snapshot declared by the time the compaction starts. However, users can define a snapshot after the compaction starts and before it finishes and this new snapshot won't be repeatable, because after the compaction finishes, some keys may be dropped. 
@@ -21,6 +23,7 @@
 * Deleting Blob files also go through SStFileManager.
 * Remove PlainTable's store_index_in_file feature. When opening an existing DB with index in SST files, the index and bloom filter will still be rebuild while SST files are opened, in the same way as there is no index in the file.
 * Remove CuckooHash memtable.
+* The counter stat `number.block.not_compressed` now also counts blocks not compressed due to poor compression ratio.
 * Remove Lua compaction filter.
 
 ### Bug Fixes

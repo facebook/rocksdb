@@ -482,11 +482,14 @@ void CompactionIterator::NextFromInput() {
       // this value, and findEarliestVisibleSnapshot returns the next snapshot
       // as current_user_key_snapshot. In this case last value and current
       // value are both in current_user_key_snapshot currently.
+      // Although last_snapshot is released we might still get a definitive
+      // response when key sequence number changes, e.g., when seq is determined
+      // too old and visible in all snapshots.
       assert(last_snapshot == current_user_key_snapshot_ ||
              (snapshot_checker_ != nullptr &&
               snapshot_checker_->CheckInSnapshot(current_user_key_sequence_,
-                                                 last_snapshot) ==
-                  SnapshotCheckerResult::kSnapshotReleased));
+                                                 last_snapshot) !=
+                  SnapshotCheckerResult::kNotInSnapshot));
 
       ++iter_stats_.num_record_drop_hidden;  // (A)
       input_->Next();
