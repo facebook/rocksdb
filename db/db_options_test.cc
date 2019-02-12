@@ -541,7 +541,7 @@ TEST_F(DBOptionsTest, RunStatsDumpPeriodSec) {
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_dump_period_sec", "0"}}));
   int old_val = counter;
   for (int i = 6; i < 20; ++i) {
-    mock_env->set_current_time(i);
+    dbfull()->TEST_WaitForDumpStatsRun([&] { mock_env->set_current_time(i); });
   }
   ASSERT_EQ(counter, old_val);
   Close();
@@ -569,17 +569,17 @@ TEST_F(DBOptionsTest, StatsPersistScheduling) {
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "0"}}));
   int old_counter = counter;
   for (int i = 6; i < 20; ++i) {
-    mock_env->set_current_time(i);
+    dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(i); });
   }
   ASSERT_EQ(counter, old_counter);
 
   // Test resume job through SetOptions
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "5"}}));
   ASSERT_EQ(5, dbfull()->GetDBOptions().stats_persist_period_sec);
-  for (int i = 20; i < 40; ++i) {
+  for (int i = 21; i < 40; ++i) {
     mock_env->set_current_time(i);
   }
-  ASSERT_GE(counter, old_counter);
+  ASSERT_GT(counter, old_counter);
   Close();
 }
 
@@ -612,12 +612,12 @@ TEST_F(DBOptionsTest, RandomSetStatsPersistPeriodSec) {
   Reopen(options);
   ASSERT_EQ(5, dbfull()->GetDBOptions().stats_persist_period_sec);
 
-  for (int i = 0; i < 20; i++) {
-    int num = rand() % 5000 + 1;
-    ASSERT_OK(
-        dbfull()->SetDBOptions({{"stats_persist_period_sec", ToString(num)}}));
-    ASSERT_EQ(num, dbfull()->GetDBOptions().stats_persist_period_sec);
-  }
+  ASSERT_OK(
+      dbfull()->SetDBOptions({{"stats_persist_period_sec", "12345"}}));
+  ASSERT_EQ(12345, dbfull()->GetDBOptions().stats_persist_period_sec);
+  ASSERT_NOK(
+      dbfull()->SetDBOptions({{"stats_persist_period_sec", "abcde"}}));
+  ASSERT_EQ(12345, dbfull()->GetDBOptions().stats_persist_period_sec);
 }
 
 TEST_F(DBOptionsTest, GetStatsHistory) {
@@ -650,7 +650,7 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
   ASSERT_GT(stats_count, 0);
   // Wait a bit and verify no more stats are found
   for (mock_time = 6; mock_time < 20; ++mock_time) {
-    mock_env->set_current_time(mock_time);
+    dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(mock_time); });
   }
   db_->GetStatsHistory(0, 20 * kMicrosInSec, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
@@ -694,7 +694,7 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
   int mock_time = 1;
   // Wait for stats persist to finish
   for (; mock_time < 5; ++mock_time) {
-    mock_env->set_current_time(mock_time);
+    dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(mock_time); });
   }
 
   // second round of ops
@@ -723,7 +723,7 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
   }
   delete stats_iter;
   size_t stats_history_size = dbfull()->TEST_EstiamteStatsHistorySize();
-  ASSERT_GT(slice_count, 0);
+  ASSERT_GE(slice_count, 9);
   ASSERT_GE(stats_history_size, 12000);
   // capping memory cost at 2000 bytes
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_history_buffer_size", "12000"}}));
@@ -735,12 +735,15 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
   db_->GetStatsHistory(0, 20 * kMicrosInSec, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count_reopen = 0;
+  slice_count = 0;
   for (; stats_iter->Valid(); stats_iter->Next()) {
+    slice_count++;
     auto stats_map = stats_iter->GetStatsMap();
     stats_count_reopen += stats_map.size();
   }
   delete stats_iter;
   size_t stats_history_size_reopen = dbfull()->TEST_EstiamteStatsHistorySize();
+  ASSERT_LE(slice_count, 2);
   ASSERT_TRUE(stats_history_size_reopen < 12000 && stats_history_size_reopen > 0);
   ASSERT_TRUE(stats_count_reopen < stats_count && stats_count_reopen > 0);
   Close();
