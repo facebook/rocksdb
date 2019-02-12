@@ -25,4 +25,9 @@ extern Status DeleteSSTFile(const ImmutableDBOptions* db_options,
                             const std::string& fname,
                             const std::string& path_to_sync);
 
+extern Status DeleteDBFile(const ImmutableDBOptions* db_options,
+                            const std::string& fname,
+                            const std::string& path_to_sync,
+                            const bool force_bg);
+
 }  // namespace rocksdb

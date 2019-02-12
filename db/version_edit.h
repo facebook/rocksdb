@@ -229,6 +229,10 @@ class VersionEdit {
 
   uint64_t log_number() { return log_number_; }
 
+  bool has_next_file_number() const { return has_next_file_number_; }
+
+  uint64_t next_file_number() const { return next_file_number_; }
+
   // Add the specified file at the specified number.
   // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
   // REQUIRES: "smallest" and "largest" are smallest and largest keys in file

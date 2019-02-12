@@ -211,6 +211,8 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
   uint64_t prev_fsync_nanos = 0;
   uint64_t prev_range_sync_nanos = 0;
   uint64_t prev_prepare_write_nanos = 0;
+  uint64_t prev_cpu_write_nanos = 0;
+  uint64_t prev_cpu_read_nanos = 0;
   if (measure_io_stats_) {
     prev_perf_level = GetPerfLevel();
     SetPerfLevel(PerfLevel::kEnableTime);
@@ -218,6 +220,8 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
     prev_fsync_nanos = IOSTATS(fsync_nanos);
     prev_range_sync_nanos = IOSTATS(range_sync_nanos);
     prev_prepare_write_nanos = IOSTATS(prepare_write_nanos);
+    prev_cpu_write_nanos = IOSTATS(cpu_write_nanos);
+    prev_cpu_read_nanos = IOSTATS(cpu_read_nanos);
   }
 
   // This will release and re-acquire the mutex.
@@ -269,6 +273,10 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
     stream << "file_fsync_nanos" << (IOSTATS(fsync_nanos) - prev_fsync_nanos);
     stream << "file_prepare_write_nanos"
            << (IOSTATS(prepare_write_nanos) - prev_prepare_write_nanos);
+    stream << "file_cpu_write_nanos"
+           << (IOSTATS(cpu_write_nanos) - prev_cpu_write_nanos);
+    stream << "file_cpu_read_nanos"
+           << (IOSTATS(cpu_read_nanos) - prev_cpu_read_nanos);
   }
 
   return s;
@@ -285,6 +293,7 @@ Status FlushJob::WriteLevel0Table() {
       ThreadStatus::STAGE_FLUSH_WRITE_L0);
   db_mutex_->AssertHeld();
   const uint64_t start_micros = db_options_.env->NowMicros();
+  const uint64_t start_cpu_micros = db_options_.env->NowCPUNanos() / 1000;
   Status s;
   {
     auto write_hint = cfd_->CalculateSSTWriteHint(0);
@@ -401,6 +410,7 @@ Status FlushJob::WriteLevel0Table() {
   // Note that here we treat flush as level 0 compaction in internal stats
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
   stats.micros = db_options_.env->NowMicros() - start_micros;
+  stats.cpu_micros = db_options_.env->NowCPUNanos() / 1000 - start_cpu_micros;
   stats.bytes_written = meta_.fd.GetFileSize();
   MeasureTime(stats_, FLUSH_TIME, stats.micros);
   cfd_->internal_stats()->AddCompactionStats(0 /* level */, stats);

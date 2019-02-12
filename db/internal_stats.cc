@@ -45,6 +45,8 @@ const std::map<LevelStatType, LevelStat> InternalStats::compaction_level_stats =
         {LevelStatType::READ_MBPS, LevelStat{"ReadMBps", "Rd(MB/s)"}},
         {LevelStatType::WRITE_MBPS, LevelStat{"WriteMBps", "Wr(MB/s)"}},
         {LevelStatType::COMP_SEC, LevelStat{"CompSec", "Comp(sec)"}},
+        {LevelStatType::COMP_CPU_SEC,
+         LevelStat{"CompMergeCPU", "CompMergeCPU(sec)"}},
         {LevelStatType::COMP_COUNT, LevelStat{"CompCount", "Comp(cnt)"}},
         {LevelStatType::AVG_SEC, LevelStat{"AvgSec", "Avg(sec)"}},
         {LevelStatType::KEY_IN, LevelStat{"KeyIn", "KeyIn"}},
@@ -64,7 +66,7 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name) {
   };
   int line_size = snprintf(
       buf + written_size, len - written_size,
-      "Level    %s   %s     %s %s  %s %s %s %s %s %s %s %s %s %s %s %s %s\n",
+      "Level    %s   %s     %s %s  %s %s %s %s %s %s %s %s %s %s %s %s %s %s\n",
       // Note that we skip COMPACTED_FILES and merge it with Files column
       hdr(LevelStatType::NUM_FILES), hdr(LevelStatType::SIZE_BYTES),
       hdr(LevelStatType::SCORE), hdr(LevelStatType::READ_GB),
@@ -72,9 +74,9 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name) {
       hdr(LevelStatType::WRITE_GB), hdr(LevelStatType::W_NEW_GB),
       hdr(LevelStatType::MOVED_GB), hdr(LevelStatType::WRITE_AMP),
       hdr(LevelStatType::READ_MBPS), hdr(LevelStatType::WRITE_MBPS),
-      hdr(LevelStatType::COMP_SEC), hdr(LevelStatType::COMP_COUNT),
-      hdr(LevelStatType::AVG_SEC), hdr(LevelStatType::KEY_IN),
-      hdr(LevelStatType::KEY_DROP));
+      hdr(LevelStatType::COMP_SEC), hdr(LevelStatType::COMP_CPU_SEC),
+      hdr(LevelStatType::COMP_COUNT), hdr(LevelStatType::AVG_SEC),
+      hdr(LevelStatType::KEY_IN), hdr(LevelStatType::KEY_DROP));
 
   written_size += line_size;
   snprintf(buf + written_size, len - written_size, "%s\n",
@@ -106,6 +108,7 @@ void PrepareLevelStats(std::map<LevelStatType, double>* level_stats,
   (*level_stats)[LevelStatType::WRITE_MBPS] =
       stats.bytes_written / kMB / elapsed;
   (*level_stats)[LevelStatType::COMP_SEC] = stats.micros / kMicrosInSec;
+  (*level_stats)[LevelStatType::COMP_CPU_SEC] = stats.cpu_micros / kMicrosInSec;
   (*level_stats)[LevelStatType::COMP_COUNT] = stats.count;
   (*level_stats)[LevelStatType::AVG_SEC] =
       stats.count == 0 ? 0 : stats.micros / kMicrosInSec / stats.count;
@@ -132,7 +135,8 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
       "%5.1f "    /*  W-Amp */
       "%8.1f "    /*  Rd(MB/s) */
       "%8.1f "    /*  Wr(MB/s) */
-      "%9.0f "    /*  Comp(sec) */
+      "%9.2f "    /*  Comp(sec) */
+      "%17.2f "   /*  CompMergeCPU(sec) */
       "%9d "      /*  Comp(cnt) */
       "%8.3f "    /*  Avg(sec) */
       "%7s "      /*  KeyIn */
@@ -153,6 +157,7 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
       stat_value.at(LevelStatType::READ_MBPS),
       stat_value.at(LevelStatType::WRITE_MBPS),
       stat_value.at(LevelStatType::COMP_SEC),
+      stat_value.at(LevelStatType::COMP_CPU_SEC),
       static_cast<int>(stat_value.at(LevelStatType::COMP_COUNT)),
       stat_value.at(LevelStatType::AVG_SEC),
       NumberToHumanString(

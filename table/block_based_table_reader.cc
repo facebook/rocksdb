@@ -46,10 +46,12 @@
 
 #include "monitoring/perf_context_imp.h"
 #include "util/coding.h"
+#include "util/crc32c.h"
 #include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
+#include "util/xxhash.h"
 
 namespace rocksdb {
 
@@ -919,6 +921,33 @@ Status BlockBasedTable::PrefetchTail(
   return s;
 }
 
+Status VerifyChecksum(const ChecksumType type, const char* buf, size_t len,
+                      uint32_t expected) {
+  Status s;
+  uint32_t actual = 0;
+  switch (type) {
+    case kNoChecksum:
+      break;
+    case kCRC32c:
+      expected = crc32c::Unmask(expected);
+      actual = crc32c::Value(buf, len);
+      break;
+    case kxxHash:
+      actual = XXH32(buf, static_cast<int>(len), 0);
+      break;
+    case kxxHash64:
+      actual = static_cast<uint32_t>(XXH64(buf, static_cast<int>(len), 0) &
+                                     uint64_t{0xffffffff});
+      break;
+    default:
+      s = Status::Corruption("unknown checksum type");
+  }
+  if (s.ok() && actual != expected) {
+    s = Status::Corruption("properties block checksum mismatched");
+  }
+  return s;
+}
+
 Status BlockBasedTable::ReadPropertiesBlock(
     Rep* rep, FilePrefetchBuffer* prefetch_buffer, InternalIterator* meta_iter,
     const SequenceNumber largest_seqno) {
@@ -934,10 +963,45 @@ Status BlockBasedTable::ReadPropertiesBlock(
     s = meta_iter->status();
     TableProperties* table_properties = nullptr;
     if (s.ok()) {
+      s = ReadProperties(
+          meta_iter->value(), rep->file.get(), prefetch_buffer, rep->footer,
+          rep->ioptions, &table_properties, true /* verify_checksum */,
+          nullptr /* ret_block_handle */, nullptr /* ret_block_contents */,
+          false /* compression_type_missing */, nullptr /* memory_allocator */);
+    }
+
+    if (s.IsCorruption()) {
+      // If this is an external SST file ingested with write_global_seqno set to
+      // true, then we expect the checksum mismatch because checksum was written
+      // by SstFileWriter, but its global seqno in the properties block may have
+      // been changed during ingestion. In this case, we read the properties
+      // block, copy it to a memory buffer, change the global seqno to its
+      // original value, i.e. 0, and verify the checksum again.
+      BlockHandle props_block_handle;
+      CacheAllocationPtr tmp_buf;
       s = ReadProperties(meta_iter->value(), rep->file.get(), prefetch_buffer,
                          rep->footer, rep->ioptions, &table_properties,
-                         false /* compression_type_missing */,
+                         false /* verify_checksum */, &props_block_handle,
+                         &tmp_buf, false /* compression_type_missing */,
                          nullptr /* memory_allocator */);
+      if (s.ok() && tmp_buf) {
+        const auto seqno_pos_iter = table_properties->properties_offsets.find(
+            ExternalSstFilePropertyNames::kGlobalSeqno);
+        size_t block_size = props_block_handle.size();
+        if (seqno_pos_iter != table_properties->properties_offsets.end()) {
+          uint64_t global_seqno_offset = seqno_pos_iter->second;
+          EncodeFixed64(
+              tmp_buf.get() + global_seqno_offset - props_block_handle.offset(),
+              0);
+        }
+        uint32_t value = DecodeFixed32(tmp_buf.get() + block_size + 1);
+        s = rocksdb::VerifyChecksum(rep->footer.checksum(), tmp_buf.get(),
+                                    block_size + 1, value);
+      }
+    }
+    std::unique_ptr<TableProperties> props_guard;
+    if (table_properties != nullptr) {
+      props_guard.reset(table_properties);
     }
 
     if (!s.ok()) {
@@ -947,7 +1011,7 @@ Status BlockBasedTable::ReadPropertiesBlock(
                      s.ToString().c_str());
     } else {
       assert(table_properties != nullptr);
-      rep->table_properties.reset(table_properties);
+      rep->table_properties.reset(props_guard.release());
       rep->blocks_maybe_compressed = rep->table_properties->compression_name !=
                                      CompressionTypeToString(kNoCompression);
       rep->blocks_definitely_zstd_compressed =

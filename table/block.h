@@ -395,7 +395,17 @@ class DataBlockIter final : public BlockIter<Slice> {
 
   virtual void Next() override;
 
+  // Try to advance to the next entry in the block. If there is data corruption
+  // or error, report it to the caller instead of aborting the process. May
+  // incur higher CPU overhead because we need to perform check on every entry.
+  void NextOrReport();
+
   virtual void SeekToFirst() override;
+
+  // Try to seek to the first entry in the block. If there is data corruption
+  // or error, report it to caller instead of aborting the process. May incur
+  // higher CPU overhead because we need to perform check on every entry.
+  void SeekToFirstOrReport();
 
   virtual void SeekToLast() override;
 
@@ -439,6 +449,7 @@ class DataBlockIter final : public BlockIter<Slice> {
   DataBlockHashIndex* data_block_hash_index_;
   const Comparator* user_comparator_;
 
+  template <typename DecodeEntryFunc>
   inline bool ParseNextDataKey(const char* limit = nullptr);
 
   inline int Compare(const IterKey& ikey, const Slice& b) const {

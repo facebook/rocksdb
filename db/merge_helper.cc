@@ -138,7 +138,11 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   // orig_ikey is backed by original_key if keys_.empty()
   // orig_ikey is backed by keys_.back() if !keys_.empty()
   ParsedInternalKey orig_ikey;
-  ParseInternalKey(original_key, &orig_ikey);
+  bool succ = ParseInternalKey(original_key, &orig_ikey);
+  assert(succ);
+  if (!succ) {
+    return Status::Corruption("Cannot parse key in MergeUntil");
+  }
 
   Status s;
   bool hit_the_next_user_key = false;
@@ -298,8 +302,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   // to combine the keys. Since VersionSet::SetupOtherInputs() always makes
   // sure that all merge-operands on the same level get compacted together,
   // this will simply lead to these merge operands moving to the next level.
-  bool surely_seen_the_beginning = (hit_the_next_user_key || !iter->Valid())
-                                    && at_bottom;
+  bool surely_seen_the_beginning =
+      (hit_the_next_user_key || !iter->Valid()) && at_bottom;
   if (surely_seen_the_beginning) {
     // do a final merge with nullptr as the existing value and say
     // bye to the merge type (it's now converted to a Put)

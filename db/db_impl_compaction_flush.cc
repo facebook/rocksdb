@@ -132,16 +132,14 @@ Status DBImpl::SyncClosedLogs(JobContext* job_context) {
 Status DBImpl::FlushMemTableToOutputFile(
     ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
     bool* made_progress, JobContext* job_context,
-    SuperVersionContext* superversion_context, LogBuffer* log_buffer) {
+    SuperVersionContext* superversion_context,
+    std::vector<SequenceNumber>& snapshot_seqs,
+    SequenceNumber earliest_write_conflict_snapshot,
+    SnapshotChecker* snapshot_checker, LogBuffer* log_buffer) {
   mutex_.AssertHeld();
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
 
-  std::vector<SequenceNumber> snapshot_seqs;
-  SequenceNumber earliest_write_conflict_snapshot;
-  SnapshotChecker* snapshot_checker;
-  GetSnapshotContext(job_context, &snapshot_seqs,
-                     &earliest_write_conflict_snapshot, &snapshot_checker);
 
   FlushJob flush_job(
       dbname_, cfd, immutable_db_options_, mutable_cf_options,
@@ -239,14 +237,20 @@ Status DBImpl::FlushMemTablesToOutputFiles(
     return AtomicFlushMemTablesToOutputFiles(bg_flush_args, made_progress,
                                              job_context, log_buffer);
   }
+  std::vector<SequenceNumber> snapshot_seqs;
+  SequenceNumber earliest_write_conflict_snapshot;
+  SnapshotChecker* snapshot_checker;
+  GetSnapshotContext(job_context, &snapshot_seqs,
+                     &earliest_write_conflict_snapshot, &snapshot_checker);
   Status status;
   for (auto& arg : bg_flush_args) {
     ColumnFamilyData* cfd = arg.cfd_;
     MutableCFOptions mutable_cf_options = *cfd->GetLatestMutableCFOptions();
     SuperVersionContext* superversion_context = arg.superversion_context_;
-    Status s = FlushMemTableToOutputFile(cfd, mutable_cf_options, made_progress,
-                                         job_context, superversion_context,
-                                         log_buffer);
+    Status s = FlushMemTableToOutputFile(
+        cfd, mutable_cf_options, made_progress, job_context,
+        superversion_context, snapshot_seqs, earliest_write_conflict_snapshot,
+        snapshot_checker, log_buffer);
     if (!s.ok()) {
       status = s;
       if (!s.IsShutdownInProgress()) {
@@ -328,21 +332,18 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     jobs.back().PickMemTable();
   }
 
-  autovector<FileMetaData> file_meta;
+  std::vector<FileMetaData> file_meta(num_cfs);
   Status s;
   assert(num_cfs == static_cast<int>(jobs.size()));
 
-  for (int i = 0; i != num_cfs; ++i) {
-    file_meta.emplace_back();
-
 #ifndef ROCKSDB_LITE
-    const MutableCFOptions& mutable_cf_options =
-        *cfds[i]->GetLatestMutableCFOptions();
+  for (int i = 0; i != num_cfs; ++i) {
+    const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.at(i);
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options,
                        job_context->job_id, jobs[i].GetTableProperties());
-#endif /* !ROCKSDB_LITE */
   }
+#endif /* !ROCKSDB_LITE */
 
   if (logfile_number_ > 0) {
     // TODO (yanqin) investigate whether we should sync the closed logs for
@@ -446,19 +447,21 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     autovector<ColumnFamilyData*> tmp_cfds;
     autovector<const autovector<MemTable*>*> mems_list;
     autovector<const MutableCFOptions*> mutable_cf_options_list;
+    autovector<FileMetaData*> tmp_file_meta;
     for (int i = 0; i != num_cfs; ++i) {
       const auto& mems = jobs[i].GetMemTables();
       if (!cfds[i]->IsDropped() && !mems.empty()) {
         tmp_cfds.emplace_back(cfds[i]);
         mems_list.emplace_back(&mems);
         mutable_cf_options_list.emplace_back(&all_mutable_cf_options[i]);
+        tmp_file_meta.emplace_back(&file_meta[i]);
       }
     }
 
     s = InstallMemtableAtomicFlushResults(
         nullptr /* imm_lists */, tmp_cfds, mutable_cf_options_list, mems_list,
-        versions_.get(), &mutex_, file_meta, &job_context->memtables_to_free,
-        directories_.GetDbDir(), log_buffer);
+        versions_.get(), &mutex_, tmp_file_meta,
+        &job_context->memtables_to_free, directories_.GetDbDir(), log_buffer);
   }
 
   if (s.ok() || s.IsShutdownInProgress()) {
@@ -470,7 +473,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       }
       InstallSuperVersionAndScheduleWork(cfds[i],
                                          &job_context->superversion_contexts[i],
-                                         *cfds[i]->GetLatestMutableCFOptions());
+                                         all_mutable_cf_options[i]);
       VersionStorageInfo::LevelSummaryStorage tmp;
       ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
                        cfds[i]->GetName().c_str(),
@@ -486,8 +489,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       if (cfds[i]->IsDropped()) {
         continue;
       }
-      NotifyOnFlushCompleted(cfds[i], &file_meta[i],
-                             *cfds[i]->GetLatestMutableCFOptions(),
+      NotifyOnFlushCompleted(cfds[i], &file_meta[i], all_mutable_cf_options[i],
                              job_context->job_id, jobs[i].GetTableProperties());
       if (sfm) {
         std::string file_path = MakeTableFileName(
@@ -1021,6 +1023,7 @@ Status DBImpl::CompactFilesImpl(
   if (bg_compaction_scheduled_ == 0) {
     bg_cv_.SignalAll();
   }
+  MaybeScheduleFlushOrCompaction();
   TEST_SYNC_POINT("CompactFilesImpl:End");
 
   return status;

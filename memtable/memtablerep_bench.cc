@@ -95,17 +95,8 @@ DEFINE_int32(
     threshold_use_skiplist, 256,
     "threshold_use_skiplist parameter to pass into NewHashLinkListRepFactory");
 
-DEFINE_int64(
-    write_buffer_size, 256,
-    "write_buffer_size parameter to pass into NewHashCuckooRepFactory");
-
-DEFINE_int64(
-    average_data_size, 64,
-    "average_data_size parameter to pass into NewHashCuckooRepFactory");
-
-DEFINE_int64(
-    hash_function_count, 4,
-    "hash_function_count parameter to pass into NewHashCuckooRepFactory");
+DEFINE_int64(write_buffer_size, 256,
+             "write_buffer_size parameter to pass into WriteBufferManager");
 
 DEFINE_int32(
     num_threads, 1,
@@ -605,12 +596,6 @@ int main(int argc, char** argv) {
         FLAGS_bucket_count, FLAGS_huge_page_tlb_size,
         FLAGS_bucket_entries_logging_threshold,
         FLAGS_if_log_bucket_dist_when_flash, FLAGS_threshold_use_skiplist));
-    options.prefix_extractor.reset(
-        rocksdb::NewFixedPrefixTransform(FLAGS_prefix_length));
-  } else if (FLAGS_memtablerep == "cuckoo") {
-    factory.reset(rocksdb::NewHashCuckooRepFactory(
-        FLAGS_write_buffer_size, FLAGS_average_data_size,
-        static_cast<uint32_t>(FLAGS_hash_function_count)));
     options.prefix_extractor.reset(
         rocksdb::NewFixedPrefixTransform(FLAGS_prefix_length));
 #endif  // ROCKSDB_LITE

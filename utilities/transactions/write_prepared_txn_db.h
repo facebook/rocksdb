@@ -43,27 +43,23 @@ namespace rocksdb {
 // mechanisms to tell such data apart from committed data.
 class WritePreparedTxnDB : public PessimisticTransactionDB {
  public:
-  explicit WritePreparedTxnDB(
-      DB* db, const TransactionDBOptions& txn_db_options,
-      size_t snapshot_cache_bits = DEF_SNAPSHOT_CACHE_BITS,
-      size_t commit_cache_bits = DEF_COMMIT_CACHE_BITS)
+  explicit WritePreparedTxnDB(DB* db,
+                              const TransactionDBOptions& txn_db_options)
       : PessimisticTransactionDB(db, txn_db_options),
-        SNAPSHOT_CACHE_BITS(snapshot_cache_bits),
+        SNAPSHOT_CACHE_BITS(txn_db_options.wp_snapshot_cache_bits),
         SNAPSHOT_CACHE_SIZE(static_cast<size_t>(1ull << SNAPSHOT_CACHE_BITS)),
-        COMMIT_CACHE_BITS(commit_cache_bits),
+        COMMIT_CACHE_BITS(txn_db_options.wp_commit_cache_bits),
         COMMIT_CACHE_SIZE(static_cast<size_t>(1ull << COMMIT_CACHE_BITS)),
         FORMAT(COMMIT_CACHE_BITS) {
     Init(txn_db_options);
   }
 
-  explicit WritePreparedTxnDB(
-      StackableDB* db, const TransactionDBOptions& txn_db_options,
-      size_t snapshot_cache_bits = DEF_SNAPSHOT_CACHE_BITS,
-      size_t commit_cache_bits = DEF_COMMIT_CACHE_BITS)
+  explicit WritePreparedTxnDB(StackableDB* db,
+                              const TransactionDBOptions& txn_db_options)
       : PessimisticTransactionDB(db, txn_db_options),
-        SNAPSHOT_CACHE_BITS(snapshot_cache_bits),
+        SNAPSHOT_CACHE_BITS(txn_db_options.wp_snapshot_cache_bits),
         SNAPSHOT_CACHE_SIZE(static_cast<size_t>(1ull << SNAPSHOT_CACHE_BITS)),
-        COMMIT_CACHE_BITS(commit_cache_bits),
+        COMMIT_CACHE_BITS(txn_db_options.wp_commit_cache_bits),
         COMMIT_CACHE_SIZE(static_cast<size_t>(1ull << COMMIT_CACHE_BITS)),
         FORMAT(COMMIT_CACHE_BITS) {
     Init(txn_db_options);
@@ -153,10 +149,21 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                         prep_seq, snapshot_seq, 1, min_uncommitted);
       return true;
     }
+    // Commit of delayed prepared has two non-atomic steps: add to commit cache,
+    // remove from delayed prepared. Our reads from these two is also
+    // non-atomic. By looking into commit cache first thus we might not find the
+    // prep_seq neither in commit cache not in delayed_prepared_. To fix that i)
+    // we check if there was any delayed prepared BEFORE looking into commit
+    // cache, ii) if there was, we complete the search steps to be these: i)
+    // commit cache, ii) delayed prepared, commit cache again. In this way if
+    // the first query to commit cache missed the commit, the 2nd will catch it.
+    bool was_empty = delayed_prepared_empty_.load(std::memory_order_acquire);
     auto indexed_seq = prep_seq % COMMIT_CACHE_SIZE;
     CommitEntry64b dont_care;
     CommitEntry cached;
     bool exist = GetCommitEntry(indexed_seq, &dont_care, &cached);
+    TEST_SYNC_POINT("WritePreparedTxnDB::IsInSnapshot:GetCommitEntry:pause");
+    TEST_SYNC_POINT("WritePreparedTxnDB::IsInSnapshot:GetCommitEntry:resume");
     if (exist && prep_seq == cached.prep_seq) {
       // It is committed and also not evicted from commit cache
       ROCKS_LOG_DETAILS(
@@ -178,12 +185,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
           prep_seq, snapshot_seq, 0);
       return false;
     }
-    if (!delayed_prepared_empty_.load(std::memory_order_acquire)) {
+    if (!was_empty) {
       // We should not normally reach here
       WPRecordTick(TXN_PREPARE_MUTEX_OVERHEAD);
       ReadLock rl(&prepared_mutex_);
-      ROCKS_LOG_WARN(info_log_, "prepared_mutex_ overhead %" PRIu64,
-                     static_cast<uint64_t>(delayed_prepared_.size()));
+      ROCKS_LOG_WARN(info_log_,
+                     "prepared_mutex_ overhead %" PRIu64 " for %" PRIu64,
+                     static_cast<uint64_t>(delayed_prepared_.size()), prep_seq);
       if (delayed_prepared_.find(prep_seq) != delayed_prepared_.end()) {
         // This is the order: 1) delayed_prepared_commits_ update, 2) publish 3)
         // delayed_prepared_ clean up. So check if it is the case of a late
@@ -203,6 +211,16 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                             prep_seq, snapshot_seq, it->second,
                             snapshot_seq <= it->second);
           return it->second <= snapshot_seq;
+        }
+      } else {
+        // 2nd query to commit cache. Refer to was_empty comment above.
+        exist = GetCommitEntry(indexed_seq, &dont_care, &cached);
+        if (exist && prep_seq == cached.prep_seq) {
+          ROCKS_LOG_DETAILS(
+              info_log_,
+              "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+              prep_seq, snapshot_seq, cached.commit_seq <= snapshot_seq);
+          return cached.commit_seq <= snapshot_seq;
         }
       }
     }
@@ -414,6 +432,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       WritePreparedTransactionTest_AdvanceMaxEvictedSeqWithDuplicatesTest_Test;
   friend class WritePreparedTransactionTest_AdvanceSeqByOne_Test;
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
+  friend class WritePreparedTransactionTest_CleanupSnapshotEqualToMax_Test;
   friend class WritePreparedTransactionTest_DoubleSnapshot_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotReleased_Test;
@@ -596,8 +615,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // The list sorted in ascending order. Thread-safety for writes is provided
   // with snapshots_mutex_ and concurrent reads are safe due to std::atomic for
   // each entry. In x86_64 architecture such reads are compiled to simple read
-  // instructions. 128 entries
-  static const size_t DEF_SNAPSHOT_CACHE_BITS = static_cast<size_t>(7);
+  // instructions.
   const size_t SNAPSHOT_CACHE_BITS;
   const size_t SNAPSHOT_CACHE_SIZE;
   std::unique_ptr<std::atomic<SequenceNumber>[]> snapshot_cache_;
@@ -615,8 +633,6 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // A heap of prepared transactions. Thread-safety is provided with
   // prepared_mutex_.
   PreparedHeap prepared_txns_;
-  // 8m entry, 64MB size
-  static const size_t DEF_COMMIT_CACHE_BITS = static_cast<size_t>(23);
   const size_t COMMIT_CACHE_BITS;
   const size_t COMMIT_CACHE_SIZE;
   const CommitEntry64bFormat FORMAT;
@@ -791,14 +807,15 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
   bool publish_seq_;
 };
 
-// For two_write_queues commit both the aborted batch and the cleanup batch and then published the seq
+// For two_write_queues commit both the aborted batch and the cleanup batch and
+// then published the seq
 class WritePreparedRollbackPreReleaseCallback : public PreReleaseCallback {
  public:
   WritePreparedRollbackPreReleaseCallback(WritePreparedTxnDB* db,
-                                             DBImpl* db_impl,
-                                             SequenceNumber prep_seq,
-                                             SequenceNumber rollback_seq,
-                                             size_t prep_batch_cnt)
+                                          DBImpl* db_impl,
+                                          SequenceNumber prep_seq,
+                                          SequenceNumber rollback_seq,
+                                          size_t prep_batch_cnt)
       : db_(db),
         db_impl_(db_impl),
         prep_seq_(prep_seq),

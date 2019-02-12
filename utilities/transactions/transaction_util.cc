@@ -24,7 +24,8 @@ namespace rocksdb {
 
 Status TransactionUtil::CheckKeyForConflicts(
     DBImpl* db_impl, ColumnFamilyHandle* column_family, const std::string& key,
-    SequenceNumber snap_seq, bool cache_only, ReadCallback* snap_checker) {
+    SequenceNumber snap_seq, bool cache_only, ReadCallback* snap_checker,
+    SequenceNumber min_uncommitted) {
   Status result;
 
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
@@ -41,7 +42,7 @@ Status TransactionUtil::CheckKeyForConflicts(
         db_impl->GetEarliestMemTableSequenceNumber(sv, true);
 
     result = CheckKey(db_impl, sv, earliest_seq, snap_seq, key, cache_only,
-                      snap_checker);
+                      snap_checker, min_uncommitted);
 
     db_impl->ReturnAndCleanupSuperVersion(cfd, sv);
   }
@@ -53,7 +54,8 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
                                  SequenceNumber earliest_seq,
                                  SequenceNumber snap_seq,
                                  const std::string& key, bool cache_only,
-                                 ReadCallback* snap_checker) {
+                                 ReadCallback* snap_checker,
+                                 SequenceNumber min_uncommitted) {
   Status result;
   bool need_to_read_sst = false;
 
@@ -75,7 +77,9 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
           "countain a long enough history to check write at SequenceNumber: ",
           ToString(snap_seq));
     }
-  } else if (snap_seq < earliest_seq) {
+  } else if (snap_seq < earliest_seq || min_uncommitted <= earliest_seq) {
+    // Use <= for min_uncommitted since earliest_seq is actually the largest sec
+    // before this memtable was created
     need_to_read_sst = true;
 
     if (cache_only) {

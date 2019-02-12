@@ -72,7 +72,6 @@ CompactionIterator::CompactionIterator(
       compaction_filter_(compaction_filter),
       shutting_down_(shutting_down),
       preserve_deletes_seqnum_(preserve_deletes_seqnum),
-      ignore_snapshots_(false),
       current_user_key_sequence_(0),
       current_user_key_snapshot_(0),
       merge_out_iter_(merge_helper_),
@@ -102,13 +101,6 @@ CompactionIterator::CompactionIterator(
     assert(snapshots_->at(i - 1) < snapshots_->at(i));
   }
 #endif
-  if (compaction_filter_ != nullptr) {
-    if (compaction_filter_->IgnoreSnapshots()) {
-      ignore_snapshots_ = true;
-    }
-  } else {
-    ignore_snapshots_ = false;
-  }
   input_->SetPinnedItersMgr(&pinned_iters_mgr_);
   TEST_SYNC_POINT_CALLBACK("CompactionIterator:AfterInit", compaction_.get());
 }
@@ -180,9 +172,7 @@ void CompactionIterator::Next() {
 void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
                                               Slice* skip_until) {
   if (compaction_filter_ != nullptr &&
-      (ikey_.type == kTypeValue || ikey_.type == kTypeBlobIndex) &&
-      (visible_at_tip_ || ignore_snapshots_ ||
-       DEFINITELY_NOT_IN_SNAPSHOT(ikey_.sequence, latest_snapshot_))) {
+      (ikey_.type == kTypeValue || ikey_.type == kTypeBlobIndex)) {
     // If the user has specified a compaction filter and the sequence
     // number is greater than any external snapshot, then invoke the
     // filter. If the return value of the compaction filter is true,
@@ -492,11 +482,14 @@ void CompactionIterator::NextFromInput() {
       // this value, and findEarliestVisibleSnapshot returns the next snapshot
       // as current_user_key_snapshot. In this case last value and current
       // value are both in current_user_key_snapshot currently.
+      // Although last_snapshot is released we might still get a definitive
+      // response when key sequence number changes, e.g., when seq is determined
+      // too old and visible in all snapshots.
       assert(last_snapshot == current_user_key_snapshot_ ||
              (snapshot_checker_ != nullptr &&
               snapshot_checker_->CheckInSnapshot(current_user_key_sequence_,
-                                                 last_snapshot) ==
-                  SnapshotCheckerResult::kSnapshotReleased));
+                                                 last_snapshot) !=
+                  SnapshotCheckerResult::kNotInSnapshot));
 
       ++iter_stats_.num_record_drop_hidden;  // (A)
       input_->Next();
@@ -634,8 +627,7 @@ void CompactionIterator::PrepareOutput() {
   // KeyNotExistsBeyondOutputLevel() return true?
   if ((compaction_ != nullptr && !compaction_->allow_ingest_behind()) &&
       ikeyNotNeededForIncrementalSnapshot() && bottommost_level_ && valid_ &&
-      IN_EARLIEST_SNAPSHOT(ikey_.sequence) && ikey_.type != kTypeMerge &&
-      !cmp_->Equal(compaction_->GetLargestUserKey(), ikey_.user_key)) {
+      IN_EARLIEST_SNAPSHOT(ikey_.sequence) && ikey_.type != kTypeMerge) {
     assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
     ikey_.sequence = 0;
     current_key_.UpdateInternalKey(0, ikey_.type);

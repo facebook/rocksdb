@@ -636,6 +636,9 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     }
 
     assert(r->status.ok());
+    TEST_SYNC_POINT_CALLBACK(
+        "BlockBasedTableBuilder::WriteRawBlock:TamperWithChecksum",
+        static_cast<char*>(trailer));
     r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (r->status.ok()) {
       r->status = InsertBlockInCache(block_contents, type, handle);
@@ -852,6 +855,18 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
                   &properties_block_handle);
   }
   if (ok()) {
+#ifndef NDEBUG
+    {
+      uint64_t props_block_offset = properties_block_handle.offset();
+      uint64_t props_block_size = properties_block_handle.size();
+      TEST_SYNC_POINT_CALLBACK(
+          "BlockBasedTableBuilder::WritePropertiesBlock:GetPropsBlockOffset",
+          &props_block_offset);
+      TEST_SYNC_POINT_CALLBACK(
+          "BlockBasedTableBuilder::WritePropertiesBlock:GetPropsBlockSize",
+          &props_block_size);
+    }
+#endif  // !NDEBUG
     meta_index_builder->Add(kPropertiesBlock, properties_block_handle);
   }
 }

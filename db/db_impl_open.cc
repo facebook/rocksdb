@@ -237,7 +237,7 @@ Status DBImpl::NewDB() {
     file->SetPreallocationBlockSize(
         immutable_db_options_.manifest_preallocation_size);
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-        std::move(file), manifest, env_options, nullptr /* stats */,
+        std::move(file), manifest, env_options, env_, nullptr /* stats */,
         immutable_db_options_.listeners));
     log::Writer log(std::move(file_writer), 0, false);
     std::string record;
@@ -1176,7 +1176,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         const auto& listeners = impl->immutable_db_options_.listeners;
         std::unique_ptr<WritableFileWriter> file_writer(
             new WritableFileWriter(std::move(lfile), log_fname, opt_env_options,
-                                   nullptr /* stats */, listeners));
+                                   impl->env_, nullptr /* stats */, listeners));
         impl->logs_.emplace_back(
             new_log_number,
             new log::Writer(

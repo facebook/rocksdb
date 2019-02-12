@@ -923,11 +923,13 @@ class DBImpl : public DB {
   // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful. Then
   // installs a new super version for the column family.
-  Status FlushMemTableToOutputFile(ColumnFamilyData* cfd,
-                                   const MutableCFOptions& mutable_cf_options,
-                                   bool* madeProgress, JobContext* job_context,
-                                   SuperVersionContext* superversion_context,
-                                   LogBuffer* log_buffer);
+  Status FlushMemTableToOutputFile(
+      ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
+      bool* madeProgress, JobContext* job_context,
+      SuperVersionContext* superversion_context,
+      std::vector<SequenceNumber>& snapshot_seqs,
+      SequenceNumber earliest_write_conflict_snapshot,
+      SnapshotChecker* snapshot_checker, LogBuffer* log_buffer);
 
   // Argument required by background flush thread.
   struct BGFlushArg {

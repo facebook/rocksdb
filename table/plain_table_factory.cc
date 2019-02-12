@@ -133,15 +133,8 @@ Status GetMemTableRepFactoryFromString(
       mem_factory = new VectorRepFactory();
     }
   } else if (opts_list[0] == "cuckoo") {
-    // Expecting format
-    // cuckoo:<write_buffer_size>
-    if (2 == len) {
-      size_t write_buffer_size = ParseSizeT(opts_list[1]);
-      mem_factory = NewHashCuckooRepFactory(write_buffer_size);
-    } else if (1 == len) {
-      return Status::InvalidArgument("Can't parse memtable_factory option ",
-                                     opts_str);
-    }
+    return Status::NotSupported(
+        "cuckoo hash memtable is not supported anymore.");
   } else {
     return Status::InvalidArgument("Unrecognized memtable_factory option ",
                                    opts_str);
