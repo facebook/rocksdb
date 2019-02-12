@@ -658,6 +658,8 @@ public class Transaction extends RocksObject {
    * @param columnFamilyHandle The column family to put the key/value into
    * @param key the specified key to be inserted.
    * @param value the value associated with the specified key.
+   * @param assume_tracked whether to expect the key be already tracked.
+   * @param skip_lock whether to skip calling TryLock in the code path.
    *
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
@@ -672,7 +674,7 @@ public class Transaction extends RocksObject {
   /*
    * Same as
    * {@link #put(ColumnFamilyHandle, byte[], byte[], boolean)}
-   * with assume_tracked=false.
+   * with assume_tracked=false and skip_lock=false.
    */
   public void put(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
       final byte[] value) throws RocksDBException {
@@ -718,6 +720,8 @@ public class Transaction extends RocksObject {
    * @param columnFamilyHandle The column family to put the key/value into
    * @param keyParts the specified key to be inserted.
    * @param valueParts the value associated with the specified key.
+   * @param assume_tracked whether to expect the key be already tracked.
+   * @param skip_lock whether to skip calling TryLock in the code path.
    *
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
@@ -733,7 +737,7 @@ public class Transaction extends RocksObject {
   /*
    * Same as
    * {@link #put(ColumnFamilyHandle, byte[][], byte[][], boolean)}
-   * with assume_tracked=false.
+   * with assume_tracked=false and skip_lock=false.
    */
   public void put(final ColumnFamilyHandle columnFamilyHandle,
       final byte[][] keyParts, final byte[][] valueParts)
@@ -782,6 +786,7 @@ public class Transaction extends RocksObject {
    * @param columnFamilyHandle The column family to merge the key/value into
    * @param key the specified key to be merged.
    * @param value the value associated with the specified key.
+   * @param assume_tracked whether to expect the key be already tracked.
    *
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
@@ -851,6 +856,8 @@ public class Transaction extends RocksObject {
    *
    * @param columnFamilyHandle The column family to delete the key/value from
    * @param key the specified key to be deleted.
+   * @param assume_tracked whether to expect the key be already tracked.
+   * @param skip_lock whether to skip calling TryLock in the code path.
    *
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
@@ -865,7 +872,7 @@ public class Transaction extends RocksObject {
   /*
    * Same as
    * {@link #delete(ColumnFamilyHandle, byte[], boolean)}
-   * with assume_tracked=false.
+   * with assume_tracked=false and skip_lock=false.
    */
   public void delete(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key) throws RocksDBException {
@@ -908,6 +915,8 @@ public class Transaction extends RocksObject {
    *
    * @param columnFamilyHandle The column family to delete the key/value from
    * @param keyParts the specified key to be deleted.
+   * @param assume_tracked whether to expect the key be already tracked.
+   * @param skip_lock whether to skip calling TryLock in the code path.
    *
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
@@ -923,7 +932,7 @@ public class Transaction extends RocksObject {
   /*
    * Same as
    * {@link #delete(ColumnFamilyHandle, byte[][], boolean)}
-   * with assume_tracked=false.
+   * with assume_tracked=false and skip_lock=false.
    */
   public void delete(final ColumnFamilyHandle columnFamilyHandle,
       final byte[][] keyParts) throws RocksDBException {
@@ -966,6 +975,8 @@ public class Transaction extends RocksObject {
    *
    * @param columnFamilyHandle The column family to delete the key/value from
    * @param key the specified key to be deleted.
+   * @param assume_tracked whether to expect the key be already tracked.
+   * @param skip_lock whether to skip calling TryLock in the code path.
    *
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
@@ -981,7 +992,7 @@ public class Transaction extends RocksObject {
   /*
    * Same as
    * {@link #singleDelete(ColumnFamilyHandle, byte[], boolean)}
-   * with assume_tracked=false.
+   * with assume_tracked=false and skip_lock=false.
    */
   @Experimental("Performance optimization for a very specific workload")
   public void singleDelete(final ColumnFamilyHandle columnFamilyHandle, final byte[] key)
@@ -1026,6 +1037,8 @@ public class Transaction extends RocksObject {
    *
    * @param columnFamilyHandle The column family to delete the key/value from
    * @param keyParts the specified key to be deleted.
+   * @param assume_tracked whether to expect the key be already tracked.
+   * @param skip_lock whether to skip calling TryLock in the code path.
    *
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
@@ -1042,7 +1055,7 @@ public class Transaction extends RocksObject {
   /*
    * Same as
    * {@link #singleDelete(ColumnFamilyHandle, byte[][], boolean)}
-   * with assume_tracked=false.
+   * with assume_tracked=false and skip_lock=false.
    */
   @Experimental("Performance optimization for a very specific workload")
   public void singleDelete(final ColumnFamilyHandle columnFamilyHandle, final byte[][] keyParts)
