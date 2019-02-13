@@ -126,6 +126,7 @@ Status TestWritableFile::Append(const Slice& data) {
   Status s = target_->Append(data);
   if (s.ok()) {
     state_.pos_ += data.size();
+    env_->WritableFileAppended(state_);
   }
   return s;
 }
@@ -153,6 +154,7 @@ Status TestWritableFile::Sync() {
   }
   // No need to actual sync.
   state_.pos_at_last_sync_ = state_.pos_;
+  env_->WritableFileSynced(state_);
   return Status::OK();
 }
 
@@ -274,6 +276,28 @@ void FaultInjectionTestEnv::WritableFileClosed(const FileState& state) {
   if (open_files_.find(state.filename_) != open_files_.end()) {
     db_file_state_[state.filename_] = state;
     open_files_.erase(state.filename_);
+  }
+}
+
+void FaultInjectionTestEnv::WritableFileSynced(const FileState& state) {
+  MutexLock l(&mutex_);
+  if (open_files_.find(state.filename_) != open_files_.end()) {
+    if (db_file_state_.find(state.filename_) == db_file_state_.end()) {
+      db_file_state_.insert(std::make_pair(state.filename_, state));
+    } else {
+      db_file_state_[state.filename_] = state;
+    }
+  }
+}
+
+void FaultInjectionTestEnv::WritableFileAppended(const FileState& state) {
+  MutexLock l(&mutex_);
+  if (open_files_.find(state.filename_) != open_files_.end()) {
+    if (db_file_state_.find(state.filename_) == db_file_state_.end()) {
+      db_file_state_.insert(std::make_pair(state.filename_, state));
+    } else {
+      db_file_state_[state.filename_] = state;
+    }
   }
 }
 

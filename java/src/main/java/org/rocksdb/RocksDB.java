@@ -1389,7 +1389,10 @@ public class RocksDB extends RocksObject {
    *
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
+   *
+   * @deprecated Consider {@link #multiGetAsList(List)} instead.
    */
+  @Deprecated
   public Map<byte[], byte[]> multiGet(final List<byte[]> keys)
       throws RocksDBException {
     assert(keys.size() != 0);
@@ -1440,7 +1443,10 @@ public class RocksDB extends RocksObject {
    *    native library.
    * @throws IllegalArgumentException thrown if the size of passed keys is not
    *    equal to the amount of passed column family handles.
+   *
+   * @deprecated Consider {@link #multiGetAsList(List, List)} instead.
    */
+  @Deprecated
   public Map<byte[], byte[]> multiGet(
       final List<ColumnFamilyHandle> columnFamilyHandleList,
       final List<byte[]> keys) throws RocksDBException,
@@ -1449,8 +1455,8 @@ public class RocksDB extends RocksObject {
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
     if (keys.size() != columnFamilyHandleList.size()) {
-        throw new IllegalArgumentException(
-            "For each key there must be a ColumnFamilyHandle.");
+      throw new IllegalArgumentException(
+          "For each key there must be a ColumnFamilyHandle.");
     }
     final long[] cfHandles = new long[columnFamilyHandleList.size()];
     for (int i = 0; i < columnFamilyHandleList.size(); i++) {
@@ -1488,7 +1494,10 @@ public class RocksDB extends RocksObject {
    *
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
+   *
+   * @deprecated Consider {@link #multiGetAsList(ReadOptions, List)} instead.
    */
+  @Deprecated
   public Map<byte[], byte[]> multiGet(final ReadOptions opt,
       final List<byte[]> keys) throws RocksDBException {
     assert(keys.size() != 0);
@@ -1534,7 +1543,11 @@ public class RocksDB extends RocksObject {
    *    native library.
    * @throws IllegalArgumentException thrown if the size of passed keys is not
    *    equal to the amount of passed column family handles.
+   *
+   * @deprecated Consider {@link #multiGetAsList(ReadOptions, List, List)}
+   *     instead.
    */
+  @Deprecated
   public Map<byte[], byte[]> multiGet(final ReadOptions opt,
       final List<ColumnFamilyHandle> columnFamilyHandleList,
       final List<byte[]> keys) throws RocksDBException {
@@ -1570,6 +1583,151 @@ public class RocksDB extends RocksObject {
     }
 
     return keyValueMap;
+  }
+
+  /**
+   * Takes a list of keys, and returns a list of values for the given list of
+   * keys. List will contain null for keys which could not be found.
+   *
+   * @param keys List of keys for which values need to be retrieved.
+   * @return List of values for the given list of keys. List will contain
+   * null for keys which could not be found.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public List<byte[]> multiGetAsList(final List<byte[]> keys)
+      throws RocksDBException {
+    assert(keys.size() != 0);
+
+    final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
+    final int keyOffsets[] = new int[keysArray.length];
+    final int keyLengths[] = new int[keysArray.length];
+    for(int i = 0; i < keyLengths.length; i++) {
+      keyLengths[i] = keysArray[i].length;
+    }
+
+    return Arrays.asList(multiGet(nativeHandle_, keysArray, keyOffsets,
+        keyLengths));
+  }
+
+  /**
+   * Returns a list of values for the given list of keys. List will contain
+   * null for keys which could not be found.
+   * <p>
+   * Note: Every key needs to have a related column family name in
+   * {@code columnFamilyHandleList}.
+   * </p>
+   *
+   * @param columnFamilyHandleList {@link java.util.List} containing
+   *     {@link org.rocksdb.ColumnFamilyHandle} instances.
+   * @param keys List of keys for which values need to be retrieved.
+   * @return List of values for the given list of keys. List will contain
+   * null for keys which could not be found.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   * @throws IllegalArgumentException thrown if the size of passed keys is not
+   *    equal to the amount of passed column family handles.
+   */
+  public List<byte[]> multiGetAsList(
+      final List<ColumnFamilyHandle> columnFamilyHandleList,
+      final List<byte[]> keys) throws RocksDBException,
+      IllegalArgumentException {
+    assert(keys.size() != 0);
+    // Check if key size equals cfList size. If not a exception must be
+    // thrown. If not a Segmentation fault happens.
+    if (keys.size() != columnFamilyHandleList.size()) {
+        throw new IllegalArgumentException(
+            "For each key there must be a ColumnFamilyHandle.");
+    }
+    final long[] cfHandles = new long[columnFamilyHandleList.size()];
+    for (int i = 0; i < columnFamilyHandleList.size(); i++) {
+      cfHandles[i] = columnFamilyHandleList.get(i).nativeHandle_;
+    }
+
+    final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
+    final int keyOffsets[] = new int[keysArray.length];
+    final int keyLengths[] = new int[keysArray.length];
+    for(int i = 0; i < keyLengths.length; i++) {
+      keyLengths[i] = keysArray[i].length;
+    }
+
+    return Arrays.asList(multiGet(nativeHandle_, keysArray, keyOffsets,
+        keyLengths, cfHandles));
+  }
+
+  /**
+   * Returns a list of values for the given list of keys. List will contain
+   * null for keys which could not be found.
+   *
+   * @param opt Read options.
+   * @param keys of keys for which values need to be retrieved.
+   * @return List of values for the given list of keys. List will contain
+   * null for keys which could not be found.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public List<byte[]> multiGetAsList(final ReadOptions opt,
+      final List<byte[]> keys) throws RocksDBException {
+    assert(keys.size() != 0);
+
+    final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
+    final int keyOffsets[] = new int[keysArray.length];
+    final int keyLengths[] = new int[keysArray.length];
+    for(int i = 0; i < keyLengths.length; i++) {
+      keyLengths[i] = keysArray[i].length;
+    }
+
+    return Arrays.asList(multiGet(nativeHandle_, opt.nativeHandle_,
+        keysArray, keyOffsets, keyLengths));
+  }
+
+  /**
+   * Returns a list of values for the given list of keys. List will contain
+   * null for keys which could not be found.
+   * <p>
+   * Note: Every key needs to have a related column family name in
+   * {@code columnFamilyHandleList}.
+   * </p>
+   *
+   * @param opt Read options.
+   * @param columnFamilyHandleList {@link java.util.List} containing
+   *     {@link org.rocksdb.ColumnFamilyHandle} instances.
+   * @param keys of keys for which values need to be retrieved.
+   * @return List of values for the given list of keys. List will contain
+   * null for keys which could not be found.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   * @throws IllegalArgumentException thrown if the size of passed keys is not
+   *    equal to the amount of passed column family handles.
+   */
+  public List<byte[]> multiGetAsList(final ReadOptions opt,
+      final List<ColumnFamilyHandle> columnFamilyHandleList,
+      final List<byte[]> keys) throws RocksDBException {
+    assert(keys.size() != 0);
+    // Check if key size equals cfList size. If not a exception must be
+    // thrown. If not a Segmentation fault happens.
+    if (keys.size()!=columnFamilyHandleList.size()){
+      throw new IllegalArgumentException(
+          "For each key there must be a ColumnFamilyHandle.");
+    }
+    final long[] cfHandles = new long[columnFamilyHandleList.size()];
+    for (int i = 0; i < columnFamilyHandleList.size(); i++) {
+      cfHandles[i] = columnFamilyHandleList.get(i).nativeHandle_;
+    }
+
+    final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
+    final int keyOffsets[] = new int[keysArray.length];
+    final int keyLengths[] = new int[keysArray.length];
+    for(int i = 0; i < keyLengths.length; i++) {
+      keyLengths[i] = keysArray[i].length;
+    }
+
+    return Arrays.asList(multiGet(nativeHandle_, opt.nativeHandle_,
+        keysArray, keyOffsets, keyLengths, cfHandles));
   }
 
   /**

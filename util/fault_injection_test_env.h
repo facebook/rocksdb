@@ -135,6 +135,10 @@ class FaultInjectionTestEnv : public EnvWrapper {
 
   void WritableFileClosed(const FileState& state);
 
+  void WritableFileSynced(const FileState& state);
+
+  void WritableFileAppended(const FileState& state);
+
   // For every file that is not fully synced, make a call to `func` with
   // FileState of the file as the parameter.
   Status DropFileData(std::function<Status(Env*, FileState)> func);
