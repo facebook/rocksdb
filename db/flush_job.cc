@@ -326,7 +326,7 @@ Status FlushJob::WriteLevel0Table() {
       }
       total_num_entries += m->num_entries();
       total_num_deletes += m->num_deletes();
-      total_data_size += m->data_size();
+      total_data_size += m->get_data_size();
       total_memory_usage += m->ApproximateMemoryUsage();
     }
 

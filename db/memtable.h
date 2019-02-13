@@ -265,7 +265,7 @@ class MemTable {
     return num_deletes_.load(std::memory_order_relaxed);
   }
 
-  uint64_t data_size() const {
+  uint64_t get_data_size() const {
     return data_size_.load(std::memory_order_relaxed);
   }
 
