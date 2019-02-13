@@ -249,12 +249,11 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
     return Status::OK();
   }
 
-  virtual void SampledBlockStats(
-      uint64_t /* sampledBlockRawBytes */,
-      uint64_t /* sampledBlockCompressedBytesFast */,
-      uint64_t /* sampledBlockCompressedBytesSlow */) override {
-    // Intentionally left blank. Have no interest in collecting stats for
-    // sampled blocks.
+  virtual void BlockAdd(uint64_t /* blockRawBytes */,
+                        uint64_t /* blockCompressedBytesFast */,
+                        uint64_t /* blockCompressedBytesSlow */) override {
+    // Intentionally left blank. No interest in collecting stats for
+    // blocks.
     return;
   }
 
@@ -638,10 +637,9 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
                                    &sampled_output_slow);
 
     // notify collectors on block add
-    NotifyCollectTableCollectorsOnSampledBlock(r->table_properties_collectors,
-        raw_block_contents.size(),
-        sampled_output_fast.size(),
-        sampled_output_slow.size());
+    NotifyCollectTableCollectorsOnBlockAdd(
+        r->table_properties_collectors, raw_block_contents.size(),
+        sampled_output_fast.size(), sampled_output_slow.size());
 
     // Some of the compression algorithms are known to be unreliable. If
     // the verify_compression flag is set then try to de-compress the

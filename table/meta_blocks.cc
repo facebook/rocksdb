@@ -151,15 +151,13 @@ bool NotifyCollectTableCollectorsOnAdd(
   return all_succeeded;
 }
 
-void NotifyCollectTableCollectorsOnSampledBlock(
+void NotifyCollectTableCollectorsOnBlockAdd(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
-    const uint64_t sampledBlockRawBytes,
-    const uint64_t sampledBlockCompressedBytesFast,
-    const uint64_t sampledBlockCompressedBytesSlow) {
+    const uint64_t blockRawBytes, const uint64_t blockCompressedBytesFast,
+    const uint64_t blockCompressedBytesSlow) {
   for (auto& collector : collectors) {
-    collector->SampledBlockStats(sampledBlockRawBytes,
-                                 sampledBlockCompressedBytesFast,
-                                 sampledBlockCompressedBytesSlow);
+    collector->BlockAdd(blockRawBytes, blockCompressedBytesFast,
+                        blockCompressedBytesSlow);
   }
 }
 
