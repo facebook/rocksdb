@@ -3060,6 +3060,9 @@ Status VersionSet::ProcessManifestWrites(
 
     // Write new records to MANIFEST log
     if (s.ok()) {
+#ifndef NDEBUG
+      size_t idx = 0;
+#endif
       for (auto& e : batch_edits) {
         std::string record;
         if (!e->EncodeTo(&record)) {
@@ -3069,6 +3072,15 @@ Status VersionSet::ProcessManifestWrites(
         }
         TEST_KILL_RANDOM("VersionSet::LogAndApply:BeforeAddRecord",
                          rocksdb_kill_odds * REDUCE_ODDS2);
+#ifndef NDEBUG
+        if (batch_edits.size() > 1 && batch_edits.size() - 1 == idx) {
+          TEST_SYNC_POINT(
+              "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0");
+          TEST_SYNC_POINT(
+              "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:1");
+        }
+        ++idx;
+#endif /* !NDEBUG */
         s = descriptor_log_->AddRecord(record);
         if (!s.ok()) {
           break;
