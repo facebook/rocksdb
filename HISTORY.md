@@ -11,6 +11,7 @@
 * Add support for trace sampling.
 * Enable properties block checksum verification for block-based tables.
 * For all users of dictionary compression, we now generate a separate dictionary for compressing each bottom-level SST file. Previously we reused a single dictionary for a whole compaction to bottom level. The new approach achieves better compression ratios; however, it uses more memory and CPU for buffering/sampling data blocks and training dictionaries.
+* Files written by `SstFileWriter` will now use dictionary compression if it is configured in the file writer's `CompressionOptions`.
 
 ### Public API Change
 * Disallow CompactionFilter::IgnoreSnapshots() = false, because it is not very useful and the behavior is confusing. The filter will filter everything if there is no snapshot declared by the time the compaction starts. However, users can define a snapshot after the compaction starts and before it finishes and this new snapshot won't be repeatable, because after the compaction finishes, some keys may be dropped. 
