@@ -49,8 +49,7 @@ TableBuilder* NewTableBuilder(
     WritableFileWriter* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts, int level,
     const bool skip_filters, const uint64_t creation_time,
-    const uint64_t oldest_key_time, const bool is_bottommost_level,
-    const uint64_t target_file_size) {
+    const uint64_t oldest_key_time, const uint64_t target_file_size) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -59,7 +58,7 @@ TableBuilder* NewTableBuilder(
                           int_tbl_prop_collector_factories, compression_type,
                           compression_opts, skip_filters, column_family_name,
                           level, creation_time, oldest_key_time,
-                          is_bottommost_level, target_file_size),
+                          target_file_size),
       column_family_id, file);
 }
 
@@ -106,6 +105,11 @@ Status BuildTable(
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     TableBuilder* builder;
     std::unique_ptr<WritableFileWriter> file_writer;
+    // Currently we only enable dictionary compression during compaction to the
+    // bottommost level.
+    CompressionOptions compression_opts_for_flush(compression_opts);
+    compression_opts_for_flush.max_dict_bytes = 0;
+    compression_opts_for_flush.zstd_max_train_bytes = 0;
     {
       std::unique_ptr<WritableFile> file;
 #ifndef NDEBUG
@@ -128,8 +132,9 @@ Status BuildTable(
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,
-          column_family_name, file_writer.get(), compression, compression_opts,
-          level, false /* skip_filters */, creation_time, oldest_key_time);
+          column_family_name, file_writer.get(), compression,
+          compression_opts_for_flush, level, false /* skip_filters */,
+          creation_time, oldest_key_time);
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),
