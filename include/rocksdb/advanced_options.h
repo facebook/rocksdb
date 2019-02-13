@@ -533,7 +533,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   // Dynamic change example:
-  // SetOptions("compaction_options_fifo", "{max_table_files_size=100;ttl=2;}")
+  // SetOptions("compaction_options_fifo", "{max_table_files_size=100;}")
   CompactionOptionsFIFO compaction_options_fifo;
 
   // An iteration->Next() sequentially skips over keys with the same
@@ -622,11 +622,12 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   bool report_bg_io_stats = false;
 
-  // Non-bottom-level files older than TTL will go through the compaction
-  // process. This needs max_open_files to be set to -1.
-  // Enabled only for level compaction for now.
-  // Also used for CompactionOptionsFIFO. Delete if:
-  // sst_file_creation_time < (current_time - ttl)
+  // Files older than TTL will go through the compaction process.
+  // Supported in Level and FIFO compaction.
+  // Pre-req: This needs max_open_files to be set to -1.
+  // In Level: Non-bottom-level files older than TTL will go through the
+  //           compation process.
+  // In FIFO: Files older than TTL will be deleted.
   // unit: seconds. Ex: 1 day = 1 * 24 * 60 * 60
   //
   // Default: 0 (disabled)
