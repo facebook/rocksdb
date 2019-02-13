@@ -25,6 +25,7 @@
 * Remove CuckooHash memtable.
 * The counter stat `number.block.not_compressed` now also counts blocks not compressed due to poor compression ratio.
 * Support SST file ingestion across multiple column families via DB::IngestExternalFiles. See the function's comment about atomicity.
+* Remove Lua compaction filter.
 
 ### Bug Fixes
 * Fix a deadlock caused by compaction and file ingestion waiting for each other in the event of write stalls.
