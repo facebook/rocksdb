@@ -3337,12 +3337,15 @@ Status DBImpl::IngestExternalFiles(
         edit_lists.push_back(edit_list);
         ++num_entries;
       }
-      // Mark the version edits as an atomic group
-      for (auto& edits : edit_lists) {
-        assert(edits.size() == 1);
-        edits[0]->MarkAtomicGroup(--num_entries);
+      // Mark the version edits as an atomic group if the number of version
+      // edits exceeds 1.
+      if (cfds_to_commit.size() > 1) {
+        for (auto& edits : edit_lists) {
+          assert(edits.size() == 1);
+          edits[0]->MarkAtomicGroup(--num_entries);
+        }
+        assert(0 == num_entries);
       }
-      assert(0 == num_entries);
       status =
           versions_->LogAndApply(cfds_to_commit, mutable_cf_options_list,
                                  edit_lists, &mutex_, directories_.GetDbDir());
