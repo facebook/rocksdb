@@ -51,6 +51,8 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
               mutable_cf_options.memtable_prefix_bloom_size_ratio) *
           8u),
       memtable_huge_page_size(mutable_cf_options.memtable_huge_page_size),
+      memtable_whole_key_filtering(
+          mutable_cf_options.memtable_whole_key_filtering),
       inplace_update_support(ioptions.inplace_update_support),
       inplace_update_num_locks(mutable_cf_options.inplace_update_num_locks),
       inplace_callback(ioptions.inplace_callback),
@@ -278,7 +280,9 @@ class MemTableIterator : public InternalIterator {
         valid_(false),
         arena_mode_(arena != nullptr),
         value_pinned_(
-            !mem.GetImmutableMemTableOptions()->inplace_update_support) {
+            !mem.GetImmutableMemTableOptions()->inplace_update_support),
+        memtable_whole_key_filtering_(
+            mem.moptions_.memtable_whole_key_filtering) {
     if (use_range_del_table) {
       iter_ = mem.range_del_table_->GetIterator(arena);
     } else if (prefix_extractor_ != nullptr && !read_options.total_order_seek) {
@@ -315,8 +319,12 @@ class MemTableIterator : public InternalIterator {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_ != nullptr) {
-      if (!bloom_->MayContain(
-              prefix_extractor_->Transform(ExtractUserKey(k)))) {
+      bool may_contain =
+          bloom_->MayContain(prefix_extractor_->Transform(ExtractUserKey(k)));
+      if (memtable_whole_key_filtering_) {
+        may_contain &= bloom_->MayContain(ExtractUserKey(k));
+      }
+      if (!may_contain) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
         valid_ = false;
         return;
@@ -331,8 +339,12 @@ class MemTableIterator : public InternalIterator {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_ != nullptr) {
-      if (!bloom_->MayContain(
-              prefix_extractor_->Transform(ExtractUserKey(k)))) {
+      bool may_contain =
+          bloom_->MayContain(prefix_extractor_->Transform(ExtractUserKey(k)));
+      if (memtable_whole_key_filtering_) {
+        may_contain &= bloom_->MayContain(ExtractUserKey(k));
+      }
+      if (!may_contain) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
         valid_ = false;
         return;
@@ -399,6 +411,7 @@ class MemTableIterator : public InternalIterator {
   bool valid_;
   bool arena_mode_;
   bool value_pinned_;
+  bool memtable_whole_key_filtering_;
 
   // No copying allowed
   MemTableIterator(const MemTableIterator&);
@@ -520,6 +533,9 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
       assert(prefix_extractor_);
       prefix_bloom_->Add(prefix_extractor_->Transform(key));
     }
+    if (moptions_.memtable_whole_key_filtering && prefix_bloom_) {
+      prefix_bloom_->Add(key);
+    }
 
     // The first sequence number inserted into the memtable
     assert(first_seqno_ == 0 || s >= first_seqno_);
@@ -550,6 +566,9 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
     if (prefix_bloom_) {
       assert(prefix_extractor_);
       prefix_bloom_->AddConcurrently(prefix_extractor_->Transform(key));
+    }
+    if (moptions_.memtable_whole_key_filtering && prefix_bloom_) {
+      prefix_bloom_->AddConcurrently(key);
     }
 
     // atomically update first_seqno_ and earliest_seqno_.
@@ -756,10 +775,13 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   Slice user_key = key.user_key();
   bool found_final_value = false;
   bool merge_in_progress = s->IsMergeInProgress();
-  bool const may_contain =
+  bool may_contain =
       nullptr == prefix_bloom_
           ? false
           : prefix_bloom_->MayContain(prefix_extractor_->Transform(user_key));
+  if (moptions_.memtable_whole_key_filtering) {
+    may_contain &= prefix_bloom_->MayContain(user_key);
+  }
   if (prefix_bloom_ && !may_contain) {
     // iter is null if prefix bloom says the key does not exist
     PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);

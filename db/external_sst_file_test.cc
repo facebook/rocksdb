@@ -2333,9 +2333,7 @@ TEST_F(ExternalSSTFileTest, IngestFileWrittenWithCompressionDictionary) {
   std::atomic<int> num_compression_dicts(0);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "BlockBasedTableBuilder::WriteCompressionDictBlock:RawDict",
-      [&](void* /* arg */) {
-        ++num_compression_dicts;
-      });
+      [&](void* /* arg */) { ++num_compression_dicts; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Random rnd(301);

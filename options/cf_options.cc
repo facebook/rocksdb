@@ -135,6 +135,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  arena_block_size);
   ROCKS_LOG_INFO(log, "              memtable_prefix_bloom_ratio: %f",
                  memtable_prefix_bloom_size_ratio);
+  ROCKS_LOG_INFO(log, "              memtable_whole_key_filtering: %d",
+                 memtable_whole_key_filtering);
   ROCKS_LOG_INFO(log,
                  "                  memtable_huge_page_size: %" ROCKSDB_PRIszt,
                  memtable_huge_page_size);
