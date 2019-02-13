@@ -10,6 +10,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
+#include "util/fault_injection_test_env.h"
 #include "util/filename.h"
 #include "util/testutil.h"
 
@@ -27,6 +28,55 @@ class ExternalSSTFileTest
   void DestroyAndRecreateExternalSSTFilesDir() {
     test::DestroyDir(env_, sst_files_dir_);
     env_->CreateDir(sst_files_dir_);
+  }
+
+  Status GenerateOneExternalFile(
+      const Options& options, ColumnFamilyHandle* cfh,
+      std::vector<std::pair<std::string, std::string>>& data, int file_id,
+      bool sort_data, std::string* external_file_path,
+      std::map<std::string, std::string>* true_data) {
+    // Generate a file id if not provided
+    if (-1 == file_id) {
+      file_id = (++last_file_id_);
+    }
+    // Sort data if asked to do so
+    if (sort_data) {
+      std::sort(data.begin(), data.end(),
+                [&](const std::pair<std::string, std::string>& e1,
+                    const std::pair<std::string, std::string>& e2) {
+                  return options.comparator->Compare(e1.first, e2.first) < 0;
+                });
+      auto uniq_iter = std::unique(
+          data.begin(), data.end(),
+          [&](const std::pair<std::string, std::string>& e1,
+              const std::pair<std::string, std::string>& e2) {
+            return options.comparator->Compare(e1.first, e2.first) == 0;
+          });
+      data.resize(uniq_iter - data.begin());
+    }
+    std::string file_path = sst_files_dir_ + ToString(file_id);
+    SstFileWriter sst_file_writer(EnvOptions(), options, cfh);
+    Status s = sst_file_writer.Open(file_path);
+    if (!s.ok()) {
+      return s;
+    }
+    for (const auto& entry : data) {
+      s = sst_file_writer.Put(entry.first, entry.second);
+      if (!s.ok()) {
+        sst_file_writer.Finish();
+        return s;
+      }
+    }
+    s = sst_file_writer.Finish();
+    if (s.ok() && external_file_path != nullptr) {
+      *external_file_path = file_path;
+    }
+    if (s.ok() && nullptr != true_data) {
+      for (const auto& entry : data) {
+        true_data->insert({entry.first, entry.second});
+      }
+    }
+    return s;
   }
 
   Status GenerateAndAddExternalFile(
@@ -151,6 +201,41 @@ class ExternalSSTFileTest
       }
     }
 
+    return s;
+  }
+
+  Status GenerateAndAddExternalFiles(
+      const Options& options,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const std::vector<IngestExternalFileOptions>& ifos,
+      std::vector<std::vector<std::pair<std::string, std::string>>>& data,
+      int file_id, bool sort_data,
+      std::vector<std::map<std::string, std::string>>& true_data) {
+    if (-1 == file_id) {
+      file_id = (++last_file_id_);
+    }
+    // Generate external SST files, one for each column family
+    size_t num_cfs = column_families.size();
+    assert(ifos.size() == num_cfs);
+    assert(data.size() == num_cfs);
+    Status s;
+    std::vector<IngestExternalFileArg> args(num_cfs);
+    for (size_t i = 0; i != num_cfs; ++i) {
+      std::string external_file_path;
+      s = GenerateOneExternalFile(
+          options, column_families[i], data[i], file_id, sort_data,
+          &external_file_path,
+          true_data.size() == num_cfs ? &true_data[i] : nullptr);
+      if (!s.ok()) {
+        return s;
+      }
+      ++file_id;
+
+      args[i].column_family = column_families[i];
+      args[i].external_files.push_back(external_file_path);
+      args[i].options = ifos[i];
+    }
+    s = db_->IngestExternalFiles(args);
     return s;
   }
 
@@ -2231,6 +2316,371 @@ TEST_F(ExternalSSTFileTest, SkipBloomFilter) {
     ASSERT_EQ(
         options.statistics->getTickerCount(Tickers::BLOCK_CACHE_FILTER_ADD), 0);
   }
+}
+
+TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_Success) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
+      new FaultInjectionTestEnv(env_));
+  Options options = CurrentOptions();
+  options.env = fault_injection_env.get();
+  CreateAndReopenWithCF({"pikachu"}, options);
+  std::vector<ColumnFamilyHandle*> column_families;
+  column_families.push_back(handles_[0]);
+  column_families.push_back(handles_[1]);
+  std::vector<IngestExternalFileOptions> ifos(column_families.size());
+  for (auto& ifo : ifos) {
+    ifo.allow_global_seqno = true;  // Always allow global_seqno
+    // May or may not write global_seqno
+    ifo.write_global_seqno = std::get<0>(GetParam());
+    // Whether to verify checksums before ingestion
+    ifo.verify_checksums_before_ingest = std::get<1>(GetParam());
+  }
+  std::vector<std::vector<std::pair<std::string, std::string>>> data;
+  data.push_back(
+      {std::make_pair("foo1", "fv1"), std::make_pair("foo2", "fv2")});
+  data.push_back(
+      {std::make_pair("bar1", "bv1"), std::make_pair("bar2", "bv2")});
+  // Resize the true_data vector upon construction to avoid re-alloc
+  std::vector<std::map<std::string, std::string>> true_data(
+      column_families.size());
+  Status s = GenerateAndAddExternalFiles(options, column_families, ifos, data,
+                                         -1, true, true_data);
+  ASSERT_OK(s);
+  Close();
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+  int cf = 0;
+  for (const auto& verify_map : true_data) {
+    for (const auto& elem : verify_map) {
+      const std::string& key = elem.first;
+      const std::string& value = elem.second;
+      ASSERT_EQ(value, Get(cf, key));
+    }
+    ++cf;
+  }
+  Close();
+  Destroy(options, true /* delete_cf_paths */);
+}
+
+TEST_P(ExternalSSTFileTest,
+       IngestFilesIntoMultipleColumnFamilies_NoMixedStateWithSnapshot) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
+      new FaultInjectionTestEnv(env_));
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::IngestExternalFiles:InstallSVForFirstCF:0",
+       "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_MixedState:"
+       "BeforeRead"},
+      {"ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_MixedState:"
+       "AfterRead",
+       "DBImpl::IngestExternalFiles:InstallSVForFirstCF:1"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options = CurrentOptions();
+  options.env = fault_injection_env.get();
+  CreateAndReopenWithCF({"pikachu"}, options);
+  const std::vector<std::map<std::string, std::string>> data_before_ingestion =
+      {{{"foo1", "fv1_0"}, {"foo2", "fv2_0"}, {"foo3", "fv3_0"}},
+       {{"bar1", "bv1_0"}, {"bar2", "bv2_0"}, {"bar3", "bv3_0"}}};
+  for (size_t i = 0; i != handles_.size(); ++i) {
+    int cf = static_cast<int>(i);
+    const auto& orig_data = data_before_ingestion[i];
+    for (const auto& kv : orig_data) {
+      ASSERT_OK(Put(cf, kv.first, kv.second));
+    }
+    ASSERT_OK(Flush(cf));
+  }
+
+  std::vector<ColumnFamilyHandle*> column_families;
+  column_families.push_back(handles_[0]);
+  column_families.push_back(handles_[1]);
+  std::vector<IngestExternalFileOptions> ifos(column_families.size());
+  for (auto& ifo : ifos) {
+    ifo.allow_global_seqno = true;  // Always allow global_seqno
+    // May or may not write global_seqno
+    ifo.write_global_seqno = std::get<0>(GetParam());
+    // Whether to verify checksums before ingestion
+    ifo.verify_checksums_before_ingest = std::get<1>(GetParam());
+  }
+  std::vector<std::vector<std::pair<std::string, std::string>>> data;
+  data.push_back(
+      {std::make_pair("foo1", "fv1"), std::make_pair("foo2", "fv2")});
+  data.push_back(
+      {std::make_pair("bar1", "bv1"), std::make_pair("bar2", "bv2")});
+  // Resize the true_data vector upon construction to avoid re-alloc
+  std::vector<std::map<std::string, std::string>> true_data(
+      column_families.size());
+  // Take snapshot before ingestion starts
+  ReadOptions read_opts;
+  read_opts.total_order_seek = true;
+  read_opts.snapshot = dbfull()->GetSnapshot();
+  std::vector<Iterator*> iters(handles_.size());
+
+  // Range scan checks first kv of each CF before ingestion starts.
+  for (size_t i = 0; i != handles_.size(); ++i) {
+    iters[i] = dbfull()->NewIterator(read_opts, handles_[i]);
+    iters[i]->SeekToFirst();
+    ASSERT_TRUE(iters[i]->Valid());
+    const std::string& key = iters[i]->key().ToString();
+    const std::string& value = iters[i]->value().ToString();
+    const std::map<std::string, std::string>& orig_data =
+        data_before_ingestion[i];
+    std::map<std::string, std::string>::const_iterator it = orig_data.find(key);
+    ASSERT_NE(orig_data.end(), it);
+    ASSERT_EQ(it->second, value);
+    iters[i]->Next();
+  }
+  port::Thread ingest_thread([&]() {
+    ASSERT_OK(GenerateAndAddExternalFiles(options, column_families, ifos, data,
+                                          -1, true, true_data));
+  });
+  TEST_SYNC_POINT(
+      "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_MixedState:"
+      "BeforeRead");
+  // Should see only data before ingestion
+  for (size_t i = 0; i != handles_.size(); ++i) {
+    const auto& orig_data = data_before_ingestion[i];
+    for (; iters[i]->Valid(); iters[i]->Next()) {
+      const std::string& key = iters[i]->key().ToString();
+      const std::string& value = iters[i]->value().ToString();
+      std::map<std::string, std::string>::const_iterator it =
+          orig_data.find(key);
+      ASSERT_NE(orig_data.end(), it);
+      ASSERT_EQ(it->second, value);
+    }
+  }
+  TEST_SYNC_POINT(
+      "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_MixedState:"
+      "AfterRead");
+  ingest_thread.join();
+  for (auto* iter : iters) {
+    delete iter;
+  }
+  iters.clear();
+  dbfull()->ReleaseSnapshot(read_opts.snapshot);
+
+  Close();
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
+  // Should see consistent state after ingestion for all column families even
+  // without snapshot.
+  ASSERT_EQ(2, handles_.size());
+  int cf = 0;
+  for (const auto& verify_map : true_data) {
+    for (const auto& elem : verify_map) {
+      const std::string& key = elem.first;
+      const std::string& value = elem.second;
+      ASSERT_EQ(value, Get(cf, key));
+    }
+    ++cf;
+  }
+  Close();
+  Destroy(options, true /* delete_cf_paths */);
+}
+
+TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_PrepareFail) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
+      new FaultInjectionTestEnv(env_));
+  Options options = CurrentOptions();
+  options.env = fault_injection_env.get();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::IngestExternalFiles:BeforeLastJobPrepare:0",
+       "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_PrepareFail:"
+       "0"},
+      {"ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies:PrepareFail:"
+       "1",
+       "DBImpl::IngestExternalFiles:BeforeLastJobPrepare:1"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  CreateAndReopenWithCF({"pikachu"}, options);
+  std::vector<ColumnFamilyHandle*> column_families;
+  column_families.push_back(handles_[0]);
+  column_families.push_back(handles_[1]);
+  std::vector<IngestExternalFileOptions> ifos(column_families.size());
+  for (auto& ifo : ifos) {
+    ifo.allow_global_seqno = true;  // Always allow global_seqno
+    // May or may not write global_seqno
+    ifo.write_global_seqno = std::get<0>(GetParam());
+    // Whether to verify block checksums before ingest
+    ifo.verify_checksums_before_ingest = std::get<1>(GetParam());
+  }
+  std::vector<std::vector<std::pair<std::string, std::string>>> data;
+  data.push_back(
+      {std::make_pair("foo1", "fv1"), std::make_pair("foo2", "fv2")});
+  data.push_back(
+      {std::make_pair("bar1", "bv1"), std::make_pair("bar2", "bv2")});
+  // Resize the true_data vector upon construction to avoid re-alloc
+  std::vector<std::map<std::string, std::string>> true_data(
+      column_families.size());
+  port::Thread ingest_thread([&]() {
+    Status s = GenerateAndAddExternalFiles(options, column_families, ifos, data,
+                                           -1, true, true_data);
+    ASSERT_NOK(s);
+  });
+  TEST_SYNC_POINT(
+      "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_PrepareFail:"
+      "0");
+  fault_injection_env->SetFilesystemActive(false);
+  TEST_SYNC_POINT(
+      "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies:PrepareFail:"
+      "1");
+  ingest_thread.join();
+
+  fault_injection_env->SetFilesystemActive(true);
+  Close();
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+  int cf = 0;
+  for (const auto& verify_map : true_data) {
+    for (const auto& elem : verify_map) {
+      const std::string& key = elem.first;
+      ASSERT_EQ("NOT_FOUND", Get(cf, key));
+    }
+    ++cf;
+  }
+  Close();
+  Destroy(options, true /* delete_cf_paths */);
+}
+
+TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_CommitFail) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
+      new FaultInjectionTestEnv(env_));
+  Options options = CurrentOptions();
+  options.env = fault_injection_env.get();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::IngestExternalFiles:BeforeJobsRun:0",
+       "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_CommitFail:"
+       "0"},
+      {"ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_CommitFail:"
+       "1",
+       "DBImpl::IngestExternalFiles:BeforeJobsRun:1"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  CreateAndReopenWithCF({"pikachu"}, options);
+  std::vector<ColumnFamilyHandle*> column_families;
+  column_families.push_back(handles_[0]);
+  column_families.push_back(handles_[1]);
+  std::vector<IngestExternalFileOptions> ifos(column_families.size());
+  for (auto& ifo : ifos) {
+    ifo.allow_global_seqno = true;  // Always allow global_seqno
+    // May or may not write global_seqno
+    ifo.write_global_seqno = std::get<0>(GetParam());
+    // Whether to verify block checksums before ingestion
+    ifo.verify_checksums_before_ingest = std::get<1>(GetParam());
+  }
+  std::vector<std::vector<std::pair<std::string, std::string>>> data;
+  data.push_back(
+      {std::make_pair("foo1", "fv1"), std::make_pair("foo2", "fv2")});
+  data.push_back(
+      {std::make_pair("bar1", "bv1"), std::make_pair("bar2", "bv2")});
+  // Resize the true_data vector upon construction to avoid re-alloc
+  std::vector<std::map<std::string, std::string>> true_data(
+      column_families.size());
+  port::Thread ingest_thread([&]() {
+    Status s = GenerateAndAddExternalFiles(options, column_families, ifos, data,
+                                           -1, true, true_data);
+    ASSERT_NOK(s);
+  });
+  TEST_SYNC_POINT(
+      "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_CommitFail:"
+      "0");
+  fault_injection_env->SetFilesystemActive(false);
+  TEST_SYNC_POINT(
+      "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_CommitFail:"
+      "1");
+  ingest_thread.join();
+
+  fault_injection_env->SetFilesystemActive(true);
+  Close();
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+  int cf = 0;
+  for (const auto& verify_map : true_data) {
+    for (const auto& elem : verify_map) {
+      const std::string& key = elem.first;
+      ASSERT_EQ("NOT_FOUND", Get(cf, key));
+    }
+    ++cf;
+  }
+  Close();
+  Destroy(options, true /* delete_cf_paths */);
+}
+
+TEST_P(ExternalSSTFileTest,
+       IngestFilesIntoMultipleColumnFamilies_PartialManifestWriteFail) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
+      new FaultInjectionTestEnv(env_));
+  Options options = CurrentOptions();
+  options.env = fault_injection_env.get();
+
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  SyncPoint::GetInstance()->ClearTrace();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0",
+       "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_"
+       "PartialManifestWriteFail:0"},
+      {"ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_"
+       "PartialManifestWriteFail:1",
+       "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:1"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<ColumnFamilyHandle*> column_families;
+  column_families.push_back(handles_[0]);
+  column_families.push_back(handles_[1]);
+  std::vector<IngestExternalFileOptions> ifos(column_families.size());
+  for (auto& ifo : ifos) {
+    ifo.allow_global_seqno = true;  // Always allow global_seqno
+    // May or may not write global_seqno
+    ifo.write_global_seqno = std::get<0>(GetParam());
+    // Whether to verify block checksums before ingestion
+    ifo.verify_checksums_before_ingest = std::get<1>(GetParam());
+  }
+  std::vector<std::vector<std::pair<std::string, std::string>>> data;
+  data.push_back(
+      {std::make_pair("foo1", "fv1"), std::make_pair("foo2", "fv2")});
+  data.push_back(
+      {std::make_pair("bar1", "bv1"), std::make_pair("bar2", "bv2")});
+  // Resize the true_data vector upon construction to avoid re-alloc
+  std::vector<std::map<std::string, std::string>> true_data(
+      column_families.size());
+  port::Thread ingest_thread([&]() {
+    Status s = GenerateAndAddExternalFiles(options, column_families, ifos, data,
+                                           -1, true, true_data);
+    ASSERT_NOK(s);
+  });
+  TEST_SYNC_POINT(
+      "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_"
+      "PartialManifestWriteFail:0");
+  fault_injection_env->SetFilesystemActive(false);
+  TEST_SYNC_POINT(
+      "ExternalSSTFileTest::IngestFilesIntoMultipleColumnFamilies_"
+      "PartialManifestWriteFail:1");
+  ingest_thread.join();
+
+  fault_injection_env->DropUnsyncedFileData();
+  fault_injection_env->SetFilesystemActive(true);
+  Close();
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+  int cf = 0;
+  for (const auto& verify_map : true_data) {
+    for (const auto& elem : verify_map) {
+      const std::string& key = elem.first;
+      ASSERT_EQ("NOT_FOUND", Get(cf, key));
+    }
+    ++cf;
+  }
+  Close();
+  Destroy(options, true /* delete_cf_paths */);
 }
 
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileTest, ExternalSSTFileTest,

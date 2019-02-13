@@ -167,7 +167,6 @@ Status ExternalSstFileIngestionJob::Run() {
   assert(status.ok() && need_flush == false);
 #endif
 
-  bool consumed_seqno = false;
   bool force_global_seqno = false;
 
   if (ingestion_options_.snapshot_consistency && !db_snapshots_->empty()) {
@@ -197,7 +196,7 @@ Status ExternalSstFileIngestionJob::Run() {
     TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Run",
                              &assigned_seqno);
     if (assigned_seqno == last_seqno + 1) {
-      consumed_seqno = true;
+      consumed_seqno_ = true;
     }
     if (!status.ok()) {
       return status;
@@ -207,13 +206,6 @@ Status ExternalSstFileIngestionJob::Run() {
                   f.largest_internal_key(), f.assigned_seqno, f.assigned_seqno,
                   false);
   }
-
-  if (consumed_seqno) {
-    versions_->SetLastAllocatedSequence(last_seqno + 1);
-    versions_->SetLastPublishedSequence(last_seqno + 1);
-    versions_->SetLastSequence(last_seqno + 1);
-  }
-
   return status;
 }
 
@@ -269,6 +261,7 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
                        f.internal_file_path.c_str(), s.ToString().c_str());
       }
     }
+    consumed_seqno_ = false;
   } else if (status.ok() && ingestion_options_.move_files) {
     // The files were moved and added successfully, remove original file links
     for (IngestedFileInfo& f : files_to_ingest_) {

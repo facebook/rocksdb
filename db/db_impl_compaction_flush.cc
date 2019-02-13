@@ -296,6 +296,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
                      &earliest_write_conflict_snapshot, &snapshot_checker);
 
   autovector<Directory*> distinct_output_dirs;
+  autovector<std::string> distinct_output_dir_paths;
   std::vector<FlushJob> jobs;
   std::vector<MutableCFOptions> all_mutable_cf_options;
   int num_cfs = static_cast<int>(cfds.size());
@@ -303,18 +304,20 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   for (int i = 0; i < num_cfs; ++i) {
     auto cfd = cfds[i];
     Directory* data_dir = GetDataDir(cfd, 0U);
+    const std::string& curr_path = cfd->ioptions()->cf_paths[0].path;
 
     // Add to distinct output directories if eligible. Use linear search. Since
     // the number of elements in the vector is not large, performance should be
     // tolerable.
     bool found = false;
-    for (const auto dir : distinct_output_dirs) {
-      if (dir == data_dir) {
+    for (const auto& path : distinct_output_dir_paths) {
+      if (path == curr_path) {
         found = true;
         break;
       }
     }
     if (!found) {
+      distinct_output_dir_paths.emplace_back(curr_path);
       distinct_output_dirs.emplace_back(data_dir);
     }
 
@@ -322,7 +325,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.back();
     const uint64_t* max_memtable_id = &(bg_flush_args[i].max_memtable_id_);
     jobs.emplace_back(
-        dbname_, cfds[i], immutable_db_options_, mutable_cf_options,
+        dbname_, cfd, immutable_db_options_, mutable_cf_options,
         max_memtable_id, env_options_for_compaction_, versions_.get(), &mutex_,
         &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
         snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),

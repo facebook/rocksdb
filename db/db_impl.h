@@ -346,6 +346,10 @@ class DBImpl : public DB {
       const std::vector<std::string>& external_files,
       const IngestExternalFileOptions& ingestion_options) override;
 
+  using DB::IngestExternalFiles;
+  virtual Status IngestExternalFiles(
+      const std::vector<IngestExternalFileArg>& args) override;
+
   virtual Status VerifyChecksum() override;
 
   using DB::StartTrace;
@@ -1588,7 +1592,14 @@ class DBImpl : public DB {
                               const CompactionJobStats& compaction_job_stats,
                               const int job_id, const Version* current,
                               CompactionJobInfo* compaction_job_info) const;
-#endif
+  // Reserve the next 'num' file numbers for to-be-ingested external SST files,
+  // and return the current file_number in 'next_file_number'.
+  // Write a version edit to the MANIFEST.
+  Status ReserveFileNumbersBeforeIngestion(
+      ColumnFamilyData* cfd, uint64_t num,
+      std::list<uint64_t>::iterator* pending_output_elem,
+      uint64_t* next_file_number);
+#endif  //! ROCKSDB_LITE
 
   bool ShouldPurge(uint64_t file_number) const;
   void MarkAsGrabbedForPurge(uint64_t file_number);

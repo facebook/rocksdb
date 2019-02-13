@@ -2462,6 +2462,12 @@ class ModelDB : public DB {
     return Status::NotSupported("Not implemented.");
   }
 
+  using DB::IngestExternalFiles;
+  virtual Status IngestExternalFiles(
+      const std::vector<IngestExternalFileArg>& /*args*/) override {
+    return Status::NotSupported("Not implemented");
+  }
+
   virtual Status VerifyChecksum() override {
     return Status::NotSupported("Not implemented.");
   }
