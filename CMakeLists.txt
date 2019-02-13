@@ -743,12 +743,13 @@ if (ARTIFACT_SUFFIX)
     PROPERTIES OUTPUT_NAME rocksdb${ARTIFACT_SUFFIX})
 endif ()
 target_link_libraries(rocksdb
-  "$<IF:$<BOOL:${WIN32}>,shlwapi;rpcrt4,${CMAKE_THREAD_LIBS_INIT}>")
+  "$<IF:$<BOOL:${WIN32}>,shlwapi;rpcrt4$<$<BOOL:${WITH_XPRESS}>:;cabinet.lib>,${CMAKE_THREAD_LIBS_INIT}>")
 if (BUILD_SHARED_LIBS)
   if (WIN32)
     target_compile_definitions (rocksdb
       PUBLIC
         ROCKSDB_DLL
+        $<$<AND:$<BOOL:${WIN32}>,$<BOOL:${WITH_XPRESS}>>:XPRESS>
       PRIVATE
         ROCKSDB_LIBRARY_EXPORTS
     )
