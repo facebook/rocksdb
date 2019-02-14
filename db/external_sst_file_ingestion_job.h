@@ -85,7 +85,8 @@ class ExternalSstFileIngestionJob {
         env_options_(env_options),
         db_snapshots_(db_snapshots),
         ingestion_options_(ingestion_options),
-        job_start_time_(env_->NowMicros()) {}
+        job_start_time_(env_->NowMicros()),
+        consumed_seqno_(false) {}
 
   // Prepare the job by copying external files into the DB.
   Status Prepare(const std::vector<std::string>& external_files_paths,
@@ -117,6 +118,9 @@ class ExternalSstFileIngestionJob {
   const autovector<IngestedFileInfo>& files_to_ingest() const {
     return files_to_ingest_;
   }
+
+  // Whether to increment VersionSet's seqno after this job runs
+  bool ShouldIncrementLastSequence() const { return consumed_seqno_; }
 
  private:
   // Open the external file and populate `file_to_ingest` with all the
@@ -159,6 +163,7 @@ class ExternalSstFileIngestionJob {
   const IngestExternalFileOptions& ingestion_options_;
   VersionEdit edit_;
   uint64_t job_start_time_;
+  bool consumed_seqno_;
 };
 
 }  // namespace rocksdb

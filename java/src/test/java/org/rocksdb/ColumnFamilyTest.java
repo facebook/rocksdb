@@ -420,6 +420,50 @@ public class ColumnFamilyTest {
   }
 
   @Test
+  public void multiGetAsList() throws RocksDBException {
+    final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(
+        new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+        new ColumnFamilyDescriptor("new_cf".getBytes()));
+    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
+    try (final DBOptions options = new DBOptions()
+        .setCreateIfMissing(true)
+        .setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(options,
+             dbFolder.getRoot().getAbsolutePath(),
+             cfDescriptors, columnFamilyHandleList)) {
+      try {
+        db.put(columnFamilyHandleList.get(0), "key".getBytes(),
+            "value".getBytes());
+        db.put(columnFamilyHandleList.get(1), "newcfkey".getBytes(),
+            "value".getBytes());
+
+        final List<byte[]> keys = Arrays.asList(new byte[][]{
+            "key".getBytes(), "newcfkey".getBytes()
+        });
+        List<byte[]> retValues = db.multiGetAsList(columnFamilyHandleList,
+            keys);
+        assertThat(retValues.size()).isEqualTo(2);
+        assertThat(new String(retValues.get(0)))
+            .isEqualTo("value");
+        assertThat(new String(retValues.get(1)))
+            .isEqualTo("value");
+        retValues = db.multiGetAsList(new ReadOptions(), columnFamilyHandleList,
+            keys);
+        assertThat(retValues.size()).isEqualTo(2);
+        assertThat(new String(retValues.get(0)))
+            .isEqualTo("value");
+        assertThat(new String(retValues.get(1)))
+            .isEqualTo("value");
+      } finally {
+        for (final ColumnFamilyHandle columnFamilyHandle :
+            columnFamilyHandleList) {
+          columnFamilyHandle.close();
+        }
+      }
+    }
+  }
+
+  @Test
   public void properties() throws RocksDBException {
     final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(
         new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),

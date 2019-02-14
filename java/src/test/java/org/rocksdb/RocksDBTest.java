@@ -271,6 +271,41 @@ public class RocksDBTest {
   }
 
   @Test
+  public void multiGetAsList() throws RocksDBException, InterruptedException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final ReadOptions rOpt = new ReadOptions()) {
+      db.put("key1".getBytes(), "value".getBytes());
+      db.put("key2".getBytes(), "12345678".getBytes());
+      List<byte[]> lookupKeys = new ArrayList<>();
+      lookupKeys.add("key1".getBytes());
+      lookupKeys.add("key2".getBytes());
+      List<byte[]> results = db.multiGetAsList(lookupKeys);
+      assertThat(results).isNotNull();
+      assertThat(results).hasSize(lookupKeys.size());
+      assertThat(results).
+          containsExactly("value".getBytes(), "12345678".getBytes());
+      // test same method with ReadOptions
+      results = db.multiGetAsList(rOpt, lookupKeys);
+      assertThat(results).isNotNull();
+      assertThat(results).
+          contains("value".getBytes(), "12345678".getBytes());
+
+      // remove existing key
+      lookupKeys.remove(1);
+      // add non existing key
+      lookupKeys.add("key3".getBytes());
+      results = db.multiGetAsList(lookupKeys);
+      assertThat(results).isNotNull();
+      assertThat(results).
+          containsExactly("value".getBytes(), null);
+      // test same call with readOptions
+      results = db.multiGetAsList(rOpt, lookupKeys);
+      assertThat(results).isNotNull();
+      assertThat(results).contains("value".getBytes());
+    }
+  }
+
+  @Test
   public void merge() throws RocksDBException {
     try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
          final Options opt = new Options()

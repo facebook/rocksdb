@@ -3,6 +3,7 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 rocksdb_target_header = """load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
+load("@fbcode_macros//build_defs:cpp_library.bzl", "cpp_library")
 load(":defs.bzl", "test_binary")
 
 REPO_PATH = package_name() + "/"
@@ -23,6 +24,7 @@ ROCKSDB_COMPILER_FLAGS = [
     "-DBZIP2",
     "-DLZ4",
     "-DZSTD",
+    "-DZSTD_STATIC_LINKING_ONLY",
     "-DGFLAGS=gflags",
     "-DNUMA",
     "-DTBB",

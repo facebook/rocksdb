@@ -110,6 +110,12 @@ struct RangePtr {
   RangePtr(const Slice* s, const Slice* l) : start(s), limit(l) { }
 };
 
+struct IngestExternalFileArg {
+  ColumnFamilyHandle* column_family = nullptr;
+  std::vector<std::string> external_files;
+  IngestExternalFileOptions options;
+};
+
 // A collections of table properties objects, where
 //  key: is the table's file name.
 //  value: the table properties object of the given table.
@@ -1050,6 +1056,22 @@ class DB {
       const IngestExternalFileOptions& options) {
     return IngestExternalFile(DefaultColumnFamily(), external_files, options);
   }
+
+  // IngestExternalFiles() will ingest files for multiple column families, and
+  // record the result atomically to the MANIFEST.
+  // If this function returns OK, all column families' ingestion must succeed.
+  // If this function returns NOK, or the process crashes, then non-of the
+  // files will be ingested into the database after recovery.
+  // Note that it is possible for application to observe a mixed state during
+  // the execution of this function. If the user performs range scan over the
+  // column families with iterators, iterator on one column family may return
+  // ingested data, while iterator on other column family returns old data.
+  // Users can use snapshot for a consistent view of data.
+  //
+  // REQUIRES: each arg corresponds to a different column family: namely, for
+  // 0 <= i < j < len(args), args[i].column_family != args[j].column_family.
+  virtual Status IngestExternalFiles(
+      const std::vector<IngestExternalFileArg>& args) = 0;
 
   virtual Status VerifyChecksum() = 0;
 
