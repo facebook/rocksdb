@@ -611,7 +611,7 @@ run_no_compression()
   rm -rf /dev/shm/rocksdb
   mkdir /dev/shm/rocksdb
   make clean
-  cat build_tools/fbcode_config.sh | grep -iv dzlib | grep -iv dlz4 | grep -iv dsnappy | grep -iv dbzip2 > .tmp.fbcode_config.sh
+  cat build_tools/fbcode_config.sh | grep -iv dzstd | grep -iv dzlib | grep -iv dlz4 | grep -iv dsnappy | grep -iv dbzip2 > .tmp.fbcode_config.sh
   mv .tmp.fbcode_config.sh build_tools/fbcode_config.sh
   cat Makefile | grep -v tools/ldb_test.py > .tmp.Makefile
   mv .tmp.Makefile Makefile
