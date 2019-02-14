@@ -1203,8 +1203,9 @@ class DB {
 
   // Given a time window, return an iterator for accessing stats history
   // User is responsible for deleting StatsHistoryIterator after use
-  virtual Status GetStatsHistory(uint64_t /*start_time*/, uint64_t /*end_time*/,
-                                 StatsHistoryIterator** /*stats_iterator*/) {
+  virtual Status GetStatsHistory(uint64_t /*start_time*/,
+      uint64_t /*end_time*/,
+      std::unique_ptr<StatsHistoryIterator>* /*stats_iterator*/) {
     return Status::NotSupported("GetStatsHistory() is not implemented.");
   }
 

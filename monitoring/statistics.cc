@@ -386,6 +386,7 @@ std::string StatisticsImpl::ToString() const {
 
 bool StatisticsImpl::getTickerMap(
     std::map<std::string, uint64_t>* stats_map) const {
+  if (!stats_map) return false;
   stats_map->clear();
   MutexLock lock(&aggregate_lock_);
   for (const auto& t : TickersNameMap) {

@@ -731,12 +731,7 @@ class DBImpl : public DB {
   // Given a time window, return an iterator for accessing stats history
   virtual Status GetStatsHistory(
       uint64_t start_time, uint64_t end_time,
-      StatsHistoryIterator** stats_iterator) override;
-
-  // return list of currently supported stats counters
-  // TODO: add mapping from counter to counter name string, e.g.
-  // "BLOCK_CACHE_MISS" std::vector<std::string> GetSupportedStatsCounters()
-  // override;
+      std::unique_ptr<StatsHistoryIterator>* stats_iterator) override;
 
   // find stats map from stats_history_ with smallest timestamp in
   // the range of [start_time, end_time)

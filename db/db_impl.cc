@@ -678,7 +678,6 @@ void DBImpl::PersistStats() {
   }
 
   // TODO(Zhongyi): also persist immutable_db_options_.statistics
-  TEST_SYNC_POINT("DBImpl::PersistStats:StatsCopied");
   {
     std::map<std::string, uint64_t> stats_map;
     if (!statistics->getTickerMap(&stats_map)) {
@@ -697,6 +696,7 @@ void DBImpl::PersistStats() {
     }
     stats_slice_initialized_ = true;
     stats_slice_ = stats_map;
+    TEST_SYNC_POINT("DBImpl::PersistStats:StatsCopied");
 
     // delete older stats snapshots to control memory consumption
     bool purge_needed = EstiamteStatsHistorySize() > stats_history_size_limit;
@@ -712,6 +712,7 @@ void DBImpl::PersistStats() {
 bool DBImpl::FindStatsByTime(uint64_t start_time, uint64_t end_time,
                              uint64_t* new_time,
                              std::map<std::string, uint64_t>* stats_map) {
+  if (!new_time || !stats_map) return false;
   // lock when search for start_time
   {
     InstrumentedMutexLock l(&stats_history_mutex_);
@@ -728,11 +729,13 @@ bool DBImpl::FindStatsByTime(uint64_t start_time, uint64_t end_time,
 }
 
 Status DBImpl::GetStatsHistory(uint64_t start_time, uint64_t end_time,
-                               StatsHistoryIterator** stats_iterator) {
-  StatsHistoryIterator* new_iterator =
-      new InMemoryStatsHistoryIterator(start_time, end_time, this);
-  *stats_iterator = new_iterator;
-  return new_iterator->status();
+    std::unique_ptr<StatsHistoryIterator>* stats_iterator) {
+  if (!stats_iterator) {
+    return Status::InvalidArgument();
+  }
+  stats_iterator->reset(
+      new InMemoryStatsHistoryIterator(start_time, end_time, this));
+  return (*stats_iterator)->status();
 }
 
 void DBImpl::DumpStats() {

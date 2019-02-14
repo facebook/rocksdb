@@ -623,7 +623,7 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
   int mock_time = 1;
   // Wait for stats persist to finish
   dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
-  StatsHistoryIterator* stats_iter = nullptr;
+  std::unique_ptr<StatsHistoryIterator> stats_iter;
   db_->GetStatsHistory(0, 6 * kMicrosInSec, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   // disabled stats snapshots
@@ -633,7 +633,6 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
     auto stats_map = stats_iter->GetStatsMap();
     stats_count += stats_map.size();
   }
-  delete stats_iter;
   ASSERT_GT(stats_count, 0);
   // Wait a bit and verify no more stats are found
   for (mock_time = 6; mock_time < 20; ++mock_time) {
@@ -647,7 +646,6 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
     stats_count_new += stats_iter->GetStatsMap().size();
   }
   ASSERT_EQ(stats_count_new, stats_count);
-  delete stats_iter;
   Close();
 }
 
@@ -701,7 +699,7 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
     dbfull()->TEST_WaitForPersistStatsRun(
         [&] { mock_env->set_current_time(mock_time); });
   }
-  StatsHistoryIterator* stats_iter = nullptr;
+  std::unique_ptr<StatsHistoryIterator> stats_iter = nullptr;
   db_->GetStatsHistory(0, 10 * kMicrosInSec, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count = 0;
@@ -711,7 +709,6 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
     auto stats_map = stats_iter->GetStatsMap();
     stats_count += stats_map.size();
   }
-  delete stats_iter;
   size_t stats_history_size = dbfull()->TEST_EstiamteStatsHistorySize();
   ASSERT_GE(slice_count, 9);
   ASSERT_GE(stats_history_size, 12000);
@@ -732,7 +729,6 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
     auto stats_map = stats_iter->GetStatsMap();
     stats_count_reopen += stats_map.size();
   }
-  delete stats_iter;
   size_t stats_history_size_reopen = dbfull()->TEST_EstiamteStatsHistorySize();
   // only one slice can fit under the new stats_history_buffer_size
   ASSERT_LT(slice_count, 2);
