@@ -23,7 +23,7 @@ class DBSecondaryTest : public DBTestBase {
         test::PerThreadDBPath(env_, "/db_secondary_test_secondary");
   }
 
-  ~DBSecondaryTest() {
+  ~DBSecondaryTest() override {
     if (getenv("KEEP_DB") != nullptr) {
       fprintf(stdout, "Secondary DB is still at %s\n",
               secondary_path_.c_str());
