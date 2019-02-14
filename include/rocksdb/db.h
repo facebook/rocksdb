@@ -926,6 +926,8 @@ class DB {
   // If atomic flush is enabled, Flush(options, column_families) will flush all
   // column families specified in 'column_families' up to the latest sequence
   // number at the time when flush is requested.
+  // Note that RocksDB 5.15 and earlier may not be able to open later versions
+  // with atomic flush enabled.
   virtual Status Flush(
       const FlushOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) = 0;
@@ -1067,6 +1069,8 @@ class DB {
   // column families with iterators, iterator on one column family may return
   // ingested data, while iterator on other column family returns old data.
   // Users can use snapshot for a consistent view of data.
+  // If your db ingests multiple SST files using this API, i.e. args.size()
+  // > 1, then RocksDB 5.15 and earlier will not be able to open it.
   //
   // REQUIRES: each arg corresponds to a different column family: namely, for
   // 0 <= i < j < len(args), args[i].column_family != args[j].column_family.
