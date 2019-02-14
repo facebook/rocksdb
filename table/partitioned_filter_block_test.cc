@@ -27,7 +27,7 @@ class MockedBlockBasedTable : public BlockBasedTable {
     rep->cache_key_prefix_size = 10;
   }
 
-  virtual CachableEntry<FilterBlockReader> GetFilter(
+  CachableEntry<FilterBlockReader> GetFilter(
       FilePrefetchBuffer*, const BlockHandle& filter_blk_handle,
       const bool /* unused */, bool /* unused */, GetContext* /* unused */,
       const SliceTransform* prefix_extractor) const override {
@@ -38,7 +38,7 @@ class MockedBlockBasedTable : public BlockBasedTable {
     return {obj, nullptr};
   }
 
-  virtual FilterBlockReader* ReadFilter(
+  FilterBlockReader* ReadFilter(
       FilePrefetchBuffer*, const BlockHandle& filter_blk_handle,
       const bool /* unused */,
       const SliceTransform* prefix_extractor) const override {
@@ -67,7 +67,7 @@ class PartitionedFilterBlockTest
   }
 
   std::shared_ptr<Cache> cache_;
-  ~PartitionedFilterBlockTest() {}
+  ~PartitionedFilterBlockTest() override {}
 
   const std::string keys[4] = {"afoo", "bar", "box", "hello"};
   const std::string missing_keys[2] = {"missing", "other"};

@@ -42,7 +42,7 @@ class BaseDeltaIterator : public Iterator {
         delta_iterator_(delta_iterator),
         comparator_(comparator) {}
 
-  virtual ~BaseDeltaIterator() {}
+  ~BaseDeltaIterator() override {}
 
   bool Valid() const override {
     return current_at_base_ ? BaseValid() : DeltaValid();
@@ -340,9 +340,9 @@ class WBWIIteratorImpl : public WBWIIterator {
         skip_list_iter_(skip_list),
         write_batch_(write_batch) {}
 
-  virtual ~WBWIIteratorImpl() {}
+  ~WBWIIteratorImpl() override {}
 
-  virtual bool Valid() const override {
+  bool Valid() const override {
     if (!skip_list_iter_.Valid()) {
       return false;
     }
@@ -351,14 +351,14 @@ class WBWIIteratorImpl : public WBWIIterator {
             iter_entry->column_family == column_family_id_);
   }
 
-  virtual void SeekToFirst() override {
+  void SeekToFirst() override {
     WriteBatchIndexEntry search_entry(
         nullptr /* search_key */, column_family_id_,
         true /* is_forward_direction */, true /* is_seek_to_first */);
     skip_list_iter_.Seek(&search_entry);
   }
 
-  virtual void SeekToLast() override {
+  void SeekToLast() override {
     WriteBatchIndexEntry search_entry(
         nullptr /* search_key */, column_family_id_ + 1,
         true /* is_forward_direction */, true /* is_seek_to_first */);
@@ -370,25 +370,25 @@ class WBWIIteratorImpl : public WBWIIterator {
     }
   }
 
-  virtual void Seek(const Slice& key) override {
+  void Seek(const Slice& key) override {
     WriteBatchIndexEntry search_entry(&key, column_family_id_,
                                       true /* is_forward_direction */,
                                       false /* is_seek_to_first */);
     skip_list_iter_.Seek(&search_entry);
   }
 
-  virtual void SeekForPrev(const Slice& key) override {
+  void SeekForPrev(const Slice& key) override {
     WriteBatchIndexEntry search_entry(&key, column_family_id_,
                                       false /* is_forward_direction */,
                                       false /* is_seek_to_first */);
     skip_list_iter_.SeekForPrev(&search_entry);
   }
 
-  virtual void Next() override { skip_list_iter_.Next(); }
+  void Next() override { skip_list_iter_.Next(); }
 
-  virtual void Prev() override { skip_list_iter_.Prev(); }
+  void Prev() override { skip_list_iter_.Prev(); }
 
-  virtual WriteEntry Entry() const override {
+  WriteEntry Entry() const override {
     WriteEntry ret;
     Slice blob, xid;
     const WriteBatchIndexEntry* iter_entry = skip_list_iter_.key();
@@ -404,7 +404,7 @@ class WBWIIteratorImpl : public WBWIIterator {
     return ret;
   }
 
-  virtual Status status() const override {
+  Status status() const override {
     // this is in-memory data structure, so the only way status can be non-ok is
     // through memory corruption
     return Status::OK();

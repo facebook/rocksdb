@@ -66,7 +66,7 @@ class CheckpointTest : public testing::Test {
     Reopen(options);
   }
 
-  ~CheckpointTest() {
+  ~CheckpointTest() override {
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
     rocksdb::SyncPoint::GetInstance()->LoadDependency({});
     rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();

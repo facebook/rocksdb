@@ -98,11 +98,11 @@ namespace {
 class DummyTableFactory : public TableFactory {
  public:
   DummyTableFactory() {}
-  virtual ~DummyTableFactory() {}
+  ~DummyTableFactory() override {}
 
-  virtual const char* Name() const override { return "DummyTableFactory"; }
+  const char* Name() const override { return "DummyTableFactory"; }
 
-  virtual Status NewTableReader(
+  Status NewTableReader(
       const TableReaderOptions& /*table_reader_options*/,
       std::unique_ptr<RandomAccessFileReader>&& /*file*/,
       uint64_t /*file_size*/, std::unique_ptr<TableReader>* /*table_reader*/,
@@ -110,20 +110,20 @@ class DummyTableFactory : public TableFactory {
     return Status::NotSupported();
   }
 
-  virtual TableBuilder* NewTableBuilder(
+  TableBuilder* NewTableBuilder(
       const TableBuilderOptions& /*table_builder_options*/,
       uint32_t /*column_family_id*/,
       WritableFileWriter* /*file*/) const override {
     return nullptr;
   }
 
-  virtual Status SanitizeOptions(
+  Status SanitizeOptions(
       const DBOptions& /*db_opts*/,
       const ColumnFamilyOptions& /*cf_opts*/) const override {
     return Status::NotSupported();
   }
 
-  virtual std::string GetPrintableTableOptions() const override { return ""; }
+  std::string GetPrintableTableOptions() const override { return ""; }
 
   Status GetOptionString(std::string* /*opt_string*/,
                          const std::string& /*delimiter*/) const override {
@@ -134,39 +134,39 @@ class DummyTableFactory : public TableFactory {
 class DummyMergeOperator : public MergeOperator {
  public:
   DummyMergeOperator() {}
-  virtual ~DummyMergeOperator() {}
+  ~DummyMergeOperator() override {}
 
-  virtual bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
-                           MergeOperationOutput* /*merge_out*/) const override {
+  bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
+                   MergeOperationOutput* /*merge_out*/) const override {
     return false;
   }
 
-  virtual bool PartialMergeMulti(const Slice& /*key*/,
-                                 const std::deque<Slice>& /*operand_list*/,
-                                 std::string* /*new_value*/,
-                                 Logger* /*logger*/) const override {
+  bool PartialMergeMulti(const Slice& /*key*/,
+                         const std::deque<Slice>& /*operand_list*/,
+                         std::string* /*new_value*/,
+                         Logger* /*logger*/) const override {
     return false;
   }
 
-  virtual const char* Name() const override { return "DummyMergeOperator"; }
+  const char* Name() const override { return "DummyMergeOperator"; }
 };
 
 class DummySliceTransform : public SliceTransform {
  public:
   DummySliceTransform() {}
-  virtual ~DummySliceTransform() {}
+  ~DummySliceTransform() override {}
 
   // Return the name of this transformation.
-  virtual const char* Name() const { return "DummySliceTransform"; }
+  const char* Name() const override { return "DummySliceTransform"; }
 
   // transform a src in domain to a dst in the range
-  virtual Slice Transform(const Slice& src) const { return src; }
+  Slice Transform(const Slice& src) const override { return src; }
 
   // determine whether this is a valid src upon the function applies
-  virtual bool InDomain(const Slice& /*src*/) const { return false; }
+  bool InDomain(const Slice& /*src*/) const override { return false; }
 
   // determine whether dst=Transform(src) for some src
-  virtual bool InRange(const Slice& /*dst*/) const { return false; }
+  bool InRange(const Slice& /*dst*/) const override { return false; }
 };
 
 }  // namespace

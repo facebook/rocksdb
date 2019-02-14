@@ -63,33 +63,33 @@ INSTANTIATE_TEST_CASE_P(DBTestCompactionFilterWithCompactOption,
 
 class KeepFilter : public CompactionFilter {
  public:
-  virtual bool Filter(int /*level*/, const Slice& /*key*/,
-                      const Slice& /*value*/, std::string* /*new_value*/,
-                      bool* /*value_changed*/) const override {
+  bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
+              std::string* /*new_value*/,
+              bool* /*value_changed*/) const override {
     cfilter_count++;
     return false;
   }
 
-  virtual const char* Name() const override { return "KeepFilter"; }
+  const char* Name() const override { return "KeepFilter"; }
 };
 
 class DeleteFilter : public CompactionFilter {
  public:
-  virtual bool Filter(int /*level*/, const Slice& /*key*/,
-                      const Slice& /*value*/, std::string* /*new_value*/,
-                      bool* /*value_changed*/) const override {
+  bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
+              std::string* /*new_value*/,
+              bool* /*value_changed*/) const override {
     cfilter_count++;
     return true;
   }
 
-  virtual const char* Name() const override { return "DeleteFilter"; }
+  const char* Name() const override { return "DeleteFilter"; }
 };
 
 class DeleteISFilter : public CompactionFilter {
  public:
-  virtual bool Filter(int /*level*/, const Slice& key, const Slice& /*value*/,
-                      std::string* /*new_value*/,
-                      bool* /*value_changed*/) const override {
+  bool Filter(int /*level*/, const Slice& key, const Slice& /*value*/,
+              std::string* /*new_value*/,
+              bool* /*value_changed*/) const override {
     cfilter_count++;
     int i = std::stoi(key.ToString());
     if (i > 5 && i <= 105) {
@@ -98,20 +98,18 @@ class DeleteISFilter : public CompactionFilter {
     return false;
   }
 
-  virtual bool IgnoreSnapshots() const override { return true; }
+  bool IgnoreSnapshots() const override { return true; }
 
-  virtual const char* Name() const override { return "DeleteFilter"; }
+  const char* Name() const override { return "DeleteFilter"; }
 };
 
 // Skip x if floor(x/10) is even, use range skips. Requires that keys are
 // zero-padded to length 10.
 class SkipEvenFilter : public CompactionFilter {
  public:
-  virtual Decision FilterV2(int /*level*/, const Slice& key,
-                            ValueType /*value_type*/,
-                            const Slice& /*existing_value*/,
-                            std::string* /*new_value*/,
-                            std::string* skip_until) const override {
+  Decision FilterV2(int /*level*/, const Slice& key, ValueType /*value_type*/,
+                    const Slice& /*existing_value*/, std::string* /*new_value*/,
+                    std::string* skip_until) const override {
     cfilter_count++;
     int i = std::stoi(key.ToString());
     if (i / 10 % 2 == 0) {
@@ -124,22 +122,22 @@ class SkipEvenFilter : public CompactionFilter {
     return Decision::kKeep;
   }
 
-  virtual bool IgnoreSnapshots() const override { return true; }
+  bool IgnoreSnapshots() const override { return true; }
 
-  virtual const char* Name() const override { return "DeleteFilter"; }
+  const char* Name() const override { return "DeleteFilter"; }
 };
 
 class DelayFilter : public CompactionFilter {
  public:
   explicit DelayFilter(DBTestBase* d) : db_test(d) {}
-  virtual bool Filter(int /*level*/, const Slice& /*key*/,
-                      const Slice& /*value*/, std::string* /*new_value*/,
-                      bool* /*value_changed*/) const override {
+  bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
+              std::string* /*new_value*/,
+              bool* /*value_changed*/) const override {
     db_test->env_->addon_time_.fetch_add(1000);
     return true;
   }
 
-  virtual const char* Name() const override { return "DelayFilter"; }
+  const char* Name() const override { return "DelayFilter"; }
 
  private:
   DBTestBase* db_test;
@@ -149,13 +147,13 @@ class ConditionalFilter : public CompactionFilter {
  public:
   explicit ConditionalFilter(const std::string* filtered_value)
       : filtered_value_(filtered_value) {}
-  virtual bool Filter(int /*level*/, const Slice& /*key*/, const Slice& value,
-                      std::string* /*new_value*/,
-                      bool* /*value_changed*/) const override {
+  bool Filter(int /*level*/, const Slice& /*key*/, const Slice& value,
+              std::string* /*new_value*/,
+              bool* /*value_changed*/) const override {
     return value.ToString() == *filtered_value_;
   }
 
-  virtual const char* Name() const override { return "ConditionalFilter"; }
+  const char* Name() const override { return "ConditionalFilter"; }
 
  private:
   const std::string* filtered_value_;
@@ -165,16 +163,15 @@ class ChangeFilter : public CompactionFilter {
  public:
   explicit ChangeFilter() {}
 
-  virtual bool Filter(int /*level*/, const Slice& /*key*/,
-                      const Slice& /*value*/, std::string* new_value,
-                      bool* value_changed) const override {
+  bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
+              std::string* new_value, bool* value_changed) const override {
     assert(new_value != nullptr);
     *new_value = NEW_VALUE;
     *value_changed = true;
     return false;
   }
 
-  virtual const char* Name() const override { return "ChangeFilter"; }
+  const char* Name() const override { return "ChangeFilter"; }
 };
 
 class KeepFilterFactory : public CompactionFilterFactory {
@@ -185,7 +182,7 @@ class KeepFilterFactory : public CompactionFilterFactory {
         check_context_cf_id_(check_context_cf_id),
         compaction_filter_created_(false) {}
 
-  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) override {
     if (check_context_) {
       EXPECT_EQ(expect_full_compaction_.load(), context.is_full_compaction);
@@ -200,7 +197,7 @@ class KeepFilterFactory : public CompactionFilterFactory {
 
   bool compaction_filter_created() const { return compaction_filter_created_; }
 
-  virtual const char* Name() const override { return "KeepFilterFactory"; }
+  const char* Name() const override { return "KeepFilterFactory"; }
   bool check_context_;
   bool check_context_cf_id_;
   std::atomic_bool expect_full_compaction_;
@@ -211,7 +208,7 @@ class KeepFilterFactory : public CompactionFilterFactory {
 
 class DeleteFilterFactory : public CompactionFilterFactory {
  public:
-  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) override {
     if (context.is_manual_compaction) {
       return std::unique_ptr<CompactionFilter>(new DeleteFilter());
@@ -220,13 +217,13 @@ class DeleteFilterFactory : public CompactionFilterFactory {
     }
   }
 
-  virtual const char* Name() const override { return "DeleteFilterFactory"; }
+  const char* Name() const override { return "DeleteFilterFactory"; }
 };
 
 // Delete Filter Factory which ignores snapshots
 class DeleteISFilterFactory : public CompactionFilterFactory {
  public:
-  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) override {
     if (context.is_manual_compaction) {
       return std::unique_ptr<CompactionFilter>(new DeleteISFilter());
@@ -235,12 +232,12 @@ class DeleteISFilterFactory : public CompactionFilterFactory {
     }
   }
 
-  virtual const char* Name() const override { return "DeleteFilterFactory"; }
+  const char* Name() const override { return "DeleteFilterFactory"; }
 };
 
 class SkipEvenFilterFactory : public CompactionFilterFactory {
  public:
-  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) override {
     if (context.is_manual_compaction) {
       return std::unique_ptr<CompactionFilter>(new SkipEvenFilter());
@@ -249,18 +246,18 @@ class SkipEvenFilterFactory : public CompactionFilterFactory {
     }
   }
 
-  virtual const char* Name() const override { return "SkipEvenFilterFactory"; }
+  const char* Name() const override { return "SkipEvenFilterFactory"; }
 };
 
 class DelayFilterFactory : public CompactionFilterFactory {
  public:
   explicit DelayFilterFactory(DBTestBase* d) : db_test(d) {}
-  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& /*context*/) override {
     return std::unique_ptr<CompactionFilter>(new DelayFilter(db_test));
   }
 
-  virtual const char* Name() const override { return "DelayFilterFactory"; }
+  const char* Name() const override { return "DelayFilterFactory"; }
 
  private:
   DBTestBase* db_test;
@@ -271,15 +268,13 @@ class ConditionalFilterFactory : public CompactionFilterFactory {
   explicit ConditionalFilterFactory(const Slice& filtered_value)
       : filtered_value_(filtered_value.ToString()) {}
 
-  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& /*context*/) override {
     return std::unique_ptr<CompactionFilter>(
         new ConditionalFilter(&filtered_value_));
   }
 
-  virtual const char* Name() const override {
-    return "ConditionalFilterFactory";
-  }
+  const char* Name() const override { return "ConditionalFilterFactory"; }
 
  private:
   std::string filtered_value_;
@@ -289,12 +284,12 @@ class ChangeFilterFactory : public CompactionFilterFactory {
  public:
   explicit ChangeFilterFactory() {}
 
-  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& /*context*/) override {
     return std::unique_ptr<CompactionFilter>(new ChangeFilter());
   }
 
-  virtual const char* Name() const override { return "ChangeFilterFactory"; }
+  const char* Name() const override { return "ChangeFilterFactory"; }
 };
 
 #ifndef ROCKSDB_LITE
@@ -845,7 +840,7 @@ class TestNotSupportedFilter : public CompactionFilter {
     return true;
   }
 
-  virtual const char* Name() const override { return "NotSupported"; }
+  const char* Name() const override { return "NotSupported"; }
   bool IgnoreSnapshots() const override { return false; }
 };
 

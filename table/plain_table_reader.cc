@@ -54,7 +54,7 @@ inline uint32_t GetFixed32Element(const char* base, size_t offset) {
 class PlainTableIterator : public InternalIterator {
  public:
   explicit PlainTableIterator(PlainTableReader* table, bool use_prefix_seek);
-  ~PlainTableIterator();
+  ~PlainTableIterator() override;
 
   bool Valid() const override;
 

@@ -30,7 +30,7 @@ class PrefixFullBloomWithReverseComparator
  public:
   PrefixFullBloomWithReverseComparator()
       : DBTestBase("/prefix_bloom_reverse") {}
-  virtual void SetUp() override { if_cache_filter_ = GetParam(); }
+  void SetUp() override { if_cache_filter_ = GetParam(); }
   bool if_cache_filter_;
 };
 
@@ -515,9 +515,9 @@ TEST_F(DBTest2, WalFilterTest) {
       apply_option_at_record_index_(apply_option_for_record_index),
       current_record_index_(0) {}
 
-    virtual WalProcessingOption LogRecord(
-        const WriteBatch& /*batch*/, WriteBatch* /*new_batch*/,
-        bool* /*batch_changed*/) const override {
+    WalProcessingOption LogRecord(const WriteBatch& /*batch*/,
+                                  WriteBatch* /*new_batch*/,
+                                  bool* /*batch_changed*/) const override {
       WalFilter::WalProcessingOption option_to_return;
 
       if (current_record_index_ == apply_option_at_record_index_) {
@@ -535,7 +535,7 @@ TEST_F(DBTest2, WalFilterTest) {
       return option_to_return;
     }
 
-    virtual const char* Name() const override { return "TestWalFilter"; }
+    const char* Name() const override { return "TestWalFilter"; }
   };
 
   // Create 3 batches with two keys each
@@ -687,7 +687,7 @@ TEST_F(DBTest2, WalFilterTestWithChangeBatch) {
       : new_write_batch_(new_write_batch),
       num_keys_to_add_in_new_batch_(num_keys_to_add_in_new_batch),
       num_keys_added_(0) {}
-    virtual void Put(const Slice& key, const Slice& value) override {
+    void Put(const Slice& key, const Slice& value) override {
       if (num_keys_added_ < num_keys_to_add_in_new_batch_) {
         new_write_batch_->Put(key, value);
         ++num_keys_added_;
@@ -711,9 +711,9 @@ TEST_F(DBTest2, WalFilterTestWithChangeBatch) {
       num_keys_to_add_in_new_batch_(num_keys_to_add_in_new_batch),
       current_record_index_(0) {}
 
-    virtual WalProcessingOption LogRecord(const WriteBatch& batch,
-      WriteBatch* new_batch,
-      bool* batch_changed) const override {
+    WalProcessingOption LogRecord(const WriteBatch& batch,
+                                  WriteBatch* new_batch,
+                                  bool* batch_changed) const override {
       if (current_record_index_ >= change_records_from_index_) {
         ChangeBatchHandler handler(new_batch, num_keys_to_add_in_new_batch_);
         batch.Iterate(&handler);
@@ -729,9 +729,7 @@ TEST_F(DBTest2, WalFilterTestWithChangeBatch) {
       return WalProcessingOption::kContinueProcessing;
     }
 
-    virtual const char* Name() const override {
-      return "TestWalFilterWithChangeBatch";
-    }
+    const char* Name() const override { return "TestWalFilterWithChangeBatch"; }
   };
 
   std::vector<std::vector<std::string>> batch_keys(3);
@@ -809,18 +807,17 @@ TEST_F(DBTest2, WalFilterTestWithChangeBatch) {
 TEST_F(DBTest2, WalFilterTestWithChangeBatchExtraKeys) {
   class TestWalFilterWithChangeBatchAddExtraKeys : public WalFilter {
   public:
-    virtual WalProcessingOption LogRecord(const WriteBatch& batch,
-      WriteBatch* new_batch,
-      bool* batch_changed) const override {
-      *new_batch = batch;
-      new_batch->Put("key_extra", "value_extra");
-      *batch_changed = true;
-      return WalProcessingOption::kContinueProcessing;
-    }
+   WalProcessingOption LogRecord(const WriteBatch& batch, WriteBatch* new_batch,
+                                 bool* batch_changed) const override {
+     *new_batch = batch;
+     new_batch->Put("key_extra", "value_extra");
+     *batch_changed = true;
+     return WalProcessingOption::kContinueProcessing;
+   }
 
-    virtual const char* Name() const override {
-      return "WalFilterTestWithChangeBatchExtraKeys";
-    }
+   const char* Name() const override {
+     return "WalFilterTestWithChangeBatchExtraKeys";
+   }
   };
 
   std::vector<std::vector<std::string>> batch_keys(3);
@@ -884,18 +881,19 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
     // for verification against the keys we expect.
     std::map<uint32_t, std::vector<std::string>> cf_wal_keys_;
   public:
-    virtual void ColumnFamilyLogNumberMap(
-      const std::map<uint32_t, uint64_t>& cf_lognumber_map,
-      const std::map<std::string, uint32_t>& cf_name_id_map) override {
-      cf_log_number_map_ = cf_lognumber_map;
-      cf_name_id_map_ = cf_name_id_map;
-    }
+   void ColumnFamilyLogNumberMap(
+       const std::map<uint32_t, uint64_t>& cf_lognumber_map,
+       const std::map<std::string, uint32_t>& cf_name_id_map) override {
+     cf_log_number_map_ = cf_lognumber_map;
+     cf_name_id_map_ = cf_name_id_map;
+   }
 
-    virtual WalProcessingOption LogRecordFound(
-        unsigned long long log_number, const std::string& /*log_file_name*/,
-        const WriteBatch& batch, WriteBatch* /*new_batch*/,
-        bool* /*batch_changed*/) override {
-      class LogRecordBatchHandler : public WriteBatch::Handler {
+   WalProcessingOption LogRecordFound(unsigned long long log_number,
+                                      const std::string& /*log_file_name*/,
+                                      const WriteBatch& batch,
+                                      WriteBatch* /*new_batch*/,
+                                      bool* /*batch_changed*/) override {
+     class LogRecordBatchHandler : public WriteBatch::Handler {
       private:
         const std::map<uint32_t, uint64_t> & cf_log_number_map_;
         std::map<uint32_t, std::vector<std::string>> & cf_wal_keys_;
@@ -908,8 +906,8 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
           cf_wal_keys_(cf_wal_keys),
           log_number_(current_log_number){}
 
-        virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-          const Slice& /*value*/) override {
+        Status PutCF(uint32_t column_family_id, const Slice& key,
+                     const Slice& /*value*/) override {
           auto it = cf_log_number_map_.find(column_family_id);
           assert(it != cf_log_number_map_.end());
           unsigned long long log_number_for_cf = it->second;
@@ -927,11 +925,11 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
       batch.Iterate(&handler);
 
       return WalProcessingOption::kContinueProcessing;
-    }
+   }
 
-    virtual const char* Name() const override {
-      return "WalFilterTestWithColumnFamilies";
-    }
+   const char* Name() const override {
+     return "WalFilterTestWithColumnFamilies";
+   }
 
     const std::map<uint32_t, std::vector<std::string>>& GetColumnFamilyKeys() {
       return cf_wal_keys_;
@@ -1452,7 +1450,7 @@ class PinL0IndexAndFilterBlocksTest
       public testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   PinL0IndexAndFilterBlocksTest() : DBTestBase("/db_pin_l0_index_bloom_test") {}
-  virtual void SetUp() override {
+  void SetUp() override {
     infinite_max_files_ = std::get<0>(GetParam());
     disallow_preload_ = std::get<1>(GetParam());
   }
@@ -1755,7 +1753,7 @@ class MockPersistentCache : public PersistentCache {
         "GetUniqueIdFromFile:FS_IOC_GETVERSION", UniqueIdCallback);
   }
 
-  virtual ~MockPersistentCache() {}
+  ~MockPersistentCache() override {}
 
   PersistentCache::StatsType Stats() override {
     return PersistentCache::StatsType();
@@ -2646,9 +2644,7 @@ TEST_F(DBTest2, ReadCallbackTest) {
   class TestReadCallback : public ReadCallback {
    public:
     explicit TestReadCallback(SequenceNumber snapshot) : snapshot_(snapshot) {}
-    virtual bool IsVisible(SequenceNumber seq) override {
-      return seq <= snapshot_;
-    }
+    bool IsVisible(SequenceNumber seq) override { return seq <= snapshot_; }
 
    private:
     SequenceNumber snapshot_;

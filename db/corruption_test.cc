@@ -62,9 +62,9 @@ class CorruptionTest : public testing::Test {
     options_.create_if_missing = false;
   }
 
-  ~CorruptionTest() {
-     delete db_;
-     DestroyDB(dbname_, Options());
+  ~CorruptionTest() override {
+    delete db_;
+    DestroyDB(dbname_, Options());
   }
 
   void CloseDb() {

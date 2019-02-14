@@ -65,17 +65,17 @@ namespace {
 // DummyPropertiesCollector used to test BlockBasedTableProperties
 class DummyPropertiesCollector : public TablePropertiesCollector {
  public:
-  const char* Name() const { return ""; }
+  const char* Name() const override { return ""; }
 
-  Status Finish(UserCollectedProperties* /*properties*/) {
+  Status Finish(UserCollectedProperties* /*properties*/) override {
     return Status::OK();
   }
 
-  Status Add(const Slice& /*user_key*/, const Slice& /*value*/) {
+  Status Add(const Slice& /*user_key*/, const Slice& /*value*/) override {
     return Status::OK();
   }
 
-  virtual UserCollectedProperties GetReadableProperties() const {
+  UserCollectedProperties GetReadableProperties() const override {
     return UserCollectedProperties{};
   }
 };
@@ -83,21 +83,21 @@ class DummyPropertiesCollector : public TablePropertiesCollector {
 class DummyPropertiesCollectorFactory1
     : public TablePropertiesCollectorFactory {
  public:
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
-      TablePropertiesCollectorFactory::Context /*context*/) {
+  TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context /*context*/) override {
     return new DummyPropertiesCollector();
   }
-  const char* Name() const { return "DummyPropertiesCollector1"; }
+  const char* Name() const override { return "DummyPropertiesCollector1"; }
 };
 
 class DummyPropertiesCollectorFactory2
     : public TablePropertiesCollectorFactory {
  public:
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
-      TablePropertiesCollectorFactory::Context /*context*/) {
+  TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context /*context*/) override {
     return new DummyPropertiesCollector();
   }
-  const char* Name() const { return "DummyPropertiesCollector2"; }
+  const char* Name() const override { return "DummyPropertiesCollector2"; }
 };
 
 // Return reverse of "key".
@@ -110,23 +110,23 @@ std::string Reverse(const Slice& key) {
 
 class ReverseKeyComparator : public Comparator {
  public:
-  virtual const char* Name() const override {
+  const char* Name() const override {
     return "rocksdb.ReverseBytewiseComparator";
   }
 
-  virtual int Compare(const Slice& a, const Slice& b) const override {
+  int Compare(const Slice& a, const Slice& b) const override {
     return BytewiseComparator()->Compare(Reverse(a), Reverse(b));
   }
 
-  virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const override {
+  void FindShortestSeparator(std::string* start,
+                             const Slice& limit) const override {
     std::string s = Reverse(*start);
     std::string l = Reverse(limit);
     BytewiseComparator()->FindShortestSeparator(&s, l);
     *start = Reverse(s);
   }
 
-  virtual void FindShortSuccessor(std::string* key) const override {
+  void FindShortSuccessor(std::string* key) const override {
     std::string s = Reverse(*key);
     BytewiseComparator()->FindShortSuccessor(&s);
     *key = Reverse(s);
@@ -212,15 +212,13 @@ class BlockConstructor: public Constructor {
       : Constructor(cmp),
         comparator_(cmp),
         block_(nullptr) { }
-  ~BlockConstructor() {
-    delete block_;
-  }
-  virtual Status FinishImpl(
-      const Options& /*options*/, const ImmutableCFOptions& /*ioptions*/,
-      const MutableCFOptions& /*moptions*/,
-      const BlockBasedTableOptions& table_options,
-      const InternalKeyComparator& /*internal_comparator*/,
-      const stl_wrappers::KVMap& kv_map) override {
+  ~BlockConstructor() override { delete block_; }
+  Status FinishImpl(const Options& /*options*/,
+                    const ImmutableCFOptions& /*ioptions*/,
+                    const MutableCFOptions& /*moptions*/,
+                    const BlockBasedTableOptions& table_options,
+                    const InternalKeyComparator& /*internal_comparator*/,
+                    const stl_wrappers::KVMap& kv_map) override {
     delete block_;
     block_ = nullptr;
     BlockBuilder builder(table_options.block_restart_interval);
@@ -235,7 +233,7 @@ class BlockConstructor: public Constructor {
     block_ = new Block(std::move(contents), kDisableGlobalSequenceNumber);
     return Status::OK();
   }
-  virtual InternalIterator* NewIterator(
+  InternalIterator* NewIterator(
       const SliceTransform* /*prefix_extractor*/) const override {
     return block_->NewIterator<DataBlockIter>(comparator_, comparator_);
   }
@@ -254,32 +252,32 @@ class KeyConvertingIterator : public InternalIterator {
   explicit KeyConvertingIterator(InternalIterator* iter,
                                  bool arena_mode = false)
       : iter_(iter), arena_mode_(arena_mode) {}
-  virtual ~KeyConvertingIterator() {
+  ~KeyConvertingIterator() override {
     if (arena_mode_) {
       iter_->~InternalIterator();
     } else {
       delete iter_;
     }
   }
-  virtual bool Valid() const override { return iter_->Valid() && status_.ok(); }
-  virtual void Seek(const Slice& target) override {
+  bool Valid() const override { return iter_->Valid() && status_.ok(); }
+  void Seek(const Slice& target) override {
     ParsedInternalKey ikey(target, kMaxSequenceNumber, kTypeValue);
     std::string encoded;
     AppendInternalKey(&encoded, ikey);
     iter_->Seek(encoded);
   }
-  virtual void SeekForPrev(const Slice& target) override {
+  void SeekForPrev(const Slice& target) override {
     ParsedInternalKey ikey(target, kMaxSequenceNumber, kTypeValue);
     std::string encoded;
     AppendInternalKey(&encoded, ikey);
     iter_->SeekForPrev(encoded);
   }
-  virtual void SeekToFirst() override { iter_->SeekToFirst(); }
-  virtual void SeekToLast() override { iter_->SeekToLast(); }
-  virtual void Next() override { iter_->Next(); }
-  virtual void Prev() override { iter_->Prev(); }
+  void SeekToFirst() override { iter_->SeekToFirst(); }
+  void SeekToLast() override { iter_->SeekToLast(); }
+  void Next() override { iter_->Next(); }
+  void Prev() override { iter_->Prev(); }
 
-  virtual Slice key() const override {
+  Slice key() const override {
     assert(Valid());
     ParsedInternalKey parsed_key;
     if (!ParseInternalKey(iter_->key(), &parsed_key)) {
@@ -289,8 +287,8 @@ class KeyConvertingIterator : public InternalIterator {
     return parsed_key.user_key;
   }
 
-  virtual Slice value() const override { return iter_->value(); }
-  virtual Status status() const override {
+  Slice value() const override { return iter_->value(); }
+  Status status() const override {
     return status_.ok() ? iter_->status() : status_;
   }
 
@@ -312,14 +310,13 @@ class TableConstructor: public Constructor {
       : Constructor(cmp),
         convert_to_internal_key_(convert_to_internal_key),
         level_(level) {}
-  ~TableConstructor() { Reset(); }
+  ~TableConstructor() override { Reset(); }
 
-  virtual Status FinishImpl(const Options& options,
-                            const ImmutableCFOptions& ioptions,
-                            const MutableCFOptions& moptions,
-                            const BlockBasedTableOptions& /*table_options*/,
-                            const InternalKeyComparator& internal_comparator,
-                            const stl_wrappers::KVMap& kv_map) override {
+  Status FinishImpl(const Options& options, const ImmutableCFOptions& ioptions,
+                    const MutableCFOptions& moptions,
+                    const BlockBasedTableOptions& /*table_options*/,
+                    const InternalKeyComparator& internal_comparator,
+                    const stl_wrappers::KVMap& kv_map) override {
     Reset();
     soptions.use_mmap_reads = ioptions.allow_mmap_reads;
     file_writer_.reset(test::GetWritableFileWriter(new test::StringSink(),
@@ -368,7 +365,7 @@ class TableConstructor: public Constructor {
         &table_reader_);
   }
 
-  virtual InternalIterator* NewIterator(
+  InternalIterator* NewIterator(
       const SliceTransform* prefix_extractor) const override {
     ReadOptions ro;
     InternalIterator* iter = table_reader_->NewIterator(ro, prefix_extractor);
@@ -401,7 +398,7 @@ class TableConstructor: public Constructor {
 
   virtual TableReader* GetTableReader() { return table_reader_.get(); }
 
-  virtual bool AnywayDeleteIterator() const override {
+  bool AnywayDeleteIterator() const override {
     return convert_to_internal_key_;
   }
 
@@ -449,15 +446,12 @@ class MemTableConstructor: public Constructor {
                      wb, kMaxSequenceNumber, 0 /* column_family_id */);
     memtable_->Ref();
   }
-  ~MemTableConstructor() {
-    delete memtable_->Unref();
-  }
-  virtual Status FinishImpl(
-      const Options&, const ImmutableCFOptions& ioptions,
-      const MutableCFOptions& /*moptions*/,
-      const BlockBasedTableOptions& /*table_options*/,
-      const InternalKeyComparator& /*internal_comparator*/,
-      const stl_wrappers::KVMap& kv_map) override {
+  ~MemTableConstructor() override { delete memtable_->Unref(); }
+  Status FinishImpl(const Options&, const ImmutableCFOptions& ioptions,
+                    const MutableCFOptions& /*moptions*/,
+                    const BlockBasedTableOptions& /*table_options*/,
+                    const InternalKeyComparator& /*internal_comparator*/,
+                    const stl_wrappers::KVMap& kv_map) override {
     delete memtable_->Unref();
     ImmutableCFOptions mem_ioptions(ioptions);
     memtable_ = new MemTable(internal_comparator_, mem_ioptions,
@@ -471,15 +465,15 @@ class MemTableConstructor: public Constructor {
     }
     return Status::OK();
   }
-  virtual InternalIterator* NewIterator(
+  InternalIterator* NewIterator(
       const SliceTransform* /*prefix_extractor*/) const override {
     return new KeyConvertingIterator(
         memtable_->NewIterator(ReadOptions(), &arena_), true);
   }
 
-  virtual bool AnywayDeleteIterator() const override { return true; }
+  bool AnywayDeleteIterator() const override { return true; }
 
-  virtual bool IsArenaMode() const override { return true; }
+  bool IsArenaMode() const override { return true; }
 
  private:
   mutable Arena arena_;
@@ -493,18 +487,16 @@ class MemTableConstructor: public Constructor {
 class InternalIteratorFromIterator : public InternalIterator {
  public:
   explicit InternalIteratorFromIterator(Iterator* it) : it_(it) {}
-  virtual bool Valid() const override { return it_->Valid(); }
-  virtual void Seek(const Slice& target) override { it_->Seek(target); }
-  virtual void SeekForPrev(const Slice& target) override {
-    it_->SeekForPrev(target);
-  }
-  virtual void SeekToFirst() override { it_->SeekToFirst(); }
-  virtual void SeekToLast() override { it_->SeekToLast(); }
-  virtual void Next() override { it_->Next(); }
-  virtual void Prev() override { it_->Prev(); }
+  bool Valid() const override { return it_->Valid(); }
+  void Seek(const Slice& target) override { it_->Seek(target); }
+  void SeekForPrev(const Slice& target) override { it_->SeekForPrev(target); }
+  void SeekToFirst() override { it_->SeekToFirst(); }
+  void SeekToLast() override { it_->SeekToLast(); }
+  void Next() override { it_->Next(); }
+  void Prev() override { it_->Prev(); }
   Slice key() const override { return it_->key(); }
   Slice value() const override { return it_->value(); }
-  virtual Status status() const override { return it_->status(); }
+  Status status() const override { return it_->status(); }
 
  private:
   std::unique_ptr<Iterator> it_;
@@ -518,15 +510,13 @@ class DBConstructor: public Constructor {
     db_ = nullptr;
     NewDB();
   }
-  ~DBConstructor() {
-    delete db_;
-  }
-  virtual Status FinishImpl(
-      const Options& /*options*/, const ImmutableCFOptions& /*ioptions*/,
-      const MutableCFOptions& /*moptions*/,
-      const BlockBasedTableOptions& /*table_options*/,
-      const InternalKeyComparator& /*internal_comparator*/,
-      const stl_wrappers::KVMap& kv_map) override {
+  ~DBConstructor() override { delete db_; }
+  Status FinishImpl(const Options& /*options*/,
+                    const ImmutableCFOptions& /*ioptions*/,
+                    const MutableCFOptions& /*moptions*/,
+                    const BlockBasedTableOptions& /*table_options*/,
+                    const InternalKeyComparator& /*internal_comparator*/,
+                    const stl_wrappers::KVMap& kv_map) override {
     delete db_;
     db_ = nullptr;
     NewDB();
@@ -538,12 +528,12 @@ class DBConstructor: public Constructor {
     return Status::OK();
   }
 
-  virtual InternalIterator* NewIterator(
+  InternalIterator* NewIterator(
       const SliceTransform* /*prefix_extractor*/) const override {
     return new InternalIteratorFromIterator(db_->NewIterator(ReadOptions()));
   }
 
-  virtual DB* db() const override { return db_; }
+  DB* db() const override { return db_; }
 
  private:
   void NewDB() {
@@ -679,9 +669,9 @@ class FixedOrLessPrefixTransform : public SliceTransform {
       prefix_len_(prefix_len) {
   }
 
-  virtual const char* Name() const override { return "rocksdb.FixedPrefix"; }
+  const char* Name() const override { return "rocksdb.FixedPrefix"; }
 
-  virtual Slice Transform(const Slice& src) const override {
+  Slice Transform(const Slice& src) const override {
     assert(InDomain(src));
     if (src.size() < prefix_len_) {
       return src;
@@ -689,14 +679,12 @@ class FixedOrLessPrefixTransform : public SliceTransform {
     return Slice(src.data(), prefix_len_);
   }
 
-  virtual bool InDomain(const Slice& /*src*/) const override { return true; }
+  bool InDomain(const Slice& /*src*/) const override { return true; }
 
-  virtual bool InRange(const Slice& dst) const override {
+  bool InRange(const Slice& dst) const override {
     return (dst.size() <= prefix_len_);
   }
-  virtual bool FullLengthEnabled(size_t* /*len*/) const override {
-    return false;
-  }
+  bool FullLengthEnabled(size_t* /*len*/) const override { return false; }
 };
 
 class HarnessTest : public testing::Test {
@@ -805,7 +793,7 @@ class HarnessTest : public testing::Test {
     moptions_ = MutableCFOptions(options_);
   }
 
-  ~HarnessTest() { delete constructor_; }
+  ~HarnessTest() override { delete constructor_; }
 
   void Add(const std::string& key, const std::string& value) {
     constructor_->Add(key, value);
@@ -2287,10 +2275,10 @@ class MockCache : public LRUCache {
             double high_pri_pool_ratio)
       : LRUCache(capacity, num_shard_bits, strict_capacity_limit,
                  high_pri_pool_ratio) {}
-  virtual Status Insert(const Slice& key, void* value, size_t charge,
-                        void (*deleter)(const Slice& key, void* value),
-                        Handle** handle = nullptr,
-                        Priority priority = Priority::LOW) override {
+  Status Insert(const Slice& key, void* value, size_t charge,
+                void (*deleter)(const Slice& key, void* value),
+                Handle** handle = nullptr,
+                Priority priority = Priority::LOW) override {
     // Replace the deleter with our own so that we keep track of data blocks
     // erased from the cache
     deleters_[key.ToString()] = deleter;
@@ -2298,8 +2286,7 @@ class MockCache : public LRUCache {
                                 priority);
   }
   // This is called by the application right after inserting a data block
-  virtual void TEST_mark_as_data_block(const Slice& key,
-                                       size_t charge) override {
+  void TEST_mark_as_data_block(const Slice& key, size_t charge) override {
     marked_data_in_cache_[key.ToString()] = charge;
     marked_size_ += charge;
   }
@@ -2487,7 +2474,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLeak) {
 namespace {
 class CustomMemoryAllocator : public MemoryAllocator {
  public:
-  virtual const char* Name() const override { return "CustomMemoryAllocator"; }
+  const char* Name() const override { return "CustomMemoryAllocator"; }
 
   void* Allocate(size_t size) override {
     ++numAllocations;
@@ -3165,7 +3152,7 @@ TEST_P(IndexBlockRestartIntervalTest, IndexBlockRestartInterval) {
 class PrefixTest : public testing::Test {
  public:
   PrefixTest() : testing::Test() {}
-  ~PrefixTest() {}
+  ~PrefixTest() override {}
 };
 
 namespace {

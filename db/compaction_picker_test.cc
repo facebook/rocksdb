@@ -22,9 +22,7 @@ namespace rocksdb {
 class CountingLogger : public Logger {
  public:
   using Logger::Logv;
-  virtual void Logv(const char* /*format*/, va_list /*ap*/) override {
-    log_count++;
-  }
+  void Logv(const char* /*format*/, va_list /*ap*/) override { log_count++; }
   size_t log_count;
 };
 
@@ -68,8 +66,7 @@ class CompactionPickerTest : public testing::Test {
                                     std::numeric_limits<uint64_t>::max());
   }
 
-  ~CompactionPickerTest() {
-  }
+  ~CompactionPickerTest() override {}
 
   void NewVersionStorage(int num_levels, CompactionStyle style) {
     DeleteVersionStorage();

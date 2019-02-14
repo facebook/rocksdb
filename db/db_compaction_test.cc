@@ -55,9 +55,9 @@ namespace {
 class FlushedFileCollector : public EventListener {
  public:
   FlushedFileCollector() {}
-  ~FlushedFileCollector() {}
+  ~FlushedFileCollector() override {}
 
-  virtual void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
+  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     std::lock_guard<std::mutex> lock(mutex_);
     flushed_files_.push_back(info.file_path);
   }
@@ -87,24 +87,23 @@ public:
     }
   }
 
-  ~CompactionStatsCollector() {}
+  ~CompactionStatsCollector() override {}
 
-  virtual void OnCompactionCompleted(DB* /* db */,
-      const CompactionJobInfo& info) override {
+  void OnCompactionCompleted(DB* /* db */,
+                             const CompactionJobInfo& info) override {
     int k = static_cast<int>(info.compaction_reason);
     int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
     assert(k >= 0 && k < num_of_reasons);
     compaction_completed_[k]++;
   }
 
-  virtual void OnExternalFileIngested(DB* /* db */,
-      const ExternalFileIngestionInfo& /* info */) override {
+  void OnExternalFileIngested(
+      DB* /* db */, const ExternalFileIngestionInfo& /* info */) override {
     int k = static_cast<int>(CompactionReason::kExternalSstIngestion);
     compaction_completed_[k]++;
   }
 
-  virtual void OnFlushCompleted(DB* /* db */,
-      const FlushJobInfo& /* info */) override {
+  void OnFlushCompleted(DB* /* db */, const FlushJobInfo& /* info */) override {
     int k = static_cast<int>(CompactionReason::kFlush);
     compaction_completed_[k]++;
   }
@@ -4187,14 +4186,14 @@ class NoopMergeOperator : public MergeOperator {
  public:
   NoopMergeOperator() {}
 
-  virtual bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
-                           MergeOperationOutput* merge_out) const override {
+  bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
+                   MergeOperationOutput* merge_out) const override {
     std::string val("bar");
     merge_out->new_value = val;
     return true;
   }
 
-  virtual const char* Name() const override { return "Noop"; }
+  const char* Name() const override { return "Noop"; }
 };
 
 TEST_F(DBCompactionTest, PartialManualCompaction) {

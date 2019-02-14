@@ -30,8 +30,7 @@ class FlushBlockBySizePolicy : public FlushBlockPolicy {
         align_(align),
         data_block_builder_(data_block_builder) {}
 
-  virtual bool Update(const Slice& key,
-                      const Slice& value) override {
+  bool Update(const Slice& key, const Slice& value) override {
     // it makes no sense to flush when the data block is empty
     if (data_block_builder_.empty()) {
       return false;

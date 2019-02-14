@@ -92,7 +92,7 @@ class BackupEngineImpl : public BackupEngine {
  public:
   BackupEngineImpl(Env* db_env, const BackupableDBOptions& options,
                    bool read_only = false);
-  ~BackupEngineImpl();
+  ~BackupEngineImpl() override;
   Status CreateNewBackupWithMetadata(DB* db, const std::string& app_metadata,
                                      bool flush_before_backup = false,
                                      std::function<void()> progress_callback =
@@ -118,7 +118,7 @@ class BackupEngineImpl : public BackupEngine {
                                restore_options);
   }
 
-  virtual Status VerifyBackup(BackupID backup_id) override;
+  Status VerifyBackup(BackupID backup_id) override;
 
   Status Initialize();
 
@@ -1853,34 +1853,33 @@ class BackupEngineReadOnlyImpl : public BackupEngineReadOnly {
   BackupEngineReadOnlyImpl(Env* db_env, const BackupableDBOptions& options)
       : backup_engine_(new BackupEngineImpl(db_env, options, true)) {}
 
-  virtual ~BackupEngineReadOnlyImpl() {}
+  ~BackupEngineReadOnlyImpl() override {}
 
   // The returned BackupInfos are in chronological order, which means the
   // latest backup comes last.
-  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) override {
+  void GetBackupInfo(std::vector<BackupInfo>* backup_info) override {
     backup_engine_->GetBackupInfo(backup_info);
   }
 
-  virtual void GetCorruptedBackups(
-      std::vector<BackupID>* corrupt_backup_ids) override {
+  void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids) override {
     backup_engine_->GetCorruptedBackups(corrupt_backup_ids);
   }
 
-  virtual Status RestoreDBFromBackup(
+  Status RestoreDBFromBackup(
       BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
       const RestoreOptions& restore_options = RestoreOptions()) override {
     return backup_engine_->RestoreDBFromBackup(backup_id, db_dir, wal_dir,
                                                restore_options);
   }
 
-  virtual Status RestoreDBFromLatestBackup(
+  Status RestoreDBFromLatestBackup(
       const std::string& db_dir, const std::string& wal_dir,
       const RestoreOptions& restore_options = RestoreOptions()) override {
     return backup_engine_->RestoreDBFromLatestBackup(db_dir, wal_dir,
                                                      restore_options);
   }
 
-  virtual Status VerifyBackup(BackupID backup_id) override {
+  Status VerifyBackup(BackupID backup_id) override {
     return backup_engine_->VerifyBackup(backup_id);
   }
 

@@ -28,13 +28,13 @@ namespace {
 class NoSleepEnv : public EnvWrapper {
  public:
   NoSleepEnv(Env* base) : EnvWrapper(base) {}
-  virtual void SleepForMicroseconds(int micros) override {
+  void SleepForMicroseconds(int micros) override {
     fake_time_ += static_cast<uint64_t>(micros);
   }
 
-  virtual uint64_t NowNanos() override { return fake_time_ * 1000; }
+  uint64_t NowNanos() override { return fake_time_ * 1000; }
 
-  virtual uint64_t NowMicros() override { return fake_time_; }
+  uint64_t NowMicros() override { return fake_time_; }
 
  private:
   uint64_t fake_time_ = 6666666666;

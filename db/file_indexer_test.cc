@@ -47,7 +47,7 @@ class FileIndexerTest : public testing::Test {
   FileIndexerTest()
       : kNumLevels(4), files(new std::vector<FileMetaData*>[kNumLevels]) {}
 
-  ~FileIndexerTest() {
+  ~FileIndexerTest() override {
     ClearFiles();
     delete[] files;
   }

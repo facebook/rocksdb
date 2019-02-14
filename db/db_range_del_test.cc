@@ -1111,14 +1111,14 @@ class MockMergeOperator : public MergeOperator {
   // Mock non-associative operator. Non-associativity is expressed by lack of
   // implementation for any `PartialMerge*` functions.
  public:
-  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
-                           MergeOperationOutput* merge_out) const override {
+  bool FullMergeV2(const MergeOperationInput& merge_in,
+                   MergeOperationOutput* merge_out) const override {
     assert(merge_out != nullptr);
     merge_out->new_value = merge_in.operand_list.back().ToString();
     return true;
   }
 
-  virtual const char* Name() const override { return "MockMergeOperator"; }
+  const char* Name() const override { return "MockMergeOperator"; }
 };
 
 TEST_F(DBRangeDelTest, KeyAtOverlappingEndpointReappears) {

@@ -852,18 +852,17 @@ class TestEnv : public EnvWrapper {
       public:
         using Logger::Logv;
         TestLogger(TestEnv *env_ptr) : Logger() { env = env_ptr; }
-        ~TestLogger() {
+        ~TestLogger() override {
           if (!closed_) {
             CloseHelper();
           }
         }
-        virtual void Logv(const char* /*format*/, va_list /*ap*/) override{};
+        void Logv(const char* /*format*/, va_list /*ap*/) override{};
 
        protected:
-        virtual Status CloseImpl() override {
-          return CloseHelper();
-        }
-      private:
+        Status CloseImpl() override { return CloseHelper(); }
+
+       private:
         Status CloseHelper() {
           env->CloseCountInc();;
           return Status::IOError();
@@ -875,8 +874,8 @@ class TestEnv : public EnvWrapper {
 
     int GetCloseCount() { return close_count; }
 
-    virtual Status NewLogger(const std::string& /*fname*/,
-                             std::shared_ptr<Logger>* result) {
+    Status NewLogger(const std::string& /*fname*/,
+                     std::shared_ptr<Logger>* result) override {
       result->reset(new TestLogger(this));
       return Status::OK();
     }

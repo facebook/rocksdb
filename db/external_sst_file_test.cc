@@ -283,7 +283,7 @@ class ExternalSSTFileTest
     return db_->IngestExternalFile(files, opts);
   }
 
-  ~ExternalSSTFileTest() { test::DestroyDir(env_, sst_files_dir_); }
+  ~ExternalSSTFileTest() override { test::DestroyDir(env_, sst_files_dir_); }
 
  protected:
   int last_file_id_ = 0;
@@ -571,7 +571,7 @@ class SstFileWriterCollector : public TablePropertiesCollector {
     return Status::OK();
   }
 
-  virtual UserCollectedProperties GetReadableProperties() const override {
+  UserCollectedProperties GetReadableProperties() const override {
     return UserCollectedProperties{};
   }
 
@@ -585,7 +585,7 @@ class SstFileWriterCollectorFactory : public TablePropertiesCollectorFactory {
  public:
   explicit SstFileWriterCollectorFactory(std::string prefix)
       : prefix_(prefix), num_created_(0) {}
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+  TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context /*context*/) override {
     num_created_++;
     return new SstFileWriterCollector(prefix_);

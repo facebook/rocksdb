@@ -25,29 +25,29 @@ class TwoLevelIndexIterator : public InternalIteratorBase<BlockHandle> {
       TwoLevelIteratorState* state,
       InternalIteratorBase<BlockHandle>* first_level_iter);
 
-  virtual ~TwoLevelIndexIterator() {
+  ~TwoLevelIndexIterator() override {
     first_level_iter_.DeleteIter(false /* is_arena_mode */);
     second_level_iter_.DeleteIter(false /* is_arena_mode */);
     delete state_;
   }
 
-  virtual void Seek(const Slice& target) override;
-  virtual void SeekForPrev(const Slice& target) override;
-  virtual void SeekToFirst() override;
-  virtual void SeekToLast() override;
-  virtual void Next() override;
-  virtual void Prev() override;
+  void Seek(const Slice& target) override;
+  void SeekForPrev(const Slice& target) override;
+  void SeekToFirst() override;
+  void SeekToLast() override;
+  void Next() override;
+  void Prev() override;
 
-  virtual bool Valid() const override { return second_level_iter_.Valid(); }
-  virtual Slice key() const override {
+  bool Valid() const override { return second_level_iter_.Valid(); }
+  Slice key() const override {
     assert(Valid());
     return second_level_iter_.key();
   }
-  virtual BlockHandle value() const override {
+  BlockHandle value() const override {
     assert(Valid());
     return second_level_iter_.value();
   }
-  virtual Status status() const override {
+  Status status() const override {
     if (!first_level_iter_.status().ok()) {
       assert(second_level_iter_.iter() == nullptr);
       return first_level_iter_.status();
@@ -58,10 +58,10 @@ class TwoLevelIndexIterator : public InternalIteratorBase<BlockHandle> {
       return status_;
     }
   }
-  virtual void SetPinnedItersMgr(
+  void SetPinnedItersMgr(
       PinnedIteratorsManager* /*pinned_iters_mgr*/) override {}
-  virtual bool IsKeyPinned() const override { return false; }
-  virtual bool IsValuePinned() const override { return false; }
+  bool IsKeyPinned() const override { return false; }
+  bool IsValuePinned() const override { return false; }
 
  private:
   void SaveError(const Status& s) {

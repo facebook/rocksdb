@@ -50,13 +50,14 @@ class DBIteratorTest : public DBTestBase,
 
 class FlushBlockEveryKeyPolicy : public FlushBlockPolicy {
  public:
-  virtual bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
+  bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
     if (!start_) {
       start_ = true;
       return false;
     }
     return true;
   }
+
  private:
   bool start_ = false;
 };

@@ -459,18 +459,17 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
       }
     }
 
-    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& /* unused */) override {
+    Status PutCF(uint32_t column_family_id, const Slice& key,
+                 const Slice& /* unused */) override {
       RecordKey(column_family_id, key);
       return Status::OK();
     }
-    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
-                           const Slice& /* unused */) override {
+    Status MergeCF(uint32_t column_family_id, const Slice& key,
+                   const Slice& /* unused */) override {
       RecordKey(column_family_id, key);
       return Status::OK();
     }
-    virtual Status DeleteCF(uint32_t column_family_id,
-                            const Slice& key) override {
+    Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
       RecordKey(column_family_id, key);
       return Status::OK();
     }

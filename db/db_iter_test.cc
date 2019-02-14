@@ -116,12 +116,12 @@ class TestIterator : public InternalIterator {
   // Number of operations done on this iterator since construction.
   size_t steps() const { return steps_; }
 
-  virtual bool Valid() const override {
+  bool Valid() const override {
     assert(initialized_);
     return valid_;
   }
 
-  virtual void SeekToFirst() override {
+  void SeekToFirst() override {
     assert(initialized_);
     ++steps_;
     DeleteCurrentIfNeeded();
@@ -129,7 +129,7 @@ class TestIterator : public InternalIterator {
     iter_ = 0;
   }
 
-  virtual void SeekToLast() override {
+  void SeekToLast() override {
     assert(initialized_);
     ++steps_;
     DeleteCurrentIfNeeded();
@@ -137,7 +137,7 @@ class TestIterator : public InternalIterator {
     iter_ = data_.size() - 1;
   }
 
-  virtual void Seek(const Slice& target) override {
+  void Seek(const Slice& target) override {
     assert(initialized_);
     SeekToFirst();
     ++steps_;
@@ -154,13 +154,13 @@ class TestIterator : public InternalIterator {
     }
   }
 
-  virtual void SeekForPrev(const Slice& target) override {
+  void SeekForPrev(const Slice& target) override {
     assert(initialized_);
     DeleteCurrentIfNeeded();
     SeekForPrevImpl(target, &cmp);
   }
 
-  virtual void Next() override {
+  void Next() override {
     assert(initialized_);
     assert(valid_);
     assert(iter_ < data_.size());
@@ -174,7 +174,7 @@ class TestIterator : public InternalIterator {
     valid_ = iter_ < data_.size();
   }
 
-  virtual void Prev() override {
+  void Prev() override {
     assert(initialized_);
     assert(valid_);
     assert(iter_ < data_.size());
@@ -188,23 +188,23 @@ class TestIterator : public InternalIterator {
     }
   }
 
-  virtual Slice key() const override {
+  Slice key() const override {
     assert(initialized_);
     return data_[iter_].first;
   }
 
-  virtual Slice value() const override {
+  Slice value() const override {
     assert(initialized_);
     return data_[iter_].second;
   }
 
-  virtual Status status() const override {
+  Status status() const override {
     assert(initialized_);
     return Status::OK();
   }
 
-  virtual bool IsKeyPinned() const override { return true; }
-  virtual bool IsValuePinned() const override { return true; }
+  bool IsKeyPinned() const override { return true; }
+  bool IsValuePinned() const override { return true; }
 
  private:
   bool initialized_;

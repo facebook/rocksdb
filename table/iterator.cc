@@ -110,13 +110,13 @@ namespace {
 class EmptyIterator : public Iterator {
  public:
   explicit EmptyIterator(const Status& s) : status_(s) { }
-  virtual bool Valid() const override { return false; }
-  virtual void Seek(const Slice& /*target*/) override {}
-  virtual void SeekForPrev(const Slice& /*target*/) override {}
-  virtual void SeekToFirst() override {}
-  virtual void SeekToLast() override {}
-  virtual void Next() override { assert(false); }
-  virtual void Prev() override { assert(false); }
+  bool Valid() const override { return false; }
+  void Seek(const Slice& /*target*/) override {}
+  void SeekForPrev(const Slice& /*target*/) override {}
+  void SeekToFirst() override {}
+  void SeekToLast() override {}
+  void Next() override { assert(false); }
+  void Prev() override { assert(false); }
   Slice key() const override {
     assert(false);
     return Slice();
@@ -125,7 +125,7 @@ class EmptyIterator : public Iterator {
     assert(false);
     return Slice();
   }
-  virtual Status status() const override { return status_; }
+  Status status() const override { return status_; }
 
  private:
   Status status_;
@@ -135,13 +135,13 @@ template <class TValue = Slice>
 class EmptyInternalIterator : public InternalIteratorBase<TValue> {
  public:
   explicit EmptyInternalIterator(const Status& s) : status_(s) {}
-  virtual bool Valid() const override { return false; }
-  virtual void Seek(const Slice& /*target*/) override {}
-  virtual void SeekForPrev(const Slice& /*target*/) override {}
-  virtual void SeekToFirst() override {}
-  virtual void SeekToLast() override {}
-  virtual void Next() override { assert(false); }
-  virtual void Prev() override { assert(false); }
+  bool Valid() const override { return false; }
+  void Seek(const Slice& /*target*/) override {}
+  void SeekForPrev(const Slice& /*target*/) override {}
+  void SeekToFirst() override {}
+  void SeekToLast() override {}
+  void Next() override { assert(false); }
+  void Prev() override { assert(false); }
   Slice key() const override {
     assert(false);
     return Slice();
@@ -150,7 +150,7 @@ class EmptyInternalIterator : public InternalIteratorBase<TValue> {
     assert(false);
     return TValue();
   }
-  virtual Status status() const override { return status_; }
+  Status status() const override { return status_; }
 
  private:
   Status status_;

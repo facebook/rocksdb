@@ -61,7 +61,7 @@ class LogTest : public ::testing::TestWithParam<int> {
       force_eof_position_(0),
       returned_partial_(false) { }
 
-    virtual Status Read(size_t n, Slice* result, char* scratch) override {
+    Status Read(size_t n, Slice* result, char* scratch) override {
       EXPECT_TRUE(!returned_partial_) << "must not Read() after eof/error";
 
       if (force_error_) {
@@ -100,7 +100,7 @@ class LogTest : public ::testing::TestWithParam<int> {
       return Status::OK();
     }
 
-    virtual Status Skip(uint64_t n) override {
+    Status Skip(uint64_t n) override {
       if (n > contents_.size()) {
         contents_.clear();
         return Status::NotFound("in-memory file skipepd past end");
@@ -118,7 +118,7 @@ class LogTest : public ::testing::TestWithParam<int> {
     std::string message_;
 
     ReportCollector() : dropped_bytes_(0) { }
-    virtual void Corruption(size_t bytes, const Status& status) override {
+    void Corruption(size_t bytes, const Status& status) override {
       dropped_bytes_ += bytes;
       message_.append(status.ToString());
     }
@@ -661,7 +661,7 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
     std::string message_;
 
     ReportCollector() : dropped_bytes_(0) {}
-    virtual void Corruption(size_t bytes, const Status& status) override {
+    void Corruption(size_t bytes, const Status& status) override {
       dropped_bytes_ += bytes;
       message_.append(status.ToString());
     }

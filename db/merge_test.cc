@@ -38,11 +38,8 @@ class CountMergeOperator : public AssociativeMergeOperator {
     mergeOperator_ = MergeOperators::CreateUInt64AddOperator();
   }
 
-  virtual bool Merge(const Slice& key,
-                     const Slice* existing_value,
-                     const Slice& value,
-                     std::string* new_value,
-                     Logger* logger) const override {
+  bool Merge(const Slice& key, const Slice* existing_value, const Slice& value,
+             std::string* new_value, Logger* logger) const override {
     assert(new_value->empty());
     ++num_merge_operator_calls;
     if (existing_value == nullptr) {
@@ -58,19 +55,17 @@ class CountMergeOperator : public AssociativeMergeOperator {
         logger);
   }
 
-  virtual bool PartialMergeMulti(const Slice& key,
-                                 const std::deque<Slice>& operand_list,
-                                 std::string* new_value,
-                                 Logger* logger) const override {
+  bool PartialMergeMulti(const Slice& key,
+                         const std::deque<Slice>& operand_list,
+                         std::string* new_value,
+                         Logger* logger) const override {
     assert(new_value->empty());
     ++num_partial_merge_calls;
     return mergeOperator_->PartialMergeMulti(key, operand_list, new_value,
                                              logger);
   }
 
-  virtual const char* Name() const override {
-    return "UInt64AddOperator";
-  }
+  const char* Name() const override { return "UInt64AddOperator"; }
 
  private:
   std::shared_ptr<MergeOperator> mergeOperator_;
@@ -230,7 +225,7 @@ class MergeBasedCounters : public Counters {
   }
 
   // mapped to a rocksdb Merge operation
-  virtual bool add(const std::string& key, uint64_t value) override {
+  bool add(const std::string& key, uint64_t value) override {
     char encoded[sizeof(uint64_t)];
     EncodeFixed64(encoded, value);
     Slice slice(encoded, sizeof(uint64_t));

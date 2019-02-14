@@ -46,22 +46,20 @@ class EventListenerTest : public DBTestBase {
 };
 
 struct TestPropertiesCollector : public rocksdb::TablePropertiesCollector {
-  virtual rocksdb::Status AddUserKey(const rocksdb::Slice& /*key*/,
-                                     const rocksdb::Slice& /*value*/,
-                                     rocksdb::EntryType /*type*/,
-                                     rocksdb::SequenceNumber /*seq*/,
-                                     uint64_t /*file_size*/) override {
+  rocksdb::Status AddUserKey(const rocksdb::Slice& /*key*/,
+                             const rocksdb::Slice& /*value*/,
+                             rocksdb::EntryType /*type*/,
+                             rocksdb::SequenceNumber /*seq*/,
+                             uint64_t /*file_size*/) override {
     return Status::OK();
   }
-  virtual rocksdb::Status Finish(
+  rocksdb::Status Finish(
       rocksdb::UserCollectedProperties* properties) override {
     properties->insert({"0", "1"});
     return Status::OK();
   }
 
-  virtual const char* Name() const override {
-    return "TestTablePropertiesCollector";
-  }
+  const char* Name() const override { return "TestTablePropertiesCollector"; }
 
   rocksdb::UserCollectedProperties GetReadableProperties() const override {
     rocksdb::UserCollectedProperties ret;
@@ -72,7 +70,7 @@ struct TestPropertiesCollector : public rocksdb::TablePropertiesCollector {
 
 class TestPropertiesCollectorFactory : public TablePropertiesCollectorFactory {
  public:
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+  TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context /*context*/) override {
     return new TestPropertiesCollector;
   }
@@ -603,7 +601,7 @@ class TableFileCreationListener : public EventListener {
 
     Status NewWritableFile(const std::string& fname,
                            std::unique_ptr<WritableFile>* result,
-                           const EnvOptions& options) {
+                           const EnvOptions& options) override {
       if (fname.size() > 4 && fname.substr(fname.size() - 4) == ".sst") {
         if (!status_.ok()) {
           return status_;

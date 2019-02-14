@@ -63,9 +63,7 @@ class BloomTest : public testing::Test {
   BloomTest() : policy_(
       NewBloomFilterPolicy(FLAGS_bits_per_key)) {}
 
-  ~BloomTest() {
-    delete policy_;
-  }
+  ~BloomTest() override { delete policy_; }
 
   void Reset() {
     keys_.clear();
@@ -192,9 +190,7 @@ class FullBloomTest : public testing::Test {
     Reset();
   }
 
-  ~FullBloomTest() {
-    delete policy_;
-  }
+  ~FullBloomTest() override { delete policy_; }
 
   FullFilterBitsBuilder* GetFullFilterBitsBuilder() {
     return dynamic_cast<FullFilterBitsBuilder*>(bits_builder_.get());

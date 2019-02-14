@@ -38,7 +38,7 @@ class DeleteSchedulerTest : public testing::Test {
     }
   }
 
-  ~DeleteSchedulerTest() {
+  ~DeleteSchedulerTest() override {
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
     rocksdb::SyncPoint::GetInstance()->LoadDependency({});
     rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();

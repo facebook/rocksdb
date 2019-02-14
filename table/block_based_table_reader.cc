@@ -259,7 +259,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
   }
 
   // return a two-level iterator: first level is on the partition index
-  virtual InternalIteratorBase<BlockHandle>* NewIterator(
+  InternalIteratorBase<BlockHandle>* NewIterator(
       IndexBlockIter* /*iter*/ = nullptr, bool /*dont_care*/ = true,
       bool fill_cache = true) override {
     Statistics* kNullStats = nullptr;
@@ -294,7 +294,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
     // in its destructor.
   }
 
-  virtual void CacheDependencies(bool pin) override {
+  void CacheDependencies(bool pin) override {
     // Before read partitions, prefetch them to avoid lots of IOs
     auto rep = table_->rep_;
     IndexBlockIter biter;
@@ -362,12 +362,10 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
     }
   }
 
-  virtual size_t size() const override { return index_block_->size(); }
-  virtual size_t usable_size() const override {
-    return index_block_->usable_size();
-  }
+  size_t size() const override { return index_block_->size(); }
+  size_t usable_size() const override { return index_block_->usable_size(); }
 
-  virtual size_t ApproximateMemoryUsage() const override {
+  size_t ApproximateMemoryUsage() const override {
     assert(index_block_);
     size_t usage = index_block_->ApproximateMemoryUsage();
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
@@ -436,7 +434,7 @@ class BinarySearchIndexReader : public IndexReader {
     return s;
   }
 
-  virtual InternalIteratorBase<BlockHandle>* NewIterator(
+  InternalIteratorBase<BlockHandle>* NewIterator(
       IndexBlockIter* iter = nullptr, bool /*dont_care*/ = true,
       bool /*dont_care*/ = true) override {
     Statistics* kNullStats = nullptr;
@@ -447,12 +445,10 @@ class BinarySearchIndexReader : public IndexReader {
         index_key_includes_seq_, index_value_is_full_);
   }
 
-  virtual size_t size() const override { return index_block_->size(); }
-  virtual size_t usable_size() const override {
-    return index_block_->usable_size();
-  }
+  size_t size() const override { return index_block_->size(); }
+  size_t usable_size() const override { return index_block_->usable_size(); }
 
-  virtual size_t ApproximateMemoryUsage() const override {
+  size_t ApproximateMemoryUsage() const override {
     assert(index_block_);
     size_t usage = index_block_->ApproximateMemoryUsage();
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
@@ -566,7 +562,7 @@ class HashIndexReader : public IndexReader {
     return Status::OK();
   }
 
-  virtual InternalIteratorBase<BlockHandle>* NewIterator(
+  InternalIteratorBase<BlockHandle>* NewIterator(
       IndexBlockIter* iter = nullptr, bool total_order_seek = true,
       bool /*dont_care*/ = true) override {
     Statistics* kNullStats = nullptr;
@@ -578,12 +574,10 @@ class HashIndexReader : public IndexReader {
         false /* block_contents_pinned */, prefix_index_.get());
   }
 
-  virtual size_t size() const override { return index_block_->size(); }
-  virtual size_t usable_size() const override {
-    return index_block_->usable_size();
-  }
+  size_t size() const override { return index_block_->size(); }
+  size_t usable_size() const override { return index_block_->usable_size(); }
 
-  virtual size_t ApproximateMemoryUsage() const override {
+  size_t ApproximateMemoryUsage() const override {
     assert(index_block_);
     size_t usage = index_block_->ApproximateMemoryUsage();
     usage += prefixes_contents_.usable_size();
@@ -610,7 +604,7 @@ class HashIndexReader : public IndexReader {
     assert(index_block_ != nullptr);
   }
 
-  ~HashIndexReader() {}
+  ~HashIndexReader() override {}
 
   std::unique_ptr<Block> index_block_;
   std::unique_ptr<BlockPrefixIndex> prefix_index_;

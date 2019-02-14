@@ -73,8 +73,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
     current_ = this;
   }
 
-  ~CacheTest() {
-  }
+  ~CacheTest() override {}
 
   std::shared_ptr<Cache> NewCache(size_t capacity) {
     auto type = GetParam();

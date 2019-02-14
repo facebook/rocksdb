@@ -112,39 +112,39 @@ class LoggingForwardVectorIterator : public InternalIterator {
     assert(keys_.size() == values_.size());
   }
 
-  virtual bool Valid() const override { return current_ < keys_.size(); }
+  bool Valid() const override { return current_ < keys_.size(); }
 
-  virtual void SeekToFirst() override {
+  void SeekToFirst() override {
     log.emplace_back(Action::Type::SEEK_TO_FIRST);
     current_ = 0;
   }
-  virtual void SeekToLast() override { assert(false); }
+  void SeekToLast() override { assert(false); }
 
-  virtual void Seek(const Slice& target) override {
+  void Seek(const Slice& target) override {
     log.emplace_back(Action::Type::SEEK, target.ToString());
     current_ = std::lower_bound(keys_.begin(), keys_.end(), target.ToString()) -
                keys_.begin();
   }
 
-  virtual void SeekForPrev(const Slice& /*target*/) override { assert(false); }
+  void SeekForPrev(const Slice& /*target*/) override { assert(false); }
 
-  virtual void Next() override {
+  void Next() override {
     assert(Valid());
     log.emplace_back(Action::Type::NEXT);
     current_++;
   }
-  virtual void Prev() override { assert(false); }
+  void Prev() override { assert(false); }
 
-  virtual Slice key() const override {
+  Slice key() const override {
     assert(Valid());
     return Slice(keys_[current_]);
   }
-  virtual Slice value() const override {
+  Slice value() const override {
     assert(Valid());
     return Slice(values_[current_]);
   }
 
-  virtual Status status() const override { return Status::OK(); }
+  Status status() const override { return Status::OK(); }
 
   std::vector<Action> log;
 
@@ -158,22 +158,20 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
  public:
   FakeCompaction() = default;
 
-  virtual int level(size_t /*compaction_input_level*/) const override {
-    return 0;
-  }
-  virtual bool KeyNotExistsBeyondOutputLevel(
+  int level(size_t /*compaction_input_level*/) const override { return 0; }
+  bool KeyNotExistsBeyondOutputLevel(
       const Slice& /*user_key*/,
       std::vector<size_t>* /*level_ptrs*/) const override {
     return is_bottommost_level || key_not_exists_beyond_output_level;
   }
-  virtual bool bottommost_level() const override { return is_bottommost_level; }
-  virtual int number_levels() const override { return 1; }
-  virtual Slice GetLargestUserKey() const override {
+  bool bottommost_level() const override { return is_bottommost_level; }
+  int number_levels() const override { return 1; }
+  Slice GetLargestUserKey() const override {
     return "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
   }
-  virtual bool allow_ingest_behind() const override { return false; }
+  bool allow_ingest_behind() const override { return false; }
 
-  virtual bool preserve_deletes() const override { return false; }
+  bool preserve_deletes() const override { return false; }
 
   bool key_not_exists_beyond_output_level = false;
 
@@ -377,10 +375,9 @@ TEST_P(CompactionIteratorTest, RangeDeletionWithSnapshots) {
 
 TEST_P(CompactionIteratorTest, CompactionFilterSkipUntil) {
   class Filter : public CompactionFilter {
-    virtual Decision FilterV2(int /*level*/, const Slice& key, ValueType t,
-                              const Slice& existing_value,
-                              std::string* /*new_value*/,
-                              std::string* skip_until) const override {
+    Decision FilterV2(int /*level*/, const Slice& key, ValueType t,
+                      const Slice& existing_value, std::string* /*new_value*/,
+                      std::string* skip_until) const override {
       std::string k = key.ToString();
       std::string v = existing_value.ToString();
       // See InitIterators() call below for the sequence of keys and their
@@ -560,10 +557,9 @@ TEST_P(CompactionIteratorTest, ShuttingDownInMerge) {
 
 TEST_P(CompactionIteratorTest, SingleMergeOperand) {
   class Filter : public CompactionFilter {
-    virtual Decision FilterV2(int /*level*/, const Slice& key, ValueType t,
-                              const Slice& existing_value,
-                              std::string* /*new_value*/,
-                              std::string* /*skip_until*/) const override {
+    Decision FilterV2(int /*level*/, const Slice& key, ValueType t,
+                      const Slice& existing_value, std::string* /*new_value*/,
+                      std::string* /*skip_until*/) const override {
       std::string k = key.ToString();
       std::string v = existing_value.ToString();
 

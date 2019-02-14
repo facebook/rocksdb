@@ -1869,7 +1869,7 @@ void ChangeCompactionStyleCommand::DoCommand() {
 namespace {
 
 struct StdErrReporter : public log::Reader::Reporter {
-  virtual void Corruption(size_t /*bytes*/, const Status& s) override {
+  void Corruption(size_t /*bytes*/, const Status& s) override {
     std::cerr << "Corruption detected in log file " << s.ToString() << "\n";
   }
 };
@@ -1894,74 +1894,71 @@ class InMemoryHandler : public WriteBatch::Handler {
     }
   }
 
-  virtual Status PutCF(uint32_t cf, const Slice& key,
-                       const Slice& value) override {
+  Status PutCF(uint32_t cf, const Slice& key, const Slice& value) override {
     row_ << "PUT(" << cf << ") : ";
     commonPutMerge(key, value);
     return Status::OK();
   }
 
-  virtual Status MergeCF(uint32_t cf, const Slice& key,
-                         const Slice& value) override {
+  Status MergeCF(uint32_t cf, const Slice& key, const Slice& value) override {
     row_ << "MERGE(" << cf << ") : ";
     commonPutMerge(key, value);
     return Status::OK();
   }
 
-  virtual Status MarkNoop(bool)
-                          override {
+  Status MarkNoop(bool) override {
     row_ << "NOOP ";
     return Status::OK();
   }
 
-  virtual Status DeleteCF(uint32_t cf, const Slice& key) override {
+  Status DeleteCF(uint32_t cf, const Slice& key) override {
     row_ << "DELETE(" << cf << ") : ";
     row_ << LDBCommand::StringToHex(key.ToString()) << " ";
     return Status::OK();
   }
 
-  virtual Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
+  Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
     row_ << "SINGLE_DELETE(" << cf << ") : ";
     row_ << LDBCommand::StringToHex(key.ToString()) << " ";
     return Status::OK();
   }
 
-  virtual Status DeleteRangeCF(uint32_t cf, const Slice& begin_key,
-                               const Slice& end_key) override {
+  Status DeleteRangeCF(uint32_t cf, const Slice& begin_key,
+                       const Slice& end_key) override {
     row_ << "DELETE_RANGE(" << cf << ") : ";
     row_ << LDBCommand::StringToHex(begin_key.ToString()) << " ";
     row_ << LDBCommand::StringToHex(end_key.ToString()) << " ";
     return Status::OK();
   }
 
-  virtual Status MarkBeginPrepare(bool unprepare) override {
+  Status MarkBeginPrepare(bool unprepare) override {
     row_ << "BEGIN_PREPARE(";
     row_ << (unprepare ? "true" : "false") << ") ";
     return Status::OK();
   }
 
-  virtual Status MarkEndPrepare(const Slice& xid) override {
+  Status MarkEndPrepare(const Slice& xid) override {
     row_ << "END_PREPARE(";
     row_ << LDBCommand::StringToHex(xid.ToString()) << ") ";
     return Status::OK();
   }
 
-  virtual Status MarkRollback(const Slice& xid) override {
+  Status MarkRollback(const Slice& xid) override {
     row_ << "ROLLBACK(";
     row_ << LDBCommand::StringToHex(xid.ToString()) << ") ";
     return Status::OK();
   }
 
-  virtual Status MarkCommit(const Slice& xid) override {
+  Status MarkCommit(const Slice& xid) override {
     row_ << "COMMIT(";
     row_ << LDBCommand::StringToHex(xid.ToString()) << ") ";
     return Status::OK();
   }
 
-  virtual ~InMemoryHandler() {}
+  ~InMemoryHandler() override {}
 
  protected:
-  virtual bool WriteAfterCommit() const override { return write_after_commit_; }
+  bool WriteAfterCommit() const override { return write_after_commit_; }
 
  private:
   std::stringstream& row_;

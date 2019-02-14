@@ -32,7 +32,7 @@ class DBBloomFilterTestWithParam
  public:
   DBBloomFilterTestWithParam() : DBTestBase("/db_bloom_filter_tests") {}
 
-  ~DBBloomFilterTestWithParam() {}
+  ~DBBloomFilterTestWithParam() override {}
 
   void SetUp() override {
     use_block_based_filter_ = std::get<0>(GetParam());
@@ -642,7 +642,7 @@ class WrappedBloom : public FilterPolicy {
   explicit WrappedBloom(int bits_per_key)
       : filter_(NewBloomFilterPolicy(bits_per_key)), counter_(0) {}
 
-  ~WrappedBloom() { delete filter_; }
+  ~WrappedBloom() override { delete filter_; }
 
   const char* Name() const override { return "WrappedRocksDbFilterPolicy"; }
 
@@ -823,7 +823,7 @@ class BloomStatsTestWithParam
     DestroyAndReopen(options_);
   }
 
-  ~BloomStatsTestWithParam() {
+  ~BloomStatsTestWithParam() override {
     get_perf_context()->Reset();
     Destroy(options_);
   }

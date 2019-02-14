@@ -22,20 +22,16 @@ class BytewiseComparatorImpl : public Comparator {
  public:
   BytewiseComparatorImpl() { }
 
-  virtual const char* Name() const override {
-    return "leveldb.BytewiseComparator";
-  }
+  const char* Name() const override { return "leveldb.BytewiseComparator"; }
 
-  virtual int Compare(const Slice& a, const Slice& b) const override {
+  int Compare(const Slice& a, const Slice& b) const override {
     return a.compare(b);
   }
 
-  virtual bool Equal(const Slice& a, const Slice& b) const override {
-    return a == b;
-  }
+  bool Equal(const Slice& a, const Slice& b) const override { return a == b; }
 
-  virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const override {
+  void FindShortestSeparator(std::string* start,
+                             const Slice& limit) const override {
     // Find length of common prefix
     size_t min_length = std::min(start->size(), limit.size());
     size_t diff_index = 0;
@@ -85,7 +81,7 @@ class BytewiseComparatorImpl : public Comparator {
     }
   }
 
-  virtual void FindShortSuccessor(std::string* key) const override {
+  void FindShortSuccessor(std::string* key) const override {
     // Find first character that can be incremented
     size_t n = key->size();
     for (size_t i = 0; i < n; i++) {
@@ -99,8 +95,8 @@ class BytewiseComparatorImpl : public Comparator {
     // *key is a run of 0xffs.  Leave it alone.
   }
 
-  virtual bool IsSameLengthImmediateSuccessor(const Slice& s,
-                                              const Slice& t) const override {
+  bool IsSameLengthImmediateSuccessor(const Slice& s,
+                                      const Slice& t) const override {
     if (s.size() != t.size() || s.size() == 0) {
       return false;
     }
@@ -125,7 +121,7 @@ class BytewiseComparatorImpl : public Comparator {
     }
   }
 
-  virtual bool CanKeysWithDifferentByteContentsBeEqual() const override {
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
     return false;
   }
 };
@@ -134,11 +130,11 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
  public:
   ReverseBytewiseComparatorImpl() { }
 
-  virtual const char* Name() const override {
+  const char* Name() const override {
     return "rocksdb.ReverseBytewiseComparator";
   }
 
-  virtual int Compare(const Slice& a, const Slice& b) const override {
+  int Compare(const Slice& a, const Slice& b) const override {
     return -a.compare(b);
   }
 
@@ -193,7 +189,7 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
     // Don't do anything for simplicity.
   }
 
-  virtual bool CanKeysWithDifferentByteContentsBeEqual() const override {
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
     return false;
   }
 };

@@ -289,7 +289,7 @@ class MemTableIterator : public InternalIterator {
     }
   }
 
-  ~MemTableIterator() {
+  ~MemTableIterator() override {
 #ifndef NDEBUG
     // Assert that the MemTableIterator is never deleted while
     // Pinning is Enabled.
@@ -303,15 +303,14 @@ class MemTableIterator : public InternalIterator {
   }
 
 #ifndef NDEBUG
-  virtual void SetPinnedItersMgr(
-      PinnedIteratorsManager* pinned_iters_mgr) override {
+  void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     pinned_iters_mgr_ = pinned_iters_mgr;
   }
   PinnedIteratorsManager* pinned_iters_mgr_ = nullptr;
 #endif
 
-  virtual bool Valid() const override { return valid_; }
-  virtual void Seek(const Slice& k) override {
+  bool Valid() const override { return valid_; }
+  void Seek(const Slice& k) override {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_ != nullptr) {
@@ -327,7 +326,7 @@ class MemTableIterator : public InternalIterator {
     iter_->Seek(k, nullptr);
     valid_ = iter_->Valid();
   }
-  virtual void SeekForPrev(const Slice& k) override {
+  void SeekForPrev(const Slice& k) override {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_ != nullptr) {
@@ -349,44 +348,44 @@ class MemTableIterator : public InternalIterator {
       Prev();
     }
   }
-  virtual void SeekToFirst() override {
+  void SeekToFirst() override {
     iter_->SeekToFirst();
     valid_ = iter_->Valid();
   }
-  virtual void SeekToLast() override {
+  void SeekToLast() override {
     iter_->SeekToLast();
     valid_ = iter_->Valid();
   }
-  virtual void Next() override {
+  void Next() override {
     PERF_COUNTER_ADD(next_on_memtable_count, 1);
     assert(Valid());
     iter_->Next();
     valid_ = iter_->Valid();
   }
-  virtual void Prev() override {
+  void Prev() override {
     PERF_COUNTER_ADD(prev_on_memtable_count, 1);
     assert(Valid());
     iter_->Prev();
     valid_ = iter_->Valid();
   }
-  virtual Slice key() const override {
+  Slice key() const override {
     assert(Valid());
     return GetLengthPrefixedSlice(iter_->key());
   }
-  virtual Slice value() const override {
+  Slice value() const override {
     assert(Valid());
     Slice key_slice = GetLengthPrefixedSlice(iter_->key());
     return GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
   }
 
-  virtual Status status() const override { return Status::OK(); }
+  Status status() const override { return Status::OK(); }
 
-  virtual bool IsKeyPinned() const override {
+  bool IsKeyPinned() const override {
     // memtable data is always pinned
     return true;
   }
 
-  virtual bool IsValuePinned() const override {
+  bool IsValuePinned() const override {
     // memtable value is always pinned, except if we allow inplace update.
     return value_pinned_;
   }

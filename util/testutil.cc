@@ -87,11 +87,9 @@ class Uint64ComparatorImpl : public Comparator {
  public:
   Uint64ComparatorImpl() {}
 
-  virtual const char* Name() const override {
-    return "rocksdb.Uint64Comparator";
-  }
+  const char* Name() const override { return "rocksdb.Uint64Comparator"; }
 
-  virtual int Compare(const Slice& a, const Slice& b) const override {
+  int Compare(const Slice& a, const Slice& b) const override {
     assert(a.size() == sizeof(uint64_t) && b.size() == sizeof(uint64_t));
     const uint64_t* left = reinterpret_cast<const uint64_t*>(a.data());
     const uint64_t* right = reinterpret_cast<const uint64_t*>(b.data());
@@ -108,14 +106,12 @@ class Uint64ComparatorImpl : public Comparator {
     }
   }
 
-  virtual void FindShortestSeparator(std::string* /*start*/,
-                                     const Slice& /*limit*/) const override {
+  void FindShortestSeparator(std::string* /*start*/,
+                             const Slice& /*limit*/) const override {
     return;
   }
 
-  virtual void FindShortSuccessor(std::string* /*key*/) const override {
-    return;
-  }
+  void FindShortSuccessor(std::string* /*key*/) const override { return; }
 };
 }  // namespace
 

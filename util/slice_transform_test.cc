@@ -57,7 +57,7 @@ class SliceTransformDBTest : public testing::Test {
     EXPECT_OK(DestroyDB(dbname_, last_options_));
   }
 
-  ~SliceTransformDBTest() {
+  ~SliceTransformDBTest() override {
     delete db_;
     EXPECT_OK(DestroyDB(dbname_, last_options_));
   }

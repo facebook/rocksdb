@@ -568,8 +568,8 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
 
   WriteBatch* batch() { return &batch_; }
 
-  virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                       const Slice& value) override {
+  Status PutCF(uint32_t column_family_id, const Slice& key,
+               const Slice& value) override {
     if (column_family_id != default_cf_id_) {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
@@ -579,8 +579,7 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
     return s;
   }
 
-  virtual Status DeleteCF(uint32_t column_family_id,
-                          const Slice& key) override {
+  Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
     if (column_family_id != default_cf_id_) {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
@@ -600,17 +599,17 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
     return s;
   }
 
-  virtual Status SingleDeleteCF(uint32_t /*column_family_id*/,
-                                const Slice& /*key*/) override {
+  Status SingleDeleteCF(uint32_t /*column_family_id*/,
+                        const Slice& /*key*/) override {
     return Status::NotSupported("Not supported operation in blob db.");
   }
 
-  virtual Status MergeCF(uint32_t /*column_family_id*/, const Slice& /*key*/,
-                         const Slice& /*value*/) override {
+  Status MergeCF(uint32_t /*column_family_id*/, const Slice& /*key*/,
+                 const Slice& /*value*/) override {
     return Status::NotSupported("Not supported operation in blob db.");
   }
 
-  virtual void LogData(const Slice& blob) override { batch_.PutLogData(blob); }
+  void LogData(const Slice& blob) override { batch_.PutLogData(blob); }
 };
 
 Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
@@ -1405,7 +1404,7 @@ class BlobDBImpl::GarbageCollectionWriteCallback : public WriteCallback {
                                  SequenceNumber upper_bound)
       : cfd_(cfd), key_(key), upper_bound_(upper_bound) {}
 
-  virtual Status Callback(DB* db) override {
+  Status Callback(DB* db) override {
     auto* db_impl = reinterpret_cast<DBImpl*>(db);
     auto* sv = db_impl->GetAndRefSuperVersion(cfd_);
     SequenceNumber latest_seq = 0;
@@ -1432,7 +1431,7 @@ class BlobDBImpl::GarbageCollectionWriteCallback : public WriteCallback {
     return s;
   }
 
-  virtual bool AllowWriteBatching() override { return false; }
+  bool AllowWriteBatching() override { return false; }
 
  private:
   ColumnFamilyData* cfd_;

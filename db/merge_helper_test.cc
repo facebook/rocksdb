@@ -20,7 +20,7 @@ class MergeHelperTest : public testing::Test {
  public:
   MergeHelperTest() { env_ = Env::Default(); }
 
-  ~MergeHelperTest() = default;
+  ~MergeHelperTest() override = default;
 
   Status Run(SequenceNumber stop_before, bool at_bottom,
              SequenceNumber latest_snapshot = 0) {

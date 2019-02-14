@@ -15,7 +15,7 @@ namespace rocksdb {
 class LRUCacheTest : public testing::Test {
  public:
   LRUCacheTest() {}
-  ~LRUCacheTest() { DeleteCache(); }
+  ~LRUCacheTest() override { DeleteCache(); }
 
   void DeleteCache() {
     if (cache_ != nullptr) {

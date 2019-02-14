@@ -48,7 +48,7 @@ class BlobDBTest : public testing::Test {
     assert(s.ok());
   }
 
-  ~BlobDBTest() {
+  ~BlobDBTest() override {
     SyncPoint::GetInstance()->ClearAllCallBacks();
     Destroy();
   }
@@ -1234,12 +1234,12 @@ TEST_F(BlobDBTest, InlineSmallValues) {
 
 TEST_F(BlobDBTest, CompactionFilterNotSupported) {
   class TestCompactionFilter : public CompactionFilter {
-    virtual const char *Name() const { return "TestCompactionFilter"; }
+    const char *Name() const override { return "TestCompactionFilter"; }
   };
   class TestCompactionFilterFactory : public CompactionFilterFactory {
-    virtual const char *Name() const { return "TestCompactionFilterFactory"; }
-    virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-        const CompactionFilter::Context & /*context*/) {
+    const char *Name() const override { return "TestCompactionFilterFactory"; }
+    std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+        const CompactionFilter::Context & /*context*/) override {
       return std::unique_ptr<CompactionFilter>(new TestCompactionFilter());
     }
   };

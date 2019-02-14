@@ -134,7 +134,9 @@ class ExternalSSTFileBasicTest
         write_global_seqno, verify_checksums_before_ingest, true_data);
   }
 
-  ~ExternalSSTFileBasicTest() { test::DestroyDir(env_, sst_files_dir_); }
+  ~ExternalSSTFileBasicTest() override {
+    test::DestroyDir(env_, sst_files_dir_);
+  }
 
  protected:
   std::string sst_files_dir_;

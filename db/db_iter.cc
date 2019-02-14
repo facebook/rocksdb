@@ -152,7 +152,7 @@ class DBIter final: public Iterator {
       iter_->SetPinnedItersMgr(&pinned_iters_mgr_);
     }
   }
-  virtual ~DBIter() {
+  ~DBIter() override {
     // Release pinned data if any
     if (pinned_iters_mgr_.PinningEnabled()) {
       pinned_iters_mgr_.ReleasePinnedData();
@@ -175,17 +175,16 @@ class DBIter final: public Iterator {
     return &range_del_agg_;
   }
 
-  virtual bool Valid() const override { return valid_; }
-  virtual Slice key() const override {
+  bool Valid() const override { return valid_; }
+  Slice key() const override {
     assert(valid_);
     if(start_seqnum_ > 0) {
       return saved_key_.GetInternalKey();
     } else {
       return saved_key_.GetUserKey();
     }
-
   }
-  virtual Slice value() const override {
+  Slice value() const override {
     assert(valid_);
     if (current_entry_is_merged_) {
       // If pinned_value_ is set then the result of merge operator is one of
@@ -197,7 +196,7 @@ class DBIter final: public Iterator {
       return iter_->value();
     }
   }
-  virtual Status status() const override {
+  Status status() const override {
     if (status_.ok()) {
       return iter_->status();
     } else {
@@ -210,8 +209,7 @@ class DBIter final: public Iterator {
     return is_blob_;
   }
 
-  virtual Status GetProperty(std::string prop_name,
-                             std::string* prop) override {
+  Status GetProperty(std::string prop_name, std::string* prop) override {
     if (prop == nullptr) {
       return Status::InvalidArgument("prop is nullptr");
     }
@@ -232,12 +230,12 @@ class DBIter final: public Iterator {
     return Status::InvalidArgument("Unidentified property.");
   }
 
-  virtual void Next() override;
-  virtual void Prev() override;
-  virtual void Seek(const Slice& target) override;
-  virtual void SeekForPrev(const Slice& target) override;
-  virtual void SeekToFirst() override;
-  virtual void SeekToLast() override;
+  void Next() override;
+  void Prev() override;
+  void Seek(const Slice& target) override;
+  void SeekForPrev(const Slice& target) override;
+  void SeekToFirst() override;
+  void SeekToLast() override;
   Env* env() { return env_; }
   void set_sequence(uint64_t s) { sequence_ = s; }
   void set_valid(bool v) { valid_ = v; }

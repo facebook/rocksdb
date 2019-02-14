@@ -1094,7 +1094,7 @@ class CountingUserTblPropCollector : public TablePropertiesCollector {
     return Status::OK();
   }
 
-  virtual UserCollectedProperties GetReadableProperties() const override {
+  UserCollectedProperties GetReadableProperties() const override {
     return UserCollectedProperties{};
   }
 
@@ -1110,7 +1110,7 @@ class CountingUserTblPropCollectorFactory
       uint32_t expected_column_family_id)
       : expected_column_family_id_(expected_column_family_id),
         num_created_(0) {}
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+  TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context context) override {
     EXPECT_EQ(expected_column_family_id_, context.column_family_id);
     num_created_++;
@@ -1158,7 +1158,7 @@ class CountingDeleteTabPropCollector : public TablePropertiesCollector {
 class CountingDeleteTabPropCollectorFactory
     : public TablePropertiesCollectorFactory {
  public:
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+  TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context /*context*/) override {
     return new CountingDeleteTabPropCollector();
   }

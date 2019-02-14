@@ -20,13 +20,13 @@ TEST_F(WritableFileWriterTest, RangeSync) {
   class FakeWF : public WritableFile {
    public:
     explicit FakeWF() : size_(0), last_synced_(0) {}
-    ~FakeWF() {}
+    ~FakeWF() override {}
 
     Status Append(const Slice& data) override {
       size_ += data.size();
       return Status::OK();
     }
-    virtual Status Truncate(uint64_t /*size*/) override { return Status::OK(); }
+    Status Truncate(uint64_t /*size*/) override { return Status::OK(); }
     Status Close() override {
       EXPECT_GE(size_, last_synced_ + kMb);
       EXPECT_LT(size_, last_synced_ + 2 * kMb);
@@ -97,7 +97,7 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
         : file_data_(_file_data),
           use_direct_io_(_use_direct_io),
           no_flush_(_no_flush) {}
-    ~FakeWF() {}
+    ~FakeWF() override {}
 
     Status Append(const Slice& data) override {
       file_data_->append(data.data(), data.size());
@@ -113,7 +113,7 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
       return Status::OK();
     }
 
-    virtual Status Truncate(uint64_t size) override {
+    Status Truncate(uint64_t size) override {
       file_data_->resize(size);
       return Status::OK();
     }
@@ -183,7 +183,7 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
    public:
     explicit FakeWF() : use_direct_io_(false), io_error_(false) {}
 
-    virtual bool use_direct_io() const override { return use_direct_io_; }
+    bool use_direct_io() const override { return use_direct_io_; }
     Status Append(const Slice& /*data*/) override {
       if (io_error_) {
         return Status::IOError("Fake IO error");
@@ -226,7 +226,7 @@ class ReadaheadRandomAccessFileTest
   static std::vector<size_t> GetReadaheadSizeList() {
     return {1lu << 12, 1lu << 16};
   }
-  virtual void SetUp() override {
+  void SetUp() override {
     readahead_size_ = GetParam();
     scratch_.reset(new char[2 * readahead_size_]);
     ResetSourceStr();

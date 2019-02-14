@@ -109,7 +109,7 @@ class PlainTableDBTest : public testing::Test,
  public:
   PlainTableDBTest() : env_(Env::Default()) {}
 
-  ~PlainTableDBTest() {
+  ~PlainTableDBTest() override {
     delete db_;
     EXPECT_OK(DestroyDB(dbname_, Options()));
   }
@@ -290,10 +290,10 @@ class TestPlainTableReader : public PlainTableReader {
     EXPECT_EQ(column_family_name, props->column_family_name);
   }
 
-  virtual ~TestPlainTableReader() {}
+  ~TestPlainTableReader() override {}
 
  private:
-  virtual bool MatchBloom(uint32_t hash) const override {
+  bool MatchBloom(uint32_t hash) const override {
     bool ret = PlainTableReader::MatchBloom(hash);
     if (*expect_bloom_not_match_) {
       EXPECT_TRUE(!ret);

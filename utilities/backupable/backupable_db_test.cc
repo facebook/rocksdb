@@ -44,51 +44,42 @@ class DummyDB : public StackableDB {
      : StackableDB(nullptr), options_(options), dbname_(dbname),
        deletions_enabled_(true), sequence_number_(0) {}
 
-  virtual SequenceNumber GetLatestSequenceNumber() const override {
+  SequenceNumber GetLatestSequenceNumber() const override {
     return ++sequence_number_;
   }
 
-  virtual const std::string& GetName() const override {
-    return dbname_;
-  }
+  const std::string& GetName() const override { return dbname_; }
 
-  virtual Env* GetEnv() const override {
-    return options_.env;
-  }
+  Env* GetEnv() const override { return options_.env; }
 
   using DB::GetOptions;
-  virtual Options GetOptions(
-      ColumnFamilyHandle* /*column_family*/) const override {
+  Options GetOptions(ColumnFamilyHandle* /*column_family*/) const override {
     return options_;
   }
 
-  virtual DBOptions GetDBOptions() const override {
-    return DBOptions(options_);
-  }
+  DBOptions GetDBOptions() const override { return DBOptions(options_); }
 
-  virtual Status EnableFileDeletions(bool /*force*/) override {
+  Status EnableFileDeletions(bool /*force*/) override {
     EXPECT_TRUE(!deletions_enabled_);
     deletions_enabled_ = true;
     return Status::OK();
   }
 
-  virtual Status DisableFileDeletions() override {
+  Status DisableFileDeletions() override {
     EXPECT_TRUE(deletions_enabled_);
     deletions_enabled_ = false;
     return Status::OK();
   }
 
-  virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
-                              bool /*flush_memtable*/ = true) override {
+  Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
+                      bool /*flush_memtable*/ = true) override {
     EXPECT_TRUE(!deletions_enabled_);
     vec = live_files_;
     *mfs = 100;
     return Status::OK();
   }
 
-  virtual ColumnFamilyHandle* DefaultColumnFamily() const override {
-    return nullptr;
-  }
+  ColumnFamilyHandle* DefaultColumnFamily() const override { return nullptr; }
 
   class DummyLogFile : public LogFile {
    public:
@@ -96,36 +87,32 @@ class DummyDB : public StackableDB {
      DummyLogFile(const std::string& path, bool alive = true)
          : path_(path), alive_(alive) {}
 
-    virtual std::string PathName() const override {
-      return path_;
-    }
+     std::string PathName() const override { return path_; }
 
-    virtual uint64_t LogNumber() const override {
-      // what business do you have calling this method?
-      ADD_FAILURE();
-      return 0;
-    }
+     uint64_t LogNumber() const override {
+       // what business do you have calling this method?
+       ADD_FAILURE();
+       return 0;
+     }
 
-    virtual WalFileType Type() const override {
-      return alive_ ? kAliveLogFile : kArchivedLogFile;
-    }
+     WalFileType Type() const override {
+       return alive_ ? kAliveLogFile : kArchivedLogFile;
+     }
 
-    virtual SequenceNumber StartSequence() const override {
-      // this seqnum guarantees the dummy file will be included in the backup
-      // as long as it is alive.
-      return kMaxSequenceNumber;
-    }
+     SequenceNumber StartSequence() const override {
+       // this seqnum guarantees the dummy file will be included in the backup
+       // as long as it is alive.
+       return kMaxSequenceNumber;
+     }
 
-    virtual uint64_t SizeFileBytes() const override {
-      return 0;
-    }
+     uint64_t SizeFileBytes() const override { return 0; }
 
-   private:
-    std::string path_;
-    bool alive_;
+    private:
+     std::string path_;
+     bool alive_;
   }; // DummyLogFile
 
-  virtual Status GetSortedWalFiles(VectorLogPtr& files) override {
+  Status GetSortedWalFiles(VectorLogPtr& files) override {
     EXPECT_TRUE(!deletions_enabled_);
     files.resize(wal_files_.size());
     for (size_t i = 0; i < files.size(); ++i) {
@@ -136,7 +123,7 @@ class DummyDB : public StackableDB {
   }
 
   // To avoid FlushWAL called on stacked db which is nullptr
-  virtual Status FlushWAL(bool /*sync*/) override { return Status::OK(); }
+  Status FlushWAL(bool /*sync*/) override { return Status::OK(); }
 
   std::vector<std::string> live_files_;
   // pair<filename, alive?>
@@ -156,7 +143,7 @@ class TestEnv : public EnvWrapper {
    public:
     explicit DummySequentialFile(bool fail_reads)
         : SequentialFile(), rnd_(5), fail_reads_(fail_reads) {}
-    virtual Status Read(size_t n, Slice* result, char* scratch) override {
+    Status Read(size_t n, Slice* result, char* scratch) override {
       if (fail_reads_) {
         return Status::IOError();
       }
@@ -169,10 +156,11 @@ class TestEnv : public EnvWrapper {
       return Status::OK();
     }
 
-    virtual Status Skip(uint64_t n) override {
+    Status Skip(uint64_t n) override {
       size_left = (n > size_left) ? size_left - n : 0;
       return Status::OK();
     }
+
    private:
     size_t size_left = 200;
     Random rnd_;
@@ -217,9 +205,9 @@ class TestEnv : public EnvWrapper {
     return s;
   }
 
-  virtual Status NewRandomAccessFile(const std::string& fname,
-                                     unique_ptr<RandomAccessFile>* result,
-                                     const EnvOptions& options) override {
+  Status NewRandomAccessFile(const std::string& fname,
+                             unique_ptr<RandomAccessFile>* result,
+                             const EnvOptions& options) override {
     MutexLock l(&mutex_);
     Status s = EnvWrapper::NewRandomAccessFile(fname, result, options);
     if (s.ok()) {
@@ -231,7 +219,7 @@ class TestEnv : public EnvWrapper {
     return s;
   }
 
-  virtual Status DeleteFile(const std::string& fname) override {
+  Status DeleteFile(const std::string& fname) override {
     MutexLock l(&mutex_);
     if (fail_delete_files_) {
       return Status::IOError();
@@ -241,7 +229,7 @@ class TestEnv : public EnvWrapper {
     return EnvWrapper::DeleteFile(fname);
   }
 
-  virtual Status DeleteDir(const std::string& dirname) override {
+  Status DeleteDir(const std::string& dirname) override {
     MutexLock l(&mutex_);
     if (fail_delete_files_) {
       return Status::IOError();
@@ -336,8 +324,8 @@ class TestEnv : public EnvWrapper {
   }
 
   void SetNewDirectoryFailure(bool fail) { new_directory_failure_ = fail; }
-  virtual Status NewDirectory(const std::string& name,
-                              std::unique_ptr<Directory>* result) override {
+  Status NewDirectory(const std::string& name,
+                      std::unique_ptr<Directory>* result) override {
     if (new_directory_failure_) {
       return Status::IOError("SimulatedFailure");
     }

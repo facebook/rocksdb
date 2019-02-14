@@ -62,7 +62,7 @@ class MemTableListTest : public testing::Test {
     }
   }
 
-  ~MemTableListTest() {
+  ~MemTableListTest() override {
     if (db) {
       std::vector<ColumnFamilyDescriptor> cf_descs(handles.size());
       for (int i = 0; i != static_cast<int>(handles.size()); ++i) {

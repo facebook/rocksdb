@@ -340,15 +340,15 @@ class MergeOperatorHook : public MergeOperator {
   explicit MergeOperatorHook(std::shared_ptr<MergeOperator> _merge_op)
       : merge_op_(_merge_op) {}
 
-  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
-                           MergeOperationOutput* merge_out) const override {
+  bool FullMergeV2(const MergeOperationInput& merge_in,
+                   MergeOperationOutput* merge_out) const override {
     before_merge_();
     bool res = merge_op_->FullMergeV2(merge_in, merge_out);
     after_merge_();
     return res;
   }
 
-  virtual const char* Name() const override { return merge_op_->Name(); }
+  const char* Name() const override { return merge_op_->Name(); }
 
   std::shared_ptr<MergeOperator> merge_op_;
   std::function<void()> before_merge_ = []() {};

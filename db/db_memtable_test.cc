@@ -25,13 +25,13 @@ class MockMemTableRep : public MemTableRep {
   explicit MockMemTableRep(Allocator* allocator, MemTableRep* rep)
       : MemTableRep(allocator), rep_(rep), num_insert_with_hint_(0) {}
 
-  virtual KeyHandle Allocate(const size_t len, char** buf) override {
+  KeyHandle Allocate(const size_t len, char** buf) override {
     return rep_->Allocate(len, buf);
   }
 
-  virtual void Insert(KeyHandle handle) override { rep_->Insert(handle); }
+  void Insert(KeyHandle handle) override { rep_->Insert(handle); }
 
-  virtual void InsertWithHint(KeyHandle handle, void** hint) override {
+  void InsertWithHint(KeyHandle handle, void** hint) override {
     num_insert_with_hint_++;
     EXPECT_NE(nullptr, hint);
     last_hint_in_ = *hint;
@@ -39,21 +39,18 @@ class MockMemTableRep : public MemTableRep {
     last_hint_out_ = *hint;
   }
 
-  virtual bool Contains(const char* key) const override {
-    return rep_->Contains(key);
-  }
+  bool Contains(const char* key) const override { return rep_->Contains(key); }
 
-  virtual void Get(const LookupKey& k, void* callback_args,
-                   bool (*callback_func)(void* arg,
-                                         const char* entry)) override {
+  void Get(const LookupKey& k, void* callback_args,
+           bool (*callback_func)(void* arg, const char* entry)) override {
     rep_->Get(k, callback_args, callback_func);
   }
 
-  virtual size_t ApproximateMemoryUsage() override {
+  size_t ApproximateMemoryUsage() override {
     return rep_->ApproximateMemoryUsage();
   }
 
-  virtual Iterator* GetIterator(Arena* arena) override {
+  Iterator* GetIterator(Arena* arena) override {
     return rep_->GetIterator(arena);
   }
 
@@ -70,10 +67,10 @@ class MockMemTableRep : public MemTableRep {
 
 class MockMemTableRepFactory : public MemTableRepFactory {
  public:
-  virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& cmp,
-                                         Allocator* allocator,
-                                         const SliceTransform* transform,
-                                         Logger* logger) override {
+  MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& cmp,
+                                 Allocator* allocator,
+                                 const SliceTransform* transform,
+                                 Logger* logger) override {
     SkipListFactory factory;
     MemTableRep* skiplist_rep =
         factory.CreateMemTableRep(cmp, allocator, transform, logger);
@@ -81,16 +78,16 @@ class MockMemTableRepFactory : public MemTableRepFactory {
     return mock_rep_;
   }
 
-  virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& cmp,
-                                         Allocator* allocator,
-                                         const SliceTransform* transform,
-                                         Logger* logger,
-                                         uint32_t column_family_id) override {
+  MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& cmp,
+                                 Allocator* allocator,
+                                 const SliceTransform* transform,
+                                 Logger* logger,
+                                 uint32_t column_family_id) override {
     last_column_family_id_ = column_family_id;
     return CreateMemTableRep(cmp, allocator, transform, logger);
   }
 
-  virtual const char* Name() const override { return "MockMemTableRepFactory"; }
+  const char* Name() const override { return "MockMemTableRepFactory"; }
 
   MockMemTableRep* rep() { return mock_rep_; }
 
@@ -106,9 +103,9 @@ class MockMemTableRepFactory : public MemTableRepFactory {
 
 class TestPrefixExtractor : public SliceTransform {
  public:
-  virtual const char* Name() const override { return "TestPrefixExtractor"; }
+  const char* Name() const override { return "TestPrefixExtractor"; }
 
-  virtual Slice Transform(const Slice& key) const override {
+  Slice Transform(const Slice& key) const override {
     const char* p = separator(key);
     if (p == nullptr) {
       return Slice();
@@ -116,11 +113,11 @@ class TestPrefixExtractor : public SliceTransform {
     return Slice(key.data(), p - key.data() + 1);
   }
 
-  virtual bool InDomain(const Slice& key) const override {
+  bool InDomain(const Slice& key) const override {
     return separator(key) != nullptr;
   }
 
-  virtual bool InRange(const Slice& /*key*/) const override { return false; }
+  bool InRange(const Slice& /*key*/) const override { return false; }
 
  private:
   const char* separator(const Slice& key) const {

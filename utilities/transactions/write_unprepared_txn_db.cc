@@ -37,7 +37,7 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
 
     // Will be called to see if the seq number visible; if not it moves on to
     // the next seq number.
-    inline virtual bool IsVisible(SequenceNumber seq) override {
+    inline bool IsVisible(SequenceNumber seq) override {
       // Becomes true if it cannot tell by comparing seq with snapshot seq since
       // the snapshot_ is not a real snapshot.
       bool released = false;
@@ -196,8 +196,7 @@ Status WriteUnpreparedTxnDB::Initialize(
    public:
     explicit CommitSubBatchPreReleaseCallback(WritePreparedTxnDB* db)
         : db_(db) {}
-    virtual Status Callback(SequenceNumber commit_seq,
-                            bool is_mem_disabled) override {
+    Status Callback(SequenceNumber commit_seq, bool is_mem_disabled) override {
 #ifdef NDEBUG
       (void)is_mem_disabled;
 #endif

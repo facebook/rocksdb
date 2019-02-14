@@ -28,7 +28,7 @@ namespace rocksdb {
 class TablePropertiesTest : public testing::Test,
                             public testing::WithParamInterface<bool> {
  public:
-  virtual void SetUp() override { backward_mode_ = GetParam(); }
+  void SetUp() override { backward_mode_ = GetParam(); }
 
   bool backward_mode_;
 };
@@ -106,7 +106,7 @@ class RegularKeysStartWithA: public TablePropertiesCollector {
     return Status::OK();
   }
 
-  virtual UserCollectedProperties GetReadableProperties() const override {
+  UserCollectedProperties GetReadableProperties() const override {
     return UserCollectedProperties{};
   }
 
@@ -143,7 +143,7 @@ class RegularKeysStartWithABackwardCompatible
     return Status::OK();
   }
 
-  virtual UserCollectedProperties GetReadableProperties() const override {
+  UserCollectedProperties GetReadableProperties() const override {
     return UserCollectedProperties{};
   }
 
@@ -172,7 +172,7 @@ class RegularKeysStartWithAInternal : public IntTblPropCollector {
     return Status::OK();
   }
 
-  virtual UserCollectedProperties GetReadableProperties() const override {
+  UserCollectedProperties GetReadableProperties() const override {
     return UserCollectedProperties{};
   }
 
@@ -185,7 +185,7 @@ class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
  public:
   explicit RegularKeysStartWithAFactory(bool backward_mode)
       : backward_mode_(backward_mode) {}
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+  TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context context) override {
     EXPECT_EQ(kTestColumnFamilyId, context.column_family_id);
     if (!backward_mode_) {
@@ -194,7 +194,7 @@ class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
       return new RegularKeysStartWithABackwardCompatible();
     }
   }
-  virtual IntTblPropCollector* CreateIntTblPropCollector(
+  IntTblPropCollector* CreateIntTblPropCollector(
       uint32_t /*column_family_id*/) override {
     return new RegularKeysStartWithAInternal();
   }
@@ -205,7 +205,7 @@ class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
 
 class FlushBlockEveryThreePolicy : public FlushBlockPolicy {
  public:
-  virtual bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
+  bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
     return (++count_ % 3U == 0);
   }
 

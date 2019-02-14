@@ -37,7 +37,7 @@ class OptimisticTransactionTest : public testing::Test {
     DestroyDB(dbname, options);
     Open();
   }
-  ~OptimisticTransactionTest() {
+  ~OptimisticTransactionTest() override {
     delete txn_db;
     DestroyDB(dbname, options);
   }

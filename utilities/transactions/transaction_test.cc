@@ -4791,7 +4791,7 @@ TEST_P(TransactionTest, SetSnapshotOnNextOperationWithNotification) {
     explicit Notifier(const Snapshot** snapshot_ptr)
         : snapshot_ptr_(snapshot_ptr) {}
 
-    void SnapshotCreated(const Snapshot* newSnapshot) {
+    void SnapshotCreated(const Snapshot* newSnapshot) override {
       *snapshot_ptr_ = newSnapshot;
     }
   };
@@ -5266,15 +5266,13 @@ TEST_P(TransactionTest, Optimizations) {
 class ThreeBytewiseComparator : public Comparator {
  public:
   ThreeBytewiseComparator() {}
-  virtual const char* Name() const override {
-    return "test.ThreeBytewiseComparator";
-  }
-  virtual int Compare(const Slice& a, const Slice& b) const override {
+  const char* Name() const override { return "test.ThreeBytewiseComparator"; }
+  int Compare(const Slice& a, const Slice& b) const override {
     Slice na = Slice(a.data(), a.size() < 3 ? a.size() : 3);
     Slice nb = Slice(b.data(), b.size() < 3 ? b.size() : 3);
     return na.compare(nb);
   }
-  virtual bool Equal(const Slice& a, const Slice& b) const override {
+  bool Equal(const Slice& a, const Slice& b) const override {
     Slice na = Slice(a.data(), a.size() < 3 ? a.size() : 3);
     Slice nb = Slice(b.data(), b.size() < 3 ? b.size() : 3);
     return na == nb;

@@ -83,7 +83,7 @@ class FaultInjectionTest
         env_(nullptr),
         db_(nullptr) {}
 
-  ~FaultInjectionTest() {
+  ~FaultInjectionTest() override {
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
     rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
   }

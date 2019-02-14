@@ -45,8 +45,8 @@ struct Entry {
 
 struct TestHandler : public WriteBatch::Handler {
   std::map<uint32_t, std::vector<Entry>> seen;
-  virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                       const Slice& value) {
+  Status PutCF(uint32_t column_family_id, const Slice& key,
+               const Slice& value) override {
     Entry e;
     e.key = key.ToString();
     e.value = value.ToString();
@@ -54,8 +54,8 @@ struct TestHandler : public WriteBatch::Handler {
     seen[column_family_id].push_back(e);
     return Status::OK();
   }
-  virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) {
+  Status MergeCF(uint32_t column_family_id, const Slice& key,
+                 const Slice& value) override {
     Entry e;
     e.key = key.ToString();
     e.value = value.ToString();
@@ -63,8 +63,8 @@ struct TestHandler : public WriteBatch::Handler {
     seen[column_family_id].push_back(e);
     return Status::OK();
   }
-  virtual void LogData(const Slice& /*blob*/) {}
-  virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
+  void LogData(const Slice& /*blob*/) override {}
+  Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
     Entry e;
     e.key = key.ToString();
     e.value = "";
@@ -506,22 +506,24 @@ typedef std::map<std::string, std::string> KVMap;
 class KVIter : public Iterator {
  public:
   explicit KVIter(const KVMap* map) : map_(map), iter_(map_->end()) {}
-  virtual bool Valid() const { return iter_ != map_->end(); }
-  virtual void SeekToFirst() { iter_ = map_->begin(); }
-  virtual void SeekToLast() {
+  bool Valid() const override { return iter_ != map_->end(); }
+  void SeekToFirst() override { iter_ = map_->begin(); }
+  void SeekToLast() override {
     if (map_->empty()) {
       iter_ = map_->end();
     } else {
       iter_ = map_->find(map_->rbegin()->first);
     }
   }
-  virtual void Seek(const Slice& k) { iter_ = map_->lower_bound(k.ToString()); }
-  virtual void SeekForPrev(const Slice& k) {
+  void Seek(const Slice& k) override {
+    iter_ = map_->lower_bound(k.ToString());
+  }
+  void SeekForPrev(const Slice& k) override {
     iter_ = map_->upper_bound(k.ToString());
     Prev();
   }
-  virtual void Next() { ++iter_; }
-  virtual void Prev() {
+  void Next() override { ++iter_; }
+  void Prev() override {
     if (iter_ == map_->begin()) {
       iter_ = map_->end();
       return;
@@ -529,9 +531,9 @@ class KVIter : public Iterator {
     --iter_;
   }
 
-  virtual Slice key() const { return iter_->first; }
-  virtual Slice value() const { return iter_->second; }
-  virtual Status status() const { return Status::OK(); }
+  Slice key() const override { return iter_->first; }
+  Slice value() const override { return iter_->second; }
+  Status status() const override { return Status::OK(); }
 
  private:
   const KVMap* const map_;

@@ -595,96 +595,93 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
 
  ReadaheadRandomAccessFile& operator=(const ReadaheadRandomAccessFile&) = delete;
 
-  virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                      char* scratch) const override {
+ Status Read(uint64_t offset, size_t n, Slice* result,
+             char* scratch) const override {
+   if (n + alignment_ >= readahead_size_) {
+     return file_->Read(offset, n, result, scratch);
+   }
 
-    if (n + alignment_ >= readahead_size_) {
-      return file_->Read(offset, n, result, scratch);
-    }
+   std::unique_lock<std::mutex> lk(lock_);
 
-    std::unique_lock<std::mutex> lk(lock_);
+   size_t cached_len = 0;
+   // Check if there is a cache hit, means that [offset, offset + n) is either
+   // completely or partially in the buffer
+   // If it's completely cached, including end of file case when offset + n is
+   // greater than EOF, return
+   if (TryReadFromCache(offset, n, &cached_len, scratch) &&
+       (cached_len == n ||
+        // End of file
+        buffer_.CurrentSize() < readahead_size_)) {
+     *result = Slice(scratch, cached_len);
+     return Status::OK();
+   }
+   size_t advanced_offset = static_cast<size_t>(offset + cached_len);
+   // In the case of cache hit advanced_offset is already aligned, means that
+   // chunk_offset equals to advanced_offset
+   size_t chunk_offset = TruncateToPageBoundary(alignment_, advanced_offset);
+   Slice readahead_result;
 
-    size_t cached_len = 0;
-    // Check if there is a cache hit, means that [offset, offset + n) is either
-    // completely or partially in the buffer
-    // If it's completely cached, including end of file case when offset + n is
-    // greater than EOF, return
-    if (TryReadFromCache(offset, n, &cached_len, scratch) &&
-        (cached_len == n ||
-         // End of file
-         buffer_.CurrentSize() < readahead_size_)) {
-      *result = Slice(scratch, cached_len);
-      return Status::OK();
-    }
-    size_t advanced_offset = static_cast<size_t>(offset + cached_len);
-    // In the case of cache hit advanced_offset is already aligned, means that
-    // chunk_offset equals to advanced_offset
-    size_t chunk_offset = TruncateToPageBoundary(alignment_, advanced_offset);
-    Slice readahead_result;
+   Status s = ReadIntoBuffer(chunk_offset, readahead_size_);
+   if (s.ok()) {
+     // In the case of cache miss, i.e. when cached_len equals 0, an offset can
+     // exceed the file end position, so the following check is required
+     if (advanced_offset < chunk_offset + buffer_.CurrentSize()) {
+       // In the case of cache miss, the first chunk_padding bytes in buffer_
+       // are
+       // stored for alignment only and must be skipped
+       size_t chunk_padding = advanced_offset - chunk_offset;
+       auto remaining_len =
+           std::min(buffer_.CurrentSize() - chunk_padding, n - cached_len);
+       memcpy(scratch + cached_len, buffer_.BufferStart() + chunk_padding,
+              remaining_len);
+       *result = Slice(scratch, cached_len + remaining_len);
+     } else {
+       *result = Slice(scratch, cached_len);
+     }
+   }
+   return s;
+ }
 
-    Status s = ReadIntoBuffer(chunk_offset, readahead_size_);
-    if (s.ok()) {
-      // In the case of cache miss, i.e. when cached_len equals 0, an offset can
-      // exceed the file end position, so the following check is required
-      if (advanced_offset < chunk_offset + buffer_.CurrentSize()) {
-        // In the case of cache miss, the first chunk_padding bytes in buffer_
-        // are
-        // stored for alignment only and must be skipped
-        size_t chunk_padding = advanced_offset - chunk_offset;
-        auto remaining_len =
-            std::min(buffer_.CurrentSize() - chunk_padding, n - cached_len);
-        memcpy(scratch + cached_len, buffer_.BufferStart() + chunk_padding,
-               remaining_len);
-        *result = Slice(scratch, cached_len + remaining_len);
-      } else {
-        *result = Slice(scratch, cached_len);
-      }
-    }
-    return s;
-  }
+ Status Prefetch(uint64_t offset, size_t n) override {
+   if (n < readahead_size_) {
+     // Don't allow smaller prefetches than the configured `readahead_size_`.
+     // `Read()` assumes a smaller prefetch buffer indicates EOF was reached.
+     return Status::OK();
+   }
+   size_t offset_ = static_cast<size_t>(offset);
+   size_t prefetch_offset = TruncateToPageBoundary(alignment_, offset_);
+   if (prefetch_offset == buffer_offset_) {
+     return Status::OK();
+   }
+   return ReadIntoBuffer(prefetch_offset,
+                         Roundup(offset_ + n, alignment_) - prefetch_offset);
+ }
 
-  virtual Status Prefetch(uint64_t offset, size_t n) override {
-    if (n < readahead_size_) {
-      // Don't allow smaller prefetches than the configured `readahead_size_`.
-      // `Read()` assumes a smaller prefetch buffer indicates EOF was reached.
-      return Status::OK();
-    }
-    size_t offset_ = static_cast<size_t>(offset);
-    size_t prefetch_offset = TruncateToPageBoundary(alignment_, offset_);
-    if (prefetch_offset == buffer_offset_) {
-      return Status::OK();
-    }
-    return ReadIntoBuffer(prefetch_offset,
-                          Roundup(offset_ + n, alignment_) - prefetch_offset);
-  }
+ size_t GetUniqueId(char* id, size_t max_size) const override {
+   return file_->GetUniqueId(id, max_size);
+ }
 
-  virtual size_t GetUniqueId(char* id, size_t max_size) const override {
-    return file_->GetUniqueId(id, max_size);
-  }
+ void Hint(AccessPattern pattern) override { file_->Hint(pattern); }
 
-  virtual void Hint(AccessPattern pattern) override { file_->Hint(pattern); }
+ Status InvalidateCache(size_t offset, size_t length) override {
+   return file_->InvalidateCache(offset, length);
+ }
 
-  virtual Status InvalidateCache(size_t offset, size_t length) override {
-    return file_->InvalidateCache(offset, length);
-  }
+ bool use_direct_io() const override { return file_->use_direct_io(); }
 
-  virtual bool use_direct_io() const override {
-    return file_->use_direct_io();
-  }
-
- private:
-  bool TryReadFromCache(uint64_t offset, size_t n, size_t* cached_len,
-                         char* scratch) const {
-    if (offset < buffer_offset_ ||
-        offset >= buffer_offset_ + buffer_.CurrentSize()) {
-      *cached_len = 0;
-      return false;
-    }
-    uint64_t offset_in_buffer = offset - buffer_offset_;
-    *cached_len = std::min(
-        buffer_.CurrentSize() - static_cast<size_t>(offset_in_buffer), n);
-    memcpy(scratch, buffer_.BufferStart() + offset_in_buffer, *cached_len);
-    return true;
+private:
+ bool TryReadFromCache(uint64_t offset, size_t n, size_t* cached_len,
+                       char* scratch) const {
+   if (offset < buffer_offset_ ||
+       offset >= buffer_offset_ + buffer_.CurrentSize()) {
+     *cached_len = 0;
+     return false;
+   }
+   uint64_t offset_in_buffer = offset - buffer_offset_;
+   *cached_len = std::min(
+       buffer_.CurrentSize() - static_cast<size_t>(offset_in_buffer), n);
+   memcpy(scratch, buffer_.BufferStart() + offset_in_buffer, *cached_len);
+   return true;
   }
 
   Status ReadIntoBuffer(uint64_t offset, size_t n) const {

@@ -336,7 +336,7 @@ class Repairer {
       Env* env;
       std::shared_ptr<Logger> info_log;
       uint64_t lognum;
-      virtual void Corruption(size_t bytes, const Status& s) override {
+      void Corruption(size_t bytes, const Status& s) override {
         // We print error messages for corruption, but continue repairing.
         ROCKS_LOG_ERROR(info_log, "Log #%" PRIu64 ": dropping %d bytes; %s",
                         lognum, static_cast<int>(bytes), s.ToString().c_str());

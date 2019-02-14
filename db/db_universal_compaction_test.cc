@@ -27,7 +27,7 @@ class DBTestUniversalCompactionBase
  public:
   explicit DBTestUniversalCompactionBase(
       const std::string& path) : DBTestBase(path) {}
-  virtual void SetUp() override {
+  void SetUp() override {
     num_levels_ = std::get<0>(GetParam());
     exclusive_manual_compaction_ = std::get<1>(GetParam());
   }
@@ -63,13 +63,13 @@ void VerifyCompactionResult(
 
 class KeepFilter : public CompactionFilter {
  public:
-  virtual bool Filter(int /*level*/, const Slice& /*key*/,
-                      const Slice& /*value*/, std::string* /*new_value*/,
-                      bool* /*value_changed*/) const override {
+  bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
+              std::string* /*new_value*/,
+              bool* /*value_changed*/) const override {
     return false;
   }
 
-  virtual const char* Name() const override { return "KeepFilter"; }
+  const char* Name() const override { return "KeepFilter"; }
 };
 
 class KeepFilterFactory : public CompactionFilterFactory {
@@ -77,7 +77,7 @@ class KeepFilterFactory : public CompactionFilterFactory {
   explicit KeepFilterFactory(bool check_context = false)
       : check_context_(check_context) {}
 
-  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) override {
     if (check_context_) {
       EXPECT_EQ(expect_full_compaction_.load(), context.is_full_compaction);
@@ -86,7 +86,7 @@ class KeepFilterFactory : public CompactionFilterFactory {
     return std::unique_ptr<CompactionFilter>(new KeepFilter());
   }
 
-  virtual const char* Name() const override { return "KeepFilterFactory"; }
+  const char* Name() const override { return "KeepFilterFactory"; }
   bool check_context_;
   std::atomic_bool expect_full_compaction_;
   std::atomic_bool expect_manual_compaction_;
@@ -95,14 +95,14 @@ class KeepFilterFactory : public CompactionFilterFactory {
 class DelayFilter : public CompactionFilter {
  public:
   explicit DelayFilter(DBTestBase* d) : db_test(d) {}
-  virtual bool Filter(int /*level*/, const Slice& /*key*/,
-                      const Slice& /*value*/, std::string* /*new_value*/,
-                      bool* /*value_changed*/) const override {
+  bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
+              std::string* /*new_value*/,
+              bool* /*value_changed*/) const override {
     db_test->env_->addon_time_.fetch_add(1000);
     return true;
   }
 
-  virtual const char* Name() const override { return "DelayFilter"; }
+  const char* Name() const override { return "DelayFilter"; }
 
  private:
   DBTestBase* db_test;
@@ -111,12 +111,12 @@ class DelayFilter : public CompactionFilter {
 class DelayFilterFactory : public CompactionFilterFactory {
  public:
   explicit DelayFilterFactory(DBTestBase* d) : db_test(d) {}
-  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& /*context*/) override {
     return std::unique_ptr<CompactionFilter>(new DelayFilter(db_test));
   }
 
-  virtual const char* Name() const override { return "DelayFilterFactory"; }
+  const char* Name() const override { return "DelayFilterFactory"; }
 
  private:
   DBTestBase* db_test;

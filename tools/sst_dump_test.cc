@@ -89,7 +89,7 @@ class SSTDumpToolTest : public testing::Test {
  public:
   SSTDumpToolTest() { testDir_ = test::TmpDir(); }
 
-  ~SSTDumpToolTest() {}
+  ~SSTDumpToolTest() override {}
 
   std::string MakeFilePath(const std::string& file_name) const {
     std::string path(testDir_);

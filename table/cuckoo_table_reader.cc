@@ -197,7 +197,7 @@ void CuckooTableReader::Prepare(const Slice& key) {
 class CuckooTableIterator : public InternalIterator {
  public:
   explicit CuckooTableIterator(CuckooTableReader* reader);
-  ~CuckooTableIterator() {}
+  ~CuckooTableIterator() override {}
   bool Valid() const override;
   void SeekToFirst() override;
   void SeekToLast() override;

@@ -330,7 +330,7 @@ class WritePreparedTxnDBMock : public WritePreparedTxnDB {
   void TakeSnapshot(SequenceNumber seq) { snapshots_.push_back(seq); }
 
  protected:
-  virtual const std::vector<SequenceNumber> GetSnapshotListFromDB(
+  const std::vector<SequenceNumber> GetSnapshotListFromDB(
       SequenceNumber /* unused */) override {
     return snapshots_;
   }

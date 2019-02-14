@@ -20,7 +20,7 @@
 namespace rocksdb {
 
 struct HashTableTest : public testing::Test {
-  ~HashTableTest() { map_.Clear(&HashTableTest::ClearNode); }
+  ~HashTableTest() override { map_.Clear(&HashTableTest::ClearNode); }
 
   struct Node {
     Node() {}
@@ -49,7 +49,9 @@ struct HashTableTest : public testing::Test {
 };
 
 struct EvictableHashTableTest : public testing::Test {
-  ~EvictableHashTableTest() { map_.Clear(&EvictableHashTableTest::ClearNode); }
+  ~EvictableHashTableTest() override {
+    map_.Clear(&EvictableHashTableTest::ClearNode);
+  }
 
   struct Node : LRUElement<Node> {
     Node() {}

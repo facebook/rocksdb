@@ -69,7 +69,7 @@ class ColumnFamilyTestBase : public testing::Test {
     DestroyDB(dbname_, Options(db_options_, column_family_options_));
   }
 
-  virtual ~ColumnFamilyTestBase() {
+  ~ColumnFamilyTestBase() override {
     std::vector<ColumnFamilyDescriptor> column_families;
     for (auto h : handles_) {
       ColumnFamilyDescriptor cfdescriptor;
