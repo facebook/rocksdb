@@ -250,6 +250,12 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
   if (max_subcompactions_ == 0) {
     max_subcompactions_ = immutable_cf_options_.max_subcompactions;
   }
+  if (!bottommost_level_) {
+    // Currently we only enable dictionary compression during compaction to the
+    // bottommost level.
+    output_compression_opts_.max_dict_bytes = 0;
+    output_compression_opts_.zstd_max_train_bytes = 0;
+  }
 
 #ifndef NDEBUG
   for (size_t i = 1; i < inputs_.size(); ++i) {

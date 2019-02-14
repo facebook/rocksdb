@@ -317,7 +317,6 @@ struct BlockBasedTableBuilder::Rep {
   const std::string& column_family_name;
   uint64_t creation_time = 0;
   uint64_t oldest_key_time = 0;
-  const bool is_bottommost_level;
   const uint64_t target_file_size;
 
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
@@ -331,8 +330,7 @@ struct BlockBasedTableBuilder::Rep {
       const CompressionType _compression_type,
       const CompressionOptions& _compression_opts, const bool skip_filters,
       const std::string& _column_family_name, const uint64_t _creation_time,
-      const uint64_t _oldest_key_time, const bool _is_bottommost_level,
-      const uint64_t _target_file_size)
+      const uint64_t _oldest_key_time, const uint64_t _target_file_size)
       : ioptions(_ioptions),
         moptions(_moptions),
         table_options(table_opt),
@@ -356,7 +354,7 @@ struct BlockBasedTableBuilder::Rep {
         compression_dict(),
         compression_ctx(_compression_type),
         verify_dict(),
-        state((_is_bottommost_level && _compression_opts.max_dict_bytes > 0)
+        state((_compression_opts.max_dict_bytes > 0)
                   ? State::kBuffered
                   : State::kUnbuffered),
         use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
@@ -369,7 +367,6 @@ struct BlockBasedTableBuilder::Rep {
         column_family_name(_column_family_name),
         creation_time(_creation_time),
         oldest_key_time(_oldest_key_time),
-        is_bottommost_level(_is_bottommost_level),
         target_file_size(_target_file_size) {
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
@@ -421,8 +418,7 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     const CompressionType compression_type,
     const CompressionOptions& compression_opts, const bool skip_filters,
     const std::string& column_family_name, const uint64_t creation_time,
-    const uint64_t oldest_key_time, const bool is_bottommost_level,
-    const uint64_t target_file_size) {
+    const uint64_t oldest_key_time, const uint64_t target_file_size) {
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
       sanitized_table_options.checksum != kCRC32c) {
@@ -439,7 +435,7 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
                  internal_comparator, int_tbl_prop_collector_factories,
                  column_family_id, file, compression_type, compression_opts,
                  skip_filters, column_family_name, creation_time,
-                 oldest_key_time, is_bottommost_level, target_file_size);
+                 oldest_key_time, target_file_size);
 
   if (rep_->filter_builder != nullptr) {
     rep_->filter_builder->StartBlock(0);

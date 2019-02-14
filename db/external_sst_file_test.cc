@@ -2318,6 +2318,37 @@ TEST_F(ExternalSSTFileTest, SkipBloomFilter) {
   }
 }
 
+TEST_F(ExternalSSTFileTest, IngestFileWrittenWithCompressionDictionary) {
+  if (!ZSTD_Supported()) {
+    return;
+  }
+  const int kNumEntries = 1 << 10;
+  const int kNumBytesPerEntry = 1 << 10;
+  Options options = CurrentOptions();
+  options.compression = kZSTD;
+  options.compression_opts.max_dict_bytes = 1 << 14;        // 16KB
+  options.compression_opts.zstd_max_train_bytes = 1 << 18;  // 256KB
+  DestroyAndReopen(options);
+
+  std::atomic<int> num_compression_dicts(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::WriteCompressionDictBlock:RawDict",
+      [&](void* /* arg */) {
+        ++num_compression_dicts;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  std::vector<std::pair<std::string, std::string>> random_data;
+  for (int i = 0; i < kNumEntries; i++) {
+    std::string val;
+    test::RandomString(&rnd, kNumBytesPerEntry, &val);
+    random_data.emplace_back(Key(i), std::move(val));
+  }
+  ASSERT_OK(GenerateAndAddExternalFile(options, std::move(random_data)));
+  ASSERT_EQ(1, num_compression_dicts);
+}
+
 TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_Success) {
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
       new FaultInjectionTestEnv(env_));
