@@ -92,6 +92,14 @@ class TablePropertiesCollector {
     return Add(key, value);
   }
 
+  // Called on randomly sampled blocks if sampling is requested
+  virtual void SampledBlockStats(uint64_t /* sampledBlockRawBytes */,
+                                 uint64_t /* sampledBlockCompressedBytesFast */,
+                                 uint64_t /* sampledBlockCompressedBytesSlow */) {
+    // Nothing to do here. Callback registers can override.
+    return;
+  }
+
   // Finish() will be called when a table has already been built and is ready
   // for writing the properties block.
   // @params properties  User will add their collected statistics to

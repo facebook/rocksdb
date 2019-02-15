@@ -42,9 +42,10 @@ class BlockBasedTableBuilder : public TableBuilder {
       const BlockBasedTableOptions& table_options,
       const InternalKeyComparator& internal_comparator,
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-          int_tbl_prop_collector_factories,
+      int_tbl_prop_collector_factories,
       uint32_t column_family_id, WritableFileWriter* file,
       const CompressionType compression_type,
+      const uint64_t sample_for_compression,
       const CompressionOptions& compression_opts, const bool skip_filters,
       const std::string& column_family_name, const uint64_t creation_time = 0,
       const uint64_t oldest_key_time = 0, const uint64_t target_file_size = 0);
@@ -137,6 +138,8 @@ class BlockBasedTableBuilder : public TableBuilder {
 
 Slice CompressBlock(const Slice& raw, const CompressionInfo& info,
                     CompressionType* type, uint32_t format_version,
-                    std::string* compressed_output);
+                    std::string* compressed_output,
+                    std::string* sampled_output_fast,
+                    std::string* sampled_output_slow);
 
 }  // namespace rocksdb

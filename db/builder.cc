@@ -47,7 +47,7 @@ TableBuilder* NewTableBuilder(
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, const std::string& column_family_name,
     WritableFileWriter* file, const CompressionType compression_type,
-    const CompressionOptions& compression_opts, int level,
+    uint64_t sample_for_compression, const CompressionOptions& compression_opts, int level,
     const bool skip_filters, const uint64_t creation_time,
     const uint64_t oldest_key_time, const uint64_t target_file_size) {
   assert((column_family_id ==
@@ -56,7 +56,7 @@ TableBuilder* NewTableBuilder(
   return ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, internal_comparator,
                           int_tbl_prop_collector_factories, compression_type,
-                          compression_opts, skip_filters, column_family_name,
+                          sample_for_compression, compression_opts, skip_filters, column_family_name,
                           level, creation_time, oldest_key_time,
                           target_file_size),
       column_family_id, file);
@@ -70,11 +70,12 @@ Status BuildTable(
         range_del_iters,
     FileMetaData* meta, const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-        int_tbl_prop_collector_factories,
+    int_tbl_prop_collector_factories,
     uint32_t column_family_id, const std::string& column_family_name,
     std::vector<SequenceNumber> snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
     SnapshotChecker* snapshot_checker, const CompressionType compression,
+    uint64_t sample_for_compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
     InternalStats* internal_stats, TableFileCreationReason reason,
     EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
@@ -132,7 +133,7 @@ Status BuildTable(
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,
-          column_family_name, file_writer.get(), compression,
+          column_family_name, file_writer.get(), compression, sample_for_compression,
           compression_opts_for_flush, level, false /* skip_filters */,
           creation_time, oldest_key_time);
     }

@@ -215,7 +215,7 @@ int SstFileDumper::ShowAllCompressionSizes(
       std::string column_family_name;
       int unknown_level = -1;
       TableBuilderOptions tb_opts(imoptions, moptions, ikc,
-                                  &block_based_table_factories, i.first,
+                                  &block_based_table_factories, i.first, 0 /* sample_for_compression */,
                                   compress_opt, false /* skip_filters */,
                                   column_family_name, unknown_level);
       uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size);

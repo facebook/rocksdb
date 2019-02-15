@@ -216,6 +216,12 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   CompressionType compression;
 
+  // If this option is set then 1 in N blocks are compressed
+  // using a fast (lz4) and slow (zstd) compression algorithm.
+  // The compressibility is reported as stats and the stored
+  // data is left uncompressed (unless compression is also requested).
+  uint64_t sample_for_compression;
+
   // Compression algorithm that will be used for the bottommost level that
   // contain files.
   //

@@ -2222,7 +2222,7 @@ class Benchmark {
       CompressionOptions opts;
       CompressionContext context(FLAGS_compression_type_e);
       CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                           FLAGS_compression_type_e);
+                           FLAGS_compression_type_e, 0 /* sample_for_compression */);
       bool result = CompressSlice(info, Slice(input_str), &compressed);
 
       if (!result) {
@@ -3082,7 +3082,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     CompressionOptions opts;
     CompressionContext context(FLAGS_compression_type_e);
     CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                         FLAGS_compression_type_e);
+                         FLAGS_compression_type_e, 0 /* sample_for_compression */);
     // Compress 1G
     while (ok && bytes < int64_t(1) << 30) {
       compressed.clear();
@@ -3112,7 +3112,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     CompressionOptions compression_opts;
     CompressionInfo compression_info(compression_opts, compression_ctx,
                                      CompressionDict::GetEmptyDict(),
-                                     FLAGS_compression_type_e);
+                                     FLAGS_compression_type_e, 0 /* sample_for_compression */);
     UncompressionContext uncompression_ctx(FLAGS_compression_type_e);
     UncompressionInfo uncompression_info(uncompression_ctx,
                                          UncompressionDict::GetEmptyDict(),

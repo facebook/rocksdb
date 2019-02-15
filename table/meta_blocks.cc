@@ -151,6 +151,18 @@ bool NotifyCollectTableCollectorsOnAdd(
   return all_succeeded;
 }
 
+void NotifyCollectTableCollectorsOnSampledBlock(
+    const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
+    const uint64_t sampledBlockRawBytes,
+    const uint64_t sampledBlockCompressedBytesFast,
+    const uint64_t sampledBlockCompressedBytesSlow) {
+  for (auto& collector : collectors) {
+    collector->SampledBlockStats(sampledBlockRawBytes,
+                                 sampledBlockCompressedBytesFast,
+                                 sampledBlockCompressedBytesSlow);
+  }
+}
+
 bool NotifyCollectTableCollectorsOnFinish(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
     Logger* info_log, PropertyBlockBuilder* builder) {
