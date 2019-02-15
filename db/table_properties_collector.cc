@@ -42,11 +42,11 @@ Status UserKeyTablePropertiesCollector::InternalAdd(const Slice& key,
 }
 
 void UserKeyTablePropertiesCollector::BlockAdd(
-    uint64_t sampledBLockRawBytes, uint64_t sampledBlockCompressedBytesFast,
-    uint64_t sampledBlockCompressedBytesSlow) {
-  return collector_->BlockAdd(sampledBLockRawBytes,
-                              sampledBlockCompressedBytesFast,
-                              sampledBlockCompressedBytesSlow);
+    uint64_t bLockRawBytes, uint64_t blockCompressedBytesFast,
+    uint64_t blockCompressedBytesSlow) {
+  return collector_->BlockAdd(bLockRawBytes,
+                              blockCompressedBytesFast,
+                              blockCompressedBytesSlow);
 }
 
 Status UserKeyTablePropertiesCollector::Finish(
