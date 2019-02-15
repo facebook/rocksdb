@@ -220,24 +220,6 @@ class VersionStorageInfo {
       InternalKey** next_smallest = nullptr)  // if non-null, returns the
       const;  // smallest key of next file not included
 
-  void ExtendFileRangeOverlappingInterval(
-      int level,
-      const InternalKey* begin,  // nullptr means before all keys
-      const InternalKey* end,    // nullptr means after all keys
-      unsigned int index,        // start extending from this index
-      int* startIndex,           // return the startIndex of input range
-      int* endIndex)             // return the endIndex of input range
-      const;
-
-  void ExtendFileRangeWithinInterval(
-      int level,
-      const InternalKey* begin,  // nullptr means before all keys
-      const InternalKey* end,    // nullptr means after all keys
-      unsigned int index,        // start extending from this index
-      int* startIndex,           // return the startIndex of input range
-      int* endIndex)             // return the endIndex of input range
-      const;
-
   // Returns true iff some file in the specified level overlaps
   // some part of [*smallest_user_key,*largest_user_key].
   // smallest_user_key==NULL represents a key smaller than all keys in the DB.
