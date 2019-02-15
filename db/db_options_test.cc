@@ -699,7 +699,7 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
     dbfull()->TEST_WaitForPersistStatsRun(
         [&] { mock_env->set_current_time(mock_time); });
   }
-  std::unique_ptr<StatsHistoryIterator> stats_iter = nullptr;
+  std::unique_ptr<StatsHistoryIterator> stats_iter;
   db_->GetStatsHistory(0, 10 * kMicrosInSec, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count = 0;

@@ -712,6 +712,7 @@ void DBImpl::PersistStats() {
 bool DBImpl::FindStatsByTime(uint64_t start_time, uint64_t end_time,
                              uint64_t* new_time,
                              std::map<std::string, uint64_t>* stats_map) {
+  assert(new_time && stats_map);
   if (!new_time || !stats_map) return false;
   // lock when search for start_time
   {
@@ -731,7 +732,7 @@ bool DBImpl::FindStatsByTime(uint64_t start_time, uint64_t end_time,
 Status DBImpl::GetStatsHistory(uint64_t start_time, uint64_t end_time,
     std::unique_ptr<StatsHistoryIterator>* stats_iterator) {
   if (!stats_iterator) {
-    return Status::InvalidArgument();
+    return Status::InvalidArgument("stats_iterator not preallocated.");
   }
   stats_iterator->reset(
       new InMemoryStatsHistoryIterator(start_time, end_time, this));
