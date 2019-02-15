@@ -282,9 +282,11 @@ struct AdvancedColumnFamilyOptions {
   double memtable_prefix_bloom_size_ratio = 0.0;
 
   // Enable whole key bloom filter in memtable. Note this will only take effect
-  // if memtable_prefix_bloom_size_ratio is not 0. In addition to the prefix
-  // bloom filter, enabling whole key filter can reduce false positive rate,
-  // potentially reducing CPU usage for Get() calls.
+  // if memtable_prefix_bloom_size_ratio is not 0. Whole key filter can be
+  // useful when prefix bloom filter's false positive rate is too high, e.g.
+  // when Get() is frequently called with different keys sharing the same
+  // prefix. In such cases, enabling whole key filtering can potentially reduce
+  // CPU usage.
   //
   // Default: false (disable)
   //

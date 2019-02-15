@@ -271,7 +271,7 @@ class MemTable {
   // memtable prefix bloom is disabled, since we can't easily allocate more
   // space.
   void UpdateWriteBufferSize(size_t new_write_buffer_size) {
-    if (prefix_bloom_ == nullptr ||
+    if (bloom_filter_ == nullptr ||
         new_write_buffer_size < write_buffer_size_) {
       write_buffer_size_.store(new_write_buffer_size,
                                std::memory_order_relaxed);
@@ -451,7 +451,7 @@ class MemTable {
   std::vector<port::RWMutex> locks_;
 
   const SliceTransform* const prefix_extractor_;
-  std::unique_ptr<DynamicBloom> prefix_bloom_;
+  std::unique_ptr<DynamicBloom> bloom_filter_;
 
   std::atomic<FlushStateEnum> flush_state_;
 
