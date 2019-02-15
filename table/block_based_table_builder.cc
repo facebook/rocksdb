@@ -102,13 +102,13 @@ bool GoodCompressionRatio(size_t compressed_size, size_t raw_size) {
   return compressed_size < raw_size - (raw_size / 8u);
 }
 
-bool CompressBlockInternal(
-    const Slice& raw, const CompressionInfo& compression_info,
-    CompressionType type, uint32_t format_version,
-    std::string* compressed_output) {
+bool CompressBlockInternal(const Slice& raw,
+                           const CompressionInfo& compression_info,
+                           uint32_t format_version,
+                           std::string* compressed_output) {
   // Will return compressed block contents if (1) the compression method is
   // supported in this platform and (2) the compression rate is "good enough".
-  switch (type) {
+  switch (compression_info.type()) {
     case kSnappyCompression:
       return Snappy_Compress(
           compression_info, raw.data(), raw.size(), compressed_output);
@@ -156,10 +156,9 @@ Slice CompressBlock(
     std::string* compressed_output,
     std::string* sampled_output_fast,
     std::string* sampled_output_slow) {
-  *type = compression_info.type();
+  *type = info.type();
 
-  if (info.type() == kNoCompression &&
-      !info.sample_for_compression()) {
+  if (info.type() == kNoCompression && !info.sampleForCompression()) {
     return raw;
   }
 
@@ -168,21 +167,18 @@ Slice CompressBlock(
   // The users can use these stats to decide if it is worthwhile
   // enabling compression and they also get a hint about which
   // compression algorithm wil be beneficial.
-  if (do_sample && info.sample_for_compression() &&
-      Random::GetTLSInstance()->OneIn((int)info.sample_for_compression()) &&
+  if (do_sample && info.sampleForCompression() &&
+      Random::GetTLSInstance()->OneIn((int)info.sampleForCompression()) &&
       sampled_output_fast && sampled_output_slow) {
     // Sampling with a fast compression algorithm
     if (LZ4_Supported() || Snappy_Supported()) {
       CompressionType c = LZ4_Supported() ? kLZ4Compression : kSnappyCompression;
       CompressionContext context(c);
       CompressionOptions options;
-      CompressionInfo info(options, context, CompressionDict::GetEmptyDict(), c, info.sample_for_compression());
+      CompressionInfo infoTmp(options, context, CompressionDict::GetEmptyDict(),
+                              c, info.sampleForCompression());
 
-      CompressBlockInternal(raw,
-                            info,
-                            c,
-                            format_version,
-                            sampled_output_fast);
+      CompressBlockInternal(raw, infoTmp, format_version, sampled_output_fast);
     }
 
     // Sampling with a slow but high-compression algorithm
@@ -190,19 +186,15 @@ Slice CompressBlock(
       CompressionType c = ZSTD_Supported() ? kZSTD : kZlibCompression;
       CompressionContext context(c);
       CompressionOptions options;
-      CompressionInfo info(options, context, CompressionDict::GetEmptyDict(), c, info.sample_for_compression());
-      CompressBlockInternal(raw,
-                            info,
-                            c,
-                            format_version,
-                            sampled_output_slow);
+      CompressionInfo infoTmp(options, context, CompressionDict::GetEmptyDict(),
+                              c, info.sampleForCompression());
+      CompressBlockInternal(raw, infoTmp, format_version, sampled_output_slow);
     }
   }
 
   // Actually compress the data
   if (*type != kNoCompression) {
-    if (CompressBlockInternal(raw, compression_ctx, compression_ctx.type(),
-                              format_version, compressed_output) &&
+    if (CompressBlockInternal(raw, info, format_version, compressed_output) &&
         GoodCompressionRatio(compressed_output->size(), raw.size())) {
       return *compressed_output;
     }
@@ -309,6 +301,7 @@ struct BlockBasedTableBuilder::Rep {
 
   std::string last_key;
   CompressionType compression_type;
+  uint64_t sample_for_compression;
   CompressionOptions compression_opts;
   std::unique_ptr<CompressionDict> compression_dict;
   CompressionContext compression_ctx;
@@ -369,8 +362,7 @@ struct BlockBasedTableBuilder::Rep {
       uint32_t _column_family_id, WritableFileWriter* f,
       const CompressionType _compression_type,
       const uint64_t _sample_for_compression,
-      const CompressionOptions& _compression_opts,
-      const bool skip_filters,
+      const CompressionOptions& _compression_opts, const bool skip_filters,
       const std::string& _column_family_name, const uint64_t _creation_time,
       const uint64_t _oldest_key_time, const uint64_t _target_file_size)
       : ioptions(_ioptions),
@@ -392,7 +384,7 @@ struct BlockBasedTableBuilder::Rep {
         range_del_block(1 /* block_restart_interval */),
         internal_prefix_transform(_moptions.prefix_extractor.get()),
         compression_type(_compression_type),
-        sample_for_compression(_compression_type),
+        sample_for_compression(_sample_for_compression),
         compression_opts(_compression_opts),
         compression_dict(),
         compression_ctx(_compression_type),

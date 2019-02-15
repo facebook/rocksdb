@@ -326,7 +326,6 @@ class CompressionContext {
   ~CompressionContext() { DestroyNativeContext(); }
   CompressionContext(const CompressionContext&) = delete;
   CompressionContext& operator=(const CompressionContext&) = delete;
-  temp
 };
 
 class CompressionInfo {
@@ -340,15 +339,18 @@ class CompressionInfo {
   CompressionInfo(const CompressionOptions& _opts,
                   const CompressionContext& _context,
                   const CompressionDict& _dict, CompressionType _type,
-                  uint64_t sample_for_compression)
-      : opts_(_opts), context_(_context), dict_(_dict), type_(_type),
-        sample_for_compression_(sample_for_compression){}
+                  uint64_t _sample_for_compression)
+      : opts_(_opts),
+        context_(_context),
+        dict_(_dict),
+        type_(_type),
+        sample_for_compression_(_sample_for_compression) {}
 
   const CompressionOptions& options() const { return opts_; }
   const CompressionContext& context() const { return context_; }
   const CompressionDict& dict() const { return dict_; }
   CompressionType type() const { return type_; }
-  const uint64_t sampleForCompression() const { return sample_for_compression_; }
+  uint64_t sampleForCompression() const { return sample_for_compression_; }
 };
 
 class UncompressionContext {
