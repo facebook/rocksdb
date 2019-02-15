@@ -2044,6 +2044,7 @@ class Benchmark {
 
   class ErrorHandlerListener : public EventListener {
    public:
+#ifndef ROCKSDB_LITE
     ErrorHandlerListener()
         : mutex_(),
           cv_(&mutex_),
@@ -2085,6 +2086,9 @@ class Benchmark {
     InstrumentedCondVar cv_;
     bool no_auto_recovery_;
     bool recovery_complete_;
+#endif  // ROCKSDB_LITE
+    bool WaitForRecovery(uint64_t /*abs_time_us*/) { return true; }
+    void EnableAutoRecovery(bool /*enable*/) {}
   };
 
   std::shared_ptr<ErrorHandlerListener> listener_;
