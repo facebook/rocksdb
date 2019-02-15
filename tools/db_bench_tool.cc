@@ -2050,17 +2050,17 @@ class Benchmark {
           no_auto_recovery_(false),
           recovery_complete_(false) {}
 
-    ~ErrorHandlerListener() override {}
+    ~ErrorHandlerListener() {}
 
     void OnErrorRecoveryBegin(BackgroundErrorReason /*reason*/,
                               Status /*bg_error*/,
-                              bool* auto_recovery) override {
+                              bool* auto_recovery) {
       if (*auto_recovery && no_auto_recovery_) {
         *auto_recovery = false;
       }
     }
 
-    void OnErrorRecoveryCompleted(Status /*old_bg_error*/) override {
+    void OnErrorRecoveryCompleted(Status /*old_bg_error*/) {
       InstrumentedMutexLock l(&mutex_);
       recovery_complete_ = true;
       cv_.SignalAll();
