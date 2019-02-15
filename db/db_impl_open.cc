@@ -176,7 +176,7 @@ static Status ValidateOptions(
       return s;
     }
 
-    if (cfd.options.ttl > 0 || cfd.options.compaction_options_fifo.ttl > 0) {
+    if (cfd.options.ttl > 0) {
       if (db_options.max_open_files != -1) {
         return Status::NotSupported(
             "TTL is only supported when files are always "

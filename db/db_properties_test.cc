@@ -1432,7 +1432,7 @@ TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
   }
 
   options.compaction_style = kCompactionStyleFIFO;
-  options.compaction_options_fifo.ttl = 300;
+  options.ttl = 300;
   options.compaction_options_fifo.allow_compaction = false;
   DestroyAndReopen(options);
 

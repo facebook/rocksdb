@@ -628,9 +628,9 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   env_->time_elapse_only_sleep_ = false;
   options.env = env_;
 
-  // Test dynamically changing compaction_options_fifo.ttl
+  // Test dynamically changing ttl.
   env_->addon_time_.store(0);
-  options.compaction_options_fifo.ttl = 1 * 60 * 60;  // 1 hour
+  options.ttl = 1 * 60 * 60;  // 1 hour
   ASSERT_OK(TryReopen(options));
 
   Random rnd(301);
@@ -648,13 +648,13 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   env_->addon_time_.fetch_add(61);
 
   // No files should be compacted as ttl is set to 1 hour.
-  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 3600);
+  ASSERT_EQ(dbfull()->GetOptions().ttl, 3600);
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
   // Set ttl to 1 minute. So all files should get deleted.
-  ASSERT_OK(dbfull()->SetOptions({{"compaction_options_fifo", "{ttl=60;}"}}));
-  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 60);
+  ASSERT_OK(dbfull()->SetOptions({{"ttl", "60"}}));
+  ASSERT_EQ(dbfull()->GetOptions().ttl, 60);
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
@@ -662,7 +662,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   // Test dynamically changing compaction_options_fifo.max_table_files_size
   env_->addon_time_.store(0);
   options.compaction_options_fifo.max_table_files_size = 500 << 10;  // 00KB
-  options.compaction_options_fifo.ttl = 0;
+  options.ttl = 0;
   DestroyAndReopen(options);
 
   for (int i = 0; i < 10; i++) {
@@ -692,7 +692,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
 
   // Test dynamically changing compaction_options_fifo.allow_compaction
   options.compaction_options_fifo.max_table_files_size = 500 << 10;  // 500KB
-  options.compaction_options_fifo.ttl = 0;
+  options.ttl = 0;
   options.compaction_options_fifo.allow_compaction = false;
   options.level0_file_num_compaction_trigger = 6;
   DestroyAndReopen(options);

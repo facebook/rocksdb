@@ -216,8 +216,6 @@ void MutableCFOptions::Dump(Logger* log) const {
   // FIFO Compaction Options
   ROCKS_LOG_INFO(log, "compaction_options_fifo.max_table_files_size : %" PRIu64,
                  compaction_options_fifo.max_table_files_size);
-  ROCKS_LOG_INFO(log, "compaction_options_fifo.ttl : %" PRIu64,
-                 compaction_options_fifo.ttl);
   ROCKS_LOG_INFO(log, "compaction_options_fifo.allow_compaction : %d",
                  compaction_options_fifo.allow_compaction);
 }

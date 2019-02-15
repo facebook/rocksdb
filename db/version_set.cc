@@ -1597,8 +1597,7 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableCFOptions& ioptions,
         auto creation_time =
             f->fd.table_reader->GetTableProperties()->creation_time;
         if (creation_time > 0 &&
-            creation_time < (current_time -
-                             mutable_cf_options.compaction_options_fifo.ttl)) {
+            creation_time < (current_time - mutable_cf_options.ttl)) {
           ttl_expired_files_count++;
         }
       }
@@ -1653,7 +1652,7 @@ void VersionStorageInfo::ComputeCompactionScore(
                   mutable_cf_options.level0_file_num_compaction_trigger,
               score);
         }
-        if (mutable_cf_options.compaction_options_fifo.ttl > 0) {
+        if (mutable_cf_options.ttl > 0) {
           score = std::max(
               static_cast<double>(GetExpiredTtlFilesCount(
                   immutable_cf_options, mutable_cf_options, files_[level])),

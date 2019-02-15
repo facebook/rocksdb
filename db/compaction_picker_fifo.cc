@@ -41,7 +41,7 @@ bool FIFOCompactionPicker::NeedsCompaction(
 Compaction* FIFOCompactionPicker::PickTTLCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
-  assert(mutable_cf_options.compaction_options_fifo.ttl > 0);
+  assert(mutable_cf_options.ttl > 0);
 
   const int kLevel0 = 0;
   const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(kLevel0);
@@ -63,7 +63,7 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   inputs[0].level = 0;
 
   // avoid underflow
-  if (current_time > mutable_cf_options.compaction_options_fifo.ttl) {
+  if (current_time > mutable_cf_options.ttl) {
     for (auto ritr = level_files.rbegin(); ritr != level_files.rend(); ++ritr) {
       auto f = *ritr;
       if (f->fd.table_reader != nullptr &&
@@ -71,8 +71,7 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
         auto creation_time =
             f->fd.table_reader->GetTableProperties()->creation_time;
         if (creation_time == 0 ||
-            creation_time >= (current_time -
-                              mutable_cf_options.compaction_options_fifo.ttl)) {
+            creation_time >= (current_time - mutable_cf_options.ttl)) {
           break;
         }
         total_size -= f->compensated_file_size;
@@ -201,7 +200,7 @@ Compaction* FIFOCompactionPicker::PickCompaction(
   assert(vstorage->num_levels() == 1);
 
   Compaction* c = nullptr;
-  if (mutable_cf_options.compaction_options_fifo.ttl > 0) {
+  if (mutable_cf_options.ttl > 0) {
     c = PickTTLCompaction(cf_name, mutable_cf_options, vstorage, log_buffer);
   }
   if (c == nullptr) {

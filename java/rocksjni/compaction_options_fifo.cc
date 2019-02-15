@@ -48,30 +48,6 @@ jlong Java_org_rocksdb_CompactionOptionsFIFO_maxTableFilesSize(JNIEnv* /*env*/,
 
 /*
  * Class:     org_rocksdb_CompactionOptionsFIFO
- * Method:    setTtl
- * Signature: (JJ)V
- */
-void Java_org_rocksdb_CompactionOptionsFIFO_setTtl(JNIEnv* /*env*/,
-                                                   jobject /*jobj*/,
-                                                   jlong jhandle, jlong ttl) {
-  auto* opt = reinterpret_cast<rocksdb::CompactionOptionsFIFO*>(jhandle);
-  opt->ttl = static_cast<uint64_t>(ttl);
-}
-
-/*
- * Class:     org_rocksdb_CompactionOptionsFIFO
- * Method:    ttl
- * Signature: (J)J
- */
-jlong Java_org_rocksdb_CompactionOptionsFIFO_ttl(JNIEnv* /*env*/,
-                                                 jobject /*jobj*/,
-                                                 jlong jhandle) {
-  auto* opt = reinterpret_cast<rocksdb::CompactionOptionsFIFO*>(jhandle);
-  return static_cast<jlong>(opt->ttl);
-}
-
-/*
- * Class:     org_rocksdb_CompactionOptionsFIFO
  * Method:    setAllowCompaction
  * Signature: (JZ)V
  */

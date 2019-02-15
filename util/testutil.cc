@@ -351,7 +351,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
       cf_opt->target_file_size_base * rnd->Uniform(100);
   cf_opt->compaction_options_fifo.max_table_files_size =
       uint_max + rnd->Uniform(10000);
-  cf_opt->compaction_options_fifo.ttl = uint_max + rnd->Uniform(10000);
 
   // unsigned int options
   cf_opt->rate_limit_delay_max_milliseconds = rnd->Uniform(10000);
