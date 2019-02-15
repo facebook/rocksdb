@@ -111,7 +111,9 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
   // something went wrong if we need to flush before inserting anything
   assert(!ShouldScheduleFlush());
 
-  if (prefix_extractor_ && moptions_.memtable_prefix_bloom_bits > 0) {
+  // use bloom_filter_ for both whole key and prefix bloom filter
+  if ((prefix_extractor_ || moptions_.memtable_whole_key_filtering) &&
+      moptions_.memtable_prefix_bloom_bits > 0) {
     bloom_filter_.reset(
         new DynamicBloom(&arena_, moptions_.memtable_prefix_bloom_bits,
                          ioptions.bloom_locality, 6 /* hard coded 6 probes */,
@@ -316,7 +318,8 @@ class MemTableIterator : public InternalIterator {
   virtual void Seek(const Slice& k) override {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
-    if (bloom_ != nullptr) {
+    if (bloom_ && prefix_extractor_) {
+      // iterator should only use prefix bloom filter
       if (!bloom_->MayContain(
               prefix_extractor_->Transform(ExtractUserKey(k)))) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
@@ -332,7 +335,7 @@ class MemTableIterator : public InternalIterator {
   virtual void SeekForPrev(const Slice& k) override {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
-    if (bloom_ != nullptr) {
+    if (bloom_ && prefix_extractor_) {
       if (!bloom_->MayContain(
               prefix_extractor_->Transform(ExtractUserKey(k)))) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
@@ -518,11 +521,10 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
                          std::memory_order_relaxed);
     }
 
-    if (bloom_filter_) {
-      assert(prefix_extractor_);
+    if (bloom_filter_ && prefix_extractor_) {
       bloom_filter_->Add(prefix_extractor_->Transform(key));
     }
-    if (moptions_.memtable_whole_key_filtering && bloom_filter_) {
+    if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
       bloom_filter_->Add(key);
     }
 
@@ -552,11 +554,10 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
       post_process_info->num_deletes++;
     }
 
-    if (bloom_filter_) {
-      assert(prefix_extractor_);
+    if (bloom_filter_ && prefix_extractor_) {
       bloom_filter_->AddConcurrently(prefix_extractor_->Transform(key));
     }
-    if (moptions_.memtable_whole_key_filtering && bloom_filter_) {
+    if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
       bloom_filter_->AddConcurrently(key);
     }
 
@@ -766,10 +767,12 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   bool merge_in_progress = s->IsMergeInProgress();
   bool may_contain = true;
   if (bloom_filter_) {
+    // when both memtable_whole_key_filtering and prefix_extractor_ are set,
+    // only do whole key filtering for Get() to save CPU
     if (moptions_.memtable_whole_key_filtering) {
       may_contain = bloom_filter_->MayContain(user_key);
-    }
-    else {
+    } else {
+      assert(prefix_extractor_);
       may_contain =
           bloom_filter_->MayContain(prefix_extractor_->Transform(user_key));
     }

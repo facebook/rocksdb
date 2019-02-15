@@ -802,8 +802,10 @@ TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilter) {
   std::string key1("AAAABBBB");
   std::string key2("AAAACCCC");  // not in DB
   std::string key3("AAAADDDD");
+  std::string key4("AAAAEEEE");
   std::string value1("Value1");
   std::string value3("Value3");
+  std::string value4("Value4");
 
   ASSERT_OK(Put(key1, value1, WriteOptions()));
 
@@ -817,11 +819,20 @@ TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilter) {
   options.memtable_whole_key_filtering = true;
   Reopen(options);
   // check memtable bloom stats
-  ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
   ASSERT_OK(Put(key3, value3, WriteOptions()));
   ASSERT_EQ("NOT_FOUND", Get(key2));
   // whole key bloom filter kicks in and determines it's a miss
   ASSERT_EQ(1, get_perf_context()->bloom_memtable_miss_count);
+  ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
+
+  // verify whole key filtering does not depend on prefix_extractor
+  options.prefix_extractor.reset();
+  Reopen(options);
+  // check memtable bloom stats
+  ASSERT_OK(Put(key4, value4, WriteOptions()));
+  ASSERT_EQ("NOT_FOUND", Get(key2));
+  // whole key bloom filter kicks in and determines it's a miss
+  ASSERT_EQ(2, get_perf_context()->bloom_memtable_miss_count);
   ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
 }
 
