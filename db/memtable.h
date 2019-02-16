@@ -265,6 +265,10 @@ class MemTable {
     return num_deletes_.load(std::memory_order_relaxed);
   }
 
+  uint64_t get_data_size() const {
+    return data_size_.load(std::memory_order_relaxed);
+  }
+
   // Dynamically change the memtable's capacity. If set below the current usage,
   // the next key added will trigger a flush. Can only increase size when
   // memtable prefix bloom is disabled, since we can't easily allocate more
