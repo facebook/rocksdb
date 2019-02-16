@@ -1316,7 +1316,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 #endif  // !ROCKSDB_LITE
 
   if (s.ok()) {
-    ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "DB pointer %p", impl);
+    ROCKS_LOG_HEADER(impl->immutable_db_options_.info_log, "DB pointer %p",
+                     impl);
     LogFlush(impl->immutable_db_options_.info_log);
     assert(impl->TEST_WALBufferIsEmpty());
     // If the assert above fails then we need to FlushWAL before returning
