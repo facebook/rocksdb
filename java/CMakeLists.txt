@@ -94,6 +94,9 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.ClockCache
         org.rocksdb.ColumnFamilyHandle
         org.rocksdb.ColumnFamilyOptions
+        org.rocksdb.CompactionJobInfo
+        org.rocksdb.CompactionJobStats
+        org.rocksdb.CompactionOptions
         org.rocksdb.CompactionOptionsFIFO
         org.rocksdb.CompactionOptionsUniversal
         org.rocksdb.CompactRangeOptions
@@ -109,6 +112,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.FlushOptions
         org.rocksdb.HashLinkedListMemTableConfig
         org.rocksdb.HashSkipListMemTableConfig
+        org.rocksdb.HdfsEnv
         org.rocksdb.IngestExternalFileOptions
         org.rocksdb.Logger
         org.rocksdb.LRUCache
@@ -120,6 +124,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.OptimisticTransactionOptions
         org.rocksdb.Options
         org.rocksdb.OptionsUtil
+        org.rocksdb.PersistentCache
         org.rocksdb.PlainTableConfig
         org.rocksdb.RateLimiter
         org.rocksdb.ReadOptions
@@ -141,6 +146,8 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.Statistics
         org.rocksdb.StringAppendOperator
         org.rocksdb.TableFormatConfig
+        org.rocksdb.ThreadStatus
+        org.rocksdb.TimedEnv
         org.rocksdb.Transaction
         org.rocksdb.TransactionDB
         org.rocksdb.TransactionDBOptions
@@ -190,6 +197,7 @@ add_jar(
   src/main/java/org/rocksdb/AbstractNativeReference.java
   src/main/java/org/rocksdb/AbstractRocksIterator.java
   src/main/java/org/rocksdb/AbstractSlice.java
+  src/main/java/org/rocksdb/AbstractTableFilter.java
   src/main/java/org/rocksdb/AbstractTraceWriter.java
   src/main/java/org/rocksdb/AbstractTransactionNotifier.java
   src/main/java/org/rocksdb/AbstractWalFilter.java
@@ -275,6 +283,7 @@ add_jar(
   src/main/java/org/rocksdb/PersistentCache.java
   src/main/java/org/rocksdb/PlainTableConfig.java
   src/main/java/org/rocksdb/Priority.java
+  src/main/java/org/rocksdb/Range.java
   src/main/java/org/rocksdb/RateLimiter.java
   src/main/java/org/rocksdb/RateLimiterMode.java
   src/main/java/org/rocksdb/ReadOptions.java
@@ -290,6 +299,7 @@ add_jar(
   src/main/java/org/rocksdb/RocksMemEnv.java
   src/main/java/org/rocksdb/RocksMutableObject.java
   src/main/java/org/rocksdb/RocksObject.java
+  src/main/java/org/rocksdb/SizeApproximationFlag.java
   src/main/java/org/rocksdb/SkipListMemTableConfig.java
   src/main/java/org/rocksdb/Slice.java
   src/main/java/org/rocksdb/Snapshot.java
@@ -311,7 +321,7 @@ add_jar(
   src/main/java/org/rocksdb/ThreadStatus.java
   src/main/java/org/rocksdb/TickerType.java
   src/main/java/org/rocksdb/TimedEnv.java
-  src/main/java/org/rocksdb/TraceOptions/java
+  src/main/java/org/rocksdb/TraceOptions.java
   src/main/java/org/rocksdb/TraceWriter.java
   src/main/java/org/rocksdb/TransactionalDB.java
   src/main/java/org/rocksdb/TransactionalOptions.java
