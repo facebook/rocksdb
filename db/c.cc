@@ -3759,6 +3759,10 @@ const rocksdb_snapshot_t* rocksdb_transaction_get_snapshot(
   return result;
 }
 
+void rocksdb_transaction_close_snapshot(const rocksdb_snapshot_t* snapshot) {
+  delete snapshot;
+}
+   
 // Read a key inside a transaction
 char* rocksdb_transaction_get(rocksdb_transaction_t* txn,
                               const rocksdb_readoptions_t* options,
