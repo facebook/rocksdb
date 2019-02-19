@@ -142,6 +142,8 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   cf_opts.arena_block_size = mutable_cf_options.arena_block_size;
   cf_opts.memtable_prefix_bloom_size_ratio =
       mutable_cf_options.memtable_prefix_bloom_size_ratio;
+  cf_opts.memtable_whole_key_filtering =
+      mutable_cf_options.memtable_whole_key_filtering;
   cf_opts.memtable_huge_page_size = mutable_cf_options.memtable_huge_page_size;
   cf_opts.max_successive_merges = mutable_cf_options.max_successive_merges;
   cf_opts.inplace_update_num_locks =
@@ -1801,6 +1803,10 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"memtable_prefix_bloom_probes",
          {0, OptionType::kUInt32T, OptionVerificationType::kDeprecated, true,
           0}},
+        {"memtable_whole_key_filtering",
+         {offset_of(&ColumnFamilyOptions::memtable_whole_key_filtering),
+          OptionType::kBoolean, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, memtable_whole_key_filtering)}},
         {"min_partial_merge_operands",
          {0, OptionType::kUInt32T, OptionVerificationType::kDeprecated, true,
           0}},

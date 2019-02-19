@@ -41,6 +41,7 @@ struct ImmutableMemTableOptions {
   size_t arena_block_size;
   uint32_t memtable_prefix_bloom_bits;
   size_t memtable_huge_page_size;
+  bool memtable_whole_key_filtering;
   bool inplace_update_support;
   size_t inplace_update_num_locks;
   UpdateStatus (*inplace_callback)(char* existing_value,
@@ -274,7 +275,7 @@ class MemTable {
   // memtable prefix bloom is disabled, since we can't easily allocate more
   // space.
   void UpdateWriteBufferSize(size_t new_write_buffer_size) {
-    if (prefix_bloom_ == nullptr ||
+    if (bloom_filter_ == nullptr ||
         new_write_buffer_size < write_buffer_size_) {
       write_buffer_size_.store(new_write_buffer_size,
                                std::memory_order_relaxed);
@@ -454,7 +455,7 @@ class MemTable {
   std::vector<port::RWMutex> locks_;
 
   const SliceTransform* const prefix_extractor_;
-  std::unique_ptr<DynamicBloom> prefix_bloom_;
+  std::unique_ptr<DynamicBloom> bloom_filter_;
 
   std::atomic<FlushStateEnum> flush_state_;
 

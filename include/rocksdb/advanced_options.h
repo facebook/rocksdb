@@ -272,6 +272,15 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   double memtable_prefix_bloom_size_ratio = 0.0;
 
+  // Enable whole key bloom filter in memtable. Note this will only take effect
+  // if memtable_prefix_bloom_size_ratio is not 0. Enabling whole key filtering
+  // can potentially reduce CPU usage for point-look-ups.
+  //
+  // Default: false (disable)
+  //
+  // Dynamically changeable through SetOptions() API
+  bool memtable_whole_key_filtering = false;
+
   // Page size for huge page for the arena used by the memtable. If <=0, it
   // won't allocate from huge page but from malloc.
   // Users are responsible to reserve huge pages for it to be allocated. For

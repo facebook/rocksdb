@@ -90,6 +90,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"compaction_measure_io_stats", "false"},
       {"inplace_update_num_locks", "25"},
       {"memtable_prefix_bloom_size_ratio", "0.26"},
+      {"memtable_whole_key_filtering", "true"},
       {"memtable_huge_page_size", "28"},
       {"bloom_locality", "29"},
       {"max_successive_merges", "30"},
@@ -195,6 +196,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.inplace_update_support, true);
   ASSERT_EQ(new_cf_opt.inplace_update_num_locks, 25U);
   ASSERT_EQ(new_cf_opt.memtable_prefix_bloom_size_ratio, 0.26);
+  ASSERT_EQ(new_cf_opt.memtable_whole_key_filtering, true);
   ASSERT_EQ(new_cf_opt.memtable_huge_page_size, 28U);
   ASSERT_EQ(new_cf_opt.bloom_locality, 29U);
   ASSERT_EQ(new_cf_opt.max_successive_merges, 30U);

@@ -514,6 +514,8 @@ DEFINE_int32(bloom_bits, -1, "Bloom filter bits per key. Negative means"
 DEFINE_double(memtable_bloom_size_ratio, 0,
               "Ratio of memtable size used for bloom filter. 0 means no bloom "
               "filter.");
+DEFINE_bool(memtable_whole_key_filtering, false,
+            "Try to use whole key bloom filter in memtables.");
 DEFINE_bool(memtable_use_huge_page, false,
             "Try to use huge page in memtables.");
 
@@ -3247,6 +3249,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
     options.memtable_huge_page_size = FLAGS_memtable_use_huge_page ? 2048 : 0;
     options.memtable_prefix_bloom_size_ratio = FLAGS_memtable_bloom_size_ratio;
+    options.memtable_whole_key_filtering = FLAGS_memtable_whole_key_filtering;
     if (FLAGS_memtable_insert_with_hint_prefix_size > 0) {
       options.memtable_insert_with_hint_prefix_extractor.reset(
           NewCappedPrefixTransform(

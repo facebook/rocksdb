@@ -210,6 +210,10 @@ DEFINE_double(memtable_prefix_bloom_size_ratio,
               "creates prefix blooms for memtables, each with size "
               "`write_buffer_size * memtable_prefix_bloom_size_ratio`.");
 
+DEFINE_bool(memtable_whole_key_filtering,
+            rocksdb::Options().memtable_whole_key_filtering,
+            "Enable whole key filtering in memtables.");
+
 DEFINE_int32(open_files, rocksdb::Options().max_open_files,
              "Maximum number of files to keep open at the same time "
              "(use default if == 0)");
@@ -2583,6 +2587,8 @@ class StressTest {
           FLAGS_max_write_buffer_number_to_maintain;
       options_.memtable_prefix_bloom_size_ratio =
           FLAGS_memtable_prefix_bloom_size_ratio;
+      options_.memtable_whole_key_filtering =
+          FLAGS_memtable_whole_key_filtering;
       options_.max_background_compactions = FLAGS_max_background_compactions;
       options_.max_background_flushes = FLAGS_max_background_flushes;
       options_.compaction_style =
