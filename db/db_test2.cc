@@ -1036,7 +1036,8 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
   ASSERT_TRUE(index == keys_cf.size());
 }
 
-TEST_F(DBTest2, PresetCompressionDict) {
+// Temporarily disable it because the test is flaky.
+TEST_F(DBTest2, DISABLED_PresetCompressionDict) {
   // Verifies that compression ratio improves when dictionary is enabled, and
   // improves even further when the dictionary is trained by ZSTD.
   const size_t kBlockSizeBytes = 4 << 10;
