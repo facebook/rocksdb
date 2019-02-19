@@ -22,60 +22,57 @@ class DBImplSecondary : public DBImpl {
 
   // Implementations of the DB interface
   using DB::Get;
-  Status Get(const ReadOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     PinnableSlice* value) override;
+  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value) override;
 
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, PinnableSlice* value);
 
   using DBImpl::NewIterator;
   Iterator* NewIterator(const ReadOptions&,
-                                ColumnFamilyHandle* column_family) override;
+                        ColumnFamilyHandle* column_family) override;
 
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& read_options,
                                       ColumnFamilyData* cfd,
                                       SequenceNumber snapshot,
                                       ReadCallback* read_callback);
 
-  Status NewIterators(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      std::vector<Iterator*>* iterators) override;
+  Status NewIterators(const ReadOptions& options,
+                      const std::vector<ColumnFamilyHandle*>& column_families,
+                      std::vector<Iterator*>* iterators) override;
 
   using DBImpl::Put;
   Status Put(const WriteOptions& /*options*/,
-                     ColumnFamilyHandle* /*column_family*/,
-                     const Slice& /*key*/, const Slice& /*value*/) override {
+             ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
+             const Slice& /*value*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
   using DBImpl::Merge;
   Status Merge(const WriteOptions& /*options*/,
-                       ColumnFamilyHandle* /*column_family*/,
-                       const Slice& /*key*/, const Slice& /*value*/) override {
+               ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
+               const Slice& /*value*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
   using DBImpl::Delete;
   Status Delete(const WriteOptions& /*options*/,
-                        ColumnFamilyHandle* /*column_family*/,
-                        const Slice& /*key*/) override {
+                ColumnFamilyHandle* /*column_family*/,
+                const Slice& /*key*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
   using DBImpl::SingleDelete;
   Status SingleDelete(const WriteOptions& /*options*/,
-                              ColumnFamilyHandle* /*column_family*/,
-                              const Slice& /*key*/) override {
+                      ColumnFamilyHandle* /*column_family*/,
+                      const Slice& /*key*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
   Status Write(const WriteOptions& /*options*/,
-                       WriteBatch* /*updates*/) override {
+               WriteBatch* /*updates*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
   using DBImpl::CompactRange;
   Status CompactRange(const CompactRangeOptions& /*options*/,
-                              ColumnFamilyHandle* /*column_family*/,
-                              const Slice* /*begin*/,
-                              const Slice* /*end*/) override {
+                      ColumnFamilyHandle* /*column_family*/,
+                      const Slice* /*begin*/, const Slice* /*end*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
@@ -98,14 +95,14 @@ class DBImplSecondary : public DBImpl {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
   Status GetLiveFiles(std::vector<std::string>&,
-                              uint64_t* /*manifest_file_size*/,
-                              bool /*flush_memtable*/ = true) override {
+                      uint64_t* /*manifest_file_size*/,
+                      bool /*flush_memtable*/ = true) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
   using DBImpl::Flush;
   Status Flush(const FlushOptions& /*options*/,
-                       ColumnFamilyHandle* /*column_family*/) override {
+               ColumnFamilyHandle* /*column_family*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 

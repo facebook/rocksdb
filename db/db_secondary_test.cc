@@ -25,8 +25,7 @@ class DBSecondaryTest : public DBTestBase {
 
   ~DBSecondaryTest() override {
     if (getenv("KEEP_DB") != nullptr) {
-      fprintf(stdout, "Secondary DB is still at %s\n",
-              secondary_path_.c_str());
+      fprintf(stdout, "Secondary DB is still at %s\n", secondary_path_.c_str());
     } else {
       Options options;
       options.env = env_;
@@ -159,8 +158,8 @@ TEST_F(DBSecondaryTest, SwitchToNewManifestDuringOpen) {
     Options options1;
     options1.env = env_;
     options1.max_open_files = -1;
-    Status s = DB::OpenAsSecondary(options1, dbname_, secondary_path_,
-                                   &db_secondary);
+    Status s =
+        DB::OpenAsSecondary(options1, dbname_, secondary_path_, &db_secondary);
     ASSERT_OK(s);
     delete db_secondary;
   });

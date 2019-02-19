@@ -267,9 +267,8 @@ Status DB::OpenAsSecondary(
     env->CreateDirIfMissing(secondary_path);
     if (tmp_opts.log_file_time_to_roll > 0 || tmp_opts.max_log_file_size > 0) {
       AutoRollLogger* result = new AutoRollLogger(
-          env, secondary_path, tmp_opts.db_log_dir,
-          tmp_opts.max_log_file_size, tmp_opts.log_file_time_to_roll,
-          tmp_opts.info_log_level);
+          env, secondary_path, tmp_opts.db_log_dir, tmp_opts.max_log_file_size,
+          tmp_opts.log_file_time_to_roll, tmp_opts.info_log_level);
       Status s = result->GetStatus();
       if (!s.ok()) {
         delete result;
@@ -278,9 +277,9 @@ Status DB::OpenAsSecondary(
       }
     }
     if (nullptr == tmp_opts.info_log) {
-      env->RenameFile(fname, OldInfoLogFileName(
-                                 secondary_path, env->NowMicros(),
-                                 secondary_abs_path, tmp_opts.db_log_dir));
+      env->RenameFile(
+          fname, OldInfoLogFileName(secondary_path, env->NowMicros(),
+                                    secondary_abs_path, tmp_opts.db_log_dir));
       Status s = env->NewLogger(fname, &(tmp_opts.info_log));
       if (tmp_opts.info_log != nullptr) {
         tmp_opts.info_log->SetInfoLogLevel(tmp_opts.info_log_level);
