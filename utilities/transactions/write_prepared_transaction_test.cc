@@ -2691,7 +2691,8 @@ TEST_P(WritePreparedTransactionTest, NonAtomicCommitOfDelayedPrepared) {
       split_options.push_back(true);
     }
     for (auto split_before_mutex : split_options) {
-      DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
+      UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+      ReOpen();
       WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
       DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
       // Fill up the commit cache
@@ -2788,7 +2789,8 @@ TEST_P(WritePreparedTransactionTest, NonAtomicCommitOfDelayedPrepared) {
 TEST_P(WritePreparedTransactionTest, NonAtomicUpdateOfDelayedPrepared) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 3;    // 8 entries
-  DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  ReOpen();
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
   // Fill up the commit cache
   std::string init_value("value1");
@@ -2857,7 +2859,8 @@ TEST_P(WritePreparedTransactionTest, NonAtomicUpdateOfDelayedPrepared) {
 TEST_P(WritePreparedTransactionTest, NonAtomicUpdateOfMaxEvictedSeq) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 3;    // 8 entries
-  DestroyAndReopenWithExtraOptions(snapshot_cache_bits, commit_cache_bits);
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  ReOpen();
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
   // Fill up the commit cache
   std::string init_value("value1");
