@@ -6298,7 +6298,7 @@ class ThreadStatusJni : public JavaClass {
         static_cast<jlong>(thread_status->op_elapsed_micros),
         OperationStageJni::toJavaOperationStage(thread_status->operation_stage),
         joperation_properties,
-        StateTypeJni::toCppStateType(thread_status->state_type));
+        StateTypeJni::toJavaStateType(thread_status->state_type));
     if (env->ExceptionCheck()) {
       // exception occurred
         env->DeleteLocalRef(jdb_name);
