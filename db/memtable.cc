@@ -318,7 +318,7 @@ class MemTableIterator : public InternalIterator {
   virtual void Seek(const Slice& k) override {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
-    if (bloom_ && prefix_extractor_) {
+    if (bloom_) {
       // iterator should only use prefix bloom filter
       if (!bloom_->MayContain(
               prefix_extractor_->Transform(ExtractUserKey(k)))) {
@@ -335,7 +335,7 @@ class MemTableIterator : public InternalIterator {
   virtual void SeekForPrev(const Slice& k) override {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
-    if (bloom_ && prefix_extractor_) {
+    if (bloom_) {
       if (!bloom_->MayContain(
               prefix_extractor_->Transform(ExtractUserKey(k)))) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
