@@ -686,7 +686,8 @@ endif  # PLATFORM_SHARED_EXT
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
 	release tags tags0 valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
-	analyze tools tools_lib
+	analyze tools tools_lib \
+	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush
 
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
@@ -894,10 +895,14 @@ ldb_tests: ldb
 
 crash_test: whitebox_crash_test blackbox_crash_test
 
+crash_test_with_atomic_flush: whitebox_crash_test_with_atomic_flush blackbox_crash_test_with_atomic_flush
+
 blackbox_crash_test: db_stress
 	python -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
-	python -u tools/db_crashtest.py --enable_atomic_flush blackbox $(CRASH_TEST_EXT_ARGS)
 	python -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
+
+blackbox_crash_test_with_atomic_flush: db_stress
+	python -u tools/db_crashtest.py --enable_atomic_flush blackbox $(CRASH_TEST_EXT_ARGS)
 
 ifeq ($(CRASH_TEST_KILL_ODD),)
   CRASH_TEST_KILL_ODD=888887
@@ -906,9 +911,11 @@ endif
 whitebox_crash_test: db_stress
 	python -u tools/db_crashtest.py --simple whitebox --random_kill_odd \
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
-	python -u tools/db_crashtest.py --enable_atomic_flush whitebox  --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 	python -u tools/db_crashtest.py whitebox  --random_kill_odd \
+      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
+
+whitebox_crash_test_with_atomic_flush: db_stress
+	python -u tools/db_crashtest.py --enable_atomic_flush whitebox  --random_kill_odd \
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 
 asan_check:
@@ -921,6 +928,11 @@ asan_crash_test:
 	COMPILE_WITH_ASAN=1 $(MAKE) crash_test
 	$(MAKE) clean
 
+asan_crash_test_with_atomic_flush:
+	$(MAKE) clean
+	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_atomic_flush
+	$(MAKE) clean
+
 ubsan_check:
 	$(MAKE) clean
 	COMPILE_WITH_UBSAN=1 $(MAKE) check -j32
@@ -929,6 +941,11 @@ ubsan_check:
 ubsan_crash_test:
 	$(MAKE) clean
 	COMPILE_WITH_UBSAN=1 $(MAKE) crash_test
+	$(MAKE) clean
+
+ubsan_crash_test_with_atomic_flush:
+	$(MAKE) clean
+	COMPILE_WITH_UBSAN=1 $(MAKE) crash_test_with_atomic_flush
 	$(MAKE) clean
 
 valgrind_test:
