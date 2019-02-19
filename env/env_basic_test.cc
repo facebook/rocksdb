@@ -21,8 +21,8 @@ class NormalizingEnvWrapper : public EnvWrapper {
   explicit NormalizingEnvWrapper(Env* base) : EnvWrapper(base) {}
 
   // Removes . and .. from directory listing
-  virtual Status GetChildren(const std::string& dir,
-                             std::vector<std::string>* result) override {
+  Status GetChildren(const std::string& dir,
+                     std::vector<std::string>* result) override {
     Status status = EnvWrapper::GetChildren(dir, result);
     if (status.ok()) {
       result->erase(std::remove_if(result->begin(), result->end(),
@@ -35,7 +35,7 @@ class NormalizingEnvWrapper : public EnvWrapper {
   }
 
   // Removes . and .. from directory listing
-  virtual Status GetChildrenFileAttributes(
+  Status GetChildrenFileAttributes(
       const std::string& dir, std::vector<FileAttributes>* result) override {
     Status status = EnvWrapper::GetChildrenFileAttributes(dir, result);
     if (status.ok()) {
@@ -60,11 +60,9 @@ class EnvBasicTestWithParam : public testing::Test,
     test_dir_ = test::PerThreadDBPath(env_, "env_basic_test");
   }
 
-  void SetUp() {
-    env_->CreateDirIfMissing(test_dir_);
-  }
+  void SetUp() override { env_->CreateDirIfMissing(test_dir_); }
 
-  void TearDown() {
+  void TearDown() override {
     std::vector<std::string> files;
     env_->GetChildren(test_dir_, &files);
     for (const auto& file : files) {

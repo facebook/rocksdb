@@ -429,7 +429,7 @@ Status WalManager::ReadFirstLine(const std::string& fname,
 
     Status* status;
     bool ignore_error;  // true if db_options_.paranoid_checks==false
-    virtual void Corruption(size_t bytes, const Status& s) override {
+    void Corruption(size_t bytes, const Status& s) override {
       ROCKS_LOG_WARN(info_log, "[WalManager] %s%s: dropping %d bytes; %s",
                      (this->ignore_error ? "(ignoring error) " : ""), fname,
                      static_cast<int>(bytes), s.ToString().c_str());
