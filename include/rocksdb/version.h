@@ -4,8 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#define ROCKSDB_MAJOR 5
-#define ROCKSDB_MINOR 18
+#define ROCKSDB_MAJOR 6
+#define ROCKSDB_MINOR 0
 #define ROCKSDB_PATCH 0
 
 // Do not use these. We made the mistake of declaring macros starting with

@@ -1,5 +1,6 @@
 # Rocksdb Change Log
-## Unreleased
+
+## 6.0.0 (2/19/2019)
 ### New Features
 * Enabled checkpoint on readonly db (DBImplReadOnly).
 * Make DB ignore dropped column families while committing results of atomic flush.
