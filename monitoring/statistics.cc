@@ -384,6 +384,19 @@ std::string StatisticsImpl::ToString() const {
   return res;
 }
 
+bool StatisticsImpl::getTickerMap(
+    std::map<std::string, uint64_t>* stats_map) const {
+  assert(stats_map);
+  if (!stats_map) return false;
+  stats_map->clear();
+  MutexLock lock(&aggregate_lock_);
+  for (const auto& t : TickersNameMap) {
+    assert(t.first < TICKER_ENUM_MAX);
+    (*stats_map)[t.second.c_str()] = getTickerCountLocked(t.first);
+  }
+  return true;
+}
+
 bool StatisticsImpl::HistEnabledForType(uint32_t type) const {
   return type < HISTOGRAM_ENUM_MAX;
 }

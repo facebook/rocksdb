@@ -4522,7 +4522,7 @@ class JniUtil {
      *     if an OutOfMemoryError or ArrayIndexOutOfBoundsException
      *     exception occurs
      *
-     * @return A std::vector<std:string> containing copies of the Java strings
+     * @return A std::vector<std::string> containing copies of the Java strings
      */
     static std::vector<std::string> copyStrings(JNIEnv* env,
         jobjectArray jss, jboolean* has_exception) {
@@ -4540,7 +4540,7 @@ class JniUtil {
      *     if an OutOfMemoryError or ArrayIndexOutOfBoundsException
      *     exception occurs
      *
-     * @return A std::vector<std:string> containing copies of the Java strings
+     * @return A std::vector<std::string> containing copies of the Java strings
      */
     static std::vector<std::string> copyStrings(JNIEnv* env,
         jobjectArray jss, const jsize jss_len, jboolean* has_exception) {
@@ -4624,7 +4624,7 @@ class JniUtil {
      * @param has_exception (OUT) will be set to JNI_TRUE
      *     if an OutOfMemoryError exception occurs
      *
-     * @return A std:string copy of the jstring, or an
+     * @return A std::string copy of the jstring, or an
      *     empty std::string if has_exception == JNI_TRUE
      */
     static std::string copyStdString(JNIEnv* env, jstring js,
@@ -4655,8 +4655,8 @@ class JniUtil {
      * @param bytes The bytes to copy
      *
      * @return the Java byte[] or nullptr if an exception occurs
-     * 
-     * @throws RocksDBException thrown 
+     *
+     * @throws RocksDBException thrown
      *   if memory size to copy exceeds general java specific array size limitation.
      */
     static jbyteArray copyBytes(JNIEnv* env, std::string bytes) {
@@ -4823,7 +4823,7 @@ class JniUtil {
 
       return jbyte_strings;
     }
-    
+
     /**
       * Copies bytes to a new jByteArray with the check of java array size limitation.
       *
@@ -4831,29 +4831,29 @@ class JniUtil {
       * @param size number of bytes to copy
       *
       * @return the Java byte[] or nullptr if an exception occurs
-      * 
-      * @throws RocksDBException thrown 
+      *
+      * @throws RocksDBException thrown
       *   if memory size to copy exceeds general java array size limitation to avoid overflow.
       */
     static jbyteArray createJavaByteArrayWithSizeCheck(JNIEnv* env, const char* bytes, const size_t size) {
       // Limitation for java array size is vm specific
       // In general it cannot exceed Integer.MAX_VALUE (2^31 - 1)
       // Current HotSpot VM limitation for array size is Integer.MAX_VALUE - 5 (2^31 - 1 - 5)
-      // It means that the next call to env->NewByteArray can still end with 
+      // It means that the next call to env->NewByteArray can still end with
       // OutOfMemoryError("Requested array size exceeds VM limit") coming from VM
       static const size_t MAX_JARRAY_SIZE = (static_cast<size_t>(1)) << 31;
       if(size > MAX_JARRAY_SIZE) {
         rocksdb::RocksDBExceptionJni::ThrowNew(env, "Requested array size exceeds VM limit");
         return nullptr;
       }
-      
+
       const jsize jlen = static_cast<jsize>(size);
       jbyteArray jbytes = env->NewByteArray(jlen);
       if(jbytes == nullptr) {
-        // exception thrown: OutOfMemoryError	
+        // exception thrown: OutOfMemoryError
         return nullptr;
       }
-      
+
       env->SetByteArrayRegion(jbytes, 0, jlen,
         const_cast<jbyte*>(reinterpret_cast<const jbyte*>(bytes)));
       if(env->ExceptionCheck()) {
@@ -4872,8 +4872,8 @@ class JniUtil {
      * @param bytes The bytes to copy
      *
      * @return the Java byte[] or nullptr if an exception occurs
-     * 
-     * @throws RocksDBException thrown 
+     *
+     * @throws RocksDBException thrown
      *   if memory size to copy exceeds general java specific array size limitation.
      */
     static jbyteArray copyBytes(JNIEnv* env, const Slice& bytes) {

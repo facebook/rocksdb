@@ -6,9 +6,10 @@
 #pragma once
 #include "rocksdb/statistics.h"
 
-#include <vector>
 #include <atomic>
+#include <map>
 #include <string>
+#include <vector>
 
 #include "monitoring/histogram.h"
 #include "port/likely.h"
@@ -56,6 +57,7 @@ class StatisticsImpl : public Statistics {
 
   virtual Status Reset() override;
   virtual std::string ToString() const override;
+  virtual bool getTickerMap(std::map<std::string, uint64_t>*) const override;
   virtual bool HistEnabledForType(uint32_t type) const override;
 
  private:
