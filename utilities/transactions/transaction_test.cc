@@ -5052,7 +5052,7 @@ TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
   std::atomic<uint32_t> finished = {0};
   bool TAKE_SNAPSHOT = true;
   uint64_t time_seed = env->NowMicros();
-  printf("time_seed is %lu\n", time_seed);  // would help to reproduce
+  printf("time_seed is %" PRIu64 "\n", time_seed);  // would help to reproduce
 
   std::function<void()> call_inserter = [&] {
     size_t thd_seed = std::hash<std::thread::id>()(std::this_thread::get_id());
