@@ -131,7 +131,7 @@ class Transaction {
   // Status::Busy() may be returned if the transaction could not guarantee
   // that there are no write conflicts.  Status::TryAgain() may be returned
   // if the memtable history size is not large enough
-  //  (See max_write_buffer_number_to_maintain).
+  //  (See max_write_buffer_size_to_maintain).
   //
   // If this transaction was created by a TransactionDB(), Status::Expired()
   // may be returned if this transaction has lived for longer than
@@ -243,7 +243,7 @@ class Transaction {
   // Status::Busy() if there is a write conflict,
   // Status::TimedOut() if a lock could not be acquired,
   // Status::TryAgain() if the memtable history size is not large enough
-  //  (See max_write_buffer_number_to_maintain)
+  //  (See max_write_buffer_size_to_maintain)
   // Status::MergeInProgress() if merge operations cannot be resolved.
   // or other errors if this key could not be read.
   virtual Status GetForUpdate(const ReadOptions& options,
@@ -320,7 +320,7 @@ class Transaction {
   // Status::Busy() if there is a write conflict,
   // Status::TimedOut() if a lock could not be acquired,
   // Status::TryAgain() if the memtable history size is not large enough
-  //  (See max_write_buffer_number_to_maintain)
+  //  (See max_write_buffer_size_to_maintain)
   // or other errors on unexpected failures.
   virtual Status Put(ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value, const bool assume_tracked = false) = 0;

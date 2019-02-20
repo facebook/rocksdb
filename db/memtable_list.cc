@@ -46,6 +46,8 @@ MemTableListVersion::MemTableListVersion(
     size_t* parent_memtable_list_memory_usage, MemTableListVersion* old)
     : max_write_buffer_number_to_maintain_(
           old->max_write_buffer_number_to_maintain_),
+      max_write_buffer_size_to_maintain_(
+          old->max_write_buffer_size_to_maintain_),
       parent_memtable_list_memory_usage_(parent_memtable_list_memory_usage) {
   if (old != nullptr) {
     memlist_ = old->memlist_;
@@ -62,8 +64,10 @@ MemTableListVersion::MemTableListVersion(
 
 MemTableListVersion::MemTableListVersion(
     size_t* parent_memtable_list_memory_usage,
-    int max_write_buffer_number_to_maintain)
+    int max_write_buffer_number_to_maintain,
+    int64_t max_write_buffer_size_to_maintain)
     : max_write_buffer_number_to_maintain_(max_write_buffer_number_to_maintain),
+      max_write_buffer_size_to_maintain_(max_write_buffer_size_to_maintain),
       parent_memtable_list_memory_usage_(parent_memtable_list_memory_usage) {}
 
 void MemTableListVersion::Ref() { ++refs_; }
@@ -250,7 +254,8 @@ void MemTableListVersion::Remove(MemTable* m,
   memlist_.remove(m);
 
   m->MarkFlushed();
-  if (max_write_buffer_number_to_maintain_ > 0) {
+  if (max_write_buffer_size_to_maintain_ > 0 ||
+      max_write_buffer_number_to_maintain_ > 0) {
     memlist_history_.push_front(m);
     TrimHistory(to_delete);
   } else {
@@ -258,11 +263,33 @@ void MemTableListVersion::Remove(MemTable* m,
   }
 }
 
+size_t MemTableListVersion::ApproximateMemoryUsage() {
+  // use *parent_memtable_list_memory_usage_ instead?
+  size_t total_memtable_size = 0;
+  for (auto& memtable : memlist_) {
+    total_memtable_size += memtable->ApproximateMemoryUsage();
+  }
+  for (auto& memtable : memlist_history_) {
+    total_memtable_size += memtable->ApproximateMemoryUsage();
+  }
+  return total_memtable_size;
+}
+
+bool MemTableListVersion::MemtableLimitExceeded() {
+  if (max_write_buffer_size_to_maintain_ > 0) {
+    return static_cast<int64_t>(ApproximateMemoryUsage()) >
+           static_cast<int64_t>(max_write_buffer_size_to_maintain_);
+  } else if (max_write_buffer_number_to_maintain_ > 0) {
+    return memlist_.size() + memlist_history_.size() >
+           static_cast<size_t>(max_write_buffer_number_to_maintain_);
+  } else {
+    return false;
+  }
+}
+
 // Make sure we don't use up too much space in history
 void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete) {
-  while (memlist_.size() + memlist_history_.size() >
-             static_cast<size_t>(max_write_buffer_number_to_maintain_) &&
-         !memlist_history_.empty()) {
+  while (MemtableLimitExceeded() && !memlist_history_.empty()) {
     MemTable* x = memlist_history_.back();
     memlist_history_.pop_back();
 

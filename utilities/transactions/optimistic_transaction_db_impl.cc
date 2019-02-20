@@ -63,9 +63,10 @@ Status OptimisticTransactionDB::Open(
   for (auto& column_family : column_families_copy) {
     ColumnFamilyOptions* options = &column_family.options;
 
-    if (options->max_write_buffer_number_to_maintain == 0) {
-      // Setting to -1 will set the History size to max_write_buffer_number.
-      options->max_write_buffer_number_to_maintain = -1;
+    if (options->max_write_buffer_size_to_maintain == 0) {
+      // Setting to -1 will set the History size to
+      // max_write_buffer_number * write_buffer_size.
+      options->max_write_buffer_size_to_maintain = -1;
     }
   }
 

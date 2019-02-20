@@ -175,9 +175,15 @@ struct AdvancedColumnFamilyOptions {
   // individual write buffers.  Default: 1
   int min_write_buffer_number_to_merge = 1;
 
+  // DEPRECATED
   // The total maximum number of write buffers to maintain in memory including
   // copies of buffers that have already been flushed.  Unlike
   // max_write_buffer_number, this parameter does not affect flushing.
+  int max_write_buffer_number_to_maintain = 0;
+
+  // The total maximum size(bytes) of write buffers to maintain in memory
+  // including copies of buffers that have already been flushed. This parameter
+  // does not affect flushing.
   // This controls the minimum amount of write history that will be available
   // in memory for conflict checking when Transactions are used.
   //
@@ -192,14 +198,14 @@ struct AdvancedColumnFamilyOptions {
   // done for conflict detection.
   //
   // Setting this value to 0 will cause write buffers to be freed immediately
-  // after they are flushed.
-  // If this value is set to -1, 'max_write_buffer_number' will be used.
+  // after they are flushed. If this value is set to -1,
+  // 'max_write_buffer_number * write_buffer_size' will be used.
   //
   // Default:
   // If using a TransactionDB/OptimisticTransactionDB, the default value will
-  // be set to the value of 'max_write_buffer_number' if it is not explicitly
-  // set by the user.  Otherwise, the default is 0.
-  int max_write_buffer_number_to_maintain = 0;
+  // be set to the value of 'max_write_buffer_number * write_buffer_size'
+  // if it is not explicitly set by the user.  Otherwise, the default is 0.
+  int64_t max_write_buffer_size_to_maintain = 0;
 
   // Allows thread-safe inplace updates. If this is true, there is no way to
   // achieve point-in-time consistency using snapshot or iterator (assuming

@@ -597,13 +597,11 @@ bool SerializeSingleOptionHelper(const char* opt_address,
     case OptionType::kInt32T:
       *value = ToString(*(reinterpret_cast<const int32_t*>(opt_address)));
       break;
-    case OptionType::kInt64T:
-      {
-        int64_t v;
-        GetUnaligned(reinterpret_cast<const int64_t*>(opt_address), &v);
-        *value = ToString(v);
-      }
-      break;
+    case OptionType::kInt64T: {
+      int64_t v;
+      GetUnaligned(reinterpret_cast<const int64_t*>(opt_address), &v);
+      *value = ToString(v);
+    } break;
     case OptionType::kVectorInt:
       return SerializeIntVector(
           *reinterpret_cast<const std::vector<int>*>(opt_address), value);
@@ -1873,6 +1871,9 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"max_write_buffer_number_to_maintain",
          {offset_of(&ColumnFamilyOptions::max_write_buffer_number_to_maintain),
           OptionType::kInt, OptionVerificationType::kNormal, false, 0}},
+        {"max_write_buffer_size_to_maintain",
+         {offset_of(&ColumnFamilyOptions::max_write_buffer_size_to_maintain),
+          OptionType::kInt64T, OptionVerificationType::kNormal, false, 0}},
         {"min_write_buffer_number_to_merge",
          {offset_of(&ColumnFamilyOptions::min_write_buffer_number_to_merge),
           OptionType::kInt, OptionVerificationType::kNormal, false, 0}},

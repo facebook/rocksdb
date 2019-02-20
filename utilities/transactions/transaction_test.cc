@@ -227,8 +227,10 @@ TEST_P(TransactionTest, ValidateSnapshotTest) {
         db_impl->TEST_FlushMemTable(true);
         // Make sure the flushed memtable is not kept in memory
         int max_memtable_in_history =
-            std::max(options.max_write_buffer_number,
-                     options.max_write_buffer_number_to_maintain) +
+            std::max(
+                options.max_write_buffer_number,
+                static_cast<int>(options.max_write_buffer_size_to_maintain) /
+                    static_cast<int>(options.write_buffer_size)) +
             1;
         for (int i = 0; i < max_memtable_in_history; i++) {
           db->Put(write_options, Slice("key"), Slice("value"));

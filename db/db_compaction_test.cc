@@ -141,7 +141,7 @@ Options DeletionTriggerOptions(Options options) {
   options.compression = kNoCompression;
   options.write_buffer_size = kCDTKeysPerBuffer * (kCDTValueSize + 24);
   options.min_write_buffer_number_to_merge = 1;
-  options.max_write_buffer_number_to_maintain = 0;
+  options.max_write_buffer_size_to_maintain = 0;
   options.num_levels = kCDTNumLevels;
   options.level0_file_num_compaction_trigger = 1;
   options.target_file_size_base = options.write_buffer_size * 2;

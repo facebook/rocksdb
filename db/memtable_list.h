@@ -44,7 +44,8 @@ class MemTableListVersion {
   explicit MemTableListVersion(size_t* parent_memtable_list_memory_usage,
                                MemTableListVersion* old = nullptr);
   explicit MemTableListVersion(size_t* parent_memtable_list_memory_usage,
-                               int max_write_buffer_number_to_maintain);
+                               int max_write_buffer_number_to_maintain,
+                               int64_t max_write_buffer_size_to_maintain);
 
   void Ref();
   void Unref(autovector<MemTable*>* to_delete = nullptr);
@@ -152,6 +153,10 @@ class MemTableListVersion {
 
   void UnrefMemTable(autovector<MemTable*>* to_delete, MemTable* m);
 
+  size_t ApproximateMemoryUsage();
+
+  bool MemtableLimitExceeded();
+
   // Immutable MemTables that have not yet been flushed.
   std::list<MemTable*> memlist_;
 
@@ -160,8 +165,10 @@ class MemTableListVersion {
   std::list<MemTable*> memlist_history_;
 
   // Maximum number of MemTables to keep in memory (including both flushed
-  // and not-yet-flushed tables).
   const int max_write_buffer_number_to_maintain_;
+  // Maximum size of MemTables to keep in memory (including both flushed
+  // and not-yet-flushed tables).
+  const int64_t max_write_buffer_size_to_maintain_;
 
   int refs_ = 0;
 
@@ -183,11 +190,13 @@ class MemTableList {
  public:
   // A list of memtables.
   explicit MemTableList(int min_write_buffer_number_to_merge,
-                        int max_write_buffer_number_to_maintain)
+                        int max_write_buffer_number_to_maintain,
+                        int64_t max_write_buffer_size_to_maintain)
       : imm_flush_needed(false),
         min_write_buffer_number_to_merge_(min_write_buffer_number_to_merge),
         current_(new MemTableListVersion(&current_memory_usage_,
-                                         max_write_buffer_number_to_maintain)),
+                                         max_write_buffer_number_to_maintain,
+                                         max_write_buffer_size_to_maintain)),
         num_flush_not_started_(0),
         commit_in_progress_(false),
         flush_requested_(false) {
