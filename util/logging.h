@@ -55,3 +55,7 @@ inline const char* RocksLogShorterFileName(const char* file)
 #define ROCKS_LOG_BUFFER_MAX_SZ(LOG_BUF, MAX_LOG_SIZE, FMT, ...)                 \
   rocksdb::LogToBuffer(LOG_BUF, MAX_LOG_SIZE, ROCKS_LOG_PREPEND_FILE_LINE(FMT),  \
                        RocksLogShorterFileName(__FILE__), ##__VA_ARGS__)
+
+#define ROCKS_LOG_DETAILS(LGR, FMT, ...) \
+  ;  // due to overhead by default skip such lines
+// ROCKS_LOG_DEBUG(LGR, FMT, ##__VA_ARGS__)

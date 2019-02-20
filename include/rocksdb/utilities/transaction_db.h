@@ -102,6 +102,7 @@ struct TransactionDBOptions {
 
   friend class WritePreparedTxnDB;
   friend class WritePreparedTransactionTestBase;
+  friend class MySQLStyleTransactionTest;
 };
 
 struct TransactionOptions {

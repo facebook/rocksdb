@@ -66,12 +66,16 @@ INSTANTIATE_TEST_CASE_P(
 #ifndef ROCKSDB_VALGRIND_RUN
 INSTANTIATE_TEST_CASE_P(
     MySQLStyleTransactionTest, MySQLStyleTransactionTest,
-    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
-                      std::make_tuple(false, true, WRITE_COMMITTED),
-                      std::make_tuple(false, false, WRITE_PREPARED),
-                      std::make_tuple(false, true, WRITE_PREPARED),
-                      std::make_tuple(false, false, WRITE_UNPREPARED),
-                      std::make_tuple(false, true, WRITE_UNPREPARED)));
+    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED, false),
+                      std::make_tuple(false, true, WRITE_COMMITTED, false),
+                      std::make_tuple(false, false, WRITE_PREPARED, false),
+                      std::make_tuple(false, false, WRITE_PREPARED, true),
+                      std::make_tuple(false, true, WRITE_PREPARED, false),
+                      std::make_tuple(false, true, WRITE_PREPARED, true),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, false),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, true),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, false),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, true)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
@@ -4990,10 +4994,14 @@ TEST_P(TransactionStressTest, ExpiredTransactionDataRace1) {
 
 #ifndef ROCKSDB_VALGRIND_RUN
 namespace {
+// cmt_delay_ms is the delay between prepare and commit
+// first_id is the id of the first transaction
 Status TransactionStressTestInserter(TransactionDB* db,
                                      const size_t num_transactions,
                                      const size_t num_sets,
-                                     const size_t num_keys_per_set) {
+                                     const size_t num_keys_per_set,
+                                     const uint64_t cmt_delay_ms = 0,
+                                     const uint64_t first_id = 0) {
   size_t seed = std::hash<std::thread::id>()(std::this_thread::get_id());
   Random64 _rand(seed);
   WriteOptions write_options;
@@ -5003,9 +5011,9 @@ Status TransactionStressTestInserter(TransactionDB* db,
   // separte functions are engaged for each.
   txn_options.set_snapshot = _rand.OneIn(2);
 
-  RandomTransactionInserter inserter(&_rand, write_options, read_options,
-                                     num_keys_per_set,
-                                     static_cast<uint16_t>(num_sets));
+  RandomTransactionInserter inserter(
+      &_rand, write_options, read_options, num_keys_per_set,
+      static_cast<uint16_t>(num_sets), cmt_delay_ms, first_id);
 
   for (size_t t = 0; t < num_transactions; t++) {
     bool success = inserter.TransactionDBInsert(db, txn_options);
@@ -5017,7 +5025,8 @@ Status TransactionStressTestInserter(TransactionDB* db,
 
   // Make sure at least some of the transactions succeeded.  It's ok if
   // some failed due to write-conflicts.
-  if (inserter.GetFailureCount() > num_transactions / 2) {
+  if (num_transactions != 1 &&
+      inserter.GetFailureCount() > num_transactions / 2) {
     return Status::TryAgain("Too many transactions failed! " +
                             std::to_string(inserter.GetFailureCount()) + " / " +
                             std::to_string(num_transactions));
@@ -5035,6 +5044,8 @@ TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
   ReOpenNoDelete();
   const size_t num_workers = 4;   // worker threads count
   const size_t num_checkers = 2;  // checker threads count
+  const size_t num_slow_checkers = 2;  // checker threads emulating backups
+  const size_t num_slow_workers = 1;   // slow worker threads count
   const size_t num_transactions_per_thread = 10000;
   const uint16_t num_sets = 3;
   const size_t num_keys_per_set = 100;
@@ -5060,12 +5071,42 @@ TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
       ASSERT_OK(s);
     }
   };
+  std::function<void()> call_slow_checker = [&] {
+    size_t seed = std::hash<std::thread::id>()(std::this_thread::get_id());
+    Random64 rand(seed);
+    // Verify that data is consistent
+    while (finished < num_workers) {
+      uint64_t delay_ms = rand.Uniform(100) + 1;
+      Status s = RandomTransactionInserter::Verify(
+          db, num_sets, num_keys_per_set, TAKE_SNAPSHOT, &rand, delay_ms);
+      ASSERT_OK(s);
+    }
+  };
+  std::function<void()> call_slow_inserter = [&] {
+    size_t seed = std::hash<std::thread::id>()(std::this_thread::get_id());
+    Random64 rand(seed);
+    uint64_t id = 0;
+    // Verify that data is consistent
+    while (finished < num_workers) {
+      uint64_t delay_ms = rand.Uniform(500) + 1;
+      ASSERT_OK(TransactionStressTestInserter(db, 1, num_sets, num_keys_per_set,
+                                              delay_ms, id++));
+    }
+  };
 
   for (uint32_t i = 0; i < num_workers; i++) {
     threads.emplace_back(call_inserter);
   }
   for (uint32_t i = 0; i < num_checkers; i++) {
     threads.emplace_back(call_checker);
+  }
+  if (with_slow_threads_) {
+    for (uint32_t i = 0; i < num_slow_checkers; i++) {
+      threads.emplace_back(call_slow_checker);
+    }
+    for (uint32_t i = 0; i < num_slow_workers; i++) {
+      threads.emplace_back(call_slow_inserter);
+    }
   }
 
   // Wait for all threads to finish
