@@ -607,6 +607,11 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
+        "db_secondary_test",
+        "db/db_secondary_test.cc",
+        "serial",
+    ],
+    [
         "db_sst_test",
         "db/db_sst_test.cc",
         "parallel",
