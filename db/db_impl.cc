@@ -695,7 +695,7 @@ void DBImpl::PersistStats() {
       stats_history_[now_micros] = stats_delta;
     }
     stats_slice_initialized_ = true;
-    stats_slice_ = stats_map;
+    std::swap(stats_slice_, stats_map);
     TEST_SYNC_POINT("DBImpl::PersistStats:StatsCopied");
 
     // delete older stats snapshots to control memory consumption
@@ -712,7 +712,8 @@ void DBImpl::PersistStats() {
 bool DBImpl::FindStatsByTime(uint64_t start_time, uint64_t end_time,
                              uint64_t* new_time,
                              std::map<std::string, uint64_t>* stats_map) {
-  assert(new_time && stats_map);
+  assert(new_time);
+  assert(stats_map);
   if (!new_time || !stats_map) return false;
   // lock when search for start_time
   {

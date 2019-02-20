@@ -22,14 +22,14 @@ class InMemoryStatsHistoryIterator final : public StatsHistoryIterator {
         db_impl_(db_impl) {
     AdvanceIteratorByTime(start_time_, end_time_);
   }
-  virtual ~InMemoryStatsHistoryIterator() override;
-  virtual bool Valid() const override;
-  virtual Status status() const override;
+  ~InMemoryStatsHistoryIterator() override;
+  bool Valid() const override;
+  Status status() const override;
 
-  virtual void Next() override;
-  virtual uint64_t GetStatsTime() const override;
+  void Next() override;
+  uint64_t GetStatsTime() const override;
 
-  virtual const std::map<std::string, uint64_t>& GetStatsMap() const override;
+  const std::map<std::string, uint64_t>& GetStatsMap() const override;
 
  private:
   // advance the iterator to the next stats history record with timestamp

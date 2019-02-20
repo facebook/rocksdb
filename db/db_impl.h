@@ -729,7 +729,7 @@ class DBImpl : public DB {
                                       std::unique_ptr<Directory>* directory);
 
   // Given a time window, return an iterator for accessing stats history
-  virtual Status GetStatsHistory(
+  Status GetStatsHistory(
       uint64_t start_time, uint64_t end_time,
       std::unique_ptr<StatsHistoryIterator>* stats_iterator) override;
 
