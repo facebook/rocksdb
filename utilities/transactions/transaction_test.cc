@@ -4996,23 +4996,19 @@ TEST_P(TransactionStressTest, ExpiredTransactionDataRace1) {
 namespace {
 // cmt_delay_ms is the delay between prepare and commit
 // first_id is the id of the first transaction
-Status TransactionStressTestInserter(TransactionDB* db,
-                                     const size_t num_transactions,
-                                     const size_t num_sets,
-                                     const size_t num_keys_per_set,
-                                     const uint64_t cmt_delay_ms = 0,
-                                     const uint64_t first_id = 0) {
-  size_t seed = std::hash<std::thread::id>()(std::this_thread::get_id());
-  Random64 _rand(seed);
+Status TransactionStressTestInserter(
+    TransactionDB* db, const size_t num_transactions, const size_t num_sets,
+    const size_t num_keys_per_set, Random64* rand,
+    const uint64_t cmt_delay_ms = 0, const uint64_t first_id = 0) {
   WriteOptions write_options;
   ReadOptions read_options;
   TransactionOptions txn_options;
   // Inside the inserter we might also retake the snapshot. We do both since two
   // separte functions are engaged for each.
-  txn_options.set_snapshot = _rand.OneIn(2);
+  txn_options.set_snapshot = rand->OneIn(2);
 
   RandomTransactionInserter inserter(
-      &_rand, write_options, read_options, num_keys_per_set,
+      rand, write_options, read_options, num_keys_per_set,
       static_cast<uint16_t>(num_sets), cmt_delay_ms, first_id);
 
   for (size_t t = 0; t < num_transactions; t++) {
@@ -5055,15 +5051,19 @@ TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
   std::vector<port::Thread> threads;
   std::atomic<uint32_t> finished = {0};
   bool TAKE_SNAPSHOT = true;
+  uint64_t time_seed = env->NowMicros();
+  printf("time_seed is %" PRIu64 "\n", time_seed);  // would help to reproduce
 
   std::function<void()> call_inserter = [&] {
+    size_t thd_seed = std::hash<std::thread::id>()(std::this_thread::get_id());
+    Random64 rand(time_seed * thd_seed);
     ASSERT_OK(TransactionStressTestInserter(db, num_transactions_per_thread,
-                                            num_sets, num_keys_per_set));
+                                            num_sets, num_keys_per_set, &rand));
     finished++;
   };
   std::function<void()> call_checker = [&] {
-    size_t seed = std::hash<std::thread::id>()(std::this_thread::get_id());
-    Random64 rand(seed);
+    size_t thd_seed = std::hash<std::thread::id>()(std::this_thread::get_id());
+    Random64 rand(time_seed * thd_seed);
     // Verify that data is consistent
     while (finished < num_workers) {
       Status s = RandomTransactionInserter::Verify(
@@ -5072,8 +5072,8 @@ TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
     }
   };
   std::function<void()> call_slow_checker = [&] {
-    size_t seed = std::hash<std::thread::id>()(std::this_thread::get_id());
-    Random64 rand(seed);
+    size_t thd_seed = std::hash<std::thread::id>()(std::this_thread::get_id());
+    Random64 rand(time_seed * thd_seed);
     // Verify that data is consistent
     while (finished < num_workers) {
       uint64_t delay_ms = rand.Uniform(100) + 1;
@@ -5083,14 +5083,14 @@ TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
     }
   };
   std::function<void()> call_slow_inserter = [&] {
-    size_t seed = std::hash<std::thread::id>()(std::this_thread::get_id());
-    Random64 rand(seed);
+    size_t thd_seed = std::hash<std::thread::id>()(std::this_thread::get_id());
+    Random64 rand(time_seed * thd_seed);
     uint64_t id = 0;
     // Verify that data is consistent
     while (finished < num_workers) {
       uint64_t delay_ms = rand.Uniform(500) + 1;
       ASSERT_OK(TransactionStressTestInserter(db, 1, num_sets, num_keys_per_set,
-                                              delay_ms, id++));
+                                              &rand, delay_ms, id++));
     }
   };
 
