@@ -157,80 +157,111 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     // cache, ii) if there was, we complete the search steps to be these: i)
     // commit cache, ii) delayed prepared, commit cache again. In this way if
     // the first query to commit cache missed the commit, the 2nd will catch it.
-    bool was_empty = delayed_prepared_empty_.load(std::memory_order_acquire);
-    auto indexed_seq = prep_seq % COMMIT_CACHE_SIZE;
+    bool was_empty;
+    SequenceNumber max_evicted_seq_lb, max_evicted_seq_ub;
     CommitEntry64b dont_care;
-    CommitEntry cached;
-    bool exist = GetCommitEntry(indexed_seq, &dont_care, &cached);
-    TEST_SYNC_POINT("WritePreparedTxnDB::IsInSnapshot:GetCommitEntry:pause");
-    TEST_SYNC_POINT("WritePreparedTxnDB::IsInSnapshot:GetCommitEntry:resume");
-    if (exist && prep_seq == cached.prep_seq) {
-      // It is committed and also not evicted from commit cache
-      ROCKS_LOG_DETAILS(
-          info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
-          prep_seq, snapshot_seq, cached.commit_seq <= snapshot_seq);
-      return cached.commit_seq <= snapshot_seq;
-    }
-    // else it could be committed but not inserted in the map which could happen
-    // after recovery, or it could be committed and evicted by another commit,
-    // or never committed.
+    auto indexed_seq = prep_seq % COMMIT_CACHE_SIZE;
+    size_t repeats = 0;
+    do {
+      repeats++;
+      assert(repeats < 100);
+      if (UNLIKELY(repeats >= 100)) {
+        throw std::runtime_error(
+            "The read was intrupted 100 times by update to max_evicted_seq_. "
+            "This is unexpected in all setups");
+      }
+      max_evicted_seq_lb = max_evicted_seq_.load(std::memory_order_acquire);
+      TEST_SYNC_POINT(
+          "WritePreparedTxnDB::IsInSnapshot:max_evicted_seq_:pause");
+      TEST_SYNC_POINT(
+          "WritePreparedTxnDB::IsInSnapshot:max_evicted_seq_:resume");
+      was_empty = delayed_prepared_empty_.load(std::memory_order_acquire);
+      TEST_SYNC_POINT(
+          "WritePreparedTxnDB::IsInSnapshot:delayed_prepared_empty_:pause");
+      TEST_SYNC_POINT(
+          "WritePreparedTxnDB::IsInSnapshot:delayed_prepared_empty_:resume");
+      CommitEntry cached;
+      bool exist = GetCommitEntry(indexed_seq, &dont_care, &cached);
+      TEST_SYNC_POINT("WritePreparedTxnDB::IsInSnapshot:GetCommitEntry:pause");
+      TEST_SYNC_POINT("WritePreparedTxnDB::IsInSnapshot:GetCommitEntry:resume");
+      if (exist && prep_seq == cached.prep_seq) {
+        // It is committed and also not evicted from commit cache
+        ROCKS_LOG_DETAILS(
+            info_log_,
+            "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+            prep_seq, snapshot_seq, cached.commit_seq <= snapshot_seq);
+        return cached.commit_seq <= snapshot_seq;
+      }
+      // else it could be committed but not inserted in the map which could
+      // happen after recovery, or it could be committed and evicted by another
+      // commit, or never committed.
 
-    // At this point we dont know if it was committed or it is still prepared
-    auto max_evicted_seq = max_evicted_seq_.load(std::memory_order_acquire);
-    // max_evicted_seq_ when we did GetCommitEntry <= max_evicted_seq now
-    if (max_evicted_seq < prep_seq) {
-      // Not evicted from cache and also not present, so must be still prepared
-      ROCKS_LOG_DETAILS(
-          info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
-          prep_seq, snapshot_seq, 0);
-      return false;
-    }
-    if (!was_empty) {
-      // We should not normally reach here
-      WPRecordTick(TXN_PREPARE_MUTEX_OVERHEAD);
-      ReadLock rl(&prepared_mutex_);
-      ROCKS_LOG_WARN(info_log_,
-                     "prepared_mutex_ overhead %" PRIu64 " for %" PRIu64,
-                     static_cast<uint64_t>(delayed_prepared_.size()), prep_seq);
-      if (delayed_prepared_.find(prep_seq) != delayed_prepared_.end()) {
-        // This is the order: 1) delayed_prepared_commits_ update, 2) publish 3)
-        // delayed_prepared_ clean up. So check if it is the case of a late
-        // clenaup.
-        auto it = delayed_prepared_commits_.find(prep_seq);
-        if (it == delayed_prepared_commits_.end()) {
-          // Then it is not committed yet
-          ROCKS_LOG_DETAILS(info_log_,
-                            "IsInSnapshot %" PRIu64 " in %" PRIu64
-                            " returns %" PRId32,
-                            prep_seq, snapshot_seq, 0);
-          return false;
+      // At this point we dont know if it was committed or it is still prepared
+      max_evicted_seq_ub = max_evicted_seq_.load(std::memory_order_acquire);
+      if (UNLIKELY(max_evicted_seq_lb != max_evicted_seq_ub)) {
+        continue;
+      }
+      // Note: max_evicted_seq_ when we did GetCommitEntry <= max_evicted_seq_ub
+      if (max_evicted_seq_ub < prep_seq) {
+        // Not evicted from cache and also not present, so must be still
+        // prepared
+        ROCKS_LOG_DETAILS(info_log_,
+                          "IsInSnapshot %" PRIu64 " in %" PRIu64
+                          " returns %" PRId32,
+                          prep_seq, snapshot_seq, 0);
+        return false;
+      }
+      TEST_SYNC_POINT("WritePreparedTxnDB::IsInSnapshot:prepared_mutex_:pause");
+      TEST_SYNC_POINT(
+          "WritePreparedTxnDB::IsInSnapshot:prepared_mutex_:resume");
+      if (!was_empty) {
+        // We should not normally reach here
+        WPRecordTick(TXN_PREPARE_MUTEX_OVERHEAD);
+        ReadLock rl(&prepared_mutex_);
+        ROCKS_LOG_WARN(
+            info_log_, "prepared_mutex_ overhead %" PRIu64 " for %" PRIu64,
+            static_cast<uint64_t>(delayed_prepared_.size()), prep_seq);
+        if (delayed_prepared_.find(prep_seq) != delayed_prepared_.end()) {
+          // This is the order: 1) delayed_prepared_commits_ update, 2) publish
+          // 3) delayed_prepared_ clean up. So check if it is the case of a late
+          // clenaup.
+          auto it = delayed_prepared_commits_.find(prep_seq);
+          if (it == delayed_prepared_commits_.end()) {
+            // Then it is not committed yet
+            ROCKS_LOG_DETAILS(info_log_,
+                              "IsInSnapshot %" PRIu64 " in %" PRIu64
+                              " returns %" PRId32,
+                              prep_seq, snapshot_seq, 0);
+            return false;
+          } else {
+            ROCKS_LOG_DETAILS(info_log_,
+                              "IsInSnapshot %" PRIu64 " in %" PRIu64
+                              " commit: %" PRIu64 " returns %" PRId32,
+                              prep_seq, snapshot_seq, it->second,
+                              snapshot_seq <= it->second);
+            return it->second <= snapshot_seq;
+          }
         } else {
-          ROCKS_LOG_DETAILS(info_log_,
-                            "IsInSnapshot %" PRIu64 " in %" PRIu64
-                            " commit: %" PRIu64 " returns %" PRId32,
-                            prep_seq, snapshot_seq, it->second,
-                            snapshot_seq <= it->second);
-          return it->second <= snapshot_seq;
-        }
-      } else {
-        // 2nd query to commit cache. Refer to was_empty comment above.
-        exist = GetCommitEntry(indexed_seq, &dont_care, &cached);
-        if (exist && prep_seq == cached.prep_seq) {
-          ROCKS_LOG_DETAILS(
-              info_log_,
-              "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
-              prep_seq, snapshot_seq, cached.commit_seq <= snapshot_seq);
-          return cached.commit_seq <= snapshot_seq;
+          // 2nd query to commit cache. Refer to was_empty comment above.
+          exist = GetCommitEntry(indexed_seq, &dont_care, &cached);
+          if (exist && prep_seq == cached.prep_seq) {
+            ROCKS_LOG_DETAILS(
+                info_log_,
+                "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+                prep_seq, snapshot_seq, cached.commit_seq <= snapshot_seq);
+            return cached.commit_seq <= snapshot_seq;
+          }
+          max_evicted_seq_ub = max_evicted_seq_.load(std::memory_order_acquire);
         }
       }
-    }
+    } while (UNLIKELY(max_evicted_seq_lb != max_evicted_seq_ub));
     // When advancing max_evicted_seq_, we move older entires from prepared to
     // delayed_prepared_. Also we move evicted entries from commit cache to
     // old_commit_map_ if it overlaps with any snapshot. Since prep_seq <=
     // max_evicted_seq_, we have three cases: i) in delayed_prepared_, ii) in
     // old_commit_map_, iii) committed with no conflict with any snapshot. Case
     // (i) delayed_prepared_ is checked above
-    if (max_evicted_seq < snapshot_seq) {  // then (ii) cannot be the case
+    if (max_evicted_seq_ub < snapshot_seq) {  // then (ii) cannot be the case
       // only (iii) is the case: committed
       // commit_seq <= max_evicted_seq_ < snapshot_seq => commit_seq <
       // snapshot_seq
@@ -438,6 +469,11 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_IsInSnapshotReleased_Test;
   friend class WritePreparedTransactionTest_NewSnapshotLargerThanMax_Test;
   friend class WritePreparedTransactionTest_MaxCatchupWithNewSnapshot_Test;
+  friend class
+      WritePreparedTransactionTest_NonAtomicCommitOfDelayedPrepared_Test;
+  friend class
+      WritePreparedTransactionTest_NonAtomicUpdateOfDelayedPrepared_Test;
+  friend class WritePreparedTransactionTest_NonAtomicUpdateOfMaxEvictedSeq_Test;
   friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
   friend class WritePreparedTransactionTest_RollbackTest_Test;
   friend class WriteUnpreparedTxnDB;
