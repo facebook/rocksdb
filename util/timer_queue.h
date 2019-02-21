@@ -48,7 +48,13 @@ class TimerQueue {
  public:
   TimerQueue() : m_th(&TimerQueue::run, this) {}
 
-  ~TimerQueue() {
+  ~TimerQueue() { shutdown(); }
+
+  // This function is not thread-safe.
+  void shutdown() {
+    if (closed_) {
+      return;
+    }
     cancelAll();
     // Abusing the timer queue to trigger the shutdown.
     add(0, [this](bool) {
@@ -56,6 +62,7 @@ class TimerQueue {
       return std::make_pair(false, 0);
     });
     m_th.join();
+    closed_ = true;
   }
 
   // Adds a new timer
@@ -67,6 +74,7 @@ class TimerQueue {
     WorkItem item;
     Clock::time_point tp = Clock::now();
     item.end = tp + std::chrono::milliseconds(milliseconds);
+    TEST_SYNC_POINT_CALLBACK("TimeQueue::Add:item.end", &item.end);
     item.period = milliseconds;
     item.handler = std::move(handler);
 
@@ -217,4 +225,5 @@ class TimerQueue {
     std::vector<WorkItem>& getContainer() { return this->c; }
   } m_items;
   rocksdb::port::Thread m_th;
+  bool closed_ = false;
 };

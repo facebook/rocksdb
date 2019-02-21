@@ -94,6 +94,7 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
 }
 
 BlobDBImpl::~BlobDBImpl() {
+  tqueue_.shutdown();
   // CancelAllBackgroundWork(db_, true);
   Status s __attribute__((__unused__)) = Close();
   assert(s.ok());
@@ -1308,6 +1309,9 @@ std::pair<bool, int64_t> BlobDBImpl::EvictExpiredFiles(bool aborted) {
     return std::make_pair(false, -1);
   }
 
+  TEST_SYNC_POINT("BlobDBImpl::EvictExpiredFiles:0");
+  TEST_SYNC_POINT("BlobDBImpl::EvictExpiredFiles:1");
+
   std::vector<std::shared_ptr<BlobFile>> process_files;
   uint64_t now = EpochNow();
   {
@@ -1321,6 +1325,10 @@ std::pair<bool, int64_t> BlobDBImpl::EvictExpiredFiles(bool aborted) {
       }
     }
   }
+
+  TEST_SYNC_POINT("BlobDBImpl::EvictExpiredFiles:2");
+  TEST_SYNC_POINT("BlobDBImpl::EvictExpiredFiles:3");
+  TEST_SYNC_POINT_CALLBACK("BlobDBImpl::EvictExpiredFiles:cb", nullptr);
 
   SequenceNumber seq = GetLatestSequenceNumber();
   {
