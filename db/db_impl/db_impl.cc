@@ -43,6 +43,7 @@
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
+#include "db/persistent_stats_history.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
@@ -98,7 +99,9 @@
 
 namespace rocksdb {
 const std::string kDefaultColumnFamilyName("default");
+const std::string kPersistentStatsColumnFamilyName("_stats_history");
 void DumpRocksDBBuildVersion(Logger* log);
+extern const int kTimestampStringMinimumLength;
 
 CompressionType GetCompressionFlush(
     const ImmutableCFOptions& ioptions,
@@ -150,6 +153,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       mutex_(stats_, env_, DB_MUTEX_WAIT_MICROS,
              immutable_db_options_.use_adaptive_mutex),
       default_cf_handle_(nullptr),
+      persist_stats_cf_handle_(nullptr),
       max_total_in_memory_state_(0),
       env_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
       env_options_for_compaction_(env_->OptimizeForCompactionTableWrite(
@@ -482,10 +486,15 @@ Status DBImpl::CloseHelper() {
     }
   }
 
-  if (default_cf_handle_ != nullptr) {
+  if (default_cf_handle_ != nullptr || persist_stats_cf_handle_ != nullptr) {
     // we need to delete handle outside of lock because it does its own locking
     mutex_.Unlock();
-    delete default_cf_handle_;
+    if (default_cf_handle_) {
+      delete default_cf_handle_;
+    }
+    if (persist_stats_cf_handle_) {
+      delete persist_stats_cf_handle_;
+    }
     mutex_.Lock();
   }
 
@@ -649,7 +658,7 @@ void DBImpl::StartTimedTasks() {
 }
 
 // esitmate the total size of stats_history_
-size_t DBImpl::EstiamteStatsHistorySize() const {
+size_t DBImpl::EstimateStatsHistorySize() const {
   size_t size_total =
       sizeof(std::map<uint64_t, std::map<std::string, uint64_t>>);
   if (stats_history_.size() == 0) return size_total;
@@ -667,6 +676,8 @@ size_t DBImpl::EstiamteStatsHistorySize() const {
 
 void DBImpl::PersistStats() {
   TEST_SYNC_POINT("DBImpl::PersistStats:Entry");
+  // 16 digit microseconds timestamp => [Sep 9, 2001 ~ Nov 20, 2286]
+  // int kTimestampStringMinimumLength = 16;
 #ifndef ROCKSDB_LITE
   if (shutdown_initiated_) {
     return;
@@ -677,17 +688,34 @@ void DBImpl::PersistStats() {
     return;
   }
   size_t stats_history_size_limit = 0;
+  bool persist_stats_to_disk = false;
   {
     InstrumentedMutexLock l(&mutex_);
     stats_history_size_limit = mutable_db_options_.stats_history_buffer_size;
+    persist_stats_to_disk = mutable_db_options_.persist_stats_to_disk;
   }
 
-  // TODO(Zhongyi): also persist immutable_db_options_.statistics
-  {
-    std::map<std::string, uint64_t> stats_map;
-    if (!statistics->getTickerMap(&stats_map)) {
-      return;
+  std::map<std::string, uint64_t> stats_map;
+  if (!statistics->getTickerMap(&stats_map)) {
+    return;
+  }
+  if (persist_stats_to_disk) {
+    std::string now_micros_string = ToString(now_micros);
+    // make time stamp string equal in length to allow sorting by time
+    now_micros_string.insert(
+        0, kTimestampStringMinimumLength - now_micros_string.length(), '0');
+    int keycount = 0;
+    WriteOptions wo;
+    for (auto iter = stats_map.begin(); iter != stats_map.end(); ++iter) {
+      std::string key(now_micros_string);
+      key.append("#").append(iter->first);
+      // TODO(Zhongyi): add counters for failed writes
+      Status s =
+          DB::Put(wo, persist_stats_cf_handle_, key, ToString(iter->second));
+      keycount++;
     }
+    // TODO(Zhongyi): add purging for persisted data
+  } else {
     InstrumentedMutexLock l(&stats_history_mutex_);
     // calculate the delta from last time
     if (stats_slice_initialized_) {
@@ -704,10 +732,10 @@ void DBImpl::PersistStats() {
     TEST_SYNC_POINT("DBImpl::PersistStats:StatsCopied");
 
     // delete older stats snapshots to control memory consumption
-    bool purge_needed = EstiamteStatsHistorySize() > stats_history_size_limit;
+    bool purge_needed = EstimateStatsHistorySize() > stats_history_size_limit;
     while (purge_needed && !stats_history_.empty()) {
       stats_history_.erase(stats_history_.begin());
-      purge_needed = EstiamteStatsHistorySize() > stats_history_size_limit;
+      purge_needed = EstimateStatsHistorySize() > stats_history_size_limit;
     }
   }
   // TODO: persist stats to disk
@@ -741,8 +769,18 @@ Status DBImpl::GetStatsHistory(
   if (!stats_iterator) {
     return Status::InvalidArgument("stats_iterator not preallocated.");
   }
-  stats_iterator->reset(
-      new InMemoryStatsHistoryIterator(start_time, end_time, this));
+  bool persist_stats_to_disk = false;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    persist_stats_to_disk = mutable_db_options_.persist_stats_to_disk;
+  }
+  if (persist_stats_to_disk) {
+    stats_iterator->reset(
+        new PersistentStatsHistoryIterator(start_time, end_time, this));
+  } else {
+    stats_iterator->reset(
+        new InMemoryStatsHistoryIterator(start_time, end_time, this));
+  }
   return (*stats_iterator)->status();
 }
 
@@ -959,6 +997,7 @@ Status DBImpl::SetDBOptions(
           mutex_.Lock();
         }
         if (new_options.stats_persist_period_sec > 0) {
+          CreatePersistStatsHandle();
           thread_persist_stats_.reset(new rocksdb::RepeatableThread(
               [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
               new_options.stats_persist_period_sec * 1000000));
@@ -1371,6 +1410,10 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
 
 ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
   return default_cf_handle_;
+}
+
+ColumnFamilyHandle* DBImpl::PersistentStatsColumnFamily() const {
+  return persist_stats_cf_handle_;
 }
 
 Status DBImpl::Get(const ReadOptions& read_options,

@@ -66,6 +66,7 @@ class Arena;
 class ArenaWrappedDBIter;
 class InMemoryStatsHistoryIterator;
 class MemTable;
+class PersistentStatsHistoryIterator;
 class TableCache;
 class TaskLimiterToken;
 class Version;
@@ -267,6 +268,8 @@ class DBImpl : public DB {
   virtual Status GetDbIdentity(std::string& identity) const override;
 
   ColumnFamilyHandle* DefaultColumnFamily() const override;
+
+  ColumnFamilyHandle* PersistentStatsColumnFamily() const;
 
   virtual Status Close() override;
 
@@ -822,7 +825,7 @@ class DBImpl : public DB {
   void TEST_WaitForDumpStatsRun(std::function<void()> callback) const;
   void TEST_WaitForPersistStatsRun(std::function<void()> callback) const;
   bool TEST_IsPersistentStatsEnabled() const;
-  size_t TEST_EstiamteStatsHistorySize() const;
+  size_t TEST_EstimateInMemoryStatsHistorySize() const;
 
 #endif  // NDEBUG
 
@@ -1176,6 +1179,8 @@ class DBImpl : public DB {
     PrepickedCompaction* prepicked_compaction;
   };
 
+  Status CreatePersistStatsHandle();
+
   Status ResumeImpl();
 
   void MaybeIgnoreError(Status* s) const;
@@ -1424,7 +1429,7 @@ class DBImpl : public DB {
 
   void PrintStatistics();
 
-  size_t EstiamteStatsHistorySize() const;
+  size_t EstimateStatsHistorySize() const;
 
   // persist stats to column family "_persistent_stats"
   void PersistStats();
@@ -1571,6 +1576,7 @@ class DBImpl : public DB {
   // expesnive mutex_ lock during WAL write, which update log_empty_.
   bool log_empty_;
 
+  ColumnFamilyHandleImpl* persist_stats_cf_handle_;
 
   // Without two_write_queues, read and writes to alive_log_files_ are
   // protected by mutex_. However since back() is never popped, and push_back()

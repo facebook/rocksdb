@@ -235,6 +235,7 @@ MutableDBOptions::MutableDBOptions()
       delete_obsolete_files_period_micros(6ULL * 60 * 60 * 1000000),
       stats_dump_period_sec(600),
       stats_persist_period_sec(600),
+      persist_stats_to_disk(false),
       stats_history_buffer_size(1024 * 1024),
       max_open_files(-1),
       bytes_per_sync(0),
@@ -254,6 +255,7 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
           options.delete_obsolete_files_period_micros),
       stats_dump_period_sec(options.stats_dump_period_sec),
       stats_persist_period_sec(options.stats_persist_period_sec),
+      persist_stats_to_disk(options.persist_stats_to_disk),
       stats_history_buffer_size(options.stats_history_buffer_size),
       max_open_files(options.max_open_files),
       bytes_per_sync(options.bytes_per_sync),
@@ -286,6 +288,8 @@ void MutableDBOptions::Dump(Logger* log) const {
       log,
       "                Options.stats_history_buffer_size: %" ROCKSDB_PRIszt,
       stats_history_buffer_size);
+  ROCKS_LOG_HEADER(log, "                Options.persist_stats_to_disk: %u",
+                   persist_stats_to_disk);
   ROCKS_LOG_HEADER(log, "                         Options.max_open_files: %d",
                    max_open_files);
   ROCKS_LOG_HEADER(log,

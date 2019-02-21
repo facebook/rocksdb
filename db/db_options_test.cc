@@ -640,7 +640,8 @@ TEST_F(DBOptionsTest, SetOptionsStatsPersistPeriodSec) {
   ASSERT_EQ(12345, dbfull()->GetDBOptions().stats_persist_period_sec);
 }
 
-TEST_F(DBOptionsTest, GetStatsHistory) {
+// TODO(Zhongyi): Move persistent stats related tests to a separate file
+TEST_F(DBOptionsTest, GetStatsHistoryInMemory) {
   Options options;
   options.create_if_missing = true;
   options.stats_persist_period_sec = 5;
@@ -768,7 +769,7 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
     auto stats_map = stats_iter->GetStatsMap();
     stats_count += stats_map.size();
   }
-  size_t stats_history_size = dbfull()->TEST_EstiamteStatsHistorySize();
+  size_t stats_history_size = dbfull()->TEST_EstimateStatsHistorySize();
   ASSERT_GE(slice_count, 9);
   ASSERT_GE(stats_history_size, 12000);
   // capping memory cost at 12000 bytes since one slice is around 10000~12000
@@ -788,13 +789,217 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
     auto stats_map = stats_iter->GetStatsMap();
     stats_count_reopen += stats_map.size();
   }
-  size_t stats_history_size_reopen = dbfull()->TEST_EstiamteStatsHistorySize();
+  size_t stats_history_size_reopen = dbfull()->TEST_EstimateStatsHistorySize();
   // only one slice can fit under the new stats_history_buffer_size
   ASSERT_LT(slice_count, 2);
   ASSERT_TRUE(stats_history_size_reopen < 12000 &&
               stats_history_size_reopen > 0);
   ASSERT_TRUE(stats_count_reopen < stats_count && stats_count_reopen > 0);
   Close();
+}
+
+int countkeys(Iterator* iter) {
+  int count = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    // if (count % 100 == 0) {
+    //   fprintf(stdout, "key = %s, value = %s\n",
+    //   iter->key().ToString().c_str(), iter->value().ToString().c_str());
+    // }
+    count++;
+  }
+  return count;
+}
+
+TEST_F(DBOptionsTest, GetStatsHistoryFromDisk) {
+  Options options;
+  options.create_if_missing = true;
+  options.stats_persist_period_sec = 5;
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.persist_stats_to_disk = true;
+  std::unique_ptr<rocksdb::MockTimeEnv> mock_env;
+  mock_env.reset(new rocksdb::MockTimeEnv(env_));
+  mock_env->set_current_time(0);  // in seconds
+  options.env = mock_env.get();
+  CreateColumnFamilies({"pikachu"}, options);
+  ASSERT_OK(Put("foo", "bar"));
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+
+  // Wait for stats persist to finish
+  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
+  auto iter =
+      db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
+  int key_count1 = countkeys(iter);
+  delete iter;
+  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(10); });
+  iter =
+      db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
+  int key_count2 = countkeys(iter);
+  delete iter;
+  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(15); });
+  iter =
+      db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
+  int key_count3 = countkeys(iter);
+  delete iter;
+  ASSERT_GE(key_count2, key_count1);
+  ASSERT_GE(key_count3, key_count2);
+  ASSERT_EQ(key_count3 - key_count2, key_count2 - key_count1);
+  std::unique_ptr<StatsHistoryIterator> stats_iter;
+  db_->GetStatsHistory(0, 16 * kMicrosInSec, &stats_iter);
+  ASSERT_TRUE(stats_iter != nullptr);
+  size_t stats_count = 0;
+  int slice_count = 0;
+  for (; stats_iter->Valid(); stats_iter->Next()) {
+    slice_count++;
+    auto stats_map = stats_iter->GetStatsMap();
+    stats_count += stats_map.size();
+    // fprintf(stdout, "GetStatsHistory: timestamp = %ld\n",
+    //         static_cast<long>(stats_iter->GetStatsTime()));
+    // for (const auto& kv : stats_map) {
+    //   fprintf(stdout, "key = %s, value = %s\n", kv.first.c_str(),
+    //   ToString(kv.second).c_str());
+    // }
+  }
+  ASSERT_EQ(slice_count, 4);
+  ASSERT_EQ(stats_count, key_count3);
+  // verify reopen will not cause data loss
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  db_->GetStatsHistory(0, 16 * kMicrosInSec, &stats_iter);
+  ASSERT_TRUE(stats_iter != nullptr);
+  size_t stats_count_reopen = 0;
+  int slice_count_reopen = 0;
+  for (; stats_iter->Valid(); stats_iter->Next()) {
+    slice_count_reopen++;
+    auto stats_map = stats_iter->GetStatsMap();
+    stats_count_reopen += stats_map.size();
+  }
+  ASSERT_EQ(slice_count, slice_count_reopen);
+  ASSERT_EQ(stats_count, stats_count_reopen);
+  Close();
+}
+
+// add new test cases to
+// 1) dynamically enable in-memory stats history
+// 2) switch to on-disk stats history
+// 3) reopen to verify stats history is preserved
+// 4) switch back to in-memory stats history
+// 5) switch to on-disk stats history
+// 6) check stats history integrity
+TEST_F(DBOptionsTest, PersistentStatsSwitch) {
+  Options options;
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.stats_persist_period_sec = 0;
+  options.persist_stats_to_disk = false;
+  std::unique_ptr<rocksdb::MockTimeEnv> mock_env;
+  mock_env.reset(new rocksdb::MockTimeEnv(env_));
+  mock_env->set_current_time(0);  // in seconds
+  options.env = mock_env.get();
+  CreateColumnFamilies({"pikachu"}, options);
+  ASSERT_OK(Put("foo", "bar"));
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  // 1. dynamically enable in-memory stats history
+  ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "1"}}));
+
+  // trigger stats populating
+  ASSERT_OK(Delete("foo"));
+  ASSERT_OK(Put("sol", "sol"));
+  ASSERT_OK(Put("epic", "epic"));
+  ASSERT_EQ("sol", Get("sol"));
+  ASSERT_EQ("epic", Get("epic"));
+  Iterator* iterator = db_->NewIterator(ReadOptions());
+  for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
+    ASSERT_TRUE(iterator->key() == iterator->value());
+  }
+  delete iterator;
+  ASSERT_OK(Flush());
+  ASSERT_OK(Delete("sol"));
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(1); });
+
+  std::unique_ptr<StatsHistoryIterator> stats_iter;
+  db_->GetStatsHistory(0, 2 * kMicrosInSec, &stats_iter);
+  ASSERT_TRUE(stats_iter != nullptr);
+  size_t stats_count = 0;
+  int slice_count = 0;
+  for (; stats_iter->Valid(); stats_iter->Next()) {
+    slice_count++;
+    auto stats_map = stats_iter->GetStatsMap();
+    stats_count += stats_map.size();
+  }
+  ASSERT_GT(slice_count, 0);
+  ASSERT_GT(stats_count, 0);
+
+  // 2. dynamically switch to ondisk stats history
+  ASSERT_OK(dbfull()->SetDBOptions({{"persist_stats_to_disk", "true"}}));
+  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(2); });
+  db_->GetStatsHistory(0, 3 * kMicrosInSec, &stats_iter);
+  ASSERT_TRUE(stats_iter != nullptr);
+  stats_count = 0;
+  slice_count = 0;
+  for (; stats_iter->Valid(); stats_iter->Next()) {
+    slice_count++;
+    auto stats_map = stats_iter->GetStatsMap();
+    stats_count += stats_map.size();
+  }
+  ASSERT_GT(slice_count, 0);
+  ASSERT_GT(stats_count, 0);
+
+  // 3. reopen and stats history collection continues
+  options.stats_persist_period_sec = 1;
+  options.persist_stats_to_disk = true;
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(3); });
+  db_->GetStatsHistory(0, 4 * kMicrosInSec, &stats_iter);
+  ASSERT_TRUE(stats_iter != nullptr);
+  size_t stats_count_reopen = 0;
+  int slice_count_reopen = 0;
+  for (; stats_iter->Valid(); stats_iter->Next()) {
+    slice_count_reopen++;
+    auto stats_map = stats_iter->GetStatsMap();
+    stats_count_reopen += stats_map.size();
+  }
+  ASSERT_GT(slice_count_reopen, slice_count);
+  ASSERT_GT(stats_count_reopen, stats_count);
+
+  Close();
+}
+
+TEST_F(DBOptionsTest, PersistentStatsCreateColumnFamilies) {
+  Options options;
+  options.create_if_missing = true;
+  options.stats_persist_period_sec = 5;
+  options.persist_stats_to_disk = true;
+  options.env = env_;
+  ASSERT_OK(TryReopen(options));
+  CreateColumnFamilies({"one", "two", "three"}, options);
+  ASSERT_OK(Put("foo", "bar"));
+  ReopenWithColumnFamilies({"default", "one", "two", "three"}, options);
+  ASSERT_EQ(Get("foo"), "bar");
+  CreateColumnFamilies({"four"}, options);
+  ReopenWithColumnFamilies({"default", "one", "two", "three", "four"}, options);
+  ASSERT_EQ(Get("foo"), "bar");
+  Close();
+  Destroy(options);
+}
+
+TEST_F(DBOptionsTest, PersistentStatsReadOnly) {
+  ASSERT_OK(Put("bar", "v2"));
+  Close();
+
+  auto options = CurrentOptions();
+  options.stats_persist_period_sec = 5;
+  options.persist_stats_to_disk = true;
+  assert(options.env == env_);
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_EQ("v2", Get("bar"));
+  Close();
+
+  // Reopen and flush memtable.
+  Reopen(options);
+  Flush();
+  Close();
+  // Now check keys in read only mode.
+  ASSERT_OK(ReadOnlyReopen(options));
 }
 
 static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {

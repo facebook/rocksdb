@@ -694,6 +694,12 @@ struct DBOptions {
   // Default: 600
   unsigned int stats_persist_period_sec = 600;
 
+  // If true, automatically persist stats to a hidden column family every
+  // stats_persist_period_sec seconds, otherwise, write to an in-memory
+  // struct. User can query through `GetStatsHistory` API.
+  // Default: false
+  bool persist_stats_to_disk = false;
+
   // if not zero, periodically take stats snapshots and store in memory, the
   // memory size for stats snapshots is capped at stats_history_buffer_size
   // Default: 1MB
