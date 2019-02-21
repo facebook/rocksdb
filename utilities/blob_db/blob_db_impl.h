@@ -27,7 +27,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/wal_filter.h"
 #include "util/mutexlock.h"
-#include "util/timer_queue.h"
+#include "util/repeatable_thread.h"
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_file.h"
 #include "utilities/blob_db/blob_log_format.h"
@@ -268,8 +268,6 @@ class BlobDBImpl : public BlobDB {
   // efficiency
   std::pair<bool, int64_t> ReclaimOpenFiles(bool aborted);
 
-  std::pair<bool, int64_t> RemoveTimerQ(TimerQueue* tq, bool aborted);
-
   // Adds the background tasks to the timer queue
   void StartBackgroundTasks();
 
@@ -370,8 +368,12 @@ class BlobDBImpl : public BlobDB {
   // Flag to check whether Close() has been called on this DB
   bool closed_;
 
-  // timer based queue to execute tasks
-  TimerQueue tqueue_;
+  // Threads that run at fixed intervals
+  std::unique_ptr<rocksdb::RepeatableThread> reclaim_open_files_thread_;
+  std::unique_ptr<rocksdb::RepeatableThread> gc_thread_;
+  std::unique_ptr<rocksdb::RepeatableThread> cleanup_obselete_files_thread_;
+  std::unique_ptr<rocksdb::RepeatableThread> sanity_checker_thread_;
+  std::unique_ptr<rocksdb::RepeatableThread> evict_expired_files_thread_;
 
   // number of files opened for random access/GET
   // counter is used to monitor and close excess RA files.
