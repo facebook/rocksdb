@@ -22,8 +22,6 @@
 
 #pragma once
 
-#include "port/port.h"
-
 #include <assert.h>
 #include <chrono>
 #include <condition_variable>
@@ -32,6 +30,9 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include "port/port.h"
+#include "util/sync_point.h"
 
 // Allows execution of handlers at a specified time in the future
 // Guarantees:
