@@ -33,11 +33,11 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
    public:
     InvalidSnapshotReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot,
                                 SequenceNumber min_uncommitted)
-        : db_(db), snapshot_(snapshot), min_uncommitted_(min_uncommitted) {}
+        : ReadCallback(snapshot, min_uncommitted), db_(db) {}
 
     // Will be called to see if the seq number visible; if not it moves on to
     // the next seq number.
-    inline bool IsVisible(SequenceNumber seq) override {
+    inline bool IsVisibleFullCheck(SequenceNumber seq) override {
       // Becomes true if it cannot tell by comparing seq with snapshot seq since
       // the snapshot_ is not a real snapshot.
       bool released = false;
@@ -48,8 +48,6 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
 
    private:
     WritePreparedTxnDB* db_;
-    SequenceNumber snapshot_;
-    SequenceNumber min_uncommitted_;
   };
 
   // Iterate starting with largest sequence number.
