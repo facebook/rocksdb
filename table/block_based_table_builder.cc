@@ -158,7 +158,7 @@ Slice CompressBlock(
     std::string* sampled_output_slow) {
   *type = info.type();
 
-  if (info.type() == kNoCompression && !info.sampleForCompression()) {
+  if (info.type() == kNoCompression && !info.SampleForCompression()) {
     return raw;
   }
 
@@ -167,8 +167,8 @@ Slice CompressBlock(
   // The users can use these stats to decide if it is worthwhile
   // enabling compression and they also get a hint about which
   // compression algorithm wil be beneficial.
-  if (do_sample && info.sampleForCompression() &&
-      Random::GetTLSInstance()->OneIn((int)info.sampleForCompression()) &&
+  if (do_sample && info.SampleForCompression() &&
+      Random::GetTLSInstance()->OneIn((int)info.SampleForCompression()) &&
       sampled_output_fast && sampled_output_slow) {
     // Sampling with a fast compression algorithm
     if (LZ4_Supported() || Snappy_Supported()) {
@@ -176,7 +176,7 @@ Slice CompressBlock(
       CompressionContext context(c);
       CompressionOptions options;
       CompressionInfo infoTmp(options, context, CompressionDict::GetEmptyDict(),
-                              c, info.sampleForCompression());
+                              c, info.SampleForCompression());
 
       CompressBlockInternal(raw, infoTmp, format_version, sampled_output_fast);
     }
@@ -187,7 +187,7 @@ Slice CompressBlock(
       CompressionContext context(c);
       CompressionOptions options;
       CompressionInfo infoTmp(options, context, CompressionDict::GetEmptyDict(),
-                              c, info.sampleForCompression());
+                              c, info.SampleForCompression());
       CompressBlockInternal(raw, infoTmp, format_version, sampled_output_slow);
     }
   }

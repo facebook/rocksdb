@@ -790,6 +790,8 @@ DEFINE_string(compression_type, "snappy",
 static enum rocksdb::CompressionType FLAGS_compression_type_e =
     rocksdb::kSnappyCompression;
 
+DEFINE_int64(sample_for_compression, 0, "Sample every N block for compression");
+
 DEFINE_int32(compression_level, rocksdb::CompressionOptions().level,
              "Compression level. The meaning of this value is library-"
              "dependent. If unset, we try to use the default for the library "
@@ -2183,6 +2185,7 @@ class Benchmark {
 
     auto compression = CompressionTypeToString(FLAGS_compression_type_e);
     fprintf(stdout, "Compression: %s\n", compression.c_str());
+    fprintf(stdout, "Compression sampling rate: %ld\n", FLAGS_sample_for_compression);
 
     switch (FLAGS_rep_factory) {
       case kPrefixHash:
@@ -2222,7 +2225,8 @@ class Benchmark {
       CompressionOptions opts;
       CompressionContext context(FLAGS_compression_type_e);
       CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                           FLAGS_compression_type_e, 0 /* sample_for_compression */);
+                           FLAGS_compression_type_e,
+                           FLAGS_sample_for_compression);
       bool result = CompressSlice(info, Slice(input_str), &compressed);
 
       if (!result) {
@@ -3082,7 +3086,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     CompressionOptions opts;
     CompressionContext context(FLAGS_compression_type_e);
     CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                         FLAGS_compression_type_e, 0 /* sample_for_compression */);
+                         FLAGS_compression_type_e,
+                         FLAGS_sample_for_compression);
     // Compress 1G
     while (ok && bytes < int64_t(1) << 30) {
       compressed.clear();
@@ -3110,9 +3115,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
     CompressionContext compression_ctx(FLAGS_compression_type_e);
     CompressionOptions compression_opts;
-    CompressionInfo compression_info(compression_opts, compression_ctx,
-                                     CompressionDict::GetEmptyDict(),
-                                     FLAGS_compression_type_e, 0 /* sample_for_compression */);
+    CompressionInfo compression_info(
+        compression_opts, compression_ctx, CompressionDict::GetEmptyDict(),
+        FLAGS_compression_type_e, FLAGS_sample_for_compression);
     UncompressionContext uncompression_ctx(FLAGS_compression_type_e);
     UncompressionInfo uncompression_info(uncompression_ctx,
                                          UncompressionDict::GetEmptyDict(),
@@ -3469,6 +3474,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     options.level0_slowdown_writes_trigger =
       FLAGS_level0_slowdown_writes_trigger;
     options.compression = FLAGS_compression_type_e;
+    options.sample_for_compression = FLAGS_sample_for_compression;
     options.WAL_ttl_seconds = FLAGS_wal_ttl_seconds;
     options.WAL_size_limit_MB = FLAGS_wal_size_limit_MB;
     options.max_total_wal_size = FLAGS_max_total_wal_size;

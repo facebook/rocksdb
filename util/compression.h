@@ -350,7 +350,7 @@ class CompressionInfo {
   const CompressionContext& context() const { return context_; }
   const CompressionDict& dict() const { return dict_; }
   CompressionType type() const { return type_; }
-  uint64_t sampleForCompression() const { return sample_for_compression_; }
+  uint64_t SampleForCompression() const { return sample_for_compression_; }
 };
 
 class UncompressionContext {
