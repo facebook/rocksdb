@@ -421,6 +421,20 @@ class DB {
         keys, values);
   }
 
+  virtual void MultiGet(const ReadOptions& options,
+                        const std::vector<ColumnFamilyHandle*>& column_family,
+                        const std::vector<Slice>& keys, PinnableSlice* values,
+                        Status* statuses) {
+    std::vector<Status> status;
+    std::vector<std::string> vals;
+
+    status = MultiGet(options, column_family, keys, &vals);
+    std::copy(status.begin(), status.end(), statuses);
+    for (auto& value : vals) {
+      values->PinSelf(value);
+      values++;
+    }
+  }
   // If the key definitely does not exist in the database, then this method
   // returns false, else true. If the caller wants to obtain value when the key
   // is found in memory, a bool for 'value_found' must be passed. 'value_found'

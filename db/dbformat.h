@@ -9,8 +9,11 @@
 
 #pragma once
 #include <stdio.h>
+#include <memory>
 #include <string>
 #include <utility>
+#include "db/lookup_key.h"
+#include "db/merge_context.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"

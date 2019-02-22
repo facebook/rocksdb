@@ -96,6 +96,13 @@ class StackableDB : public DB {
     return db_->MultiGet(options, column_family, keys, values);
   }
 
+  virtual void MultiGet(const ReadOptions& options,
+                        const std::vector<ColumnFamilyHandle*>& column_family,
+                        const std::vector<Slice>& keys, PinnableSlice* values,
+                        Status* statuses) override {
+    return db_->MultiGet(options, column_family, keys, values, statuses);
+  }
+
   using DB::IngestExternalFile;
   virtual Status IngestExternalFile(
       ColumnFamilyHandle* column_family,

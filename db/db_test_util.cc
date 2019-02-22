@@ -757,24 +757,80 @@ std::string DBTestBase::Get(int cf, const std::string& k,
 
 std::vector<std::string> DBTestBase::MultiGet(std::vector<int> cfs,
                                               const std::vector<std::string>& k,
-                                              const Snapshot* snapshot) {
+                                              const Snapshot* snapshot,
+                                              bool multiget_batched) {
   ReadOptions options;
   options.verify_checksums = true;
   options.snapshot = snapshot;
   std::vector<ColumnFamilyHandle*> handles;
   std::vector<Slice> keys;
   std::vector<std::string> result;
+  std::vector<Status>* status;
+  std::vector<Status> s;
+  std::vector<Status> statuses(cfs.size());
+  std::vector<PinnableSlice> pin_values(cfs.size());
 
   for (unsigned int i = 0; i < cfs.size(); ++i) {
     handles.push_back(handles_[cfs[i]]);
     keys.push_back(k[i]);
   }
-  std::vector<Status> s = db_->MultiGet(options, handles, keys, &result);
-  for (unsigned int i = 0; i < s.size(); ++i) {
-    if (s[i].IsNotFound()) {
+  if (multiget_batched) {
+    db_->MultiGet(options, handles, keys, pin_values.data(), statuses.data());
+    status = &statuses;
+    result.resize(cfs.size());
+    for (auto iter = result.begin(); iter != result.end(); ++iter) {
+      iter->assign(pin_values[iter - result.begin()].data(),
+                   pin_values[iter - result.begin()].size());
+    }
+  } else {
+    s = db_->MultiGet(options, handles, keys, &result);
+    status = &s;
+  }
+  for (unsigned int i = 0; i < status->size(); ++i) {
+    if ((*status)[i].IsNotFound()) {
       result[i] = "NOT_FOUND";
-    } else if (!s[i].ok()) {
-      result[i] = s[i].ToString();
+    } else if (!(*status)[i].ok()) {
+      result[i] = (*status)[i].ToString();
+    }
+  }
+  return result;
+}
+
+std::vector<std::string> DBTestBase::MultiGet(const std::vector<std::string>& k,
+                                              const Snapshot* snapshot,
+                                              bool multiget_batched) {
+  ReadOptions options;
+  options.verify_checksums = true;
+  options.snapshot = snapshot;
+  std::vector<ColumnFamilyHandle*> handles;
+  std::vector<Slice> keys;
+  std::vector<std::string> result;
+  std::vector<Status>* status;
+  std::vector<Status> s;
+  std::vector<Status> statuses(k.size());
+  std::vector<PinnableSlice> pin_values(k.size());
+
+  for (unsigned int i = 0; i < k.size(); ++i) {
+    handles.push_back(dbfull()->DefaultColumnFamily());
+    keys.push_back(k[i]);
+  }
+  if (multiget_batched) {
+    db_->MultiGet(options, handles, keys, pin_values.data(), statuses.data());
+    status = &statuses;
+    result.resize(k.size());
+    for (auto iter = result.begin(); iter != result.end(); ++iter) {
+      iter->assign(pin_values[iter - result.begin()].data(),
+                   pin_values[iter - result.begin()].size());
+    }
+  } else {
+    s = db_->MultiGet(options, handles, keys, &result);
+    status = &s;
+  }
+  for (unsigned int i = 0; i < status->size(); ++i) {
+    if ((*status)[i].IsNotFound()) {
+      result[i] = "NOT_FOUND";
+    } else if (!(*status)[i].ok()) {
+      result[i] = (*status)[i].ToString();
     }
   }
   return result;

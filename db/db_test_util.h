@@ -840,7 +840,12 @@ class DBTestBase : public testing::Test {
 
   std::vector<std::string> MultiGet(std::vector<int> cfs,
                                     const std::vector<std::string>& k,
-                                    const Snapshot* snapshot = nullptr);
+                                    const Snapshot* snapshot = nullptr,
+                                    bool multiget_batched = true);
+
+  std::vector<std::string> MultiGet(const std::vector<std::string>& k,
+                                    const Snapshot* snapshot = nullptr,
+                                    bool multiget_batched = true);
 
   uint64_t GetNumSnapshots();
 
