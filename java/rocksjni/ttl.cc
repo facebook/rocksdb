@@ -23,9 +23,9 @@
  * Method:    open
  * Signature: (JLjava/lang/String;IZ)J
  */
-jlong Java_org_rocksdb_TtlDB_open(JNIEnv* env, jclass /*jcls*/,
-                                  jlong joptions_handle, jstring jdb_path,
-                                  jint jttl, jboolean jread_only) {
+jlong Java_org_rocksdb_TtlDB_open(
+    JNIEnv* env, jclass, jlong joptions_handle, jstring jdb_path, jint jttl,
+    jboolean jread_only) {
   const char* db_path = env->GetStringUTFChars(jdb_path, nullptr);
   if (db_path == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -53,11 +53,10 @@ jlong Java_org_rocksdb_TtlDB_open(JNIEnv* env, jclass /*jcls*/,
  * Method:    openCF
  * Signature: (JLjava/lang/String;[[B[J[IZ)[J
  */
-jlongArray Java_org_rocksdb_TtlDB_openCF(JNIEnv* env, jclass /*jcls*/,
-                                         jlong jopt_handle, jstring jdb_path,
-                                         jobjectArray jcolumn_names,
-                                         jlongArray jcolumn_options,
-                                         jintArray jttls, jboolean jread_only) {
+jlongArray Java_org_rocksdb_TtlDB_openCF(
+    JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path,
+    jobjectArray jcolumn_names, jlongArray jcolumn_options,
+    jintArray jttls, jboolean jread_only) {
   const char* db_path = env->GetStringUTFChars(jdb_path, nullptr);
   if (db_path == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -149,11 +148,38 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(JNIEnv* env, jclass /*jcls*/,
 
 /*
  * Class:     org_rocksdb_TtlDB
+ * Method:    disposeInternal
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_TtlDB_disposeInternal(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* ttl_db = reinterpret_cast<rocksdb::DBWithTTL*>(jhandle);
+  assert(ttl_db != nullptr);
+  delete ttl_db;
+}
+
+/*
+ * Class:     org_rocksdb_TtlDB
+ * Method:    closeDatabase
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_TtlDB_closeDatabase(
+    JNIEnv* /* env */, jclass, jlong /* jhandle */) {
+  //auto* ttl_db = reinterpret_cast<rocksdb::DBWithTTL*>(jhandle);
+  //assert(ttl_db != nullptr);
+  //rocksdb::Status s = ttl_db->Close();
+  //rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+
+  //TODO(AR) this is disabled until https://github.com/facebook/rocksdb/issues/4818 is resolved!
+}
+
+/*
+ * Class:     org_rocksdb_TtlDB
  * Method:    createColumnFamilyWithTtl
  * Signature: (JLorg/rocksdb/ColumnFamilyDescriptor;[BJI)J;
  */
 jlong Java_org_rocksdb_TtlDB_createColumnFamilyWithTtl(
-    JNIEnv* env, jobject /*jobj*/, jlong jdb_handle, jbyteArray jcolumn_name,
+    JNIEnv* env, jobject, jlong jdb_handle, jbyteArray jcolumn_name,
     jlong jcolumn_options, jint jttl) {
   jbyte* cfname = env->GetByteArrayElements(jcolumn_name, nullptr);
   if (cfname == nullptr) {

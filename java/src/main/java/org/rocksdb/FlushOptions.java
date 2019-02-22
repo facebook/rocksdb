@@ -1,3 +1,8 @@
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 package org.rocksdb;
 
 /**
@@ -41,9 +46,45 @@ public class FlushOptions extends RocksObject {
     return waitForFlush(nativeHandle_);
   }
 
+  /**
+   * Set to true so that flush would proceeds immediately even it it means
+   * writes will stall for the duration of the flush.
+   *
+   * Set to false so that the operation will wait until it's possible to do
+   * the flush without causing stall or until required flush is performed by
+   * someone else (foreground call or background thread).
+   *
+   * Default: false
+   *
+   * @param allowWriteStall true to allow writes to stall for flush, false
+   *     otherwise.
+   *
+   * @return instance of current FlushOptions.
+   */
+  public FlushOptions setAllowWriteStall(final boolean allowWriteStall) {
+    assert(isOwningHandle());
+    setAllowWriteStall(nativeHandle_, allowWriteStall);
+    return this;
+  }
+
+  /**
+   * Returns true if writes are allowed to stall for flushes to complete, false
+   * otherwise.
+   *
+   * @return true if writes are allowed to stall for flushes
+   */
+  public boolean allowWriteStall() {
+    assert(isOwningHandle());
+    return allowWriteStall(nativeHandle_);
+  }
+
   private native static long newFlushOptions();
   @Override protected final native void disposeInternal(final long handle);
-  private native void setWaitForFlush(long handle,
-      boolean wait);
-  private native boolean waitForFlush(long handle);
+
+  private native void setWaitForFlush(final long handle,
+      final boolean wait);
+  private native boolean waitForFlush(final long handle);
+  private native void setAllowWriteStall(final long handle,
+      final boolean allowWriteStall);
+  private native boolean allowWriteStall(final long handle);
 }

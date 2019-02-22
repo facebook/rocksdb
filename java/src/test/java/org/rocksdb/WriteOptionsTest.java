@@ -45,6 +45,11 @@ public class WriteOptionsTest {
       assertThat(writeOptions.noSlowdown()).isTrue();
       writeOptions.setNoSlowdown(false);
       assertThat(writeOptions.noSlowdown()).isFalse();
+
+      writeOptions.setLowPri(true);
+      assertThat(writeOptions.lowPri()).isTrue();
+      writeOptions.setLowPri(false);
+      assertThat(writeOptions.lowPri()).isFalse();
     }
   }
 
