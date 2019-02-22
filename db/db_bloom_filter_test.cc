@@ -786,6 +786,56 @@ TEST_F(DBBloomFilterTest, PrefixExtractorBlockFilter) {
   delete iter;
 }
 
+TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilter) {
+  // regression test for #2743. the range delete tombstones in memtable should
+  // be added even when Get() skips searching due to its prefix bloom filter
+  const int kMemtableSize = 1 << 20;              // 1MB
+  const int kMemtablePrefixFilterSize = 1 << 13;  // 8KB
+  const int kPrefixLen = 4;
+  Options options = CurrentOptions();
+  options.memtable_prefix_bloom_size_ratio =
+      static_cast<double>(kMemtablePrefixFilterSize) / kMemtableSize;
+  options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(kPrefixLen));
+  options.write_buffer_size = kMemtableSize;
+  options.memtable_whole_key_filtering = false;
+  Reopen(options);
+  std::string key1("AAAABBBB");
+  std::string key2("AAAACCCC");  // not in DB
+  std::string key3("AAAADDDD");
+  std::string key4("AAAAEEEE");
+  std::string value1("Value1");
+  std::string value3("Value3");
+  std::string value4("Value4");
+
+  ASSERT_OK(Put(key1, value1, WriteOptions()));
+
+  // check memtable bloom stats
+  ASSERT_EQ("NOT_FOUND", Get(key2));
+  ASSERT_EQ(0, get_perf_context()->bloom_memtable_miss_count);
+  // same prefix, bloom filter false positive
+  ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
+
+  // enable whole key bloom filter
+  options.memtable_whole_key_filtering = true;
+  Reopen(options);
+  // check memtable bloom stats
+  ASSERT_OK(Put(key3, value3, WriteOptions()));
+  ASSERT_EQ("NOT_FOUND", Get(key2));
+  // whole key bloom filter kicks in and determines it's a miss
+  ASSERT_EQ(1, get_perf_context()->bloom_memtable_miss_count);
+  ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
+
+  // verify whole key filtering does not depend on prefix_extractor
+  options.prefix_extractor.reset();
+  Reopen(options);
+  // check memtable bloom stats
+  ASSERT_OK(Put(key4, value4, WriteOptions()));
+  ASSERT_EQ("NOT_FOUND", Get(key2));
+  // whole key bloom filter kicks in and determines it's a miss
+  ASSERT_EQ(2, get_perf_context()->bloom_memtable_miss_count);
+  ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
+}
+
 #ifndef ROCKSDB_LITE
 class BloomStatsTestWithParam
     : public DBBloomFilterTest,

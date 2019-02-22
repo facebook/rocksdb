@@ -63,6 +63,7 @@ namespace rocksdb {
 
 class Arena;
 class ArenaWrappedDBIter;
+class InMemoryStatsHistoryIterator;
 class MemTable;
 class TableCache;
 class TaskLimiterToken;
@@ -482,7 +483,10 @@ class DBImpl : public DB {
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
-  void TEST_WaitForTimedTaskRun(std::function<void()> callback) const;
+  void TEST_WaitForDumpStatsRun(std::function<void()> callback) const;
+  void TEST_WaitForPersistStatsRun(std::function<void()> callback) const;
+  bool TEST_IsPersistentStatsEnabled() const;
+  size_t TEST_EstiamteStatsHistorySize() const;
 
 #endif  // NDEBUG
 
@@ -727,6 +731,17 @@ class DBImpl : public DB {
 
   static Status CreateAndNewDirectory(Env* env, const std::string& dirname,
                                       std::unique_ptr<Directory>* directory);
+
+  // Given a time window, return an iterator for accessing stats history
+  Status GetStatsHistory(
+      uint64_t start_time, uint64_t end_time,
+      std::unique_ptr<StatsHistoryIterator>* stats_iterator) override;
+
+  // find stats map from stats_history_ with smallest timestamp in
+  // the range of [start_time, end_time)
+  bool FindStatsByTime(uint64_t start_time, uint64_t end_time,
+                       uint64_t* new_time,
+                       std::map<std::string, uint64_t>* stats_map);
 
  protected:
   Env* const env_;
@@ -1135,6 +1150,11 @@ class DBImpl : public DB {
 
   void PrintStatistics();
 
+  size_t EstiamteStatsHistorySize() const;
+
+  // persist stats to column family "_persistent_stats"
+  void PersistStats();
+
   // dump rocksdb.stats to LOG
   void DumpStats();
 
@@ -1177,6 +1197,8 @@ class DBImpl : public DB {
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
 
+  // In addition to mutex_, log_write_mutex_ protected writes to stats_history_
+  InstrumentedMutex stats_history_mutex_;
   // In addition to mutex_, log_write_mutex_ protected writes to logs_ and
   // logfile_number_. With two_write_queues it also protects alive_log_files_,
   // and log_empty_. Refer to the definition of each variable below for more
@@ -1298,6 +1320,12 @@ class DBImpl : public DB {
   autovector<log::Writer*> logs_to_free_;
 
   bool is_snapshot_supported_;
+
+  std::map<uint64_t, std::map<std::string, uint64_t>> stats_history_;
+
+  std::map<std::string, uint64_t> stats_slice_;
+
+  bool stats_slice_initialized_ = false;
 
   // Class to maintain directories for all database paths other than main one.
   class Directories {
@@ -1544,9 +1572,13 @@ class DBImpl : public DB {
   // Only to be set during initialization
   std::unique_ptr<PreReleaseCallback> recoverable_state_pre_release_callback_;
 
-  // handle for scheduling jobs at fixed intervals
+  // handle for scheduling stats dumping at fixed intervals
   // REQUIRES: mutex locked
   std::unique_ptr<rocksdb::RepeatableThread> thread_dump_stats_;
+
+  // handle for scheduling stats snapshoting at fixed intervals
+  // REQUIRES: mutex locked
+  std::unique_ptr<rocksdb::RepeatableThread> thread_persist_stats_;
 
   // No copying allowed
   DBImpl(const DBImpl&);

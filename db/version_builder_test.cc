@@ -37,7 +37,7 @@ class VersionBuilderTest : public testing::Test {
     size_being_compacted_.resize(options_.num_levels);
   }
 
-  ~VersionBuilderTest() {
+  ~VersionBuilderTest() override {
     for (int i = 0; i < vstorage_.num_levels(); i++) {
       for (auto* f : vstorage_.LevelFiles(i)) {
         if (--f->refs == 0) {

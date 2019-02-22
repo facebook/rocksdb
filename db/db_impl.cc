@@ -37,6 +37,7 @@
 #include "db/external_sst_file_ingestion_job.h"
 #include "db/flush_job.h"
 #include "db/forward_iterator.h"
+#include "db/in_memory_stats_history.h"
 #include "db/job_context.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -69,6 +70,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/stats_history.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -387,16 +389,15 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Shutdown: canceling all background work");
 
-  InstrumentedMutexLock l(&mutex_);
-  // To avoid deadlock, `thread_dump_stats_->cancel()` needs to be called
-  // before grabbing db mutex because the actual worker function
-  // `DBImpl::DumpStats()` also holds db mutex
   if (thread_dump_stats_ != nullptr) {
-    mutex_.Unlock();
     thread_dump_stats_->cancel();
-    mutex_.Lock();
     thread_dump_stats_.reset();
   }
+  if (thread_persist_stats_ != nullptr) {
+    thread_persist_stats_->cancel();
+    thread_persist_stats_.reset();
+  }
+  InstrumentedMutexLock l(&mutex_);
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
@@ -620,6 +621,7 @@ void DBImpl::PrintStatistics() {
 
 void DBImpl::StartTimedTasks() {
   unsigned int stats_dump_period_sec = 0;
+  unsigned int stats_persist_period_sec = 0;
   {
     InstrumentedMutexLock l(&mutex_);
     stats_dump_period_sec = mutable_db_options_.stats_dump_period_sec;
@@ -630,7 +632,112 @@ void DBImpl::StartTimedTasks() {
             stats_dump_period_sec * 1000000));
       }
     }
+    stats_persist_period_sec = mutable_db_options_.stats_persist_period_sec;
+    if (stats_persist_period_sec > 0) {
+      if (!thread_persist_stats_) {
+        thread_persist_stats_.reset(new rocksdb::RepeatableThread(
+            [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
+            stats_persist_period_sec * 1000000));
+      }
+    }
   }
+}
+
+// esitmate the total size of stats_history_
+size_t DBImpl::EstiamteStatsHistorySize() const {
+  size_t size_total =
+      sizeof(std::map<uint64_t, std::map<std::string, uint64_t>>);
+  if (stats_history_.size() == 0) return size_total;
+  size_t size_per_slice =
+      sizeof(uint64_t) + sizeof(std::map<std::string, uint64_t>);
+  // non-empty map, stats_history_.begin() guaranteed to exist
+  std::map<std::string, uint64_t> sample_slice(stats_history_.begin()->second);
+  for (const auto& pairs : sample_slice) {
+    size_per_slice +=
+        pairs.first.capacity() + sizeof(pairs.first) + sizeof(pairs.second);
+  }
+  size_total = size_per_slice * stats_history_.size();
+  return size_total;
+}
+
+void DBImpl::PersistStats() {
+  TEST_SYNC_POINT("DBImpl::PersistStats:Entry");
+#ifndef ROCKSDB_LITE
+  if (shutdown_initiated_) {
+    return;
+  }
+  uint64_t now_micros = env_->NowMicros();
+  Statistics* statistics = immutable_db_options_.statistics.get();
+  if (!statistics) {
+    return;
+  }
+  size_t stats_history_size_limit = 0;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    stats_history_size_limit = mutable_db_options_.stats_history_buffer_size;
+  }
+
+  // TODO(Zhongyi): also persist immutable_db_options_.statistics
+  {
+    std::map<std::string, uint64_t> stats_map;
+    if (!statistics->getTickerMap(&stats_map)) {
+      return;
+    }
+    InstrumentedMutexLock l(&stats_history_mutex_);
+    // calculate the delta from last time
+    if (stats_slice_initialized_) {
+      std::map<std::string, uint64_t> stats_delta;
+      for (const auto& stat : stats_map) {
+        if (stats_slice_.find(stat.first) != stats_slice_.end()) {
+          stats_delta[stat.first] = stat.second - stats_slice_[stat.first];
+        }
+      }
+      stats_history_[now_micros] = stats_delta;
+    }
+    stats_slice_initialized_ = true;
+    std::swap(stats_slice_, stats_map);
+    TEST_SYNC_POINT("DBImpl::PersistStats:StatsCopied");
+
+    // delete older stats snapshots to control memory consumption
+    bool purge_needed = EstiamteStatsHistorySize() > stats_history_size_limit;
+    while (purge_needed && !stats_history_.empty()) {
+      stats_history_.erase(stats_history_.begin());
+      purge_needed = EstiamteStatsHistorySize() > stats_history_size_limit;
+    }
+  }
+  // TODO: persist stats to disk
+#endif  // !ROCKSDB_LITE
+}
+
+bool DBImpl::FindStatsByTime(uint64_t start_time, uint64_t end_time,
+                             uint64_t* new_time,
+                             std::map<std::string, uint64_t>* stats_map) {
+  assert(new_time);
+  assert(stats_map);
+  if (!new_time || !stats_map) return false;
+  // lock when search for start_time
+  {
+    InstrumentedMutexLock l(&stats_history_mutex_);
+    auto it = stats_history_.lower_bound(start_time);
+    if (it != stats_history_.end() && it->first < end_time) {
+      // make a copy for timestamp and stats_map
+      *new_time = it->first;
+      *stats_map = it->second;
+      return true;
+    } else {
+      return false;
+    }
+  }
+}
+
+Status DBImpl::GetStatsHistory(uint64_t start_time, uint64_t end_time,
+    std::unique_ptr<StatsHistoryIterator>* stats_iterator) {
+  if (!stats_iterator) {
+    return Status::InvalidArgument("stats_iterator not preallocated.");
+  }
+  stats_iterator->reset(
+      new InMemoryStatsHistoryIterator(start_time, end_time, this));
+  return (*stats_iterator)->status();
 }
 
 void DBImpl::DumpStats() {
@@ -818,6 +925,21 @@ Status DBImpl::SetDBOptions(
           else {
             thread_dump_stats_.reset();
           }
+      }
+      if (new_options.stats_persist_period_sec !=
+          mutable_db_options_.stats_persist_period_sec) {
+        if (thread_persist_stats_) {
+          mutex_.Unlock();
+          thread_persist_stats_->cancel();
+          mutex_.Lock();
+        }
+        if (new_options.stats_persist_period_sec > 0) {
+          thread_persist_stats_.reset(new rocksdb::RepeatableThread(
+              [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
+              new_options.stats_persist_period_sec * 1000000));
+        } else {
+          thread_persist_stats_.reset();
+        }
       }
       write_controller_.set_max_delayed_write_rate(
           new_options.delayed_write_rate);

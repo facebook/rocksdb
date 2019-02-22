@@ -118,7 +118,7 @@ class EnvPosixTestWithParam
     }
   }
 
-  ~EnvPosixTestWithParam() { WaitThreadPoolsEmpty(); }
+  ~EnvPosixTestWithParam() override { WaitThreadPoolsEmpty(); }
 };
 
 static void SetBool(void* ptr) {
@@ -1135,7 +1135,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
 class TestLogger : public Logger {
  public:
   using Logger::Logv;
-  virtual void Logv(const char* format, va_list ap) override {
+  void Logv(const char* format, va_list ap) override {
     log_count++;
 
     char new_format[550];
@@ -1217,7 +1217,7 @@ class TestLogger2 : public Logger {
  public:
   explicit TestLogger2(size_t max_log_size) : max_log_size_(max_log_size) {}
   using Logger::Logv;
-  virtual void Logv(const char* format, va_list ap) override {
+  void Logv(const char* format, va_list ap) override {
     char new_format[2000];
     std::fill_n(new_format, sizeof(new_format), '2');
     {
@@ -1466,7 +1466,7 @@ TEST_P(EnvPosixTestWithParam, WritableFileWrapper) {
     }
 
    public:
-    ~Base() { inc(23); }
+    ~Base() override { inc(23); }
   };
 
   class Wrapper : public WritableFileWrapper {
@@ -1689,15 +1689,15 @@ class TestEnv : public EnvWrapper {
    public:
     using Logger::Logv;
     TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
-    ~TestLogger() {
+    ~TestLogger() override {
       if (!closed_) {
         CloseHelper();
       }
     }
-    virtual void Logv(const char* /*format*/, va_list /*ap*/) override{};
+    void Logv(const char* /*format*/, va_list /*ap*/) override{};
 
    protected:
-    virtual Status CloseImpl() override { return CloseHelper(); }
+    Status CloseImpl() override { return CloseHelper(); }
 
    private:
     Status CloseHelper() {
@@ -1711,8 +1711,8 @@ class TestEnv : public EnvWrapper {
 
   int GetCloseCount() { return close_count; }
 
-  virtual Status NewLogger(const std::string& /*fname*/,
-                           std::shared_ptr<Logger>* result) {
+  Status NewLogger(const std::string& /*fname*/,
+                   std::shared_ptr<Logger>* result) override {
     result->reset(new TestLogger(this));
     return Status::OK();
   }

@@ -492,39 +492,38 @@ class LevelIterator final : public InternalIterator {
     assert(flevel_ != nullptr && flevel_->num_files > 0);
   }
 
-  virtual ~LevelIterator() { delete file_iter_.Set(nullptr); }
+  ~LevelIterator() override { delete file_iter_.Set(nullptr); }
 
-  virtual void Seek(const Slice& target) override;
-  virtual void SeekForPrev(const Slice& target) override;
-  virtual void SeekToFirst() override;
-  virtual void SeekToLast() override;
-  virtual void Next() override;
-  virtual void Prev() override;
+  void Seek(const Slice& target) override;
+  void SeekForPrev(const Slice& target) override;
+  void SeekToFirst() override;
+  void SeekToLast() override;
+  void Next() override;
+  void Prev() override;
 
-  virtual bool Valid() const override { return file_iter_.Valid(); }
-  virtual Slice key() const override {
+  bool Valid() const override { return file_iter_.Valid(); }
+  Slice key() const override {
     assert(Valid());
     return file_iter_.key();
   }
-  virtual Slice value() const override {
+  Slice value() const override {
     assert(Valid());
     return file_iter_.value();
   }
-  virtual Status status() const override {
+  Status status() const override {
     return file_iter_.iter() ? file_iter_.status() : Status::OK();
   }
-  virtual void SetPinnedItersMgr(
-      PinnedIteratorsManager* pinned_iters_mgr) override {
+  void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     pinned_iters_mgr_ = pinned_iters_mgr;
     if (file_iter_.iter()) {
       file_iter_.SetPinnedItersMgr(pinned_iters_mgr);
     }
   }
-  virtual bool IsKeyPinned() const override {
+  bool IsKeyPinned() const override {
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
            file_iter_.iter() && file_iter_.IsKeyPinned();
   }
-  virtual bool IsValuePinned() const override {
+  bool IsValuePinned() const override {
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
            file_iter_.iter() && file_iter_.IsValuePinned();
   }

@@ -20,9 +20,7 @@ class MockEnvTest : public testing::Test {
   MockEnvTest()
       : env_(new MockEnv(Env::Default())) {
   }
-  ~MockEnvTest() {
-    delete env_;
-  }
+  ~MockEnvTest() override { delete env_; }
 };
 
 TEST_F(MockEnvTest, Corrupt) {

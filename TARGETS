@@ -110,6 +110,7 @@ cpp_library(
         "db/flush_job.cc",
         "db/flush_scheduler.cc",
         "db/forward_iterator.cc",
+        "db/in_memory_stats_history.cc",
         "db/internal_stats.cc",
         "db/log_reader.cc",
         "db/log_writer.cc",

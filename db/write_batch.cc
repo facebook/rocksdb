@@ -1094,10 +1094,8 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
  protected:
-  virtual bool WriteBeforePrepare() const override {
-    return write_before_prepare_;
-  }
-  virtual bool WriteAfterCommit() const override { return write_after_commit_; }
+  bool WriteBeforePrepare() const override { return write_before_prepare_; }
+  bool WriteAfterCommit() const override { return write_after_commit_; }
 
  public:
   // cf_mems should not be shared with concurrent inserters
@@ -1134,7 +1132,7 @@ class MemTableInserter : public WriteBatch::Handler {
     assert(cf_mems_);
   }
 
-  ~MemTableInserter() {
+  ~MemTableInserter() override {
     if (dup_dectector_on_) {
       reinterpret_cast<DuplicateDetector*>
         (&duplicate_detector_)->~DuplicateDetector();
@@ -1324,8 +1322,8 @@ class MemTableInserter : public WriteBatch::Handler {
     return ret_status;
   }
 
-  virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                       const Slice& value) override {
+  Status PutCF(uint32_t column_family_id, const Slice& key,
+               const Slice& value) override {
     return PutCFImpl(column_family_id, key, value, kTypeValue);
   }
 
@@ -1347,8 +1345,7 @@ class MemTableInserter : public WriteBatch::Handler {
     return ret_status;
   }
 
-  virtual Status DeleteCF(uint32_t column_family_id,
-                          const Slice& key) override {
+  Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
@@ -1381,8 +1378,7 @@ class MemTableInserter : public WriteBatch::Handler {
     return ret_status;
   }
 
-  virtual Status SingleDeleteCF(uint32_t column_family_id,
-                                const Slice& key) override {
+  Status SingleDeleteCF(uint32_t column_family_id, const Slice& key) override {
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id, key);
@@ -1417,9 +1413,8 @@ class MemTableInserter : public WriteBatch::Handler {
     return ret_status;
   }
 
-  virtual Status DeleteRangeCF(uint32_t column_family_id,
-                               const Slice& begin_key,
-                               const Slice& end_key) override {
+  Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
+                       const Slice& end_key) override {
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
@@ -1471,8 +1466,8 @@ class MemTableInserter : public WriteBatch::Handler {
     return ret_status;
   }
 
-  virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) override {
+  Status MergeCF(uint32_t column_family_id, const Slice& key,
+                 const Slice& value) override {
     assert(!concurrent_memtable_writes_);
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
@@ -1585,8 +1580,8 @@ class MemTableInserter : public WriteBatch::Handler {
     return ret_status;
   }
 
-  virtual Status PutBlobIndexCF(uint32_t column_family_id, const Slice& key,
-                                const Slice& value) override {
+  Status PutBlobIndexCF(uint32_t column_family_id, const Slice& key,
+                        const Slice& value) override {
     // Same as PutCF except for value type.
     return PutCFImpl(column_family_id, key, value, kTypeBlobIndex);
   }
