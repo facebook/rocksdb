@@ -31,6 +31,9 @@ class MemFile {
         rnd_(static_cast<uint32_t>(
             MurmurHash(fn.data(), static_cast<int>(fn.size()), 0))),
         fsynced_bytes_(0) {}
+  // No copying allowed.
+  MemFile(const MemFile&) = delete;
+  void operator=(const MemFile&) = delete;
 
   void Ref() {
     MutexLock lock(&mutex_);
@@ -153,10 +156,6 @@ class MemFile {
 
   // Private since only Unref() should be used to delete it.
   ~MemFile() { assert(refs_ == 0); }
-
-  // No copying allowed.
-  MemFile(const MemFile&);
-  void operator=(const MemFile&);
 
   Env* env_;
   const std::string fn_;

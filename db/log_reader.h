@@ -54,6 +54,9 @@ class Reader {
          // @lint-ignore TXT2 T25377293 Grandfathered in
          std::unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
          bool checksum, uint64_t log_num, bool retry_after_eof);
+  // No copying allowed
+  Reader(const Reader&) = delete;
+  void operator=(const Reader&) = delete;
 
   ~Reader();
 
@@ -143,10 +146,6 @@ class Reader {
   // buffer_ must be updated to remove the dropped bytes prior to invocation.
   void ReportCorruption(size_t bytes, const char* reason);
   void ReportDrop(size_t bytes, const Status& reason);
-
-  // No copying allowed
-  Reader(const Reader&);
-  void operator=(const Reader&);
 };
 
 }  // namespace log

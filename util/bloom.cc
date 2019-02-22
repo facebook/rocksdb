@@ -171,6 +171,9 @@ class FullFilterBitsReader : public FilterBitsReader {
       }
     }
   }
+  // No Copy allowed
+  FullFilterBitsReader(const FullFilterBitsReader&) = delete;
+  void operator=(const FullFilterBitsReader&) = delete;
 
   ~FullFilterBitsReader() override {}
 
@@ -212,10 +215,6 @@ class FullFilterBitsReader : public FilterBitsReader {
   // is valid.
   bool HashMayMatch(const uint32_t& hash, const Slice& filter,
       const size_t& num_probes, const uint32_t& num_lines);
-
-  // No Copy allowed
-  FullFilterBitsReader(const FullFilterBitsReader&);
-  void operator=(const FullFilterBitsReader&);
 };
 
 void FullFilterBitsReader::GetFilterMeta(const Slice& filter,
