@@ -403,10 +403,13 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/checkpoint.cc                                 \
   java/rocksjni/clock_cache.cc                                \
   java/rocksjni/columnfamilyhandle.cc                         \
+  java/rocksjni/compact_range_options.cc                      \
   java/rocksjni/compaction_filter.cc                          \
   java/rocksjni/compaction_filter_factory.cc                  \
   java/rocksjni/compaction_filter_factory_jnicallback.cc      \
-  java/rocksjni/compact_range_options.cc                      \
+  java/rocksjni/compaction_job_info.cc                        \
+  java/rocksjni/compaction_job_stats.cc                       \
+  java/rocksjni/compaction_options.cc                         \
   java/rocksjni/compaction_options_fifo.cc                    \
   java/rocksjni/compaction_options_universal.cc               \
   java/rocksjni/comparator.cc                                 \
@@ -428,6 +431,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/optimistic_transaction_options.cc             \
   java/rocksjni/options.cc                                    \
   java/rocksjni/options_util.cc                               \
+  java/rocksjni/persistent_cache.cc                           \
   java/rocksjni/ratelimiterjni.cc                             \
   java/rocksjni/remove_emptyvalue_compactionfilterjni.cc      \
   java/rocksjni/cassandra_compactionfilterjni.cc              \
@@ -443,6 +447,11 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/statistics.cc                                 \
   java/rocksjni/statisticsjni.cc                              \
   java/rocksjni/table.cc                                      \
+  java/rocksjni/table_filter.cc                               \
+  java/rocksjni/table_filter_jnicallback.cc                   \
+  java/rocksjni/thread_status.cc                              \
+  java/rocksjni/trace_writer.cc                               \
+  java/rocksjni/trace_writer_jnicallback.cc                   \
   java/rocksjni/transaction.cc                                \
   java/rocksjni/transaction_db.cc                             \
   java/rocksjni/transaction_options.cc                        \
@@ -451,6 +460,8 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/transaction_notifier.cc                       \
   java/rocksjni/transaction_notifier_jnicallback.cc           \
   java/rocksjni/ttl.cc                                        \
+  java/rocksjni/wal_filter.cc                                 \
+  java/rocksjni/wal_filter_jnicallback.cc                     \
   java/rocksjni/write_batch.cc                                \
   java/rocksjni/writebatchhandlerjnicallback.cc               \
   java/rocksjni/write_batch_test.cc                           \
