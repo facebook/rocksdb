@@ -776,16 +776,20 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
                                              SequenceNumber prep_seq,
                                              size_t prep_batch_cnt,
                                              size_t data_batch_cnt = 0,
-                                             bool publish_seq = true)
+                                             SequenceNumber aux_seq = kMaxSequenceNumber,
+                                             size_t aux_batch_cnt = 0)
       : db_(db),
         db_impl_(db_impl),
         prep_seq_(prep_seq),
         prep_batch_cnt_(prep_batch_cnt),
         data_batch_cnt_(data_batch_cnt),
         includes_data_(data_batch_cnt_ > 0),
-        publish_seq_(publish_seq) {
+        aux_seq_(aux_seq),
+        aux_batch_cnt_(aux_batch_cnt),
+        includes_aux_batch_(aux_batch_cnt > 0) {
     assert((prep_batch_cnt_ > 0) != (prep_seq == kMaxSequenceNumber));  // xor
     assert(prep_batch_cnt_ > 0 || data_batch_cnt_ > 0);
+    assert((aux_batch_cnt_ > 0) != (aux_seq == kMaxSequenceNumber));  // xor
   }
 
   virtual Status Callback(SequenceNumber commit_seq,
@@ -802,6 +806,11 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
         db_->AddCommitted(prep_seq_ + i, last_commit_seq);
       }
     }  // else there was no prepare phase
+    if (includes_aux_batch_) {
+      for (size_t i = 0; i < aux_batch_cnt_; i++) {
+        db_->AddCommitted(aux_seq_ + i, last_commit_seq);
+      }
+    }  // else there was no prepare phase
     if (includes_data_) {
       assert(data_batch_cnt_);
       // Commit the data that is accompanied with the commit request
@@ -812,7 +821,7 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
         db_->AddCommitted(commit_seq + i, last_commit_seq);
       }
     }
-    if (db_impl_->immutable_db_options().two_write_queues && publish_seq_) {
+    if (db_impl_->immutable_db_options().two_write_queues) {
       assert(is_mem_disabled);  // implies the 2nd queue
       // Publish the sequence number. We can do that here assuming the callback
       // is invoked only from one write queue, which would guarantee that the
@@ -835,8 +844,10 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
   // Either because it is commit without prepare or it has a
   // CommitTimeWriteBatch
   bool includes_data_;
-  // Should the callback also publishes the commit seq number
-  bool publish_seq_;
+  // Auxiliary batch (if there is any)
+  SequenceNumber aux_seq_;
+  size_t aux_batch_cnt_;
+  bool includes_aux_batch_;
 };
 
 // For two_write_queues commit both the aborted batch and the cleanup batch and
