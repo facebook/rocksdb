@@ -347,7 +347,13 @@ class DBIter final: public Iterator {
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
   ReadCallback* read_callback_;
+#ifdef ROCKSDB_LITE
+  ROCKSDB_FIELD_UNUSED
+#endif
   DBImpl* db_impl_;
+#ifdef ROCKSDB_LITE
+  ROCKSDB_FIELD_UNUSED
+#endif
   ColumnFamilyData* cfd_;
   bool allow_blob_;
   bool is_blob_;
