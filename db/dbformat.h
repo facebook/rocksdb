@@ -295,6 +295,9 @@ class LookupKey {
   // Initialize *this for looking up user_key at a snapshot with
   // the specified sequence number.
   LookupKey(const Slice& _user_key, SequenceNumber sequence);
+  // No copying allowed
+  LookupKey(const LookupKey&) = delete;
+  void operator=(const LookupKey&) = delete;
 
   ~LookupKey();
 
@@ -325,10 +328,6 @@ class LookupKey {
   const char* kstart_;
   const char* end_;
   char space_[200];      // Avoid allocation for short keys
-
-  // No copying allowed
-  LookupKey(const LookupKey&);
-  void operator=(const LookupKey&);
 };
 
 inline LookupKey::~LookupKey() {
@@ -343,6 +342,9 @@ class IterKey {
         key_(buf_),
         key_size_(0),
         is_user_key_(true) {}
+  // No copying allowed
+  IterKey(const IterKey&) = delete;
+  void operator=(const IterKey&) = delete;
 
   ~IterKey() { ResetBuffer(); }
 
@@ -540,10 +542,6 @@ class IterKey {
   }
 
   void EnlargeBuffer(size_t key_size);
-
-  // No copying allowed
-  IterKey(const IterKey&) = delete;
-  void operator=(const IterKey&) = delete;
 };
 
 class InternalKeySliceTransform : public SliceTransform {

@@ -74,6 +74,9 @@ class InlineSkipList {
   explicit InlineSkipList(Comparator cmp, Allocator* allocator,
                           int32_t max_height = 12,
                           int32_t branching_factor = 4);
+  // No copying allowed
+  InlineSkipList(const InlineSkipList&) = delete;
+  InlineSkipList& operator=(const InlineSkipList&) = delete;
 
   // Allocates a key and a skip-list node, returning a pointer to the key
   // portion of the node.  This method is thread-safe if the allocator
@@ -254,10 +257,6 @@ class InlineSkipList {
   // lowest_level (inclusive).
   void RecomputeSpliceLevels(const DecodedKey& key, Splice* splice,
                              int recompute_level);
-
-  // No copying allowed
-  InlineSkipList(const InlineSkipList&);
-  InlineSkipList& operator=(const InlineSkipList&);
 };
 
 // Implementation details follow

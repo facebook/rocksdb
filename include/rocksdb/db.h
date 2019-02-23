@@ -201,6 +201,10 @@ class DB {
                                    std::vector<std::string>* column_families);
 
   DB() { }
+  // No copying allowed
+  DB(const DB&) = delete;
+  void operator=(const DB&) = delete;
+
   virtual ~DB();
 
   // Create a column_family and return the handle of column family
@@ -1234,11 +1238,6 @@ class DB {
       std::unique_ptr<StatsHistoryIterator>* /*stats_iterator*/) {
     return Status::NotSupported("GetStatsHistory() is not implemented.");
   }
-
- private:
-  // No copying allowed
-  DB(const DB&);
-  void operator=(const DB&);
 };
 
 // Destroy the contents of the specified database.

@@ -111,6 +111,9 @@ class Mutex {
 #else
   explicit Mutex(bool adaptive = false);
 #endif
+  // No copying
+  Mutex(const Mutex&) = delete;
+  void operator=(const Mutex&) = delete;
   ~Mutex();
 
   void Lock();
@@ -125,15 +128,15 @@ class Mutex {
 #ifndef NDEBUG
   bool locked_;
 #endif
-
-  // No copying
-  Mutex(const Mutex&);
-  void operator=(const Mutex&);
 };
 
 class RWMutex {
  public:
   RWMutex();
+  // No copying allowed
+  RWMutex(const RWMutex&) = delete;
+  void operator=(const RWMutex&) = delete;
+
   ~RWMutex();
 
   void ReadLock();
@@ -144,10 +147,6 @@ class RWMutex {
 
  private:
   pthread_rwlock_t mu_; // the underlying platform mutex
-
-  // No copying allowed
-  RWMutex(const RWMutex&);
-  void operator=(const RWMutex&);
 };
 
 class CondVar {

@@ -31,6 +31,9 @@ class OptimisticTransaction : public TransactionBaseImpl {
   OptimisticTransaction(OptimisticTransactionDB* db,
                         const WriteOptions& write_options,
                         const OptimisticTransactionOptions& txn_options);
+  // No copying allowed
+  OptimisticTransaction(const OptimisticTransaction&) = delete;
+  void operator=(const OptimisticTransaction&) = delete;
 
   virtual ~OptimisticTransaction();
 
@@ -52,7 +55,7 @@ class OptimisticTransaction : public TransactionBaseImpl {
                  const bool assume_tracked = false) override;
 
  private:
-  OptimisticTransactionDB* const txn_db_;
+  ROCKSDB_FIELD_UNUSED OptimisticTransactionDB* const txn_db_;
 
   friend class OptimisticTransactionCallback;
 
@@ -71,10 +74,6 @@ class OptimisticTransaction : public TransactionBaseImpl {
                           const Slice& /* unused */) override {
     // Nothing to unlock.
   }
-
-  // No copying allowed
-  OptimisticTransaction(const OptimisticTransaction&);
-  void operator=(const OptimisticTransaction&);
 };
 
 // Used at commit time to trigger transaction validation

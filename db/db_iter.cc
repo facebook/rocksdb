@@ -152,6 +152,10 @@ class DBIter final: public Iterator {
       iter_->SetPinnedItersMgr(&pinned_iters_mgr_);
     }
   }
+  // No copying allowed
+  DBIter(const DBIter&) = delete;
+  void operator=(const DBIter&) = delete;
+
   ~DBIter() override {
     // Release pinned data if any
     if (pinned_iters_mgr_.PinningEnabled()) {
@@ -350,10 +354,6 @@ class DBIter final: public Iterator {
   // for diff snapshots we want the lower bound on the seqnum;
   // if this value > 0 iterator will return internal keys
   SequenceNumber start_seqnum_;
-
-  // No copying allowed
-  DBIter(const DBIter&);
-  void operator=(const DBIter&);
 };
 
 inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {

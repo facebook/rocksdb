@@ -36,6 +36,9 @@ class PlainTableBuilder: public TableBuilder {
       uint32_t column_family_id, WritableFileWriter* file,
       uint32_t user_key_size, EncodingType encoding_type,
       size_t index_sparseness, const std::string& column_family_name);
+  // No copying allowed
+  PlainTableBuilder(const PlainTableBuilder&) = delete;
+  void operator=(const PlainTableBuilder&) = delete;
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~PlainTableBuilder();
@@ -113,10 +116,6 @@ class PlainTableBuilder: public TableBuilder {
   }
 
   bool IsTotalOrderMode() const { return (prefix_extractor_ == nullptr); }
-
-  // No copying allowed
-  PlainTableBuilder(const PlainTableBuilder&) = delete;
-  void operator=(const PlainTableBuilder&) = delete;
 };
 
 }  // namespace rocksdb

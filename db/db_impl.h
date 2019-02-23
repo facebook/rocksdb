@@ -79,6 +79,10 @@ class DBImpl : public DB {
  public:
   DBImpl(const DBOptions& options, const std::string& dbname,
          const bool seq_per_batch = false, const bool batch_per_txn = true);
+  // No copying allowed
+  DBImpl(const DBImpl&) = delete;
+  void operator=(const DBImpl&) = delete;
+
   virtual ~DBImpl();
 
   using DB::Resume;
@@ -1579,10 +1583,6 @@ class DBImpl : public DB {
   // handle for scheduling stats snapshoting at fixed intervals
   // REQUIRES: mutex locked
   std::unique_ptr<rocksdb::RepeatableThread> thread_persist_stats_;
-
-  // No copying allowed
-  DBImpl(const DBImpl&);
-  void operator=(const DBImpl&);
 
   // Background threads call this function, which is just a wrapper around
   // the InstallSuperVersion() function. Background threads carry

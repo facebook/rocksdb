@@ -30,6 +30,9 @@ class CuckooTableBuilder: public TableBuilder {
                                                 uint64_t),
                      uint32_t column_family_id,
                      const std::string& column_family_name);
+  // No copying allowed
+  CuckooTableBuilder(const CuckooTableBuilder&) = delete;
+  void operator=(const CuckooTableBuilder&) = delete;
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~CuckooTableBuilder() {}
@@ -116,10 +119,6 @@ class CuckooTableBuilder: public TableBuilder {
   std::string smallest_user_key_ = "";
 
   bool closed_;  // Either Finish() or Abandon() has been called.
-
-  // No copying allowed
-  CuckooTableBuilder(const CuckooTableBuilder&) = delete;
-  void operator=(const CuckooTableBuilder&) = delete;
 };
 
 }  // namespace rocksdb

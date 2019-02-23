@@ -243,6 +243,9 @@ class BlockBasedTable : public TableReader {
  protected:
   Rep* rep_;
   explicit BlockBasedTable(Rep* rep) : rep_(rep) {}
+  // No copying allowed
+  explicit BlockBasedTable(const TableReader&) = delete;
+  void operator=(const TableReader&) = delete;
 
  private:
   friend class MockedBlockBasedTable;
@@ -404,10 +407,6 @@ class BlockBasedTable : public TableReader {
   Status DumpDataBlocks(WritableFile* out_file);
   void DumpKeyValue(const Slice& key, const Slice& value,
                     WritableFile* out_file);
-
-  // No copying allowed
-  explicit BlockBasedTable(const TableReader&) = delete;
-  void operator=(const TableReader&) = delete;
 
   friend class PartitionedFilterBlockReader;
   friend class PartitionedFilterBlockTest;

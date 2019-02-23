@@ -20,6 +20,10 @@ template <class TValue>
 class InternalIteratorBase : public Cleanable {
  public:
   InternalIteratorBase() {}
+  // No copying allowed
+  InternalIteratorBase(const InternalIteratorBase&) = delete;
+  InternalIteratorBase& operator=(const InternalIteratorBase&) = delete;
+
   virtual ~InternalIteratorBase() {}
 
   // An iterator is either positioned at a key/value pair, or
@@ -116,11 +120,6 @@ class InternalIteratorBase : public Cleanable {
       Prev();
     }
   }
-
- private:
-  // No copying allowed
-  InternalIteratorBase(const InternalIteratorBase&) = delete;
-  InternalIteratorBase& operator=(const InternalIteratorBase&) = delete;
 };
 
 using InternalIterator = InternalIteratorBase<Slice>;

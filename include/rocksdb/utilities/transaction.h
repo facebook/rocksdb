@@ -52,6 +52,10 @@ class TransactionNotifier {
 //  -Support for using Transactions with DBWithTTL
 class Transaction {
  public:
+  // No copying allowed
+  Transaction(const Transaction&) = delete;
+  void operator=(const Transaction&) = delete;
+
   virtual ~Transaction() {}
 
   // If a transaction has a snapshot set, the transaction will ensure that
@@ -510,9 +514,6 @@ class Transaction {
  private:
   friend class PessimisticTransactionDB;
   friend class WriteUnpreparedTxnDB;
-  // No copying allowed
-  Transaction(const Transaction&);
-  void operator=(const Transaction&);
 };
 
 }  // namespace rocksdb

@@ -46,6 +46,10 @@ class FilterPolicy;
 class FilterBlockBuilder {
  public:
   explicit FilterBlockBuilder() {}
+  // No copying allowed
+  FilterBlockBuilder(const FilterBlockBuilder&) = delete;
+  void operator=(const FilterBlockBuilder&) = delete;
+
   virtual ~FilterBlockBuilder() {}
 
   virtual bool IsBlockBased() = 0;                    // If is blockbased filter
@@ -60,11 +64,6 @@ class FilterBlockBuilder {
     return ret;
   }
   virtual Slice Finish(const BlockHandle& tmp, Status* status) = 0;
-
- private:
-  // No copying allowed
-  FilterBlockBuilder(const FilterBlockBuilder&);
-  void operator=(const FilterBlockBuilder&);
 };
 
 // A FilterBlockReader is used to parse filter from SST table.
@@ -80,6 +79,10 @@ class FilterBlockReader {
       : whole_key_filtering_(_whole_key_filtering),
         size_(s),
         statistics_(stats) {}
+  // No copying allowed
+  FilterBlockReader(const FilterBlockReader&) = delete;
+  void operator=(const FilterBlockReader&) = delete;
+
   virtual ~FilterBlockReader() {}
 
   virtual bool IsBlockBased() = 0;  // If is blockbased filter
@@ -138,12 +141,9 @@ class FilterBlockReader {
   bool whole_key_filtering_;
 
  private:
-  // No copying allowed
-  FilterBlockReader(const FilterBlockReader&);
-  void operator=(const FilterBlockReader&);
   size_t size_;
   Statistics* statistics_;
-  int level_ = -1;
+  ROCKSDB_FIELD_UNUSED int level_ = -1;
 };
 
 }  // namespace rocksdb

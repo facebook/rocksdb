@@ -37,6 +37,9 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
  public:
   BlockBasedFilterBlockBuilder(const SliceTransform* prefix_extractor,
       const BlockBasedTableOptions& table_opt);
+  // No copying allowed
+  BlockBasedFilterBlockBuilder(const BlockBasedFilterBlockBuilder&) = delete;
+  void operator=(const BlockBasedFilterBlockBuilder&) = delete;
 
   virtual bool IsBlockBased() override { return true; }
   virtual void StartBlock(uint64_t block_offset) override;
@@ -67,10 +70,6 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
   std::vector<Slice> tmp_entries_;  // policy_->CreateFilter() argument
   std::vector<uint32_t> filter_offsets_;
   size_t num_added_;                // Number of keys added
-
-  // No copying allowed
-  BlockBasedFilterBlockBuilder(const BlockBasedFilterBlockBuilder&);
-  void operator=(const BlockBasedFilterBlockBuilder&);
 };
 
 // A FilterBlockReader is used to parse filter from SST table.
@@ -82,6 +81,10 @@ class BlockBasedFilterBlockReader : public FilterBlockReader {
                               const BlockBasedTableOptions& table_opt,
                               bool whole_key_filtering,
                               BlockContents&& contents, Statistics* statistics);
+  // No copying allowed
+  BlockBasedFilterBlockReader(const BlockBasedFilterBlockReader&) = delete;
+  void operator=(const BlockBasedFilterBlockReader&) = delete;
+
   virtual bool IsBlockBased() override { return true; }
 
   virtual bool KeyMayMatch(
@@ -99,7 +102,7 @@ class BlockBasedFilterBlockReader : public FilterBlockReader {
 
  private:
   const FilterPolicy* policy_;
-  const SliceTransform* prefix_extractor_;
+  ROCKSDB_FIELD_UNUSED const SliceTransform* prefix_extractor_;
   const char* data_;    // Pointer to filter data (at block-start)
   const char* offset_;  // Pointer to beginning of offset array (at block-end)
   size_t num_;          // Number of entries in offset array
@@ -107,9 +110,5 @@ class BlockBasedFilterBlockReader : public FilterBlockReader {
   BlockContents contents_;
 
   bool MayMatch(const Slice& entry, uint64_t block_offset);
-
-  // No copying allowed
-  BlockBasedFilterBlockReader(const BlockBasedFilterBlockReader&);
-  void operator=(const BlockBasedFilterBlockReader&);
 };
 }  // namespace rocksdb
