@@ -188,7 +188,7 @@ Status WritePreparedTxn::CommitInternal() {
   // two_write_queues should be disabled to avoid many additional writes here.
   const size_t kZeroData = 0;
   // Update commit map only from the 2nd queue
-  WritePreparedCommitEntryPreReleaseCallback update_commit_map_2(
+  WritePreparedCommitEntryPreReleaseCallback update_commit_map_with_aux_batch(
       wpt_db_, db_impl_, prepare_seq, prepare_batch_cnt_, kZeroData,
       commit_batch_seq, commit_batch_cnt);
   WriteBatch empty_batch;
@@ -200,7 +200,7 @@ Status WritePreparedTxn::CommitInternal() {
   const uint64_t NO_REF_LOG = 0;
   s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
                           NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
-                          &update_commit_map_2);
+                          &update_commit_map_with_aux_batch);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   // Note RemovePrepared should be called after WriteImpl that publishsed the
   // seq. Otherwise SmallestUnCommittedSeq optimization breaks.

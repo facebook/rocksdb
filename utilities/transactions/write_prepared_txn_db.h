@@ -771,13 +771,10 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
  public:
   // includes_data indicates that the commit also writes non-empty
   // CommitTimeWriteBatch to memtable, which needs to be committed separately.
-  WritePreparedCommitEntryPreReleaseCallback(WritePreparedTxnDB* db,
-                                             DBImpl* db_impl,
-                                             SequenceNumber prep_seq,
-                                             size_t prep_batch_cnt,
-                                             size_t data_batch_cnt = 0,
-                                             SequenceNumber aux_seq = kMaxSequenceNumber,
-                                             size_t aux_batch_cnt = 0)
+  WritePreparedCommitEntryPreReleaseCallback(
+      WritePreparedTxnDB* db, DBImpl* db_impl, SequenceNumber prep_seq,
+      size_t prep_batch_cnt, size_t data_batch_cnt = 0,
+      SequenceNumber aux_seq = kMaxSequenceNumber, size_t aux_batch_cnt = 0)
       : db_(db),
         db_impl_(db_impl),
         prep_seq_(prep_seq),
@@ -810,7 +807,7 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
       for (size_t i = 0; i < aux_batch_cnt_; i++) {
         db_->AddCommitted(aux_seq_ + i, last_commit_seq);
       }
-    }  // else there was no prepare phase
+    }
     if (includes_data_) {
       assert(data_batch_cnt_);
       // Commit the data that is accompanied with the commit request
