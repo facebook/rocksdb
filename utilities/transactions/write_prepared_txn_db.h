@@ -321,12 +321,14 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     return false;
   }
 
-  // Add the transaction with prepare sequence seq to the prepared list
+  // Add the transaction with prepare sequence seq to the prepared list.
+  // Note: must be called serially with increasing seq on each call.
   void AddPrepared(uint64_t seq);
   // Remove the transaction with prepare sequence seq from the prepared list
   void RemovePrepared(const uint64_t seq, const size_t batch_cnt = 1);
-  // Add the transaction with prepare sequence prepare_seq and comtit sequence
+  // Add the transaction with prepare sequence prepare_seq and commit sequence
   // commit_seq to the commit map. loop_cnt is to detect infinite loops.
+  // Note: must be called serially.
   void AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
                     uint8_t loop_cnt = 0);
 
@@ -754,6 +756,7 @@ class AddPreparedCallback : public PreReleaseCallback {
 #ifdef NDEBUG
     (void)is_mem_disabled;
 #endif
+    // Always Prepare from the main queue
     assert(!two_write_queues_ || !is_mem_disabled);  // implies the 1st queue
     for (size_t i = 0; i < sub_batch_cnt_; i++) {
       db_->AddPrepared(prepare_seq + i);
@@ -794,6 +797,9 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
 #ifdef NDEBUG
     (void)is_mem_disabled;
 #endif
+    // Always commit from the 2nd queue
+    assert(!db_impl_->immutable_db_options().two_write_queues ||
+           is_mem_disabled);
     assert(includes_data_ || prep_seq_ != kMaxSequenceNumber);
     const uint64_t last_commit_seq = LIKELY(data_batch_cnt_ <= 1)
                                          ? commit_seq
@@ -868,7 +874,9 @@ class WritePreparedRollbackPreReleaseCallback : public PreReleaseCallback {
 
   virtual Status Callback(SequenceNumber commit_seq,
                           bool is_mem_disabled) override {
+    // Always commit from the 2nd queue
     assert(is_mem_disabled);  // implies the 2nd queue
+    assert(db_impl_->immutable_db_options().two_write_queues);
 #ifdef NDEBUG
     (void)is_mem_disabled;
 #endif
