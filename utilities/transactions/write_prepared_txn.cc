@@ -328,15 +328,23 @@ Status WritePreparedTxn::RollbackInternal() {
   // CommitCache that keeps an entry evicted due to max advance and yet overlaps
   // with a live snapshot around so that the live snapshot properly skips the
   // entry even if its prepare seq is lower than max_evicted_seq_.
+  AddPreparedCallback add_prepared_callback(
+      wpt_db_, ONE_BATCH, db_impl_->immutable_db_options().two_write_queues);
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
       wpt_db_, db_impl_, GetId(), prepare_batch_cnt_, ONE_BATCH);
+  PreReleaseCallback* pre_release_callback;
+  if (do_one_write) {
+    pre_release_callback = &update_commit_map;
+  } else {
+    pre_release_callback = &add_prepared_callback;
+  }
   // Note: the rollback batch does not need AddPrepared since it is written to
   // DB in one shot. min_uncommitted still works since it requires capturing
   // data that is written to DB but not yet committed, while
   // the rollback batch commits with PreReleaseCallback.
   s = db_impl_->WriteImpl(write_options_, &rollback_batch, nullptr, nullptr,
                           NO_REF_LOG, !DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
-                          do_one_write ? &update_commit_map : nullptr);
+                          pre_release_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (!s.ok()) {
     return s;
@@ -345,7 +353,7 @@ Status WritePreparedTxn::RollbackInternal() {
     wpt_db_->RemovePrepared(GetId(), prepare_batch_cnt_);
     return s;
   }  // else do the 2nd write for commit
-  uint64_t& prepare_seq = seq_used;
+  uint64_t prepare_seq = seq_used;
   ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
                     "RollbackInternal 2nd write prepare_seq: %" PRIu64,
                     prepare_seq);
@@ -367,6 +375,7 @@ Status WritePreparedTxn::RollbackInternal() {
   if (s.ok()) {
     wpt_db_->RemovePrepared(GetId(), prepare_batch_cnt_);
   }
+  wpt_db_->RemovePrepared(prepare_seq, ONE_BATCH);
 
   return s;
 }
