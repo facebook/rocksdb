@@ -146,17 +146,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
       // we're responsible for exit batch group
-      for (auto* writer : *(w.write_group)) {
-        if (!writer->CallbackFailed() && writer->pre_release_callback) {
-          assert(writer->sequence != kMaxSequenceNumber);
-          Status ws = writer->pre_release_callback->Callback(writer->sequence,
-                                                             disable_memtable);
-          if (!ws.ok()) {
-            status = ws;
-            break;
-          }
-        }
-      }
       // TODO(myabandeh): propagate status to write_group
       auto last_sequence = w.write_group->last_sequence;
       versions_->SetLastSequence(last_sequence);
@@ -310,6 +299,31 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     last_sequence += seq_inc;
 
     if (status.ok()) {
+      auto curr_seq = current_sequence;
+      for (auto* writer : write_group) {
+        if (writer->CallbackFailed()) {
+          continue;
+        }
+        writer->sequence = curr_seq;
+        if (seq_per_batch_) {
+          assert(writer->batch_cnt);
+          curr_seq += writer->batch_cnt;
+        }
+        // else seq advances only by memtable writes
+      }
+
+      for (auto* writer : write_group) {
+        if (!writer->CallbackFailed() && writer->pre_release_callback) {
+          assert(writer->sequence != kMaxSequenceNumber);
+          Status ws = writer->pre_release_callback->Callback(writer->sequence,
+                                                             disable_memtable);
+          if (!ws.ok()) {
+            status = ws;
+            break;
+          }
+        }
+      }
+
       PERF_TIMER_GUARD(write_memtable_time);
 
       if (!parallel) {
@@ -388,17 +402,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
   if (should_exit_batch_group) {
     if (status.ok()) {
-      for (auto* writer : write_group) {
-        if (!writer->CallbackFailed() && writer->pre_release_callback) {
-          assert(writer->sequence != kMaxSequenceNumber);
-          Status ws = writer->pre_release_callback->Callback(writer->sequence,
-                                                             disable_memtable);
-          if (!ws.ok()) {
-            status = ws;
-            break;
-          }
-        }
-      }
       versions_->SetLastSequence(last_sequence);
     }
     MemTableInsertStatusCheck(w.status);
