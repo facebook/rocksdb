@@ -273,14 +273,13 @@ void FullFilterBitsReader::FilterPrepare(const uint32_t& hash,
 
   // It is ensured the params are valid before calling it
   assert(num_lines != 0 && (len - 5) % num_lines == 0);
-  const char* data = filter.data();
 
   uint32_t h = hash;
   // Left shift by an extra 3 to convert bytes to bits
   uint32_t b = (h % num_lines) << (log2_cache_line_size_ + 3);
-  PREFETCH(&data[b / 8], 0 /* rw */, 1 /* locality */);
-  PREFETCH(&data[b / 8 + (1 << log2_cache_line_size_) - 1], 0 /* rw */,
-           1 /* locality */);
+  PREFETCH(&filter.data()[b / 8], 0 /* rw */, 1 /* locality */);
+  PREFETCH(&filter.data()[b / 8 + (1 << log2_cache_line_size_) - 1],
+      0 /* rw */, 1 /* locality */);
   *bit_offset = b;
 }
 
