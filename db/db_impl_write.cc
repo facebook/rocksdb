@@ -298,23 +298,19 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     const SequenceNumber current_sequence = last_sequence + 1;
     last_sequence += seq_inc;
 
+    // PreReleaseCallback is called after WAL write and before memtable write
     if (status.ok()) {
-      auto curr_seq = current_sequence;
+      SequenceNumber next_sequence = current_sequence;
+      // Note: the logic for advancing seq here must be consistent with the
+      // logic in WriteBatchInternal::InsertInto(write_group...) as well as
+      // with WriteBatchInternal::InsertInto(write_batch...) that is called on
+      // the merged batch during recovery from the WAL.
       for (auto* writer : write_group) {
         if (writer->CallbackFailed()) {
           continue;
         }
-        writer->sequence = curr_seq;
-        if (seq_per_batch_) {
-          assert(writer->batch_cnt);
-          curr_seq += writer->batch_cnt;
-        }
-        // else seq advances only by memtable writes
-      }
-
-      for (auto* writer : write_group) {
-        if (!writer->CallbackFailed() && writer->pre_release_callback) {
-          assert(writer->sequence != kMaxSequenceNumber);
+        writer->sequence = next_sequence;
+        if (writer->pre_release_callback) {
           Status ws = writer->pre_release_callback->Callback(writer->sequence,
                                                              disable_memtable);
           if (!ws.ok()) {
@@ -322,8 +318,16 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
             break;
           }
         }
+        if (seq_per_batch_) {
+          assert(writer->batch_cnt);
+          next_sequence += writer->batch_cnt;
+        } else if (writer->ShouldWriteToMemtable()) {
+          next_sequence += WriteBatchInternal::Count(writer->batch);
+        }
       }
+    }
 
+    if (status.ok()) {
       PERF_TIMER_GUARD(write_memtable_time);
 
       if (!parallel) {
@@ -334,23 +338,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
             0 /*recovery_log_number*/, this, parallel, seq_per_batch_,
             batch_per_txn_);
       } else {
-        SequenceNumber next_sequence = current_sequence;
-        // Note: the logic for advancing seq here must be consistent with the
-        // logic in WriteBatchInternal::InsertInto(write_group...) as well as
-        // with WriteBatchInternal::InsertInto(write_batch...) that is called on
-        // the merged batch during recovery from the WAL.
-        for (auto* writer : write_group) {
-          if (writer->CallbackFailed()) {
-            continue;
-          }
-          writer->sequence = next_sequence;
-          if (seq_per_batch_) {
-            assert(writer->batch_cnt);
-            next_sequence += writer->batch_cnt;
-          } else if (writer->ShouldWriteToMemtable()) {
-            next_sequence += WriteBatchInternal::Count(writer->batch);
-          }
-        }
         write_group.last_sequence = last_sequence;
         write_thread_.LaunchParallelMemTableWriters(&write_group);
         in_parallel_group = true;
