@@ -188,10 +188,10 @@ class MultiGetContext {
       T& vector_;
     };
 
-    Range(const Range& mget_range, const Iterator& start, const Iterator& end) {
+    Range(const Range& mget_range, const Iterator& first, const Iterator& last) {
       ctx_ = mget_range.ctx_;
-      start_ = start.index_;
-      end_ = end.index_;
+      start_ = first.index_;
+      end_ = last.index_;
       skip_mask_ = mget_range.skip_mask_;
     }
 
@@ -206,16 +206,16 @@ class MultiGetContext {
               ~ctx_->value_mask_ & ~skip_mask_) == 0;
     }
 
-    void SkipKey(const Iterator& iter) { skip_mask_ |= 1 << iter.index_; }
+    void SkipKey(const Iterator& iter) { skip_mask_ |= 1ull << iter.index_; }
 
     // Update the value_mask_ in MultiGetContext so its
     // immediately reflected in all the Range Iterators
     void MarkKeyDone(Iterator& iter) {
-      ctx_->value_mask_ |= (1 << iter.index_);
+      ctx_->value_mask_ |= (1ull << iter.index_);
     }
 
     bool CheckKeyDone(Iterator& iter) {
-      return ctx_->value_mask_ & (1 << iter.index_);
+      return ctx_->value_mask_ & (1ull << iter.index_);
     }
 
    private:
