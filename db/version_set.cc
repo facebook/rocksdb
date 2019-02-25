@@ -16,6 +16,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <algorithm>
+#include <array>
 #include <list>
 #include <map>
 #include <set>

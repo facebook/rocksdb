@@ -1888,7 +1888,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
   }
 
   for (auto iter = keys.begin(); iter != keys.end(); ++iter) {
-    int index = iter - keys.begin();
+    auto index = iter - keys.begin();
     if (statuses[index].ok()) {
       bytes_read += values[index].size();
       num_found++;
