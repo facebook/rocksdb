@@ -2186,6 +2186,8 @@ class Benchmark {
     auto compression = CompressionTypeToString(FLAGS_compression_type_e);
     fprintf(stdout, "Compression: %s\n", compression.c_str());
     fprintf(stdout, "Compression sampling rate: %ld\n", FLAGS_sample_for_compression);
+    fprintf(stdout, "Compression sampling rate: %" PRId64 "\n", FLAGS_sample_for_compression);
+
 
     switch (FLAGS_rep_factory) {
       case kPrefixHash:
