@@ -13,7 +13,8 @@ class ReadCallback {
  public:
   ReadCallback() {}
   ReadCallback(SequenceNumber snapshot) : snapshot_(snapshot) {}
-  ReadCallback(SequenceNumber snapshot, SequenceNumber min_uncommitted) : snapshot_(snapshot), min_uncommitted_(min_uncommitted) {}
+  ReadCallback(SequenceNumber snapshot, SequenceNumber min_uncommitted)
+      : snapshot_(snapshot), min_uncommitted_(min_uncommitted) {}
 
   virtual ~ReadCallback() {}
 

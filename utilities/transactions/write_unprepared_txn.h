@@ -23,8 +23,12 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
                                  SequenceNumber snapshot,
                                  SequenceNumber min_uncommitted,
                                  WriteUnpreparedTxn* txn)
-      : ReadCallback(snapshot, min_uncommitted), db_(db),
-        txn_(txn) {}
+      // Disable snapshot check on parent class since it would violate
+      // read-your-own-write guarantee.
+      : ReadCallback(kMaxSequenceNumber, min_uncommitted),
+        db_(db),
+        txn_(txn),
+        wup_snapshot_(snapshot) {}
 
   virtual bool IsVisibleFullCheck(SequenceNumber seq) override;
   virtual SequenceNumber MaxUnpreparedSequenceNumber() override;
@@ -32,6 +36,7 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
  private:
   WritePreparedTxnDB* db_;
   WriteUnpreparedTxn* txn_;
+  SequenceNumber wup_snapshot_;
 };
 
 class WriteUnpreparedTxn : public WritePreparedTxn {

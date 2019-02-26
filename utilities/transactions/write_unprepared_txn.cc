@@ -31,7 +31,7 @@ bool WriteUnpreparedTxnReadCallback::IsVisibleFullCheck(SequenceNumber seq) {
     }
   }
 
-  return db_->IsInSnapshot(seq, snapshot_, min_uncommitted_);
+  return db_->IsInSnapshot(seq, wup_snapshot_, min_uncommitted_);
 }
 
 SequenceNumber WriteUnpreparedTxnReadCallback::MaxUnpreparedSequenceNumber() {
