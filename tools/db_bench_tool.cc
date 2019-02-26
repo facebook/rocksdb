@@ -2475,7 +2475,7 @@ class Benchmark {
     if (!keys_.empty()) {
       assert(FLAGS_use_existing_keys);
       assert(keys_.size() == static_cast<size_t>(num_keys));
-      assert(v < num_keys);
+      assert(v < static_cast<uint64_t>(num_keys));
       *key = keys_[v];
       return;
     }
