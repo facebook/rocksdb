@@ -1,8 +1,11 @@
 # Rocksdb Change Log
 
-## Unlreleased
+## Unreleased
 ### New Features
-* Added data-block sampling for compressibility.
+* Added a feature to perform data-block sampling for compressibility, and report stats to user.
+### Public API Change
+### Bug fixes
+
 
 ## 6.0.0 (2/19/2019)
 ### New Features
