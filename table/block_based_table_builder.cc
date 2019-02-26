@@ -43,7 +43,6 @@
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/memory_allocator.h"
-#include "util/random.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"
