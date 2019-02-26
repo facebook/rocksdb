@@ -2213,7 +2213,7 @@ static void MTThreadBody(void* arg) {
                      pin_values.data(), statuses.data());
         values.resize(keys.size());
         for (auto s = statuses.begin(); s != statuses.end(); ++s) {
-          int index = s - statuses.begin();
+          auto index = s - statuses.begin();
           if (s->ok()) {
             values[index].assign(pin_values[index].data(),
                                  pin_values[index].size());
