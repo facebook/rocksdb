@@ -12,7 +12,6 @@ import java.util.Map;
  * records or modify their processing on recovery.
  */
 public interface WalFilter {
-
   /**
    * Provide ColumnFamily-&gt;LogNumber map to filter
    * so that filter can determine whether a log number applies to a given
@@ -26,8 +25,8 @@ public interface WalFilter {
    * @param cfLognumber column_family_id to lognumber map
    * @param cfNameId column_family_name to column_family_id map
    */
-  void columnFamilyLogNumberMap(final Map<Integer, Long> cfLognumber,
-      final Map<String, Integer> cfNameId);
+  void columnFamilyLogNumberMap(
+      final Map<Integer, Long> cfLognumber, final Map<String, Integer> cfNameId);
 
   /**
    * LogRecord is invoked for each log record encountered for all the logs
@@ -53,9 +52,8 @@ public interface WalFilter {
    *
    * @return Processing option for the current record.
    */
-  LogRecordFoundResult logRecordFound(final long logNumber,
-      final String logFileName, final WriteBatch batch,
-      final WriteBatch newBatch);
+  LogRecordFoundResult logRecordFound(final long logNumber, final String logFileName,
+      final WriteBatch batch, final WriteBatch newBatch);
 
   class LogRecordFoundResult {
     public static LogRecordFoundResult CONTINUE_UNCHANGED =
@@ -70,8 +68,8 @@ public interface WalFilter {
      *     It must be set to true if newBatch was populated,
      *     else newBatch has no effect.
      */
-    public LogRecordFoundResult(final WalProcessingOption walProcessingOption,
-        final boolean batchChanged) {
+    public LogRecordFoundResult(
+        final WalProcessingOption walProcessingOption, final boolean batchChanged) {
       this.walProcessingOption = walProcessingOption;
       this.batchChanged = batchChanged;
     }

@@ -8,9 +8,7 @@ package org.rocksdb;
 /**
  * Base class for TraceWriters.
  */
-public abstract class AbstractTraceWriter
-    extends RocksCallbackObject implements TraceWriter {
-
+public abstract class AbstractTraceWriter extends RocksCallbackObject implements TraceWriter {
   @Override
   protected long initializeNative(final long... nativeParameterHandles) {
     return createNewTraceWriter();
@@ -51,19 +49,16 @@ public abstract class AbstractTraceWriter
   }
 
   private static short statusToShort(/*@Nullable*/ final Status status) {
-    final Status.Code code = status != null && status.getCode() != null
-        ? status.getCode()
-        : Status.Code.IOError;
-    final Status.SubCode subCode = status != null && status.getSubCode() != null
-        ? status.getSubCode()
-        : Status.SubCode.None;
+    final Status.Code code =
+        status != null && status.getCode() != null ? status.getCode() : Status.Code.IOError;
+    final Status.SubCode subCode =
+        status != null && status.getSubCode() != null ? status.getSubCode() : Status.SubCode.None;
     return statusToShort(code, subCode);
   }
 
-  private static short statusToShort(final Status.Code code,
-      final Status.SubCode subCode) {
-    short result = (short)(code.getValue() << 8);
-    return (short)(result | subCode.getValue());
+  private static short statusToShort(final Status.Code code, final Status.SubCode subCode) {
+    short result = (short) (code.getValue() << 8);
+    return (short) (result | subCode.getValue());
   }
 
   private native long createNewTraceWriter();

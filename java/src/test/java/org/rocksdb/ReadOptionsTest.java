@@ -42,8 +42,10 @@ public class ReadOptionsTest {
       try (final ReadOptions other = new ReadOptions(opt)) {
         assertThat(opt.verifyChecksums()).isEqualTo(other.verifyChecksums());
         assertThat(opt.fillCache()).isEqualTo(other.fillCache());
-        assertThat(Arrays.equals(opt.iterateUpperBound().data(), other.iterateUpperBound().data())).isTrue();
-        assertThat(Arrays.equals(opt.iterateLowerBound().data(), other.iterateLowerBound().data())).isTrue();
+        assertThat(Arrays.equals(opt.iterateUpperBound().data(), other.iterateUpperBound().data()))
+            .isTrue();
+        assertThat(Arrays.equals(opt.iterateLowerBound().data(), other.iterateLowerBound().data()))
+            .isTrue();
       }
     }
   }

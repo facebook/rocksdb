@@ -10,7 +10,6 @@ import java.util.Map;
 import java.util.Objects;
 
 public class MutableDBOptions extends AbstractMutableOptions {
-
   /**
    * User must use builder pattern, or parser.
    *
@@ -50,24 +49,22 @@ public class MutableDBOptions extends AbstractMutableOptions {
   public static MutableDBOptionsBuilder parse(final String str) {
     Objects.requireNonNull(str);
 
-    final MutableDBOptionsBuilder builder =
-        new MutableDBOptionsBuilder();
+    final MutableDBOptionsBuilder builder = new MutableDBOptionsBuilder();
 
     final String[] options = str.trim().split(KEY_VALUE_PAIR_SEPARATOR);
-    for(final String option : options) {
+    for (final String option : options) {
       final int equalsOffset = option.indexOf(KEY_VALUE_SEPARATOR);
-      if(equalsOffset <= 0) {
-        throw new IllegalArgumentException(
-            "options string has an invalid key=value pair");
+      if (equalsOffset <= 0) {
+        throw new IllegalArgumentException("options string has an invalid key=value pair");
       }
 
       final String key = option.substring(0, equalsOffset);
-      if(key.isEmpty()) {
+      if (key.isEmpty()) {
         throw new IllegalArgumentException("options string is invalid");
       }
 
       final String value = option.substring(equalsOffset + 1);
-      if(value.isEmpty()) {
+      if (value.isEmpty()) {
         throw new IllegalArgumentException("options string is invalid");
       }
 
@@ -106,12 +103,11 @@ public class MutableDBOptions extends AbstractMutableOptions {
   }
 
   public static class MutableDBOptionsBuilder
-      extends AbstractMutableOptionsBuilder<MutableDBOptions, MutableDBOptionsBuilder, MutableDBOptionKey>
-      implements MutableDBOptionsInterface<MutableDBOptionsBuilder> {
-
+      extends AbstractMutableOptionsBuilder<MutableDBOptions, MutableDBOptionsBuilder,
+          MutableDBOptionKey> implements MutableDBOptionsInterface<MutableDBOptionsBuilder> {
     private final static Map<String, MutableDBOptionKey> ALL_KEYS_LOOKUP = new HashMap<>();
     static {
-      for(final MutableDBOptionKey key : DBOption.values()) {
+      for (final MutableDBOptionKey key : DBOption.values()) {
         ALL_KEYS_LOOKUP.put(key.name(), key);
       }
     }
@@ -131,14 +127,12 @@ public class MutableDBOptions extends AbstractMutableOptions {
     }
 
     @Override
-    protected MutableDBOptions build(final String[] keys,
-        final String[] values) {
+    protected MutableDBOptions build(final String[] keys, final String[] values) {
       return new MutableDBOptions(keys, values);
     }
 
     @Override
-    public MutableDBOptionsBuilder setMaxBackgroundJobs(
-        final int maxBackgroundJobs) {
+    public MutableDBOptionsBuilder setMaxBackgroundJobs(final int maxBackgroundJobs) {
       return setInt(DBOption.max_background_jobs, maxBackgroundJobs);
     }
 
@@ -148,10 +142,8 @@ public class MutableDBOptions extends AbstractMutableOptions {
     }
 
     @Override
-    public void setBaseBackgroundCompactions(
-        final int baseBackgroundCompactions) {
-      setInt(DBOption.base_background_compactions,
-          baseBackgroundCompactions);
+    public void setBaseBackgroundCompactions(final int baseBackgroundCompactions) {
+      setInt(DBOption.base_background_compactions, baseBackgroundCompactions);
     }
 
     @Override
@@ -160,10 +152,8 @@ public class MutableDBOptions extends AbstractMutableOptions {
     }
 
     @Override
-    public MutableDBOptionsBuilder setMaxBackgroundCompactions(
-        final int maxBackgroundCompactions) {
-      return setInt(DBOption.max_background_compactions,
-          maxBackgroundCompactions);
+    public MutableDBOptionsBuilder setMaxBackgroundCompactions(final int maxBackgroundCompactions) {
+      return setInt(DBOption.max_background_compactions, maxBackgroundCompactions);
     }
 
     @Override
@@ -174,8 +164,7 @@ public class MutableDBOptions extends AbstractMutableOptions {
     @Override
     public MutableDBOptionsBuilder setAvoidFlushDuringShutdown(
         final boolean avoidFlushDuringShutdown) {
-      return setBoolean(DBOption.avoid_flush_during_shutdown,
-          avoidFlushDuringShutdown);
+      return setBoolean(DBOption.avoid_flush_during_shutdown, avoidFlushDuringShutdown);
     }
 
     @Override
@@ -186,8 +175,7 @@ public class MutableDBOptions extends AbstractMutableOptions {
     @Override
     public MutableDBOptionsBuilder setWritableFileMaxBufferSize(
         final long writableFileMaxBufferSize) {
-      return setLong(DBOption.writable_file_max_buffer_size,
-          writableFileMaxBufferSize);
+      return setLong(DBOption.writable_file_max_buffer_size, writableFileMaxBufferSize);
     }
 
     @Override
@@ -196,10 +184,8 @@ public class MutableDBOptions extends AbstractMutableOptions {
     }
 
     @Override
-    public MutableDBOptionsBuilder setDelayedWriteRate(
-        final long delayedWriteRate) {
-      return setLong(DBOption.delayed_write_rate,
-          delayedWriteRate);
+    public MutableDBOptionsBuilder setDelayedWriteRate(final long delayedWriteRate) {
+      return setLong(DBOption.delayed_write_rate, delayedWriteRate);
     }
 
     @Override
@@ -208,8 +194,7 @@ public class MutableDBOptions extends AbstractMutableOptions {
     }
 
     @Override
-    public MutableDBOptionsBuilder setMaxTotalWalSize(
-        final long maxTotalWalSize) {
+    public MutableDBOptionsBuilder setMaxTotalWalSize(final long maxTotalWalSize) {
       return setLong(DBOption.max_total_wal_size, maxTotalWalSize);
     }
 
@@ -219,8 +204,7 @@ public class MutableDBOptions extends AbstractMutableOptions {
     }
 
     @Override
-    public MutableDBOptionsBuilder setDeleteObsoleteFilesPeriodMicros(
-        final long micros) {
+    public MutableDBOptionsBuilder setDeleteObsoleteFilesPeriodMicros(final long micros) {
       return setLong(DBOption.delete_obsolete_files_period_micros, micros);
     }
 
@@ -230,8 +214,7 @@ public class MutableDBOptions extends AbstractMutableOptions {
     }
 
     @Override
-    public MutableDBOptionsBuilder setStatsDumpPeriodSec(
-        final int statsDumpPeriodSec) {
+    public MutableDBOptionsBuilder setStatsDumpPeriodSec(final int statsDumpPeriodSec) {
       return setInt(DBOption.stats_dump_period_sec, statsDumpPeriodSec);
     }
 
@@ -261,8 +244,7 @@ public class MutableDBOptions extends AbstractMutableOptions {
     }
 
     @Override
-    public MutableDBOptionsBuilder setWalBytesPerSync(
-        final long walBytesPerSync) {
+    public MutableDBOptionsBuilder setWalBytesPerSync(final long walBytesPerSync) {
       return setLong(DBOption.wal_bytes_per_sync, walBytesPerSync);
     }
 
@@ -272,10 +254,8 @@ public class MutableDBOptions extends AbstractMutableOptions {
     }
 
     @Override
-    public MutableDBOptionsBuilder setCompactionReadaheadSize(
-        final long compactionReadaheadSize) {
-      return setLong(DBOption.compaction_readahead_size,
-          compactionReadaheadSize);
+    public MutableDBOptionsBuilder setCompactionReadaheadSize(final long compactionReadaheadSize) {
+      return setLong(DBOption.compaction_readahead_size, compactionReadaheadSize);
     }
 
     @Override

@@ -20,7 +20,8 @@
 jlong Java_org_rocksdb_HashSkipListMemTableConfig_newMemTableFactoryHandle(
     JNIEnv* env, jobject /*jobj*/, jlong jbucket_count, jint jheight,
     jint jbranching_factor) {
-  rocksdb::Status s = rocksdb::JniUtil::check_if_jlong_fits_size_t(jbucket_count);
+  rocksdb::Status s =
+      rocksdb::JniUtil::check_if_jlong_fits_size_t(jbucket_count);
   if (s.ok()) {
     return reinterpret_cast<jlong>(rocksdb::NewHashSkipListRepFactory(
         static_cast<size_t>(jbucket_count), static_cast<int32_t>(jheight),
@@ -63,7 +64,8 @@ jlong Java_org_rocksdb_HashLinkedListMemTableConfig_newMemTableFactoryHandle(
  */
 jlong Java_org_rocksdb_VectorMemTableConfig_newMemTableFactoryHandle(
     JNIEnv* env, jobject /*jobj*/, jlong jreserved_size) {
-  rocksdb::Status s = rocksdb::JniUtil::check_if_jlong_fits_size_t(jreserved_size);
+  rocksdb::Status s =
+      rocksdb::JniUtil::check_if_jlong_fits_size_t(jreserved_size);
   if (s.ok()) {
     return reinterpret_cast<jlong>(
         new rocksdb::VectorRepFactory(static_cast<size_t>(jreserved_size)));

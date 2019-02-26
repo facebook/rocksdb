@@ -21,11 +21,10 @@ public class EnvOptionsTest {
   @Test
   public void dbOptionsConstructor() {
     final long compactionReadaheadSize = 4 * 1024 * 1024;
-    try (final DBOptions dbOptions = new DBOptions()
-        .setCompactionReadaheadSize(compactionReadaheadSize)) {
+    try (final DBOptions dbOptions =
+             new DBOptions().setCompactionReadaheadSize(compactionReadaheadSize)) {
       try (final EnvOptions envOptions = new EnvOptions(dbOptions)) {
-        assertThat(envOptions.compactionReadaheadSize())
-            .isEqualTo(compactionReadaheadSize);
+        assertThat(envOptions.compactionReadaheadSize()).isEqualTo(compactionReadaheadSize);
       }
     }
   }

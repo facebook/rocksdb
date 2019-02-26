@@ -16,13 +16,10 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class DefaultEnvTest {
-
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksMemoryResource rocksMemoryResource = new RocksMemoryResource();
 
-  @Rule
-  public TemporaryFolder dbFolder = new TemporaryFolder();
+  @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
   public void backgroundThreads() {
@@ -97,14 +94,11 @@ public class DefaultEnvTest {
   @Test
   public void threadList_integration() throws RocksDBException {
     try (final Env env = RocksEnv.getDefault();
-        final Options opt = new Options()
-            .setCreateIfMissing(true)
-            .setCreateMissingColumnFamilies(true)
-            .setEnv(env)) {
+         final Options opt =
+             new Options().setCreateIfMissing(true).setCreateMissingColumnFamilies(true).setEnv(
+                 env)) {
       // open database
-      try (final RocksDB db = RocksDB.open(opt,
-          dbFolder.getRoot().getAbsolutePath())) {
-
+      try (final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
         final List<ThreadStatus> threadList = env.getThreadList();
         assertThat(threadList.size()).isGreaterThan(0);
       }

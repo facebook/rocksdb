@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Map;
 
 public class CompactionJobInfo extends RocksObject {
-
   public CompactionJobInfo() {
     super(newCompactionJobInfo());
   }
@@ -139,7 +138,6 @@ public class CompactionJobInfo extends RocksObject {
     return new CompactionJobStats(statsHandle);
   }
 
-
   private static native long newCompactionJobInfo();
   @Override protected native void disposeInternal(final long handle);
 
@@ -151,8 +149,7 @@ public class CompactionJobInfo extends RocksObject {
   private static native int outputLevel(final long handle);
   private static native String[] inputFiles(final long handle);
   private static native String[] outputFiles(final long handle);
-  private static native Map<String, TableProperties> tableProperties(
-      final long handle);
+  private static native Map<String, TableProperties> tableProperties(final long handle);
   private static native byte compactionReason(final long handle);
   private static native byte compression(final long handle);
   private static native long stats(final long handle);

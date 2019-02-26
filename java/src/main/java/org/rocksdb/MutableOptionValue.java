@@ -3,7 +3,6 @@ package org.rocksdb;
 import static org.rocksdb.AbstractMutableOptions.INT_ARRAY_INT_SEPARATOR;
 
 public abstract class MutableOptionValue<T> {
-
   abstract double asDouble() throws NumberFormatException;
   abstract long asLong() throws NumberFormatException;
   abstract int asInt() throws NumberFormatException;
@@ -12,15 +11,15 @@ public abstract class MutableOptionValue<T> {
   abstract String asString();
   abstract T asObject();
 
-  private static abstract class MutableOptionValueObject<T>
-      extends MutableOptionValue<T> {
+  private static abstract class MutableOptionValueObject<T> extends MutableOptionValue<T> {
     protected final T value;
 
     private MutableOptionValueObject(final T value) {
       this.value = value;
     }
 
-    @Override T asObject() {
+    @Override
+    T asObject() {
       return value;
     }
   }
@@ -53,8 +52,7 @@ public abstract class MutableOptionValue<T> {
     return new MutableOptionEnumValue<>(value);
   }
 
-  static class MutableOptionStringValue
-      extends MutableOptionValueObject<String> {
+  static class MutableOptionStringValue extends MutableOptionValueObject<String> {
     MutableOptionStringValue(final String value) {
       super(value);
     }
@@ -90,8 +88,7 @@ public abstract class MutableOptionValue<T> {
     }
   }
 
-  static class MutableOptionDoubleValue
-      extends MutableOptionValue<Double> {
+  static class MutableOptionDoubleValue extends MutableOptionValue<Double> {
     private final double value;
     MutableOptionDoubleValue(final double value) {
       this.value = value;
@@ -109,26 +106,23 @@ public abstract class MutableOptionValue<T> {
 
     @Override
     int asInt() throws NumberFormatException {
-      if(value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
-        throw new NumberFormatException(
-            "double value lies outside the bounds of int");
+      if (value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
+        throw new NumberFormatException("double value lies outside the bounds of int");
       }
       return Double.valueOf(value).intValue();
     }
 
     @Override
     boolean asBoolean() throws IllegalStateException {
-      throw new IllegalStateException(
-          "double is not applicable as boolean");
+      throw new IllegalStateException("double is not applicable as boolean");
     }
 
     @Override
     int[] asIntArray() throws IllegalStateException {
-      if(value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
-        throw new NumberFormatException(
-            "double value lies outside the bounds of int");
+      if (value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
+        throw new NumberFormatException("double value lies outside the bounds of int");
       }
-      return new int[] { Double.valueOf(value).intValue() };
+      return new int[] {Double.valueOf(value).intValue()};
     }
 
     @Override
@@ -142,8 +136,7 @@ public abstract class MutableOptionValue<T> {
     }
   }
 
-  static class MutableOptionLongValue
-      extends MutableOptionValue<Long> {
+  static class MutableOptionLongValue extends MutableOptionValue<Long> {
     private final long value;
 
     MutableOptionLongValue(final long value) {
@@ -152,9 +145,8 @@ public abstract class MutableOptionValue<T> {
 
     @Override
     double asDouble() {
-      if(value > Double.MAX_VALUE || value < Double.MIN_VALUE) {
-        throw new NumberFormatException(
-            "long value lies outside the bounds of int");
+      if (value > Double.MAX_VALUE || value < Double.MIN_VALUE) {
+        throw new NumberFormatException("long value lies outside the bounds of int");
       }
       return Long.valueOf(value).doubleValue();
     }
@@ -166,26 +158,23 @@ public abstract class MutableOptionValue<T> {
 
     @Override
     int asInt() throws NumberFormatException {
-      if(value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
-        throw new NumberFormatException(
-            "long value lies outside the bounds of int");
+      if (value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
+        throw new NumberFormatException("long value lies outside the bounds of int");
       }
       return Long.valueOf(value).intValue();
     }
 
     @Override
     boolean asBoolean() throws IllegalStateException {
-      throw new IllegalStateException(
-          "long is not applicable as boolean");
+      throw new IllegalStateException("long is not applicable as boolean");
     }
 
     @Override
     int[] asIntArray() throws IllegalStateException {
-      if(value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
-        throw new NumberFormatException(
-            "long value lies outside the bounds of int");
+      if (value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
+        throw new NumberFormatException("long value lies outside the bounds of int");
       }
-      return new int[] { Long.valueOf(value).intValue() };
+      return new int[] {Long.valueOf(value).intValue()};
     }
 
     @Override
@@ -199,8 +188,7 @@ public abstract class MutableOptionValue<T> {
     }
   }
 
-  static class MutableOptionIntValue
-      extends MutableOptionValue<Integer> {
+  static class MutableOptionIntValue extends MutableOptionValue<Integer> {
     private final int value;
 
     MutableOptionIntValue(final int value) {
@@ -209,7 +197,7 @@ public abstract class MutableOptionValue<T> {
 
     @Override
     double asDouble() {
-      if(value > Double.MAX_VALUE || value < Double.MIN_VALUE) {
+      if (value > Double.MAX_VALUE || value < Double.MIN_VALUE) {
         throw new NumberFormatException("int value lies outside the bounds of int");
       }
       return Integer.valueOf(value).doubleValue();
@@ -232,7 +220,7 @@ public abstract class MutableOptionValue<T> {
 
     @Override
     int[] asIntArray() throws IllegalStateException {
-      return new int[] { value };
+      return new int[] {value};
     }
 
     @Override
@@ -246,8 +234,7 @@ public abstract class MutableOptionValue<T> {
     }
   }
 
-  static class MutableOptionBooleanValue
-      extends MutableOptionValue<Boolean> {
+  static class MutableOptionBooleanValue extends MutableOptionValue<Boolean> {
     private final boolean value;
 
     MutableOptionBooleanValue(final boolean value) {
@@ -290,8 +277,7 @@ public abstract class MutableOptionValue<T> {
     }
   }
 
-  static class MutableOptionIntArrayValue
-      extends MutableOptionValueObject<int[]> {
+  static class MutableOptionIntArrayValue extends MutableOptionValueObject<int[]> {
     MutableOptionIntArrayValue(final int[] value) {
       super(value);
     }
@@ -324,9 +310,9 @@ public abstract class MutableOptionValue<T> {
     @Override
     String asString() {
       final StringBuilder builder = new StringBuilder();
-      for(int i = 0; i < value.length; i++) {
+      for (int i = 0; i < value.length; i++) {
         builder.append(i);
-        if(i + 1 < value.length) {
+        if (i + 1 < value.length) {
           builder.append(INT_ARRAY_INT_SEPARATOR);
         }
       }
@@ -334,9 +320,7 @@ public abstract class MutableOptionValue<T> {
     }
   }
 
-  static class MutableOptionEnumValue<T extends Enum<T>>
-      extends MutableOptionValueObject<T> {
-
+  static class MutableOptionEnumValue<T extends Enum<T>> extends MutableOptionValueObject<T> {
     MutableOptionEnumValue(final T value) {
       super(value);
     }
@@ -371,5 +355,4 @@ public abstract class MutableOptionValue<T> {
       return value.name();
     }
   }
-
 }

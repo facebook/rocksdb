@@ -20,10 +20,8 @@
  * Method:    newStatistics
  * Signature: ()J
  */
-jlong Java_org_rocksdb_Statistics_newStatistics__(
-    JNIEnv* env, jclass jcls) {
-  return Java_org_rocksdb_Statistics_newStatistics___3BJ(
-      env, jcls, nullptr, 0);
+jlong Java_org_rocksdb_Statistics_newStatistics__(JNIEnv* env, jclass jcls) {
+  return Java_org_rocksdb_Statistics_newStatistics___3BJ(env, jcls, nullptr, 0);
 }
 
 /*
@@ -42,10 +40,10 @@ jlong Java_org_rocksdb_Statistics_newStatistics__J(
  * Method:    newStatistics
  * Signature: ([B)J
  */
-jlong Java_org_rocksdb_Statistics_newStatistics___3B(
-    JNIEnv* env, jclass jcls, jbyteArray jhistograms) {
-  return Java_org_rocksdb_Statistics_newStatistics___3BJ(
-      env, jcls, jhistograms, 0);
+jlong Java_org_rocksdb_Statistics_newStatistics___3B(JNIEnv* env, jclass jcls,
+                                                     jbyteArray jhistograms) {
+  return Java_org_rocksdb_Statistics_newStatistics___3BJ(env, jcls, jhistograms,
+                                                         0);
 }
 
 /*
@@ -54,7 +52,8 @@ jlong Java_org_rocksdb_Statistics_newStatistics___3B(
  * Signature: ([BJ)J
  */
 jlong Java_org_rocksdb_Statistics_newStatistics___3BJ(
-    JNIEnv* env, jclass, jbyteArray jhistograms, jlong jother_statistics_handle) {
+    JNIEnv* env, jclass, jbyteArray jhistograms,
+    jlong jother_statistics_handle) {
   std::shared_ptr<rocksdb::Statistics>* pSptr_other_statistics = nullptr;
   if (jother_statistics_handle > 0) {
     pSptr_other_statistics =
@@ -98,8 +97,8 @@ jlong Java_org_rocksdb_Statistics_newStatistics___3BJ(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_Statistics_disposeInternal(
-    JNIEnv*, jobject, jlong jhandle) {
+void Java_org_rocksdb_Statistics_disposeInternal(JNIEnv*, jobject,
+                                                 jlong jhandle) {
   if (jhandle > 0) {
     auto* pSptr_statistics =
         reinterpret_cast<std::shared_ptr<rocksdb::Statistics>*>(jhandle);
@@ -112,8 +111,7 @@ void Java_org_rocksdb_Statistics_disposeInternal(
  * Method:    statsLevel
  * Signature: (J)B
  */
-jbyte Java_org_rocksdb_Statistics_statsLevel(
-    JNIEnv*, jobject, jlong jhandle) {
+jbyte Java_org_rocksdb_Statistics_statsLevel(JNIEnv*, jobject, jlong jhandle) {
   auto* pSptr_statistics =
       reinterpret_cast<std::shared_ptr<rocksdb::Statistics>*>(jhandle);
   assert(pSptr_statistics != nullptr);
@@ -126,8 +124,8 @@ jbyte Java_org_rocksdb_Statistics_statsLevel(
  * Method:    setStatsLevel
  * Signature: (JB)V
  */
-void Java_org_rocksdb_Statistics_setStatsLevel(
-    JNIEnv*, jobject, jlong jhandle, jbyte jstats_level) {
+void Java_org_rocksdb_Statistics_setStatsLevel(JNIEnv*, jobject, jlong jhandle,
+                                               jbyte jstats_level) {
   auto* pSptr_statistics =
       reinterpret_cast<std::shared_ptr<rocksdb::Statistics>*>(jhandle);
   assert(pSptr_statistics != nullptr);
@@ -140,8 +138,9 @@ void Java_org_rocksdb_Statistics_setStatsLevel(
  * Method:    getTickerCount
  * Signature: (JB)J
  */
-jlong Java_org_rocksdb_Statistics_getTickerCount(
-    JNIEnv*, jobject, jlong jhandle, jbyte jticker_type) {
+jlong Java_org_rocksdb_Statistics_getTickerCount(JNIEnv*, jobject,
+                                                 jlong jhandle,
+                                                 jbyte jticker_type) {
   auto* pSptr_statistics =
       reinterpret_cast<std::shared_ptr<rocksdb::Statistics>*>(jhandle);
   assert(pSptr_statistics != nullptr);
@@ -155,8 +154,9 @@ jlong Java_org_rocksdb_Statistics_getTickerCount(
  * Method:    getAndResetTickerCount
  * Signature: (JB)J
  */
-jlong Java_org_rocksdb_Statistics_getAndResetTickerCount(
-    JNIEnv*, jobject, jlong jhandle, jbyte jticker_type) {
+jlong Java_org_rocksdb_Statistics_getAndResetTickerCount(JNIEnv*, jobject,
+                                                         jlong jhandle,
+                                                         jbyte jticker_type) {
   auto* pSptr_statistics =
       reinterpret_cast<std::shared_ptr<rocksdb::Statistics>*>(jhandle);
   assert(pSptr_statistics != nullptr);
@@ -169,8 +169,9 @@ jlong Java_org_rocksdb_Statistics_getAndResetTickerCount(
  * Method:    getHistogramData
  * Signature: (JB)Lorg/rocksdb/HistogramData;
  */
-jobject Java_org_rocksdb_Statistics_getHistogramData(
-    JNIEnv* env, jobject, jlong jhandle, jbyte jhistogram_type) {
+jobject Java_org_rocksdb_Statistics_getHistogramData(JNIEnv* env, jobject,
+                                                     jlong jhandle,
+                                                     jbyte jhistogram_type) {
   auto* pSptr_statistics =
       reinterpret_cast<std::shared_ptr<rocksdb::Statistics>*>(jhandle);
   assert(pSptr_statistics != nullptr);
@@ -206,8 +207,9 @@ jobject Java_org_rocksdb_Statistics_getHistogramData(
  * Method:    getHistogramString
  * Signature: (JB)Ljava/lang/String;
  */
-jstring Java_org_rocksdb_Statistics_getHistogramString(
-    JNIEnv* env, jobject, jlong jhandle, jbyte jhistogram_type) {
+jstring Java_org_rocksdb_Statistics_getHistogramString(JNIEnv* env, jobject,
+                                                       jlong jhandle,
+                                                       jbyte jhistogram_type) {
   auto* pSptr_statistics =
       reinterpret_cast<std::shared_ptr<rocksdb::Statistics>*>(jhandle);
   assert(pSptr_statistics != nullptr);
@@ -221,8 +223,7 @@ jstring Java_org_rocksdb_Statistics_getHistogramString(
  * Method:    reset
  * Signature: (J)V
  */
-void Java_org_rocksdb_Statistics_reset(
-    JNIEnv* env, jobject, jlong jhandle) {
+void Java_org_rocksdb_Statistics_reset(JNIEnv* env, jobject, jlong jhandle) {
   auto* pSptr_statistics =
       reinterpret_cast<std::shared_ptr<rocksdb::Statistics>*>(jhandle);
   assert(pSptr_statistics != nullptr);
@@ -237,8 +238,8 @@ void Java_org_rocksdb_Statistics_reset(
  * Method:    toString
  * Signature: (J)Ljava/lang/String;
  */
-jstring Java_org_rocksdb_Statistics_toString(
-    JNIEnv* env, jobject, jlong jhandle) {
+jstring Java_org_rocksdb_Statistics_toString(JNIEnv* env, jobject,
+                                             jlong jhandle) {
   auto* pSptr_statistics =
       reinterpret_cast<std::shared_ptr<rocksdb::Statistics>*>(jhandle);
   assert(pSptr_statistics != nullptr);

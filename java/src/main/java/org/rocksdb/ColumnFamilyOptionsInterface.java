@@ -410,8 +410,7 @@ public interface ColumnFamilyOptionsInterface
    *
    * @return the reference of the current options.
    */
-  T setBottommostCompressionOptions(
-      final CompressionOptions compressionOptions);
+  T setBottommostCompressionOptions(final CompressionOptions compressionOptions);
 
   /**
    * Get the bottom most compression options.

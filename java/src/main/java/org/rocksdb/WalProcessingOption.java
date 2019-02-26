@@ -9,23 +9,23 @@ public enum WalProcessingOption {
   /**
    * Continue processing as usual.
    */
-  CONTINUE_PROCESSING((byte)0x0),
+  CONTINUE_PROCESSING((byte) 0x0),
 
   /**
    * Ignore the current record but continue processing of log(s).
    */
-  IGNORE_CURRENT_RECORD((byte)0x1),
+  IGNORE_CURRENT_RECORD((byte) 0x1),
 
   /**
    * Stop replay of logs and discard logs.
    * Logs won't be replayed on subsequent recovery.
    */
-  STOP_REPLAY((byte)0x2),
+  STOP_REPLAY((byte) 0x2),
 
   /**
    * Corrupted record detected by filter.
    */
-  CORRUPTED_RECORD((byte)0x3);
+  CORRUPTED_RECORD((byte) 0x3);
 
   private final byte value;
 
@@ -48,7 +48,6 @@ public enum WalProcessingOption {
         return walProcessingOption;
       }
     }
-    throw new IllegalArgumentException(
-        "Illegal value provided for WalProcessingOption: " + value);
+    throw new IllegalArgumentException("Illegal value provided for WalProcessingOption: " + value);
   }
 }

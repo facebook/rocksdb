@@ -41,21 +41,17 @@ public class TableProperties {
    * Access is private as this will only be constructed from
    * C++ via JNI.
    */
-  private TableProperties(final long dataSize, final long indexSize,
-      final long indexPartitions, final long topLevelIndexSize,
-      final long indexKeyIsUserKey, final long indexValueIsDeltaEncoded,
-      final long filterSize, final long rawKeySize, final long rawValueSize,
-      final long numDataBlocks, final long numEntries, final long numDeletions,
-      final long numMergeOperands, final long numRangeDeletions,
-      final long formatVersion, final long fixedKeyLen,
-      final long columnFamilyId, final long creationTime,
-      final long oldestKeyTime, final byte[] columnFamilyName,
-      final String filterPolicyName, final String comparatorName,
-      final String mergeOperatorName, final String prefixExtractorName,
-      final String propertyCollectorsNames, final String compressionName,
-      final Map<String, String> userCollectedProperties,
-      final Map<String, String> readableProperties,
-      final Map<String, Long> propertiesOffsets) {
+  private TableProperties(final long dataSize, final long indexSize, final long indexPartitions,
+      final long topLevelIndexSize, final long indexKeyIsUserKey,
+      final long indexValueIsDeltaEncoded, final long filterSize, final long rawKeySize,
+      final long rawValueSize, final long numDataBlocks, final long numEntries,
+      final long numDeletions, final long numMergeOperands, final long numRangeDeletions,
+      final long formatVersion, final long fixedKeyLen, final long columnFamilyId,
+      final long creationTime, final long oldestKeyTime, final byte[] columnFamilyName,
+      final String filterPolicyName, final String comparatorName, final String mergeOperatorName,
+      final String prefixExtractorName, final String propertyCollectorsNames,
+      final String compressionName, final Map<String, String> userCollectedProperties,
+      final Map<String, String> readableProperties, final Map<String, Long> propertiesOffsets) {
     this.dataSize = dataSize;
     this.indexSize = indexSize;
     this.indexPartitions = indexPartitions;

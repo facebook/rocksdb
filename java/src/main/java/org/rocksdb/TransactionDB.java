@@ -382,8 +382,7 @@ public class TransactionDB extends RocksDB
   private static native long[] open(final long dbOptionsHandle,
       final long transactionDbOptionsHandle, final String path,
       final byte[][] columnFamilyNames, final long[] columnFamilyOptions);
-  private native static void closeDatabase(final long handle)
-      throws RocksDBException;
+  private native static void closeDatabase(final long handle) throws RocksDBException;
   private native long beginTransaction(final long handle,
       final long writeOptionsHandle);
   private native long beginTransaction(final long handle,

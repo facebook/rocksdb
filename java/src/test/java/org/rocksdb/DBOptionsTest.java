@@ -536,7 +536,7 @@ public class DBOptionsTest {
 
   @Test
   public void enablePipelinedWrite() {
-    try(final DBOptions opt = new DBOptions()) {
+    try (final DBOptions opt = new DBOptions()) {
       assertThat(opt.enablePipelinedWrite()).isFalse();
       opt.setEnablePipelinedWrite(true);
       assertThat(opt.enablePipelinedWrite()).isTrue();
@@ -632,17 +632,14 @@ public class DBOptionsTest {
       try (final AbstractWalFilter walFilter = new AbstractWalFilter() {
         @Override
         public void columnFamilyLogNumberMap(
-            final Map<Integer, Long> cfLognumber,
-            final Map<String, Integer> cfNameId) {
+            final Map<Integer, Long> cfLognumber, final Map<String, Integer> cfNameId) {
           // no-op
         }
 
         @Override
-        public LogRecordFoundResult logRecordFound(final long logNumber,
-            final String logFileName, final WriteBatch batch,
-            final WriteBatch newBatch) {
-          return new LogRecordFoundResult(
-              WalProcessingOption.CONTINUE_PROCESSING, false);
+        public LogRecordFoundResult logRecordFound(final long logNumber, final String logFileName,
+            final WriteBatch batch, final WriteBatch newBatch) {
+          return new LogRecordFoundResult(WalProcessingOption.CONTINUE_PROCESSING, false);
         }
 
         @Override

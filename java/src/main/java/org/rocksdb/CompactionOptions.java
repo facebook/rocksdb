@@ -9,11 +9,10 @@ import java.util.List;
 
 /**
  * CompactionOptions are used in
- * {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, List, int, int, CompactionJobInfo)}
- * calls.
+ * {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, List, int, int,
+ * CompactionJobInfo)} calls.
  */
 public class CompactionOptions extends RocksObject {
-
   public CompactionOptions() {
     super(newCompactionOptions());
   }
@@ -26,8 +25,7 @@ public class CompactionOptions extends RocksObject {
    * @return the compression type.
    */
   public CompressionType compression() {
-    return CompressionType.getCompressionType(
-        compression(nativeHandle_));
+    return CompressionType.getCompressionType(compression(nativeHandle_));
   }
 
   /**
@@ -70,8 +68,7 @@ public class CompactionOptions extends RocksObject {
    *
    * @return the instance of the current Options.
    */
-  public CompactionOptions setOutputFileSizeLimit(
-      final long outputFileSizeLimit) {
+  public CompactionOptions setOutputFileSizeLimit(final long outputFileSizeLimit) {
     setOutputFileSizeLimit(nativeHandle_, outputFileSizeLimit);
     return this;
   }
@@ -110,12 +107,10 @@ public class CompactionOptions extends RocksObject {
   @Override protected final native void disposeInternal(final long handle);
 
   private static native byte compression(final long handle);
-  private static native void setCompression(final long handle,
-      final byte compressionTypeValue);
+  private static native void setCompression(final long handle, final byte compressionTypeValue);
   private static native long outputFileSizeLimit(final long handle);
-  private static native void setOutputFileSizeLimit(final long handle,
-      final long outputFileSizeLimit);
+  private static native void setOutputFileSizeLimit(
+      final long handle, final long outputFileSizeLimit);
   private static native int maxSubcompactions(final long handle);
-  private static native void setMaxSubcompactions(final long handle,
-      final int maxSubcompactions);
+  private static native void setMaxSubcompactions(final long handle, final int maxSubcompactions);
 }

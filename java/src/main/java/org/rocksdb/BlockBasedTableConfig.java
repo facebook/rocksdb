@@ -9,11 +9,11 @@ package org.rocksdb;
  *
  * BlockBasedTable is a RocksDB's default SST file format.
  */
-//TODO(AR) should be renamed BlockBasedTableOptions
+// TODO(AR) should be renamed BlockBasedTableOptions
 public class BlockBasedTableConfig extends TableFormatConfig {
 
   public BlockBasedTableConfig() {
-    //TODO(AR) flushBlockPolicyFactory
+    // TODO(AR) flushBlockPolicyFactory
     cacheIndexAndFilterBlocks = false;
     cacheIndexAndFilterBlocksWithHighPriority = false;
     pinL0FilterAndIndexBlocksInCache = false;
@@ -142,7 +142,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param pinTopLevelIndexAndFilter if top-level index and filter blocks should be pinned.
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setPinTopLevelIndexAndFilter(final boolean pinTopLevelIndexAndFilter) {
+  public BlockBasedTableConfig setPinTopLevelIndexAndFilter(
+      final boolean pinTopLevelIndexAndFilter) {
     this.pinTopLevelIndexAndFilter = pinTopLevelIndexAndFilter;
     return this;
   }
@@ -162,8 +163,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param indexType {@link org.rocksdb.IndexType} value
    * @return the reference to the current option.
    */
-  public BlockBasedTableConfig setIndexType(
-      final IndexType indexType) {
+  public BlockBasedTableConfig setIndexType(final IndexType indexType) {
     this.indexType = indexType;
     return this;
   }
@@ -183,8 +183,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param dataBlockIndexType {@link org.rocksdb.DataBlockIndexType} value
    * @return the reference to the current option.
    */
-  public BlockBasedTableConfig setDataBlockIndexType(
-      final DataBlockIndexType dataBlockIndexType) {
+  public BlockBasedTableConfig setDataBlockIndexType(final DataBlockIndexType dataBlockIndexType) {
     this.dataBlockIndexType = dataBlockIndexType;
     return this;
   }
@@ -227,8 +226,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param checksumType {@link org.rocksdb.ChecksumType} value.
    * @return the reference to the current option.
    */
-  public BlockBasedTableConfig setChecksumType(
-      final ChecksumType checksumType) {
+  public BlockBasedTableConfig setChecksumType(final ChecksumType checksumType) {
     this.checksumType = checksumType;
     return this;
   }
@@ -287,8 +285,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setPersistentCache(
-      final PersistentCache persistentCache) {
+  public BlockBasedTableConfig setPersistentCache(final PersistentCache persistentCache) {
     this.persistentCache = persistentCache;
     return this;
   }
@@ -312,8 +309,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setBlockCacheCompressed(
-      final Cache blockCacheCompressed) {
+  public BlockBasedTableConfig setBlockCacheCompressed(final Cache blockCacheCompressed) {
     this.blockCacheCompressed = blockCacheCompressed;
     return this;
   }
@@ -403,8 +399,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param restartInterval index block restart interval.
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setIndexBlockRestartInterval(
-      final int restartInterval) {
+  public BlockBasedTableConfig setIndexBlockRestartInterval(final int restartInterval) {
     indexBlockRestartInterval = restartInterval;
     return this;
   }
@@ -424,8 +419,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param metadataBlockSize Partitioned metadata block size.
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setMetadataBlockSize(
-      final long metadataBlockSize) {
+  public BlockBasedTableConfig setMetadataBlockSize(final long metadataBlockSize) {
     this.metadataBlockSize = metadataBlockSize;
     return this;
   }
@@ -473,8 +467,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setUseDeltaEncoding(
-      final boolean useDeltaEncoding) {
+  public BlockBasedTableConfig setUseDeltaEncoding(final boolean useDeltaEncoding) {
     this.useDeltaEncoding = useDeltaEncoding;
     return this;
   }
@@ -492,8 +485,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param filterPolicy {@link org.rocksdb.Filter} Filter Policy java instance.
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setFilterPolicy(
-      final Filter filterPolicy) {
+  public BlockBasedTableConfig setFilterPolicy(final Filter filterPolicy) {
     this.filterPolicy = filterPolicy;
     return this;
   }
@@ -502,8 +494,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @deprecated Use {@link #setFilterPolicy(Filter)}
    */
   @Deprecated
-  public BlockBasedTableConfig setFilter(
-      final Filter filter) {
+  public BlockBasedTableConfig setFilter(final Filter filter) {
     return setFilterPolicy(filter);
   }
 
@@ -524,8 +515,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param wholeKeyFiltering if enable whole key filtering
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setWholeKeyFiltering(
-      final boolean wholeKeyFiltering) {
+  public BlockBasedTableConfig setWholeKeyFiltering(final boolean wholeKeyFiltering) {
     this.wholeKeyFiltering = wholeKeyFiltering;
     return this;
   }
@@ -550,8 +540,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setVerifyCompression(
-      final boolean verifyCompression) {
+  public BlockBasedTableConfig setVerifyCompression(final boolean verifyCompression) {
     this.verifyCompression = verifyCompression;
     return this;
   }
@@ -643,9 +632,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *
    * @return the reference to the current option.
    */
-  public BlockBasedTableConfig setFormatVersion(
-      final int formatVersion) {
-    assert(formatVersion >= 0 && formatVersion <= 4);
+  public BlockBasedTableConfig setFormatVersion(final int formatVersion) {
+    assert (formatVersion >= 0 && formatVersion <= 4);
     this.formatVersion = formatVersion;
     return this;
   }
@@ -672,8 +660,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *
    * @return the reference to the current option.
    */
-  public BlockBasedTableConfig setEnableIndexCompression(
-      final boolean enableIndexCompression) {
+  public BlockBasedTableConfig setEnableIndexCompression(final boolean enableIndexCompression) {
     this.enableIndexCompression = enableIndexCompression;
     return this;
   }
@@ -702,7 +689,6 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     this.blockAlign = blockAlign;
     return this;
   }
-
 
   /**
    * Get the size of the cache in bytes that will be used by RocksDB.
@@ -754,8 +740,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @deprecated Use {@link #setBlockCache(Cache)}.
    */
   @Deprecated
-  public BlockBasedTableConfig setCacheNumShardBits(
-      final int blockCacheNumShardBits) {
+  public BlockBasedTableConfig setCacheNumShardBits(final int blockCacheNumShardBits) {
     this.blockCacheNumShardBits = blockCacheNumShardBits;
     return this;
   }
@@ -781,8 +766,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @deprecated Use {@link #setBlockCacheCompressed(Cache)}.
    */
   @Deprecated
-  public BlockBasedTableConfig setBlockCacheCompressedSize(
-      final long blockCacheCompressedSize) {
+  public BlockBasedTableConfig setBlockCacheCompressedSize(final long blockCacheCompressedSize) {
     this.blockCacheCompressedSize = blockCacheCompressedSize;
     return this;
   }
@@ -850,13 +834,13 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *     if {@link #hashIndexAllowCollision()} == true.
    */
   @Deprecated
-  public BlockBasedTableConfig setHashIndexAllowCollision(
-      final boolean hashIndexAllowCollision) {
+  public BlockBasedTableConfig setHashIndexAllowCollision(final boolean hashIndexAllowCollision) {
     // no-op
     return this;
   }
 
-  @Override protected long newTableFactoryHandle() {
+  @Override
+  protected long newTableFactoryHandle() {
     final long filterPolicyHandle;
     if (filterPolicy != null) {
       filterPolicyHandle = filterPolicy.nativeHandle_;
@@ -886,56 +870,35 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     }
 
     return newTableFactoryHandle(cacheIndexAndFilterBlocks,
-        cacheIndexAndFilterBlocksWithHighPriority,
-        pinL0FilterAndIndexBlocksInCache, pinTopLevelIndexAndFilter,
-        indexType.getValue(), dataBlockIndexType.getValue(),
-        dataBlockHashTableUtilRatio, checksumType.getValue(), noBlockCache,
-        blockCacheHandle, persistentCacheHandle, blockCacheCompressedHandle,
-        blockSize, blockSizeDeviation, blockRestartInterval,
-        indexBlockRestartInterval, metadataBlockSize, partitionFilters,
-        useDeltaEncoding, filterPolicyHandle, wholeKeyFiltering,
-        verifyCompression, readAmpBytesPerBit, formatVersion,
-        enableIndexCompression, blockAlign,
-        blockCacheSize, blockCacheNumShardBits,
-        blockCacheCompressedSize, blockCacheCompressedNumShardBits);
+        cacheIndexAndFilterBlocksWithHighPriority, pinL0FilterAndIndexBlocksInCache,
+        pinTopLevelIndexAndFilter, indexType.getValue(), dataBlockIndexType.getValue(),
+        dataBlockHashTableUtilRatio, checksumType.getValue(), noBlockCache, blockCacheHandle,
+        persistentCacheHandle, blockCacheCompressedHandle, blockSize, blockSizeDeviation,
+        blockRestartInterval, indexBlockRestartInterval, metadataBlockSize, partitionFilters,
+        useDeltaEncoding, filterPolicyHandle, wholeKeyFiltering, verifyCompression,
+        readAmpBytesPerBit, formatVersion, enableIndexCompression, blockAlign, blockCacheSize,
+        blockCacheNumShardBits, blockCacheCompressedSize, blockCacheCompressedNumShardBits);
   }
 
-  private native long newTableFactoryHandle(
-      final boolean cacheIndexAndFilterBlocks,
+  private native long newTableFactoryHandle(final boolean cacheIndexAndFilterBlocks,
       final boolean cacheIndexAndFilterBlocksWithHighPriority,
-      final boolean pinL0FilterAndIndexBlocksInCache,
-      final boolean pinTopLevelIndexAndFilter,
-      final byte indexTypeValue,
-      final byte dataBlockIndexTypeValue,
-      final double dataBlockHashTableUtilRatio,
-      final byte checksumTypeValue,
-      final boolean noBlockCache,
-      final long blockCacheHandle,
-      final long persistentCacheHandle,
-      final long blockCacheCompressedHandle,
-      final long blockSize,
-      final int blockSizeDeviation,
-      final int blockRestartInterval,
-      final int indexBlockRestartInterval,
-      final long metadataBlockSize,
-      final boolean partitionFilters,
-      final boolean useDeltaEncoding,
-      final long filterPolicyHandle,
-      final boolean wholeKeyFiltering,
-      final boolean verifyCompression,
-      final int readAmpBytesPerBit,
-      final int formatVersion,
-      final boolean enableIndexCompression,
-      final boolean blockAlign,
+      final boolean pinL0FilterAndIndexBlocksInCache, final boolean pinTopLevelIndexAndFilter,
+      final byte indexTypeValue, final byte dataBlockIndexTypeValue,
+      final double dataBlockHashTableUtilRatio, final byte checksumTypeValue,
+      final boolean noBlockCache, final long blockCacheHandle, final long persistentCacheHandle,
+      final long blockCacheCompressedHandle, final long blockSize, final int blockSizeDeviation,
+      final int blockRestartInterval, final int indexBlockRestartInterval,
+      final long metadataBlockSize, final boolean partitionFilters, final boolean useDeltaEncoding,
+      final long filterPolicyHandle, final boolean wholeKeyFiltering,
+      final boolean verifyCompression, final int readAmpBytesPerBit, final int formatVersion,
+      final boolean enableIndexCompression, final boolean blockAlign,
 
-      @Deprecated final long blockCacheSize,
-      @Deprecated final int blockCacheNumShardBits,
+      @Deprecated final long blockCacheSize, @Deprecated final int blockCacheNumShardBits,
 
       @Deprecated final long blockCacheCompressedSize,
-      @Deprecated final int blockCacheCompressedNumShardBits
-  );
+      @Deprecated final int blockCacheCompressedNumShardBits);
 
-  //TODO(AR) flushBlockPolicyFactory
+  // TODO(AR) flushBlockPolicyFactory
   private boolean cacheIndexAndFilterBlocks;
   private boolean cacheIndexAndFilterBlocksWithHighPriority;
   private boolean pinL0FilterAndIndexBlocksInCache;

@@ -449,8 +449,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    *
    * @deprecated Use {@link MutableDBOptionsInterface#setMaxBackgroundJobs(int)}
    */
-  @Deprecated
-  T setMaxBackgroundFlushes(int maxBackgroundFlushes);
+  @Deprecated T setMaxBackgroundFlushes(int maxBackgroundFlushes);
 
   /**
    * Returns the maximum number of concurrent background flush jobs.
@@ -462,8 +461,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    * @see RocksEnv#setBackgroundThreads(int)
    * @see RocksEnv#setBackgroundThreads(int, Priority)
    */
-  @Deprecated
-  int maxBackgroundFlushes();
+  @Deprecated int maxBackgroundFlushes();
 
   /**
    * Specifies the maximum size of a info log file. If the current log file
@@ -1019,24 +1017,24 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    */
   boolean useAdaptiveMutex();
 
-  //TODO(AR) NOW
-//  /**
-//   * Sets the {@link EventListener}s whose callback functions
-//   * will be called when specific RocksDB event happens.
-//   *
-//   * @param listeners the listeners who should be notified on various events.
-//   *
-//   * @return the instance of the current object.
-//   */
-//  T setListeners(final List<EventListener> listeners);
-//
-//  /**
-//   * Gets the {@link EventListener}s whose callback functions
-//   * will be called when specific RocksDB event happens.
-//   *
-//   * @return a collection of Event listeners.
-//   */
-//  Collection<EventListener> listeners();
+  // TODO(AR) NOW
+  //  /**
+  //   * Sets the {@link EventListener}s whose callback functions
+  //   * will be called when specific RocksDB event happens.
+  //   *
+  //   * @param listeners the listeners who should be notified on various events.
+  //   *
+  //   * @return the instance of the current object.
+  //   */
+  //  T setListeners(final List<EventListener> listeners);
+  //
+  //  /**
+  //   * Gets the {@link EventListener}s whose callback functions
+  //   * will be called when specific RocksDB event happens.
+  //   *
+  //   * @return a collection of Event listeners.
+  //   */
+  //  Collection<EventListener> listeners();
 
   /**
    * If true, then the status of the threads involved in this DB will

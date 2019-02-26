@@ -7,9 +7,7 @@ package org.rocksdb;
 
 import java.util.*;
 
-public class MutableColumnFamilyOptions
-    extends AbstractMutableOptions {
-
+public class MutableColumnFamilyOptions extends AbstractMutableOptions {
   /**
    * User must use builder pattern, or parser.
    *
@@ -18,8 +16,7 @@ public class MutableColumnFamilyOptions
    *
    * See {@link #builder()} and {@link #parse(String)}.
    */
-  private MutableColumnFamilyOptions(final String[] keys,
-      final String[] values) {
+  private MutableColumnFamilyOptions(final String[] keys, final String[] values) {
     super(keys, values);
   }
 
@@ -62,12 +59,12 @@ public class MutableColumnFamilyOptions
       }
 
       final String key = option.substring(0, equalsOffset);
-      if(key.isEmpty()) {
+      if (key.isEmpty()) {
         throw new IllegalArgumentException("options string is invalid");
       }
 
       final String value = option.substring(equalsOffset + 1);
-      if(value.isEmpty()) {
+      if (value.isEmpty()) {
         throw new IllegalArgumentException("options string is invalid");
       }
 
@@ -148,9 +145,9 @@ public class MutableColumnFamilyOptions
   }
 
   public static class MutableColumnFamilyOptionsBuilder
-      extends AbstractMutableOptionsBuilder<MutableColumnFamilyOptions, MutableColumnFamilyOptionsBuilder, MutableColumnFamilyOptionKey>
+      extends AbstractMutableOptionsBuilder<MutableColumnFamilyOptions,
+          MutableColumnFamilyOptionsBuilder, MutableColumnFamilyOptionKey>
       implements MutableColumnFamilyOptionsInterface<MutableColumnFamilyOptionsBuilder> {
-
     private final static Map<String, MutableColumnFamilyOptionKey> ALL_KEYS_LOOKUP = new HashMap<>();
     static {
       for(final MutableColumnFamilyOptionKey key : MemtableOption.values()) {
@@ -181,8 +178,7 @@ public class MutableColumnFamilyOptions
     }
 
     @Override
-    protected MutableColumnFamilyOptions build(final String[] keys,
-        final String[] values) {
+    protected MutableColumnFamilyOptions build(final String[] keys, final String[] values) {
       return new MutableColumnFamilyOptions(keys, values);
     }
 

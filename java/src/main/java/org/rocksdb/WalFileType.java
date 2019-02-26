@@ -13,12 +13,12 @@ public enum WalFileType {
    * (Options::WAL_size_limit_MB) and time since last cleaning
    * (Options::WAL_ttl_seconds).
    */
-  kArchivedLogFile((byte)0x0),
+  kArchivedLogFile((byte) 0x0),
 
   /**
    * Indicates that WAL file is live and resides in the main db directory
    */
-  kAliveLogFile((byte)0x1);
+  kAliveLogFile((byte) 0x1);
 
   private final byte value;
 
@@ -44,12 +44,11 @@ public enum WalFileType {
    */
   static WalFileType fromValue(final byte value) {
     for (final WalFileType walFileType : WalFileType.values()) {
-      if(walFileType.value == value) {
+      if (walFileType.value == value) {
         return walFileType;
       }
     }
 
-    throw new IllegalArgumentException(
-        "Illegal value provided for WalFileType: " + value);
+    throw new IllegalArgumentException("Illegal value provided for WalFileType: " + value);
   }
 }

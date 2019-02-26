@@ -131,7 +131,6 @@ public class CompressionOptions extends RocksObject {
     return enabled(nativeHandle_);
   }
 
-
   private native static long newCompressionOptions();
   @Override protected final native void disposeInternal(final long handle);
 
@@ -143,8 +142,7 @@ public class CompressionOptions extends RocksObject {
   private native int strategy(final long handle);
   private native void setMaxDictBytes(final long handle, final int maxDictBytes);
   private native int maxDictBytes(final long handle);
-  private native void setZstdMaxTrainBytes(final long handle,
-      final int zstdMaxTrainBytes);
+  private native void setZstdMaxTrainBytes(final long handle, final int zstdMaxTrainBytes);
   private native int zstdMaxTrainBytes(final long handle);
   private native void setEnabled(final long handle, final boolean enabled);
   private native boolean enabled(final long handle);

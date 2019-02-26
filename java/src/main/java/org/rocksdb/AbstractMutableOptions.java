@@ -3,7 +3,6 @@ package org.rocksdb;
 import java.util.*;
 
 public abstract class AbstractMutableOptions {
-
   protected static final String KEY_VALUE_PAIR_SEPARATOR = ";";
   protected static final char KEY_VALUE_SEPARATOR = '=';
   static final String INT_ARRAY_INT_SEPARATOR = ",";
@@ -39,13 +38,10 @@ public abstract class AbstractMutableOptions {
   @Override
   public String toString() {
     final StringBuilder buffer = new StringBuilder();
-    for(int i = 0; i < keys.length; i++) {
-      buffer
-          .append(keys[i])
-          .append(KEY_VALUE_SEPARATOR)
-          .append(values[i]);
+    for (int i = 0; i < keys.length; i++) {
+      buffer.append(keys[i]).append(KEY_VALUE_SEPARATOR).append(values[i]);
 
-      if(i + 1 < keys.length) {
+      if (i + 1 < keys.length) {
         buffer.append(KEY_VALUE_PAIR_SEPARATOR);
       }
     }
@@ -53,10 +49,8 @@ public abstract class AbstractMutableOptions {
   }
 
   public static abstract class AbstractMutableOptionsBuilder<
-      T extends AbstractMutableOptions,
-      U extends AbstractMutableOptionsBuilder<T, U, K>,
-      K extends MutableOptionKey> {
-
+      T extends AbstractMutableOptions, U extends AbstractMutableOptionsBuilder<T, U, K>, K
+          extends MutableOptionKey> {
     private final Map<K, MutableOptionValue<?>> options = new LinkedHashMap<>();
 
     protected abstract U self();
@@ -92,106 +86,89 @@ public abstract class AbstractMutableOptions {
       return build(keys, values);
     }
 
-    protected U setDouble(
-       final K key, final double value) {
+    protected U setDouble(final K key, final double value) {
       if (key.getValueType() != MutableOptionKey.ValueType.DOUBLE) {
-        throw new IllegalArgumentException(
-            key + " does not accept a double value");
+        throw new IllegalArgumentException(key + " does not accept a double value");
       }
       options.put(key, MutableOptionValue.fromDouble(value));
       return self();
     }
 
-    protected double getDouble(final K key)
-        throws NoSuchElementException, NumberFormatException {
+    protected double getDouble(final K key) throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
-      if(value == null) {
+      if (value == null) {
         throw new NoSuchElementException(key.name() + " has not been set");
       }
       return value.asDouble();
     }
 
-    protected U setLong(
-        final K key, final long value) {
-      if(key.getValueType() != MutableOptionKey.ValueType.LONG) {
-        throw new IllegalArgumentException(
-            key + " does not accept a long value");
+    protected U setLong(final K key, final long value) {
+      if (key.getValueType() != MutableOptionKey.ValueType.LONG) {
+        throw new IllegalArgumentException(key + " does not accept a long value");
       }
       options.put(key, MutableOptionValue.fromLong(value));
       return self();
     }
 
-    protected long getLong(final K key)
-        throws NoSuchElementException, NumberFormatException {
+    protected long getLong(final K key) throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
-      if(value == null) {
+      if (value == null) {
         throw new NoSuchElementException(key.name() + " has not been set");
       }
       return value.asLong();
     }
 
-    protected U setInt(
-        final K key, final int value) {
-      if(key.getValueType() != MutableOptionKey.ValueType.INT) {
-        throw new IllegalArgumentException(
-            key + " does not accept an integer value");
+    protected U setInt(final K key, final int value) {
+      if (key.getValueType() != MutableOptionKey.ValueType.INT) {
+        throw new IllegalArgumentException(key + " does not accept an integer value");
       }
       options.put(key, MutableOptionValue.fromInt(value));
       return self();
     }
 
-    protected int getInt(final K key)
-        throws NoSuchElementException, NumberFormatException {
+    protected int getInt(final K key) throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
-      if(value == null) {
+      if (value == null) {
         throw new NoSuchElementException(key.name() + " has not been set");
       }
       return value.asInt();
     }
 
-    protected U setBoolean(
-        final K key, final boolean value) {
-      if(key.getValueType() != MutableOptionKey.ValueType.BOOLEAN) {
-        throw new IllegalArgumentException(
-            key + " does not accept a boolean value");
+    protected U setBoolean(final K key, final boolean value) {
+      if (key.getValueType() != MutableOptionKey.ValueType.BOOLEAN) {
+        throw new IllegalArgumentException(key + " does not accept a boolean value");
       }
       options.put(key, MutableOptionValue.fromBoolean(value));
       return self();
     }
 
-    protected boolean getBoolean(final K key)
-        throws NoSuchElementException, NumberFormatException {
+    protected boolean getBoolean(final K key) throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
-      if(value == null) {
+      if (value == null) {
         throw new NoSuchElementException(key.name() + " has not been set");
       }
       return value.asBoolean();
     }
 
-    protected U setIntArray(
-        final K key, final int[] value) {
-      if(key.getValueType() != MutableOptionKey.ValueType.INT_ARRAY) {
-        throw new IllegalArgumentException(
-            key + " does not accept an int array value");
+    protected U setIntArray(final K key, final int[] value) {
+      if (key.getValueType() != MutableOptionKey.ValueType.INT_ARRAY) {
+        throw new IllegalArgumentException(key + " does not accept an int array value");
       }
       options.put(key, MutableOptionValue.fromIntArray(value));
       return self();
     }
 
-    protected int[] getIntArray(final K key)
-        throws NoSuchElementException, NumberFormatException {
+    protected int[] getIntArray(final K key) throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
-      if(value == null) {
+      if (value == null) {
         throw new NoSuchElementException(key.name() + " has not been set");
       }
       return value.asIntArray();
     }
 
-    protected <N extends Enum<N>> U setEnum(
-        final K key, final N value) {
-      if(key.getValueType() != MutableOptionKey.ValueType.ENUM) {
-        throw new IllegalArgumentException(
-            key + " does not accept a Enum value");
+    protected <N extends Enum<N>> U setEnum(final K key, final N value) {
+      if (key.getValueType() != MutableOptionKey.ValueType.ENUM) {
+        throw new IllegalArgumentException(key + " does not accept a Enum value");
       }
       options.put(key, MutableOptionValue.fromEnum(value));
       return self();
@@ -200,25 +177,24 @@ public abstract class AbstractMutableOptions {
     protected <N extends Enum<N>> N getEnum(final K key)
         throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
-      if(value == null) {
+      if (value == null) {
         throw new NoSuchElementException(key.name() + " has not been set");
       }
 
-      if(!(value instanceof MutableOptionValue.MutableOptionEnumValue)) {
+      if (!(value instanceof MutableOptionValue.MutableOptionEnumValue)) {
         throw new NoSuchElementException(key.name() + " is not of Enum type");
       }
 
-      return ((MutableOptionValue.MutableOptionEnumValue<N>)value).asObject();
+      return ((MutableOptionValue.MutableOptionEnumValue<N>) value).asObject();
     }
 
-    public U fromString(
-        final String keyStr, final String valueStr)
+    public U fromString(final String keyStr, final String valueStr)
         throws IllegalArgumentException {
       Objects.requireNonNull(keyStr);
       Objects.requireNonNull(valueStr);
 
       final K key = allKeys().get(keyStr);
-      switch(key.getValueType()) {
+      switch (key.getValueType()) {
         case DOUBLE:
           return setDouble(key, Double.parseDouble(valueStr));
 
@@ -232,23 +208,20 @@ public abstract class AbstractMutableOptions {
           return setBoolean(key, Boolean.parseBoolean(valueStr));
 
         case INT_ARRAY:
-          final String[] strInts = valueStr
-              .trim().split(INT_ARRAY_INT_SEPARATOR);
-          if(strInts == null || strInts.length == 0) {
-            throw new IllegalArgumentException(
-                "int array value is not correctly formatted");
+          final String[] strInts = valueStr.trim().split(INT_ARRAY_INT_SEPARATOR);
+          if (strInts == null || strInts.length == 0) {
+            throw new IllegalArgumentException("int array value is not correctly formatted");
           }
 
           final int value[] = new int[strInts.length];
           int i = 0;
-          for(final String strInt : strInts) {
+          for (final String strInt : strInts) {
             value[i++] = Integer.parseInt(strInt);
           }
           return setIntArray(key, value);
       }
 
-      throw new IllegalStateException(
-          key + " has unknown value type: " + key.getValueType());
+      throw new IllegalStateException(key + " has unknown value type: " + key.getValueType());
     }
   }
 }

@@ -331,8 +331,7 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public ColumnFamilyOptions setBottommostCompressionOptions(
       final CompressionOptions bottommostCompressionOptions) {
-    setBottommostCompressionOptions(nativeHandle_,
-        bottommostCompressionOptions.nativeHandle_);
+    setBottommostCompressionOptions(nativeHandle_, bottommostCompressionOptions.nativeHandle_);
     this.bottommostCompressionOptions_ = bottommostCompressionOptions;
     return this;
   }
@@ -829,8 +828,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   private static native long newColumnFamilyOptions();
   private static native long copyColumnFamilyOptions(final long handle);
-  private static native long newColumnFamilyOptionsFromOptions(
-      final long optionsHandle);
+  private static native long newColumnFamilyOptionsFromOptions(final long optionsHandle);
   @Override protected final native void disposeInternal(final long handle);
 
   private native void optimizeForSmallDb(final long handle);
@@ -866,8 +864,8 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setBottommostCompressionType(long handle,
       byte bottommostCompressionType);
   private native byte bottommostCompressionType(long handle);
-  private native void setBottommostCompressionOptions(final long handle,
-      final long bottommostCompressionOptionsHandle);
+  private native void setBottommostCompressionOptions(
+      final long handle, final long bottommostCompressionOptionsHandle);
   private native void setCompressionOptions(long handle,
       long compressionOptionsHandle);
   private native void useFixedLengthPrefixExtractor(

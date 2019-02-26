@@ -12,22 +12,22 @@ public enum ThreadType {
   /**
    * RocksDB BG thread in high-pri thread pool.
    */
-  HIGH_PRIORITY((byte)0x0),
+  HIGH_PRIORITY((byte) 0x0),
 
   /**
    * RocksDB BG thread in low-pri thread pool.
    */
-  LOW_PRIORITY((byte)0x1),
+  LOW_PRIORITY((byte) 0x1),
 
   /**
    * User thread (Non-RocksDB BG thread).
    */
-  USER((byte)0x2),
+  USER((byte) 0x2),
 
   /**
    * RocksDB BG thread in bottom-pri thread pool
    */
-  BOTTOM_PRIORITY((byte)0x3);
+  BOTTOM_PRIORITY((byte) 0x3);
 
   private final byte value;
 
@@ -53,8 +53,7 @@ public enum ThreadType {
    *
    * @throws IllegalArgumentException if the value does not match a ThreadType
    */
-  static ThreadType fromValue(final byte value)
-      throws IllegalArgumentException {
+  static ThreadType fromValue(final byte value) throws IllegalArgumentException {
     for (final ThreadType threadType : ThreadType.values()) {
       if (threadType.value == value) {
         return threadType;

@@ -11,10 +11,8 @@ import org.junit.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class CompactionJobStatsTest {
-
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksMemoryResource rocksMemoryResource = new RocksMemoryResource();
 
   @Test
   public void reset() {
@@ -94,7 +92,6 @@ public class CompactionJobStatsTest {
       assertThat(compactionJobStats.totalOutputBytes()).isEqualTo(0);
     }
   }
-
 
   @Test
   public void numRecordsReplaced() {

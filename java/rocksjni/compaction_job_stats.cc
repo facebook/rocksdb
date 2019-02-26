@@ -17,8 +17,8 @@
  * Method:    newCompactionJobStats
  * Signature: ()J
  */
-jlong Java_org_rocksdb_CompactionJobStats_newCompactionJobStats(
-    JNIEnv*, jclass) {
+jlong Java_org_rocksdb_CompactionJobStats_newCompactionJobStats(JNIEnv*,
+                                                                jclass) {
   auto* compact_job_stats = new rocksdb::CompactionJobStats();
   return reinterpret_cast<jlong>(compact_job_stats);
 }
@@ -28,8 +28,8 @@ jlong Java_org_rocksdb_CompactionJobStats_newCompactionJobStats(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_CompactionJobStats_disposeInternal(
-    JNIEnv *, jobject, jlong jhandle) {
+void Java_org_rocksdb_CompactionJobStats_disposeInternal(JNIEnv*, jobject,
+                                                         jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
   delete compact_job_stats;
@@ -40,8 +40,7 @@ void Java_org_rocksdb_CompactionJobStats_disposeInternal(
  * Method:    reset
  * Signature: (J)V
  */
-void Java_org_rocksdb_CompactionJobStats_reset(
-    JNIEnv*, jclass, jlong jhandle) {
+void Java_org_rocksdb_CompactionJobStats_reset(JNIEnv*, jclass, jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
   compact_job_stats->Reset();
@@ -52,8 +51,8 @@ void Java_org_rocksdb_CompactionJobStats_reset(
  * Method:    add
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_CompactionJobStats_add(
-    JNIEnv*, jclass, jlong jhandle, jlong jother_handle) {
+void Java_org_rocksdb_CompactionJobStats_add(JNIEnv*, jclass, jlong jhandle,
+                                             jlong jother_handle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
   auto* other_compact_job_stats =
@@ -66,8 +65,8 @@ void Java_org_rocksdb_CompactionJobStats_add(
  * Method:    elapsedMicros
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionJobStats_elapsedMicros(
-    JNIEnv*, jclass, jlong jhandle) {
+jlong Java_org_rocksdb_CompactionJobStats_elapsedMicros(JNIEnv*, jclass,
+                                                        jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
   return static_cast<jlong>(compact_job_stats->elapsed_micros);
@@ -78,8 +77,8 @@ jlong Java_org_rocksdb_CompactionJobStats_elapsedMicros(
  * Method:    numInputRecords
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionJobStats_numInputRecords(
-    JNIEnv*, jclass, jlong jhandle) {
+jlong Java_org_rocksdb_CompactionJobStats_numInputRecords(JNIEnv*, jclass,
+                                                          jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
   return static_cast<jlong>(compact_job_stats->num_input_records);
@@ -90,8 +89,8 @@ jlong Java_org_rocksdb_CompactionJobStats_numInputRecords(
  * Method:    numInputFiles
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionJobStats_numInputFiles(
-    JNIEnv*, jclass, jlong jhandle) {
+jlong Java_org_rocksdb_CompactionJobStats_numInputFiles(JNIEnv*, jclass,
+                                                        jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
   return static_cast<jlong>(compact_job_stats->num_input_files);
@@ -106,8 +105,7 @@ jlong Java_org_rocksdb_CompactionJobStats_numInputFilesAtOutputLevel(
     JNIEnv*, jclass, jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return static_cast<jlong>(
-      compact_job_stats->num_input_files_at_output_level);
+  return static_cast<jlong>(compact_job_stats->num_input_files_at_output_level);
 }
 
 /*
@@ -115,12 +113,11 @@ jlong Java_org_rocksdb_CompactionJobStats_numInputFilesAtOutputLevel(
  * Method:    numOutputRecords
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionJobStats_numOutputRecords(
-    JNIEnv*, jclass, jlong jhandle) {
+jlong Java_org_rocksdb_CompactionJobStats_numOutputRecords(JNIEnv*, jclass,
+                                                           jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return static_cast<jlong>(
-      compact_job_stats->num_output_records);
+  return static_cast<jlong>(compact_job_stats->num_output_records);
 }
 
 /*
@@ -128,12 +125,11 @@ jlong Java_org_rocksdb_CompactionJobStats_numOutputRecords(
  * Method:    numOutputFiles
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionJobStats_numOutputFiles(
-    JNIEnv*, jclass, jlong jhandle) {
+jlong Java_org_rocksdb_CompactionJobStats_numOutputFiles(JNIEnv*, jclass,
+                                                         jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return static_cast<jlong>(
-      compact_job_stats->num_output_files);
+  return static_cast<jlong>(compact_job_stats->num_output_files);
 }
 
 /*
@@ -141,8 +137,8 @@ jlong Java_org_rocksdb_CompactionJobStats_numOutputFiles(
  * Method:    isManualCompaction
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_CompactionJobStats_isManualCompaction(
-    JNIEnv*, jclass, jlong jhandle) {
+jboolean Java_org_rocksdb_CompactionJobStats_isManualCompaction(JNIEnv*, jclass,
+                                                                jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
   if (compact_job_stats->is_manual_compaction) {
@@ -157,12 +153,11 @@ jboolean Java_org_rocksdb_CompactionJobStats_isManualCompaction(
  * Method:    totalInputBytes
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionJobStats_totalInputBytes(
-    JNIEnv*, jclass, jlong jhandle) {
+jlong Java_org_rocksdb_CompactionJobStats_totalInputBytes(JNIEnv*, jclass,
+                                                          jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return static_cast<jlong>(
-      compact_job_stats->total_input_bytes);
+  return static_cast<jlong>(compact_job_stats->total_input_bytes);
 }
 
 /*
@@ -170,12 +165,11 @@ jlong Java_org_rocksdb_CompactionJobStats_totalInputBytes(
  * Method:    totalOutputBytes
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionJobStats_totalOutputBytes(
-    JNIEnv*, jclass, jlong jhandle) {
+jlong Java_org_rocksdb_CompactionJobStats_totalOutputBytes(JNIEnv*, jclass,
+                                                           jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return static_cast<jlong>(
-      compact_job_stats->total_output_bytes);
+  return static_cast<jlong>(compact_job_stats->total_output_bytes);
 }
 
 /*
@@ -183,12 +177,11 @@ jlong Java_org_rocksdb_CompactionJobStats_totalOutputBytes(
  * Method:    numRecordsReplaced
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionJobStats_numRecordsReplaced(
-    JNIEnv*, jclass, jlong jhandle) {
+jlong Java_org_rocksdb_CompactionJobStats_numRecordsReplaced(JNIEnv*, jclass,
+                                                             jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return static_cast<jlong>(
-      compact_job_stats->num_records_replaced);
+  return static_cast<jlong>(compact_job_stats->num_records_replaced);
 }
 
 /*
@@ -196,12 +189,11 @@ jlong Java_org_rocksdb_CompactionJobStats_numRecordsReplaced(
  * Method:    totalInputRawKeyBytes
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionJobStats_totalInputRawKeyBytes(
-    JNIEnv*, jclass, jlong jhandle) {
+jlong Java_org_rocksdb_CompactionJobStats_totalInputRawKeyBytes(JNIEnv*, jclass,
+                                                                jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return static_cast<jlong>(
-      compact_job_stats->total_input_raw_key_bytes);
+  return static_cast<jlong>(compact_job_stats->total_input_raw_key_bytes);
 }
 
 /*
@@ -213,8 +205,7 @@ jlong Java_org_rocksdb_CompactionJobStats_totalInputRawValueBytes(
     JNIEnv*, jclass, jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return static_cast<jlong>(
-      compact_job_stats->total_input_raw_value_bytes);
+  return static_cast<jlong>(compact_job_stats->total_input_raw_value_bytes);
 }
 
 /*
@@ -226,8 +217,7 @@ jlong Java_org_rocksdb_CompactionJobStats_numInputDeletionRecords(
     JNIEnv*, jclass, jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return static_cast<jlong>(
-      compact_job_stats->num_input_deletion_records);
+  return static_cast<jlong>(compact_job_stats->num_input_deletion_records);
 }
 
 /*
@@ -239,8 +229,7 @@ jlong Java_org_rocksdb_CompactionJobStats_numExpiredDeletionRecords(
     JNIEnv*, jclass, jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return static_cast<jlong>(
-      compact_job_stats->num_expired_deletion_records);
+  return static_cast<jlong>(compact_job_stats->num_expired_deletion_records);
 }
 
 /*
@@ -248,12 +237,11 @@ jlong Java_org_rocksdb_CompactionJobStats_numExpiredDeletionRecords(
  * Method:    numCorruptKeys
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionJobStats_numCorruptKeys(
-    JNIEnv*, jclass, jlong jhandle) {
+jlong Java_org_rocksdb_CompactionJobStats_numCorruptKeys(JNIEnv*, jclass,
+                                                         jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return static_cast<jlong>(
-      compact_job_stats->num_corrupt_keys);
+  return static_cast<jlong>(compact_job_stats->num_corrupt_keys);
 }
 
 /*
@@ -261,12 +249,11 @@ jlong Java_org_rocksdb_CompactionJobStats_numCorruptKeys(
  * Method:    fileWriteNanos
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionJobStats_fileWriteNanos(
-    JNIEnv*, jclass, jlong jhandle) {
+jlong Java_org_rocksdb_CompactionJobStats_fileWriteNanos(JNIEnv*, jclass,
+                                                         jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return static_cast<jlong>(
-      compact_job_stats->file_write_nanos);
+  return static_cast<jlong>(compact_job_stats->file_write_nanos);
 }
 
 /*
@@ -274,12 +261,11 @@ jlong Java_org_rocksdb_CompactionJobStats_fileWriteNanos(
  * Method:    fileRangeSyncNanos
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionJobStats_fileRangeSyncNanos(
-    JNIEnv*, jclass, jlong jhandle) {
+jlong Java_org_rocksdb_CompactionJobStats_fileRangeSyncNanos(JNIEnv*, jclass,
+                                                             jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return static_cast<jlong>(
-      compact_job_stats->file_range_sync_nanos);
+  return static_cast<jlong>(compact_job_stats->file_range_sync_nanos);
 }
 
 /*
@@ -287,12 +273,11 @@ jlong Java_org_rocksdb_CompactionJobStats_fileRangeSyncNanos(
  * Method:    fileFsyncNanos
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionJobStats_fileFsyncNanos(
-    JNIEnv*, jclass, jlong jhandle) {
+jlong Java_org_rocksdb_CompactionJobStats_fileFsyncNanos(JNIEnv*, jclass,
+                                                         jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return static_cast<jlong>(
-      compact_job_stats->file_fsync_nanos);
+  return static_cast<jlong>(compact_job_stats->file_fsync_nanos);
 }
 
 /*
@@ -300,12 +285,11 @@ jlong Java_org_rocksdb_CompactionJobStats_fileFsyncNanos(
  * Method:    filePrepareWriteNanos
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionJobStats_filePrepareWriteNanos(
-    JNIEnv*, jclass, jlong jhandle) {
+jlong Java_org_rocksdb_CompactionJobStats_filePrepareWriteNanos(JNIEnv*, jclass,
+                                                                jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return static_cast<jlong>(
-      compact_job_stats->file_prepare_write_nanos);
+  return static_cast<jlong>(compact_job_stats->file_prepare_write_nanos);
 }
 
 /*
@@ -317,8 +301,8 @@ jbyteArray Java_org_rocksdb_CompactionJobStats_smallestOutputKeyPrefix(
     JNIEnv* env, jclass, jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return rocksdb::JniUtil::copyBytes(env,
-      compact_job_stats->smallest_output_key_prefix);
+  return rocksdb::JniUtil::copyBytes(
+      env, compact_job_stats->smallest_output_key_prefix);
 }
 
 /*
@@ -330,8 +314,8 @@ jbyteArray Java_org_rocksdb_CompactionJobStats_largestOutputKeyPrefix(
     JNIEnv* env, jclass, jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return rocksdb::JniUtil::copyBytes(env,
-      compact_job_stats->largest_output_key_prefix);
+  return rocksdb::JniUtil::copyBytes(
+      env, compact_job_stats->largest_output_key_prefix);
 }
 
 /*
@@ -339,12 +323,11 @@ jbyteArray Java_org_rocksdb_CompactionJobStats_largestOutputKeyPrefix(
  * Method:    numSingleDelFallthru
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionJobStats_numSingleDelFallthru(
-    JNIEnv*, jclass, jlong jhandle) {
+jlong Java_org_rocksdb_CompactionJobStats_numSingleDelFallthru(JNIEnv*, jclass,
+                                                               jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return static_cast<jlong>(
-      compact_job_stats->num_single_del_fallthru);
+  return static_cast<jlong>(compact_job_stats->num_single_del_fallthru);
 }
 
 /*
@@ -352,10 +335,9 @@ jlong Java_org_rocksdb_CompactionJobStats_numSingleDelFallthru(
  * Method:    numSingleDelMismatch
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionJobStats_numSingleDelMismatch(
-    JNIEnv*, jclass, jlong jhandle) {
+jlong Java_org_rocksdb_CompactionJobStats_numSingleDelMismatch(JNIEnv*, jclass,
+                                                               jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<rocksdb::CompactionJobStats*>(jhandle);
-  return static_cast<jlong>(
-      compact_job_stats->num_single_del_mismatch);
+  return static_cast<jlong>(compact_job_stats->num_single_del_mismatch);
 }

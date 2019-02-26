@@ -12,9 +12,9 @@ package org.rocksdb;
  * examples include compaction and flush.
  */
 public enum OperationType {
-  OP_UNKNOWN((byte)0x0),
-  OP_COMPACTION((byte)0x1),
-  OP_FLUSH((byte)0x2);
+  OP_UNKNOWN((byte) 0x0),
+  OP_COMPACTION((byte) 0x1),
+  OP_FLUSH((byte) 0x2);
 
   private final byte value;
 
@@ -41,14 +41,12 @@ public enum OperationType {
    * @throws IllegalArgumentException if the value does not match
    *     an OperationType
    */
-  static OperationType fromValue(final byte value)
-      throws IllegalArgumentException {
+  static OperationType fromValue(final byte value) throws IllegalArgumentException {
     for (final OperationType threadType : OperationType.values()) {
       if (threadType.value == value) {
         return threadType;
       }
     }
-    throw new IllegalArgumentException(
-        "Unknown value for OperationType: " + value);
+    throw new IllegalArgumentException("Unknown value for OperationType: " + value);
   }
 }

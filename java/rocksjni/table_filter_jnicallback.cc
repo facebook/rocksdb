@@ -10,12 +10,11 @@
 #include "rocksjni/portal.h"
 
 namespace rocksdb {
-TableFilterJniCallback::TableFilterJniCallback(
-    JNIEnv* env, jobject jtable_filter)
+TableFilterJniCallback::TableFilterJniCallback(JNIEnv* env,
+                                               jobject jtable_filter)
     : JniCallback(env, jtable_filter) {
-  m_jfilter_methodid =
-      AbstractTableFilterJni::getFilterMethod(env);
-  if(m_jfilter_methodid == nullptr) {
+  m_jfilter_methodid = AbstractTableFilterJni::getFilterMethod(env);
+  if (m_jfilter_methodid == nullptr) {
     // exception thrown: NoSuchMethodException or OutOfMemoryError
     return;
   }
@@ -26,36 +25,40 @@ TableFilterJniCallback::TableFilterJniCallback(
   on each call to the function itself as
   it may be called from multiple threads
   */
-  m_table_filter_function = [this](const rocksdb::TableProperties& table_properties) {
-    jboolean attached_thread = JNI_FALSE;
-    JNIEnv* thread_env = getJniEnv(&attached_thread);
-    assert(thread_env != nullptr);
+  m_table_filter_function =
+      [this](const rocksdb::TableProperties& table_properties) {
+        jboolean attached_thread = JNI_FALSE;
+        JNIEnv* thread_env = getJniEnv(&attached_thread);
+        assert(thread_env != nullptr);
 
-    // create a Java TableProperties object
-    jobject jtable_properties = TablePropertiesJni::fromCppTableProperties(thread_env, table_properties);
-    if (jtable_properties == nullptr) {
-      // exception thrown from fromCppTableProperties
-      thread_env->ExceptionDescribe();  // print out exception to stderr
-      releaseJniEnv(attached_thread);
-      return false;
-    }
+        // create a Java TableProperties object
+        jobject jtable_properties = TablePropertiesJni::fromCppTableProperties(
+            thread_env, table_properties);
+        if (jtable_properties == nullptr) {
+          // exception thrown from fromCppTableProperties
+          thread_env->ExceptionDescribe();  // print out exception to stderr
+          releaseJniEnv(attached_thread);
+          return false;
+        }
 
-    jboolean result = thread_env->CallBooleanMethod(m_jcallback_obj, m_jfilter_methodid, jtable_properties);
-    if (thread_env->ExceptionCheck()) {
-      // exception thrown from CallBooleanMethod
-      thread_env->DeleteLocalRef(jtable_properties);
-      thread_env->ExceptionDescribe();  // print out exception to stderr
-      releaseJniEnv(attached_thread);
-      return false;
-    }
+        jboolean result = thread_env->CallBooleanMethod(
+            m_jcallback_obj, m_jfilter_methodid, jtable_properties);
+        if (thread_env->ExceptionCheck()) {
+          // exception thrown from CallBooleanMethod
+          thread_env->DeleteLocalRef(jtable_properties);
+          thread_env->ExceptionDescribe();  // print out exception to stderr
+          releaseJniEnv(attached_thread);
+          return false;
+        }
 
-    // ok... cleanup and then return
-    releaseJniEnv(attached_thread);
-    return static_cast<bool>(result);
-  };
+        // ok... cleanup and then return
+        releaseJniEnv(attached_thread);
+        return static_cast<bool>(result);
+      };
 }
 
-std::function<bool(const rocksdb::TableProperties&)> TableFilterJniCallback::GetTableFilterFunction() {
+std::function<bool(const rocksdb::TableProperties&)>
+TableFilterJniCallback::GetTableFilterFunction() {
   return m_table_filter_function;
 }
 

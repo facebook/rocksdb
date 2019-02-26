@@ -34,12 +34,8 @@ public class RocksMemEnvTest {
     };
 
     try (final Env env = new RocksMemEnv(Env.getDefault());
-         final Options options = new Options()
-             .setCreateIfMissing(true)
-             .setEnv(env);
-         final FlushOptions flushOptions = new FlushOptions()
-             .setWaitForFlush(true);
-    ) {
+         final Options options = new Options().setCreateIfMissing(true).setEnv(env);
+         final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true);) {
       try (final RocksDB db = RocksDB.open(options, "dir/db")) {
         // write key/value pairs using MemEnv
         for (int i = 0; i < keys.length; i++) {
@@ -108,12 +104,9 @@ public class RocksMemEnvTest {
     };
 
     try (final Env env = new RocksMemEnv(Env.getDefault());
-         final Options options = new Options()
-             .setCreateIfMissing(true)
-             .setEnv(env);
+         final Options options = new Options().setCreateIfMissing(true).setEnv(env);
          final RocksDB db = RocksDB.open(options, "dir/db");
-         final RocksDB otherDb = RocksDB.open(options, "dir/otherDb")
-    ) {
+         final RocksDB otherDb = RocksDB.open(options, "dir/otherDb")) {
       // write key/value pairs using MemEnv
       // to db and to otherDb.
       for (int i = 0; i < keys.length; i++) {
@@ -137,9 +130,7 @@ public class RocksMemEnvTest {
   @Test(expected = RocksDBException.class)
   public void createIfMissingFalse() throws RocksDBException {
     try (final Env env = new RocksMemEnv(Env.getDefault());
-         final Options options = new Options()
-             .setCreateIfMissing(false)
-             .setEnv(env);
+         final Options options = new Options().setCreateIfMissing(false).setEnv(env);
          final RocksDB db = RocksDB.open(options, "db/dir")) {
       // shall throw an exception because db dir does not
       // exist.

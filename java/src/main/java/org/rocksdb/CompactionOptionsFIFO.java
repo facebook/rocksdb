@@ -55,12 +55,10 @@ public class CompactionOptionsFIFO extends RocksObject {
    *
    * @return the reference to the current options.
    */
-  public CompactionOptionsFIFO setAllowCompaction(
-      final boolean allowCompaction) {
+  public CompactionOptionsFIFO setAllowCompaction(final boolean allowCompaction) {
     setAllowCompaction(nativeHandle_, allowCompaction);
     return this;
   }
-
 
   /**
    * Check if intra-L0 compaction is enabled.
@@ -80,10 +78,8 @@ public class CompactionOptionsFIFO extends RocksObject {
   private native static long newCompactionOptionsFIFO();
   @Override protected final native void disposeInternal(final long handle);
 
-  private native void setMaxTableFilesSize(final long handle,
-      final long maxTableFilesSize);
+  private native void setMaxTableFilesSize(final long handle, final long maxTableFilesSize);
   private native long maxTableFilesSize(final long handle);
-  private native void setAllowCompaction(final long handle,
-      final boolean allowCompaction);
+  private native void setAllowCompaction(final long handle, final boolean allowCompaction);
   private native boolean allowCompaction(final long handle);
 }

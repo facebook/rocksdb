@@ -8,9 +8,8 @@ package org.rocksdb;
 /**
  * Memory environment.
  */
-//TODO(AR) rename to MemEnv
+// TODO(AR) rename to MemEnv
 public class RocksMemEnv extends Env {
-
   /**
    * <p>Creates a new environment that stores its data
    * in memory and delegates all non-file-storage tasks to

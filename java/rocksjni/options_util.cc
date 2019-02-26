@@ -85,7 +85,8 @@ void Java_org_rocksdb_OptionsUtil_loadOptionsFromFile(
     JNIEnv* env, jclass /*jcls*/, jstring jopts_file_name, jlong jenv_handle,
     jlong jdb_opts_handle, jobject jcfds, jboolean ignore_unknown_options) {
   jboolean has_exception = JNI_FALSE;
-  auto opts_file_name = rocksdb::JniUtil::copyStdString(env, jopts_file_name, &has_exception);
+  auto opts_file_name =
+      rocksdb::JniUtil::copyStdString(env, jopts_file_name, &has_exception);
   if (has_exception == JNI_TRUE) {
     // exception occurred
     return;

@@ -215,8 +215,7 @@ public class EnvOptions extends RocksObject {
    *
    * @return the reference to these options.
    */
-  public EnvOptions setFallocateWithKeepSize(
-      final boolean fallocateWithKeepSize) {
+  public EnvOptions setFallocateWithKeepSize(final boolean fallocateWithKeepSize) {
     setFallocateWithKeepSize(nativeHandle_, fallocateWithKeepSize);
     return this;
   }
@@ -238,8 +237,7 @@ public class EnvOptions extends RocksObject {
    *
    * @return the reference to these options.
    */
-  public EnvOptions setCompactionReadaheadSize(
-      final long compactionReadaheadSize) {
+  public EnvOptions setCompactionReadaheadSize(final long compactionReadaheadSize) {
     setCompactionReadaheadSize(nativeHandle_, compactionReadaheadSize);
     return this;
   }
@@ -261,8 +259,7 @@ public class EnvOptions extends RocksObject {
    *
    * @return the reference to these options.
    */
-  public EnvOptions setRandomAccessMaxBufferSize(
-      final long randomAccessMaxBufferSize) {
+  public EnvOptions setRandomAccessMaxBufferSize(final long randomAccessMaxBufferSize) {
     setRandomAccessMaxBufferSize(nativeHandle_, randomAccessMaxBufferSize);
     return this;
   }
@@ -284,8 +281,7 @@ public class EnvOptions extends RocksObject {
    *
    * @return the reference to these options.
    */
-  public EnvOptions setWritableFileMaxBufferSize(
-      final long writableFileMaxBufferSize) {
+  public EnvOptions setWritableFileMaxBufferSize(final long writableFileMaxBufferSize) {
     setWritableFileMaxBufferSize(nativeHandle_, writableFileMaxBufferSize);
     return this;
   }
@@ -327,26 +323,19 @@ public class EnvOptions extends RocksObject {
   private native static long newEnvOptions(final long dboptions_handle);
   @Override protected final native void disposeInternal(final long handle);
 
-  private native void setUseMmapReads(final long handle,
-      final boolean useMmapReads);
+  private native void setUseMmapReads(final long handle, final boolean useMmapReads);
   private native boolean useMmapReads(final long handle);
-  private native void setUseMmapWrites(final long handle,
-      final boolean useMmapWrites);
+  private native void setUseMmapWrites(final long handle, final boolean useMmapWrites);
   private native boolean useMmapWrites(final long handle);
-  private native void setUseDirectReads(final long handle,
-      final boolean useDirectReads);
+  private native void setUseDirectReads(final long handle, final boolean useDirectReads);
   private native boolean useDirectReads(final long handle);
-  private native void setUseDirectWrites(final long handle,
-      final boolean useDirectWrites);
+  private native void setUseDirectWrites(final long handle, final boolean useDirectWrites);
   private native boolean useDirectWrites(final long handle);
-  private native void setAllowFallocate(final long handle,
-      final boolean allowFallocate);
+  private native void setAllowFallocate(final long handle, final boolean allowFallocate);
   private native boolean allowFallocate(final long handle);
-  private native void setSetFdCloexec(final long handle,
-      final boolean setFdCloexec);
+  private native void setSetFdCloexec(final long handle, final boolean setFdCloexec);
   private native boolean setFdCloexec(final long handle);
-  private native void setBytesPerSync(final long handle,
-      final long bytesPerSync);
+  private native void setBytesPerSync(final long handle, final long bytesPerSync);
   private native long bytesPerSync(final long handle);
   private native void setFallocateWithKeepSize(
       final long handle, final boolean fallocateWithKeepSize);
@@ -360,7 +349,6 @@ public class EnvOptions extends RocksObject {
   private native void setWritableFileMaxBufferSize(
       final long handle, final long writableFileMaxBufferSize);
   private native long writableFileMaxBufferSize(final long handle);
-  private native void setRateLimiter(final long handle,
-      final long rateLimiterHandle);
+  private native void setRateLimiter(final long handle, final long rateLimiterHandle);
   private RateLimiter rateLimiter;
 }

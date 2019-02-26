@@ -369,7 +369,7 @@ public class ReadOptions extends RocksObject {
    *     before failing an iterator seek as incomplete.
    */
   public long maxSkippableInternalKeys() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return maxSkippableInternalKeys(nativeHandle_);
   }
 
@@ -385,9 +385,8 @@ public class ReadOptions extends RocksObject {
    *
    * @return the reference to the current ReadOptions.
    */
-  public ReadOptions setMaxSkippableInternalKeys(
-      final long maxSkippableInternalKeys) {
-    assert(isOwningHandle());
+  public ReadOptions setMaxSkippableInternalKeys(final long maxSkippableInternalKeys) {
+    assert (isOwningHandle());
     setMaxSkippableInternalKeys(nativeHandle_, maxSkippableInternalKeys);
     return this;
   }
@@ -441,7 +440,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setIterateLowerBound(final Slice iterateLowerBound) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     if (iterateLowerBound != null) {
       // Hold onto a reference so it doesn't get garbage collected out from under us.
       iterateLowerBoundSlice_ = iterateLowerBound;
@@ -459,7 +458,7 @@ public class ReadOptions extends RocksObject {
    * @return the smallest key, or null if there is no lower bound defined.
    */
   public Slice iterateLowerBound() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     final long lowerBoundSliceHandle = iterateLowerBound(nativeHandle_);
     if (lowerBoundSliceHandle != 0) {
       // Disown the new slice - it's owned by the C++ side of the JNI boundary
@@ -558,7 +557,7 @@ public class ReadOptions extends RocksObject {
    * @return the starting sequence number of any iterator.
    */
   public long iterStartSeqnum() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return iterStartSeqnum(nativeHandle_);
   }
 
@@ -574,8 +573,7 @@ public class ReadOptions extends RocksObject {
   private Slice iterateUpperBoundSlice_;
 
   private native static long newReadOptions();
-  private native static long newReadOptions(final boolean verifyChecksums,
-    final boolean fillCache);
+  private native static long newReadOptions(final boolean verifyChecksums, final boolean fillCache);
   private native static long copyReadOptions(long handle);
   @Override protected final native void disposeInternal(final long handle);
 
@@ -604,19 +602,17 @@ public class ReadOptions extends RocksObject {
   private native void setReadaheadSize(final long handle,
       final long readaheadSize);
   private native long maxSkippableInternalKeys(final long handle);
-  private native void setMaxSkippableInternalKeys(final long handle,
-      final long maxSkippableInternalKeys);
+  private native void setMaxSkippableInternalKeys(
+      final long handle, final long maxSkippableInternalKeys);
   private native boolean ignoreRangeDeletions(final long handle);
   private native void setIgnoreRangeDeletions(final long handle,
       final boolean ignoreRangeDeletions);
   private native void setIterateUpperBound(final long handle,
       final long upperBoundSliceHandle);
   private native long iterateUpperBound(final long handle);
-  private native void setIterateLowerBound(final long handle,
-      final long lowerBoundSliceHandle);
+  private native void setIterateLowerBound(final long handle, final long lowerBoundSliceHandle);
   private native long iterateLowerBound(final long handle);
-  private native void setTableFilter(final long handle,
-      final long tableFilterHandle);
+  private native void setTableFilter(final long handle, final long tableFilterHandle);
   private native void setIterStartSeqnum(final long handle, final long seqNum);
   private native long iterStartSeqnum(final long handle);
 }

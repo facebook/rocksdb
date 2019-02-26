@@ -9,7 +9,6 @@ package org.rocksdb;
  * HDFS environment.
  */
 public class HdfsEnv extends Env {
-
   /**
    <p>Creates a new environment that is used for HDFS environment.</p>
    *

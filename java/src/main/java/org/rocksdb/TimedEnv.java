@@ -9,7 +9,6 @@ package org.rocksdb;
  * Timed environment.
  */
 public class TimedEnv extends Env {
-
   /**
    * <p>Creates a new environment that measures function call times for
    * filesystem operations, reporting results to variables in PerfContext.</p>

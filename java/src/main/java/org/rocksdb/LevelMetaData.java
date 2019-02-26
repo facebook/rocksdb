@@ -19,8 +19,7 @@ public class LevelMetaData {
   /**
    * Called from JNI C++
    */
-  private LevelMetaData(final int level, final long size,
-      final SstFileMetaData[] files) {
+  private LevelMetaData(final int level, final long size, final SstFileMetaData[] files) {
     this.level = level;
     this.size = size;
     this.files = files;

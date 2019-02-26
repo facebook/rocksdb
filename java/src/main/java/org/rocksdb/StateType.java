@@ -12,8 +12,8 @@ package org.rocksdb;
  * such as reading / writing a file or waiting for a mutex.
  */
 public enum StateType {
-  STATE_UNKNOWN((byte)0x0),
-  STATE_MUTEX_WAIT((byte)0x1);
+  STATE_UNKNOWN((byte) 0x0),
+  STATE_MUTEX_WAIT((byte) 0x1);
 
   private final byte value;
 
@@ -40,14 +40,12 @@ public enum StateType {
    * @throws IllegalArgumentException if the value does not match
    *     a StateType
    */
-  static StateType fromValue(final byte value)
-      throws IllegalArgumentException {
+  static StateType fromValue(final byte value) throws IllegalArgumentException {
     for (final StateType threadType : StateType.values()) {
       if (threadType.value == value) {
         return threadType;
       }
     }
-    throw new IllegalArgumentException(
-        "Unknown value for StateType: " + value);
+    throw new IllegalArgumentException("Unknown value for StateType: " + value);
   }
 }

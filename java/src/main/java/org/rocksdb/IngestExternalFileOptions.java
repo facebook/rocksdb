@@ -68,8 +68,7 @@ public class IngestExternalFileOptions extends RocksObject {
    *
    * @return the reference to the current IngestExternalFileOptions.
    */
-  public IngestExternalFileOptions setSnapshotConsistency(
-      final boolean snapshotConsistency) {
+  public IngestExternalFileOptions setSnapshotConsistency(final boolean snapshotConsistency) {
     setSnapshotConsistency(nativeHandle_, snapshotConsistency);
     return this;
   }
@@ -85,15 +84,15 @@ public class IngestExternalFileOptions extends RocksObject {
   }
 
   /**
-   * If set to false, {@link RocksDB#ingestExternalFile(ColumnFamilyHandle, List, IngestExternalFileOptions)}
-   * will fail if the file key range overlaps with existing keys or tombstones in the DB.
+   * If set to false, {@link RocksDB#ingestExternalFile(ColumnFamilyHandle, List,
+   * IngestExternalFileOptions)} will fail if the file key range overlaps with existing keys or
+   * tombstones in the DB.
    *
    * @param allowGlobalSeqNo true if global seq numbers are required
    *
    * @return the reference to the current IngestExternalFileOptions.
    */
-  public IngestExternalFileOptions setAllowGlobalSeqNo(
-      final boolean allowGlobalSeqNo) {
+  public IngestExternalFileOptions setAllowGlobalSeqNo(final boolean allowGlobalSeqNo) {
     setAllowGlobalSeqNo(nativeHandle_, allowGlobalSeqNo);
     return this;
   }
@@ -116,8 +115,7 @@ public class IngestExternalFileOptions extends RocksObject {
    *
    * @return the reference to the current IngestExternalFileOptions.
    */
-  public IngestExternalFileOptions setAllowBlockingFlush(
-      final boolean allowBlockingFlush) {
+  public IngestExternalFileOptions setAllowBlockingFlush(final boolean allowBlockingFlush) {
     setAllowBlockingFlush(nativeHandle_, allowBlockingFlush);
     return this;
   }
@@ -195,8 +193,7 @@ public class IngestExternalFileOptions extends RocksObject {
    *
    * @return the reference to the current IngestExternalFileOptions.
    */
-  public IngestExternalFileOptions setWriteGlobalSeqno(
-      final boolean writeGlobalSeqno) {
+  public IngestExternalFileOptions setWriteGlobalSeqno(final boolean writeGlobalSeqno) {
     setWriteGlobalSeqno(nativeHandle_, writeGlobalSeqno);
     return this;
   }
@@ -219,9 +216,7 @@ public class IngestExternalFileOptions extends RocksObject {
   private native void setAllowBlockingFlush(final long handle,
       final boolean allowBlockingFlush);
   private native boolean ingestBehind(final long handle);
-  private native void setIngestBehind(final long handle,
-      final boolean ingestBehind);
+  private native void setIngestBehind(final long handle, final boolean ingestBehind);
   private native boolean writeGlobalSeqno(final long handle);
-  private native void setWriteGlobalSeqno(final long handle,
-      final boolean writeGlobalSeqNo);
+  private native void setWriteGlobalSeqno(final long handle, final boolean writeGlobalSeqNo);
 }

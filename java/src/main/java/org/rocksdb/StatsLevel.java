@@ -59,7 +59,6 @@ public enum StatsLevel {
                 return statsLevel;
             }
         }
-        throw new IllegalArgumentException(
-                "Illegal value provided for StatsLevel.");
+        throw new IllegalArgumentException("Illegal value provided for StatsLevel.");
     }
 }

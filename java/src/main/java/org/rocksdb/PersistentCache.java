@@ -10,17 +10,14 @@ package org.rocksdb;
  * cache is specifically designed for persistent read cache.
  */
 public class PersistentCache extends RocksObject {
-
-  public PersistentCache(final Env env, final String path, final long size,
-      final Logger logger, final boolean optimizedForNvm)
-      throws RocksDBException {
-    super(newPersistentCache(env.nativeHandle_, path, size,
-        logger.nativeHandle_, optimizedForNvm));
+  public PersistentCache(final Env env, final String path, final long size, final Logger logger,
+      final boolean optimizedForNvm) throws RocksDBException {
+    super(newPersistentCache(env.nativeHandle_, path, size, logger.nativeHandle_, optimizedForNvm));
   }
 
-  private native static long newPersistentCache(final long envHandle,
-    final String path, final long size, final long loggerHandle,
-    final boolean optimizedForNvm) throws RocksDBException;
+  private native static long newPersistentCache(final long envHandle, final String path,
+      final long size, final long loggerHandle, final boolean optimizedForNvm)
+      throws RocksDBException;
 
   @Override protected final native void disposeInternal(final long handle);
 }

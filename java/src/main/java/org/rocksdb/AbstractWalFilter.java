@@ -8,9 +8,7 @@ package org.rocksdb;
 /**
  * Base class for WAL Filters.
  */
-public abstract class AbstractWalFilter
-    extends RocksCallbackObject implements WalFilter {
-
+public abstract class AbstractWalFilter extends RocksCallbackObject implements WalFilter {
   @Override
   protected long initializeNative(final long... nativeParameterHandles) {
     return createNewWalFilter();
@@ -30,19 +28,17 @@ public abstract class AbstractWalFilter
    *     {@link WalFilter.LogRecordFoundResult#walProcessingOption}
    *     {@link WalFilter.LogRecordFoundResult#batchChanged}.
    */
-  private short logRecordFoundProxy(final long logNumber,
-      final String logFileName, final long batchHandle,
-      final long newBatchHandle) {
+  private short logRecordFoundProxy(final long logNumber, final String logFileName,
+      final long batchHandle, final long newBatchHandle) {
     final LogRecordFoundResult logRecordFoundResult = logRecordFound(
-        logNumber, logFileName, new WriteBatch(batchHandle),
-        new WriteBatch(newBatchHandle));
+        logNumber, logFileName, new WriteBatch(batchHandle), new WriteBatch(newBatchHandle));
     return logRecordFoundResultToShort(logRecordFoundResult);
   }
 
   private static short logRecordFoundResultToShort(
       final LogRecordFoundResult logRecordFoundResult) {
-    short result = (short)(logRecordFoundResult.walProcessingOption.getValue() << 8);
-    return (short)(result | (logRecordFoundResult.batchChanged ? 1 : 0));
+    short result = (short) (logRecordFoundResult.walProcessingOption.getValue() << 8);
+    return (short) (result | (logRecordFoundResult.batchChanged ? 1 : 0));
   }
 
   private native long createNewWalFilter();

@@ -12,15 +12,12 @@ import java.util.NoSuchElementException;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class MutableDBOptionsTest {
-
   @Test
   public void builder() {
-    final MutableDBOptionsBuilder builder =
-        MutableDBOptions.builder();
-        builder
-            .setBytesPerSync(1024 * 1024 * 7)
-            .setMaxBackgroundJobs(5)
-            .setAvoidFlushDuringShutdown(false);
+    final MutableDBOptionsBuilder builder = MutableDBOptions.builder();
+    builder.setBytesPerSync(1024 * 1024 * 7)
+        .setMaxBackgroundJobs(5)
+        .setAvoidFlushDuringShutdown(false);
 
     assertThat(builder.bytesPerSync()).isEqualTo(1024 * 1024 * 7);
     assertThat(builder.maxBackgroundJobs()).isEqualTo(5);
@@ -29,41 +26,33 @@ public class MutableDBOptionsTest {
 
   @Test(expected = NoSuchElementException.class)
   public void builder_getWhenNotSet() {
-    final MutableDBOptionsBuilder builder =
-        MutableDBOptions.builder();
+    final MutableDBOptionsBuilder builder = MutableDBOptions.builder();
 
     builder.bytesPerSync();
   }
 
   @Test
   public void builder_build() {
-    final MutableDBOptions options = MutableDBOptions
-        .builder()
-          .setBytesPerSync(1024 * 1024 * 7)
-          .setMaxBackgroundJobs(5)
-          .build();
+    final MutableDBOptions options =
+        MutableDBOptions.builder().setBytesPerSync(1024 * 1024 * 7).setMaxBackgroundJobs(5).build();
 
     assertThat(options.getKeys().length).isEqualTo(2);
     assertThat(options.getValues().length).isEqualTo(2);
-    assertThat(options.getKeys()[0])
-        .isEqualTo(
-            MutableDBOptions.DBOption.bytes_per_sync.name());
+    assertThat(options.getKeys()[0]).isEqualTo(MutableDBOptions.DBOption.bytes_per_sync.name());
     assertThat(options.getValues()[0]).isEqualTo("7340032");
     assertThat(options.getKeys()[1])
-        .isEqualTo(
-            MutableDBOptions.DBOption.max_background_jobs.name());
+        .isEqualTo(MutableDBOptions.DBOption.max_background_jobs.name());
     assertThat(options.getValues()[1]).isEqualTo("5");
   }
 
   @Test
   public void mutableColumnFamilyOptions_toString() {
-    final String str = MutableDBOptions
-        .builder()
-        .setMaxOpenFiles(99)
-        .setDelayedWriteRate(789)
-        .setAvoidFlushDuringShutdown(true)
-        .build()
-        .toString();
+    final String str = MutableDBOptions.builder()
+                           .setMaxOpenFiles(99)
+                           .setDelayedWriteRate(789)
+                           .setAvoidFlushDuringShutdown(true)
+                           .build()
+                           .toString();
 
     assertThat(str).isEqualTo("max_open_files=99;delayed_write_rate=789;"
         + "avoid_flush_during_shutdown=true");
@@ -74,8 +63,7 @@ public class MutableDBOptionsTest {
     final String str = "max_open_files=99;delayed_write_rate=789;"
         + "avoid_flush_during_shutdown=true";
 
-    final MutableDBOptionsBuilder builder =
-        MutableDBOptions.parse(str);
+    final MutableDBOptionsBuilder builder = MutableDBOptions.parse(str);
 
     assertThat(builder.maxOpenFiles()).isEqualTo(99);
     assertThat(builder.delayedWriteRate()).isEqualTo(789);

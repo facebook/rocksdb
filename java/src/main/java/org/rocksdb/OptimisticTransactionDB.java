@@ -94,7 +94,6 @@ public class OptimisticTransactionDB extends RocksDB
     return otdb;
   }
 
-
   /**
    * This is similar to {@link #close()} except that it
    * throws an exception if any error occurs.
@@ -209,8 +208,7 @@ public class OptimisticTransactionDB extends RocksDB
       final String path) throws RocksDBException;
   protected static native long[] open(final long handle, final String path,
       final byte[][] columnFamilyNames, final long[] columnFamilyOptions);
-  private native static void closeDatabase(final long handle)
-      throws RocksDBException;
+  private native static void closeDatabase(final long handle) throws RocksDBException;
   private native long beginTransaction(final long handle,
       final long writeOptionsHandle);
   private native long beginTransaction(final long handle,

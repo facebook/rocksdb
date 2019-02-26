@@ -10,7 +10,6 @@ package org.rocksdb;
  * one operation at a time.
  */
 public interface TraceWriter {
-
   /**
    * Write the data.
    *

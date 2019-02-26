@@ -20,15 +20,14 @@ namespace rocksdb {
 
 class TableFilterJniCallback : public JniCallback {
  public:
-    TableFilterJniCallback(
-        JNIEnv* env, jobject jtable_filter);
-    std::function<bool(const rocksdb::TableProperties&)> GetTableFilterFunction();
+  TableFilterJniCallback(JNIEnv* env, jobject jtable_filter);
+  std::function<bool(const rocksdb::TableProperties&)> GetTableFilterFunction();
 
  private:
-    jmethodID m_jfilter_methodid;
-    std::function<bool(const rocksdb::TableProperties&)> m_table_filter_function;
+  jmethodID m_jfilter_methodid;
+  std::function<bool(const rocksdb::TableProperties&)> m_table_filter_function;
 };
 
-}  //namespace rocksdb
+}  // namespace rocksdb
 
 #endif  // JAVA_ROCKSJNI_TABLE_FILTER_JNICALLBACK_H_

@@ -498,13 +498,12 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public ColumnFamilyHandle createColumnFamily(
-      final ColumnFamilyDescriptor columnFamilyDescriptor)
+  public ColumnFamilyHandle createColumnFamily(final ColumnFamilyDescriptor columnFamilyDescriptor)
       throws RocksDBException {
-    return new ColumnFamilyHandle(this, createColumnFamily(nativeHandle_,
-        columnFamilyDescriptor.getName(),
-        columnFamilyDescriptor.getName().length,
-        columnFamilyDescriptor.getOptions().nativeHandle_));
+    return new ColumnFamilyHandle(this,
+        createColumnFamily(nativeHandle_, columnFamilyDescriptor.getName(),
+            columnFamilyDescriptor.getName().length,
+            columnFamilyDescriptor.getOptions().nativeHandle_));
   }
 
   /**
@@ -516,14 +515,12 @@ public class RocksDB extends RocksObject {
    * @return the handles to the newly created column families.
    */
   public List<ColumnFamilyHandle> createColumnFamilies(
-      final ColumnFamilyOptions columnFamilyOptions,
-      final List<byte[]> columnFamilyNames) throws RocksDBException {
-    final byte[][] cfNames = columnFamilyNames.toArray(
-        new byte[0][]);
-    final long[] cfHandles = createColumnFamilies(nativeHandle_,
-        columnFamilyOptions.nativeHandle_, cfNames);
-    final List<ColumnFamilyHandle> columnFamilyHandles =
-        new ArrayList<>(cfHandles.length);
+      final ColumnFamilyOptions columnFamilyOptions, final List<byte[]> columnFamilyNames)
+      throws RocksDBException {
+    final byte[][] cfNames = columnFamilyNames.toArray(new byte[0][]);
+    final long[] cfHandles =
+        createColumnFamilies(nativeHandle_, columnFamilyOptions.nativeHandle_, cfNames);
+    final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>(cfHandles.length);
     for (int i = 0; i < cfHandles.length; i++) {
       columnFamilyHandles.add(new ColumnFamilyHandle(this, cfHandles[i]));
     }
@@ -538,20 +535,16 @@ public class RocksDB extends RocksObject {
    * @return the handles to the newly created column families.
    */
   public List<ColumnFamilyHandle> createColumnFamilies(
-      final List<ColumnFamilyDescriptor> columnFamilyDescriptors)
-      throws RocksDBException {
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors) throws RocksDBException {
     final long[] cfOptsHandles = new long[columnFamilyDescriptors.size()];
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      final ColumnFamilyDescriptor columnFamilyDescriptor
-          = columnFamilyDescriptors.get(i);
+      final ColumnFamilyDescriptor columnFamilyDescriptor = columnFamilyDescriptors.get(i);
       cfOptsHandles[i] = columnFamilyDescriptor.getOptions().nativeHandle_;
       cfNames[i] = columnFamilyDescriptor.getName();
     }
-    final long[] cfHandles = createColumnFamilies(nativeHandle_,
-        cfOptsHandles, cfNames);
-    final List<ColumnFamilyHandle> columnFamilyHandles =
-        new ArrayList<>(cfHandles.length);
+    final long[] cfHandles = createColumnFamilies(nativeHandle_, cfOptsHandles, cfNames);
+    final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>(cfHandles.length);
     for (int i = 0; i < cfHandles.length; i++) {
       columnFamilyHandles.add(new ColumnFamilyHandle(this, cfHandles[i]));
     }
@@ -578,8 +571,8 @@ public class RocksDB extends RocksObject {
   // manifest and prevents the column families from flushing and compacting.
   // In case of error, the request may succeed partially. User may call
   // ListColumnFamilies to check the result.
-  public void dropColumnFamilies(
-      final List<ColumnFamilyHandle> columnFamilies) throws RocksDBException {
+  public void dropColumnFamilies(final List<ColumnFamilyHandle> columnFamilies)
+      throws RocksDBException {
     final long[] cfHandles = new long[columnFamilies.size()];
     for (int i = 0; i < columnFamilies.size(); i++) {
       cfHandles[i] = columnFamilies.get(i).nativeHandle_;
@@ -587,7 +580,7 @@ public class RocksDB extends RocksObject {
     dropColumnFamilies(nativeHandle_, cfHandles);
   }
 
-  //TODO(AR) what about DestroyColumnFamilyHandle
+  // TODO(AR) what about DestroyColumnFamilyHandle
 
   /**
    * Set the database entry for "key" to "value".
@@ -621,9 +614,8 @@ public class RocksDB extends RocksObject {
    *     library.
    * @throws IndexOutOfBoundsException if an offset or length is out of bounds
    */
-  public void put(final byte[] key, final int offset, final int len,
-      final byte[] value, final int vOffset, final int vLen)
-      throws RocksDBException {
+  public void put(final byte[] key, final int offset, final int len, final byte[] value,
+      final int vOffset, final int vLen) throws RocksDBException {
     checkBounds(offset, len, key.length);
     checkBounds(vOffset, vLen, value.length);
     put(nativeHandle_, key, offset, len, value, vOffset, vLen);
@@ -670,9 +662,8 @@ public class RocksDB extends RocksObject {
    *     library.
    * @throws IndexOutOfBoundsException if an offset or length is out of bounds
    */
-  public void put(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key, final int offset, final int len,
-      final byte[] value, final int vOffset, final int vLen)
+  public void put(final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final int offset,
+      final int len, final byte[] value, final int vOffset, final int vLen)
       throws RocksDBException {
     checkBounds(offset, len, key.length);
     checkBounds(vOffset, vLen, value.length);
@@ -715,10 +706,8 @@ public class RocksDB extends RocksObject {
    *    native library.
    * @throws IndexOutOfBoundsException if an offset or length is out of bounds
    */
-  public void put(final WriteOptions writeOpts,
-      final byte[] key, final int offset, final int len,
-      final byte[] value, final int vOffset, final int vLen)
-      throws RocksDBException {
+  public void put(final WriteOptions writeOpts, final byte[] key, final int offset, final int len,
+      final byte[] value, final int vOffset, final int vLen) throws RocksDBException {
     checkBounds(offset, len, key.length);
     checkBounds(vOffset, vLen, value.length);
     put(nativeHandle_, writeOpts.nativeHandle_,
@@ -770,11 +759,9 @@ public class RocksDB extends RocksObject {
    *    native library.
    * @throws IndexOutOfBoundsException if an offset or length is out of bounds
    */
-  public void put(final ColumnFamilyHandle columnFamilyHandle,
-      final WriteOptions writeOpts,
-      final byte[] key, final int offset, final int len,
-      final byte[] value, final int vOffset, final int vLen)
-      throws RocksDBException {
+  public void put(final ColumnFamilyHandle columnFamilyHandle, final WriteOptions writeOpts,
+      final byte[] key, final int offset, final int len, final byte[] value, final int vOffset,
+      final int vLen) throws RocksDBException {
     checkBounds(offset, len, key.length);
     checkBounds(vOffset, vLen, value.length);
     put(nativeHandle_, writeOpts.nativeHandle_, key, offset, len, value,
@@ -826,8 +813,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void delete(final byte[] key, final int offset, final int len)
-      throws RocksDBException {
+  public void delete(final byte[] key, final int offset, final int len) throws RocksDBException {
     delete(nativeHandle_, key, offset, len);
   }
 
@@ -846,8 +832,8 @@ public class RocksDB extends RocksObject {
    * @deprecated Use {@link #delete(ColumnFamilyHandle, byte[])}
    */
   @Deprecated
-  public void remove(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key) throws RocksDBException {
+  public void remove(final ColumnFamilyHandle columnFamilyHandle, final byte[] key)
+      throws RocksDBException {
     delete(columnFamilyHandle, key);
   }
 
@@ -863,8 +849,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void delete(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key) throws RocksDBException {
+  public void delete(final ColumnFamilyHandle columnFamilyHandle, final byte[] key)
+      throws RocksDBException {
     delete(nativeHandle_, key, 0, key.length, columnFamilyHandle.nativeHandle_);
   }
 
@@ -884,9 +870,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void delete(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key, final int offset, final int len)
-      throws RocksDBException {
+  public void delete(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
+      final int offset, final int len) throws RocksDBException {
     delete(nativeHandle_, key, offset, len, columnFamilyHandle.nativeHandle_);
   }
 
@@ -904,8 +889,7 @@ public class RocksDB extends RocksObject {
    * @deprecated Use {@link #delete(WriteOptions, byte[])}
    */
   @Deprecated
-  public void remove(final WriteOptions writeOpt, final byte[] key)
-      throws RocksDBException {
+  public void remove(final WriteOptions writeOpt, final byte[] key) throws RocksDBException {
     delete(writeOpt, key);
   }
 
@@ -920,8 +904,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void delete(final WriteOptions writeOpt, final byte[] key)
-      throws RocksDBException {
+  public void delete(final WriteOptions writeOpt, final byte[] key) throws RocksDBException {
     delete(nativeHandle_, writeOpt.nativeHandle_, key, 0, key.length);
   }
 
@@ -940,8 +923,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void delete(final WriteOptions writeOpt, final byte[] key,
-      final int offset, final int len) throws RocksDBException {
+  public void delete(final WriteOptions writeOpt, final byte[] key, final int offset, final int len)
+      throws RocksDBException {
     delete(nativeHandle_, writeOpt.nativeHandle_, key, offset, len);
   }
 
@@ -961,8 +944,8 @@ public class RocksDB extends RocksObject {
    * @deprecated Use {@link #delete(ColumnFamilyHandle, WriteOptions, byte[])}
    */
   @Deprecated
-  public void remove(final ColumnFamilyHandle columnFamilyHandle,
-      final WriteOptions writeOpt, final byte[] key) throws RocksDBException {
+  public void remove(final ColumnFamilyHandle columnFamilyHandle, final WriteOptions writeOpt,
+      final byte[] key) throws RocksDBException {
     delete(columnFamilyHandle, writeOpt, key);
   }
 
@@ -979,9 +962,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void delete(final ColumnFamilyHandle columnFamilyHandle,
-      final WriteOptions writeOpt, final byte[] key)
-      throws RocksDBException {
+  public void delete(final ColumnFamilyHandle columnFamilyHandle, final WriteOptions writeOpt,
+      final byte[] key) throws RocksDBException {
     delete(nativeHandle_, writeOpt.nativeHandle_, key, 0, key.length,
         columnFamilyHandle.nativeHandle_);
   }
@@ -1003,11 +985,10 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void delete(final ColumnFamilyHandle columnFamilyHandle,
-      final WriteOptions writeOpt, final byte[] key, final int offset,
-      final int len)  throws RocksDBException {
-    delete(nativeHandle_, writeOpt.nativeHandle_, key, offset, len,
-        columnFamilyHandle.nativeHandle_);
+  public void delete(final ColumnFamilyHandle columnFamilyHandle, final WriteOptions writeOpt,
+      final byte[] key, final int offset, final int len) throws RocksDBException {
+    delete(
+        nativeHandle_, writeOpt.nativeHandle_, key, offset, len, columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -1059,10 +1040,9 @@ public class RocksDB extends RocksObject {
    *     native library.
    */
   @Experimental("Performance optimization for a very specific workload")
-  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key) throws RocksDBException {
-    singleDelete(nativeHandle_, key, key.length,
-        columnFamilyHandle.nativeHandle_);
+  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle, final byte[] key)
+      throws RocksDBException {
+    singleDelete(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -1090,8 +1070,7 @@ public class RocksDB extends RocksObject {
    *     native library.
    */
   @Experimental("Performance optimization for a very specific workload")
-  public void singleDelete(final WriteOptions writeOpt, final byte[] key)
-      throws RocksDBException {
+  public void singleDelete(final WriteOptions writeOpt, final byte[] key) throws RocksDBException {
     singleDelete(nativeHandle_, writeOpt.nativeHandle_, key, key.length);
   }
 
@@ -1121,12 +1100,11 @@ public class RocksDB extends RocksObject {
    *     native library.
    */
   @Experimental("Performance optimization for a very specific workload")
-  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle,
-      final WriteOptions writeOpt, final byte[] key) throws RocksDBException {
-    singleDelete(nativeHandle_, writeOpt.nativeHandle_, key, key.length,
-        columnFamilyHandle.nativeHandle_);
+  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle, final WriteOptions writeOpt,
+      final byte[] key) throws RocksDBException {
+    singleDelete(
+        nativeHandle_, writeOpt.nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
   }
-
 
   /**
    * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
@@ -1143,10 +1121,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying native
    *     library.
    */
-  public void deleteRange(final byte[] beginKey, final byte[] endKey)
-      throws RocksDBException {
-    deleteRange(nativeHandle_, beginKey, 0, beginKey.length, endKey, 0,
-        endKey.length);
+  public void deleteRange(final byte[] beginKey, final byte[] endKey) throws RocksDBException {
+    deleteRange(nativeHandle_, beginKey, 0, beginKey.length, endKey, 0, endKey.length);
   }
 
   /**
@@ -1165,10 +1141,10 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying native
    *     library.
    */
-  public void deleteRange(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] beginKey, final byte[] endKey) throws RocksDBException {
-    deleteRange(nativeHandle_, beginKey, 0, beginKey.length, endKey, 0,
-        endKey.length, columnFamilyHandle.nativeHandle_);
+  public void deleteRange(final ColumnFamilyHandle columnFamilyHandle, final byte[] beginKey,
+      final byte[] endKey) throws RocksDBException {
+    deleteRange(nativeHandle_, beginKey, 0, beginKey.length, endKey, 0, endKey.length,
+        columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -1187,10 +1163,10 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *     native library.
    */
-  public void deleteRange(final WriteOptions writeOpt, final byte[] beginKey,
-      final byte[] endKey) throws RocksDBException {
-    deleteRange(nativeHandle_, writeOpt.nativeHandle_, beginKey, 0,
-        beginKey.length, endKey, 0, endKey.length);
+  public void deleteRange(final WriteOptions writeOpt, final byte[] beginKey, final byte[] endKey)
+      throws RocksDBException {
+    deleteRange(nativeHandle_, writeOpt.nativeHandle_, beginKey, 0, beginKey.length, endKey, 0,
+        endKey.length);
   }
 
   /**
@@ -1210,14 +1186,11 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying native
    *     library.
    */
-  public void deleteRange(final ColumnFamilyHandle columnFamilyHandle,
-      final WriteOptions writeOpt, final byte[] beginKey, final byte[] endKey)
-      throws RocksDBException {
-    deleteRange(nativeHandle_, writeOpt.nativeHandle_, beginKey, 0,
-        beginKey.length, endKey, 0, endKey.length,
-        columnFamilyHandle.nativeHandle_);
+  public void deleteRange(final ColumnFamilyHandle columnFamilyHandle, final WriteOptions writeOpt,
+      final byte[] beginKey, final byte[] endKey) throws RocksDBException {
+    deleteRange(nativeHandle_, writeOpt.nativeHandle_, beginKey, 0, beginKey.length, endKey, 0,
+        endKey.length, columnFamilyHandle.nativeHandle_);
   }
-
 
   /**
    * Add merge operand for key/value pair.
@@ -1229,8 +1202,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void merge(final byte[] key, final byte[] value)
-      throws RocksDBException {
+  public void merge(final byte[] key, final byte[] value) throws RocksDBException {
     merge(nativeHandle_, key, 0, key.length, value, 0, value.length);
   }
 
@@ -1254,8 +1226,8 @@ public class RocksDB extends RocksObject {
    *    native library.
    * @throws IndexOutOfBoundsException if an offset or length is out of bounds
    */
-  public void merge(final byte[] key, int offset, int len, final byte[] value,
-      final int vOffset, final int vLen) throws RocksDBException {
+  public void merge(final byte[] key, int offset, int len, final byte[] value, final int vOffset,
+      final int vLen) throws RocksDBException {
     checkBounds(offset, len, key.length);
     checkBounds(vOffset, vLen, value.length);
     merge(nativeHandle_, key, offset, len, value, vOffset, vLen);
@@ -1272,8 +1244,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void merge(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key, final byte[] value) throws RocksDBException {
+  public void merge(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
+      final byte[] value) throws RocksDBException {
     merge(nativeHandle_, key, 0, key.length, value, 0, value.length,
         columnFamilyHandle.nativeHandle_);
   }
@@ -1298,13 +1270,12 @@ public class RocksDB extends RocksObject {
    *    native library.
    * @throws IndexOutOfBoundsException if an offset or length is out of bounds
    */
-  public void merge(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key, final int offset, final int len, final byte[] value,
-      final int vOffset, final int vLen) throws RocksDBException {
+  public void merge(final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final int offset,
+      final int len, final byte[] value, final int vOffset, final int vLen)
+      throws RocksDBException {
     checkBounds(offset, len, key.length);
     checkBounds(vOffset, vLen, value.length);
-    merge(nativeHandle_, key, offset, len, value, vOffset, vLen,
-        columnFamilyHandle.nativeHandle_);
+    merge(nativeHandle_, key, offset, len, value, vOffset, vLen, columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -1318,10 +1289,9 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void merge(final WriteOptions writeOpts, final byte[] key,
-      final byte[] value) throws RocksDBException {
-    merge(nativeHandle_, writeOpts.nativeHandle_,
-        key, 0, key.length, value, 0, value.length);
+  public void merge(final WriteOptions writeOpts, final byte[] key, final byte[] value)
+      throws RocksDBException {
+    merge(nativeHandle_, writeOpts.nativeHandle_, key, 0, key.length, value, 0, value.length);
   }
 
   /**
@@ -1344,14 +1314,11 @@ public class RocksDB extends RocksObject {
    *    native library.
    * @throws IndexOutOfBoundsException if an offset or length is out of bounds
    */
-  public void merge(final WriteOptions writeOpts,
-      final byte[] key,  final int offset, final int len,
-      final byte[] value, final int vOffset, final int vLen)
-      throws RocksDBException {
+  public void merge(final WriteOptions writeOpts, final byte[] key, final int offset, final int len,
+      final byte[] value, final int vOffset, final int vLen) throws RocksDBException {
     checkBounds(offset, len, key.length);
     checkBounds(vOffset, vLen, value.length);
-    merge(nativeHandle_, writeOpts.nativeHandle_,
-        key, offset, len, value, vOffset, vLen);
+    merge(nativeHandle_, writeOpts.nativeHandle_, key, offset, len, value, vOffset, vLen);
   }
 
   /**
@@ -1366,11 +1333,9 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void merge(final ColumnFamilyHandle columnFamilyHandle,
-      final WriteOptions writeOpts, final byte[] key, final byte[] value)
-      throws RocksDBException {
-    merge(nativeHandle_, writeOpts.nativeHandle_,
-        key, 0, key.length, value, 0, value.length,
+  public void merge(final ColumnFamilyHandle columnFamilyHandle, final WriteOptions writeOpts,
+      final byte[] key, final byte[] value) throws RocksDBException {
+    merge(nativeHandle_, writeOpts.nativeHandle_, key, 0, key.length, value, 0, value.length,
         columnFamilyHandle.nativeHandle_);
   }
 
@@ -1395,11 +1360,9 @@ public class RocksDB extends RocksObject {
    *    native library.
    * @throws IndexOutOfBoundsException if an offset or length is out of bounds
    */
-  public void merge(
-      final ColumnFamilyHandle columnFamilyHandle, final WriteOptions writeOpts,
-      final byte[] key, final int offset, final int len,
-      final byte[] value, final int vOffset, final int vLen)
-      throws RocksDBException {
+  public void merge(final ColumnFamilyHandle columnFamilyHandle, final WriteOptions writeOpts,
+      final byte[] key, final int offset, final int len, final byte[] value, final int vOffset,
+      final int vLen) throws RocksDBException {
     checkBounds(offset, len, key.length);
     checkBounds(vOffset, vLen, value.length);
     merge(nativeHandle_, writeOpts.nativeHandle_,
@@ -1430,8 +1393,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void write(final WriteOptions writeOpts,
-      final WriteBatchWithIndex updates) throws RocksDBException {
+  public void write(final WriteOptions writeOpts, final WriteBatchWithIndex updates)
+      throws RocksDBException {
     write1(nativeHandle_, writeOpts.nativeHandle_, updates.nativeHandle_);
   }
 
@@ -1482,9 +1445,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public int get(final byte[] key, final int offset, final int len,
-      final byte[] value, final int vOffset, final int vLen)
-      throws RocksDBException {
+  public int get(final byte[] key, final int offset, final int len, final byte[] value,
+      final int vOffset, final int vLen) throws RocksDBException {
     checkBounds(offset, len, key.length);
     checkBounds(vOffset, vLen, value.length);
     return get(nativeHandle_, key, offset, len, value, vOffset, vLen);
@@ -1539,9 +1501,9 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public int get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
-      final int offset, final int len, final byte[] value, final int vOffset,
-      final int vLen) throws RocksDBException, IllegalArgumentException {
+  public int get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final int offset,
+      final int len, final byte[] value, final int vOffset, final int vLen)
+      throws RocksDBException, IllegalArgumentException {
     checkBounds(offset, len, key.length);
     checkBounds(vOffset, vLen, value.length);
     return get(nativeHandle_, key, offset, len, value, vOffset, vLen,
@@ -1594,9 +1556,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public int get(final ReadOptions opt, final byte[] key, final int offset,
-      final int len, final byte[] value, final int vOffset, final int vLen)
-      throws RocksDBException {
+  public int get(final ReadOptions opt, final byte[] key, final int offset, final int len,
+      final byte[] value, final int vOffset, final int vLen) throws RocksDBException {
     checkBounds(offset, len, key.length);
     checkBounds(vOffset, vLen, value.length);
     return get(nativeHandle_, opt.nativeHandle_,
@@ -1654,10 +1615,9 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public int get(final ColumnFamilyHandle columnFamilyHandle,
-      final ReadOptions opt, final byte[] key, final int offset, final int len,
-      final byte[] value, final int vOffset, final int vLen)
-      throws RocksDBException {
+  public int get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions opt,
+      final byte[] key, final int offset, final int len, final byte[] value, final int vOffset,
+      final int vLen) throws RocksDBException {
     checkBounds(offset, len, key.length);
     checkBounds(vOffset, vLen, value.length);
     return get(nativeHandle_, opt.nativeHandle_, key, offset, len, value,
@@ -1696,8 +1656,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public byte[] get(final byte[] key, final int offset,
-      final int len) throws RocksDBException {
+  public byte[] get(final byte[] key, final int offset, final int len) throws RocksDBException {
     checkBounds(offset, len, key.length);
     return get(nativeHandle_, key, offset, len);
   }
@@ -1740,9 +1699,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public byte[] get(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key, final int offset, final int len)
-      throws RocksDBException {
+  public byte[] get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final int offset,
+      final int len) throws RocksDBException {
     checkBounds(offset, len, key.length);
     return get(nativeHandle_, key, offset, len,
         columnFamilyHandle.nativeHandle_);
@@ -1783,8 +1741,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public byte[] get(final ReadOptions opt, final byte[] key, final int offset,
-      final int len) throws RocksDBException {
+  public byte[] get(final ReadOptions opt, final byte[] key, final int offset, final int len)
+      throws RocksDBException {
     checkBounds(offset, len, key.length);
     return get(nativeHandle_, opt.nativeHandle_, key, offset, len);
   }
@@ -1829,9 +1787,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public byte[] get(final ColumnFamilyHandle columnFamilyHandle,
-      final ReadOptions opt, final byte[] key, final int offset, final int len)
-      throws RocksDBException {
+  public byte[] get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions opt,
+      final byte[] key, final int offset, final int len) throws RocksDBException {
     checkBounds(offset, len, key.length);
     return get(nativeHandle_, opt.nativeHandle_, key, offset, len,
         columnFamilyHandle.nativeHandle_);
@@ -2214,8 +2171,8 @@ public class RocksDB extends RocksObject {
    *
    * @return boolean value indicating if key does not exist or might exist.
    */
-  public boolean keyMayExist(final byte[] key, final int offset, final int len,
-      final StringBuilder value) {
+  public boolean keyMayExist(
+      final byte[] key, final int offset, final int len, final StringBuilder value) {
     checkBounds(offset, len, key.length);
     return keyMayExist(nativeHandle_, key, offset, len, value);
   }
@@ -2233,10 +2190,9 @@ public class RocksDB extends RocksObject {
    *    found in block-cache.
    * @return boolean value indicating if key does not exist or might exist.
    */
-  public boolean keyMayExist(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key, final StringBuilder value) {
-    return keyMayExist(nativeHandle_, key, 0, key.length,
-        columnFamilyHandle.nativeHandle_, value);
+  public boolean keyMayExist(
+      final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final StringBuilder value) {
+    return keyMayExist(nativeHandle_, key, 0, key.length, columnFamilyHandle.nativeHandle_, value);
   }
 
   /**
@@ -2256,10 +2212,70 @@ public class RocksDB extends RocksObject {
    *    found in block-cache.
    * @return boolean value indicating if key does not exist or might exist.
    */
-  public boolean keyMayExist(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key, int offset, int len, final StringBuilder value) {
+  public boolean keyMayExist(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
+      int offset, int len, final StringBuilder value) {
     checkBounds(offset, len, key.length);
-    return keyMayExist(nativeHandle_, key, offset, len,
+    return keyMayExist(nativeHandle_, key, offset, len, columnFamilyHandle.nativeHandle_, value);
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns false, else true.
+   *
+   * This check is potentially lighter-weight than invoking DB::Get(). One way
+   * to make this lighter weight is to avoid doing any IOs.
+   *
+   * @param readOptions {@link ReadOptions} instance
+   * @param key byte array of a key to search for
+   * @param value StringBuilder instance which is a out parameter if a value is
+   *    found in block-cache.
+   * @return boolean value indicating if key does not exist or might exist.
+   */
+  public boolean keyMayExist(
+      final ReadOptions readOptions, final byte[] key, final StringBuilder value) {
+    return keyMayExist(nativeHandle_, readOptions.nativeHandle_, key, 0, key.length, value);
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns false, else true.
+   *
+   * This check is potentially lighter-weight than invoking DB::Get(). One way
+   * to make this lighter weight is to avoid doing any IOs.
+   *
+   * @param readOptions {@link ReadOptions} instance
+   * @param key byte array of a key to search for
+   * @param offset the offset of the "key" array to be used, must be
+   *     non-negative and no larger than "key".length
+   * @param len the length of the "key" array to be used, must be non-negative
+   *     and no larger than "key".length
+   * @param value StringBuilder instance which is a out parameter if a value is
+   *    found in block-cache.
+   * @return boolean value indicating if key does not exist or might exist.
+   */
+  public boolean keyMayExist(final ReadOptions readOptions, final byte[] key, final int offset,
+      final int len, final StringBuilder value) {
+    checkBounds(offset, len, key.length);
+    return keyMayExist(nativeHandle_, readOptions.nativeHandle_, key, offset, len, value);
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns false, else true.
+   *
+   * This check is potentially lighter-weight than invoking DB::Get(). One way
+   * to make this lighter weight is to avoid doing any IOs.
+   *
+   * @param readOptions {@link ReadOptions} instance
+   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+   * @param key byte array of a key to search for
+   * @param value StringBuilder instance which is a out parameter if a value is
+   *    found in block-cache.
+   * @return boolean value indicating if key does not exist or might exist.
+   */
+  public boolean keyMayExist(final ReadOptions readOptions,
+      final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final StringBuilder value) {
+    return keyMayExist(nativeHandle_, readOptions.nativeHandle_, key, 0, key.length,
         columnFamilyHandle.nativeHandle_, value);
   }
 
@@ -2271,72 +2287,6 @@ public class RocksDB extends RocksObject {
    * to make this lighter weight is to avoid doing any IOs.
    *
    * @param readOptions {@link ReadOptions} instance
-   * @param key byte array of a key to search for
-   * @param value StringBuilder instance which is a out parameter if a value is
-   *    found in block-cache.
-   * @return boolean value indicating if key does not exist or might exist.
-   */
-  public boolean keyMayExist(final ReadOptions readOptions,
-      final byte[] key, final StringBuilder value) {
-    return keyMayExist(nativeHandle_, readOptions.nativeHandle_,
-        key, 0, key.length, value);
-  }
-
-  /**
-   * If the key definitely does not exist in the database, then this method
-   * returns false, else true.
-   *
-   * This check is potentially lighter-weight than invoking DB::Get(). One way
-   * to make this lighter weight is to avoid doing any IOs.
-   *
-   * @param readOptions {@link ReadOptions} instance
-   * @param key byte array of a key to search for
-   * @param offset the offset of the "key" array to be used, must be
-   *     non-negative and no larger than "key".length
-   * @param len the length of the "key" array to be used, must be non-negative
-   *     and no larger than "key".length
-   * @param value StringBuilder instance which is a out parameter if a value is
-   *    found in block-cache.
-   * @return boolean value indicating if key does not exist or might exist.
-   */
-  public boolean keyMayExist(final ReadOptions readOptions,
-      final byte[] key, final int offset, final int len,
-      final StringBuilder value) {
-    checkBounds(offset, len, key.length);
-    return keyMayExist(nativeHandle_, readOptions.nativeHandle_,
-        key, offset, len, value);
-  }
-
-  /**
-   * If the key definitely does not exist in the database, then this method
-   * returns false, else true.
-   *
-   * This check is potentially lighter-weight than invoking DB::Get(). One way
-   * to make this lighter weight is to avoid doing any IOs.
-   *
-   * @param readOptions {@link ReadOptions} instance
-   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
-   * @param key byte array of a key to search for
-   * @param value StringBuilder instance which is a out parameter if a value is
-   *    found in block-cache.
-   * @return boolean value indicating if key does not exist or might exist.
-   */
-  public boolean keyMayExist(final ReadOptions readOptions,
-      final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
-      final StringBuilder value) {
-    return keyMayExist(nativeHandle_, readOptions.nativeHandle_,
-        key, 0, key.length, columnFamilyHandle.nativeHandle_,
-        value);
-  }
-
-  /**
-   * If the key definitely does not exist in the database, then this method
-   * returns false, else true.
-   *
-   * This check is potentially lighter-weight than invoking DB::Get(). One way
-   * to make this lighter weight is to avoid doing any IOs.
-   *
-   * @param readOptions {@link ReadOptions} instance
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
    * @param key byte array of a key to search for
    * @param offset the offset of the "key" array to be used, must be
@@ -2348,12 +2298,11 @@ public class RocksDB extends RocksObject {
    * @return boolean value indicating if key does not exist or might exist.
    */
   public boolean keyMayExist(final ReadOptions readOptions,
-      final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
-      final int offset, final int len, final StringBuilder value) {
+      final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final int offset,
+      final int len, final StringBuilder value) {
     checkBounds(offset, len, key.length);
-    return keyMayExist(nativeHandle_, readOptions.nativeHandle_,
-        key, offset, len, columnFamilyHandle.nativeHandle_,
-        value);
+    return keyMayExist(nativeHandle_, readOptions.nativeHandle_, key, offset, len,
+        columnFamilyHandle.nativeHandle_, value);
   }
 
   /**
@@ -2386,8 +2335,7 @@ public class RocksDB extends RocksObject {
    * @return instance of iterator object.
    */
   public RocksIterator newIterator(final ReadOptions readOptions) {
-    return new RocksIterator(this, iterator(nativeHandle_,
-        readOptions.nativeHandle_));
+    return new RocksIterator(this, iterator(nativeHandle_, readOptions.nativeHandle_));
   }
 
   /**
@@ -2404,10 +2352,8 @@ public class RocksDB extends RocksObject {
    *     instance
    * @return instance of iterator object.
    */
-  public RocksIterator newIterator(
-      final ColumnFamilyHandle columnFamilyHandle) {
-    return new RocksIterator(this, iteratorCF(nativeHandle_,
-        columnFamilyHandle.nativeHandle_));
+  public RocksIterator newIterator(final ColumnFamilyHandle columnFamilyHandle) {
+    return new RocksIterator(this, iteratorCF(nativeHandle_, columnFamilyHandle.nativeHandle_));
   }
 
   /**
@@ -2425,10 +2371,10 @@ public class RocksDB extends RocksObject {
    * @param readOptions {@link ReadOptions} instance.
    * @return instance of iterator object.
    */
-  public RocksIterator newIterator(final ColumnFamilyHandle columnFamilyHandle,
-      final ReadOptions readOptions) {
-    return new RocksIterator(this, iteratorCF(nativeHandle_,
-        columnFamilyHandle.nativeHandle_, readOptions.nativeHandle_));
+  public RocksIterator newIterator(
+      final ColumnFamilyHandle columnFamilyHandle, final ReadOptions readOptions) {
+    return new RocksIterator(this,
+        iteratorCF(nativeHandle_, columnFamilyHandle.nativeHandle_, readOptions.nativeHandle_));
   }
 
   /**
@@ -2444,8 +2390,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public List<RocksIterator> newIterators(
-      final List<ColumnFamilyHandle> columnFamilyHandleList)
+  public List<RocksIterator> newIterators(final List<ColumnFamilyHandle> columnFamilyHandleList)
       throws RocksDBException {
     return newIterators(columnFamilyHandleList, new ReadOptions());
   }
@@ -2464,26 +2409,22 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public List<RocksIterator> newIterators(
-      final List<ColumnFamilyHandle> columnFamilyHandleList,
+  public List<RocksIterator> newIterators(final List<ColumnFamilyHandle> columnFamilyHandleList,
       final ReadOptions readOptions) throws RocksDBException {
-
     final long[] columnFamilyHandles = new long[columnFamilyHandleList.size()];
     for (int i = 0; i < columnFamilyHandleList.size(); i++) {
       columnFamilyHandles[i] = columnFamilyHandleList.get(i).nativeHandle_;
     }
 
-    final long[] iteratorRefs = iterators(nativeHandle_, columnFamilyHandles,
-        readOptions.nativeHandle_);
+    final long[] iteratorRefs =
+        iterators(nativeHandle_, columnFamilyHandles, readOptions.nativeHandle_);
 
-    final List<RocksIterator> iterators = new ArrayList<>(
-        columnFamilyHandleList.size());
-    for (int i=0; i<columnFamilyHandleList.size(); i++){
+    final List<RocksIterator> iterators = new ArrayList<>(columnFamilyHandleList.size());
+    for (int i = 0; i < columnFamilyHandleList.size(); i++) {
       iterators.add(new RocksIterator(this, iteratorRefs[i]));
     }
     return iterators;
   }
-
 
   /**
    * <p>Return a handle to the current DB state. Iterators created with
@@ -2545,11 +2486,11 @@ public class RocksDB extends RocksObject {
    *    native library.
    */
   public String getProperty(
-      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle,
-      final String property) throws RocksDBException {
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle, final String property)
+      throws RocksDBException {
     return getProperty(nativeHandle_,
-        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
-        property, property.length());
+        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_, property,
+        property.length());
   }
 
   /**
@@ -2579,7 +2520,6 @@ public class RocksDB extends RocksObject {
     return getProperty(null, property);
   }
 
-
   /**
    * Gets a property map.
    *
@@ -2589,8 +2529,7 @@ public class RocksDB extends RocksObject {
    *
    * @throws RocksDBException if an error happens in the underlying native code.
    */
-  public Map<String, String> getMapProperty(final String property)
-      throws RocksDBException {
+  public Map<String, String> getMapProperty(final String property) throws RocksDBException {
     return getMapProperty(null, property);
   }
 
@@ -2606,11 +2545,11 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException if an error happens in the underlying native code.
    */
   public Map<String, String> getMapProperty(
-      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle,
-                      final String property) throws RocksDBException {
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle, final String property)
+      throws RocksDBException {
     return getMapProperty(nativeHandle_,
-        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
-        property, property.length());
+        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_, property,
+        property.length());
   }
 
   /**
@@ -2664,11 +2603,11 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException if an error happens in the underlying native code.
    */
   public long getLongProperty(
-      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle,
-      final String property) throws RocksDBException {
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle, final String property)
+      throws RocksDBException {
     return getLongProperty(nativeHandle_,
-        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
-        property, property.length());
+        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_, property,
+        property.length());
   }
 
   /**
@@ -2702,10 +2641,8 @@ public class RocksDB extends RocksObject {
    *
    * @throws RocksDBException if an error happens in the underlying native code.
    */
-  public long getAggregatedLongProperty(final String property)
-      throws RocksDBException {
-    return getAggregatedLongProperty(nativeHandle_, property,
-        property.length());
+  public long getAggregatedLongProperty(final String property) throws RocksDBException {
+    return getAggregatedLongProperty(nativeHandle_, property, property.length());
   }
 
   /**
@@ -2728,13 +2665,10 @@ public class RocksDB extends RocksObject {
    * @return the sizes
    */
   public long[] getApproximateSizes(
-      /*@Nullable*/ final ColumnFamilyHandle columnFamilyHandle,
-      final List<Range> ranges,
+      /*@Nullable*/ final ColumnFamilyHandle columnFamilyHandle, final List<Range> ranges,
       final SizeApproximationFlag... sizeApproximationFlags) {
-
     byte flags = 0x0;
-    for (final SizeApproximationFlag sizeApproximationFlag
-        : sizeApproximationFlags) {
+    for (final SizeApproximationFlag sizeApproximationFlag : sizeApproximationFlags) {
       flags |= sizeApproximationFlag.getValue();
     }
 
@@ -2761,8 +2695,8 @@ public class RocksDB extends RocksObject {
    *
    * @return the sizes.
    */
-  public long[] getApproximateSizes(final List<Range> ranges,
-      final SizeApproximationFlag... sizeApproximationFlags) {
+  public long[] getApproximateSizes(
+      final List<Range> ranges, final SizeApproximationFlag... sizeApproximationFlags) {
     return getApproximateSizes(null, ranges, sizeApproximationFlags);
   }
 
@@ -2788,12 +2722,10 @@ public class RocksDB extends RocksObject {
    * @return the count and size for the range
    */
   public CountAndSize getApproximateMemTableStats(
-      /*@Nullable*/ final ColumnFamilyHandle columnFamilyHandle,
-      final Range range) {
+      /*@Nullable*/ final ColumnFamilyHandle columnFamilyHandle, final Range range) {
     final long[] result = getApproximateMemTableStats(nativeHandle_,
         columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
-        range.start.getNativeHandle(),
-        range.limit.getNativeHandle());
+        range.start.getNativeHandle(), range.limit.getNativeHandle());
     return new CountAndSize(result[0], result[1]);
   }
 
@@ -2806,8 +2738,7 @@ public class RocksDB extends RocksObject {
    *
    * @return the count and size for the range
    */
-  public CountAndSize getApproximateMemTableStats(
-    final Range range) {
+  public CountAndSize getApproximateMemTableStats(final Range range) {
     return getApproximateMemTableStats(null, range);
   }
 
@@ -2858,8 +2789,7 @@ public class RocksDB extends RocksObject {
    *     part of the library.
    */
   public void compactRange(
-      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle)
-      throws RocksDBException {
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle) throws RocksDBException {
     compactRange(nativeHandle_, null, -1, null, -1, 0,
         columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
   }
@@ -2915,12 +2845,11 @@ public class RocksDB extends RocksObject {
    *     part of the library.
    */
   public void compactRange(
-      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] begin, final byte[] end) throws RocksDBException {
-    compactRange(nativeHandle_,
-        begin, begin == null ? -1 : begin.length,
-        end, end == null ? -1 : end.length,
-        0, columnFamilyHandle == null ? 0: columnFamilyHandle.nativeHandle_);
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle, final byte[] begin,
+      final byte[] end) throws RocksDBException {
+    compactRange(nativeHandle_, begin, begin == null ? -1 : begin.length, end,
+        end == null ? -1 : end.length, 0,
+        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -2940,7 +2869,8 @@ public class RocksDB extends RocksObject {
    * <li>{@link #compactRange(byte[], byte[], boolean, int, int)}</li>
    * </ul>
    *
-   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
+   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)}
+   *     instead
    *
    * @param changeLevel reduce level after compaction
    * @param targetLevel target level to compact to
@@ -2950,8 +2880,8 @@ public class RocksDB extends RocksObject {
    *     part of the library.
    */
   @Deprecated
-  public void compactRange(final boolean changeLevel, final int targetLevel,
-      final int targetPathId) throws RocksDBException {
+  public void compactRange(final boolean changeLevel, final int targetLevel, final int targetPathId)
+      throws RocksDBException {
     compactRange(null, changeLevel, targetLevel, targetPathId);
   }
 
@@ -2977,7 +2907,8 @@ public class RocksDB extends RocksObject {
    * </li>
    * </ul>
    *
-   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
+   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)}
+   *     instead
    *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance, or null for the default column family.
@@ -2990,17 +2921,13 @@ public class RocksDB extends RocksObject {
    */
   @Deprecated
   public void compactRange(
-    /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle,
-    final boolean changeLevel, final int targetLevel, final int targetPathId)
-      throws RocksDBException {
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle, final boolean changeLevel,
+      final int targetLevel, final int targetPathId) throws RocksDBException {
     final CompactRangeOptions options = new CompactRangeOptions();
     options.setChangeLevel(changeLevel);
     options.setTargetLevel(targetLevel);
     options.setTargetPathId(targetPathId);
-    compactRange(nativeHandle_,
-        null, -1,
-        null, -1,
-        options.nativeHandle_,
+    compactRange(nativeHandle_, null, -1, null, -1, options.nativeHandle_,
         columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
   }
 
@@ -3034,9 +2961,8 @@ public class RocksDB extends RocksObject {
    *     part of the library.
    */
   @Deprecated
-  public void compactRange(final byte[] begin, final byte[] end,
-      final boolean changeLevel, final int targetLevel,
-      final int targetPathId) throws RocksDBException {
+  public void compactRange(final byte[] begin, final byte[] end, final boolean changeLevel,
+      final int targetLevel, final int targetPathId) throws RocksDBException {
     compactRange(null, begin, end, changeLevel, targetLevel, targetPathId);
   }
 
@@ -3061,7 +2987,8 @@ public class RocksDB extends RocksObject {
    * </li>
    * </ul>
    *
-   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
+   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)}
+   *     instead
    *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance.
@@ -3076,18 +3003,15 @@ public class RocksDB extends RocksObject {
    */
   @Deprecated
   public void compactRange(
-      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] begin, final byte[] end, final boolean changeLevel,
-      final int targetLevel, final int targetPathId)
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle, final byte[] begin,
+      final byte[] end, final boolean changeLevel, final int targetLevel, final int targetPathId)
       throws RocksDBException {
     final CompactRangeOptions options = new CompactRangeOptions();
     options.setChangeLevel(changeLevel);
     options.setTargetLevel(targetLevel);
     options.setTargetPathId(targetPathId);
-    compactRange(nativeHandle_,
-        begin, begin == null ? -1 : begin.length,
-        end, end == null ? -1 : end.length,
-        options.nativeHandle_,
+    compactRange(nativeHandle_, begin, begin == null ? -1 : begin.length, end,
+        end == null ? -1 : end.length, options.nativeHandle_,
         columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
   }
 
@@ -3105,13 +3029,11 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if an error occurs within the native
    *     part of the library.
    */
-  public void compactRange(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] begin, final byte[] end,
-      final CompactRangeOptions compactRangeOptions) throws RocksDBException {
-    compactRange(nativeHandle_,
-        begin, begin == null ? -1 : begin.length,
-        end, end == null ? -1 : end.length,
-        compactRangeOptions.nativeHandle_, columnFamilyHandle.nativeHandle_);
+  public void compactRange(final ColumnFamilyHandle columnFamilyHandle, final byte[] begin,
+      final byte[] end, final CompactRangeOptions compactRangeOptions) throws RocksDBException {
+    compactRange(nativeHandle_, begin, begin == null ? -1 : begin.length, end,
+        end == null ? -1 : end.length, compactRangeOptions.nativeHandle_,
+        columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -3122,12 +3044,10 @@ public class RocksDB extends RocksObject {
    * @param mutableColumnFamilyOptions the options.
    */
   public void setOptions(
-      /* @Nullable */final ColumnFamilyHandle columnFamilyHandle,
-      final MutableColumnFamilyOptions mutableColumnFamilyOptions)
-      throws RocksDBException {
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle,
+      final MutableColumnFamilyOptions mutableColumnFamilyOptions) throws RocksDBException {
     setOptions(nativeHandle_, columnFamilyHandle.nativeHandle_,
-        mutableColumnFamilyOptions.getKeys(),
-        mutableColumnFamilyOptions.getValues());
+        mutableColumnFamilyOptions.getKeys(), mutableColumnFamilyOptions.getValues());
   }
 
   /**
@@ -3135,8 +3055,7 @@ public class RocksDB extends RocksObject {
    *
    * @param mutableColumnFamilyOptions the options.
    */
-  public void setOptions(
-      final MutableColumnFamilyOptions mutableColumnFamilyOptions)
+  public void setOptions(final MutableColumnFamilyOptions mutableColumnFamilyOptions)
       throws RocksDBException {
     setOptions(null, mutableColumnFamilyOptions);
   }
@@ -3146,11 +3065,8 @@ public class RocksDB extends RocksObject {
    *
    * @param mutableDBoptions the options.
    */
-  public void setDBOptions(final MutableDBOptions mutableDBoptions)
-      throws RocksDBException {
-    setDBOptions(nativeHandle_,
-        mutableDBoptions.getKeys(),
-        mutableDBoptions.getValues());
+  public void setDBOptions(final MutableDBOptions mutableDBoptions) throws RocksDBException {
+    setDBOptions(nativeHandle_, mutableDBoptions.getKeys(), mutableDBoptions.getValues());
   }
 
   /**
@@ -3170,15 +3086,11 @@ public class RocksDB extends RocksObject {
    *     will be updated with the info from compacting the files,
    *     can just be null if you don't need it.
    */
-  public List<String> compactFiles(
-      final CompactionOptions compactionOptions,
-      final List<String> inputFileNames,
-      final int outputLevel,
-      final int outputPathId,
-      /* @Nullable */ final CompactionJobInfo compactionJobInfo)
-      throws RocksDBException {
-    return compactFiles(compactionOptions, null, inputFileNames, outputLevel,
-        outputPathId, compactionJobInfo);
+  public List<String> compactFiles(final CompactionOptions compactionOptions,
+      final List<String> inputFileNames, final int outputLevel, final int outputPathId,
+      /* @Nullable */ final CompactionJobInfo compactionJobInfo) throws RocksDBException {
+    return compactFiles(
+        compactionOptions, null, inputFileNames, outputLevel, outputPathId, compactionJobInfo);
   }
 
   /**
@@ -3200,19 +3112,13 @@ public class RocksDB extends RocksObject {
    *     will be updated with the info from compacting the files,
    *     can just be null if you don't need it.
    */
-  public List<String> compactFiles(
-      final CompactionOptions compactionOptions,
+  public List<String> compactFiles(final CompactionOptions compactionOptions,
       /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle,
-      final List<String> inputFileNames,
-      final int outputLevel,
-      final int outputPathId,
-      /* @Nullable */ final CompactionJobInfo compactionJobInfo)
-      throws RocksDBException {
+      final List<String> inputFileNames, final int outputLevel, final int outputPathId,
+      /* @Nullable */ final CompactionJobInfo compactionJobInfo) throws RocksDBException {
     return Arrays.asList(compactFiles(nativeHandle_, compactionOptions.nativeHandle_,
         columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
-        inputFileNames.toArray(new String[0]),
-        outputLevel,
-        outputPathId,
+        inputFileNames.toArray(new String[0]), outputLevel, outputPathId,
         compactionJobInfo == null ? 0 : compactionJobInfo.nativeHandle_));
   }
 
@@ -3252,11 +3158,9 @@ public class RocksDB extends RocksObject {
    *
    * @param columnFamilyHandles the column family handles
    */
-  public void enableAutoCompaction(
-      final List<ColumnFamilyHandle> columnFamilyHandles)
+  public void enableAutoCompaction(final List<ColumnFamilyHandle> columnFamilyHandles)
       throws RocksDBException {
-    enableAutoCompaction(nativeHandle_,
-        toNativeHandleList(columnFamilyHandles));
+    enableAutoCompaction(nativeHandle_, toNativeHandleList(columnFamilyHandles));
   }
 
   /**
@@ -3276,9 +3180,9 @@ public class RocksDB extends RocksObject {
    *
    * @return the number of levels
    */
-  public int numberLevels(/* @Nullable */final ColumnFamilyHandle columnFamilyHandle) {
-    return numberLevels(nativeHandle_,
-        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
+  public int numberLevels(/* @Nullable */ final ColumnFamilyHandle columnFamilyHandle) {
+    return numberLevels(
+        nativeHandle_, columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -3296,9 +3200,9 @@ public class RocksDB extends RocksObject {
    * @param columnFamilyHandle the column family handle
    */
   public int maxMemCompactionLevel(
-      /* @Nullable */final ColumnFamilyHandle columnFamilyHandle) {
-      return maxMemCompactionLevel(nativeHandle_,
-          columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle) {
+    return maxMemCompactionLevel(
+        nativeHandle_, columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -3314,9 +3218,9 @@ public class RocksDB extends RocksObject {
    * @param columnFamilyHandle the column family handle
    */
   public int level0StopWriteTrigger(
-      /* @Nullable */final ColumnFamilyHandle columnFamilyHandle) {
-    return level0StopWriteTrigger(nativeHandle_,
-        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle) {
+    return level0StopWriteTrigger(
+        nativeHandle_, columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -3340,7 +3244,7 @@ public class RocksDB extends RocksObject {
       return Env.getDefault();
     } else {
       final Env env = new RocksEnv(envHandle);
-      env.disOwnNativeHandle();  // we do not own the Env!
+      env.disOwnNativeHandle(); // we do not own the Env!
       return env;
     }
   }
@@ -3356,8 +3260,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if an error occurs within the native
    *     part of the library.
    */
-  public void flush(final FlushOptions flushOptions)
-      throws RocksDBException {
+  public void flush(final FlushOptions flushOptions) throws RocksDBException {
     flush(flushOptions, (List<ColumnFamilyHandle>) null);
   }
 
@@ -3374,10 +3277,8 @@ public class RocksDB extends RocksObject {
    *     part of the library.
    */
   public void flush(final FlushOptions flushOptions,
-      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle)
-      throws RocksDBException {
-    flush(flushOptions,
-        columnFamilyHandle == null ? null : Arrays.asList(columnFamilyHandle));
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle) throws RocksDBException {
+    flush(flushOptions, columnFamilyHandle == null ? null : Arrays.asList(columnFamilyHandle));
   }
 
   /**
@@ -3396,10 +3297,8 @@ public class RocksDB extends RocksObject {
    *     part of the library.
    */
   public void flush(final FlushOptions flushOptions,
-      /* @Nullable */ final List<ColumnFamilyHandle> columnFamilyHandles)
-      throws RocksDBException {
-    flush(nativeHandle_, flushOptions.nativeHandle_,
-        toNativeHandleList(columnFamilyHandles));
+      /* @Nullable */ final List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
+    flush(nativeHandle_, flushOptions.nativeHandle_, toNativeHandleList(columnFamilyHandles));
   }
 
   /**
@@ -3543,16 +3442,15 @@ public class RocksDB extends RocksObject {
    *
    * @return the live files
    */
-  public LiveFiles getLiveFiles(final boolean flushMemtable)
-      throws RocksDBException {
-     final String[] result = getLiveFiles(nativeHandle_, flushMemtable);
-     if (result == null) {
-       return null;
-     }
-     final String[] files = Arrays.copyOf(result, result.length - 1);
-     final long manifestFileSize = Long.parseLong(result[result.length - 1]);
+  public LiveFiles getLiveFiles(final boolean flushMemtable) throws RocksDBException {
+    final String[] result = getLiveFiles(nativeHandle_, flushMemtable);
+    if (result == null) {
+      return null;
+    }
+    final String[] files = Arrays.copyOf(result, result.length - 1);
+    final long manifestFileSize = Long.parseLong(result[result.length - 1]);
 
-     return new LiveFiles(manifestFileSize, Arrays.asList(files));
+    return new LiveFiles(manifestFileSize, Arrays.asList(files));
   }
 
   /**
@@ -3617,8 +3515,8 @@ public class RocksDB extends RocksObject {
    */
   public ColumnFamilyMetaData getColumnFamilyMetaData(
       /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle) {
-    return getColumnFamilyMetaData(nativeHandle_,
-        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
+    return getColumnFamilyMetaData(
+        nativeHandle_, columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -3651,8 +3549,8 @@ public class RocksDB extends RocksObject {
       final IngestExternalFileOptions ingestExternalFileOptions)
       throws RocksDBException {
     ingestExternalFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_,
-        filePathList.toArray(new String[0]),
-        filePathList.size(), ingestExternalFileOptions.nativeHandle_);
+        filePathList.toArray(new String[0]), filePathList.size(),
+        ingestExternalFileOptions.nativeHandle_);
   }
 
   /**
@@ -3678,8 +3576,8 @@ public class RocksDB extends RocksObject {
       final IngestExternalFileOptions ingestExternalFileOptions)
       throws RocksDBException {
     ingestExternalFile(nativeHandle_, columnFamilyHandle.nativeHandle_,
-        filePathList.toArray(new String[0]),
-        filePathList.size(), ingestExternalFileOptions.nativeHandle_);
+        filePathList.toArray(new String[0]), filePathList.size(),
+        ingestExternalFileOptions.nativeHandle_);
   }
 
   /**
@@ -3697,8 +3595,8 @@ public class RocksDB extends RocksObject {
    * @return The handle of the default column family
    */
   public ColumnFamilyHandle getDefaultColumnFamily() {
-    final ColumnFamilyHandle cfHandle = new ColumnFamilyHandle(this,
-        getDefaultColumnFamily(nativeHandle_));
+    final ColumnFamilyHandle cfHandle =
+        new ColumnFamilyHandle(this, getDefaultColumnFamily(nativeHandle_));
     cfHandle.disOwnNativeHandle();
     return cfHandle;
   }
@@ -3712,10 +3610,9 @@ public class RocksDB extends RocksObject {
    * @return the properties
    */
   public Map<String, TableProperties> getPropertiesOfAllTables(
-      /* @Nullable */final ColumnFamilyHandle columnFamilyHandle)
-      throws RocksDBException {
-    return getPropertiesOfAllTables(nativeHandle_,
-        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle) throws RocksDBException {
+    return getPropertiesOfAllTables(
+        nativeHandle_, columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -3723,8 +3620,7 @@ public class RocksDB extends RocksObject {
    *
    * @return the properties
    */
-  public Map<String, TableProperties> getPropertiesOfAllTables()
-      throws RocksDBException {
+  public Map<String, TableProperties> getPropertiesOfAllTables() throws RocksDBException {
     return getPropertiesOfAllTables(null);
   }
 
@@ -3738,8 +3634,8 @@ public class RocksDB extends RocksObject {
    * @return the properties
    */
   public Map<String, TableProperties> getPropertiesOfTablesInRange(
-      /* @Nullable */final ColumnFamilyHandle columnFamilyHandle,
-      final List<Range> ranges) throws RocksDBException {
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle, final List<Range> ranges)
+      throws RocksDBException {
     return getPropertiesOfTablesInRange(nativeHandle_,
         columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
         toRangeSliceHandles(ranges));
@@ -3752,8 +3648,8 @@ public class RocksDB extends RocksObject {
    *
    * @return the properties
    */
-  public Map<String, TableProperties> getPropertiesOfTablesInRange(
-      final List<Range> ranges) throws RocksDBException {
+  public Map<String, TableProperties> getPropertiesOfTablesInRange(final List<Range> ranges)
+      throws RocksDBException {
     return getPropertiesOfTablesInRange(null, ranges);
   }
 
@@ -3766,12 +3662,10 @@ public class RocksDB extends RocksObject {
    * @return the suggested range.
    */
   public Range suggestCompactRange(
-      /* @Nullable */final ColumnFamilyHandle columnFamilyHandle)
-      throws RocksDBException {
-    final long[] rangeSliceHandles = suggestCompactRange(nativeHandle_,
-        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
-    return new Range(new Slice(rangeSliceHandles[0]),
-        new Slice(rangeSliceHandles[1]));
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle) throws RocksDBException {
+    final long[] rangeSliceHandles = suggestCompactRange(
+        nativeHandle_, columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
+    return new Range(new Slice(rangeSliceHandles[0]), new Slice(rangeSliceHandles[1]));
   }
 
   /**
@@ -3779,8 +3673,7 @@ public class RocksDB extends RocksObject {
    *
    * @return the suggested range.
    */
-  public Range suggestCompactRange()
-      throws RocksDBException {
+  public Range suggestCompactRange() throws RocksDBException {
     return suggestCompactRange(null);
   }
 
@@ -3791,18 +3684,16 @@ public class RocksDB extends RocksObject {
    *     or null for the default column family.
    */
   public void promoteL0(
-      /* @Nullable */final ColumnFamilyHandle columnFamilyHandle,
-      final int targetLevel) throws RocksDBException {
-    promoteL0(nativeHandle_,
-        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle, final int targetLevel)
+      throws RocksDBException {
+    promoteL0(nativeHandle_, columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
         targetLevel);
   }
 
   /**
    * Promote L0 for the default column family.
    */
-  public void promoteL0(final int targetLevel)
-      throws RocksDBException {
+  public void promoteL0(final int targetLevel) throws RocksDBException {
     promoteL0(null, targetLevel);
   }
 
@@ -3814,10 +3705,9 @@ public class RocksDB extends RocksObject {
    * @param traceOptions the options
    * @param traceWriter the trace writer
    */
-  public void startTrace(final TraceOptions traceOptions,
-      final AbstractTraceWriter traceWriter) throws RocksDBException {
-    startTrace(nativeHandle_, traceOptions.getMaxTraceFileSize(),
-        traceWriter.nativeHandle_);
+  public void startTrace(final TraceOptions traceOptions, final AbstractTraceWriter traceWriter)
+      throws RocksDBException {
+    startTrace(nativeHandle_, traceOptions.getMaxTraceFileSize(), traceWriter.nativeHandle_);
     /**
      * NOTE: {@link #startTrace(long, long, long) transfers the ownership
      * from Java to C++, so we must disown the native handle here.
@@ -3863,7 +3753,7 @@ public class RocksDB extends RocksObject {
   }
 
   private static long[] toRangeSliceHandles(final List<Range> ranges) {
-    final long rangeSliceHandles[] = new long [ranges.size() * 2];
+    final long rangeSliceHandles[] = new long[ranges.size() * 2];
     for (int i = 0, j = 0; i < ranges.size(); i++) {
       final Range range = ranges.get(i);
       rangeSliceHandles[j++] = range.start.getNativeHandle();
@@ -3878,19 +3768,20 @@ public class RocksDB extends RocksObject {
 
   private static void checkBounds(int offset, int len, int size) {
     if ((offset | len | (offset + len) | (size - (offset + len))) < 0) {
-      throw new IndexOutOfBoundsException(String.format("offset(%d), len(%d), size(%d)", offset, len, size));
+      throw new IndexOutOfBoundsException(
+          String.format("offset(%d), len(%d), size(%d)", offset, len, size));
     }
   }
 
   private static int computeCapacityHint(final int estimatedNumberOfItems) {
     // Default load factor for HashMap is 0.75, so N * 1.5 will be at the load
     // limit. We add +1 for a buffer.
-    return (int)Math.ceil(estimatedNumberOfItems * 1.5 + 1.0);
+    return (int) Math.ceil(estimatedNumberOfItems * 1.5 + 1.0);
   }
 
   // native methods
-  private native static long open(final long optionsHandle,
-      final String path) throws RocksDBException;
+  private native static long open(final long optionsHandle, final String path)
+      throws RocksDBException;
 
   /**
    * @param optionsHandle Native handle pointing to an Options object
@@ -3904,12 +3795,11 @@ public class RocksDB extends RocksObject {
    *
    * @throws RocksDBException thrown if the database could not be opened
    */
-  private native static long[] open(final long optionsHandle,
-      final String path, final byte[][] columnFamilyNames,
-      final long[] columnFamilyOptions) throws RocksDBException;
+  private native static long[] open(final long optionsHandle, final String path,
+      final byte[][] columnFamilyNames, final long[] columnFamilyOptions) throws RocksDBException;
 
-  private native static long openROnly(final long optionsHandle,
-      final String path) throws RocksDBException;
+  private native static long openROnly(final long optionsHandle, final String path)
+      throws RocksDBException;
 
   /**
    * @param optionsHandle Native handle pointing to an Options object
@@ -3923,255 +3813,197 @@ public class RocksDB extends RocksObject {
    *
    * @throws RocksDBException thrown if the database could not be opened
    */
-  private native static long[] openROnly(final long optionsHandle,
-      final String path, final byte[][] columnFamilyNames,
-      final long[] columnFamilyOptions
-  ) throws RocksDBException;
+  private native static long[] openROnly(final long optionsHandle, final String path,
+      final byte[][] columnFamilyNames, final long[] columnFamilyOptions) throws RocksDBException;
 
   @Override protected native void disposeInternal(final long handle);
 
-  private native static void closeDatabase(final long handle)
+  private native static void closeDatabase(final long handle) throws RocksDBException;
+  private native static byte[][] listColumnFamilies(final long optionsHandle, final String path)
       throws RocksDBException;
-  private native static byte[][] listColumnFamilies(final long optionsHandle,
-      final String path) throws RocksDBException;
-  private native long createColumnFamily(final long handle,
-      final byte[] columnFamilyName, final int columnFamilyNamelen,
-      final long columnFamilyOptions) throws RocksDBException;
-  private native long[] createColumnFamilies(final long handle,
-      final long columnFamilyOptionsHandle, final byte[][] columnFamilyNames)
+  private native long createColumnFamily(final long handle, final byte[] columnFamilyName,
+      final int columnFamilyNamelen, final long columnFamilyOptions) throws RocksDBException;
+  private native long[] createColumnFamilies(
+      final long handle, final long columnFamilyOptionsHandle, final byte[][] columnFamilyNames)
       throws RocksDBException;
-  private native long[] createColumnFamilies(final long handle,
-      final long columnFamilyOptionsHandles[], final byte[][] columnFamilyNames)
+  private native long[] createColumnFamilies(
+      final long handle, final long columnFamilyOptionsHandles[], final byte[][] columnFamilyNames)
       throws RocksDBException;
-  private native void dropColumnFamily(
-      final long handle, final long cfHandle) throws RocksDBException;
-  private native void dropColumnFamilies(final long handle,
-      final long[] cfHandles) throws RocksDBException;
-  //TODO(AR) best way to express DestroyColumnFamilyHandle? ...maybe in ColumnFamilyHandle?
-  private native void put(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final byte[] value,
-      final int valueOffset, int valueLength) throws RocksDBException;
+  private native void dropColumnFamily(final long handle, final long cfHandle)
+      throws RocksDBException;
+  private native void dropColumnFamilies(final long handle, final long[] cfHandles)
+      throws RocksDBException;
+  // TODO(AR) best way to express DestroyColumnFamilyHandle? ...maybe in ColumnFamilyHandle?
   private native void put(final long handle, final byte[] key, final int keyOffset,
-      final int keyLength, final byte[] value, final int valueOffset,
+      final int keyLength, final byte[] value, final int valueOffset, int valueLength)
+      throws RocksDBException;
+  private native void put(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength,
+      final long cfHandle) throws RocksDBException;
+  private native void put(final long handle, final long writeOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
+      final int valueLength) throws RocksDBException;
+  private native void put(final long handle, final long writeOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
       final int valueLength, final long cfHandle) throws RocksDBException;
-  private native void put(final long handle, final long writeOptHandle,
-      final byte[] key,  final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength)
-      throws RocksDBException;
-  private native void put(final long handle, final long writeOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength,
-      final long cfHandle) throws RocksDBException;
-  private native void delete(final long handle, final byte[] key,
+  private native void delete(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength) throws RocksDBException;
+  private native void delete(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final long cfHandle) throws RocksDBException;
+  private native void delete(final long handle, final long writeOptHandle, final byte[] key,
       final int keyOffset, final int keyLength) throws RocksDBException;
-  private native void delete(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final long cfHandle)
+  private native void delete(final long handle, final long writeOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final long cfHandle) throws RocksDBException;
+  private native void singleDelete(final long handle, final byte[] key, final int keyLen)
       throws RocksDBException;
-  private native void delete(final long handle, final long writeOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength)
-      throws RocksDBException;
-  private native void delete(final long handle, final long writeOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
+  private native void singleDelete(final long handle, final byte[] key, final int keyLen,
       final long cfHandle) throws RocksDBException;
-  private native void singleDelete(
-      final long handle, final byte[] key, final int keyLen)
-      throws RocksDBException;
-  private native void singleDelete(
-      final long handle, final byte[] key, final int keyLen,
-      final long cfHandle) throws RocksDBException;
-  private native void singleDelete(
-      final long handle, final long writeOptHandle, final byte[] key,
+  private native void singleDelete(final long handle, final long writeOptHandle, final byte[] key,
       final int keyLen) throws RocksDBException;
-  private native void singleDelete(
-      final long handle, final long writeOptHandle,
-      final byte[] key, final int keyLen, final long cfHandle)
-      throws RocksDBException;
+  private native void singleDelete(final long handle, final long writeOptHandle, final byte[] key,
+      final int keyLen, final long cfHandle) throws RocksDBException;
   private native void deleteRange(final long handle, final byte[] beginKey,
       final int beginKeyOffset, final int beginKeyLength, final byte[] endKey,
       final int endKeyOffset, final int endKeyLength) throws RocksDBException;
   private native void deleteRange(final long handle, final byte[] beginKey,
       final int beginKeyOffset, final int beginKeyLength, final byte[] endKey,
-      final int endKeyOffset, final int endKeyLength, final long cfHandle)
-      throws RocksDBException;
+      final int endKeyOffset, final int endKeyLength, final long cfHandle) throws RocksDBException;
   private native void deleteRange(final long handle, final long writeOptHandle,
       final byte[] beginKey, final int beginKeyOffset, final int beginKeyLength,
-      final byte[] endKey, final int endKeyOffset, final int endKeyLength)
+      final byte[] endKey, final int endKeyOffset, final int endKeyLength) throws RocksDBException;
+  private native void deleteRange(final long handle, final long writeOptHandle,
+      final byte[] beginKey, final int beginKeyOffset, final int beginKeyLength,
+      final byte[] endKey, final int endKeyOffset, final int endKeyLength, final long cfHandle)
       throws RocksDBException;
-  private native void deleteRange(
-      final long handle, final long writeOptHandle, final byte[] beginKey,
-      final int beginKeyOffset, final int beginKeyLength, final byte[] endKey,
-      final int endKeyOffset, final int endKeyLength, final long cfHandle)
+  private native void merge(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength)
       throws RocksDBException;
-  private native void merge(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final byte[] value,
-      final int valueOffset, final int valueLength) throws RocksDBException;
-  private native void merge(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final byte[] value,
-      final int valueOffset, final int valueLength, final long cfHandle)
-      throws RocksDBException;
-  private native void merge(final long handle, final long writeOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength)
-      throws RocksDBException;
-  private native void merge(final long handle, final long writeOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength,
+  private native void merge(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength,
       final long cfHandle) throws RocksDBException;
-  private native void write0(final long handle, final long writeOptHandle,
-      final long wbHandle) throws RocksDBException;
-  private native void write1(final long handle, final long writeOptHandle,
-      final long wbwiHandle) throws RocksDBException;
-  private native int get(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final byte[] value,
-      final int valueOffset, final int valueLength) throws RocksDBException;
-  private native int get(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, byte[] value,
-      final int valueOffset, final int valueLength, final long cfHandle)
+  private native void merge(final long handle, final long writeOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
+      final int valueLength) throws RocksDBException;
+  private native void merge(final long handle, final long writeOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
+      final int valueLength, final long cfHandle) throws RocksDBException;
+  private native void write0(final long handle, final long writeOptHandle, final long wbHandle)
       throws RocksDBException;
-  private native int get(final long handle, final long readOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength)
+  private native void write1(final long handle, final long writeOptHandle, final long wbwiHandle)
       throws RocksDBException;
-  private native int get(final long handle, final long readOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength,
+  private native int get(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength)
+      throws RocksDBException;
+  private native int get(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, byte[] value, final int valueOffset, final int valueLength,
       final long cfHandle) throws RocksDBException;
-  private native byte[] get(final long handle, byte[] key, final int keyOffset,
-      final int keyLength) throws RocksDBException;
-  private native byte[] get(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final long cfHandle)
+  private native int get(final long handle, final long readOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
+      final int valueLength) throws RocksDBException;
+  private native int get(final long handle, final long readOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
+      final int valueLength, final long cfHandle) throws RocksDBException;
+  private native byte[] get(final long handle, byte[] key, final int keyOffset, final int keyLength)
       throws RocksDBException;
-  private native byte[] get(final long handle, final long readOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength)
-      throws RocksDBException;
-  private native byte[] get(final long handle,
-      final long readOptHandle, final byte[] key, final int keyOffset,
+  private native byte[] get(final long handle, final byte[] key, final int keyOffset,
       final int keyLength, final long cfHandle) throws RocksDBException;
-  private native byte[][] multiGet(final long dbHandle, final byte[][] keys,
+  private native byte[] get(final long handle, final long readOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength) throws RocksDBException;
+  private native byte[] get(final long handle, final long readOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final long cfHandle) throws RocksDBException;
+  private native byte[][] multiGet(
+      final long dbHandle, final byte[][] keys, final int[] keyOffsets, final int[] keyLengths);
+  private native byte[][] multiGet(final long dbHandle, final byte[][] keys, final int[] keyOffsets,
+      final int[] keyLengths, final long[] columnFamilyHandles);
+  private native byte[][] multiGet(final long dbHandle, final long rOptHandle, final byte[][] keys,
       final int[] keyOffsets, final int[] keyLengths);
-  private native byte[][] multiGet(final long dbHandle, final byte[][] keys,
-      final int[] keyOffsets, final int[] keyLengths,
-      final long[] columnFamilyHandles);
-  private native byte[][] multiGet(final long dbHandle, final long rOptHandle,
-      final byte[][] keys, final int[] keyOffsets, final int[] keyLengths);
-  private native byte[][] multiGet(final long dbHandle, final long rOptHandle,
-      final byte[][] keys, final int[] keyOffsets, final int[] keyLengths,
-      final long[] columnFamilyHandles);
-  private native boolean keyMayExist(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength,
-      final StringBuilder stringBuilder);
-  private native boolean keyMayExist(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final long cfHandle,
-      final StringBuilder stringBuilder);
-  private native boolean keyMayExist(final long handle,
-      final long optionsHandle, final byte[] key, final int keyOffset,
+  private native byte[][] multiGet(final long dbHandle, final long rOptHandle, final byte[][] keys,
+      final int[] keyOffsets, final int[] keyLengths, final long[] columnFamilyHandles);
+  private native boolean keyMayExist(final long handle, final byte[] key, final int keyOffset,
       final int keyLength, final StringBuilder stringBuilder);
-  private native boolean keyMayExist(final long handle,
-      final long optionsHandle, final byte[] key, final int keyOffset,
-      final int keyLength, final long cfHandle,
+  private native boolean keyMayExist(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final long cfHandle, final StringBuilder stringBuilder);
+  private native boolean keyMayExist(final long handle, final long optionsHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final StringBuilder stringBuilder);
+  private native boolean keyMayExist(final long handle, final long optionsHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final long cfHandle,
       final StringBuilder stringBuilder);
   private native long iterator(final long handle);
   private native long iterator(final long handle, final long readOptHandle);
   private native long iteratorCF(final long handle, final long cfHandle);
-  private native long iteratorCF(final long handle, final long cfHandle,
-      final long readOptHandle);
-  private native long[] iterators(final long handle,
-      final long[] columnFamilyHandles, final long readOptHandle)
-      throws RocksDBException;
+  private native long iteratorCF(final long handle, final long cfHandle, final long readOptHandle);
+  private native long[] iterators(final long handle, final long[] columnFamilyHandles,
+      final long readOptHandle) throws RocksDBException;
   private native long getSnapshot(final long nativeHandle);
-  private native void releaseSnapshot(
-      final long nativeHandle, final long snapshotHandle);
-  private native String getProperty(final long nativeHandle,
-      final long cfHandle, final String property, final int propertyLength)
-      throws RocksDBException;
-  private native Map<String, String> getMapProperty(final long nativeHandle,
-      final long cfHandle, final String property, final int propertyLength)
-      throws RocksDBException;
-  private native long getLongProperty(final long nativeHandle,
-      final long cfHandle, final String property, final int propertyLength)
-      throws RocksDBException;
-  private native void resetStats(final long nativeHandle)
-      throws RocksDBException;
-  private native long getAggregatedLongProperty(final long nativeHandle,
-      final String property, int propertyLength) throws RocksDBException;
-  private native long[] getApproximateSizes(final long nativeHandle,
-      final long columnFamilyHandle, final long[] rangeSliceHandles,
-      final byte includeFlags);
-  private final native long[] getApproximateMemTableStats(
-      final long nativeHandle, final long columnFamilyHandle,
-      final long rangeStartSliceHandle, final long rangeLimitSliceHandle);
+  private native void releaseSnapshot(final long nativeHandle, final long snapshotHandle);
+  private native String getProperty(final long nativeHandle, final long cfHandle,
+      final String property, final int propertyLength) throws RocksDBException;
+  private native Map<String, String> getMapProperty(final long nativeHandle, final long cfHandle,
+      final String property, final int propertyLength) throws RocksDBException;
+  private native long getLongProperty(final long nativeHandle, final long cfHandle,
+      final String property, final int propertyLength) throws RocksDBException;
+  private native void resetStats(final long nativeHandle) throws RocksDBException;
+  private native long getAggregatedLongProperty(
+      final long nativeHandle, final String property, int propertyLength) throws RocksDBException;
+  private native long[] getApproximateSizes(final long nativeHandle, final long columnFamilyHandle,
+      final long[] rangeSliceHandles, final byte includeFlags);
+  private final native long[] getApproximateMemTableStats(final long nativeHandle,
+      final long columnFamilyHandle, final long rangeStartSliceHandle,
+      final long rangeLimitSliceHandle);
   private native void compactRange(final long handle,
       /* @Nullable */ final byte[] begin, final int beginLen,
-      /* @Nullable */ final byte[] end, final int endLen,
-      final long compactRangeOptHandle, final long cfHandle)
+      /* @Nullable */ final byte[] end, final int endLen, final long compactRangeOptHandle,
+      final long cfHandle) throws RocksDBException;
+  private native void setOptions(final long handle, final long cfHandle, final String[] keys,
+      final String[] values) throws RocksDBException;
+  private native void setDBOptions(final long handle, final String[] keys, final String[] values)
       throws RocksDBException;
-  private native void setOptions(final long handle, final long cfHandle,
-      final String[] keys, final String[] values) throws RocksDBException;
-  private native void setDBOptions(final long handle,
-      final String[] keys, final String[] values) throws RocksDBException;
-  private native String[] compactFiles(final long handle,
-      final long compactionOptionsHandle,
-      final long columnFamilyHandle,
-      final String[] inputFileNames,
-      final int outputLevel,
-      final int outputPathId,
-      final long compactionJobInfoHandle) throws RocksDBException;
-  private native void pauseBackgroundWork(final long handle)
+  private native String[] compactFiles(final long handle, final long compactionOptionsHandle,
+      final long columnFamilyHandle, final String[] inputFileNames, final int outputLevel,
+      final int outputPathId, final long compactionJobInfoHandle) throws RocksDBException;
+  private native void pauseBackgroundWork(final long handle) throws RocksDBException;
+  private native void continueBackgroundWork(final long handle) throws RocksDBException;
+  private native void enableAutoCompaction(final long handle, final long[] columnFamilyHandles)
       throws RocksDBException;
-  private native void continueBackgroundWork(final long handle)
-      throws RocksDBException;
-  private native void enableAutoCompaction(final long handle,
-      final long[] columnFamilyHandles) throws RocksDBException;
-  private native int numberLevels(final long handle,
-      final long columnFamilyHandle);
-  private native int maxMemCompactionLevel(final long handle,
-      final long columnFamilyHandle);
-  private native int level0StopWriteTrigger(final long handle,
-      final long columnFamilyHandle);
+  private native int numberLevels(final long handle, final long columnFamilyHandle);
+  private native int maxMemCompactionLevel(final long handle, final long columnFamilyHandle);
+  private native int level0StopWriteTrigger(final long handle, final long columnFamilyHandle);
   private native String getName(final long handle);
   private native long getEnv(final long handle);
   private native void flush(final long handle, final long flushOptHandle,
       /* @Nullable */ final long[] cfHandles) throws RocksDBException;
-  private native void flushWal(final long handle, final boolean sync)
-      throws RocksDBException;
+  private native void flushWal(final long handle, final boolean sync) throws RocksDBException;
   private native void syncWal(final long handle) throws RocksDBException;
   private native long getLatestSequenceNumber(final long handle);
-  private native boolean setPreserveDeletesSequenceNumber(final long handle,
-      final long sequenceNumber);
+  private native boolean setPreserveDeletesSequenceNumber(
+      final long handle, final long sequenceNumber);
   private native void disableFileDeletions(long handle) throws RocksDBException;
-  private native void enableFileDeletions(long handle, boolean force)
+  private native void enableFileDeletions(long handle, boolean force) throws RocksDBException;
+  private native String[] getLiveFiles(final long handle, final boolean flushMemtable)
       throws RocksDBException;
-  private native String[] getLiveFiles(final long handle,
-      final boolean flushMemtable) throws RocksDBException;
-  private native LogFile[] getSortedWalFiles(final long handle)
+  private native LogFile[] getSortedWalFiles(final long handle) throws RocksDBException;
+  private native long getUpdatesSince(final long handle, final long sequenceNumber)
       throws RocksDBException;
-  private native long getUpdatesSince(final long handle,
-      final long sequenceNumber) throws RocksDBException;
-  private native void deleteFile(final long handle, final String name)
-      throws RocksDBException;
+  private native void deleteFile(final long handle, final String name) throws RocksDBException;
   private native LiveFileMetaData[] getLiveFilesMetaData(final long handle);
   private native ColumnFamilyMetaData getColumnFamilyMetaData(
       final long handle, final long columnFamilyHandle);
-  private native void ingestExternalFile(final long handle,
-      final long columnFamilyHandle,  final String[] filePathList,
-      final int filePathListLen, final long ingestExternalFileOptionsHandle)
-      throws RocksDBException;
+  private native void ingestExternalFile(final long handle, final long columnFamilyHandle,
+      final String[] filePathList, final int filePathListLen,
+      final long ingestExternalFileOptionsHandle) throws RocksDBException;
   private native void verifyChecksum(final long handle) throws RocksDBException;
   private native long getDefaultColumnFamily(final long handle);
   private native Map<String, TableProperties> getPropertiesOfAllTables(
       final long handle, final long columnFamilyHandle) throws RocksDBException;
   private native Map<String, TableProperties> getPropertiesOfTablesInRange(
-      final long handle, final long columnFamilyHandle,
-      final long[] rangeSliceHandles);
-  private native long[] suggestCompactRange(final long handle,
-      final long columnFamilyHandle) throws RocksDBException;
-  private native void promoteL0(final long handle,
-      final long columnFamilyHandle, final int tragetLevel)
+      final long handle, final long columnFamilyHandle, final long[] rangeSliceHandles);
+  private native long[] suggestCompactRange(final long handle, final long columnFamilyHandle)
       throws RocksDBException;
+  private native void promoteL0(final long handle, final long columnFamilyHandle,
+      final int tragetLevel) throws RocksDBException;
   private native void startTrace(final long handle, final long maxTraceFileSize,
       final long traceWriterHandle) throws RocksDBException;
   private native void endTrace(final long handle) throws RocksDBException;
-
 
   private native static void destroyDB(final String path,
       final long optionsHandle) throws RocksDBException;

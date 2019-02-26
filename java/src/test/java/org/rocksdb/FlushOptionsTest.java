@@ -10,7 +10,6 @@ import org.junit.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class FlushOptionsTest {
-
   @Test
   public void waitForFlush() {
     try (final FlushOptions flushOptions = new FlushOptions()) {

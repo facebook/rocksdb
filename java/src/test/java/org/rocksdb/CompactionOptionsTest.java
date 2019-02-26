@@ -11,19 +11,15 @@ import org.junit.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class CompactionOptionsTest {
-
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksMemoryResource rocksMemoryResource = new RocksMemoryResource();
 
   @Test
   public void compression() {
     try (final CompactionOptions compactionOptions = new CompactionOptions()) {
-      assertThat(compactionOptions.compression())
-          .isEqualTo(CompressionType.SNAPPY_COMPRESSION);
+      assertThat(compactionOptions.compression()).isEqualTo(CompressionType.SNAPPY_COMPRESSION);
       compactionOptions.setCompression(CompressionType.NO_COMPRESSION);
-      assertThat(compactionOptions.compression())
-          .isEqualTo(CompressionType.NO_COMPRESSION);
+      assertThat(compactionOptions.compression()).isEqualTo(CompressionType.NO_COMPRESSION);
     }
   }
 
@@ -31,22 +27,18 @@ public class CompactionOptionsTest {
   public void outputFileSizeLimit() {
     final long mb250 = 1024 * 1024 * 250;
     try (final CompactionOptions compactionOptions = new CompactionOptions()) {
-      assertThat(compactionOptions.outputFileSizeLimit())
-          .isEqualTo(-1);
+      assertThat(compactionOptions.outputFileSizeLimit()).isEqualTo(-1);
       compactionOptions.setOutputFileSizeLimit(mb250);
-      assertThat(compactionOptions.outputFileSizeLimit())
-          .isEqualTo(mb250);
+      assertThat(compactionOptions.outputFileSizeLimit()).isEqualTo(mb250);
     }
   }
 
   @Test
   public void maxSubcompactions() {
     try (final CompactionOptions compactionOptions = new CompactionOptions()) {
-      assertThat(compactionOptions.maxSubcompactions())
-          .isEqualTo(0);
+      assertThat(compactionOptions.maxSubcompactions()).isEqualTo(0);
       compactionOptions.setMaxSubcompactions(9);
-      assertThat(compactionOptions.maxSubcompactions())
-          .isEqualTo(9);
+      assertThat(compactionOptions.maxSubcompactions()).isEqualTo(9);
     }
   }
 }

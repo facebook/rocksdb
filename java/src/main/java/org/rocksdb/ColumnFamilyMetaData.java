@@ -21,10 +21,7 @@ public class ColumnFamilyMetaData {
    * Called from JNI C++
    */
   private ColumnFamilyMetaData(
-      final long size,
-      final long fileCount,
-      final byte[] name,
-      final LevelMetaData[] levels) {
+      final long size, final long fileCount, final byte[] name, final LevelMetaData[] levels) {
     this.size = size;
     this.fileCount = fileCount;
     this.name = name;

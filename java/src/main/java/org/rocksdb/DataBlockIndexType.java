@@ -5,7 +5,6 @@
 
 package org.rocksdb;
 
-
 /**
  * DataBlockIndexType used in conjunction with BlockBasedTable.
  */
@@ -13,12 +12,12 @@ public enum DataBlockIndexType {
   /**
    * traditional block type
    */
-  kDataBlockBinarySearch((byte)0x0),
+  kDataBlockBinarySearch((byte) 0x0),
 
   /**
    * additional hash index
    */
-  kDataBlockBinaryAndHash((byte)0x1);
+  kDataBlockBinaryAndHash((byte) 0x1);
 
   private final byte value;
 

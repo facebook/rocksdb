@@ -12,7 +12,6 @@ import java.util.List;
  * Base class for all Env implementations in RocksDB.
  */
 public abstract class Env extends RocksObject {
-
   private static final Env DEFAULT_ENV = new RocksEnv(getDefaultEnvInternal());
   static {
     /**
@@ -97,8 +96,7 @@ public abstract class Env extends RocksObject {
    *
    * @return current {@link RocksEnv} instance.
    */
-  public Env incBackgroundThreadsIfNeeded(final int number,
-    final Priority priority) {
+  public Env incBackgroundThreadsIfNeeded(final int number, final Priority priority) {
     incBackgroundThreadsIfNeeded(nativeHandle_, number, priority.getValue());
     return this;
   }
@@ -139,16 +137,11 @@ public abstract class Env extends RocksObject {
   private static native long getDefaultEnvInternal();
   private native void setBackgroundThreads(
       final long handle, final int number, final byte priority);
-  private native int getBackgroundThreads(final long handle,
-    final byte priority);
-  private native int getThreadPoolQueueLen(final long handle,
-      final byte priority);
-  private native void incBackgroundThreadsIfNeeded(final long handle,
-      final int number, final byte priority);
-  private native void lowerThreadPoolIOPriority(final long handle,
-      final byte priority);
-  private native void lowerThreadPoolCPUPriority(final long handle,
-      final byte priority);
-  private native ThreadStatus[] getThreadList(final long handle)
-      throws RocksDBException;
+  private native int getBackgroundThreads(final long handle, final byte priority);
+  private native int getThreadPoolQueueLen(final long handle, final byte priority);
+  private native void incBackgroundThreadsIfNeeded(
+      final long handle, final int number, final byte priority);
+  private native void lowerThreadPoolIOPriority(final long handle, final byte priority);
+  private native void lowerThreadPoolCPUPriority(final long handle, final byte priority);
+  private native ThreadStatus[] getThreadList(final long handle) throws RocksDBException;
 }

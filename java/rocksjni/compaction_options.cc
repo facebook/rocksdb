@@ -12,14 +12,12 @@
 #include "rocksdb/options.h"
 #include "rocksjni/portal.h"
 
-
 /*
  * Class:     org_rocksdb_CompactionOptions
  * Method:    newCompactionOptions
  * Signature: ()J
  */
-jlong Java_org_rocksdb_CompactionOptions_newCompactionOptions(
-    JNIEnv*, jclass) {
+jlong Java_org_rocksdb_CompactionOptions_newCompactionOptions(JNIEnv*, jclass) {
   auto* compact_opts = new rocksdb::CompactionOptions();
   return reinterpret_cast<jlong>(compact_opts);
 }
@@ -29,10 +27,9 @@ jlong Java_org_rocksdb_CompactionOptions_newCompactionOptions(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_CompactionOptions_disposeInternal(
-    JNIEnv *, jobject, jlong jhandle) {
-  auto* compact_opts =
-      reinterpret_cast<rocksdb::CompactionOptions*>(jhandle);
+void Java_org_rocksdb_CompactionOptions_disposeInternal(JNIEnv*, jobject,
+                                                        jlong jhandle) {
+  auto* compact_opts = reinterpret_cast<rocksdb::CompactionOptions*>(jhandle);
   delete compact_opts;
 }
 
@@ -41,10 +38,9 @@ void Java_org_rocksdb_CompactionOptions_disposeInternal(
  * Method:    compression
  * Signature: (J)B
  */
-jbyte Java_org_rocksdb_CompactionOptions_compression(
-    JNIEnv*, jclass, jlong jhandle) {
-  auto* compact_opts =
-      reinterpret_cast<rocksdb::CompactionOptions*>(jhandle);
+jbyte Java_org_rocksdb_CompactionOptions_compression(JNIEnv*, jclass,
+                                                     jlong jhandle) {
+  auto* compact_opts = reinterpret_cast<rocksdb::CompactionOptions*>(jhandle);
   return rocksdb::CompressionTypeJni::toJavaCompressionType(
       compact_opts->compression);
 }
@@ -56,11 +52,9 @@ jbyte Java_org_rocksdb_CompactionOptions_compression(
  */
 void Java_org_rocksdb_CompactionOptions_setCompression(
     JNIEnv*, jclass, jlong jhandle, jbyte jcompression_type_value) {
-  auto* compact_opts =
-      reinterpret_cast<rocksdb::CompactionOptions*>(jhandle);
-  compact_opts->compression =
-      rocksdb::CompressionTypeJni::toCppCompressionType(
-          jcompression_type_value);
+  auto* compact_opts = reinterpret_cast<rocksdb::CompactionOptions*>(jhandle);
+  compact_opts->compression = rocksdb::CompressionTypeJni::toCppCompressionType(
+      jcompression_type_value);
 }
 
 /*
@@ -68,12 +62,10 @@ void Java_org_rocksdb_CompactionOptions_setCompression(
  * Method:    outputFileSizeLimit
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionOptions_outputFileSizeLimit(
-    JNIEnv*, jclass, jlong jhandle) {
-  auto* compact_opts =
-      reinterpret_cast<rocksdb::CompactionOptions*>(jhandle);
-  return static_cast<jlong>(
-      compact_opts->output_file_size_limit);
+jlong Java_org_rocksdb_CompactionOptions_outputFileSizeLimit(JNIEnv*, jclass,
+                                                             jlong jhandle) {
+  auto* compact_opts = reinterpret_cast<rocksdb::CompactionOptions*>(jhandle);
+  return static_cast<jlong>(compact_opts->output_file_size_limit);
 }
 
 /*
@@ -83,8 +75,7 @@ jlong Java_org_rocksdb_CompactionOptions_outputFileSizeLimit(
  */
 void Java_org_rocksdb_CompactionOptions_setOutputFileSizeLimit(
     JNIEnv*, jclass, jlong jhandle, jlong joutput_file_size_limit) {
-  auto* compact_opts =
-      reinterpret_cast<rocksdb::CompactionOptions*>(jhandle);
+  auto* compact_opts = reinterpret_cast<rocksdb::CompactionOptions*>(jhandle);
   compact_opts->output_file_size_limit =
       static_cast<uint64_t>(joutput_file_size_limit);
 }
@@ -94,12 +85,10 @@ void Java_org_rocksdb_CompactionOptions_setOutputFileSizeLimit(
  * Method:    maxSubcompactions
  * Signature: (J)I
  */
-jint Java_org_rocksdb_CompactionOptions_maxSubcompactions(
-    JNIEnv*, jclass, jlong jhandle) {
-  auto* compact_opts =
-      reinterpret_cast<rocksdb::CompactionOptions*>(jhandle);
-  return static_cast<jint>(
-      compact_opts->max_subcompactions);
+jint Java_org_rocksdb_CompactionOptions_maxSubcompactions(JNIEnv*, jclass,
+                                                          jlong jhandle) {
+  auto* compact_opts = reinterpret_cast<rocksdb::CompactionOptions*>(jhandle);
+  return static_cast<jint>(compact_opts->max_subcompactions);
 }
 
 /*
@@ -109,8 +98,6 @@ jint Java_org_rocksdb_CompactionOptions_maxSubcompactions(
  */
 void Java_org_rocksdb_CompactionOptions_setMaxSubcompactions(
     JNIEnv*, jclass, jlong jhandle, jint jmax_subcompactions) {
-  auto* compact_opts =
-      reinterpret_cast<rocksdb::CompactionOptions*>(jhandle);
-  compact_opts->max_subcompactions =
-      static_cast<uint32_t>(jmax_subcompactions);
+  auto* compact_opts = reinterpret_cast<rocksdb::CompactionOptions*>(jhandle);
+  compact_opts->max_subcompactions = static_cast<uint32_t>(jmax_subcompactions);
 }

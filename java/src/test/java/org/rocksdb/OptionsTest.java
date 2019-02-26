@@ -755,7 +755,7 @@ public class OptionsTest {
 
   @Test
   public void enablePipelinedWrite() {
-    try(final Options opt = new Options()) {
+    try (final Options opt = new Options()) {
       assertThat(opt.enablePipelinedWrite()).isFalse();
       opt.setEnablePipelinedWrite(true);
       assertThat(opt.enablePipelinedWrite()).isTrue();
@@ -851,17 +851,14 @@ public class OptionsTest {
       try (final AbstractWalFilter walFilter = new AbstractWalFilter() {
         @Override
         public void columnFamilyLogNumberMap(
-            final Map<Integer, Long> cfLognumber,
-            final Map<String, Integer> cfNameId) {
+            final Map<Integer, Long> cfLognumber, final Map<String, Integer> cfNameId) {
           // no-op
         }
 
         @Override
-        public LogRecordFoundResult logRecordFound(final long logNumber,
-            final String logFileName, final WriteBatch batch,
-            final WriteBatch newBatch) {
-          return new LogRecordFoundResult(
-              WalProcessingOption.CONTINUE_PROCESSING, false);
+        public LogRecordFoundResult logRecordFound(final long logNumber, final String logFileName,
+            final WriteBatch batch, final WriteBatch newBatch) {
+          return new LogRecordFoundResult(WalProcessingOption.CONTINUE_PROCESSING, false);
         }
 
         @Override
@@ -910,7 +907,6 @@ public class OptionsTest {
       assertThat(opt.avoidFlushDuringShutdown()).isEqualTo(boolValue);
     }
   }
-
 
   @Test
   public void allowIngestBehind() {
@@ -1053,14 +1049,11 @@ public class OptionsTest {
   @Test
   public void bottommostCompressionOptions() {
     try (final Options options = new Options();
-         final CompressionOptions bottommostCompressionOptions = new CompressionOptions()
-             .setMaxDictBytes(123)) {
-
+         final CompressionOptions bottommostCompressionOptions =
+             new CompressionOptions().setMaxDictBytes(123)) {
       options.setBottommostCompressionOptions(bottommostCompressionOptions);
-      assertThat(options.bottommostCompressionOptions())
-          .isEqualTo(bottommostCompressionOptions);
-      assertThat(options.bottommostCompressionOptions().maxDictBytes())
-          .isEqualTo(123);
+      assertThat(options.bottommostCompressionOptions()).isEqualTo(bottommostCompressionOptions);
+      assertThat(options.bottommostCompressionOptions().maxDictBytes()).isEqualTo(123);
     }
   }
 
@@ -1210,8 +1203,7 @@ public class OptionsTest {
   public void ttl() {
     try (final Options options = new Options()) {
       options.setTtl(1000 * 60);
-      assertThat(options.ttl()).
-          isEqualTo(1000 * 60);
+      assertThat(options.ttl()).isEqualTo(1000 * 60);
     }
   }
 

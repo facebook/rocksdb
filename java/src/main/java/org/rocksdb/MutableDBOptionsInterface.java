@@ -1,7 +1,6 @@
 package org.rocksdb;
 
 public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface> {
-
   /**
    * Specifies the maximum number of concurrent background jobs (both flushes
    * and compactions combined).
@@ -31,8 +30,7 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface> 
    *
    * @deprecated Use {@link #setMaxBackgroundJobs(int)}
    */
-  @Deprecated
-  void setBaseBackgroundCompactions(int baseBackgroundCompactions);
+  @Deprecated void setBaseBackgroundCompactions(int baseBackgroundCompactions);
 
   /**
    * Suggested number of concurrent background compaction jobs, submitted to
@@ -73,8 +71,7 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface> 
    *
    * @deprecated Use {@link #setMaxBackgroundJobs(int)}
    */
-  @Deprecated
-  int maxBackgroundCompactions();
+  @Deprecated int maxBackgroundCompactions();
 
   /**
    * By default RocksDB will flush all memtables on DB close if there are
@@ -302,7 +299,6 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface> 
    * @return size in bytes
    */
   long walBytesPerSync();
-
 
   /**
    * If non-zero, we perform bigger reads when doing compaction. If you're

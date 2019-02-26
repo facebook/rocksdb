@@ -13,13 +13,10 @@ import org.junit.rules.TemporaryFolder;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class HdfsEnvTest {
-
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksMemoryResource rocksMemoryResource = new RocksMemoryResource();
 
-  @Rule
-  public TemporaryFolder dbFolder = new TemporaryFolder();
+  @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
   // expect org.rocksdb.RocksDBException: Not compiled with hdfs support
   @Test(expected = RocksDBException.class)
@@ -33,10 +30,7 @@ public class HdfsEnvTest {
   @Test(expected = RocksDBException.class)
   public void construct_integration() throws RocksDBException {
     try (final Env env = new HdfsEnv("hdfs://localhost:5000");
-         final Options options = new Options()
-             .setCreateIfMissing(true)
-             .setEnv(env);
-    ) {
+         final Options options = new Options().setCreateIfMissing(true).setEnv(env);) {
       try (final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getPath())) {
         db.put("key1".getBytes(UTF_8), "value1".getBytes(UTF_8));
       }

@@ -25,8 +25,8 @@
  * Signature: (JJLjava/lang/String;)J
  */
 jlong Java_org_rocksdb_TransactionDB_open__JJLjava_lang_String_2(
-    JNIEnv* env, jclass, jlong joptions_handle,
-    jlong jtxn_db_options_handle, jstring jdb_path) {
+    JNIEnv* env, jclass, jlong joptions_handle, jlong jtxn_db_options_handle,
+    jstring jdb_path) {
   auto* options = reinterpret_cast<rocksdb::Options*>(joptions_handle);
   auto* txn_db_options =
       reinterpret_cast<rocksdb::TransactionDBOptions*>(jtxn_db_options_handle);
@@ -54,8 +54,8 @@ jlong Java_org_rocksdb_TransactionDB_open__JJLjava_lang_String_2(
  * Signature: (JJLjava/lang/String;[[B[J)[J
  */
 jlongArray Java_org_rocksdb_TransactionDB_open__JJLjava_lang_String_2_3_3B_3J(
-    JNIEnv* env, jclass, jlong jdb_options_handle,
-    jlong jtxn_db_options_handle, jstring jdb_path, jobjectArray jcolumn_names,
+    JNIEnv* env, jclass, jlong jdb_options_handle, jlong jtxn_db_options_handle,
+    jstring jdb_path, jobjectArray jcolumn_names,
     jlongArray jcolumn_options_handles) {
   const char* db_path = env->GetStringUTFChars(jdb_path, nullptr);
   if (db_path == nullptr) {
@@ -156,8 +156,8 @@ jlongArray Java_org_rocksdb_TransactionDB_open__JJLjava_lang_String_2_3_3B_3J(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_TransactionDB_disposeInternal(
-    JNIEnv*, jobject, jlong jhandle) {
+void Java_org_rocksdb_TransactionDB_disposeInternal(JNIEnv*, jobject,
+                                                    jlong jhandle) {
   auto* txn_db = reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
   assert(txn_db != nullptr);
   delete txn_db;
@@ -168,8 +168,8 @@ void Java_org_rocksdb_TransactionDB_disposeInternal(
  * Method:    closeDatabase
  * Signature: (J)V
  */
-void Java_org_rocksdb_TransactionDB_closeDatabase(
-    JNIEnv* env, jclass, jlong jhandle) {
+void Java_org_rocksdb_TransactionDB_closeDatabase(JNIEnv* env, jclass,
+                                                  jlong jhandle) {
   auto* txn_db = reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
   assert(txn_db != nullptr);
   rocksdb::Status s = txn_db->Close();
@@ -262,8 +262,9 @@ jlong Java_org_rocksdb_TransactionDB_beginTransaction_1withOld__JJJJ(
  * Method:    getTransactionByName
  * Signature: (JLjava/lang/String;)J
  */
-jlong Java_org_rocksdb_TransactionDB_getTransactionByName(
-    JNIEnv* env, jobject, jlong jhandle, jstring jname) {
+jlong Java_org_rocksdb_TransactionDB_getTransactionByName(JNIEnv* env, jobject,
+                                                          jlong jhandle,
+                                                          jstring jname) {
   auto* txn_db = reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
   const char* name = env->GetStringUTFChars(jname, nullptr);
   if (name == nullptr) {
@@ -315,8 +316,8 @@ jlongArray Java_org_rocksdb_TransactionDB_getAllPreparedTransactions(
  * Method:    getLockStatusData
  * Signature: (J)Ljava/util/Map;
  */
-jobject Java_org_rocksdb_TransactionDB_getLockStatusData(
-    JNIEnv* env, jobject, jlong jhandle) {
+jobject Java_org_rocksdb_TransactionDB_getLockStatusData(JNIEnv* env, jobject,
+                                                         jlong jhandle) {
   auto* txn_db = reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
   const std::unordered_multimap<uint32_t, rocksdb::KeyLockInfo>
       lock_status_data = txn_db->GetLockStatusData();
@@ -327,11 +328,11 @@ jobject Java_org_rocksdb_TransactionDB_getLockStatusData(
     return nullptr;
   }
 
-  const rocksdb::HashMapJni::FnMapKV<const int32_t, const rocksdb::KeyLockInfo, jobject, jobject>
+  const rocksdb::HashMapJni::FnMapKV<const int32_t, const rocksdb::KeyLockInfo,
+                                     jobject, jobject>
       fn_map_kv =
-          [env](
-              const std::pair<const int32_t, const rocksdb::KeyLockInfo>&
-                  pair) {
+          [env](const std::pair<const int32_t, const rocksdb::KeyLockInfo>&
+                    pair) {
             const jobject jlong_column_family_id =
                 rocksdb::LongJni::valueOf(env, pair.first);
             if (jlong_column_family_id == nullptr) {

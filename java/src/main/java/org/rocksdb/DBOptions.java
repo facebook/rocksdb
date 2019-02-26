@@ -16,8 +16,7 @@ import java.util.*;
  * automatically and native resources will be released as part of the process.
  */
 public class DBOptions extends RocksObject
-    implements DBOptionsInterface<DBOptions>,
-    MutableDBOptionsInterface<DBOptions> {
+    implements DBOptionsInterface<DBOptions>, MutableDBOptionsInterface<DBOptions> {
   static {
     RocksDB.loadLibrary();
   }
@@ -373,14 +372,14 @@ public class DBOptions extends RocksObject
 
   @Override
   public DBOptions setMaxBackgroundJobs(final int maxBackgroundJobs) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setMaxBackgroundJobs(nativeHandle_, maxBackgroundJobs);
     return this;
   }
 
   @Override
   public int maxBackgroundJobs() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return maxBackgroundJobs(nativeHandle_);
   }
 
@@ -563,8 +562,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  public DBOptions setAllowMmapReads(
-      final boolean allowMmapReads) {
+  public DBOptions setAllowMmapReads(final boolean allowMmapReads) {
     assert(isOwningHandle());
     setAllowMmapReads(nativeHandle_, allowMmapReads);
     return this;
@@ -577,8 +575,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  public DBOptions setAllowMmapWrites(
-      final boolean allowMmapWrites) {
+  public DBOptions setAllowMmapWrites(final boolean allowMmapWrites) {
     assert(isOwningHandle());
     setAllowMmapWrites(nativeHandle_, allowMmapWrites);
     return this;
@@ -591,8 +588,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  public DBOptions setUseDirectReads(
-      final boolean useDirectReads) {
+  public DBOptions setUseDirectReads(final boolean useDirectReads) {
     assert(isOwningHandle());
     setUseDirectReads(nativeHandle_, useDirectReads);
     return this;
@@ -608,8 +604,7 @@ public class DBOptions extends RocksObject
   public DBOptions setUseDirectIoForFlushAndCompaction(
       final boolean useDirectIoForFlushAndCompaction) {
     assert(isOwningHandle());
-    setUseDirectIoForFlushAndCompaction(nativeHandle_,
-        useDirectIoForFlushAndCompaction);
+    setUseDirectIoForFlushAndCompaction(nativeHandle_, useDirectIoForFlushAndCompaction);
     return this;
   }
 
@@ -807,32 +802,33 @@ public class DBOptions extends RocksObject
     return walBytesPerSync(nativeHandle_);
   }
 
-  //TODO(AR) NOW
-//  @Override
-//  public DBOptions setListeners(final List<EventListener> listeners) {
-//    assert(isOwningHandle());
-//    final long[] eventListenerHandlers = new long[listeners.size()];
-//    for (int i = 0; i < eventListenerHandlers.length; i++) {
-//      eventListenerHandlers[i] = listeners.get(i).nativeHandle_;
-//    }
-//    setEventListeners(nativeHandle_, eventListenerHandlers);
-//    return this;
-//  }
-//
-//  @Override
-//  public Collection<EventListener> listeners() {
-//    assert(isOwningHandle());
-//    final long[] eventListenerHandlers = listeners(nativeHandle_);
-//    if (eventListenerHandlers == null || eventListenerHandlers.length == 0) {
-//      return Collections.emptyList();
-//    }
-//
-//    final List<EventListener> eventListeners = new ArrayList<>();
-//    for (final long eventListenerHandle : eventListenerHandlers) {
-//      eventListeners.add(new EventListener(eventListenerHandle)); //TODO(AR) check ownership is set to false!
-//    }
-//    return eventListeners;
-//  }
+  // TODO(AR) NOW
+  //  @Override
+  //  public DBOptions setListeners(final List<EventListener> listeners) {
+  //    assert(isOwningHandle());
+  //    final long[] eventListenerHandlers = new long[listeners.size()];
+  //    for (int i = 0; i < eventListenerHandlers.length; i++) {
+  //      eventListenerHandlers[i] = listeners.get(i).nativeHandle_;
+  //    }
+  //    setEventListeners(nativeHandle_, eventListenerHandlers);
+  //    return this;
+  //  }
+  //
+  //  @Override
+  //  public Collection<EventListener> listeners() {
+  //    assert(isOwningHandle());
+  //    final long[] eventListenerHandlers = listeners(nativeHandle_);
+  //    if (eventListenerHandlers == null || eventListenerHandlers.length == 0) {
+  //      return Collections.emptyList();
+  //    }
+  //
+  //    final List<EventListener> eventListeners = new ArrayList<>();
+  //    for (final long eventListenerHandle : eventListenerHandlers) {
+  //      eventListeners.add(new EventListener(eventListenerHandle)); //TODO(AR) check ownership is
+  //      set to false!
+  //    }
+  //    return eventListeners;
+  //  }
 
   @Override
   public DBOptions setEnableThreadTracking(final boolean enableThreadTracking) {
@@ -861,14 +857,14 @@ public class DBOptions extends RocksObject
 
   @Override
   public DBOptions setEnablePipelinedWrite(final boolean enablePipelinedWrite) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setEnablePipelinedWrite(nativeHandle_, enablePipelinedWrite);
     return this;
   }
 
   @Override
   public boolean enablePipelinedWrite() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return enablePipelinedWrite(nativeHandle_);
   }
 
@@ -975,7 +971,7 @@ public class DBOptions extends RocksObject
 
   @Override
   public DBOptions setWalFilter(final AbstractWalFilter walFilter) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setWalFilter(nativeHandle_, walFilter.nativeHandle_);
     this.walFilter_ = walFilter;
     return this;
@@ -983,7 +979,7 @@ public class DBOptions extends RocksObject
 
   @Override
   public WalFilter walFilter() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return this.walFilter_;
   }
 
@@ -1041,53 +1037,53 @@ public class DBOptions extends RocksObject
 
   @Override
   public DBOptions setAllowIngestBehind(final boolean allowIngestBehind) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setAllowIngestBehind(nativeHandle_, allowIngestBehind);
     return this;
   }
 
   @Override
   public boolean allowIngestBehind() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return allowIngestBehind(nativeHandle_);
   }
 
   @Override
   public DBOptions setPreserveDeletes(final boolean preserveDeletes) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setPreserveDeletes(nativeHandle_, preserveDeletes);
     return this;
   }
 
   @Override
   public boolean preserveDeletes() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return preserveDeletes(nativeHandle_);
   }
 
   @Override
   public DBOptions setTwoWriteQueues(final boolean twoWriteQueues) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setTwoWriteQueues(nativeHandle_, twoWriteQueues);
     return this;
   }
 
   @Override
   public boolean twoWriteQueues() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return twoWriteQueues(nativeHandle_);
   }
 
   @Override
   public DBOptions setManualWalFlush(final boolean manualWalFlush) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setManualWalFlush(nativeHandle_, manualWalFlush);
     return this;
   }
 
   @Override
   public boolean manualWalFlush() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return manualWalFlush(nativeHandle_);
   }
 
@@ -1263,8 +1259,8 @@ public class DBOptions extends RocksObject
   private native boolean enableThreadTracking(long handle);
   private native void setDelayedWriteRate(long handle, long delayedWriteRate);
   private native long delayedWriteRate(long handle);
-  private native void setEnablePipelinedWrite(final long handle,
-      final boolean enablePipelinedWrite);
+  private native void setEnablePipelinedWrite(
+      final long handle, final boolean enablePipelinedWrite);
   private native boolean enablePipelinedWrite(final long handle);
   private native void setAllowConcurrentMemtableWrite(long handle,
       boolean allowConcurrentMemtableWrite);
@@ -1287,10 +1283,8 @@ public class DBOptions extends RocksObject
   private native void setAllow2pc(final long handle,
       final boolean allow2pc);
   private native boolean allow2pc(final long handle);
-  private native void setRowCache(final long handle,
-      final long rowCacheHandle);
-  private native void setWalFilter(final long handle,
-      final long walFilterHandle);
+  private native void setRowCache(final long handle, final long rowCacheHandle);
+  private native void setWalFilter(final long handle, final long walFilterHandle);
   private native void setFailIfOptionsFileError(final long handle,
       final boolean failIfOptionsFileError);
   private native boolean failIfOptionsFileError(final long handle);
@@ -1303,20 +1297,15 @@ public class DBOptions extends RocksObject
   private native void setAvoidFlushDuringShutdown(final long handle,
       final boolean avoidFlushDuringShutdown);
   private native boolean avoidFlushDuringShutdown(final long handle);
-  private native void setAllowIngestBehind(final long handle,
-      final boolean allowIngestBehind);
+  private native void setAllowIngestBehind(final long handle, final boolean allowIngestBehind);
   private native boolean allowIngestBehind(final long handle);
-  private native void setPreserveDeletes(final long handle,
-      final boolean preserveDeletes);
+  private native void setPreserveDeletes(final long handle, final boolean preserveDeletes);
   private native boolean preserveDeletes(final long handle);
-  private native void setTwoWriteQueues(final long handle,
-      final boolean twoWriteQueues);
+  private native void setTwoWriteQueues(final long handle, final boolean twoWriteQueues);
   private native boolean twoWriteQueues(final long handle);
-  private native void setManualWalFlush(final long handle,
-      final boolean manualWalFlush);
+  private native void setManualWalFlush(final long handle, final boolean manualWalFlush);
   private native boolean manualWalFlush(final long handle);
-  private native void setAtomicFlush(final long handle,
-      final boolean atomicFlush);
+  private native void setAtomicFlush(final long handle, final boolean atomicFlush);
   private native boolean atomicFlush(final long handle);
 
   // instance variables

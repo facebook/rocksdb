@@ -25,7 +25,8 @@ import java.util.List;
  *   the old data, so it's basically a TTL compaction style.</li>
  *   <li><strong>NONE</strong> - Disable background compaction.
  *   Compaction jobs are submitted
- *   {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, List, int, int, CompactionJobInfo)} ()}.</li>
+ *   {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, List, int, int,
+ * CompactionJobInfo)} ()}.</li>
  * </ol>
  *
  * @see <a
@@ -52,7 +53,7 @@ public enum CompactionStyle {
    *
    * @return the internal representation value.
    */
-  //TODO(AR) should be made package-private
+  // TODO(AR) should be made package-private
   public byte getValue() {
     return value;
   }
@@ -67,14 +68,12 @@ public enum CompactionStyle {
    * @throws IllegalArgumentException if the value does not match a
    *     CompactionStyle
    */
-  static CompactionStyle fromValue(final byte value)
-      throws IllegalArgumentException {
+  static CompactionStyle fromValue(final byte value) throws IllegalArgumentException {
     for (final CompactionStyle compactionStyle : CompactionStyle.values()) {
       if (compactionStyle.value == value) {
         return compactionStyle;
       }
     }
-    throw new IllegalArgumentException("Unknown value for CompactionStyle: "
-        + value);
+    throw new IllegalArgumentException("Unknown value for CompactionStyle: " + value);
   }
 }

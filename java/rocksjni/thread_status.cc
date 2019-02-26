@@ -8,8 +8,8 @@
 
 #include <jni.h>
 
-#include "portal.h"
 #include "include/org_rocksdb_ThreadStatus.h"
+#include "portal.h"
 #include "rocksdb/thread_status.h"
 
 /*
@@ -41,8 +41,8 @@ jstring Java_org_rocksdb_ThreadStatus_getOperationName(
  * Method:    microsToStringNative
  * Signature: (J)Ljava/lang/String;
  */
-jstring Java_org_rocksdb_ThreadStatus_microsToStringNative(
-    JNIEnv* env, jclass, jlong jmicros) {
+jstring Java_org_rocksdb_ThreadStatus_microsToStringNative(JNIEnv* env, jclass,
+                                                           jlong jmicros) {
   auto str =
       rocksdb::ThreadStatus::MicrosToString(static_cast<uint64_t>(jmicros));
   return rocksdb::JniUtil::toJavaString(env, &str, true);
@@ -81,8 +81,7 @@ jstring Java_org_rocksdb_ThreadStatus_getOperationPropertyName(
 jobject Java_org_rocksdb_ThreadStatus_interpretOperationProperties(
     JNIEnv* env, jclass, jbyte joperation_type_value,
     jlongArray joperation_properties) {
-
-  //convert joperation_properties
+  // convert joperation_properties
   const jsize len = env->GetArrayLength(joperation_properties);
   const std::unique_ptr<uint64_t[]> op_properties(new uint64_t[len]);
   jlong* jop = env->GetLongArrayElements(joperation_properties, nullptr);
@@ -113,8 +112,8 @@ jobject Java_org_rocksdb_ThreadStatus_interpretOperationProperties(
  * Method:    getStateName
  * Signature: (B)Ljava/lang/String;
  */
-jstring Java_org_rocksdb_ThreadStatus_getStateName(
-  JNIEnv* env, jclass, jbyte jstate_type_value) {
+jstring Java_org_rocksdb_ThreadStatus_getStateName(JNIEnv* env, jclass,
+                                                   jbyte jstate_type_value) {
   auto name = rocksdb::ThreadStatus::GetStateName(
       rocksdb::StateTypeJni::toCppStateType(jstate_type_value));
   return rocksdb::JniUtil::toJavaString(env, &name, true);

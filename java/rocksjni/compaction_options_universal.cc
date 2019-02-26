@@ -39,8 +39,8 @@ void Java_org_rocksdb_CompactionOptionsUniversal_setSizeRatio(
  * Method:    sizeRatio
  * Signature: (J)I
  */
-jint Java_org_rocksdb_CompactionOptionsUniversal_sizeRatio(
-    JNIEnv*, jobject, jlong jhandle) {
+jint Java_org_rocksdb_CompactionOptionsUniversal_sizeRatio(JNIEnv*, jobject,
+                                                           jlong jhandle) {
   auto* opt = reinterpret_cast<rocksdb::CompactionOptionsUniversal*>(jhandle);
   return static_cast<jint>(opt->size_ratio);
 }
@@ -61,8 +61,8 @@ void Java_org_rocksdb_CompactionOptionsUniversal_setMinMergeWidth(
  * Method:    minMergeWidth
  * Signature: (J)I
  */
-jint Java_org_rocksdb_CompactionOptionsUniversal_minMergeWidth(
-    JNIEnv*, jobject, jlong jhandle) {
+jint Java_org_rocksdb_CompactionOptionsUniversal_minMergeWidth(JNIEnv*, jobject,
+                                                               jlong jhandle) {
   auto* opt = reinterpret_cast<rocksdb::CompactionOptionsUniversal*>(jhandle);
   return static_cast<jint>(opt->min_merge_width);
 }
@@ -83,8 +83,8 @@ void Java_org_rocksdb_CompactionOptionsUniversal_setMaxMergeWidth(
  * Method:    maxMergeWidth
  * Signature: (J)I
  */
-jint Java_org_rocksdb_CompactionOptionsUniversal_maxMergeWidth(
-    JNIEnv*, jobject, jlong jhandle) {
+jint Java_org_rocksdb_CompactionOptionsUniversal_maxMergeWidth(JNIEnv*, jobject,
+                                                               jlong jhandle) {
   auto* opt = reinterpret_cast<rocksdb::CompactionOptionsUniversal*>(jhandle);
   return static_cast<jint>(opt->max_merge_width);
 }
@@ -118,8 +118,7 @@ jint Java_org_rocksdb_CompactionOptionsUniversal_maxSizeAmplificationPercent(
  * Signature: (JI)V
  */
 void Java_org_rocksdb_CompactionOptionsUniversal_setCompressionSizePercent(
-    JNIEnv*, jobject, jlong jhandle,
-    jint jcompression_size_percent) {
+    JNIEnv*, jobject, jlong jhandle, jint jcompression_size_percent) {
   auto* opt = reinterpret_cast<rocksdb::CompactionOptionsUniversal*>(jhandle);
   opt->compression_size_percent =
       static_cast<unsigned int>(jcompression_size_percent);
@@ -153,8 +152,8 @@ void Java_org_rocksdb_CompactionOptionsUniversal_setStopStyle(
  * Method:    stopStyle
  * Signature: (J)B
  */
-jbyte Java_org_rocksdb_CompactionOptionsUniversal_stopStyle(
-    JNIEnv*, jobject, jlong jhandle) {
+jbyte Java_org_rocksdb_CompactionOptionsUniversal_stopStyle(JNIEnv*, jobject,
+                                                            jlong jhandle) {
   auto* opt = reinterpret_cast<rocksdb::CompactionOptionsUniversal*>(jhandle);
   return rocksdb::CompactionStopStyleJni::toJavaCompactionStopStyle(
       opt->stop_style);

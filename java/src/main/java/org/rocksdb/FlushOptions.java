@@ -62,7 +62,7 @@ public class FlushOptions extends RocksObject {
    * @return instance of current FlushOptions.
    */
   public FlushOptions setAllowWriteStall(final boolean allowWriteStall) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setAllowWriteStall(nativeHandle_, allowWriteStall);
     return this;
   }
@@ -74,17 +74,15 @@ public class FlushOptions extends RocksObject {
    * @return true if writes are allowed to stall for flushes
    */
   public boolean allowWriteStall() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return allowWriteStall(nativeHandle_);
   }
 
   private native static long newFlushOptions();
   @Override protected final native void disposeInternal(final long handle);
 
-  private native void setWaitForFlush(final long handle,
-      final boolean wait);
+  private native void setWaitForFlush(final long handle, final boolean wait);
   private native boolean waitForFlush(final long handle);
-  private native void setAllowWriteStall(final long handle,
-      final boolean allowWriteStall);
+  private native void setAllowWriteStall(final long handle, final boolean allowWriteStall);
   private native boolean allowWriteStall(final long handle);
 }

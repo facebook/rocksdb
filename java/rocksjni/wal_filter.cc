@@ -16,8 +16,8 @@
  * Method:    createNewWalFilter
  * Signature: ()J
  */
-jlong Java_org_rocksdb_AbstractWalFilter_createNewWalFilter(
-    JNIEnv* env, jobject jobj) {
-  auto* wal_filter = new rocksdb::WalFilterJniCallback(env, jobj);    
+jlong Java_org_rocksdb_AbstractWalFilter_createNewWalFilter(JNIEnv* env,
+                                                            jobject jobj) {
+  auto* wal_filter = new rocksdb::WalFilterJniCallback(env, jobj);
   return reinterpret_cast<jlong>(wal_filter);
 }

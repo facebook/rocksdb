@@ -66,9 +66,10 @@ jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
     // exception occurred
     return nullptr;
   }
-  const rocksdb::HashMapJni::FnMapKV<const rocksdb::MemoryUtil::UsageType, const uint64_t, jobject, jobject>
-      fn_map_kv =
-      [env](const std::pair<rocksdb::MemoryUtil::UsageType, uint64_t>& pair) {
+  const rocksdb::HashMapJni::FnMapKV<const rocksdb::MemoryUtil::UsageType,
+                                     const uint64_t, jobject, jobject>
+      fn_map_kv = [env](const std::pair<rocksdb::MemoryUtil::UsageType,
+                                        uint64_t> &pair) {
         // Construct key
         const jobject jusage_type =
             rocksdb::ByteJni::valueOf(env, rocksdb::MemoryUsageTypeJni::toJavaMemoryUsageType(pair.first));

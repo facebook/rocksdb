@@ -208,8 +208,7 @@ public class TtlDB extends RocksDB {
       final ColumnFamilyDescriptor columnFamilyDescriptor,
       final int ttl) throws RocksDBException {
     return new ColumnFamilyHandle(this,
-        createColumnFamilyWithTtl(nativeHandle_,
-            columnFamilyDescriptor.getName(),
+        createColumnFamilyWithTtl(nativeHandle_, columnFamilyDescriptor.getName(),
             columnFamilyDescriptor.getOptions().nativeHandle_, ttl));
   }
 
@@ -240,6 +239,5 @@ public class TtlDB extends RocksDB {
   private native long createColumnFamilyWithTtl(final long handle,
       final byte[] columnFamilyName, final long columnFamilyOptions, int ttl)
       throws RocksDBException;
-  private native static void closeDatabase(final long handle)
-      throws RocksDBException;
+  private native static void closeDatabase(final long handle) throws RocksDBException;
 }

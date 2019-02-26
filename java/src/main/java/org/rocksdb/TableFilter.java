@@ -4,7 +4,6 @@ package org.rocksdb;
  * Filter for iterating a table.
  */
 public interface TableFilter {
-
   /**
    * A callback to determine whether relevant keys for this scan exist in a
    * given table based on the table's properties. The callback is passed the

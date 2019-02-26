@@ -15,21 +15,15 @@ public class ThreadStatus {
   private final OperationType operationType;
   private final long operationElapsedTime; // microseconds
   private final OperationStage operationStage;
-  private final long  operationProperties[];
+  private final long operationProperties[];
   private final StateType stateType;
 
   /**
    * Invoked from C++ via JNI
    */
-  private ThreadStatus(final long threadId,
-                       final byte threadTypeValue,
-                       final String dbName,
-                       final String cfName,
-                       final byte operationTypeValue,
-                       final long operationElapsedTime,
-                       final byte operationStageValue,
-                       final long[] operationProperties,
-                       final byte stateTypeValue) {
+  private ThreadStatus(final long threadId, final byte threadTypeValue, final String dbName,
+      final String cfName, final byte operationTypeValue, final long operationElapsedTime,
+      final byte operationStageValue, final long[] operationProperties, final byte stateTypeValue) {
     this.threadId = threadId;
     this.threadType = ThreadType.fromValue(threadTypeValue);
     this.dbName = dbName;
@@ -165,8 +159,7 @@ public class ThreadStatus {
    *
    * @return the description of the operation stage.
    */
-  public static String getOperationStageName(
-      final OperationStage operationStage) {
+  public static String getOperationStageName(final OperationStage operationStage) {
     return getOperationStageName(operationStage.getValue());
   }
 
@@ -179,8 +172,7 @@ public class ThreadStatus {
    *
    * @return the name of the operation property
    */
-  public static String getOperationPropertyName(
-      final OperationType operationType, final int i) {
+  public static String getOperationPropertyName(final OperationType operationType, final int i) {
     return getOperationPropertyName(operationType.getValue(), i);
   }
 
@@ -195,8 +187,7 @@ public class ThreadStatus {
    */
   public static Map<String, Long> interpretOperationProperties(
       final OperationType operationType, final long[] operationProperties) {
-    return interpretOperationProperties(operationType.getValue(),
-        operationProperties);
+    return interpretOperationProperties(operationType.getValue(), operationProperties);
   }
 
   /**
@@ -212,13 +203,10 @@ public class ThreadStatus {
 
   private static native String getThreadTypeName(final byte threadTypeValue);
   private static native String getOperationName(final byte operationTypeValue);
-  private static native String microsToStringNative(
-      final long operationElapsedTime);
-  private static native String getOperationStageName(
-      final byte operationStageTypeValue);
-  private static native String getOperationPropertyName(
-      final byte operationTypeValue, final int i);
-  private static native Map<String, Long>interpretOperationProperties(
+  private static native String microsToStringNative(final long operationElapsedTime);
+  private static native String getOperationStageName(final byte operationStageTypeValue);
+  private static native String getOperationPropertyName(final byte operationTypeValue, final int i);
+  private static native Map<String, Long> interpretOperationProperties(
       final byte operationTypeValue, final long[] operationProperties);
   private static native String getStateName(final byte stateTypeValue);
 }

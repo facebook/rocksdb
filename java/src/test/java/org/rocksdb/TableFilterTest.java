@@ -12,50 +12,33 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class TableFilterTest {
-
-  @Rule
-  public TemporaryFolder dbFolder = new TemporaryFolder();
+  @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
   public void readOptions() throws RocksDBException {
-    try (final DBOptions opt = new DBOptions().
-            setCreateIfMissing(true).
-            setCreateMissingColumnFamilies(true);
-         final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions()
-    ) {
+    try (final DBOptions opt =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions()) {
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
-          Arrays.asList(
-              new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
-              new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts)
-          );
+          Arrays.asList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+              new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts));
 
       final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
 
       // open database
-      try (final RocksDB db = RocksDB.open(opt,
-          dbFolder.getRoot().getAbsolutePath(),
-          columnFamilyDescriptors,
-          columnFamilyHandles)) {
-
+      try (final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath(),
+               columnFamilyDescriptors, columnFamilyHandles)) {
         try (final CfNameCollectionTableFilter cfNameCollectingTableFilter =
                  new CfNameCollectionTableFilter();
-            final FlushOptions flushOptions =
-                new FlushOptions().setWaitForFlush(true);
-            final ReadOptions readOptions =
+             final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true);
+             final ReadOptions readOptions =
                  new ReadOptions().setTableFilter(cfNameCollectingTableFilter)) {
-
-          db.put(columnFamilyHandles.get(0),
-              "key1".getBytes(UTF_8), "value1".getBytes(UTF_8));
-          db.put(columnFamilyHandles.get(0),
-              "key2".getBytes(UTF_8), "value2".getBytes(UTF_8));
-          db.put(columnFamilyHandles.get(0),
-              "key3".getBytes(UTF_8), "value3".getBytes(UTF_8));
-          db.put(columnFamilyHandles.get(1),
-              "key1".getBytes(UTF_8), "value1".getBytes(UTF_8));
-          db.put(columnFamilyHandles.get(1),
-              "key2".getBytes(UTF_8), "value2".getBytes(UTF_8));
-          db.put(columnFamilyHandles.get(1),
-              "key3".getBytes(UTF_8), "value3".getBytes(UTF_8));
+          db.put(columnFamilyHandles.get(0), "key1".getBytes(UTF_8), "value1".getBytes(UTF_8));
+          db.put(columnFamilyHandles.get(0), "key2".getBytes(UTF_8), "value2".getBytes(UTF_8));
+          db.put(columnFamilyHandles.get(0), "key3".getBytes(UTF_8), "value3".getBytes(UTF_8));
+          db.put(columnFamilyHandles.get(1), "key1".getBytes(UTF_8), "value1".getBytes(UTF_8));
+          db.put(columnFamilyHandles.get(1), "key2".getBytes(UTF_8), "value2".getBytes(UTF_8));
+          db.put(columnFamilyHandles.get(1), "key3".getBytes(UTF_8), "value3".getBytes(UTF_8));
 
           db.flush(flushOptions, columnFamilyHandles);
 

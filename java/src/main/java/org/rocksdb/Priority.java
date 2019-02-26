@@ -11,8 +11,8 @@ package org.rocksdb;
 public enum Priority {
   BOTTOM((byte) 0x0),
   LOW((byte) 0x1),
-  HIGH((byte)0x2),
-  TOTAL((byte)0x3);
+  HIGH((byte) 0x2),
+  TOTAL((byte) 0x3);
 
   private final byte value;
 
@@ -40,7 +40,7 @@ public enum Priority {
    */
   static Priority getPriority(final byte value) {
     for (final Priority priority : Priority.values()) {
-      if (priority.getValue() == value){
+      if (priority.getValue() == value) {
         return priority;
       }
     }

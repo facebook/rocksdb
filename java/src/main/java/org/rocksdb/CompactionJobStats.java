@@ -6,7 +6,6 @@
 package org.rocksdb;
 
 public class CompactionJobStats extends RocksObject {
-
   public CompactionJobStats() {
     super(newCompactionJobStats());
   }
@@ -265,10 +264,8 @@ public class CompactionJobStats extends RocksObject {
   private static native long newCompactionJobStats();
   @Override protected native void disposeInternal(final long handle);
 
-
   private static native void reset(final long handle);
-  private static native void add(final long handle,
-      final long compactionJobStatsHandle);
+  private static native void add(final long handle, final long compactionJobStatsHandle);
   private static native long elapsedMicros(final long handle);
   private static native long numInputRecords(final long handle);
   private static native long numInputFiles(final long handle);

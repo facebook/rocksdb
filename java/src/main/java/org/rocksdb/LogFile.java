@@ -15,9 +15,8 @@ public class LogFile {
   /**
    * Called from JNI C++
    */
-  private LogFile(final String pathName, final long logNumber,
-      final byte walFileTypeValue, final long startSequence,
-      final long sizeFileBytes) {
+  private LogFile(final String pathName, final long logNumber, final byte walFileTypeValue,
+      final long startSequence, final long sizeFileBytes) {
     this.pathName = pathName;
     this.logNumber = logNumber;
     this.type = WalFileType.fromValue(walFileTypeValue);

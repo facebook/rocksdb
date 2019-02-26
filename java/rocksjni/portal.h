@@ -10,12 +10,12 @@
 #ifndef JAVA_ROCKSJNI_PORTAL_H_
 #define JAVA_ROCKSJNI_PORTAL_H_
 
+#include <jni.h>
 #include <algorithm>
 #include <cstring>
 #include <functional>
 #include <iostream>
 #include <iterator>
-#include <jni.h>
 #include <limits>
 #include <memory>
 #include <string>
@@ -156,8 +156,8 @@ template<class DERIVED> class JavaException : public JavaClass {
 };
 
 // The portal class for java.lang.IllegalArgumentException
-class IllegalArgumentExceptionJni :
-    public JavaException<IllegalArgumentExceptionJni> {
+class IllegalArgumentExceptionJni
+    : public JavaException<IllegalArgumentExceptionJni> {
  public:
   /**
    * Get the Java Class java.lang.IllegalArgumentException
@@ -190,9 +190,11 @@ class IllegalArgumentExceptionJni :
 
     // get the IllegalArgumentException class
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
-      std::cerr << "IllegalArgumentExceptionJni::ThrowNew/class - Error: unexpected exception!" << std::endl;
+      std::cerr << "IllegalArgumentExceptionJni::ThrowNew/class - Error: "
+                   "unexpected exception!"
+                << std::endl;
       return env->ExceptionCheck();
     }
 
@@ -502,87 +504,87 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
     std::unique_ptr<rocksdb::Status> status;
     switch (jcode_value) {
       case 0x0:
-        //Ok
+        // Ok
         status = std::unique_ptr<rocksdb::Status>(
             new rocksdb::Status(rocksdb::Status::OK()));
         break;
       case 0x1:
-        //NotFound
+        // NotFound
         status = std::unique_ptr<rocksdb::Status>(
             new rocksdb::Status(rocksdb::Status::NotFound(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+                rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0x2:
-        //Corruption
+        // Corruption
         status = std::unique_ptr<rocksdb::Status>(
             new rocksdb::Status(rocksdb::Status::Corruption(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+                rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0x3:
-        //NotSupported
+        // NotSupported
         status = std::unique_ptr<rocksdb::Status>(
             new rocksdb::Status(rocksdb::Status::NotSupported(
                 rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0x4:
-        //InvalidArgument
+        // InvalidArgument
         status = std::unique_ptr<rocksdb::Status>(
             new rocksdb::Status(rocksdb::Status::InvalidArgument(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+                rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0x5:
-        //IOError
+        // IOError
         status = std::unique_ptr<rocksdb::Status>(
             new rocksdb::Status(rocksdb::Status::IOError(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+                rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0x6:
-        //MergeInProgress
+        // MergeInProgress
         status = std::unique_ptr<rocksdb::Status>(
             new rocksdb::Status(rocksdb::Status::MergeInProgress(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+                rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0x7:
-        //Incomplete
+        // Incomplete
         status = std::unique_ptr<rocksdb::Status>(
             new rocksdb::Status(rocksdb::Status::Incomplete(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+                rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0x8:
-        //ShutdownInProgress
+        // ShutdownInProgress
         status = std::unique_ptr<rocksdb::Status>(
             new rocksdb::Status(rocksdb::Status::ShutdownInProgress(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+                rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0x9:
-        //TimedOut
+        // TimedOut
         status = std::unique_ptr<rocksdb::Status>(
             new rocksdb::Status(rocksdb::Status::TimedOut(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+                rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0xA:
-        //Aborted
+        // Aborted
         status = std::unique_ptr<rocksdb::Status>(
             new rocksdb::Status(rocksdb::Status::Aborted(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+                rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0xB:
-        //Busy
+        // Busy
         status = std::unique_ptr<rocksdb::Status>(
             new rocksdb::Status(rocksdb::Status::Busy(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+                rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0xC:
-        //Expired
+        // Expired
         status = std::unique_ptr<rocksdb::Status>(
             new rocksdb::Status(rocksdb::Status::Expired(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+                rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0xD:
-        //TryAgain
+        // TryAgain
         status = std::unique_ptr<rocksdb::Status>(
             new rocksdb::Status(rocksdb::Status::TryAgain(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+                rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0x7F:
       default:
@@ -1004,7 +1006,7 @@ class ListJni : public JavaClass {
    */
   static jmethodID getIteratorMethod(JNIEnv* env) {
     jclass jlist_clazz = getListClass(env);
-    if(jlist_clazz == nullptr) {
+    if (jlist_clazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -1025,7 +1027,7 @@ class ListJni : public JavaClass {
    */
   static jmethodID getHasNextMethod(JNIEnv* env) {
     jclass jiterator_clazz = getIteratorClass(env);
-    if(jiterator_clazz == nullptr) {
+    if (jiterator_clazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -1045,7 +1047,7 @@ class ListJni : public JavaClass {
    */
   static jmethodID getNextMethod(JNIEnv* env) {
     jclass jiterator_clazz = getIteratorClass(env);
-    if(jiterator_clazz == nullptr) {
+    if (jiterator_clazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -1066,7 +1068,7 @@ class ListJni : public JavaClass {
    */
   static jmethodID getArrayListConstructorMethodId(JNIEnv* env) {
     jclass jarray_list_clazz = getArrayListClass(env);
-    if(jarray_list_clazz == nullptr) {
+    if (jarray_list_clazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -1086,7 +1088,7 @@ class ListJni : public JavaClass {
    */
   static jmethodID getListAddMethodId(JNIEnv* env) {
     jclass jlist_clazz = getListClass(env);
-    if(jlist_clazz == nullptr) {
+    if (jlist_clazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -1137,7 +1139,7 @@ class ByteJni : public JavaClass {
    */
   static jobjectArray new2dByteArray(JNIEnv* env, const jsize len) {
     jclass clazz = getArrayJClass(env);
-    if(clazz == nullptr) {
+    if (clazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -1155,7 +1157,7 @@ class ByteJni : public JavaClass {
    */
   static jmethodID getByteValueMethod(JNIEnv* env) {
     jclass clazz = getJClass(env);
-    if(clazz == nullptr) {
+    if (clazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -1170,8 +1172,8 @@ class ByteJni : public JavaClass {
    *
    * @param env A pointer to the Java environment
    *
-   * @return A constructing Byte object or nullptr if the class or method id could not
-   *     be retrieved, or an exception occurred
+   * @return A constructing Byte object or nullptr if the class or method id
+   * could not be retrieved, or an exception occurred
    */
   static jobject valueOf(JNIEnv* env, jbyte jprimitive_byte) {
     jclass clazz = getJClass(env);
@@ -1196,7 +1198,6 @@ class ByteJni : public JavaClass {
 
     return jbyte_obj;
   }
-
 };
 
 // The portal class for java.lang.Integer
@@ -1283,7 +1284,7 @@ class LongJni : public JavaClass {
 
 // The portal class for java.lang.StringBuilder
 class StringBuilderJni : public JavaClass {
-  public:
+ public:
   /**
    * Get the Java Class java.lang.StringBuilder
    *
@@ -1312,9 +1313,8 @@ class StringBuilderJni : public JavaClass {
       return nullptr;
     }
 
-    static jmethodID mid =
-        env->GetMethodID(jclazz, "append",
-            "(Ljava/lang/String;)Ljava/lang/StringBuilder;");
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;");
     assert(mid != nullptr);
     return mid;
   }
@@ -1330,22 +1330,22 @@ class StringBuilderJni : public JavaClass {
    *     an exception occurs
    */
   static jobject append(JNIEnv* env, jobject jstring_builder,
-      const char* c_str) {
+                        const char* c_str) {
     jmethodID mid = getListAddMethodId(env);
-    if(mid == nullptr) {
+    if (mid == nullptr) {
       // exception occurred accessing class or method
       return nullptr;
     }
 
     jstring new_value_str = env->NewStringUTF(c_str);
-    if(new_value_str == nullptr) {
+    if (new_value_str == nullptr) {
       // exception thrown: OutOfMemoryError
       return nullptr;
     }
 
     jobject jresult_string_builder =
         env->CallObjectMethod(jstring_builder, mid, new_value_str);
-    if(env->ExceptionCheck()) {
+    if (env->ExceptionCheck()) {
       // exception occurred
       env->DeleteLocalRef(new_value_str);
       return nullptr;
@@ -1358,722 +1358,742 @@ class StringBuilderJni : public JavaClass {
 // various utility functions for working with RocksDB and JNI
 class JniUtil {
  public:
-    /**
-     * Detect if jlong overflows size_t
-     * 
-     * @param jvalue the jlong value
-     * 
-     * @return
-     */
-    inline static Status check_if_jlong_fits_size_t(const jlong& jvalue) {
-      Status s = Status::OK();
-      if (static_cast<uint64_t>(jvalue) > std::numeric_limits<size_t>::max()) {
-        s = Status::InvalidArgument(Slice("jlong overflows 32 bit value."));
-      }
-      return s;
+  /**
+   * Detect if jlong overflows size_t
+   *
+   * @param jvalue the jlong value
+   *
+   * @return
+   */
+  inline static Status check_if_jlong_fits_size_t(const jlong& jvalue) {
+    Status s = Status::OK();
+    if (static_cast<uint64_t>(jvalue) > std::numeric_limits<size_t>::max()) {
+      s = Status::InvalidArgument(Slice("jlong overflows 32 bit value."));
     }
+    return s;
+  }
 
-    /**
-     * Obtains a reference to the JNIEnv from
-     * the JVM
-     *
-     * If the current thread is not attached to the JavaVM
-     * then it will be attached so as to retrieve the JNIEnv
-     *
-     * If a thread is attached, it must later be manually
-     * released by calling JavaVM::DetachCurrentThread.
-     * This can be handled by always matching calls to this
-     * function with calls to {@link JniUtil::releaseJniEnv(JavaVM*, jboolean)}
-     *
-     * @param jvm (IN) A pointer to the JavaVM instance
-     * @param attached (OUT) A pointer to a boolean which
-     *     will be set to JNI_TRUE if we had to attach the thread
-     *
-     * @return A pointer to the JNIEnv or nullptr if a fatal error
-     *     occurs and the JNIEnv cannot be retrieved
-     */
-    static JNIEnv* getJniEnv(JavaVM* jvm, jboolean* attached) {
-      assert(jvm != nullptr);
+  /**
+   * Obtains a reference to the JNIEnv from
+   * the JVM
+   *
+   * If the current thread is not attached to the JavaVM
+   * then it will be attached so as to retrieve the JNIEnv
+   *
+   * If a thread is attached, it must later be manually
+   * released by calling JavaVM::DetachCurrentThread.
+   * This can be handled by always matching calls to this
+   * function with calls to {@link JniUtil::releaseJniEnv(JavaVM*, jboolean)}
+   *
+   * @param jvm (IN) A pointer to the JavaVM instance
+   * @param attached (OUT) A pointer to a boolean which
+   *     will be set to JNI_TRUE if we had to attach the thread
+   *
+   * @return A pointer to the JNIEnv or nullptr if a fatal error
+   *     occurs and the JNIEnv cannot be retrieved
+   */
+  static JNIEnv* getJniEnv(JavaVM* jvm, jboolean* attached) {
+    assert(jvm != nullptr);
 
-      JNIEnv *env;
-      const jint env_rs = jvm->GetEnv(reinterpret_cast<void**>(&env),
-          JNI_VERSION_1_2);
+    JNIEnv* env;
+    const jint env_rs =
+        jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_2);
 
-      if(env_rs == JNI_OK) {
-        // current thread is already attached, return the JNIEnv
-        *attached = JNI_FALSE;
+    if (env_rs == JNI_OK) {
+      // current thread is already attached, return the JNIEnv
+      *attached = JNI_FALSE;
+      return env;
+    } else if (env_rs == JNI_EDETACHED) {
+      // current thread is not attached, attempt to attach
+      const jint rs_attach =
+          jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), NULL);
+      if (rs_attach == JNI_OK) {
+        *attached = JNI_TRUE;
         return env;
-      } else if(env_rs == JNI_EDETACHED) {
-        // current thread is not attached, attempt to attach
-        const jint rs_attach = jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), NULL);
-        if(rs_attach == JNI_OK) {
-          *attached = JNI_TRUE;
-          return env;
-        } else {
-          // error, could not attach the thread
-          std::cerr << "JniUtil::getJniEnv - Fatal: could not attach current thread to JVM!" << std::endl;
-          return nullptr;
-        }
-      } else if(env_rs == JNI_EVERSION) {
-        // error, JDK does not support JNI_VERSION_1_2+
-        std::cerr << "JniUtil::getJniEnv - Fatal: JDK does not support JNI_VERSION_1_2" << std::endl;
-        return nullptr;
       } else {
-        std::cerr << "JniUtil::getJniEnv - Fatal: Unknown error: env_rs=" << env_rs << std::endl;
+        // error, could not attach the thread
+        std::cerr << "JniUtil::getJniEnv - Fatal: could not attach current "
+                     "thread to JVM!"
+                  << std::endl;
         return nullptr;
       }
-    }
-
-    /**
-     * Counterpart to {@link JniUtil::getJniEnv(JavaVM*, jboolean*)}
-     *
-     * Detachess the current thread from the JVM if it was previously
-     * attached
-     *
-     * @param jvm (IN) A pointer to the JavaVM instance
-     * @param attached (IN) JNI_TRUE if we previously had to attach the thread
-     *     to the JavaVM to get the JNIEnv
-     */
-    static void releaseJniEnv(JavaVM* jvm, jboolean& attached) {
-      assert(jvm != nullptr);
-      if(attached == JNI_TRUE) {
-        const jint rs_detach = jvm->DetachCurrentThread();
-        assert(rs_detach == JNI_OK);
-        if(rs_detach != JNI_OK) {
-          std::cerr << "JniUtil::getJniEnv - Warn: Unable to detach current thread from JVM!" << std::endl;
-        }
-      }
-    }
-
-    /**
-     * Copies a Java String[] to a C++ std::vector<std::string>
-     *
-     * @param env (IN) A pointer to the java environment
-     * @param jss (IN) The Java String array to copy
-     * @param has_exception (OUT) will be set to JNI_TRUE
-     *     if an OutOfMemoryError or ArrayIndexOutOfBoundsException
-     *     exception occurs
-     *
-     * @return A std::vector<std:string> containing copies of the Java strings
-     */
-    static std::vector<std::string> copyStrings(JNIEnv* env,
-        jobjectArray jss, jboolean* has_exception) {
-          return rocksdb::JniUtil::copyStrings(env, jss,
-              env->GetArrayLength(jss), has_exception);
-    }
-
-    /**
-     * Copies a Java String[] to a C++ std::vector<std::string>
-     *
-     * @param env (IN) A pointer to the java environment
-     * @param jss (IN) The Java String array to copy
-     * @param jss_len (IN) The length of the Java String array to copy
-     * @param has_exception (OUT) will be set to JNI_TRUE
-     *     if an OutOfMemoryError or ArrayIndexOutOfBoundsException
-     *     exception occurs
-     *
-     * @return A std::vector<std:string> containing copies of the Java strings
-     */
-    static std::vector<std::string> copyStrings(JNIEnv* env,
-        jobjectArray jss, const jsize jss_len, jboolean* has_exception) {
-      std::vector<std::string> strs;
-      strs.reserve(jss_len);
-      for (jsize i = 0; i < jss_len; i++) {
-        jobject js = env->GetObjectArrayElement(jss, i);
-        if(env->ExceptionCheck()) {
-          // exception thrown: ArrayIndexOutOfBoundsException
-          *has_exception = JNI_TRUE;
-          return strs;
-        }
-
-        jstring jstr = static_cast<jstring>(js);
-        const char* str = env->GetStringUTFChars(jstr, nullptr);
-        if(str == nullptr) {
-          // exception thrown: OutOfMemoryError
-          env->DeleteLocalRef(js);
-          *has_exception = JNI_TRUE;
-          return strs;
-        }
-
-        strs.push_back(std::string(str));
-
-        env->ReleaseStringUTFChars(jstr, str);
-        env->DeleteLocalRef(js);
-      }
-
-      *has_exception = JNI_FALSE;
-      return strs;
-    }
-
-    /**
-     * Copies a jstring to a C-style null-terminated byte string
-     * and releases the original jstring
-     *
-     * The jstring is copied as UTF-8
-     *
-     * If an exception occurs, then JNIEnv::ExceptionCheck()
-     * will have been called
-     *
-     * @param env (IN) A pointer to the java environment
-     * @param js (IN) The java string to copy
-     * @param has_exception (OUT) will be set to JNI_TRUE
-     *     if an OutOfMemoryError exception occurs
-     *
-     * @return A pointer to the copied string, or a
-     *     nullptr if has_exception == JNI_TRUE
-     */
-    static std::unique_ptr<char[]> copyString(JNIEnv* env, jstring js,
-        jboolean* has_exception) {
-      const char *utf = env->GetStringUTFChars(js, nullptr);
-      if(utf == nullptr) {
-        // exception thrown: OutOfMemoryError
-        env->ExceptionCheck();
-        *has_exception = JNI_TRUE;
-        return nullptr;
-      } else if(env->ExceptionCheck()) {
-        // exception thrown
-        env->ReleaseStringUTFChars(js, utf);
-        *has_exception = JNI_TRUE;
-        return nullptr;
-      }
-
-      const jsize utf_len = env->GetStringUTFLength(js);
-      std::unique_ptr<char[]> str(new char[utf_len + 1]);  // Note: + 1 is needed for the c_str null terminator
-      std::strcpy(str.get(), utf);
-      env->ReleaseStringUTFChars(js, utf);
-      *has_exception = JNI_FALSE;
-      return str;
-    }
-
-    /**
-     * Copies a jstring to a std::string
-     * and releases the original jstring
-     *
-     * If an exception occurs, then JNIEnv::ExceptionCheck()
-     * will have been called
-     *
-     * @param env (IN) A pointer to the java environment
-     * @param js (IN) The java string to copy
-     * @param has_exception (OUT) will be set to JNI_TRUE
-     *     if an OutOfMemoryError exception occurs
-     *
-     * @return A std:string copy of the jstring, or an
-     *     empty std::string if has_exception == JNI_TRUE
-     */
-    static std::string copyStdString(JNIEnv* env, jstring js,
-      jboolean* has_exception) {
-      const char *utf = env->GetStringUTFChars(js, nullptr);
-      if(utf == nullptr) {
-        // exception thrown: OutOfMemoryError
-        env->ExceptionCheck();
-        *has_exception = JNI_TRUE;
-        return std::string();
-      } else if(env->ExceptionCheck()) {
-        // exception thrown
-        env->ReleaseStringUTFChars(js, utf);
-        *has_exception = JNI_TRUE;
-        return std::string();
-      }
-
-      std::string name(utf);
-      env->ReleaseStringUTFChars(js, utf);
-      *has_exception = JNI_FALSE;
-      return name;
-    }
-
-    /**
-     * Copies bytes from a std::string to a jByteArray
-     *
-     * @param env A pointer to the java environment
-     * @param bytes The bytes to copy
-     *
-     * @return the Java byte[], or nullptr if an exception occurs
-     * 
-     * @throws RocksDBException thrown 
-     *   if memory size to copy exceeds general java specific array size limitation.
-     */
-    static jbyteArray copyBytes(JNIEnv* env, std::string bytes) {
-      return createJavaByteArrayWithSizeCheck(env, bytes.c_str(), bytes.size());
-    }
-
-    /**
-     * Given a Java byte[][] which is an array of java.lang.Strings
-     * where each String is a byte[], the passed function `string_fn`
-     * will be called on each String, the result is the collected by
-     * calling the passed function `collector_fn`
-     *
-     * @param env (IN) A pointer to the java environment
-     * @param jbyte_strings (IN) A Java array of Strings expressed as bytes
-     * @param string_fn (IN) A transform function to call for each String
-     * @param collector_fn (IN) A collector which is called for the result
-     *     of each `string_fn`
-     * @param has_exception (OUT) will be set to JNI_TRUE
-     *     if an ArrayIndexOutOfBoundsException or OutOfMemoryError
-     *     exception occurs
-     */
-    template <typename T> static void byteStrings(JNIEnv* env,
-        jobjectArray jbyte_strings,
-        std::function<T(const char*, const size_t)> string_fn,
-        std::function<void(size_t, T)> collector_fn,
-        jboolean *has_exception) {
-      const jsize jlen = env->GetArrayLength(jbyte_strings);
-
-      for(jsize i = 0; i < jlen; i++) {
-        jobject jbyte_string_obj = env->GetObjectArrayElement(jbyte_strings, i);
-        if(env->ExceptionCheck()) {
-          // exception thrown: ArrayIndexOutOfBoundsException
-          *has_exception = JNI_TRUE;  // signal error
-          return;
-        }
-
-        jbyteArray jbyte_string_ary =
-            reinterpret_cast<jbyteArray>(jbyte_string_obj);
-        T result = byteString(env, jbyte_string_ary, string_fn, has_exception);
-
-        env->DeleteLocalRef(jbyte_string_obj);
-
-        if(*has_exception == JNI_TRUE) {
-          // exception thrown: OutOfMemoryError
-          return;
-        }
-
-        collector_fn(i, result);
-      }
-
-      *has_exception = JNI_FALSE;
-    }
-
-    /**
-     * Given a Java String which is expressed as a Java Byte Array byte[],
-     * the passed function `string_fn` will be called on the String
-     * and the result returned
-     *
-     * @param env (IN) A pointer to the java environment
-     * @param jbyte_string_ary (IN) A Java String expressed in bytes
-     * @param string_fn (IN) A transform function to call on the String
-     * @param has_exception (OUT) will be set to JNI_TRUE
-     *     if an OutOfMemoryError exception occurs
-     */
-    template <typename T> static T byteString(JNIEnv* env,
-        jbyteArray jbyte_string_ary,
-        std::function<T(const char*, const size_t)> string_fn,
-        jboolean* has_exception) {
-      const jsize jbyte_string_len = env->GetArrayLength(jbyte_string_ary);
-      return byteString<T>(env, jbyte_string_ary, jbyte_string_len, string_fn,
-          has_exception);
-    }
-
-    /**
-     * Given a Java String which is expressed as a Java Byte Array byte[],
-     * the passed function `string_fn` will be called on the String
-     * and the result returned
-     *
-     * @param env (IN) A pointer to the java environment
-     * @param jbyte_string_ary (IN) A Java String expressed in bytes
-     * @param jbyte_string_len (IN) The length of the Java String
-     *     expressed in bytes
-     * @param string_fn (IN) A transform function to call on the String
-     * @param has_exception (OUT) will be set to JNI_TRUE
-     *     if an OutOfMemoryError exception occurs
-     */
-    template <typename T> static T byteString(JNIEnv* env,
-        jbyteArray jbyte_string_ary, const jsize jbyte_string_len,
-        std::function<T(const char*, const size_t)> string_fn,
-        jboolean* has_exception) {
-      jbyte* jbyte_string =
-          env->GetByteArrayElements(jbyte_string_ary, nullptr);
-      if(jbyte_string == nullptr) {
-        // exception thrown: OutOfMemoryError
-        *has_exception = JNI_TRUE;
-        return nullptr;  // signal error
-      }
-
-      T result =
-          string_fn(reinterpret_cast<char *>(jbyte_string), jbyte_string_len);
-
-      env->ReleaseByteArrayElements(jbyte_string_ary, jbyte_string, JNI_ABORT);
-
-      *has_exception = JNI_FALSE;
-      return result;
-    }
-
-    /**
-     * Converts a std::vector<string> to a Java byte[][] where each Java String
-     * is expressed as a Java Byte Array byte[].
-     *
-     * @param env A pointer to the java environment
-     * @param strings A vector of Strings
-     *
-     * @return A Java array of Strings expressed as bytes,
-     *     or nullptr if an exception is thrown
-     */
-    static jobjectArray stringsBytes(JNIEnv* env, std::vector<std::string> strings) {
-      jclass jcls_ba = ByteJni::getArrayJClass(env);
-      if(jcls_ba == nullptr) {
-        // exception occurred
-        return nullptr;
-      }
-
-      const jsize len = static_cast<jsize>(strings.size());
-
-      jobjectArray jbyte_strings = env->NewObjectArray(len, jcls_ba, nullptr);
-      if(jbyte_strings == nullptr) {
-        // exception thrown: OutOfMemoryError
-        return nullptr;
-      }
-
-      for (jsize i = 0; i < len; i++) {
-        std::string *str = &strings[i];
-        const jsize str_len = static_cast<jsize>(str->size());
-
-        jbyteArray jbyte_string_ary = env->NewByteArray(str_len);
-        if(jbyte_string_ary == nullptr) {
-          // exception thrown: OutOfMemoryError
-          env->DeleteLocalRef(jbyte_strings);
-          return nullptr;
-        }
-
-        env->SetByteArrayRegion(
-          jbyte_string_ary, 0, str_len,
-          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(str->c_str())));
-        if(env->ExceptionCheck()) {
-          // exception thrown: ArrayIndexOutOfBoundsException
-          env->DeleteLocalRef(jbyte_string_ary);
-          env->DeleteLocalRef(jbyte_strings);
-          return nullptr;
-        }
-
-        env->SetObjectArrayElement(jbyte_strings, i, jbyte_string_ary);
-        if(env->ExceptionCheck()) {
-          // exception thrown: ArrayIndexOutOfBoundsException
-          // or ArrayStoreException
-          env->DeleteLocalRef(jbyte_string_ary);
-          env->DeleteLocalRef(jbyte_strings);
-          return nullptr;
-        }
-
-        env->DeleteLocalRef(jbyte_string_ary);
-      }
-
-      return jbyte_strings;
-    }
-
-     /**
-     * Converts a std::vector<std::string> to a Java String[].
-     *
-     * @param env A pointer to the java environment
-     * @param strings A vector of Strings
-     *
-     * @return A Java array of Strings,
-     *     or nullptr if an exception is thrown
-     */
-    static jobjectArray toJavaStrings(JNIEnv* env,
-        const std::vector<std::string>* strings) {
-      jclass jcls_str = env->FindClass("java/lang/String");
-      if(jcls_str == nullptr) {
-        // exception occurred
-        return nullptr;
-      }
-
-      const jsize len = static_cast<jsize>(strings->size());
-
-      jobjectArray jstrings = env->NewObjectArray(len, jcls_str, nullptr);
-      if(jstrings == nullptr) {
-        // exception thrown: OutOfMemoryError
-        return nullptr;
-      }
-
-      for (jsize i = 0; i < len; i++) {
-        const std::string *str = &((*strings)[i]);
-        jstring js = rocksdb::JniUtil::toJavaString(env, str);
-        if (js == nullptr) {
-          env->DeleteLocalRef(jstrings);
-          return nullptr;
-        }
-
-        env->SetObjectArrayElement(jstrings, i, js);
-        if(env->ExceptionCheck()) {
-          // exception thrown: ArrayIndexOutOfBoundsException
-          // or ArrayStoreException
-          env->DeleteLocalRef(js);
-          env->DeleteLocalRef(jstrings);
-          return nullptr;
-        }
-      }
-
-      return jstrings;
-    }
-
-    /**
-     * Creates a Java UTF String from a C++ std::string
-     *
-     * @param env A pointer to the java environment
-     * @param string the C++ std::string
-     * @param treat_empty_as_null true if empty strings should be treated as null
-     *
-     * @return the Java UTF string, or nullptr if the provided string
-     *     is null (or empty and treat_empty_as_null is set), or if an
-     *     exception occurs allocating the Java String.
-     */
-    static jstring toJavaString(JNIEnv* env, const std::string* string,
-        const bool treat_empty_as_null = false) {
-      if (string == nullptr) {
-        return nullptr;
-      }
-
-      if (treat_empty_as_null && string->empty()) {
-        return nullptr;
-      }
-
-      return env->NewStringUTF(string->c_str());
-    }
-    
-    /**
-      * Copies bytes to a new jByteArray with the check of java array size limitation.
-      *
-      * @param bytes pointer to memory to copy to a new jByteArray
-      * @param size number of bytes to copy
-      *
-      * @return the Java byte[], or nullptr if an exception occurs
-      * 
-      * @throws RocksDBException thrown 
-      *   if memory size to copy exceeds general java array size limitation to avoid overflow.
-      */
-    static jbyteArray createJavaByteArrayWithSizeCheck(JNIEnv* env, const char* bytes, const size_t size) {
-      // Limitation for java array size is vm specific
-      // In general it cannot exceed Integer.MAX_VALUE (2^31 - 1)
-      // Current HotSpot VM limitation for array size is Integer.MAX_VALUE - 5 (2^31 - 1 - 5)
-      // It means that the next call to env->NewByteArray can still end with 
-      // OutOfMemoryError("Requested array size exceeds VM limit") coming from VM
-      static const size_t MAX_JARRAY_SIZE = (static_cast<size_t>(1)) << 31;
-      if(size > MAX_JARRAY_SIZE) {
-        rocksdb::RocksDBExceptionJni::ThrowNew(env, "Requested array size exceeds VM limit");
-        return nullptr;
-      }
-      
-      const jsize jlen = static_cast<jsize>(size);
-      jbyteArray jbytes = env->NewByteArray(jlen);
-      if(jbytes == nullptr) {
-        // exception thrown: OutOfMemoryError	
-        return nullptr;
-      }
-      
-      env->SetByteArrayRegion(jbytes, 0, jlen,
-        const_cast<jbyte*>(reinterpret_cast<const jbyte*>(bytes)));
-      if(env->ExceptionCheck()) {
-        // exception thrown: ArrayIndexOutOfBoundsException
-        env->DeleteLocalRef(jbytes);
-        return nullptr;
-      }
-
-      return jbytes;
-    }
-
-    /**
-     * Copies bytes from a rocksdb::Slice to a jByteArray
-     *
-     * @param env A pointer to the java environment
-     * @param bytes The bytes to copy
-     *
-     * @return the Java byte[] or nullptr if an exception occurs
-     * 
-     * @throws RocksDBException thrown 
-     *   if memory size to copy exceeds general java specific array size limitation.
-     */
-    static jbyteArray copyBytes(JNIEnv* env, const Slice& bytes) {
-      return createJavaByteArrayWithSizeCheck(env, bytes.data(), bytes.size());
-    }
-
-    /*
-     * Helper for operations on a key and value
-     * for example WriteBatch->Put
-     *
-     * TODO(AR) could be used for RocksDB->Put etc.
-     */
-    static std::unique_ptr<rocksdb::Status> kv_op(
-        std::function<rocksdb::Status(rocksdb::Slice, rocksdb::Slice)> op,
-        JNIEnv* env, jobject /*jobj*/,
-        jbyteArray jkey, jint jkey_len,
-        jbyteArray jvalue, jint jvalue_len) {
-      jbyte* key = env->GetByteArrayElements(jkey, nullptr);
-      if(env->ExceptionCheck()) {
-        // exception thrown: OutOfMemoryError
-        return nullptr;
-      }
-
-      jbyte* value = env->GetByteArrayElements(jvalue, nullptr);
-      if(env->ExceptionCheck()) {
-        // exception thrown: OutOfMemoryError
-        if(key != nullptr) {
-          env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-        }
-        return nullptr;
-      }
-
-      rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-      rocksdb::Slice value_slice(reinterpret_cast<char*>(value),
-          jvalue_len);
-
-      auto status = op(key_slice, value_slice);
-
-      if(value != nullptr) {
-        env->ReleaseByteArrayElements(jvalue, value, JNI_ABORT);
-      }
-      if(key != nullptr) {
-        env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-      }
-
-      return std::unique_ptr<rocksdb::Status>(new rocksdb::Status(status));
-    }
-
-    /*
-     * Helper for operations on a key
-     * for example WriteBatch->Delete
-     *
-     * TODO(AR) could be used for RocksDB->Delete etc.
-     */
-    static std::unique_ptr<rocksdb::Status> k_op(
-        std::function<rocksdb::Status(rocksdb::Slice)> op,
-        JNIEnv* env, jobject /*jobj*/,
-        jbyteArray jkey, jint jkey_len) {
-      jbyte* key = env->GetByteArrayElements(jkey, nullptr);
-      if(env->ExceptionCheck()) {
-        // exception thrown: OutOfMemoryError
-        return nullptr;
-      }
-
-      rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-
-      auto status = op(key_slice);
-
-      if(key != nullptr) {
-        env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-      }
-
-      return std::unique_ptr<rocksdb::Status>(new rocksdb::Status(status));
-    }
-
-    /*
-     * Helper for operations on a value
-     * for example WriteBatchWithIndex->GetFromBatch
-     */
-    static jbyteArray v_op(
-        std::function<rocksdb::Status(rocksdb::Slice, std::string*)> op,
-        JNIEnv* env, jbyteArray jkey, jint jkey_len) {
-      jbyte* key = env->GetByteArrayElements(jkey, nullptr);
-      if(env->ExceptionCheck()) {
-        // exception thrown: OutOfMemoryError
-        return nullptr;
-      }
-
-      rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-
-      std::string value;
-      rocksdb::Status s = op(key_slice, &value);
-
-      if(key != nullptr) {
-        env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-      }
-
-      if (s.IsNotFound()) {
-        return nullptr;
-      }
-
-      if (s.ok()) {
-        jbyteArray jret_value =
-            env->NewByteArray(static_cast<jsize>(value.size()));
-        if(jret_value == nullptr) {
-          // exception thrown: OutOfMemoryError
-          return nullptr;
-        }
-
-        env->SetByteArrayRegion(jret_value, 0, static_cast<jsize>(value.size()),
-                                const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value.c_str())));
-        if(env->ExceptionCheck()) {
-          // exception thrown: ArrayIndexOutOfBoundsException
-          if(jret_value != nullptr) {
-            env->DeleteLocalRef(jret_value);
-          }
-          return nullptr;
-        }
-
-        return jret_value;
-      }
-
-      rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    } else if (env_rs == JNI_EVERSION) {
+      // error, JDK does not support JNI_VERSION_1_2+
+      std::cerr
+          << "JniUtil::getJniEnv - Fatal: JDK does not support JNI_VERSION_1_2"
+          << std::endl;
+      return nullptr;
+    } else {
+      std::cerr << "JniUtil::getJniEnv - Fatal: Unknown error: env_rs="
+                << env_rs << std::endl;
       return nullptr;
     }
+  }
 
-    /**
-     * Creates a vector<T*> of C++ pointers from
-     *     a Java array of C++ pointer addresses.
-     * 
-     * @param env (IN) A pointer to the java environment
-     * @param pointers (IN) A Java array of C++ pointer addresses
-     * @param has_exception (OUT) will be set to JNI_TRUE
-     *     if an ArrayIndexOutOfBoundsException or OutOfMemoryError
-     *     exception occurs.
-     * 
-     * @return A vector of C++ pointers.
-     */
-    template<typename T> static std::vector<T*> fromJPointers(
-        JNIEnv* env, jlongArray jptrs, jboolean *has_exception) {
-      const jsize jptrs_len = env->GetArrayLength(jptrs);
-      std::vector<T*> ptrs;
-      jlong* jptr = env->GetLongArrayElements(jptrs, nullptr);
-      if (jptr == nullptr) {
-        // exception thrown: OutOfMemoryError
-        *has_exception = JNI_TRUE;
-        return ptrs;
+  /**
+   * Counterpart to {@link JniUtil::getJniEnv(JavaVM*, jboolean*)}
+   *
+   * Detachess the current thread from the JVM if it was previously
+   * attached
+   *
+   * @param jvm (IN) A pointer to the JavaVM instance
+   * @param attached (IN) JNI_TRUE if we previously had to attach the thread
+   *     to the JavaVM to get the JNIEnv
+   */
+  static void releaseJniEnv(JavaVM* jvm, jboolean& attached) {
+    assert(jvm != nullptr);
+    if (attached == JNI_TRUE) {
+      const jint rs_detach = jvm->DetachCurrentThread();
+      assert(rs_detach == JNI_OK);
+      if (rs_detach != JNI_OK) {
+        std::cerr << "JniUtil::getJniEnv - Warn: Unable to detach current "
+                     "thread from JVM!"
+                  << std::endl;
       }
-      ptrs.reserve(jptrs_len);
-      for (jsize i = 0; i < jptrs_len; i++) {
-        ptrs.push_back(reinterpret_cast<T*>(jptr[i]));
-      }
-      env->ReleaseLongArrayElements(jptrs, jptr, JNI_ABORT);
-      return ptrs;
     }
+  }
 
-    /**
-     * Creates a Java array of C++ pointer addresses
-     *     from a vector of C++ pointers.
-     * 
-     * @param env (IN) A pointer to the java environment
-     * @param pointers (IN) A vector of C++ pointers
-     * @param has_exception (OUT) will be set to JNI_TRUE
-     *     if an ArrayIndexOutOfBoundsException or OutOfMemoryError
-     *     exception occurs
-     * 
-     * @return Java array of C++ pointer addresses.
-     */
-    template<typename T> static jlongArray toJPointers(JNIEnv* env,
-        const std::vector<T*> &pointers,
-        jboolean *has_exception) {
-      const jsize len = static_cast<jsize>(pointers.size());
-      std::unique_ptr<jlong[]> results(new jlong[len]);
-      std::transform(pointers.begin(), pointers.end(), results.get(), [](T* pointer) -> jlong {
-        return reinterpret_cast<jlong>(pointer);
-      });
+  /**
+   * Copies a Java String[] to a C++ std::vector<std::string>
+   *
+   * @param env (IN) A pointer to the java environment
+   * @param jss (IN) The Java String array to copy
+   * @param has_exception (OUT) will be set to JNI_TRUE
+   *     if an OutOfMemoryError or ArrayIndexOutOfBoundsException
+   *     exception occurs
+   *
+   * @return A std::vector<std:string> containing copies of the Java strings
+   */
+  static std::vector<std::string> copyStrings(JNIEnv* env, jobjectArray jss,
+                                              jboolean* has_exception) {
+    return rocksdb::JniUtil::copyStrings(env, jss, env->GetArrayLength(jss),
+                                         has_exception);
+  }
 
-      jlongArray jpointers = env->NewLongArray(len);
-      if (jpointers == nullptr) {
-        // exception thrown: OutOfMemoryError
-        *has_exception = JNI_TRUE;
-        return nullptr;
-      }
-
-      env->SetLongArrayRegion(jpointers, 0, len, results.get());
+  /**
+   * Copies a Java String[] to a C++ std::vector<std::string>
+   *
+   * @param env (IN) A pointer to the java environment
+   * @param jss (IN) The Java String array to copy
+   * @param jss_len (IN) The length of the Java String array to copy
+   * @param has_exception (OUT) will be set to JNI_TRUE
+   *     if an OutOfMemoryError or ArrayIndexOutOfBoundsException
+   *     exception occurs
+   *
+   * @return A std::vector<std:string> containing copies of the Java strings
+   */
+  static std::vector<std::string> copyStrings(JNIEnv* env, jobjectArray jss,
+                                              const jsize jss_len,
+                                              jboolean* has_exception) {
+    std::vector<std::string> strs;
+    strs.reserve(jss_len);
+    for (jsize i = 0; i < jss_len; i++) {
+      jobject js = env->GetObjectArrayElement(jss, i);
       if (env->ExceptionCheck()) {
         // exception thrown: ArrayIndexOutOfBoundsException
         *has_exception = JNI_TRUE;
-        env->DeleteLocalRef(jpointers);
+        return strs;
+      }
+
+      jstring jstr = static_cast<jstring>(js);
+      const char* str = env->GetStringUTFChars(jstr, nullptr);
+      if (str == nullptr) {
+        // exception thrown: OutOfMemoryError
+        env->DeleteLocalRef(js);
+        *has_exception = JNI_TRUE;
+        return strs;
+      }
+
+      strs.push_back(std::string(str));
+
+      env->ReleaseStringUTFChars(jstr, str);
+      env->DeleteLocalRef(js);
+    }
+
+    *has_exception = JNI_FALSE;
+    return strs;
+  }
+
+  /**
+   * Copies a jstring to a C-style null-terminated byte string
+   * and releases the original jstring
+   *
+   * The jstring is copied as UTF-8
+   *
+   * If an exception occurs, then JNIEnv::ExceptionCheck()
+   * will have been called
+   *
+   * @param env (IN) A pointer to the java environment
+   * @param js (IN) The java string to copy
+   * @param has_exception (OUT) will be set to JNI_TRUE
+   *     if an OutOfMemoryError exception occurs
+   *
+   * @return A pointer to the copied string, or a
+   *     nullptr if has_exception == JNI_TRUE
+   */
+  static std::unique_ptr<char[]> copyString(JNIEnv* env, jstring js,
+                                            jboolean* has_exception) {
+    const char* utf = env->GetStringUTFChars(js, nullptr);
+    if (utf == nullptr) {
+      // exception thrown: OutOfMemoryError
+      env->ExceptionCheck();
+      *has_exception = JNI_TRUE;
+      return nullptr;
+    } else if (env->ExceptionCheck()) {
+      // exception thrown
+      env->ReleaseStringUTFChars(js, utf);
+      *has_exception = JNI_TRUE;
+      return nullptr;
+    }
+
+    const jsize utf_len = env->GetStringUTFLength(js);
+    std::unique_ptr<char[]> str(
+        new char[utf_len +
+                 1]);  // Note: + 1 is needed for the c_str null terminator
+    std::strcpy(str.get(), utf);
+    env->ReleaseStringUTFChars(js, utf);
+    *has_exception = JNI_FALSE;
+    return str;
+  }
+
+  /**
+   * Copies a jstring to a std::string
+   * and releases the original jstring
+   *
+   * If an exception occurs, then JNIEnv::ExceptionCheck()
+   * will have been called
+   *
+   * @param env (IN) A pointer to the java environment
+   * @param js (IN) The java string to copy
+   * @param has_exception (OUT) will be set to JNI_TRUE
+   *     if an OutOfMemoryError exception occurs
+   *
+   * @return A std:string copy of the jstring, or an
+   *     empty std::string if has_exception == JNI_TRUE
+   */
+  static std::string copyStdString(JNIEnv* env, jstring js,
+                                   jboolean* has_exception) {
+    const char* utf = env->GetStringUTFChars(js, nullptr);
+    if (utf == nullptr) {
+      // exception thrown: OutOfMemoryError
+      env->ExceptionCheck();
+      *has_exception = JNI_TRUE;
+      return std::string();
+    } else if (env->ExceptionCheck()) {
+      // exception thrown
+      env->ReleaseStringUTFChars(js, utf);
+      *has_exception = JNI_TRUE;
+      return std::string();
+    }
+
+    std::string name(utf);
+    env->ReleaseStringUTFChars(js, utf);
+    *has_exception = JNI_FALSE;
+    return name;
+  }
+
+  /**
+   * Copies bytes from a std::string to a jByteArray
+   *
+   * @param env A pointer to the java environment
+   * @param bytes The bytes to copy
+   *
+   * @return the Java byte[], or nullptr if an exception occurs
+   *
+   * @throws RocksDBException thrown
+   *   if memory size to copy exceeds general java specific array size
+   * limitation.
+   */
+  static jbyteArray copyBytes(JNIEnv* env, std::string bytes) {
+    return createJavaByteArrayWithSizeCheck(env, bytes.c_str(), bytes.size());
+  }
+
+  /**
+   * Given a Java byte[][] which is an array of java.lang.Strings
+   * where each String is a byte[], the passed function `string_fn`
+   * will be called on each String, the result is the collected by
+   * calling the passed function `collector_fn`
+   *
+   * @param env (IN) A pointer to the java environment
+   * @param jbyte_strings (IN) A Java array of Strings expressed as bytes
+   * @param string_fn (IN) A transform function to call for each String
+   * @param collector_fn (IN) A collector which is called for the result
+   *     of each `string_fn`
+   * @param has_exception (OUT) will be set to JNI_TRUE
+   *     if an ArrayIndexOutOfBoundsException or OutOfMemoryError
+   *     exception occurs
+   */
+  template <typename T>
+  static void byteStrings(JNIEnv* env, jobjectArray jbyte_strings,
+                          std::function<T(const char*, const size_t)> string_fn,
+                          std::function<void(size_t, T)> collector_fn,
+                          jboolean* has_exception) {
+    const jsize jlen = env->GetArrayLength(jbyte_strings);
+
+    for (jsize i = 0; i < jlen; i++) {
+      jobject jbyte_string_obj = env->GetObjectArrayElement(jbyte_strings, i);
+      if (env->ExceptionCheck()) {
+        // exception thrown: ArrayIndexOutOfBoundsException
+        *has_exception = JNI_TRUE;  // signal error
+        return;
+      }
+
+      jbyteArray jbyte_string_ary =
+          reinterpret_cast<jbyteArray>(jbyte_string_obj);
+      T result = byteString(env, jbyte_string_ary, string_fn, has_exception);
+
+      env->DeleteLocalRef(jbyte_string_obj);
+
+      if (*has_exception == JNI_TRUE) {
+        // exception thrown: OutOfMemoryError
+        return;
+      }
+
+      collector_fn(i, result);
+    }
+
+    *has_exception = JNI_FALSE;
+  }
+
+  /**
+   * Given a Java String which is expressed as a Java Byte Array byte[],
+   * the passed function `string_fn` will be called on the String
+   * and the result returned
+   *
+   * @param env (IN) A pointer to the java environment
+   * @param jbyte_string_ary (IN) A Java String expressed in bytes
+   * @param string_fn (IN) A transform function to call on the String
+   * @param has_exception (OUT) will be set to JNI_TRUE
+   *     if an OutOfMemoryError exception occurs
+   */
+  template <typename T>
+  static T byteString(JNIEnv* env, jbyteArray jbyte_string_ary,
+                      std::function<T(const char*, const size_t)> string_fn,
+                      jboolean* has_exception) {
+    const jsize jbyte_string_len = env->GetArrayLength(jbyte_string_ary);
+    return byteString<T>(env, jbyte_string_ary, jbyte_string_len, string_fn,
+                         has_exception);
+  }
+
+  /**
+   * Given a Java String which is expressed as a Java Byte Array byte[],
+   * the passed function `string_fn` will be called on the String
+   * and the result returned
+   *
+   * @param env (IN) A pointer to the java environment
+   * @param jbyte_string_ary (IN) A Java String expressed in bytes
+   * @param jbyte_string_len (IN) The length of the Java String
+   *     expressed in bytes
+   * @param string_fn (IN) A transform function to call on the String
+   * @param has_exception (OUT) will be set to JNI_TRUE
+   *     if an OutOfMemoryError exception occurs
+   */
+  template <typename T>
+  static T byteString(JNIEnv* env, jbyteArray jbyte_string_ary,
+                      const jsize jbyte_string_len,
+                      std::function<T(const char*, const size_t)> string_fn,
+                      jboolean* has_exception) {
+    jbyte* jbyte_string = env->GetByteArrayElements(jbyte_string_ary, nullptr);
+    if (jbyte_string == nullptr) {
+      // exception thrown: OutOfMemoryError
+      *has_exception = JNI_TRUE;
+      return nullptr;  // signal error
+    }
+
+    T result =
+        string_fn(reinterpret_cast<char*>(jbyte_string), jbyte_string_len);
+
+    env->ReleaseByteArrayElements(jbyte_string_ary, jbyte_string, JNI_ABORT);
+
+    *has_exception = JNI_FALSE;
+    return result;
+  }
+
+  /**
+   * Converts a std::vector<string> to a Java byte[][] where each Java String
+   * is expressed as a Java Byte Array byte[].
+   *
+   * @param env A pointer to the java environment
+   * @param strings A vector of Strings
+   *
+   * @return A Java array of Strings expressed as bytes,
+   *     or nullptr if an exception is thrown
+   */
+  static jobjectArray stringsBytes(JNIEnv* env,
+                                   std::vector<std::string> strings) {
+    jclass jcls_ba = ByteJni::getArrayJClass(env);
+    if (jcls_ba == nullptr) {
+      // exception occurred
+      return nullptr;
+    }
+
+    const jsize len = static_cast<jsize>(strings.size());
+
+    jobjectArray jbyte_strings = env->NewObjectArray(len, jcls_ba, nullptr);
+    if (jbyte_strings == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return nullptr;
+    }
+
+    for (jsize i = 0; i < len; i++) {
+      std::string* str = &strings[i];
+      const jsize str_len = static_cast<jsize>(str->size());
+
+      jbyteArray jbyte_string_ary = env->NewByteArray(str_len);
+      if (jbyte_string_ary == nullptr) {
+        // exception thrown: OutOfMemoryError
+        env->DeleteLocalRef(jbyte_strings);
         return nullptr;
       }
 
-      *has_exception = JNI_FALSE;
+      env->SetByteArrayRegion(
+          jbyte_string_ary, 0, str_len,
+          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(str->c_str())));
+      if (env->ExceptionCheck()) {
+        // exception thrown: ArrayIndexOutOfBoundsException
+        env->DeleteLocalRef(jbyte_string_ary);
+        env->DeleteLocalRef(jbyte_strings);
+        return nullptr;
+      }
 
-      return jpointers;
+      env->SetObjectArrayElement(jbyte_strings, i, jbyte_string_ary);
+      if (env->ExceptionCheck()) {
+        // exception thrown: ArrayIndexOutOfBoundsException
+        // or ArrayStoreException
+        env->DeleteLocalRef(jbyte_string_ary);
+        env->DeleteLocalRef(jbyte_strings);
+        return nullptr;
+      }
+
+      env->DeleteLocalRef(jbyte_string_ary);
     }
+
+    return jbyte_strings;
+  }
+
+  /**
+   * Converts a std::vector<std::string> to a Java String[].
+   *
+   * @param env A pointer to the java environment
+   * @param strings A vector of Strings
+   *
+   * @return A Java array of Strings,
+   *     or nullptr if an exception is thrown
+   */
+  static jobjectArray toJavaStrings(JNIEnv* env,
+                                    const std::vector<std::string>* strings) {
+    jclass jcls_str = env->FindClass("java/lang/String");
+    if (jcls_str == nullptr) {
+      // exception occurred
+      return nullptr;
+    }
+
+    const jsize len = static_cast<jsize>(strings->size());
+
+    jobjectArray jstrings = env->NewObjectArray(len, jcls_str, nullptr);
+    if (jstrings == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return nullptr;
+    }
+
+    for (jsize i = 0; i < len; i++) {
+      const std::string* str = &((*strings)[i]);
+      jstring js = rocksdb::JniUtil::toJavaString(env, str);
+      if (js == nullptr) {
+        env->DeleteLocalRef(jstrings);
+        return nullptr;
+      }
+
+      env->SetObjectArrayElement(jstrings, i, js);
+      if (env->ExceptionCheck()) {
+        // exception thrown: ArrayIndexOutOfBoundsException
+        // or ArrayStoreException
+        env->DeleteLocalRef(js);
+        env->DeleteLocalRef(jstrings);
+        return nullptr;
+      }
+    }
+
+    return jstrings;
+  }
+
+  /**
+   * Creates a Java UTF String from a C++ std::string
+   *
+   * @param env A pointer to the java environment
+   * @param string the C++ std::string
+   * @param treat_empty_as_null true if empty strings should be treated as null
+   *
+   * @return the Java UTF string, or nullptr if the provided string
+   *     is null (or empty and treat_empty_as_null is set), or if an
+   *     exception occurs allocating the Java String.
+   */
+  static jstring toJavaString(JNIEnv* env, const std::string* string,
+                              const bool treat_empty_as_null = false) {
+    if (string == nullptr) {
+      return nullptr;
+    }
+
+    if (treat_empty_as_null && string->empty()) {
+      return nullptr;
+    }
+
+    return env->NewStringUTF(string->c_str());
+  }
+
+  /**
+   * Copies bytes to a new jByteArray with the check of java array size
+   * limitation.
+   *
+   * @param bytes pointer to memory to copy to a new jByteArray
+   * @param size number of bytes to copy
+   *
+   * @return the Java byte[], or nullptr if an exception occurs
+   *
+   * @throws RocksDBException thrown
+   *   if memory size to copy exceeds general java array size limitation to
+   * avoid overflow.
+   */
+  static jbyteArray createJavaByteArrayWithSizeCheck(JNIEnv* env,
+                                                     const char* bytes,
+                                                     const size_t size) {
+    // Limitation for java array size is vm specific
+    // In general it cannot exceed Integer.MAX_VALUE (2^31 - 1)
+    // Current HotSpot VM limitation for array size is Integer.MAX_VALUE - 5
+    // (2^31 - 1 - 5) It means that the next call to env->NewByteArray can still
+    // end with OutOfMemoryError("Requested array size exceeds VM limit") coming
+    // from VM
+    static const size_t MAX_JARRAY_SIZE = (static_cast<size_t>(1)) << 31;
+    if (size > MAX_JARRAY_SIZE) {
+      rocksdb::RocksDBExceptionJni::ThrowNew(
+          env, "Requested array size exceeds VM limit");
+      return nullptr;
+    }
+
+    const jsize jlen = static_cast<jsize>(size);
+    jbyteArray jbytes = env->NewByteArray(jlen);
+    if (jbytes == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return nullptr;
+    }
+
+    env->SetByteArrayRegion(
+        jbytes, 0, jlen,
+        const_cast<jbyte*>(reinterpret_cast<const jbyte*>(bytes)));
+    if (env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      env->DeleteLocalRef(jbytes);
+      return nullptr;
+    }
+
+    return jbytes;
+  }
+
+  /**
+   * Copies bytes from a rocksdb::Slice to a jByteArray
+   *
+   * @param env A pointer to the java environment
+   * @param bytes The bytes to copy
+   *
+   * @return the Java byte[] or nullptr if an exception occurs
+   *
+   * @throws RocksDBException thrown
+   *   if memory size to copy exceeds general java specific array size
+   * limitation.
+   */
+  static jbyteArray copyBytes(JNIEnv* env, const Slice& bytes) {
+    return createJavaByteArrayWithSizeCheck(env, bytes.data(), bytes.size());
+  }
+
+  /*
+   * Helper for operations on a key and value
+   * for example WriteBatch->Put
+   *
+   * TODO(AR) could be used for RocksDB->Put etc.
+   */
+  static std::unique_ptr<rocksdb::Status> kv_op(
+      std::function<rocksdb::Status(rocksdb::Slice, rocksdb::Slice)> op,
+      JNIEnv* env, jobject /*jobj*/, jbyteArray jkey, jint jkey_len,
+      jbyteArray jvalue, jint jvalue_len) {
+    jbyte* key = env->GetByteArrayElements(jkey, nullptr);
+    if (env->ExceptionCheck()) {
+      // exception thrown: OutOfMemoryError
+      return nullptr;
+    }
+
+    jbyte* value = env->GetByteArrayElements(jvalue, nullptr);
+    if (env->ExceptionCheck()) {
+      // exception thrown: OutOfMemoryError
+      if (key != nullptr) {
+        env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+      }
+      return nullptr;
+    }
+
+    rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+    rocksdb::Slice value_slice(reinterpret_cast<char*>(value), jvalue_len);
+
+    auto status = op(key_slice, value_slice);
+
+    if (value != nullptr) {
+      env->ReleaseByteArrayElements(jvalue, value, JNI_ABORT);
+    }
+    if (key != nullptr) {
+      env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+    }
+
+    return std::unique_ptr<rocksdb::Status>(new rocksdb::Status(status));
+  }
+
+  /*
+   * Helper for operations on a key
+   * for example WriteBatch->Delete
+   *
+   * TODO(AR) could be used for RocksDB->Delete etc.
+   */
+  static std::unique_ptr<rocksdb::Status> k_op(
+      std::function<rocksdb::Status(rocksdb::Slice)> op, JNIEnv* env,
+      jobject /*jobj*/, jbyteArray jkey, jint jkey_len) {
+    jbyte* key = env->GetByteArrayElements(jkey, nullptr);
+    if (env->ExceptionCheck()) {
+      // exception thrown: OutOfMemoryError
+      return nullptr;
+    }
+
+    rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+
+    auto status = op(key_slice);
+
+    if (key != nullptr) {
+      env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+    }
+
+    return std::unique_ptr<rocksdb::Status>(new rocksdb::Status(status));
+  }
+
+  /*
+   * Helper for operations on a value
+   * for example WriteBatchWithIndex->GetFromBatch
+   */
+  static jbyteArray v_op(
+      std::function<rocksdb::Status(rocksdb::Slice, std::string*)> op,
+      JNIEnv* env, jbyteArray jkey, jint jkey_len) {
+    jbyte* key = env->GetByteArrayElements(jkey, nullptr);
+    if (env->ExceptionCheck()) {
+      // exception thrown: OutOfMemoryError
+      return nullptr;
+    }
+
+    rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+
+    std::string value;
+    rocksdb::Status s = op(key_slice, &value);
+
+    if (key != nullptr) {
+      env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+    }
+
+    if (s.IsNotFound()) {
+      return nullptr;
+    }
+
+    if (s.ok()) {
+      jbyteArray jret_value =
+          env->NewByteArray(static_cast<jsize>(value.size()));
+      if (jret_value == nullptr) {
+        // exception thrown: OutOfMemoryError
+        return nullptr;
+      }
+
+      env->SetByteArrayRegion(
+          jret_value, 0, static_cast<jsize>(value.size()),
+          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value.c_str())));
+      if (env->ExceptionCheck()) {
+        // exception thrown: ArrayIndexOutOfBoundsException
+        if (jret_value != nullptr) {
+          env->DeleteLocalRef(jret_value);
+        }
+        return nullptr;
+      }
+
+      return jret_value;
+    }
+
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    return nullptr;
+  }
+
+  /**
+   * Creates a vector<T*> of C++ pointers from
+   *     a Java array of C++ pointer addresses.
+   *
+   * @param env (IN) A pointer to the java environment
+   * @param pointers (IN) A Java array of C++ pointer addresses
+   * @param has_exception (OUT) will be set to JNI_TRUE
+   *     if an ArrayIndexOutOfBoundsException or OutOfMemoryError
+   *     exception occurs.
+   *
+   * @return A vector of C++ pointers.
+   */
+  template <typename T>
+  static std::vector<T*> fromJPointers(JNIEnv* env, jlongArray jptrs,
+                                       jboolean* has_exception) {
+    const jsize jptrs_len = env->GetArrayLength(jptrs);
+    std::vector<T*> ptrs;
+    jlong* jptr = env->GetLongArrayElements(jptrs, nullptr);
+    if (jptr == nullptr) {
+      // exception thrown: OutOfMemoryError
+      *has_exception = JNI_TRUE;
+      return ptrs;
+    }
+    ptrs.reserve(jptrs_len);
+    for (jsize i = 0; i < jptrs_len; i++) {
+      ptrs.push_back(reinterpret_cast<T*>(jptr[i]));
+    }
+    env->ReleaseLongArrayElements(jptrs, jptr, JNI_ABORT);
+    return ptrs;
+  }
+
+  /**
+   * Creates a Java array of C++ pointer addresses
+   *     from a vector of C++ pointers.
+   *
+   * @param env (IN) A pointer to the java environment
+   * @param pointers (IN) A vector of C++ pointers
+   * @param has_exception (OUT) will be set to JNI_TRUE
+   *     if an ArrayIndexOutOfBoundsException or OutOfMemoryError
+   *     exception occurs
+   *
+   * @return Java array of C++ pointer addresses.
+   */
+  template <typename T>
+  static jlongArray toJPointers(JNIEnv* env, const std::vector<T*>& pointers,
+                                jboolean* has_exception) {
+    const jsize len = static_cast<jsize>(pointers.size());
+    std::unique_ptr<jlong[]> results(new jlong[len]);
+    std::transform(
+        pointers.begin(), pointers.end(), results.get(),
+        [](T* pointer) -> jlong { return reinterpret_cast<jlong>(pointer); });
+
+    jlongArray jpointers = env->NewLongArray(len);
+    if (jpointers == nullptr) {
+      // exception thrown: OutOfMemoryError
+      *has_exception = JNI_TRUE;
+      return nullptr;
+    }
+
+    env->SetLongArrayRegion(jpointers, 0, len, results.get());
+    if (env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      *has_exception = JNI_TRUE;
+      env->DeleteLocalRef(jpointers);
+      return nullptr;
+    }
+
+    *has_exception = JNI_FALSE;
+
+    return jpointers;
+  }
 };
 
 class MapJni : public JavaClass {
@@ -2101,13 +2121,14 @@ class MapJni : public JavaClass {
    */
   static jmethodID getMapPutMethodId(JNIEnv* env) {
     jclass jlist_clazz = getJClass(env);
-    if(jlist_clazz == nullptr) {
+    if (jlist_clazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    static jmethodID mid =
-        env->GetMethodID(jlist_clazz, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+    static jmethodID mid = env->GetMethodID(
+        jlist_clazz, "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
     assert(mid != nullptr);
     return mid;
   }
@@ -2149,7 +2170,8 @@ class HashMapJni : public JavaClass {
       return nullptr;
     }
 
-    jobject jhash_map = env->NewObject(jclazz, mid, static_cast<jint>(initial_capacity));
+    jobject jhash_map =
+        env->NewObject(jclazz, mid, static_cast<jint>(initial_capacity));
     if (env->ExceptionCheck()) {
       return nullptr;
     }
@@ -2164,25 +2186,32 @@ class HashMapJni : public JavaClass {
    *     if an error occurs during the mapping
    */
   template <typename K, typename V, typename JK, typename JV>
-  using FnMapKV = std::function<std::unique_ptr<std::pair<JK, JV>> (const std::pair<K, V>&)>;
+  using FnMapKV =
+      std::function<std::unique_ptr<std::pair<JK, JV>>(const std::pair<K, V>&)>;
 
-  // template <class I, typename K, typename V, typename K1, typename V1, typename std::enable_if<std::is_same<typename std::iterator_traits<I>::value_type, std::pair<const K,V>>::value, int32_t>::type = 0>
-  // static void putAll(JNIEnv* env, const jobject jhash_map, I iterator, const FnMapKV<const K,V,K1,V1> &fn_map_kv) {
+  // template <class I, typename K, typename V, typename K1, typename V1,
+  // typename std::enable_if<std::is_same<typename
+  // std::iterator_traits<I>::value_type, std::pair<const K,V>>::value,
+  // int32_t>::type = 0> static void putAll(JNIEnv* env, const jobject
+  // jhash_map, I iterator, const FnMapKV<const K,V,K1,V1> &fn_map_kv) {
   /**
    * Returns true if it succeeds, false if an error occurs
    */
-  template<class iterator_type, typename K, typename V>
-  static bool putAll(JNIEnv* env, const jobject jhash_map, iterator_type iterator, iterator_type end, const FnMapKV<K, V, jobject, jobject> &fn_map_kv) {
+  template <class iterator_type, typename K, typename V>
+  static bool putAll(JNIEnv* env, const jobject jhash_map,
+                     iterator_type iterator, iterator_type end,
+                     const FnMapKV<K, V, jobject, jobject>& fn_map_kv) {
     const jmethodID jmid_put = rocksdb::MapJni::getMapPutMethodId(env);
     if (jmid_put == nullptr) {
       return false;
     }
 
     for (auto it = iterator; it != end; ++it) {
-      const std::unique_ptr<std::pair<jobject, jobject>> result = fn_map_kv(*it);
+      const std::unique_ptr<std::pair<jobject, jobject>> result =
+          fn_map_kv(*it);
       if (result == nullptr) {
-          // an error occurred during fn_map_kv
-          return false;
+        // an error occurred during fn_map_kv
+        return false;
       }
       env->CallObjectMethod(jhash_map, jmid_put, result->first, result->second);
       if (env->ExceptionCheck()) {
@@ -2201,14 +2230,17 @@ class HashMapJni : public JavaClass {
   }
 
   /**
-   * Creates a java.util.Map<String, String> from a std::map<std::string, std::string>
+   * Creates a java.util.Map<String, String> from a std::map<std::string,
+   * std::string>
    *
    * @param env A pointer to the Java environment
    * @param map the Cpp map
    *
-   * @return a reference to the Java java.util.Map object, or nullptr if an exception occcurred
+   * @return a reference to the Java java.util.Map object, or nullptr if an
+   * exception occcurred
    */
-  static jobject fromCppMap(JNIEnv* env, const std::map<std::string, std::string>* map) {
+  static jobject fromCppMap(JNIEnv* env,
+                            const std::map<std::string, std::string>* map) {
     if (map == nullptr) {
       return nullptr;
     }
@@ -2219,23 +2251,30 @@ class HashMapJni : public JavaClass {
       return nullptr;
     }
 
-    const rocksdb::HashMapJni::FnMapKV<const std::string, const std::string, jobject, jobject> fn_map_kv =
-        [env](const std::pair<const std::string, const std::string>& kv) {
-      jstring jkey = rocksdb::JniUtil::toJavaString(env, &(kv.first), false);
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
+    const rocksdb::HashMapJni::FnMapKV<const std::string, const std::string,
+                                       jobject, jobject>
+        fn_map_kv =
+            [env](const std::pair<const std::string, const std::string>& kv) {
+              jstring jkey =
+                  rocksdb::JniUtil::toJavaString(env, &(kv.first), false);
+              if (env->ExceptionCheck()) {
+                // an error occurred
+                return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+              }
 
-      jstring jvalue = rocksdb::JniUtil::toJavaString(env, &(kv.second), true);
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        env->DeleteLocalRef(jkey);
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
+              jstring jvalue =
+                  rocksdb::JniUtil::toJavaString(env, &(kv.second), true);
+              if (env->ExceptionCheck()) {
+                // an error occurred
+                env->DeleteLocalRef(jkey);
+                return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+              }
 
-      return std::unique_ptr<std::pair<jobject, jobject>>(new std::pair<jobject, jobject>(static_cast<jobject>(jkey), static_cast<jobject>(jvalue)));
-    };
+              return std::unique_ptr<std::pair<jobject, jobject>>(
+                  new std::pair<jobject, jobject>(
+                      static_cast<jobject>(jkey),
+                      static_cast<jobject>(jvalue)));
+            };
 
     if (!putAll(env, jhash_map, map->begin(), map->end(), fn_map_kv)) {
       // exception occurred
@@ -2246,14 +2285,17 @@ class HashMapJni : public JavaClass {
   }
 
   /**
-   * Creates a java.util.Map<String, Long> from a std::map<std::string, uint32_t>
+   * Creates a java.util.Map<String, Long> from a std::map<std::string,
+   * uint32_t>
    *
    * @param env A pointer to the Java environment
    * @param map the Cpp map
    *
-   * @return a reference to the Java java.util.Map object, or nullptr if an exception occcurred
+   * @return a reference to the Java java.util.Map object, or nullptr if an
+   * exception occcurred
    */
-  static jobject fromCppMap(JNIEnv* env, const std::map<std::string, uint32_t>* map) {
+  static jobject fromCppMap(JNIEnv* env,
+                            const std::map<std::string, uint32_t>* map) {
     if (map == nullptr) {
       return nullptr;
     }
@@ -2268,23 +2310,29 @@ class HashMapJni : public JavaClass {
       return nullptr;
     }
 
-    const rocksdb::HashMapJni::FnMapKV<const std::string, const uint32_t, jobject, jobject> fn_map_kv =
-        [env](const std::pair<const std::string, const uint32_t>& kv) {
-      jstring jkey = rocksdb::JniUtil::toJavaString(env, &(kv.first), false);
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
+    const rocksdb::HashMapJni::FnMapKV<const std::string, const uint32_t,
+                                       jobject, jobject>
+        fn_map_kv =
+            [env](const std::pair<const std::string, const uint32_t>& kv) {
+              jstring jkey =
+                  rocksdb::JniUtil::toJavaString(env, &(kv.first), false);
+              if (env->ExceptionCheck()) {
+                // an error occurred
+                return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+              }
 
-      jobject jvalue = rocksdb::IntegerJni::valueOf(env, static_cast<jint>(kv.second));
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        env->DeleteLocalRef(jkey);
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
+              jobject jvalue = rocksdb::IntegerJni::valueOf(
+                  env, static_cast<jint>(kv.second));
+              if (env->ExceptionCheck()) {
+                // an error occurred
+                env->DeleteLocalRef(jkey);
+                return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+              }
 
-      return std::unique_ptr<std::pair<jobject, jobject>>(new std::pair<jobject, jobject>(static_cast<jobject>(jkey), jvalue));
-    };
+              return std::unique_ptr<std::pair<jobject, jobject>>(
+                  new std::pair<jobject, jobject>(static_cast<jobject>(jkey),
+                                                  jvalue));
+            };
 
     if (!putAll(env, jhash_map, map->begin(), map->end(), fn_map_kv)) {
       // exception occurred
@@ -2295,14 +2343,17 @@ class HashMapJni : public JavaClass {
   }
 
   /**
-   * Creates a java.util.Map<String, Long> from a std::map<std::string, uint64_t>
+   * Creates a java.util.Map<String, Long> from a std::map<std::string,
+   * uint64_t>
    *
    * @param env A pointer to the Java environment
    * @param map the Cpp map
    *
-   * @return a reference to the Java java.util.Map object, or nullptr if an exception occcurred
+   * @return a reference to the Java java.util.Map object, or nullptr if an
+   * exception occcurred
    */
-  static jobject fromCppMap(JNIEnv* env, const std::map<std::string, uint64_t>* map) {
+  static jobject fromCppMap(JNIEnv* env,
+                            const std::map<std::string, uint64_t>* map) {
     if (map == nullptr) {
       return nullptr;
     }
@@ -2313,23 +2364,29 @@ class HashMapJni : public JavaClass {
       return nullptr;
     }
 
-    const rocksdb::HashMapJni::FnMapKV<const std::string, const uint64_t, jobject, jobject> fn_map_kv =
-        [env](const std::pair<const std::string, const uint64_t>& kv) {
-      jstring jkey = rocksdb::JniUtil::toJavaString(env, &(kv.first), false);
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
+    const rocksdb::HashMapJni::FnMapKV<const std::string, const uint64_t,
+                                       jobject, jobject>
+        fn_map_kv =
+            [env](const std::pair<const std::string, const uint64_t>& kv) {
+              jstring jkey =
+                  rocksdb::JniUtil::toJavaString(env, &(kv.first), false);
+              if (env->ExceptionCheck()) {
+                // an error occurred
+                return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+              }
 
-      jobject jvalue = rocksdb::LongJni::valueOf(env, static_cast<jlong>(kv.second));
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        env->DeleteLocalRef(jkey);
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
+              jobject jvalue =
+                  rocksdb::LongJni::valueOf(env, static_cast<jlong>(kv.second));
+              if (env->ExceptionCheck()) {
+                // an error occurred
+                env->DeleteLocalRef(jkey);
+                return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+              }
 
-      return std::unique_ptr<std::pair<jobject, jobject>>(new std::pair<jobject, jobject>(static_cast<jobject>(jkey), jvalue));
-    };
+              return std::unique_ptr<std::pair<jobject, jobject>>(
+                  new std::pair<jobject, jobject>(static_cast<jobject>(jkey),
+                                                  jvalue));
+            };
 
     if (!putAll(env, jhash_map, map->begin(), map->end(), fn_map_kv)) {
       // exception occurred
@@ -2339,15 +2396,17 @@ class HashMapJni : public JavaClass {
     return jhash_map;
   }
 
-    /**
+  /**
    * Creates a java.util.Map<String, Long> from a std::map<uint32_t, uint64_t>
    *
    * @param env A pointer to the Java environment
    * @param map the Cpp map
    *
-   * @return a reference to the Java java.util.Map object, or nullptr if an exception occcurred
+   * @return a reference to the Java java.util.Map object, or nullptr if an
+   * exception occcurred
    */
-  static jobject fromCppMap(JNIEnv* env, const std::map<uint32_t, uint64_t>* map) {
+  static jobject fromCppMap(JNIEnv* env,
+                            const std::map<uint32_t, uint64_t>* map) {
     if (map == nullptr) {
       return nullptr;
     }
@@ -2358,23 +2417,28 @@ class HashMapJni : public JavaClass {
       return nullptr;
     }
 
-    const rocksdb::HashMapJni::FnMapKV<const uint32_t, const uint64_t, jobject, jobject> fn_map_kv =
-        [env](const std::pair<const uint32_t, const uint64_t>& kv) {
-      jobject jkey = rocksdb::IntegerJni::valueOf(env, static_cast<jint>(kv.first));
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
+    const rocksdb::HashMapJni::FnMapKV<const uint32_t, const uint64_t, jobject,
+                                       jobject>
+        fn_map_kv = [env](const std::pair<const uint32_t, const uint64_t>& kv) {
+          jobject jkey =
+              rocksdb::IntegerJni::valueOf(env, static_cast<jint>(kv.first));
+          if (env->ExceptionCheck()) {
+            // an error occurred
+            return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+          }
 
-      jobject jvalue = rocksdb::LongJni::valueOf(env, static_cast<jlong>(kv.second));
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        env->DeleteLocalRef(jkey);
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
+          jobject jvalue =
+              rocksdb::LongJni::valueOf(env, static_cast<jlong>(kv.second));
+          if (env->ExceptionCheck()) {
+            // an error occurred
+            env->DeleteLocalRef(jkey);
+            return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+          }
 
-      return std::unique_ptr<std::pair<jobject, jobject>>(new std::pair<jobject, jobject>(static_cast<jobject>(jkey), jvalue));
-    };
+          return std::unique_ptr<std::pair<jobject, jobject>>(
+              new std::pair<jobject, jobject>(static_cast<jobject>(jkey),
+                                              jvalue));
+        };
 
     if (!putAll(env, jhash_map, map->begin(), map->end(), fn_map_kv)) {
       // exception occurred
@@ -2403,8 +2467,7 @@ class RocksDBJni : public RocksDBNativeClass<rocksdb::DB*, RocksDBJni> {
 };
 
 // The portal class for org.rocksdb.Options
-class OptionsJni : public RocksDBNativeClass<
-    rocksdb::Options*, OptionsJni> {
+class OptionsJni : public RocksDBNativeClass<rocksdb::Options*, OptionsJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.Options
@@ -2421,8 +2484,8 @@ class OptionsJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.DBOptions
-class DBOptionsJni : public RocksDBNativeClass<
-    rocksdb::DBOptions*, DBOptionsJni> {
+class DBOptionsJni
+    : public RocksDBNativeClass<rocksdb::DBOptions*, DBOptionsJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.DBOptions
@@ -2470,7 +2533,7 @@ class ColumnFamilyOptionsJni
   static jobject construct(JNIEnv* env, const ColumnFamilyOptions* cfoptions) {
     auto* cfo = new rocksdb::ColumnFamilyOptions(*cfoptions);
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -2491,8 +2554,8 @@ class ColumnFamilyOptionsJni
 };
 
 // The portal class for org.rocksdb.WriteOptions
-class WriteOptionsJni : public RocksDBNativeClass<
-    rocksdb::WriteOptions*, WriteOptionsJni> {
+class WriteOptionsJni
+    : public RocksDBNativeClass<rocksdb::WriteOptions*, WriteOptionsJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.WriteOptions
@@ -2509,8 +2572,8 @@ class WriteOptionsJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.ReadOptions
-class ReadOptionsJni : public RocksDBNativeClass<
-    rocksdb::ReadOptions*, ReadOptionsJni> {
+class ReadOptionsJni
+    : public RocksDBNativeClass<rocksdb::ReadOptions*, ReadOptionsJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.ReadOptions
@@ -2527,8 +2590,8 @@ class ReadOptionsJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.WriteBatch
-class WriteBatchJni : public RocksDBNativeClass<
-    rocksdb::WriteBatch*, WriteBatchJni> {
+class WriteBatchJni
+    : public RocksDBNativeClass<rocksdb::WriteBatch*, WriteBatchJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.WriteBatch
@@ -2554,7 +2617,7 @@ class WriteBatchJni : public RocksDBNativeClass<
    */
   static jobject construct(JNIEnv* env, const WriteBatch* wb) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -2575,9 +2638,9 @@ class WriteBatchJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.WriteBatch.Handler
-class WriteBatchHandlerJni : public RocksDBNativeClass<
-    const rocksdb::WriteBatchHandlerJniCallback*,
-    WriteBatchHandlerJni> {
+class WriteBatchHandlerJni
+    : public RocksDBNativeClass<const rocksdb::WriteBatchHandlerJniCallback*,
+                                WriteBatchHandlerJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.WriteBatch.Handler
@@ -2589,8 +2652,7 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
    *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
    */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/WriteBatch$Handler");
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/WriteBatch$Handler");
   }
 
   /**
@@ -2603,7 +2665,7 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
    */
   static jmethodID getPutCfMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -2643,7 +2705,7 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
    */
   static jmethodID getMergeCfMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -2663,7 +2725,7 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
    */
   static jmethodID getMergeMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -2683,7 +2745,7 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
    */
   static jmethodID getDeleteCfMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -2703,7 +2765,7 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
    */
   static jmethodID getDeleteMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -2723,7 +2785,7 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
    */
   static jmethodID getSingleDeleteCfMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -2743,7 +2805,7 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
    */
   static jmethodID getSingleDeleteMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -2803,7 +2865,7 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
    */
   static jmethodID getLogDataMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -2823,7 +2885,7 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
    */
   static jmethodID getPutBlobIndexCfMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -2903,7 +2965,7 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
    */
   static jmethodID getMarkRollbackMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -2998,7 +3060,7 @@ class WriteBatchSavePointJni : public JavaClass {
    * @return A reference to a Java org.rocksdb.WriteBatch.SavePoint object, or
    * nullptr if an an exception occurs
    */
-  static jobject construct(JNIEnv* env, const SavePoint &save_point) {
+  static jobject construct(JNIEnv* env, const SavePoint& save_point) {
     jclass jclazz = getJClass(env);
     if(jclazz == nullptr) {
       // exception occurred accessing class
@@ -3011,10 +3073,10 @@ class WriteBatchSavePointJni : public JavaClass {
       return nullptr;
     }
 
-    jobject jsave_point = env->NewObject(jclazz, mid,
-        static_cast<jlong>(save_point.size),
-        static_cast<jlong>(save_point.count),
-        static_cast<jlong>(save_point.content_flags));
+    jobject jsave_point =
+        env->NewObject(jclazz, mid, static_cast<jlong>(save_point.size),
+                       static_cast<jlong>(save_point.count),
+                       static_cast<jlong>(save_point.content_flags));
     if (env->ExceptionCheck()) {
       return nullptr;
     }
@@ -3024,8 +3086,9 @@ class WriteBatchSavePointJni : public JavaClass {
 };
 
 // The portal class for org.rocksdb.WriteBatchWithIndex
-class WriteBatchWithIndexJni : public RocksDBNativeClass<
-    rocksdb::WriteBatchWithIndex*, WriteBatchWithIndexJni> {
+class WriteBatchWithIndexJni
+    : public RocksDBNativeClass<rocksdb::WriteBatchWithIndex*,
+                                WriteBatchWithIndexJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.WriteBatchWithIndex
@@ -3038,7 +3101,7 @@ class WriteBatchWithIndexJni : public RocksDBNativeClass<
    */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/WriteBatchWithIndex");
+                                         "org/rocksdb/WriteBatchWithIndex");
   }
 };
 
@@ -3080,8 +3143,9 @@ class HistogramDataJni : public JavaClass {
 };
 
 // The portal class for org.rocksdb.BackupableDBOptions
-class BackupableDBOptionsJni : public RocksDBNativeClass<
-    rocksdb::BackupableDBOptions*, BackupableDBOptionsJni> {
+class BackupableDBOptionsJni
+    : public RocksDBNativeClass<rocksdb::BackupableDBOptions*,
+                                BackupableDBOptionsJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.BackupableDBOptions
@@ -3094,13 +3158,13 @@ class BackupableDBOptionsJni : public RocksDBNativeClass<
    */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/BackupableDBOptions");
+                                         "org/rocksdb/BackupableDBOptions");
   }
 };
 
 // The portal class for org.rocksdb.BackupEngine
-class BackupEngineJni : public RocksDBNativeClass<
-    rocksdb::BackupEngine*, BackupEngineJni> {
+class BackupEngineJni
+    : public RocksDBNativeClass<rocksdb::BackupEngine*, BackupEngineJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.BackupableEngine
@@ -3117,8 +3181,7 @@ class BackupEngineJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.RocksIterator
-class IteratorJni : public RocksDBNativeClass<
-    rocksdb::Iterator*, IteratorJni> {
+class IteratorJni : public RocksDBNativeClass<rocksdb::Iterator*, IteratorJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.RocksIterator
@@ -3135,8 +3198,9 @@ class IteratorJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.Filter
-class FilterJni : public RocksDBNativeClass<
-    std::shared_ptr<rocksdb::FilterPolicy>*, FilterJni> {
+class FilterJni
+    : public RocksDBNativeClass<std::shared_ptr<rocksdb::FilterPolicy>*,
+                                FilterJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.Filter
@@ -3153,8 +3217,9 @@ class FilterJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.ColumnFamilyHandle
-class ColumnFamilyHandleJni : public RocksDBNativeClass<
-    rocksdb::ColumnFamilyHandle*, ColumnFamilyHandleJni> {
+class ColumnFamilyHandleJni
+    : public RocksDBNativeClass<rocksdb::ColumnFamilyHandle*,
+                                ColumnFamilyHandleJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.ColumnFamilyHandle
@@ -3166,14 +3231,13 @@ class ColumnFamilyHandleJni : public RocksDBNativeClass<
    *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
    */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/ColumnFamilyHandle");
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/ColumnFamilyHandle");
   }
 };
 
 // The portal class for org.rocksdb.FlushOptions
-class FlushOptionsJni : public RocksDBNativeClass<
-    rocksdb::FlushOptions*, FlushOptionsJni> {
+class FlushOptionsJni
+    : public RocksDBNativeClass<rocksdb::FlushOptions*, FlushOptionsJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.FlushOptions
@@ -3190,8 +3254,9 @@ class FlushOptionsJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.ComparatorOptions
-class ComparatorOptionsJni : public RocksDBNativeClass<
-    rocksdb::ComparatorJniCallbackOptions*, ComparatorOptionsJni> {
+class ComparatorOptionsJni
+    : public RocksDBNativeClass<rocksdb::ComparatorJniCallbackOptions*,
+                                ComparatorOptionsJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.ComparatorOptions
@@ -3208,9 +3273,10 @@ class ComparatorOptionsJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.AbstractCompactionFilterFactory
-class AbstractCompactionFilterFactoryJni : public RocksDBNativeClass<
-    const rocksdb::CompactionFilterFactoryJniCallback*,
-    AbstractCompactionFilterFactoryJni> {
+class AbstractCompactionFilterFactoryJni
+    : public RocksDBNativeClass<
+          const rocksdb::CompactionFilterFactoryJniCallback*,
+          AbstractCompactionFilterFactoryJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.AbstractCompactionFilterFactory
@@ -3222,8 +3288,8 @@ class AbstractCompactionFilterFactoryJni : public RocksDBNativeClass<
    *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
    */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/AbstractCompactionFilterFactory");
+    return RocksDBNativeClass::getJClass(
+        env, "org/rocksdb/AbstractCompactionFilterFactory");
   }
 
   /**
@@ -3236,13 +3302,13 @@ class AbstractCompactionFilterFactoryJni : public RocksDBNativeClass<
    */
   static jmethodID getNameMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    static jmethodID mid = env->GetMethodID(
-        jclazz, "name", "()Ljava/lang/String;");
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "name", "()Ljava/lang/String;");
     assert(mid != nullptr);
     return mid;
   }
@@ -3257,34 +3323,33 @@ class AbstractCompactionFilterFactoryJni : public RocksDBNativeClass<
    */
   static jmethodID getCreateCompactionFilterMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    static jmethodID mid = env->GetMethodID(jclazz,
-      "createCompactionFilter",
-      "(ZZ)J");
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "createCompactionFilter", "(ZZ)J");
     assert(mid != nullptr);
     return mid;
   }
 };
 
 // The portal class for org.rocksdb.AbstractTransactionNotifier
-class AbstractTransactionNotifierJni : public RocksDBNativeClass<
-    const rocksdb::TransactionNotifierJniCallback*,
-    AbstractTransactionNotifierJni> {
+class AbstractTransactionNotifierJni
+    : public RocksDBNativeClass<const rocksdb::TransactionNotifierJniCallback*,
+                                AbstractTransactionNotifierJni> {
  public:
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/AbstractTransactionNotifier");
+    return RocksDBNativeClass::getJClass(
+        env, "org/rocksdb/AbstractTransactionNotifier");
   }
 
   // Get the java method `snapshotCreated`
   // of org.rocksdb.AbstractTransactionNotifier.
   static jmethodID getSnapshotCreatedMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -3296,9 +3361,9 @@ class AbstractTransactionNotifierJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.AbstractComparator
-class AbstractComparatorJni : public RocksDBNativeClass<
-    const rocksdb::BaseComparatorJniCallback*,
-    AbstractComparatorJni> {
+class AbstractComparatorJni
+    : public RocksDBNativeClass<const rocksdb::BaseComparatorJniCallback*,
+                                AbstractComparatorJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.AbstractComparator
@@ -3310,8 +3375,7 @@ class AbstractComparatorJni : public RocksDBNativeClass<
    *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
    */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/AbstractComparator");
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/AbstractComparator");
   }
 
   /**
@@ -3324,7 +3388,7 @@ class AbstractComparatorJni : public RocksDBNativeClass<
    */
   static jmethodID getNameMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -3345,14 +3409,14 @@ class AbstractComparatorJni : public RocksDBNativeClass<
    */
   static jmethodID getCompareMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    static jmethodID mid =
-        env->GetMethodID(jclazz, "compare",
-            "(Lorg/rocksdb/AbstractSlice;Lorg/rocksdb/AbstractSlice;)I");
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "compare",
+        "(Lorg/rocksdb/AbstractSlice;Lorg/rocksdb/AbstractSlice;)I");
     assert(mid != nullptr);
     return mid;
   }
@@ -3367,14 +3431,14 @@ class AbstractComparatorJni : public RocksDBNativeClass<
    */
   static jmethodID getFindShortestSeparatorMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    static jmethodID mid =
-        env->GetMethodID(jclazz, "findShortestSeparator",
-            "(Ljava/lang/String;Lorg/rocksdb/AbstractSlice;)Ljava/lang/String;");
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "findShortestSeparator",
+        "(Ljava/lang/String;Lorg/rocksdb/AbstractSlice;)Ljava/lang/String;");
     assert(mid != nullptr);
     return mid;
   }
@@ -3389,22 +3453,21 @@ class AbstractComparatorJni : public RocksDBNativeClass<
    */
   static jmethodID getFindShortSuccessorMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    static jmethodID mid =
-        env->GetMethodID(jclazz, "findShortSuccessor",
-            "(Ljava/lang/String;)Ljava/lang/String;");
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "findShortSuccessor", "(Ljava/lang/String;)Ljava/lang/String;");
     assert(mid != nullptr);
     return mid;
   }
 };
 
 // The portal class for org.rocksdb.AbstractSlice
-class AbstractSliceJni : public NativeRocksMutableObject<
-    const rocksdb::Slice*, AbstractSliceJni> {
+class AbstractSliceJni
+    : public NativeRocksMutableObject<const rocksdb::Slice*, AbstractSliceJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.AbstractSlice
@@ -3421,8 +3484,8 @@ class AbstractSliceJni : public NativeRocksMutableObject<
 };
 
 // The portal class for org.rocksdb.Slice
-class SliceJni : public NativeRocksMutableObject<
-    const rocksdb::Slice*, AbstractSliceJni> {
+class SliceJni
+    : public NativeRocksMutableObject<const rocksdb::Slice*, AbstractSliceJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.Slice
@@ -3447,19 +3510,19 @@ class SliceJni : public NativeRocksMutableObject<
    */
   static jobject construct0(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
     static jmethodID mid = env->GetMethodID(jclazz, "<init>", "()V");
-    if(mid == nullptr) {
+    if (mid == nullptr) {
       // exception occurred accessing method
       return nullptr;
     }
 
     jobject jslice = env->NewObject(jclazz, mid);
-    if(env->ExceptionCheck()) {
+    if (env->ExceptionCheck()) {
       return nullptr;
     }
 
@@ -3468,8 +3531,8 @@ class SliceJni : public NativeRocksMutableObject<
 };
 
 // The portal class for org.rocksdb.DirectSlice
-class DirectSliceJni : public NativeRocksMutableObject<
-    const rocksdb::Slice*, AbstractSliceJni> {
+class DirectSliceJni
+    : public NativeRocksMutableObject<const rocksdb::Slice*, AbstractSliceJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.DirectSlice
@@ -5578,7 +5641,9 @@ class DeadlockPathJni : public JavaClass {
   }
 };
 
-class AbstractTableFilterJni : public RocksDBNativeClass<const rocksdb::TableFilterJniCallback*, AbstractTableFilterJni> {
+class AbstractTableFilterJni
+    : public RocksDBNativeClass<const rocksdb::TableFilterJniCallback*,
+                                AbstractTableFilterJni> {
  public:
   /**
    * Get the Java Method: TableFilter#filter(TableProperties)
@@ -5590,7 +5655,7 @@ class AbstractTableFilterJni : public RocksDBNativeClass<const rocksdb::TableFil
    */
   static jmethodID getFilterMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -5618,33 +5683,41 @@ class TablePropertiesJni : public JavaClass {
    * @return A reference to a Java org.rocksdb.TableProperties object, or
    * nullptr if an an exception occurs
    */
-  static jobject fromCppTableProperties(JNIEnv* env, const rocksdb::TableProperties& table_properties) {
+  static jobject fromCppTableProperties(
+      JNIEnv* env, const rocksdb::TableProperties& table_properties) {
     jclass jclazz = getJClass(env);
     if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(JJJJJJJJJJJJJJJJJJJ[BLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;)V");
+    jmethodID mid = env->GetMethodID(
+        jclazz, "<init>",
+        "(JJJJJJJJJJJJJJJJJJJ[BLjava/lang/String;Ljava/lang/String;Ljava/lang/"
+        "String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/"
+        "util/Map;Ljava/util/Map;Ljava/util/Map;)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
     }
 
-    jbyteArray jcolumn_family_name = rocksdb::JniUtil::copyBytes(env, table_properties.column_family_name);
+    jbyteArray jcolumn_family_name =
+        rocksdb::JniUtil::copyBytes(env, table_properties.column_family_name);
     if (jcolumn_family_name == nullptr) {
       // exception occurred creating java string
       return nullptr;
     }
 
-    jstring jfilter_policy_name = rocksdb::JniUtil::toJavaString(env, &table_properties.filter_policy_name, true);
+    jstring jfilter_policy_name = rocksdb::JniUtil::toJavaString(
+        env, &table_properties.filter_policy_name, true);
     if (env->ExceptionCheck()) {
       // exception occurred creating java string
       env->DeleteLocalRef(jcolumn_family_name);
       return nullptr;
     }
 
-    jstring jcomparator_name = rocksdb::JniUtil::toJavaString(env, &table_properties.comparator_name, true);
+    jstring jcomparator_name = rocksdb::JniUtil::toJavaString(
+        env, &table_properties.comparator_name, true);
     if (env->ExceptionCheck()) {
       // exception occurred creating java string
       env->DeleteLocalRef(jcolumn_family_name);
@@ -5652,7 +5725,8 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    jstring jmerge_operator_name = rocksdb::JniUtil::toJavaString(env, &table_properties.merge_operator_name, true);
+    jstring jmerge_operator_name = rocksdb::JniUtil::toJavaString(
+        env, &table_properties.merge_operator_name, true);
     if (env->ExceptionCheck()) {
       // exception occurred creating java string
       env->DeleteLocalRef(jcolumn_family_name);
@@ -5661,7 +5735,8 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    jstring jprefix_extractor_name = rocksdb::JniUtil::toJavaString(env, &table_properties.prefix_extractor_name, true);
+    jstring jprefix_extractor_name = rocksdb::JniUtil::toJavaString(
+        env, &table_properties.prefix_extractor_name, true);
     if (env->ExceptionCheck()) {
       // exception occurred creating java string
       env->DeleteLocalRef(jcolumn_family_name);
@@ -5670,8 +5745,9 @@ class TablePropertiesJni : public JavaClass {
       env->DeleteLocalRef(jmerge_operator_name);
       return nullptr;
     }
-  
-    jstring jproperty_collectors_names = rocksdb::JniUtil::toJavaString(env, &table_properties.property_collectors_names, true);
+
+    jstring jproperty_collectors_names = rocksdb::JniUtil::toJavaString(
+        env, &table_properties.property_collectors_names, true);
     if (env->ExceptionCheck()) {
       // exception occurred creating java string
       env->DeleteLocalRef(jcolumn_family_name);
@@ -5682,7 +5758,8 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    jstring jcompression_name = rocksdb::JniUtil::toJavaString(env, &table_properties.compression_name, true);
+    jstring jcompression_name = rocksdb::JniUtil::toJavaString(
+        env, &table_properties.compression_name, true);
     if (env->ExceptionCheck()) {
       // exception occurred creating java string
       env->DeleteLocalRef(jcolumn_family_name);
@@ -5695,7 +5772,8 @@ class TablePropertiesJni : public JavaClass {
     }
 
     // Map<String, String>
-    jobject juser_collected_properties = rocksdb::HashMapJni::fromCppMap(env, &table_properties.user_collected_properties);
+    jobject juser_collected_properties = rocksdb::HashMapJni::fromCppMap(
+        env, &table_properties.user_collected_properties);
     if (env->ExceptionCheck()) {
       // exception occurred creating java map
       env->DeleteLocalRef(jcolumn_family_name);
@@ -5709,7 +5787,8 @@ class TablePropertiesJni : public JavaClass {
     }
 
     // Map<String, String>
-    jobject jreadable_properties = rocksdb::HashMapJni::fromCppMap(env, &table_properties.readable_properties);
+    jobject jreadable_properties = rocksdb::HashMapJni::fromCppMap(
+        env, &table_properties.readable_properties);
     if (env->ExceptionCheck()) {
       // exception occurred creating java map
       env->DeleteLocalRef(jcolumn_family_name);
@@ -5724,7 +5803,8 @@ class TablePropertiesJni : public JavaClass {
     }
 
     // Map<String, Long>
-    jobject jproperties_offsets = rocksdb::HashMapJni::fromCppMap(env, &table_properties.properties_offsets);
+    jobject jproperties_offsets = rocksdb::HashMapJni::fromCppMap(
+        env, &table_properties.properties_offsets);
     if (env->ExceptionCheck()) {
       // exception occurred creating java map
       env->DeleteLocalRef(jcolumn_family_name);
@@ -5739,8 +5819,8 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    jobject jtable_properties = env->NewObject(jclazz, mid,
-        static_cast<jlong>(table_properties.data_size),
+    jobject jtable_properties = env->NewObject(
+        jclazz, mid, static_cast<jlong>(table_properties.data_size),
         static_cast<jlong>(table_properties.index_size),
         static_cast<jlong>(table_properties.index_partitions),
         static_cast<jlong>(table_properties.top_level_index_size),
@@ -5759,17 +5839,10 @@ class TablePropertiesJni : public JavaClass {
         static_cast<jlong>(table_properties.column_family_id),
         static_cast<jlong>(table_properties.creation_time),
         static_cast<jlong>(table_properties.oldest_key_time),
-        jcolumn_family_name,
-        jfilter_policy_name,
-        jcomparator_name,
-        jmerge_operator_name,
-        jprefix_extractor_name,
-        jproperty_collectors_names,
-        jcompression_name,
-        juser_collected_properties,
-        jreadable_properties,
-        jproperties_offsets
-    );
+        jcolumn_family_name, jfilter_policy_name, jcomparator_name,
+        jmerge_operator_name, jprefix_extractor_name,
+        jproperty_collectors_names, jcompression_name,
+        juser_collected_properties, jreadable_properties, jproperties_offsets);
 
     if (env->ExceptionCheck()) {
       return nullptr;
@@ -5881,333 +5954,337 @@ class ColumnFamilyDescriptorJni : public JavaClass {
 // The portal class for org.rocksdb.IndexType
 class IndexTypeJni {
  public:
- // Returns the equivalent org.rocksdb.IndexType for the provided
- // C++ rocksdb::IndexType enum
- static jbyte toJavaIndexType(
-     const rocksdb::BlockBasedTableOptions::IndexType& index_type) {
-   switch(index_type) {
-     case rocksdb::BlockBasedTableOptions::IndexType::kBinarySearch:
-       return 0x0;
-     case rocksdb::BlockBasedTableOptions::IndexType::kHashSearch:
-       return 0x1;
-    case rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch:
-       return 0x2;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.IndexType for the provided
+  // C++ rocksdb::IndexType enum
+  static jbyte toJavaIndexType(
+      const rocksdb::BlockBasedTableOptions::IndexType& index_type) {
+    switch (index_type) {
+      case rocksdb::BlockBasedTableOptions::IndexType::kBinarySearch:
+        return 0x0;
+      case rocksdb::BlockBasedTableOptions::IndexType::kHashSearch:
+        return 0x1;
+      case rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch:
+        return 0x2;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::IndexType enum for the
- // provided Java org.rocksdb.IndexType
- static rocksdb::BlockBasedTableOptions::IndexType toCppIndexType(
-     jbyte jindex_type) {
-   switch(jindex_type) {
-     case 0x0:
-       return rocksdb::BlockBasedTableOptions::IndexType::kBinarySearch;
-     case 0x1:
-       return rocksdb::BlockBasedTableOptions::IndexType::kHashSearch;
-     case 0x2:
-       return rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-     default:
-       // undefined/default
-       return rocksdb::BlockBasedTableOptions::IndexType::kBinarySearch;
-   }
- }
+  // Returns the equivalent C++ rocksdb::IndexType enum for the
+  // provided Java org.rocksdb.IndexType
+  static rocksdb::BlockBasedTableOptions::IndexType toCppIndexType(
+      jbyte jindex_type) {
+    switch (jindex_type) {
+      case 0x0:
+        return rocksdb::BlockBasedTableOptions::IndexType::kBinarySearch;
+      case 0x1:
+        return rocksdb::BlockBasedTableOptions::IndexType::kHashSearch;
+      case 0x2:
+        return rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+      default:
+        // undefined/default
+        return rocksdb::BlockBasedTableOptions::IndexType::kBinarySearch;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.DataBlockIndexType
 class DataBlockIndexTypeJni {
  public:
- // Returns the equivalent org.rocksdb.DataBlockIndexType for the provided
- // C++ rocksdb::DataBlockIndexType enum
- static jbyte toJavaDataBlockIndexType(
-     const rocksdb::BlockBasedTableOptions::DataBlockIndexType& index_type) {
-   switch(index_type) {
-     case rocksdb::BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch:
-       return 0x0;
-     case rocksdb::BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinaryAndHash:
-       return 0x1;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.DataBlockIndexType for the provided
+  // C++ rocksdb::DataBlockIndexType enum
+  static jbyte toJavaDataBlockIndexType(
+      const rocksdb::BlockBasedTableOptions::DataBlockIndexType& index_type) {
+    switch (index_type) {
+      case rocksdb::BlockBasedTableOptions::DataBlockIndexType::
+          kDataBlockBinarySearch:
+        return 0x0;
+      case rocksdb::BlockBasedTableOptions::DataBlockIndexType::
+          kDataBlockBinaryAndHash:
+        return 0x1;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::DataBlockIndexType enum for the
- // provided Java org.rocksdb.DataBlockIndexType
- static rocksdb::BlockBasedTableOptions::DataBlockIndexType toCppDataBlockIndexType(
-     jbyte jindex_type) {
-   switch(jindex_type) {
-     case 0x0:
-       return rocksdb::BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch;
-     case 0x1:
-       return rocksdb::BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinaryAndHash;
-     default:
-       // undefined/default
-       return rocksdb::BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch;
-   }
- }
+  // Returns the equivalent C++ rocksdb::DataBlockIndexType enum for the
+  // provided Java org.rocksdb.DataBlockIndexType
+  static rocksdb::BlockBasedTableOptions::DataBlockIndexType
+  toCppDataBlockIndexType(jbyte jindex_type) {
+    switch (jindex_type) {
+      case 0x0:
+        return rocksdb::BlockBasedTableOptions::DataBlockIndexType::
+            kDataBlockBinarySearch;
+      case 0x1:
+        return rocksdb::BlockBasedTableOptions::DataBlockIndexType::
+            kDataBlockBinaryAndHash;
+      default:
+        // undefined/default
+        return rocksdb::BlockBasedTableOptions::DataBlockIndexType::
+            kDataBlockBinarySearch;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.ChecksumType
 class ChecksumTypeJni {
  public:
- // Returns the equivalent org.rocksdb.ChecksumType for the provided
- // C++ rocksdb::ChecksumType enum
- static jbyte toJavaChecksumType(
-     const rocksdb::ChecksumType& checksum_type) {
-   switch(checksum_type) {
-     case rocksdb::ChecksumType::kNoChecksum:
-       return 0x0;
-     case rocksdb::ChecksumType::kCRC32c:
-       return 0x1;
-     case rocksdb::ChecksumType::kxxHash:
-       return 0x2;
-     case rocksdb::ChecksumType::kxxHash64:
-       return 0x3;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.ChecksumType for the provided
+  // C++ rocksdb::ChecksumType enum
+  static jbyte toJavaChecksumType(const rocksdb::ChecksumType& checksum_type) {
+    switch (checksum_type) {
+      case rocksdb::ChecksumType::kNoChecksum:
+        return 0x0;
+      case rocksdb::ChecksumType::kCRC32c:
+        return 0x1;
+      case rocksdb::ChecksumType::kxxHash:
+        return 0x2;
+      case rocksdb::ChecksumType::kxxHash64:
+        return 0x3;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::ChecksumType enum for the
- // provided Java org.rocksdb.ChecksumType
- static rocksdb::ChecksumType toCppChecksumType(
-     jbyte jchecksum_type) {
-   switch(jchecksum_type) {
-     case 0x0:
-       return rocksdb::ChecksumType::kNoChecksum;
-     case 0x1:
-       return rocksdb::ChecksumType::kCRC32c;
-     case 0x2:
-       return rocksdb::ChecksumType::kxxHash;
-     case 0x3:
-       return rocksdb::ChecksumType::kxxHash64;
-     default:
-       // undefined/default
-       return rocksdb::ChecksumType::kCRC32c;
-   }
- }
+  // Returns the equivalent C++ rocksdb::ChecksumType enum for the
+  // provided Java org.rocksdb.ChecksumType
+  static rocksdb::ChecksumType toCppChecksumType(jbyte jchecksum_type) {
+    switch (jchecksum_type) {
+      case 0x0:
+        return rocksdb::ChecksumType::kNoChecksum;
+      case 0x1:
+        return rocksdb::ChecksumType::kCRC32c;
+      case 0x2:
+        return rocksdb::ChecksumType::kxxHash;
+      case 0x3:
+        return rocksdb::ChecksumType::kxxHash64;
+      default:
+        // undefined/default
+        return rocksdb::ChecksumType::kCRC32c;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.Priority
 class PriorityJni {
  public:
- // Returns the equivalent org.rocksdb.Priority for the provided
- // C++ rocksdb::Env::Priority enum
- static jbyte toJavaPriority(
-     const rocksdb::Env::Priority& priority) {
-   switch(priority) {
-     case rocksdb::Env::Priority::BOTTOM:
-       return 0x0;
-     case rocksdb::Env::Priority::LOW:
-       return 0x1;
-     case rocksdb::Env::Priority::HIGH:
-       return 0x2;
-     case rocksdb::Env::Priority::TOTAL:
-       return 0x3;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.Priority for the provided
+  // C++ rocksdb::Env::Priority enum
+  static jbyte toJavaPriority(const rocksdb::Env::Priority& priority) {
+    switch (priority) {
+      case rocksdb::Env::Priority::BOTTOM:
+        return 0x0;
+      case rocksdb::Env::Priority::LOW:
+        return 0x1;
+      case rocksdb::Env::Priority::HIGH:
+        return 0x2;
+      case rocksdb::Env::Priority::TOTAL:
+        return 0x3;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::env::Priority enum for the
- // provided Java org.rocksdb.Priority
- static rocksdb::Env::Priority toCppPriority(
-     jbyte jpriority) {
-   switch(jpriority) {
-     case 0x0:
-       return rocksdb::Env::Priority::BOTTOM;
-     case 0x1:
-       return rocksdb::Env::Priority::LOW;
-     case 0x2:
-       return rocksdb::Env::Priority::HIGH;
-     case 0x3:
-       return rocksdb::Env::Priority::TOTAL;
-     default:
-       // undefined/default
-       return rocksdb::Env::Priority::LOW;
-   }
- }
+  // Returns the equivalent C++ rocksdb::env::Priority enum for the
+  // provided Java org.rocksdb.Priority
+  static rocksdb::Env::Priority toCppPriority(jbyte jpriority) {
+    switch (jpriority) {
+      case 0x0:
+        return rocksdb::Env::Priority::BOTTOM;
+      case 0x1:
+        return rocksdb::Env::Priority::LOW;
+      case 0x2:
+        return rocksdb::Env::Priority::HIGH;
+      case 0x3:
+        return rocksdb::Env::Priority::TOTAL;
+      default:
+        // undefined/default
+        return rocksdb::Env::Priority::LOW;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.ThreadType
 class ThreadTypeJni {
  public:
- // Returns the equivalent org.rocksdb.ThreadType for the provided
- // C++ rocksdb::ThreadStatus::ThreadType enum
- static jbyte toJavaThreadType(
-     const rocksdb::ThreadStatus::ThreadType& thread_type) {
-   switch(thread_type) {
-     case rocksdb::ThreadStatus::ThreadType::HIGH_PRIORITY:
-       return 0x0;
-     case rocksdb::ThreadStatus::ThreadType::LOW_PRIORITY:
-       return 0x1;
-     case rocksdb::ThreadStatus::ThreadType::USER:
-       return 0x2;
-     case rocksdb::ThreadStatus::ThreadType::BOTTOM_PRIORITY:
-       return 0x3;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.ThreadType for the provided
+  // C++ rocksdb::ThreadStatus::ThreadType enum
+  static jbyte toJavaThreadType(
+      const rocksdb::ThreadStatus::ThreadType& thread_type) {
+    switch (thread_type) {
+      case rocksdb::ThreadStatus::ThreadType::HIGH_PRIORITY:
+        return 0x0;
+      case rocksdb::ThreadStatus::ThreadType::LOW_PRIORITY:
+        return 0x1;
+      case rocksdb::ThreadStatus::ThreadType::USER:
+        return 0x2;
+      case rocksdb::ThreadStatus::ThreadType::BOTTOM_PRIORITY:
+        return 0x3;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::ThreadStatus::ThreadType enum for the
- // provided Java org.rocksdb.ThreadType
- static rocksdb::ThreadStatus::ThreadType toCppThreadType(
-     jbyte jthread_type) {
-   switch(jthread_type) {
-     case 0x0:
-       return rocksdb::ThreadStatus::ThreadType::HIGH_PRIORITY;
-     case 0x1:
-       return rocksdb::ThreadStatus::ThreadType::LOW_PRIORITY;
-     case 0x2:
-       return ThreadStatus::ThreadType::USER;
-     case 0x3:
-       return rocksdb::ThreadStatus::ThreadType::BOTTOM_PRIORITY;
-     default:
-       // undefined/default
-       return rocksdb::ThreadStatus::ThreadType::LOW_PRIORITY;
-   }
- }
+  // Returns the equivalent C++ rocksdb::ThreadStatus::ThreadType enum for the
+  // provided Java org.rocksdb.ThreadType
+  static rocksdb::ThreadStatus::ThreadType toCppThreadType(jbyte jthread_type) {
+    switch (jthread_type) {
+      case 0x0:
+        return rocksdb::ThreadStatus::ThreadType::HIGH_PRIORITY;
+      case 0x1:
+        return rocksdb::ThreadStatus::ThreadType::LOW_PRIORITY;
+      case 0x2:
+        return ThreadStatus::ThreadType::USER;
+      case 0x3:
+        return rocksdb::ThreadStatus::ThreadType::BOTTOM_PRIORITY;
+      default:
+        // undefined/default
+        return rocksdb::ThreadStatus::ThreadType::LOW_PRIORITY;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.OperationType
 class OperationTypeJni {
  public:
- // Returns the equivalent org.rocksdb.OperationType for the provided
- // C++ rocksdb::ThreadStatus::OperationType enum
- static jbyte toJavaOperationType(
-     const rocksdb::ThreadStatus::OperationType& operation_type) {
-   switch(operation_type) {
-     case rocksdb::ThreadStatus::OperationType::OP_UNKNOWN:
-       return 0x0;
-     case rocksdb::ThreadStatus::OperationType::OP_COMPACTION:
-       return 0x1;
-     case rocksdb::ThreadStatus::OperationType::OP_FLUSH:
-       return 0x2;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.OperationType for the provided
+  // C++ rocksdb::ThreadStatus::OperationType enum
+  static jbyte toJavaOperationType(
+      const rocksdb::ThreadStatus::OperationType& operation_type) {
+    switch (operation_type) {
+      case rocksdb::ThreadStatus::OperationType::OP_UNKNOWN:
+        return 0x0;
+      case rocksdb::ThreadStatus::OperationType::OP_COMPACTION:
+        return 0x1;
+      case rocksdb::ThreadStatus::OperationType::OP_FLUSH:
+        return 0x2;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::ThreadStatus::OperationType enum for the
- // provided Java org.rocksdb.OperationType
- static rocksdb::ThreadStatus::OperationType toCppOperationType(
-     jbyte joperation_type) {
-   switch(joperation_type) {
-     case 0x0:
-       return rocksdb::ThreadStatus::OperationType::OP_UNKNOWN;
-     case 0x1:
-       return rocksdb::ThreadStatus::OperationType::OP_COMPACTION;
-     case 0x2:
-       return rocksdb::ThreadStatus::OperationType::OP_FLUSH;
-     default:
-       // undefined/default
-       return rocksdb::ThreadStatus::OperationType::OP_UNKNOWN;
-   }
- }
+  // Returns the equivalent C++ rocksdb::ThreadStatus::OperationType enum for
+  // the provided Java org.rocksdb.OperationType
+  static rocksdb::ThreadStatus::OperationType toCppOperationType(
+      jbyte joperation_type) {
+    switch (joperation_type) {
+      case 0x0:
+        return rocksdb::ThreadStatus::OperationType::OP_UNKNOWN;
+      case 0x1:
+        return rocksdb::ThreadStatus::OperationType::OP_COMPACTION;
+      case 0x2:
+        return rocksdb::ThreadStatus::OperationType::OP_FLUSH;
+      default:
+        // undefined/default
+        return rocksdb::ThreadStatus::OperationType::OP_UNKNOWN;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.OperationStage
 class OperationStageJni {
  public:
- // Returns the equivalent org.rocksdb.OperationStage for the provided
- // C++ rocksdb::ThreadStatus::OperationStage enum
- static jbyte toJavaOperationStage(
-     const rocksdb::ThreadStatus::OperationStage& operation_stage) {
-   switch(operation_stage) {
-     case rocksdb::ThreadStatus::OperationStage::STAGE_UNKNOWN:
-       return 0x0;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_FLUSH_RUN:
-       return 0x1;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_FLUSH_WRITE_L0:
-       return 0x2;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_PREPARE:
-       return 0x3;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_RUN:
-       return 0x4;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_PROCESS_KV:
-       return 0x5;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_INSTALL:
-       return 0x6;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_SYNC_FILE:
-       return 0x7;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_PICK_MEMTABLES_TO_FLUSH:
-       return 0x8;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_MEMTABLE_ROLLBACK:
-       return 0x9;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS:
-       return 0xA;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.OperationStage for the provided
+  // C++ rocksdb::ThreadStatus::OperationStage enum
+  static jbyte toJavaOperationStage(
+      const rocksdb::ThreadStatus::OperationStage& operation_stage) {
+    switch (operation_stage) {
+      case rocksdb::ThreadStatus::OperationStage::STAGE_UNKNOWN:
+        return 0x0;
+      case rocksdb::ThreadStatus::OperationStage::STAGE_FLUSH_RUN:
+        return 0x1;
+      case rocksdb::ThreadStatus::OperationStage::STAGE_FLUSH_WRITE_L0:
+        return 0x2;
+      case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_PREPARE:
+        return 0x3;
+      case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_RUN:
+        return 0x4;
+      case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_PROCESS_KV:
+        return 0x5;
+      case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_INSTALL:
+        return 0x6;
+      case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_SYNC_FILE:
+        return 0x7;
+      case rocksdb::ThreadStatus::OperationStage::STAGE_PICK_MEMTABLES_TO_FLUSH:
+        return 0x8;
+      case rocksdb::ThreadStatus::OperationStage::STAGE_MEMTABLE_ROLLBACK:
+        return 0x9;
+      case rocksdb::ThreadStatus::OperationStage::
+          STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS:
+        return 0xA;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::ThreadStatus::OperationStage enum for the
- // provided Java org.rocksdb.OperationStage
- static rocksdb::ThreadStatus::OperationStage toCppOperationStage(
-     jbyte joperation_stage) {
-   switch(joperation_stage) {
-     case 0x0:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_UNKNOWN;
-     case 0x1:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_FLUSH_RUN;
-     case 0x2:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_FLUSH_WRITE_L0;
-     case 0x3:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_PREPARE;
-     case 0x4:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_RUN;
-     case 0x5:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_PROCESS_KV;
-     case 0x6:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_INSTALL;
-     case 0x7:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_SYNC_FILE;
-     case 0x8:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_PICK_MEMTABLES_TO_FLUSH;
-     case 0x9:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_MEMTABLE_ROLLBACK;
-     case 0xA:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS;
-     default:
-       // undefined/default
-       return rocksdb::ThreadStatus::OperationStage::STAGE_UNKNOWN;
-   }
- }
+  // Returns the equivalent C++ rocksdb::ThreadStatus::OperationStage enum for
+  // the provided Java org.rocksdb.OperationStage
+  static rocksdb::ThreadStatus::OperationStage toCppOperationStage(
+      jbyte joperation_stage) {
+    switch (joperation_stage) {
+      case 0x0:
+        return rocksdb::ThreadStatus::OperationStage::STAGE_UNKNOWN;
+      case 0x1:
+        return rocksdb::ThreadStatus::OperationStage::STAGE_FLUSH_RUN;
+      case 0x2:
+        return rocksdb::ThreadStatus::OperationStage::STAGE_FLUSH_WRITE_L0;
+      case 0x3:
+        return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_PREPARE;
+      case 0x4:
+        return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_RUN;
+      case 0x5:
+        return rocksdb::ThreadStatus::OperationStage::
+            STAGE_COMPACTION_PROCESS_KV;
+      case 0x6:
+        return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_INSTALL;
+      case 0x7:
+        return rocksdb::ThreadStatus::OperationStage::
+            STAGE_COMPACTION_SYNC_FILE;
+      case 0x8:
+        return rocksdb::ThreadStatus::OperationStage::
+            STAGE_PICK_MEMTABLES_TO_FLUSH;
+      case 0x9:
+        return rocksdb::ThreadStatus::OperationStage::STAGE_MEMTABLE_ROLLBACK;
+      case 0xA:
+        return rocksdb::ThreadStatus::OperationStage::
+            STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS;
+      default:
+        // undefined/default
+        return rocksdb::ThreadStatus::OperationStage::STAGE_UNKNOWN;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.StateType
 class StateTypeJni {
  public:
- // Returns the equivalent org.rocksdb.StateType for the provided
- // C++ rocksdb::ThreadStatus::StateType enum
- static jbyte toJavaStateType(
-     const rocksdb::ThreadStatus::StateType& state_type) {
-   switch(state_type) {
-     case rocksdb::ThreadStatus::StateType::STATE_UNKNOWN:
-       return 0x0;
-     case rocksdb::ThreadStatus::StateType::STATE_MUTEX_WAIT:
-       return 0x1;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.StateType for the provided
+  // C++ rocksdb::ThreadStatus::StateType enum
+  static jbyte toJavaStateType(
+      const rocksdb::ThreadStatus::StateType& state_type) {
+    switch (state_type) {
+      case rocksdb::ThreadStatus::StateType::STATE_UNKNOWN:
+        return 0x0;
+      case rocksdb::ThreadStatus::StateType::STATE_MUTEX_WAIT:
+        return 0x1;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::ThreadStatus::StateType enum for the
- // provided Java org.rocksdb.StateType
- static rocksdb::ThreadStatus::StateType toCppStateType(
-     jbyte jstate_type) {
-   switch(jstate_type) {
-     case 0x0:
-       return rocksdb::ThreadStatus::StateType::STATE_UNKNOWN;
-     case 0x1:
-       return rocksdb::ThreadStatus::StateType::STATE_MUTEX_WAIT;
-     default:
-       // undefined/default
-       return rocksdb::ThreadStatus::StateType::STATE_UNKNOWN;
-   }
- }
+  // Returns the equivalent C++ rocksdb::ThreadStatus::StateType enum for the
+  // provided Java org.rocksdb.StateType
+  static rocksdb::ThreadStatus::StateType toCppStateType(jbyte jstate_type) {
+    switch (jstate_type) {
+      case 0x0:
+        return rocksdb::ThreadStatus::StateType::STATE_UNKNOWN;
+      case 0x1:
+        return rocksdb::ThreadStatus::StateType::STATE_MUTEX_WAIT;
+      default:
+        // undefined/default
+        return rocksdb::ThreadStatus::StateType::STATE_UNKNOWN;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.ThreadStatus
@@ -6223,8 +6300,7 @@ class ThreadStatusJni : public JavaClass {
    *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
    */
   static jclass getJClass(JNIEnv* env) {
-    return JavaClass::getJClass(env,
-        "org/rocksdb/ThreadStatus");
+    return JavaClass::getJClass(env, "org/rocksdb/ThreadStatus");
   }
 
   /**
@@ -6238,14 +6314,15 @@ class ThreadStatusJni : public JavaClass {
    * nullptr if an an exception occurs
    */
   static jobject construct(JNIEnv* env,
-      const rocksdb::ThreadStatus* thread_status) {
+                           const rocksdb::ThreadStatus* thread_status) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(JBLjava/lang/String;Ljava/lang/String;BJB[JB)V");
+    jmethodID mid = env->GetMethodID(
+        jclazz, "<init>", "(JBLjava/lang/String;Ljava/lang/String;BJB[JB)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -6254,45 +6331,44 @@ class ThreadStatusJni : public JavaClass {
     jstring jdb_name =
         JniUtil::toJavaString(env, &(thread_status->db_name), true);
     if (env->ExceptionCheck()) {
-        // an error occurred
-        return nullptr;
+      // an error occurred
+      return nullptr;
     }
 
     jstring jcf_name =
         JniUtil::toJavaString(env, &(thread_status->cf_name), true);
     if (env->ExceptionCheck()) {
-        // an error occurred
-        env->DeleteLocalRef(jdb_name);
-        return nullptr;
+      // an error occurred
+      env->DeleteLocalRef(jdb_name);
+      return nullptr;
     }
 
     // long[]
-    const jsize len = static_cast<jsize>(rocksdb::ThreadStatus::kNumOperationProperties);
-    jlongArray joperation_properties =
-        env->NewLongArray(len);
+    const jsize len =
+        static_cast<jsize>(rocksdb::ThreadStatus::kNumOperationProperties);
+    jlongArray joperation_properties = env->NewLongArray(len);
     if (joperation_properties == nullptr) {
       // an exception occurred
       env->DeleteLocalRef(jdb_name);
       env->DeleteLocalRef(jcf_name);
       return nullptr;
     }
-    jlong *body = env->GetLongArrayElements(joperation_properties, nullptr);
+    jlong* body = env->GetLongArrayElements(joperation_properties, nullptr);
     if (body == nullptr) {
-        // exception thrown: OutOfMemoryError
-        env->DeleteLocalRef(jdb_name);
-        env->DeleteLocalRef(jcf_name);
-        env->DeleteLocalRef(joperation_properties);
-        return nullptr;
+      // exception thrown: OutOfMemoryError
+      env->DeleteLocalRef(jdb_name);
+      env->DeleteLocalRef(jcf_name);
+      env->DeleteLocalRef(joperation_properties);
+      return nullptr;
     }
     for (size_t i = 0; i < len; ++i) {
       body[i] = static_cast<jlong>(thread_status->op_properties[i]);
     }
     env->ReleaseLongArrayElements(joperation_properties, body, 0);
 
-    jobject jcfd = env->NewObject(jclazz, mid,
-        static_cast<jlong>(thread_status->thread_id),
-        ThreadTypeJni::toJavaThreadType(thread_status->thread_type),
-        jdb_name,
+    jobject jcfd = env->NewObject(
+        jclazz, mid, static_cast<jlong>(thread_status->thread_id),
+        ThreadTypeJni::toJavaThreadType(thread_status->thread_type), jdb_name,
         jcf_name,
         OperationTypeJni::toJavaOperationType(thread_status->operation_type),
         static_cast<jlong>(thread_status->op_elapsed_micros),
@@ -6301,9 +6377,9 @@ class ThreadStatusJni : public JavaClass {
         StateTypeJni::toJavaStateType(thread_status->state_type));
     if (env->ExceptionCheck()) {
       // exception occurred
-        env->DeleteLocalRef(jdb_name);
-        env->DeleteLocalRef(jcf_name);
-        env->DeleteLocalRef(joperation_properties);
+      env->DeleteLocalRef(jdb_name);
+      env->DeleteLocalRef(jcf_name);
+      env->DeleteLocalRef(joperation_properties);
       return nullptr;
     }
 
@@ -6319,160 +6395,158 @@ class ThreadStatusJni : public JavaClass {
 // The portal class for org.rocksdb.CompactionStyle
 class CompactionStyleJni {
  public:
- // Returns the equivalent org.rocksdb.CompactionStyle for the provided
- // C++ rocksdb::CompactionStyle enum
- static jbyte toJavaCompactionStyle(
-     const rocksdb::CompactionStyle& compaction_style) {
-   switch(compaction_style) {
-     case rocksdb::CompactionStyle::kCompactionStyleLevel:
-       return 0x0;
-     case rocksdb::CompactionStyle::kCompactionStyleUniversal:
-       return 0x1;
-     case rocksdb::CompactionStyle::kCompactionStyleFIFO:
-       return 0x2;
-     case rocksdb::CompactionStyle::kCompactionStyleNone:
-       return 0x3;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.CompactionStyle for the provided
+  // C++ rocksdb::CompactionStyle enum
+  static jbyte toJavaCompactionStyle(
+      const rocksdb::CompactionStyle& compaction_style) {
+    switch (compaction_style) {
+      case rocksdb::CompactionStyle::kCompactionStyleLevel:
+        return 0x0;
+      case rocksdb::CompactionStyle::kCompactionStyleUniversal:
+        return 0x1;
+      case rocksdb::CompactionStyle::kCompactionStyleFIFO:
+        return 0x2;
+      case rocksdb::CompactionStyle::kCompactionStyleNone:
+        return 0x3;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::CompactionStyle enum for the
- // provided Java org.rocksdb.CompactionStyle
- static rocksdb::CompactionStyle toCppCompactionStyle(
-     jbyte jcompaction_style) {
-   switch(jcompaction_style) {
-     case 0x0:
-       return rocksdb::CompactionStyle::kCompactionStyleLevel;
-     case 0x1:
-       return rocksdb::CompactionStyle::kCompactionStyleUniversal;
-     case 0x2:
-       return rocksdb::CompactionStyle::kCompactionStyleFIFO;
-     case 0x3:
-       return rocksdb::CompactionStyle::kCompactionStyleNone;
-     default:
-       // undefined/default
-       return rocksdb::CompactionStyle::kCompactionStyleLevel;
-   }
- }
+  // Returns the equivalent C++ rocksdb::CompactionStyle enum for the
+  // provided Java org.rocksdb.CompactionStyle
+  static rocksdb::CompactionStyle toCppCompactionStyle(
+      jbyte jcompaction_style) {
+    switch (jcompaction_style) {
+      case 0x0:
+        return rocksdb::CompactionStyle::kCompactionStyleLevel;
+      case 0x1:
+        return rocksdb::CompactionStyle::kCompactionStyleUniversal;
+      case 0x2:
+        return rocksdb::CompactionStyle::kCompactionStyleFIFO;
+      case 0x3:
+        return rocksdb::CompactionStyle::kCompactionStyleNone;
+      default:
+        // undefined/default
+        return rocksdb::CompactionStyle::kCompactionStyleLevel;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.CompactionReason
 class CompactionReasonJni {
  public:
- // Returns the equivalent org.rocksdb.CompactionReason for the provided
- // C++ rocksdb::CompactionReason enum
- static jbyte toJavaCompactionReason(
-     const rocksdb::CompactionReason& compaction_reason) {
-   switch(compaction_reason) {
-     case rocksdb::CompactionReason::kUnknown:
-       return 0x0;
-     case rocksdb::CompactionReason::kLevelL0FilesNum:
-       return 0x1;
-     case rocksdb::CompactionReason::kLevelMaxLevelSize:
-       return 0x2;
-     case rocksdb::CompactionReason::kUniversalSizeAmplification:
-       return 0x3;
-     case rocksdb::CompactionReason::kUniversalSizeRatio:
-       return 0x4;
-     case rocksdb::CompactionReason::kUniversalSortedRunNum:
-       return 0x5;
-     case rocksdb::CompactionReason::kFIFOMaxSize:
-       return 0x6;
-     case rocksdb::CompactionReason::kFIFOReduceNumFiles:
-       return 0x7;
-     case rocksdb::CompactionReason::kFIFOTtl:
-       return 0x8;
-     case rocksdb::CompactionReason::kManualCompaction:
-       return 0x9;
-     case rocksdb::CompactionReason::kFilesMarkedForCompaction:
-       return 0x10;
-     case rocksdb::CompactionReason::kBottommostFiles:
-       return 0x0A;
-     case rocksdb::CompactionReason::kTtl:
-       return 0x0B;
-     case rocksdb::CompactionReason::kFlush:
-       return 0x0C;
-     case rocksdb::CompactionReason::kExternalSstIngestion:
-       return 0x0D;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.CompactionReason for the provided
+  // C++ rocksdb::CompactionReason enum
+  static jbyte toJavaCompactionReason(
+      const rocksdb::CompactionReason& compaction_reason) {
+    switch (compaction_reason) {
+      case rocksdb::CompactionReason::kUnknown:
+        return 0x0;
+      case rocksdb::CompactionReason::kLevelL0FilesNum:
+        return 0x1;
+      case rocksdb::CompactionReason::kLevelMaxLevelSize:
+        return 0x2;
+      case rocksdb::CompactionReason::kUniversalSizeAmplification:
+        return 0x3;
+      case rocksdb::CompactionReason::kUniversalSizeRatio:
+        return 0x4;
+      case rocksdb::CompactionReason::kUniversalSortedRunNum:
+        return 0x5;
+      case rocksdb::CompactionReason::kFIFOMaxSize:
+        return 0x6;
+      case rocksdb::CompactionReason::kFIFOReduceNumFiles:
+        return 0x7;
+      case rocksdb::CompactionReason::kFIFOTtl:
+        return 0x8;
+      case rocksdb::CompactionReason::kManualCompaction:
+        return 0x9;
+      case rocksdb::CompactionReason::kFilesMarkedForCompaction:
+        return 0x10;
+      case rocksdb::CompactionReason::kBottommostFiles:
+        return 0x0A;
+      case rocksdb::CompactionReason::kTtl:
+        return 0x0B;
+      case rocksdb::CompactionReason::kFlush:
+        return 0x0C;
+      case rocksdb::CompactionReason::kExternalSstIngestion:
+        return 0x0D;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::CompactionReason enum for the
- // provided Java org.rocksdb.CompactionReason
- static rocksdb::CompactionReason toCppCompactionReason(
-     jbyte jcompaction_reason) {
-   switch(jcompaction_reason) {
-     case 0x0:
-       return rocksdb::CompactionReason::kUnknown;
-     case 0x1:
-       return rocksdb::CompactionReason::kLevelL0FilesNum;
-     case 0x2:
-       return rocksdb::CompactionReason::kLevelMaxLevelSize;
-     case 0x3:
-       return rocksdb::CompactionReason::kUniversalSizeAmplification;
-     case 0x4:
-       return rocksdb::CompactionReason::kUniversalSizeRatio;
-     case 0x5:
-       return rocksdb::CompactionReason::kUniversalSortedRunNum;
-     case 0x6:
-       return rocksdb::CompactionReason::kFIFOMaxSize;
-     case 0x7:
-       return rocksdb::CompactionReason::kFIFOReduceNumFiles;
-     case 0x8:
-       return rocksdb::CompactionReason::kFIFOTtl;
-     case 0x9:
-       return rocksdb::CompactionReason::kManualCompaction;
-     case 0x10:
-       return rocksdb::CompactionReason::kFilesMarkedForCompaction;
-     case 0x0A:
-       return rocksdb::CompactionReason::kBottommostFiles;
-     case 0x0B:
-       return rocksdb::CompactionReason::kTtl;
-     case 0x0C:
-       return rocksdb::CompactionReason::kFlush;
-     case 0x0D:
-       return rocksdb::CompactionReason::kExternalSstIngestion;
-     default:
-       // undefined/default
-       return rocksdb::CompactionReason::kUnknown;
-   }
- }
+  // Returns the equivalent C++ rocksdb::CompactionReason enum for the
+  // provided Java org.rocksdb.CompactionReason
+  static rocksdb::CompactionReason toCppCompactionReason(
+      jbyte jcompaction_reason) {
+    switch (jcompaction_reason) {
+      case 0x0:
+        return rocksdb::CompactionReason::kUnknown;
+      case 0x1:
+        return rocksdb::CompactionReason::kLevelL0FilesNum;
+      case 0x2:
+        return rocksdb::CompactionReason::kLevelMaxLevelSize;
+      case 0x3:
+        return rocksdb::CompactionReason::kUniversalSizeAmplification;
+      case 0x4:
+        return rocksdb::CompactionReason::kUniversalSizeRatio;
+      case 0x5:
+        return rocksdb::CompactionReason::kUniversalSortedRunNum;
+      case 0x6:
+        return rocksdb::CompactionReason::kFIFOMaxSize;
+      case 0x7:
+        return rocksdb::CompactionReason::kFIFOReduceNumFiles;
+      case 0x8:
+        return rocksdb::CompactionReason::kFIFOTtl;
+      case 0x9:
+        return rocksdb::CompactionReason::kManualCompaction;
+      case 0x10:
+        return rocksdb::CompactionReason::kFilesMarkedForCompaction;
+      case 0x0A:
+        return rocksdb::CompactionReason::kBottommostFiles;
+      case 0x0B:
+        return rocksdb::CompactionReason::kTtl;
+      case 0x0C:
+        return rocksdb::CompactionReason::kFlush;
+      case 0x0D:
+        return rocksdb::CompactionReason::kExternalSstIngestion;
+      default:
+        // undefined/default
+        return rocksdb::CompactionReason::kUnknown;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.WalFileType
 class WalFileTypeJni {
  public:
- // Returns the equivalent org.rocksdb.WalFileType for the provided
- // C++ rocksdb::WalFileType enum
- static jbyte toJavaWalFileType(
-     const rocksdb::WalFileType& wal_file_type) {
-   switch(wal_file_type) {
-     case rocksdb::WalFileType::kArchivedLogFile:
-       return 0x0;
-     case rocksdb::WalFileType::kAliveLogFile:
-       return 0x1;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.WalFileType for the provided
+  // C++ rocksdb::WalFileType enum
+  static jbyte toJavaWalFileType(const rocksdb::WalFileType& wal_file_type) {
+    switch (wal_file_type) {
+      case rocksdb::WalFileType::kArchivedLogFile:
+        return 0x0;
+      case rocksdb::WalFileType::kAliveLogFile:
+        return 0x1;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::WalFileType enum for the
- // provided Java org.rocksdb.WalFileType
- static rocksdb::WalFileType toCppWalFileType(
-     jbyte jwal_file_type) {
-   switch(jwal_file_type) {
-     case 0x0:
-       return rocksdb::WalFileType::kArchivedLogFile;
-     case 0x1:
-       return rocksdb::WalFileType::kAliveLogFile;
-     default:
-       // undefined/default
-       return rocksdb::WalFileType::kAliveLogFile;
-   }
- }
+  // Returns the equivalent C++ rocksdb::WalFileType enum for the
+  // provided Java org.rocksdb.WalFileType
+  static rocksdb::WalFileType toCppWalFileType(jbyte jwal_file_type) {
+    switch (jwal_file_type) {
+      case 0x0:
+        return rocksdb::WalFileType::kArchivedLogFile;
+      case 0x1:
+        return rocksdb::WalFileType::kAliveLogFile;
+      default:
+        // undefined/default
+        return rocksdb::WalFileType::kAliveLogFile;
+    }
+  }
 };
 
 class LogFileJni : public JavaClass {
@@ -6493,7 +6567,8 @@ class LogFileJni : public JavaClass {
       return nullptr;
     }
 
-    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(Ljava/lang/String;JBJJ)V");
+    jmethodID mid =
+        env->GetMethodID(jclazz, "<init>", "(Ljava/lang/String;JBJJ)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -6506,13 +6581,11 @@ class LogFileJni : public JavaClass {
       return nullptr;
     }
 
-    jobject jlog_file = env->NewObject(jclazz, mid,
-        jpath_name,
-        static_cast<jlong>(log_file->LogNumber()),
+    jobject jlog_file = env->NewObject(
+        jclazz, mid, jpath_name, static_cast<jlong>(log_file->LogNumber()),
         rocksdb::WalFileTypeJni::toJavaWalFileType(log_file->Type()),
         static_cast<jlong>(log_file->StartSequence()),
-        static_cast<jlong>(log_file->SizeFileBytes())
-    );
+        static_cast<jlong>(log_file->SizeFileBytes()));
 
     if (env->ExceptionCheck()) {
       env->DeleteLocalRef(jpath_name);
@@ -6541,15 +6614,17 @@ class LiveFileMetaDataJni : public JavaClass {
    * @return A reference to a Java org.rocksdb.LiveFileMetaData object, or
    * nullptr if an an exception occurs
    */
-  static jobject fromCppLiveFileMetaData(JNIEnv* env,
-      rocksdb::LiveFileMetaData* live_file_meta_data) {
+  static jobject fromCppLiveFileMetaData(
+      JNIEnv* env, rocksdb::LiveFileMetaData* live_file_meta_data) {
     jclass jclazz = getJClass(env);
     if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    jmethodID mid = env->GetMethodID(jclazz, "<init>", "([BILjava/lang/String;Ljava/lang/String;JJJ[B[BJZJJ)V");
+    jmethodID mid = env->GetMethodID(
+        jclazz, "<init>",
+        "([BILjava/lang/String;Ljava/lang/String;JJJ[B[BJZJJ)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -6562,8 +6637,8 @@ class LiveFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
-    jstring jfile_name = rocksdb::JniUtil::toJavaString(
-        env, &live_file_meta_data->name, true);
+    jstring jfile_name =
+        rocksdb::JniUtil::toJavaString(env, &live_file_meta_data->name, true);
     if (env->ExceptionCheck()) {
       // exception occurred creating java string
       env->DeleteLocalRef(jcolumn_family_name);
@@ -6579,8 +6654,8 @@ class LiveFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
-    jbyteArray jsmallest_key = rocksdb::JniUtil::copyBytes(
-        env, live_file_meta_data->smallestkey);
+    jbyteArray jsmallest_key =
+        rocksdb::JniUtil::copyBytes(env, live_file_meta_data->smallestkey);
     if (jsmallest_key == nullptr) {
       // exception occurred creating java byte array
       env->DeleteLocalRef(jcolumn_family_name);
@@ -6589,8 +6664,8 @@ class LiveFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
-    jbyteArray jlargest_key = rocksdb::JniUtil::copyBytes(
-        env, live_file_meta_data->largestkey);
+    jbyteArray jlargest_key =
+        rocksdb::JniUtil::copyBytes(env, live_file_meta_data->largestkey);
     if (jlargest_key == nullptr) {
       // exception occurred creating java byte array
       env->DeleteLocalRef(jcolumn_family_name);
@@ -6600,21 +6675,17 @@ class LiveFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
-    jobject jlive_file_meta_data = env->NewObject(jclazz, mid,
-        jcolumn_family_name,
-        static_cast<jint>(live_file_meta_data->level),
-        jfile_name,
-        jpath,
+    jobject jlive_file_meta_data = env->NewObject(
+        jclazz, mid, jcolumn_family_name,
+        static_cast<jint>(live_file_meta_data->level), jfile_name, jpath,
         static_cast<jlong>(live_file_meta_data->size),
         static_cast<jlong>(live_file_meta_data->smallest_seqno),
-        static_cast<jlong>(live_file_meta_data->largest_seqno),
-        jsmallest_key,
+        static_cast<jlong>(live_file_meta_data->largest_seqno), jsmallest_key,
         jlargest_key,
         static_cast<jlong>(live_file_meta_data->num_reads_sampled),
         static_cast<jboolean>(live_file_meta_data->being_compacted),
         static_cast<jlong>(live_file_meta_data->num_entries),
-        static_cast<jlong>(live_file_meta_data->num_deletions)
-    );
+        static_cast<jlong>(live_file_meta_data->num_deletions));
 
     if (env->ExceptionCheck()) {
       env->DeleteLocalRef(jcolumn_family_name);
@@ -6651,37 +6722,38 @@ class SstFileMetaDataJni : public JavaClass {
    * @return A reference to a Java org.rocksdb.SstFileMetaData object, or
    * nullptr if an an exception occurs
    */
-  static jobject fromCppSstFileMetaData(JNIEnv* env,
-      const rocksdb::SstFileMetaData* sst_file_meta_data) {
+  static jobject fromCppSstFileMetaData(
+      JNIEnv* env, const rocksdb::SstFileMetaData* sst_file_meta_data) {
     jclass jclazz = getJClass(env);
     if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(Ljava/lang/String;Ljava/lang/String;JJJ[B[BJZJJ)V");
+    jmethodID mid = env->GetMethodID(
+        jclazz, "<init>", "(Ljava/lang/String;Ljava/lang/String;JJJ[B[BJZJJ)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
     }
 
-    jstring jfile_name = rocksdb::JniUtil::toJavaString(
-        env, &sst_file_meta_data->name, true);
+    jstring jfile_name =
+        rocksdb::JniUtil::toJavaString(env, &sst_file_meta_data->name, true);
     if (jfile_name == nullptr) {
       // exception occurred creating java byte array
       return nullptr;
     }
 
-    jstring jpath = rocksdb::JniUtil::toJavaString(
-        env, &sst_file_meta_data->db_path, true);
+    jstring jpath =
+        rocksdb::JniUtil::toJavaString(env, &sst_file_meta_data->db_path, true);
     if (jpath == nullptr) {
       // exception occurred creating java byte array
       env->DeleteLocalRef(jfile_name);
       return nullptr;
     }
 
-    jbyteArray jsmallest_key = rocksdb::JniUtil::copyBytes(
-        env, sst_file_meta_data->smallestkey);
+    jbyteArray jsmallest_key =
+        rocksdb::JniUtil::copyBytes(env, sst_file_meta_data->smallestkey);
     if (jsmallest_key == nullptr) {
       // exception occurred creating java byte array
       env->DeleteLocalRef(jfile_name);
@@ -6689,8 +6761,8 @@ class SstFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
-    jbyteArray jlargest_key = rocksdb::JniUtil::copyBytes(
-        env, sst_file_meta_data->largestkey);
+    jbyteArray jlargest_key =
+        rocksdb::JniUtil::copyBytes(env, sst_file_meta_data->largestkey);
     if (jlargest_key == nullptr) {
       // exception occurred creating java byte array
       env->DeleteLocalRef(jfile_name);
@@ -6699,19 +6771,15 @@ class SstFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
-    jobject jsst_file_meta_data = env->NewObject(jclazz, mid,
-        jfile_name,
-        jpath,
+    jobject jsst_file_meta_data = env->NewObject(
+        jclazz, mid, jfile_name, jpath,
         static_cast<jlong>(sst_file_meta_data->size),
         static_cast<jint>(sst_file_meta_data->smallest_seqno),
-        static_cast<jlong>(sst_file_meta_data->largest_seqno),
-        jsmallest_key,
-        jlargest_key,
-        static_cast<jlong>(sst_file_meta_data->num_reads_sampled),
+        static_cast<jlong>(sst_file_meta_data->largest_seqno), jsmallest_key,
+        jlargest_key, static_cast<jlong>(sst_file_meta_data->num_reads_sampled),
         static_cast<jboolean>(sst_file_meta_data->being_compacted),
         static_cast<jlong>(sst_file_meta_data->num_entries),
-        static_cast<jlong>(sst_file_meta_data->num_deletions)
-    );
+        static_cast<jlong>(sst_file_meta_data->num_deletions));
 
     if (env->ExceptionCheck()) {
       env->DeleteLocalRef(jfile_name);
@@ -6722,10 +6790,10 @@ class SstFileMetaDataJni : public JavaClass {
     }
 
     // cleanup
-      env->DeleteLocalRef(jfile_name);
-      env->DeleteLocalRef(jpath);
-      env->DeleteLocalRef(jsmallest_key);
-      env->DeleteLocalRef(jlargest_key);
+    env->DeleteLocalRef(jfile_name);
+    env->DeleteLocalRef(jpath);
+    env->DeleteLocalRef(jsmallest_key);
+    env->DeleteLocalRef(jlargest_key);
 
     return jsst_file_meta_data;
   }
@@ -6746,23 +6814,24 @@ class LevelMetaDataJni : public JavaClass {
    * @return A reference to a Java org.rocksdb.LevelMetaData object, or
    * nullptr if an an exception occurs
    */
-  static jobject fromCppLevelMetaData(JNIEnv* env,
-      const rocksdb::LevelMetaData* level_meta_data) {
+  static jobject fromCppLevelMetaData(
+      JNIEnv* env, const rocksdb::LevelMetaData* level_meta_data) {
     jclass jclazz = getJClass(env);
     if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(IJ[Lorg/rocksdb/SstFileMetaData;)V");
+    jmethodID mid = env->GetMethodID(jclazz, "<init>",
+                                     "(IJ[Lorg/rocksdb/SstFileMetaData;)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
     }
 
-    const jsize jlen =
-        static_cast<jsize>(level_meta_data->files.size());
-    jobjectArray jfiles = env->NewObjectArray(jlen, SstFileMetaDataJni::getJClass(env), nullptr);
+    const jsize jlen = static_cast<jsize>(level_meta_data->files.size());
+    jobjectArray jfiles =
+        env->NewObjectArray(jlen, SstFileMetaDataJni::getJClass(env), nullptr);
     if (jfiles == nullptr) {
       // exception thrown: OutOfMemoryError
       return nullptr;
@@ -6770,7 +6839,7 @@ class LevelMetaDataJni : public JavaClass {
 
     jsize i = 0;
     for (auto it = level_meta_data->files.begin();
-        it != level_meta_data->files.end(); ++it) {
+         it != level_meta_data->files.end(); ++it) {
       jobject jfile = SstFileMetaDataJni::fromCppSstFileMetaData(env, &(*it));
       if (jfile == nullptr) {
         // exception occurred
@@ -6780,11 +6849,9 @@ class LevelMetaDataJni : public JavaClass {
       env->SetObjectArrayElement(jfiles, i++, jfile);
     }
 
-    jobject jlevel_meta_data = env->NewObject(jclazz, mid,
-        static_cast<jint>(level_meta_data->level),
-        static_cast<jlong>(level_meta_data->size),
-        jfiles
-    );
+    jobject jlevel_meta_data =
+        env->NewObject(jclazz, mid, static_cast<jint>(level_meta_data->level),
+                       static_cast<jlong>(level_meta_data->size), jfiles);
 
     if (env->ExceptionCheck()) {
       env->DeleteLocalRef(jfiles);
@@ -6813,7 +6880,8 @@ class ColumnFamilyMetaDataJni : public JavaClass {
    * @return A reference to a Java org.rocksdb.ColumnFamilyMetaData object, or
    * nullptr if an an exception occurs
    */
-  static jobject fromCppColumnFamilyMetaData(JNIEnv* env,
+  static jobject fromCppColumnFamilyMetaData(
+      JNIEnv* env,
       const rocksdb::ColumnFamilyMetaData* column_famly_meta_data) {
     jclass jclazz = getJClass(env);
     if (jclazz == nullptr) {
@@ -6821,14 +6889,15 @@ class ColumnFamilyMetaDataJni : public JavaClass {
       return nullptr;
     }
 
-    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(JJ[B[Lorg/rocksdb/LevelMetaData;)V");
+    jmethodID mid = env->GetMethodID(jclazz, "<init>",
+                                     "(JJ[B[Lorg/rocksdb/LevelMetaData;)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
     }
 
-    jbyteArray jname = rocksdb::JniUtil::copyBytes(
-        env, column_famly_meta_data->name);
+    jbyteArray jname =
+        rocksdb::JniUtil::copyBytes(env, column_famly_meta_data->name);
     if (jname == nullptr) {
       // exception occurred creating java byte array
       return nullptr;
@@ -6836,8 +6905,9 @@ class ColumnFamilyMetaDataJni : public JavaClass {
 
     const jsize jlen =
         static_cast<jsize>(column_famly_meta_data->levels.size());
-    jobjectArray jlevels = env->NewObjectArray(jlen, LevelMetaDataJni::getJClass(env), nullptr);
-    if(jlevels == nullptr) {
+    jobjectArray jlevels =
+        env->NewObjectArray(jlen, LevelMetaDataJni::getJClass(env), nullptr);
+    if (jlevels == nullptr) {
       // exception thrown: OutOfMemoryError
       env->DeleteLocalRef(jname);
       return nullptr;
@@ -6845,7 +6915,7 @@ class ColumnFamilyMetaDataJni : public JavaClass {
 
     jsize i = 0;
     for (auto it = column_famly_meta_data->levels.begin();
-        it != column_famly_meta_data->levels.end(); ++it) {
+         it != column_famly_meta_data->levels.end(); ++it) {
       jobject jlevel = LevelMetaDataJni::fromCppLevelMetaData(env, &(*it));
       if (jlevel == nullptr) {
         // exception occurred
@@ -6856,12 +6926,9 @@ class ColumnFamilyMetaDataJni : public JavaClass {
       env->SetObjectArrayElement(jlevels, i++, jlevel);
     }
 
-    jobject jcolumn_family_meta_data = env->NewObject(jclazz, mid,
-        static_cast<jlong>(column_famly_meta_data->size),
-        static_cast<jlong>(column_famly_meta_data->file_count),
-        jname,
-        jlevels
-    );
+    jobject jcolumn_family_meta_data = env->NewObject(
+        jclazz, mid, static_cast<jlong>(column_famly_meta_data->size),
+        static_cast<jlong>(column_famly_meta_data->file_count), jname, jlevels);
 
     if (env->ExceptionCheck()) {
       env->DeleteLocalRef(jname);
@@ -6882,9 +6949,9 @@ class ColumnFamilyMetaDataJni : public JavaClass {
 };
 
 // The portal class for org.rocksdb.AbstractTraceWriter
-class AbstractTraceWriterJni : public RocksDBNativeClass<
-    const rocksdb::TraceWriterJniCallback*,
-    AbstractTraceWriterJni> {
+class AbstractTraceWriterJni
+    : public RocksDBNativeClass<const rocksdb::TraceWriterJniCallback*,
+                                AbstractTraceWriterJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.AbstractTraceWriter
@@ -6897,7 +6964,7 @@ class AbstractTraceWriterJni : public RocksDBNativeClass<
    */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/AbstractTraceWriter");
+                                         "org/rocksdb/AbstractTraceWriter");
   }
 
   /**
@@ -6910,13 +6977,12 @@ class AbstractTraceWriterJni : public RocksDBNativeClass<
    */
   static jmethodID getWriteProxyMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    static jmethodID mid = env->GetMethodID(
-        jclazz, "writeProxy", "(J)S");
+    static jmethodID mid = env->GetMethodID(jclazz, "writeProxy", "(J)S");
     assert(mid != nullptr);
     return mid;
   }
@@ -6931,13 +6997,12 @@ class AbstractTraceWriterJni : public RocksDBNativeClass<
    */
   static jmethodID getCloseWriterProxyMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    static jmethodID mid = env->GetMethodID(
-        jclazz, "closeWriterProxy", "()S");
+    static jmethodID mid = env->GetMethodID(jclazz, "closeWriterProxy", "()S");
     assert(mid != nullptr);
     return mid;
   }
@@ -6952,22 +7017,21 @@ class AbstractTraceWriterJni : public RocksDBNativeClass<
    */
   static jmethodID getGetFileSizeMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    static jmethodID mid = env->GetMethodID(
-        jclazz, "getFileSize", "()J");
+    static jmethodID mid = env->GetMethodID(jclazz, "getFileSize", "()J");
     assert(mid != nullptr);
     return mid;
   }
 };
 
 // The portal class for org.rocksdb.AbstractWalFilter
-class AbstractWalFilterJni : public RocksDBNativeClass<
-    const rocksdb::WalFilterJniCallback*,
-    AbstractWalFilterJni> {
+class AbstractWalFilterJni
+    : public RocksDBNativeClass<const rocksdb::WalFilterJniCallback*,
+                                AbstractWalFilterJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.AbstractWalFilter
@@ -6979,8 +7043,7 @@ class AbstractWalFilterJni : public RocksDBNativeClass<
    *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
    */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/AbstractWalFilter");
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/AbstractWalFilter");
   }
 
   /**
@@ -6993,14 +7056,14 @@ class AbstractWalFilterJni : public RocksDBNativeClass<
    */
   static jmethodID getColumnFamilyLogNumberMapMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    static jmethodID mid = env->GetMethodID(
-        jclazz, "columnFamilyLogNumberMap",
-        "(Ljava/util/Map;Ljava/util/Map;)V");
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "columnFamilyLogNumberMap",
+                         "(Ljava/util/Map;Ljava/util/Map;)V");
     assert(mid != nullptr);
     return mid;
   }
@@ -7015,13 +7078,13 @@ class AbstractWalFilterJni : public RocksDBNativeClass<
    */
   static jmethodID getLogRecordFoundProxyMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    static jmethodID mid = env->GetMethodID(
-        jclazz, "logRecordFoundProxy", "(JLjava/lang/String;JJ)S");
+    static jmethodID mid = env->GetMethodID(jclazz, "logRecordFoundProxy",
+                                            "(JLjava/lang/String;JJ)S");
     assert(mid != nullptr);
     return mid;
   }
@@ -7036,13 +7099,13 @@ class AbstractWalFilterJni : public RocksDBNativeClass<
    */
   static jmethodID getNameMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    static jmethodID mid = env->GetMethodID(
-        jclazz, "name", "()Ljava/lang/String;");
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "name", "()Ljava/lang/String;");
     assert(mid != nullptr);
     return mid;
   }
@@ -7051,42 +7114,42 @@ class AbstractWalFilterJni : public RocksDBNativeClass<
 // The portal class for org.rocksdb.WalProcessingOption
 class WalProcessingOptionJni {
  public:
- // Returns the equivalent org.rocksdb.WalProcessingOption for the provided
- // C++ rocksdb::WalFilter::WalProcessingOption enum
- static jbyte toJavaWalProcessingOption(
-     const rocksdb::WalFilter::WalProcessingOption& wal_processing_option) {
-   switch(wal_processing_option) {
-     case rocksdb::WalFilter::WalProcessingOption::kContinueProcessing:
-       return 0x0;
-     case rocksdb::WalFilter::WalProcessingOption::kIgnoreCurrentRecord:
-       return 0x1;
-     case rocksdb::WalFilter::WalProcessingOption::kStopReplay:
-       return 0x2;
-     case rocksdb::WalFilter::WalProcessingOption::kCorruptedRecord:
-       return 0x3;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.WalProcessingOption for the provided
+  // C++ rocksdb::WalFilter::WalProcessingOption enum
+  static jbyte toJavaWalProcessingOption(
+      const rocksdb::WalFilter::WalProcessingOption& wal_processing_option) {
+    switch (wal_processing_option) {
+      case rocksdb::WalFilter::WalProcessingOption::kContinueProcessing:
+        return 0x0;
+      case rocksdb::WalFilter::WalProcessingOption::kIgnoreCurrentRecord:
+        return 0x1;
+      case rocksdb::WalFilter::WalProcessingOption::kStopReplay:
+        return 0x2;
+      case rocksdb::WalFilter::WalProcessingOption::kCorruptedRecord:
+        return 0x3;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::WalFilter::WalProcessingOption enum for
- // the provided Java org.rocksdb.WalProcessingOption
- static rocksdb::WalFilter::WalProcessingOption toCppWalProcessingOption(
-     jbyte jwal_processing_option) {
-   switch(jwal_processing_option) {
-     case 0x0:
-       return rocksdb::WalFilter::WalProcessingOption::kContinueProcessing;
-     case 0x1:
-       return rocksdb::WalFilter::WalProcessingOption::kIgnoreCurrentRecord;
-     case 0x2:
-       return rocksdb::WalFilter::WalProcessingOption::kStopReplay;
-     case 0x3:
-       return rocksdb::WalFilter::WalProcessingOption::kCorruptedRecord;
-     default:
-       // undefined/default
-       return rocksdb::WalFilter::WalProcessingOption::kCorruptedRecord;
-   }
- }
+  // Returns the equivalent C++ rocksdb::WalFilter::WalProcessingOption enum for
+  // the provided Java org.rocksdb.WalProcessingOption
+  static rocksdb::WalFilter::WalProcessingOption toCppWalProcessingOption(
+      jbyte jwal_processing_option) {
+    switch (jwal_processing_option) {
+      case 0x0:
+        return rocksdb::WalFilter::WalProcessingOption::kContinueProcessing;
+      case 0x1:
+        return rocksdb::WalFilter::WalProcessingOption::kIgnoreCurrentRecord;
+      case 0x2:
+        return rocksdb::WalFilter::WalProcessingOption::kStopReplay;
+      case 0x3:
+        return rocksdb::WalFilter::WalProcessingOption::kCorruptedRecord;
+      default:
+        // undefined/default
+        return rocksdb::WalFilter::WalProcessingOption::kCorruptedRecord;
+    }
+  }
 };
 }  // namespace rocksdb
 #endif  // JAVA_ROCKSJNI_PORTAL_H_

@@ -87,8 +87,7 @@ public class IngestExternalFileOptionsTest {
 
   @Test
   public void ingestBehind() {
-    try (final IngestExternalFileOptions options =
-             new IngestExternalFileOptions()) {
+    try (final IngestExternalFileOptions options = new IngestExternalFileOptions()) {
       assertThat(options.ingestBehind()).isFalse();
       options.setIngestBehind(true);
       assertThat(options.ingestBehind()).isTrue();
@@ -97,8 +96,7 @@ public class IngestExternalFileOptionsTest {
 
   @Test
   public void writeGlobalSeqno() {
-    try (final IngestExternalFileOptions options =
-             new IngestExternalFileOptions()) {
+    try (final IngestExternalFileOptions options = new IngestExternalFileOptions()) {
       assertThat(options.writeGlobalSeqno()).isTrue();
       options.setWriteGlobalSeqno(false);
       assertThat(options.writeGlobalSeqno()).isFalse();

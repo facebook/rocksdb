@@ -17,16 +17,13 @@ import static java.nio.charset.StandardCharsets.UTF_8;
  * General test utilities.
  */
 public class TestUtil {
-
   /**
    * Get the options for log iteration tests.
    *
    * @return the options
    */
   public static Options optionsForLogIterTest() {
-    return defaultOptions()
-        .setCreateIfMissing(true)
-        .setWalTtlSeconds(1000);
+    return defaultOptions().setCreateIfMissing(true).setWalTtlSeconds(1000);
   }
 
   /**
@@ -35,13 +32,13 @@ public class TestUtil {
    * @return the options
    */
   public static Options defaultOptions() {
-      return new Options()
-          .setWriteBufferSize(4090 * 4096)
-          .setTargetFileSizeBase(2 * 1024 * 1024)
-          .setMaxBytesForLevelBase(10 * 1024 * 1024)
-          .setMaxOpenFiles(5000)
-          .setWalRecoveryMode(WALRecoveryMode.TolerateCorruptedTailRecords)
-          .setCompactionPriority(CompactionPriority.ByCompensatedSize);
+    return new Options()
+        .setWriteBufferSize(4090 * 4096)
+        .setTargetFileSizeBase(2 * 1024 * 1024)
+        .setMaxBytesForLevelBase(10 * 1024 * 1024)
+        .setMaxOpenFiles(5000)
+        .setWalRecoveryMode(WALRecoveryMode.TolerateCorruptedTailRecords)
+        .setCompactionPriority(CompactionPriority.ByCompensatedSize);
   }
 
   private static final Random random = new Random();
