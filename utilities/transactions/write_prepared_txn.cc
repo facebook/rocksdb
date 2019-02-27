@@ -88,7 +88,7 @@ Status WritePreparedTxn::PrepareInternal() {
   // For each duplicate key we account for a new sub-batch
   prepare_batch_cnt_ = GetWriteBatch()->SubBatchCnt();
   // Having AddPrepared in the PreReleaseCallback allows in-order addition of
-  // prepared entries to PrepareHeap and hence enables an optimization. Refer to
+  // prepared entries to PreparedHeap and hence enables an optimization. Refer to
   // SmallestUnCommittedSeq for more details.
   AddPreparedCallback add_prepared_callback(
       wpt_db_, prepare_batch_cnt_,
