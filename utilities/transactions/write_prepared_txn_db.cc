@@ -408,6 +408,20 @@ void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
   } else {
     prepared_txns_.push(seq);
   }
+  auto new_max = future_max_evicted_seq_.load();
+  if (UNLIKELY(seq <= new_max)) {
+    while (!prepared_txns_.empty() && prepared_txns_.top() <= new_max) {
+      auto to_be_popped = prepared_txns_.top();
+      delayed_prepared_.insert(to_be_popped);
+      ROCKS_LOG_WARN(info_log_,
+                     "prepared_mutex_ overhead %" PRIu64 " (prep=%" PRIu64
+                     " new_max=%" PRIu64 " oldmax=%" PRIu64,
+                     static_cast<uint64_t>(delayed_prepared_.size()),
+                     to_be_popped, new_max, prev_max);
+      prepared_txns_.pop();
+      delayed_prepared_empty_.store(false, std::memory_order_release);
+    }
+  }
 }
 
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,

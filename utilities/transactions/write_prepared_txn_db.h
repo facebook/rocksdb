@@ -442,7 +442,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
  private:
   friend class WritePreparedCommitEntryPreReleaseCallback;
+  friend class WritePreparedCommitEntryPreReleaseCallback;
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
+  friend class WritePreparedTransactionTest_PreReleaseCallback_Test;
   friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
   friend class WritePreparedTransactionTest_CommitMapTest_Test;
   friend class
@@ -755,6 +757,8 @@ class AddPreparedCallback : public PreReleaseCallback {
     (void)is_mem_disabled;
 #endif
     assert(!two_write_queues_ || !is_mem_disabled);  // implies the 1st queue
+    TEST_SYNC_POINT("AddPreparedCallback::Callback:pause");
+    TEST_SYNC_POINT("AddPreparedCallback::Callback:resume");
     for (size_t i = 0; i < sub_batch_cnt_; i++) {
       db_->AddPrepared(prepare_seq + i);
     }

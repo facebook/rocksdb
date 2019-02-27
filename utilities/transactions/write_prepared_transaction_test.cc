@@ -2929,6 +2929,85 @@ TEST_P(WritePreparedTransactionTest, NonAtomicUpdateOfMaxEvictedSeq) {
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_P(WritePreparedTransactionTest, PreReleaseCallback) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 0;    // 8 entries
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  ReOpen();
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  // Fill up the commit cache
+  std::string init_value("value_init");
+  std::string uncommitted_value("value_uncommitted");
+  std::string last_value("value_final");
+  for (int i = 0; i < 10; i++) {
+    db->Put(WriteOptions(), Slice("key0"), Slice(init_value));
+  }
+  Transaction* txn1 = db->BeginTransaction(WriteOptions(), TransactionOptions());
+  ASSERT_OK(txn1->SetName("xid1"));
+  ASSERT_OK(txn1->Put(Slice("key1"), init_value));
+  ASSERT_OK(txn1->Prepare());
+  Transaction* txn2 = db->BeginTransaction(WriteOptions(), TransactionOptions());
+  ASSERT_OK(txn2->SetName("xid2"));
+  ASSERT_OK(txn2->Put(Slice("key2"), init_value));
+  ASSERT_OK(txn2->Prepare());
+
+    Transaction* txn =
+        db->BeginTransaction(WriteOptions(), TransactionOptions());
+    ASSERT_OK(txn->SetName("xid"));
+    ASSERT_OK(txn->Put(Slice("key0"), uncommitted_value));
+
+  // split right after reading max_evicted_seq_
+    rocksdb::SyncPoint::GetInstance()->LoadDependency({
+        {"AddPreparedCallback::Callback:pause",
+         "PreReleaseCallbackTest::read_thread:start"},
+        {"PreReleaseCallbackTest::read_thread:pause",
+         "AddPreparedCallback::Callback:resume"},
+        {"PreReleaseCallbackTest::write_thread:prepared",
+         "PreReleaseCallbackTest::read_thread:resume"},
+    });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    rocksdb::port::Thread write_thread([&]() {
+      ASSERT_OK(txn->Prepare());
+      TEST_SYNC_POINT("PreReleaseCallbackTest::write_thread:prepared");
+    });
+
+    rocksdb::port::Thread read_thread([&]() {
+      TEST_SYNC_POINT("PreReleaseCallbackTest::read_thread:start");
+      // Publish seq number with a commit
+      ASSERT_OK(txn1->Commit());
+      ASSERT_OK(txn2->Commit());
+
+      ReadOptions roptions;
+      PinnableSlice value;
+      // The snapshot should not see the uncommitted value from write_thread
+      auto snap = db->GetSnapshot();
+      TEST_SYNC_POINT("PreReleaseCallbackTest::read_thread:pause");
+      TEST_SYNC_POINT("PreReleaseCallbackTest::read_thread:resume");
+      ASSERT_LT(wp_db->max_evicted_seq_, snap->GetSequenceNumber());
+      ASSERT_GT(wp_db->max_evicted_seq_, txn->GetId());
+      roptions.snapshot = snap;
+      auto s = db->Get(roptions, db->DefaultColumnFamily(), "key0", &value);
+      ASSERT_OK(s);
+      ASSERT_TRUE(value == init_value);
+
+      // The snapshot should still not see the uncommitted value from
+      // write_thread
+      s = db->Get(roptions, db->DefaultColumnFamily(), "key0", &value);
+      ASSERT_OK(s);
+      ASSERT_TRUE(value == init_value);
+      db->ReleaseSnapshot(snap);
+    });
+
+    read_thread.join();
+    write_thread.join();
+    delete txn1;
+    ASSERT_OK(txn->Commit());
+    delete txn;
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 // When an old prepared entry gets committed, there is a gap between the time
 // that it is published and when it is cleaned up from old_prepared_. This test
 // stresses such cases.
