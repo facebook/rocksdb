@@ -16,7 +16,7 @@
 
 namespace rocksdb {
 
-bool WriteUnpreparedTxnReadCallback::IsVisible(SequenceNumber seq) {
+bool WriteUnpreparedTxnReadCallback::IsVisibleFullCheck(SequenceNumber seq) {
   auto unprep_seqs = txn_->GetUnpreparedSequenceNumbers();
 
   // Since unprep_seqs maps prep_seq => prepare_batch_cnt, to check if seq is
@@ -31,7 +31,7 @@ bool WriteUnpreparedTxnReadCallback::IsVisible(SequenceNumber seq) {
     }
   }
 
-  return db_->IsInSnapshot(seq, snapshot_, min_uncommitted_);
+  return db_->IsInSnapshot(seq, wup_snapshot_, min_uncommitted_);
 }
 
 SequenceNumber WriteUnpreparedTxnReadCallback::MaxUnpreparedSequenceNumber() {

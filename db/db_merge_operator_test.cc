@@ -20,7 +20,7 @@ class TestReadCallback : public ReadCallback {
                    SequenceNumber snapshot_seq)
       : snapshot_checker_(snapshot_checker), snapshot_seq_(snapshot_seq) {}
 
-  bool IsVisible(SequenceNumber seq) override {
+  bool IsVisibleFullCheck(SequenceNumber seq) override {
     return snapshot_checker_->CheckInSnapshot(seq, snapshot_seq_) ==
            SnapshotCheckerResult::kInSnapshot;
   }

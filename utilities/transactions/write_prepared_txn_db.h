@@ -726,18 +726,16 @@ class WritePreparedTxnReadCallback : public ReadCallback {
  public:
   WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot,
                                SequenceNumber min_uncommitted)
-      : db_(db), snapshot_(snapshot), min_uncommitted_(min_uncommitted) {}
+      : ReadCallback(snapshot, min_uncommitted), db_(db) {}
 
   // Will be called to see if the seq number visible; if not it moves on to
   // the next seq number.
-  inline virtual bool IsVisible(SequenceNumber seq) override {
+  inline virtual bool IsVisibleFullCheck(SequenceNumber seq) override {
     return db_->IsInSnapshot(seq, snapshot_, min_uncommitted_);
   }
 
  private:
   WritePreparedTxnDB* db_;
-  SequenceNumber snapshot_;
-  SequenceNumber min_uncommitted_;
 };
 
 class AddPreparedCallback : public PreReleaseCallback {
