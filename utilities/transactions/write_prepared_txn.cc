@@ -353,14 +353,14 @@ Status WritePreparedTxn::RollbackInternal() {
     wpt_db_->RemovePrepared(GetId(), prepare_batch_cnt_);
     return s;
   }  // else do the 2nd write for commit
-  uint64_t prepare_seq = seq_used;
+  uint64_t rollback_seq = seq_used;
   ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
-                    "RollbackInternal 2nd write prepare_seq: %" PRIu64,
-                    prepare_seq);
+                    "RollbackInternal 2nd write rollback_seq: %" PRIu64,
+                    rollback_seq);
   // Commit the batch by writing an empty batch to the queue that will release
   // the commit sequence number to readers.
   WritePreparedRollbackPreReleaseCallback update_commit_map_with_prepare(
-      wpt_db_, db_impl_, GetId(), prepare_seq, prepare_batch_cnt_);
+      wpt_db_, db_impl_, GetId(), rollback_seq, prepare_batch_cnt_);
   WriteBatch empty_batch;
   empty_batch.PutLogData(Slice());
   // In the absence of Prepare markers, use Noop as a batch separator
@@ -375,7 +375,7 @@ Status WritePreparedTxn::RollbackInternal() {
   if (s.ok()) {
     wpt_db_->RemovePrepared(GetId(), prepare_batch_cnt_);
   }
-  wpt_db_->RemovePrepared(prepare_seq, ONE_BATCH);
+  wpt_db_->RemovePrepared(rollback_seq, ONE_BATCH);
 
   return s;
 }
