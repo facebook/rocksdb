@@ -393,8 +393,10 @@ void WritePreparedTxnDB::Init(const TransactionDBOptions& /* unused */) {
 }
 
 void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
-  ROCKS_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Prepareing with max %" PRIu64,
+  ROCKS_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Preparing with max %" PRIu64,
                     seq, max_evicted_seq_.load());
+  TEST_SYNC_POINT("AddPrepared::begin:pause");
+  TEST_SYNC_POINT("AddPrepared::begin:resume");
   WriteLock wl(&prepared_mutex_);
   if (UNLIKELY(seq <= max_evicted_seq_)) {
     // This should not happen in normal case
@@ -414,14 +416,14 @@ void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
       auto to_be_popped = prepared_txns_.top();
       delayed_prepared_.insert(to_be_popped);
       ROCKS_LOG_WARN(info_log_,
-                     "prepared_mutex_ overhead %" PRIu64 " (prep=%" PRIu64
-                     " new_max=%" PRIu64 " oldmax=%" PRIu64,
-                     static_cast<uint64_t>(delayed_prepared_.size()),
-                     to_be_popped, new_max, prev_max);
+                     "Prepare before max (prep=%" PRIu64
+                     " new_max=%" PRIu64,
+                     to_be_popped, new_max);
       prepared_txns_.pop();
       delayed_prepared_empty_.store(false, std::memory_order_release);
     }
   }
+  TEST_SYNC_POINT("AddPrepared::end");
 }
 
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
@@ -595,6 +597,7 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
       delayed_prepared_empty_.store(false, std::memory_order_release);
     }
   }
+  TEST_SYNC_POINT("AdvanceMaxEvictedSeq::prepared:after");
 
   // With each change to max_evicted_seq_ fetch the live snapshots behind it.
   // We use max as the version of snapshots to identify how fresh are the
@@ -623,6 +626,8 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
     }
   }
   auto updated_prev_max = prev_max;
+  TEST_SYNC_POINT("AdvanceMaxEvictedSeq::update_max:pause");
+  TEST_SYNC_POINT("AdvanceMaxEvictedSeq::update_max:resume");
   while (updated_prev_max < new_max &&
          !max_evicted_seq_.compare_exchange_weak(updated_prev_max, new_max,
                                                  std::memory_order_acq_rel,

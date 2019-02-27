@@ -2929,83 +2929,79 @@ TEST_P(WritePreparedTransactionTest, NonAtomicUpdateOfMaxEvictedSeq) {
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_P(WritePreparedTransactionTest, PreReleaseCallback) {
+// Test when we add a prepared seq when the max_evicted_seq_ already goes beyond
+// that. The test focuses on a race condition between AddPrepared and
+// AdvanceMaxEvictedSeq functions.
+TEST_P(WritePreparedTransactionTest, AddPreparedBeforeMax) {
+  if (!options.two_write_queues) {
+    // This test is only for two write queues
+    return;
+  }
   const size_t snapshot_cache_bits = 7;  // same as default
-  const size_t commit_cache_bits = 0;    // 8 entries
+  // 1 entry to advance max after the 2nd commit
+  const size_t commit_cache_bits = 0;
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
   ReOpen();
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-  // Fill up the commit cache
-  std::string init_value("value_init");
+  std::string some_value("value_some");
   std::string uncommitted_value("value_uncommitted");
-  std::string last_value("value_final");
-  for (int i = 0; i < 10; i++) {
-    db->Put(WriteOptions(), Slice("key0"), Slice(init_value));
-  }
-  Transaction* txn1 = db->BeginTransaction(WriteOptions(), TransactionOptions());
+  // Prepare two uncommitted transactions
+  Transaction* txn1 =
+      db->BeginTransaction(WriteOptions(), TransactionOptions());
   ASSERT_OK(txn1->SetName("xid1"));
-  ASSERT_OK(txn1->Put(Slice("key1"), init_value));
+  ASSERT_OK(txn1->Put(Slice("key1"), some_value));
   ASSERT_OK(txn1->Prepare());
-  Transaction* txn2 = db->BeginTransaction(WriteOptions(), TransactionOptions());
+  Transaction* txn2 =
+      db->BeginTransaction(WriteOptions(), TransactionOptions());
   ASSERT_OK(txn2->SetName("xid2"));
-  ASSERT_OK(txn2->Put(Slice("key2"), init_value));
+  ASSERT_OK(txn2->Put(Slice("key2"), some_value));
   ASSERT_OK(txn2->Prepare());
+  // Start the txn here so the other thread could get its id
+  Transaction* txn = db->BeginTransaction(WriteOptions(), TransactionOptions());
+  ASSERT_OK(txn->SetName("xid"));
+  ASSERT_OK(txn->Put(Slice("key0"), uncommitted_value));
 
-    Transaction* txn =
-        db->BeginTransaction(WriteOptions(), TransactionOptions());
-    ASSERT_OK(txn->SetName("xid"));
-    ASSERT_OK(txn->Put(Slice("key0"), uncommitted_value));
+  // t1) Insert prepared entry, t2) commit other entires to advance max
+  // evicted sec and finish checking the existing prepared entires, t1)
+  // AddPrepared, t2) update max_evicted_seq_
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"AddPrepared::begin:pause", "AddPreparedBeforeMax::read_thread:start"},
+      {"AdvanceMaxEvictedSeq::update_max:pause", "AddPrepared::begin:resume"},
+      {"AddPrepared::end", "AdvanceMaxEvictedSeq::update_max:resume"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
 
-  // split right after reading max_evicted_seq_
-    rocksdb::SyncPoint::GetInstance()->LoadDependency({
-        {"AddPreparedCallback::Callback:pause",
-         "PreReleaseCallbackTest::read_thread:start"},
-        {"PreReleaseCallbackTest::read_thread:pause",
-         "AddPreparedCallback::Callback:resume"},
-        {"PreReleaseCallbackTest::write_thread:prepared",
-         "PreReleaseCallbackTest::read_thread:resume"},
-    });
-    SyncPoint::GetInstance()->EnableProcessing();
+  rocksdb::port::Thread write_thread([&]() { ASSERT_OK(txn->Prepare()); });
 
-    rocksdb::port::Thread write_thread([&]() {
-      ASSERT_OK(txn->Prepare());
-      TEST_SYNC_POINT("PreReleaseCallbackTest::write_thread:prepared");
-    });
+  rocksdb::port::Thread read_thread([&]() {
+    TEST_SYNC_POINT("AddPreparedBeforeMax::read_thread:start");
+    // Publish seq number with a commit
+    ASSERT_OK(txn1->Commit());
+    // Since the commit cache size is one the 2nd commit evict the 1st one and
+    // invokes AdcanceMaxEvictedSeq
+    ASSERT_OK(txn2->Commit());
 
-    rocksdb::port::Thread read_thread([&]() {
-      TEST_SYNC_POINT("PreReleaseCallbackTest::read_thread:start");
-      // Publish seq number with a commit
-      ASSERT_OK(txn1->Commit());
-      ASSERT_OK(txn2->Commit());
+    ReadOptions roptions;
+    PinnableSlice value;
+    // The snapshot should not see the uncommitted value from write_thread
+    auto snap = db->GetSnapshot();
+    ASSERT_LT(wp_db->max_evicted_seq_, snap->GetSequenceNumber());
+    // This is the scenario that we test for
+    ASSERT_GT(wp_db->max_evicted_seq_, txn->GetId());
+    roptions.snapshot = snap;
+    auto s = db->Get(roptions, db->DefaultColumnFamily(), "key0", &value);
+    ASSERT_TRUE(s.IsNotFound());
+    db->ReleaseSnapshot(snap);
+  });
 
-      ReadOptions roptions;
-      PinnableSlice value;
-      // The snapshot should not see the uncommitted value from write_thread
-      auto snap = db->GetSnapshot();
-      TEST_SYNC_POINT("PreReleaseCallbackTest::read_thread:pause");
-      TEST_SYNC_POINT("PreReleaseCallbackTest::read_thread:resume");
-      ASSERT_LT(wp_db->max_evicted_seq_, snap->GetSequenceNumber());
-      ASSERT_GT(wp_db->max_evicted_seq_, txn->GetId());
-      roptions.snapshot = snap;
-      auto s = db->Get(roptions, db->DefaultColumnFamily(), "key0", &value);
-      ASSERT_OK(s);
-      ASSERT_TRUE(value == init_value);
-
-      // The snapshot should still not see the uncommitted value from
-      // write_thread
-      s = db->Get(roptions, db->DefaultColumnFamily(), "key0", &value);
-      ASSERT_OK(s);
-      ASSERT_TRUE(value == init_value);
-      db->ReleaseSnapshot(snap);
-    });
-
-    read_thread.join();
-    write_thread.join();
-    delete txn1;
-    ASSERT_OK(txn->Commit());
-    delete txn;
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  read_thread.join();
+  write_thread.join();
+  delete txn1;
+  delete txn2;
+  ASSERT_OK(txn->Commit());
+  delete txn;
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 // When an old prepared entry gets committed, there is a gap between the time

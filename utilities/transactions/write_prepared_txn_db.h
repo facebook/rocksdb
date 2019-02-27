@@ -441,30 +441,29 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       const ColumnFamilyOptions& cf_options) override;
 
  private:
-  friend class WritePreparedCommitEntryPreReleaseCallback;
-  friend class WritePreparedCommitEntryPreReleaseCallback;
-  friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
-  friend class WritePreparedTransactionTest_PreReleaseCallback_Test;
-  friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
-  friend class WritePreparedTransactionTest_CommitMapTest_Test;
-  friend class
-      WritePreparedTransactionTest_ConflictDetectionAfterRecoveryTest_Test;
-  friend class SnapshotConcurrentAccessTest_SnapshotConcurrentAccessTest_Test;
-  friend class WritePreparedTransactionTestBase;
   friend class PreparedHeap_BasicsTest_Test;
-  friend class PreparedHeap_EmptyAtTheEnd_Test;
   friend class PreparedHeap_Concurrent_Test;
+  friend class PreparedHeap_EmptyAtTheEnd_Test;
+  friend class SnapshotConcurrentAccessTest_SnapshotConcurrentAccessTest_Test;
+  friend class WritePreparedCommitEntryPreReleaseCallback;
+  friend class WritePreparedTransactionTestBase;
   friend class WritePreparedTxn;
   friend class WritePreparedTxnDBMock;
+  friend class WritePreparedTransactionTest_AddPreparedBeforeMax_Test;
   friend class WritePreparedTransactionTest_AdvanceMaxEvictedSeqBasicTest_Test;
   friend class
       WritePreparedTransactionTest_AdvanceMaxEvictedSeqWithDuplicatesTest_Test;
   friend class WritePreparedTransactionTest_AdvanceSeqByOne_Test;
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
+  friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
   friend class WritePreparedTransactionTest_CleanupSnapshotEqualToMax_Test;
+  friend class
+      WritePreparedTransactionTest_ConflictDetectionAfterRecoveryTest_Test;
+  friend class WritePreparedTransactionTest_CommitMapTest_Test;
   friend class WritePreparedTransactionTest_DoubleSnapshot_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotReleased_Test;
+  friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
   friend class WritePreparedTransactionTest_NewSnapshotLargerThanMax_Test;
   friend class WritePreparedTransactionTest_MaxCatchupWithNewSnapshot_Test;
   friend class
