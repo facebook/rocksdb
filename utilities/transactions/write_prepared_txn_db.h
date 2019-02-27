@@ -323,6 +323,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   // Add the transaction with prepare sequence seq to the prepared list
   void AddPrepared(uint64_t seq);
+  // Check if any of the prepared txns are less than new max_evicted_seq_. Must
+  // be called with prepared_mutex_ write locked.
+  void CheckPreparedAgainstMax(SequenceNumber new_max);
   // Remove the transaction with prepare sequence seq from the prepared list
   void RemovePrepared(const uint64_t seq, const size_t batch_cnt = 1);
   // Add the transaction with prepare sequence prepare_seq and comtit sequence
@@ -756,8 +759,6 @@ class AddPreparedCallback : public PreReleaseCallback {
     (void)is_mem_disabled;
 #endif
     assert(!two_write_queues_ || !is_mem_disabled);  // implies the 1st queue
-    TEST_SYNC_POINT("AddPreparedCallback::Callback:pause");
-    TEST_SYNC_POINT("AddPreparedCallback::Callback:resume");
     for (size_t i = 0; i < sub_batch_cnt_; i++) {
       db_->AddPrepared(prepare_seq + i);
     }
