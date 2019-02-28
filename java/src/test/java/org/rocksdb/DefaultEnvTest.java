@@ -54,13 +54,13 @@ public class DefaultEnvTest {
   public void incBackgroundThreadsIfNeeded() {
     try (final Env defaultEnv = RocksEnv.getDefault()) {
       defaultEnv.incBackgroundThreadsIfNeeded(20, Priority.BOTTOM);
-      assertThat(defaultEnv.getBackgroundThreads(Priority.BOTTOM)).isEqualTo(20);
+      assertThat(defaultEnv.getBackgroundThreads(Priority.BOTTOM)).isGreaterThanOrEqualTo(20);
 
       defaultEnv.incBackgroundThreadsIfNeeded(20, Priority.LOW);
-      assertThat(defaultEnv.getBackgroundThreads(Priority.LOW)).isEqualTo(20);
+      assertThat(defaultEnv.getBackgroundThreads(Priority.LOW)).isGreaterThanOrEqualTo(20);
 
       defaultEnv.incBackgroundThreadsIfNeeded(20, Priority.HIGH);
-      assertThat(defaultEnv.getBackgroundThreads(Priority.HIGH)).isEqualTo(20);
+      assertThat(defaultEnv.getBackgroundThreads(Priority.HIGH)).isGreaterThanOrEqualTo(20);
     }
   }
 
