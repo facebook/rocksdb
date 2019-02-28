@@ -55,10 +55,18 @@ struct LRUHandle {
                      // cache itself is counted as 1
 
   // Include the following flags:
-  //   in_cache:    whether this entry is referenced by the hash table.
-  //   is_high_pri: whether this entry is high priority entry.
-  //   in_high_pri_pool: whether this entry is in high-pri pool.
-  char flags;
+  //   IN_CACHE:         whether this entry is referenced by the hash table.
+  //   IS_HIGH_PRI:      whether this entry is high priority entry.
+  //   IN_HIGH_PRI_POOL: whether this entry is in high-pri pool.
+  //   HAS_HIT:          whether this entry has had any lookups (hits).
+  enum Flags : uint8_t {
+    IN_CACHE = (1 << 0),
+    IS_HIGH_PRI = (1 << 1),
+    IN_HIGH_PRI_POOL = (1 << 2),
+    HAS_HIT = (1 << 3),
+  };
+
+  uint8_t flags;
 
   uint32_t hash;     // Hash of key(); used for fast sharding and comparisons
 
@@ -74,36 +82,36 @@ struct LRUHandle {
     }
   }
 
-  bool InCache() { return flags & 1; }
-  bool IsHighPri() { return flags & 2; }
-  bool InHighPriPool() { return flags & 4; }
-  bool HasHit() { return flags & 8; }
+  bool InCache() const { return flags & IN_CACHE; }
+  bool IsHighPri() const { return flags & IS_HIGH_PRI; }
+  bool InHighPriPool() const { return flags & IN_HIGH_PRI_POOL; }
+  bool HasHit() const { return flags & HAS_HIT; }
 
   void SetInCache(bool in_cache) {
     if (in_cache) {
-      flags |= 1;
+      flags |= IN_CACHE;
     } else {
-      flags &= ~1;
+      flags &= ~IN_CACHE;
     }
   }
 
   void SetPriority(Cache::Priority priority) {
     if (priority == Cache::Priority::HIGH) {
-      flags |= 2;
+      flags |= IS_HIGH_PRI;
     } else {
-      flags &= ~2;
+      flags &= ~IS_HIGH_PRI;
     }
   }
 
   void SetInHighPriPool(bool in_high_pri_pool) {
     if (in_high_pri_pool) {
-      flags |= 4;
+      flags |= IN_HIGH_PRI_POOL;
     } else {
-      flags &= ~4;
+      flags &= ~IN_HIGH_PRI_POOL;
     }
   }
 
-  void SetHit() { flags |= 8; }
+  void SetHit() { flags |= HAS_HIT; }
 
   void Free() {
     assert((refs == 1 && InCache()) || (refs == 0 && !InCache()));
