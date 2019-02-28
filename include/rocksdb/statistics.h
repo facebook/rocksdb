@@ -516,7 +516,6 @@ class Statistics {
   }
   void set_stats_level(StatsLevel sl) {
     stats_level_.store(sl, std::memory_order_relaxed);
-    ;
   }
   StatsLevel get_stats_level() const {
     return stats_level_.load(std::memory_order_relaxed);
