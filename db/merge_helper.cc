@@ -64,8 +64,8 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
   }
 
   if (update_num_ops_stats) {
-    MeasureTime(statistics, READ_NUM_MERGE_OPERANDS,
-                static_cast<uint64_t>(operands.size()));
+    RecordInHistogram(statistics, READ_NUM_MERGE_OPERANDS,
+                      static_cast<uint64_t>(operands.size()));
   }
 
   bool success;

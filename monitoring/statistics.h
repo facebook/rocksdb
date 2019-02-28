@@ -53,7 +53,8 @@ class StatisticsImpl : public Statistics {
   virtual void setTickerCount(uint32_t ticker_type, uint64_t count) override;
   virtual uint64_t getAndResetTickerCount(uint32_t ticker_type) override;
   virtual void recordTick(uint32_t ticker_type, uint64_t count) override;
-  virtual void measureTime(uint32_t histogram_type, uint64_t value) override;
+  virtual void recordInHistogram(uint32_t histogram_type,
+                                 uint64_t value) override;
 
   virtual Status Reset() override;
   virtual std::string ToString() const override;
@@ -99,6 +100,13 @@ class StatisticsImpl : public Statistics {
 };
 
 // Utility functions
+inline void RecordInHistogram(Statistics* statistics, uint32_t histogram_type,
+                              uint64_t value) {
+  if (statistics) {
+    statistics->recordInHistogram(histogram_type, value);
+  }
+}
+
 inline void MeasureTime(Statistics* statistics, uint32_t histogram_type,
                         uint64_t value) {
   if (statistics) {

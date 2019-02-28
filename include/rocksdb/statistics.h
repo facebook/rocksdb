@@ -22,7 +22,8 @@ namespace rocksdb {
  *  1. Any ticker should be added before TICKER_ENUM_MAX.
  *  2. Add a readable string in TickersNameMap below for the newly added ticker.
  *  3. Add a corresponding enum value to TickerType.java in the java API
- *  4. Add the enum conversions from Java and C++ to portal.h's toJavaTickerType and toCppTickers
+ *  4. Add the enum conversions from Java and C++ to portal.h's toJavaTickerType
+ * and toCppTickers
  */
 enum Tickers : uint32_t {
   // total block cache misses
@@ -443,7 +444,11 @@ struct HistogramData {
   double min = 0.0;
 };
 
-enum StatsLevel {
+enum StatsLevel : uint8_t {
+  // Disable timer stats, and skip histogram stats
+  kExceptHistogramOrTimers,
+  // Skip timer stats
+  kExceptTimers,
   // Collect all stats except time inside mutex lock AND time spent on
   // compression.
   kExceptDetailedTimers,
@@ -468,7 +473,13 @@ class Statistics {
   virtual void recordTick(uint32_t tickerType, uint64_t count = 0) = 0;
   virtual void setTickerCount(uint32_t tickerType, uint64_t count) = 0;
   virtual uint64_t getAndResetTickerCount(uint32_t tickerType) = 0;
-  virtual void measureTime(uint32_t histogramType, uint64_t time) = 0;
+  virtual void measureTime(uint32_t histogramType, uint64_t time) {
+    if (stats_level_ <= StatsLevel::kExceptTimers) {
+      return;
+    }
+    recordInHistogram(histogramType, time);
+  }
+  virtual void recordInHistogram(uint32_t histogramType, uint64_t time) = 0;
 
   // Resets all ticker and histogram stats
   virtual Status Reset() {

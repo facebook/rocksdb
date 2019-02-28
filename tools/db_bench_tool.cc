@@ -560,6 +560,8 @@ DEFINE_bool(verify_checksum, true,
             " from storage");
 
 DEFINE_bool(statistics, false, "Database statistics");
+DEFINE_int32(stats_level, rocksdb::StatsLevel::kExceptDetailedTimers,
+             "stats level for statistics");
 DEFINE_string(statistics_string, "", "Serialized statistics string");
 static class std::shared_ptr<rocksdb::Statistics> dbstats;
 
@@ -6078,6 +6080,9 @@ int db_bench_tool(int argc, char** argv) {
 #endif  // ROCKSDB_LITE
   if (FLAGS_statistics) {
     dbstats = rocksdb::CreateDBStatistics();
+  }
+  if (dbstats) {
+    dbstats->stats_level_ = static_cast<StatsLevel>(FLAGS_stats_level);
   }
   FLAGS_compaction_pri_e = (rocksdb::CompactionPri)FLAGS_compaction_pri;
 

@@ -2418,8 +2418,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           status = Status::CompactionTooLarge();
         } else {
           // update statistics
-          MeasureTime(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
-                      c->inputs(0)->size());
+          RecordInHistogram(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
+                            c->inputs(0)->size());
           // There are three things that can change compaction score:
           // 1) When flush or compaction finish. This case is covered by
           // InstallSuperVersionAndScheduleWork
