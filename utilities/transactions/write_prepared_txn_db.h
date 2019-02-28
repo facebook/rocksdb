@@ -801,6 +801,8 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
     assert(!db_impl_->immutable_db_options().two_write_queues ||
            is_mem_disabled);
     assert(includes_data_ || prep_seq_ != kMaxSequenceNumber);
+    // Data batch is what accompanied with the commit marker and affects the
+    // last seq in the commit batch.
     const uint64_t last_commit_seq = LIKELY(data_batch_cnt_ <= 1)
                                          ? commit_seq
                                          : commit_seq + data_batch_cnt_ - 1;
@@ -844,10 +846,13 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
   SequenceNumber prep_seq_;
   size_t prep_batch_cnt_;
   size_t data_batch_cnt_;
-  // Either because it is commit without prepare or it has a
-  // CommitTimeWriteBatch
+  // Data here is the batch that is written with the commit marker, either
+  // because it is commit without prepare or commit has a CommitTimeWriteBatch.
   bool includes_data_;
-  // Auxiliary batch (if there is any)
+  // Auxiliary batch (if there is any) is a batch that is written before, but
+  // gets the same commit seq as prepare batch or data batch. This is used in
+  // two write queues where the CommitTimeWriteBatch becomes the aux batch and
+  // we do a separate write to actually commit everything.
   SequenceNumber aux_seq_;
   size_t aux_batch_cnt_;
   bool includes_aux_batch_;
