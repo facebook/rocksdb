@@ -479,13 +479,16 @@ class Statistics {
     }
     recordInHistogram(histogramType, time);
   }
+  // The function is here only for backward compatibility reason.
+  // Users implementing their own Statistics class should override
+  // recordInHistogram() instead and leave measureTime() as it is.
   virtual void measureTime(uint32_t /*histogramType*/, uint64_t /*time*/) {
     // This is not supposed to be called.
     assert(false);
   }
   virtual void recordInHistogram(uint32_t histogramType, uint64_t time) {
     // measureTime() is the old and inaccurate function name.
-    // To keep backward compatible. If users have a subclass of
+    // To keep backward compatible. If users implement their own
     // statistics, which overrides meareTime() but doesn't override
     // this function. We forward to measureTime().
     measureTime(histogramType, time);
