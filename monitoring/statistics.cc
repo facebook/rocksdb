@@ -322,11 +322,14 @@ void StatisticsImpl::recordTick(uint32_t tickerType, uint64_t count) {
   }
 }
 
-void StatisticsImpl::measureTime(uint32_t histogramType, uint64_t value) {
+void StatisticsImpl::recordInHistogram(uint32_t histogramType, uint64_t value) {
   assert(histogramType < HISTOGRAM_ENUM_MAX);
+  if (stats_level_ <= StatsLevel::kExceptHistogramOrTimers) {
+    return;
+  }
   per_core_stats_.Access()->histograms_[histogramType].Add(value);
   if (stats_ && histogramType < HISTOGRAM_ENUM_MAX) {
-    stats_->measureTime(histogramType, value);
+    stats_->recordInHistogram(histogramType, value);
   }
 }
 

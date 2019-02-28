@@ -279,7 +279,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                         concurrent_update);
       RecordTick(stats_, WRITE_DONE_BY_OTHER, write_done_by_other);
     }
-    MeasureTime(stats_, BYTES_PER_WRITE, total_byte_size);
+    RecordInHistogram(stats_, BYTES_PER_WRITE, total_byte_size);
 
     if (write_options.disableWAL) {
       has_unpersisted_data_.store(true, std::memory_order_relaxed);
@@ -471,7 +471,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
     stats->AddDBStats(InternalStats::BYTES_WRITTEN, total_byte_size);
     RecordTick(stats_, BYTES_WRITTEN, total_byte_size);
-    MeasureTime(stats_, BYTES_PER_WRITE, total_byte_size);
+    RecordInHistogram(stats_, BYTES_PER_WRITE, total_byte_size);
 
     PERF_TIMER_STOP(write_pre_and_post_process_time);
 
@@ -602,7 +602,7 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
                       concurrent_update);
     RecordTick(stats_, WRITE_DONE_BY_OTHER, write_done_by_other);
   }
-  MeasureTime(stats_, BYTES_PER_WRITE, total_byte_size);
+  RecordInHistogram(stats_, BYTES_PER_WRITE, total_byte_size);
 
   PERF_TIMER_STOP(write_pre_and_post_process_time);
 

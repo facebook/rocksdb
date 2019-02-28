@@ -743,8 +743,8 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
 
   RecordTick(statistics_, BLOB_DB_NUM_KEYS_WRITTEN);
   RecordTick(statistics_, BLOB_DB_BYTES_WRITTEN, key.size() + value.size());
-  MeasureTime(statistics_, BLOB_DB_KEY_SIZE, key.size());
-  MeasureTime(statistics_, BLOB_DB_VALUE_SIZE, value.size());
+  RecordInHistogram(statistics_, BLOB_DB_KEY_SIZE, key.size());
+  RecordInHistogram(statistics_, BLOB_DB_VALUE_SIZE, value.size());
 
   return s;
 }

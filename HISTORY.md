@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## Unreleased
+### New Features
+* Introduce two more stats levels, kExceptHistogramOrTimers and kExceptTimers.
 
 ## 6.0.0 (2/19/2019)
 ### New Features
