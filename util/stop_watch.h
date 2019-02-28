@@ -43,9 +43,10 @@ class StopWatch {
       *elapsed_ -= total_delay_;
     }
     if (stats_enabled_) {
-      statistics_->measureTime(hist_type_,
-          (elapsed_ != nullptr) ? *elapsed_ :
-                                  (env_->NowMicros() - start_time_));
+      statistics_->reportTimeToHistogram(
+          hist_type_, (elapsed_ != nullptr)
+                          ? *elapsed_
+                          : (env_->NowMicros() - start_time_));
     }
   }
 

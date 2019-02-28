@@ -634,8 +634,8 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     block_contents = raw_block_contents;
   } else if (type != kNoCompression) {
     if (ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics)) {
-      MeasureTime(r->ioptions.statistics, COMPRESSION_TIMES_NANOS,
-                  timer.ElapsedNanos());
+      RecordTimeToHistogram(r->ioptions.statistics, COMPRESSION_TIMES_NANOS,
+                            timer.ElapsedNanos());
     }
     RecordInHistogram(r->ioptions.statistics, BYTES_COMPRESSED,
                       raw_block_contents.size());

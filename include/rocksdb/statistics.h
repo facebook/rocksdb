@@ -473,13 +473,23 @@ class Statistics {
   virtual void recordTick(uint32_t tickerType, uint64_t count = 0) = 0;
   virtual void setTickerCount(uint32_t tickerType, uint64_t count) = 0;
   virtual uint64_t getAndResetTickerCount(uint32_t tickerType) = 0;
-  virtual void measureTime(uint32_t histogramType, uint64_t time) {
+  virtual void reportTimeToHistogram(uint32_t histogramType, uint64_t time) {
     if (stats_level_ <= StatsLevel::kExceptTimers) {
       return;
     }
     recordInHistogram(histogramType, time);
   }
-  virtual void recordInHistogram(uint32_t histogramType, uint64_t time) = 0;
+  virtual void measureTime(uint32_t /*histogramType*/, uint64_t /*time*/) {
+    // This is not supposed to be called.
+    assert(false);
+  }
+  virtual void recordInHistogram(uint32_t histogramType, uint64_t time) {
+    // measureTime() is the old and inaccurate function name.
+    // To keep backward compatible. If users have a subclass of
+    // statistics, which overrides meareTime() but doesn't override
+    // this function. We forward to measureTime().
+    measureTime(histogramType, time);
+  }
 
   // Resets all ticker and histogram stats
   virtual Status Reset() {

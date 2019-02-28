@@ -329,7 +329,7 @@ void StatisticsImpl::recordInHistogram(uint32_t histogramType, uint64_t value) {
   }
   per_core_stats_.Access()->histograms_[histogramType].Add(value);
   if (stats_ && histogramType < HISTOGRAM_ENUM_MAX) {
-    stats_->measureTime(histogramType, value);
+    stats_->recordInHistogram(histogramType, value);
   }
 }
 

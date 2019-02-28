@@ -107,10 +107,10 @@ inline void RecordInHistogram(Statistics* statistics, uint32_t histogram_type,
   }
 }
 
-inline void MeasureTime(Statistics* statistics, uint32_t histogram_type,
-                        uint64_t value) {
+inline void RecordTimeToHistogram(Statistics* statistics,
+                                  uint32_t histogram_type, uint64_t value) {
   if (statistics) {
-    statistics->measureTime(histogram_type, value);
+    statistics->reportTimeToHistogram(histogram_type, value);
   }
 }
 

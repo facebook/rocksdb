@@ -606,8 +606,9 @@ Status CompactionJob::Run() {
         compact_->sub_compact_states[i].compaction_job_stats.cpu_micros;
   }
 
-  MeasureTime(stats_, COMPACTION_TIME, compaction_stats_.micros);
-  MeasureTime(stats_, COMPACTION_CPU_TIME, compaction_stats_.cpu_micros);
+  RecordTimeToHistogram(stats_, COMPACTION_TIME, compaction_stats_.micros);
+  RecordTimeToHistogram(stats_, COMPACTION_CPU_TIME,
+                        compaction_stats_.cpu_micros);
 
   TEST_SYNC_POINT("CompactionJob::Run:BeforeVerify");
 
