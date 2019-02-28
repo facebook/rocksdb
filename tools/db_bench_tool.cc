@@ -6082,7 +6082,7 @@ int db_bench_tool(int argc, char** argv) {
     dbstats = rocksdb::CreateDBStatistics();
   }
   if (dbstats) {
-    dbstats->stats_level_ = static_cast<StatsLevel>(FLAGS_stats_level);
+    dbstats->set_stats_level(static_cast<StatsLevel>(FLAGS_stats_level));
   }
   FLAGS_compaction_pri_e = (rocksdb::CompactionPri)FLAGS_compaction_pri;
 

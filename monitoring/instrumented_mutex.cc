@@ -12,7 +12,7 @@ namespace rocksdb {
 namespace {
 Statistics* stats_for_report(Env* env, Statistics* stats) {
   if (env != nullptr && stats != nullptr &&
-      stats->stats_level_ > kExceptTimeForMutex) {
+      stats->get_stats_level() > kExceptTimeForMutex) {
     return stats;
   } else {
     return nullptr;
