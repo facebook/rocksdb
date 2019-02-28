@@ -262,14 +262,9 @@ bool Reader::TryReadRecord(Slice* record, std::string* scratch) {
         break;
 
       case kBadHeader:
+      case kBadRecord:
       case kEof:
       case kOldRecord:
-        if (in_fragmented_record_) {
-          fragments_.clear();
-        }
-        return false;
-
-      case kBadRecord:
         if (in_fragmented_record_) {
           ReportCorruption(fragments_.size(), "error in middle of record");
           in_fragmented_record_ = false;
@@ -277,17 +272,12 @@ bool Reader::TryReadRecord(Slice* record, std::string* scratch) {
         }
         break;
 
-      case kBadRecordLen:
       case kBadRecordChecksum:
         if (recycled_) {
           fragments_.clear();
           return false;
         }
-        if (fragment_type_or_err == kBadRecordLen) {
-          ReportCorruption(drop_size, "bad record length");
-        } else {
-          ReportCorruption(drop_size, "checksum mismatch");
-        }
+        ReportCorruption(drop_size, "checksum mismatch");
         if (in_fragmented_record_) {
           ReportCorruption(fragments_.size(), "error in middle of record");
           in_fragmented_record_ = false;
@@ -537,22 +527,17 @@ bool Reader::TryReadMore(size_t* drop_size, int* error) {
     return true;
   } else if (!read_error_) {
     ForceUnmarkEOF();
-    return !read_error_;
-  } else {
-    // Note that if buffer_ is non-empty, we have a truncated header at the
-    //  end of the file, which can be caused by the writer crashing in the
-    //  middle of writing the header. Unless explicitly requested we don't
-    //  considering this an error, just report EOF.
-    if (buffer_.size()) {
-      *drop_size = buffer_.size();
-      buffer_.clear();
-      *error = kBadHeader;
-      return false;
-    }
-    buffer_.clear();
-    *error = kEof;
-    return false;
   }
+  if (!read_error_) {
+    return true;
+  }
+  *error = kEof;
+  *drop_size = buffer_.size();
+  if (buffer_.size() > 0) {
+    *error = kBadHeader;
+  }
+  buffer_.clear();
+  return false;
 }
 
 // return true if the caller should process the fragment_type_or_err.
