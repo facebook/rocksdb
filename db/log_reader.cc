@@ -227,7 +227,7 @@ bool Reader::TryReadRecord(Slice* record, std::string* scratch) {
 
       case kFirstType:
       case kRecyclableFirstType:
-        if (in_fragmented_record_ && !fragments_.empty()) {
+        if (in_fragmented_record_ || !fragments_.empty()) {
           ReportCorruption(fragments_.size(), "partial record without end(2)");
         }
         prospective_record_offset = physical_record_offset;

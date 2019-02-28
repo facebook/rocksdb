@@ -2,21 +2,13 @@
 ## Unreleased
 ### New Features
 * Introduce two more stats levels, kExceptHistogramOrTimers and kExceptTimers.
+* Added a feature to perform data-block sampling for compressibility, and report stats to user.
 * Add support for trace filtering.
-
 ### Public API Change
 * statistics.stats_level_ becomes atomic. It is preferred to use statistics.set_stats_level() and statistics.get_stats_level() to access it.
-
+* Introduce a new IOError subcode, PathNotFound, to indicate trying to open a nonexistent file or directory for read.
 ### Bug Fixes
 * Fix JEMALLOC_CXX_THROW macro missing from older Jemalloc versions, causing build failures on some platforms.
-
-
-## Unreleased
-### New Features
-* Added a feature to perform data-block sampling for compressibility, and report stats to user.
-### Public API Change
-### Bug fixes
-
 
 ## 6.0.0 (2/19/2019)
 ### New Features
@@ -33,7 +25,6 @@
 * For all users of dictionary compression, we now generate a separate dictionary for compressing each bottom-level SST file. Previously we reused a single dictionary for a whole compaction to bottom level. The new approach achieves better compression ratios; however, it uses more memory and CPU for buffering/sampling data blocks and training dictionaries.
 * Add whole key bloom filter support in memtable.
 * Files written by `SstFileWriter` will now use dictionary compression if it is configured in the file writer's `CompressionOptions`.
-* Introduce a new IOError subcode, PathNotFound, to indicate trying to open a nonexistent file or directory for read.
 
 ### Public API Change
 * Disallow CompactionFilter::IgnoreSnapshots() = false, because it is not very useful and the behavior is confusing. The filter will filter everything if there is no snapshot declared by the time the compaction starts. However, users can define a snapshot after the compaction starts and before it finishes and this new snapshot won't be repeatable, because after the compaction finishes, some keys may be dropped.
