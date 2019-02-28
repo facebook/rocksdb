@@ -3663,7 +3663,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     if (FLAGS_use_existing_keys) {
       // Only work on single database
       assert(db_.db != nullptr);
-      Iterator* iter = db_.db->NewIterator(ReadOptions());
+      ReadOptions read_opts;
+      read_opts.total_order_seek = true;
+      Iterator* iter = db_.db->NewIterator(read_opts);
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         keys_.emplace_back(iter->key().ToString());
       }
