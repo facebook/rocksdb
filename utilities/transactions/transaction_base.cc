@@ -281,6 +281,15 @@ std::vector<Status> TransactionBaseImpl::MultiGet(
   return stat_list;
 }
 
+void TransactionBaseImpl::MultiGet(
+    const ReadOptions& read_options,
+    const std::vector<ColumnFamilyHandle*>& column_family,
+    const std::vector<Slice>& keys, PinnableSlice* values,
+    Status* statuses) {
+  write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family, keys,
+      values, statuses);
+}
+
 std::vector<Status> TransactionBaseImpl::MultiGetForUpdate(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
@@ -307,6 +316,31 @@ std::vector<Status> TransactionBaseImpl::MultiGetForUpdate(
   }
 
   return stat_list;
+}
+
+void TransactionBaseImpl::MultiGetForUpdate(
+    const ReadOptions& read_options,
+    const std::vector<ColumnFamilyHandle*>& column_family,
+    const std::vector<Slice>& keys, PinnableSlice* values,
+    Status* statuses) {
+  // Regardless of whether the MultiGet succeeded, track these keys.
+  size_t num_keys = keys.size();
+
+  // Lock all keys
+  for (size_t i = 0; i < num_keys; ++i) {
+    Status s = TryLock(column_family[i], keys[i], true /* read_only */,
+                       true /* exclusive */);
+    if (!s.ok()) {
+      // Fail entire multiget if we cannot lock all keys
+      for (size_t j = 0; j < num_keys; ++j) {
+        statuses[j] = s;
+      }
+      return;
+    }
+  }
+
+  write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family, keys,
+      values, statuses);
 }
 
 Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options) {

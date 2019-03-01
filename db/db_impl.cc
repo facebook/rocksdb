@@ -1688,9 +1688,23 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
                       const std::vector<ColumnFamilyHandle*>& column_family,
                       const std::vector<Slice>& keys, PinnableSlice* values,
                       Status* statuses) {
+  autovector<KeyContext, MultiGetContext::MAX_KEYS_ON_STACK> key_context;
+  size_t index = 0;
+  for (const Slice& user_key : keys) {
+    key_context.emplace_back(user_key, column_family[index], &values[index],
+                             &statuses[index]);
+    index++;
+  }
+
+  MultiGetImpl(read_options, key_context);
+}
+
+void DBImpl::MultiGetImpl(const ReadOptions& read_options,
+      autovector<KeyContext, MultiGetContext::MAX_KEYS_ON_STACK>& key_context,
+      ReadCallback* callback, bool* is_blob_index) {
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
   StopWatch sw(env_, stats_, DB_MULTIGET);
-  size_t num_keys = keys.size();
+  size_t num_keys = key_context.size();
 
   PERF_TIMER_GUARD(get_snapshot_time);
 
@@ -1709,15 +1723,12 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
 
   autovector<MultiGetColumnFamilyData, MultiGetContext::MAX_KEYS_ON_STACK>
       multiget_cf_data;
-  autovector<KeyContext, MultiGetContext::MAX_KEYS_ON_STACK> key_context;
   autovector<KeyContext*, MultiGetContext::MAX_KEYS_ON_STACK> sorted_keys;
   sorted_keys.resize(num_keys);
   {
     size_t index = 0;
-    for (const Slice& user_key : keys) {
-      key_context.emplace_back(user_key, column_family[index], &values[index],
-                               &statuses[index]);
-      sorted_keys[index] = &key_context.back();
+    for (KeyContext& key : key_context) {
+      sorted_keys[index] = &key;
       index++;
     }
     std::sort(sorted_keys.begin(), sorted_keys.begin() + index,
@@ -1821,14 +1832,12 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
   }
 
   // Keep track of bytes that we read for statistics-recording later
-  uint64_t bytes_read = 0;
   PERF_TIMER_STOP(get_snapshot_time);
 
   // For each of the given keys, apply the entire "get" process as follows:
   // First look in the memtable, then in the immutable memtable (if any).
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
-  size_t num_found = 0;
   for (auto col_iter = multiget_cf_data.begin();
        col_iter != multiget_cf_data.end(); ++col_iter) {
     size_t num_keys_in_cf = col_iter->end - col_iter->start;
@@ -1843,6 +1852,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
       auto super_version = mgd.super_version;
 
       num_keys_in_cf -= batch_size;
+      col_iter->start += batch_size;
       // ctx.InitLookupKeys(snapshot);
       for (auto mget_iter = range.begin(); mget_iter != range.end();
            ++mget_iter) {
@@ -1859,14 +1869,15 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
         if (!skip_memtable) {
           if (super_version->mem->Get(
                   *(mget_iter->lkey), value->GetSelf(), &s, &merge_context,
-                  &mget_iter->max_covering_tombstone_seq, read_options)) {
+                  &mget_iter->max_covering_tombstone_seq, read_options,
+                  callback, is_blob_index)) {
             done = true;
             value->PinSelf();
             RecordTick(stats_, MEMTABLE_HIT);
           } else if (super_version->imm->Get(
                          *(mget_iter->lkey), value->GetSelf(), &s,
                          &merge_context, &mget_iter->max_covering_tombstone_seq,
-                         read_options)) {
+                         read_options, callback, is_blob_index)) {
             done = true;
             value->PinSelf();
             RecordTick(stats_, MEMTABLE_HIT);
@@ -1882,21 +1893,22 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
 
       if (lookup_current) {
         PERF_TIMER_GUARD(get_from_output_files_time);
-        super_version->current->MultiGet(read_options, &range);
+        super_version->current->MultiGet(read_options, &range, callback,
+            is_blob_index);
       }
-    }
-  }
-
-  for (auto iter = keys.begin(); iter != keys.end(); ++iter) {
-    auto index = iter - keys.begin();
-    if (statuses[index].ok()) {
-      bytes_read += values[index].size();
-      num_found++;
     }
   }
 
   // Post processing (decrement reference counts and record statistics)
   PERF_TIMER_GUARD(get_post_process_time);
+  size_t num_found = 0;
+  uint64_t bytes_read = 0;
+  for (auto& key : key_context) {
+    if (key.s->ok()) {
+      bytes_read += key.value->size();
+      num_found++;
+    }
+  }
 
   for (auto mgd_iter : multiget_cf_data) {
     if (!last_try) {

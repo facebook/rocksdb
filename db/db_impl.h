@@ -136,6 +136,10 @@ class DBImpl : public DB {
                         const std::vector<Slice>& keys, PinnableSlice* values,
                         Status* statuses) override;
 
+  void MultiGetImpl(const ReadOptions& options,
+      autovector<KeyContext, MultiGetContext::MAX_KEYS_ON_STACK>& key_context,
+      ReadCallback* callback = nullptr, bool* is_blob_index = nullptr);
+
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                     const std::string& column_family,
                                     ColumnFamilyHandle** handle) override;
