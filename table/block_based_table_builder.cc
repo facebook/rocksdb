@@ -623,7 +623,7 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     std::string sampled_output_slow;
     block_contents = CompressBlock(raw_block_contents, compression_info,
                                    &type, r->table_options.format_version,
-                                   is_data_block, /* do_sample */
+                                   is_data_block /* do_sample */,
                                    &r->compressed_output, &sampled_output_fast,
                                    &sampled_output_slow);
 
