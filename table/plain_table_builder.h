@@ -12,6 +12,8 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
+#include "table/bloom_block.h"
+#include "table/plain_table_index.h"
 #include "table/plain_table_key_coding.h"
 #include "table/table_builder.h"
 
@@ -35,7 +37,10 @@ class PlainTableBuilder: public TableBuilder {
           int_tbl_prop_collector_factories,
       uint32_t column_family_id, WritableFileWriter* file,
       uint32_t user_key_size, EncodingType encoding_type,
-      size_t index_sparseness, const std::string& column_family_name);
+      size_t index_sparseness, uint32_t bloom_bits_per_key,
+      const std::string& column_family_name, uint32_t num_probes = 6,
+      size_t huge_page_tlb_size = 0, double hash_table_ratio = 0,
+      bool store_index_in_file = false);
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~PlainTableBuilder();
@@ -69,6 +74,8 @@ class PlainTableBuilder: public TableBuilder {
 
   TableProperties GetTableProperties() const override { return properties_; }
 
+  bool SaveIndexInFile() const { return store_index_in_file_; }
+
  private:
   Arena arena_;
   const ImmutableCFOptions& ioptions_;
@@ -76,11 +83,18 @@ class PlainTableBuilder: public TableBuilder {
   std::vector<std::unique_ptr<IntTblPropCollector>>
       table_properties_collectors_;
 
+  BloomBlockBuilder bloom_block_;
+  std::unique_ptr<PlainTableIndexBuilder> index_builder_;
+
   WritableFileWriter* file_;
   uint64_t offset_ = 0;
+  uint32_t bloom_bits_per_key_;
+  size_t huge_page_tlb_size_;
   Status status_;
   TableProperties properties_;
   PlainTableKeyEncoder encoder_;
+
+  bool store_index_in_file_;
 
   std::vector<uint32_t> keys_or_prefixes_hashes_;
   bool closed_ = false;  // Either Finish() or Abandon() has been called.

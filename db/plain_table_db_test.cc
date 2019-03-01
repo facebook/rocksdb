@@ -134,6 +134,7 @@ class PlainTableDBTest : public testing::Test,
     plain_table_options.huge_page_tlb_size = 0;
     plain_table_options.encoding_type = kPrefix;
     plain_table_options.full_scan_mode = false;
+    plain_table_options.store_index_in_file = false;
 
     options.table_factory.reset(NewPlainTableFactory(plain_table_options));
     options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0, 3, true));
@@ -271,7 +272,8 @@ class TestPlainTableReader : public PlainTableReader {
                        std::unique_ptr<RandomAccessFileReader>&& file,
                        const ImmutableCFOptions& ioptions,
                        const SliceTransform* prefix_extractor,
-                       bool* expect_bloom_not_match, uint32_t column_family_id,
+                       bool* expect_bloom_not_match, bool store_index_in_file,
+                       uint32_t column_family_id,
                        const std::string& column_family_name)
       : PlainTableReader(ioptions, std::move(file), env_options, icomparator,
                          encoding_type, file_size, table_properties,
@@ -288,6 +290,17 @@ class TestPlainTableReader : public PlainTableReader {
     TableProperties* props = const_cast<TableProperties*>(table_properties);
     EXPECT_EQ(column_family_id, static_cast<uint32_t>(props->column_family_id));
     EXPECT_EQ(column_family_name, props->column_family_name);
+    if (store_index_in_file) {
+      auto bloom_version_ptr = props->user_collected_properties.find(
+          PlainTablePropertyNames::kBloomVersion);
+      EXPECT_TRUE(bloom_version_ptr != props->user_collected_properties.end());
+      EXPECT_EQ(bloom_version_ptr->second, std::string("1"));
+      if (ioptions.bloom_locality > 0) {
+        auto num_blocks_ptr = props->user_collected_properties.find(
+            PlainTablePropertyNames::kNumBloomBlocks);
+        EXPECT_TRUE(num_blocks_ptr != props->user_collected_properties.end());
+      }
+    }
   }
 
   ~TestPlainTableReader() override {}
@@ -316,6 +329,7 @@ class TestPlainTableFactory : public PlainTableFactory {
         bloom_bits_per_key_(options.bloom_bits_per_key),
         hash_table_ratio_(options.hash_table_ratio),
         index_sparseness_(options.index_sparseness),
+        store_index_in_file_(options.store_index_in_file),
         expect_bloom_not_match_(expect_bloom_not_match),
         column_family_id_(column_family_id),
         column_family_name_(std::move(column_family_name)) {}
@@ -332,6 +346,22 @@ class TestPlainTableFactory : public PlainTableFactory {
                             true /* compression_type_missing */);
     EXPECT_TRUE(s.ok());
 
+    if (store_index_in_file_) {
+      BlockHandle bloom_block_handle;
+      s = FindMetaBlock(file.get(), file_size, kPlainTableMagicNumber,
+                        table_reader_options.ioptions,
+                        BloomBlockBuilder::kBloomBlock, &bloom_block_handle,
+                        /* compression_type_missing */ true);
+      EXPECT_TRUE(s.ok());
+
+      BlockHandle index_block_handle;
+      s = FindMetaBlock(file.get(), file_size, kPlainTableMagicNumber,
+                        table_reader_options.ioptions,
+                        PlainTableIndexBuilder::kPlainTableIndexBlock,
+                        &index_block_handle, /* compression_type_missing */ true);
+      EXPECT_TRUE(s.ok());
+    }
+
     auto& user_props = props->user_collected_properties;
     auto encoding_type_prop =
         user_props.find(PlainTablePropertyNames::kEncodingType);
@@ -345,7 +375,7 @@ class TestPlainTableFactory : public PlainTableFactory {
         bloom_bits_per_key_, hash_table_ratio_, index_sparseness_, props,
         std::move(file), table_reader_options.ioptions,
         table_reader_options.prefix_extractor, expect_bloom_not_match_,
-        column_family_id_, column_family_name_));
+        store_index_in_file_, column_family_id_, column_family_name_));
 
     *table = std::move(new_reader);
     return s;
@@ -355,6 +385,7 @@ class TestPlainTableFactory : public PlainTableFactory {
   int bloom_bits_per_key_;
   double hash_table_ratio_;
   size_t index_sparseness_;
+  bool store_index_in_file_;
   bool* expect_bloom_not_match_;
   const uint32_t column_family_id_;
   const std::string column_family_name_;
@@ -364,8 +395,10 @@ TEST_P(PlainTableDBTest, Flush) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (EncodingType encoding_type : {kPlain, kPrefix}) {
-      for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
-        for (int total_order = 0; total_order <= 1; total_order++) {
+    for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
+      for (int total_order = 0; total_order <= 1; total_order++) {
+        for (int store_index_in_file = 0; store_index_in_file <= 1;
+             ++store_index_in_file) {
           Options options = CurrentOptions();
           options.create_if_missing = true;
           // Set only one bucket to force bucket conflict.
@@ -381,6 +414,7 @@ TEST_P(PlainTableDBTest, Flush) {
             plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
             plain_table_options.encoding_type = encoding_type;
             plain_table_options.full_scan_mode = false;
+            plain_table_options.store_index_in_file = store_index_in_file;
 
             options.table_factory.reset(
                 NewPlainTableFactory(plain_table_options));
@@ -393,6 +427,7 @@ TEST_P(PlainTableDBTest, Flush) {
             plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
             plain_table_options.encoding_type = encoding_type;
             plain_table_options.full_scan_mode = false;
+            plain_table_options.store_index_in_file = store_index_in_file;
 
             options.table_factory.reset(
                 NewPlainTableFactory(plain_table_options));
@@ -418,14 +453,21 @@ TEST_P(PlainTableDBTest, Flush) {
           auto row = ptc.begin();
           auto tp = row->second;
 
-          ASSERT_EQ(total_order ? "4" : "12",
-                    (tp->user_collected_properties)
-                        .at("plain_table_hash_table_size"));
-          ASSERT_EQ(
-              "0",
-              (tp->user_collected_properties).at("plain_table_sub_index_size"));
+          if (!store_index_in_file) {
+            ASSERT_EQ(total_order ? "4" : "12",
+                      (tp->user_collected_properties)
+                          .at("plain_table_hash_table_size"));
+            ASSERT_EQ("0", (tp->user_collected_properties)
+                               .at("plain_table_sub_index_size"));
+          } else {
+            ASSERT_EQ("0", (tp->user_collected_properties)
+                               .at("plain_table_hash_table_size"));
+            ASSERT_EQ("0", (tp->user_collected_properties)
+                               .at("plain_table_sub_index_size"));
+          }
           ASSERT_EQ("v3", Get("1000000000000foo"));
           ASSERT_EQ("v2", Get("0000000000000bar"));
+        }
         }
       }
     }
@@ -436,11 +478,19 @@ TEST_P(PlainTableDBTest, Flush2) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (EncodingType encoding_type : {kPlain, kPrefix}) {
-      for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
-        for (int total_order = 0; total_order <= 1; total_order++) {
+    for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
+      for (int total_order = 0; total_order <= 1; total_order++) {
+        for (int store_index_in_file = 0; store_index_in_file <= 1;
+             ++store_index_in_file) {
           if (encoding_type == kPrefix && total_order) {
             continue;
           }
+          if (!bloom_bits && store_index_in_file) {
+            continue;
+          }
+          if (total_order && store_index_in_file) {
+          continue;
+        }
         bool expect_bloom_not_match = false;
         Options options = CurrentOptions();
         options.create_if_missing = true;
@@ -459,6 +509,7 @@ TEST_P(PlainTableDBTest, Flush2) {
         plain_table_options.bloom_bits_per_key = bloom_bits;
         plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
         plain_table_options.encoding_type = encoding_type;
+        plain_table_options.store_index_in_file = store_index_in_file;
         options.table_factory.reset(new TestPlainTableFactory(
             &expect_bloom_not_match, plain_table_options,
             0 /* column_family_id */, kDefaultColumnFamilyName));
@@ -497,8 +548,9 @@ TEST_P(PlainTableDBTest, Flush2) {
           }
           expect_bloom_not_match = false;
         }
-        }
       }
+      }
+    }
     }
   }
 }
