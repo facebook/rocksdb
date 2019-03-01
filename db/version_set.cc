@@ -1818,7 +1818,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           continue;
       }
     }
-    MeasureTime(db_statistics_, SST_BATCH_SIZE, batch_size);
+    RecordInHistogram(db_statistics_, SST_BATCH_SIZE, batch_size);
     if (file_picker_range.empty()) {
       break;
     }

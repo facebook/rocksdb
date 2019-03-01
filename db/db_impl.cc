@@ -1922,7 +1922,7 @@ void DBImpl::MultiGetImpl(const ReadOptions& read_options,
   RecordTick(stats_, NUMBER_MULTIGET_KEYS_READ, num_keys);
   RecordTick(stats_, NUMBER_MULTIGET_KEYS_FOUND, num_found);
   RecordTick(stats_, NUMBER_MULTIGET_BYTES_READ, bytes_read);
-  MeasureTime(stats_, BYTES_PER_MULTIGET, bytes_read);
+  RecordInHistogram(stats_, BYTES_PER_MULTIGET, bytes_read);
   PERF_COUNTER_ADD(multiget_read_bytes, bytes_read);
   PERF_TIMER_STOP(get_post_process_time);
 }
