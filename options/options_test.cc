@@ -662,6 +662,7 @@ TEST_F(OptionsTest, GetPlainTableOptionsFromString) {
   ASSERT_EQ(new_opt.huge_page_tlb_size, 4);
   ASSERT_EQ(new_opt.encoding_type, EncodingType::kPrefix);
   ASSERT_TRUE(new_opt.full_scan_mode);
+  ASSERT_TRUE(new_opt.store_index_in_file);
 
   // unknown option
   ASSERT_NOK(GetPlainTableOptionsFromString(table_opt,
