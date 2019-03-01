@@ -118,7 +118,7 @@ jbyte Java_org_rocksdb_Statistics_statsLevel(
       reinterpret_cast<std::shared_ptr<rocksdb::Statistics>*>(jhandle);
   assert(pSptr_statistics != nullptr);
   return rocksdb::StatsLevelJni::toJavaStatsLevel(
-      pSptr_statistics->get()->stats_level_);
+      pSptr_statistics->get()->get_stats_level());
 }
 
 /*
@@ -132,7 +132,7 @@ void Java_org_rocksdb_Statistics_setStatsLevel(
       reinterpret_cast<std::shared_ptr<rocksdb::Statistics>*>(jhandle);
   assert(pSptr_statistics != nullptr);
   auto stats_level = rocksdb::StatsLevelJni::toCppStatsLevel(jstats_level);
-  pSptr_statistics->get()->stats_level_ = stats_level;
+  pSptr_statistics->get()->set_stats_level(stats_level);
 }
 
 /*

@@ -23,7 +23,8 @@ class StopWatch {
         elapsed_(elapsed),
         overwrite_(overwrite),
         stats_enabled_(statistics &&
-                       statistics->stats_level_ >= StatsLevel::kExceptTimers &&
+                       statistics->get_stats_level() >=
+                           StatsLevel::kExceptTimers &&
                        statistics->HistEnabledForType(hist_type)),
         delay_enabled_(delay_enabled),
         total_delay_(0),
