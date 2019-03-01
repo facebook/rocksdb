@@ -797,9 +797,10 @@ class VersionSet {
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* new_cf_options = nullptr);
 
-  Status ReadAndApply(InstrumentedMutex* mu,
-                      std::unique_ptr<log::Reader>* manifest_reader,
-                      std::unordered_set<ColumnFamilyData*>* cfds_changed);
+  Status ReadAndApply(
+      InstrumentedMutex* mu,
+      std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
+      std::unordered_set<ColumnFamilyData*>* cfds_changed);
 
   Status GetCurrentManifestPath(std::string* manifest_filename);
 
@@ -811,7 +812,7 @@ class VersionSet {
 
   Status RecoverAsSecondary(
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::unique_ptr<log::Reader>* manifest_reader,
+      std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
       std::unique_ptr<log::Reader::Reporter>* manifest_reporter,
       std::unique_ptr<Status>* manifest_reader_status);
 
@@ -1037,8 +1038,9 @@ class VersionSet {
       SequenceNumber* last_sequence, uint64_t* min_log_number_to_keep,
       uint32_t* max_column_family);
 
-  Status MaybeSwitchManifest(log::Reader::Reporter* reporter,
-                             std::unique_ptr<log::Reader>* manifest_reader);
+  Status MaybeSwitchManifest(
+      log::Reader::Reporter* reporter,
+      std::unique_ptr<log::FragmentBufferedReader>* manifest_reader);
 
   // REQUIRES db mutex at beginning. may release and re-acquire db mutex
   Status ProcessManifestWrites(std::deque<ManifestWriter>& writers,

@@ -3310,7 +3310,8 @@ Status VersionSet::LogAndApply(
 }
 
 Status VersionSet::ReadAndApply(
-    InstrumentedMutex* mu, std::unique_ptr<log::Reader>* manifest_reader,
+    InstrumentedMutex* mu,
+    std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
     std::unordered_set<ColumnFamilyData*>* cfds_changed) {
   assert(manifest_reader != nullptr);
   assert(cfds_changed != nullptr);
@@ -3333,7 +3334,7 @@ Status VersionSet::ReadAndApply(
     std::string scratch;
     log::Reader* reader = manifest_reader->get();
     std::string old_manifest_path = reader->file()->file_name();
-    while (reader->TryReadRecord(&record, &scratch)) {
+    while (reader->ReadRecord(&record, &scratch)) {
       VersionEdit edit;
       s = edit.DecodeFrom(record);
       if (!s.ok()) {
@@ -3693,7 +3694,7 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
 
 Status VersionSet::MaybeSwitchManifest(
     log::Reader::Reporter* reporter,
-    std::unique_ptr<log::Reader>* manifest_reader) {
+    std::unique_ptr<log::FragmentBufferedReader>* manifest_reader) {
   assert(manifest_reader != nullptr);
   Status s;
   do {
@@ -3720,9 +3721,9 @@ Status VersionSet::MaybeSwitchManifest(
       manifest_file_reader.reset(
           new SequentialFileReader(std::move(manifest_file), manifest_path));
       // TODO(yanqin) secondary instance needs a separate info log file.
-      manifest_reader->reset(
-          new log::Reader(nullptr, std::move(manifest_file_reader), reporter,
-                          true /* checksum */, 0 /* log_number */));
+      manifest_reader->reset(new log::FragmentBufferedReader(
+          nullptr, std::move(manifest_file_reader), reporter,
+          true /* checksum */, 0 /* log_number */));
       ROCKS_LOG_INFO(db_options_->info_log, "Switched to new manifest: %s\n",
                      manifest_path.c_str());
     }
@@ -4008,7 +4009,7 @@ Status VersionSet::Recover(
 
 Status VersionSet::RecoverAsSecondary(
     const std::vector<ColumnFamilyDescriptor>& column_families,
-    std::unique_ptr<log::Reader>* manifest_reader,
+    std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
     std::unique_ptr<log::Reader::Reporter>* manifest_reporter,
     std::unique_ptr<Status>* manifest_reader_status) {
   assert(manifest_reader != nullptr);
@@ -4059,7 +4060,7 @@ Status VersionSet::RecoverAsSecondary(
     assert(reader != nullptr);
     Slice record;
     std::string scratch;
-    while (s.ok() && reader->TryReadRecord(&record, &scratch)) {
+    while (s.ok() && reader->ReadRecord(&record, &scratch)) {
       VersionEdit edit;
       s = edit.DecodeFrom(record);
       if (!s.ok()) {

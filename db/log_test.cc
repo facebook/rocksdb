@@ -146,7 +146,7 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
   }
 
   void reset_source_contents() {
-    auto src = dynamic_cast<StringSource*>(reader_.file()->file());
+    auto src = dynamic_cast<StringSource*>(reader_->file()->file());
     assert(src);
     src->contents_ = dest_contents();
   }
@@ -156,7 +156,7 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
   std::unique_ptr<SequentialFileReader> source_holder_;
   ReportCollector report_;
   Writer writer_;
-  Reader reader_;
+  std::unique_ptr<Reader> reader_;
 
  protected:
   bool allow_retry_read_;
@@ -170,9 +170,16 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
             new StringSource(reader_contents_, !std::get<1>(GetParam())),
             "" /* file name */)),
         writer_(std::move(dest_holder_), 123, std::get<0>(GetParam())),
-        reader_(nullptr, std::move(source_holder_), &report_,
-                true /* checksum */, 123 /* log_number */),
-        allow_retry_read_(std::get<1>(GetParam())) {}
+        allow_retry_read_(std::get<1>(GetParam())) {
+    if (allow_retry_read_) {
+      reader_.reset(new FragmentBufferedReader(
+          nullptr, std::move(source_holder_), &report_, true /* checksum */,
+          123 /* log_number */));
+    } else {
+      reader_.reset(new Reader(nullptr, std::move(source_holder_), &report_,
+                               true /* checksum */, 123 /* log_number */));
+    }
+  }
 
   Slice* get_reader_contents() { return &reader_contents_; }
 
@@ -189,11 +196,7 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
     std::string scratch;
     Slice record;
     bool ret = false;
-    if (allow_retry_read_) {
-      ret = reader_.TryReadRecord(&record, &scratch);
-    } else {
-      ret = reader_.ReadRecord(&record, &scratch, wal_recovery_mode);
-    }
+    ret = reader_->ReadRecord(&record, &scratch, wal_recovery_mode);
     if (ret) {
       return record.ToString();
     } else {
@@ -226,7 +229,7 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
   }
 
   void ForceError(size_t position = 0) {
-    auto src = dynamic_cast<StringSource*>(reader_.file()->file());
+    auto src = dynamic_cast<StringSource*>(reader_->file()->file());
     src->force_error_ = true;
     src->force_error_position_ = position;
   }
@@ -240,20 +243,18 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
   }
 
   void ForceEOF(size_t position = 0) {
-    auto src = dynamic_cast<StringSource*>(reader_.file()->file());
+    auto src = dynamic_cast<StringSource*>(reader_->file()->file());
     src->force_eof_ = true;
     src->force_eof_position_ = position;
   }
 
   void UnmarkEOF() {
-    auto src = dynamic_cast<StringSource*>(reader_.file()->file());
+    auto src = dynamic_cast<StringSource*>(reader_->file()->file());
     src->returned_partial_ = false;
-    reader_.UnmarkEOF();
+    reader_->UnmarkEOF();
   }
 
-  bool IsEOF() {
-    return reader_.IsEOF();
-  }
+  bool IsEOF() { return reader_->IsEOF(); }
 
   // Returns OK iff recorded error message contains "msg"
   std::string MatchError(const std::string& msg) const {
@@ -722,7 +723,7 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
   std::unique_ptr<WritableFileWriter> writer_;
   std::unique_ptr<SequentialFileReader> reader_;
   ReportCollector report_;
-  std::unique_ptr<Reader> log_reader_;
+  std::unique_ptr<FragmentBufferedReader> log_reader_;
 
  public:
   RetriableLogTest()
@@ -761,8 +762,9 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
     if (s.ok()) {
       reader_.reset(new SequentialFileReader(std::move(seq_file), log_file_));
       assert(reader_ != nullptr);
-      log_reader_.reset(new Reader(nullptr, std::move(reader_), &report_,
-                                   true /* checksum */, 123 /* log_number */));
+      log_reader_.reset(new FragmentBufferedReader(
+          nullptr, std::move(reader_), &report_, true /* checksum */,
+          123 /* log_number */));
       assert(log_reader_ != nullptr);
     }
     return s;
@@ -787,7 +789,7 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
     result->clear();
     std::string scratch;
     Slice record;
-    bool r = log_reader_->TryReadRecord(&record, &scratch);
+    bool r = log_reader_->ReadRecord(&record, &scratch);
     if (r) {
       result->assign(record.data(), record.size());
       return true;
@@ -806,11 +808,12 @@ TEST_P(RetriableLogTest, TailLog_PartialHeader) {
   SyncPoint::GetInstance()->LoadDependency(
       {{"RetriableLogTest::TailLog:AfterPart1",
         "RetriableLogTest::TailLog:BeforeReadRecord"},
-       {"LogReader::TryReadMore:FirstEOF",
+       {"FragmentBufferedLogReader::TryReadMore:FirstEOF",
         "RetriableLogTest::TailLog:BeforePart2"}});
   SyncPoint::GetInstance()->ClearAllCallBacks();
-  SyncPoint::GetInstance()->SetCallBack("LogReader::TryReadMore:FirstEOF",
-                                        [&](void* /*arg*/) { eof = true; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "FragmentBufferedLogReader::TryReadMore:FirstEOF",
+      [&](void* /*arg*/) { eof = true; });
   SyncPoint::GetInstance()->EnableProcessing();
 
   size_t delta = header_size - 1;
@@ -848,11 +851,12 @@ TEST_P(RetriableLogTest, TailLog_FullHeader) {
   SyncPoint::GetInstance()->LoadDependency(
       {{"RetriableLogTest::TailLog:AfterPart1",
         "RetriableLogTest::TailLog:BeforeReadRecord"},
-       {"LogReader::TryReadMore:FirstEOF",
+       {"FragmentBufferedLogReader::TryReadMore:FirstEOF",
         "RetriableLogTest::TailLog:BeforePart2"}});
   SyncPoint::GetInstance()->ClearAllCallBacks();
-  SyncPoint::GetInstance()->SetCallBack("LogReader::TryReadMore:FirstEOF",
-                                        [&](void* /*arg*/) { eof = true; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "FragmentBufferedLogReader::TryReadMore:FirstEOF",
+      [&](void* /*arg*/) { eof = true; });
   SyncPoint::GetInstance()->EnableProcessing();
 
   size_t delta = header_size + 1;

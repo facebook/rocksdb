@@ -130,7 +130,7 @@ class DBImplSecondary : public DBImpl {
   DBImplSecondary(const DBImplSecondary&);
   void operator=(const DBImplSecondary&);
 
-  std::unique_ptr<log::Reader> manifest_reader_;
+  std::unique_ptr<log::FragmentBufferedReader> manifest_reader_;
   std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
   std::unique_ptr<Status> manifest_reader_status_;
 };

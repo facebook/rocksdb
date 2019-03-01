@@ -37,9 +37,7 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       last_record_offset_(0),
       end_of_buffer_offset_(0),
       log_number_(log_num),
-      recycled_(false),
-      fragments_(),
-      in_fragmented_record_(false) {}
+      recycled_(false) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
@@ -199,108 +197,6 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
   return false;
 }
 
-// return true if a complete record has been read successfully.
-bool Reader::TryReadRecord(Slice* record, std::string* scratch) {
-  assert(record != nullptr);
-  assert(scratch != nullptr);
-  record->clear();
-  scratch->clear();
-
-  uint64_t prospective_record_offset = 0;
-  uint64_t physical_record_offset = end_of_buffer_offset_ - buffer_.size();
-  size_t drop_size = 0;
-  unsigned int fragment_type_or_err = 0;  // Initialize to make compiler happy
-  Slice fragment;
-  while (TryReadFragment(&fragment, &drop_size, &fragment_type_or_err)) {
-    switch (fragment_type_or_err) {
-      case kFullType:
-      case kRecyclableFullType:
-        if (in_fragmented_record_ && !fragments_.empty()) {
-          ReportCorruption(fragments_.size(), "partial record without end(1)");
-        }
-        fragments_.clear();
-        *record = fragment;
-        prospective_record_offset = physical_record_offset;
-        last_record_offset_ = prospective_record_offset;
-        in_fragmented_record_ = false;
-        return true;
-
-      case kFirstType:
-      case kRecyclableFirstType:
-        if (in_fragmented_record_ || !fragments_.empty()) {
-          ReportCorruption(fragments_.size(), "partial record without end(2)");
-        }
-        prospective_record_offset = physical_record_offset;
-        fragments_.assign(fragment.data(), fragment.size());
-        in_fragmented_record_ = true;
-        break;
-
-      case kMiddleType:
-      case kRecyclableMiddleType:
-        if (!in_fragmented_record_) {
-          ReportCorruption(fragment.size(),
-                           "missing start of fragmented record(1)");
-        } else {
-          fragments_.append(fragment.data(), fragment.size());
-        }
-        break;
-
-      case kLastType:
-      case kRecyclableLastType:
-        if (!in_fragmented_record_) {
-          ReportCorruption(fragment.size(),
-                           "missing start of fragmented record(2)");
-        } else {
-          fragments_.append(fragment.data(), fragment.size());
-          scratch->assign(fragments_.data(), fragments_.size());
-          fragments_.clear();
-          *record = Slice(*scratch);
-          last_record_offset_ = prospective_record_offset;
-          in_fragmented_record_ = false;
-          return true;
-        }
-        break;
-
-      case kBadHeader:
-      case kBadRecord:
-      case kEof:
-      case kOldRecord:
-        if (in_fragmented_record_) {
-          ReportCorruption(fragments_.size(), "error in middle of record");
-          in_fragmented_record_ = false;
-          fragments_.clear();
-        }
-        break;
-
-      case kBadRecordChecksum:
-        if (recycled_) {
-          fragments_.clear();
-          return false;
-        }
-        ReportCorruption(drop_size, "checksum mismatch");
-        if (in_fragmented_record_) {
-          ReportCorruption(fragments_.size(), "error in middle of record");
-          in_fragmented_record_ = false;
-          fragments_.clear();
-        }
-        break;
-
-      default: {
-        char buf[40];
-        snprintf(buf, sizeof(buf), "unknown record type %u",
-                 fragment_type_or_err);
-        ReportCorruption(
-            fragment.size() + (in_fragmented_record_ ? fragments_.size() : 0),
-            buf);
-        in_fragmented_record_ = false;
-        fragments_.clear();
-        break;
-      }
-    }
-  }
-  return false;
-}
-
 uint64_t Reader::LastRecordOffset() {
   return last_record_offset_;
 }
@@ -313,14 +209,6 @@ void Reader::UnmarkEOF() {
   if (eof_offset_ == 0) {
     return;
   }
-  UnmarkEOFInternal();
-}
-
-void Reader::ForceUnmarkEOF() {
-  if (read_error_) {
-    return;
-  }
-  eof_ = false;
   UnmarkEOFInternal();
 }
 
@@ -507,7 +395,117 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
   }
 }
 
-bool Reader::TryReadMore(size_t* drop_size, int* error) {
+bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
+                                        WALRecoveryMode /*unused*/) {
+  assert(record != nullptr);
+  assert(scratch != nullptr);
+  record->clear();
+  scratch->clear();
+
+  uint64_t prospective_record_offset = 0;
+  uint64_t physical_record_offset = end_of_buffer_offset_ - buffer_.size();
+  size_t drop_size = 0;
+  unsigned int fragment_type_or_err = 0;  // Initialize to make compiler happy
+  Slice fragment;
+  while (TryReadFragment(&fragment, &drop_size, &fragment_type_or_err)) {
+    switch (fragment_type_or_err) {
+      case kFullType:
+      case kRecyclableFullType:
+        if (in_fragmented_record_ && !fragments_.empty()) {
+          ReportCorruption(fragments_.size(), "partial record without end(1)");
+        }
+        fragments_.clear();
+        *record = fragment;
+        prospective_record_offset = physical_record_offset;
+        last_record_offset_ = prospective_record_offset;
+        in_fragmented_record_ = false;
+        return true;
+
+      case kFirstType:
+      case kRecyclableFirstType:
+        if (in_fragmented_record_ || !fragments_.empty()) {
+          ReportCorruption(fragments_.size(), "partial record without end(2)");
+        }
+        prospective_record_offset = physical_record_offset;
+        fragments_.assign(fragment.data(), fragment.size());
+        in_fragmented_record_ = true;
+        break;
+
+      case kMiddleType:
+      case kRecyclableMiddleType:
+        if (!in_fragmented_record_) {
+          ReportCorruption(fragment.size(),
+                           "missing start of fragmented record(1)");
+        } else {
+          fragments_.append(fragment.data(), fragment.size());
+        }
+        break;
+
+      case kLastType:
+      case kRecyclableLastType:
+        if (!in_fragmented_record_) {
+          ReportCorruption(fragment.size(),
+                           "missing start of fragmented record(2)");
+        } else {
+          fragments_.append(fragment.data(), fragment.size());
+          scratch->assign(fragments_.data(), fragments_.size());
+          fragments_.clear();
+          *record = Slice(*scratch);
+          last_record_offset_ = prospective_record_offset;
+          in_fragmented_record_ = false;
+          return true;
+        }
+        break;
+
+      case kBadHeader:
+      case kBadRecord:
+      case kEof:
+      case kOldRecord:
+        if (in_fragmented_record_) {
+          ReportCorruption(fragments_.size(), "error in middle of record");
+          in_fragmented_record_ = false;
+          fragments_.clear();
+        }
+        break;
+
+      case kBadRecordChecksum:
+        if (recycled_) {
+          fragments_.clear();
+          return false;
+        }
+        ReportCorruption(drop_size, "checksum mismatch");
+        if (in_fragmented_record_) {
+          ReportCorruption(fragments_.size(), "error in middle of record");
+          in_fragmented_record_ = false;
+          fragments_.clear();
+        }
+        break;
+
+      default: {
+        char buf[40];
+        snprintf(buf, sizeof(buf), "unknown record type %u",
+                 fragment_type_or_err);
+        ReportCorruption(
+            fragment.size() + (in_fragmented_record_ ? fragments_.size() : 0),
+            buf);
+        in_fragmented_record_ = false;
+        fragments_.clear();
+        break;
+      }
+    }
+  }
+  return false;
+}
+
+void FragmentBufferedReader::UnmarkEOF() {
+  if (read_error_) {
+    return;
+  }
+  eof_ = false;
+  UnmarkEOFInternal();
+}
+
+bool FragmentBufferedReader::TryReadMore(size_t* drop_size, int* error) {
   if (!eof_ && !read_error_) {
     // Last read was a full read, so this is a trailer to skip
     buffer_.clear();
@@ -522,11 +520,12 @@ bool Reader::TryReadMore(size_t* drop_size, int* error) {
     } else if (buffer_.size() < static_cast<size_t>(kBlockSize)) {
       eof_ = true;
       eof_offset_ = buffer_.size();
-      TEST_SYNC_POINT_CALLBACK("LogReader::TryReadMore:FirstEOF", nullptr);
+      TEST_SYNC_POINT_CALLBACK(
+          "FragmentBufferedLogReader::TryReadMore:FirstEOF", nullptr);
     }
     return true;
   } else if (!read_error_) {
-    ForceUnmarkEOF();
+    UnmarkEOF();
   }
   if (!read_error_) {
     return true;
@@ -541,8 +540,8 @@ bool Reader::TryReadMore(size_t* drop_size, int* error) {
 }
 
 // return true if the caller should process the fragment_type_or_err.
-bool Reader::TryReadFragment(Slice* fragment, size_t* drop_size,
-                             unsigned int* fragment_type_or_err) {
+bool FragmentBufferedReader::TryReadFragment(
+    Slice* fragment, size_t* drop_size, unsigned int* fragment_type_or_err) {
   assert(fragment != nullptr);
   assert(drop_size != nullptr);
   assert(fragment_type_or_err != nullptr);
