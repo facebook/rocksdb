@@ -324,7 +324,7 @@ void StatisticsImpl::recordTick(uint32_t tickerType, uint64_t count) {
 
 void StatisticsImpl::recordInHistogram(uint32_t histogramType, uint64_t value) {
   assert(histogramType < HISTOGRAM_ENUM_MAX);
-  if (stats_level_ <= StatsLevel::kExceptHistogramOrTimers) {
+  if (get_stats_level() <= StatsLevel::kExceptHistogramOrTimers) {
     return;
   }
   per_core_stats_.Access()->histograms_[histogramType].Add(value);

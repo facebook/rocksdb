@@ -474,7 +474,7 @@ class Statistics {
   virtual void setTickerCount(uint32_t tickerType, uint64_t count) = 0;
   virtual uint64_t getAndResetTickerCount(uint32_t tickerType) = 0;
   virtual void reportTimeToHistogram(uint32_t histogramType, uint64_t time) {
-    if (stats_level_ <= StatsLevel::kExceptTimers) {
+    if (get_stats_level() <= StatsLevel::kExceptTimers) {
       return;
     }
     recordInHistogram(histogramType, time);
@@ -514,8 +514,15 @@ class Statistics {
   virtual bool HistEnabledForType(uint32_t type) const {
     return type < HISTOGRAM_ENUM_MAX;
   }
+  void set_stats_level(StatsLevel sl) {
+    stats_level_.store(sl, std::memory_order_relaxed);
+  }
+  StatsLevel get_stats_level() const {
+    return stats_level_.load(std::memory_order_relaxed);
+  }
 
-  StatsLevel stats_level_ = kExceptDetailedTimers;
+ private:
+  std::atomic<StatsLevel> stats_level_{kExceptDetailedTimers};
 };
 
 // Create a concrete DBStatistics object
