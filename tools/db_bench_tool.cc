@@ -523,6 +523,14 @@ DEFINE_bool(use_existing_db, false, "If true, do not destroy the existing"
             " database.  If you set this flag and also specify a benchmark that"
             " wants a fresh database, that benchmark will fail.");
 
+DEFINE_bool(use_existing_keys, false,
+            "If true, uses existing keys in the DB, "
+            "rather than generating new ones. This involves some startup "
+            "latency to load all keys into memory. It is supported for the "
+            "same read/overwrite benchmarks as `-use_existing_db=true`, which "
+            "must also be set for this flag to be enabled. When this flag is "
+            "set, the value for `-num` will be ignored.");
+
 DEFINE_bool(show_table_properties, false,
             "If true, then per-level table"
             " properties will be printed on every stats-interval when"
@@ -700,6 +708,7 @@ DEFINE_string(
     "RocksDB options related command-line arguments, all other arguments "
     "that are related to RocksDB options will be ignored:\n"
     "\t--use_existing_db\n"
+    "\t--use_existing_keys\n"
     "\t--statistics\n"
     "\t--row_cache_size\n"
     "\t--row_cache_numshardbits\n"
@@ -2051,6 +2060,7 @@ class Benchmark {
   int64_t merge_keys_;
   bool report_file_operations_;
   bool use_blob_db_;
+  std::vector<std::string> keys_;
 
   class ErrorHandlerListener : public EventListener {
    public:
@@ -2470,6 +2480,13 @@ class Benchmark {
   //   |        key 00000         |
   //   ----------------------------
   void GenerateKeyFromInt(uint64_t v, int64_t num_keys, Slice* key) {
+    if (!keys_.empty()) {
+      assert(FLAGS_use_existing_keys);
+      assert(keys_.size() == static_cast<size_t>(num_keys));
+      assert(v < static_cast<uint64_t>(num_keys));
+      *key = keys_[v];
+      return;
+    }
     char* start = const_cast<char*>(key->data());
     char* pos = start;
     if (keys_per_prefix_ > 0) {
@@ -3653,6 +3670,19 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     if (FLAGS_use_keep_filter) {
       options.compaction_filter = new KeepFilter();
       fprintf(stdout, "A noop compaction filter is used\n");
+    }
+
+    if (FLAGS_use_existing_keys) {
+      // Only work on single database
+      assert(db_.db != nullptr);
+      ReadOptions read_opts;
+      read_opts.total_order_seek = true;
+      Iterator* iter = db_.db->NewIterator(read_opts);
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        keys_.emplace_back(iter->key().ToString());
+      }
+      delete iter;
+      FLAGS_num = keys_.size();
     }
   }
 
@@ -6113,6 +6143,13 @@ int db_bench_tool(int argc, char** argv) {
     }
   }
 #endif  // ROCKSDB_LITE
+  if (FLAGS_use_existing_keys && !FLAGS_use_existing_db) {
+    fprintf(stderr,
+            "`-use_existing_db` must be true for `-use_existing_keys` to be "
+            "settable\n");
+    exit(1);
+  }
+
   if (!FLAGS_hdfs.empty()) {
     FLAGS_env  = new rocksdb::HdfsEnv(FLAGS_hdfs);
   }
