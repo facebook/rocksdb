@@ -47,28 +47,33 @@ class DBImplSecondary : public DBImpl {
              const Slice& /*value*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+
   using DBImpl::Merge;
   Status Merge(const WriteOptions& /*options*/,
                ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
                const Slice& /*value*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+
   using DBImpl::Delete;
   Status Delete(const WriteOptions& /*options*/,
                 ColumnFamilyHandle* /*column_family*/,
                 const Slice& /*key*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+
   using DBImpl::SingleDelete;
   Status SingleDelete(const WriteOptions& /*options*/,
                       ColumnFamilyHandle* /*column_family*/,
                       const Slice& /*key*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+
   Status Write(const WriteOptions& /*options*/,
                WriteBatch* /*updates*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+
   using DBImpl::CompactRange;
   Status CompactRange(const CompactRangeOptions& /*options*/,
                       ColumnFamilyHandle* /*column_family*/,
@@ -94,6 +99,7 @@ class DBImplSecondary : public DBImpl {
   Status EnableFileDeletions(bool /*force*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+
   Status GetLiveFiles(std::vector<std::string>&,
                       uint64_t* /*manifest_file_size*/,
                       bool /*flush_memtable*/ = true) override {
