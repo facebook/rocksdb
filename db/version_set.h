@@ -1096,6 +1096,14 @@ class VersionSet {
   // env options for all reads and writes except compactions
   EnvOptions env_options_;
 
+  enum class State {
+    INITIALIZED,
+    PRIMARY,
+    SECONDARY,
+  };
+
+  State state_;
+
   std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
       active_version_builders_;
 

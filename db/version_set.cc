@@ -2785,7 +2785,9 @@ VersionSet::VersionSet(const std::string& dbname,
       prev_log_number_(0),
       current_version_number_(0),
       manifest_file_size_(0),
-      env_options_(storage_options) {}
+      env_options_(storage_options) {
+  state_ = State::INITIALIZED;
+}
 
 void CloseTables(void* ptr, size_t) {
   TableReader* table_reader = reinterpret_cast<TableReader*>(ptr);
@@ -3235,6 +3237,7 @@ Status VersionSet::LogAndApply(
     const autovector<autovector<VersionEdit*>>& edit_lists,
     InstrumentedMutex* mu, Directory* db_directory, bool new_descriptor_log,
     const ColumnFamilyOptions* new_cf_options) {
+  assert(State::PRIMARY == state_);
   mu->AssertHeld();
   int num_edits = 0;
   for (const auto& elist : edit_lists) {
@@ -3313,6 +3316,7 @@ Status VersionSet::ReadAndApply(
     InstrumentedMutex* mu,
     std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
     std::unordered_set<ColumnFamilyData*>* cfds_changed) {
+  assert(State::SECONDARY == state_);
   assert(manifest_reader != nullptr);
   assert(cfds_changed != nullptr);
   mu->AssertHeld();
@@ -3759,6 +3763,8 @@ Status VersionSet::GetCurrentManifestPath(std::string* manifest_path) {
 Status VersionSet::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     bool read_only) {
+  assert(State::INITIALIZED == state_);
+  state_ = State::PRIMARY;
   std::unordered_map<std::string, ColumnFamilyOptions> cf_name_to_options;
   for (auto cf : column_families) {
     cf_name_to_options.insert({cf.name, cf.options});
@@ -4012,6 +4018,8 @@ Status VersionSet::RecoverAsSecondary(
     std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
     std::unique_ptr<log::Reader::Reporter>* manifest_reporter,
     std::unique_ptr<Status>* manifest_reader_status) {
+  assert(State::INITIALIZED == state_);
+  state_ = State::SECONDARY;
   assert(manifest_reader != nullptr);
   assert(manifest_reporter != nullptr);
   assert(manifest_reader_status != nullptr);
