@@ -27,7 +27,9 @@ DBImplSecondary::DBImplSecondary(const DBOptions& db_options,
 DBImplSecondary::~DBImplSecondary() {}
 
 Status DBImplSecondary::Recover(
-    const std::vector<ColumnFamilyDescriptor>& column_families) {
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    bool /*readonly*/, bool /*error_if_log_file_exist*/,
+    bool /*error_if_data_exists_in_logs*/) {
   mutex_.AssertHeld();
 
   Status s;
@@ -292,7 +294,7 @@ Status DB::OpenAsSecondary(
   handles->clear();
   DBImplSecondary* impl = new DBImplSecondary(tmp_opts, dbname);
   impl->mutex_.Lock();
-  Status s = impl->Recover(column_families);
+  Status s = impl->Recover(column_families, true, false, false);
   if (s.ok()) {
     for (auto cf : column_families) {
       auto cfd =

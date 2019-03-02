@@ -18,7 +18,9 @@ class DBImplSecondary : public DBImpl {
   DBImplSecondary(const DBOptions& options, const std::string& dbname);
   ~DBImplSecondary();
 
-  Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families);
+  Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
+                 bool read_only, bool error_if_log_file_exist,
+                 bool error_if_data_exists_in_logs) override;
 
   // Implementations of the DB interface
   using DB::Get;
@@ -135,6 +137,8 @@ class DBImplSecondary : public DBImpl {
   // No copying allowed
   DBImplSecondary(const DBImplSecondary&);
   void operator=(const DBImplSecondary&);
+
+  using DBImpl::Recover;
 
   std::unique_ptr<log::FragmentBufferedReader> manifest_reader_;
   std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
