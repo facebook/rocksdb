@@ -22,6 +22,8 @@ namespace rocksdb {
  *  1. Any ticker should be added before TICKER_ENUM_MAX.
  *  2. Add a readable string in TickersNameMap below for the newly added ticker.
  *  3. Add a corresponding enum value to TickerType.java in the java API
+ *  4. Add the enum conversions from Java and C++ to portal.h's toJavaTickerType
+ * and toCppTickers
  */
 enum Tickers : uint32_t {
   // total block cache misses
@@ -442,7 +444,11 @@ struct HistogramData {
   double min = 0.0;
 };
 
-enum StatsLevel {
+enum StatsLevel : uint8_t {
+  // Disable timer stats, and skip histogram stats
+  kExceptHistogramOrTimers,
+  // Skip timer stats
+  kExceptTimers,
   // Collect all stats except time inside mutex lock AND time spent on
   // compression.
   kExceptDetailedTimers,
@@ -467,7 +473,26 @@ class Statistics {
   virtual void recordTick(uint32_t tickerType, uint64_t count = 0) = 0;
   virtual void setTickerCount(uint32_t tickerType, uint64_t count) = 0;
   virtual uint64_t getAndResetTickerCount(uint32_t tickerType) = 0;
-  virtual void measureTime(uint32_t histogramType, uint64_t time) = 0;
+  virtual void reportTimeToHistogram(uint32_t histogramType, uint64_t time) {
+    if (get_stats_level() <= StatsLevel::kExceptTimers) {
+      return;
+    }
+    recordInHistogram(histogramType, time);
+  }
+  // The function is here only for backward compatibility reason.
+  // Users implementing their own Statistics class should override
+  // recordInHistogram() instead and leave measureTime() as it is.
+  virtual void measureTime(uint32_t /*histogramType*/, uint64_t /*time*/) {
+    // This is not supposed to be called.
+    assert(false);
+  }
+  virtual void recordInHistogram(uint32_t histogramType, uint64_t time) {
+    // measureTime() is the old and inaccurate function name.
+    // To keep backward compatible. If users implement their own
+    // statistics, which overrides meareTime() but doesn't override
+    // this function. We forward to measureTime().
+    measureTime(histogramType, time);
+  }
 
   // Resets all ticker and histogram stats
   virtual Status Reset() {
@@ -489,8 +514,15 @@ class Statistics {
   virtual bool HistEnabledForType(uint32_t type) const {
     return type < HISTOGRAM_ENUM_MAX;
   }
+  void set_stats_level(StatsLevel sl) {
+    stats_level_.store(sl, std::memory_order_relaxed);
+  }
+  StatsLevel get_stats_level() const {
+    return stats_level_.load(std::memory_order_relaxed);
+  }
 
-  StatsLevel stats_level_ = kExceptDetailedTimers;
+ private:
+  std::atomic<StatsLevel> stats_level_{kExceptDetailedTimers};
 };
 
 // Create a concrete DBStatistics object

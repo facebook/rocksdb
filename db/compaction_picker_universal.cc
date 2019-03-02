@@ -395,8 +395,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(
   }
 #endif
   // update statistics
-  MeasureTime(ioptions_.statistics, NUM_FILES_IN_SINGLE_COMPACTION,
-              c->inputs(0)->size());
+  RecordInHistogram(ioptions_.statistics, NUM_FILES_IN_SINGLE_COMPACTION,
+                    c->inputs(0)->size());
 
   RegisterCompaction(c);
   vstorage->ComputeCompactionScore(ioptions_, mutable_cf_options);

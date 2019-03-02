@@ -229,7 +229,7 @@ struct BlockBasedTableOptions {
   // Default: 0 (disabled)
   uint32_t read_amp_bytes_per_bit = 0;
 
-  // We currently have three versions:
+  // We currently have five versions:
   // 0 -- This version is currently written out by all RocksDB's versions by
   // default.  Can be read by really old RocksDB's. Doesn't support changing
   // checksum (default is CRC32).
@@ -351,11 +351,10 @@ struct PlainTableOptions {
   //                  using the index.
   bool full_scan_mode = false;
 
-  // THIS FEATURE IS REMOVED.
   // @store_index_in_file: compute plain table index and bloom filter during
   //                       file building and store it in file. When reading
   //                       file, index will be mmaped instead of recomputation.
-  // bool store_index_in_file = false;
+  bool store_index_in_file = false;
 };
 
 // -- Plain Table with prefix-only seek

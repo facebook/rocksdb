@@ -25,19 +25,8 @@ public class RocksEnv extends Env {
    */
   RocksEnv(final long handle) {
     super(handle);
-    disOwnNativeHandle();
   }
 
-  /**
-   * <p>The helper function of {@link #dispose()} which all subclasses of
-   * {@link RocksObject} must implement to release their associated C++
-   * resource.</p>
-   *
-   * <p><strong>Note:</strong> this class is used to use the default
-   * RocksEnv with RocksJava. The default env allocation is managed
-   * by C++.</p>
-   */
   @Override
-  protected final void disposeInternal(final long handle) {
-  }
+  protected native final void disposeInternal(final long handle);
 }

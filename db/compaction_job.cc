@@ -414,11 +414,10 @@ void CompactionJob::Prepare() {
   bottommost_level_ = c->bottommost_level();
 
   if (c->ShouldFormSubcompactions()) {
-    const uint64_t start_micros = env_->NowMicros();
-    GenSubcompactionBoundaries();
-    MeasureTime(stats_, SUBCOMPACTION_SETUP_TIME,
-                env_->NowMicros() - start_micros);
-
+    {
+      StopWatch sw(env_, stats_, SUBCOMPACTION_SETUP_TIME);
+      GenSubcompactionBoundaries();
+    }
     assert(sizes_.size() == boundaries_.size() + 1);
 
     for (size_t i = 0; i <= boundaries_.size(); i++) {
@@ -426,8 +425,8 @@ void CompactionJob::Prepare() {
       Slice* end = i == boundaries_.size() ? nullptr : &boundaries_[i];
       compact_->sub_compact_states.emplace_back(c, start, end, sizes_[i]);
     }
-    MeasureTime(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
-                compact_->sub_compact_states.size());
+    RecordInHistogram(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
+                      compact_->sub_compact_states.size());
   } else {
     compact_->sub_compact_states.emplace_back(c, nullptr, nullptr);
   }
@@ -607,8 +606,9 @@ Status CompactionJob::Run() {
         compact_->sub_compact_states[i].compaction_job_stats.cpu_micros;
   }
 
-  MeasureTime(stats_, COMPACTION_TIME, compaction_stats_.micros);
-  MeasureTime(stats_, COMPACTION_CPU_TIME, compaction_stats_.cpu_micros);
+  RecordTimeToHistogram(stats_, COMPACTION_TIME, compaction_stats_.micros);
+  RecordTimeToHistogram(stats_, COMPACTION_CPU_TIME,
+                        compaction_stats_.cpu_micros);
 
   TEST_SYNC_POINT("CompactionJob::Run:BeforeVerify");
 

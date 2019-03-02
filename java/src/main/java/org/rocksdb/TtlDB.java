@@ -140,6 +140,55 @@ public class TtlDB extends RocksDB {
   }
 
   /**
+   * <p>Close the TtlDB instance and release resource.</p>
+   *
+   * This is similar to {@link #close()} except that it
+   * throws an exception if any error occurs.
+   *
+   * This will not fsync the WAL files.
+   * If syncing is required, the caller must first call {@link #syncWal()}
+   * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
+   * with {@link WriteOptions#setSync(boolean)} set to true.
+   *
+   * See also {@link #close()}.
+   *
+   * @throws RocksDBException if an error occurs whilst closing.
+   */
+  public void closeE() throws RocksDBException {
+    if (owningHandle_.compareAndSet(true, false)) {
+      try {
+        closeDatabase(nativeHandle_);
+      } finally {
+        disposeInternal();
+      }
+    }
+  }
+
+  /**
+   * <p>Close the TtlDB instance and release resource.</p>
+   *
+   *
+   * This will not fsync the WAL files.
+   * If syncing is required, the caller must first call {@link #syncWal()}
+   * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
+   * with {@link WriteOptions#setSync(boolean)} set to true.
+   *
+   * See also {@link #close()}.
+   */
+  @Override
+  public void close() {
+    if (owningHandle_.compareAndSet(true, false)) {
+      try {
+        closeDatabase(nativeHandle_);
+      } catch (final RocksDBException e) {
+        // silently ignore the error report
+      } finally {
+        disposeInternal();
+      }
+    }
+  }
+
+  /**
    * <p>Creates a new ttl based column family with a name defined
    * in given ColumnFamilyDescriptor and allocates a
    * ColumnFamilyHandle within an internal structure.</p>
@@ -160,22 +209,8 @@ public class TtlDB extends RocksDB {
       final int ttl) throws RocksDBException {
     return new ColumnFamilyHandle(this,
         createColumnFamilyWithTtl(nativeHandle_,
-            columnFamilyDescriptor.columnFamilyName(),
-            columnFamilyDescriptor.columnFamilyOptions().nativeHandle_, ttl));
-  }
-
-  /**
-   * <p>Close the TtlDB instance and release resource.</p>
-   *
-   * <p>Internally, TtlDB owns the {@code rocksdb::DB} pointer
-   * to its associated {@link org.rocksdb.RocksDB}. The release
-   * of that RocksDB pointer is handled in the destructor of the
-   * c++ {@code rocksdb::TtlDB} and should be transparent to
-   * Java developers.</p>
-   */
-  @Override
-  public void close() {
-      super.close();
+            columnFamilyDescriptor.getName(),
+            columnFamilyDescriptor.getOptions().nativeHandle_, ttl));
   }
 
   /**
@@ -193,10 +228,7 @@ public class TtlDB extends RocksDB {
     super(nativeHandle);
   }
 
-  @Override protected void finalize() throws Throwable {
-    close(); //TODO(AR) revisit here when implementing AutoCloseable
-    super.finalize();
-  }
+  @Override protected native void disposeInternal(final long handle);
 
   private native static long open(final long optionsHandle,
       final String db_path, final int ttl, final boolean readOnly)
@@ -207,5 +239,7 @@ public class TtlDB extends RocksDB {
       final boolean readOnly) throws RocksDBException;
   private native long createColumnFamilyWithTtl(final long handle,
       final byte[] columnFamilyName, final long columnFamilyOptions, int ttl)
+      throws RocksDBException;
+  private native static void closeDatabase(final long handle)
       throws RocksDBException;
 }

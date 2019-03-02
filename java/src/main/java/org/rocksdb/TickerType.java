@@ -726,9 +726,10 @@ public enum TickerType {
     }
 
     /**
-     * @deprecated
-     * Exposes internal value of native enum mappings. This method will be marked private in the
-     * next major release.
+     * @deprecated Exposes internal value of native enum mappings.
+     *     This method will be marked package private in the next major release.
+     *
+     * @return the internal representation
      */
     @Deprecated
     public byte getValue() {

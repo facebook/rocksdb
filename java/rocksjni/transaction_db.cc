@@ -25,7 +25,7 @@
  * Signature: (JJLjava/lang/String;)J
  */
 jlong Java_org_rocksdb_TransactionDB_open__JJLjava_lang_String_2(
-    JNIEnv* env, jclass /*jcls*/, jlong joptions_handle,
+    JNIEnv* env, jclass, jlong joptions_handle,
     jlong jtxn_db_options_handle, jstring jdb_path) {
   auto* options = reinterpret_cast<rocksdb::Options*>(joptions_handle);
   auto* txn_db_options =
@@ -54,7 +54,7 @@ jlong Java_org_rocksdb_TransactionDB_open__JJLjava_lang_String_2(
  * Signature: (JJLjava/lang/String;[[B[J)[J
  */
 jlongArray Java_org_rocksdb_TransactionDB_open__JJLjava_lang_String_2_3_3B_3J(
-    JNIEnv* env, jclass /*jcls*/, jlong jdb_options_handle,
+    JNIEnv* env, jclass, jlong jdb_options_handle,
     jlong jtxn_db_options_handle, jstring jdb_path, jobjectArray jcolumn_names,
     jlongArray jcolumn_options_handles) {
   const char* db_path = env->GetStringUTFChars(jdb_path, nullptr);
@@ -153,12 +153,36 @@ jlongArray Java_org_rocksdb_TransactionDB_open__JJLjava_lang_String_2_3_3B_3J(
 
 /*
  * Class:     org_rocksdb_TransactionDB
+ * Method:    disposeInternal
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_TransactionDB_disposeInternal(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* txn_db = reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
+  assert(txn_db != nullptr);
+  delete txn_db;
+}
+
+/*
+ * Class:     org_rocksdb_TransactionDB
+ * Method:    closeDatabase
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_TransactionDB_closeDatabase(
+    JNIEnv* env, jclass, jlong jhandle) {
+  auto* txn_db = reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
+  assert(txn_db != nullptr);
+  rocksdb::Status s = txn_db->Close();
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+/*
+ * Class:     org_rocksdb_TransactionDB
  * Method:    beginTransaction
  * Signature: (JJ)J
  */
 jlong Java_org_rocksdb_TransactionDB_beginTransaction__JJ(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
-    jlong jwrite_options_handle) {
+    JNIEnv*, jobject, jlong jhandle, jlong jwrite_options_handle) {
   auto* txn_db = reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
   auto* write_options =
       reinterpret_cast<rocksdb::WriteOptions*>(jwrite_options_handle);
@@ -172,8 +196,8 @@ jlong Java_org_rocksdb_TransactionDB_beginTransaction__JJ(
  * Signature: (JJJ)J
  */
 jlong Java_org_rocksdb_TransactionDB_beginTransaction__JJJ(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
-    jlong jwrite_options_handle, jlong jtxn_options_handle) {
+    JNIEnv*, jobject, jlong jhandle, jlong jwrite_options_handle,
+    jlong jtxn_options_handle) {
   auto* txn_db = reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
   auto* write_options =
       reinterpret_cast<rocksdb::WriteOptions*>(jwrite_options_handle);
@@ -190,8 +214,8 @@ jlong Java_org_rocksdb_TransactionDB_beginTransaction__JJJ(
  * Signature: (JJJ)J
  */
 jlong Java_org_rocksdb_TransactionDB_beginTransaction_1withOld__JJJ(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
-    jlong jwrite_options_handle, jlong jold_txn_handle) {
+    JNIEnv*, jobject, jlong jhandle, jlong jwrite_options_handle,
+    jlong jold_txn_handle) {
   auto* txn_db = reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
   auto* write_options =
       reinterpret_cast<rocksdb::WriteOptions*>(jwrite_options_handle);
@@ -214,9 +238,8 @@ jlong Java_org_rocksdb_TransactionDB_beginTransaction_1withOld__JJJ(
  * Signature: (JJJJ)J
  */
 jlong Java_org_rocksdb_TransactionDB_beginTransaction_1withOld__JJJJ(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
-    jlong jwrite_options_handle, jlong jtxn_options_handle,
-    jlong jold_txn_handle) {
+    JNIEnv*, jobject, jlong jhandle, jlong jwrite_options_handle,
+    jlong jtxn_options_handle, jlong jold_txn_handle) {
   auto* txn_db = reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
   auto* write_options =
       reinterpret_cast<rocksdb::WriteOptions*>(jwrite_options_handle);
@@ -239,10 +262,8 @@ jlong Java_org_rocksdb_TransactionDB_beginTransaction_1withOld__JJJJ(
  * Method:    getTransactionByName
  * Signature: (JLjava/lang/String;)J
  */
-jlong Java_org_rocksdb_TransactionDB_getTransactionByName(JNIEnv* env,
-                                                          jobject /*jobj*/,
-                                                          jlong jhandle,
-                                                          jstring jname) {
+jlong Java_org_rocksdb_TransactionDB_getTransactionByName(
+    JNIEnv* env, jobject, jlong jhandle, jstring jname) {
   auto* txn_db = reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
   const char* name = env->GetStringUTFChars(jname, nullptr);
   if (name == nullptr) {
@@ -260,7 +281,7 @@ jlong Java_org_rocksdb_TransactionDB_getTransactionByName(JNIEnv* env,
  * Signature: (J)[J
  */
 jlongArray Java_org_rocksdb_TransactionDB_getAllPreparedTransactions(
-    JNIEnv* env, jobject /*jobj*/, jlong jhandle) {
+    JNIEnv* env, jobject, jlong jhandle) {
   auto* txn_db = reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
   std::vector<rocksdb::Transaction*> txns;
   txn_db->GetAllPreparedTransactions(&txns);
@@ -294,9 +315,8 @@ jlongArray Java_org_rocksdb_TransactionDB_getAllPreparedTransactions(
  * Method:    getLockStatusData
  * Signature: (J)Ljava/util/Map;
  */
-jobject Java_org_rocksdb_TransactionDB_getLockStatusData(JNIEnv* env,
-                                                         jobject /*jobj*/,
-                                                         jlong jhandle) {
+jobject Java_org_rocksdb_TransactionDB_getLockStatusData(
+    JNIEnv* env, jobject, jlong jhandle) {
   auto* txn_db = reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
   const std::unordered_multimap<uint32_t, rocksdb::KeyLockInfo>
       lock_status_data = txn_db->GetLockStatusData();
@@ -307,7 +327,7 @@ jobject Java_org_rocksdb_TransactionDB_getLockStatusData(JNIEnv* env,
     return nullptr;
   }
 
-  const rocksdb::HashMapJni::FnMapKV<const int32_t, const rocksdb::KeyLockInfo>
+  const rocksdb::HashMapJni::FnMapKV<const int32_t, const rocksdb::KeyLockInfo, jobject, jobject>
       fn_map_kv =
           [env](
               const std::pair<const int32_t, const rocksdb::KeyLockInfo>&
@@ -427,19 +447,7 @@ jobjectArray Java_org_rocksdb_TransactionDB_getDeadlockInfoBuffer(
  * Signature: (JI)V
  */
 void Java_org_rocksdb_TransactionDB_setDeadlockInfoBufferSize(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
-    jint jdeadlock_info_buffer_size) {
+    JNIEnv*, jobject, jlong jhandle, jint jdeadlock_info_buffer_size) {
   auto* txn_db = reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
   txn_db->SetDeadlockInfoBufferSize(jdeadlock_info_buffer_size);
-}
-
-/*
- * Class:     org_rocksdb_TransactionDB
- * Method:    disposeInternal
- * Signature: (J)V
- */
-void Java_org_rocksdb_TransactionDB_disposeInternal(JNIEnv* /*env*/,
-                                                    jobject /*jobj*/,
-                                                    jlong jhandle) {
-  delete reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
 }

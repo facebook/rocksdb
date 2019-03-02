@@ -45,7 +45,7 @@ const uint64_t kPlainTableMagicNumber = 0;
 
 bool ShouldReportDetailedTime(Env* env, Statistics* stats) {
   return env != nullptr && stats != nullptr &&
-         stats->stats_level_ > kExceptDetailedTimers;
+         stats->get_stats_level() > kExceptDetailedTimers;
 }
 
 void BlockHandle::EncodeTo(std::string* dst) const {
@@ -379,10 +379,11 @@ Status UncompressBlockContentsForCompressionType(
   }
 
   if(ShouldReportDetailedTime(ioptions.env, ioptions.statistics)){
-    MeasureTime(ioptions.statistics, DECOMPRESSION_TIMES_NANOS,
-      timer.ElapsedNanos());
+    RecordTimeToHistogram(ioptions.statistics, DECOMPRESSION_TIMES_NANOS,
+                          timer.ElapsedNanos());
   }
-  MeasureTime(ioptions.statistics, BYTES_DECOMPRESSED, contents->data.size());
+  RecordTimeToHistogram(ioptions.statistics, BYTES_DECOMPRESSED,
+                        contents->data.size());
   RecordTick(ioptions.statistics, NUMBER_BLOCK_DECOMPRESSED);
 
   return Status::OK();

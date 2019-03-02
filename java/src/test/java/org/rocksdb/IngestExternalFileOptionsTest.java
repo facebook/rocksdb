@@ -84,4 +84,24 @@ public class IngestExternalFileOptionsTest {
       assertThat(options.allowBlockingFlush()).isEqualTo(allowBlockingFlush);
     }
   }
+
+  @Test
+  public void ingestBehind() {
+    try (final IngestExternalFileOptions options =
+             new IngestExternalFileOptions()) {
+      assertThat(options.ingestBehind()).isFalse();
+      options.setIngestBehind(true);
+      assertThat(options.ingestBehind()).isTrue();
+    }
+  }
+
+  @Test
+  public void writeGlobalSeqno() {
+    try (final IngestExternalFileOptions options =
+             new IngestExternalFileOptions()) {
+      assertThat(options.writeGlobalSeqno()).isTrue();
+      options.setWriteGlobalSeqno(false);
+      assertThat(options.writeGlobalSeqno()).isFalse();
+    }
+  }
 }

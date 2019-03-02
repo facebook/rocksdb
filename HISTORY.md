@@ -1,4 +1,10 @@
 # Rocksdb Change Log
+## Unreleased
+### New Features
+* Introduce two more stats levels, kExceptHistogramOrTimers and kExceptTimers.
+
+### Public API Change
+* statistics.stats_level_ becomes atomic. It is preferred to use statistics.set_stats_level() and statistics.get_stats_level() to access it.
 
 ## 6.0.0 (2/19/2019)
 ### New Features
@@ -25,7 +31,6 @@
 * With "ldb ----try_load_options", when wal_dir specified by the option file doesn't exist, ignore it.
 * Change time resolution in FileOperationInfo.
 * Deleting Blob files also go through SStFileManager.
-* Remove PlainTable's store_index_in_file feature. When opening an existing DB with index in SST files, the index and bloom filter will still be rebuild while SST files are opened, in the same way as there is no index in the file.
 * Remove CuckooHash memtable.
 * The counter stat `number.block.not_compressed` now also counts blocks not compressed due to poor compression ratio.
 * Remove ttl option from `CompactionOptionsFIFO`. The option has been deprecated and ttl in `ColumnFamilyOptions` is used instead.

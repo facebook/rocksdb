@@ -7,6 +7,7 @@
 // calling C++ rocksdb::OptionsUtil methods from Java side.
 
 #include <jni.h>
+#include <string>
 
 #include "include/org_rocksdb_OptionsUtil.h"
 
@@ -56,19 +57,23 @@ void build_column_family_descriptor_list(
 void Java_org_rocksdb_OptionsUtil_loadLatestOptions(
     JNIEnv* env, jclass /*jcls*/, jstring jdbpath, jlong jenv_handle,
     jlong jdb_opts_handle, jobject jcfds, jboolean ignore_unknown_options) {
-  const char* db_path = env->GetStringUTFChars(jdbpath, nullptr);
+  jboolean has_exception = JNI_FALSE;
+  auto db_path = rocksdb::JniUtil::copyStdString(env, jdbpath, &has_exception);
+  if (has_exception == JNI_TRUE) {
+    // exception occurred
+    return;
+  }
   std::vector<rocksdb::ColumnFamilyDescriptor> cf_descs;
   rocksdb::Status s = rocksdb::LoadLatestOptions(
       db_path, reinterpret_cast<rocksdb::Env*>(jenv_handle),
       reinterpret_cast<rocksdb::DBOptions*>(jdb_opts_handle), &cf_descs,
       ignore_unknown_options);
-  env->ReleaseStringUTFChars(jdbpath, db_path);
-
   if (!s.ok()) {
+    // error, raise an exception
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  } else {
+    build_column_family_descriptor_list(env, jcfds, cf_descs);
   }
-
-  build_column_family_descriptor_list(env, jcfds, cf_descs);
 }
 
 /*
@@ -79,19 +84,23 @@ void Java_org_rocksdb_OptionsUtil_loadLatestOptions(
 void Java_org_rocksdb_OptionsUtil_loadOptionsFromFile(
     JNIEnv* env, jclass /*jcls*/, jstring jopts_file_name, jlong jenv_handle,
     jlong jdb_opts_handle, jobject jcfds, jboolean ignore_unknown_options) {
-  const char* opts_file_name = env->GetStringUTFChars(jopts_file_name, nullptr);
+  jboolean has_exception = JNI_FALSE;
+  auto opts_file_name = rocksdb::JniUtil::copyStdString(env, jopts_file_name, &has_exception);
+  if (has_exception == JNI_TRUE) {
+    // exception occurred
+    return;
+  }
   std::vector<rocksdb::ColumnFamilyDescriptor> cf_descs;
   rocksdb::Status s = rocksdb::LoadOptionsFromFile(
       opts_file_name, reinterpret_cast<rocksdb::Env*>(jenv_handle),
       reinterpret_cast<rocksdb::DBOptions*>(jdb_opts_handle), &cf_descs,
       ignore_unknown_options);
-  env->ReleaseStringUTFChars(jopts_file_name, opts_file_name);
-
   if (!s.ok()) {
+    // error, raise an exception
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  } else {
+    build_column_family_descriptor_list(env, jcfds, cf_descs);
   }
-
-  build_column_family_descriptor_list(env, jcfds, cf_descs);
 }
 
 /*
@@ -101,14 +110,21 @@ void Java_org_rocksdb_OptionsUtil_loadOptionsFromFile(
  */
 jstring Java_org_rocksdb_OptionsUtil_getLatestOptionsFileName(
     JNIEnv* env, jclass /*jcls*/, jstring jdbpath, jlong jenv_handle) {
-  const char* db_path = env->GetStringUTFChars(jdbpath, nullptr);
-  std::string options_file_name;
-  if (db_path != nullptr) {
-    rocksdb::GetLatestOptionsFileName(
-        db_path, reinterpret_cast<rocksdb::Env*>(jenv_handle),
-        &options_file_name);
+  jboolean has_exception = JNI_FALSE;
+  auto db_path = rocksdb::JniUtil::copyStdString(env, jdbpath, &has_exception);
+  if (has_exception == JNI_TRUE) {
+    // exception occurred
+    return nullptr;
   }
-  env->ReleaseStringUTFChars(jdbpath, db_path);
-
-  return env->NewStringUTF(options_file_name.c_str());
+  std::string options_file_name;
+  rocksdb::Status s = rocksdb::GetLatestOptionsFileName(
+      db_path, reinterpret_cast<rocksdb::Env*>(jenv_handle),
+      &options_file_name);
+  if (!s.ok()) {
+    // error, raise an exception
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    return nullptr;
+  } else {
+    return env->NewStringUTF(options_file_name.c_str());
+  }
 }

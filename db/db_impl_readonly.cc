@@ -60,7 +60,7 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   RecordTick(stats_, NUMBER_KEYS_READ);
   size_t size = pinnable_val->size();
   RecordTick(stats_, BYTES_READ, size);
-  MeasureTime(stats_, BYTES_PER_READ, size);
+  RecordInHistogram(stats_, BYTES_PER_READ, size);
   PERF_COUNTER_ADD(get_read_bytes, size);
   return s;
 }

@@ -206,35 +206,9 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   InfoLogLevel infoLogLevel();
 
   /**
-   * Number of open files that can be used by the DB.  You may need to
-   * increase this if your database has a large working set. Value -1 means
-   * files opened are always kept open. You can estimate number of files based
-   * on {@code target_file_size_base} and {@code target_file_size_multiplier}
-   * for level-based compaction. For universal-style compaction, you can usually
-   * set it to -1.
-   * Default: 5000
-   *
-   * @param maxOpenFiles the maximum number of open files.
-   * @return the instance of the current object.
-   */
-  T setMaxOpenFiles(int maxOpenFiles);
-
-  /**
-   * Number of open files that can be used by the DB.  You may need to
-   * increase this if your database has a large working set. Value -1 means
-   * files opened are always kept open. You can estimate number of files based
-   * on {@code target_file_size_base} and {@code target_file_size_multiplier}
-   * for level-based compaction. For universal-style compaction, you can usually
-   * set it to -1.
-   *
-   * @return the maximum number of open files.
-   */
-  int maxOpenFiles();
-
-  /**
-   * If {@link #maxOpenFiles()} is -1, DB will open all files on DB::Open(). You
-   * can use this option to increase the number of threads used to open the
-   * files.
+   * If {@link MutableDBOptionsInterface#maxOpenFiles()} is -1, DB will open
+   * all files on DB::Open(). You can use this option to increase the number
+   * of threads used to open the files.
    *
    * Default: 16
    *
@@ -246,45 +220,15 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   T setMaxFileOpeningThreads(int maxFileOpeningThreads);
 
   /**
-   * If {@link #maxOpenFiles()} is -1, DB will open all files on DB::Open(). You
-   * can use this option to increase the number of threads used to open the
-   * files.
+   * If {@link MutableDBOptionsInterface#maxOpenFiles()} is -1, DB will open all
+   * files on DB::Open(). You can use this option to increase the number of
+   * threads used to open the files.
    *
    * Default: 16
    *
    * @return the maximum number of threads to use to open files
    */
   int maxFileOpeningThreads();
-
-  /**
-   * <p>Once write-ahead logs exceed this size, we will start forcing the
-   * flush of column families whose memtables are backed by the oldest live
-   * WAL file (i.e. the ones that are causing all the space amplification).
-   * </p>
-   * <p>If set to 0 (default), we will dynamically choose the WAL size limit to
-   * be [sum of all write_buffer_size * max_write_buffer_number] * 2</p>
-   * <p>This option takes effect only when there are more than one column family as
-   * otherwise the wal size is dictated by the write_buffer_size.</p>
-   * <p>Default: 0</p>
-   *
-   * @param maxTotalWalSize max total wal size.
-   * @return the instance of the current object.
-   */
-  T setMaxTotalWalSize(long maxTotalWalSize);
-
-  /**
-   * <p>Returns the max total wal size. Once write-ahead logs exceed this size,
-   * we will start forcing the flush of column families whose memtables are
-   * backed by the oldest live WAL file (i.e. the ones that are causing all
-   * the space amplification).</p>
-   *
-   * <p>If set to 0 (default), we will dynamically choose the WAL size limit
-   * to be [sum of all write_buffer_size * max_write_buffer_number] * 2
-   * </p>
-   *
-   * @return max total wal size
-   */
-  long maxTotalWalSize();
 
   /**
    * <p>Sets the statistics object which collects metrics about database operations.
@@ -467,59 +411,6 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   long deleteObsoleteFilesPeriodMicros();
 
   /**
-   * Suggested number of concurrent background compaction jobs, submitted to
-   * the default LOW priority thread pool.
-   * Default: 1
-   *
-   * @param baseBackgroundCompactions Suggested number of background compaction
-   *     jobs
-   *
-   * @deprecated Use {@link #setMaxBackgroundJobs(int)}
-   */
-  void setBaseBackgroundCompactions(int baseBackgroundCompactions);
-
-  /**
-   * Suggested number of concurrent background compaction jobs, submitted to
-   * the default LOW priority thread pool.
-   * Default: 1
-   *
-   * @return Suggested number of background compaction jobs
-   */
-  int baseBackgroundCompactions();
-
-  /**
-   * Specifies the maximum number of concurrent background compaction jobs,
-   * submitted to the default LOW priority thread pool.
-   * If you're increasing this, also consider increasing number of threads in
-   * LOW priority thread pool. For more information, see
-   * Default: 1
-   *
-   * @param maxBackgroundCompactions the maximum number of background
-   *     compaction jobs.
-   * @return the instance of the current object.
-   *
-   * @see RocksEnv#setBackgroundThreads(int)
-   * @see RocksEnv#setBackgroundThreads(int, int)
-   * @see #maxBackgroundFlushes()
-   */
-  T setMaxBackgroundCompactions(int maxBackgroundCompactions);
-
-  /**
-   * Returns the maximum number of concurrent background compaction jobs,
-   * submitted to the default LOW priority thread pool.
-   * When increasing this number, we may also want to consider increasing
-   * number of threads in LOW priority thread pool.
-   * Default: 1
-   *
-   * @return the maximum number of concurrent background compaction jobs.
-   * @see RocksEnv#setBackgroundThreads(int)
-   * @see RocksEnv#setBackgroundThreads(int, int)
-   *
-   * @deprecated Use {@link #setMaxBackgroundJobs(int)}
-   */
-  int maxBackgroundCompactions();
-
-  /**
    * This value represents the maximum number of threads that will
    * concurrently perform a compaction job by breaking it into multiple,
    * smaller ones that are run simultaneously.
@@ -527,8 +418,10 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    *
    * @param maxSubcompactions The maximum number of threads that will
    *     concurrently perform a compaction job
+   *
+   * @return the instance of the current object.
    */
-  void setMaxSubcompactions(int maxSubcompactions);
+  T setMaxSubcompactions(int maxSubcompactions);
 
   /**
    * This value represents the maximum number of threads that will
@@ -551,11 +444,12 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    * @return the instance of the current object.
    *
    * @see RocksEnv#setBackgroundThreads(int)
-   * @see RocksEnv#setBackgroundThreads(int, int)
-   * @see #maxBackgroundCompactions()
+   * @see RocksEnv#setBackgroundThreads(int, Priority)
+   * @see MutableDBOptionsInterface#maxBackgroundCompactions()
    *
-   * @deprecated Use {@link #setMaxBackgroundJobs(int)}
+   * @deprecated Use {@link MutableDBOptionsInterface#setMaxBackgroundJobs(int)}
    */
+  @Deprecated
   T setMaxBackgroundFlushes(int maxBackgroundFlushes);
 
   /**
@@ -566,28 +460,10 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    *
    * @return the maximum number of concurrent background flush jobs.
    * @see RocksEnv#setBackgroundThreads(int)
-   * @see RocksEnv#setBackgroundThreads(int, int)
+   * @see RocksEnv#setBackgroundThreads(int, Priority)
    */
+  @Deprecated
   int maxBackgroundFlushes();
-
-  /**
-   * Specifies the maximum number of concurrent background jobs (both flushes
-   * and compactions combined).
-   * Default: 2
-   *
-   * @param maxBackgroundJobs number of max concurrent background jobs
-   * @return the instance of the current object.
-   */
-  T setMaxBackgroundJobs(int maxBackgroundJobs);
-
-  /**
-   * Returns the maximum number of concurrent background jobs (both flushes
-   * and compactions combined).
-   * Default: 2
-   *
-   * @return the maximum number of concurrent background jobs.
-   */
-  int maxBackgroundJobs();
 
   /**
    * Specifies the maximum size of a info log file. If the current log file
@@ -939,23 +815,6 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   boolean isFdCloseOnExec();
 
   /**
-   * if not zero, dump rocksdb.stats to LOG every stats_dump_period_sec
-   * Default: 600 (10 minutes)
-   *
-   * @param statsDumpPeriodSec time interval in seconds.
-   * @return the instance of the current object.
-   */
-  T setStatsDumpPeriodSec(int statsDumpPeriodSec);
-
-  /**
-   * If not zero, dump rocksdb.stats to LOG every stats_dump_period_sec
-   * Default: 600 (10 minutes)
-   *
-   * @return time interval in seconds.
-   */
-  int statsDumpPeriodSec();
-
-  /**
    * If set true, will hint the underlying file system that the file
    * access pattern is random, when a sst file is opened.
    * Default: true
@@ -1090,43 +949,14 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   boolean newTableReaderForCompactionInputs();
 
   /**
-   * If non-zero, we perform bigger reads when doing compaction. If you're
-   * running RocksDB on spinning disks, you should set this to at least 2MB.
-   *
-   * That way RocksDB's compaction is doing sequential instead of random reads.
-   * When non-zero, we also force {@link #newTableReaderForCompactionInputs()}
-   * to true.
-   *
-   * Default: 0
-   *
-   * @param compactionReadaheadSize The compaction read-ahead size
-   *
-   * @return the reference to the current options.
-   */
-  T setCompactionReadaheadSize(final long compactionReadaheadSize);
-
-  /**
-   * If non-zero, we perform bigger reads when doing compaction. If you're
-   * running RocksDB on spinning disks, you should set this to at least 2MB.
-   *
-   * That way RocksDB's compaction is doing sequential instead of random reads.
-   * When non-zero, we also force {@link #newTableReaderForCompactionInputs()}
-   * to true.
-   *
-   * Default: 0
-   *
-   * @return The compaction read-ahead size
-   */
-  long compactionReadaheadSize();
-
-  /**
    * This is a maximum buffer size that is used by WinMmapReadableFile in
    * unbuffered disk I/O mode. We need to maintain an aligned buffer for
    * reads. We allow the buffer to grow until the specified value and then
    * for bigger requests allocate one shot buffers. In unbuffered mode we
    * always bypass read-ahead buffer at ReadaheadRandomAccessFile
    * When read-ahead is required we then make use of
-   * {@link #compactionReadaheadSize()} value and always try to read ahead.
+   * {@link MutableDBOptionsInterface#compactionReadaheadSize()} value and
+   * always try to read ahead.
    * With read-ahead we always pre-allocate buffer to the size instead of
    * growing it up to a limit.
    *
@@ -1151,9 +981,9 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    * for bigger requests allocate one shot buffers. In unbuffered mode we
    * always bypass read-ahead buffer at ReadaheadRandomAccessFile
    * When read-ahead is required we then make use of
-   * {@link #compactionReadaheadSize()} value and always try to read ahead.
-   * With read-ahead we always pre-allocate buffer to the size instead of
-   * growing it up to a limit.
+   * {@link MutableDBOptionsInterface#compactionReadaheadSize()} value and
+   * always try to read ahead. With read-ahead we always pre-allocate buffer
+   * to the size instead of growing it up to a limit.
    *
    * This option is currently honored only on Windows
    *
@@ -1165,30 +995,6 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    * @return the maximum size of the random access buffer
    */
   long randomAccessMaxBufferSize();
-
-  /**
-   * This is the maximum buffer size that is used by WritableFileWriter.
-   * On Windows, we need to maintain an aligned buffer for writes.
-   * We allow the buffer to grow until it's size hits the limit.
-   *
-   * Default: 1024 * 1024 (1 MB)
-   *
-   * @param writableFileMaxBufferSize the maximum buffer size
-   *
-   * @return the reference to the current options.
-   */
-  T setWritableFileMaxBufferSize(long writableFileMaxBufferSize);
-
-  /**
-   * This is the maximum buffer size that is used by WritableFileWriter.
-   * On Windows, we need to maintain an aligned buffer for writes.
-   * We allow the buffer to grow until it's size hits the limit.
-   *
-   * Default: 1024 * 1024 (1 MB)
-   *
-   * @return the maximum buffer size
-   */
-  long writableFileMaxBufferSize();
 
   /**
    * Use adaptive mutex, which spins in the user space before resorting
@@ -1213,45 +1019,24 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    */
   boolean useAdaptiveMutex();
 
-  /**
-   * Allows OS to incrementally sync files to disk while they are being
-   * written, asynchronously, in the background.
-   * Issue one request for every bytes_per_sync written. 0 turns it off.
-   * Default: 0
-   *
-   * @param bytesPerSync size in bytes
-   * @return the instance of the current object.
-   */
-  T setBytesPerSync(long bytesPerSync);
-
-  /**
-   * Allows OS to incrementally sync files to disk while they are being
-   * written, asynchronously, in the background.
-   * Issue one request for every bytes_per_sync written. 0 turns it off.
-   * Default: 0
-   *
-   * @return size in bytes
-   */
-  long bytesPerSync();
-
-  /**
-   * Same as {@link #setBytesPerSync(long)} , but applies to WAL files
-   *
-   * Default: 0, turned off
-   *
-   * @param walBytesPerSync size in bytes
-   * @return the instance of the current object.
-   */
-  T setWalBytesPerSync(long walBytesPerSync);
-
-  /**
-   * Same as {@link #bytesPerSync()} , but applies to WAL files
-   *
-   * Default: 0, turned off
-   *
-   * @return size in bytes
-   */
-  long walBytesPerSync();
+  //TODO(AR) NOW
+//  /**
+//   * Sets the {@link EventListener}s whose callback functions
+//   * will be called when specific RocksDB event happens.
+//   *
+//   * @param listeners the listeners who should be notified on various events.
+//   *
+//   * @return the instance of the current object.
+//   */
+//  T setListeners(final List<EventListener> listeners);
+//
+//  /**
+//   * Gets the {@link EventListener}s whose callback functions
+//   * will be called when specific RocksDB event happens.
+//   *
+//   * @return a collection of Event listeners.
+//   */
+//  Collection<EventListener> listeners();
 
   /**
    * If true, then the status of the threads involved in this DB will
@@ -1276,40 +1061,33 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   boolean enableThreadTracking();
 
   /**
-   * The limited write rate to DB if
-   * {@link ColumnFamilyOptions#softPendingCompactionBytesLimit()} or
-   * {@link ColumnFamilyOptions#level0SlowdownWritesTrigger()} is triggered,
-   * or we are writing to the last mem table allowed and we allow more than 3
-   * mem tables. It is calculated using size of user write requests before
-   * compression. RocksDB may decide to slow down more if the compaction still
-   * gets behind further.
+   * By default, a single write thread queue is maintained. The thread gets
+   * to the head of the queue becomes write batch group leader and responsible
+   * for writing to WAL and memtable for the batch group.
    *
-   * Unit: bytes per second.
+   * If {@link #enablePipelinedWrite()} is true, separate write thread queue is
+   * maintained for WAL write and memtable write. A write thread first enter WAL
+   * writer queue and then memtable writer queue. Pending thread on the WAL
+   * writer queue thus only have to wait for previous writers to finish their
+   * WAL writing but not the memtable writing. Enabling the feature may improve
+   * write throughput and reduce latency of the prepare phase of two-phase
+   * commit.
    *
-   * Default: 16MB/s
+   * Default: false
    *
-   * @param delayedWriteRate the rate in bytes per second
+   * @param enablePipelinedWrite true to enabled pipelined writes
    *
    * @return the reference to the current options.
    */
-  T setDelayedWriteRate(long delayedWriteRate);
+  T setEnablePipelinedWrite(final boolean enablePipelinedWrite);
 
   /**
-   * The limited write rate to DB if
-   * {@link ColumnFamilyOptions#softPendingCompactionBytesLimit()} or
-   * {@link ColumnFamilyOptions#level0SlowdownWritesTrigger()} is triggered,
-   * or we are writing to the last mem table allowed and we allow more than 3
-   * mem tables. It is calculated using size of user write requests before
-   * compression. RocksDB may decide to slow down more if the compaction still
-   * gets behind further.
+   * Returns true if pipelined writes are enabled.
+   * See {@link #setEnablePipelinedWrite(boolean)}.
    *
-   * Unit: bytes per second.
-   *
-   * Default: 16MB/s
-   *
-   * @return the rate in bytes per second
+   * @return true if pipelined writes are enabled, false otherwise.
    */
-  long delayedWriteRate();
+  boolean enablePipelinedWrite();
 
   /**
    * If true, allow multi-writers to update mem tables in parallel.
@@ -1512,6 +1290,27 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   Cache rowCache();
 
   /**
+   * A filter object supplied to be invoked while processing write-ahead-logs
+   * (WALs) during recovery. The filter provides a way to inspect log
+   * records, ignoring a particular record or skipping replay.
+   * The filter is invoked at startup and is invoked from a single-thread
+   * currently.
+   *
+   * @param walFilter the filter for processing WALs during recovery.
+   *
+   * @return the reference to the current options.
+   */
+  T setWalFilter(final AbstractWalFilter walFilter);
+
+  /**
+   * Get's the filter for processing WALs during recovery.
+   * See {@link #setWalFilter(AbstractWalFilter)}.
+   *
+   * @return the filter used for processing WALs during recovery.
+   */
+  WalFilter walFilter();
+
+  /**
    * If true, then DB::Open / CreateColumnFamily / DropColumnFamily
    * / SetOptions will fail if options file is not detected or properly
    * persisted.
@@ -1589,35 +1388,126 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   boolean avoidFlushDuringRecovery();
 
   /**
-   * By default RocksDB will flush all memtables on DB close if there are
-   * unpersisted data (i.e. with WAL disabled) The flush can be skip to speedup
-   * DB close. Unpersisted data WILL BE LOST.
+   * Set this option to true during creation of database if you want
+   * to be able to ingest behind (call IngestExternalFile() skipping keys
+   * that already exist, rather than overwriting matching keys).
+   * Setting this option to true will affect 2 things:
+   *     1) Disable some internal optimizations around SST file compression
+   *     2) Reserve bottom-most level for ingested files only.
+   *     3) Note that num_levels should be &gt;= 3 if this option is turned on.
    *
    * DEFAULT: false
    *
-   * Dynamically changeable through
-   *     {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}
-   *     API.
-   *
-   * @param avoidFlushDuringShutdown true if we should avoid flush during
-   *     shutdown
+   * @param allowIngestBehind true to allow ingest behind, false to disallow.
    *
    * @return the reference to the current options.
    */
-  T setAvoidFlushDuringShutdown(boolean avoidFlushDuringShutdown);
+  T setAllowIngestBehind(final boolean allowIngestBehind);
 
   /**
-   * By default RocksDB will flush all memtables on DB close if there are
-   * unpersisted data (i.e. with WAL disabled) The flush can be skip to speedup
-   * DB close. Unpersisted data WILL BE LOST.
+   * Returns true if ingest behind is allowed.
+   * See {@link #setAllowIngestBehind(boolean)}.
+   *
+   * @return true if ingest behind is allowed, false otherwise.
+   */
+  boolean allowIngestBehind();
+
+  /**
+   * Needed to support differential snapshots.
+   * If set to true then DB will only process deletes with sequence number
+   * less than what was set by SetPreserveDeletesSequenceNumber(uint64_t ts).
+   * Clients are responsible to periodically call this method to advance
+   * the cutoff time. If this method is never called and preserve_deletes
+   * is set to true NO deletes will ever be processed.
+   * At the moment this only keeps normal deletes, SingleDeletes will
+   * not be preserved.
    *
    * DEFAULT: false
    *
-   * Dynamically changeable through
-   *     {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}
-   *     API.
+   * @param preserveDeletes true to preserve deletes.
    *
-   * @return true if we should avoid flush during shutdown
+   * @return the reference to the current options.
    */
-  boolean avoidFlushDuringShutdown();
+  T setPreserveDeletes(final boolean preserveDeletes);
+
+  /**
+   * Returns true if deletes are preserved.
+   * See {@link #setPreserveDeletes(boolean)}.
+   *
+   * @return true if deletes are preserved, false otherwise.
+   */
+  boolean preserveDeletes();
+
+  /**
+   * If enabled it uses two queues for writes, one for the ones with
+   * disable_memtable and one for the ones that also write to memtable. This
+   * allows the memtable writes not to lag behind other writes. It can be used
+   * to optimize MySQL 2PC in which only the commits, which are serial, write to
+   * memtable.
+   *
+   * DEFAULT: false
+   *
+   * @param twoWriteQueues true to enable two write queues, false otherwise.
+   *
+   * @return the reference to the current options.
+   */
+  T setTwoWriteQueues(final boolean twoWriteQueues);
+
+  /**
+   * Returns true if two write queues are enabled.
+   *
+   * @return true if two write queues are enabled, false otherwise.
+   */
+  boolean twoWriteQueues();
+
+  /**
+   * If true WAL is not flushed automatically after each write. Instead it
+   * relies on manual invocation of FlushWAL to write the WAL buffer to its
+   * file.
+   *
+   * DEFAULT: false
+   *
+   * @param manualWalFlush true to set disable automatic WAL flushing,
+   *     false otherwise.
+   *
+   * @return the reference to the current options.
+   */
+  T setManualWalFlush(final boolean manualWalFlush);
+
+  /**
+   * Returns true if automatic WAL flushing is disabled.
+   * See {@link #setManualWalFlush(boolean)}.
+   *
+   * @return true if automatic WAL flushing is disabled, false otherwise.
+   */
+  boolean manualWalFlush();
+
+  /**
+   * If true, RocksDB supports flushing multiple column families and committing
+   * their results atomically to MANIFEST. Note that it is not
+   * necessary to set atomic_flush to true if WAL is always enabled since WAL
+   * allows the database to be restored to the last persistent state in WAL.
+   * This option is useful when there are column families with writes NOT
+   * protected by WAL.
+   * For manual flush, application has to specify which column families to
+   * flush atomically in {@link RocksDB#flush(FlushOptions, List)}.
+   * For auto-triggered flush, RocksDB atomically flushes ALL column families.
+   *
+   * Currently, any WAL-enabled writes after atomic flush may be replayed
+   * independently if the process crashes later and tries to recover.
+   *
+   * @param atomicFlush true to enable atomic flush of multiple column families.
+   *
+   * @return the reference to the current options.
+   */
+  T setAtomicFlush(final boolean atomicFlush);
+
+  /**
+   * Determine if atomic flush of multiple column families is enabled.
+   *
+   * See {@link #setAtomicFlush(boolean)}.
+   *
+   * @return true if atomic flush is enabled.
+   */
+  boolean atomicFlush();
 }

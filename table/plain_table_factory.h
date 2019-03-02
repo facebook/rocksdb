@@ -204,7 +204,8 @@ static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
      {offsetof(struct PlainTableOptions, full_scan_mode), OptionType::kBoolean,
       OptionVerificationType::kNormal, false, 0}},
     {"store_index_in_file",
-     {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, false, 0}}};
+     {offsetof(struct PlainTableOptions, store_index_in_file),
+      OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}}};
 
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE

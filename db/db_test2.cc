@@ -2645,7 +2645,9 @@ TEST_F(DBTest2, ReadCallbackTest) {
   class TestReadCallback : public ReadCallback {
    public:
     explicit TestReadCallback(SequenceNumber snapshot) : snapshot_(snapshot) {}
-    bool IsVisible(SequenceNumber seq) override { return seq <= snapshot_; }
+    bool IsVisibleFullCheck(SequenceNumber seq) override {
+      return seq <= snapshot_;
+    }
 
    private:
     SequenceNumber snapshot_;

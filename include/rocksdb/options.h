@@ -709,7 +709,7 @@ struct DBOptions {
   // a limit, a flush will be triggered in the next DB to which the next write
   // is issued.
   //
-  // If the object is only passed to on DB, the behavior is the same as
+  // If the object is only passed to one DB, the behavior is the same as
   // db_write_buffer_size. When write_buffer_manager is set, the value set will
   // override db_write_buffer_size.
   //
@@ -821,7 +821,7 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   uint64_t wal_bytes_per_sync = 0;
 
-  // A vector of EventListeners which callback functions will be called
+  // A vector of EventListeners whose callback functions will be called
   // when specific RocksDB event happens.
   std::vector<std::shared_ptr<EventListener>> listeners;
 

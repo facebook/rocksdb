@@ -535,6 +535,15 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void enablePipelinedWrite() {
+    try(final DBOptions opt = new DBOptions()) {
+      assertThat(opt.enablePipelinedWrite()).isFalse();
+      opt.setEnablePipelinedWrite(true);
+      assertThat(opt.enablePipelinedWrite()).isTrue();
+    }
+  }
+
+  @Test
   public void allowConcurrentMemtableWrite() {
     try (final DBOptions opt = new DBOptions()) {
       final boolean boolValue = rand.nextBoolean();
@@ -616,6 +625,38 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void walFilter() {
+    try (final DBOptions opt = new DBOptions()) {
+      assertThat(opt.walFilter()).isNull();
+
+      try (final AbstractWalFilter walFilter = new AbstractWalFilter() {
+        @Override
+        public void columnFamilyLogNumberMap(
+            final Map<Integer, Long> cfLognumber,
+            final Map<String, Integer> cfNameId) {
+          // no-op
+        }
+
+        @Override
+        public LogRecordFoundResult logRecordFound(final long logNumber,
+            final String logFileName, final WriteBatch batch,
+            final WriteBatch newBatch) {
+          return new LogRecordFoundResult(
+              WalProcessingOption.CONTINUE_PROCESSING, false);
+        }
+
+        @Override
+        public String name() {
+          return "test-wal-filter";
+        }
+      }) {
+        opt.setWalFilter(walFilter);
+        assertThat(opt.walFilter()).isEqualTo(walFilter);
+      }
+    }
+  }
+
+  @Test
   public void failIfOptionsFileError() {
     try (final DBOptions opt = new DBOptions()) {
       final boolean boolValue = rand.nextBoolean();
@@ -648,6 +689,51 @@ public class DBOptionsTest {
       final boolean boolValue = rand.nextBoolean();
       opt.setAvoidFlushDuringShutdown(boolValue);
       assertThat(opt.avoidFlushDuringShutdown()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void allowIngestBehind() {
+    try (final DBOptions opt = new DBOptions()) {
+      assertThat(opt.allowIngestBehind()).isFalse();
+      opt.setAllowIngestBehind(true);
+      assertThat(opt.allowIngestBehind()).isTrue();
+    }
+  }
+
+  @Test
+  public void preserveDeletes() {
+    try (final DBOptions opt = new DBOptions()) {
+      assertThat(opt.preserveDeletes()).isFalse();
+      opt.setPreserveDeletes(true);
+      assertThat(opt.preserveDeletes()).isTrue();
+    }
+  }
+
+  @Test
+  public void twoWriteQueues() {
+    try (final DBOptions opt = new DBOptions()) {
+      assertThat(opt.twoWriteQueues()).isFalse();
+      opt.setTwoWriteQueues(true);
+      assertThat(opt.twoWriteQueues()).isTrue();
+    }
+  }
+
+  @Test
+  public void manualWalFlush() {
+    try (final DBOptions opt = new DBOptions()) {
+      assertThat(opt.manualWalFlush()).isFalse();
+      opt.setManualWalFlush(true);
+      assertThat(opt.manualWalFlush()).isTrue();
+    }
+  }
+
+  @Test
+  public void atomicFlush() {
+    try (final DBOptions opt = new DBOptions()) {
+      assertThat(opt.atomicFlush()).isFalse();
+      opt.setAtomicFlush(true);
+      assertThat(opt.atomicFlush()).isTrue();
     }
   }
 

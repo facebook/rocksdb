@@ -1128,7 +1128,7 @@ TEST_P(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   Options options;
   options.compression = kNoCompression;
   options.statistics = CreateDBStatistics();
-  options.statistics->stats_level_ = StatsLevel::kAll;
+  options.statistics->set_stats_level(StatsLevel::kAll);
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.block_restart_interval = 1;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1176,7 +1176,7 @@ uint64_t BlockBasedTableTest::IndexUncompressedHelper(bool compressed) {
   Options options;
   options.compression = kSnappyCompression;
   options.statistics = CreateDBStatistics();
-  options.statistics->stats_level_ = StatsLevel::kAll;
+  options.statistics->set_stats_level(StatsLevel::kAll);
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.block_restart_interval = 1;
   table_options.enable_index_compression = compressed;
