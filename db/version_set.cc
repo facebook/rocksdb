@@ -727,13 +727,12 @@ class BaseReferencedVersionBuilder {
     version_->Ref();
   }
   ~BaseReferencedVersionBuilder() {
-    delete version_builder_;
     version_->Unref();
   }
-  VersionBuilder* version_builder() { return version_builder_; }
+  VersionBuilder* version_builder() { return version_builder_.get(); }
 
  private:
-  VersionBuilder* version_builder_;
+  std::unique_ptr<VersionBuilder> version_builder_;
   Version* version_;
 };
 
@@ -3491,7 +3490,8 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
     VersionEdit& edit,
     const std::unordered_map<std::string, ColumnFamilyOptions>& name_to_options,
     std::unordered_map<int, std::string>& column_families_not_found,
-    std::unordered_map<uint32_t, BaseReferencedVersionBuilder*>& builders,
+    std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>&
+        builders,
     bool* have_log_number, uint64_t* /* log_number */,
     bool* have_prev_log_number, uint64_t* previous_log_number,
     bool* have_next_file, uint64_t* next_file, bool* have_last_sequence,
@@ -3526,14 +3526,14 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
     } else {
       cfd = CreateColumnFamily(cf_options->second, &edit);
       cfd->set_initialized();
-      builders.insert(
-          {edit.column_family_, new BaseReferencedVersionBuilder(cfd)});
+      builders.insert(std::make_pair(
+          edit.column_family_, std::unique_ptr<BaseReferencedVersionBuilder>(
+                                   new BaseReferencedVersionBuilder(cfd))));
     }
   } else if (edit.is_column_family_drop_) {
     if (cf_in_builders) {
       auto builder = builders.find(edit.column_family_);
       assert(builder != builders.end());
-      delete builder->second;
       builders.erase(builder);
       cfd = column_family_set_->GetColumnFamily(edit.column_family_);
       assert(cfd != nullptr);
@@ -3656,7 +3656,10 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
   if (cfd != nullptr) {
     if (edit.has_log_number_) {
       if (cfd->GetLogNumber() > edit.log_number_) {
-        // TODO (yanqin) use a separate info log for secondary instance.
+        ROCKS_LOG_WARN(
+            db_options_->info_log,
+            "MANIFEST corruption detected, but ignored - log numbers in "
+            "records NOT monotonically increasing");
       } else {
         cfd->SetLogNumber(edit.log_number_);
         *have_log_number = true;
@@ -3724,7 +3727,6 @@ Status VersionSet::MaybeSwitchManifest(
     if (s.ok()) {
       manifest_file_reader.reset(
           new SequentialFileReader(std::move(manifest_file), manifest_path));
-      // TODO(yanqin) secondary instance needs a separate info log file.
       manifest_reader->reset(new log::FragmentBufferedReader(
           nullptr, std::move(manifest_file_reader), reporter,
           true /* checksum */, 0 /* log_number */));
@@ -3811,7 +3813,8 @@ Status VersionSet::Recover(
   uint64_t previous_log_number = 0;
   uint32_t max_column_family = 0;
   uint64_t min_log_number_to_keep = 0;
-  std::unordered_map<uint32_t, BaseReferencedVersionBuilder*> builders;
+  std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
+      builders;
 
   // add default column family
   auto default_cf_iter = cf_name_to_options.find(kDefaultColumnFamilyName);
@@ -3826,7 +3829,9 @@ Status VersionSet::Recover(
   // In recovery, nobody else can access it, so it's fine to set it to be
   // initialized earlier.
   default_cfd->set_initialized();
-  builders.insert({0, new BaseReferencedVersionBuilder(default_cfd)});
+  builders.insert(
+      std::make_pair(0, std::unique_ptr<BaseReferencedVersionBuilder>(
+                            new BaseReferencedVersionBuilder(default_cfd))));
 
   {
     VersionSet::LogReporter reporter;
@@ -3955,7 +3960,7 @@ Status VersionSet::Recover(
       assert(cfd->initialized());
       auto builders_iter = builders.find(cfd->GetID());
       assert(builders_iter != builders.end());
-      auto* builder = builders_iter->second->version_builder();
+      auto builder = builders_iter->second->version_builder();
 
       // unlimited table cache. Pre-load table handle now.
       // Need to do it out of the mutex.
@@ -4006,10 +4011,6 @@ Status VersionSet::Recover(
     }
   }
 
-  for (auto& builder : builders) {
-    delete builder.second;
-  }
-
   return s;
 }
 
@@ -4053,9 +4054,12 @@ Status VersionSet::RecoverAsSecondary(
   uint64_t previous_log_number = 0;
   uint32_t max_column_family = 0;
   uint64_t min_log_number_to_keep = 0;
-  std::unordered_map<uint32_t, BaseReferencedVersionBuilder*> builders;
+  std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
+      builders;
   std::unordered_map<int, std::string> column_families_not_found;
-  builders.insert({0, new BaseReferencedVersionBuilder(default_cfd)});
+  builders.insert(
+      std::make_pair(0, std::unique_ptr<BaseReferencedVersionBuilder>(
+                            new BaseReferencedVersionBuilder(default_cfd))));
 
   manifest_reader_status->reset(new Status());
   manifest_reporter->reset(new LogReporter());
@@ -4181,9 +4185,6 @@ Status VersionSet::RecoverAsSecondary(
                      "Column family [%s] (ID %u), log number is %" PRIu64 "\n",
                      cfd->GetName().c_str(), cfd->GetID(), cfd->GetLogNumber());
     }
-  }
-  for (auto& builder : builders) {
-    delete builder.second;
   }
   return s;
 }
@@ -4368,7 +4369,8 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   uint64_t previous_log_number = 0;
   int count = 0;
   std::unordered_map<uint32_t, std::string> comparators;
-  std::unordered_map<uint32_t, BaseReferencedVersionBuilder*> builders;
+  std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
+      builders;
 
   // add default column family
   VersionEdit default_cf_edit;
@@ -4376,7 +4378,9 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   default_cf_edit.SetColumnFamily(0);
   ColumnFamilyData* default_cfd =
       CreateColumnFamily(ColumnFamilyOptions(options), &default_cf_edit);
-  builders.insert({0, new BaseReferencedVersionBuilder(default_cfd)});
+  builders.insert(
+      std::make_pair(0, std::unique_ptr<BaseReferencedVersionBuilder>(
+                            new BaseReferencedVersionBuilder(default_cfd))));
 
   {
     VersionSet::LogReporter reporter;
@@ -4417,8 +4421,9 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
         }
         cfd = CreateColumnFamily(ColumnFamilyOptions(options), &edit);
         cfd->set_initialized();
-        builders.insert(
-            {edit.column_family_, new BaseReferencedVersionBuilder(cfd)});
+        builders.insert(std::make_pair(
+            edit.column_family_, std::unique_ptr<BaseReferencedVersionBuilder>(
+                                     new BaseReferencedVersionBuilder(cfd))));
       } else if (edit.is_column_family_drop_) {
         if (!cf_in_builders) {
           s = Status::Corruption(
@@ -4426,7 +4431,6 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
           break;
         }
         auto builder_iter = builders.find(edit.column_family_);
-        delete builder_iter->second;
         builders.erase(builder_iter);
         comparators.erase(edit.column_family_);
         cfd = column_family_set_->GetColumnFamily(edit.column_family_);
@@ -4524,11 +4528,6 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       }
       printf("%s \n", v->DebugString(hex).c_str());
       delete v;
-    }
-
-    // Free builders
-    for (auto& builder : builders) {
-      delete builder.second;
     }
 
     next_file_number_.store(next_file + 1);

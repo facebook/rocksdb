@@ -1024,7 +1024,8 @@ class VersionSet {
       VersionEdit& edit,
       const std::unordered_map<std::string, ColumnFamilyOptions>& name_to_opts,
       std::unordered_map<int, std::string>& column_families_not_found,
-      std::unordered_map<uint32_t, BaseReferencedVersionBuilder*>& builders,
+      std::unordered_map<
+          uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>& builders,
       bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
       uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
       bool* have_last_sequence, SequenceNumber* last_sequence,

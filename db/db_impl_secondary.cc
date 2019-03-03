@@ -4,11 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/db_impl_secondary.h"
-#include "db/db_impl.h"
 #include "db/db_iter.h"
-#include "db/forward_iterator.h"
 #include "db/merge_context.h"
-#include "db/range_del_aggregator.h"
 #include "monitoring/perf_context_imp.h"
 #include "util/auto_roll_logger.h"
 
