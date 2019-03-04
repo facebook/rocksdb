@@ -163,7 +163,7 @@ class FragmentBufferedReader : public Reader {
       : Reader(info_log, std::move(_file), reporter, checksum, log_num),
         fragments_(),
         in_fragmented_record_(false) {}
-  ~FragmentBufferedReader() override {}
+  ~FragmentBufferedReader() {}
   bool ReadRecord(Slice* record, std::string* scratch,
                   WALRecoveryMode wal_recovery_mode =
                       WALRecoveryMode::kTolerateCorruptedTailRecords) override;

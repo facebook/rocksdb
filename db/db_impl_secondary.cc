@@ -30,9 +30,9 @@ Status DBImplSecondary::Recover(
   mutex_.AssertHeld();
 
   Status s;
-  s = versions_->RecoverAsSecondary(column_families, &manifest_reader_,
-                                    &manifest_reporter_,
-                                    &manifest_reader_status_);
+  s = static_cast<ReactiveVersionSet*>(versions_.get())
+          ->Recover(column_families, &manifest_reader_, &manifest_reporter_,
+                    &manifest_reader_status_);
   if (!s.ok()) {
     return s;
   }
@@ -210,7 +210,8 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   Status s;
   std::unordered_set<ColumnFamilyData*> cfds_changed;
   InstrumentedMutexLock lock_guard(mutex());
-  s = versions_->ReadAndApply(mutex(), &manifest_reader_, &cfds_changed);
+  s = static_cast<ReactiveVersionSet*>(versions_.get())
+          ->ReadAndApply(mutex(), &manifest_reader_, &cfds_changed);
   if (s.ok()) {
     SuperVersionContext sv_context(true /* create_superversion */);
     for (auto cfd : cfds_changed) {
@@ -290,6 +291,12 @@ Status DB::OpenAsSecondary(
 
   handles->clear();
   DBImplSecondary* impl = new DBImplSecondary(tmp_opts, dbname);
+  impl->versions_.reset(new ReactiveVersionSet(
+      dbname, &impl->immutable_db_options_, impl->env_options_,
+      impl->table_cache_.get(), impl->write_buffer_manager_,
+      &impl->write_controller_));
+  impl->column_family_memtables_.reset(
+      new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
   impl->mutex_.Lock();
   Status s = impl->Recover(column_families, true, false, false);
   if (s.ok()) {

@@ -644,6 +644,7 @@ class Version {
 
  private:
   Env* env_;
+  friend class ReactiveVersionSet;
   friend class VersionSet;
 
   const InternalKeyComparator* internal_comparator() const {
@@ -743,7 +744,7 @@ class VersionSet {
              const EnvOptions& env_options, Cache* table_cache,
              WriteBufferManager* write_buffer_manager,
              WriteController* write_controller);
-  ~VersionSet();
+  virtual ~VersionSet();
 
   // Apply *edit to the current version to form a new descriptor that
   // is both saved to persistent state and installed as the new
@@ -789,18 +790,13 @@ class VersionSet {
   // The across-multi-cf batch version. If edit_lists contain more than
   // 1 version edits, caller must ensure that no edit in the []list is column
   // family manipulation.
-  Status LogAndApply(
+  virtual Status LogAndApply(
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const MutableCFOptions*>& mutable_cf_options_list,
       const autovector<autovector<VersionEdit*>>& edit_lists,
       InstrumentedMutex* mu, Directory* db_directory = nullptr,
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* new_cf_options = nullptr);
-
-  Status ReadAndApply(
-      InstrumentedMutex* mu,
-      std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
-      std::unordered_set<ColumnFamilyData*>* cfds_changed);
 
   Status GetCurrentManifestPath(std::string* manifest_filename);
 
@@ -809,12 +805,6 @@ class VersionSet {
   // are not opened
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only = false);
-
-  Status RecoverAsSecondary(
-      const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
-      std::unique_ptr<log::Reader::Reporter>* manifest_reporter,
-      std::unique_ptr<Status>* manifest_reader_status);
 
   // Reads a manifest file and returns a list of column families in
   // column_families.
@@ -990,7 +980,7 @@ class VersionSet {
 
   static uint64_t GetTotalSstFilesSize(Version* dummy_versions);
 
- private:
+ protected:
   struct ManifestWriter;
 
   friend class Version;
@@ -1031,23 +1021,12 @@ class VersionSet {
       bool* have_last_sequence, SequenceNumber* last_sequence,
       uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
 
-  // REQUIRES db mutex
-  Status ApplyOneVersionEditToBuilder(
-      VersionEdit& edit, bool* have_log_number, uint64_t* log_number,
-      bool* have_prev_log_number, uint64_t* previous_log_number,
-      bool* have_next_file, uint64_t* next_file, bool* have_last_sequence,
-      SequenceNumber* last_sequence, uint64_t* min_log_number_to_keep,
-      uint32_t* max_column_family);
-
-  Status MaybeSwitchManifest(
-      log::Reader::Reporter* reporter,
-      std::unique_ptr<log::FragmentBufferedReader>* manifest_reader);
-
-  // REQUIRES db mutex at beginning. may release and re-acquire db mutex
-  Status ProcessManifestWrites(std::deque<ManifestWriter>& writers,
-                               InstrumentedMutex* mu, Directory* db_directory,
-                               bool new_descriptor_log,
-                               const ColumnFamilyOptions* new_cf_options);
+  Status ExtractInfoFromVersionEdit(
+      ColumnFamilyData* cfd, const VersionEdit& edit, bool* have_log_number,
+      uint64_t* log_number, bool* have_prev_log_number,
+      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
+      bool* have_last_sequence, SequenceNumber* last_sequence,
+      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
 
@@ -1097,24 +1076,77 @@ class VersionSet {
   // env options for all reads and writes except compactions
   EnvOptions env_options_;
 
-  enum class State {
-    INITIALIZED,
-    PRIMARY,
-    SECONDARY,
-  };
-
-  State state_;
-
-  std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
-      active_version_builders_;
-
+ private:
   // No copying allowed
   VersionSet(const VersionSet&);
   void operator=(const VersionSet&);
 
+  // REQUIRES db mutex at beginning. may release and re-acquire db mutex
+  Status ProcessManifestWrites(std::deque<ManifestWriter>& writers,
+                               InstrumentedMutex* mu, Directory* db_directory,
+                               bool new_descriptor_log,
+                               const ColumnFamilyOptions* new_cf_options);
+
   void LogAndApplyCFHelper(VersionEdit* edit);
   void LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b,
                          VersionEdit* edit, InstrumentedMutex* mu);
+};
+
+class ReactiveVersionSet : public VersionSet {
+ public:
+  ReactiveVersionSet(const std::string& dbname,
+                     const ImmutableDBOptions* _db_options,
+                     const EnvOptions& _env_options, Cache* table_cache,
+                     WriteBufferManager* write_buffer_manager,
+                     WriteController* write_controller);
+
+  ~ReactiveVersionSet();
+
+  Status ReadAndApply(
+      InstrumentedMutex* mu,
+      std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
+      std::unordered_set<ColumnFamilyData*>* cfds_changed);
+
+  Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
+                 std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
+                 std::unique_ptr<log::Reader::Reporter>* manifest_reporter,
+                 std::unique_ptr<Status>* manifest_reader_status);
+
+ protected:
+  using VersionSet::ApplyOneVersionEditToBuilder;
+
+  // REQUIRES db mutex
+  Status ApplyOneVersionEditToBuilder(
+      VersionEdit& edit, bool* have_log_number, uint64_t* log_number,
+      bool* have_prev_log_number, uint64_t* previous_log_number,
+      bool* have_next_file, uint64_t* next_file, bool* have_last_sequence,
+      SequenceNumber* last_sequence, uint64_t* min_log_number_to_keep,
+      uint32_t* max_column_family);
+
+  Status MaybeSwitchManifest(
+      log::Reader::Reporter* reporter,
+      std::unique_ptr<log::FragmentBufferedReader>* manifest_reader);
+
+ private:
+  std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
+      active_version_builders_;
+
+  using VersionSet::LogAndApply;
+  using VersionSet::Recover;
+
+  Status LogAndApply(
+      const autovector<ColumnFamilyData*>& /*cfds*/,
+      const autovector<const MutableCFOptions*>& /*mutable_cf_options_list*/,
+      const autovector<autovector<VersionEdit*>>& /*edit_lists*/,
+      InstrumentedMutex* /*mu*/, Directory* /*db_directory*/,
+      bool /*new_descriptor_log*/,
+      const ColumnFamilyOptions* /*new_cf_option*/) override {
+    return Status::NotSupported("not supported in reactive mode");
+  }
+
+  // No copy allowed
+  ReactiveVersionSet(const ReactiveVersionSet&);
+  ReactiveVersionSet& operator=(const ReactiveVersionSet&);
 };
 
 }  // namespace rocksdb
