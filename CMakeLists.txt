@@ -1168,6 +1168,7 @@ if(WITH_TESTS)
         utilities/transactions/transaction_lock_mgr_test.cc
         utilities/transactions/write_prepared_transaction_test.cc
         utilities/transactions/write_unprepared_transaction_test.cc
+        utilities/transactions/range_locking_test.cc
         utilities/ttl/ttl_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
   )

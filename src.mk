@@ -491,6 +491,7 @@ MAIN_SOURCES =                                                          \
   utilities/simulator_cache/sim_cache_test.cc                           \
   utilities/table_properties_collectors/compact_on_deletion_collector_test.cc  \
   utilities/transactions/optimistic_transaction_test.cc                 \
+  utilities/transactions/range_locking_test.cc                          \
   utilities/transactions/transaction_test.cc                            \
   utilities/transactions/transaction_lock_mgr_test.cc                   \
   utilities/transactions/write_prepared_transaction_test.cc             \

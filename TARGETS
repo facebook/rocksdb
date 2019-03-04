@@ -1376,6 +1376,11 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "range_locking_test",
+        "utilities/transactions/range_locking_test.cc",
+        "serial",
+    ],
+    [
         "rate_limiter_test",
         "util/rate_limiter_test.cc",
         "serial",

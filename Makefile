@@ -632,6 +632,7 @@ TESTS = \
 	trace_analyzer_test \
 	repeatable_thread_test \
 	range_tombstone_fragmenter_test \
+	range_locking_test \
 	range_del_aggregator_test \
 	sst_file_reader_test \
 	db_secondary_test \
