@@ -1,0 +1,6 @@
+The files in this directory originally come from https://github.com/percona/PerconaFT/
+
+They were modified to be suitable to use as a general Range Locking module.
+
+files named *_subst.* are substitutes of the PerconaFT files (where we don't
+need the file from there at all)

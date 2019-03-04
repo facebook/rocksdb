@@ -526,6 +526,10 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 if(WITH_FOLLY_DISTRIBUTED_MUTEX)
   include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
 endif()
+
+include_directories(${PROJECT_SOURCE_DIR}/utilities/transactions/range_locking)
+include_directories(${PROJECT_SOURCE_DIR}/utilities/transactions/range_locking/portability)
+
 find_package(Threads REQUIRED)
 
 # Main library source code
@@ -779,6 +783,32 @@ set(SOURCES
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
         $<TARGET_OBJECTS:build_version>)
+
+# The following list is intentionally missing these files that are #include'd
+# into others:
+#   range_locking/locktree/concurrent_tree.cc
+#   range_locking/locktree/treenode.cc
+#   util/omt.cc
+
+list(APPEND SOURCES
+  utilities/transactions/range_locking/locktree/keyrange.cc
+  utilities/transactions/range_locking/locktree/keyrange.h
+  utilities/transactions/range_locking/locktree/txnid_set.h
+  utilities/transactions/range_locking/locktree/range_buffer.cc
+  utilities/transactions/range_locking/locktree/locktree.h
+  utilities/transactions/range_locking/locktree/treenode.h
+  utilities/transactions/range_locking/locktree/wfg.cc
+  utilities/transactions/range_locking/locktree/lock_request.cc
+  utilities/transactions/range_locking/locktree/locktree.cc
+  utilities/transactions/range_locking/locktree/range_buffer.h
+  utilities/transactions/range_locking/locktree/manager.cc
+  utilities/transactions/range_locking/locktree/wfg.h
+  utilities/transactions/range_locking/locktree/txnid_set.cc
+  utilities/transactions/range_locking/locktree/lock_request.h
+  utilities/transactions/range_locking/locktree/concurrent_tree.h
+  utilities/transactions/range_locking/util/dbt.cc
+  utilities/transactions/range_locking/util/memarena.cc
+  utilities/transactions/range_locking/standalone_port.cc)
 
 if(HAVE_SSE42 AND NOT MSVC)
   set_source_files_properties(

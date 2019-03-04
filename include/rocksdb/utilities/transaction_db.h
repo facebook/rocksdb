@@ -242,6 +242,8 @@ class RangeLockMgrControl {
 
   virtual int set_max_lock_memory(size_t max_lock_memory) = 0;
   virtual uint64_t get_escalation_count() = 0;
+
+  virtual ~RangeLockMgrControl(){}
 };
 
 class TransactionDB : public StackableDB {
