@@ -180,6 +180,7 @@ public class WriteBatchTest {
   @Test
   public void deleteRange() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final WriteBatch batch = new WriteBatch();
          final WriteOptions wOpt = new WriteOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
       db.put("key2".getBytes(), "12345678".getBytes());
@@ -190,9 +191,8 @@ public class WriteBatchTest {
       assertThat(db.get("key3".getBytes())).isEqualTo("abcdefg".getBytes());
       assertThat(db.get("key4".getBytes())).isEqualTo("xyz".getBytes());
 
-      WriteBatch batch = new WriteBatch();
       batch.deleteRange("key2".getBytes(), "key4".getBytes());
-      db.write(new WriteOptions(), batch);
+      db.write(wOpt, batch);
 
       assertThat(db.get("key1".getBytes())).isEqualTo("value".getBytes());
       assertThat(db.get("key2".getBytes())).isNull();
@@ -399,7 +399,7 @@ public class WriteBatchTest {
   }
 
   @Test
-  public void hasEndrepareRange() throws RocksDBException {
+  public void hasEndPrepareRange() throws RocksDBException {
     try (final WriteBatch batch = new WriteBatch()) {
       assertThat(batch.hasEndPrepare()).isFalse();
     }
