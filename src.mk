@@ -247,6 +247,24 @@ LIB_SOURCES =                                                   \
   utilities/ttl/db_ttl_impl.cc                                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
+  utilities/transactions/range_locking/locktree/keyrange.cc     \
+  utilities/transactions/range_locking/locktree/keyrange.h      \
+  utilities/transactions/range_locking/locktree/txnid_set.h     \
+  utilities/transactions/range_locking/locktree/range_buffer.cc \
+  utilities/transactions/range_locking/locktree/locktree.h      \
+  utilities/transactions/range_locking/locktree/treenode.h      \
+  utilities/transactions/range_locking/locktree/wfg.cc          \
+  utilities/transactions/range_locking/locktree/lock_request.cc \
+  utilities/transactions/range_locking/locktree/locktree.cc     \
+  utilities/transactions/range_locking/locktree/range_buffer.h  \
+  utilities/transactions/range_locking/locktree/manager.cc      \
+  utilities/transactions/range_locking/locktree/wfg.h           \
+  utilities/transactions/range_locking/locktree/txnid_set.cc    \
+  utilities/transactions/range_locking/locktree/lock_request.h  \
+  utilities/transactions/range_locking/locktree/concurrent_tree.h \
+  utilities/transactions/range_locking/util/dbt.cc              \
+  utilities/transactions/range_locking/util/memarena.cc         \
+  utilities/transactions/range_locking/standalone_port.cc       \
 
 ifeq ($(ARMCRC_SOURCE),1)
 LIB_SOURCES +=\
