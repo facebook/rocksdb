@@ -190,7 +190,8 @@ struct MutableCFOptions {
         max_sequential_skip_in_iterations(0),
         paranoid_file_checks(false),
         report_bg_io_stats(false),
-        compression(Snappy_Supported() ? kSnappyCompression : kNoCompression) {}
+        compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
+        sample_for_compression(0) {}
 
   explicit MutableCFOptions(const Options& options);
 

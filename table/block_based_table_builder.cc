@@ -174,10 +174,11 @@ Slice CompressBlock(
       CompressionType c = LZ4_Supported() ? kLZ4Compression : kSnappyCompression;
       CompressionContext context(c);
       CompressionOptions options;
-      CompressionInfo infoTmp(options, context, CompressionDict::GetEmptyDict(),
-                              c, info.SampleForCompression());
+      CompressionInfo info_tmp(options, context,
+                               CompressionDict::GetEmptyDict(), c,
+                               info.SampleForCompression());
 
-      CompressBlockInternal(raw, infoTmp, format_version, sampled_output_fast);
+      CompressBlockInternal(raw, info_tmp, format_version, sampled_output_fast);
     }
 
     // Sampling with a slow but high-compression algorithm
@@ -185,9 +186,10 @@ Slice CompressBlock(
       CompressionType c = ZSTD_Supported() ? kZSTD : kZlibCompression;
       CompressionContext context(c);
       CompressionOptions options;
-      CompressionInfo infoTmp(options, context, CompressionDict::GetEmptyDict(),
-                              c, info.SampleForCompression());
-      CompressBlockInternal(raw, infoTmp, format_version, sampled_output_slow);
+      CompressionInfo info_tmp(options, context,
+                               CompressionDict::GetEmptyDict(), c,
+                               info.SampleForCompression());
+      CompressBlockInternal(raw, info_tmp, format_version, sampled_output_slow);
     }
   }
 
