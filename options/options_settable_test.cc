@@ -426,7 +426,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "max_bytes_for_level_multiplier=60;"
       "memtable_factory=SkipListFactory;"
       "compression=kNoCompression;"
-      "sample_for_compression=0;"
       "bottommost_compression=kDisableCompressionOption;"
       "level0_stop_writes_trigger=33;"
       "num_levels=99;"
@@ -452,6 +451,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "disable_auto_compactions=false;"
       "report_bg_io_stats=true;"
       "ttl=60;"
+      "sample_for_compression=0;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;};",
       new_options));

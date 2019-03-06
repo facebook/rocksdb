@@ -1852,10 +1852,6 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::compression),
           OptionType::kCompressionType, OptionVerificationType::kNormal, true,
           offsetof(struct MutableCFOptions, compression)}},
-        {"sample_for_compression",
-         {offset_of(&ColumnFamilyOptions::sample_for_compression),
-          OptionType::kUInt64T, OptionVerificationType::kNormal, true,
-          offsetof(struct MutableCFOptions, sample_for_compression)}},
         {"compression_per_level",
          {offset_of(&ColumnFamilyOptions::compression_per_level),
           OptionType::kVectorCompressionType, OptionVerificationType::kNormal,
@@ -1916,7 +1912,11 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"ttl",
          {offset_of(&ColumnFamilyOptions::ttl), OptionType::kUInt64T,
           OptionVerificationType::kNormal, true,
-          offsetof(struct MutableCFOptions, ttl)}}};
+          offsetof(struct MutableCFOptions, ttl)}},
+        {"sample_for_compression",
+         {offset_of(&ColumnFamilyOptions::sample_for_compression),
+          OptionType::kUInt64T, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, sample_for_compression)}}};
 
 std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::fifo_compaction_options_type_info = {
