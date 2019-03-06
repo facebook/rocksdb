@@ -9,6 +9,8 @@
 * Introduce two more stats levels, kExceptHistogramOrTimers and kExceptTimers.
 * Added a feature to perform data-block sampling for compressibility, and report stats to user.
 * Add support for trace filtering.
+* Add DBOptions.avoid_unnecessary_blocking_io. If true, we avoid file deletion when destorying ColumnFamilyHandle and Iterator. Instead, a job is scheduled to delete the files in background.
+
 ### Public API Change
 * Remove bundled fbson library.
 * statistics.stats_level_ becomes atomic. It is preferred to use statistics.set_stats_level() and statistics.get_stats_level() to access it.
