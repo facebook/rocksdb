@@ -109,8 +109,8 @@ bool CompressBlockInternal(const Slice& raw,
   // supported in this platform and (2) the compression rate is "good enough".
   switch (compression_info.type()) {
     case kSnappyCompression:
-      return Snappy_Compress(
-          compression_info, raw.data(), raw.size(), compressed_output);
+      return Snappy_Compress(compression_info, raw.data(), raw.size(),
+                             compressed_output);
     case kZlibCompression:
       return Zlib_Compress(
           compression_info,
@@ -135,8 +135,8 @@ bool CompressBlockInternal(const Slice& raw,
       return XPRESS_Compress(raw.data(), raw.size(), compressed_output);
     case kZSTD:
     case kZSTDNotFinalCompression:
-      return ZSTD_Compress(
-          compression_info, raw.data(), raw.size(), compressed_output);
+      return ZSTD_Compress(compression_info, raw.data(), raw.size(),
+                           compressed_output);
     default:
       // Do not recognize this compression type
       return false;
@@ -146,15 +146,11 @@ bool CompressBlockInternal(const Slice& raw,
 }  // namespace
 
 // format_version is the block format as defined in include/rocksdb/table.h
-Slice CompressBlock(
-    const Slice& raw,
-    const CompressionInfo& info,
-    CompressionType* type,
-    uint32_t format_version,
-    bool do_sample,
-    std::string* compressed_output,
-    std::string* sampled_output_fast,
-    std::string* sampled_output_slow) {
+Slice CompressBlock(const Slice& raw, const CompressionInfo& info,
+                    CompressionType* type, uint32_t format_version,
+                    bool do_sample, std::string* compressed_output,
+                    std::string* sampled_output_fast,
+                    std::string* sampled_output_slow) {
   *type = info.type();
 
   if (info.type() == kNoCompression && !info.SampleForCompression()) {
@@ -171,7 +167,8 @@ Slice CompressBlock(
       sampled_output_fast && sampled_output_slow) {
     // Sampling with a fast compression algorithm
     if (LZ4_Supported() || Snappy_Supported()) {
-      CompressionType c = LZ4_Supported() ? kLZ4Compression : kSnappyCompression;
+      CompressionType c =
+          LZ4_Supported() ? kLZ4Compression : kSnappyCompression;
       CompressionContext context(c);
       CompressionOptions options;
       CompressionInfo info_tmp(options, context,
@@ -467,11 +464,11 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     sanitized_table_options.format_version = 1;
   }
 
-  rep_ = new Rep(ioptions, moptions, sanitized_table_options,
-                 internal_comparator, int_tbl_prop_collector_factories,
-                 column_family_id, file, compression_type, sample_for_compression, compression_opts,
-                 skip_filters, column_family_name, creation_time,
-                 oldest_key_time, target_file_size);
+  rep_ = new Rep(
+      ioptions, moptions, sanitized_table_options, internal_comparator,
+      int_tbl_prop_collector_factories, column_family_id, file,
+      compression_type, sample_for_compression, compression_opts, skip_filters,
+      column_family_name, creation_time, oldest_key_time, target_file_size);
 
   if (rep_->filter_builder != nullptr) {
     rep_->filter_builder->StartBlock(0);
@@ -619,15 +616,15 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     }
     assert(compression_dict != nullptr);
     CompressionInfo compression_info(r->compression_opts, r->compression_ctx,
-                                     *compression_dict, type, sample_for_compression);
+                                     *compression_dict, type,
+                                     sample_for_compression);
 
     std::string sampled_output_fast;
     std::string sampled_output_slow;
-    block_contents = CompressBlock(raw_block_contents, compression_info,
-                                   &type, r->table_options.format_version,
-                                   is_data_block /* do_sample */,
-                                   &r->compressed_output, &sampled_output_fast,
-                                   &sampled_output_slow);
+    block_contents = CompressBlock(
+        raw_block_contents, compression_info, &type,
+        r->table_options.format_version, is_data_block /* do_sample */,
+        &r->compressed_output, &sampled_output_fast, &sampled_output_slow);
 
     // notify collectors on block add
     NotifyCollectTableCollectorsOnBlockAdd(

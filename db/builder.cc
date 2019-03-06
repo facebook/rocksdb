@@ -47,8 +47,8 @@ TableBuilder* NewTableBuilder(
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, const std::string& column_family_name,
     WritableFileWriter* file, const CompressionType compression_type,
-    uint64_t sample_for_compression, const CompressionOptions& compression_opts, int level,
-    const bool skip_filters, const uint64_t creation_time,
+    uint64_t sample_for_compression, const CompressionOptions& compression_opts,
+    int level, const bool skip_filters, const uint64_t creation_time,
     const uint64_t oldest_key_time, const uint64_t target_file_size) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
@@ -56,9 +56,9 @@ TableBuilder* NewTableBuilder(
   return ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, internal_comparator,
                           int_tbl_prop_collector_factories, compression_type,
-                          sample_for_compression, compression_opts, skip_filters, column_family_name,
-                          level, creation_time, oldest_key_time,
-                          target_file_size),
+                          sample_for_compression, compression_opts,
+                          skip_filters, column_family_name, level,
+                          creation_time, oldest_key_time, target_file_size),
       column_family_id, file);
 }
 
@@ -133,9 +133,9 @@ Status BuildTable(
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,
-          column_family_name, file_writer.get(), compression, sample_for_compression,
-          compression_opts_for_flush, level, false /* skip_filters */,
-          creation_time, oldest_key_time);
+          column_family_name, file_writer.get(), compression,
+          sample_for_compression, compression_opts_for_flush, level,
+          false /* skip_filters */, creation_time, oldest_key_time);
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),

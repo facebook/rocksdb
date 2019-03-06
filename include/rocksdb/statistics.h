@@ -22,7 +22,8 @@ namespace rocksdb {
  *  1. Any ticker should be added before TICKER_ENUM_MAX.
  *  2. Add a readable string in TickersNameMap below for the newly added ticker.
  *  3. Add a corresponding enum value to TickerType.java in the java API
- *  4. Add the enum conversions from Java and C++ to portal.h's toJavaTickerType and toCppTickers
+ *  4. Add the enum conversions from Java and C++ to portal.h's toJavaTickerType
+ * and toCppTickers
  */
 enum Tickers : uint32_t {
   // total block cache misses
