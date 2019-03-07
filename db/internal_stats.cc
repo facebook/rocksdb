@@ -1163,7 +1163,7 @@ void InternalStats::DumpCFMapStatsByPriority(
                         0 /* being_compacted */, 0 /* total_file_size */,
                         0 /* compaction_score */, 0 /* w_amp */,
                         comp_stats_by_pri_[priority]);
-      (*priorities_stats)[priority] = priority_stats;
+      (*priorities_stats)[static_cast<int>(priority)] = priority_stats;
     }
   }
 }
@@ -1259,11 +1259,12 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   std::map<int, std::map<LevelStatType, double>> priorities_stats;
   DumpCFMapStatsByPriority(&priorities_stats);
   for (size_t priority = 0; priority < comp_stats_by_pri_.size(); ++priority) {
-    if (priorities_stats.find(priority) != priorities_stats.end()) {
+    if (priorities_stats.find(static_cast<int>(priority)) !=
+        priorities_stats.end()) {
       PrintLevelStats(
           buf, sizeof(buf),
           Env::PriorityToString(static_cast<Env::Priority>(priority)),
-          priorities_stats[priority]);
+          priorities_stats[static_cast<int>(priority)]);
       value->append(buf);
     }
   }

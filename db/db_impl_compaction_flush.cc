@@ -237,7 +237,8 @@ Status DBImpl::FlushMemTablesToOutputFiles(
     JobContext* job_context, LogBuffer* log_buffer, Env::Priority thread_pri) {
   if (immutable_db_options_.atomic_flush) {
     return AtomicFlushMemTablesToOutputFiles(bg_flush_args, made_progress,
-                                             job_context, log_buffer);
+                                             job_context, log_buffer,
+                                             thread_pri);
   }
   std::vector<SequenceNumber> snapshot_seqs;
   SequenceNumber earliest_write_conflict_snapshot;
@@ -276,7 +277,7 @@ Status DBImpl::FlushMemTablesToOutputFiles(
  */
 Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
-    JobContext* job_context, LogBuffer* log_buffer) {
+    JobContext* job_context, LogBuffer* log_buffer, Env::Priority thread_pri) {
   mutex_.AssertHeld();
 
   autovector<ColumnFamilyData*> cfds;
@@ -333,7 +334,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),
         data_dir, GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
         stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
-        false /* sync_output_directory */, false /* write_manifest */);
+        false /* sync_output_directory */, false /* write_manifest */,
+        thread_pri);
     jobs.back().PickMemTable();
   }
 
@@ -950,19 +952,6 @@ Status DBImpl::CompactFilesImpl(
 
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJobStats compaction_job_stats;
-  // Here we pass a nullptr for CompactionJobStats because
-  // CompactFiles does not trigger OnCompactionCompleted(),
-  // which is the only place where CompactionJobStats is
-  // returned.  The idea of not triggering OnCompationCompleted()
-  // is that CompactFiles runs in the caller thread, so the user
-  // should always know when it completes.  As a result, it makes
-  // less sense to notify the users something they should already
-  // know.
-  //
-  // In the future, if we would like to add CompactionJobStats
-  // support for CompactFiles, we should have CompactFiles API
-  // pass a pointer of CompactionJobStats as the out-value
-  // instead of using EventListener.
   CompactionJob compaction_job(
       job_context->job_id, c.get(), immutable_db_options_,
       env_options_for_compaction_, versions_.get(), &shutting_down_,

@@ -631,7 +631,8 @@ class InternalStats {
     void Subtract(const CompactionStats& /*c*/) {}
   };
 
-  void AddCompactionStats(int /*level*/, const CompactionStats& /*stats*/) {}
+  void AddCompactionStats(int /*level*/, Env::Priority /*thread_pri*/,
+                          const CompactionStats& /*stats*/) {}
 
   void IncBytesMoved(int /*level*/, uint64_t /*amount*/) {}
 
