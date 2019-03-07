@@ -73,9 +73,6 @@ struct BlobDBOptions {
   // blob files will be cleanup based on TTL.
   bool enable_garbage_collection = false;
 
-  // Time interval to trigger garbage collection, in seconds.
-  uint64_t garbage_collection_interval_secs = 60;
-
   // Disable all background job. Used for test only.
   bool disable_background_tasks = false;
 
