@@ -2929,6 +2929,81 @@ TEST_P(WritePreparedTransactionTest, NonAtomicUpdateOfMaxEvictedSeq) {
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+// Test when we add a prepared seq when the max_evicted_seq_ already goes beyond
+// that. The test focuses on a race condition between AddPrepared and
+// AdvanceMaxEvictedSeq functions.
+TEST_P(WritePreparedTransactionTest, AddPreparedBeforeMax) {
+  if (!options.two_write_queues) {
+    // This test is only for two write queues
+    return;
+  }
+  const size_t snapshot_cache_bits = 7;  // same as default
+  // 1 entry to advance max after the 2nd commit
+  const size_t commit_cache_bits = 0;
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  ReOpen();
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  std::string some_value("value_some");
+  std::string uncommitted_value("value_uncommitted");
+  // Prepare two uncommitted transactions
+  Transaction* txn1 =
+      db->BeginTransaction(WriteOptions(), TransactionOptions());
+  ASSERT_OK(txn1->SetName("xid1"));
+  ASSERT_OK(txn1->Put(Slice("key1"), some_value));
+  ASSERT_OK(txn1->Prepare());
+  Transaction* txn2 =
+      db->BeginTransaction(WriteOptions(), TransactionOptions());
+  ASSERT_OK(txn2->SetName("xid2"));
+  ASSERT_OK(txn2->Put(Slice("key2"), some_value));
+  ASSERT_OK(txn2->Prepare());
+  // Start the txn here so the other thread could get its id
+  Transaction* txn = db->BeginTransaction(WriteOptions(), TransactionOptions());
+  ASSERT_OK(txn->SetName("xid"));
+  ASSERT_OK(txn->Put(Slice("key0"), uncommitted_value));
+
+  // t1) Insert prepared entry, t2) commit other entires to advance max
+  // evicted sec and finish checking the existing prepared entires, t1)
+  // AddPrepared, t2) update max_evicted_seq_
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"AddPrepared::begin:pause", "AddPreparedBeforeMax::read_thread:start"},
+      {"AdvanceMaxEvictedSeq::update_max:pause", "AddPrepared::begin:resume"},
+      {"AddPrepared::end", "AdvanceMaxEvictedSeq::update_max:resume"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  rocksdb::port::Thread write_thread([&]() { ASSERT_OK(txn->Prepare()); });
+
+  rocksdb::port::Thread read_thread([&]() {
+    TEST_SYNC_POINT("AddPreparedBeforeMax::read_thread:start");
+    // Publish seq number with a commit
+    ASSERT_OK(txn1->Commit());
+    // Since the commit cache size is one the 2nd commit evict the 1st one and
+    // invokes AdcanceMaxEvictedSeq
+    ASSERT_OK(txn2->Commit());
+
+    ReadOptions roptions;
+    PinnableSlice value;
+    // The snapshot should not see the uncommitted value from write_thread
+    auto snap = db->GetSnapshot();
+    ASSERT_LT(wp_db->max_evicted_seq_, snap->GetSequenceNumber());
+    // This is the scenario that we test for
+    ASSERT_GT(wp_db->max_evicted_seq_, txn->GetId());
+    roptions.snapshot = snap;
+    auto s = db->Get(roptions, db->DefaultColumnFamily(), "key0", &value);
+    ASSERT_TRUE(s.IsNotFound());
+    db->ReleaseSnapshot(snap);
+  });
+
+  read_thread.join();
+  write_thread.join();
+  delete txn1;
+  delete txn2;
+  ASSERT_OK(txn->Commit());
+  delete txn;
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 // When an old prepared entry gets committed, there is a gap between the time
 // that it is published and when it is cleaned up from old_prepared_. This test
 // stresses such cases.
