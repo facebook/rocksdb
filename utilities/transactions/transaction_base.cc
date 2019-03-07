@@ -7,6 +7,12 @@
 
 #include "utilities/transactions/transaction_base.h"
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
+
 #include "db/db_impl.h"
 #include "db/column_family.h"
 #include "rocksdb/comparator.h"

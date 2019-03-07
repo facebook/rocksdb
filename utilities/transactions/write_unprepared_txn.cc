@@ -207,8 +207,8 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDB(bool prepared) {
   // is a non-zero chance of max advancing prepare_seq and readers assume the
   // data as committed.
   // Also having it in the PreReleaseCallback allows in-order addition of
-  // prepared entries to PrepareHeap and hence enables an optimization. Refer to
-  // SmallestUnCommittedSeq for more details.
+  // prepared entries to PreparedHeap and hence enables an optimization. Refer
+  // to SmallestUnCommittedSeq for more details.
   AddPreparedCallback add_prepared_callback(
       wpt_db_, prepare_batch_cnt_,
       db_impl_->immutable_db_options().two_write_queues);
