@@ -392,22 +392,49 @@ void WritePreparedTxnDB::Init(const TransactionDBOptions& /* unused */) {
       new std::atomic<CommitEntry64b>[COMMIT_CACHE_SIZE] {});
 }
 
+void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max) {
+  prepared_mutex_.AssertHeld();
+  // When max_evicted_seq_ advances, move older entries from prepared_txns_
+  // to delayed_prepared_. This guarantees that if a seq is lower than max,
+  // then it is not in prepared_txns_ and save an expensive, synchronized
+  // lookup from a shared set. delayed_prepared_ is expected to be empty in
+  // normal cases.
+  ROCKS_LOG_DETAILS(
+      info_log_,
+      "CheckPreparedAgainstMax prepared_txns_.empty() %d top: %" PRIu64,
+      prepared_txns_.empty(),
+      prepared_txns_.empty() ? 0 : prepared_txns_.top());
+  while (!prepared_txns_.empty() && prepared_txns_.top() <= new_max) {
+    auto to_be_popped = prepared_txns_.top();
+    delayed_prepared_.insert(to_be_popped);
+    ROCKS_LOG_WARN(info_log_,
+                   "prepared_mutex_ overhead %" PRIu64 " (prep=%" PRIu64
+                   " new_max=%" PRIu64,
+                   static_cast<uint64_t>(delayed_prepared_.size()),
+                   to_be_popped, new_max);
+    prepared_txns_.pop();
+    delayed_prepared_empty_.store(false, std::memory_order_release);
+  }
+}
+
 void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
-  ROCKS_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Prepareing with max %" PRIu64,
+  ROCKS_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Preparing with max %" PRIu64,
                     seq, max_evicted_seq_.load());
+  TEST_SYNC_POINT("AddPrepared::begin:pause");
+  TEST_SYNC_POINT("AddPrepared::begin:resume");
   WriteLock wl(&prepared_mutex_);
-  if (UNLIKELY(seq <= max_evicted_seq_)) {
+  prepared_txns_.push(seq);
+  auto new_max = future_max_evicted_seq_.load();
+  if (UNLIKELY(seq <= new_max)) {
     // This should not happen in normal case
     ROCKS_LOG_ERROR(
         info_log_,
         "Added prepare_seq is not larger than max_evicted_seq_: %" PRIu64
         " <= %" PRIu64,
-        seq, max_evicted_seq_.load());
-    delayed_prepared_.insert(seq);
-    delayed_prepared_empty_.store(false, std::memory_order_release);
-  } else {
-    prepared_txns_.push(seq);
+        seq, new_max);
+    CheckPreparedAgainstMax(new_max);
   }
+  TEST_SYNC_POINT("AddPrepared::end");
 }
 
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
@@ -557,29 +584,10 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
              updated_future_max, new_max, std::memory_order_acq_rel,
              std::memory_order_relaxed)) {
   };
-  // When max_evicted_seq_ advances, move older entries from prepared_txns_
-  // to delayed_prepared_. This guarantees that if a seq is lower than max,
-  // then it is not in prepared_txns_ ans save an expensive, synchronized
-  // lookup from a shared set. delayed_prepared_ is expected to be empty in
-  // normal cases.
+
   {
     WriteLock wl(&prepared_mutex_);
-    ROCKS_LOG_DETAILS(
-        info_log_,
-        "AdvanceMaxEvictedSeq prepared_txns_.empty() %d top: %" PRIu64,
-        prepared_txns_.empty(),
-        prepared_txns_.empty() ? 0 : prepared_txns_.top());
-    while (!prepared_txns_.empty() && prepared_txns_.top() <= new_max) {
-      auto to_be_popped = prepared_txns_.top();
-      delayed_prepared_.insert(to_be_popped);
-      ROCKS_LOG_WARN(info_log_,
-                     "prepared_mutex_ overhead %" PRIu64 " (prep=%" PRIu64
-                     " new_max=%" PRIu64 " oldmax=%" PRIu64,
-                     static_cast<uint64_t>(delayed_prepared_.size()),
-                     to_be_popped, new_max, prev_max);
-      prepared_txns_.pop();
-      delayed_prepared_empty_.store(false, std::memory_order_release);
-    }
+    CheckPreparedAgainstMax(new_max);
   }
 
   // With each change to max_evicted_seq_ fetch the live snapshots behind it.
@@ -609,6 +617,8 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
     }
   }
   auto updated_prev_max = prev_max;
+  TEST_SYNC_POINT("AdvanceMaxEvictedSeq::update_max:pause");
+  TEST_SYNC_POINT("AdvanceMaxEvictedSeq::update_max:resume");
   while (updated_prev_max < new_max &&
          !max_evicted_seq_.compare_exchange_weak(updated_prev_max, new_max,
                                                  std::memory_order_acq_rel,
