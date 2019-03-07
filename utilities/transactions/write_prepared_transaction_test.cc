@@ -1285,7 +1285,7 @@ TEST_P(WritePreparedTransactionTest, TxnInitialize) {
 // This tests that transactions with duplicate keys perform correctly after max
 // is advancing their prepared sequence numbers. This will not be the case if
 // for example the txn does not add the prepared seq for the second sub-batch to
-// the PrepareHeap structure.
+// the PreparedHeap structure.
 TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqWithDuplicatesTest) {
   WriteOptions write_options;
   TransactionOptions txn_options;
@@ -1297,7 +1297,7 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqWithDuplicatesTest) {
 
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
   // Ensure that all the prepared sequence numbers will be removed from the
-  // PrepareHeap.
+  // PreparedHeap.
   SequenceNumber new_max = wp_db->COMMIT_CACHE_SIZE;
   wp_db->AdvanceMaxEvictedSeq(0, new_max);
 
