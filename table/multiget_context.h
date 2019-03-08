@@ -188,7 +188,9 @@ class MultiGetContext {
       T& vector_;
     };
 
-    Range(const Range& mget_range, const Iterator& first, const Iterator& last) {
+    Range(const Range& mget_range,
+          const Iterator& first,
+          const Iterator& last) {
       ctx_ = mget_range.ctx_;
       start_ = first.index_;
       end_ = last.index_;

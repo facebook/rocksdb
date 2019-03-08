@@ -997,7 +997,8 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
       if (merge_result.first ==
           WriteBatchWithIndexInternal::Result::kMergeInProgress) {
         // Merge result from DB with merges in Batch
-        auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(iter->column_family);
+        auto cfh =
+          reinterpret_cast<ColumnFamilyHandleImpl*>(iter->column_family);
         const MergeOperator* merge_operator =
             cfh->cfd()->ioptions()->merge_operator;
         Statistics* statistics = immuable_db_options.statistics.get();
@@ -1018,7 +1019,8 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
               logger, statistics, env);
           key.value->PinSelf();
         } else {
-          *key.s = Status::InvalidArgument("Options::merge_operator must be set");
+          *key.s = Status::InvalidArgument(
+              "Options::merge_operator must be set");
         }
       }
     }

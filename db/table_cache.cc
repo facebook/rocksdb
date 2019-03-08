@@ -430,11 +430,10 @@ Status TableCache::MultiGet(const ReadOptions& options,
                             HistogramImpl* file_read_hist, bool skip_filters,
                             int level) {
   auto& fd = file_meta.fd;
-  bool done = false;
   Status s;
   TableReader* t = fd.table_reader;
   Cache::Handle* handle = nullptr;
-  if (!done && s.ok()) {
+  if (s.ok()) {
     if (t == nullptr) {
       s = FindTable(
           env_options_, internal_comparator, fd, &handle, prefix_extractor,
@@ -442,6 +441,7 @@ Status TableCache::MultiGet(const ReadOptions& options,
           true /* record_read_stats */, file_read_hist, skip_filters, level);
       if (s.ok()) {
         t = GetTableReaderFromHandle(handle);
+        assert(t);
       }
     }
     if (s.ok() && !options.ignore_range_deletions) {
@@ -468,7 +468,6 @@ Status TableCache::MultiGet(const ReadOptions& options,
           // Couldn't find Table in cache but treat as kFound if no_io set
           iter->get_context->MarkKeyMayExist();
           s = Status::OK();
-          done = true;
         }
       }
     }

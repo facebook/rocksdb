@@ -2851,7 +2851,7 @@ TEST_P(TransactionTest, ColumnFamiliesMultiGetbatchedTest) {
     PinnableSlice pin_values[4];
     results.resize(4);
     txn->MultiGetForUpdate(snapshot_read_options, multiget_cfh,
-        multiget_keys, pin_values, &results[0]);
+        multiget_keys, pin_values, results.data());
     for (int i=0; i<4; ++i) {
       values[i].assign(pin_values[i].data(), pin_values[i].size());
     }
@@ -2890,7 +2890,7 @@ TEST_P(TransactionTest, ColumnFamiliesMultiGetbatchedTest) {
     PinnableSlice pin_values[4];
     results.resize(4);
     txn->MultiGetForUpdate(snapshot_read_options, multiget_cfh,
-        multiget_keys, pin_values, &results[0]);
+        multiget_keys, pin_values, results.data());
     for (int i=0; i<4; ++i) {
       values[i].assign(pin_values[i].data(), pin_values[i].size());
     }
@@ -3128,7 +3128,7 @@ TEST_P(TransactionTest, PredicateManyPrecedersMultiGetBatched) {
     results.resize(3);
     multiget_values.resize(3);
     txn1->MultiGetForUpdate(read_options1, multiget_cfh,
-        multiget_keys, pin_values, &results[0]);
+        multiget_keys, pin_values, results.data());
     for (int i=0; i<3; ++i) {
       multiget_values[i].assign(pin_values[i].data(), pin_values[i].size());
     }
@@ -3146,7 +3146,7 @@ TEST_P(TransactionTest, PredicateManyPrecedersMultiGetBatched) {
     results.resize(3);
     multiget_values.resize(3);
     txn1->MultiGetForUpdate(read_options1, multiget_cfh,
-        multiget_keys, pin_values, &results[0]);
+        multiget_keys, pin_values, results.data());
     for (int i=0; i<3; ++i) {
       multiget_values[i].assign(pin_values[i].data(), pin_values[i].size());
     }

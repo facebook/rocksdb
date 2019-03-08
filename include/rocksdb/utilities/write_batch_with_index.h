@@ -209,7 +209,8 @@ class WriteBatchWithIndex : public WriteBatchBase {
                            PinnableSlice* value);
 
   void MultiGetFromBatchAndDB(DB* db, const ReadOptions& read_options,
-                           const std::vector<ColumnFamilyHandle*>& column_family,
+                           const std::vector<ColumnFamilyHandle*>&
+                                                        column_family,
                            const std::vector<Slice>& key,
                            PinnableSlice* values, Status* statuses);
 
@@ -253,7 +254,8 @@ class WriteBatchWithIndex : public WriteBatchBase {
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* value, ReadCallback* callback);
   void MultiGetFromBatchAndDB(DB* db, const ReadOptions& read_options,
-                           const std::vector<ColumnFamilyHandle*>& column_family,
+                           const std::vector<ColumnFamilyHandle*>&
+                                                        column_family,
                            const std::vector<Slice>& key,
                            PinnableSlice* values, Status* statuses,
                            ReadCallback* callback);
