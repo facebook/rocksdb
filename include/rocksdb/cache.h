@@ -41,7 +41,6 @@ constexpr bool kLRUCacheDefaultToAdaptiveMutex = false;
 #endif
 
 struct LRUCacheOptions {
-
   // Capacity of the cache.
   size_t capacity = 0;
 
