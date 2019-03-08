@@ -289,7 +289,7 @@ class LRUCache : public ShardedCache {
   LRUCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
            double high_pri_pool_ratio,
            std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
-           bool use_adaptive_mutex = kLRUCacheDefaultToAdaptiveMutex);
+           bool use_adaptive_mutex = kDefaultToAdaptiveMutex);
   virtual ~LRUCache();
   virtual const char* Name() const override { return "LRUCache"; }
   virtual CacheShard* GetShard(int shard) override;

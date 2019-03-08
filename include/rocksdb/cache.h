@@ -34,11 +34,7 @@ namespace rocksdb {
 
 class Cache;
 
-#ifdef ROCKSDB_DEFAULT_TO_ADAPTIVE_MUTEX
-constexpr bool kLRUCacheDefaultToAdaptiveMutex = true;
-#else
-constexpr bool kLRUCacheDefaultToAdaptiveMutex = false;
-#endif
+extern const bool kDefaultToAdaptiveMutex;
 
 struct LRUCacheOptions {
   // Capacity of the cache.
@@ -78,13 +74,13 @@ struct LRUCacheOptions {
   // mutexes need to be supported by the platform in order for this to have any
   // effect. The default value is true if RocksDB is compiled with
   // -DROCKSDB_DEFAULT_TO_ADAPTIVE_MUTEX, false otherwise.
-  bool use_adaptive_mutex = kLRUCacheDefaultToAdaptiveMutex;
+  bool use_adaptive_mutex = kDefaultToAdaptiveMutex;
 
   LRUCacheOptions() {}
   LRUCacheOptions(size_t _capacity, int _num_shard_bits,
                   bool _strict_capacity_limit, double _high_pri_pool_ratio,
                   std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
-                  bool _use_adaptive_mutex = kLRUCacheDefaultToAdaptiveMutex)
+                  bool _use_adaptive_mutex = kDefaultToAdaptiveMutex)
       : capacity(_capacity),
         num_shard_bits(_num_shard_bits),
         strict_capacity_limit(_strict_capacity_limit),
@@ -105,7 +101,7 @@ extern std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits = -1,
     bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.0,
     std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
-    bool use_adaptive_mutex = kLRUCacheDefaultToAdaptiveMutex);
+    bool use_adaptive_mutex = kDefaultToAdaptiveMutex);
 
 extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
 

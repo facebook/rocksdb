@@ -26,7 +26,7 @@ class LRUCacheTest : public testing::Test {
   }
 
   void NewCache(size_t capacity, double high_pri_pool_ratio = 0.0,
-                bool use_adaptive_mutex = kLRUCacheDefaultToAdaptiveMutex) {
+                bool use_adaptive_mutex = kDefaultToAdaptiveMutex) {
     DeleteCache();
     cache_ = reinterpret_cast<LRUCacheShard*>(
         port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
