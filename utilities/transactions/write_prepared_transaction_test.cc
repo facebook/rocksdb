@@ -2960,6 +2960,7 @@ TEST_P(WritePreparedTransactionTest, AddPreparedBeforeMax) {
   Transaction* txn = db->BeginTransaction(WriteOptions(), TransactionOptions());
   ASSERT_OK(txn->SetName("xid"));
   ASSERT_OK(txn->Put(Slice("key0"), uncommitted_value));
+  port::Mutex txn_mutex_;
 
   // t1) Insert prepared entry, t2) commit other entires to advance max
   // evicted sec and finish checking the existing prepared entires, t1)
@@ -2971,7 +2972,11 @@ TEST_P(WritePreparedTransactionTest, AddPreparedBeforeMax) {
   });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  rocksdb::port::Thread write_thread([&]() { ASSERT_OK(txn->Prepare()); });
+  rocksdb::port::Thread write_thread([&]() {
+    txn_mutex_.Lock();
+    ASSERT_OK(txn->Prepare());
+    txn_mutex_.Unlock();
+  });
 
   rocksdb::port::Thread read_thread([&]() {
     TEST_SYNC_POINT("AddPreparedBeforeMax::read_thread:start");
@@ -2987,7 +2992,9 @@ TEST_P(WritePreparedTransactionTest, AddPreparedBeforeMax) {
     auto snap = db->GetSnapshot();
     ASSERT_LT(wp_db->max_evicted_seq_, snap->GetSequenceNumber());
     // This is the scenario that we test for
+    txn_mutex_.Lock();
     ASSERT_GT(wp_db->max_evicted_seq_, txn->GetId());
+    txn_mutex_.Unlock();
     roptions.snapshot = snap;
     auto s = db->Get(roptions, db->DefaultColumnFamily(), "key0", &value);
     ASSERT_TRUE(s.IsNotFound());
