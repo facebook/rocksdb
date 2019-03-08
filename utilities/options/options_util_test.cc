@@ -94,6 +94,70 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
   }
 }
 
+TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
+
+  DBOptions db_opt;
+  db_opt.create_if_missing = true;
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.push_back({kDefaultColumnFamilyName, ColumnFamilyOptions()});
+  cf_descs.push_back({"new_cf", ColumnFamilyOptions()});
+
+  // initialize BlockBasedTableOptions
+  std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
+  BlockBasedTableOptions bbt_opts;
+  bbt_opts.block_size = 32 * 1024;
+  //bbt_opts.block_cache = cache;
+
+  // initialize column families options
+  //std::unique_ptr<CompactionFilter> compaction_filter;
+  //compaction_filter.reset(new DummyCompactionFilter());
+  cf_descs[0].options.table_factory.reset(NewBlockBasedTableFactory(bbt_opts));
+  //cf_descs[0].options.compaction_filter = compaction_filter.get();
+  cf_descs[1].options.table_factory.reset(NewBlockBasedTableFactory(bbt_opts));
+
+  // destroy and open DB
+  DB* db;
+  Status s = DestroyDB("rocksdb_options_file_example", Options(db_opt, cf_descs[0].options));
+  assert(s.ok());
+  s = DB::Open(Options(db_opt, cf_descs[0].options), "rocksdb_options_file_example", &db);
+  assert(s.ok());
+
+  // Create column family, and rocksdb will persist the options.
+  ColumnFamilyHandle* cf;
+  s = db->CreateColumnFamily(ColumnFamilyOptions(), "new_cf", &cf);
+  assert(s.ok());
+
+  // close DB
+  delete cf;
+  delete db;
+
+  // In the following code, we will reopen the rocksdb instance using
+  // the options file stored in the db directory.
+
+  // Load the options file.
+  DBOptions loaded_db_opt;
+  std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
+  s = LoadLatestOptions("rocksdb_options_file_example", Env::Default(), &loaded_db_opt,
+                        &loaded_cf_descs,false,cache);
+  assert(s.ok());
+  assert(loaded_db_opt.create_if_missing == db_opt.create_if_missing);
+
+  for (size_t i = 0; i < loaded_cf_descs.size(); ++i) {
+    if (IsBlockBasedTableFactory(cf_descs[i].options.table_factory.get())) {
+      ASSERT_OK(RocksDBOptionsParser::VerifyTableFactory(
+          cf_descs[i].options.table_factory.get(),
+          loaded_cf_descs[i].options.table_factory.get()));
+          auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(
+              loaded_cf_descs[0].options.table_factory->GetOptions());
+          // Expect the same cache will be loaded (This check fails)
+          assert(loaded_bbt_opt->block_cache == cache);
+    }
+    ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
+        cf_descs[i].options, loaded_cf_descs[i].options));
+  }
+}
+
 namespace {
 class DummyTableFactory : public TableFactory {
  public:

@@ -15,7 +15,7 @@ namespace rocksdb {
 Status LoadOptionsFromFile(const std::string& file_name, Env* env,
                            DBOptions* db_options,
                            std::vector<ColumnFamilyDescriptor>* cf_descs,
-                           bool ignore_unknown_options) {
+                           bool ignore_unknown_options, std::shared_ptr<Cache> cache) {
   RocksDBOptionsParser parser;
   Status s = parser.Parse(file_name, env, ignore_unknown_options);
   if (!s.ok()) {
@@ -23,13 +23,59 @@ Status LoadOptionsFromFile(const std::string& file_name, Env* env,
   }
 
   *db_options = *parser.db_opt();
-
   const std::vector<std::string>& cf_names = *parser.cf_names();
   const std::vector<ColumnFamilyOptions>& cf_opts = *parser.cf_opts();
   cf_descs->clear();
   for (size_t i = 0; i < cf_opts.size(); ++i) {
     cf_descs->push_back({cf_names[i], cf_opts[i]});
-  }
+    auto options = cf_descs->at(i).options;
+    if(options.table_factory != nullptr){
+      TableFactory*  tf = options.table_factory.get();
+      if(tf!=nullptr){
+        if(tf->GetOptions()!=nullptr){
+          auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(tf->GetOptions());
+          if(cache != nullptr){
+          loaded_bbt_opt->block_cache = cache;
+          }
+        }
+      }
+
+    }
+    // TableFactory* tf = cf_opts[i].table_factory.get();
+    // if(tf->Name() == BlockBasedTableFactory().Name() ){
+    // if(tf->GetOptions()!= nullptr){
+    // auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(cf_opts[i].table_factory->GetOptions());
+    // loaded_bbt_opt->block_cache = *cache;
+    }
+    //}
+
+    //
+    // ColumnFamilyDescriptor abc= cf_descs->at(0);
+    // auto* v = abc.options.table_factory;
+    // auto* pt = v->GetOptions();
+    // auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(pt);
+    // loaded_bbt_opt->block_cache = *cache;
+    // // //doing same
+    // auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(
+    //      cf_descs->at(i).options.table_factory->GetOptions());
+    // // However, block_cache needs to be manually initialized as documented
+    // // in rocksdb/utilities/options_util.h.
+    // loaded_bbt_opt->block_cache = *cache;
+
+//  }
+
+  //cache stufff
+  // for (size_t j = 0; j < cf_descs->size(); ++j) {
+  //   auto* pt = cf_descs->at(j).options.table_factory->GetOptions();
+  //   auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(pt);
+  //   // Expect the same as BlockBasedTableOptions will be loaded form file.
+  //   //assert(loaded_bbt_opt->block_size == bbt_opts.block_size);
+  //   // However, block_cache needs to be manually initialized as documented
+  //   // in rocksdb/utilities/options_util.h.
+  //   loaded_bbt_opt->block_cache = *cache;
+  // }
+
+
   return Status::OK();
 }
 
@@ -63,7 +109,7 @@ Status GetLatestOptionsFileName(const std::string& dbpath,
 Status LoadLatestOptions(const std::string& dbpath, Env* env,
                          DBOptions* db_options,
                          std::vector<ColumnFamilyDescriptor>* cf_descs,
-                         bool ignore_unknown_options) {
+                         bool ignore_unknown_options, std::shared_ptr<Cache> cache) {
   std::string options_file_name;
   Status s = GetLatestOptionsFileName(dbpath, env, &options_file_name);
   if (!s.ok()) {
@@ -71,7 +117,7 @@ Status LoadLatestOptions(const std::string& dbpath, Env* env,
   }
 
   return LoadOptionsFromFile(dbpath + "/" + options_file_name, env, db_options,
-                             cf_descs, ignore_unknown_options);
+                             cf_descs, ignore_unknown_options, cache);
 }
 
 Status CheckOptionsCompatibility(
