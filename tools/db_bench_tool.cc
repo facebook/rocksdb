@@ -4709,7 +4709,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     int64_t seek = 0;
     int64_t seek_found = 0;
     int64_t bytes = 0;
-    const int64_t default_value_max = 64 * 1024 * 1024;
+    const int64_t default_value_max = 1 * 1024 * 1024;
     int64_t value_max = default_value_max;
     int64_t scan_len_max = FLAGS_mix_max_scan_len;
     double write_rate = 1000000.0;
@@ -4807,7 +4807,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
               256, Env::IO_HIGH, nullptr /* stats */,
               RateLimiter::OpType::kRead);
         }
-
+        thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kRead);
       } else if (query_type == 1) {
         // the Put query
         puts++;
@@ -4831,7 +4831,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
               key.size() + value_size, Env::IO_HIGH, nullptr /*stats*/,
               RateLimiter::OpType::kWrite);
         }
-
+        thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kWrite);
       } else if (query_type == 2) {
         // Seek query
         if (db_with_cfh->db != nullptr) {
@@ -4859,6 +4859,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           }
           delete single_iter;
         }
+        thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kSeek);
       }
     }
     char msg[256];
