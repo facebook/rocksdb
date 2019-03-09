@@ -1,12 +1,14 @@
 # Rocksdb Change Log
 ## 5.18.4 (3/3/2020)
 * Various fixes for ARM64 support (#6250)
+* Fix JEMALLOC_CXX_THROW macro missing from older Jemalloc versions, causing build failures on some platforms.
 
 ## 5.18.3 (2/11/2019)
 ### Bug Fixes
 * Fix possible LSM corruption when both range deletions and subcompactions are used. The symptom of this corruption is L1+ files overlapping in the user key space.
 
 ## 5.18.2 (01/31/2019)
+
 ### Public API Change
 * Change time resolution in FileOperationInfo.
 * Deleting Blob files also go through SStFileManager.

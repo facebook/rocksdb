@@ -12,6 +12,10 @@
 #include <jemalloc/jemalloc.h>
 #endif
 
+#ifndef JEMALLOC_CXX_THROW
+#define JEMALLOC_CXX_THROW
+#endif
+
 // Declare non-standard jemalloc APIs as weak symbols. We can null-check these
 // symbols to detect whether jemalloc is linked with the binary.
 extern "C" void* mallocx(size_t, int) __attribute__((__weak__));
