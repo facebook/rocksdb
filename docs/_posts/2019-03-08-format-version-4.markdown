@@ -9,7 +9,7 @@ The data blocks in RocksDB consist of a sequence of key/values pairs sorted by k
 
 ### Pros
 
-Using `format_version`=4 significantly reduces the index block size, in some cases around 4-5x. This frees more space in block cache, which would results in higher hit rate for data and filter blocks, or offer the same performance with a smaller block cache size.
+Using `format_version`=4 significantly reduces the index block size, in some cases around 4-5x. This frees more space in block cache, which would result in higher hit rate for data and filter blocks, or offer the same performance with a smaller block cache size.
 
 ### Cons
 
@@ -21,7 +21,7 @@ Being _forward-incompatible_ means that if you enable `format_version=`4 you can
 - `BlockBasedTableOptions::index_block_restart_interval` = 16
 
 ### What is format_version 3?
-(Since RocksDB 5.15) In most of the cases the sequence number `seq` is not necessary for keys in the index blocks. In such cases, this `format_version` skips encoding the sequence number and sets `index_key_is_user_key` in TableProperties, which is used by the reader to know how to decode the index block.
+(Since RocksDB 5.15) In most cases, the sequence number `seq` is not necessary for keys in the index blocks. In such cases, `format_version`=3 skips encoding the sequence number and sets `index_key_is_user_key` in TableProperties, which is used by the reader to know how to decode the index block.
 
 ### What is format_version 4?
 (Since RocksDB 5.16) Changes the format of index blocks by delta encoding the index values, which are the block handles. This saves the encoding of `BlockHandle::offset` of the non-head index entries in each restart interval. If used, `TableProperties::index_value_is_delta_encoded` is set, which is used by the reader to know how to decode the index block.  The format of each key is (shared_size, non_shared_size, shared, non_shared). The format of each value, i.e., block handle, is (offset, size) whenever the shared_size is 0, which included the first entry in each restart point. Otherwise the format is delta-size = block handle size - size of last block handle.
