@@ -9,6 +9,10 @@
 * Make BlobDB wait for all background tasks on shutdown.
 * Fixed a BlobDB issue where some trash files are not tracked causing them to remain forever.
 
+### Bug Fixes
+* Fix JEMALLOC_CXX_THROW macro missing from older Jemalloc versions, causing build failures on some platforms.
+
+
 ## 6.0.0 (2/19/2019)
 ### New Features
 * Enabled checkpoint on readonly db (DBImplReadOnly).
