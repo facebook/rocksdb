@@ -47,6 +47,7 @@ Copyright (c) 2006, 2015, Percona and/or its affiliates. All rights reserved.
 # include <sys/platform/ppc.h>
 #endif
 
+#if 0
 static inline float toku_tdiff (struct timeval *a, struct timeval *b) {
     return (float)((a->tv_sec - b->tv_sec) + 1e-6 * (a->tv_usec - b->tv_usec));
 }
@@ -61,6 +62,7 @@ typedef int clockid_t;
 #define CLOCK_REALTIME 0x01867234
 #endif
 int toku_clock_gettime(clockid_t clk_id, struct timespec *ts) __attribute__((__visibility__("default")));
+#endif
 
 // *************** Performance timers ************************
 // What do you really want from a performance timer:
@@ -83,6 +85,7 @@ int toku_clock_gettime(clockid_t clk_id, struct timespec *ts) __attribute__((__v
 // The decision here is that these times are really accurate only on modern machines with modern OSs.
 typedef uint64_t tokutime_t;             // Time type used in by tokutek timers.
 
+#if 0
 // The value of tokutime_t is not specified here. 
 // It might be microseconds since 1/1/1970 (if gettimeofday() is
 // used), or clock cycles since boot (if rdtsc is used).  Or something
@@ -99,6 +102,8 @@ typedef uint64_t tokutime_t;             // Time type used in by tokutek timers.
 // 2^20 seconds from booting (about 2 weeks) before the RDTSC value cannot be represented accurately as a double.
 //
 double tokutime_to_seconds(tokutime_t)  __attribute__((__visibility__("default"))); // Convert tokutime to seconds.
+
+#endif 
 
 // Get the value of tokutime for right now.  We want this to be fast, so we expose the implementation as RDTSC.
 static inline tokutime_t toku_time_now(void) {
@@ -123,6 +128,7 @@ static inline uint64_t toku_current_time_microsec(void) {
     return t.tv_sec * (1UL * 1000 * 1000) + t.tv_usec;
 }
 
+#if 0
 // sleep microseconds
 static inline void toku_sleep_microsec(uint64_t ms) {
     struct timeval  t;
@@ -132,3 +138,20 @@ static inline void toku_sleep_microsec(uint64_t ms) {
 
     select(0, NULL, NULL, NULL, &t);
 }
+#endif 
+
+/*
+  PORT: Usage of this file:
+
+  uint64_t toku_current_time_microsec()   // uses gettimeoday
+      is used to track how much time various operations took (for example, lock
+      escalation). (TODO: it is not clear why these operations are tracked with
+      microsecond precision while others use nanoseconds)
+
+  tokutime_t toku_time_now() // uses rdtsc
+      seems to be used for a very similar purpose. This has greater precision
+
+  RocksDB environment provides Env::Default()->NowMicros() and NowNanos() which
+  should be adequate substitutes.
+*/
+
