@@ -47,6 +47,8 @@ Status GetTableFactoryFromMap(
 enum class OptionType {
   kBoolean,
   kInt,
+  kInt32T,
+  kInt64T,
   kVectorInt,
   kUInt,
   kUInt32T,
