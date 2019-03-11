@@ -21,6 +21,7 @@
 #include <utility>
 #include <vector>
 #include "rocksdb/env.h"
+#include "port/port.h"
 #include "rocksdb/slice.h"
 
 namespace rocksdb {
@@ -278,7 +279,7 @@ uint32_t ParseUint32(const std::string& value) {
 
 int32_t ParseInt32(const std::string& value) {
   int64_t num = ParseInt64(value);
-  if ((num >> 32LL) == 0) {
+  if (num <= port::kMaxInt32 && num >= port::kMinInt32) {
     return static_cast<int32_t>(num);
   } else {
     throw std::out_of_range(value);
@@ -315,10 +316,10 @@ uint64_t ParseUint64(const std::string& value) {
 int64_t ParseInt64(const std::string& value) {
   size_t endchar;
 #ifndef CYGWIN
-  int64_t num = std::stoull(value.c_str(), &endchar);
+  int64_t num = std::stoll(value.c_str(), &endchar);
 #else
   char* endptr;
-  int64_t num = std::strtoul(value.c_str(), &endptr, 0);
+  int64_t num = std::strtoll(value.c_str(), &endptr, 0);
   endchar = endptr - value.c_str();
 #endif
 
