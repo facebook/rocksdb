@@ -80,7 +80,7 @@ int main() {
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
   s = LoadLatestOptions(kDBPath, Env::Default(), &loaded_db_opt,
-                        &loaded_cf_descs,cache);
+                        &loaded_cf_descs);
   assert(s.ok());
   assert(loaded_db_opt.create_if_missing == db_opt.create_if_missing);
 

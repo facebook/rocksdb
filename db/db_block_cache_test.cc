@@ -118,7 +118,7 @@ TEST_F(DBBlockCacheTest, IteratorBlockCacheUsage) {
   auto options = GetOptions(table_options);
   InitTable(options);
 
-  std::shared_ptr<Cache> cache = NewLRUCache(1 * 1024 * 1024 * 1024);
+  std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
   table_options.block_cache = cache;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   Reopen(options);

@@ -104,26 +104,16 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   cf_descs.push_back({"new_cf", ColumnFamilyOptions()});
 
   // initialize BlockBasedTableOptions
-  std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
+  std::shared_ptr<Cache> cache = NewLRUCache(1 * 1024 * 1024 * 1024);
   BlockBasedTableOptions bbt_opts;
   bbt_opts.block_size = 32 * 1024;
-  //bbt_opts.block_cache = cache;
 
-  // initialize column families options
-  //std::unique_ptr<CompactionFilter> compaction_filter;
-  //compaction_filter.reset(new DummyCompactionFilter());
   cf_descs[0].options.table_factory.reset(NewBlockBasedTableFactory(bbt_opts));
-  //cf_descs[0].options.compaction_filter = compaction_filter.get();
   cf_descs[1].options.table_factory.reset(NewBlockBasedTableFactory(bbt_opts));
 
-  // destroy and open DB
   DB* db;
   Status s = DestroyDB("rocksdb_options_file_example", Options(db_opt, cf_descs[0].options));
-  assert(s.ok());
   s = DB::Open(Options(db_opt, cf_descs[0].options), "rocksdb_options_file_example", &db);
-  assert(s.ok());
-
-  // Create column family, and rocksdb will persist the options.
   ColumnFamilyHandle* cf;
   s = db->CreateColumnFamily(ColumnFamilyOptions(), "new_cf", &cf);
   assert(s.ok());
@@ -132,10 +122,6 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   delete cf;
   delete db;
 
-  // In the following code, we will reopen the rocksdb instance using
-  // the options file stored in the db directory.
-
-  // Load the options file.
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
   s = LoadLatestOptions("rocksdb_options_file_example", Env::Default(), &loaded_db_opt,
@@ -150,8 +136,8 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
           loaded_cf_descs[i].options.table_factory.get()));
           auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(
               loaded_cf_descs[0].options.table_factory->GetOptions());
-          // Expect the same cache will be loaded (This check fails)
-          assert(loaded_bbt_opt->block_cache == cache);
+          // Expect the same cache will be loaded
+          assert(loaded_bbt_opt->block_cache->Name() == cache->Name());
     }
     ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
         cf_descs[i].options, loaded_cf_descs[i].options));

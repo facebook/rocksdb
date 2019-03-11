@@ -35,47 +35,12 @@ Status LoadOptionsFromFile(const std::string& file_name, Env* env,
         if(tf->GetOptions()!=nullptr){
           auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(tf->GetOptions());
           if(cache != nullptr){
-          loaded_bbt_opt->block_cache = cache;
+            loaded_bbt_opt->block_cache = cache;
+            }
           }
         }
       }
-
     }
-    // TableFactory* tf = cf_opts[i].table_factory.get();
-    // if(tf->Name() == BlockBasedTableFactory().Name() ){
-    // if(tf->GetOptions()!= nullptr){
-    // auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(cf_opts[i].table_factory->GetOptions());
-    // loaded_bbt_opt->block_cache = *cache;
-    }
-    //}
-
-    //
-    // ColumnFamilyDescriptor abc= cf_descs->at(0);
-    // auto* v = abc.options.table_factory;
-    // auto* pt = v->GetOptions();
-    // auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(pt);
-    // loaded_bbt_opt->block_cache = *cache;
-    // // //doing same
-    // auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(
-    //      cf_descs->at(i).options.table_factory->GetOptions());
-    // // However, block_cache needs to be manually initialized as documented
-    // // in rocksdb/utilities/options_util.h.
-    // loaded_bbt_opt->block_cache = *cache;
-
-//  }
-
-  //cache stufff
-  // for (size_t j = 0; j < cf_descs->size(); ++j) {
-  //   auto* pt = cf_descs->at(j).options.table_factory->GetOptions();
-  //   auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(pt);
-  //   // Expect the same as BlockBasedTableOptions will be loaded form file.
-  //   //assert(loaded_bbt_opt->block_size == bbt_opts.block_size);
-  //   // However, block_cache needs to be manually initialized as documented
-  //   // in rocksdb/utilities/options_util.h.
-  //   loaded_bbt_opt->block_cache = *cache;
-  // }
-
-
   return Status::OK();
 }
 
