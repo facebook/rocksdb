@@ -35,7 +35,7 @@ Status LoadOptionsFromFile(const std::string& file_name, Env* env,
         if(tf->GetOptions()!=nullptr){
           auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(tf->GetOptions());
           if(cache != nullptr){
-            loaded_bbt_opt->block_cache = cache;
+            loaded_bbt_opt->block_cache = *cache;
             }
           }
         }
