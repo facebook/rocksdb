@@ -15,7 +15,7 @@ namespace rocksdb {
 Status LoadOptionsFromFile(const std::string& file_name, Env* env,
                            DBOptions* db_options,
                            std::vector<ColumnFamilyDescriptor>* cf_descs,
-                           bool ignore_unknown_options, std::shared_ptr<Cache> cache) {
+                           bool ignore_unknown_options, std::shared_ptr<Cache>* cache) {
   RocksDBOptionsParser parser;
   Status s = parser.Parse(file_name, env, ignore_unknown_options);
   if (!s.ok()) {
@@ -74,7 +74,7 @@ Status GetLatestOptionsFileName(const std::string& dbpath,
 Status LoadLatestOptions(const std::string& dbpath, Env* env,
                          DBOptions* db_options,
                          std::vector<ColumnFamilyDescriptor>* cf_descs,
-                         bool ignore_unknown_options, std::shared_ptr<Cache> cache) {
+                         bool ignore_unknown_options, std::shared_ptr<Cache>* cache) {
   std::string options_file_name;
   Status s = GetLatestOptionsFileName(dbpath, env, &options_file_name);
   if (!s.ok()) {

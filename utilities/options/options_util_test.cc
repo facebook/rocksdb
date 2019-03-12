@@ -125,7 +125,7 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
   s = LoadLatestOptions("rocksdb_options_file_example", Env::Default(), &loaded_db_opt,
-                        &loaded_cf_descs,false,cache);
+                        &loaded_cf_descs,false,&cache);
   assert(s.ok());
   assert(loaded_db_opt.create_if_missing == db_opt.create_if_missing);
 
