@@ -26,10 +26,16 @@ void DBImpl::TEST_SwitchWAL() {
   SwitchWAL(&write_context);
 }
 
-bool DBImpl::TEST_WALBufferIsEmpty() {
-  InstrumentedMutexLock wl(&log_write_mutex_);
+bool DBImpl::TEST_WALBufferIsEmpty(bool lock) {
+  if (lock) {
+    log_write_mutex_.Lock();
+  }
   log::Writer* cur_log_writer = logs_.back().writer;
-  return cur_log_writer->TEST_BufferIsEmpty();
+  auto res = cur_log_writer->TEST_BufferIsEmpty();
+  if (lock) {
+    log_write_mutex_.Unlock();
+  }
+  return res;
 }
 
 int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
