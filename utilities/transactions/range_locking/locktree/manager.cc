@@ -60,7 +60,12 @@ Copyright (c) 2006, 2015, Percona and/or its affiliates. All rights reserved.
 
 namespace toku {
 
-void locktree_manager::create(lt_create_cb create_cb, lt_destroy_cb destroy_cb, lt_escalate_cb escalate_cb, void *escalate_extra) {
+void locktree_manager::create(lt_create_cb create_cb,
+                              lt_destroy_cb destroy_cb,
+                              lt_escalate_cb escalate_cb,
+                              void *escalate_extra,
+                              toku_external_mutex_factory_t mutex_factory_arg) {
+    mutex_factory= mutex_factory_arg;
     m_max_lock_memory = DEFAULT_MAX_LOCK_MEMORY;
     m_current_lock_memory = 0;
 
@@ -151,7 +156,7 @@ locktree *locktree_manager::get_lt(DICTIONARY_ID dict_id,
     locktree *lt = locktree_map_find(dict_id);
     if (lt == nullptr) {
         XCALLOC(lt);
-        lt->create(this, dict_id, cmp);
+        lt->create(this, dict_id, cmp, mutex_factory);
 
         // new locktree created - call the on_create callback
         // and put it in the locktree map
@@ -320,7 +325,7 @@ int locktree_manager::iterate_pending_lock_requests(lock_request_iterate_callbac
         invariant_zero(r);
 
         struct lt_lock_request_info *info = lt->get_lock_request_info();
-        toku_mutex_lock(&info->mutex);
+        toku_external_mutex_lock(&info->mutex);
 
         size_t num_requests = info->pending_lock_requests.size();
         for (size_t k = 0; k < num_requests && r == 0; k++) {
@@ -332,7 +337,7 @@ int locktree_manager::iterate_pending_lock_requests(lock_request_iterate_callbac
                          req->get_conflicting_txnid(), req->get_start_time(), extra);
         }
 
-        toku_mutex_unlock(&info->mutex);
+        toku_external_mutex_unlock(&info->mutex);
     }
     mutex_unlock();
     return r;
@@ -472,10 +477,10 @@ void locktree_manager::get_status(LTM_STATUS statp) {
             locktree *lt;
             int r = m_locktree_map.fetch(i, &lt);
             invariant_zero(r);
-            if (toku_mutex_trylock(&lt->m_lock_request_info.mutex) == 0) {
+            if (toku_external_mutex_trylock(&lt->m_lock_request_info.mutex) == 0) {
                 lock_requests_pending += lt->m_lock_request_info.pending_lock_requests.size();
                 lt_counters.add(lt->get_lock_request_info()->counters);
-                toku_mutex_unlock(&lt->m_lock_request_info.mutex);
+                toku_external_mutex_unlock(&lt->m_lock_request_info.mutex);
             }
             sto_num_eligible += lt->sto_txnid_is_valid_unsafe() ? 1 : 0;
             sto_end_early_count += lt->m_sto_end_early_count;

@@ -37,7 +37,11 @@ PessimisticTransactionDB::PessimisticTransactionDB(
                     ? txn_db_options_.custom_mutex_factory
                     : std::shared_ptr<TransactionDBMutexFactory>(
                           new TransactionDBMutexFactoryImpl())),
-      range_lock_mgr_(this) {
+      range_lock_mgr_(this,
+                      txn_db_options_.custom_mutex_factory?
+                         txn_db_options_.custom_mutex_factory :
+                           std::shared_ptr<TransactionDBMutexFactory>(
+                              new TransactionDBMutexFactoryImpl())) {
   assert(db_impl_ != nullptr);
   info_log_ = db_impl_->GetDBOptions().info_log;
 }
@@ -69,7 +73,11 @@ PessimisticTransactionDB::PessimisticTransactionDB(
                     ? txn_db_options_.custom_mutex_factory
                     : std::shared_ptr<TransactionDBMutexFactory>(
                           new TransactionDBMutexFactoryImpl())),
-      range_lock_mgr_(this) {
+      range_lock_mgr_(this,
+                      txn_db_options_.custom_mutex_factory
+                        ?  txn_db_options_.custom_mutex_factory
+                        : std::shared_ptr<TransactionDBMutexFactory>(
+                              new TransactionDBMutexFactoryImpl())) {
   assert(db_impl_ != nullptr);
 }
 

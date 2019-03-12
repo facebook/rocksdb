@@ -55,6 +55,7 @@ Copyright (c) 2006, 2015, Percona and/or its affiliates. All rights reserved.
 
 #include <db.h>
 #include <toku_pthread.h>
+#include <toku_external_pthread.h>
 #include <toku_time.h>
 
 #include <ft/comparator.h>
@@ -102,7 +103,7 @@ namespace toku {
     struct lt_lock_request_info {
         omt<lock_request *> pending_lock_requests;
         std::atomic_bool pending_is_empty;
-        toku_mutex_t mutex;
+        toku_external_mutex_t mutex;
         bool should_retry_lock_requests;
         lt_counters counters;
         std::atomic_ullong retry_want;
@@ -111,7 +112,7 @@ namespace toku {
         toku_cond_t retry_cv;
         bool running_retry;
 
-        void init(void);
+        void init(toku_external_mutex_factory_t mutex_factory);
         void destroy(void);
     };
 
@@ -127,7 +128,8 @@ namespace toku {
         void create(lt_create_cb create_cb,
                     lt_destroy_cb destroy_cb,
                     lt_escalate_cb escalate_cb,
-                    void *extra);
+                    void *extra,
+                    toku_external_mutex_factory_t mutex_factory_arg);
 
         void destroy(void);
 
@@ -212,6 +214,8 @@ namespace toku {
 
         omt<locktree *> m_locktree_map;
 
+        toku_external_mutex_factory_t mutex_factory;
+
         // the manager's mutex protects the locktree map
         toku_mutex_t m_mutex;
 
@@ -275,7 +279,8 @@ namespace toku {
     class locktree {
     public:
         // effect: Creates a locktree
-        void create(locktree_manager *mgr, DICTIONARY_ID dict_id, const comparator &cmp);
+        void create(locktree_manager *mgr, DICTIONARY_ID dict_id, const comparator &cmp,
+                    toku_external_mutex_factory_t mutex_factory);
 
         void destroy(void);
 

@@ -59,7 +59,7 @@ Copyright (c) 2006, 2015, Percona and/or its affiliates. All rights reserved.
 namespace toku {
 
 // initialize a lock request's internals
-void lock_request::create(void) {
+void lock_request::create(toku_external_mutex_factory_t mutex_factory) {
     m_txnid = TXNID_NONE;
     m_conflicting_txnid = TXNID_NONE;
     m_start_time = 0;
@@ -75,7 +75,9 @@ void lock_request::create(void) {
     m_state = state::UNINITIALIZED;
     m_info = nullptr;
 
-    toku_cond_init(*lock_request_m_wait_cond_key, &m_wait_cond, nullptr);
+    //psergey-todo: this condition is for interruptible wait
+    // note: moved to here from lock_request::create:
+    toku_external_cond_init(mutex_factory, &m_wait_cond);
 
     m_start_test_callback = nullptr;
     m_start_before_pending_test_callback = nullptr;
@@ -89,13 +91,14 @@ void lock_request::destroy(void) {
     m_state = state::DESTROYED;
     toku_destroy_dbt(&m_left_key_copy);
     toku_destroy_dbt(&m_right_key_copy);
-    toku_cond_destroy(&m_wait_cond);
+    toku_external_cond_destroy(&m_wait_cond);
 }
 
 // set the lock request parameters. this API allows a lock request to be reused.
 void lock_request::set(locktree *lt, TXNID txnid, const DBT *left_key, const DBT *right_key, lock_request::type lock_type, bool big_txn, void *extra) {
     invariant(m_state != state::PENDING);
     m_lt = lt;
+
     m_txnid = txnid;
     m_left_key = left_key;
     m_right_key = right_key;
@@ -190,13 +193,13 @@ int lock_request::start(void) {
         m_conflicting_txnid = conflicts.get(0);
         if (m_start_before_pending_test_callback)
             m_start_before_pending_test_callback();
-        toku_mutex_lock(&m_info->mutex);
+        toku_external_mutex_lock(&m_info->mutex);
         insert_into_lock_requests();
         if (deadlock_exists(conflicts)) {
             remove_from_lock_requests();
             r = DB_LOCK_DEADLOCK;
         }
-        toku_mutex_unlock(&m_info->mutex);
+        toku_external_mutex_unlock(&m_info->mutex);
         if (m_start_test_callback)
             m_start_test_callback();  // test callback
     }
@@ -221,7 +224,7 @@ int lock_request::wait(uint64_t wait_time_ms, uint64_t killed_time_ms, int (*kil
     uint64_t t_start = t_now;
     uint64_t t_end = t_start + wait_time_ms * 1000;
 
-    toku_mutex_lock(&m_info->mutex);
+    toku_external_mutex_lock(&m_info->mutex);
 
     // check again, this time locking out other retry calls
     if (m_state == state::PENDING) {
@@ -252,10 +255,14 @@ int lock_request::wait(uint64_t wait_time_ms, uint64_t killed_time_ms, int (*kil
             if (t_wait > t_end)
                 t_wait = t_end;
         }
+        /*
+        PORT: don't need to compute "time when the wait should end" anymore.
         struct timespec ts = {0, 0};
         ts.tv_sec = t_wait / 1000000;
         ts.tv_nsec = (t_wait % 1000000) * 1000;
-        int r = toku_cond_timedwait(&m_wait_cond, &m_info->mutex, &ts);
+        */
+        int r = toku_external_cond_timedwait(&m_wait_cond, &m_info->mutex,
+                                             int32_t(wait_time_ms)*1000);
         invariant(r == 0 || r == ETIMEDOUT);
 
         t_now = toku_current_time_microsec();
@@ -279,7 +286,7 @@ int lock_request::wait(uint64_t wait_time_ms, uint64_t killed_time_ms, int (*kil
         m_info->counters.long_wait_count += 1;
         m_info->counters.long_wait_time += duration;
     }
-    toku_mutex_unlock(&m_info->mutex);
+    toku_external_mutex_unlock(&m_info->mutex);
 
     invariant(m_state == state::COMPLETE);
     return m_complete_r;
@@ -332,7 +339,7 @@ int lock_request::retry(GrowableArray<TXNID> *conflicts_collector) {
         complete(r);
         if (m_retry_test_callback)
             m_retry_test_callback();  // test callback
-        toku_cond_broadcast(&m_wait_cond);
+        toku_external_cond_broadcast(&m_wait_cond);
     } else {
         m_conflicting_txnid = conflicts.get(0);
         add_conflicts_to_waits(&conflicts, conflicts_collector);
@@ -393,7 +400,7 @@ void lock_request::retry_all_lock_requests(
 }
 
 void lock_request::retry_all_lock_requests_info(lt_lock_request_info *info, GrowableArray<TXNID> *collector) {
-    toku_mutex_lock(&info->mutex);
+    toku_external_mutex_lock(&info->mutex);
     // retry all of the pending lock requests.
     for (size_t i = 0; i < info->pending_lock_requests.size();) {
         lock_request *request;
@@ -412,7 +419,7 @@ void lock_request::retry_all_lock_requests_info(lt_lock_request_info *info, Grow
 
     // future threads should only retry lock requests if some still exist
     info->should_retry_lock_requests = info->pending_lock_requests.size() > 0;
-    toku_mutex_unlock(&info->mutex);
+    toku_external_mutex_unlock(&info->mutex);
 }
 
 void lock_request::add_conflicts_to_waits(txnid_set *conflicts,
@@ -444,12 +451,12 @@ void *lock_request::get_extra(void) const {
 void lock_request::kill_waiter(void) {
     remove_from_lock_requests();
     complete(DB_LOCK_NOTGRANTED);
-    toku_cond_broadcast(&m_wait_cond);
+    toku_external_cond_broadcast(&m_wait_cond);
 }
 
 void lock_request::kill_waiter(locktree *lt, void *extra) {
     lt_lock_request_info *info = lt->get_lock_request_info();
-    toku_mutex_lock(&info->mutex);
+    toku_external_mutex_lock(&info->mutex);
     for (size_t i = 0; i < info->pending_lock_requests.size(); i++) {
         lock_request *request;
         int r = info->pending_lock_requests.fetch(i, &request);
@@ -458,7 +465,7 @@ void lock_request::kill_waiter(locktree *lt, void *extra) {
             break;
         }
     }
-    toku_mutex_unlock(&info->mutex);
+    toku_external_mutex_unlock(&info->mutex);
 }
 
 // find another lock request by txnid. must hold the mutex.

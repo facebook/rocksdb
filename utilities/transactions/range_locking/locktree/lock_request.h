@@ -84,7 +84,7 @@ public:
     };
 
     // effect: Initializes a lock request.
-    void create(void);
+    void create(toku_external_mutex_factory_t mutex_factory);
 
     // effect: Destroys a lock request.
     void destroy(void);
@@ -171,7 +171,7 @@ public:
     int m_complete_r;
     state m_state;
 
-    toku_cond_t m_wait_cond;
+    toku_external_cond_t m_wait_cond;
 
     bool m_big_txn;
 
@@ -227,6 +227,9 @@ public:
 
     friend class lock_request_unit_test;
 };
-ENSURE_POD(lock_request);
+// PORT: lock_request is not a POD anymore due to use of toku_external_cond_t
+//  This is ok as the PODness is not really required: lock_request objects are
+//  not moved in memory or anything.
+//ENSURE_POD(lock_request);
 
 } /* namespace toku */

@@ -214,10 +214,9 @@ class RangeLockMgr :
   void UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
               const std::string& key, Env* env) override ;
 
-  RangeLockMgr(TransactionDB* txn_db);
+  RangeLockMgr(TransactionDB* txn_db,
+               std::shared_ptr<TransactionDBMutexFactory> mutex_factory);
   ~RangeLockMgr();
-
-  void KillLockWait(TransactionID txnid);
 
   int set_max_lock_memory(size_t max_lock_memory) override
   {
@@ -250,6 +249,7 @@ class RangeLockMgr :
   compare_endpoints_func compare_endpoints;
 
   TransactionDB* my_txn_db;
+  std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
 
   static int compare_dbt_endpoints(__toku_db*, void *arg, const DBT *a_key, const DBT *b_key);
   

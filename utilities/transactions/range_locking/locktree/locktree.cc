@@ -74,7 +74,9 @@ namespace toku {
 // but does nothing based on the value of the reference count - it is
 // up to the user of the locktree to destroy it when it sees fit.
 
-void locktree::create(locktree_manager *mgr, DICTIONARY_ID dict_id, const comparator &cmp) {
+void locktree::create(locktree_manager *mgr, DICTIONARY_ID dict_id,
+                      const comparator &cmp,
+                      toku_external_mutex_factory_t mutex_factory) {
     m_mgr = mgr;
     m_dict_id = dict_id;
 
@@ -91,14 +93,14 @@ void locktree::create(locktree_manager *mgr, DICTIONARY_ID dict_id, const compar
     m_sto_end_early_count = 0;
     m_sto_end_early_time = 0;
 
-    m_lock_request_info.init();
+    m_lock_request_info.init(mutex_factory);
 }
 
-void lt_lock_request_info::init(void) {
+void lt_lock_request_info::init(toku_external_mutex_factory_t mutex_factory) {
     pending_lock_requests.create();
     pending_is_empty = true;
     ZERO_STRUCT(mutex);
-    toku_mutex_init(*locktree_request_info_mutex_key, &mutex, nullptr);
+    toku_external_mutex_init(mutex_factory, &mutex);
     retry_want = retry_done = 0;
     ZERO_STRUCT(counters);
     ZERO_STRUCT(retry_mutex);
@@ -124,7 +126,7 @@ void locktree::destroy(void) {
 
 void lt_lock_request_info::destroy(void) {
     pending_lock_requests.destroy();
-    toku_mutex_destroy(&mutex);
+    toku_external_mutex_destroy(&mutex);
     toku_mutex_destroy(&retry_mutex);
     toku_cond_destroy(&retry_cv);
 }

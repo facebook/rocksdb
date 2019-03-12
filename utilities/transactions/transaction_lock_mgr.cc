@@ -779,11 +779,6 @@ public:
   bool releasing_locks_;
 };
 
-
-void RangeLockMgr::KillLockWait(TransactionID txnid) {
-  ltm.kill_waiter((void*)txnid);
-}
-
 // Get a range lock on [start_key; end_key] range
 Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
                                   uint32_t column_family_id,
@@ -791,7 +786,7 @@ Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
                                   const rocksdb::Slice &end_key,
                                   bool exclusive) {
   toku::lock_request request;
-  request.create();
+  request.create(mutex_factory_);
   DBT start_key_dbt, end_key_dbt;
 
   toku_fill_dbt(&start_key_dbt, start_key.data(), start_key.size());
@@ -799,6 +794,8 @@ Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
 
   // Use the txnid as "extra" in the lock_request. Then, KillLockWait()
   // will be able to use kill_waiter(txn_id) to kill the wait if needed
+  // TODO: KillLockWait is gone and we are no longer using
+  // locktree::kill_waiter call. Do we need this anymore?
   TransactionID wait_txn_id = txn->GetID();
 
   request.set(lt, (TXNID)txn, &start_key_dbt, &end_key_dbt,
@@ -993,8 +990,10 @@ int RangeLockMgr::compare_dbt_endpoints(__toku_db*, void *arg,
 }
 
 
-RangeLockMgr::RangeLockMgr(TransactionDB* txn_db) : my_txn_db(txn_db) {
-  ltm.create(on_create, on_destroy, on_escalate, NULL);
+RangeLockMgr::RangeLockMgr(TransactionDB* txn_db,
+                           std::shared_ptr<TransactionDBMutexFactory> mutex_factory) :
+                           my_txn_db(txn_db), mutex_factory_(mutex_factory) {
+  ltm.create(on_create, on_destroy, on_escalate, NULL, mutex_factory_);
   lt= nullptr;
   cmp_initialized_= false;
 }
