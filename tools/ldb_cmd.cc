@@ -1469,7 +1469,9 @@ void DBDumperCommand::DoDumpCommand() {
   }
 
   // Setup key iterator
-  Iterator* iter = db_->NewIterator(ReadOptions(), GetCfHandle());
+  ReadOptions scan_read_opts;
+  scan_read_opts.total_order_seek = true;
+  Iterator* iter = db_->NewIterator(scan_read_opts, GetCfHandle());
   Status st = iter->status();
   if (!st.ok()) {
     exec_state_ =
@@ -2325,7 +2327,9 @@ void ScanCommand::DoCommand() {
   }
 
   int num_keys_scanned = 0;
-  Iterator* it = db_->NewIterator(ReadOptions(), GetCfHandle());
+  ReadOptions scan_read_opts;
+  scan_read_opts.total_order_seek = true;
+  Iterator* it = db_->NewIterator(scan_read_opts, GetCfHandle());
   if (start_key_specified_) {
     it->Seek(start_key_);
   } else {
