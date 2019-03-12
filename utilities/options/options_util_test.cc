@@ -137,7 +137,7 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
           auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(
               loaded_cf_descs[0].options.table_factory->GetOptions());
           // Expect the same cache will be loaded
-          assert(loaded_bbt_opt->block_cache->Name() == cache->Name());
+          assert(loaded_bbt_opt->block_cache->GetUsage() == cache->GetUsage());
     }
     ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
         cf_descs[i].options, loaded_cf_descs[i].options));
