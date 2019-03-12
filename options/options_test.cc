@@ -21,6 +21,7 @@
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "options/options_sanity_check.h"
+#include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/memtablerep.h"
@@ -1812,6 +1813,18 @@ bool IsEscapedString(const std::string& str) {
   return true;
 }
 }  // namespace
+
+TEST_F(OptionsParserTest, IntegerParsing) {
+  ASSERT_EQ(ParseUint64("18446744073709551615"), 18446744073709551615U);
+  ASSERT_EQ(ParseUint32("4294967295"), 4294967295U);
+  ASSERT_EQ(ParseSizeT("18446744073709551615"), 18446744073709551615U);
+  ASSERT_EQ(ParseInt64("9223372036854775807"), 9223372036854775807U);
+  ASSERT_EQ(ParseInt64("-9223372036854775808"), port::kMinInt64);
+  ASSERT_EQ(ParseInt32("2147483647"), 2147483647U);
+  ASSERT_EQ(ParseInt32("-2147483648"), port::kMinInt32);
+  ASSERT_EQ(ParseInt("-32767"), -32767);
+  ASSERT_EQ(ParseDouble("-1.234567"), -1.234567);
+}
 
 TEST_F(OptionsParserTest, EscapeOptionString) {
   ASSERT_EQ(UnescapeOptionString(

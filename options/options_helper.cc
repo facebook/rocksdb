@@ -454,6 +454,12 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
     case OptionType::kInt:
       *reinterpret_cast<int*>(opt_address) = ParseInt(value);
       break;
+    case OptionType::kInt32T:
+      *reinterpret_cast<int32_t*>(opt_address) = ParseInt32(value);
+      break;
+    case OptionType::kInt64T:
+      PutUnaligned(reinterpret_cast<int64_t*>(opt_address), ParseInt64(value));
+      break;
     case OptionType::kVectorInt:
       *reinterpret_cast<std::vector<int>*>(opt_address) = ParseVectorInt(value);
       break;
@@ -562,6 +568,16 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       break;
     case OptionType::kInt:
       *value = ToString(*(reinterpret_cast<const int*>(opt_address)));
+      break;
+    case OptionType::kInt32T:
+      *value = ToString(*(reinterpret_cast<const int32_t*>(opt_address)));
+      break;
+    case OptionType::kInt64T:
+      {
+        int64_t v;
+        GetUnaligned(reinterpret_cast<const int64_t*>(opt_address), &v);
+        *value = ToString(v);
+      }
       break;
     case OptionType::kVectorInt:
       return SerializeIntVector(
