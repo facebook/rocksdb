@@ -500,6 +500,16 @@ bool AreEqualOptions(
     case OptionType::kInt:
       return (*reinterpret_cast<const int*>(offset1) ==
               *reinterpret_cast<const int*>(offset2));
+    case OptionType::kInt32T:
+      return (*reinterpret_cast<const int32_t*>(offset1) ==
+              *reinterpret_cast<const int32_t*>(offset2));
+    case OptionType::kInt64T:
+      {
+        int64_t v1, v2;
+        GetUnaligned(reinterpret_cast<const int64_t*>(offset1), &v1);
+        GetUnaligned(reinterpret_cast<const int64_t*>(offset2), &v2);
+        return (v1 == v2);
+      }
     case OptionType::kVectorInt:
       return (*reinterpret_cast<const std::vector<int>*>(offset1) ==
               *reinterpret_cast<const std::vector<int>*>(offset2));
