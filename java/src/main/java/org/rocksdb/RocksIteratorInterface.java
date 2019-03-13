@@ -41,7 +41,7 @@ public interface RocksIteratorInterface {
   void seekToLast();
 
   /**
-   * <p>Position at the first entry in the source whose key is that or
+   * <p>Position at the first entry in the source whose key is at or
    * past target.</p>
    *
    * <p>The iterator is valid after this call if the source contains

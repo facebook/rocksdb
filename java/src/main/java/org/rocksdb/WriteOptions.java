@@ -90,7 +90,9 @@ public class WriteOptions extends RocksObject {
 
   /**
    * If true, writes will not first go to the write ahead log,
-   * and the write may got lost after a crash.
+   * and the write may got lost after a crash. The write may
+   * also be lost when creating database backups with the backup
+   * engine.
    *
    * @param flag a boolean flag to specify whether to disable
    *     write-ahead-log on writes.
@@ -103,7 +105,9 @@ public class WriteOptions extends RocksObject {
 
   /**
    * If true, writes will not first go to the write ahead log,
-   * and the write may got lost after a crash.
+   * and the write may got lost after a crash. The write may
+   * also be lost when creating database backups with the backup
+   * engine.
    *
    * @return boolean value indicating if WAL is disabled.
    */

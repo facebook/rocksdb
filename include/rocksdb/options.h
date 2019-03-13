@@ -1212,7 +1212,9 @@ struct WriteOptions {
   bool sync;
 
   // If true, writes will not first go to the write ahead log,
-  // and the write may got lost after a crash.
+  // and the write may get lost after a crash. The write may
+  // also be lost when creating database backups with the backup
+  // engine.
   // Default: false
   bool disableWAL;
 
