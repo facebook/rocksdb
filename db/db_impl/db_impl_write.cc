@@ -171,6 +171,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           versions_->GetColumnFamilySet());
       w.status = WriteBatchInternal::InsertInto(
           &w, w.sequence, &column_family_memtables, &flush_scheduler_,
+          &trim_history_scheduler_,
           write_options.ignore_missing_column_families, 0 /*log_number*/, this,
           true /*concurrent_memtable_writes*/, seq_per_batch_, w.batch_cnt,
           batch_per_txn_);
@@ -375,7 +376,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         // w.sequence will be set inside InsertInto
         w.status = WriteBatchInternal::InsertInto(
             write_group, current_sequence, column_family_memtables_.get(),
-            &flush_scheduler_, write_options.ignore_missing_column_families,
+            &flush_scheduler_, &trim_history_scheduler_,
+            write_options.ignore_missing_column_families,
             0 /*recovery_log_number*/, this, parallel, seq_per_batch_,
             batch_per_txn_);
       } else {
@@ -391,6 +393,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           assert(w.sequence == current_sequence);
           w.status = WriteBatchInternal::InsertInto(
               &w, w.sequence, &column_family_memtables, &flush_scheduler_,
+              &trim_history_scheduler_,
               write_options.ignore_missing_column_families, 0 /*log_number*/,
               this, true /*concurrent_memtable_writes*/, seq_per_batch_,
               w.batch_cnt, batch_per_txn_);
@@ -545,9 +548,9 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     } else {
       memtable_write_group.status = WriteBatchInternal::InsertInto(
           memtable_write_group, w.sequence, column_family_memtables_.get(),
-          &flush_scheduler_, write_options.ignore_missing_column_families,
-          0 /*log_number*/, this, false /*concurrent_memtable_writes*/,
-          seq_per_batch_, batch_per_txn_);
+          &flush_scheduler_, &trim_history_scheduler_,
+          write_options.ignore_missing_column_families, 0 /*log_number*/, this,
+          false /*concurrent_memtable_writes*/, seq_per_batch_, batch_per_txn_);
       versions_->SetLastSequence(memtable_write_group.last_sequence);
       write_thread_.ExitAsMemTableWriter(&w, memtable_write_group);
     }
@@ -559,8 +562,8 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
         versions_->GetColumnFamilySet());
     w.status = WriteBatchInternal::InsertInto(
         &w, w.sequence, &column_family_memtables, &flush_scheduler_,
-        write_options.ignore_missing_column_families, 0 /*log_number*/, this,
-        true /*concurrent_memtable_writes*/);
+        &trim_history_scheduler_, write_options.ignore_missing_column_families,
+        0 /*log_number*/, this, true /*concurrent_memtable_writes*/);
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
       MemTableInsertStatusCheck(w.status);
       versions_->SetLastSequence(w.write_group->last_sequence);
@@ -856,6 +859,10 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     status = HandleWriteBufferFull(write_context);
   }
 
+  if (UNLIKELY(status.ok() && !trim_history_scheduler_.Empty())) {
+    status = TrimMemtableHistory();
+  }
+
   if (UNLIKELY(status.ok() && !flush_scheduler_.Empty())) {
     WaitForPendingWrites();
     status = ScheduleFlushes(write_context);
@@ -1112,9 +1119,9 @@ Status DBImpl::WriteRecoverableState() {
     WriteBatchInternal::SetSequence(&cached_recoverable_state_, seq + 1);
     auto status = WriteBatchInternal::InsertInto(
         &cached_recoverable_state_, column_family_memtables_.get(),
-        &flush_scheduler_, true, 0 /*recovery_log_number*/, this,
-        false /* concurrent_memtable_writes */, &next_seq, &dont_care_bool,
-        seq_per_batch_);
+        &flush_scheduler_, &trim_history_scheduler_, true,
+        0 /*recovery_log_number*/, this, false /* concurrent_memtable_writes */,
+        &next_seq, &dont_care_bool, seq_per_batch_);
     auto last_seq = next_seq - 1;
     if (two_write_queues_) {
       versions_->FetchAddLastAllocatedSequence(last_seq - seq);
@@ -1474,6 +1481,27 @@ void DBImpl::MaybeFlushStatsCF(autovector<ColumnFamilyData*>* cfds) {
   }
 }
 
+Status DBImpl::TrimMemtableHistory() {
+  autovector<ColumnFamilyData*> cfds;
+  ColumnFamilyData* tmp_cfd;
+  while ((tmp_cfd = trim_history_scheduler_.TakeNextColumnFamily()) !=
+         nullptr) {
+    cfds.push_back(tmp_cfd);
+  }
+  for (auto& cfd : cfds) {
+    autovector<MemTable*> to_delete;
+    cfd->imm()->TrimHistory(&to_delete, cfd->mem()->ApproximateMemoryUsage());
+    for (auto m : to_delete) {
+      delete m;
+    }
+    if (cfd->Unref()) {
+      delete cfd;
+      cfd = nullptr;
+    }
+  }
+  return Status::OK();
+}
+
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
   autovector<ColumnFamilyData*> cfds;
   if (immutable_db_options_.atomic_flush) {
@@ -1679,7 +1707,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
 
   cfd->mem()->SetNextLogNumber(logfile_number_);
-  cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
+  cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_,
+                  new_mem->ApproximateMemoryUsage());
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
   InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,

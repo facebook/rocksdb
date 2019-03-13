@@ -1189,6 +1189,7 @@ class MemTableInserter : public WriteBatch::Handler {
   SequenceNumber sequence_;
   ColumnFamilyMemTables* const cf_mems_;
   FlushScheduler* const flush_scheduler_;
+  FlushScheduler* const trim_history_scheduler_;
   const bool ignore_missing_column_families_;
   const uint64_t recovering_log_number_;
   // log number that all Memtables inserted into should reference
@@ -1250,6 +1251,7 @@ class MemTableInserter : public WriteBatch::Handler {
   // cf_mems should not be shared with concurrent inserters
   MemTableInserter(SequenceNumber _sequence, ColumnFamilyMemTables* cf_mems,
                    FlushScheduler* flush_scheduler,
+                   FlushScheduler* trim_history_scheduler,
                    bool ignore_missing_column_families,
                    uint64_t recovering_log_number, DB* db,
                    bool concurrent_memtable_writes,
@@ -1258,6 +1260,7 @@ class MemTableInserter : public WriteBatch::Handler {
       : sequence_(_sequence),
         cf_mems_(cf_mems),
         flush_scheduler_(flush_scheduler),
+        trim_history_scheduler_(trim_history_scheduler),
         ignore_missing_column_families_(ignore_missing_column_families),
         recovering_log_number_(recovering_log_number),
         log_number_ref_(0),
@@ -1400,6 +1403,7 @@ class MemTableInserter : public WriteBatch::Handler {
       bool mem_res =
           mem->Add(sequence_, value_type, key, value,
                    concurrent_memtable_writes_, get_post_process_info(mem));
+
       if (UNLIKELY(!mem_res)) {
         assert(seq_per_batch_);
         ret_status = Status::TryAgain("key+seq exists");
@@ -1483,6 +1487,7 @@ class MemTableInserter : public WriteBatch::Handler {
     bool mem_res =
         mem->Add(sequence_, delete_type, key, value,
                  concurrent_memtable_writes_, get_post_process_info(mem));
+
     if (UNLIKELY(!mem_res)) {
       assert(seq_per_batch_);
       ret_status = Status::TryAgain("key+seq exists");
@@ -1751,6 +1756,22 @@ class MemTableInserter : public WriteBatch::Handler {
         flush_scheduler_->ScheduleFlush(cfd);
       }
     }
+    // check if memtable_list size exceeds max_write_buffer_size_to_maintain
+    // TODO: need to check if cfd have already been added to
+    // trim_history_scheduler_
+    if (trim_history_scheduler_ != nullptr) {
+      auto* cfd = cf_mems_->current();
+      assert(cfd != nullptr);
+      if (cfd->imm()->imm_trim_needed.load(std::memory_order_relaxed) ==
+              false &&
+          cfd->mem()->ApproximateMemoryUsage() +
+                  cfd->imm()->ApproximateMemoryUsage() >=
+              static_cast<size_t>(
+                  cfd->imm()->current()->GetMaxWriteBufferSizeToMaintain()) &&
+          cfd->imm()->MarkTrimHistoryNeeded()) {
+        trim_history_scheduler_->ScheduleFlush(cfd);
+      }
+    }
   }
 
   // The write batch handler calls MarkBeginPrepare with unprepare set to true
@@ -1908,12 +1929,14 @@ class MemTableInserter : public WriteBatch::Handler {
 Status WriteBatchInternal::InsertInto(
     WriteThread::WriteGroup& write_group, SequenceNumber sequence,
     ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
-    bool ignore_missing_column_families, uint64_t recovery_log_number, DB* db,
-    bool concurrent_memtable_writes, bool seq_per_batch, bool batch_per_txn) {
+    FlushScheduler* trim_history_scheduler, bool ignore_missing_column_families,
+    uint64_t recovery_log_number, DB* db, bool concurrent_memtable_writes,
+    bool seq_per_batch, bool batch_per_txn) {
   MemTableInserter inserter(
-      sequence, memtables, flush_scheduler, ignore_missing_column_families,
-      recovery_log_number, db, concurrent_memtable_writes,
-      nullptr /*has_valid_writes*/, seq_per_batch, batch_per_txn);
+      sequence, memtables, flush_scheduler, trim_history_scheduler,
+      ignore_missing_column_families, recovery_log_number, db,
+      concurrent_memtable_writes, nullptr /*has_valid_writes*/, seq_per_batch,
+      batch_per_txn);
   for (auto w : write_group) {
     if (w->CallbackFailed()) {
       continue;
@@ -1939,17 +1962,18 @@ Status WriteBatchInternal::InsertInto(
 Status WriteBatchInternal::InsertInto(
     WriteThread::Writer* writer, SequenceNumber sequence,
     ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
-    bool ignore_missing_column_families, uint64_t log_number, DB* db,
-    bool concurrent_memtable_writes, bool seq_per_batch, size_t batch_cnt,
-    bool batch_per_txn) {
+    FlushScheduler* trim_history_scheduler, bool ignore_missing_column_families,
+    uint64_t log_number, DB* db, bool concurrent_memtable_writes,
+    bool seq_per_batch, size_t batch_cnt, bool batch_per_txn) {
 #ifdef NDEBUG
   (void)batch_cnt;
 #endif
   assert(writer->ShouldWriteToMemtable());
   MemTableInserter inserter(
-      sequence, memtables, flush_scheduler, ignore_missing_column_families,
-      log_number, db, concurrent_memtable_writes, nullptr /*has_valid_writes*/,
-      seq_per_batch, batch_per_txn);
+      sequence, memtables, flush_scheduler, trim_history_scheduler,
+      ignore_missing_column_families, log_number, db,
+      concurrent_memtable_writes, nullptr /*has_valid_writes*/, seq_per_batch,
+      batch_per_txn);
   SetSequence(writer->batch, sequence);
   inserter.set_log_number_ref(writer->log_ref);
   Status s = writer->batch->Iterate(&inserter);
@@ -1963,11 +1987,12 @@ Status WriteBatchInternal::InsertInto(
 
 Status WriteBatchInternal::InsertInto(
     const WriteBatch* batch, ColumnFamilyMemTables* memtables,
-    FlushScheduler* flush_scheduler, bool ignore_missing_column_families,
-    uint64_t log_number, DB* db, bool concurrent_memtable_writes,
-    SequenceNumber* next_seq, bool* has_valid_writes, bool seq_per_batch,
-    bool batch_per_txn) {
+    FlushScheduler* flush_scheduler, FlushScheduler* trim_history_scheduler,
+    bool ignore_missing_column_families, uint64_t log_number, DB* db,
+    bool concurrent_memtable_writes, SequenceNumber* next_seq,
+    bool* has_valid_writes, bool seq_per_batch, bool batch_per_txn) {
   MemTableInserter inserter(Sequence(batch), memtables, flush_scheduler,
+                            trim_history_scheduler,
                             ignore_missing_column_families, log_number, db,
                             concurrent_memtable_writes, has_valid_writes,
                             seq_per_batch, batch_per_txn);

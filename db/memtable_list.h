@@ -113,6 +113,10 @@ class MemTableListVersion {
 
   uint64_t GetTotalNumDeletes() const;
 
+  int64_t GetMaxWriteBufferSizeToMaintain() const {
+    return max_write_buffer_size_to_maintain_;
+  }
+
   MemTable::MemTableStats ApproximateStats(const Slice& start_ikey,
                                            const Slice& end_ikey);
 
@@ -136,11 +140,11 @@ class MemTableListVersion {
       LogBuffer* log_buffer);
 
   // REQUIRE: m is an immutable memtable
-  void Add(MemTable* m, autovector<MemTable*>* to_delete);
+  void Add(MemTable* m, autovector<MemTable*>* to_delete, size_t usage);
   // REQUIRE: m is an immutable memtable
   void Remove(MemTable* m, autovector<MemTable*>* to_delete);
 
-  void TrimHistory(autovector<MemTable*>* to_delete);
+  void TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
 
   bool GetFromList(std::list<MemTable*>* list, const LookupKey& key,
                    std::string* value, Status* s, MergeContext* merge_context,
@@ -153,9 +157,13 @@ class MemTableListVersion {
 
   void UnrefMemTable(autovector<MemTable*>* to_delete, MemTable* m);
 
-  size_t ApproximateMemoryUsage();
+  // Calculate the total amount of memory used by memlist_ and memlist_history_
+  // excluding the last MemTable in memlist_history_. The reason for excluding
+  // the last MemTable is to see if dropping the last MemTable will keep total
+  // memory usage above or equal to max_write_buffer_size_to_maintain_
+  size_t ApproximateMemoryUsageExcludingLast();
 
-  bool MemtableLimitExceeded();
+  bool MemtableLimitExceeded(size_t usage);
 
   // Immutable MemTables that have not yet been flushed.
   std::list<MemTable*> memlist_;
@@ -193,6 +201,7 @@ class MemTableList {
                         int max_write_buffer_number_to_maintain,
                         int64_t max_write_buffer_size_to_maintain)
       : imm_flush_needed(false),
+        imm_trim_needed(false),
         min_write_buffer_number_to_merge_(min_write_buffer_number_to_merge),
         current_(new MemTableListVersion(&current_memory_usage_,
                                          max_write_buffer_number_to_maintain,
@@ -213,6 +222,8 @@ class MemTableList {
   // so that background threads can detect non-nullptr pointer to
   // determine whether there is anything more to start flushing.
   std::atomic<bool> imm_flush_needed;
+
+  std::atomic<bool> imm_trim_needed;
 
   // Returns the total number of memtables in the list that haven't yet
   // been flushed and logged.
@@ -247,10 +258,12 @@ class MemTableList {
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().
-  void Add(MemTable* m, autovector<MemTable*>* to_delete);
+  void Add(MemTable* m, autovector<MemTable*>* to_delete, size_t usage);
 
   // Returns an estimate of the number of bytes of data in use.
   size_t ApproximateMemoryUsage();
+
+  void TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
 
   // Returns an estimate of the number of bytes of data used by
   // the unflushed mem-tables.
@@ -267,6 +280,14 @@ class MemTableList {
   void FlushRequested() { flush_requested_ = true; }
 
   bool HasFlushRequested() { return flush_requested_; }
+
+  // Returns true if a flush should be scheduled and the caller should
+  // be the one to schedule it
+  bool MarkTrimHistoryNeeded() {
+    auto expected = false;
+    return imm_trim_needed.compare_exchange_strong(
+        expected, true, std::memory_order_relaxed, std::memory_order_relaxed);
+  }
 
   // Copying allowed
   // MemTableList(const MemTableList&);

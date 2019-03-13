@@ -160,7 +160,7 @@ TEST_F(FlushJobTest, NonEmpty) {
   inserted_keys.insert({internal_key.Encode().ToString(), "9999a"});
 
   autovector<MemTable*> to_delete;
-  cfd->imm()->Add(new_mem, &to_delete);
+  cfd->imm()->Add(new_mem, &to_delete, new_mem->ApproximateMemoryUsage());
   for (auto& m : to_delete) {
     delete m;
   }
@@ -221,7 +221,7 @@ TEST_F(FlushJobTest, FlushMemTablesSingleColumnFamily) {
 
   autovector<MemTable*> to_delete;
   for (auto mem : new_mems) {
-    cfd->imm()->Add(mem, &to_delete);
+    cfd->imm()->Add(mem, &to_delete, mem->ApproximateMemoryUsage());
   }
 
   EventLogger event_logger(db_options_.info_log.get());
@@ -290,7 +290,7 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
         mem->Add(curr_seqno++, kTypeValue, key, value);
       }
 
-      cfd->imm()->Add(mem, &to_delete);
+      cfd->imm()->Add(mem, &to_delete, mem->ApproximateMemoryUsage());
     }
     largest_seqs.push_back(curr_seqno - 1);
     memtable_ids.push_back(num_memtables[k++] - 1);
@@ -411,7 +411,7 @@ TEST_F(FlushJobTest, Snapshots) {
   }
 
   autovector<MemTable*> to_delete;
-  cfd->imm()->Add(new_mem, &to_delete);
+  cfd->imm()->Add(new_mem, &to_delete, new_mem->ApproximateMemoryUsage());
   for (auto& m : to_delete) {
     delete m;
   }

@@ -240,11 +240,12 @@ SequenceNumber MemTableListVersion::GetEarliestSequenceNumber(
 }
 
 // caller is responsible for referencing m
-void MemTableListVersion::Add(MemTable* m, autovector<MemTable*>* to_delete) {
+void MemTableListVersion::Add(MemTable* m, autovector<MemTable*>* to_delete,
+                              size_t usage) {
   assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable
   AddMemTable(m);
 
-  TrimHistory(to_delete);
+  TrimHistory(to_delete, usage);
 }
 
 // Removes m from list of memtables not flushed.  Caller should NOT Unref m.
@@ -257,14 +258,14 @@ void MemTableListVersion::Remove(MemTable* m,
   if (max_write_buffer_size_to_maintain_ > 0 ||
       max_write_buffer_number_to_maintain_ > 0) {
     memlist_history_.push_front(m);
-    TrimHistory(to_delete);
+    TrimHistory(to_delete, 0);
   } else {
     UnrefMemTable(to_delete, m);
   }
 }
 
-size_t MemTableListVersion::ApproximateMemoryUsage() {
-  // use *parent_memtable_list_memory_usage_ instead?
+// return the total memory usage assuming the oldest flushed memtable is dropped
+size_t MemTableListVersion::ApproximateMemoryUsageExcludingLast() {
   size_t total_memtable_size = 0;
   for (auto& memtable : memlist_) {
     total_memtable_size += memtable->ApproximateMemoryUsage();
@@ -272,13 +273,19 @@ size_t MemTableListVersion::ApproximateMemoryUsage() {
   for (auto& memtable : memlist_history_) {
     total_memtable_size += memtable->ApproximateMemoryUsage();
   }
+  if (!memlist_history_.empty()) {
+    total_memtable_size -= memlist_history_.back()->ApproximateMemoryUsage();
+  }
   return total_memtable_size;
 }
 
-bool MemTableListVersion::MemtableLimitExceeded() {
+bool MemTableListVersion::MemtableLimitExceeded(size_t usage) {
   if (max_write_buffer_size_to_maintain_ > 0) {
-    return static_cast<int64_t>(ApproximateMemoryUsage()) >
-           static_cast<int64_t>(max_write_buffer_size_to_maintain_);
+    // calculate the total memory usage after dropping the oldest flushed
+    // memtable, compare with max_write_buffer_size_to_maintain_ to decide
+    // whether to trim history
+    return ApproximateMemoryUsageExcludingLast() + usage >=
+           static_cast<size_t>(max_write_buffer_size_to_maintain_);
   } else if (max_write_buffer_number_to_maintain_ > 0) {
     return memlist_.size() + memlist_history_.size() >
            static_cast<size_t>(max_write_buffer_number_to_maintain_);
@@ -288,8 +295,9 @@ bool MemTableListVersion::MemtableLimitExceeded() {
 }
 
 // Make sure we don't use up too much space in history
-void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete) {
-  while (MemtableLimitExceeded() && !memlist_history_.empty()) {
+void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete,
+                                      size_t usage) {
+  while (MemtableLimitExceeded(usage) && !memlist_history_.empty()) {
     MemTable* x = memlist_history_.back();
     memlist_history_.pop_back();
 
@@ -496,7 +504,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
 }
 
 // New memtables are inserted at the front of the list.
-void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
+void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete,
+                       size_t usage) {
   assert(static_cast<int>(current_->memlist_.size()) >= num_flush_not_started_);
   InstallNewVersion();
   // this method is used to move mutable memtable into an immutable list.
@@ -504,12 +513,16 @@ void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
   // and when moving to the imutable list we don't unref it,
   // we don't have to ref the memtable here. we just take over the
   // reference from the DBImpl.
-  current_->Add(m, to_delete);
+  current_->Add(m, to_delete, usage);
   m->MarkImmutable();
   num_flush_not_started_++;
   if (num_flush_not_started_ == 1) {
     imm_flush_needed.store(true, std::memory_order_release);
   }
+}
+
+void MemTableList::TrimHistory(autovector<MemTable*>* to_delete, size_t usage) {
+  current_->TrimHistory(to_delete, usage);
 }
 
 // Returns an estimate of the number of bytes of data in use.

@@ -284,6 +284,8 @@ TEST_F(DeleteFileTest, BackgroundPurgeIteratorTest) {
 TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
   auto do_test = [&](bool bg_purge) {
     ColumnFamilyOptions co;
+    co.max_write_buffer_size_to_maintain =
+        static_cast<int64_t>(co.write_buffer_size);
     WriteOptions wo;
     FlushOptions fo;
     ColumnFamilyHandle* cfh = nullptr;

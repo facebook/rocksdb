@@ -161,8 +161,7 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log, "    Options.max_write_buffer_number_to_maintain: %d",
                      max_write_buffer_number_to_maintain);
     ROCKS_LOG_HEADER(log,
-                     "    Options.max_write_buffer_size_to_maintain: "
-                     "%" ROCKSDB_PRIszt,
+                     "    Options.max_write_buffer_size_to_maintain: %" PRIu64,
                      max_write_buffer_size_to_maintain);
     ROCKS_LOG_HEADER(
         log, "           Options.bottommost_compression_opts.window_bits: %d",

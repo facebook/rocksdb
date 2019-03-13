@@ -1355,6 +1355,8 @@ class DBImpl : public DB {
 
   void MaybeFlushStatsCF(autovector<ColumnFamilyData*>* cfds);
 
+  Status TrimMemtableHistory();
+
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
   void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds);
@@ -1732,6 +1734,8 @@ class DBImpl : public DB {
   uint64_t last_batch_group_size_;
 
   FlushScheduler flush_scheduler_;
+
+  FlushScheduler trim_history_scheduler_;
 
   SnapshotList snapshots_;
 
