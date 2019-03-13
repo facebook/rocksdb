@@ -66,6 +66,7 @@ class TestWritableFile : public WritableFile {
   virtual Status Close() override;
   virtual Status Flush() override;
   virtual Status Sync() override;
+  virtual Status RangeSync(uint64_t offset, uint64_t nbytes) override;
   virtual bool IsSyncThreadSafe() const override { return true; }
   virtual Status PositionedAppend(const Slice& data,
                                   uint64_t offset) override {
