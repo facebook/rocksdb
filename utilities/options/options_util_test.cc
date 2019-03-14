@@ -131,9 +131,6 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
 
   for (size_t i = 0; i < loaded_cf_descs.size(); ++i) {
     if (IsBlockBasedTableFactory(cf_descs[i].options.table_factory.get())) {
-      ASSERT_OK(RocksDBOptionsParser::VerifyTableFactory(
-          cf_descs[i].options.table_factory.get(),
-          loaded_cf_descs[i].options.table_factory.get()));
           auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(
               loaded_cf_descs[0].options.table_factory->GetOptions());
           // Expect the same cache will be loaded
