@@ -158,16 +158,6 @@ Status TestWritableFile::Sync() {
   return Status::OK();
 }
 
-Status TestWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
-  if (!env_->IsFilesystemActive()) {
-    return Status::IOError("FaultInjectionTestEnv: not active");
-  }
-  // No need to actual sync.
-  state_.pos_at_last_sync_ = offset + nbytes;
-  env_->WritableFileSynced(state_);
-  return Status::OK();
-}
-
 Status FaultInjectionTestEnv::NewDirectory(const std::string& name,
                                            std::unique_ptr<Directory>* result) {
   std::unique_ptr<Directory> r;
