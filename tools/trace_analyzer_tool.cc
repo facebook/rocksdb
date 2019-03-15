@@ -79,7 +79,7 @@ DEFINE_bool(output_time_series, false,
             "File name: <prefix>-<query_type>-<cf_id>-time_series.txt\n"
             "Format:[type_id time_in_sec access_keyid].");
 DEFINE_bool(try_process_corrupted_trace, false,
-            "In default, trace_analyzer will exist if the trace file is "
+            "In default, trace_analyzer will exit if the trace file is "
             "corrupted due to the unexpected tracing cases. If this option "
             "is enabled, trace_analyzer will stop reading the trace file, "
             "and start analyzing the read-in data.");
