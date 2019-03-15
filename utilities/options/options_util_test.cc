@@ -95,49 +95,38 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
 }
 
 TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
-
+  //creating db
   DBOptions db_opt;
   db_opt.create_if_missing = true;
-
-  std::vector<ColumnFamilyDescriptor> cf_descs;
-  cf_descs.push_back({kDefaultColumnFamilyName, ColumnFamilyOptions()});
-  cf_descs.push_back({"new_cf", ColumnFamilyOptions()});
 
   // initialize BlockBasedTableOptions
   std::shared_ptr<Cache> cache = NewLRUCache(1 * 1024 * 1024 * 1024);
   BlockBasedTableOptions bbt_opts;
   bbt_opts.block_size = 32 * 1024;
-
-  cf_descs[0].options.table_factory.reset(NewBlockBasedTableFactory(bbt_opts));
-  cf_descs[1].options.table_factory.reset(NewBlockBasedTableFactory(bbt_opts));
-
-  DB* db;
-  Status s = DestroyDB("rocksdb_options_file_example", Options(db_opt, cf_descs[0].options));
-  s = DB::Open(Options(db_opt, cf_descs[0].options), "rocksdb_options_file_example", &db);
-  ColumnFamilyHandle* cf;
-  s = db->CreateColumnFamily(ColumnFamilyOptions(), "new_cf", &cf);
-  assert(s.ok());
-
-  // close DB
-  delete cf;
-  delete db;
-
+  //saving cf options
+  std::vector<ColumnFamilyOptions> cf_opts;
+  ColumnFamilyOptions cf_opt_sample = ColumnFamilyOptions();
+  cf_opt_sample.table_factory.reset(NewBlockBasedTableFactory(bbt_opts));
+  cf_opts.push_back(cf_opt_sample);
+  std::vector<std::string> cf_names;
+  cf_names.push_back("cf");
+  //Saving DB in file
+  PersistRocksDBOptions(db_opt, cf_names, cf_opts, "rocksdb_options_file_example", env_.get());
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
-  s = LoadLatestOptions("rocksdb_options_file_example", Env::Default(), &loaded_db_opt,
+  Status s = LoadLatestOptions("rocksdb_options_file_example", Env::Default(), &loaded_db_opt,
                         &loaded_cf_descs,false,&cache);
   assert(s.ok());
   assert(loaded_db_opt.create_if_missing == db_opt.create_if_missing);
 
-  for (size_t i = 0; i < loaded_cf_descs.size(); ++i) {
-    if (IsBlockBasedTableFactory(cf_descs[i].options.table_factory.get())) {
-          auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(
+  if (IsBlockBasedTableFactory(cf_opts[0].table_factory.get())) {
+    ASSERT_OK(RocksDBOptionsParser::VerifyTableFactory(
+    cf_opts[0].table_factory.get(),
+    loaded_cf_descs[0].options.table_factory.get()));
+    auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(
               loaded_cf_descs[0].options.table_factory->GetOptions());
-          // Expect the same cache will be loaded
-          assert(loaded_bbt_opt->block_cache->GetUsage() == cache->GetUsage());
-    }
-    ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
-        cf_descs[i].options, loaded_cf_descs[i].options));
+    // Expect the same cache will be loaded
+    assert(loaded_bbt_opt->block_cache.get() == cache.get());
   }
 }
 
