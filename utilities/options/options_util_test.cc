@@ -100,34 +100,35 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   db_opt.create_if_missing = true;
 
   // initialize BlockBasedTableOptions
-  std::shared_ptr<Cache> cache = NewLRUCache(1 * 1024 * 1024 * 1024);
+  std::shared_ptr<Cache> cache = NewLRUCache(1 * 1024);
   BlockBasedTableOptions bbt_opts;
   bbt_opts.block_size = 32 * 1024;
   //saving cf options
   std::vector<ColumnFamilyOptions> cf_opts;
-  ColumnFamilyOptions cf_opt_sample = ColumnFamilyOptions();
-  cf_opt_sample.table_factory.reset(NewBlockBasedTableFactory(bbt_opts));
-  cf_opts.push_back(cf_opt_sample);
+  ColumnFamilyOptions cf_opt_sample1 = ColumnFamilyOptions();
+  cf_opt_sample1.table_factory.reset(NewBlockBasedTableFactory(bbt_opts));
+  cf_opts.push_back(cf_opt_sample1);
+  ColumnFamilyOptions cf_opt_sample2 = ColumnFamilyOptions();
+  cf_opt_sample2.table_factory.reset(NewBlockBasedTableFactory(bbt_opts));
+  cf_opts.push_back(cf_opt_sample2);
+
   std::vector<std::string> cf_names;
-  cf_names.push_back("cf");
+  cf_names.push_back("cf_sample1");
+  cf_names.push_back("cf_sample2");
   //Saving DB in file
   PersistRocksDBOptions(db_opt, cf_names, cf_opts, "rocksdb_options_file_example", env_.get());
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
   Status s = LoadLatestOptions("rocksdb_options_file_example", Env::Default(), &loaded_db_opt,
                         &loaded_cf_descs,false,&cache);
-  assert(s.ok());
-  assert(loaded_db_opt.create_if_missing == db_opt.create_if_missing);
-
-  if (IsBlockBasedTableFactory(cf_opts[0].table_factory.get())) {
-    ASSERT_OK(RocksDBOptionsParser::VerifyTableFactory(
-    cf_opts[0].table_factory.get(),
-    loaded_cf_descs[0].options.table_factory.get()));
+  for (size_t i = 0; i < 1; i++) {
+    if (IsBlockBasedTableFactory(cf_opts[i].table_factory.get())) {
     auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(
-              loaded_cf_descs[0].options.table_factory->GetOptions());
+              loaded_cf_descs[i].options.table_factory->GetOptions());
     // Expect the same cache will be loaded
-    assert(loaded_bbt_opt->block_cache.get() == cache.get());
+    ASSERT_EQ(loaded_bbt_opt->block_cache.get(), cache.get());
   }
+}
 }
 
 namespace {

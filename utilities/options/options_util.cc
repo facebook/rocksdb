@@ -29,14 +29,13 @@ Status LoadOptionsFromFile(const std::string& file_name, Env* env,
 
   for (size_t i = 0; i < cf_opts.size(); ++i) {
     cf_descs->push_back({cf_names[i], cf_opts[i]});
-    auto options = cf_descs->at(i).options;
-    TableFactory*  tf = options.table_factory.get();
+    if(cache != nullptr){
+    TableFactory*  tf = cf_opts[i].table_factory.get();
     if(tf!=nullptr && tf->GetOptions()!=nullptr){
         auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(tf->GetOptions());
-        if(cache != nullptr){
-          loaded_bbt_opt->block_cache = *cache;
-          }
+        loaded_bbt_opt->block_cache = *cache;
         }
+      }
     }
   return Status::OK();
 }
