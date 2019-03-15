@@ -844,6 +844,9 @@ Status AwsEnv::GetChildrenFromS3(const std::string& path,
 
   // S3 paths don't start with '/'
   auto prefix = ltrim_if(path, '/');
+  // S3 paths better end with '/', otherwise we might also get a list of files
+  // in a directory for which our path is a prefix
+  prefix = ensure_ends_with_pathsep(std::move(prefix));
   // the starting object marker
   Aws::String marker;
   bool loop = true;
@@ -884,7 +887,7 @@ Status AwsEnv::GetChildrenFromS3(const std::string& path,
       if (keystr.find(prefix) != 0) {
         return Status::IOError("Unexpected result from AWS S3: " + keystr);
       }
-      auto fname = ltrim_if(keystr.substr(prefix.size()), '/');
+      auto fname = keystr.substr(prefix.size());
       result->push_back(fname);
     }
 
