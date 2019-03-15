@@ -813,6 +813,77 @@ TEST_F(PerfContextTest, PerfContextByLevelGetSet) {
   ASSERT_NE(std::string::npos,
             zero_excluded.find("block_cache_miss_count = 4@level1, 2@level3"));
 }
+
+TEST_F(PerfContextTest, CPUTimer) {
+  DestroyDB(kDbName, Options());
+  auto db = OpenDb();
+  WriteOptions write_options;
+  ReadOptions read_options;
+  SetPerfLevel(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
+
+  for (int i = 0; i < FLAGS_total_keys; ++i) {
+    std::string key = "k" + ToString(i);
+    std::string value = "v" + ToString(i);
+
+    db->Put(write_options, key, value);
+  }
+
+  {
+    // Get
+    get_perf_context()->Reset();
+    std::string value;
+    ASSERT_OK(db->Get(read_options, "k0", &value));
+    ASSERT_EQ(value, "v0");
+
+    if (FLAGS_verbose) {
+      std::cout << "Get CPU time nanos: " << get_perf_context()->get_cpu_nanos << "ns\n";
+    }
+
+    // Iter
+    std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
+    std::string key = "k" + ToString(FLAGS_total_keys - 1);
+
+    // Seek
+    get_perf_context()->Reset();
+    iter->Seek(key);
+
+    if (FLAGS_verbose) {
+      std::cout << "Iter Seek CPU time nanos: " << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
+    }
+
+    // SeekToFirst
+    get_perf_context()->Reset();
+    iter->SeekToFirst();
+
+    if (FLAGS_verbose) {
+      std::cout << "Iter SeekToFirst CPU time nanos: " << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
+    }
+
+    // SeekToLast
+    get_perf_context()->Reset();
+    iter->SeekToLast();
+
+    if (FLAGS_verbose) {
+      std::cout << "Iter SeekToLast CPU time nanos: " << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
+    }
+
+    // SeekForPrev
+    get_perf_context()->Reset();
+    iter->SeekForPrev(key);
+
+    if (FLAGS_verbose) {
+      std::cout << "Iter SeekForPrev CPU time nanos: " << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
+    }
+
+    // Next
+    get_perf_context()->Reset();
+    iter->Next();
+
+    if (FLAGS_verbose) {
+      std::cout << "Iter Next CPU time nanos: " << get_perf_context()->iter_next_cpu_nanos << "ns\n";
+    }
+  }
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
