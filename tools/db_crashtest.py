@@ -48,6 +48,7 @@ default_params = {
     "prefixpercent": 5,
     "progress_reports": 0,
     "readpercent": 45,
+    "recycle_log_file_num": lambda: random.randint(0, 1),
     "reopen": 20,
     "snapshot_hold_ops": 100000,
     "subcompactions": lambda: random.randint(1, 4),

@@ -379,6 +379,9 @@ extern std::vector<std::string> rocksdb_kill_prefix_blacklist;
 
 DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
 
+DEFINE_uint64(recycle_log_file_num, rocksdb::Options().recycle_log_file_num,
+              "Number of old WAL files to keep around for later recycling");
+
 DEFINE_int64(target_file_size_base, rocksdb::Options().target_file_size_base,
              "Target level-1 file size for compaction");
 
@@ -2605,6 +2608,8 @@ class StressTest {
       options_.use_direct_reads = FLAGS_use_direct_reads;
       options_.use_direct_io_for_flush_and_compaction =
           FLAGS_use_direct_io_for_flush_and_compaction;
+      options_.recycle_log_file_num =
+          static_cast<size_t>(FLAGS_recycle_log_file_num);
       options_.target_file_size_base = FLAGS_target_file_size_base;
       options_.target_file_size_multiplier = FLAGS_target_file_size_multiplier;
       options_.max_bytes_for_level_base = FLAGS_max_bytes_for_level_base;
