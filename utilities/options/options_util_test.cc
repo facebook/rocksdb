@@ -116,9 +116,6 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
   Status s = LoadLatestOptions("rocksdb_options_file_example", Env::Default(), &loaded_db_opt,
                         &loaded_cf_descs,false,&cache);
-  assert(s.ok());
-  assert(loaded_db_opt.create_if_missing == db_opt.create_if_missing);
-
   if (IsBlockBasedTableFactory(cf_opts[0].table_factory.get())) {
     ASSERT_OK(RocksDBOptionsParser::VerifyTableFactory(
     cf_opts[0].table_factory.get(),
