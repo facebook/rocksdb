@@ -140,6 +140,32 @@ TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
   Close();
 }
 
+TEST_P(DBWriteTest, IOErrorOnSwitchMemtable) {
+  Random rnd(301);
+  std::unique_ptr<FaultInjectionTestEnv> mock_env(
+      new FaultInjectionTestEnv(Env::Default()));
+  Options options = GetOptions();
+  options.env = mock_env.get();
+  options.writable_file_max_buffer_size = 4 * 1024 * 1024;
+  options.write_buffer_size = 3 * 512 * 1024;
+  options.wal_bytes_per_sync = 256 * 1024;
+  options.manual_wal_flush = true;
+  Reopen(options);
+  mock_env->SetFilesystemActive(false, Status::IOError("Not active"));
+  Status s;
+  for (int i = 0; i < 4 * 512; ++i) {
+    s = Put(Key(i), RandomString(&rnd, 1024));
+    if (!s.ok()) {
+      break;
+    }
+  }
+  ASSERT_EQ(s.severity(), Status::Severity::kFatalError);
+
+  mock_env->SetFilesystemActive(true);
+  // Close before mock_env destruct.
+  Close();
+}
+
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
                         testing::Values(DBTestBase::kDefault,
                                         DBTestBase::kConcurrentWALWrites,
