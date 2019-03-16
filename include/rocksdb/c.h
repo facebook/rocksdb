@@ -1543,6 +1543,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_transaction_merge(
     rocksdb_transaction_t* txn, const char* key, size_t klen, const char* val,
     size_t vlen, char** errptr);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_transaction_merge_cf(
+    rocksdb_transaction_t* txn, rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t klen, const char* val, size_t vlen, char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_merge(
     rocksdb_transactiondb_t* txn_db, const rocksdb_writeoptions_t* options,
     const char* key, size_t klen, const char* val, size_t vlen, char** errptr);
