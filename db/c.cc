@@ -3822,6 +3822,29 @@ char* rocksdb_transaction_get_for_update(rocksdb_transaction_t* txn,
   return result;
 }
 
+char* rocksdb_transaction_get_for_update_cf(rocksdb_transaction_t* txn,
+                                            const rocksdb_readoptions_t* options,
+                                            rocksdb_column_family_handle_t* column_family,
+                                            const char* key, size_t klen,
+                                            size_t* vlen, unsigned char exclusive,
+                                            char** errptr) {
+  char* result = nullptr;
+  std::string tmp;
+  Status s =
+      txn->rep->GetForUpdate(options->rep, column_family->rep,
+                             Slice(key, klen), &tmp, exclusive);
+  if (s.ok()) {
+    *vlen = tmp.size();
+    result = CopyString(tmp);
+  } else {
+    *vlen = 0;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+  }
+  return result;
+}
+
 // Read a key outside a transaction
 char* rocksdb_transactiondb_get(
     rocksdb_transactiondb_t* txn_db,

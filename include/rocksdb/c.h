@@ -1504,6 +1504,11 @@ extern ROCKSDB_LIBRARY_API char* rocksdb_transaction_get_for_update(
     const char* key, size_t klen, size_t* vlen, unsigned char exclusive,
     char** errptr);
 
+char* rocksdb_transaction_get_for_update_cf(
+    rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t klen, size_t* vlen, unsigned char exclusive, char** errptr);
+
 extern ROCKSDB_LIBRARY_API char* rocksdb_transactiondb_get(
     rocksdb_transactiondb_t* txn_db, const rocksdb_readoptions_t* options,
     const char* key, size_t klen, size_t* vlen, char** errptr);
