@@ -3985,6 +3985,15 @@ void rocksdb_transactiondb_merge(rocksdb_transactiondb_t* txn_db,
                                        Slice(val, vlen)));
 }
 
+void rocksdb_transactiondb_merge_cf(rocksdb_transactiondb_t* txn_db,
+                                    const rocksdb_writeoptions_t* options,
+                                    rocksdb_column_family_handle_t* column_family,
+                                    const char* key, size_t klen, const char* val,
+                                    size_t vlen, char** errptr) {
+  SaveError(errptr, txn_db->rep->Merge(options->rep, column_family->rep,
+                                       Slice(key, klen), Slice(val, vlen)));
+}
+
 // Delete a key inside a transaction
 void rocksdb_transaction_delete(rocksdb_transaction_t* txn, const char* key,
                                 size_t klen, char** errptr) {
