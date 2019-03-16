@@ -4037,6 +4037,14 @@ rocksdb_iterator_t* rocksdb_transactiondb_create_iterator(
   return result;
 }
 
+rocksdb_iterator_t* rocksdb_transactiondb_create_iterator_cf(
+    rocksdb_transactiondb_t* txn_db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family) {
+  rocksdb_iterator_t* result = new rocksdb_iterator_t;
+  result->rep = txn_db->rep->NewIterator(options->rep, column_family->rep);
+  return result;
+}
+
 void rocksdb_transactiondb_close(rocksdb_transactiondb_t* txn_db) {
   delete txn_db->rep;
   delete txn_db;

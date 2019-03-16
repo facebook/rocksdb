@@ -1587,6 +1587,11 @@ extern ROCKSDB_LIBRARY_API rocksdb_iterator_t*
 rocksdb_transactiondb_create_iterator(rocksdb_transactiondb_t* txn_db,
                                       const rocksdb_readoptions_t* options);
 
+extern ROCKSDB_LIBRARY_API rocksdb_iterator_t*
+rocksdb_transactiondb_create_iterator_cf(
+    rocksdb_transactiondb_t* txn_db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_close(
     rocksdb_transactiondb_t* txn_db);
 
