@@ -78,6 +78,12 @@ class Comparator {
   // The major use case is to determine if DataBlockHashIndex is compatible
   // with the customized comparator.
   virtual bool CanKeysWithDifferentByteContentsBeEqual() const { return true; }
+
+  virtual size_t TimestampSize() const { return 0; }
+
+  virtual int CompareWithoutTimestamp(const Slice& a, const Slice& b) const {
+    return Compare(a, b);
+  }
 };
 
 // Return a builtin comparator that uses lexicographic byte-wise
