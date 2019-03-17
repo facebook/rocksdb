@@ -1376,6 +1376,15 @@ ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value) {
+  if (read_options.timestamp != nullptr) {
+    Slice akey;
+    std::string buf;
+    Status s = AppendTimestamp(key, *(read_options.timestamp), &akey, &buf);
+    if (s.ok()) {
+      s = GetImpl(read_options, column_family, akey, value);
+    }
+    return s;
+  }
   return GetImpl(read_options, column_family, key, value);
 }
 
