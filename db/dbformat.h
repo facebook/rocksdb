@@ -151,6 +151,17 @@ inline Slice ExtractUserKey(const Slice& internal_key) {
   return Slice(internal_key.data(), internal_key.size() - 8);
 }
 
+inline Slice ExtractUserKeyAndStripTimestamp(const Slice& internal_key,
+                                             size_t ts_sz) {
+  assert(internal_key.size() >= 8 + ts_sz);
+  return Slice(internal_key.data(), internal_key.size() - 8 - ts_sz);
+}
+
+inline Slice StripTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
+  assert(user_key.size() >= ts_sz);
+  return Slice(user_key.data(), user_key.size() - ts_sz);
+}
+
 inline uint64_t ExtractInternalKeyFooter(const Slice& internal_key) {
   assert(internal_key.size() >= 8);
   const size_t n = internal_key.size();
