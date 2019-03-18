@@ -1317,7 +1317,10 @@ class DBBasicTestWithTimestampWithParam
       }
       Slice t1 = Slice(a.data() + a.size() - timestamp_size_, timestamp_size_);
       Slice t2 = Slice(b.data() + b.size() - timestamp_size_, timestamp_size_);
-      uint64_t low1, low2, high1, high2;
+      uint64_t low1 = 0;
+      uint64_t low2 = 0;
+      uint64_t high1 = 0;
+      uint64_t high2 = 0;
       if (!GetFixed64(&t1, &low1) || !GetFixed64(&t1, &high1) ||
           !GetFixed64(&t2, &low2) || !GetFixed64(&t2, &high2)) {
         assert(false);
