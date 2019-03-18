@@ -972,6 +972,13 @@ class DBImpl : public DB {
     SuperVersionContext* superversion_context_;
   };
 
+  // Argument passed to flush thread.
+  struct FlushThreadArg {
+    DBImpl* db_;
+
+    Env::Priority thread_pri_;
+  };
+
   // Flush the memtables of (multiple) column families to multiple files on
   // persistent storage.
   Status FlushMemTablesToOutputFiles(
@@ -1123,7 +1130,7 @@ class DBImpl : public DB {
   // Runs a pre-chosen universal compaction involving bottom level in a
   // separate, bottom-pri thread pool.
   static void BGWorkBottomCompaction(void* arg);
-  static void BGWorkFlush(void* db);
+  static void BGWorkFlush(void* arg);
   static void BGWorkPurge(void* arg);
   static void UnscheduleCallback(void* arg);
   void BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,

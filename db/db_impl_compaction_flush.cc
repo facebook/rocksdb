@@ -1789,7 +1789,10 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   while (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
          bg_flush_scheduled_ < bg_job_limits.max_flushes) {
     bg_flush_scheduled_++;
-    env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
+    FlushThreadArg* fta = new FlushThreadArg;
+    fta->db_ = this;
+    fta->thread_pri_ = Env::Priority::HIGH;
+    env_->Schedule(&DBImpl::BGWorkFlush, fta, Env::Priority::HIGH, this);
   }
 
   // special case -- if high-pri (flush) thread pool is empty, then schedule
@@ -1799,7 +1802,10 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
            bg_flush_scheduled_ + bg_compaction_scheduled_ <
                bg_job_limits.max_flushes) {
       bg_flush_scheduled_++;
-      env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
+      FlushThreadArg* fta = new FlushThreadArg;
+      fta->db_ = this;
+      fta->thread_pri_ = Env::Priority::LOW;
+      env_->Schedule(&DBImpl::BGWorkFlush, fta, Env::Priority::LOW, this);
     }
   }
 
@@ -1944,10 +1950,13 @@ void DBImpl::SchedulePendingPurge(std::string fname, std::string dir_to_sync,
   purge_queue_.push_back(std::move(file_info));
 }
 
-void DBImpl::BGWorkFlush(void* db) {
-  IOSTATS_SET_THREAD_POOL_ID(Env::Priority::HIGH);
+void DBImpl::BGWorkFlush(void* arg) {
+  FlushThreadArg fta = *(reinterpret_cast<FlushThreadArg*>(arg));
+  delete reinterpret_cast<FlushThreadArg*>(arg);
+
+  IOSTATS_SET_THREAD_POOL_ID(fta.thread_pri_);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush");
-  reinterpret_cast<DBImpl*>(db)->BackgroundCallFlush(Env::Priority::HIGH);
+  reinterpret_cast<DBImpl*>(fta.db_)->BackgroundCallFlush(fta.thread_pri_);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush:done");
 }
 
@@ -2151,7 +2160,7 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
 }
 
 void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
-                                      Env::Priority thread_pri) {
+                                      Env::Priority bg_thread_pri) {
   bool made_progress = false;
   JobContext job_context(next_job_id_.fetch_add(1), true);
   TEST_SYNC_POINT("BackgroundCallCompaction:0");
@@ -2169,11 +2178,11 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     auto pending_outputs_inserted_elem =
         CaptureCurrentFileNumberInPendingOutputs();
 
-    assert((thread_pri == Env::Priority::BOTTOM &&
+    assert((bg_thread_pri == Env::Priority::BOTTOM &&
             bg_bottom_compaction_scheduled_) ||
-           (thread_pri == Env::Priority::LOW && bg_compaction_scheduled_));
+           (bg_thread_pri == Env::Priority::LOW && bg_compaction_scheduled_));
     Status s = BackgroundCompaction(&made_progress, &job_context, &log_buffer,
-                                    prepicked_compaction, thread_pri);
+                                    prepicked_compaction, bg_thread_pri);
     TEST_SYNC_POINT("BackgroundCallCompaction:1");
     if (s.IsBusy()) {
       bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
@@ -2227,10 +2236,10 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 
     assert(num_running_compactions_ > 0);
     num_running_compactions_--;
-    if (thread_pri == Env::Priority::LOW) {
+    if (bg_thread_pri == Env::Priority::LOW) {
       bg_compaction_scheduled_--;
     } else {
-      assert(thread_pri == Env::Priority::BOTTOM);
+      assert(bg_thread_pri == Env::Priority::BOTTOM);
       bg_bottom_compaction_scheduled_--;
     }
 
