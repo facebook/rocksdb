@@ -333,17 +333,24 @@ class CompressionInfo {
   const CompressionContext& context_;
   const CompressionDict& dict_;
   const CompressionType type_;
+  const uint64_t sample_for_compression_;
 
  public:
   CompressionInfo(const CompressionOptions& _opts,
                   const CompressionContext& _context,
-                  const CompressionDict& _dict, CompressionType _type)
-      : opts_(_opts), context_(_context), dict_(_dict), type_(_type) {}
+                  const CompressionDict& _dict, CompressionType _type,
+                  uint64_t _sample_for_compression)
+      : opts_(_opts),
+        context_(_context),
+        dict_(_dict),
+        type_(_type),
+        sample_for_compression_(_sample_for_compression) {}
 
   const CompressionOptions& options() const { return opts_; }
   const CompressionContext& context() const { return context_; }
   const CompressionDict& dict() const { return dict_; }
   CompressionType type() const { return type_; }
+  uint64_t SampleForCompression() const { return sample_for_compression_; }
 };
 
 class UncompressionContext {

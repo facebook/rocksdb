@@ -328,9 +328,9 @@ class TableConstructor: public Constructor {
     builder.reset(ioptions.table_factory->NewTableBuilder(
         TableBuilderOptions(ioptions, moptions, internal_comparator,
                             &int_tbl_prop_collector_factories,
-                            options.compression, CompressionOptions(),
-                            false /* skip_filters */, column_family_name,
-                            level_),
+                            options.compression, options.sample_for_compression,
+                            CompressionOptions(), false /* skip_filters */,
+                            column_family_name, level_),
         TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
         file_writer_.get()));
 
@@ -2627,10 +2627,10 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   std::string column_family_name;
   int unknown_level = -1;
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
-      TableBuilderOptions(ioptions, moptions, ikc,
-                          &int_tbl_prop_collector_factories, kNoCompression,
-                          CompressionOptions(), false /* skip_filters */,
-                          column_family_name, unknown_level),
+      TableBuilderOptions(
+          ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
+          kNoCompression, 0 /* sample_for_compression */, CompressionOptions(),
+          false /* skip_filters */, column_family_name, unknown_level),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 
@@ -3256,8 +3256,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, ikc,
                           &int_tbl_prop_collector_factories, kNoCompression,
-                          CompressionOptions(), false /* skip_filters */,
-                          column_family_name, -1),
+                          0 /* sample_for_compression */, CompressionOptions(),
+                          false /* skip_filters */, column_family_name, -1),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 
@@ -3436,8 +3436,8 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, ikc,
                           &int_tbl_prop_collector_factories, kNoCompression,
-                          CompressionOptions(), false /* skip_filters */,
-                          column_family_name, -1),
+                          0 /* sample_for_compression */, CompressionOptions(),
+                          false /* skip_filters */, column_family_name, -1),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 
@@ -3529,8 +3529,8 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
   std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, ikc,
                           &int_tbl_prop_collector_factories, kNoCompression,
-                          CompressionOptions(), false /* skip_filters */,
-                          column_family_name, -1),
+                          0 /* sample_for_compression */, CompressionOptions(),
+                          false /* skip_filters */, column_family_name, -1),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 

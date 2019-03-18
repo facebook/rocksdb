@@ -27,6 +27,10 @@ class IntTblPropCollector {
   virtual Status InternalAdd(const Slice& key, const Slice& value,
                              uint64_t file_size) = 0;
 
+  virtual void BlockAdd(uint64_t blockRawBytes,
+                        uint64_t blockCompressedBytesFast,
+                        uint64_t blockCompressedBytesSlow) = 0;
+
   virtual UserCollectedProperties GetReadableProperties() const = 0;
 
   virtual bool NeedCompact() const { return false; }
@@ -59,6 +63,10 @@ class UserKeyTablePropertiesCollector : public IntTblPropCollector {
 
   virtual Status InternalAdd(const Slice& key, const Slice& value,
                              uint64_t file_size) override;
+
+  virtual void BlockAdd(uint64_t blockRawBytes,
+                        uint64_t blockCompressedBytesFast,
+                        uint64_t blockCompressedBytesSlow) override;
 
   virtual Status Finish(UserCollectedProperties* properties) override;
 

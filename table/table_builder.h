@@ -73,7 +73,7 @@ struct TableBuilderOptions {
       const InternalKeyComparator& _internal_comparator,
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
           _int_tbl_prop_collector_factories,
-      CompressionType _compression_type,
+      CompressionType _compression_type, uint64_t _sample_for_compression,
       const CompressionOptions& _compression_opts, bool _skip_filters,
       const std::string& _column_family_name, int _level,
       const uint64_t _creation_time = 0, const int64_t _oldest_key_time = 0,
@@ -83,6 +83,7 @@ struct TableBuilderOptions {
         internal_comparator(_internal_comparator),
         int_tbl_prop_collector_factories(_int_tbl_prop_collector_factories),
         compression_type(_compression_type),
+        sample_for_compression(_sample_for_compression),
         compression_opts(_compression_opts),
         skip_filters(_skip_filters),
         column_family_name(_column_family_name),
@@ -96,6 +97,7 @@ struct TableBuilderOptions {
   const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
       int_tbl_prop_collector_factories;
   CompressionType compression_type;
+  uint64_t sample_for_compression;
   const CompressionOptions& compression_opts;
   bool skip_filters;  // only used by BlockBasedTableBuilder
   const std::string& column_family_name;
