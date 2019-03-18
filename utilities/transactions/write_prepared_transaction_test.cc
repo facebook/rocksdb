@@ -1262,6 +1262,7 @@ TEST_P(WritePreparedTransactionTest, AdvanceSeqByOne) {
 TEST_P(WritePreparedTransactionTest, TxnInitialize) {
   TransactionOptions txn_options;
   WriteOptions write_options;
+  ASSERT_OK(db->Put(write_options, "key", "value"));
   Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
   ASSERT_OK(txn0->SetName("xid"));
   ASSERT_OK(txn0->Put(Slice("key"), Slice("value1")));
@@ -1274,7 +1275,7 @@ TEST_P(WritePreparedTransactionTest, TxnInitialize) {
   auto snap_impl = reinterpret_cast<const SnapshotImpl*>(snap);
   // If ::Initialize calls the overriden SetSnapshot, min_uncommitted_ must be
   // udpated
-  ASSERT_GT(snap_impl->min_uncommitted_, 0);
+  ASSERT_GT(snap_impl->min_uncommitted_, kMinUnCommittedSeq);
 
   txn0->Rollback();
   txn1->Rollback();

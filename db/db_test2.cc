@@ -2729,7 +2729,8 @@ TEST_F(DBTest2, ReadCallbackTest) {
 
   class TestReadCallback : public ReadCallback {
    public:
-    explicit TestReadCallback(SequenceNumber snapshot) : snapshot_(snapshot) {}
+    explicit TestReadCallback(SequenceNumber snapshot)
+        : ReadCallback(snapshot), snapshot_(snapshot) {}
     bool IsVisibleFullCheck(SequenceNumber seq) override {
       return seq <= snapshot_;
     }
