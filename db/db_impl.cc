@@ -1717,6 +1717,7 @@ void DBImpl::MultiGetImpl(const ReadOptions& read_options,
     MultiGetColumnFamilyData(ColumnFamilyData* cf, size_t first, size_t last,
                              SuperVersion* sv)
         : cfd(cf), start(first), end(last), super_version(sv) {}
+    MultiGetColumnFamilyData() = default;
   };
 
   autovector<MultiGetColumnFamilyData, MultiGetContext::MAX_KEYS_ON_STACK>

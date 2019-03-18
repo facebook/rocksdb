@@ -62,6 +62,8 @@ class GetContext {
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr);
 
+  GetContext() = default;
+
   void MarkKeyMayExist();
 
   // Records this key, value, and any meta-data (such as sequence number and

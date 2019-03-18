@@ -1780,9 +1780,6 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       switch (get_context.State()) {
         case GetContext::kNotFound:
           // Keep searching in other files
-          if ((int)fp.GetHitFileLevel() == storage_info_.num_levels() - 1) {
-            assert(false);
-          }
           break;
         case GetContext::kMerge:
           // TODO: update per-level perfcontext user_key_return_count for kMerge
