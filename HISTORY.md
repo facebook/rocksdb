@@ -10,6 +10,13 @@
 * Fix JEMALLOC_CXX_THROW macro missing from older Jemalloc versions, causing build failures on some platforms.
 
 
+## Unreleased
+### New Features
+* Added a feature to perform data-block sampling for compressibility, and report stats to user.
+### Public API Change
+### Bug fixes
+
+
 ## 6.0.0 (2/19/2019)
 ### New Features
 * Enabled checkpoint on readonly db (DBImplReadOnly).

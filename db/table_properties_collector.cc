@@ -41,6 +41,13 @@ Status UserKeyTablePropertiesCollector::InternalAdd(const Slice& key,
                                 ikey.sequence, file_size);
 }
 
+void UserKeyTablePropertiesCollector::BlockAdd(
+    uint64_t bLockRawBytes, uint64_t blockCompressedBytesFast,
+    uint64_t blockCompressedBytesSlow) {
+  return collector_->BlockAdd(bLockRawBytes, blockCompressedBytesFast,
+                              blockCompressedBytesSlow);
+}
+
 Status UserKeyTablePropertiesCollector::Finish(
     UserCollectedProperties* properties) {
   return collector_->Finish(properties);

@@ -87,7 +87,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       paranoid_file_checks(options.paranoid_file_checks),
       force_consistency_checks(options.force_consistency_checks),
       report_bg_io_stats(options.report_bg_io_stats),
-      ttl(options.ttl) {
+      ttl(options.ttl),
+      sample_for_compression(options.sample_for_compression) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {

@@ -1499,6 +1499,7 @@ Status CompactionJob::OpenCompactionOutputFile(
       cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
       cfd->GetID(), cfd->GetName(), sub_compact->outfile.get(),
       sub_compact->compaction->output_compression(),
+      0 /*sample_for_compression */,
       sub_compact->compaction->output_compression_opts(),
       sub_compact->compaction->output_level(), skip_filters,
       output_file_creation_time, 0 /* oldest_key_time */,

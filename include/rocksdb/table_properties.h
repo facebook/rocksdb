@@ -92,6 +92,14 @@ class TablePropertiesCollector {
     return Add(key, value);
   }
 
+  // Called after each new block is cut
+  virtual void BlockAdd(uint64_t /* blockRawBytes */,
+                        uint64_t /* blockCompressedBytesFast */,
+                        uint64_t /* blockCompressedBytesSlow */) {
+    // Nothing to do here. Callback registers can override.
+    return;
+  }
+
   // Finish() will be called when a table has already been built and is ready
   // for writing the properties block.
   // @params properties  User will add their collected statistics to

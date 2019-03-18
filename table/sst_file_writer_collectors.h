@@ -33,6 +33,14 @@ class SstFileWriterPropertiesCollector : public IntTblPropCollector {
     return Status::OK();
   }
 
+  virtual void BlockAdd(uint64_t /* blockRawBytes */,
+                        uint64_t /* blockCompressedBytesFast */,
+                        uint64_t /* blockCompressedBytesSlow */) override {
+    // Intentionally left blank. No interest in collecting stats for
+    // blocks.
+    return;
+  }
+
   virtual Status Finish(UserCollectedProperties* properties) override {
     // File version
     std::string version_val;
