@@ -1100,7 +1100,7 @@ class ReactiveVersionSet : public VersionSet {
                      WriteBufferManager* write_buffer_manager,
                      WriteController* write_controller);
 
-  ~ReactiveVersionSet();
+  ~ReactiveVersionSet() override;
 
   Status ReadAndApply(
       InstrumentedMutex* mu,

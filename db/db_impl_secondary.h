@@ -16,7 +16,7 @@ namespace rocksdb {
 class DBImplSecondary : public DBImpl {
  public:
   DBImplSecondary(const DBOptions& options, const std::string& dbname);
-  ~DBImplSecondary();
+  ~DBImplSecondary() override;
 
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only, bool error_if_log_file_exist,
