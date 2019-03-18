@@ -732,6 +732,8 @@ bool DBIter::MergeValuesNewToOld() {
 void DBIter::Prev() {
   assert(valid_);
   assert(status_.ok());
+
+  PERF_CPU_TIMER_GUARD(iter_prev_cpu_nanos, env_);
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
   bool ok = true;

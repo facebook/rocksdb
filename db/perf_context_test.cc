@@ -851,12 +851,12 @@ TEST_F(PerfContextTest, CPUTimer) {
       std::cout << "Iter Seek CPU time nanos: " << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
     }
 
-    // SeekToFirst
+    // SeekForPrev
     get_perf_context()->Reset();
-    iter->SeekToFirst();
+    iter->SeekForPrev(key);
 
     if (FLAGS_verbose) {
-      std::cout << "Iter SeekToFirst CPU time nanos: " << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
+      std::cout << "Iter SeekForPrev CPU time nanos: " << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
     }
 
     // SeekToLast
@@ -867,12 +867,12 @@ TEST_F(PerfContextTest, CPUTimer) {
       std::cout << "Iter SeekToLast CPU time nanos: " << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
     }
 
-    // SeekForPrev
+    // SeekToFirst
     get_perf_context()->Reset();
-    iter->SeekForPrev(key);
+    iter->SeekToFirst();
 
     if (FLAGS_verbose) {
-      std::cout << "Iter SeekForPrev CPU time nanos: " << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
+      std::cout << "Iter SeekToFirst CPU time nanos: " << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
     }
 
     // Next
@@ -882,6 +882,35 @@ TEST_F(PerfContextTest, CPUTimer) {
     if (FLAGS_verbose) {
       std::cout << "Iter Next CPU time nanos: " << get_perf_context()->iter_next_cpu_nanos << "ns\n";
     }
+
+    // Prev
+    get_perf_context()->Reset();
+    iter->Prev();
+
+    if (FLAGS_verbose) {
+      std::cout << "Iter Prev CPU time nanos: " << get_perf_context()->iter_prev_cpu_nanos << "ns\n";
+    }
+
+    // monotonically increasing
+    get_perf_context()->Reset();
+    auto count = get_perf_context()->iter_seek_cpu_nanos;
+    for (int i = 0; i < FLAGS_total_keys; ++i) {
+      key = "k" + ToString(i);
+      iter->Seek(key);
+      auto next_count = get_perf_context()->iter_seek_cpu_nanos;
+      ASSERT_GT(next_count, count);
+      count = next_count;
+    }
+
+    // iterator creation/destruction; multiple iterators
+    {
+      std::unique_ptr<Iterator> iter2(db->NewIterator(read_options));
+      ASSERT_EQ(count, get_perf_context()->iter_seek_cpu_nanos);
+      iter2->Seek(key);
+      ASSERT_GT(get_perf_context()->iter_seek_cpu_nanos, count);
+      count = get_perf_context()->iter_seek_cpu_nanos;
+    }
+    ASSERT_EQ(count, get_perf_context()->iter_seek_cpu_nanos);
   }
 }
 }  // namespace rocksdb
