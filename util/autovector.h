@@ -231,7 +231,10 @@ class autovector {
 
   reference operator[](size_type n) {
     assert(n < size());
-    return n < kSize ? values_[n] : vect_[n - kSize];
+    if (n < kSize) {
+      return values_[n];
+    }
+    return vect_[n - kSize];
   }
 
   const_reference at(size_type n) const {
