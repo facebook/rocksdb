@@ -836,7 +836,8 @@ TEST_F(PerfContextTest, CPUTimer) {
     ASSERT_EQ(value, "v0");
 
     if (FLAGS_verbose) {
-      std::cout << "Get CPU time nanos: " << get_perf_context()->get_cpu_nanos << "ns\n";
+      std::cout << "Get CPU time nanos: "
+                << get_perf_context()->get_cpu_nanos << "ns\n";
     }
 
     // Iter
@@ -848,7 +849,8 @@ TEST_F(PerfContextTest, CPUTimer) {
     iter->Seek(key);
 
     if (FLAGS_verbose) {
-      std::cout << "Iter Seek CPU time nanos: " << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
+      std::cout << "Iter Seek CPU time nanos: "
+                << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
     }
 
     // SeekForPrev
@@ -856,7 +858,8 @@ TEST_F(PerfContextTest, CPUTimer) {
     iter->SeekForPrev(key);
 
     if (FLAGS_verbose) {
-      std::cout << "Iter SeekForPrev CPU time nanos: " << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
+      std::cout << "Iter SeekForPrev CPU time nanos: "
+                << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
     }
 
     // SeekToLast
@@ -864,7 +867,8 @@ TEST_F(PerfContextTest, CPUTimer) {
     iter->SeekToLast();
 
     if (FLAGS_verbose) {
-      std::cout << "Iter SeekToLast CPU time nanos: " << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
+      std::cout << "Iter SeekToLast CPU time nanos: "
+                << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
     }
 
     // SeekToFirst
@@ -872,7 +876,8 @@ TEST_F(PerfContextTest, CPUTimer) {
     iter->SeekToFirst();
 
     if (FLAGS_verbose) {
-      std::cout << "Iter SeekToFirst CPU time nanos: " << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
+      std::cout << "Iter SeekToFirst CPU time nanos: "
+                << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
     }
 
     // Next
@@ -880,7 +885,8 @@ TEST_F(PerfContextTest, CPUTimer) {
     iter->Next();
 
     if (FLAGS_verbose) {
-      std::cout << "Iter Next CPU time nanos: " << get_perf_context()->iter_next_cpu_nanos << "ns\n";
+      std::cout << "Iter Next CPU time nanos: "
+                << get_perf_context()->iter_next_cpu_nanos << "ns\n";
     }
 
     // Prev
@@ -888,7 +894,8 @@ TEST_F(PerfContextTest, CPUTimer) {
     iter->Prev();
 
     if (FLAGS_verbose) {
-      std::cout << "Iter Prev CPU time nanos: " << get_perf_context()->iter_prev_cpu_nanos << "ns\n";
+      std::cout << "Iter Prev CPU time nanos: "
+                << get_perf_context()->iter_prev_cpu_nanos << "ns\n";
     }
 
     // monotonically increasing
