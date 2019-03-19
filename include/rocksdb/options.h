@@ -1212,9 +1212,10 @@ struct WriteOptions {
   bool sync;
 
   // If true, writes will not first go to the write ahead log,
-  // and the write may get lost after a crash. The write may
-  // also be lost when creating database backups with the backup
-  // engine.
+  // and the write may get lost after a crash. The backup engine
+  // relies on write-ahead logs to back up the memtable, so if
+  // you disable write-ahead logs, you must create backups with
+  // flush_before_backup=true to avoid losing unflushed memtable data.
   // Default: false
   bool disableWAL;
 
