@@ -1361,6 +1361,15 @@ struct IngestExternalFileOptions {
   bool verify_checksums_before_ingest = false;
 };
 
+enum TraceFilterType: unsigned char {
+  // Trace all the operations
+  kTraceFilterNone = 0x0,
+  // Do not trace the read operations
+  kTraceFilterRead = 0x1 << 0,
+  // Do not trace the write operations
+  kTraceFilterWrite = 0x1 << 1
+};
+
 // TraceOptions is used for StartTrace
 struct TraceOptions {
   // To avoid the trace file size grows large than the storage space,
@@ -1369,6 +1378,7 @@ struct TraceOptions {
   // Specify trace sampling option, i.e. capture one per how many requests.
   // Default to 1 (capture every request).
   uint64_t sampling_frequency = 1;
+  uint64_t trace_filter_option = kTraceFilterNone;
 };
 
 }  // namespace rocksdb

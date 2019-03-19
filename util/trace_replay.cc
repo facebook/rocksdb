@@ -127,12 +127,19 @@ Status Tracer::WriteFooter() {
 }
 
 Status Tracer::WriteTrace(const Trace& trace) {
-  std::string encoded_trace;
-  PutFixed64(&encoded_trace, trace.ts);
-  encoded_trace.push_back(trace.type);
-  PutFixed32(&encoded_trace, static_cast<uint32_t>(trace.payload.size()));
-  encoded_trace.append(trace.payload);
-  return trace_writer_->Write(Slice(encoded_trace));
+  if (trace_options_.trace_filter_option == TraceFilterType::kTraceFilterNone
+     || (trace_options_.trace_filter_option & kTraceFilterRead
+      && trace.type != kTraceGet)
+     || (trace_options_.trace_filter_option & kTraceFilterWrite
+      && trace.type != kTraceWrite)) {
+        std::string encoded_trace;
+        PutFixed64(&encoded_trace, trace.ts);
+        encoded_trace.push_back(trace.type);
+        PutFixed32(&encoded_trace, static_cast<uint32_t>(trace.payload.size()));
+        encoded_trace.append(trace.payload);
+        return trace_writer_->Write(Slice(encoded_trace));
+  }
+  return Status::OK();
 }
 
 Status Tracer::Close() { return WriteFooter(); }
