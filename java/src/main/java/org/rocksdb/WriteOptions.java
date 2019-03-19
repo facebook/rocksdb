@@ -90,7 +90,10 @@ public class WriteOptions extends RocksObject {
 
   /**
    * If true, writes will not first go to the write ahead log,
-   * and the write may got lost after a crash.
+   * and the write may got lost after a crash. The backup engine
+   * relies on write-ahead logs to back up the memtable, so if
+   * you disable write-ahead logs, you must create backups with
+   * flush_before_backup=true to avoid losing unflushed memtable data.
    *
    * @param flag a boolean flag to specify whether to disable
    *     write-ahead-log on writes.
@@ -103,7 +106,10 @@ public class WriteOptions extends RocksObject {
 
   /**
    * If true, writes will not first go to the write ahead log,
-   * and the write may got lost after a crash.
+   * and the write may got lost after a crash. The backup engine
+   * relies on write-ahead logs to back up the memtable, so if
+   * you disable write-ahead logs, you must create backups with
+   * flush_before_backup=true to avoid losing unflushed memtable data.
    *
    * @return boolean value indicating if WAL is disabled.
    */

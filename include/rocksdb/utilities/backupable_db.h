@@ -263,6 +263,8 @@ class BackupEngine {
 
   // same as CreateNewBackup, but stores extra application metadata
   // Flush will always trigger if 2PC is enabled.
+  // If write-ahead logs are disabled, set flush_before_backup=true to
+  // avoid losing unflushed key/value pairs from the memtable.
   virtual Status CreateNewBackupWithMetadata(
       DB* db, const std::string& app_metadata, bool flush_before_backup = false,
       std::function<void()> progress_callback = []() {}) = 0;
@@ -270,6 +272,8 @@ class BackupEngine {
   // Captures the state of the database in the latest backup
   // NOT a thread safe call
   // Flush will always trigger if 2PC is enabled.
+  // If write-ahead logs are disabled, set flush_before_backup=true to
+  // avoid losing unflushed key/value pairs from the memtable.
   virtual Status CreateNewBackup(DB* db, bool flush_before_backup = false,
                                  std::function<void()> progress_callback =
                                      []() {}) {
