@@ -46,7 +46,7 @@ class TransactionBaseImpl : public Transaction {
   void SetSavePoint() override;
 
   Status RollbackToSavePoint() override;
-
+  
   Status PopSavePoint() override;
 
   using Transaction::Get;
@@ -79,7 +79,6 @@ class TransactionBaseImpl : public Transaction {
                         exclusive, do_validate);
   }
 
-  using Transaction::MultiGet;
   std::vector<Status> MultiGet(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
@@ -94,13 +93,6 @@ class TransactionBaseImpl : public Transaction {
                     keys, values);
   }
 
-  void MultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys,
-      PinnableSlice* values, Status* statuses) override;
-
-  using Transaction::MultiGetForUpdate;
   std::vector<Status> MultiGetForUpdate(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
@@ -115,12 +107,6 @@ class TransactionBaseImpl : public Transaction {
                                  keys.size(), db_->DefaultColumnFamily()),
                              keys, values);
   }
-
-  void MultiGetForUpdate(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys,
-      PinnableSlice* values, Status* statuses) override;
 
   Iterator* GetIterator(const ReadOptions& read_options) override;
   Iterator* GetIterator(const ReadOptions& read_options,

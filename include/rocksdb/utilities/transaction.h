@@ -205,25 +205,6 @@ class Transaction {
                                        const std::vector<Slice>& keys,
                                        std::vector<std::string>* values) = 0;
 
-  // Batched version of MultiGet - see DBImpl::MultiGet(). Sub-classes are
-  // expected to override this with an implementation that calls
-  // DBImpl::MultiGet()
-  virtual void MultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys, PinnableSlice* values,
-      Status* statuses) {
-    std::vector<Status> status;
-    std::vector<std::string> vals;
-
-    status = MultiGet(options, column_family, keys, &vals);
-    std::copy(status.begin(), status.end(), statuses);
-    for (auto& value : vals) {
-      values->PinSelf(value);
-      values++;
-    }
-  }
-
   // Read this key and ensure that this transaction will only
   // be able to be committed if this key is not written outside this
   // transaction after it has first been read (or after the snapshot if a
@@ -289,24 +270,6 @@ class Transaction {
   virtual std::vector<Status> MultiGetForUpdate(
       const ReadOptions& options, const std::vector<Slice>& keys,
       std::vector<std::string>* values) = 0;
-
-  // Batched version of MultiGetForUpdate. Sub-classes are expected to
-  // override this with an implementation that calls DBImpl::MultiGet()
-  virtual void MultiGetForUpdate(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys, PinnableSlice* values,
-      Status* statuses) {
-    std::vector<Status> status;
-    std::vector<std::string> vals;
-
-    status = MultiGet(options, column_family, keys, &vals);
-    std::copy(status.begin(), status.end(), statuses);
-    for (auto& value : vals) {
-      values->PinSelf(value);
-      values++;
-    }
-  }
 
   // Returns an iterator that will iterate on all keys in the default
   // column family including both keys in the DB and uncommitted keys in this

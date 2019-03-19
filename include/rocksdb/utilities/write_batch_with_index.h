@@ -14,7 +14,6 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
@@ -208,12 +207,6 @@ class WriteBatchWithIndex : public WriteBatchBase {
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* value);
 
-  void MultiGetFromBatchAndDB(DB* db, const ReadOptions& read_options,
-                           const std::vector<ColumnFamilyHandle*>&
-                                                        column_family,
-                           const std::vector<Slice>& key,
-                           PinnableSlice* values, Status* statuses);
-
   // Records the state of the batch for future calls to RollbackToSavePoint().
   // May be called multiple times to set multiple save points.
   void SetSavePoint() override;
@@ -253,12 +246,6 @@ class WriteBatchWithIndex : public WriteBatchBase {
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* value, ReadCallback* callback);
-  void MultiGetFromBatchAndDB(DB* db, const ReadOptions& read_options,
-                           const std::vector<ColumnFamilyHandle*>&
-                                                        column_family,
-                           const std::vector<Slice>& key,
-                           PinnableSlice* values, Status* statuses,
-                           ReadCallback* callback);
   struct Rep;
   std::unique_ptr<Rep> rep;
 };
