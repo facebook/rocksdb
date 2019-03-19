@@ -3718,7 +3718,8 @@ rocksdb_transactiondb_t* rocksdb_transactiondb_open_column_families(
   TransactionDB* txn_db;
   std::vector<ColumnFamilyHandle*> handles;
   if (SaveError(errptr, TransactionDB::Open(options->rep, txn_db_options->rep,
-                            std::string(name), column_families, &handles, &txn_db))) {
+                                            std::string(name), column_families,
+                                            &handles, &txn_db))) {
     return nullptr;
   }
 
@@ -3853,17 +3854,14 @@ char* rocksdb_transaction_get_for_update(rocksdb_transaction_t* txn,
   return result;
 }
 
-char* rocksdb_transaction_get_for_update_cf(rocksdb_transaction_t* txn,
-                                            const rocksdb_readoptions_t* options,
-                                            rocksdb_column_family_handle_t* column_family,
-                                            const char* key, size_t klen,
-                                            size_t* vlen, unsigned char exclusive,
-                                            char** errptr) {
+char* rocksdb_transaction_get_for_update_cf(
+    rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key, size_t klen,
+    size_t* vlen, unsigned char exclusive, char** errptr) {
   char* result = nullptr;
   std::string tmp;
-  Status s =
-      txn->rep->GetForUpdate(options->rep, column_family->rep,
-                             Slice(key, klen), &tmp, exclusive);
+  Status s = txn->rep->GetForUpdate(options->rep, column_family->rep,
+                                    Slice(key, klen), &tmp, exclusive);
   if (s.ok()) {
     *vlen = tmp.size();
     result = CopyString(tmp);
@@ -3970,10 +3968,10 @@ void rocksdb_transaction_merge(rocksdb_transaction_t* txn, const char* key,
 
 void rocksdb_transaction_merge_cf(rocksdb_transaction_t* txn,
                                   rocksdb_column_family_handle_t* column_family,
-                                  const char* key, size_t klen,
-                                  const char* val, size_t vlen,
-                                  char** errptr) {
-  SaveError(errptr, txn->rep->Merge(column_family->rep, Slice(key, klen), Slice(val, vlen)));
+                                  const char* key, size_t klen, const char* val,
+                                  size_t vlen, char** errptr) {
+  SaveError(errptr, txn->rep->Merge(column_family->rep, Slice(key, klen),
+                                    Slice(val, vlen)));
 }
 
 // Merge a key outside a transaction
@@ -3985,11 +3983,10 @@ void rocksdb_transactiondb_merge(rocksdb_transactiondb_t* txn_db,
                                        Slice(val, vlen)));
 }
 
-void rocksdb_transactiondb_merge_cf(rocksdb_transactiondb_t* txn_db,
-                                    const rocksdb_writeoptions_t* options,
-                                    rocksdb_column_family_handle_t* column_family,
-                                    const char* key, size_t klen, const char* val,
-                                    size_t vlen, char** errptr) {
+void rocksdb_transactiondb_merge_cf(
+    rocksdb_transactiondb_t* txn_db, const rocksdb_writeoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key, size_t klen,
+    const char* val, size_t vlen, char** errptr) {
   SaveError(errptr, txn_db->rep->Merge(options->rep, column_family->rep,
                                        Slice(key, klen), Slice(val, vlen)));
 }
