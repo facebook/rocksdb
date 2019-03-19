@@ -116,19 +116,21 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   cf_names.push_back("cf_sample1");
   cf_names.push_back("cf_sample2");
   //Saving DB in file
-  PersistRocksDBOptions(db_opt, cf_names, cf_opts, "rocksdb_options_file_example", env_.get());
+  PersistRocksDBOptions(db_opt, cf_names, cf_opts, "rocksdb_options_file_example", Env::Default());
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
   Status s = LoadLatestOptions("rocksdb_options_file_example", Env::Default(), &loaded_db_opt,
                         &loaded_cf_descs,false,&cache);
-  for (size_t i = 0; i < 1; i++) {
+  for (size_t i = 0; i < cf_opts.size(); i++) {
     if (IsBlockBasedTableFactory(cf_opts[i].table_factory.get())) {
     auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(
               loaded_cf_descs[i].options.table_factory->GetOptions());
     // Expect the same cache will be loaded
-    ASSERT_EQ(loaded_bbt_opt->block_cache.get(), cache.get());
+    if(loaded_bbt_opt!=nullptr){
+      ASSERT_EQ(loaded_bbt_opt->block_cache.get(), cache.get());
+    }
   }
-}
+ }
 }
 
 namespace {
