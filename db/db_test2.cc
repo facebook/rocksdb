@@ -3019,6 +3019,177 @@ TEST_F(DBTest2, TraceWithSampling) {
   ASSERT_OK(DestroyDB(dbname2, options));
 }
 
+TEST_F(DBTest2, TraceWithFilter) {
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreatePutOperator();
+  ReadOptions ro;
+  WriteOptions wo;
+  TraceOptions trace_opts;
+  EnvOptions env_opts;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  Random rnd(301);
+  Iterator* single_iter = nullptr;
+
+  trace_opts.filter = TraceFilterType::kTraceFilterWrite;
+
+  std::string trace_filename = dbname_ + "/rocksdb.trace";
+  std::unique_ptr<TraceWriter> trace_writer;
+  ASSERT_OK(NewFileTraceWriter(env_, env_opts, trace_filename, &trace_writer));
+  ASSERT_OK(db_->StartTrace(trace_opts, std::move(trace_writer)));
+
+  ASSERT_OK(Put(0, "a", "1"));
+  ASSERT_OK(Merge(0, "b", "2"));
+  ASSERT_OK(Delete(0, "c"));
+  ASSERT_OK(SingleDelete(0, "d"));
+  ASSERT_OK(db_->DeleteRange(wo, dbfull()->DefaultColumnFamily(), "e", "f"));
+
+  WriteBatch batch;
+  ASSERT_OK(batch.Put("f", "11"));
+  ASSERT_OK(batch.Merge("g", "12"));
+  ASSERT_OK(batch.Delete("h"));
+  ASSERT_OK(batch.SingleDelete("i"));
+  ASSERT_OK(batch.DeleteRange("j", "k"));
+  ASSERT_OK(db_->Write(wo, &batch));
+
+  single_iter = db_->NewIterator(ro);
+  single_iter->Seek("f");
+  single_iter->SeekForPrev("g");
+  delete single_iter;
+
+  ASSERT_EQ("1", Get(0, "a"));
+  ASSERT_EQ("12", Get(0, "g"));
+
+  ASSERT_OK(Put(1, "foo", "bar"));
+  ASSERT_OK(Put(1, "rocksdb", "rocks"));
+  ASSERT_EQ("NOT_FOUND", Get(1, "leveldb"));
+
+  ASSERT_OK(db_->EndTrace());
+  // These should not get into the trace file as it is after EndTrace.
+  Put("hello", "world");
+  Merge("foo", "bar");
+
+  // Open another db, replay, and verify the data
+  std::string value;
+  std::string dbname2 = test::TmpDir(env_) + "/db_replay";
+  ASSERT_OK(DestroyDB(dbname2, options));
+
+  // Using a different name than db2, to pacify infer's use-after-lifetime
+  // warnings (http://fbinfer.com).
+  DB* db2_init = nullptr;
+  options.create_if_missing = true;
+  ASSERT_OK(DB::Open(options, dbname2, &db2_init));
+  ColumnFamilyHandle* cf;
+  ASSERT_OK(
+      db2_init->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &cf));
+  delete cf;
+  delete db2_init;
+
+  DB* db2 = nullptr;
+  std::vector<ColumnFamilyDescriptor> column_families;
+  ColumnFamilyOptions cf_options;
+  cf_options.merge_operator = MergeOperators::CreatePutOperator();
+  column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
+  column_families.push_back(
+      ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
+  std::vector<ColumnFamilyHandle*> handles;
+  ASSERT_OK(DB::Open(DBOptions(), dbname2, column_families, &handles, &db2));
+
+  env_->SleepForMicroseconds(100);
+  // Verify that the keys don't already exist
+  ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0], "g", &value).IsNotFound());
+
+  std::unique_ptr<TraceReader> trace_reader;
+  ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
+  Replayer replayer(db2, handles_, std::move(trace_reader));
+  ASSERT_OK(replayer.Replay());
+
+  // All the key-values should not present since we filter out the WRITE ops.
+  ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0], "g", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0], "hello", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0], "world", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0], "foo", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0], "rocksdb", &value).IsNotFound());
+
+  for (auto handle : handles) {
+    delete handle;
+  }
+  delete db2;
+  ASSERT_OK(DestroyDB(dbname2, options));
+
+  // Set up a new db.
+  std::string dbname3 = test::TmpDir(env_) + "/db_not_trace_read";
+  ASSERT_OK(DestroyDB(dbname3, options));
+
+  DB* db3_init = nullptr;
+  options.create_if_missing = true;
+  ColumnFamilyHandle* cf3;
+  ASSERT_OK(DB::Open(options, dbname3, &db3_init));
+  ASSERT_OK(
+      db3_init->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &cf3));
+  delete cf3;
+  delete db3_init;
+
+  column_families.clear();
+  column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
+  column_families.push_back(
+      ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
+  handles.clear();
+
+  DB* db3 =  nullptr;
+  ASSERT_OK(DB::Open(DBOptions(), dbname3, column_families, &handles, &db3));
+
+  env_->SleepForMicroseconds(100);
+  // Verify that the keys don't already exist
+  ASSERT_TRUE(db3->Get(ro, handles[0], "a", &value).IsNotFound());
+  ASSERT_TRUE(db3->Get(ro, handles[0], "g", &value).IsNotFound());
+
+  //The tracer will not record the READ ops.
+  trace_opts.filter = TraceFilterType::kTraceFilterGet;
+  std::string trace_filename3 = dbname_ + "/rocksdb.trace_3";
+  std::unique_ptr<TraceWriter> trace_writer3;
+  ASSERT_OK(
+    NewFileTraceWriter(env_, env_opts, trace_filename3, &trace_writer3));
+  ASSERT_OK(db3->StartTrace(trace_opts, std::move(trace_writer3)));
+
+  ASSERT_OK(db3->Put(wo, handles[0], "a", "1"));
+  ASSERT_OK(db3->Merge(wo, handles[0], "b", "2"));
+  ASSERT_OK(db3->Delete(wo, handles[0], "c"));
+  ASSERT_OK(db3->SingleDelete(wo, handles[0], "d"));
+
+  ASSERT_OK(db3->Get(ro, handles[0], "a", &value));
+  ASSERT_EQ(value, "1");
+  ASSERT_TRUE(db3->Get(ro, handles[0], "c", &value).IsNotFound());
+
+  ASSERT_OK(db3->EndTrace());
+
+  for (auto handle : handles) {
+    delete handle;
+  }
+  delete db3;
+  ASSERT_OK(DestroyDB(dbname3, options));
+
+  std::unique_ptr<TraceReader> trace_reader3;
+  ASSERT_OK(
+    NewFileTraceReader(env_, env_opts, trace_filename3, &trace_reader3));
+
+  // Count the number of records in the trace file;
+  int count = 0;
+  std::string data;
+  Status s;
+  while (true) {
+    s = trace_reader3->Read(&data);
+    if (!s.ok()) {
+      break;
+    }
+    count += 1;
+  }
+  // We also need to count the header and footer
+  // 4 WRITE + HEADER + FOOTER = 6
+  ASSERT_EQ(count, 6);
+}
+
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest2, PinnableSliceAndMmapReads) {

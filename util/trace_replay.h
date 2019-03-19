@@ -72,7 +72,7 @@ class Tracer {
   Status WriteHeader();
   Status WriteFooter();
   Status WriteTrace(const Trace& trace);
-  bool ShouldSkipTrace();
+  bool ShouldSkipTrace(const TraceType& type);
 
   Env* env_;
   TraceOptions trace_options_;
