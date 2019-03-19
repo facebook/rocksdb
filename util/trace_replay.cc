@@ -98,10 +98,10 @@ bool Tracer::ShouldSkipTrace(const TraceType& trace_type) {
   if (trace_request_count_ < trace_options_.sampling_frequency) {
     return true;
   }
-  if ((trace_options_.trace_filter_option & kTraceFilterGet
-    && trace_type == kTraceGet)
-   || (trace_options_.trace_filter_option & kTraceFilterWrite
-    && trace_type == kTraceWrite)) {
+  if ((trace_options_.trace_filter_option & kTraceFilterGet &&
+       trace_type == kTraceGet) ||
+      (trace_options_.trace_filter_option & kTraceFilterWrite &&
+       trace_type == kTraceWrite)) {
     return true;
   }
   trace_request_count_ = 0;

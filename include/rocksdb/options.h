@@ -1361,7 +1361,7 @@ struct IngestExternalFileOptions {
   bool verify_checksums_before_ingest = false;
 };
 
-enum TraceFilterType: unsigned char {
+enum TraceFilterType : uint64_t {
   // Trace all the operations
   kTraceFilterNone = 0x0,
   // Do not trace the get operations
