@@ -3030,7 +3030,7 @@ TEST_F(DBTest2, TraceWithFilter) {
   Random rnd(301);
   Iterator* single_iter = nullptr;
 
-  trace_opts.trace_filter_option = TraceFilterType::kTraceFilterWrite;
+  trace_opts.filter = TraceFilterType::kTraceFilterWrite;
 
   std::string trace_filename = dbname_ + "/rocksdb.trace";
   std::unique_ptr<TraceWriter> trace_writer;
@@ -3146,7 +3146,7 @@ TEST_F(DBTest2, TraceWithFilter) {
   ASSERT_TRUE(db3->Get(ro, handles[0], "g", &value).IsNotFound());
 
   //The tracer will not record the READ ops.
-  trace_opts.trace_filter_option = TraceFilterType::kTraceFilterGet;
+  trace_opts.filter = TraceFilterType::kTraceFilterGet;
   std::string trace_filename3 = dbname_ + "/rocksdb.trace_3";
   std::unique_ptr<TraceWriter> trace_writer3;
   ASSERT_OK(

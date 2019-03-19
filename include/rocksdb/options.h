@@ -1361,7 +1361,7 @@ struct IngestExternalFileOptions {
   bool verify_checksums_before_ingest = false;
 };
 
-enum TraceFilterType : uint64_t {
+enum TraceFilterType: uint64_t {
   // Trace all the operations
   kTraceFilterNone = 0x0,
   // Do not trace the get operations
@@ -1378,7 +1378,8 @@ struct TraceOptions {
   // Specify trace sampling option, i.e. capture one per how many requests.
   // Default to 1 (capture every request).
   uint64_t sampling_frequency = 1;
-  uint64_t trace_filter_option = kTraceFilterNone;
+  // Note: The filtering happens before sampling.
+  uint64_t filter = kTraceFilterNone;
 };
 
 }  // namespace rocksdb

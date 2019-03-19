@@ -94,14 +94,14 @@ bool Tracer::ShouldSkipTrace(const TraceType& trace_type) {
   if (IsTraceFileOverMax()) {
     return true;
   }
-  ++trace_request_count_;
-  if (trace_request_count_ < trace_options_.sampling_frequency) {
+  if ((trace_options_.filter & kTraceFilterGet
+    && trace_type == kTraceGet)
+   || (trace_options_.filter & kTraceFilterWrite
+    && trace_type == kTraceWrite)) {
     return true;
   }
-  if ((trace_options_.trace_filter_option & kTraceFilterGet &&
-       trace_type == kTraceGet) ||
-      (trace_options_.trace_filter_option & kTraceFilterWrite &&
-       trace_type == kTraceWrite)) {
+  ++trace_request_count_;
+  if (trace_request_count_ < trace_options_.sampling_frequency) {
     return true;
   }
   trace_request_count_ = 0;
