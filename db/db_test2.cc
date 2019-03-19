@@ -3124,10 +3124,11 @@ TEST_F(DBTest2, TraceWithFilter) {
 
   DB* db3_init = nullptr;
   options.create_if_missing = true;
+  ColumnFamilyHandle* cf3;
   ASSERT_OK(DB::Open(options, dbname3, &db3_init));
   ASSERT_OK(
-      db3_init->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &cf));
-  delete cf;
+      db3_init->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &cf3));
+  delete cf3;
   delete db3_init;
 
   column_families.clear();
@@ -3148,7 +3149,8 @@ TEST_F(DBTest2, TraceWithFilter) {
   trace_opts.trace_filter_option = TraceFilterType::kTraceFilterRead;
   std::string trace_filename3 = dbname_ + "/rocksdb.trace_3";
   std::unique_ptr<TraceWriter> trace_writer3;
-  ASSERT_OK(NewFileTraceWriter(env_, env_opts, trace_filename3, &trace_writer3));
+  ASSERT_OK(
+    NewFileTraceWriter(env_, env_opts, trace_filename3, &trace_writer3));
   ASSERT_OK(db3->StartTrace(trace_opts, std::move(trace_writer3)));
 
   ASSERT_OK(db3->Put(wo, handles[0], "a", "1"));
@@ -3169,7 +3171,8 @@ TEST_F(DBTest2, TraceWithFilter) {
   ASSERT_OK(DestroyDB(dbname3, options));
 
   std::unique_ptr<TraceReader> trace_reader3;
-  ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename3, &trace_reader3));
+  ASSERT_OK(
+    NewFileTraceReader(env_, env_opts, trace_filename3, &trace_reader3));
 
   // Count the number of records in the trace file;
   int count = 0;
