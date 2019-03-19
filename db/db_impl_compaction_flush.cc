@@ -1449,7 +1449,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
       manual.incomplete = false;
       bg_compaction_scheduled_++;
       env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
-                     &DBImpl::UnscheduleCallback);
+                     &DBImpl::UnscheduleCompactionCallback);
       scheduled = true;
     }
   }
@@ -1792,7 +1792,8 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     FlushThreadArg* fta = new FlushThreadArg;
     fta->db_ = this;
     fta->thread_pri_ = Env::Priority::HIGH;
-    env_->Schedule(&DBImpl::BGWorkFlush, fta, Env::Priority::HIGH, this);
+    env_->Schedule(&DBImpl::BGWorkFlush, fta, Env::Priority::HIGH, this,
+                   &DBImpl::UnscheduleFlushCallback);
   }
 
   // special case -- if high-pri (flush) thread pool is empty, then schedule
@@ -1805,7 +1806,8 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
       FlushThreadArg* fta = new FlushThreadArg;
       fta->db_ = this;
       fta->thread_pri_ = Env::Priority::LOW;
-      env_->Schedule(&DBImpl::BGWorkFlush, fta, Env::Priority::LOW, this);
+      env_->Schedule(&DBImpl::BGWorkFlush, fta, Env::Priority::LOW, this,
+                     &DBImpl::UnscheduleFlushCallback);
     }
   }
 
@@ -1835,7 +1837,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     bg_compaction_scheduled_++;
     unscheduled_compactions_--;
     env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
-                   &DBImpl::UnscheduleCallback);
+                   &DBImpl::UnscheduleCompactionCallback);
   }
 }
 
@@ -1991,7 +1993,7 @@ void DBImpl::BGWorkPurge(void* db) {
   TEST_SYNC_POINT("DBImpl::BGWorkPurge:end");
 }
 
-void DBImpl::UnscheduleCallback(void* arg) {
+void DBImpl::UnscheduleCompactionCallback(void* arg) {
   CompactionArg ca = *(reinterpret_cast<CompactionArg*>(arg));
   delete reinterpret_cast<CompactionArg*>(arg);
   if (ca.prepicked_compaction != nullptr) {
@@ -2000,7 +2002,12 @@ void DBImpl::UnscheduleCallback(void* arg) {
     }
     delete ca.prepicked_compaction;
   }
-  TEST_SYNC_POINT("DBImpl::UnscheduleCallback");
+  TEST_SYNC_POINT("DBImpl::UnscheduleCompactionCallback");
+}
+
+void DBImpl::UnscheduleFlushCallback(void* arg) {
+  delete reinterpret_cast<FlushThreadArg*>(arg);
+  TEST_SYNC_POINT("DBImpl::UnscheduleFlushCallback");
 }
 
 Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
@@ -2583,7 +2590,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ca->prepicked_compaction->task_token = std::move(task_token);
     ++bg_bottom_compaction_scheduled_;
     env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca, Env::Priority::BOTTOM,
-                   this, &DBImpl::UnscheduleCallback);
+                   this, &DBImpl::UnscheduleCompactionCallback);
   } else {
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:BeforeCompaction",
                              c->column_family_data());
