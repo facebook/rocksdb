@@ -145,10 +145,11 @@ TEST_F(DBSecondaryTest, SwitchToNewManifestDuringOpen) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->LoadDependency(
-      {{"VersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:0",
+      {{"ReactiveVersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:0",
         "VersionSet::ProcessManifestWrites:BeforeNewManifest"},
        {"VersionSet::ProcessManifestWrites:AfterNewManifest",
-        "VersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:1"}});
+        "ReactiveVersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:"
+        "1"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
   // Make sure db calls RecoverLogFiles so as to trigger a manifest write,

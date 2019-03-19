@@ -4970,9 +4970,11 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
       if (nullptr == manifest_reader->get() ||
           manifest_reader->get()->file()->file_name() != manifest_path) {
         TEST_SYNC_POINT(
-            "VersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:0");
+            "ReactiveVersionSet::MaybeSwitchManifest:"
+            "AfterGetCurrentManifestPath:0");
         TEST_SYNC_POINT(
-            "VersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:1");
+            "ReactiveVersionSet::MaybeSwitchManifest:"
+            "AfterGetCurrentManifestPath:1");
         s = env_->NewSequentialFile(
             manifest_path, &manifest_file,
             env_->OptimizeForManifestRead(env_options_));
