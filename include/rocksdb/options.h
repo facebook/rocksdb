@@ -1364,8 +1364,8 @@ struct IngestExternalFileOptions {
 enum TraceFilterType: unsigned char {
   // Trace all the operations
   kTraceFilterNone = 0x0,
-  // Do not trace the read operations
-  kTraceFilterRead = 0x1 << 0,
+  // Do not trace the get operations
+  kTraceFilterGet = 0x1 << 0,
   // Do not trace the write operations
   kTraceFilterWrite = 0x1 << 1
 };

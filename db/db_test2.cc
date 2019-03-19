@@ -3146,7 +3146,7 @@ TEST_F(DBTest2, TraceWithFilter) {
   ASSERT_TRUE(db3->Get(ro, handles[0], "g", &value).IsNotFound());
 
   //The tracer will not record the READ ops.
-  trace_opts.trace_filter_option = TraceFilterType::kTraceFilterRead;
+  trace_opts.trace_filter_option = TraceFilterType::kTraceFilterGet;
   std::string trace_filename3 = dbname_ + "/rocksdb.trace_3";
   std::unique_ptr<TraceWriter> trace_writer3;
   ASSERT_OK(
@@ -3185,7 +3185,8 @@ TEST_F(DBTest2, TraceWithFilter) {
     }
     count += 1;
   }
-
+  // We also need to count the header and footer
+  // 4 WRITE + HEADER + FOOTER = 6
   ASSERT_EQ(count, 6);
 }
 
