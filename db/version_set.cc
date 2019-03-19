@@ -4845,6 +4845,8 @@ Status ReactiveVersionSet::ReadAndApply(
             false /* prefetch_index_and_filter_in_cache */,
             false /* is_initial_load */,
             cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
+        TEST_SYNC_POINT_CALLBACK(
+            "ReactiveVersionSet::ReadAndApply:AfterLoadTableHandlers", &s);
         if (!s.ok() && !s.IsPathNotFound()) {
           break;
         } else if (s.IsPathNotFound()) {

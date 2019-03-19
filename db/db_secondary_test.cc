@@ -223,6 +223,20 @@ TEST_F(DBSecondaryTest, MissingTableFileDuringOpen) {
 }
 
 TEST_F(DBSecondaryTest, MissingTableFile) {
+  int table_files_not_exist = 0;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "ReactiveVersionSet::ReadAndApply:AfterLoadTableHandlers",
+      [&](void* arg) {
+        Status s = *reinterpret_cast<Status*>(arg);
+        if (s.IsPathNotFound()) {
+          ++table_files_not_exist;
+        } else if (!s.ok()) {
+          assert(false);  // Should not reach here
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
   Options options;
   options.env = env_;
   options.level0_file_num_compaction_trigger = 4;
@@ -252,6 +266,7 @@ TEST_F(DBSecondaryTest, MissingTableFile) {
   ASSERT_NOK(db_secondary->Get(ropts, "bar", &value));
 
   ASSERT_OK(db_secondary->TryCatchUpWithPrimary());
+  ASSERT_EQ(options.level0_file_num_compaction_trigger, table_files_not_exist);
   ASSERT_OK(db_secondary->Get(ropts, "foo", &value));
   ASSERT_EQ("foo_value" +
                 std::to_string(options.level0_file_num_compaction_trigger - 1),
