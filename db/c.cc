@@ -3702,6 +3702,38 @@ rocksdb_transactiondb_t* rocksdb_transactiondb_open(
   return result;
 }
 
+rocksdb_transactiondb_t* rocksdb_transactiondb_open_column_families(
+    const rocksdb_options_t* options,
+    const rocksdb_transactiondb_options_t* txn_db_options, const char* name,
+    int num_column_families, const char** column_family_names,
+    const rocksdb_options_t** column_family_options,
+    rocksdb_column_family_handle_t** column_family_handles, char** errptr) {
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (int i = 0; i < num_column_families; i++) {
+    column_families.push_back(ColumnFamilyDescriptor(
+        std::string(column_family_names[i]),
+        ColumnFamilyOptions(column_family_options[i]->rep)));
+  }
+
+  TransactionDB* txn_db;
+  std::vector<ColumnFamilyHandle*> handles;
+  if (SaveError(errptr, TransactionDB::Open(options->rep, txn_db_options->rep,
+                                            std::string(name), column_families,
+                                            &handles, &txn_db))) {
+    return nullptr;
+  }
+
+  for (size_t i = 0; i < handles.size(); i++) {
+    rocksdb_column_family_handle_t* c_handle =
+        new rocksdb_column_family_handle_t;
+    c_handle->rep = handles[i];
+    column_family_handles[i] = c_handle;
+  }
+  rocksdb_transactiondb_t* result = new rocksdb_transactiondb_t;
+  result->rep = txn_db;
+  return result;
+}
+
 const rocksdb_snapshot_t* rocksdb_transactiondb_create_snapshot(
     rocksdb_transactiondb_t* txn_db) {
   rocksdb_snapshot_t* result = new rocksdb_snapshot_t;
@@ -3822,6 +3854,26 @@ char* rocksdb_transaction_get_for_update(rocksdb_transaction_t* txn,
   return result;
 }
 
+char* rocksdb_transaction_get_for_update_cf(
+    rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key, size_t klen,
+    size_t* vlen, unsigned char exclusive, char** errptr) {
+  char* result = nullptr;
+  std::string tmp;
+  Status s = txn->rep->GetForUpdate(options->rep, column_family->rep,
+                                    Slice(key, klen), &tmp, exclusive);
+  if (s.ok()) {
+    *vlen = tmp.size();
+    result = CopyString(tmp);
+  } else {
+    *vlen = 0;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+  }
+  return result;
+}
+
 // Read a key outside a transaction
 char* rocksdb_transactiondb_get(
     rocksdb_transactiondb_t* txn_db,
@@ -3914,6 +3966,14 @@ void rocksdb_transaction_merge(rocksdb_transaction_t* txn, const char* key,
   SaveError(errptr, txn->rep->Merge(Slice(key, klen), Slice(val, vlen)));
 }
 
+void rocksdb_transaction_merge_cf(rocksdb_transaction_t* txn,
+                                  rocksdb_column_family_handle_t* column_family,
+                                  const char* key, size_t klen, const char* val,
+                                  size_t vlen, char** errptr) {
+  SaveError(errptr, txn->rep->Merge(column_family->rep, Slice(key, klen),
+                                    Slice(val, vlen)));
+}
+
 // Merge a key outside a transaction
 void rocksdb_transactiondb_merge(rocksdb_transactiondb_t* txn_db,
                                  const rocksdb_writeoptions_t* options,
@@ -3921,6 +3981,14 @@ void rocksdb_transactiondb_merge(rocksdb_transactiondb_t* txn_db,
                                  size_t vlen, char** errptr) {
   SaveError(errptr, txn_db->rep->Merge(options->rep, Slice(key, klen),
                                        Slice(val, vlen)));
+}
+
+void rocksdb_transactiondb_merge_cf(
+    rocksdb_transactiondb_t* txn_db, const rocksdb_writeoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key, size_t klen,
+    const char* val, size_t vlen, char** errptr) {
+  SaveError(errptr, txn_db->rep->Merge(options->rep, column_family->rep,
+                                       Slice(key, klen), Slice(val, vlen)));
 }
 
 // Delete a key inside a transaction
@@ -3972,6 +4040,14 @@ rocksdb_iterator_t* rocksdb_transactiondb_create_iterator(
     rocksdb_transactiondb_t* txn_db, const rocksdb_readoptions_t* options) {
   rocksdb_iterator_t* result = new rocksdb_iterator_t;
   result->rep = txn_db->rep->NewIterator(options->rep);
+  return result;
+}
+
+rocksdb_iterator_t* rocksdb_transactiondb_create_iterator_cf(
+    rocksdb_transactiondb_t* txn_db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family) {
+  rocksdb_iterator_t* result = new rocksdb_iterator_t;
+  result->rep = txn_db->rep->NewIterator(options->rep, column_family->rep);
   return result;
 }
 
