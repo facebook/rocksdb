@@ -834,12 +834,6 @@ static bool ValidateTableCacheNumshardbits(const char* flagname,
 }
 DEFINE_int32(table_cache_numshardbits, 4, "");
 
-#ifndef ROCKSDB_LITE
-DEFINE_string(env_uri, "", "URI for registry Env lookup. Mutually exclusive"
-              " with --hdfs.");
-#endif  // ROCKSDB_LITE
-DEFINE_string(hdfs, "", "Name of hdfs environment. Mutually exclusive with"
-              " --env_uri.");
 static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
 
 DEFINE_int64(stats_interval, 0, "Stats are reported every N operations when "
@@ -2409,12 +2403,6 @@ class Benchmark {
     }
 
     if (report_file_operations_) {
-      if (!FLAGS_hdfs.empty()) {
-        fprintf(stderr,
-                "--hdfs and --report_file_operations cannot be enabled "
-                "at the same time");
-        exit(1);
-      }
       FLAGS_env = new ReportFileOpEnv(rocksdb::Env::Default());
     }
 
@@ -6106,8 +6094,8 @@ int db_bench_tool(int argc, char** argv) {
   }
   if (!FLAGS_statistics_string.empty()) {
     std::unique_ptr<Statistics> custom_stats_guard;
-    dbstats.reset(NewCustomObject<Statistics>(FLAGS_statistics_string,
-                                              &custom_stats_guard));
+    dbstats.reset(NewCustomObject<Statistics>(
+        FLAGS_statistics_string, nullptr /*arg*/, &custom_stats_guard));
     custom_stats_guard.release();
     if (dbstats == nullptr) {
       fprintf(stderr, "No Statistics registered matching string: %s\n",
@@ -6138,28 +6126,11 @@ int db_bench_tool(int argc, char** argv) {
   FLAGS_compression_type_e =
     StringToCompressionType(FLAGS_compression_type.c_str());
 
-#ifndef ROCKSDB_LITE
-  std::unique_ptr<Env> custom_env_guard;
-  if (!FLAGS_hdfs.empty() && !FLAGS_env_uri.empty()) {
-    fprintf(stderr, "Cannot provide both --hdfs and --env_uri.\n");
-    exit(1);
-  } else if (!FLAGS_env_uri.empty()) {
-    FLAGS_env = NewCustomObject<Env>(FLAGS_env_uri, &custom_env_guard);
-    if (FLAGS_env == nullptr) {
-      fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
-      exit(1);
-    }
-  }
-#endif  // ROCKSDB_LITE
   if (FLAGS_use_existing_keys && !FLAGS_use_existing_db) {
     fprintf(stderr,
             "`-use_existing_db` must be true for `-use_existing_keys` to be "
             "settable\n");
     exit(1);
-  }
-
-  if (!FLAGS_hdfs.empty()) {
-    FLAGS_env  = new rocksdb::HdfsEnv(FLAGS_hdfs);
   }
 
   if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "NONE"))

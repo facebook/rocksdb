@@ -118,6 +118,8 @@ int cloexec_flags(int flags, const EnvOptions* options) {
 
 class PosixEnv : public Env {
  public:
+  static PosixEnv* Default();
+
   PosixEnv();
 
   ~PosixEnv() override {
@@ -1108,7 +1110,7 @@ std::string Env::GenerateUniqueId() {
 //
 // Default Posix Env
 //
-Env* Env::BaseDefault() {
+PosixEnv* PosixEnv::Default() {
   // The following function call initializes the singletons of ThreadLocalPtr
   // right before the static default_env.  This guarantees default_env will
   // always being destructed before the ThreadLocalPtr singletons get
@@ -1130,7 +1132,7 @@ Env* Env::BaseDefault() {
 // Default Env
 //
 Env* Env::Default() {
-  Env* base_default_env = Env::BaseDefault();
+  PosixEnv* default_env = PosixEnv::Default();
 #ifndef ROCKSDB_LITE
   const char* uri_pattern = getenv("ROCKS_ENV_URI_PATTERN");
   if (uri_pattern != nullptr) {
@@ -1139,13 +1141,14 @@ Env* Env::Default() {
     static bool init = false;
     if (!init) {
       init = true;
-      custom_env = NewCustomObject<Env>(uri_pattern, &custom_env_guard);
+      custom_env =
+          NewCustomObject<Env>(uri_pattern, default_env, &custom_env_guard);
     }
     assert(custom_env != nullptr);
     return custom_env;
   }
 #endif  // !ROCKSDB_LITE
-  return base_default_env;
+  return default_env;
 }
 
 }  // namespace rocksdb

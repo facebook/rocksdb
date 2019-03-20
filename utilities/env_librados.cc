@@ -580,18 +580,11 @@ public:
  * @param db_name unique database name
  * @param config_path the configure file path for rados
  */
-EnvLibrados::EnvLibrados(const std::string& db_name,
+EnvLibrados::EnvLibrados(Env* target, const std::string& db_name,
                          const std::string& config_path,
                          const std::string& db_pool)
-  : EnvLibrados("client.admin",
-                "ceph",
-                0,
-                db_name,
-                config_path,
-                db_pool,
-                "/wal",
-                db_pool,
-                1 << 20) {}
+    : EnvLibrados(target, "client.admin", "ceph", 0, db_name, config_path,
+                  db_pool, "/wal", db_pool, 1 << 20) {}
 
 /**
  * @brief EnvLibrados ctor
@@ -606,25 +599,23 @@ EnvLibrados::EnvLibrados(const std::string& db_name,
  * @param wal_pool the pool for WAL data
  * @param write_buffer_size WritableFile buffer max size
  */
-EnvLibrados::EnvLibrados(const std::string& client_name,
-                         const std::string& cluster_name,
-                         const uint64_t flags,
+EnvLibrados::EnvLibrados(Env* target, const std::string& client_name,
+                         const std::string& cluster_name, const uint64_t flags,
                          const std::string& db_name,
                          const std::string& config_path,
-                         const std::string& db_pool,
-                         const std::string& wal_dir,
+                         const std::string& db_pool, const std::string& wal_dir,
                          const std::string& wal_pool,
                          const uint64_t write_buffer_size)
-  : EnvWrapper(Env::Default()),
-    _client_name(client_name),
-    _cluster_name(cluster_name),
-    _flags(flags),
-    _db_name(db_name),
-    _config_path(config_path),
-    _db_pool_name(db_pool),
-    _wal_dir(wal_dir),
-    _wal_pool_name(wal_pool),
-    _write_buffer_size(write_buffer_size) {
+    : EnvWrapper(target),
+      _client_name(client_name),
+      _cluster_name(cluster_name),
+      _flags(flags),
+      _db_name(db_name),
+      _config_path(config_path),
+      _db_pool_name(db_pool),
+      _wal_dir(wal_dir),
+      _wal_pool_name(wal_pool),
+      _write_buffer_size(write_buffer_size) {
   int ret = 0;
 
   // 1. create a Rados object and initialize it

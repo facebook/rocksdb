@@ -29,7 +29,7 @@ namespace {
 };
 }
 
-Env* Env::BaseDefault() {
+WinEnv* WinEnv::Default() {
   using namespace port;
   ThreadLocalPtr::InitSingletons();
   CompressionContextCache::InitSingleton();
@@ -38,5 +38,5 @@ Env* Env::BaseDefault() {
   return envptr;
 }
 
-Env* Env::Default() { return Env::BaseDefault(); }
+Env* Env::Default() { return WinEnv::Default(); }
 }

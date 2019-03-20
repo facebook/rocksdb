@@ -25,12 +25,14 @@ namespace rocksdb {
 //
 // Populates res_guard with result pointer if caller is granted ownership.
 template <typename T>
-T* NewCustomObject(const std::string& target, std::unique_ptr<T>* res_guard);
+T* NewCustomObject(const std::string& target, const void* arg,
+                   std::unique_ptr<T>* res_guard);
 
 // Returns a new T when called with a string. Populates the std::unique_ptr
 // argument if granting ownership to caller.
 template <typename T>
-using FactoryFunc = std::function<T*(const std::string&, std::unique_ptr<T>*)>;
+using FactoryFunc =
+    std::function<T*(const std::string&, const void* arg, std::unique_ptr<T>*)>;
 
 // To register a factory function for a type T, initialize a Registrar<T> object
 // with static storage duration. For example:
@@ -70,11 +72,12 @@ struct Registry {
 }  // namespace internal
 
 template <typename T>
-T* NewCustomObject(const std::string& target, std::unique_ptr<T>* res_guard) {
+T* NewCustomObject(const std::string& target, const void* arg,
+                   std::unique_ptr<T>* res_guard) {
   res_guard->reset();
   for (const auto& entry : internal::Registry<T>::Get()->entries) {
     if (std::regex_match(target, entry.pattern)) {
-      return entry.factory(target, res_guard);
+      return entry.factory(target, arg, res_guard);
     }
   }
   return nullptr;

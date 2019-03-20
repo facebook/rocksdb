@@ -43,8 +43,9 @@ private:
 //
 class HdfsEnv : public EnvWrapper {
  public:
-  explicit HdfsEnv(const std::string& fsname)
-      : EnvWrapper(Env::Default()), fsname_(fsname) {
+  explicit HdfsEnv(Env* target, const std::string& fsname)
+      : EnvWrapper(target), fsname_(fsname) {
+    assert(nullptr != target);
     fileSys_ = connectToPath(fsname_);
   }
 
@@ -175,8 +176,7 @@ namespace rocksdb {
 
 static const Status notsup;
 
-class HdfsEnv : public Env {
-
+class HdfsEnv : public EnvWrapper {
  public:
   explicit HdfsEnv(const std::string& /*fsname*/) {
     fprintf(stderr, "You have not build rocksdb with HDFS support\n");
@@ -264,56 +264,6 @@ class HdfsEnv : public Env {
   virtual Status NewLogger(const std::string& /*fname*/,
                            std::shared_ptr<Logger>* /*result*/) override {
     return notsup;
-  }
-
-  virtual void Schedule(void (* /*function*/)(void* arg), void* /*arg*/,
-                        Priority /*pri*/ = LOW, void* /*tag*/ = nullptr,
-                        void (* /*unschedFunction*/)(void* arg) = 0) override {}
-
-  virtual int UnSchedule(void* /*tag*/, Priority /*pri*/) override { return 0; }
-
-  virtual void StartThread(void (* /*function*/)(void* arg),
-                           void* /*arg*/) override {}
-
-  virtual void WaitForJoin() override {}
-
-  virtual unsigned int GetThreadPoolQueueLen(
-      Priority /*pri*/ = LOW) const override {
-    return 0;
-  }
-
-  virtual Status GetTestDirectory(std::string* /*path*/) override {
-    return notsup;
-  }
-
-  virtual uint64_t NowMicros() override { return 0; }
-
-  virtual void SleepForMicroseconds(int /*micros*/) override {}
-
-  virtual Status GetHostName(char* /*name*/, uint64_t /*len*/) override {
-    return notsup;
-  }
-
-  virtual Status GetCurrentTime(int64_t* /*unix_time*/) override {
-    return notsup;
-  }
-
-  virtual Status GetAbsolutePath(const std::string& /*db_path*/,
-                                 std::string* /*outputpath*/) override {
-    return notsup;
-  }
-
-  virtual void SetBackgroundThreads(int /*number*/,
-                                    Priority /*pri*/ = LOW) override {}
-  virtual int GetBackgroundThreads(Priority /*pri*/ = LOW) override {
-    return 0;
-  }
-  virtual void IncBackgroundThreadsIfNeeded(int /*number*/,
-                                            Priority /*pri*/) override {}
-  virtual std::string TimeToString(uint64_t /*number*/) override { return ""; }
-
-  virtual uint64_t GetThreadID() const override {
-    return 0;
   }
 };
 }
