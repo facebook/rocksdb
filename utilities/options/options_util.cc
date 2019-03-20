@@ -21,12 +21,10 @@ Status LoadOptionsFromFile(const std::string& file_name, Env* env,
   if (!s.ok()) {
     return s;
   }
-
   *db_options = *parser.db_opt();
   const std::vector<std::string>& cf_names = *parser.cf_names();
   const std::vector<ColumnFamilyOptions>& cf_opts = *parser.cf_opts();
   cf_descs->clear();
-
   for (size_t i = 0; i < cf_opts.size(); ++i) {
     cf_descs->push_back({cf_names[i], cf_opts[i]});
     if(cache != nullptr){
@@ -76,7 +74,6 @@ Status LoadLatestOptions(const std::string& dbpath, Env* env,
   if (!s.ok()) {
     return s;
   }
-
   return LoadOptionsFromFile(dbpath + "/" + options_file_name, env, db_options,
                              cf_descs, ignore_unknown_options, cache);
 }

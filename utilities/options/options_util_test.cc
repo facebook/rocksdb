@@ -97,6 +97,7 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
 TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   //creating db
   DBOptions db_opt;
+  // test::RandomInitDBOptions(&db_opt, &rnd_);
   db_opt.create_if_missing = true;
 
   // initialize BlockBasedTableOptions
@@ -113,24 +114,25 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   cf_opts.push_back(cf_opt_sample2);
 
   std::vector<std::string> cf_names;
-  cf_names.push_back("cf_sample1");
+  cf_names.push_back(kDefaultColumnFamilyName);
   cf_names.push_back("cf_sample2");
   //Saving DB in file
-  PersistRocksDBOptions(db_opt, cf_names, cf_opts, "rocksdb_options_file_example", Env::Default());
+  const std::string kFileName = "/tmp/OPTIONS-LOAD_CACHE_123456";
+  PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, env_.get());
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
-  Status s = LoadLatestOptions("rocksdb_options_file_example", Env::Default(), &loaded_db_opt,
-                        &loaded_cf_descs,false,&cache);
-  for (size_t i = 0; i < cf_opts.size(); i++) {
+  ASSERT_OK(LoadOptionsFromFile(kFileName, env_.get(), &loaded_db_opt,
+                                &loaded_cf_descs, false, &cache));
+  for (size_t i = 0; i < loaded_cf_descs.size(); i++) {
     if (IsBlockBasedTableFactory(cf_opts[i].table_factory.get())) {
-    auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(
-              loaded_cf_descs[i].options.table_factory->GetOptions());
-    // Expect the same cache will be loaded
-    if(loaded_bbt_opt!=nullptr){
-      ASSERT_EQ(loaded_bbt_opt->block_cache.get(), cache.get());
+      auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(
+          loaded_cf_descs[i].options.table_factory->GetOptions());
+      // Expect the same cache will be loaded
+      if (loaded_bbt_opt != nullptr) {
+        ASSERT_EQ(loaded_bbt_opt->block_cache.get(), cache.get());
+      }
     }
   }
- }
 }
 
 namespace {
