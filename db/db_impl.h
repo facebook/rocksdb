@@ -113,7 +113,7 @@ class DBImpl : public DB {
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, PinnableSlice* value,
                  bool* value_found = nullptr, ReadCallback* callback = nullptr,
-                 bool* is_blob_index = nullptr);
+                 bool* is_blob_index = nullptr, SuperVersion* sv = nullptr);
 
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
@@ -158,7 +158,8 @@ class DBImpl : public DB {
                                       SequenceNumber snapshot,
                                       ReadCallback* read_callback,
                                       bool allow_blob = false,
-                                      bool allow_refresh = true);
+                                      bool allow_refresh = true,
+                                      SuperVersion* sv = nullptr);
 
   virtual const Snapshot* GetSnapshot() override;
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
@@ -539,6 +540,8 @@ class DBImpl : public DB {
   // REQUIRED: this function should only be called on the write thread or if the
   // mutex is held.
   SuperVersion* GetAndRefSuperVersion(uint32_t column_family_id);
+
+  SuperVersion* GetReferencedSuperVersion(ColumnFamilyData* cfd);
 
   // Un-reference the super version and clean it up if it is the last reference.
   void CleanupSuperVersion(SuperVersion* sv);

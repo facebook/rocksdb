@@ -56,6 +56,7 @@
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/sim_cache.h"
+#include "rocksdb/utilities/titandb/db.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/write_batch.h"
@@ -1095,6 +1096,8 @@ DEFINE_int32(skip_list_lookahead, 0, "Used with skip_list memtablerep; try "
 DEFINE_bool(report_file_operations, false, "if report number of file "
             "operations");
 
+DEFINE_bool(use_titan, true, "Open a Titan instance.");
+
 static const bool FLAGS_soft_rate_limit_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_soft_rate_limit, &ValidateRateLimit);
 
@@ -1984,10 +1987,11 @@ class Benchmark {
   int64_t range_tombstone_width_;
   int64_t max_num_range_tombstones_;
   WriteOptions write_options_;
-  Options open_options_;  // keep options around to properly destroy db later
 #ifndef ROCKSDB_LITE
   TraceOptions trace_options_;
 #endif
+  titandb::TitanOptions
+      open_options_;  // keep options around to properly destroy db later
   int64_t reads_;
   int64_t deletes_;
   double read_random_exp_range_;
@@ -2357,7 +2361,7 @@ class Benchmark {
       }
     }
     if (!FLAGS_use_existing_db) {
-      Options options;
+      titandb::TitanOptions options;
       if (!FLAGS_wal_dir.empty()) {
         options.wal_dir = FLAGS_wal_dir;
       }
@@ -2750,7 +2754,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
             db_.DeleteDBs();
             DestroyDB(FLAGS_db, open_options_);
           }
-          Options options = open_options_;
+          titandb::TitanOptions options = open_options_;
           for (size_t i = 0; i < multi_dbs_.size(); i++) {
             delete multi_dbs_[i].db;
             if (!open_options_.wal_dir.empty()) {
@@ -3117,7 +3121,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
   // Returns true if the options is initialized from the specified
   // options file.
-  bool InitializeOptionsFromFile(Options* opts) {
+  bool InitializeOptionsFromFile(titandb::TitanOptions* opts) {
 #ifndef ROCKSDB_LITE
     printf("Initializing RocksDB Options from the specified file\n");
     DBOptions db_opts;
@@ -3139,9 +3143,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     return false;
   }
 
-  void InitializeOptionsFromFlags(Options* opts) {
+  void InitializeOptionsFromFlags(titandb::TitanOptions* opts) {
     printf("Initializing RocksDB Options from command-line flags\n");
-    Options& options = *opts;
+    titandb::TitanOptions& options = *opts;
 
     assert(db_.db == nullptr);
 
@@ -3497,8 +3501,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
   }
 
-  void InitializeOptionsGeneral(Options* opts) {
-    Options& options = *opts;
+  void InitializeOptionsGeneral(titandb::TitanOptions* opts) {
+    titandb::TitanOptions& options = *opts;
 
     options.create_missing_column_families = FLAGS_num_column_families > 1;
     options.statistics = dbstats;
@@ -3564,6 +3568,16 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
 
     options.listeners.emplace_back(listener_);
+    
+    opts->min_blob_size = 0;
+    opts->min_gc_batch_size = 128 << 20;
+    opts->blob_file_compression = FLAGS_compression_type_e;
+    if (FLAGS_cache_size) {
+      opts->blob_cache = cache_;
+    }
+    opts->max_background_gc = FLAGS_max_background_jobs;
+    opts->max_gc_batch_size = 8LLU << 30;
+
     if (FLAGS_num_multi_db <= 1) {
       OpenDb(options, FLAGS_db, &db_);
     } else {
@@ -3586,7 +3600,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
   }
 
-  void Open(Options* opts) {
+  void Open(titandb::TitanOptions* opts) {
     if (!InitializeOptionsFromFile(opts)) {
       InitializeOptionsFromFlags(opts);
     }
@@ -3594,7 +3608,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     InitializeOptionsGeneral(opts);
   }
 
-  void OpenDb(Options options, const std::string& db_name,
+  void OpenDb(titandb::TitanOptions options, const std::string& db_name,
       DBWithColumnFamilies* db) {
     Status s;
     // Open with column families if necessary.
@@ -3651,6 +3665,18 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         if (s.ok()) {
           db->db = ptr;
         }
+      } else if (FLAGS_use_titan) {
+        std::vector<titandb::TitanCFDescriptor> titan_column_families;
+        for (size_t i = 0; i < num_hot; i++) {
+          titan_column_families.push_back(titandb::TitanCFDescriptor(
+              ColumnFamilyName(i), titandb::TitanCFOptions(options)));
+        }
+        titandb::TitanDB* ptr;
+        s = titandb::TitanDB::Open(options, db_name, titan_column_families,
+                                   &db->cfh, &ptr);
+        if (s.ok()) {
+          db->db = ptr;
+        }
       } else {
         s = DB::Open(options, db_name, column_families, &db->cfh, &db->db);
       }
@@ -3694,6 +3720,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         db->db = ptr;
       }
 #endif  // ROCKSDB_LITE
+    } else if (FLAGS_use_titan) {
+      titandb::TitanDB* ptr;
+      s = titandb::TitanDB::Open(options, db_name, &ptr);
+      if (s.ok()) {
+        db->db = ptr;
+      }
     } else {
       s = DB::Open(options, db_name, &db->db);
     }
