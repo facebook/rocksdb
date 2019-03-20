@@ -25,11 +25,11 @@ namespace port {
 //    in this manner any remaining threads are terminated OK.
 namespace {
   std::once_flag winenv_once_flag;
-  Env* envptr;
+  WinEnv* envptr;
 };
 }
 
-WinEnv* WinEnv::Default() {
+port::WinEnv* port::WinEnv::Default() {
   using namespace port;
   ThreadLocalPtr::InitSingletons();
   CompressionContextCache::InitSingleton();
@@ -38,5 +38,5 @@ WinEnv* WinEnv::Default() {
   return envptr;
 }
 
-Env* Env::Default() { return WinEnv::Default(); }
+Env* Env::Default() { return port::WinEnv::Default(); }
 }

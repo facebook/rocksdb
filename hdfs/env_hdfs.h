@@ -43,9 +43,9 @@ private:
 //
 class HdfsEnv : public EnvWrapper {
  public:
-  explicit HdfsEnv(Env* target, const std::string& fsname)
-      : EnvWrapper(target), fsname_(fsname) {
-    assert(nullptr != target);
+  explicit HdfsEnv(Env* _target, const std::string& fsname)
+      : EnvWrapper(_target), fsname_(fsname) {
+    assert(nullptr != _target);
     fileSys_ = connectToPath(fsname_);
   }
 
@@ -178,7 +178,8 @@ static const Status notsup;
 
 class HdfsEnv : public EnvWrapper {
  public:
-  explicit HdfsEnv(const std::string& /*fsname*/) {
+  explicit HdfsEnv(Env* _target, const std::string& /*fsname*/)
+      : EnvWrapper(_target) {
     fprintf(stderr, "You have not build rocksdb with HDFS support\n");
     fprintf(stderr, "Please see hdfs/README for details\n");
     abort();

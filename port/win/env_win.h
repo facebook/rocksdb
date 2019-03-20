@@ -199,129 +199,129 @@ private:
 
 class WinEnv : public Env {
 public:
- static WinEnv* Default();
+  static WinEnv* Default();
 
- WinEnv();
+  WinEnv();
 
- ~WinEnv();
+  ~WinEnv();
 
- Status DeleteFile(const std::string& fname) override;
+  Status DeleteFile(const std::string& fname) override;
 
- Status Truncate(const std::string& fname, size_t size) override;
+  Status Truncate(const std::string& fname, size_t size) override;
 
- Status GetCurrentTime(int64_t* unix_time) override;
+  Status GetCurrentTime(int64_t* unix_time) override;
 
- Status NewSequentialFile(const std::string& fname,
-                          std::unique_ptr<SequentialFile>* result,
-                          const EnvOptions& options) override;
-
- Status NewRandomAccessFile(const std::string& fname,
-                            std::unique_ptr<RandomAccessFile>* result,
-                            const EnvOptions& options) override;
-
- Status NewWritableFile(const std::string& fname,
-                        std::unique_ptr<WritableFile>* result,
-                        const EnvOptions& options) override;
-
- // Create an object that writes to a new file with the specified
- // name.  Deletes any existing file with the same name and creates a
- // new file.  On success, stores a pointer to the new file in
- // *result and returns OK.  On failure stores nullptr in *result and
- // returns non-OK.
- //
- // The returned file will only be accessed by one thread at a time.
- Status ReopenWritableFile(const std::string& fname,
-                           std::unique_ptr<WritableFile>* result,
+  Status NewSequentialFile(const std::string& fname,
+                           std::unique_ptr<SequentialFile>* result,
                            const EnvOptions& options) override;
 
- // The returned file will only be accessed by one thread at a time.
- Status NewRandomRWFile(const std::string& fname,
-                        std::unique_ptr<RandomRWFile>* result,
-                        const EnvOptions& options) override;
+  Status NewRandomAccessFile(const std::string& fname,
+                             std::unique_ptr<RandomAccessFile>* result,
+                             const EnvOptions& options) override;
 
- Status NewMemoryMappedFileBuffer(
-     const std::string& fname,
-     std::unique_ptr<MemoryMappedFileBuffer>* result) override;
+  Status NewWritableFile(const std::string& fname,
+                         std::unique_ptr<WritableFile>* result,
+                         const EnvOptions& options) override;
 
- Status NewDirectory(const std::string& name,
-                     std::unique_ptr<Directory>* result) override;
+  // Create an object that writes to a new file with the specified
+  // name.  Deletes any existing file with the same name and creates a
+  // new file.  On success, stores a pointer to the new file in
+  // *result and returns OK.  On failure stores nullptr in *result and
+  // returns non-OK.
+  //
+  // The returned file will only be accessed by one thread at a time.
+  Status ReopenWritableFile(const std::string& fname,
+                            std::unique_ptr<WritableFile>* result,
+                            const EnvOptions& options) override;
 
- Status FileExists(const std::string& fname) override;
+  // The returned file will only be accessed by one thread at a time.
+  Status NewRandomRWFile(const std::string& fname,
+                         std::unique_ptr<RandomRWFile>* result,
+                         const EnvOptions& options) override;
 
- Status GetChildren(const std::string& dir,
-                    std::vector<std::string>* result) override;
+  Status NewMemoryMappedFileBuffer(
+      const std::string& fname,
+      std::unique_ptr<MemoryMappedFileBuffer>* result) override;
 
- Status CreateDir(const std::string& name) override;
+  Status NewDirectory(const std::string& name,
+                      std::unique_ptr<Directory>* result) override;
 
- Status CreateDirIfMissing(const std::string& name) override;
+  Status FileExists(const std::string& fname) override;
 
- Status DeleteDir(const std::string& name) override;
+  Status GetChildren(const std::string& dir,
+                     std::vector<std::string>* result) override;
 
- Status GetFileSize(const std::string& fname, uint64_t* size) override;
+  Status CreateDir(const std::string& name) override;
 
- Status GetFileModificationTime(const std::string& fname,
-                                uint64_t* file_mtime) override;
+  Status CreateDirIfMissing(const std::string& name) override;
 
- Status RenameFile(const std::string& src, const std::string& target) override;
+  Status DeleteDir(const std::string& name) override;
 
- Status LinkFile(const std::string& src, const std::string& target) override;
+  Status GetFileSize(const std::string& fname, uint64_t* size) override;
 
- Status NumFileLinks(const std::string& fname, uint64_t* count) override;
+  Status GetFileModificationTime(const std::string& fname,
+                                 uint64_t* file_mtime) override;
 
- Status AreFilesSame(const std::string& first, const std::string& second,
-                     bool* res) override;
+  Status RenameFile(const std::string& src, const std::string& target) override;
 
- Status LockFile(const std::string& lockFname, FileLock** lock) override;
+  Status LinkFile(const std::string& src, const std::string& target) override;
 
- Status UnlockFile(FileLock* lock) override;
+  Status NumFileLinks(const std::string& fname, uint64_t* count) override;
 
- Status GetTestDirectory(std::string* result) override;
+  Status AreFilesSame(const std::string& first, const std::string& second,
+                      bool* res) override;
 
- Status NewLogger(const std::string& fname,
-                  std::shared_ptr<Logger>* result) override;
+  Status LockFile(const std::string& lockFname, FileLock** lock) override;
 
- uint64_t NowMicros() override;
+  Status UnlockFile(FileLock* lock) override;
 
- uint64_t NowNanos() override;
+  Status GetTestDirectory(std::string* result) override;
 
- Status GetHostName(char* name, uint64_t len) override;
+  Status NewLogger(const std::string& fname,
+                   std::shared_ptr<Logger>* result) override;
 
- Status GetAbsolutePath(const std::string& db_path,
-                        std::string* output_path) override;
+  uint64_t NowMicros() override;
 
- std::string TimeToString(uint64_t secondsSince1970) override;
+  uint64_t NowNanos() override;
 
- Status GetThreadList(std::vector<ThreadStatus>* thread_list) override;
+  Status GetHostName(char* name, uint64_t len) override;
 
- void Schedule(void (*function)(void*), void* arg, Env::Priority pri, void* tag,
-               void (*unschedFunction)(void* arg)) override;
+  Status GetAbsolutePath(const std::string& db_path,
+                         std::string* output_path) override;
 
- int UnSchedule(void* arg, Env::Priority pri) override;
+  std::string TimeToString(uint64_t secondsSince1970) override;
 
- void StartThread(void (*function)(void* arg), void* arg) override;
+  Status GetThreadList(std::vector<ThreadStatus>* thread_list) override;
 
- void WaitForJoin();
+  void Schedule(void (*function)(void*), void* arg, Env::Priority pri, void* tag,
+                void (*unschedFunction)(void* arg)) override;
 
- unsigned int GetThreadPoolQueueLen(Env::Priority pri) const override;
+  int UnSchedule(void* arg, Env::Priority pri) override;
 
- uint64_t GetThreadID() const override;
+  void StartThread(void (*function)(void* arg), void* arg) override;
 
- void SleepForMicroseconds(int micros) override;
+  void WaitForJoin();
 
- // Allow increasing the number of worker threads.
- void SetBackgroundThreads(int num, Env::Priority pri) override;
- int GetBackgroundThreads(Env::Priority pri) override;
+  unsigned int GetThreadPoolQueueLen(Env::Priority pri) const override;
 
- void IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) override;
+  uint64_t GetThreadID() const override;
 
- EnvOptions OptimizeForManifestRead(
-     const EnvOptions& env_options) const override;
+  void SleepForMicroseconds(int micros) override;
 
- EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
-                                const DBOptions& db_options) const override;
+  // Allow increasing the number of worker threads.
+  void SetBackgroundThreads(int num, Env::Priority pri) override;
+  int GetBackgroundThreads(Env::Priority pri) override;
 
- EnvOptions OptimizeForManifestWrite(
-     const EnvOptions& env_options) const override;
+  void IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) override;
+
+  EnvOptions OptimizeForManifestRead(
+      const EnvOptions& env_options) const override;
+
+  EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
+                                 const DBOptions& db_options) const override;
+
+  EnvOptions OptimizeForManifestWrite(
+      const EnvOptions& env_options) const override;
 
 private:
 
