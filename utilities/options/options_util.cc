@@ -15,7 +15,8 @@ namespace rocksdb {
 Status LoadOptionsFromFile(const std::string& file_name, Env* env,
                            DBOptions* db_options,
                            std::vector<ColumnFamilyDescriptor>* cf_descs,
-                           bool ignore_unknown_options, std::shared_ptr<Cache>* cache) {
+                           bool ignore_unknown_options,
+                           std::shared_ptr<Cache>* cache) {
   RocksDBOptionsParser parser;
   Status s = parser.Parse(file_name, env, ignore_unknown_options);
   if (!s.ok()) {
@@ -27,14 +28,15 @@ Status LoadOptionsFromFile(const std::string& file_name, Env* env,
   cf_descs->clear();
   for (size_t i = 0; i < cf_opts.size(); ++i) {
     cf_descs->push_back({cf_names[i], cf_opts[i]});
-    if(cache != nullptr){
-    TableFactory*  tf = cf_opts[i].table_factory.get();
-    if(tf!=nullptr && tf->GetOptions()!=nullptr){
-        auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(tf->GetOptions());
+    if (cache != nullptr) {
+      TableFactory* tf = cf_opts[i].table_factory.get();
+      if (tf != nullptr && tf->GetOptions() != nullptr) {
+        auto* loaded_bbt_opt =
+            reinterpret_cast<BlockBasedTableOptions*>(tf->GetOptions());
         loaded_bbt_opt->block_cache = *cache;
-        }
       }
     }
+  }
   return Status::OK();
 }
 
@@ -68,7 +70,8 @@ Status GetLatestOptionsFileName(const std::string& dbpath,
 Status LoadLatestOptions(const std::string& dbpath, Env* env,
                          DBOptions* db_options,
                          std::vector<ColumnFamilyDescriptor>* cf_descs,
-                         bool ignore_unknown_options, std::shared_ptr<Cache>* cache) {
+                         bool ignore_unknown_options,
+                         std::shared_ptr<Cache>* cache) {
   std::string options_file_name;
   Status s = GetLatestOptionsFileName(dbpath, env, &options_file_name);
   if (!s.ok()) {

@@ -95,16 +95,14 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
 }
 
 TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
-  //creating db
+  // creating db
   DBOptions db_opt;
-  // test::RandomInitDBOptions(&db_opt, &rnd_);
   db_opt.create_if_missing = true;
-
   // initialize BlockBasedTableOptions
   std::shared_ptr<Cache> cache = NewLRUCache(1 * 1024);
   BlockBasedTableOptions bbt_opts;
   bbt_opts.block_size = 32 * 1024;
-  //saving cf options
+  // saving cf options
   std::vector<ColumnFamilyOptions> cf_opts;
   ColumnFamilyOptions cf_opt_sample1 = ColumnFamilyOptions();
   cf_opt_sample1.table_factory.reset(NewBlockBasedTableFactory(bbt_opts));
@@ -116,8 +114,8 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   std::vector<std::string> cf_names;
   cf_names.push_back(kDefaultColumnFamilyName);
   cf_names.push_back("cf_sample2");
-  //Saving DB in file
-  const std::string kFileName = "/tmp/OPTIONS-LOAD_CACHE_123456";
+  // Saving DB in file
+  const std::string kFileName = "OPTIONS-LOAD_CACHE_123456";
   PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, env_.get());
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
