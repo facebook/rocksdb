@@ -41,11 +41,10 @@ private:
 // file/dir access methods and delegates the thread-mgmt methods to the
 // default posix environment.
 //
-class HdfsEnv : public Env {
-
+class HdfsEnv : public EnvWrapper {
  public:
-  explicit HdfsEnv(const std::string& fsname) : fsname_(fsname) {
-    posixEnv = Env::BaseDefault();
+  explicit HdfsEnv(const std::string& fsname)
+      : EnvWrapper(Env::Default()), fsname_(fsname) {
     fileSys_ = connectToPath(fsname_);
   }
 
@@ -101,65 +100,6 @@ class HdfsEnv : public Env {
   Status NewLogger(const std::string& fname,
                    std::shared_ptr<Logger>* result) override;
 
-  void Schedule(void (*function)(void* arg), void* arg, Priority pri = LOW,
-                void* tag = nullptr,
-                void (*unschedFunction)(void* arg) = 0) override {
-    posixEnv->Schedule(function, arg, pri, tag, unschedFunction);
-  }
-
-  int UnSchedule(void* tag, Priority pri) override {
-    return posixEnv->UnSchedule(tag, pri);
-  }
-
-  void StartThread(void (*function)(void* arg), void* arg) override {
-    posixEnv->StartThread(function, arg);
-  }
-
-  void WaitForJoin() override { posixEnv->WaitForJoin(); }
-
-  unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override {
-    return posixEnv->GetThreadPoolQueueLen(pri);
-  }
-
-  Status GetTestDirectory(std::string* path) override {
-    return posixEnv->GetTestDirectory(path);
-  }
-
-  uint64_t NowMicros() override { return posixEnv->NowMicros(); }
-
-  void SleepForMicroseconds(int micros) override {
-    posixEnv->SleepForMicroseconds(micros);
-  }
-
-  Status GetHostName(char* name, uint64_t len) override {
-    return posixEnv->GetHostName(name, len);
-  }
-
-  Status GetCurrentTime(int64_t* unix_time) override {
-    return posixEnv->GetCurrentTime(unix_time);
-  }
-
-  Status GetAbsolutePath(const std::string& db_path,
-                         std::string* output_path) override {
-    return posixEnv->GetAbsolutePath(db_path, output_path);
-  }
-
-  void SetBackgroundThreads(int number, Priority pri = LOW) override {
-    posixEnv->SetBackgroundThreads(number, pri);
-  }
-
-  int GetBackgroundThreads(Priority pri = LOW) override {
-    return posixEnv->GetBackgroundThreads(pri);
-  }
-
-  void IncBackgroundThreadsIfNeeded(int number, Priority pri) override {
-    posixEnv->IncBackgroundThreadsIfNeeded(number, pri);
-  }
-
-  std::string TimeToString(uint64_t number) override {
-    return posixEnv->TimeToString(number);
-  }
-
   static uint64_t gettid() {
     assert(sizeof(pthread_t) <= sizeof(uint64_t));
     return (uint64_t)pthread_self();
@@ -170,10 +110,6 @@ class HdfsEnv : public Env {
  private:
   std::string fsname_;  // string of the form "hdfs://hostname:port/"
   hdfsFS fileSys_;      //  a single FileSystem object for all files
-  Env*  posixEnv;       // This object is derived from Env, but not from
-                        // posixEnv. We have posixnv as an encapsulated
-                        // object here so that we can use posix timers,
-                        // posix threads, etc.
 
   static const std::string kProto;
   static const std::string pathsep;
