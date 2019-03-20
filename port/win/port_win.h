@@ -78,6 +78,8 @@ namespace rocksdb {
 
 #define PREFETCH(addr, rw, locality)
 
+extern const bool kDefaultToAdaptiveMutex;
+
 namespace port {
 
 // VS < 2015
@@ -127,7 +129,7 @@ class CondVar;
 class Mutex {
  public:
 
-   /* implicit */ Mutex(bool adaptive = false)
+   /* implicit */ Mutex(bool adaptive = kDefaultToAdaptiveMutex)
 #ifndef NDEBUG
      : locked_(false)
 #endif

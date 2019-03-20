@@ -36,6 +36,9 @@
 #include "util/logging.h"
 
 namespace rocksdb {
+
+extern const bool kDefaultToAdaptiveMutex = false;
+
 namespace port {
 
 #ifdef ROCKSDB_WINDOWS_UTF8_FILENAMES
