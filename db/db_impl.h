@@ -948,7 +948,8 @@ class DBImpl : public DB {
       SuperVersionContext* superversion_context,
       std::vector<SequenceNumber>& snapshot_seqs,
       SequenceNumber earliest_write_conflict_snapshot,
-      SnapshotChecker* snapshot_checker, LogBuffer* log_buffer);
+      SnapshotChecker* snapshot_checker, LogBuffer* log_buffer,
+      Env::Priority thread_pri);
 
   // Argument required by background flush thread.
   struct BGFlushArg {
@@ -971,15 +972,22 @@ class DBImpl : public DB {
     SuperVersionContext* superversion_context_;
   };
 
+  // Argument passed to flush thread.
+  struct FlushThreadArg {
+    DBImpl* db_;
+
+    Env::Priority thread_pri_;
+  };
+
   // Flush the memtables of (multiple) column families to multiple files on
   // persistent storage.
   Status FlushMemTablesToOutputFiles(
       const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
-      JobContext* job_context, LogBuffer* log_buffer);
+      JobContext* job_context, LogBuffer* log_buffer, Env::Priority thread_pri);
 
   Status AtomicFlushMemTablesToOutputFiles(
       const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
-      JobContext* job_context, LogBuffer* log_buffer);
+      JobContext* job_context, LogBuffer* log_buffer, Env::Priority thread_pri);
 
   // REQUIRES: log_numbers are sorted in ascending order
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
@@ -1122,18 +1130,21 @@ class DBImpl : public DB {
   // Runs a pre-chosen universal compaction involving bottom level in a
   // separate, bottom-pri thread pool.
   static void BGWorkBottomCompaction(void* arg);
-  static void BGWorkFlush(void* db);
+  static void BGWorkFlush(void* arg);
   static void BGWorkPurge(void* arg);
-  static void UnscheduleCallback(void* arg);
+  static void UnscheduleCompactionCallback(void* arg);
+  static void UnscheduleFlushCallback(void* arg);
   void BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
-                                Env::Priority bg_thread_pri);
-  void BackgroundCallFlush();
+                                Env::Priority thread_pri);
+  void BackgroundCallFlush(Env::Priority thread_pri);
   void BackgroundCallPurge();
   Status BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                               LogBuffer* log_buffer,
-                              PrepickedCompaction* prepicked_compaction);
+                              PrepickedCompaction* prepicked_compaction,
+                              Env::Priority thread_pri);
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
-                         LogBuffer* log_buffer, FlushReason* reason);
+                         LogBuffer* log_buffer, FlushReason* reason,
+                         Env::Priority thread_pri);
 
   bool EnoughRoomForCompaction(ColumnFamilyData* cfd,
                                const std::vector<CompactionInputFiles>& inputs,

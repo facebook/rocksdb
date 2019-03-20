@@ -100,7 +100,8 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    Directory* output_file_directory,
                    CompressionType output_compression, Statistics* stats,
                    EventLogger* event_logger, bool measure_io_stats,
-                   const bool sync_output_directory, const bool write_manifest)
+                   const bool sync_output_directory, const bool write_manifest,
+                   Env::Priority thread_pri)
     : dbname_(dbname),
       cfd_(cfd),
       db_options_(db_options),
@@ -125,7 +126,8 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       write_manifest_(write_manifest),
       edit_(nullptr),
       base_(nullptr),
-      pick_memtable_called(false) {
+      pick_memtable_called(false),
+      thread_pri_(thread_pri) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");
@@ -417,7 +419,7 @@ Status FlushJob::WriteLevel0Table() {
   stats.cpu_micros = db_options_.env->NowCPUNanos() / 1000 - start_cpu_micros;
   stats.bytes_written = meta_.fd.GetFileSize();
   RecordTimeToHistogram(stats_, FLUSH_TIME, stats.micros);
-  cfd_->internal_stats()->AddCompactionStats(0 /* level */, stats);
+  cfd_->internal_stats()->AddCompactionStats(0 /* level */, thread_pri_, stats);
   cfd_->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
                                      meta_.fd.GetFileSize());
   RecordFlushIOStats();

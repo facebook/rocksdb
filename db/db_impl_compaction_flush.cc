@@ -135,7 +135,8 @@ Status DBImpl::FlushMemTableToOutputFile(
     SuperVersionContext* superversion_context,
     std::vector<SequenceNumber>& snapshot_seqs,
     SequenceNumber earliest_write_conflict_snapshot,
-    SnapshotChecker* snapshot_checker, LogBuffer* log_buffer) {
+    SnapshotChecker* snapshot_checker, LogBuffer* log_buffer,
+    Env::Priority thread_pri) {
   mutex_.AssertHeld();
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
@@ -149,7 +150,8 @@ Status DBImpl::FlushMemTableToOutputFile(
       GetDataDir(cfd, 0U),
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats,
-      true /* sync_output_directory */, true /* write_manifest */);
+      true /* sync_output_directory */, true /* write_manifest */,
+      thread_pri);
 
   FileMetaData file_meta;
 
@@ -232,10 +234,11 @@ Status DBImpl::FlushMemTableToOutputFile(
 
 Status DBImpl::FlushMemTablesToOutputFiles(
     const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
-    JobContext* job_context, LogBuffer* log_buffer) {
+    JobContext* job_context, LogBuffer* log_buffer, Env::Priority thread_pri) {
   if (immutable_db_options_.atomic_flush) {
     return AtomicFlushMemTablesToOutputFiles(bg_flush_args, made_progress,
-                                             job_context, log_buffer);
+                                             job_context, log_buffer,
+                                             thread_pri);
   }
   std::vector<SequenceNumber> snapshot_seqs;
   SequenceNumber earliest_write_conflict_snapshot;
@@ -250,7 +253,7 @@ Status DBImpl::FlushMemTablesToOutputFiles(
     Status s = FlushMemTableToOutputFile(
         cfd, mutable_cf_options, made_progress, job_context,
         superversion_context, snapshot_seqs, earliest_write_conflict_snapshot,
-        snapshot_checker, log_buffer);
+        snapshot_checker, log_buffer, thread_pri);
     if (!s.ok()) {
       status = s;
       if (!s.IsShutdownInProgress()) {
@@ -274,7 +277,7 @@ Status DBImpl::FlushMemTablesToOutputFiles(
  */
 Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
-    JobContext* job_context, LogBuffer* log_buffer) {
+    JobContext* job_context, LogBuffer* log_buffer, Env::Priority thread_pri) {
   mutex_.AssertHeld();
 
   autovector<ColumnFamilyData*> cfds;
@@ -331,7 +334,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),
         data_dir, GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
         stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
-        false /* sync_output_directory */, false /* write_manifest */);
+        false /* sync_output_directory */, false /* write_manifest */,
+        thread_pri);
     jobs.back().PickMemTable();
   }
 
@@ -957,7 +961,7 @@ Status DBImpl::CompactFilesImpl(
       snapshot_checker, table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
-      &compaction_job_stats);
+      &compaction_job_stats, Env::Priority::USER);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -1445,7 +1449,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
       manual.incomplete = false;
       bg_compaction_scheduled_++;
       env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
-                     &DBImpl::UnscheduleCallback);
+                     &DBImpl::UnscheduleCompactionCallback);
       scheduled = true;
     }
   }
@@ -1785,7 +1789,11 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   while (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
          bg_flush_scheduled_ < bg_job_limits.max_flushes) {
     bg_flush_scheduled_++;
-    env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
+    FlushThreadArg* fta = new FlushThreadArg;
+    fta->db_ = this;
+    fta->thread_pri_ = Env::Priority::HIGH;
+    env_->Schedule(&DBImpl::BGWorkFlush, fta, Env::Priority::HIGH, this,
+                   &DBImpl::UnscheduleFlushCallback);
   }
 
   // special case -- if high-pri (flush) thread pool is empty, then schedule
@@ -1795,7 +1803,11 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
            bg_flush_scheduled_ + bg_compaction_scheduled_ <
                bg_job_limits.max_flushes) {
       bg_flush_scheduled_++;
-      env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
+      FlushThreadArg* fta = new FlushThreadArg;
+      fta->db_ = this;
+      fta->thread_pri_ = Env::Priority::LOW;
+      env_->Schedule(&DBImpl::BGWorkFlush, fta, Env::Priority::LOW, this,
+                     &DBImpl::UnscheduleFlushCallback);
     }
   }
 
@@ -1825,7 +1837,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     bg_compaction_scheduled_++;
     unscheduled_compactions_--;
     env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
-                   &DBImpl::UnscheduleCallback);
+                   &DBImpl::UnscheduleCompactionCallback);
   }
 }
 
@@ -1940,10 +1952,13 @@ void DBImpl::SchedulePendingPurge(std::string fname, std::string dir_to_sync,
   purge_queue_.push_back(std::move(file_info));
 }
 
-void DBImpl::BGWorkFlush(void* db) {
-  IOSTATS_SET_THREAD_POOL_ID(Env::Priority::HIGH);
+void DBImpl::BGWorkFlush(void* arg) {
+  FlushThreadArg fta = *(reinterpret_cast<FlushThreadArg*>(arg));
+  delete reinterpret_cast<FlushThreadArg*>(arg);
+
+  IOSTATS_SET_THREAD_POOL_ID(fta.thread_pri_);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush");
-  reinterpret_cast<DBImpl*>(db)->BackgroundCallFlush();
+  reinterpret_cast<DBImpl*>(fta.db_)->BackgroundCallFlush(fta.thread_pri_);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush:done");
 }
 
@@ -1978,7 +1993,7 @@ void DBImpl::BGWorkPurge(void* db) {
   TEST_SYNC_POINT("DBImpl::BGWorkPurge:end");
 }
 
-void DBImpl::UnscheduleCallback(void* arg) {
+void DBImpl::UnscheduleCompactionCallback(void* arg) {
   CompactionArg ca = *(reinterpret_cast<CompactionArg*>(arg));
   delete reinterpret_cast<CompactionArg*>(arg);
   if (ca.prepicked_compaction != nullptr) {
@@ -1987,11 +2002,17 @@ void DBImpl::UnscheduleCallback(void* arg) {
     }
     delete ca.prepicked_compaction;
   }
-  TEST_SYNC_POINT("DBImpl::UnscheduleCallback");
+  TEST_SYNC_POINT("DBImpl::UnscheduleCompactionCallback");
+}
+
+void DBImpl::UnscheduleFlushCallback(void* arg) {
+  delete reinterpret_cast<FlushThreadArg*>(arg);
+  TEST_SYNC_POINT("DBImpl::UnscheduleFlushCallback");
 }
 
 Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
-                               LogBuffer* log_buffer, FlushReason* reason) {
+                               LogBuffer* log_buffer, FlushReason* reason,
+                               Env::Priority thread_pri) {
   mutex_.AssertHeld();
 
   Status status;
@@ -2052,7 +2073,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
           bg_compaction_scheduled_);
     }
     status = FlushMemTablesToOutputFiles(bg_flush_args, made_progress,
-                                         job_context, log_buffer);
+                                         job_context, log_buffer, thread_pri);
     // All the CFDs in the FlushReq must have the same flush reason, so just
     // grab the first one
     *reason = bg_flush_args[0].cfd_->GetFlushReason();
@@ -2067,7 +2088,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
   return status;
 }
 
-void DBImpl::BackgroundCallFlush() {
+void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
   bool made_progress = false;
   JobContext job_context(next_job_id_.fetch_add(1), true);
 
@@ -2084,8 +2105,8 @@ void DBImpl::BackgroundCallFlush() {
         CaptureCurrentFileNumberInPendingOutputs();
     FlushReason reason;
 
-    Status s =
-        BackgroundFlush(&made_progress, &job_context, &log_buffer, &reason);
+    Status s = BackgroundFlush(&made_progress, &job_context, &log_buffer,
+                               &reason, thread_pri);
     if (!s.ok() && !s.IsShutdownInProgress() &&
         reason != FlushReason::kErrorRecovery) {
       // Wait a little bit before retrying background flush in
@@ -2168,7 +2189,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
             bg_bottom_compaction_scheduled_) ||
            (bg_thread_pri == Env::Priority::LOW && bg_compaction_scheduled_));
     Status s = BackgroundCompaction(&made_progress, &job_context, &log_buffer,
-                                    prepicked_compaction);
+                                    prepicked_compaction, bg_thread_pri);
     TEST_SYNC_POINT("BackgroundCallCompaction:1");
     if (s.IsBusy()) {
       bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
@@ -2255,7 +2276,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     JobContext* job_context,
                                     LogBuffer* log_buffer,
-                                    PrepickedCompaction* prepicked_compaction) {
+                                    PrepickedCompaction* prepicked_compaction,
+                                    Env::Priority thread_pri) {
   ManualCompactionState* manual_compaction =
       prepicked_compaction == nullptr
           ? nullptr
@@ -2568,7 +2590,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ca->prepicked_compaction->task_token = std::move(task_token);
     ++bg_bottom_compaction_scheduled_;
     env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca, Env::Priority::BOTTOM,
-                   this, &DBImpl::UnscheduleCallback);
+                   this, &DBImpl::UnscheduleCompactionCallback);
   } else {
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:BeforeCompaction",
                              c->column_family_data());
@@ -2587,11 +2609,11 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         env_options_for_compaction_, versions_.get(), &shutting_down_,
         preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
         GetDataDir(c->column_family_data(), c->output_path_id()), stats_,
-        &mutex_, &error_handler_, snapshot_seqs, earliest_write_conflict_snapshot,
-        snapshot_checker, table_cache_, &event_logger_,
-        c->mutable_cf_options()->paranoid_file_checks,
+        &mutex_, &error_handler_, snapshot_seqs,
+        earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
+        &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
-        &compaction_job_stats);
+        &compaction_job_stats, thread_pri);
     compaction_job.Prepare();
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
