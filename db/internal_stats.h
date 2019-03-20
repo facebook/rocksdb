@@ -125,6 +125,7 @@ class InternalStats {
         cf_stats_value_{},
         cf_stats_count_{},
         comp_stats_(num_levels),
+        comp_stats_by_pri_(Env::Priority::TOTAL),
         file_read_latency_(num_levels),
         bg_error_count_(0),
         number_levels_(num_levels),
@@ -318,8 +319,10 @@ class InternalStats {
     started_at_ = env_->NowMicros();
   }
 
-  void AddCompactionStats(int level, const CompactionStats& stats) {
+  void AddCompactionStats(int level, Env::Priority thread_pri,
+                          const CompactionStats& stats) {
     comp_stats_[level].Add(stats);
+    comp_stats_by_pri_[thread_pri].Add(stats);
   }
 
   void IncBytesMoved(int level, uint64_t amount) {
@@ -381,6 +384,8 @@ class InternalStats {
   void DumpCFMapStats(
       std::map<int, std::map<LevelStatType, double>>* level_stats,
       CompactionStats* compaction_stats_sum);
+  void DumpCFMapStatsByPriority(
+      std::map<int, std::map<LevelStatType, double>>* priorities_stats);
   void DumpCFMapStatsIOStalls(std::map<std::string, std::string>* cf_stats);
   void DumpCFStats(std::string* value);
   void DumpCFStatsNoFileHistogram(std::string* value);
@@ -395,6 +400,7 @@ class InternalStats {
   uint64_t cf_stats_count_[INTERNAL_CF_STATS_ENUM_MAX];
   // Per-ColumnFamily/level compaction stats
   std::vector<CompactionStats> comp_stats_;
+  std::vector<CompactionStats> comp_stats_by_pri_;
   std::vector<HistogramImpl> file_read_latency_;
 
   // Used to compute per-interval statistics
@@ -625,7 +631,8 @@ class InternalStats {
     void Subtract(const CompactionStats& /*c*/) {}
   };
 
-  void AddCompactionStats(int /*level*/, const CompactionStats& /*stats*/) {}
+  void AddCompactionStats(int /*level*/, Env::Priority /*thread_pri*/,
+                          const CompactionStats& /*stats*/) {}
 
   void IncBytesMoved(int /*level*/, uint64_t /*amount*/) {}
 

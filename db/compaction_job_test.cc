@@ -262,7 +262,8 @@ class CompactionJobTest : public testing::Test {
         &shutting_down_, preserve_deletes_seqnum_, &log_buffer, nullptr,
         nullptr, nullptr, &mutex_, &error_handler_, snapshots,
         earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
-        &event_logger, false, false, dbname_, &compaction_job_stats_);
+        &event_logger, false, false, dbname_, &compaction_job_stats_,
+        Env::Priority::USER);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
     compaction_job.Prepare();
