@@ -291,20 +291,13 @@ class HashLinkListRep : public MemTableRep {
     }
 
     // Advance to the first entry with a key >= target
-    void Seek(const Slice& internal_key, const char* memtable_key) override {
-      const char* encoded_key =
-          (memtable_key != nullptr) ?
-              memtable_key : EncodeKey(&tmp_, internal_key);
-      iter_.Seek(encoded_key);
+    void Seek(const char* memtable_key) override {
+      iter_.Seek(memtable_key);
     }
 
     // Retreat to the last entry with a key <= target
-    void SeekForPrev(const Slice& internal_key,
-                     const char* memtable_key) override {
-      const char* encoded_key = (memtable_key != nullptr)
-                                    ? memtable_key
-                                    : EncodeKey(&tmp_, internal_key);
-      iter_.SeekForPrev(encoded_key);
+    void SeekForPrev(const char* memtable_key) override {
+      iter_.SeekForPrev(memtable_key);
     }
 
     // Position at the first entry in collection.
@@ -320,7 +313,6 @@ class HashLinkListRep : public MemTableRep {
     // To destruct with the iterator.
     std::unique_ptr<MemtableSkipList> full_list_;
     std::unique_ptr<Allocator> allocator_;
-    std::string tmp_;       // For passing to EncodeKey
   };
 
   class LinkListIterator : public MemTableRep::Iterator {
@@ -359,15 +351,18 @@ class HashLinkListRep : public MemTableRep {
     }
 
     // Advance to the first entry with a key >= target
-    void Seek(const Slice& internal_key,
-              const char* /*memtable_key*/) override {
+    void Seek(const char* memtable_key) override {
+      SeekInternal(GetLengthPrefixedSlice(memtable_key));
+    }
+
+    // Advance to the first entry with a key >= ENCODE(target)
+    void SeekInternal(const Slice& internal_key) override {
       node_ = hash_link_list_rep_->FindGreaterOrEqualInBucket(head_,
                                                               internal_key);
     }
 
     // Retreat to the last entry with a key <= target
-    void SeekForPrev(const Slice& /*internal_key*/,
-                     const char* /*memtable_key*/) override {
+    void SeekForPrev(const char* /*memtable_key*/) override {
       // Since we do not support Prev()
       // We simply do not support SeekForPrev
       Reset(nullptr);
@@ -412,33 +407,13 @@ class HashLinkListRep : public MemTableRep {
           memtable_rep_(memtable_rep) {}
 
     // Advance to the first entry with a key >= target
-    void Seek(const Slice& k, const char* memtable_key) override {
-      auto transformed = memtable_rep_.GetPrefix(k);
-      auto* bucket = memtable_rep_.GetBucket(transformed);
+    void Seek(const char* memtable_key) override {
+      SeekImpl(GetLengthPrefixedSlice(memtable_key), memtable_key);
+    }
 
-      SkipListBucketHeader* skip_list_header =
-          memtable_rep_.GetSkipListBucketHeader(bucket);
-      if (skip_list_header != nullptr) {
-        // The bucket is organized as a skip list
-        if (!skip_list_iter_) {
-          skip_list_iter_.reset(
-              new MemtableSkipList::Iterator(&skip_list_header->skip_list));
-        } else {
-          skip_list_iter_->SetList(&skip_list_header->skip_list);
-        }
-        if (memtable_key != nullptr) {
-          skip_list_iter_->Seek(memtable_key);
-        } else {
-          IterKey encoded_key;
-          encoded_key.EncodeLengthPrefixedKey(k);
-          skip_list_iter_->Seek(encoded_key.GetUserKey().data());
-        }
-      } else {
-        // The bucket is organized as a linked list
-        skip_list_iter_.reset();
-        Reset(memtable_rep_.GetLinkListFirstNode(bucket));
-        HashLinkListRep::LinkListIterator::Seek(k, memtable_key);
-      }
+    // Advance to the first entry with a key >= ENCODE(target)
+    void SeekInternal(const Slice& k) override {
+      SeekImpl(k, EncodeKey(&tmp_, k));
     }
 
     bool Valid() const override {
@@ -464,6 +439,29 @@ class HashLinkListRep : public MemTableRep {
     }
 
    private:
+    void SeekImpl(const Slice& k, const char* memtable_key) {
+      auto transformed = memtable_rep_.GetPrefix(k);
+      auto* bucket = memtable_rep_.GetBucket(transformed);
+
+      SkipListBucketHeader* skip_list_header =
+          memtable_rep_.GetSkipListBucketHeader(bucket);
+      if (skip_list_header != nullptr) {
+        // The bucket is organized as a skip list
+        if (!skip_list_iter_) {
+          skip_list_iter_.reset(
+              new MemtableSkipList::Iterator(&skip_list_header->skip_list));
+        } else {
+          skip_list_iter_->SetList(&skip_list_header->skip_list);
+        }
+        skip_list_iter_->Seek(memtable_key);
+      } else {
+        // The bucket is organized as a linked list
+        skip_list_iter_.reset();
+        Reset(memtable_rep_.GetLinkListFirstNode(bucket));
+        HashLinkListRep::LinkListIterator::SeekInternal(k);
+      }
+    }
+
     // the underlying memtable
     const HashLinkListRep& memtable_rep_;
     std::unique_ptr<MemtableSkipList::Iterator> skip_list_iter_;
@@ -481,10 +479,9 @@ class HashLinkListRep : public MemTableRep {
     }
     void Next() override {}
     void Prev() override {}
-    void Seek(const Slice& /*user_key*/,
-              const char* /*memtable_key*/) override {}
-    void SeekForPrev(const Slice& /*user_key*/,
-                     const char* /*memtable_key*/) override {}
+    void Seek(const char* /*memtable_key*/) override {}
+    void SeekInternal(const Slice& /*internal_key*/) override {}
+    void SeekForPrev(const char* /*memtable_key*/) override {}
     void SeekToFirst() override {}
     void SeekToLast() override {}
 
@@ -730,7 +727,7 @@ void HashLinkListRep::Get(const LookupKey& k, void* callback_args,
     auto* link_list_head = GetLinkListFirstNode(bucket);
     if (link_list_head != nullptr) {
       LinkListIterator iter(this, link_list_head);
-      for (iter.Seek(k.internal_key(), nullptr);
+      for (iter.SeekInternal(k.internal_key());
            iter.Valid() && callback_func(callback_args, iter.key());
            iter.Next()) {
       }

@@ -272,6 +272,11 @@ const char* EncodeKey(std::string* scratch, const Slice& target) {
   return scratch->data();
 }
 
+void MemTableRep::Iterator::SeekInternal(const Slice& internal_key) {
+  Seek(EncodeKey(&tmp_, internal_key));
+}
+
+
 class MemTableIterator : public InternalIterator {
  public:
   MemTableIterator(const MemTable& mem, const ReadOptions& read_options,
@@ -328,7 +333,7 @@ class MemTableIterator : public InternalIterator {
         PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
       }
     }
-    iter_->Seek(k, nullptr);
+    iter_->SeekInternal(k);
     valid_ = iter_->Valid();
   }
   void SeekForPrev(const Slice& k) override {
@@ -344,7 +349,7 @@ class MemTableIterator : public InternalIterator {
         PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
       }
     }
-    iter_->Seek(k, nullptr);
+    iter_->SeekInternal(k);
     valid_ = iter_->Valid();
     if (!Valid()) {
       SeekToLast();
@@ -822,7 +827,7 @@ void MemTable::Update(SequenceNumber seq,
 
   std::unique_ptr<MemTableRep::Iterator> iter(
       table_->GetDynamicPrefixIterator());
-  iter->Seek(lkey.internal_key(), mem_key.data());
+  iter->Seek(mem_key.data());
 
   if (iter->Valid()) {
     // entry format is:
@@ -881,7 +886,7 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
 
   std::unique_ptr<MemTableRep::Iterator> iter(
       table_->GetDynamicPrefixIterator());
-  iter->Seek(lkey.internal_key(), memkey.data());
+  iter->Seek(memkey.data());
 
   if (iter->Valid()) {
     // entry format is:
@@ -959,7 +964,7 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
   // The iterator only needs to be ordered within the same user key.
   std::unique_ptr<MemTableRep::Iterator> iter(
       table_->GetDynamicPrefixIterator());
-  iter->Seek(key.internal_key(), memkey.data());
+  iter->Seek(memkey.data());
 
   size_t num_successive_merges = 0;
 
@@ -989,7 +994,7 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
 void MemTableRep::Get(const LookupKey& k, void* callback_args,
                       bool (*callback_func)(void* arg, const char* entry)) {
   auto iter = GetDynamicPrefixIterator();
-  for (iter->Seek(k.internal_key(), k.memtable_key().data());
+  for (iter->Seek(k.memtable_key().data());
        iter->Valid() && callback_func(callback_args, iter->key());
        iter->Next()) {
   }

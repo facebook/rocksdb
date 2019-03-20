@@ -50,7 +50,6 @@ class VectorRep : public MemTableRep {
     std::shared_ptr<std::vector<const char*>> bucket_;
     std::vector<const char*>::const_iterator mutable cit_;
     const KeyComparator& compare_;
-    std::string tmp_;       // For passing to EncodeKey
     bool mutable sorted_;
     void DoSort() const;
    public:
@@ -79,10 +78,10 @@ class VectorRep : public MemTableRep {
     void Prev() override;
 
     // Advance to the first entry with a key >= target
-    void Seek(const Slice& user_key, const char* memtable_key) override;
+    void Seek(const char* memtable_key) override;
 
     // Advance to the first entry with a key <= target
-    void SeekForPrev(const Slice& user_key, const char* memtable_key) override;
+    void SeekForPrev(const char* memtable_key) override;
 
     // Position at the first entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
@@ -210,23 +209,19 @@ void VectorRep::Iterator::Prev() {
 }
 
 // Advance to the first entry with a key >= target
-void VectorRep::Iterator::Seek(const Slice& user_key,
-                               const char* memtable_key) {
+void VectorRep::Iterator::Seek(const char* memtable_key) {
   DoSort();
   // Do binary search to find first value not less than the target
-  const char* encoded_key =
-      (memtable_key != nullptr) ? memtable_key : EncodeKey(&tmp_, user_key);
   cit_ = std::equal_range(bucket_->begin(),
                           bucket_->end(),
-                          encoded_key,
+                          memtable_key,
                           [this] (const char* a, const char* b) {
                             return compare_(a, b) < 0;
                           }).first;
 }
 
 // Advance to the first entry with a key <= target
-void VectorRep::Iterator::SeekForPrev(const Slice& /*user_key*/,
-                                      const char* /*memtable_key*/) {
+void VectorRep::Iterator::SeekForPrev(const char* /*memtable_key*/) {
   assert(false);
 }
 
@@ -261,7 +256,7 @@ void VectorRep::Get(const LookupKey& k, void* callback_args,
   VectorRep::Iterator iter(vector_rep, immutable_ ? bucket_ : bucket, compare_);
   rwlock_.ReadUnlock();
 
-  for (iter.Seek(k.user_key(), k.memtable_key().data());
+  for (iter.Seek(k.memtable_key().data());
        iter.Valid() && callback_func(callback_args, iter.key()); iter.Next()) {
   }
 }

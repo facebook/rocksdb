@@ -117,18 +117,14 @@ class HashSkipListRep : public MemTableRep {
     }
 
     // Advance to the first entry with a key >= target
-    void Seek(const Slice& internal_key, const char* memtable_key) override {
+    void Seek(const char* memtable_key) override {
       if (list_ != nullptr) {
-        const char* encoded_key =
-            (memtable_key != nullptr) ?
-                memtable_key : EncodeKey(&tmp_, internal_key);
-        iter_.Seek(encoded_key);
+        iter_.Seek(memtable_key);
       }
     }
 
     // Retreat to the last entry with a key <= target
-    void SeekForPrev(const Slice& /*internal_key*/,
-                     const char* /*memtable_key*/) override {
+    void SeekForPrev(const char* /*memtable_key*/) override {
       // not supported
       assert(false);
     }
@@ -168,7 +164,6 @@ class HashSkipListRep : public MemTableRep {
     // responsible for it's cleaning. This is a poor man's std::shared_ptr
     bool own_list_;
     std::unique_ptr<Arena> arena_;
-    std::string tmp_;       // For passing to EncodeKey
   };
 
   class DynamicIterator : public HashSkipListRep::Iterator {
@@ -178,10 +173,13 @@ class HashSkipListRep : public MemTableRep {
         memtable_rep_(memtable_rep) {}
 
     // Advance to the first entry with a key >= target
-    void Seek(const Slice& k, const char* memtable_key) override {
-      auto transformed = memtable_rep_.transform_->Transform(ExtractUserKey(k));
-      Reset(memtable_rep_.GetBucket(transformed));
-      HashSkipListRep::Iterator::Seek(k, memtable_key);
+    void Seek(const char* memtable_key) override {
+      SeekImpl(GetLengthPrefixedSlice(memtable_key), memtable_key);
+    }
+
+    // Advance to the first entry with a key >= ENCODE(target)
+    void SeekInternal(const Slice& k) override {
+      SeekImpl(k, EncodeKey(&tmp_, k));
     }
 
     // Position at the first entry in collection.
@@ -201,6 +199,12 @@ class HashSkipListRep : public MemTableRep {
     }
 
    private:
+    void SeekImpl(const Slice& k, const char* memtable_key) {
+      auto transformed = memtable_rep_.transform_->Transform(ExtractUserKey(k));
+      Reset(memtable_rep_.GetBucket(transformed));
+      HashSkipListRep::Iterator::Seek(memtable_key);
+    }
+
     // the underlying memtable
     const HashSkipListRep& memtable_rep_;
   };
@@ -217,10 +221,9 @@ class HashSkipListRep : public MemTableRep {
     }
     void Next() override {}
     void Prev() override {}
-    void Seek(const Slice& /*internal_key*/,
-              const char* /*memtable_key*/) override {}
-    void SeekForPrev(const Slice& /*internal_key*/,
-                     const char* /*memtable_key*/) override {}
+    void Seek(const char* /*memtable_key*/) override {}
+    void SeekInternal(const Slice& /*internal_key*/) override {}
+    void SeekForPrev(const char* /*memtable_key*/) override {}
     void SeekToFirst() override {}
     void SeekToLast() override {}
 

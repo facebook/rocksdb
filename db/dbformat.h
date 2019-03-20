@@ -319,7 +319,7 @@ class LookupKey {
  private:
   // We construct a char array of the form:
   //    klength  varint32               <-- start_
-  //    userkey  char[klength]          <-- kstart_
+  //    userkey  char[klength-8]        <-- kstart_
   //    tag      uint64
   //                                    <-- end_
   // The array is a suitable MemTable key.

@@ -71,8 +71,7 @@ public:
  void Get(const LookupKey& k, void* callback_args,
           bool (*callback_func)(void* arg, const char* entry)) override {
    SkipListRep::Iterator iter(&skip_list_);
-   Slice dummy_slice;
-   for (iter.Seek(dummy_slice, k.memtable_key().data());
+   for (iter.Seek(k.memtable_key().data());
         iter.Valid() && callback_func(callback_args, iter.key()); iter.Next()) {
    }
  }
@@ -117,21 +116,13 @@ public:
     void Prev() override { iter_.Prev(); }
 
     // Advance to the first entry with a key >= target
-    void Seek(const Slice& user_key, const char* memtable_key) override {
-      if (memtable_key != nullptr) {
-        iter_.Seek(memtable_key);
-      } else {
-        iter_.Seek(EncodeKey(&tmp_, user_key));
-      }
+    void Seek(const char* memtable_key) override {
+      iter_.Seek(memtable_key);
     }
 
     // Retreat to the last entry with a key <= target
-    void SeekForPrev(const Slice& user_key, const char* memtable_key) override {
-      if (memtable_key != nullptr) {
-        iter_.SeekForPrev(memtable_key);
-      } else {
-        iter_.SeekForPrev(EncodeKey(&tmp_, user_key));
-      }
+    void SeekForPrev(const char* memtable_key) override {
+      iter_.SeekForPrev(memtable_key);
     }
 
     // Position at the first entry in list.
@@ -141,9 +132,6 @@ public:
     // Position at the last entry in list.
     // Final state of iterator is Valid() iff list is not empty.
     void SeekToLast() override { iter_.SeekToLast(); }
-
-   protected:
-    std::string tmp_;       // For passing to EncodeKey
   };
 
   // Iterator over the contents of a skip list which also keeps track of the
@@ -195,35 +183,27 @@ public:
       prev_ = iter_;
     }
 
-    void Seek(const Slice& internal_key, const char* memtable_key) override {
-      const char *encoded_key =
-        (memtable_key != nullptr) ?
-            memtable_key : EncodeKey(&tmp_, internal_key);
-
-      if (prev_.Valid() && rep_.cmp_(encoded_key, prev_.key()) >= 0) {
+    void Seek(const char* memtable_key) override {
+      if (prev_.Valid() && rep_.cmp_(memtable_key, prev_.key()) >= 0) {
         // prev_.key() is smaller or equal to our target key; do a quick
         // linear search (at most lookahead_ steps) starting from prev_
         iter_ = prev_;
 
         size_t cur = 0;
         while (cur++ <= rep_.lookahead_ && iter_.Valid()) {
-          if (rep_.cmp_(encoded_key, iter_.key()) <= 0) {
+          if (rep_.cmp_(memtable_key, iter_.key()) <= 0) {
             return;
           }
           Next();
         }
       }
 
-      iter_.Seek(encoded_key);
+      iter_.Seek(memtable_key);
       prev_ = iter_;
     }
 
-    void SeekForPrev(const Slice& internal_key,
-                     const char* memtable_key) override {
-      const char* encoded_key = (memtable_key != nullptr)
-                                    ? memtable_key
-                                    : EncodeKey(&tmp_, internal_key);
-      iter_.SeekForPrev(encoded_key);
+    void SeekForPrev(const char* memtable_key) override {
+      iter_.SeekForPrev(memtable_key);
       prev_ = iter_;
     }
 
@@ -236,9 +216,6 @@ public:
       iter_.SeekToLast();
       prev_ = iter_;
     }
-
-   protected:
-    std::string tmp_;       // For passing to EncodeKey
 
    private:
     const SkipListRep& rep_;
