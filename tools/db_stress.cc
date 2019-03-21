@@ -2645,9 +2645,8 @@ class StressTest {
 #else
       DBOptions db_options;
       std::vector<ColumnFamilyDescriptor> cf_descriptors;
-      Status s =
-          LoadOptionsFromFile(FLAGS_options_file, Env::Default(), &db_options,
-                              &cf_descriptors, false, nullptr);
+      Status s = LoadOptionsFromFile(FLAGS_options_file, Env::Default(),
+                                     &db_options, &cf_descriptors);
       if (!s.ok()) {
         fprintf(stderr, "Unable to load options file %s --- %s\n",
                 FLAGS_options_file.c_str(), s.ToString().c_str());

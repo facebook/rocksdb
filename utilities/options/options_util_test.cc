@@ -104,16 +104,23 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   bbt_opts.block_size = 32 * 1024;
   // saving cf options
   std::vector<ColumnFamilyOptions> cf_opts;
-  ColumnFamilyOptions cf_opt_sample1 = ColumnFamilyOptions();
-  cf_opt_sample1.table_factory.reset(NewBlockBasedTableFactory(bbt_opts));
-  cf_opts.push_back(cf_opt_sample1);
-  ColumnFamilyOptions cf_opt_sample2 = ColumnFamilyOptions();
-  cf_opt_sample2.table_factory.reset(NewBlockBasedTableFactory(bbt_opts));
-  cf_opts.push_back(cf_opt_sample2);
+  ColumnFamilyOptions default_column_family_opt = ColumnFamilyOptions();
+  default_column_family_opt.table_factory.reset(
+      NewBlockBasedTableFactory(bbt_opts));
+  cf_opts.push_back(default_column_family_opt);
+
+  ColumnFamilyOptions cf_opt_sample = ColumnFamilyOptions();
+  cf_opt_sample.table_factory.reset(NewBlockBasedTableFactory(bbt_opts));
+  cf_opts.push_back(cf_opt_sample);
+
+  ColumnFamilyOptions cf_opt_plain_table_opt = ColumnFamilyOptions();
+  cf_opt_plain_table_opt.table_factory.reset(NewPlainTableFactory());
+  cf_opts.push_back(cf_opt_plain_table_opt);
 
   std::vector<std::string> cf_names;
   cf_names.push_back(kDefaultColumnFamilyName);
-  cf_names.push_back("cf_sample2");
+  cf_names.push_back("cf_sample");
+  cf_names.push_back("cf_plain_table_sample");
   // Saving DB in file
   const std::string kFileName = "OPTIONS-LOAD_CACHE_123456";
   PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, env_.get());
