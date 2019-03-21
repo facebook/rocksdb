@@ -128,7 +128,6 @@ class DBIter final: public Iterator {
         iterate_lower_bound_(read_options.iterate_lower_bound),
         iterate_upper_bound_(read_options.iterate_upper_bound),
         direction_(kForward),
-        arena_mode_(arena_mode),
         valid_(false),
         current_entry_is_merged_(false),
         prefix_same_as_start_(read_options.prefix_same_as_start),
@@ -136,6 +135,7 @@ class DBIter final: public Iterator {
         total_order_seek_(read_options.total_order_seek),
         allow_blob_(allow_blob),
         is_blob_(false),
+        arena_mode_(arena_mode),
         range_del_agg_(&cf_options.internal_comparator, s),
         read_callback_(read_callback),
         db_impl_(db_impl),
@@ -331,7 +331,6 @@ class DBIter final: public Iterator {
   Status status_;
   Slice prefix_start_key_;
   Direction direction_;
-  bool arena_mode_;
   bool valid_;
   bool current_entry_is_merged_;
   const bool prefix_same_as_start_;
@@ -341,6 +340,7 @@ class DBIter final: public Iterator {
   const bool total_order_seek_;
   bool allow_blob_;
   bool is_blob_;
+  bool arena_mode_;
   // List of operands for merge operator.
   MergeContext merge_context_;
   ReadRangeDelAggregator range_del_agg_;
