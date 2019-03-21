@@ -73,6 +73,7 @@ WinEnvIO::WinEnvIO(Env* hosted_env)
       page_size_(4 * 1024),
       allocation_granularity_(page_size_),
       perf_counter_frequency_(0),
+      nano_seconds_per_period_(0),
       GetSystemTimePreciseAsFileTime_(NULL) {
 
   SYSTEM_INFO sinfo;
@@ -87,6 +88,10 @@ WinEnvIO::WinEnvIO(Env* hosted_env)
     ret = QueryPerformanceFrequency(&qpf);
     assert(ret == TRUE);
     perf_counter_frequency_ = qpf.QuadPart;
+
+    if (std::nano::den % perf_counter_frequency_ == 0) {
+      nano_seconds_per_period_ = std::nano::den / perf_counter_frequency_;
+    }
   }
 
   HMODULE module = GetModuleHandle("kernel32.dll");
@@ -955,21 +960,29 @@ uint64_t WinEnvIO::NowMicros() {
     return li.QuadPart;
   }
   using namespace std::chrono;
-  return duration_cast<microseconds>(system_clock::now().time_since_epoch()).count();
+  return duration_cast<microseconds>(
+    high_resolution_clock::now().time_since_epoch()).count();
 }
 
 uint64_t WinEnvIO::NowNanos() {
-  // all std::chrono clocks on windows have the same resolution that is only
-  // good enough for microseconds but not nanoseconds
-  // On Windows 8 and Windows 2012 Server
-  // GetSystemTimePreciseAsFileTime(&current_time) can be used
-  LARGE_INTEGER li;
-  QueryPerformanceCounter(&li);
-  // Convert to nanoseconds first to avoid loss of precision
-  // and divide by frequency
-  li.QuadPart *= std::nano::den;
-  li.QuadPart /= perf_counter_frequency_;
-  return li.QuadPart;
+  if (nano_seconds_per_period_ != 0) {
+    // all std::chrono clocks on windows have the same resolution that is only
+    // good enough for microseconds but not nanoseconds
+    // On Windows 8 and Windows 2012 Server
+    // GetSystemTimePreciseAsFileTime(&current_time) can be used
+    LARGE_INTEGER li;
+    QueryPerformanceCounter(&li);
+    // Convert performance counter to nanoseconds by precomputed ratio.
+    // Directly multiply nano::den with li.QuadPart causes overflow.
+    // Only do this when nano::den is divisible by perf_counter_frequency_,
+    // which most likely is the case in reality. If it's not, fall back to
+    // high_resolution_clock, which may be less precise under old compilers.
+    li.QuadPart *= nano_seconds_per_period_;
+    return li.QuadPart;
+  }
+  using namespace std::chrono;
+  return duration_cast<nanoseconds>(
+    high_resolution_clock::now().time_since_epoch()).count();
 }
 
 Status WinEnvIO::GetHostName(char* name, uint64_t len) {
