@@ -339,9 +339,9 @@ class IterKey {
  public:
   IterKey()
       : buf_(space_),
-        buf_size_(sizeof(space_)),
         key_(buf_),
         key_size_(0),
+        buf_size_(sizeof(space_)),
         is_user_key_(true) {}
 
   ~IterKey() { ResetBuffer(); }
@@ -496,9 +496,9 @@ class IterKey {
 
  private:
   char* buf_;
-  size_t buf_size_;
   const char* key_;
   size_t key_size_;
+  size_t buf_size_;
   char space_[32];  // Avoid allocation for short keys
   bool is_user_key_;
 

@@ -117,29 +117,29 @@ class DBIter final: public Iterator {
          uint64_t max_sequential_skip_in_iterations,
          ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
          bool allow_blob)
-      : arena_mode_(arena_mode),
-        env_(_env),
+      : env_(_env),
         logger_(cf_options.info_log),
         user_comparator_(cmp),
         merge_operator_(cf_options.merge_operator),
         iter_(iter),
+        read_callback_(read_callback),
         sequence_(s),
-        direction_(kForward),
-        valid_(false),
-        current_entry_is_merged_(false),
         statistics_(cf_options.statistics),
         num_internal_keys_skipped_(0),
         iterate_lower_bound_(read_options.iterate_lower_bound),
         iterate_upper_bound_(read_options.iterate_upper_bound),
+        direction_(kForward),
+        valid_(false),
+        current_entry_is_merged_(false),
         prefix_same_as_start_(read_options.prefix_same_as_start),
         pin_thru_lifetime_(read_options.pin_data),
         total_order_seek_(read_options.total_order_seek),
-        range_del_agg_(&cf_options.internal_comparator, s),
-        read_callback_(read_callback),
-        db_impl_(db_impl),
-        cfd_(cfd),
         allow_blob_(allow_blob),
         is_blob_(false),
+        arena_mode_(arena_mode),
+        range_del_agg_(&cf_options.internal_comparator, s),
+        db_impl_(db_impl),
+        cfd_(cfd),
         start_seqnum_(read_options.iter_start_seqnum) {
     RecordTick(statistics_, NO_ITERATOR_CREATED);
     prefix_extractor_ = mutable_cf_options.prefix_extractor.get();
@@ -304,15 +304,14 @@ class DBIter final: public Iterator {
   }
 
   const SliceTransform* prefix_extractor_;
-  bool arena_mode_;
   Env* const env_;
   Logger* logger_;
   const Comparator* const user_comparator_;
   const MergeOperator* const merge_operator_;
   InternalIterator* iter_;
+  ReadCallback* read_callback_;
   SequenceNumber sequence_;
 
-  Status status_;
   IterKey saved_key_;
   // Reusable internal key data structure. This is only used inside one function
   // and should not be used across functions. Reusing this object can reduce
@@ -320,9 +319,6 @@ class DBIter final: public Iterator {
   ParsedInternalKey ikey_;
   std::string saved_value_;
   Slice pinned_value_;
-  Direction direction_;
-  bool valid_;
-  bool current_entry_is_merged_;
   // for prefix seek mode to support prev()
   Statistics* statistics_;
   uint64_t max_skip_;
@@ -330,23 +326,29 @@ class DBIter final: public Iterator {
   uint64_t num_internal_keys_skipped_;
   const Slice* iterate_lower_bound_;
   const Slice* iterate_upper_bound_;
+
   IterKey prefix_start_buf_;
+
+  Status status_;
   Slice prefix_start_key_;
+  Direction direction_;
+  bool valid_;
+  bool current_entry_is_merged_;
   const bool prefix_same_as_start_;
   // Means that we will pin all data blocks we read as long the Iterator
   // is not deleted, will be true if ReadOptions::pin_data is true
   const bool pin_thru_lifetime_;
   const bool total_order_seek_;
+  bool allow_blob_;
+  bool is_blob_;
+  bool arena_mode_;
   // List of operands for merge operator.
   MergeContext merge_context_;
   ReadRangeDelAggregator range_del_agg_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
-  ReadCallback* read_callback_;
   DBImpl* db_impl_;
   ColumnFamilyData* cfd_;
-  bool allow_blob_;
-  bool is_blob_;
   // for diff snapshots we want the lower bound on the seqnum;
   // if this value > 0 iterator will return internal keys
   SequenceNumber start_seqnum_;
