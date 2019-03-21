@@ -31,7 +31,7 @@ class BlobFileTest : public testing::Test {
     {
       std::unique_ptr<WritableFile> f;
       ASSERT_OK(env_->NewWritableFile(file_name_, &f, env_options_));
-      file.reset(new WritableFileWriter(std::move(f), env_options_));
+      file.reset(new WritableFileWriter(std::move(f), file_name_, env_options_));
     }
     std::unique_ptr<BlobFileBuilder> builder(
         new BlobFileBuilder(cf_options, file.get()));
@@ -91,7 +91,7 @@ class BlobFileTest : public testing::Test {
     {
       std::unique_ptr<WritableFile> f;
       ASSERT_OK(env_->NewWritableFile(file_name_, &f, env_options_));
-      file.reset(new WritableFileWriter(std::move(f), env_options_));
+      file.reset(new WritableFileWriter(std::move(f), file_name_, env_options_));
     }
     std::unique_ptr<BlobFileBuilder> builder(
         new BlobFileBuilder(cf_options, file.get()));

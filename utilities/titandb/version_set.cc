@@ -144,7 +144,7 @@ Status VersionSet::OpenManifest(uint64_t file_number) {
     std::unique_ptr<WritableFile> f;
     s = env_->NewWritableFile(file_name, &f, env_options_);
     if (!s.ok()) return s;
-    file.reset(new WritableFileWriter(std::move(f), env_options_));
+    file.reset(new WritableFileWriter(std::move(f), file_name, env_options_));
   }
 
   manifest_.reset(new log::Writer(std::move(file), 0, false));

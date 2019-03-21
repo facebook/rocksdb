@@ -20,13 +20,13 @@ namespace titandb {
 // A slice pointed to an owned buffer.
 class OwnedSlice : public Slice {
  public:
-  void reset(std::unique_ptr<char[]> _data, size_t _size) {
+  void reset(CacheAllocationPtr _data, size_t _size) {
     data_ = _data.get();
     size_ = _size;
     buffer_ = std::move(_data);
   }
 
-  void reset(std::unique_ptr<char[]> buffer, const Slice& s) {
+  void reset(CacheAllocationPtr buffer, const Slice& s) {
     data_ = s.data();
     size_ = s.size();
     buffer_ = std::move(buffer);
@@ -43,7 +43,7 @@ class OwnedSlice : public Slice {
   }
 
  private:
-  std::unique_ptr<char[]> buffer_;
+  CacheAllocationPtr buffer_;
 };
 
 // A slice pointed to a fixed size buffer.

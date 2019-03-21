@@ -25,7 +25,7 @@ class TitanDBImpl::FileManager : public BlobFileManager {
       std::unique_ptr<WritableFile> f;
       s = db_->env_->NewWritableFile(name, &f, db_->env_options_);
       if (!s.ok()) return s;
-      file.reset(new WritableFileWriter(std::move(f), db_->env_options_));
+      file.reset(new WritableFileWriter(std::move(f), name, db_->env_options_));
     }
 
     handle->reset(new FileHandle(number, name, std::move(file)));

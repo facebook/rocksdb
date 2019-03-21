@@ -107,7 +107,7 @@ Status BlobFileReader::Get(const ReadOptions& /*options*/,
 Status BlobFileReader::ReadRecord(const BlobHandle& handle, BlobRecord* record,
                                   OwnedSlice* buffer) {
   Slice blob;
-  std::unique_ptr<char[]> ubuf(new char[handle.size]);
+  CacheAllocationPtr ubuf(new char[handle.size]);
   TRY(file_->Read(handle.offset, handle.size, &blob, ubuf.get()));
   // something must be wrong
   if (handle.size != blob.size()) {

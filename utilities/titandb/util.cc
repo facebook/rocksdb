@@ -81,7 +81,7 @@ Slice Compress(const CompressionContext& ctx, const Slice& input,
 Status Uncompress(const UncompressionContext& ctx, const Slice& input,
                   OwnedSlice* output) {
   int size = 0;
-  std::unique_ptr<char[]> ubuf;
+  CacheAllocationPtr ubuf;
   assert(ctx.type() != kNoCompression);
 
   switch (ctx.type()) {
@@ -98,32 +98,32 @@ Status Uncompress(const UncompressionContext& ctx, const Slice& input,
       break;
     }
     case kZlibCompression:
-      ubuf.reset(Zlib_Uncompress(ctx, input.data(), input.size(), &size,
-                                 kCompressionFormat));
+      ubuf = Zlib_Uncompress(ctx, input.data(), input.size(), &size,
+                             kCompressionFormat);
       if (!ubuf.get()) {
         return Status::Corruption("Corrupted compressed blob", "Zlib");
       }
       output->reset(std::move(ubuf), size);
       break;
     case kBZip2Compression:
-      ubuf.reset(BZip2_Uncompress(input.data(), input.size(), &size,
-                                  kCompressionFormat));
+      ubuf = BZip2_Uncompress(input.data(), input.size(), &size,
+                              kCompressionFormat);
       if (!ubuf.get()) {
         return Status::Corruption("Corrupted compressed blob", "Bzip2");
       }
       output->reset(std::move(ubuf), size);
       break;
     case kLZ4Compression:
-      ubuf.reset(LZ4_Uncompress(ctx, input.data(), input.size(), &size,
-                                kCompressionFormat));
+      ubuf = LZ4_Uncompress(ctx, input.data(), input.size(), &size,
+                            kCompressionFormat);
       if (!ubuf.get()) {
         return Status::Corruption("Corrupted compressed blob", "LZ4");
       }
       output->reset(std::move(ubuf), size);
       break;
     case kLZ4HCCompression:
-      ubuf.reset(LZ4_Uncompress(ctx, input.data(), input.size(), &size,
-                                kCompressionFormat));
+      ubuf = LZ4_Uncompress(ctx, input.data(), input.size(), &size,
+                            kCompressionFormat);
       if (!ubuf.get()) {
         return Status::Corruption("Corrupted compressed blob", "LZ4HC");
       }
@@ -138,7 +138,7 @@ Status Uncompress(const UncompressionContext& ctx, const Slice& input,
       break;
     case kZSTD:
     case kZSTDNotFinalCompression:
-      ubuf.reset(ZSTD_Uncompress(ctx, input.data(), input.size(), &size));
+      ubuf = ZSTD_Uncompress(ctx, input.data(), input.size(), &size);
       if (!ubuf.get()) {
         return Status::Corruption("Corrupted compressed blob", "ZSTD");
       }

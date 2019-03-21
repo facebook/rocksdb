@@ -24,7 +24,7 @@ class FileManager : public BlobFileManager {
       std::unique_ptr<WritableFile> f;
       Status s = env_->NewWritableFile(name, &f, env_options_);
       if (!s.ok()) return s;
-      file.reset(new WritableFileWriter(std::move(f), env_options_));
+      file.reset(new WritableFileWriter(std::move(f), name, env_options_));
     }
     handle->reset(new FileHandle(number, name, std::move(file)));
     return Status::OK();
@@ -102,7 +102,7 @@ class TableBuilderTest : public testing::Test {
                      std::unique_ptr<WritableFileWriter>* result) {
     std::unique_ptr<WritableFile> file;
     ASSERT_OK(env_->NewWritableFile(fname, &file, env_options_));
-    result->reset(new WritableFileWriter(std::move(file), env_options_));
+    result->reset(new WritableFileWriter(std::move(file), fname, env_options_));
   }
 
   void NewFileReader(const std::string& fname,
