@@ -198,6 +198,7 @@ private:
   size_t          page_size_;
   size_t          allocation_granularity_;
   uint64_t        perf_counter_frequency_;
+  uint64_t        nano_seconds_per_period_;
   FnGetSystemTimePreciseAsFileTime GetSystemTimePreciseAsFileTime_;
 };
 
