@@ -122,6 +122,7 @@ class DBIter final: public Iterator {
         user_comparator_(cmp),
         merge_operator_(cf_options.merge_operator),
         iter_(iter),
+        read_callback_(read_callback),
         sequence_(s),
         statistics_(cf_options.statistics),
         num_internal_keys_skipped_(0),
@@ -137,7 +138,6 @@ class DBIter final: public Iterator {
         is_blob_(false),
         arena_mode_(arena_mode),
         range_del_agg_(&cf_options.internal_comparator, s),
-        read_callback_(read_callback),
         db_impl_(db_impl),
         cfd_(cfd),
         start_seqnum_(read_options.iter_start_seqnum) {
@@ -309,6 +309,7 @@ class DBIter final: public Iterator {
   const Comparator* const user_comparator_;
   const MergeOperator* const merge_operator_;
   InternalIterator* iter_;
+  ReadCallback* read_callback_;
   SequenceNumber sequence_;
 
   IterKey saved_key_;
@@ -346,7 +347,6 @@ class DBIter final: public Iterator {
   ReadRangeDelAggregator range_del_agg_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
-  ReadCallback* read_callback_;
   DBImpl* db_impl_;
   ColumnFamilyData* cfd_;
   // for diff snapshots we want the lower bound on the seqnum;
