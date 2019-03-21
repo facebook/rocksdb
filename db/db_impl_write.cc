@@ -1478,7 +1478,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       if (!s.ok()) {
         ROCKS_LOG_WARN(immutable_db_options_.info_log,
                        "[%s] Failed to switch from #%" PRIu64 " to #%" PRIu64
-                       "  WAL file -- %s\n",
+                       "  WAL file\n",
                        cfd->GetName().c_str(), cur_log_writer->get_log_number(),
                        new_log_number);
       }
