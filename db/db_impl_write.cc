@@ -1125,7 +1125,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   ROCKS_LOG_INFO(
       immutable_db_options_.info_log,
       "Flushing column family with largest mem table size. Write buffer is "
-      "using %" PRIu64 " bytes out of a total of %" PRIu64 ".",
+      "using %" ROCKSDB_PRIszt " bytes out of a total of %" PRIu64 ".",
       write_buffer_manager_->memory_usage(),
       write_buffer_manager_->buffer_size());
   // no need to refcount because drop is happening in write thread, so can't
