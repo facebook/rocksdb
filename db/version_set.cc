@@ -4692,8 +4692,7 @@ Status ReactiveVersionSet::Recover(
           }
         }
       }
-      if (enough && column_family_set_->get_table_cache()->GetCapacity() ==
-                        TableCache::kInfiniteCapacity) {
+      if (enough) {
         for (const auto& cf : column_families) {
           auto cfd = column_family_set_->GetColumnFamily(cf.name);
           assert(cfd != nullptr);
@@ -4830,36 +4829,31 @@ Status ReactiveVersionSet::ReadAndApply(
       if (!s.ok()) {
         break;
       }
-      if (column_family_set_->get_table_cache()->GetCapacity() ==
-          TableCache::kInfiniteCapacity) {
-        // Unlimited table cache. Pre-load table handle now so that the table
-        // files are still accessible to us after the primary unlinks them.
-        auto builder_iter = active_version_builders_.find(edit.column_family_);
-        assert(builder_iter != active_version_builders_.end());
-        auto builder = builder_iter->second->version_builder();
-        assert(builder != nullptr);
-        s = builder->LoadTableHandlers(
-            cfd->internal_stats(), db_options_->max_file_opening_threads,
-            false /* prefetch_index_and_filter_in_cache */,
-            false /* is_initial_load */,
-            cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
-        TEST_SYNC_POINT_CALLBACK(
-            "ReactiveVersionSet::ReadAndApply:AfterLoadTableHandlers", &s);
-        if (!s.ok() && !s.IsPathNotFound()) {
-          break;
-        } else if (s.IsPathNotFound()) {
-          s = Status::OK();
-        } else {  // s.ok() == true
-          auto version = new Version(cfd, this, env_options_,
-                                     *cfd->GetLatestMutableCFOptions(),
-                                     current_version_number_++);
-          builder->SaveTo(version->storage_info());
-          version->PrepareApply(*cfd->GetLatestMutableCFOptions(), true);
-          AppendVersion(cfd, version);
-          active_version_builders_.erase(builder_iter);
-          if (cfds_changed->count(cfd) == 0) {
-            cfds_changed->insert(cfd);
-          }
+      auto builder_iter = active_version_builders_.find(edit.column_family_);
+      assert(builder_iter != active_version_builders_.end());
+      auto builder = builder_iter->second->version_builder();
+      assert(builder != nullptr);
+      s = builder->LoadTableHandlers(
+          cfd->internal_stats(), db_options_->max_file_opening_threads,
+          false /* prefetch_index_and_filter_in_cache */,
+          false /* is_initial_load */,
+          cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
+      TEST_SYNC_POINT_CALLBACK(
+          "ReactiveVersionSet::ReadAndApply:AfterLoadTableHandlers", &s);
+      if (!s.ok() && !s.IsPathNotFound()) {
+        break;
+      } else if (s.IsPathNotFound()) {
+        s = Status::OK();
+      } else {  // s.ok() == true
+        auto version = new Version(cfd, this, env_options_,
+                                   *cfd->GetLatestMutableCFOptions(),
+                                   current_version_number_++);
+        builder->SaveTo(version->storage_info());
+        version->PrepareApply(*cfd->GetLatestMutableCFOptions(), true);
+        AppendVersion(cfd, version);
+        active_version_builders_.erase(builder_iter);
+        if (cfds_changed->count(cfd) == 0) {
+          cfds_changed->insert(cfd);
         }
       }
       if (have_next_file) {

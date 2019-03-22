@@ -210,14 +210,14 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   assert(manifest_reader_.get() != nullptr);
   Status s;
   std::unordered_set<ColumnFamilyData*> cfds_changed;
-  InstrumentedMutexLock lock_guard(mutex());
+  InstrumentedMutexLock lock_guard(&mutex_);
   s = static_cast<ReactiveVersionSet*>(versions_.get())
-          ->ReadAndApply(mutex(), &manifest_reader_, &cfds_changed);
+          ->ReadAndApply(&mutex_, &manifest_reader_, &cfds_changed);
   if (s.ok()) {
     SuperVersionContext sv_context(true /* create_superversion */);
     for (auto cfd : cfds_changed) {
       sv_context.NewSuperVersion();
-      cfd->InstallSuperVersion(&sv_context, mutex());
+      cfd->InstallSuperVersion(&sv_context, &mutex_);
     }
     sv_context.Clean();
   }
