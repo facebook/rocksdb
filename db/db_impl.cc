@@ -2147,14 +2147,7 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
       // mutex might be unlocked during the loop, making the result inaccurate.
       SequenceNumber new_bottommost_files_mark_threshold = kMaxSequenceNumber;
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
-        bool scheduled = false;
-        for (auto* cfs : cf_scheduled) {
-          if (cfd == cfs) {
-            scheduled = true;
-            break;
-          }
-        }
-        if (scheduled) {
+        if (cf_scheduled.contains(cfd)) {
           continue;
         }
         new_bottommost_files_mark_threshold = std::min(

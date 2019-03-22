@@ -288,6 +288,15 @@ class autovector {
     }
   }
 
+  bool contains(const T& item) {
+    for (const T& t : *this) {
+      if (t == item) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   void clear() {
     num_stack_items_ = 0;
     vect_.clear();
