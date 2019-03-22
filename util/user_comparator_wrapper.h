@@ -19,6 +19,8 @@ class UserComparatorWrapper final : public Comparator {
  public:
   explicit UserComparatorWrapper(const Comparator* const user_comparator)
       : user_comparator_(user_comparator) {}
+  
+  ~UserComparatorWrapper() = default;
 
   const Comparator* user_comparator() const { return user_comparator_; }
 
@@ -57,7 +59,7 @@ class UserComparatorWrapper final : public Comparator {
   }
 
  private:
-  const Comparator* const user_comparator_;
+  const Comparator* user_comparator_;
 };
 
 }  // namespace rocksdb
