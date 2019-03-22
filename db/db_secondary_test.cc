@@ -18,12 +18,17 @@ namespace rocksdb {
 #ifndef ROCKSDB_LITE
 class DBSecondaryTest : public DBTestBase {
  public:
-  DBSecondaryTest() : DBTestBase("/db_secondary_test"), secondary_path_() {
+  DBSecondaryTest()
+      : DBTestBase("/db_secondary_test"),
+        secondary_path_(),
+        handles_secondary_(),
+        db_secondary_(nullptr) {
     secondary_path_ =
         test::PerThreadDBPath(env_, "/db_secondary_test_secondary");
   }
 
   ~DBSecondaryTest() override {
+    CloseSecondary();
     if (getenv("KEEP_DB") != nullptr) {
       fprintf(stdout, "Secondary DB is still at %s\n", secondary_path_.c_str());
     } else {
@@ -38,8 +43,70 @@ class DBSecondaryTest : public DBTestBase {
     return DB::OpenAsSecondary(options, dbname_, secondary_path_, &db_);
   }
 
+  void OpenSecondary(const Options& options);
+
+  void OpenSecondaryWithColumnFamilies(
+      const std::vector<std::string>& column_families, const Options& options);
+
+  void CloseSecondary() {
+    for (auto h : handles_secondary_) {
+      db_secondary_->DestroyColumnFamilyHandle(h);
+    }
+    handles_secondary_.clear();
+    delete db_secondary_;
+    db_secondary_ = nullptr;
+  }
+
+  DBImplSecondary* db_secondary_full() {
+    return static_cast<DBImplSecondary*>(db_secondary_);
+  }
+
+  void CheckFileTypeCounts(const std::string& dir, int expected_log,
+                           int expected_sst, int expected_manifest) const;
+
   std::string secondary_path_;
+  std::vector<ColumnFamilyHandle*> handles_secondary_;
+  DB* db_secondary_;
 };
+
+void DBSecondaryTest::OpenSecondary(const Options& options) {
+  Status s =
+      DB::OpenAsSecondary(options, dbname_, secondary_path_, &db_secondary_);
+  ASSERT_OK(s);
+}
+
+void DBSecondaryTest::OpenSecondaryWithColumnFamilies(
+    const std::vector<std::string>& column_families, const Options& options) {
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+  for (const auto& cf_name : column_families) {
+    cf_descs.emplace_back(cf_name, options);
+  }
+  Status s = DB::OpenAsSecondary(options, dbname_, secondary_path_, cf_descs,
+                                 &handles_secondary_, &db_secondary_);
+  ASSERT_OK(s);
+}
+
+void DBSecondaryTest::CheckFileTypeCounts(const std::string& dir,
+                                          int expected_log, int expected_sst,
+                                          int expected_manifest) const {
+  std::vector<std::string> filenames;
+  env_->GetChildren(dir, &filenames);
+
+  int log_cnt = 0, sst_cnt = 0, manifest_cnt = 0;
+  for (auto file : filenames) {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(file, &number, &type)) {
+      log_cnt += (type == kLogFile);
+      sst_cnt += (type == kTableFile);
+      manifest_cnt += (type == kDescriptorFile);
+    }
+  }
+  ASSERT_EQ(expected_log, log_cnt);
+  ASSERT_EQ(expected_sst, sst_cnt);
+  ASSERT_EQ(expected_manifest, manifest_cnt);
+}
 
 TEST_F(DBSecondaryTest, ReopenAsSecondary) {
   Options options;
@@ -72,7 +139,6 @@ TEST_F(DBSecondaryTest, ReopenAsSecondary) {
   }
   delete iter;
   ASSERT_EQ(2, count);
-  Close();
 }
 
 TEST_F(DBSecondaryTest, OpenAsSecondary) {
@@ -85,13 +151,10 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
     ASSERT_OK(Put("bar", "bar_value" + std::to_string(i)));
     ASSERT_OK(Flush());
   }
-  DB* db_secondary = nullptr;
   Options options1;
   options1.env = env_;
   options1.max_open_files = -1;
-  Status s =
-      DB::OpenAsSecondary(options1, dbname_, secondary_path_, &db_secondary);
-  ASSERT_OK(s);
+  OpenSecondary(options1);
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
@@ -100,11 +163,11 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
   const auto verify_db_func = [&](const std::string& foo_val,
                                   const std::string& bar_val) {
     std::string value;
-    ASSERT_OK(db_secondary->Get(ropts, "foo", &value));
+    ASSERT_OK(db_secondary_->Get(ropts, "foo", &value));
     ASSERT_EQ(foo_val, value);
-    ASSERT_OK(db_secondary->Get(ropts, "bar", &value));
+    ASSERT_OK(db_secondary_->Get(ropts, "bar", &value));
     ASSERT_EQ(bar_val, value);
-    Iterator* iter = db_secondary->NewIterator(ropts);
+    Iterator* iter = db_secondary_->NewIterator(ropts);
     ASSERT_NE(nullptr, iter);
     iter->Seek("foo");
     ASSERT_TRUE(iter->Valid());
@@ -128,12 +191,49 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
   ASSERT_OK(Put("bar", "new_bar_value"));
   ASSERT_OK(Flush());
 
-  ASSERT_OK(
-      static_cast<DBImplSecondary*>(db_secondary)->TryCatchUpWithPrimary());
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   verify_db_func("new_foo_value", "new_bar_value");
 
-  delete db_secondary;
-  Close();
+  CloseSecondary();
+}
+
+TEST_F(DBSecondaryTest, OpenWithNonExistColumnFamily) {
+  Options options;
+  options.env = env_;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, options1);
+  cf_descs.emplace_back("pikachu", options1);
+  cf_descs.emplace_back("eevee", options1);
+  Status s = DB::OpenAsSecondary(options1, dbname_, secondary_path_, cf_descs,
+                                 &handles_secondary_, &db_secondary_);
+  ASSERT_NOK(s);
+}
+
+TEST_F(DBSecondaryTest, OpenWithSubsetOfColumnFamilies) {
+  Options options;
+  options.env = env_;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondary(options1);
+  ASSERT_EQ(0, handles_secondary_.size());
+  ASSERT_NE(nullptr, db_secondary_);
+
+  ASSERT_OK(Put(0 /*cf*/, "foo", "foo_value"));
+  ASSERT_OK(Flush(0 /*cf*/));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ReadOptions ropts;
+  ropts.verify_checksums = true;
+  std::string value;
+  ASSERT_OK(db_secondary_->Get(ropts, "foo", &value));
+  ASSERT_EQ("foo_value", value);
+  CloseSecondary();
 }
 
 TEST_F(DBSecondaryTest, SwitchToNewManifestDuringOpen) {
@@ -155,18 +255,14 @@ TEST_F(DBSecondaryTest, SwitchToNewManifestDuringOpen) {
   // Make sure db calls RecoverLogFiles so as to trigger a manifest write,
   // which causes the db to switch to a new MANIFEST upon start.
   port::Thread ro_db_thread([&]() {
-    DB* db_secondary = nullptr;
     Options options1;
     options1.env = env_;
     options1.max_open_files = -1;
-    Status s =
-        DB::OpenAsSecondary(options1, dbname_, secondary_path_, &db_secondary);
-    ASSERT_OK(s);
-    delete db_secondary;
+    OpenSecondary(options1);
+    CloseSecondary();
   });
   Reopen(options);
   ro_db_thread.join();
-  Close();
 }
 
 TEST_F(DBSecondaryTest, MissingTableFileDuringOpen) {
@@ -181,24 +277,22 @@ TEST_F(DBSecondaryTest, MissingTableFileDuringOpen) {
   }
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  DB* db1 = nullptr;
   Options options1;
   options1.env = env_;
   options1.max_open_files = -1;
-  Status s = DB::OpenAsSecondary(options1, dbname_, secondary_path_, &db1);
-  ASSERT_OK(s);
+  OpenSecondary(options1);
   ReadOptions ropts;
   ropts.verify_checksums = true;
   std::string value;
-  ASSERT_OK(db1->Get(ropts, "foo", &value));
+  ASSERT_OK(db_secondary_->Get(ropts, "foo", &value));
   ASSERT_EQ("foo_value" +
                 std::to_string(options.level0_file_num_compaction_trigger - 1),
             value);
-  ASSERT_OK(db1->Get(ropts, "bar", &value));
+  ASSERT_OK(db_secondary_->Get(ropts, "bar", &value));
   ASSERT_EQ("bar_value" +
                 std::to_string(options.level0_file_num_compaction_trigger - 1),
             value);
-  Iterator* iter = db1->NewIterator(ropts);
+  Iterator* iter = db_secondary_->NewIterator(ropts);
   ASSERT_NE(nullptr, iter);
   iter->Seek("bar");
   ASSERT_TRUE(iter->Valid());
@@ -218,8 +312,7 @@ TEST_F(DBSecondaryTest, MissingTableFileDuringOpen) {
   }
   ASSERT_EQ(2, count);
   delete iter;
-  delete db1;
-  Close();
+  CloseSecondary();
 }
 
 TEST_F(DBSecondaryTest, MissingTableFile) {
@@ -242,12 +335,10 @@ TEST_F(DBSecondaryTest, MissingTableFile) {
   options.level0_file_num_compaction_trigger = 4;
   Reopen(options);
 
-  DB* db1 = nullptr;
   Options options1;
   options1.env = env_;
   options1.max_open_files = -1;
-  Status s = DB::OpenAsSecondary(options1, dbname_, secondary_path_, &db1);
-  ASSERT_OK(s);
+  OpenSecondary(options1);
 
   for (int i = 0; i != options.level0_file_num_compaction_trigger; ++i) {
     ASSERT_OK(Put("foo", "foo_value" + std::to_string(i)));
@@ -257,25 +348,24 @@ TEST_F(DBSecondaryTest, MissingTableFile) {
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  auto db_secondary = static_cast<DBImplSecondary*>(db1);
-  ASSERT_NE(nullptr, db_secondary);
+  ASSERT_NE(nullptr, db_secondary_full());
   ReadOptions ropts;
   ropts.verify_checksums = true;
   std::string value;
-  ASSERT_NOK(db_secondary->Get(ropts, "foo", &value));
-  ASSERT_NOK(db_secondary->Get(ropts, "bar", &value));
+  ASSERT_NOK(db_secondary_->Get(ropts, "foo", &value));
+  ASSERT_NOK(db_secondary_->Get(ropts, "bar", &value));
 
-  ASSERT_OK(db_secondary->TryCatchUpWithPrimary());
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   ASSERT_EQ(options.level0_file_num_compaction_trigger, table_files_not_exist);
-  ASSERT_OK(db_secondary->Get(ropts, "foo", &value));
+  ASSERT_OK(db_secondary_->Get(ropts, "foo", &value));
   ASSERT_EQ("foo_value" +
                 std::to_string(options.level0_file_num_compaction_trigger - 1),
             value);
-  ASSERT_OK(db_secondary->Get(ropts, "bar", &value));
+  ASSERT_OK(db_secondary_->Get(ropts, "bar", &value));
   ASSERT_EQ("bar_value" +
                 std::to_string(options.level0_file_num_compaction_trigger - 1),
             value);
-  Iterator* iter = db1->NewIterator(ropts);
+  Iterator* iter = db_secondary_->NewIterator(ropts);
   ASSERT_NE(nullptr, iter);
   iter->Seek("bar");
   ASSERT_TRUE(iter->Valid());
@@ -295,8 +385,95 @@ TEST_F(DBSecondaryTest, MissingTableFile) {
   }
   ASSERT_EQ(2, count);
   delete iter;
-  delete db1;
+  CloseSecondary();
+}
+
+TEST_F(DBSecondaryTest, PrimaryDropColumnFamily) {
+  Options options;
+  options.env = env_;
+  const std::string kCfName1 = "pikachu";
+  CreateAndReopenWithCF({kCfName1}, options);
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondaryWithColumnFamilies({kCfName1}, options1);
+  ASSERT_EQ(2, handles_secondary_.size());
+
+  ASSERT_OK(Put(1 /*cf*/, "foo", "foo_val_1"));
+  ASSERT_OK(Flush(1 /*cf*/));
+
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ReadOptions ropts;
+  ropts.verify_checksums = true;
+  std::string value;
+  ASSERT_OK(db_secondary_->Get(ropts, handles_secondary_[1], "foo", &value));
+  ASSERT_EQ("foo_val_1", value);
+
+  ASSERT_OK(dbfull()->DropColumnFamily(handles_[1]));
   Close();
+  CheckFileTypeCounts(dbname_, 1, 0, 1);
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  value.clear();
+  ASSERT_OK(db_secondary_->Get(ropts, handles_secondary_[1], "foo", &value));
+  ASSERT_EQ("foo_val_1", value);
+
+  CloseSecondary();
+}
+
+TEST_F(DBSecondaryTest, SwitchManifest) {
+  Options options;
+  options.env = env_;
+  options.level0_file_num_compaction_trigger = 4;
+  Reopen(options);
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondary(options1);
+
+  const int kNumFiles = options.level0_file_num_compaction_trigger - 1;
+  // Keep it smaller than 10 so that key0, key1, ..., key9 are sorted as 0, 1,
+  // ..., 9.
+  const int kNumKeys = 10;
+  // Create two sst
+  for (int i = 0; i != kNumFiles; ++i) {
+    for (int j = 0; j != kNumKeys; ++j) {
+      ASSERT_OK(Put("key" + std::to_string(j), "value_" + std::to_string(i)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  const auto& range_scan_db = [&]() {
+    ReadOptions tmp_ropts;
+    tmp_ropts.total_order_seek = true;
+    tmp_ropts.verify_checksums = true;
+    std::unique_ptr<Iterator> iter(db_secondary_->NewIterator(tmp_ropts));
+    int cnt = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next(), ++cnt) {
+      ASSERT_EQ("key" + std::to_string(cnt), iter->key().ToString());
+      ASSERT_EQ("value_" + std::to_string(kNumFiles - 1),
+                iter->value().ToString());
+    }
+  };
+
+  range_scan_db();
+
+  // While secondary instance still keeps old MANIFEST open, we close primary,
+  // restart primary, performs full compaction, close again, restart again so
+  // that next time secondary tries to catch up with primary, the secondary
+  // will skip the MANIFEST in middle.
+  Reopen(options);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  Reopen(options);
+  ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
+
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  range_scan_db();
+  CloseSecondary();
 }
 #endif  //! ROCKSDB_LITE
 

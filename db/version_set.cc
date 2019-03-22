@@ -4919,13 +4919,13 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
     // MANIFEST.
     return Status::OK();
   } else if (edit.is_column_family_drop_) {
-    // Drop the column family by setting it to be 'dropped' without destroying
-    // the column family handle.
     cfd = column_family_set_->GetColumnFamily(edit.column_family_);
-    // Drop a CF created after Open? Then ignore
+    // Drop a CF created by primary after secondary starts? Then ignore
     if (cfd == nullptr) {
       return Status::OK();
     }
+    // Drop the column family by setting it to be 'dropped' without destroying
+    // the column family handle.
     cfd->SetDropped();
     if (cfd->Unref()) {
       delete cfd;
