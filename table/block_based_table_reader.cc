@@ -727,17 +727,24 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
   if (seqno_pos != props.end()) {
     global_seqno = DecodeFixed64(seqno_pos->second.c_str());
   }
-  if (global_seqno != 0 && global_seqno != largest_seqno) {
-    std::array<char, 200> msg_buf;
-    snprintf(msg_buf.data(), msg_buf.max_size(),
-             "An external sst file with version %u have global seqno property "
-             "with value %s, while largest seqno in the file is %llu",
-             version, seqno_pos->second.c_str(),
-             static_cast<unsigned long long>(largest_seqno));
-    return Status::Corruption(msg_buf.data());
+  // SstTableReader open table reader with kMaxSequenceNumber as largest_seqno
+  // to denote it is unknown.
+  if (largest_seqno < kMaxSequenceNumber) {
+    if (global_seqno == 0) {
+      global_seqno = largest_seqno;
+    }
+    if (global_seqno != largest_seqno) {
+      std::array<char, 200> msg_buf;
+      snprintf(
+          msg_buf.data(), msg_buf.max_size(),
+          "An external sst file with version %u have global seqno property "
+          "with value %s, while largest seqno in the file is %llu",
+          version, seqno_pos->second.c_str(),
+          static_cast<unsigned long long>(largest_seqno));
+      return Status::Corruption(msg_buf.data());
+    }
   }
-  global_seqno = largest_seqno;
-  *seqno = largest_seqno;
+  *seqno = global_seqno;
 
   if (global_seqno > kMaxSequenceNumber) {
     std::array<char, 200> msg_buf;
@@ -2802,6 +2809,7 @@ Status BlockBasedTable::VerifyChecksum() {
   s = ReadMetaBlock(rep_, nullptr /* prefetch buffer */, &meta, &meta_iter);
   if (s.ok()) {
     s = VerifyChecksumInBlocks(meta_iter.get());
+    printf("verify meta %s\n", s.ToString().c_str());
     if (!s.ok()) {
       return s;
     }
