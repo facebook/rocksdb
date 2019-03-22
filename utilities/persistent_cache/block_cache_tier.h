@@ -100,7 +100,7 @@ class BlockCacheTier : public PersistentCacheTier {
 
     std::string key_;
     std::string data_;
-    const bool signal_ = false;  // signal to request processing thread to exit
+    bool signal_ = false;  // signal to request processing thread to exit
   };
 
   // entry point for insert thread
