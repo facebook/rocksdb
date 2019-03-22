@@ -21,6 +21,7 @@
 #include "rocksdb/types.h"
 #include "util/coding.h"
 #include "util/logging.h"
+#include "util/user_comparator_wrapper.h"
 
 namespace rocksdb {
 
@@ -160,13 +161,13 @@ class InternalKeyComparator
 #endif
     : public Comparator {
  private:
-  const Comparator* user_comparator_;
+  UserComparatorWrapper user_comparator_;
   std::string name_;
  public:
-  explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c),
-    name_("rocksdb.InternalKeyComparator:" +
-          std::string(user_comparator_->Name())) {
-  }
+  explicit InternalKeyComparator(const Comparator* c)
+      : user_comparator_(c),
+        name_("rocksdb.InternalKeyComparator:" +
+              std::string(user_comparator_.Name())) {}
   virtual ~InternalKeyComparator() {}
 
   virtual const char* Name() const override;
@@ -177,12 +178,14 @@ class InternalKeyComparator
                                      const Slice& limit) const override;
   virtual void FindShortSuccessor(std::string* key) const override;
 
-  const Comparator* user_comparator() const { return user_comparator_; }
+  const Comparator* user_comparator() const {
+    return user_comparator_.user_comparator();
+  }
 
   int Compare(const InternalKey& a, const InternalKey& b) const;
   int Compare(const ParsedInternalKey& a, const ParsedInternalKey& b) const;
   virtual const Comparator* GetRootComparator() const override {
-    return user_comparator_->GetRootComparator();
+    return user_comparator_.GetRootComparator();
   }
 };
 
@@ -639,8 +642,7 @@ int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
   //    increasing user key (according to user-supplied comparator)
   //    decreasing sequence number
   //    decreasing type (though sequence# should be enough to disambiguate)
-  int r = user_comparator_->Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
-  PERF_COUNTER_ADD(user_key_comparison_count, 1);
+  int r = user_comparator_.Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
   if (r == 0) {
     const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8);
     const uint64_t bnum = DecodeFixed64(bkey.data() + bkey.size() - 8);
@@ -659,8 +661,7 @@ int InternalKeyComparator::CompareKeySeq(const Slice& akey,
   // Order by:
   //    increasing user key (according to user-supplied comparator)
   //    decreasing sequence number
-  int r = user_comparator_->Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
-  PERF_COUNTER_ADD(user_key_comparison_count, 1);
+  int r = user_comparator_.Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
   if (r == 0) {
     // Shift the number to exclude the last byte which contains the value type
     const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8) >> 8;
