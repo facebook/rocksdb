@@ -196,7 +196,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    write_thread_slow_yield_usec);
   if (row_cache) {
     ROCKS_LOG_HEADER(
-        log, "                              Options.row_cache: %" PRIu64,
+        log,
+        "                              Options.row_cache: %" ROCKSDB_PRIszt,
         row_cache->GetCapacity());
   } else {
     ROCKS_LOG_HEADER(log,
