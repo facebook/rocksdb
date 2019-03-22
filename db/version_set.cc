@@ -4984,6 +4984,12 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
           true /* checksum */, 0 /* log_number */));
       ROCKS_LOG_INFO(db_options_->info_log, "Switched to new manifest: %s\n",
                      manifest_path.c_str());
+      // TODO (yanqin) every time we switch to a new MANIFEST, we clear the
+      // active_version_builders_ map because we choose to construct the
+      // versions from scratch, thanks to the first part of each MANIFEST
+      // written by VersionSet::WriteSnapshot. This is not necessary, but we
+      // choose this at present for the sake of simplicity.
+      active_version_builders_.clear();
     }
   } while (s.IsPathNotFound());
   return s;
