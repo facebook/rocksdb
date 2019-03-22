@@ -129,7 +129,7 @@ class DBImplSecondary : public DBImpl {
 
   // Try to catch up with the primary by reading as much as possible from the
   // log files until there is nothing more to read or encounters an error.
-  Status TryCatchUpWithPrimary();
+  Status TryCatchUpWithPrimary() override;
 
  private:
   friend class DB;

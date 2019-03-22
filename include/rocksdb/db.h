@@ -1244,6 +1244,10 @@ class DB {
     return Status::NotSupported("GetStatsHistory() is not implemented.");
   }
 
+  virtual Status TryCatchUpWithPrimary() {
+    return Status::NotSupported("Supported only by secondary instance");
+  }
+
  private:
   // No copying allowed
   DB(const DB&);
