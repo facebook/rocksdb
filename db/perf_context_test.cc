@@ -821,12 +821,17 @@ TEST_F(PerfContextTest, CPUTimer) {
   ReadOptions read_options;
   SetPerfLevel(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
 
+  std::string max_str = "0";
   for (int i = 0; i < FLAGS_total_keys; ++i) {
-    std::string key = "k" + ToString(i);
-    std::string value = "v" + ToString(i);
+    std::string i_str = ToString(i);
+    std::string key = "k" + i_str;
+    std::string value = "v" + i_str;
+    max_str = max_str > i_str ? max_str : i_str;
 
     db->Put(write_options, key, value);
   }
+  std::string last_key = "k" + max_str;
+  std::string last_value = "v" + max_str;
 
   {
     // Get
@@ -842,11 +847,12 @@ TEST_F(PerfContextTest, CPUTimer) {
 
     // Iter
     std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
-    std::string key = "k" + ToString(FLAGS_total_keys - 1);
 
     // Seek
     get_perf_context()->Reset();
-    iter->Seek(key);
+    iter->Seek(last_key);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(last_value, iter->value().ToString());
 
     if (FLAGS_verbose) {
       std::cout << "Iter Seek CPU time nanos: "
@@ -855,7 +861,8 @@ TEST_F(PerfContextTest, CPUTimer) {
 
     // SeekForPrev
     get_perf_context()->Reset();
-    iter->SeekForPrev(key);
+    iter->SeekForPrev(last_key);
+    ASSERT_TRUE(iter->Valid());
 
     if (FLAGS_verbose) {
       std::cout << "Iter SeekForPrev CPU time nanos: "
@@ -865,6 +872,8 @@ TEST_F(PerfContextTest, CPUTimer) {
     // SeekToLast
     get_perf_context()->Reset();
     iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(last_value, iter->value().ToString());
 
     if (FLAGS_verbose) {
       std::cout << "Iter SeekToLast CPU time nanos: "
@@ -874,6 +883,8 @@ TEST_F(PerfContextTest, CPUTimer) {
     // SeekToFirst
     get_perf_context()->Reset();
     iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("v0", iter->value().ToString());
 
     if (FLAGS_verbose) {
       std::cout << "Iter SeekToFirst CPU time nanos: "
@@ -883,6 +894,8 @@ TEST_F(PerfContextTest, CPUTimer) {
     // Next
     get_perf_context()->Reset();
     iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("v1", iter->value().ToString());
 
     if (FLAGS_verbose) {
       std::cout << "Iter Next CPU time nanos: "
@@ -892,6 +905,8 @@ TEST_F(PerfContextTest, CPUTimer) {
     // Prev
     get_perf_context()->Reset();
     iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("v0", iter->value().ToString());
 
     if (FLAGS_verbose) {
       std::cout << "Iter Prev CPU time nanos: "
@@ -902,8 +917,9 @@ TEST_F(PerfContextTest, CPUTimer) {
     get_perf_context()->Reset();
     auto count = get_perf_context()->iter_seek_cpu_nanos;
     for (int i = 0; i < FLAGS_total_keys; ++i) {
-      key = "k" + ToString(i);
-      iter->Seek(key);
+      iter->Seek("k" + ToString(i));
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("v" + ToString(i), iter->value().ToString());
       auto next_count = get_perf_context()->iter_seek_cpu_nanos;
       ASSERT_GT(next_count, count);
       count = next_count;
@@ -913,7 +929,9 @@ TEST_F(PerfContextTest, CPUTimer) {
     {
       std::unique_ptr<Iterator> iter2(db->NewIterator(read_options));
       ASSERT_EQ(count, get_perf_context()->iter_seek_cpu_nanos);
-      iter2->Seek(key);
+      iter2->Seek(last_key);
+      ASSERT_TRUE(iter2->Valid());
+      ASSERT_EQ(last_value, iter2->value().ToString());
       ASSERT_GT(get_perf_context()->iter_seek_cpu_nanos, count);
       count = get_perf_context()->iter_seek_cpu_nanos;
     }
