@@ -4663,7 +4663,8 @@ Status ReactiveVersionSet::Recover(
   Status s = MaybeSwitchManifest(manifest_reporter->get(), manifest_reader);
   log::Reader* reader = manifest_reader->get();
 
-  while (s.ok()) {
+  int retry = 0;
+  while (s.ok() && retry < 1) {
     assert(reader != nullptr);
     Slice record;
     std::string scratch;
@@ -4704,7 +4705,7 @@ Status ReactiveVersionSet::Recover(
             s = builder->LoadTableHandlers(
                 cfd->internal_stats(), db_options_->max_file_opening_threads,
                 false /* prefetch_index_and_filter_in_cache */,
-                false /* is_initial_load */,
+                true /* is_initial_load */,
                 cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
             if (!s.ok()) {
               enough = false;
@@ -4715,15 +4716,12 @@ Status ReactiveVersionSet::Recover(
             }
           }
         }
-        if (!enough) {
-          // TODO (yanqin) release table handlers if any of the files are not
-          // found.
-        }
       }
       if (enough) {
         break;
       }
     }
+    ++retry;
   }
 
   if (s.ok()) {
@@ -4851,8 +4849,6 @@ Status ReactiveVersionSet::ReadAndApply(
           break;
         } else if (s.IsPathNotFound()) {
           s = Status::OK();
-          // TODO (yanqin) release file descriptors already opened, or modify
-          // LoadTableHandlers so that opened files are not re-opened.
         } else {  // s.ok() == true
           auto version = new Version(cfd, this, env_options_,
                                      *cfd->GetLatestMutableCFOptions(),
