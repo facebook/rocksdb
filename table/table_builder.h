@@ -63,7 +63,7 @@ struct TableReaderOptions {
   bool immortal;
   // what level this table/file is on, -1 for "not set, don't know"
   int level;
-  // largest seqno in the table.
+  // largest seqno in the table
   SequenceNumber largest_seqno;
 };
 
