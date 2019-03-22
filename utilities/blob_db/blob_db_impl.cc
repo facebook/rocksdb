@@ -1043,7 +1043,7 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     ROCKS_LOG_DEBUG(db_options_.info_log,
                     "Failed to read blob from blob file %" PRIu64
                     ", blob_offset: %" PRIu64 ", blob_size: %" PRIu64
-                    ", key_size: %" PRIu64 ", status: '%s'",
+                    ", key_size: %" ROCKSDB_PRIszt ", status: '%s'",
                     bfile->BlobFileNumber(), blob_index.offset(),
                     blob_index.size(), key.size(), s.ToString().c_str());
     return s;
@@ -1052,8 +1052,8 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     ROCKS_LOG_DEBUG(
         db_options_.info_log,
         "Failed to read blob from blob file %" PRIu64 ", blob_offset: %" PRIu64
-        ", blob_size: %" PRIu64 ", key_size: %" PRIu64 ", read %" PRIu64
-        " bytes, expected %" PRIu64 " bytes",
+        ", blob_size: %" PRIu64 ", key_size: %" ROCKSDB_PRIszt
+        ", read %" ROCKSDB_PRIszt " bytes, expected %" PRIu64 " bytes",
         bfile->BlobFileNumber(), blob_index.offset(), blob_index.size(),
         key.size(), blob_record.size(), record_size);
 
@@ -1067,7 +1067,7 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     ROCKS_LOG_DEBUG(db_options_.info_log,
                     "Unable to decode CRC from blob file %" PRIu64
                     ", blob_offset: %" PRIu64 ", blob_size: %" PRIu64
-                    ", key size: %" PRIu64 ", status: '%s'",
+                    ", key size: %" ROCKSDB_PRIszt ", status: '%s'",
                     bfile->BlobFileNumber(), blob_index.offset(),
                     blob_index.size(), key.size(), s.ToString().c_str());
     return Status::Corruption("Unable to decode checksum.");
@@ -1168,9 +1168,9 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
   }
 
   ROCKS_LOG_INFO(db_options_.info_log, "Starting Sanity Check");
-  ROCKS_LOG_INFO(db_options_.info_log, "Number of files %" PRIu64,
+  ROCKS_LOG_INFO(db_options_.info_log, "Number of files %" ROCKSDB_PRIszt,
                  blob_files_.size());
-  ROCKS_LOG_INFO(db_options_.info_log, "Number of open files %" PRIu64,
+  ROCKS_LOG_INFO(db_options_.info_log, "Number of open files %" ROCKSDB_PRIszt,
                  open_ttl_files_.size());
 
   for (auto bfile : open_ttl_files_) {
