@@ -38,14 +38,17 @@ CompactionIterator::CompactionIterator(
     CompactionRangeDelAggregator* range_del_agg, const Compaction* compaction,
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
-    const SequenceNumber preserve_deletes_seqnum)
+    const SequenceNumber preserve_deletes_seqnum,
+    SnapshotListFetchCallback* snap_list_callback
+    )
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
           earliest_write_conflict_snapshot, snapshot_checker, env,
           report_detailed_time, expect_valid_internal_key, range_del_agg,
           std::unique_ptr<CompactionProxy>(
               compaction ? new CompactionProxy(compaction) : nullptr),
-          compaction_filter, shutting_down, preserve_deletes_seqnum) {}
+          compaction_filter, shutting_down, preserve_deletes_seqnum,
+          snap_list_callback) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -57,7 +60,9 @@ CompactionIterator::CompactionIterator(
     std::unique_ptr<CompactionProxy> compaction,
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
-    const SequenceNumber preserve_deletes_seqnum)
+    const SequenceNumber preserve_deletes_seqnum,
+    SnapshotListFetchCallback* snap_list_callback
+    )
     : input_(input),
       cmp_(cmp),
       merge_helper_(merge_helper),
@@ -75,7 +80,10 @@ CompactionIterator::CompactionIterator(
       current_user_key_sequence_(0),
       current_user_key_snapshot_(0),
       merge_out_iter_(merge_helper_),
-      current_key_committed_(false) {
+      current_key_committed_(false),
+      snap_list_callback_(snap_list_callback),
+      timer_(env_, true)
+  {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
   assert(snapshots_ != nullptr);
   bottommost_level_ =
@@ -83,24 +91,7 @@ CompactionIterator::CompactionIterator(
   if (compaction_ != nullptr) {
     level_ptrs_ = std::vector<size_t>(compaction_->number_levels(), 0);
   }
-  if (snapshots_->size() == 0) {
-    // optimize for fast path if there are no snapshots
-    visible_at_tip_ = true;
-    earliest_snapshot_iter_ = snapshots_->end();
-    earliest_snapshot_ = kMaxSequenceNumber;
-    latest_snapshot_ = 0;
-  } else {
-    visible_at_tip_ = false;
-    earliest_snapshot_iter_ = snapshots_->begin();
-    earliest_snapshot_ = snapshots_->at(0);
-    latest_snapshot_ = snapshots_->back();
-  }
-#ifndef NDEBUG
-  // findEarliestVisibleSnapshot assumes this ordering.
-  for (size_t i = 1; i < snapshots_->size(); ++i) {
-    assert(snapshots_->at(i - 1) < snapshots_->at(i));
-  }
-#endif
+  ProcessSnapshotList();
   input_->SetPinnedItersMgr(&pinned_iters_mgr_);
   TEST_SYNC_POINT_CALLBACK("CompactionIterator:AfterInit", compaction_.get());
 }
@@ -222,6 +213,28 @@ void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   }
 }
 
+void CompactionIterator::ProcessSnapshotList() {
+#ifndef NDEBUG
+  // findEarliestVisibleSnapshot assumes this ordering.
+  for (size_t i = 1; i < snapshots_->size(); ++i) {
+    assert(snapshots_->at(i - 1) < snapshots_->at(i));
+  }
+#endif
+  if (snapshots_->size() == 0) {
+    // optimize for fast path if there are no snapshots
+    visible_at_tip_ = true;
+    earliest_snapshot_iter_ = snapshots_->end();
+    earliest_snapshot_ = kMaxSequenceNumber;
+    latest_snapshot_ = 0;
+  } else {
+    visible_at_tip_ = false;
+    earliest_snapshot_iter_ = snapshots_->begin();
+    earliest_snapshot_ = snapshots_->at(0);
+    latest_snapshot_ = snapshots_->back();
+  }
+  released_snapshots_.clear();
+}
+
 void CompactionIterator::NextFromInput() {
   at_next_ = false;
   valid_ = false;
@@ -269,6 +282,19 @@ void CompactionIterator::NextFromInput() {
     // compaction filter). ikey_.user_key is pointing to the copy.
     if (!has_current_user_key_ ||
         !cmp_->Equal(ikey_.user_key, current_user_key_)) {
+      key_cnt_++;
+      // Use key_cnt_ to reduce the overhead of reading current time
+      if (snap_list_callback_ && key_cnt_ % 1024 == 0 && snapshots_->size()) {
+        const uint64_t nanos = snap_list_callback_->snap_refresh_nanos();
+        // inc next refresh period exponentially (by x4)
+        auto next_refresh_threshold = nanos << (snap_refresh_cnt_ * 2);
+        const uint64_t elapsed = timer_.ElapsedNanos();
+        if (elapsed > next_refresh_threshold) {  
+          snap_list_callback_->Refresh(snapshots_, latest_snapshot_);
+          snap_refresh_cnt_++;
+          ProcessSnapshotList();
+        }
+      }
       // First occurrence of this user key
       // Copy key for output
       key_ = current_key_.SetInternalKey(key_, &ikey_);

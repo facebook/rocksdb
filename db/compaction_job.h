@@ -72,7 +72,9 @@ class CompactionJob {
                 bool paranoid_file_checks, bool measure_io_stats,
                 const std::string& dbname,
                 CompactionJobStats* compaction_job_stats,
-                Env::Priority thread_pri);
+                Env::Priority thread_pri,
+                SnapshotListFetchCallback* snap_list_callback = nullptr
+                );
 
   ~CompactionJob();
 
@@ -152,6 +154,7 @@ class CompactionJob {
   // entirely within s1 and s2, then the earlier version of k1 can be safely
   // deleted because that version is not visible in any snapshot.
   std::vector<SequenceNumber> existing_snapshots_;
+  SnapshotListFetchCallback* snap_list_callback_;
 
   // This is the earliest snapshot that could be used for write-conflict
   // checking by a transaction.  For any user-key newer than this snapshot, we

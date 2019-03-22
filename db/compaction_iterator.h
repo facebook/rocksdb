@@ -21,6 +21,21 @@
 
 namespace rocksdb {
 
+class SnapshotListFetchCallback {
+ public:
+  SnapshotListFetchCallback()
+      : snap_refresh_nanos_(500 * 1000 * 1000) {} // 0.5s
+  SnapshotListFetchCallback(uint64_t snap_refresh_nanos)
+      : snap_refresh_nanos_(snap_refresh_nanos) {}
+  virtual void Refresh(std::vector<SequenceNumber>* snapshots,
+                       SequenceNumber max) = 0;
+  uint64_t snap_refresh_nanos() { return snap_refresh_nanos_; }
+
+  virtual ~SnapshotListFetchCallback() {}
+ private:
+  const uint64_t snap_refresh_nanos_;
+};
+
 class CompactionIterator {
  public:
   // A wrapper around Compaction. Has a much smaller interface, only what
@@ -69,7 +84,8 @@ class CompactionIterator {
                      const Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
-                     const SequenceNumber preserve_deletes_seqnum = 0);
+                     const SequenceNumber preserve_deletes_seqnum = 0,
+    SnapshotListFetchCallback* snap_list_callback = nullptr);
 
   // Constructor with custom CompactionProxy, used for tests.
   CompactionIterator(InternalIterator* input, const Comparator* cmp,
@@ -82,7 +98,8 @@ class CompactionIterator {
                      std::unique_ptr<CompactionProxy> compaction,
                      const CompactionFilter* compaction_filter = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
-                     const SequenceNumber preserve_deletes_seqnum = 0);
+                     const SequenceNumber preserve_deletes_seqnum = 0,
+    SnapshotListFetchCallback* snap_list_callback = nullptr);
 
   ~CompactionIterator();
 
@@ -110,6 +127,8 @@ class CompactionIterator {
  private:
   // Processes the input stream to find the next output
   void NextFromInput();
+  // Process snapshots_ and assign related variables
+  void ProcessSnapshotList();
 
   // Do last preparations before presenting the output to the callee. At this
   // point this only zeroes out the sequence number if possible for better
@@ -144,7 +163,7 @@ class CompactionIterator {
   InternalIterator* input_;
   const Comparator* cmp_;
   MergeHelper* merge_helper_;
-  const std::vector<SequenceNumber>* snapshots_;
+  std::vector<SequenceNumber>* snapshots_;
   // List of snapshots released during compaction.
   // findEarliestVisibleSnapshot() find them out from return of
   // snapshot_checker, and make sure they will not be returned as
@@ -219,6 +238,13 @@ class CompactionIterator {
   // Used to avoid purging uncommitted values. The application can specify
   // uncommitted values by providing a SnapshotChecker object.
   bool current_key_committed_;
+  SnapshotListFetchCallback* snap_list_callback_;
+  // number of distinct keys processed
+  size_t key_cnt_ = 0;
+  // number of times that snapshot list is refreshed
+  size_t snap_refresh_cnt_ = 0;
+  // time since the iterator was created
+  StopWatchNano timer_;
 
   bool IsShuttingDown() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.
