@@ -193,8 +193,6 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   verify_db_func("new_foo_value", "new_bar_value");
-
-  CloseSecondary();
 }
 
 TEST_F(DBSecondaryTest, OpenWithNonExistColumnFamily) {
@@ -233,7 +231,6 @@ TEST_F(DBSecondaryTest, OpenWithSubsetOfColumnFamilies) {
   std::string value;
   ASSERT_OK(db_secondary_->Get(ropts, "foo", &value));
   ASSERT_EQ("foo_value", value);
-  CloseSecondary();
 }
 
 TEST_F(DBSecondaryTest, SwitchToNewManifestDuringOpen) {
@@ -312,7 +309,6 @@ TEST_F(DBSecondaryTest, MissingTableFileDuringOpen) {
   }
   ASSERT_EQ(2, count);
   delete iter;
-  CloseSecondary();
 }
 
 TEST_F(DBSecondaryTest, MissingTableFile) {
@@ -385,7 +381,6 @@ TEST_F(DBSecondaryTest, MissingTableFile) {
   }
   ASSERT_EQ(2, count);
   delete iter;
-  CloseSecondary();
 }
 
 TEST_F(DBSecondaryTest, PrimaryDropColumnFamily) {
@@ -417,8 +412,6 @@ TEST_F(DBSecondaryTest, PrimaryDropColumnFamily) {
   value.clear();
   ASSERT_OK(db_secondary_->Get(ropts, handles_secondary_[1], "foo", &value));
   ASSERT_EQ("foo_val_1", value);
-
-  CloseSecondary();
 }
 
 TEST_F(DBSecondaryTest, SwitchManifest) {
@@ -473,7 +466,6 @@ TEST_F(DBSecondaryTest, SwitchManifest) {
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   range_scan_db();
-  CloseSecondary();
 }
 #endif  //! ROCKSDB_LITE
 
