@@ -17,8 +17,8 @@ namespace rocksdb {
 // perf_context.user_key_comparison_count.
 class UserComparatorWrapper final : public Comparator {
  public:
-  explicit UserComparatorWrapper(const Comparator* const user_comparator)
-      : user_comparator_(user_comparator) {}
+  explicit UserComparatorWrapper(const Comparator* const user_cmp)
+      : user_comparator_(user_cmp) {}
   
   ~UserComparatorWrapper() = default;
 
