@@ -75,10 +75,6 @@ class InternalIteratorBase : public Cleanable {
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
-  // True if the iterator is invalidated because it is out of the iterator
-  // upper bound
-  virtual bool IsOutOfBound() { return false; }
-
   // Pass the PinnedIteratorsManager to the Iterator, most Iterators dont
   // communicate with PinnedIteratorsManager so default implementation is no-op
   // but for Iterators that need to communicate with PinnedIteratorsManager

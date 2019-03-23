@@ -2326,7 +2326,6 @@ bool BlockBasedTable::PrefixMayMatch(
 
 template <class TBlockIter, typename TValue>
 void BlockBasedTableIterator<TBlockIter, TValue>::Seek(const Slice& target) {
-  is_out_of_bound_ = false;
   if (!CheckPrefixMayMatch(target)) {
     ResetDataIter();
     return;
@@ -2356,7 +2355,6 @@ void BlockBasedTableIterator<TBlockIter, TValue>::Seek(const Slice& target) {
 template <class TBlockIter, typename TValue>
 void BlockBasedTableIterator<TBlockIter, TValue>::SeekForPrev(
     const Slice& target) {
-  is_out_of_bound_ = false;
   if (!CheckPrefixMayMatch(target)) {
     ResetDataIter();
     return;
@@ -2399,7 +2397,6 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekForPrev(
 
 template <class TBlockIter, typename TValue>
 void BlockBasedTableIterator<TBlockIter, TValue>::SeekToFirst() {
-  is_out_of_bound_ = false;
   SavePrevIndexValue();
   index_iter_->SeekToFirst();
   if (!index_iter_->Valid()) {
@@ -2413,7 +2410,6 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekToFirst() {
 
 template <class TBlockIter, typename TValue>
 void BlockBasedTableIterator<TBlockIter, TValue>::SeekToLast() {
-  is_out_of_bound_ = false;
   SavePrevIndexValue();
   index_iter_->SeekToLast();
   if (!index_iter_->Valid()) {
@@ -2486,19 +2482,33 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
         key_includes_seq_, index_key_is_full_,
         /* get_context */ nullptr, s, prefetch_buffer_.get());
     block_iter_points_to_real_block_ = true;
+    if (read_options_.iterate_upper_bound != nullptr) {
+      data_block_within_upper_bound_ =
+          (user_comparator_.Compare(
+               *read_options_.iterate_upper_bound,
+               ExtractUserKey(index_iter_->key())) > 0);
+    }
   }
 }
 
 template <class TBlockIter, typename TValue>
 void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyForward() {
-  assert(!is_out_of_bound_);
   // TODO the while loop inherits from two-level-iterator. We don't know
   // whether a block can be empty so it can be replaced by an "if".
   while (!block_iter_.Valid()) {
     if (!block_iter_.status().ok()) {
       return;
     }
+    bool out_of_bound = read_options_.iterate_upper_bound != nullptr &&
+                        block_iter_points_to_real_block_ &&
+                        !data_block_within_upper_bound_;
     ResetDataIter();
+    if (out_of_bound) {
+      // The next block is out of bound. No need to read it.
+      TEST_SYNC_POINT_CALLBACK("BlockBasedTableIterator:out_of_bound",
+                               nullptr);
+      return;
+    }
     // We used to check the current index key for upperbound.
     // It will only save a data reading for a small percentage of use cases,
     // so for code simplicity, we removed it. We can add it back if there is a
@@ -2512,25 +2522,10 @@ void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyForward() {
       return;
     }
   }
-
-  // Check upper bound on the current key
-  bool reached_upper_bound =
-      (read_options_.iterate_upper_bound != nullptr &&
-       block_iter_points_to_real_block_ && block_iter_.Valid() &&
-       user_comparator_.Compare(ExtractUserKey(block_iter_.key()),
-                                *read_options_.iterate_upper_bound) >= 0);
-  TEST_SYNC_POINT_CALLBACK(
-      "BlockBasedTable::BlockEntryIteratorState::KeyReachedUpperBound",
-      &reached_upper_bound);
-  if (reached_upper_bound) {
-    is_out_of_bound_ = true;
-    return;
-  }
 }
 
 template <class TBlockIter, typename TValue>
 void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyBackward() {
-  assert(!is_out_of_bound_);
   while (!block_iter_.Valid()) {
     if (!block_iter_.status().ok()) {
       return;

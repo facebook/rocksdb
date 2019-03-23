@@ -645,8 +645,7 @@ void LevelIterator::Prev() {
 
 void LevelIterator::SkipEmptyFileForward() {
   while (file_iter_.iter() == nullptr ||
-         (!file_iter_.Valid() && file_iter_.status().ok() &&
-          !file_iter_.iter()->IsOutOfBound())) {
+         (!file_iter_.Valid() && file_iter_.status().ok())) {
     // Move to next file
     if (file_index_ >= flevel_->num_files - 1) {
       // Already at the last file
