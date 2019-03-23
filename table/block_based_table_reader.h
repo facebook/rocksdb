@@ -111,7 +111,9 @@ class BlockBasedTable : public TableReader {
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena = nullptr,
                                 bool skip_filters = false,
-                                bool for_compaction = false) override;
+                                bool for_compaction = false,
+                                bool within_lower_bound = false,
+                                bool within_upper_bound = false) override;
 
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
@@ -577,7 +579,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
                           const SliceTransform* prefix_extractor, bool is_index,
                           bool key_includes_seq = true,
                           bool index_key_is_full = true,
-                          bool for_compaction = false)
+                          bool for_compaction = false,
+                          bool hint_within_lower_bound = false,
+                          bool hint_within_upper_bound = false)
       : table_(table),
         read_options_(read_options),
         icomp_(icomp),
@@ -591,7 +595,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
         is_index_(is_index),
         key_includes_seq_(key_includes_seq),
         index_key_is_full_(index_key_is_full),
-        for_compaction_(for_compaction) {}
+        for_compaction_(for_compaction),
+        hint_within_lower_bound_(hint_within_lower_bound),
+        hint_within_upper_bound_(hint_within_upper_bound) {}
 
   ~BlockBasedTableIterator() { delete index_iter_; }
 
@@ -631,6 +637,20 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
 
   // Whether iterator invalidated for being out of bound.
   bool IsOutOfBound() override { return is_out_of_bound_; }
+
+  bool HintWithinLowerBound() override {
+    assert(Valid());
+    assert(read_options_.iterate_lower_bound != nullptr);
+    // Potentially we can use index key for the previous block as lower bound
+    // of current block, and check if we are wihtin iterate_lower_bound.
+    return hint_within_lower_bound_;
+  }
+
+  bool HintWithinUpperBound() override {
+    assert(Valid());
+    assert(read_options_.iterate_upper_bound != nullptr);
+    return data_block_within_upper_bound_;
+  }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     pinned_iters_mgr_ = pinned_iters_mgr;
@@ -692,6 +712,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   TBlockIter block_iter_;
   bool block_iter_points_to_real_block_;
   bool is_out_of_bound_ = false;
+  // Whether current data block being fully within iterate upper bound.
+  bool data_block_within_upper_bound_;
   bool check_filter_;
   // TODO(Zhongyi): pick a better name
   bool need_upper_bound_check_;
@@ -703,6 +725,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   bool index_key_is_full_;
   // If this iterator is created for compaction
   bool for_compaction_;
+  const bool hint_within_lower_bound_;
+  const bool hint_within_upper_bound_;
   BlockHandle prev_index_value_;
 
   static const size_t kInitReadaheadSize = 8 * 1024;

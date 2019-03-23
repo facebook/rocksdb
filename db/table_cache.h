@@ -49,6 +49,10 @@ class TableCache {
   //    aggregator. If an error occurs, returns it in a NewErrorInternalIterator
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
+  // @param hint_within_lower_bound hint whether the table is fully within
+  //    iterate_lower_bound.
+  // @param hint_within_upper_bound hint whether the table is fully within
+  //    iterate_upper_bound.
   InternalIterator* NewIterator(
       const ReadOptions& options, const EnvOptions& toptions,
       const InternalKeyComparator& internal_comparator,
@@ -58,7 +62,9 @@ class TableCache {
       HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
       Arena* arena = nullptr, bool skip_filters = false, int level = -1,
       const InternalKey* smallest_compaction_key = nullptr,
-      const InternalKey* largest_compaction_key = nullptr);
+      const InternalKey* largest_compaction_key = nullptr,
+      bool hint_within_lower_bound = false,
+      bool hint_within_upper_bound = false);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call (*handle_result)(arg, found_key, found_value) repeatedly until

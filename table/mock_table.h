@@ -42,7 +42,9 @@ class MockTableReader : public TableReader {
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena = nullptr,
                                 bool skip_filters = false,
-                                bool for_compaction = false) override;
+                                bool for_compaction = false,
+                                bool hint_within_lower_bound = false,
+                                bool hint_within_upper_bound = false) override;
 
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, const SliceTransform* prefix_extractor,

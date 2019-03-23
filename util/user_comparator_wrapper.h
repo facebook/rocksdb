@@ -19,7 +19,7 @@ class UserComparatorWrapper final : public Comparator {
  public:
   explicit UserComparatorWrapper(const Comparator* const user_cmp)
       : user_comparator_(user_cmp) {}
-  
+
   ~UserComparatorWrapper() = default;
 
   const Comparator* user_comparator() const { return user_comparator_; }

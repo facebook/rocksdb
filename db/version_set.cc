@@ -508,23 +508,38 @@ class LevelIterator final : public InternalIterator {
     assert(Valid());
     return file_iter_.key();
   }
+
   Slice value() const override {
     assert(Valid());
     return file_iter_.value();
   }
+
   Status status() const override {
     return file_iter_.iter() ? file_iter_.status() : Status::OK();
   }
+
+  bool HintWithinLowerBound() override {
+    assert(Valid());
+    return file_iter_.HintWithinLowerBound();
+  }
+
+  bool HintWithinUpperBound() override {
+    assert(Valid());
+    return file_iter_.HintWithinUpperBound();
+  }
+
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     pinned_iters_mgr_ = pinned_iters_mgr;
     if (file_iter_.iter()) {
       file_iter_.SetPinnedItersMgr(pinned_iters_mgr);
     }
   }
+
   bool IsKeyPinned() const override {
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
            file_iter_.iter() && file_iter_.IsKeyPinned();
   }
+
   bool IsValuePinned() const override {
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
            file_iter_.iter() && file_iter_.IsValuePinned();
@@ -539,6 +554,11 @@ class LevelIterator final : public InternalIterator {
   const Slice& file_smallest_key(size_t file_index) {
     assert(file_index < flevel_->num_files);
     return flevel_->files[file_index].smallest_key;
+  }
+
+  const Slice& file_largest_key(size_t file_index) {
+    assert(file_index < flevel_->num_files);
+    return flevel_->files[file_index].largest_key;
   }
 
   bool KeyReachedUpperBound(const Slice& internal_key) {
@@ -560,12 +580,21 @@ class LevelIterator final : public InternalIterator {
       smallest_compaction_key = (*compaction_boundaries_)[file_index_].smallest;
       largest_compaction_key = (*compaction_boundaries_)[file_index_].largest;
     }
+    bool hint_within_lower_bound =
+        read_options_.iterate_lower_bound != nullptr &&
+        user_comparator_.Compare(ExtractUserKey(file_smallest_key(file_index_)),
+                                 *read_options_.iterate_lower_bound) >= 0;
+    bool hint_within_upper_bound =
+        read_options_.iterate_upper_bound != nullptr &&
+        user_comparator_.Compare(ExtractUserKey(file_largest_key(file_index_)),
+                                 *read_options_.iterate_upper_bound) < 0;
     return table_cache_->NewIterator(
         read_options_, env_options_, icomparator_, *file_meta.file_metadata,
         range_del_agg_, prefix_extractor_,
-        nullptr /* don't need reference to table */,
-        file_read_hist_, for_compaction_, nullptr /* arena */, skip_filters_,
-        level_, smallest_compaction_key, largest_compaction_key);
+        nullptr /* don't need reference to table */, file_read_hist_,
+        for_compaction_, nullptr /* arena */, skip_filters_, level_,
+        smallest_compaction_key, largest_compaction_key,
+        hint_within_lower_bound, hint_within_upper_bound);
   }
 
   TableCache* table_cache_;
