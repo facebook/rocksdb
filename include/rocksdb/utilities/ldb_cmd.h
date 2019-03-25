@@ -100,9 +100,7 @@ class LDBCommand {
     return option_map_;
   }
 
-  const std::vector<std::string>& TEST_GetFlags() {
-    return flags_;
-  }
+  const std::vector<std::string>& TEST_GetFlags() { return flags_; }
 
   virtual bool NoDBOpen() { return false; }
 
