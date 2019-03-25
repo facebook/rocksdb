@@ -221,6 +221,7 @@ void DeleteScheduler::BackgroundEmptyTrash() {
       // Delete file from trash and update total_penlty value
       Status s =
           DeleteTrashFile(path_in_trash, fad.dir, &deleted_bytes, &is_complete);
+
       total_deleted_bytes += deleted_bytes;
       mu_.Lock();
       if (is_complete) {
