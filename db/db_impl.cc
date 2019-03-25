@@ -2113,6 +2113,18 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   return snapshot;
 }
 
+namespace {
+typedef autovector<ColumnFamilyData*, 2> CfdList;
+bool CfdListContains(const CfdList& list, ColumnFamilyData* cfd) {
+  for (const ColumnFamilyData* t : list) {
+    if (t == cfd) {
+      return true;
+    }
+  }
+  return false;
+}
+}  //  namespace
+
 void DBImpl::ReleaseSnapshot(const Snapshot* s) {
   const SnapshotImpl* casted_s = reinterpret_cast<const SnapshotImpl*>(s);
   {
@@ -2129,7 +2141,7 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     // Avoid to go through every column family by checking a global threshold
     // first.
     if (oldest_snapshot > bottommost_files_mark_threshold_) {
-      autovector<ColumnFamilyData*, 2> cf_scheduled;
+      CfdList cf_scheduled;
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
         cfd->current()->storage_info()->UpdateOldestSnapshot(oldest_snapshot);
         if (!cfd->current()
@@ -2147,7 +2159,7 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
       // mutex might be unlocked during the loop, making the result inaccurate.
       SequenceNumber new_bottommost_files_mark_threshold = kMaxSequenceNumber;
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
-        if (cf_scheduled.contains(cfd)) {
+        if (CfdListContains(cf_scheduled, cfd)) {
           continue;
         }
         new_bottommost_files_mark_threshold = std::min(
