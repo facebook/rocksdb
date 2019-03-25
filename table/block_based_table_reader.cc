@@ -2883,7 +2883,7 @@ Status BlockBasedTable::VerifyChecksumInMetaBlocks(
         false /* decompress */, false /*maybe_compressed*/,
         UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options);
     s = block_fetcher.ReadBlockContents();
-    if (!s.ok() && index_iter->key() == kPropertiesBlock) {
+    if (s.IsCorruption() && index_iter->key() == kPropertiesBlock) {
       TableProperties* table_properties;
       s = TryReadPropertiesWithGlobalSeqno(rep_, nullptr /* prefetch_buffer */,
                                            index_iter->value(),
