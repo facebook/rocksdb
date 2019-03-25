@@ -817,17 +817,6 @@ TEST_F(BlobDBTest, SstFileManager) {
 }
 
 TEST_F(BlobDBTest, SstFileManagerRestart) {
-  // run the same test for Get(), MultiGet() and Iterator each.
-  std::shared_ptr<SstFileManager> sst_file_manager(
-      NewSstFileManager(mock_env_.get()));
-  sst_file_manager->SetDeleteRateBytesPerSecond(1);
-  SstFileManagerImpl *sfm =
-      static_cast<SstFileManagerImpl *>(sst_file_manager.get());
-
-  BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;
-  Options db_options;
-
   int files_deleted_directly = 0;
   int files_scheduled_to_delete = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -840,6 +829,18 @@ TEST_F(BlobDBTest, SstFileManagerRestart) {
       {"BlobDBTest.SstFileManagerRestart:1",
        "DeleteScheduler::BackgroundEmptyTrash"},
   });
+
+  // run the same test for Get(), MultiGet() and Iterator each.
+  std::shared_ptr<SstFileManager> sst_file_manager(
+      NewSstFileManager(mock_env_.get()));
+  sst_file_manager->SetDeleteRateBytesPerSecond(1);
+  SstFileManagerImpl *sfm =
+      static_cast<SstFileManagerImpl *>(sst_file_manager.get());
+
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  Options db_options;
+
 
   SyncPoint::GetInstance()->EnableProcessing();
   db_options.sst_file_manager = sst_file_manager;
