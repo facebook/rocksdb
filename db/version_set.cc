@@ -4814,6 +4814,12 @@ Status ReactiveVersionSet::ReadAndApply(
       }
       ColumnFamilyData* cfd =
           column_family_set_->GetColumnFamily(edit.column_family_);
+      // If we cannot find this column family in our column family set, then it
+      // may be a new column family created by the primary after the secondary
+      // starts. Ignore it for now.
+      if (nullptr == cfd) {
+        continue;
+      }
       if (active_version_builders_.find(edit.column_family_) ==
           active_version_builders_.end()) {
         std::unique_ptr<BaseReferencedVersionBuilder> builder_guard(

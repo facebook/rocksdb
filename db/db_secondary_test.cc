@@ -224,7 +224,9 @@ TEST_F(DBSecondaryTest, OpenWithSubsetOfColumnFamilies) {
   ASSERT_NE(nullptr, db_secondary_);
 
   ASSERT_OK(Put(0 /*cf*/, "foo", "foo_value"));
+  ASSERT_OK(Put(1 /*cf*/, "foo", "foo_value"));
   ASSERT_OK(Flush(0 /*cf*/));
+  ASSERT_OK(Flush(1 /*cf*/));
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   ReadOptions ropts;
   ropts.verify_checksums = true;
