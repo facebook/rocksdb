@@ -1869,16 +1869,16 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   iter->SeekToFirst();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("v0", iter->value().ToString());
+  ASSERT_EQ(0, get_perf_context()->iter_seek_cpu_nanos);
   iter->Next();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("v1", iter->value().ToString());
+  ASSERT_EQ(0, get_perf_context()->iter_next_cpu_nanos);
   iter->Prev();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("v0", iter->value().ToString());
-  ASSERT_EQ(0, env_->now_cpu_count_.load());
-  ASSERT_EQ(0, get_perf_context()->iter_next_cpu_nanos);
   ASSERT_EQ(0, get_perf_context()->iter_prev_cpu_nanos);
-  ASSERT_EQ(0, get_perf_context()->iter_seek_cpu_nanos);
+  ASSERT_EQ(0, env_->now_cpu_count_.load());
   delete iter;
 
   uint64_t kDummyAddonTime = uint64_t{1000000000000};
@@ -1902,20 +1902,19 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   iter->SeekToFirst();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("v0", iter->value().ToString());
+  ASSERT_GT(get_perf_context()->iter_seek_cpu_nanos, 0);
+  ASSERT_LT(get_perf_context()->iter_seek_cpu_nanos, kDummyAddonTime);
   iter->Next();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("v1", iter->value().ToString());
+  ASSERT_GT(get_perf_context()->iter_next_cpu_nanos, 0);
+  ASSERT_LT(get_perf_context()->iter_next_cpu_nanos, kDummyAddonTime);
   iter->Prev();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("v0", iter->value().ToString());
-  ASSERT_GE(env_->now_cpu_count_.load(), 12);
-  ASSERT_GT(get_perf_context()->iter_next_cpu_nanos, 0);
-  ASSERT_LT(get_perf_context()->iter_next_cpu_nanos, kDummyAddonTime);
   ASSERT_GT(get_perf_context()->iter_prev_cpu_nanos, 0);
   ASSERT_LT(get_perf_context()->iter_prev_cpu_nanos, kDummyAddonTime);
-  ASSERT_GT(get_perf_context()->iter_seek_cpu_nanos, 0);
-  ASSERT_LT(get_perf_context()->iter_seek_cpu_nanos, kDummyAddonTime);
-  ASSERT_LT(get_perf_context()->get_cpu_nanos, kDummyAddonTime);
+  ASSERT_GE(env_->now_cpu_count_.load(), 12);
   ASSERT_GT(get_perf_context()->find_table_nanos, kDummyAddonTime);
 
   SetPerfLevel(PerfLevel::kDisable);
