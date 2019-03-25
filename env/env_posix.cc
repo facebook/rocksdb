@@ -188,14 +188,6 @@ class PosixEnv : public Env {
       }
     }
     result->reset(new PosixSequentialFile(fname, file, fd, options));
-    {
-      struct stat buf;
-      int fstat_result = fstat(fd, &buf);
-      if (fstat_result == -1) {
-        return IOError("While fstat the sequential file just created",
-                       fname, fstat_result);
-      }
-    }
     return Status::OK();
   }
 
@@ -252,14 +244,6 @@ class PosixEnv : public Env {
 #endif
       }
       result->reset(new PosixRandomAccessFile(fname, fd, options));
-    }
-    if (s.ok()) {
-      struct stat buf;
-      int fstat_result = fstat(fd, &buf);
-      if (fstat_result == -1) {
-        return IOError("While fstat the random access file just created",
-                       fname, fstat_result);
-      }
     }
     return s;
   }
