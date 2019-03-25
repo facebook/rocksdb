@@ -64,8 +64,8 @@ class CacheTest : public testing::TestWithParam<std::string> {
 
   std::vector<int> deleted_keys_;
   std::vector<int> deleted_values_;
-  shared_ptr<Cache> cache_;
-  shared_ptr<Cache> cache2_;
+  std::shared_ptr<Cache> cache_;
+  std::shared_ptr<Cache> cache2_;
 
   CacheTest()
       : cache_(NewCache(kCacheSize, kNumShardBits, false)),
@@ -145,7 +145,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
 CacheTest* CacheTest::current_;
 
 TEST_P(CacheTest, UsageTest) {
-  // cache is shared_ptr and will be automatically cleaned up.
+  // cache is std::shared_ptr and will be automatically cleaned up.
   const uint64_t kCapacity = 100000;
   auto cache = NewCache(kCapacity, 8, false);
 
@@ -173,7 +173,7 @@ TEST_P(CacheTest, UsageTest) {
 }
 
 TEST_P(CacheTest, PinnedUsageTest) {
-  // cache is shared_ptr and will be automatically cleaned up.
+  // cache is std::shared_ptr and will be automatically cleaned up.
   const uint64_t kCapacity = 100000;
   auto cache = NewCache(kCapacity, 8, false);
 

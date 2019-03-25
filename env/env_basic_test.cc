@@ -2,17 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
+#include <algorithm>
 
-#include "cloud/aws/aws_env.h"
 #include "env/mock_env.h"
 #include "rocksdb/env.h"
 #include "rocksdb/utilities/object_registry.h"
-#include "util/logging.h"
-#include "util/stderr_logger.h"
 #include "util/testharness.h"
 
 namespace rocksdb {
@@ -63,7 +60,9 @@ class EnvBasicTestWithParam : public testing::Test,
     test_dir_ = test::PerThreadDBPath(env_, "env_basic_test");
   }
 
-  void SetUp() { env_->CreateDirIfMissing(test_dir_); }
+  void SetUp() {
+    env_->CreateDirIfMissing(test_dir_);
+  }
 
   void TearDown() {
     std::vector<std::string> files;
@@ -92,55 +91,6 @@ static std::unique_ptr<Env> mock_env(new MockEnv(Env::Default()));
 INSTANTIATE_TEST_CASE_P(MockEnv, EnvBasicTestWithParam,
                         ::testing::Values(mock_env.get()));
 #ifndef ROCKSDB_LITE
-
-#ifdef USE_AWS
-// Register an AWS env
-void CreateAwsEnv(const std::string& dbpath,
-                  std::unique_ptr<rocksdb::Env>* result) {
-  std::shared_ptr<rocksdb::Logger> info_log;
-  info_log.reset(new rocksdb::StderrLogger(rocksdb::InfoLogLevel::DEBUG_LEVEL));
-  std::string aws_access_key_id;
-  std::string aws_secret_access_key;
-  std::string aws_region;
-  Status st = rocksdb::AwsEnv::GetTestCredentials(
-      &aws_access_key_id, &aws_secret_access_key, &aws_region);
-  if (!st.ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log, st.ToString().c_str());
-    return;
-  }
-  rocksdb::CloudEnvOptions coptions;
-  coptions.credentials.access_key_id = aws_access_key_id;
-  coptions.credentials.secret_key = aws_secret_access_key;
-  rocksdb::CloudEnv* s;
-  ROCKS_LOG_INFO(info_log, "Created new aws env with path %s", dbpath.c_str());
-  st = rocksdb::AwsEnv::NewAwsEnv(
-      Env::Default(),
-      "envtest." + AwsEnv::GetTestBucketSuffix(), dbpath, aws_region,
-      "envtest." + AwsEnv::GetTestBucketSuffix(), dbpath, aws_region,
-      coptions, std::move(info_log), &s);
-  assert(st.ok());
-  if (!st.ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log, st.ToString().c_str());
-    return;
-  }
-  ((CloudEnvImpl*)s)->TEST_DisableCloudManifest();
-  ((AwsEnv*)s)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
-  // If we are keeping wal in cloud storage, then tail it as well.
-  // so that our unit tests can run to completion.
-  if (!coptions.keep_local_log_files) {
-    AwsEnv* aws = static_cast<AwsEnv*>(s);
-    aws->StartTailingStream();
-  }
-  result->reset(new NormalizingEnvWrapper(s));
-}
-static rocksdb::Registrar<rocksdb::Env> s3_reg(
-    "s3://.*",
-    [](const std::string& uri, std::unique_ptr<rocksdb::Env>* env_guard) {
-      CreateAwsEnv(uri, env_guard);
-      return env_guard->get();
-    });
-#endif /* USE_AWS */
-
 static std::unique_ptr<Env> mem_env(NewMemEnv(Env::Default()));
 INSTANTIATE_TEST_CASE_P(MemEnv, EnvBasicTestWithParam,
                         ::testing::Values(mem_env.get()));
@@ -183,7 +133,7 @@ INSTANTIATE_TEST_CASE_P(CustomEnv, EnvMoreTestWithParam,
 
 TEST_P(EnvBasicTestWithParam, Basics) {
   uint64_t file_size;
-  unique_ptr<WritableFile> writable_file;
+  std::unique_ptr<WritableFile> writable_file;
   std::vector<std::string> children;
 
   // Check that the directory is empty.
@@ -236,8 +186,8 @@ TEST_P(EnvBasicTestWithParam, Basics) {
   ASSERT_EQ(0U, file_size);
 
   // Check that opening non-existent file fails.
-  unique_ptr<SequentialFile> seq_file;
-  unique_ptr<RandomAccessFile> rand_file;
+  std::unique_ptr<SequentialFile> seq_file;
+  std::unique_ptr<RandomAccessFile> rand_file;
   ASSERT_TRUE(!env_->NewSequentialFile(test_dir_ + "/non_existent", &seq_file,
                                        soptions_)
                    .ok());
@@ -258,22 +208,20 @@ TEST_P(EnvBasicTestWithParam, Basics) {
 }
 
 TEST_P(EnvBasicTestWithParam, ReadWrite) {
-  unique_ptr<WritableFile> writable_file;
-  unique_ptr<SequentialFile> seq_file;
-  unique_ptr<RandomAccessFile> rand_file;
+  std::unique_ptr<WritableFile> writable_file;
+  std::unique_ptr<SequentialFile> seq_file;
+  std::unique_ptr<RandomAccessFile> rand_file;
   Slice result;
   char scratch[100];
-  std::string fname = "/100.sst";
 
-  ASSERT_OK(
-      env_->NewWritableFile(test_dir_ + fname, &writable_file, soptions_));
+  ASSERT_OK(env_->NewWritableFile(test_dir_ + "/f", &writable_file, soptions_));
   ASSERT_OK(writable_file->Append("hello "));
   ASSERT_OK(writable_file->Append("world"));
   ASSERT_OK(writable_file->Close());
   writable_file.reset();
 
   // Read sequentially.
-  ASSERT_OK(env_->NewSequentialFile(test_dir_ + fname, &seq_file, soptions_));
+  ASSERT_OK(env_->NewSequentialFile(test_dir_ + "/f", &seq_file, soptions_));
   ASSERT_OK(seq_file->Read(5, &result, scratch));  // Read "hello".
   ASSERT_EQ(0, result.compare("hello"));
   ASSERT_OK(seq_file->Skip(1));
@@ -286,8 +234,7 @@ TEST_P(EnvBasicTestWithParam, ReadWrite) {
   ASSERT_EQ(0U, result.size());
 
   // Random reads.
-  ASSERT_OK(
-      env_->NewRandomAccessFile(test_dir_ + fname, &rand_file, soptions_));
+  ASSERT_OK(env_->NewRandomAccessFile(test_dir_ + "/f", &rand_file, soptions_));
   ASSERT_OK(rand_file->Read(6, 5, &result, scratch));  // Read "world".
   ASSERT_EQ(0, result.compare("world"));
   ASSERT_OK(rand_file->Read(0, 5, &result, scratch));  // Read "hello".
@@ -297,12 +244,10 @@ TEST_P(EnvBasicTestWithParam, ReadWrite) {
 
   // Too high offset.
   ASSERT_TRUE(rand_file->Read(1000, 5, &result, scratch).ok());
-  // delete test file
-  ASSERT_TRUE(env_->DeleteFile(test_dir_ + fname).ok());
 }
 
 TEST_P(EnvBasicTestWithParam, Misc) {
-  unique_ptr<WritableFile> writable_file;
+  std::unique_ptr<WritableFile> writable_file;
   ASSERT_OK(env_->NewWritableFile(test_dir_ + "/b", &writable_file, soptions_));
 
   // These are no-ops, but we test they return success.
@@ -313,7 +258,6 @@ TEST_P(EnvBasicTestWithParam, Misc) {
 }
 
 TEST_P(EnvBasicTestWithParam, LargeWrite) {
-  std::string fname = "/f.log";
   const size_t kWriteSize = 300 * 1024;
   char* scratch = new char[kWriteSize * 2];
 
@@ -322,17 +266,16 @@ TEST_P(EnvBasicTestWithParam, LargeWrite) {
     write_data.append(1, static_cast<char>(i));
   }
 
-  unique_ptr<WritableFile> writable_file;
-  ASSERT_OK(
-      env_->NewWritableFile(test_dir_ + fname, &writable_file, soptions_));
+  std::unique_ptr<WritableFile> writable_file;
+  ASSERT_OK(env_->NewWritableFile(test_dir_ + "/f", &writable_file, soptions_));
   ASSERT_OK(writable_file->Append("foo"));
   ASSERT_OK(writable_file->Append(write_data));
   ASSERT_OK(writable_file->Close());
   writable_file.reset();
 
-  unique_ptr<SequentialFile> seq_file;
+  std::unique_ptr<SequentialFile> seq_file;
   Slice result;
-  ASSERT_OK(env_->NewSequentialFile(test_dir_ + fname, &seq_file, soptions_));
+  ASSERT_OK(env_->NewSequentialFile(test_dir_ + "/f", &seq_file, soptions_));
   ASSERT_OK(seq_file->Read(3, &result, scratch));  // Read "foo".
   ASSERT_EQ(0, result.compare("foo"));
 
@@ -344,7 +287,7 @@ TEST_P(EnvBasicTestWithParam, LargeWrite) {
     read += result.size();
   }
   ASSERT_TRUE(write_data == read_data);
-  delete[] scratch;
+  delete [] scratch;
 }
 
 TEST_P(EnvMoreTestWithParam, GetModTime) {
@@ -397,7 +340,7 @@ TEST_P(EnvMoreTestWithParam, GetChildren) {
 
   // if dir is a file, returns IOError
   ASSERT_OK(env_->CreateDir(test_dir_));
-  unique_ptr<WritableFile> writable_file;
+  std::unique_ptr<WritableFile> writable_file;
   ASSERT_OK(
       env_->NewWritableFile(test_dir_ + "/file", &writable_file, soptions_));
   ASSERT_OK(writable_file->Close());

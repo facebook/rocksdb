@@ -891,6 +891,68 @@ TEST_F(EventListenerTest, BackgroundErrorListenerFailedCompactionTest) {
   ASSERT_LE(1, NumTableFilesAtLevel(0));
 }
 
+class TestFileOperationListener : public EventListener {
+ public:
+  TestFileOperationListener() {
+    file_reads_.store(0);
+    file_reads_success_.store(0);
+    file_writes_.store(0);
+    file_writes_success_.store(0);
+  }
+
+  void OnFileReadFinish(const FileOperationInfo& info) override {
+    ++file_reads_;
+    if (info.status.ok()) {
+      ++file_reads_success_;
+    }
+    ReportDuration(info);
+  }
+
+  void OnFileWriteFinish(const FileOperationInfo& info) override {
+    ++file_writes_;
+    if (info.status.ok()) {
+      ++file_writes_success_;
+    }
+    ReportDuration(info);
+  }
+
+  bool ShouldBeNotifiedOnFileIO() override { return true; }
+
+  std::atomic<size_t> file_reads_;
+  std::atomic<size_t> file_reads_success_;
+  std::atomic<size_t> file_writes_;
+  std::atomic<size_t> file_writes_success_;
+
+ private:
+  void ReportDuration(const FileOperationInfo& info) const {
+    auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        info.finish_timestamp - info.start_timestamp);
+    ASSERT_GT(duration.count(), 0);
+  }
+};
+
+TEST_F(EventListenerTest, OnFileOperationTest) {
+  Options options;
+  options.env = CurrentOptions().env;
+  options.create_if_missing = true;
+
+  TestFileOperationListener* listener = new TestFileOperationListener();
+  options.listeners.emplace_back(listener);
+
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "aaa"));
+  dbfull()->Flush(FlushOptions());
+  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_GE(listener->file_writes_.load(),
+            listener->file_writes_success_.load());
+  ASSERT_GT(listener->file_writes_.load(), 0);
+  Close();
+
+  Reopen(options);
+  ASSERT_GE(listener->file_reads_.load(), listener->file_reads_success_.load());
+  ASSERT_GT(listener->file_reads_.load(), 0);
+}
+
 }  // namespace rocksdb
 
 #endif  // ROCKSDB_LITE

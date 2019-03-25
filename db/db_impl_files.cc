@@ -20,12 +20,21 @@
 #include "util/sst_file_manager_impl.h"
 
 namespace rocksdb {
+
 uint64_t DBImpl::MinLogNumberToKeep() {
   if (allow_2pc()) {
     return versions_->min_log_number_to_keep_2pc();
   } else {
     return versions_->MinLogNumberWithUnflushedData();
   }
+}
+
+uint64_t DBImpl::MinObsoleteSstNumberToKeep() {
+  mutex_.AssertHeld();
+  if (!pending_outputs_.empty()) {
+    return *pending_outputs_.begin();
+  }
+  return std::numeric_limits<uint64_t>::max();
 }
 
 // * Returns the list of live files in 'sst_live'
@@ -456,7 +465,13 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     } else {
       dir_to_sync =
           (type == kLogFile) ? immutable_db_options_.wal_dir : dbname_;
-      fname = dir_to_sync + "/" + to_delete;
+      fname = dir_to_sync
+            + (
+                (!dir_to_sync.empty() && dir_to_sync.back() == '/') ||
+                (!to_delete.empty() && to_delete.front() == '/')
+                ? "" : "/"
+              )
+            + to_delete;
     }
 
 #ifndef ROCKSDB_LITE

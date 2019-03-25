@@ -1964,11 +1964,11 @@ void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
                  bool is_write_committed, LDBCommandExecuteResult* exec_state) {
   Env* env_ = Env::Default();
   EnvOptions soptions;
-  unique_ptr<SequentialFileReader> wal_file_reader;
+  std::unique_ptr<SequentialFileReader> wal_file_reader;
 
   Status status;
   {
-    unique_ptr<SequentialFile> file;
+    std::unique_ptr<SequentialFile> file;
     status = env_->NewSequentialFile(wal_file, &file, soptions);
     if (status.ok()) {
       wal_file_reader.reset(
@@ -1999,7 +1999,8 @@ void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
     }
     DBOptions db_options;
     log::Reader reader(db_options.info_log, std::move(wal_file_reader),
-                       &reporter, true /* checksum */, log_number);
+                       &reporter, true /* checksum */, log_number,
+                       false /* retry_after_eof */);
     std::string scratch;
     WriteBatch batch;
     Slice record;
@@ -2844,8 +2845,8 @@ void DumpSstFile(std::string filename, bool output_hex, bool show_properties) {
     return;
   }
   // no verification
-  rocksdb::SstFileReader reader(filename, false, output_hex);
-  Status st = reader.ReadSequential(true, std::numeric_limits<uint64_t>::max(), false,  // has_from
+  rocksdb::SstFileDumper dumper(filename, false, output_hex);
+  Status st = dumper.ReadSequential(true, std::numeric_limits<uint64_t>::max(), false,  // has_from
                                     from_key, false,  // has_to
                                     to_key);
   if (!st.ok()) {
@@ -2859,21 +2860,17 @@ void DumpSstFile(std::string filename, bool output_hex, bool show_properties) {
 
     std::shared_ptr<const rocksdb::TableProperties>
         table_properties_from_reader;
-    st = reader.ReadTableProperties(&table_properties_from_reader);
+    st = dumper.ReadTableProperties(&table_properties_from_reader);
     if (!st.ok()) {
       std::cerr << filename << ": " << st.ToString()
                 << ". Try to use initial table properties" << std::endl;
-      table_properties = reader.GetInitTableProperties();
+      table_properties = dumper.GetInitTableProperties();
     } else {
       table_properties = table_properties_from_reader.get();
     }
     if (table_properties != nullptr) {
       std::cout << std::endl << "Table Properties:" << std::endl;
       std::cout << table_properties->ToString("\n") << std::endl;
-      std::cout << "# deleted keys: "
-                << rocksdb::GetDeletedKeys(
-                       table_properties->user_collected_properties)
-                << std::endl;
     }
   }
 }

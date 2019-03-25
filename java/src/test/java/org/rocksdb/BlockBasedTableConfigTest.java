@@ -96,6 +96,46 @@ public class BlockBasedTableConfigTest {
   }
 
   @Test
+  public void cacheIndexAndFilterBlocksWithHighPriority() {
+    BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    blockBasedTableConfig.setCacheIndexAndFilterBlocksWithHighPriority(true);
+    assertThat(blockBasedTableConfig.cacheIndexAndFilterBlocksWithHighPriority()).
+            isTrue();
+  }
+
+  @Test
+  public void pinL0FilterAndIndexBlocksInCache() {
+    BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    blockBasedTableConfig.setPinL0FilterAndIndexBlocksInCache(true);
+    assertThat(blockBasedTableConfig.pinL0FilterAndIndexBlocksInCache()).
+            isTrue();
+  }
+
+  @Test
+  public void partitionFilters() {
+    BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    blockBasedTableConfig.setPartitionFilters(true);
+    assertThat(blockBasedTableConfig.partitionFilters()).
+            isTrue();
+  }
+
+  @Test
+  public void metadataBlockSize() {
+    BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    blockBasedTableConfig.setMetadataBlockSize(1024);
+    assertThat(blockBasedTableConfig.metadataBlockSize()).
+            isEqualTo(1024);
+  }
+
+  @Test
+  public void pinTopLevelIndexAndFilter() {
+    BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    blockBasedTableConfig.setPinTopLevelIndexAndFilter(false);
+    assertThat(blockBasedTableConfig.pinTopLevelIndexAndFilter()).
+            isFalse();
+  }
+
+  @Test
   public void hashIndexAllowCollision() {
     BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     blockBasedTableConfig.setHashIndexAllowCollision(false);

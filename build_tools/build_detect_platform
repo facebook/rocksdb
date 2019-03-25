@@ -474,6 +474,17 @@ EOF
             COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_SCHED_GETCPU_PRESENT"
         fi
     fi
+
+    if ! test $ROCKSDB_DISABLE_ALIGNED_NEW; then
+        # Test whether c++17 aligned-new is supported
+        $CXX $PLATFORM_CXXFLAGS -faligned-new -x c++ - -o /dev/null 2>/dev/null <<EOF
+            struct alignas(1024) t {int a;};
+            int main() {}
+EOF
+        if [ "$?" = 0 ]; then
+            PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS -faligned-new -DHAVE_ALIGNED_NEW"
+        fi
+    fi
 fi
 
 # TODO(tec): Fix -Wshorten-64-to-32 errors on FreeBSD and enable the warning.

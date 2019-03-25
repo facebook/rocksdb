@@ -30,7 +30,8 @@ struct SuperVersionContext {
 #ifndef ROCKSDB_DISABLE_STALL_NOTIFICATION
   autovector<WriteStallNotification> write_stall_notifications;
 #endif
-  unique_ptr<SuperVersion> new_superversion;  // if nullptr no new superversion
+  std::unique_ptr<SuperVersion>
+      new_superversion;  // if nullptr no new superversion
 
   explicit SuperVersionContext(bool create_superversion = false)
     : new_superversion(create_superversion ? new SuperVersion() : nullptr) {}
@@ -44,7 +45,7 @@ struct SuperVersionContext {
   }
 
   void NewSuperVersion() {
-    new_superversion = unique_ptr<SuperVersion>(new SuperVersion());
+    new_superversion = std::unique_ptr<SuperVersion>(new SuperVersion());
   }
 
   inline bool HaveSomethingToDelete() const {

@@ -10,6 +10,7 @@
 
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "util/mock_time_env.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {
@@ -80,7 +81,17 @@ class RepeatableThread {
       cond_var_.SignalAll();
 #endif
       while (running_) {
+#ifndef NDEBUG
+        if (dynamic_cast<MockTimeEnv*>(env_) != nullptr) {
+          // MockTimeEnv is used. Since it is not easy to mock TimedWait,
+          // we wait without timeout to wait for TEST_WaitForRun to wake us up.
+          cond_var_.Wait();
+        } else {
+          cond_var_.TimedWait(wait_until);
+        }
+#else
         cond_var_.TimedWait(wait_until);
+#endif
         if (env_->NowMicros() >= wait_until) {
           break;
         }

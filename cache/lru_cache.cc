@@ -461,8 +461,10 @@ std::string LRUCacheShard::GetPrintableOptions() const {
 }
 
 LRUCache::LRUCache(size_t capacity, int num_shard_bits,
-                   bool strict_capacity_limit, double high_pri_pool_ratio)
-    : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
+                   bool strict_capacity_limit, double high_pri_pool_ratio,
+                   std::shared_ptr<MemoryAllocator> allocator)
+    : ShardedCache(capacity, num_shard_bits, strict_capacity_limit,
+                   std::move(allocator)) {
   num_shards_ = 1 << num_shard_bits;
   shards_ = reinterpret_cast<LRUCacheShard*>(
       port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards_));
@@ -537,12 +539,14 @@ double LRUCache::GetHighPriPoolRatio() {
 std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
   return NewLRUCache(cache_opts.capacity, cache_opts.num_shard_bits,
                      cache_opts.strict_capacity_limit,
-                     cache_opts.high_pri_pool_ratio);
+                     cache_opts.high_pri_pool_ratio,
+                     cache_opts.memory_allocator);
 }
 
-std::shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits,
-                                   bool strict_capacity_limit,
-                                   double high_pri_pool_ratio) {
+std::shared_ptr<Cache> NewLRUCache(
+    size_t capacity, int num_shard_bits, bool strict_capacity_limit,
+    double high_pri_pool_ratio,
+    std::shared_ptr<MemoryAllocator> memory_allocator) {
   if (num_shard_bits >= 20) {
     return nullptr;  // the cache cannot be sharded into too many fine pieces
   }
@@ -554,7 +558,8 @@ std::shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits,
     num_shard_bits = GetDefaultCacheShardBits(capacity);
   }
   return std::make_shared<LRUCache>(capacity, num_shard_bits,
-                                    strict_capacity_limit, high_pri_pool_ratio);
+                                    strict_capacity_limit, high_pri_pool_ratio,
+                                    std::move(memory_allocator));
 }
 
 }  // namespace rocksdb

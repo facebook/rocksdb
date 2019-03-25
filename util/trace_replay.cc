@@ -16,6 +16,8 @@
 
 namespace rocksdb {
 
+const std::string kTraceMagic = "feedcafedeadbeef";
+
 namespace {
 void EncodeCFAndKey(std::string* dst, uint32_t cf_id, const Slice& key) {
   PutFixed32(dst, cf_id);
@@ -29,14 +31,20 @@ void DecodeCFAndKey(std::string& buffer, uint32_t* cf_id, Slice* key) {
 }
 }  // namespace
 
-Tracer::Tracer(Env* env, std::unique_ptr<TraceWriter>&& trace_writer)
-    : env_(env), trace_writer_(std::move(trace_writer)) {
+Tracer::Tracer(Env* env, const TraceOptions& trace_options,
+               std::unique_ptr<TraceWriter>&& trace_writer)
+    : env_(env),
+      trace_options_(trace_options),
+      trace_writer_(std::move(trace_writer)) {
   WriteHeader();
 }
 
 Tracer::~Tracer() { trace_writer_.reset(); }
 
 Status Tracer::Write(WriteBatch* write_batch) {
+  if (IsTraceFileOverMax()) {
+    return Status::OK();
+  }
   Trace trace;
   trace.ts = env_->NowMicros();
   trace.type = kTraceWrite;
@@ -45,6 +53,9 @@ Status Tracer::Write(WriteBatch* write_batch) {
 }
 
 Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
+  if (IsTraceFileOverMax()) {
+    return Status::OK();
+  }
   Trace trace;
   trace.ts = env_->NowMicros();
   trace.type = kTraceGet;
@@ -53,6 +64,9 @@ Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
 }
 
 Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key) {
+  if (IsTraceFileOverMax()) {
+    return Status::OK();
+  }
   Trace trace;
   trace.ts = env_->NowMicros();
   trace.type = kTraceIteratorSeek;
@@ -61,11 +75,19 @@ Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key) {
 }
 
 Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
+  if (IsTraceFileOverMax()) {
+    return Status::OK();
+  }
   Trace trace;
   trace.ts = env_->NowMicros();
   trace.type = kTraceIteratorSeekForPrev;
   EncodeCFAndKey(&trace.payload, cf_id, key);
   return WriteTrace(trace);
+}
+
+bool Tracer::IsTraceFileOverMax() {
+  uint64_t trace_file_size = trace_writer_->GetFileSize();
+  return (trace_file_size > trace_options_.max_trace_file_size);
 }
 
 Status Tracer::WriteHeader() {
@@ -103,7 +125,7 @@ Status Tracer::WriteTrace(const Trace& trace) {
 Status Tracer::Close() { return WriteFooter(); }
 
 Replayer::Replayer(DB* db, const std::vector<ColumnFamilyHandle*>& handles,
-                   unique_ptr<TraceReader>&& reader)
+                   std::unique_ptr<TraceReader>&& reader)
     : trace_reader_(std::move(reader)) {
   assert(db != nullptr);
   db_ = static_cast<DBImpl*>(db->GetRootDB());

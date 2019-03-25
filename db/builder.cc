@@ -18,6 +18,7 @@
 #include "db/event_helpers.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
+#include "db/range_del_aggregator.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
 #include "monitoring/iostats_context_imp.h"
@@ -65,8 +66,9 @@ Status BuildTable(
     const std::string& dbname, Env* env, const ImmutableCFOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, const EnvOptions& env_options,
     TableCache* table_cache, InternalIterator* iter,
-    std::unique_ptr<InternalIterator> range_del_iter, FileMetaData* meta,
-    const InternalKeyComparator& internal_comparator,
+    std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
+        range_del_iters,
+    FileMetaData* meta, const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, const std::string& column_family_name,
@@ -86,12 +88,10 @@ Status BuildTable(
   Status s;
   meta->fd.file_size = 0;
   iter->SeekToFirst();
-  std::unique_ptr<RangeDelAggregator> range_del_agg(
-      new RangeDelAggregator(internal_comparator, snapshots));
-  s = range_del_agg->AddTombstones(std::move(range_del_iter));
-  if (!s.ok()) {
-    // may be non-ok if a range tombstone key is unparsable
-    return s;
+  std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
+      new CompactionRangeDelAggregator(&internal_comparator, snapshots));
+  for (auto& range_del_iter : range_del_iters) {
+    range_del_agg->AddTombstones(std::move(range_del_iter));
   }
 
   std::string fname = TableFileName(ioptions.cf_paths, meta->fd.GetNumber(),
@@ -104,9 +104,9 @@ Status BuildTable(
 
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     TableBuilder* builder;
-    unique_ptr<WritableFileWriter> file_writer;
+    std::unique_ptr<WritableFileWriter> file_writer;
     {
-      unique_ptr<WritableFile> file;
+      std::unique_ptr<WritableFile> file;
 #ifndef NDEBUG
       bool use_direct_writes = env_options.use_direct_writes;
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
@@ -121,8 +121,9 @@ Status BuildTable(
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
 
-      file_writer.reset(new WritableFileWriter(
-          std::move(file), fname, env_options, ioptions.statistics));
+      file_writer.reset(new WritableFileWriter(std::move(file), fname,
+                                               env_options, ioptions.statistics,
+                                               ioptions.listeners));
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,
@@ -157,8 +158,10 @@ Status BuildTable(
       }
     }
 
-    for (auto it = range_del_agg->NewIterator(); it->Valid(); it->Next()) {
-      auto tombstone = it->Tombstone();
+    auto range_del_it = range_del_agg->NewIterator();
+    for (range_del_it->SeekToFirst(); range_del_it->Valid();
+         range_del_it->Next()) {
+      auto tombstone = range_del_it->Tombstone();
       auto kv = tombstone.Serialize();
       builder->Add(kv.first.Encode(), kv.second);
       meta->UpdateBoundariesForRange(kv.first, tombstone.SerializeEndKey(),

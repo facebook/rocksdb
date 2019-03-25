@@ -61,7 +61,7 @@ Status ManifestReader::GetLiveFiles(const std::string bucket_path,
   VersionSet::LogReporter reporter;
   reporter.status = &s;
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
-                     true /*checksum*/, 0);
+                     true /*checksum*/, 0, false /* retry_after_eof */);
 
   Slice record;
   std::string scratch;
@@ -116,7 +116,8 @@ Status ManifestReader::GetMaxFileNumberFromManifest(Env* env,
   log::Reader reader(NULL,
                      unique_ptr<SequentialFileReader>(
                          new SequentialFileReader(std::move(file), fname)),
-                     &reporter, true /*checksum*/, 0);
+                     &reporter, true /*checksum*/, 0,
+                     false /* retry_after_eof */);
 
   Slice record;
   std::string scratch;

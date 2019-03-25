@@ -67,6 +67,14 @@ is_opt_mode = build_mode.startswith("opt")
 if is_opt_mode:
     rocksdb_compiler_flags.append("-DNDEBUG")
 
+sanitizer = read_config("fbcode", "sanitizer")
+
+# Do not enable jemalloc if sanitizer presents. RocksDB will further detect
+# whether the binary is linked with jemalloc at runtime.
+if sanitizer == "":
+    rocksdb_compiler_flags.append("-DROCKSDB_JEMALLOC")
+    rocksdb_external_deps.append(("jemalloc", None, "headers"))
+
 cpp_library(
     name = "rocksdb_lib",
     srcs = [
@@ -81,6 +89,7 @@ cpp_library(
         "db/compaction_iterator.cc",
         "db/compaction_job.cc",
         "db/compaction_picker.cc",
+        "db/compaction_picker_fifo.cc",
         "db/compaction_picker_universal.cc",
         "db/convenience.cc",
         "db/db_filesnapshot.cc",
@@ -113,6 +122,7 @@ cpp_library(
         "db/merge_helper.cc",
         "db/merge_operator.cc",
         "db/range_del_aggregator.cc",
+        "db/range_tombstone_fragmenter.cc",
         "db/repair.cc",
         "db/snapshot_impl.cc",
         "db/table_cache.cc",
@@ -190,6 +200,7 @@ cpp_library(
         "table/plain_table_index.cc",
         "table/plain_table_key_coding.cc",
         "table/plain_table_reader.cc",
+        "table/sst_file_reader.cc",
         "table/sst_file_writer.cc",
         "table/table_properties.cc",
         "table/two_level_iterator.cc",
@@ -215,6 +226,7 @@ cpp_library(
         "util/filename.cc",
         "util/filter_policy.cc",
         "util/hash.cc",
+        "util/jemalloc_nodump_allocator.cc",
         "util/log_buffer.cc",
         "util/murmurhash.cc",
         "util/random.cc",
@@ -921,6 +933,11 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
+        "range_tombstone_fragmenter_test",
+        "db/range_tombstone_fragmenter_test.cc",
+        "serial",
+    ],
+    [
         "rate_limiter_test",
         "util/rate_limiter_test.cc",
         "serial",
@@ -963,6 +980,11 @@ ROCKS_TESTS = [
     [
         "sst_dump_test",
         "tools/sst_dump_test.cc",
+        "serial",
+    ],
+    [
+        "sst_file_reader_test",
+        "table/sst_file_reader_test.cc",
         "serial",
     ],
     [

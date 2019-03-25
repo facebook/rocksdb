@@ -188,7 +188,7 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
   bool low_cpu_priority = false;
 
   while (true) {
-// Wait until there is an item that is ready to run
+    // Wait until there is an item that is ready to run
     std::unique_lock<std::mutex> lock(mu_);
     // Stop waiting if the thread needs to do work or needs to terminate.
     while (!exit_all_threads_ && !IsLastExcessiveThread(thread_id) &&
@@ -198,7 +198,7 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
 
     if (exit_all_threads_) {  // mechanism to let BG threads exit safely
 
-      if(!wait_for_jobs_to_complete_ ||
+      if (!wait_for_jobs_to_complete_ ||
           queue_.empty()) {
         break;
        }

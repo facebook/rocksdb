@@ -27,7 +27,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
     return;
   }
   // Use InMemoryEnv, or it would be too slow.
-  unique_ptr<Env> env(new MockEnv(env_));
+  std::unique_ptr<Env> env(new MockEnv(env_));
 
   const int kNKeys = 1000;
   int keys[kNKeys];
@@ -125,6 +125,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
   int kMaxKey = 1000000;
 
   Options options = CurrentOptions();
+  options.compression = kNoCompression;
   options.create_if_missing = true;
   options.write_buffer_size = 20480;
   options.max_write_buffer_number = 2;
@@ -167,8 +168,8 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
   ASSERT_TRUE(db_->GetIntProperty("rocksdb.base-level", &int_prop));
   ASSERT_EQ(4U, int_prop);
 
-  // Insert extra about 28K to L0. After they are compacted to L4, base level
-  // should be changed to L3.
+  // Insert extra about 28K to L0. After they are compacted to L4, the base
+  // level should be changed to L3.
   ASSERT_OK(dbfull()->SetOptions({
       {"disable_auto_compactions", "true"},
   }));
@@ -189,13 +190,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
   ASSERT_TRUE(db_->GetProperty("rocksdb.num-files-at-level2", &str_prop));
   ASSERT_EQ("0", str_prop);
 
-  // Trigger parallel compaction, and the first one would change the base
-  // level.
-  // Hold compaction jobs to make sure
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "CompactionJob::Run():Start",
-      [&](void* /*arg*/) { env_->SleepForMicroseconds(100000); });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  // Write even more data while leaving the base level at L3.
   ASSERT_OK(dbfull()->SetOptions({
       {"disable_auto_compactions", "true"},
   }));
@@ -208,18 +203,12 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
       {"disable_auto_compactions", "false"},
   }));
   Flush();
-  // Wait for 200 milliseconds before proceeding compactions to make sure two
-  // parallel ones are executed.
-  env_->SleepForMicroseconds(200000);
   dbfull()->TEST_WaitForCompact();
   ASSERT_TRUE(db_->GetIntProperty("rocksdb.base-level", &int_prop));
   ASSERT_EQ(3U, int_prop);
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 
-  // Trigger a condition that the compaction changes base level and L0->Lbase
-  // happens at the same time.
-  // We try to make last levels' targets to be 40K, 160K, 640K, add triggers
-  // another compaction from 40K->160K.
+  // Fill up L0, and then run an (auto) L0->Lmax compaction to raise the base
+  // level to 2.
   ASSERT_OK(dbfull()->SetOptions({
       {"disable_auto_compactions", "true"},
   }));
@@ -229,23 +218,31 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
     ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
                   RandomString(&rnd, 380)));
   }
+
+  // Make sure that the compaction starts before the last bit of data is
+  // flushed, so that the base level isn't raised to L1.
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"CompactionJob::Run():Start", "DynamicLevelMaxBytesBase2:0"},
+  });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
   ASSERT_OK(dbfull()->SetOptions({
       {"disable_auto_compactions", "false"},
   }));
+
+  TEST_SYNC_POINT("DynamicLevelMaxBytesBase2:0");
   Flush();
   dbfull()->TEST_WaitForCompact();
   ASSERT_TRUE(db_->GetIntProperty("rocksdb.base-level", &int_prop));
   ASSERT_EQ(2U, int_prop);
-
-  // A manual compaction will trigger the base level to become L2
-  // Keep Writing data until base level changed 2->1. There will be L0->L2
-  // compaction going on at the same time.
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 
+  // Write more data until the base level changes to L1. There will be
+  // a manual compaction going on at the same time.
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
-      {"CompactionJob::Run():Start", "DynamicLevelMaxBytesBase2:0"},
-      {"DynamicLevelMaxBytesBase2:1", "CompactionJob::Run():End"},
+      {"CompactionJob::Run():Start", "DynamicLevelMaxBytesBase2:1"},
+      {"DynamicLevelMaxBytesBase2:2", "CompactionJob::Run():End"},
       {"DynamicLevelMaxBytesBase2:compact_range_finish",
        "FlushJob::WriteLevel0Table"},
   });
@@ -257,12 +254,12 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
     TEST_SYNC_POINT("DynamicLevelMaxBytesBase2:compact_range_finish");
   });
 
-  TEST_SYNC_POINT("DynamicLevelMaxBytesBase2:0");
+  TEST_SYNC_POINT("DynamicLevelMaxBytesBase2:1");
   for (int i = 0; i < 2; i++) {
     ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
                   RandomString(&rnd, 380)));
   }
-  TEST_SYNC_POINT("DynamicLevelMaxBytesBase2:1");
+  TEST_SYNC_POINT("DynamicLevelMaxBytesBase2:2");
 
   Flush();
 

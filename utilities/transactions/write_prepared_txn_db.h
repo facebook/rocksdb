@@ -112,8 +112,6 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) override;
 
-  virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
-
   // Check whether the transaction that wrote the value with sequence number seq
   // is visible to the snapshot with sequence number snapshot_seq.
   // Returns true if commit_seq <= snapshot_seq
@@ -222,7 +220,6 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       // rare case and it is ok to pay the cost of mutex ReadLock for such old,
       // reading transactions.
       WPRecordTick(TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD);
-      ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead");
       ReadLock rl(&old_commit_map_mutex_);
       auto prep_set_entry = old_commit_map_.find(snapshot_seq);
       bool found = prep_set_entry != old_commit_map_.end();
@@ -380,6 +377,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class
       WritePreparedTransactionTest_AdvanceMaxEvictedSeqWithDuplicatesTest_Test;
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
+  friend class WritePreparedTransactionTest_DoubleSnapshot_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
   friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
   friend class WritePreparedTransactionTest_RollbackTest_Test;
@@ -519,6 +517,11 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // version value.
   void UpdateSnapshots(const std::vector<SequenceNumber>& snapshots,
                        const SequenceNumber& version);
+  // Check the new list of new snapshots against the old one to see  if any of
+  // the snapshots are released and to do the cleanup for the released snapshot.
+  void CleanupReleasedSnapshots(
+      const std::vector<SequenceNumber>& new_snapshots,
+      const std::vector<SequenceNumber>& old_snapshots);
 
   // Check an evicted entry against live snapshots to see if it should be kept
   // around or it can be safely discarded (and hence assume committed for all
@@ -549,10 +552,14 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   static const size_t DEF_SNAPSHOT_CACHE_BITS = static_cast<size_t>(7);
   const size_t SNAPSHOT_CACHE_BITS;
   const size_t SNAPSHOT_CACHE_SIZE;
-  unique_ptr<std::atomic<SequenceNumber>[]> snapshot_cache_;
+  std::unique_ptr<std::atomic<SequenceNumber>[]> snapshot_cache_;
   // 2nd list for storing snapshots. The list sorted in ascending order.
   // Thread-safety is provided with snapshots_mutex_.
   std::vector<SequenceNumber> snapshots_;
+  // The list of all snapshots: snapshots_ + snapshot_cache_. This list although
+  // redundant but simplifies CleanupOldSnapshots implementation.
+  // Thread-safety is provided with snapshots_mutex_.
+  std::vector<SequenceNumber> snapshots_all_;
   // The version of the latest list of snapshots. This can be used to avoid
   // rewriting a list that is concurrently updated with a more recent version.
   SequenceNumber snapshots_version_ = 0;
@@ -567,7 +574,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   const CommitEntry64bFormat FORMAT;
   // commit_cache_ must be initialized to zero to tell apart an empty index from
   // a filled one. Thread-safety is provided with commit_cache_mutex_.
-  unique_ptr<std::atomic<CommitEntry64b>[]> commit_cache_;
+  std::unique_ptr<std::atomic<CommitEntry64b>[]> commit_cache_;
   // The largest evicted *commit* sequence number from the commit_cache_. If a
   // seq is smaller than max_evicted_seq_ is might or might not be present in
   // commit_cache_. So commit_cache_ must first be checked before consulting

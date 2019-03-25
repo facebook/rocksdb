@@ -94,7 +94,7 @@ TEST_F(SpatialDBTest, FeatureSetSerializeTest) {
   ASSERT_EQ(deserialized.Get("m").get_double(), 3.25);
 
   // corrupted serialization
-  serialized = serialized.substr(0, serialized.size() - 4);
+  serialized = serialized.substr(0, serialized.size() - 1);
   deserialized.Clear();
   ASSERT_TRUE(!deserialized.Deserialize(serialized));
 }

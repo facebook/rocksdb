@@ -20,10 +20,12 @@
 #include <limits>
 
 #include "db/compaction_picker.h"
+#include "db/compaction_picker_fifo.h"
 #include "db/compaction_picker_universal.h"
 #include "db/db_impl.h"
 #include "db/internal_stats.h"
 #include "db/job_context.h"
+#include "db/range_del_aggregator.h"
 #include "db/table_properties_collector.h"
 #include "db/version_set.h"
 #include "db/write_controller.h"
@@ -105,9 +107,6 @@ void GetIntTblPropCollectorFactory(
     int_tbl_prop_collector_factories->emplace_back(
         new UserKeyTablePropertiesCollectorFactory(collector_factories[i]));
   }
-  // Add collector to collect internal key statistics
-  int_tbl_prop_collector_factories->emplace_back(
-      new InternalKeyPropertiesCollectorFactory);
 }
 
 Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
@@ -945,26 +944,16 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   super_version->imm->AddIterators(read_opts, &merge_iter_builder);
   ScopedArenaIterator memtable_iter(merge_iter_builder.Finish());
 
-  std::vector<InternalIterator*> memtable_range_del_iters;
+  auto read_seq = super_version->current->version_set()->LastSequence();
+  ReadRangeDelAggregator range_del_agg(&internal_comparator_, read_seq);
   auto* active_range_del_iter =
-      super_version->mem->NewRangeTombstoneIterator(read_opts);
-  if (active_range_del_iter != nullptr) {
-    memtable_range_del_iters.push_back(active_range_del_iter);
-  }
-  super_version->imm->AddRangeTombstoneIterators(read_opts,
-                                                 &memtable_range_del_iters);
-  RangeDelAggregator range_del_agg(internal_comparator_, {} /* snapshots */,
-                                   false /* collapse_deletions */);
+      super_version->mem->NewRangeTombstoneIterator(read_opts, read_seq);
+  range_del_agg.AddTombstones(
+      std::unique_ptr<FragmentedRangeTombstoneIterator>(active_range_del_iter));
+  super_version->imm->AddRangeTombstoneIterators(read_opts, nullptr /* arena */,
+                                                 &range_del_agg);
+
   Status status;
-  {
-    std::unique_ptr<InternalIterator> memtable_range_del_iter(
-        NewMergingIterator(&internal_comparator_,
-                           memtable_range_del_iters.empty()
-                               ? nullptr
-                               : &memtable_range_del_iters[0],
-                           static_cast<int>(memtable_range_del_iters.size())));
-    status = range_del_agg.AddTombstones(std::move(memtable_range_del_iter));
-  }
   for (size_t i = 0; i < ranges.size() && status.ok() && !*overlap; ++i) {
     auto* vstorage = super_version->current->storage_info();
     auto* ucmp = vstorage->InternalComparator()->user_comparator();

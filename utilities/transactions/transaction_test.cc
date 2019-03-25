@@ -606,6 +606,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   }
 }
 
+#ifndef ROCKSDB_VALGRIND_RUN
 TEST_P(TransactionStressTest, DeadlockCycle) {
   WriteOptions write_options;
   ReadOptions read_options;
@@ -768,6 +769,7 @@ TEST_P(TransactionStressTest, DeadlockStress) {
     t.join();
   }
 }
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(TransactionTest, CommitTimeBatchFailTest) {
   WriteOptions write_options;
@@ -1097,6 +1099,7 @@ TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
   }
 }
 
+#ifndef ROCKSDB_VALGRIND_RUN
 TEST_P(TransactionStressTest, TwoPhaseExpirationTest) {
   Status s;
 
@@ -1334,6 +1337,7 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   // deleting transaction should unregister transaction
   ASSERT_EQ(db->GetTransactionByName("xid"), nullptr);
 }
+#endif  // ROCKSDB_VALGRIND_RUN
 
 // TODO this test needs to be updated with serial commits
 TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {

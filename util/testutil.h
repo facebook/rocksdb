@@ -64,7 +64,7 @@ class ErrorEnv : public EnvWrapper {
                num_writable_file_errors_(0) { }
 
   virtual Status NewWritableFile(const std::string& fname,
-                                 unique_ptr<WritableFile>* result,
+                                 std::unique_ptr<WritableFile>* result,
                                  const EnvOptions& soptions) override {
     result->reset();
     if (writable_file_error_) {
@@ -554,7 +554,7 @@ class StringEnv : public EnvWrapper {
 
   const Status WriteToNewFile(const std::string& file_name,
                               const std::string& content) {
-    unique_ptr<WritableFile> r;
+    std::unique_ptr<WritableFile> r;
     auto s = NewWritableFile(file_name, &r, EnvOptions());
     if (!s.ok()) {
       return s;
@@ -567,7 +567,8 @@ class StringEnv : public EnvWrapper {
   }
 
   // The following text is boilerplate that forwards all methods to target()
-  Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
+  Status NewSequentialFile(const std::string& f,
+                           std::unique_ptr<SequentialFile>* r,
                            const EnvOptions& /*options*/) override {
     auto iter = files_.find(f);
     if (iter == files_.end()) {
@@ -577,11 +578,11 @@ class StringEnv : public EnvWrapper {
     return Status::OK();
   }
   Status NewRandomAccessFile(const std::string& /*f*/,
-                             unique_ptr<RandomAccessFile>* /*r*/,
+                             std::unique_ptr<RandomAccessFile>* /*r*/,
                              const EnvOptions& /*options*/) override {
     return Status::NotSupported();
   }
-  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
+  Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& /*options*/) override {
     auto iter = files_.find(f);
     if (iter != files_.end()) {
@@ -591,7 +592,7 @@ class StringEnv : public EnvWrapper {
     return Status::OK();
   }
   virtual Status NewDirectory(const std::string& /*name*/,
-                              unique_ptr<Directory>* /*result*/) override {
+                              std::unique_ptr<Directory>* /*result*/) override {
     return Status::NotSupported();
   }
   Status FileExists(const std::string& f) override {
@@ -746,6 +747,8 @@ TableFactory* RandomTableFactory(Random* rnd, int pre_defined = -1);
 std::string RandomName(Random* rnd, const size_t len);
 
 Status DestroyDir(Env* env, const std::string& dir);
+
+bool IsDirectIOSupported(Env* env, const std::string& dir);
 
 }  // namespace test
 }  // namespace rocksdb

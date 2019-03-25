@@ -123,7 +123,7 @@ Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
     cfd = cfh->cfd();
   }
-  return WaitForFlushMemTable(cfd);
+  return WaitForFlushMemTable(cfd, nullptr, false);
 }
 
 Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {
@@ -243,5 +243,10 @@ size_t DBImpl::TEST_GetWalPreallocateBlockSize(
   return GetWalPreallocateBlockSize(write_buffer_size);
 }
 
+void DBImpl::TEST_WaitForTimedTaskRun(std::function<void()> callback) const {
+  if (thread_dump_stats_ != nullptr) {
+    thread_dump_stats_->TEST_WaitForRun(callback);
+  }
+}
 }  // namespace rocksdb
 #endif  // NDEBUG

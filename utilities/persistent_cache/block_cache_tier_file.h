@@ -149,7 +149,7 @@ class RandomAccessCacheFile : public BlockCacheFile {
  public:
   explicit RandomAccessCacheFile(Env* const env, const std::string& dir,
                                  const uint32_t cache_id,
-                                 const shared_ptr<Logger>& log)
+                                 const std::shared_ptr<Logger>& log)
       : BlockCacheFile(env, dir, cache_id), log_(log) {}
 
   virtual ~RandomAccessCacheFile() {}

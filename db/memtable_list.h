@@ -31,6 +31,7 @@ class ColumnFamilyData;
 class InternalKeyComparator;
 class InstrumentedMutex;
 class MergeIteratorBuilder;
+class MemTableList;
 
 // keeps a list of immutable memtables in a vector. the list is immutable
 // if refcount is bigger than one. It is used as a state for Get() and
@@ -55,17 +56,19 @@ class MemTableListVersion {
   // will be stored in *seq on success (regardless of whether true/false is
   // returned).  Otherwise, *seq will be set to kMaxSequenceNumber.
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           SequenceNumber* seq, const ReadOptions& read_opts,
-           ReadCallback* callback = nullptr, bool* is_blob_index = nullptr);
+           MergeContext* merge_context,
+           SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
+           const ReadOptions& read_opts, ReadCallback* callback = nullptr,
+           bool* is_blob_index = nullptr);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+           MergeContext* merge_context,
+           SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
            bool* is_blob_index = nullptr) {
     SequenceNumber seq;
-    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts,
-               callback, is_blob_index);
+    return Get(key, value, s, merge_context, max_covering_tombstone_seq, &seq,
+               read_opts, callback, is_blob_index);
   }
 
   // Similar to Get(), but searches the Memtable history of memtables that
@@ -74,24 +77,22 @@ class MemTableListVersion {
   // writes that are also present in the SST files.
   bool GetFromHistory(const LookupKey& key, std::string* value, Status* s,
                       MergeContext* merge_context,
-                      RangeDelAggregator* range_del_agg, SequenceNumber* seq,
-                      const ReadOptions& read_opts,
+                      SequenceNumber* max_covering_tombstone_seq,
+                      SequenceNumber* seq, const ReadOptions& read_opts,
                       bool* is_blob_index = nullptr);
   bool GetFromHistory(const LookupKey& key, std::string* value, Status* s,
                       MergeContext* merge_context,
-                      RangeDelAggregator* range_del_agg,
+                      SequenceNumber* max_covering_tombstone_seq,
                       const ReadOptions& read_opts,
                       bool* is_blob_index = nullptr) {
     SequenceNumber seq;
-    return GetFromHistory(key, value, s, merge_context, range_del_agg, &seq,
-                          read_opts, is_blob_index);
+    return GetFromHistory(key, value, s, merge_context,
+                          max_covering_tombstone_seq, &seq, read_opts,
+                          is_blob_index);
   }
 
   Status AddRangeTombstoneIterators(const ReadOptions& read_opts, Arena* arena,
                                     RangeDelAggregator* range_del_agg);
-  Status AddRangeTombstoneIterators(
-      const ReadOptions& read_opts,
-      std::vector<InternalIterator*>* range_del_iters);
 
   void AddIterators(const ReadOptions& options,
                     std::vector<InternalIterator*>* iterator_list,
@@ -114,6 +115,18 @@ class MemTableListVersion {
   SequenceNumber GetEarliestSequenceNumber(bool include_history = false) const;
 
  private:
+  friend class MemTableList;
+
+  friend Status InstallMemtableAtomicFlushResults(
+      const autovector<MemTableList*>* imm_lists,
+      const autovector<ColumnFamilyData*>& cfds,
+      const autovector<const MutableCFOptions*>& mutable_cf_options_list,
+      const autovector<const autovector<MemTable*>*>& mems_list,
+      VersionSet* vset, InstrumentedMutex* mu,
+      const autovector<FileMetaData*>& file_meta,
+      autovector<MemTable*>* to_delete, Directory* db_directory,
+      LogBuffer* log_buffer);
+
   // REQUIRE: m is an immutable memtable
   void Add(MemTable* m, autovector<MemTable*>* to_delete);
   // REQUIRE: m is an immutable memtable
@@ -123,16 +136,14 @@ class MemTableListVersion {
 
   bool GetFromList(std::list<MemTable*>* list, const LookupKey& key,
                    std::string* value, Status* s, MergeContext* merge_context,
-                   RangeDelAggregator* range_del_agg, SequenceNumber* seq,
-                   const ReadOptions& read_opts,
+                   SequenceNumber* max_covering_tombstone_seq,
+                   SequenceNumber* seq, const ReadOptions& read_opts,
                    ReadCallback* callback = nullptr,
                    bool* is_blob_index = nullptr);
 
   void AddMemTable(MemTable* m);
 
   void UnrefMemTable(autovector<MemTable*>* to_delete, MemTable* m);
-
-  friend class MemTableList;
 
   // Immutable MemTables that have not yet been flushed.
   std::list<MemTable*> memlist_;
@@ -201,15 +212,17 @@ class MemTableList {
 
   // Returns the earliest memtables that needs to be flushed. The returned
   // memtables are guaranteed to be in the ascending order of created time.
-  void PickMemtablesToFlush(autovector<MemTable*>* mems);
+  void PickMemtablesToFlush(const uint64_t* max_memtable_id,
+                            autovector<MemTable*>* mems);
 
   // Reset status of the given memtable list back to pending state so that
   // they can get picked up again on the next round of flush.
   void RollbackMemtableFlush(const autovector<MemTable*>& mems,
                              uint64_t file_number);
 
-  // Commit a successful flush in the manifest file
-  Status InstallMemtableFlushResults(
+  // Try commit a successful flush in the manifest file. It might just return
+  // Status::OK letting a concurrent flush to do the actual the recording.
+  Status TryInstallMemtableFlushResults(
       ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
       const autovector<MemTable*>& m, LogsWithPrepTracker* prep_tracker,
       VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,
@@ -266,7 +279,32 @@ class MemTableList {
     return memlist.front()->GetID();
   }
 
+  void AssignAtomicFlushSeq(const SequenceNumber& seq) {
+    const auto& memlist = current_->memlist_;
+    // Scan the memtable list from new to old
+    for (auto it = memlist.begin(); it != memlist.end(); ++it) {
+      MemTable* mem = *it;
+      if (mem->atomic_flush_seqno_ == kMaxSequenceNumber) {
+        mem->atomic_flush_seqno_ = seq;
+      } else {
+        // Earlier memtables must have been assigned a atomic flush seq, no
+        // need to continue scan.
+        break;
+      }
+    }
+  }
+
  private:
+  friend Status InstallMemtableAtomicFlushResults(
+      const autovector<MemTableList*>* imm_lists,
+      const autovector<ColumnFamilyData*>& cfds,
+      const autovector<const MutableCFOptions*>& mutable_cf_options_list,
+      const autovector<const autovector<MemTable*>*>& mems_list,
+      VersionSet* vset, InstrumentedMutex* mu,
+      const autovector<FileMetaData*>& file_meta,
+      autovector<MemTable*>* to_delete, Directory* db_directory,
+      LogBuffer* log_buffer);
+
   // DB mutex held
   void InstallNewVersion();
 
@@ -280,11 +318,26 @@ class MemTableList {
   // committing in progress
   bool commit_in_progress_;
 
-  // Requested a flush of all memtables to storage
+  // Requested a flush of memtables to storage. It's possible to request that
+  // a subset of memtables be flushed.
   bool flush_requested_;
 
   // The current memory usage.
   size_t current_memory_usage_;
 };
 
+// Installs memtable atomic flush results.
+// In most cases, imm_lists is nullptr, and the function simply uses the
+// immutable memtable lists associated with the cfds. There are unit tests that
+// installs flush results for external immutable memtable lists other than the
+// cfds' own immutable memtable lists, e.g. MemTableLIstTest. In this case,
+// imm_lists parameter is not nullptr.
+extern Status InstallMemtableAtomicFlushResults(
+    const autovector<MemTableList*>* imm_lists,
+    const autovector<ColumnFamilyData*>& cfds,
+    const autovector<const MutableCFOptions*>& mutable_cf_options_list,
+    const autovector<const autovector<MemTable*>*>& mems_list, VersionSet* vset,
+    InstrumentedMutex* mu, const autovector<FileMetaData*>& file_meta,
+    autovector<MemTable*>* to_delete, Directory* db_directory,
+    LogBuffer* log_buffer);
 }  // namespace rocksdb

@@ -23,7 +23,7 @@ class DBTestXactLogIterator : public DBTestBase {
 
   std::unique_ptr<TransactionLogIterator> OpenTransactionLogIter(
       const SequenceNumber seq) {
-    unique_ptr<TransactionLogIterator> iter;
+    std::unique_ptr<TransactionLogIterator> iter;
     Status status = dbfull()->GetUpdatesSince(seq, &iter);
     EXPECT_OK(status);
     EXPECT_TRUE(iter->Valid());

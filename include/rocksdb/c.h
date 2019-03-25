@@ -1422,6 +1422,10 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_livefiles_smallestkey(
     const rocksdb_livefiles_t*, int index, size_t* size);
 extern ROCKSDB_LIBRARY_API const char* rocksdb_livefiles_largestkey(
     const rocksdb_livefiles_t*, int index, size_t* size);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_livefiles_entries(
+    const rocksdb_livefiles_t*, int index);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_livefiles_deletions(
+    const rocksdb_livefiles_t*, int index);
 extern ROCKSDB_LIBRARY_API void rocksdb_livefiles_destroy(
     const rocksdb_livefiles_t*);
 

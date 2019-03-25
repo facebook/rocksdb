@@ -11,6 +11,7 @@ LIB_SOURCES =                                                   \
   db/compaction_iterator.cc                                     \
   db/compaction_job.cc                                          \
   db/compaction_picker.cc                                       \
+  db/compaction_picker_fifo.cc                                  \
   db/compaction_picker_universal.cc                             \
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
@@ -43,6 +44,7 @@ LIB_SOURCES =                                                   \
   db/merge_helper.cc                                            \
   db/merge_operator.cc                                          \
   db/range_del_aggregator.cc                                    \
+  db/range_tombstone_fragmenter.cc                              \
   db/repair.cc                                                  \
   db/snapshot_impl.cc                                           \
   db/table_cache.cc                                             \
@@ -120,6 +122,7 @@ LIB_SOURCES =                                                   \
   table/plain_table_index.cc                                    \
   table/plain_table_key_coding.cc                               \
   table/plain_table_reader.cc                                   \
+  table/sst_file_reader.cc                                      \
   table/sst_file_writer.cc                                      \
   table/table_properties.cc                                     \
   table/two_level_iterator.cc                                   \
@@ -142,6 +145,7 @@ LIB_SOURCES =                                                   \
   util/filename.cc                                              \
   util/filter_policy.cc                                         \
   util/hash.cc                                                  \
+  util/jemalloc_nodump_allocator.cc                             \
   util/log_buffer.cc                                            \
   util/murmurhash.cc                                            \
   util/random.cc                                                \
@@ -341,6 +345,7 @@ MAIN_SOURCES =                                                    \
   db/repair_test.cc                                                     \
   db/range_del_aggregator_test.cc                                       \
   db/range_del_aggregator_bench.cc                                      \
+  db/range_tombstone_fragmenter_test.cc                                 \
   db/table_properties_collector_test.cc                                 \
   db/util_merge_operators_test.cc                                       \
   db/version_builder_test.cc                                            \
@@ -369,6 +374,7 @@ MAIN_SOURCES =                                                    \
   table/data_block_hash_index_test.cc                                   \
   table/full_filter_block_test.cc                                       \
   table/merger_test.cc                                                  \
+  table/sst_file_reader_test.cc                                         \
   table/table_reader_bench.cc                                           \
   table/table_test.cc                                                   \
   third-party/gtest-1.7.0/fused-src/gtest/gtest-all.cc                  \
@@ -449,6 +455,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/loggerjnicallback.cc                          \
   java/rocksjni/lru_cache.cc                                  \
   java/rocksjni/memtablejni.cc                                \
+  java/rocksjni/memory_util.cc                                \
   java/rocksjni/merge_operator.cc                             \
   java/rocksjni/native_comparator_wrapper_test.cc             \
   java/rocksjni/optimistic_transaction_db.cc                  \
@@ -481,4 +488,5 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/write_batch.cc                                \
   java/rocksjni/writebatchhandlerjnicallback.cc               \
   java/rocksjni/write_batch_test.cc                           \
-  java/rocksjni/write_batch_with_index.cc
+  java/rocksjni/write_batch_with_index.cc                     \
+  java/rocksjni/write_buffer_manager.cc

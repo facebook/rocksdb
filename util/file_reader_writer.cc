@@ -98,8 +98,21 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
           allowed = read_size;
         }
         Slice tmp;
+
+        FileOperationInfo::TimePoint start_ts;
+        uint64_t orig_offset = 0;
+        if (ShouldNotifyListeners()) {
+          start_ts = std::chrono::system_clock::now();
+          orig_offset = aligned_offset + buf.CurrentSize();
+        }
         s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, &tmp,
                         buf.Destination());
+        if (ShouldNotifyListeners()) {
+          auto finish_ts = std::chrono::system_clock::now();
+          NotifyOnFileReadFinish(orig_offset, tmp.size(), start_ts, finish_ts,
+                                 s);
+        }
+
         buf.Size(buf.CurrentSize() + tmp.size());
         if (!s.ok() || tmp.size() < allowed) {
           break;
@@ -131,7 +144,22 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
           allowed = n;
         }
         Slice tmp_result;
+
+#ifndef ROCKSDB_LITE
+        FileOperationInfo::TimePoint start_ts;
+        if (ShouldNotifyListeners()) {
+          start_ts = std::chrono::system_clock::now();
+        }
+#endif
         s = file_->Read(offset + pos, allowed, &tmp_result, scratch + pos);
+#ifndef ROCKSDB_LITE
+        if (ShouldNotifyListeners()) {
+          auto finish_ts = std::chrono::system_clock::now();
+          NotifyOnFileReadFinish(offset + pos, tmp_result.size(), start_ts,
+                                 finish_ts, s);
+        }
+#endif
+
         if (res_scratch == nullptr) {
           // we can't simply use `scratch` because reads of mmap'd files return
           // data in a different buffer.
@@ -414,7 +442,22 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
     {
       IOSTATS_TIMER_GUARD(write_nanos);
       TEST_SYNC_POINT("WritableFileWriter::Flush:BeforeAppend");
+
+#ifndef ROCKSDB_LITE
+      FileOperationInfo::TimePoint start_ts;
+      uint64_t old_size = writable_file_->GetFileSize();
+      if (ShouldNotifyListeners()) {
+        start_ts = std::chrono::system_clock::now();
+        old_size = next_write_offset_;
+      }
+#endif
       s = writable_file_->Append(Slice(src, allowed));
+#ifndef ROCKSDB_LITE
+      if (ShouldNotifyListeners()) {
+        auto finish_ts = std::chrono::system_clock::now();
+        NotifyOnFileWriteFinish(old_size, allowed, start_ts, finish_ts, s);
+      }
+#endif
       if (!s.ok()) {
         return s;
       }
@@ -477,8 +520,16 @@ Status WritableFileWriter::WriteDirect() {
     {
       IOSTATS_TIMER_GUARD(write_nanos);
       TEST_SYNC_POINT("WritableFileWriter::Flush:BeforeAppend");
+      FileOperationInfo::TimePoint start_ts;
+      if (ShouldNotifyListeners()) {
+        start_ts = std::chrono::system_clock::now();
+      }
       // direct writes must be positional
       s = writable_file_->PositionedAppend(Slice(src, size), write_offset);
+      if (ShouldNotifyListeners()) {
+        auto finish_ts = std::chrono::system_clock::now();
+        NotifyOnFileWriteFinish(write_offset, size, start_ts, finish_ts, s);
+      }
       if (!s.ok()) {
         buf_.Size(file_advance + leftover_tail);
         return s;
@@ -753,7 +804,7 @@ std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
 }
 
 Status NewWritableFile(Env* env, const std::string& fname,
-                       unique_ptr<WritableFile>* result,
+                       std::unique_ptr<WritableFile>* result,
                        const EnvOptions& options) {
   Status s = env->NewWritableFile(fname, result, options);
   TEST_KILL_RANDOM("NewWritableFile:0", rocksdb_kill_odds * REDUCE_ODDS2);
