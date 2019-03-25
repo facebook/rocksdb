@@ -18,6 +18,7 @@
 #include "rocksdb/utilities/debug.h"
 #include "util/cast_util.h"
 #include "util/fault_injection_test_env.h"
+#include "util/file_util.h"
 #include "util/random.h"
 #include "util/sst_file_manager_impl.h"
 #include "util/string_util.h"
@@ -825,10 +826,6 @@ TEST_F(BlobDBTest, SstFileManagerRestart) {
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteFile",
       [&](void * /*arg*/) { files_deleted_directly++; });
-  rocksdb::SyncPoint::GetInstance()->LoadDependency({
-      {"BlobDBTest.SstFileManagerRestart:1",
-       "DeleteScheduler::BackgroundEmptyTrash"},
-  });
 
   // run the same test for Get(), MultiGet() and Iterator each.
   std::shared_ptr<SstFileManager> sst_file_manager(
@@ -841,34 +838,41 @@ TEST_F(BlobDBTest, SstFileManagerRestart) {
   bdb_options.min_blob_size = 0;
   Options db_options;
 
-
   SyncPoint::GetInstance()->EnableProcessing();
   db_options.sst_file_manager = sst_file_manager;
 
   Open(bdb_options, db_options);
-
-  // Create one obselete file and clean it.
+  std::string blob_dir = blob_db_impl()->TEST_blob_dir();
   blob_db_->Put(WriteOptions(), "foo", "bar");
-  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
-  ASSERT_EQ(1, blob_files.size());
-  std::shared_ptr<BlobFile> bfile = blob_files[0];
-  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(bfile));
-  GCStats gc_stats;
-  ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(bfile, &gc_stats));
-  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  Close();
 
-  // Even if SSTFileManager is not set, DB is creating a dummy one.
-  ASSERT_EQ(1, files_scheduled_to_delete);
-  ASSERT_EQ(0, files_deleted_directly);
+  // Create 3 dummy trash files under the blob_dir
+  CreateFile(db_options.env, blob_dir + "/000666.blob.trash", "", false);
+  CreateFile(db_options.env, blob_dir + "/000888.blob.trash", "", true);
+  CreateFile(db_options.env, blob_dir + "/something_not_match.trash", "",
+             false);
 
   // Make sure that reopening the DB rescan the existing trash files
-  Reopen(bdb_options, db_options);
-  ASSERT_GE(files_scheduled_to_delete, 2);
+  Open(bdb_options, db_options);
+  ASSERT_GE(files_scheduled_to_delete, 3);
   ASSERT_EQ(0, files_deleted_directly);
-  TEST_SYNC_POINT("BlobDBTest.SstFileManagerRestart:1");
+
+  sfm->WaitForEmptyTrash();
+
+  // There should be exact one file under the blob dir now.
+  std::vector<std::string> all_files;
+  ASSERT_OK(db_options.env->GetChildren(blob_dir, &all_files));
+  int nfiles = 0;
+  for (const auto &f : all_files) {
+    assert(!f.empty());
+    if (f[0] == '.') {
+      continue;
+    }
+    nfiles++;
+  }
+  ASSERT_EQ(nfiles, 1);
 
   SyncPoint::GetInstance()->DisableProcessing();
-  sfm->WaitForEmptyTrash();
 }
 
 TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
