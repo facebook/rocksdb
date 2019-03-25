@@ -191,7 +191,6 @@ class PosixEnv : public Env {
     {
       struct stat buf;
       int fstat_result = fstat(fd, &buf);
-      assert(fstat_result != -1);
       if (fstat_result == -1) {
         return IOError("While fstat the sequential file just created",
                        fname, fstat_result);
@@ -257,7 +256,6 @@ class PosixEnv : public Env {
     if (s.ok()) {
       struct stat buf;
       int fstat_result = fstat(fd, &buf);
-      assert(fstat_result != -1);
       if (fstat_result == -1) {
         return IOError("While fstat the random access file just created",
                        fname, fstat_result);
