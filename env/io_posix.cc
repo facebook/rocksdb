@@ -265,7 +265,6 @@ size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
 
   struct stat buf;
   int result = fstat(fd, &buf);
-  assert(result != -1);
   if (result == -1) {
     return 0;
   }
