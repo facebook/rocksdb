@@ -1,5 +1,14 @@
 # Rocksdb Change Log
 
+## 6.0.1 (3/26/2019)
+### New Features
+### Public API Change
+* Added many new features to the Java API to bring it closer to the C++ API.
+
+### Bug Fixes
+* Make BlobDB wait for all background tasks on shutdown.
+* Fixed a BlobDB issue where some trash files are not tracked causing them to remain forever.
+
 ## 6.0.0 (2/19/2019)
 ### New Features
 * Enabled checkpoint on readonly db (DBImplReadOnly).
