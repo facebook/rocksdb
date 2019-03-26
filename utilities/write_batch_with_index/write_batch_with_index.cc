@@ -251,6 +251,9 @@ class BaseDeltaIterator : public Iterator {
     } else {
       delta_iterator_->Prev();
     }
+    // If the new Delta is valid and >= iterate_upper_bound
+    current_over_upper_bound_ =
+        DeltaValid() && IsOverUpperBound(delta_iterator_->Entry().key);
   }
   void AdvanceBase() {
     if (forward_) {
@@ -276,27 +279,24 @@ class BaseDeltaIterator : public Iterator {
       } else if (!delta_iterator_->status().ok()) {
         // Expose the error status and stop.
         current_at_base_ = false;
-        break;
+        return;
       }
       equal_keys_ = false;
       if (!BaseValid()) {
         if (!base_iterator_->status().ok()) {
           // Expose the error status and stop.
           current_at_base_ = true;
-          break;
+          return;
         }
 
         // Base has finished.
         if (!DeltaValid()) {
           // Finished
-          break;
+          return;
         }
         if (delta_entry.type == kDeleteRecord ||
             delta_entry.type == kSingleDeleteRecord) {
           AdvanceDelta();
-          // If the new Delta is valid and >= iterate_upper_bound, stop
-          current_over_upper_bound_ =
-              DeltaValid() && IsOverUpperBound(delta_iterator_->Entry().key);
           if (current_over_upper_bound_) {
             return;
           }
