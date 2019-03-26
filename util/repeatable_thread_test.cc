@@ -62,7 +62,8 @@ TEST_F(RepeatableThreadTest, MockEnvTest) {
                                    1 * kSecond, 1 * kSecond);
   for (int i = 1; i <= kIteration; i++) {
     // Bump current time
-    thread.TEST_WaitForRun([&] { mock_env_->set_current_time(now_seconds + i); });
+    thread.TEST_WaitForRun(
+        [&] { mock_env_->set_current_time(now_seconds + i); });
   }
   // Test function should be exectued exactly kIteraion times.
   ASSERT_EQ(kIteration, count.load());
