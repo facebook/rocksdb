@@ -189,7 +189,7 @@ class CompactionFilter {
 // application to know about different compactions
 class CompactionFilterFactory {
  public:
-  virtual ~CompactionFilterFactory() { }
+  virtual ~CompactionFilterFactory() {}
 
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) = 0;

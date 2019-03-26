@@ -127,7 +127,6 @@ struct TransactionOptions {
   // return 0 if
   // a.compare(b) returns 0.
 
-
   // If positive, specifies the wait timeout in milliseconds when
   // a transaction attempts to lock a key.
   //

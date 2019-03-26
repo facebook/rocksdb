@@ -19,8 +19,8 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <iostream>
 #include <algorithm>
+#include <iostream>
 #include <vector>
 #include "rocksdb/env.h"
 
@@ -31,21 +31,15 @@ class RandomAccessFileMirror;
 class WritableFileMirror;
 
 class EnvMirror : public EnvWrapper {
-  Env* a_, *b_;
+  Env *a_, *b_;
   bool free_a_, free_b_;
 
  public:
-  EnvMirror(Env* a, Env* b, bool free_a=false, bool free_b=false)
-    : EnvWrapper(a),
-      a_(a),
-      b_(b),
-      free_a_(free_a),
-      free_b_(free_b) {}
+  EnvMirror(Env* a, Env* b, bool free_a = false, bool free_b = false)
+      : EnvWrapper(a), a_(a), b_(b), free_a_(free_a), free_b_(free_b) {}
   ~EnvMirror() {
-    if (free_a_)
-      delete a_;
-    if (free_b_)
-      delete b_;
+    if (free_a_) delete a_;
+    if (free_b_) delete b_;
   }
 
   Status NewSequentialFile(const std::string& f,
@@ -157,12 +151,12 @@ class EnvMirror : public EnvWrapper {
 
   class FileLockMirror : public FileLock {
    public:
-    FileLock* a_, *b_;
+    FileLock *a_, *b_;
     FileLockMirror(FileLock* a, FileLock* b) : a_(a), b_(b) {}
   };
 
   Status LockFile(const std::string& f, FileLock** l) override {
-    FileLock* al, *bl;
+    FileLock *al, *bl;
     Status as = a_->LockFile(f, &al);
     Status bs = b_->LockFile(f, &bl);
     assert(as == bs);
