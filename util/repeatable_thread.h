@@ -87,7 +87,8 @@ class RepeatableThread {
         if (dynamic_cast<MockTimeEnv*>(env_) != nullptr) {
           // MockTimeEnv is used. Since it is not easy to mock TimedWait,
           // we wait without timeout to wait for TEST_WaitForRun to wake us up.
-          cond_var_.Wait();
+          //cond_var_.Wait();
+          cond_var_.TimedWait(wait_until);
         } else {
           cond_var_.TimedWait(wait_until);
         }
