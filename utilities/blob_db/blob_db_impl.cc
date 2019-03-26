@@ -31,6 +31,7 @@
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+#include "util/sst_file_manager_impl.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 #include "util/timer_queue.h"
@@ -180,6 +181,12 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
     return s;
   }
   db_impl_ = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
+
+  // Add trash files in blob dir to file delete scheduler.
+  SstFileManagerImpl* sfm = static_cast<SstFileManagerImpl*>(
+      db_impl_->immutable_db_options().sst_file_manager.get());
+  DeleteScheduler::CleanupDirectory(env_, sfm, blob_dir_);
+
   UpdateLiveSSTSize();
 
   // Start background jobs.
