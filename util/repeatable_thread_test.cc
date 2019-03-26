@@ -54,13 +54,15 @@ TEST_F(RepeatableThreadTest, TimedTest) {
 TEST_F(RepeatableThreadTest, MockEnvTest) {
   constexpr uint64_t kSecond = 1000000;  // 1s = 1000000us
   constexpr int kIteration = 3;
-  mock_env_->set_current_time(0);  // in seconds
+  rocksdb::Env* env = rocksdb::Env::Default();
+  uint64_t now_seconds = env->NowMicros() / kSecond;
+  mock_env_->set_current_time(now_seconds);  // in seconds
   std::atomic<int> count{0};
   rocksdb::RepeatableThread thread([&] { count++; }, "rt_test", mock_env_.get(),
                                    1 * kSecond, 1 * kSecond);
   for (int i = 1; i <= kIteration; i++) {
     // Bump current time
-    thread.TEST_WaitForRun([&] { mock_env_->set_current_time(i); });
+    thread.TEST_WaitForRun([&] { mock_env_->set_current_time(now_seconds + i); });
   }
   // Test function should be exectued exactly kIteraion times.
   ASSERT_EQ(kIteration, count.load());
