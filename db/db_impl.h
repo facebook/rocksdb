@@ -758,6 +758,29 @@ class DBImpl : public DB {
   std::unique_ptr<Tracer> tracer_;
   InstrumentedMutex trace_mutex_;
 
+  // State below is protected by mutex_
+  // With two_write_queues enabled, some of the variables that accessed during
+  // WriteToWAL need different synchronization: log_empty_, alive_log_files_,
+  // logs_, logfile_number_. Refer to the definition of each variable below for
+  // more description.
+  mutable InstrumentedMutex mutex_;
+
+  ColumnFamilyHandleImpl* default_cf_handle_;
+  InternalStats* default_cf_internal_stats_;
+
+  // only used for dynamically adjusting max_total_wal_size. it is a sum of
+  // [write_buffer_size * max_write_buffer_number] over all column families
+  uint64_t max_total_in_memory_state_;
+  // If true, we have only one (default) column family. We use this to optimize
+  // some code-paths
+  bool single_column_family_mode_;
+
+  // The options to access storage files
+  const EnvOptions env_options_;
+
+  // Additonal options for compaction and flush
+  EnvOptions env_options_for_compaction_;
+
   // Except in DB::Open(), WriteOptionsFile can only be called when:
   // Persist options to options file.
   // If need_mutex_lock = false, the method will lock DB mutex.
@@ -845,6 +868,14 @@ class DBImpl : public DB {
   // Actual implementation of Close()
   Status CloseImpl();
 
+  // Recover the descriptor from persistent storage.  May do a significant
+  // amount of work to recover recently logged updates.  Any changes to
+  // be made to the descriptor are added to *edit.
+  virtual Status Recover(
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      bool read_only = false, bool error_if_log_file_exist = false,
+      bool error_if_data_exists_in_logs = false);
+
  private:
   friend class DB;
   friend class ErrorHandler;
@@ -892,13 +923,6 @@ class DBImpl : public DB {
 
   struct PrepickedCompaction;
   struct PurgeFileInfo;
-
-  // Recover the descriptor from persistent storage.  May do a significant
-  // amount of work to recover recently logged updates.  Any changes to
-  // be made to the descriptor are added to *edit.
-  Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
-                 bool read_only = false, bool error_if_log_file_exist = false,
-                 bool error_if_data_exists_in_logs = false);
 
   Status ResumeImpl();
 
@@ -1216,12 +1240,6 @@ class DBImpl : public DB {
   // and log_empty_. Refer to the definition of each variable below for more
   // details.
   InstrumentedMutex log_write_mutex_;
-  // State below is protected by mutex_
-  // With two_write_queues enabled, some of the variables that accessed during
-  // WriteToWAL need different synchronization: log_empty_, alive_log_files_,
-  // logs_, logfile_number_. Refer to the definition of each variable below for
-  // more description.
-  mutable InstrumentedMutex mutex_;
 
   std::atomic<bool> shutting_down_;
   // This condition variable is signaled on these conditions:
@@ -1253,8 +1271,7 @@ class DBImpl : public DB {
   // read and writes are protected by log_write_mutex_ instead. This is to avoid
   // expesnive mutex_ lock during WAL write, which update log_empty_.
   bool log_empty_;
-  ColumnFamilyHandleImpl* default_cf_handle_;
-  InternalStats* default_cf_internal_stats_;
+
   std::unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
   struct LogFileNumberSize {
     explicit LogFileNumberSize(uint64_t _number)
@@ -1321,12 +1338,7 @@ class DBImpl : public DB {
   WriteBatch cached_recoverable_state_;
   std::atomic<bool> cached_recoverable_state_empty_ = {true};
   std::atomic<uint64_t> total_log_size_;
-  // only used for dynamically adjusting max_total_wal_size. it is a sum of
-  // [write_buffer_size * max_write_buffer_number] over all column families
-  uint64_t max_total_in_memory_state_;
-  // If true, we have only one (default) column family. We use this to optimize
-  // some code-paths
-  bool single_column_family_mode_;
+
   // If this is non-empty, we need to delete these log files in background
   // threads. Protected by db mutex.
   autovector<log::Writer*> logs_to_free_;
@@ -1544,12 +1556,6 @@ class DBImpl : public DB {
   static const uint64_t kNoTimeOut = port::kMaxUint64;
 
   std::string db_absolute_path_;
-
-  // The options to access storage files
-  const EnvOptions env_options_;
-
-  // Additonal options for compaction and flush
-  EnvOptions env_options_for_compaction_;
 
   // Number of running IngestExternalFile() calls.
   // REQUIRES: mutex held
