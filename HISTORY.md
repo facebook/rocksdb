@@ -11,7 +11,6 @@
 * Add initial support for multiple db instances sharing the same data in single-writer, multi-reader mode.
 * Removed some "using std::xxx" from public headers.
 
->>>>>>> b61281cd9... Remove some "using std::..." from header files.
 ### Bug Fixes
 * Fix JEMALLOC_CXX_THROW macro missing from older Jemalloc versions, causing build failures on some platforms.
 * Fix SstFileReader not able to open file ingested with write_glbal_seqno=true.
