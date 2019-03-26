@@ -5,6 +5,7 @@
 * Add support for trace filtering.
 
 ### Public API Change
+* Remove bundled fbson library.
 * statistics.stats_level_ becomes atomic. It is preferred to use statistics.set_stats_level() and statistics.get_stats_level() to access it.
 
 ### Bug Fixes
