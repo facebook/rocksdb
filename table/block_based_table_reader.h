@@ -364,6 +364,9 @@ class BlockBasedTable : public TableReader {
   static Status ReadMetaBlock(Rep* rep, FilePrefetchBuffer* prefetch_buffer,
                               std::unique_ptr<Block>* meta_block,
                               std::unique_ptr<InternalIterator>* iter);
+  static Status TryReadPropertiesWithGlobalSeqno(
+      Rep* rep, FilePrefetchBuffer* prefetch_buffer, const Slice& handle_value,
+      TableProperties** table_properties);
   static Status ReadPropertiesBlock(Rep* rep,
                                     FilePrefetchBuffer* prefetch_buffer,
                                     InternalIterator* meta_iter,
@@ -382,7 +385,7 @@ class BlockBasedTable : public TableReader {
       const BlockBasedTableOptions& table_options, const int level,
       const bool prefetch_index_and_filter_in_cache);
 
-  Status VerifyChecksumInBlocks(InternalIteratorBase<Slice>* index_iter);
+  Status VerifyChecksumInMetaBlocks(InternalIteratorBase<Slice>* index_iter);
   Status VerifyChecksumInBlocks(InternalIteratorBase<BlockHandle>* index_iter);
 
   // Create the filter from the filter block.

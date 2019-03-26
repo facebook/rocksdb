@@ -727,17 +727,24 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
   if (seqno_pos != props.end()) {
     global_seqno = DecodeFixed64(seqno_pos->second.c_str());
   }
-  if (global_seqno != 0 && global_seqno != largest_seqno) {
-    std::array<char, 200> msg_buf;
-    snprintf(msg_buf.data(), msg_buf.max_size(),
-             "An external sst file with version %u have global seqno property "
-             "with value %s, while largest seqno in the file is %llu",
-             version, seqno_pos->second.c_str(),
-             static_cast<unsigned long long>(largest_seqno));
-    return Status::Corruption(msg_buf.data());
+  // SstTableReader open table reader with kMaxSequenceNumber as largest_seqno
+  // to denote it is unknown.
+  if (largest_seqno < kMaxSequenceNumber) {
+    if (global_seqno == 0) {
+      global_seqno = largest_seqno;
+    }
+    if (global_seqno != largest_seqno) {
+      std::array<char, 200> msg_buf;
+      snprintf(
+          msg_buf.data(), msg_buf.max_size(),
+          "An external sst file with version %u have global seqno property "
+          "with value %s, while largest seqno in the file is %llu",
+          version, seqno_pos->second.c_str(),
+          static_cast<unsigned long long>(largest_seqno));
+      return Status::Corruption(msg_buf.data());
+    }
   }
-  global_seqno = largest_seqno;
-  *seqno = largest_seqno;
+  *seqno = global_seqno;
 
   if (global_seqno > kMaxSequenceNumber) {
     std::array<char, 200> msg_buf;
@@ -942,6 +949,41 @@ Status VerifyChecksum(const ChecksumType type, const char* buf, size_t len,
   return s;
 }
 
+Status BlockBasedTable::TryReadPropertiesWithGlobalSeqno(
+    Rep* rep, FilePrefetchBuffer* prefetch_buffer, const Slice& handle_value,
+    TableProperties** table_properties) {
+  assert(table_properties != nullptr);
+  // If this is an external SST file ingested with write_global_seqno set to
+  // true, then we expect the checksum mismatch because checksum was written
+  // by SstFileWriter, but its global seqno in the properties block may have
+  // been changed during ingestion. In this case, we read the properties
+  // block, copy it to a memory buffer, change the global seqno to its
+  // original value, i.e. 0, and verify the checksum again.
+  BlockHandle props_block_handle;
+  CacheAllocationPtr tmp_buf;
+  Status s = ReadProperties(handle_value, rep->file.get(), prefetch_buffer,
+                            rep->footer, rep->ioptions, table_properties,
+                            false /* verify_checksum */, &props_block_handle,
+                            &tmp_buf, false /* compression_type_missing */,
+                            nullptr /* memory_allocator */);
+  if (s.ok() && tmp_buf) {
+    const auto seqno_pos_iter =
+        (*table_properties)
+            ->properties_offsets.find(
+                ExternalSstFilePropertyNames::kGlobalSeqno);
+    size_t block_size = props_block_handle.size();
+    if (seqno_pos_iter != (*table_properties)->properties_offsets.end()) {
+      uint64_t global_seqno_offset = seqno_pos_iter->second;
+      EncodeFixed64(
+          tmp_buf.get() + global_seqno_offset - props_block_handle.offset(), 0);
+    }
+    uint32_t value = DecodeFixed32(tmp_buf.get() + block_size + 1);
+    s = rocksdb::VerifyChecksum(rep->footer.checksum(), tmp_buf.get(),
+                                block_size + 1, value);
+  }
+  return s;
+}
+
 Status BlockBasedTable::ReadPropertiesBlock(
     Rep* rep, FilePrefetchBuffer* prefetch_buffer, InternalIterator* meta_iter,
     const SequenceNumber largest_seqno) {
@@ -965,33 +1007,8 @@ Status BlockBasedTable::ReadPropertiesBlock(
     }
 
     if (s.IsCorruption()) {
-      // If this is an external SST file ingested with write_global_seqno set to
-      // true, then we expect the checksum mismatch because checksum was written
-      // by SstFileWriter, but its global seqno in the properties block may have
-      // been changed during ingestion. In this case, we read the properties
-      // block, copy it to a memory buffer, change the global seqno to its
-      // original value, i.e. 0, and verify the checksum again.
-      BlockHandle props_block_handle;
-      CacheAllocationPtr tmp_buf;
-      s = ReadProperties(meta_iter->value(), rep->file.get(), prefetch_buffer,
-                         rep->footer, rep->ioptions, &table_properties,
-                         false /* verify_checksum */, &props_block_handle,
-                         &tmp_buf, false /* compression_type_missing */,
-                         nullptr /* memory_allocator */);
-      if (s.ok() && tmp_buf) {
-        const auto seqno_pos_iter = table_properties->properties_offsets.find(
-            ExternalSstFilePropertyNames::kGlobalSeqno);
-        size_t block_size = props_block_handle.size();
-        if (seqno_pos_iter != table_properties->properties_offsets.end()) {
-          uint64_t global_seqno_offset = seqno_pos_iter->second;
-          EncodeFixed64(
-              tmp_buf.get() + global_seqno_offset - props_block_handle.offset(),
-              0);
-        }
-        uint32_t value = DecodeFixed32(tmp_buf.get() + block_size + 1);
-        s = rocksdb::VerifyChecksum(rep->footer.checksum(), tmp_buf.get(),
-                                    block_size + 1, value);
-      }
+      s = TryReadPropertiesWithGlobalSeqno(
+          rep, prefetch_buffer, meta_iter->value(), &table_properties);
     }
     std::unique_ptr<TableProperties> props_guard;
     if (table_properties != nullptr) {
@@ -2801,7 +2818,7 @@ Status BlockBasedTable::VerifyChecksum() {
   std::unique_ptr<InternalIterator> meta_iter;
   s = ReadMetaBlock(rep_, nullptr /* prefetch buffer */, &meta, &meta_iter);
   if (s.ok()) {
-    s = VerifyChecksumInBlocks(meta_iter.get());
+    s = VerifyChecksumInMetaBlocks(meta_iter.get());
     if (!s.ok()) {
       return s;
     }
@@ -2848,7 +2865,7 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
   return s;
 }
 
-Status BlockBasedTable::VerifyChecksumInBlocks(
+Status BlockBasedTable::VerifyChecksumInMetaBlocks(
     InternalIteratorBase<Slice>* index_iter) {
   Status s;
   for (index_iter->SeekToFirst(); index_iter->Valid(); index_iter->Next()) {
@@ -2866,6 +2883,13 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
         false /* decompress */, false /*maybe_compressed*/,
         UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options);
     s = block_fetcher.ReadBlockContents();
+    if (s.IsCorruption() && index_iter->key() == kPropertiesBlock) {
+      TableProperties* table_properties;
+      s = TryReadPropertiesWithGlobalSeqno(rep_, nullptr /* prefetch_buffer */,
+                                           index_iter->value(),
+                                           &table_properties);
+      delete table_properties;
+    }
     if (!s.ok()) {
       break;
     }

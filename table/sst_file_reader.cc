@@ -8,6 +8,7 @@
 #include "rocksdb/sst_file_reader.h"
 
 #include "db/db_iter.h"
+#include "db/dbformat.h"
 #include "options/cf_options.h"
 #include "table/get_context.h"
 #include "table/table_builder.h"
@@ -49,10 +50,12 @@ Status SstFileReader::Open(const std::string& file_path) {
     file_reader.reset(new RandomAccessFileReader(std::move(file), file_path));
   }
   if (s.ok()) {
-    s = r->options.table_factory->NewTableReader(
-        TableReaderOptions(r->ioptions, r->moptions.prefix_extractor.get(),
-                           r->soptions, r->ioptions.internal_comparator),
-        std::move(file_reader), file_size, &r->table_reader);
+    TableReaderOptions t_opt(r->ioptions, r->moptions.prefix_extractor.get(),
+                             r->soptions, r->ioptions.internal_comparator);
+    // Allow open file with global sequence number for backward compatibility.
+    t_opt.largest_seqno = kMaxSequenceNumber;
+    s = r->options.table_factory->NewTableReader(t_opt, std::move(file_reader),
+                                                 file_size, &r->table_reader);
   }
   return s;
 }
