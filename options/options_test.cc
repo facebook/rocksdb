@@ -340,7 +340,7 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   std::string kCompName = "reverse_comp";
   static Registrar<const Comparator> test_reg_a(
       kCompName, [](const std::string& /*name*/,
-                    std::unique_ptr<const Comparator>* /*env_guard*/) {
+                    std::unique_ptr<const Comparator>* /*comparator_guard*/) {
         return ReverseBytewiseComparator();
       });
 
