@@ -19,6 +19,7 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "table/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
 #include "util/cast_util.h"
@@ -239,6 +240,8 @@ std::unordered_map<std::string, CompressionType>
         {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
         {"kDisableCompressionOption", kDisableCompressionOption}};
 #ifndef ROCKSDB_LITE
+
+const std::string kNameComparator = "comparator";
 
 template <typename T>
 Status GetStringFromStruct(
@@ -1013,6 +1016,16 @@ Status ParseColumnFamilyOption(const std::string& name,
         return s;
       }
     } else {
+      if (name == kNameComparator) {
+        // Try to get comparator from object registry first.
+        std::unique_ptr<const Comparator> comp_guard;
+        const Comparator* comp =
+            NewCustomObject<const Comparator>(value, &comp_guard);
+        // Only support static comparator for now.
+        if (comp != nullptr && !comp_guard) {
+          new_options->comparator = comp;
+        }
+      }
       auto iter = cf_options_type_info.find(name);
       if (iter == cf_options_type_info.end()) {
         return Status::InvalidArgument(
@@ -1876,7 +1889,7 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::bottommost_compression),
           OptionType::kCompressionType, OptionVerificationType::kNormal, false,
           0}},
-        {"comparator",
+        {kNameComparator,
          {offset_of(&ColumnFamilyOptions::comparator), OptionType::kComparator,
           OptionVerificationType::kByName, false, 0}},
         {"prefix_extractor",
