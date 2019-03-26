@@ -162,6 +162,54 @@ class DB {
       std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
       bool error_if_log_file_exist = false);
 
+  // The following OpenAsSecondary functions create a secondary instance that
+  // can dynamically tail the MANIFEST of a primary that must have already been
+  // created. User can call TryCatchUpWithPrimary to make the secondary
+  // instance catch up with primary (WAL tailing is NOT supported now) whenever
+  // the user feels necessary. Column families created by the primary after the
+  // secondary instance starts are currently ignored by the secondary instance.
+  // Column families opened by secondary and dropped by the primary will be
+  // dropped by secondary as well. However the user of the secondary instance
+  // can still access the data of such dropped column family as long as they
+  // do not destroy the corresponding column family handle.
+  // WAL tailing is not supported at present, but will arrive soon.
+  //
+  // The options argument specifies the options to open the secondary instance.
+  // The name argument specifies the name of the primary db that you have used
+  // to open the primary instance.
+  // The secondary_path argument points to a directory where the secondary
+  // instance stores its info log.
+  // The dbptr is an out-arg corresponding to the opened secondary instance.
+  // The pointer points to a heap-allocated database, and the user should
+  // delete it after use.
+  // Open DB as secondary instance with only the default column family.
+  // Return OK on success, non-OK on failures.
+  static Status OpenAsSecondary(const Options& options, const std::string& name,
+                                const std::string& secondary_path, DB** dbptr);
+
+  // Open DB as secondary instance with column families. You can open a subset
+  // of column families in secondary mode.
+  // The db_options specify the database specific options.
+  // The name argument specifies the name of the primary db that you have used
+  // to open the primary instance.
+  // The secondary_path argument points to a directory where the secondary
+  // instance stores its info log.
+  // The column_families argument specifieds a list of column families to open.
+  // If any of the column families does not exist, the function returns non-OK
+  // status.
+  // The handles is an out-arg corresponding to the opened database column
+  // familiy handles.
+  // The dbptr is an out-arg corresponding to the opened secondary instance.
+  // The pointer points to a heap-allocated database, and the caller should
+  // delete it after use. Before deleting the dbptr, the user should also
+  // delete the pointers stored in handles vector.
+  // Return OK on success, on-OK on failures.
+  static Status OpenAsSecondary(
+      const DBOptions& db_options, const std::string& name,
+      const std::string& secondary_path,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
+
   // Open DB with column families.
   // db_options specify database specific options
   // column_families is the vector of all column families in the database,
@@ -1234,6 +1282,23 @@ class DB {
       std::unique_ptr<StatsHistoryIterator>* /*stats_iterator*/) {
     return Status::NotSupported("GetStatsHistory() is not implemented.");
   }
+
+#ifndef ROCKSDB_LITE
+  // Make the secondary instance catch up with the primary by tailing and
+  // replaying the MANIFEST and WAL of the primary.
+  // Column families created by the primary after the secondary instance starts
+  // will be ignored unless the secondary instance closes and restarts with the
+  // newly created column families.
+  // Column families that exist before secondary instance starts and dropped by
+  // the primary afterwards will be marked as dropped. However, as long as the
+  // secondary instance does not delete the corresponding column family
+  // handles, the data of the column family is still accessible to the
+  // secondary.
+  // TODO: we will support WAL tailing soon.
+  virtual Status TryCatchUpWithPrimary() {
+    return Status::NotSupported("Supported only by secondary instance");
+  }
+#endif  // !ROCKSDB_LITE
 
  private:
   // No copying allowed

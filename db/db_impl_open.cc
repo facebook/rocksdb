@@ -629,8 +629,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     // to be skipped instead of propagating bad information (like overly
     // large sequence numbers).
     log::Reader reader(immutable_db_options_.info_log, std::move(file_reader),
-                       &reporter, true /*checksum*/, log_number,
-                       false /* retry_after_eof */);
+                       &reporter, true /*checksum*/, log_number);
 
     // Determine if we should tolerate incomplete records at the tail end of the
     // Read all the records and add to a memtable

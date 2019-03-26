@@ -41,6 +41,9 @@ static Status IOError(const std::string& context, const std::string& file_name,
                            strerror(err_number));
   case ESTALE:
     return Status::IOError(Status::kStaleFile);
+  case ENOENT:
+    return Status::PathNotFound(IOErrorMsg(context, file_name),
+                                strerror(err_number));
   default:
     return Status::IOError(IOErrorMsg(context, file_name),
                            strerror(err_number));

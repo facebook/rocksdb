@@ -24,8 +24,7 @@ Reader::Reporter::~Reporter() {
 
 Reader::Reader(std::shared_ptr<Logger> info_log,
                std::unique_ptr<SequentialFileReader>&& _file,
-               Reporter* reporter, bool checksum, uint64_t log_num,
-               bool retry_after_eof)
+               Reporter* reporter, bool checksum, uint64_t log_num)
     : info_log_(info_log),
       file_(std::move(_file)),
       reporter_(reporter),
@@ -38,8 +37,7 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       last_record_offset_(0),
       end_of_buffer_offset_(0),
       log_number_(log_num),
-      recycled_(false),
-      retry_after_eof_(retry_after_eof) {}
+      recycled_(false) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
@@ -207,14 +205,14 @@ void Reader::UnmarkEOF() {
   if (read_error_) {
     return;
   }
-
   eof_ = false;
-
-  // If retry_after_eof_ is true, we have to proceed to read anyway.
-  if (!retry_after_eof_ && eof_offset_ == 0) {
+  if (eof_offset_ == 0) {
     return;
   }
+  UnmarkEOFInternal();
+}
 
+void Reader::UnmarkEOFInternal() {
   // If the EOF was in the middle of a block (a partial block was read) we have
   // to read the rest of the block as ReadPhysicalRecord can only read full
   // blocks and expects the file position indicator to be aligned to the start
@@ -292,12 +290,8 @@ bool Reader::ReadMore(size_t* drop_size, int *error) {
     } else if (buffer_.size() < static_cast<size_t>(kBlockSize)) {
       eof_ = true;
       eof_offset_ = buffer_.size();
-      TEST_SYNC_POINT("LogReader::ReadMore:FirstEOF");
     }
     return true;
-  } else if (retry_after_eof_ && !read_error_) {
-    UnmarkEOF();
-    return !read_error_;
   } else {
     // Note that if buffer_ is non-empty, we have a truncated header at the
     //  end of the file, which can be caused by the writer crashing in the
@@ -355,24 +349,16 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
       }
     }
     if (header_size + length > buffer_.size()) {
-      if (!retry_after_eof_) {
-        *drop_size = buffer_.size();
-        buffer_.clear();
-        if (!eof_) {
-          return kBadRecordLen;
-        }
-        // If the end of the file has been reached without reading |length|
-        // bytes of payload, assume the writer died in the middle of writing the
-        // record. Don't report a corruption unless requested.
-        if (*drop_size) {
-          return kBadHeader;
-        }
-      } else {
-        int r = kEof;
-        if (!ReadMore(drop_size, &r)) {
-          return r;
-        }
-        continue;
+      *drop_size = buffer_.size();
+      buffer_.clear();
+      if (!eof_) {
+        return kBadRecordLen;
+      }
+      // If the end of the file has been reached without reading |length|
+      // bytes of payload, assume the writer died in the middle of writing the
+      // record. Don't report a corruption unless requested.
+      if (*drop_size) {
+        return kBadHeader;
       }
       return kEof;
     }
@@ -407,6 +393,230 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
     *result = Slice(header + header_size, length);
     return type;
   }
+}
+
+bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
+                                        WALRecoveryMode /*unused*/) {
+  assert(record != nullptr);
+  assert(scratch != nullptr);
+  record->clear();
+  scratch->clear();
+
+  uint64_t prospective_record_offset = 0;
+  uint64_t physical_record_offset = end_of_buffer_offset_ - buffer_.size();
+  size_t drop_size = 0;
+  unsigned int fragment_type_or_err = 0;  // Initialize to make compiler happy
+  Slice fragment;
+  while (TryReadFragment(&fragment, &drop_size, &fragment_type_or_err)) {
+    switch (fragment_type_or_err) {
+      case kFullType:
+      case kRecyclableFullType:
+        if (in_fragmented_record_ && !fragments_.empty()) {
+          ReportCorruption(fragments_.size(), "partial record without end(1)");
+        }
+        fragments_.clear();
+        *record = fragment;
+        prospective_record_offset = physical_record_offset;
+        last_record_offset_ = prospective_record_offset;
+        in_fragmented_record_ = false;
+        return true;
+
+      case kFirstType:
+      case kRecyclableFirstType:
+        if (in_fragmented_record_ || !fragments_.empty()) {
+          ReportCorruption(fragments_.size(), "partial record without end(2)");
+        }
+        prospective_record_offset = physical_record_offset;
+        fragments_.assign(fragment.data(), fragment.size());
+        in_fragmented_record_ = true;
+        break;
+
+      case kMiddleType:
+      case kRecyclableMiddleType:
+        if (!in_fragmented_record_) {
+          ReportCorruption(fragment.size(),
+                           "missing start of fragmented record(1)");
+        } else {
+          fragments_.append(fragment.data(), fragment.size());
+        }
+        break;
+
+      case kLastType:
+      case kRecyclableLastType:
+        if (!in_fragmented_record_) {
+          ReportCorruption(fragment.size(),
+                           "missing start of fragmented record(2)");
+        } else {
+          fragments_.append(fragment.data(), fragment.size());
+          scratch->assign(fragments_.data(), fragments_.size());
+          fragments_.clear();
+          *record = Slice(*scratch);
+          last_record_offset_ = prospective_record_offset;
+          in_fragmented_record_ = false;
+          return true;
+        }
+        break;
+
+      case kBadHeader:
+      case kBadRecord:
+      case kEof:
+      case kOldRecord:
+        if (in_fragmented_record_) {
+          ReportCorruption(fragments_.size(), "error in middle of record");
+          in_fragmented_record_ = false;
+          fragments_.clear();
+        }
+        break;
+
+      case kBadRecordChecksum:
+        if (recycled_) {
+          fragments_.clear();
+          return false;
+        }
+        ReportCorruption(drop_size, "checksum mismatch");
+        if (in_fragmented_record_) {
+          ReportCorruption(fragments_.size(), "error in middle of record");
+          in_fragmented_record_ = false;
+          fragments_.clear();
+        }
+        break;
+
+      default: {
+        char buf[40];
+        snprintf(buf, sizeof(buf), "unknown record type %u",
+                 fragment_type_or_err);
+        ReportCorruption(
+            fragment.size() + (in_fragmented_record_ ? fragments_.size() : 0),
+            buf);
+        in_fragmented_record_ = false;
+        fragments_.clear();
+        break;
+      }
+    }
+  }
+  return false;
+}
+
+void FragmentBufferedReader::UnmarkEOF() {
+  if (read_error_) {
+    return;
+  }
+  eof_ = false;
+  UnmarkEOFInternal();
+}
+
+bool FragmentBufferedReader::TryReadMore(size_t* drop_size, int* error) {
+  if (!eof_ && !read_error_) {
+    // Last read was a full read, so this is a trailer to skip
+    buffer_.clear();
+    Status status = file_->Read(kBlockSize, &buffer_, backing_store_);
+    end_of_buffer_offset_ += buffer_.size();
+    if (!status.ok()) {
+      buffer_.clear();
+      ReportDrop(kBlockSize, status);
+      read_error_ = true;
+      *error = kEof;
+      return false;
+    } else if (buffer_.size() < static_cast<size_t>(kBlockSize)) {
+      eof_ = true;
+      eof_offset_ = buffer_.size();
+      TEST_SYNC_POINT_CALLBACK(
+          "FragmentBufferedLogReader::TryReadMore:FirstEOF", nullptr);
+    }
+    return true;
+  } else if (!read_error_) {
+    UnmarkEOF();
+  }
+  if (!read_error_) {
+    return true;
+  }
+  *error = kEof;
+  *drop_size = buffer_.size();
+  if (buffer_.size() > 0) {
+    *error = kBadHeader;
+  }
+  buffer_.clear();
+  return false;
+}
+
+// return true if the caller should process the fragment_type_or_err.
+bool FragmentBufferedReader::TryReadFragment(
+    Slice* fragment, size_t* drop_size, unsigned int* fragment_type_or_err) {
+  assert(fragment != nullptr);
+  assert(drop_size != nullptr);
+  assert(fragment_type_or_err != nullptr);
+
+  while (buffer_.size() < static_cast<size_t>(kHeaderSize)) {
+    size_t old_size = buffer_.size();
+    int error = kEof;
+    if (!TryReadMore(drop_size, &error)) {
+      *fragment_type_or_err = error;
+      return false;
+    } else if (old_size == buffer_.size()) {
+      return false;
+    }
+  }
+  const char* header = buffer_.data();
+  const uint32_t a = static_cast<uint32_t>(header[4]) & 0xff;
+  const uint32_t b = static_cast<uint32_t>(header[5]) & 0xff;
+  const unsigned int type = header[6];
+  const uint32_t length = a | (b << 8);
+  int header_size = kHeaderSize;
+  if (type >= kRecyclableFullType && type <= kRecyclableLastType) {
+    if (end_of_buffer_offset_ - buffer_.size() == 0) {
+      recycled_ = true;
+    }
+    header_size = kRecyclableHeaderSize;
+    while (buffer_.size() < static_cast<size_t>(kRecyclableHeaderSize)) {
+      size_t old_size = buffer_.size();
+      int error = kEof;
+      if (!TryReadMore(drop_size, &error)) {
+        *fragment_type_or_err = error;
+        return false;
+      } else if (old_size == buffer_.size()) {
+        return false;
+      }
+    }
+    const uint32_t log_num = DecodeFixed32(header + 7);
+    if (log_num != log_number_) {
+      *fragment_type_or_err = kOldRecord;
+      return true;
+    }
+  }
+
+  while (header_size + length > buffer_.size()) {
+    size_t old_size = buffer_.size();
+    int error = kEof;
+    if (!TryReadMore(drop_size, &error)) {
+      *fragment_type_or_err = error;
+      return false;
+    } else if (old_size == buffer_.size()) {
+      return false;
+    }
+  }
+
+  if (type == kZeroType && length == 0) {
+    buffer_.clear();
+    *fragment_type_or_err = kBadRecord;
+    return true;
+  }
+
+  if (checksum_) {
+    uint32_t expected_crc = crc32c::Unmask(DecodeFixed32(header));
+    uint32_t actual_crc = crc32c::Value(header + 6, length + header_size - 6);
+    if (actual_crc != expected_crc) {
+      *drop_size = buffer_.size();
+      buffer_.clear();
+      *fragment_type_or_err = kBadRecordChecksum;
+      return true;
+    }
+  }
+
+  buffer_.remove_prefix(header_size + length);
+
+  *fragment = Slice(header + header_size, length);
+  *fragment_type_or_err = type;
+  return true;
 }
 
 }  // namespace log
