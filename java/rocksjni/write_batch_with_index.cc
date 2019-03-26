@@ -453,12 +453,9 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_iterator1(JNIEnv* /*env*/,
  * Method:    iteratorWithBase
  * Signature: (JJJ)J
  */
-jlong Java_org_rocksdb_WriteBatchWithIndex_iteratorWithBase(JNIEnv* /*env*/,
-                                                            jobject /*jobj*/,
-                                                            jlong jwbwi_handle,
-                                                            jlong jcf_handle,
-                                                            jlong jbi_handle,
-                                                            jlong jreadopt_handle) {
+jlong Java_org_rocksdb_WriteBatchWithIndex_iteratorWithBase(
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jwbwi_handle, jlong jcf_handle,
+    jlong jbi_handle, jlong jreadopt_handle) {
   auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
   auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
   auto* base_iterator = reinterpret_cast<rocksdb::Iterator*>(jbi_handle);

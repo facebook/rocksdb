@@ -14,8 +14,8 @@ package org.rocksdb;
  *
  * A user can call {@link org.rocksdb.WriteBatchWithIndex#newIterator()} to
  * create an iterator over the write batch or
- * {@link org.rocksdb.WriteBatchWithIndex#newIteratorWithBase(org.rocksdb.ReadOptions, org.rocksdb.RocksIterator)}
- * to get an iterator for the database with Read-Your-Own-Writes like
+ * {@link org.rocksdb.WriteBatchWithIndex#newIteratorWithBase(org.rocksdb.ReadOptions,
+ * org.rocksdb.RocksIterator)} to get an iterator for the database with Read-Your-Own-Writes like
  * capability
  */
 public class WriteBatchWithIndex extends AbstractWriteBatch {
@@ -133,7 +133,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
     RocksIterator iterator = new RocksIterator(baseIterator.parent_,
         iteratorWithBase(nativeHandle_, columnFamilyHandle.nativeHandle_,
             baseIterator.nativeHandle_, read_opts.nativeHandle_));
-    //when the iterator is deleted it will also delete the baseIterator
+    // when the iterator is deleted it will also delete the baseIterator
     baseIterator.disOwnNativeHandle();
     return iterator;
   }
@@ -156,8 +156,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * point-in-time from baseIterator and modifications made in this write batch.
    */
   public RocksIterator newIteratorWithBase(
-      final ColumnFamilyHandle columnFamilyHandle,
-      final RocksIterator baseIterator) {
+      final ColumnFamilyHandle columnFamilyHandle, final RocksIterator baseIterator) {
     ReadOptions read_opts = new ReadOptions();
     return newIteratorWithBase(read_opts, columnFamilyHandle, baseIterator);
   }
