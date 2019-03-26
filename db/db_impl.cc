@@ -2113,6 +2113,18 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   return snapshot;
 }
 
+namespace {
+typedef autovector<ColumnFamilyData*, 2> CfdList;
+bool CfdListContains(const CfdList& list, ColumnFamilyData* cfd) {
+  for (const ColumnFamilyData* t : list) {
+    if (t == cfd) {
+      return true;
+    }
+  }
+  return false;
+}
+}  //  namespace
+
 void DBImpl::ReleaseSnapshot(const Snapshot* s) {
   const SnapshotImpl* casted_s = reinterpret_cast<const SnapshotImpl*>(s);
   {
@@ -2126,15 +2138,35 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     } else {
       oldest_snapshot = snapshots_.oldest()->number_;
     }
-    for (auto* cfd : *versions_->GetColumnFamilySet()) {
-      cfd->current()->storage_info()->UpdateOldestSnapshot(oldest_snapshot);
-      if (!cfd->current()
-               ->storage_info()
-               ->BottommostFilesMarkedForCompaction()
-               .empty()) {
-        SchedulePendingCompaction(cfd);
-        MaybeScheduleFlushOrCompaction();
+    // Avoid to go through every column family by checking a global threshold
+    // first.
+    if (oldest_snapshot > bottommost_files_mark_threshold_) {
+      CfdList cf_scheduled;
+      for (auto* cfd : *versions_->GetColumnFamilySet()) {
+        cfd->current()->storage_info()->UpdateOldestSnapshot(oldest_snapshot);
+        if (!cfd->current()
+                 ->storage_info()
+                 ->BottommostFilesMarkedForCompaction()
+                 .empty()) {
+          SchedulePendingCompaction(cfd);
+          MaybeScheduleFlushOrCompaction();
+          cf_scheduled.push_back(cfd);
+        }
       }
+
+      // Calculate a new threshold, skipping those CFs where compactions are
+      // scheduled. We do not do the same pass as the previous loop because
+      // mutex might be unlocked during the loop, making the result inaccurate.
+      SequenceNumber new_bottommost_files_mark_threshold = kMaxSequenceNumber;
+      for (auto* cfd : *versions_->GetColumnFamilySet()) {
+        if (CfdListContains(cf_scheduled, cfd)) {
+          continue;
+        }
+        new_bottommost_files_mark_threshold = std::min(
+            new_bottommost_files_mark_threshold,
+            cfd->current()->storage_info()->bottommost_files_mark_threshold());
+      }
+      bottommost_files_mark_threshold_ = new_bottommost_files_mark_threshold;
     }
   }
   delete casted_s;

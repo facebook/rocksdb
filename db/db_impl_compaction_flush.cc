@@ -2883,6 +2883,17 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   }
   cfd->InstallSuperVersion(sv_context, &mutex_, mutable_cf_options);
 
+  // There may be a small data race here. The snapshot tricking bottommost
+  // compaction may already be released here. But assuming there will always be
+  // newer snapshot created and released frequently, the compaction will be
+  // triggered soon anyway.
+  bottommost_files_mark_threshold_ = kMaxSequenceNumber;
+  for (auto* my_cfd : *versions_->GetColumnFamilySet()) {
+    bottommost_files_mark_threshold_ = std::min(
+        bottommost_files_mark_threshold_,
+        my_cfd->current()->storage_info()->bottommost_files_mark_threshold());
+  }
+
   // Whenever we install new SuperVersion, we might need to issue new flushes or
   // compactions.
   SchedulePendingCompaction(cfd);

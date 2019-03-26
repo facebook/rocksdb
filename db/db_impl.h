@@ -865,6 +865,7 @@ class DBImpl : public DB {
   friend class CompactedDBImpl;
   friend class DBTest_ConcurrentFlushWAL_Test;
   friend class DBTest_MixedSlowdownOptionsStop_Test;
+  friend class DBCompactionTest_CompactBottomLevelFilesWithDeletions_Test;
 #ifndef NDEBUG
   friend class DBTest2_ReadCallbackTest_Test;
   friend class WriteCallbackTest_WriteWithCallbackTest_Test;
@@ -1572,6 +1573,10 @@ class DBImpl : public DB {
 
   // Indicate DB was opened successfully
   bool opened_successfully_;
+
+  // The min threshold to triggere bottommost compaction for removing
+  // garbages, among all column families.
+  SequenceNumber bottommost_files_mark_threshold_ = kMaxSequenceNumber;
 
   LogsWithPrepTracker logs_with_prep_tracker_;
 
