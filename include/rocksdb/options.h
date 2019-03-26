@@ -1344,4 +1344,9 @@ struct TraceOptions {
   uint64_t max_trace_file_size = uint64_t{64} * 1024 * 1024 * 1024;
 };
 
+// ImportColumnFamilyOptions is used by ImportColumnFamily()
+struct ImportColumnFamilyOptions {
+  // Can be set to true to move the files instead of copying them.
+  bool move_files = false;
+};
 }  // namespace rocksdb

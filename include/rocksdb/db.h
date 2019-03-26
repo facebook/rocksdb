@@ -1046,6 +1046,19 @@ class DB {
     return IngestExternalFile(DefaultColumnFamily(), external_files, options);
   }
 
+  // CreateColumnFamilyWithImport() will create a new column family with
+  // column_family_name and import external SST files specified in metadata into
+  // this column family.
+  // (1) External SST files can be created using SstFileWriter.
+  // (2) External SST files can be exported from a particular column family in
+  //     an existing DB.
+  // External files are deleted on a successful return.
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& options, const std::string& column_family_name,
+      const ImportColumnFamilyOptions& import_options,
+      const std::vector<LiveFileMetaData>& metadata,
+      ColumnFamilyHandle** handle) = 0;
+
   virtual Status VerifyChecksum() = 0;
 
   // AddFile() is deprecated, please use IngestExternalFile()

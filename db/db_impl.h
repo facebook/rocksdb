@@ -25,6 +25,7 @@
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "db/external_sst_file_ingestion_job.h"
+#include "db/import_column_family_job.h"
 #include "db/flush_job.h"
 #include "db/flush_scheduler.h"
 #include "db/internal_stats.h"
@@ -337,6 +338,14 @@ class DBImpl : public DB {
       ColumnFamilyHandle* column_family,
       const std::vector<std::string>& external_files,
       const IngestExternalFileOptions& ingestion_options) override;
+
+  using DB::CreateColumnFamilyWithImport;
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& options,
+      const std::string& column_family_name,
+      const ImportColumnFamilyOptions& import_options,
+      const std::vector<LiveFileMetaData>& metadata,
+      ColumnFamilyHandle** handle) override;
 
   virtual Status VerifyChecksum() override;
 
@@ -1477,8 +1486,8 @@ class DBImpl : public DB {
   // Additonal options for compaction and flush
   EnvOptions env_options_for_compaction_;
 
-  // Number of running IngestExternalFile() calls.
-  // REQUIRES: mutex held
+  // Number of running IngestExternalFile() or CreateColumnFamilyWithImport()
+  // calls. REQUIRES: mutex held
   int num_running_ingest_file_;
 
 #ifndef ROCKSDB_LITE
