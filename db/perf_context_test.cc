@@ -841,8 +841,8 @@ TEST_F(PerfContextTest, CPUTimer) {
     ASSERT_EQ(value, "v0");
 
     if (FLAGS_verbose) {
-      std::cout << "Get CPU time nanos: "
-                << get_perf_context()->get_cpu_nanos << "ns\n";
+      std::cout << "Get CPU time nanos: " << get_perf_context()->get_cpu_nanos
+                << "ns\n";
     }
 
     // Iter
