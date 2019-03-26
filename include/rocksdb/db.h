@@ -164,7 +164,15 @@ class DB {
 
   // The following OpenAsSecondary functions create a secondary instance that
   // can dynamically tail the MANIFEST of a primary that must have already been
-  // created.
+  // created. User can call TryCatchUpWithPrimary to make the secondary
+  // instance catch up with primary (WAL tailing is NOT supported now) whenever
+  // the user feels necessary. Column families created by the primary after the
+  // secondary instance starts are currently ignored by the secondary instance.
+  // Column families opened by secondary and dropped by the primary will be
+  // dropped by secondary as well. However the user of the secondary instance
+  // can still access the data of such dropped column family as long as they
+  // do not destroy the corresponding column family handle.
+  // WAL tailing is not supported at present, but will arrive soon.
   //
   // The options argument specifies the options to open the secondary instance.
   // The name argument specifies the name of the primary db that you have used
@@ -172,11 +180,15 @@ class DB {
   // The secondary_path argument points to a directory where the secondary
   // instance stores its info log.
   // The dbptr is an out-arg corresponding to the opened secondary instance.
+  // The pointer points to a heap-allocated database, and the user should
+  // delete it after use.
   // Open DB as secondary instance with only the default column family.
+  // Return OK on success, non-OK on failures.
   static Status OpenAsSecondary(const Options& options, const std::string& name,
                                 const std::string& secondary_path, DB** dbptr);
 
-  // Open DB as secondary instance with column families.
+  // Open DB as secondary instance with column families. You can open a subset
+  // of column families in secondary mode.
   // The db_options specify the database specific options.
   // The name argument specifies the name of the primary db that you have used
   // to open the primary instance.
@@ -188,7 +200,10 @@ class DB {
   // The handles is an out-arg corresponding to the opened database column
   // familiy handles.
   // The dbptr is an out-arg corresponding to the opened secondary instance.
-  // Open DB as secondary instance with only the default column family.
+  // The pointer points to a heap-allocated database, and the caller should
+  // delete it after use. Before deleting the dbptr, the user should also
+  // delete the pointers stored in handles vector.
+  // Return OK on success, on-OK on failures.
   static Status OpenAsSecondary(
       const DBOptions& db_options, const std::string& name,
       const std::string& secondary_path,

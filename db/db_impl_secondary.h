@@ -128,7 +128,9 @@ class DBImplSecondary : public DBImpl {
   }
 
   // Try to catch up with the primary by reading as much as possible from the
-  // log files until there is nothing more to read or encounters an error.
+  // log files until there is nothing more to read or encounters an error. If
+  // the amount of information in the log files to process is huge, this
+  // method can take long time due to all the I/O and CPU costs.
   Status TryCatchUpWithPrimary() override;
 
  private:
