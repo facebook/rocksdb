@@ -141,7 +141,6 @@ Status DBImpl::FlushMemTableToOutputFile(
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
 
-
   FlushJob flush_job(
       dbname_, cfd, immutable_db_options_, mutable_cf_options,
       nullptr /* memtable_id */, env_options_for_compaction_, versions_.get(),
@@ -150,8 +149,7 @@ Status DBImpl::FlushMemTableToOutputFile(
       GetDataDir(cfd, 0U),
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats,
-      true /* sync_output_directory */, true /* write_manifest */,
-      thread_pri);
+      true /* sync_output_directory */, true /* write_manifest */, thread_pri);
 
   FileMetaData file_meta;
 
@@ -220,7 +218,8 @@ Status DBImpl::FlushMemTableToOutputFile(
           cfd->ioptions()->cf_paths[0].path, file_meta.fd.GetNumber());
       sfm->OnAddFile(file_path);
       if (sfm->IsMaxAllowedSpaceReached()) {
-        Status new_bg_error = Status::SpaceLimit("Max allowed space was reached");
+        Status new_bg_error =
+            Status::SpaceLimit("Max allowed space was reached");
         TEST_SYNC_POINT_CALLBACK(
             "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached",
             &new_bg_error);
@@ -236,9 +235,8 @@ Status DBImpl::FlushMemTablesToOutputFiles(
     const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
     JobContext* job_context, LogBuffer* log_buffer, Env::Priority thread_pri) {
   if (immutable_db_options_.atomic_flush) {
-    return AtomicFlushMemTablesToOutputFiles(bg_flush_args, made_progress,
-                                             job_context, log_buffer,
-                                             thread_pri);
+    return AtomicFlushMemTablesToOutputFiles(
+        bg_flush_args, made_progress, job_context, log_buffer, thread_pri);
   }
   std::vector<SequenceNumber> snapshot_seqs;
   SequenceNumber earliest_write_conflict_snapshot;
@@ -742,7 +740,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
         }
       }
       s = RunManualCompaction(cfd, level, output_level, options.target_path_id,
-                              options.max_subcompactions, begin, end, exclusive);
+                              options.max_subcompactions, begin, end,
+                              exclusive);
       if (!s.ok()) {
         break;
       }
@@ -1065,8 +1064,8 @@ Status DBImpl::ContinueBackgroundWork() {
   return Status::OK();
 }
 
-void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd,
-                                     Compaction *c, const Status &st,
+void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
+                                     const Status& st,
                                      const CompactionJobStats& job_stats,
                                      int job_id) {
 #ifndef ROCKSDB_LITE
@@ -1626,7 +1625,7 @@ Status DBImpl::AtomicFlushMemTables(
 // it against various constrains and delays flush if it'd cause write stall.
 // Called should check status and flush_needed to see if flush already happened.
 Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
-    bool* flush_needed) {
+                                                 bool* flush_needed) {
   {
     *flush_needed = true;
     InstrumentedMutexLock l(&mutex_);
@@ -1774,7 +1773,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     // we paused the background work
     return;
   } else if (error_handler_.IsBGWorkStopped() &&
-      !error_handler_.IsRecoveryInProgress()) {
+             !error_handler_.IsRecoveryInProgress()) {
     // There has been a hard error and this call is not part of the recovery
     // sequence. Bail out here so we don't get into an endless loop of
     // scheduling BG work which will again call this function
@@ -2194,7 +2193,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     if (s.IsBusy()) {
       bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
       mutex_.Unlock();
-      env_->SleepForMicroseconds(10000); // prevent hot loop
+      env_->SleepForMicroseconds(10000);  // prevent hot loop
       mutex_.Lock();
     } else if (!s.ok() && !s.IsShutdownInProgress()) {
       // Wait a little bit before retrying background compaction in

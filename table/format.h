@@ -76,8 +76,8 @@ class BlockHandle {
   static const BlockHandle kNullBlockHandle;
 };
 
-inline uint32_t GetCompressFormatForVersion(
-    CompressionType compression_type, uint32_t version) {
+inline uint32_t GetCompressFormatForVersion(CompressionType compression_type,
+                                            uint32_t version) {
 #ifdef NDEBUG
   (void)compression_type;
 #endif
@@ -195,7 +195,7 @@ inline CompressionType get_block_compression_type(const char* block_data,
 }
 
 struct BlockContents {
-  Slice data;     // Actual contents of data
+  Slice data;  // Actual contents of data
   CacheAllocationPtr allocation;
 
 #ifndef NDEBUG

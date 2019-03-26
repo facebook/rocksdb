@@ -81,8 +81,7 @@ inline bool IsExtendedValueType(ValueType t) {
 
 // We leave eight bits empty at the bottom so a type and sequence#
 // can be packed together into 64-bits.
-static const SequenceNumber kMaxSequenceNumber =
-    ((0x1ull << 56) - 1);
+static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 
 static const SequenceNumber kDisableGlobalSequenceNumber = port::kMaxUint64;
 
@@ -93,9 +92,9 @@ struct ParsedInternalKey {
 
   ParsedInternalKey()
       : sequence(kMaxSequenceNumber)  // Make code analyzer happy
-        {} // Intentionally left uninitialized (for speed)
+  {}  // Intentionally left uninitialized (for speed)
   ParsedInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t)
-      : user_key(u), sequence(seq), type(t) { }
+      : user_key(u), sequence(seq), type(t) {}
   std::string DebugString(bool hex = false) const;
 
   void clear() {
@@ -163,6 +162,7 @@ class InternalKeyComparator
  private:
   UserComparatorWrapper user_comparator_;
   std::string name_;
+
  public:
   explicit InternalKeyComparator(const Comparator* c)
       : user_comparator_(c),
@@ -195,8 +195,9 @@ class InternalKeyComparator
 class InternalKey {
  private:
   std::string rep_;
+
  public:
-  InternalKey() { }   // Leave rep_ as empty to indicate it is invalid
+  InternalKey() {}  // Leave rep_ as empty to indicate it is invalid
   InternalKey(const Slice& _user_key, SequenceNumber s, ValueType t) {
     AppendInternalKey(&rep_, ParsedInternalKey(_user_key, s, t));
   }
@@ -253,8 +254,8 @@ class InternalKey {
   std::string DebugString(bool hex = false) const;
 };
 
-inline int InternalKeyComparator::Compare(
-    const InternalKey& a, const InternalKey& b) const {
+inline int InternalKeyComparator::Compare(const InternalKey& a,
+                                          const InternalKey& b) const {
   return Compare(a.Encode(), b.Encode());
 }
 
@@ -291,7 +292,6 @@ inline uint64_t GetInternalKeySeqno(const Slice& internal_key) {
   return num >> 8;
 }
 
-
 // A helper class useful for DBImpl::Get()
 class LookupKey {
  public:
@@ -327,7 +327,7 @@ class LookupKey {
   const char* start_;
   const char* kstart_;
   const char* end_;
-  char space_[200];      // Avoid allocation for short keys
+  char space_[200];  // Avoid allocation for short keys
 
   // No copying allowed
   LookupKey(const LookupKey&);
@@ -636,8 +636,8 @@ struct RangeTombstone {
   }
 };
 
-inline
-int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
+inline int InternalKeyComparator::Compare(const Slice& akey,
+                                          const Slice& bkey) const {
   // Order by:
   //    increasing user key (according to user-supplied comparator)
   //    decreasing sequence number
@@ -655,9 +655,8 @@ int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
   return r;
 }
 
-inline
-int InternalKeyComparator::CompareKeySeq(const Slice& akey,
-                                         const Slice& bkey) const {
+inline int InternalKeyComparator::CompareKeySeq(const Slice& akey,
+                                                const Slice& bkey) const {
   // Order by:
   //    increasing user key (according to user-supplied comparator)
   //    decreasing sequence number

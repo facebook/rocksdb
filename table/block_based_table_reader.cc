@@ -154,8 +154,7 @@ Slice GetCacheKeyFromOffset(const char* cache_key_prefix,
 }
 
 Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
-                                 int level,
-                                 Tickers block_cache_miss_ticker,
+                                 int level, Tickers block_cache_miss_ticker,
                                  Tickers block_cache_hit_ticker,
                                  uint64_t* block_cache_miss_stats,
                                  uint64_t* block_cache_hit_stats,
@@ -165,7 +164,7 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
   if (cache_handle != nullptr) {
     PERF_COUNTER_ADD(block_cache_hit_count, 1);
     PERF_COUNTER_BY_LEVEL_ADD(block_cache_hit_count, 1,
-      static_cast<uint32_t>(level));
+                              static_cast<uint32_t>(level));
     if (get_context != nullptr) {
       // overall cache hit
       get_context->get_context_stats_.num_cache_hit++;
@@ -184,7 +183,7 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
     }
   } else {
     PERF_COUNTER_BY_LEVEL_ADD(block_cache_miss_count, 1,
-      static_cast<uint32_t>(level));
+                              static_cast<uint32_t>(level));
     if (get_context != nullptr) {
       // overall cache miss
       get_context->get_context_stats_.num_cache_miss++;
@@ -636,9 +635,8 @@ void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep, uint64_t file_size) {
   }
 }
 
-void BlockBasedTable::GenerateCachePrefix(Cache* cc,
-    RandomAccessFile* file, char* buffer, size_t* size) {
-
+void BlockBasedTable::GenerateCachePrefix(Cache* cc, RandomAccessFile* file,
+                                          char* buffer, size_t* size) {
   // generate an id from the file
   *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
 
@@ -650,9 +648,8 @@ void BlockBasedTable::GenerateCachePrefix(Cache* cc,
   }
 }
 
-void BlockBasedTable::GenerateCachePrefix(Cache* cc,
-    WritableFile* file, char* buffer, size_t* size) {
-
+void BlockBasedTable::GenerateCachePrefix(Cache* cc, WritableFile* file,
+                                          char* buffer, size_t* size) {
   // generate an id from the file
   *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
 
@@ -1706,8 +1703,8 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 
   Statistics* statistics = rep_->ioptions.statistics;
   auto cache_handle = GetEntryFromCache(
-      block_cache, key, rep_->level,
-      BLOCK_CACHE_FILTER_MISS, BLOCK_CACHE_FILTER_HIT,
+      block_cache, key, rep_->level, BLOCK_CACHE_FILTER_MISS,
+      BLOCK_CACHE_FILTER_HIT,
       get_context ? &get_context->get_context_stats_.num_cache_filter_miss
                   : nullptr,
       get_context ? &get_context->get_context_stats_.num_cache_filter_hit
@@ -1717,8 +1714,8 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   FilterBlockReader* filter = nullptr;
   if (cache_handle != nullptr) {
     PERF_COUNTER_ADD(block_cache_filter_hit_count, 1);
-    filter = reinterpret_cast<FilterBlockReader*>(
-        block_cache->Value(cache_handle));
+    filter =
+        reinterpret_cast<FilterBlockReader*>(block_cache->Value(cache_handle));
   } else if (no_io) {
     // Do not invoke any io.
     return CachableEntry<FilterBlockReader>();
@@ -1754,7 +1751,7 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     }
   }
 
-  return { filter, cache_handle };
+  return {filter, cache_handle};
 }
 
 BlockBasedTable::CachableEntry<UncompressionDict>
@@ -1868,8 +1865,8 @@ InternalIteratorBase<BlockHandle>* BlockBasedTable::NewIndexIterator(
                             rep_->dummy_index_reader_offset, cache_key);
   Statistics* statistics = rep_->ioptions.statistics;
   auto cache_handle = GetEntryFromCache(
-      block_cache, key, rep_->level,
-      BLOCK_CACHE_INDEX_MISS, BLOCK_CACHE_INDEX_HIT,
+      block_cache, key, rep_->level, BLOCK_CACHE_INDEX_MISS,
+      BLOCK_CACHE_INDEX_HIT,
       get_context ? &get_context->get_context_stats_.num_cache_index_miss
                   : nullptr,
       get_context ? &get_context->get_context_stats_.num_cache_index_hit
@@ -1934,7 +1931,6 @@ InternalIteratorBase<BlockHandle>* BlockBasedTable::NewIndexIterator(
         return NewErrorInternalIterator<BlockHandle>(s);
       }
     }
-
   }
 
   assert(cache_handle);

@@ -9,8 +9,8 @@
 
 #include "table/format.h"
 
-#include <string>
 #include <inttypes.h>
+#include <string>
 
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
@@ -56,8 +56,7 @@ void BlockHandle::EncodeTo(std::string* dst) const {
 }
 
 Status BlockHandle::DecodeFrom(Slice* input) {
-  if (GetVarint64(input, &offset_) &&
-      GetVarint64(input, &size_)) {
+  if (GetVarint64(input, &offset_) && GetVarint64(input, &size_)) {
     return Status::OK();
   } else {
     // reset in case failure after partially decoding
@@ -159,7 +158,7 @@ Status Footer::DecodeFrom(Slice* input) {
   assert(input != nullptr);
   assert(input->size() >= kMinEncodedLength);
 
-  const char *magic_ptr =
+  const char* magic_ptr =
       input->data() + input->size() - kMagicNumberLengthByte;
   const uint32_t magic_lo = DecodeFixed32(magic_ptr);
   const uint32_t magic_hi = DecodeFixed32(magic_ptr + 4);
@@ -234,9 +233,10 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
                           uint64_t file_size, Footer* footer,
                           uint64_t enforce_table_magic_number) {
   if (file_size < Footer::kMinEncodedLength) {
-    return Status::Corruption(
-      "file is too short (" + ToString(file_size) + " bytes) to be an "
-      "sstable: " + file->file_name());
+    return Status::Corruption("file is too short (" + ToString(file_size) +
+                              " bytes) to be an "
+                              "sstable: " +
+                              file->file_name());
   }
 
   char footer_space[Footer::kMaxEncodedLength];
@@ -257,9 +257,10 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
   // Check that we actually read the whole footer from the file. It may be
   // that size isn't correct.
   if (footer_input.size() < Footer::kMinEncodedLength) {
-    return Status::Corruption(
-      "file is too short (" + ToString(file_size) + " bytes) to be an "
-      "sstable" + file->file_name());
+    return Status::Corruption("file is too short (" + ToString(file_size) +
+                              " bytes) to be an "
+                              "sstable" +
+                              file->file_name());
   }
 
   s = footer->DecodeFrom(&footer_input);
@@ -269,10 +270,9 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
   if (enforce_table_magic_number != 0 &&
       enforce_table_magic_number != footer->table_magic_number()) {
     return Status::Corruption(
-      "Bad table magic number: expected "
-      + ToString(enforce_table_magic_number) + ", found "
-      + ToString(footer->table_magic_number())
-      + " in " + file->file_name());
+        "Bad table magic number: expected " +
+        ToString(enforce_table_magic_number) + ", found " +
+        ToString(footer->table_magic_number()) + " in " + file->file_name());
   }
   return Status::OK();
 }
@@ -286,14 +286,14 @@ Status UncompressBlockContentsForCompressionType(
   assert(uncompression_info.type() != kNoCompression &&
          "Invalid compression type");
 
-  StopWatchNano timer(ioptions.env,
-    ShouldReportDetailedTime(ioptions.env, ioptions.statistics));
+  StopWatchNano timer(ioptions.env, ShouldReportDetailedTime(
+                                        ioptions.env, ioptions.statistics));
   int decompress_size = 0;
   switch (uncompression_info.type()) {
     case kSnappyCompression: {
       size_t ulength = 0;
       static char snappy_corrupt_msg[] =
-        "Snappy not supported or corrupted Snappy compressed block contents";
+          "Snappy not supported or corrupted Snappy compressed block contents";
       if (!Snappy_GetUncompressedLength(data, n, &ulength)) {
         return Status::Corruption(snappy_corrupt_msg);
       }
@@ -311,7 +311,7 @@ Status UncompressBlockContentsForCompressionType(
           allocator);
       if (!ubuf) {
         static char zlib_corrupt_msg[] =
-          "Zlib not supported or corrupted Zlib compressed block contents";
+            "Zlib not supported or corrupted Zlib compressed block contents";
         return Status::Corruption(zlib_corrupt_msg);
       }
       *contents = BlockContents(std::move(ubuf), decompress_size);
@@ -323,7 +323,7 @@ Status UncompressBlockContentsForCompressionType(
           allocator);
       if (!ubuf) {
         static char bzip2_corrupt_msg[] =
-          "Bzip2 not supported or corrupted Bzip2 compressed block contents";
+            "Bzip2 not supported or corrupted Bzip2 compressed block contents";
         return Status::Corruption(bzip2_corrupt_msg);
       }
       *contents = BlockContents(std::move(ubuf), decompress_size);
@@ -335,7 +335,7 @@ Status UncompressBlockContentsForCompressionType(
           allocator);
       if (!ubuf) {
         static char lz4_corrupt_msg[] =
-          "LZ4 not supported or corrupted LZ4 compressed block contents";
+            "LZ4 not supported or corrupted LZ4 compressed block contents";
         return Status::Corruption(lz4_corrupt_msg);
       }
       *contents = BlockContents(std::move(ubuf), decompress_size);
@@ -347,7 +347,7 @@ Status UncompressBlockContentsForCompressionType(
           allocator);
       if (!ubuf) {
         static char lz4hc_corrupt_msg[] =
-          "LZ4HC not supported or corrupted LZ4HC compressed block contents";
+            "LZ4HC not supported or corrupted LZ4HC compressed block contents";
         return Status::Corruption(lz4hc_corrupt_msg);
       }
       *contents = BlockContents(std::move(ubuf), decompress_size);
@@ -358,7 +358,8 @@ Status UncompressBlockContentsForCompressionType(
       ubuf.reset(XPRESS_Uncompress(data, n, &decompress_size));
       if (!ubuf) {
         static char xpress_corrupt_msg[] =
-          "XPRESS not supported or corrupted XPRESS compressed block contents";
+            "XPRESS not supported or corrupted XPRESS compressed block "
+            "contents";
         return Status::Corruption(xpress_corrupt_msg);
       }
       *contents = BlockContents(std::move(ubuf), decompress_size);
@@ -378,7 +379,7 @@ Status UncompressBlockContentsForCompressionType(
       return Status::Corruption("bad block type");
   }
 
-  if(ShouldReportDetailedTime(ioptions.env, ioptions.statistics)){
+  if (ShouldReportDetailedTime(ioptions.env, ioptions.statistics)) {
     RecordTimeToHistogram(ioptions.statistics, DECOMPRESSION_TIMES_NANOS,
                           timer.ElapsedNanos());
   }

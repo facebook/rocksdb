@@ -868,7 +868,7 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
   status = WriteToWAL(*merged_batch, log_writer, log_used, &log_size);
   if (to_be_cached_state) {
     cached_recoverable_state_ = *to_be_cached_state;
-      cached_recoverable_state_empty_ = false;
+    cached_recoverable_state_empty_ = false;
   }
 
   if (status.ok() && need_log_sync) {
@@ -944,7 +944,7 @@ Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
   status = WriteToWAL(*merged_batch, log_writer, log_used, &log_size);
   if (to_be_cached_state) {
     cached_recoverable_state_ = *to_be_cached_state;
-      cached_recoverable_state_empty_ = false;
+    cached_recoverable_state_empty_ = false;
   }
   log_write_mutex_.Unlock();
 
@@ -1064,16 +1064,17 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
   if (!flush_wont_release_oldest_log) {
     // we only mark this log as getting flushed if we have successfully
     // flushed all data in this log. If this log contains outstanding prepared
-    // transactions then we cannot flush this log until those transactions are commited.
+    // transactions then we cannot flush this log until those transactions are
+    // commited.
     unable_to_release_oldest_log_ = false;
     alive_log_files_.begin()->getting_flushed = true;
   }
 
-  ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                 "Flushing all column families with data in WAL number %" PRIu64
-                 ". Total log size is %" PRIu64
-                 " while max_total_wal_size is %" PRIu64,
-                 oldest_alive_log, total_log_size_.load(), GetMaxTotalWalSize());
+  ROCKS_LOG_INFO(
+      immutable_db_options_.info_log,
+      "Flushing all column families with data in WAL number %" PRIu64
+      ". Total log size is %" PRIu64 " while max_total_wal_size is %" PRIu64,
+      oldest_alive_log, total_log_size_.load(), GetMaxTotalWalSize());
   // no need to refcount because drop is happening in write thread, so can't
   // happen while we're in the write thread
   autovector<ColumnFamilyData*> cfds;
@@ -1419,7 +1420,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   DBOptions db_options =
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   const auto preallocate_block_size =
-    GetWalPreallocateBlockSize(mutable_cf_options.write_buffer_size);
+      GetWalPreallocateBlockSize(mutable_cf_options.write_buffer_size);
   auto write_hint = CalculateWALWriteHint();
   mutex_.Unlock();
   {
@@ -1461,7 +1462,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
       context->superversion_context.NewSuperVersion();
     }
-
   }
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "[%s] New memtable created with log file: #%" PRIu64
@@ -1554,13 +1554,13 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
 
 size_t DBImpl::GetWalPreallocateBlockSize(uint64_t write_buffer_size) const {
   mutex_.AssertHeld();
-  size_t bsize = static_cast<size_t>(
-    write_buffer_size / 10 + write_buffer_size);
+  size_t bsize =
+      static_cast<size_t>(write_buffer_size / 10 + write_buffer_size);
   // Some users might set very high write_buffer_size and rely on
   // max_total_wal_size or other parameters to control the WAL size.
   if (mutable_db_options_.max_total_wal_size > 0) {
-    bsize = std::min<size_t>(bsize, static_cast<size_t>(
-      mutable_db_options_.max_total_wal_size));
+    bsize = std::min<size_t>(
+        bsize, static_cast<size_t>(mutable_db_options_.max_total_wal_size));
   }
   if (immutable_db_options_.db_write_buffer_size > 0) {
     bsize = std::min<size_t>(bsize, immutable_db_options_.db_write_buffer_size);

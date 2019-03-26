@@ -396,10 +396,10 @@ class BlockBasedTable : public TableReader {
   static void SetupCacheKeyPrefix(Rep* rep, uint64_t file_size);
 
   // Generate a cache key prefix from the file
-  static void GenerateCachePrefix(Cache* cc,
-    RandomAccessFile* file, char* buffer, size_t* size);
-  static void GenerateCachePrefix(Cache* cc,
-    WritableFile* file, char* buffer, size_t* size);
+  static void GenerateCachePrefix(Cache* cc, RandomAccessFile* file,
+                                  char* buffer, size_t* size);
+  static void GenerateCachePrefix(Cache* cc, WritableFile* file, char* buffer,
+                                  size_t* size);
 
   // Helper functions for DumpTable()
   Status DumpIndexBlock(WritableFile* out_file);

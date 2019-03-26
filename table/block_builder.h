@@ -54,23 +54,21 @@ class BlockBuilder {
   size_t EstimateSizeAfterKV(const Slice& key, const Slice& value) const;
 
   // Return true iff no entries have been added since the last Reset()
-  bool empty() const {
-    return buffer_.empty();
-  }
+  bool empty() const { return buffer_.empty(); }
 
  private:
-  const int          block_restart_interval_;
+  const int block_restart_interval_;
   // TODO(myabandeh): put it into a separate IndexBlockBuilder
-  const bool         use_delta_encoding_;
+  const bool use_delta_encoding_;
   // Refer to BlockIter::DecodeCurrentValue for format of delta encoded values
   const bool use_value_delta_encoding_;
 
-  std::string           buffer_;    // Destination buffer
+  std::string buffer_;              // Destination buffer
   std::vector<uint32_t> restarts_;  // Restart points
-  size_t                estimate_;
-  int                   counter_;   // Number of entries emitted since restart
-  bool                  finished_;  // Has Finish() been called?
-  std::string           last_key_;
+  size_t estimate_;
+  int counter_;    // Number of entries emitted since restart
+  bool finished_;  // Has Finish() been called?
+  std::string last_key_;
   DataBlockHashIndexBuilder data_block_hash_index_builder_;
 };
 
