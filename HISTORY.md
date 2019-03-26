@@ -9,6 +9,7 @@
 
 ### Bug Fixes
 * Fix JEMALLOC_CXX_THROW macro missing from older Jemalloc versions, causing build failures on some platforms.
+* Fix SstFileReader not able to open file ingested with write_glbal_seqno=true.
 
 
 ## Unreleased
