@@ -26,6 +26,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/leveldb_options.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "util/random.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
@@ -334,6 +335,18 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
              "write_buffer_size=13;max_write_buffer_number_=14;",
               &new_cf_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
+  // Comparator from object registry
+  std::string kCompName = "reverse_comp";
+  static Registrar<const Comparator> test_reg_a(
+      kCompName, [](const std::string& /*name*/,
+                    std::unique_ptr<const Comparator>* /*comparator_guard*/) {
+        return ReverseBytewiseComparator();
+      });
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "comparator=" + kCompName + ";", &new_cf_opt));
+  ASSERT_EQ(new_cf_opt.comparator, ReverseBytewiseComparator());
 
   // Wrong key/value pair
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
