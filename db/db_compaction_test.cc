@@ -3348,7 +3348,7 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   options.level0_file_num_compaction_trigger = kNumLevelFiles;
   // inflate it a bit to account for key/metadata overhead
   options.target_file_size_base = 120 * kNumKeysPerFile * kValueSize / 100;
-  Reopen(options);
+  CreateAndReopenWithCF({"one"}, options);
 
   Random rnd(301);
   const Snapshot* snapshot = nullptr;
@@ -3379,10 +3379,12 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   // just need to bump seqnum so ReleaseSnapshot knows the newest key in the SST
   // files does not need to be preserved in case of a future snapshot.
   ASSERT_OK(Put(Key(0), "val"));
+  ASSERT_NE(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
   // release snapshot and wait for compactions to finish. Single-file
   // compactions should be triggered, which reduce the size of each bottom-level
   // file without changing file count.
   db_->ReleaseSnapshot(snapshot);
+  ASSERT_EQ(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
         Compaction* compaction = reinterpret_cast<Compaction*>(arg);

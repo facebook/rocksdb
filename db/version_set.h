@@ -402,6 +402,10 @@ class VersionStorageInfo {
 
   bool force_consistency_checks() const { return force_consistency_checks_; }
 
+  SequenceNumber bottommost_files_mark_threshold() const {
+    return bottommost_files_mark_threshold_;
+  }
+
   // Returns whether any key in [`smallest_key`, `largest_key`] could appear in
   // an older L0 file than `last_l0_idx` or in a greater level than `last_level`
   //
