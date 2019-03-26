@@ -511,7 +511,7 @@ class KVIter : public Iterator {
       : map_(map),
         iter_(map_->end()),
         iterate_upper_bound_(iterate_upper_bound) {}
-  virtual bool Valid() const {
+  bool Valid() const override {
     if (iterate_upper_bound_ == nullptr) {
       return iter_ != map_->end();
     } else {
@@ -520,8 +520,8 @@ class KVIter : public Iterator {
       return cmp->Compare(key(), *iterate_upper_bound_) < 0;
     }
   }
-  virtual void SeekToFirst() { iter_ = map_->begin(); }
-  virtual void SeekToLast() {
+  void SeekToFirst() override { iter_ = map_->begin(); }
+  void SeekToLast() override {
     if (map_->empty()) {
       iter_ = map_->end();
     } else {
