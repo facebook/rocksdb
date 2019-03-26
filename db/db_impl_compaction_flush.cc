@@ -2836,7 +2836,7 @@ void DBImpl::BuildCompactionJobInfo(
                               fmd->fd.GetNumber(), fmd->fd.GetPathId());
       compaction_job_info->input_files.push_back(fn);
       if (compaction_job_info->table_properties.count(fn) == 0) {
-        shared_ptr<const TableProperties> tp;
+        std::shared_ptr<const TableProperties> tp;
         auto s = current->GetTableProperties(&tp, fmd, &fn);
         if (s.ok()) {
           compaction_job_info->table_properties[fn] = tp;

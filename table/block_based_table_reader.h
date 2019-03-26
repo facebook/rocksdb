@@ -53,8 +53,6 @@ struct EnvOptions;
 struct ReadOptions;
 class GetContext;
 
-using std::unique_ptr;
-
 typedef std::vector<std::pair<std::string, std::string>> KVPairBlock;
 
 // A Table is a sorted map from strings to strings.  Tables are

@@ -41,8 +41,6 @@ class WritableFileWriter;
 struct EnvOptions;
 struct Options;
 
-using std::unique_ptr;
-
 enum ChecksumType : char {
   kNoChecksum = 0x0,
   kCRC32c = 0x1,

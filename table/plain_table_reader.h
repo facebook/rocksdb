@@ -39,9 +39,6 @@ class InternalKeyComparator;
 class PlainTableKeyDecoder;
 class GetContext;
 
-using std::unique_ptr;
-using std::unordered_map;
-using std::vector;
 extern const uint32_t kPlainTableVariableLength;
 
 struct PlainTableReaderFileInfo {
@@ -50,7 +47,7 @@ struct PlainTableReaderFileInfo {
   uint32_t data_end_offset;
   std::unique_ptr<RandomAccessFileReader> file;
 
-  PlainTableReaderFileInfo(unique_ptr<RandomAccessFileReader>&& _file,
+  PlainTableReaderFileInfo(std::unique_ptr<RandomAccessFileReader>&& _file,
                            const EnvOptions& storage_options,
                            uint32_t _data_size_offset)
       : is_mmap_mode(storage_options.use_mmap_reads),
@@ -202,14 +199,14 @@ class PlainTableReader: public TableReader {
   // If bloom_ is not null, all the keys' full-key hash will be added to the
   // bloom filter.
   Status PopulateIndexRecordList(PlainTableIndexBuilder* index_builder,
-                                 vector<uint32_t>* prefix_hashes);
+                                 std::vector<uint32_t>* prefix_hashes);
 
   // Internal helper function to allocate memory for bloom filter and fill it
   void AllocateAndFillBloom(int bloom_bits_per_key, int num_prefixes,
                             size_t huge_page_tlb_size,
-                            vector<uint32_t>* prefix_hashes);
+                            std::vector<uint32_t>* prefix_hashes);
 
-  void FillBloom(vector<uint32_t>* prefix_hashes);
+  void FillBloom(std::vector<uint32_t>* prefix_hashes);
 
   // Read the key and value at `offset` to parameters for keys, the and
   // `seekable`.
