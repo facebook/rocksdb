@@ -55,7 +55,21 @@ TEST_F(RepeatableThreadTest, MockEnvTest) {
   constexpr uint64_t kSecond = 1000000;  // 1s = 1000000us
   constexpr int kIteration = 3;
   rocksdb::Env* env = rocksdb::Env::Default();
-  uint64_t now_seconds = env->NowMicros() / kSecond;
+  // Obtain the current (real) time in seconds and add 10 extra seconds to
+  // ensure that RepeatableThread::wait invokes TimedWait with a time greater
+  // than (real) current time. This is to prevent the TimedWait function from
+  // returning immediately without sleeping and releasing the mutex on certain
+  // platforms, e.g. OS X. If TimedWait returns immediately, the mutex will not
+  // be released, and RepeatableThread::TEST_WaitForRun never has a chance to
+  // execute the callback which, in this case, updates the result returned by
+  // mock_env->NowMicros. Consequently, RepeatableThread::wait cannot break out
+  // of the loop, causing test to hang.
+  // The extra 10 seconds is a best-effort approach because there seems no
+  // reliable and deterministic way to provide the aforementioned guarantee. By
+  // the time RepeatableThread::wait is called, it is no guarantee that the
+  // delay + mock_env->NowMicros will be greater than the current real time.
+  // However, 10 seconds should be sufficient in most cases.
+  uint64_t now_seconds = env->NowMicros() / kSecond + 10;
   mock_env_->set_current_time(now_seconds);  // in seconds
   std::atomic<int> count{0};
   rocksdb::RepeatableThread thread([&] { count++; }, "rt_test", mock_env_.get(),
