@@ -2448,7 +2448,7 @@ InternalIterator* BlockBasedTable::NewIterator(
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, kIsNotIndex,
-        true /*key_includes_seq*/, for_compaction);
+        true /*key_includes_seq*/, true /*index_key_is_full*/, for_compaction);
   } else {
     auto* mem =
         arena->AllocateAligned(sizeof(BlockBasedTableIterator<DataBlockIter>));
@@ -2458,7 +2458,7 @@ InternalIterator* BlockBasedTable::NewIterator(
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, kIsNotIndex,
-        true /*key_includes_seq*/, for_compaction);
+        true /*key_includes_seq*/, true /*index_key_is_full*/, for_compaction);
   }
 }
 
