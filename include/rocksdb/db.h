@@ -58,8 +58,6 @@ class TraceWriter;
 class CompactionJobInfo;
 #endif
 
-using std::unique_ptr;
-
 extern const std::string kDefaultColumnFamilyName;
 struct ColumnFamilyDescriptor {
   std::string name;

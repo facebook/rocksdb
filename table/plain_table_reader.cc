@@ -206,7 +206,8 @@ InternalIterator* PlainTableReader::NewIterator(
 }
 
 Status PlainTableReader::PopulateIndexRecordList(
-    PlainTableIndexBuilder* index_builder, vector<uint32_t>* prefix_hashes) {
+    PlainTableIndexBuilder* index_builder,
+    std::vector<uint32_t>* prefix_hashes) {
   Slice prev_key_prefix_slice;
   std::string prev_key_prefix_buf;
   uint32_t pos = data_start_offset_;
@@ -256,10 +257,9 @@ Status PlainTableReader::PopulateIndexRecordList(
   return s;
 }
 
-void PlainTableReader::AllocateAndFillBloom(int bloom_bits_per_key,
-                                            int num_prefixes,
-                                            size_t huge_page_tlb_size,
-                                            vector<uint32_t>* prefix_hashes) {
+void PlainTableReader::AllocateAndFillBloom(
+    int bloom_bits_per_key, int num_prefixes, size_t huge_page_tlb_size,
+    std::vector<uint32_t>* prefix_hashes) {
   if (!IsTotalOrderMode()) {
     uint32_t bloom_total_bits = num_prefixes * bloom_bits_per_key;
     if (bloom_total_bits > 0) {
@@ -271,7 +271,7 @@ void PlainTableReader::AllocateAndFillBloom(int bloom_bits_per_key,
   }
 }
 
-void PlainTableReader::FillBloom(vector<uint32_t>* prefix_hashes) {
+void PlainTableReader::FillBloom(std::vector<uint32_t>* prefix_hashes) {
   assert(bloom_.IsInitialized());
   for (auto prefix_hash : *prefix_hashes) {
     bloom_.AddHash(prefix_hash);

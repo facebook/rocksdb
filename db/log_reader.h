@@ -20,7 +20,6 @@ namespace rocksdb {
 
 class SequentialFileReader;
 class Logger;
-using std::unique_ptr;
 
 namespace log {
 
