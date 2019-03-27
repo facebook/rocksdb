@@ -23,7 +23,6 @@ namespace rocksdb {
 
 struct EnvOptions;
 
-using std::unique_ptr;
 class BlockBasedTableBuilder;
 
 // A class used to track actual bytes written from the tail in the recent SST

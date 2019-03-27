@@ -9,6 +9,8 @@
 * statistics.stats_level_ becomes atomic. It is preferred to use statistics.set_stats_level() and statistics.get_stats_level() to access it.
 * Introduce a new IOError subcode, PathNotFound, to indicate trying to open a nonexistent file or directory for read.
 * Add initial support for multiple db instances sharing the same data in single-writer, multi-reader mode.
+* Removed some "using std::xxx" from public headers.
+
 ### Bug Fixes
 * Fix JEMALLOC_CXX_THROW macro missing from older Jemalloc versions, causing build failures on some platforms.
 * Fix SstFileReader not able to open file ingested with write_glbal_seqno=true.
