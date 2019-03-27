@@ -1,5 +1,6 @@
 # Rocksdb Change Log
-## Unreleased
+
+## 6.1.0 (3/27/2019)
 ### New Features
 * Introduce two more stats levels, kExceptHistogramOrTimers and kExceptTimers.
 * Added a feature to perform data-block sampling for compressibility, and report stats to user.
