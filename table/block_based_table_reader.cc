@@ -2353,9 +2353,8 @@ void BlockBasedTableIterator<TBlockIter, TValue>::Seek(const Slice& target) {
   assert(
       !block_iter_.Valid() ||
       (key_includes_seq_ && icomp_.Compare(target, block_iter_.key()) <= 0) ||
-      (!key_includes_seq_ &&
-       icomp_.user_comparator()->Compare(ExtractUserKey(target),
-                                         block_iter_.key()) <= 0));
+      (!key_includes_seq_ && user_comparator_.Compare(ExtractUserKey(target),
+                                                      block_iter_.key()) <= 0));
 }
 
 template <class TBlockIter, typename TValue>
@@ -2522,9 +2521,8 @@ void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyForward() {
   bool reached_upper_bound =
       (read_options_.iterate_upper_bound != nullptr &&
        block_iter_points_to_real_block_ && block_iter_.Valid() &&
-       icomp_.user_comparator()->Compare(ExtractUserKey(block_iter_.key()),
-                                         *read_options_.iterate_upper_bound) >=
-           0);
+       user_comparator_.Compare(ExtractUserKey(block_iter_.key()),
+                                *read_options_.iterate_upper_bound) >= 0);
   TEST_SYNC_POINT_CALLBACK(
       "BlockBasedTable::BlockEntryIteratorState::KeyReachedUpperBound",
       &reached_upper_bound);

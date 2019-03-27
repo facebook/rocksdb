@@ -33,6 +33,7 @@
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
+#include "util/user_comparator_wrapper.h"
 
 namespace rocksdb {
 
@@ -580,6 +581,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
       : table_(table),
         read_options_(read_options),
         icomp_(icomp),
+        user_comparator_(icomp.user_comparator()),
         index_iter_(index_iter),
         pinned_iters_mgr_(nullptr),
         block_iter_points_to_real_block_(false),
@@ -676,6 +678,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   BlockBasedTable* table_;
   const ReadOptions read_options_;
   const InternalKeyComparator& icomp_;
+  UserComparatorWrapper user_comparator_;
   InternalIteratorBase<BlockHandle>* index_iter_;
   PinnedIteratorsManager* pinned_iters_mgr_;
   TBlockIter block_iter_;
