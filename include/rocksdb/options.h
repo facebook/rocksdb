@@ -10,11 +10,11 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <string>
-#include <memory>
-#include <vector>
 #include <limits>
+#include <memory>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/comparator.h"
@@ -94,8 +94,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // an iterator, only Put() and Get() API calls
   //
   // Not supported in ROCKSDB_LITE
-  ColumnFamilyOptions* OptimizeForPointLookup(
-      uint64_t block_cache_size_mb);
+  ColumnFamilyOptions* OptimizeForPointLookup(uint64_t block_cache_size_mb);
 
   // Default values for some parameters in ColumnFamilyOptions are not
   // optimized for heavy workloads and big datasets, which means you might
@@ -341,7 +340,6 @@ struct DbPath {
   DbPath(const std::string& p, uint64_t t) : path(p), target_size(t) {}
 };
 
-
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
   DBOptions* OldDefaults(int rocksdb_major_version = 4,
@@ -416,9 +414,9 @@ struct DBOptions {
   std::shared_ptr<Logger> info_log = nullptr;
 
 #ifdef NDEBUG
-      InfoLogLevel info_log_level = INFO_LEVEL;
+  InfoLogLevel info_log_level = INFO_LEVEL;
 #else
-      InfoLogLevel info_log_level = DEBUG_LEVEL;
+  InfoLogLevel info_log_level = DEBUG_LEVEL;
 #endif  // NDEBUG
 
   // Number of open files that can be used by the DB.  You may need to
@@ -722,12 +720,7 @@ struct DBOptions {
   // Specify the file access pattern once a compaction is started.
   // It will be applied to all input files of a compaction.
   // Default: NORMAL
-  enum AccessHint {
-      NONE,
-      NORMAL,
-      SEQUENTIAL,
-      WILLNEED
-  };
+  enum AccessHint { NONE, NORMAL, SEQUENTIAL, WILLNEED };
   AccessHint access_hint_on_compaction_start = NORMAL;
 
   // If true, always create a new file descriptor and new table reader
@@ -781,7 +774,6 @@ struct DBOptions {
   //
   // Dynamically changeable through SetDBOptions() API.
   size_t writable_file_max_buffer_size = 1024 * 1024;
-
 
   // Use adaptive mutex, which spins in the user space before resorting
   // to kernel. This could reduce context switch when the mutex is not
@@ -1364,7 +1356,7 @@ struct IngestExternalFileOptions {
   bool verify_checksums_before_ingest = false;
 };
 
-enum TraceFilterType: uint64_t {
+enum TraceFilterType : uint64_t {
   // Trace all the operations
   kTraceFilterNone = 0x0,
   // Do not trace the get operations

@@ -305,11 +305,12 @@ class Status {
   static const char* CopyState(const char* s);
 };
 
-inline Status::Status(const Status& s) : code_(s.code_), subcode_(s.subcode_), sev_(s.sev_) {
+inline Status::Status(const Status& s)
+    : code_(s.code_), subcode_(s.subcode_), sev_(s.sev_) {
   state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
 }
 inline Status::Status(const Status& s, Severity sev)
-  : code_(s.code_), subcode_(s.subcode_), sev_(sev) {
+    : code_(s.code_), subcode_(s.subcode_), sev_(sev) {
   state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
 }
 inline Status& Status::operator=(const Status& s) {

@@ -19,9 +19,9 @@
 
 #pragma once
 
+#include <stdlib.h>
 #include <memory>
 #include <stdexcept>
-#include <stdlib.h>
 #include <string>
 #include <vector>
 
@@ -47,7 +47,7 @@ class FilterBitsBuilder {
   // Calculate num of entries fit into a space.
 #if defined(_MSC_VER)
 #pragma warning(push)
-#pragma warning(disable : 4702) // unreachable code
+#pragma warning(disable : 4702)  // unreachable code
 #endif
   virtual int CalculateNumEntry(const uint32_t /*space*/) {
 #ifndef ROCKSDB_LITE
@@ -102,8 +102,8 @@ class FilterPolicy {
   //
   // Warning: do not change the initial contents of *dst.  Instead,
   // append the newly constructed filter to *dst.
-  virtual void CreateFilter(const Slice* keys, int n, std::string* dst)
-      const = 0;
+  virtual void CreateFilter(const Slice* keys, int n,
+                            std::string* dst) const = 0;
 
   // "filter" contains the data appended by a preceding call to
   // CreateFilter() on this class.  This method must return true if
@@ -114,9 +114,7 @@ class FilterPolicy {
 
   // Get the FilterBitsBuilder, which is ONLY used for full filter block
   // It contains interface to take individual key, then generate filter
-  virtual FilterBitsBuilder* GetFilterBitsBuilder() const {
-    return nullptr;
-  }
+  virtual FilterBitsBuilder* GetFilterBitsBuilder() const { return nullptr; }
 
   // Get the FilterBitsReader, which is ONLY used for full filter block
   // It contains interface to tell if key can be in filter
@@ -147,4 +145,4 @@ class FilterPolicy {
 // trailing spaces in keys.
 extern const FilterPolicy* NewBloomFilterPolicy(
     int bits_per_key, bool use_block_based_builder = false);
-}
+}  // namespace rocksdb

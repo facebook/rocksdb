@@ -4,12 +4,12 @@
 
 #pragma once
 #ifndef ROCKSDB_LITE
-#include <vector>
 #include <string>
+#include <vector>
 
-#include "rocksdb/utilities/stackable_db.h"
-#include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/db.h"
+#include "rocksdb/utilities/db_ttl.h"
+#include "rocksdb/utilities/stackable_db.h"
 
 namespace rocksdb {
 
@@ -22,14 +22,12 @@ class UtilityDB {
 #if defined(__GNUC__) || defined(__clang__)
   __attribute__((deprecated))
 #elif _WIN32
-   __declspec(deprecated)
+  __declspec(deprecated)
 #endif
-    static Status OpenTtlDB(const Options& options,
-                                                      const std::string& name,
-                                                      StackableDB** dbptr,
-                                                      int32_t ttl = 0,
-                                                      bool read_only = false);
+  static Status
+  OpenTtlDB(const Options& options, const std::string& name,
+            StackableDB** dbptr, int32_t ttl = 0, bool read_only = false);
 };
 
-} //  namespace rocksdb
+}  //  namespace rocksdb
 #endif  // ROCKSDB_LITE
