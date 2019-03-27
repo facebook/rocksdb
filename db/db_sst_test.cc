@@ -448,7 +448,6 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteFile",
       [&](void* /*arg*/) { bg_delete_file++; });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -466,6 +465,7 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
 
   DestroyAndReopen(options);
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   WriteOptions wo;
   wo.disableWAL = true;

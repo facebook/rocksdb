@@ -816,7 +816,7 @@ TEST_F(BlobDBTest, SstFileManager) {
   // blob file is first scheduled, followed by WAL. If the background trash
   // thread does not wake up on time, the WAL file will be directly
   // deleted as the trash size will be > DB size
-  ASSERT_LE(1, files_deleted_directly);
+  ASSERT_LE(files_deleted_directly, 1);
   SyncPoint::GetInstance()->DisableProcessing();
   sfm->WaitForEmptyTrash();
 }
@@ -860,7 +860,7 @@ TEST_F(BlobDBTest, SstFileManagerRestart) {
   Open(bdb_options, db_options);
   ASSERT_GE(files_scheduled_to_delete, 3);
   // Depending on timing, the WAL file may or may not be directly deleted
-  ASSERT_LE(1, files_deleted_directly);
+  ASSERT_LE(files_deleted_directly, 1);
 
   sfm->WaitForEmptyTrash();
 

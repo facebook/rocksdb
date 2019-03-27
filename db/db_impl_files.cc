@@ -259,12 +259,11 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
                                     const std::string& path_to_sync,
                                     FileType type, uint64_t number) {
   Status file_deletion_status;
-  if (type == kTableFile) {
+  if (type == kTableFile || type == kLogFile) {
     file_deletion_status =
-        DeleteSSTFile(&immutable_db_options_, fname, path_to_sync);
+        DeleteDBFile(&immutable_db_options_, fname, path_to_sync);
   } else {
-    file_deletion_status =
-        DeleteDBFile(&immutable_db_options_, fname, path_to_sync, false);
+    file_deletion_status = env_->DeleteFile(fname);
   }
   TEST_SYNC_POINT_CALLBACK("DBImpl::DeleteObsoleteFileImpl:AfterDeletion",
                            &file_deletion_status);

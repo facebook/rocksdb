@@ -87,11 +87,6 @@ Status CreateFile(Env* env, const std::string& destination,
   return dest_writer->Sync(use_fsync);
 }
 
-Status DeleteSSTFile(const ImmutableDBOptions* db_options,
-                     const std::string& fname, const std::string& dir_to_sync) {
-  return DeleteDBFile(db_options, fname, dir_to_sync, false);
-}
-
 Status DeleteDBFile(const ImmutableDBOptions* db_options,
                      const std::string& fname, const std::string& dir_to_sync,
                      const bool force_bg) {

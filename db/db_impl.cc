@@ -2879,7 +2879,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         if (type == kMetaDatabase) {
           del = DestroyDB(path_to_delete, options);
         } else if (type == kTableFile || type == kLogFile) {
-          del = DeleteSSTFile(&soptions, path_to_delete, dbname);
+          del = DeleteDBFile(&soptions, path_to_delete, dbname);
         } else {
           del = env->DeleteFile(path_to_delete);
         }
@@ -2913,7 +2913,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
           if (ParseFileName(fname, &number, &type) &&
               type == kTableFile) {  // Lock file will be deleted at end
             std::string table_path = path + "/" + fname;
-            Status del = DeleteSSTFile(&soptions, table_path, dbname);
+            Status del = DeleteDBFile(&soptions, table_path, dbname);
             if (result.ok() && !del.ok()) {
               result = del;
             }
@@ -2940,7 +2940,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
       for (const auto& file : archiveFiles) {
         if (ParseFileName(file, &number, &type) && type == kLogFile) {
           Status del = DeleteDBFile(
-              &soptions, archivedir + "/" + file, archivedir, false);
+              &soptions, archivedir + "/" + file, archivedir);
           if (result.ok() && !del.ok()) {
             result = del;
           }
@@ -2956,8 +2956,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
           Status del = DeleteDBFile(
               &soptions,
               LogFileName(soptions.wal_dir, number),
-              soptions.wal_dir,
-              false);
+              soptions.wal_dir);
           if (result.ok() && !del.ok()) {
             result = del;
           }
