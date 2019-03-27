@@ -101,7 +101,7 @@ Status DBImpl::TEST_SwitchMemtable(ColumnFamilyData* cfd) {
 }
 
 Status DBImpl::TEST_FlushMemTable(bool wait, bool allow_write_stall,
-    ColumnFamilyHandle* cfh) {
+                                  ColumnFamilyHandle* cfh) {
   FlushOptions fo;
   fo.wait = wait;
   fo.allow_write_stall = allow_write_stall;
@@ -143,13 +143,9 @@ Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {
   return error_handler_.GetBGError();
 }
 
-void DBImpl::TEST_LockMutex() {
-  mutex_.Lock();
-}
+void DBImpl::TEST_LockMutex() { mutex_.Lock(); }
 
-void DBImpl::TEST_UnlockMutex() {
-  mutex_.Unlock();
-}
+void DBImpl::TEST_UnlockMutex() { mutex_.Unlock(); }
 
 void* DBImpl::TEST_BeginWrite() {
   auto w = new WriteThread::Writer();

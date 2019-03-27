@@ -299,7 +299,8 @@ Status DBImpl::ResumeImpl() {
     s = Status::ShutdownInProgress();
   }
   if (s.ok() && bg_error.severity() > Status::Severity::kHardError) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+    ROCKS_LOG_INFO(
+        immutable_db_options_.info_log,
         "DB resume requested but failed due to Fatal/Unrecoverable error");
     s = bg_error;
   }
@@ -370,8 +371,8 @@ Status DBImpl::ResumeImpl() {
   // Wake up any waiters - in this case, it could be the shutdown thread
   bg_cv_.SignalAll();
 
-  // No need to check BGError again. If something happened, event listener would be
-  // notified and the operation causing it would have failed
+  // No need to check BGError again. If something happened, event listener would
+  // be notified and the operation causing it would have failed
   return s;
 }
 
@@ -385,7 +386,6 @@ void DBImpl::WaitForBackgroundWork() {
 
 // Will lock the mutex_,  will wait for completion if wait is true
 void DBImpl::CancelAllBackgroundWork(bool wait) {
-
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Shutdown: canceling all background work");
 
@@ -572,7 +572,7 @@ Status DBImpl::CloseHelper() {
         immutable_db_options_.sst_file_manager.get());
     sfm->Close();
   }
-#endif // ROCKSDB_LITE
+#endif  // ROCKSDB_LITE
 
   if (immutable_db_options_.info_log && own_info_log_) {
     Status s = immutable_db_options_.info_log->Close();
@@ -730,7 +730,8 @@ bool DBImpl::FindStatsByTime(uint64_t start_time, uint64_t end_time,
   }
 }
 
-Status DBImpl::GetStatsHistory(uint64_t start_time, uint64_t end_time,
+Status DBImpl::GetStatsHistory(
+    uint64_t start_time, uint64_t end_time,
     std::unique_ptr<StatsHistoryIterator>* stats_iterator) {
   if (!stats_iterator) {
     return Status::InvalidArgument("stats_iterator not preallocated.");
@@ -912,19 +913,18 @@ Status DBImpl::SetDBOptions(
       }
       if (new_options.stats_dump_period_sec !=
           mutable_db_options_.stats_dump_period_sec) {
-          if (thread_dump_stats_) {
-            mutex_.Unlock();
-            thread_dump_stats_->cancel();
-            mutex_.Lock();
-          }
-          if (new_options.stats_dump_period_sec > 0) {
-            thread_dump_stats_.reset(new rocksdb::RepeatableThread(
-                [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
-                new_options.stats_dump_period_sec * 1000000));
-          }
-          else {
-            thread_dump_stats_.reset();
-          }
+        if (thread_dump_stats_) {
+          mutex_.Unlock();
+          thread_dump_stats_->cancel();
+          mutex_.Lock();
+        }
+        if (new_options.stats_dump_period_sec > 0) {
+          thread_dump_stats_.reset(new rocksdb::RepeatableThread(
+              [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
+              new_options.stats_dump_period_sec * 1000000));
+        } else {
+          thread_dump_stats_.reset();
+        }
       }
       if (new_options.stats_persist_period_sec !=
           mutable_db_options_.stats_persist_period_sec) {
@@ -1939,7 +1939,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
   ReadCallback* read_callback = nullptr;  // No read callback provided.
-if (read_options.tailing) {
+  if (read_options.tailing) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
     result = nullptr;
@@ -2785,7 +2785,8 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
   if (!s.ok()) {
     return s;
   }
-  char* buffer = reinterpret_cast<char*>(alloca(static_cast<size_t>(file_size)));
+  char* buffer =
+      reinterpret_cast<char*>(alloca(static_cast<size_t>(file_size)));
   Slice id;
   s = id_file_reader->Read(static_cast<size_t>(file_size), &id, buffer);
   if (!s.ok()) {
@@ -2872,7 +2873,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     InfoLogPrefix info_log_prefix(!soptions.db_log_dir.empty(), dbname);
     for (const auto& fname : filenames) {
       if (ParseFileName(fname, &number, info_log_prefix.prefix, &type) &&
-        type != kDBLockFile) {  // Lock file will be deleted at end
+          type != kDBLockFile) {  // Lock file will be deleted at end
         Status del;
         std::string path_to_delete = dbname + "/" + fname;
         if (type == kMetaDatabase) {
@@ -2910,7 +2911,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
       if (env->GetChildren(path, &filenames).ok()) {
         for (const auto& fname : filenames) {
           if (ParseFileName(fname, &number, &type) &&
-            type == kTableFile) {  // Lock file will be deleted at end
+              type == kTableFile) {  // Lock file will be deleted at end
             std::string table_path = path + "/" + fname;
             Status del = DeleteSSTFile(&soptions, table_path, dbname);
             if (result.ok() && !del.ok()) {
@@ -2937,8 +2938,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     if (env->GetChildren(archivedir, &archiveFiles).ok()) {
       // Delete archival files.
       for (const auto& file : archiveFiles) {
-        if (ParseFileName(file, &number, &type) &&
-          type == kLogFile) {
+        if (ParseFileName(file, &number, &type) && type == kLogFile) {
           Status del = env->DeleteFile(archivedir + "/" + file);
           if (result.ok() && !del.ok()) {
             result = del;
@@ -3147,7 +3147,7 @@ void DumpRocksDBBuildVersion(Logger* log) {
   ROCKS_LOG_HEADER(log, "Git sha %s", rocksdb_build_git_sha);
   ROCKS_LOG_HEADER(log, "Compile date %s", rocksdb_build_compile_date);
 #else
-    (void)log;  // ignore "-Wunused-parameter"
+  (void)log;  // ignore "-Wunused-parameter"
 #endif
 }
 
@@ -3585,8 +3585,8 @@ Status DBImpl::VerifyChecksum() {
     Options opts;
     {
       InstrumentedMutexLock l(&mutex_);
-      opts = Options(BuildDBOptions(immutable_db_options_,
-         mutable_db_options_), cfd->GetLatestCFOptions());
+      opts = Options(BuildDBOptions(immutable_db_options_, mutable_db_options_),
+                     cfd->GetLatestCFOptions());
     }
     for (int i = 0; i < vstorage->num_non_empty_levels() && s.ok(); i++) {
       for (size_t j = 0; j < vstorage->LevelFilesBrief(i).num_files && s.ok();
