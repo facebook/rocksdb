@@ -83,6 +83,7 @@ Status WritePreparedTxn::PrepareInternal() {
   WriteOptions write_options = write_options_;
   write_options.disableWAL = false;
   const bool WRITE_AFTER_COMMIT = true;
+  const bool kFirstPrepareBatch = true;
   WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_,
                                      !WRITE_AFTER_COMMIT);
   // For each duplicate key we account for a new sub-batch
@@ -91,8 +92,8 @@ Status WritePreparedTxn::PrepareInternal() {
   // prepared entries to PreparedHeap and hence enables an optimization. Refer to
   // SmallestUnCommittedSeq for more details.
   AddPreparedCallback add_prepared_callback(
-      wpt_db_, prepare_batch_cnt_,
-      db_impl_->immutable_db_options().two_write_queues);
+      wpt_db_, db_impl_, prepare_batch_cnt_,
+      db_impl_->immutable_db_options().two_write_queues, kFirstPrepareBatch);
   const bool DISABLE_MEMTABLE = true;
   uint64_t seq_used = kMaxSequenceNumber;
   Status s = db_impl_->WriteImpl(
