@@ -769,13 +769,13 @@ bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
   if (num_blocks == 0) {
     current_ = restarts_;
     return false;
-  } else  {
+  } else {
     return BinaryBlockIndexSeek(seek_key, block_ids, 0, num_blocks - 1, index);
   }
 }
 
 uint32_t Block::NumRestarts() const {
-  assert(size_ >= 2*sizeof(uint32_t));
+  assert(size_ >= 2 * sizeof(uint32_t));
   uint32_t block_footer = DecodeFixed32(data_ + size_ - sizeof(uint32_t));
   uint32_t num_restarts = block_footer;
   if (size_ > kMaxBlockSizeSupportedByHashIndex) {
@@ -866,7 +866,7 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
       default:
         size_ = 0;  // Error marker
     }
-    }
+  }
   if (read_amp_bytes_per_bit != 0 && statistics && size_ != 0) {
     read_amp_bitmap_.reset(new BlockReadAmpBitmap(
         restart_offset_, read_amp_bytes_per_bit, statistics));
