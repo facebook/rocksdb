@@ -10,6 +10,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
+#include "util/filename.h"
 
 namespace rocksdb {
 // use_fsync maps to options.use_fsync, which determines the way that
