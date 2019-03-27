@@ -51,6 +51,7 @@
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
+#include "util/user_comparator_wrapper.h"
 
 namespace rocksdb {
 
@@ -477,6 +478,7 @@ class LevelIterator final : public InternalIterator {
         read_options_(read_options),
         env_options_(env_options),
         icomparator_(icomparator),
+        user_comparator_(icomparator.user_comparator()),
         flevel_(flevel),
         prefix_extractor_(prefix_extractor),
         file_read_hist_(file_read_hist),
@@ -541,9 +543,8 @@ class LevelIterator final : public InternalIterator {
 
   bool KeyReachedUpperBound(const Slice& internal_key) {
     return read_options_.iterate_upper_bound != nullptr &&
-           icomparator_.user_comparator()->Compare(
-               ExtractUserKey(internal_key),
-               *read_options_.iterate_upper_bound) >= 0;
+           user_comparator_.Compare(ExtractUserKey(internal_key),
+                                    *read_options_.iterate_upper_bound) >= 0;
   }
 
   InternalIterator* NewFileIterator() {
@@ -571,6 +572,7 @@ class LevelIterator final : public InternalIterator {
   const ReadOptions read_options_;
   const EnvOptions& env_options_;
   const InternalKeyComparator& icomparator_;
+  const UserComparatorWrapper user_comparator_;
   const LevelFilesBrief* flevel_;
   mutable FileDescriptor current_value_;
   const SliceTransform* prefix_extractor_;

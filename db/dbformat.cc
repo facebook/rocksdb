@@ -116,8 +116,7 @@ int InternalKeyComparator::Compare(const ParsedInternalKey& a,
   //    increasing user key (according to user-supplied comparator)
   //    decreasing sequence number
   //    decreasing type (though sequence# should be enough to disambiguate)
-  int r = user_comparator_->Compare(a.user_key, b.user_key);
-  PERF_COUNTER_ADD(user_key_comparison_count, 1);
+  int r = user_comparator_.Compare(a.user_key, b.user_key);
   if (r == 0) {
     if (a.sequence > b.sequence) {
       r = -1;
@@ -139,9 +138,9 @@ void InternalKeyComparator::FindShortestSeparator(
   Slice user_start = ExtractUserKey(*start);
   Slice user_limit = ExtractUserKey(limit);
   std::string tmp(user_start.data(), user_start.size());
-  user_comparator_->FindShortestSeparator(&tmp, user_limit);
+  user_comparator_.FindShortestSeparator(&tmp, user_limit);
   if (tmp.size() <= user_start.size() &&
-      user_comparator_->Compare(user_start, tmp) < 0) {
+      user_comparator_.Compare(user_start, tmp) < 0) {
     // User key has become shorter physically, but larger logically.
     // Tack on the earliest possible number to the shortened user key.
     PutFixed64(&tmp, PackSequenceAndType(kMaxSequenceNumber,kValueTypeForSeek));
@@ -154,9 +153,9 @@ void InternalKeyComparator::FindShortestSeparator(
 void InternalKeyComparator::FindShortSuccessor(std::string* key) const {
   Slice user_key = ExtractUserKey(*key);
   std::string tmp(user_key.data(), user_key.size());
-  user_comparator_->FindShortSuccessor(&tmp);
+  user_comparator_.FindShortSuccessor(&tmp);
   if (tmp.size() <= user_key.size() &&
-      user_comparator_->Compare(user_key, tmp) < 0) {
+      user_comparator_.Compare(user_key, tmp) < 0) {
     // User key has become shorter physically, but larger logically.
     // Tack on the earliest possible number to the shortened user key.
     PutFixed64(&tmp, PackSequenceAndType(kMaxSequenceNumber,kValueTypeForSeek));
