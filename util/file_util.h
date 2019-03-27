@@ -23,8 +23,8 @@ extern Status CreateFile(Env* env, const std::string& destination,
                          const std::string& contents, bool use_fsync);
 
 extern Status DeleteDBFile(const ImmutableDBOptions* db_options,
-                            const std::string& fname,
-                            const std::string& path_to_sync,
-                            const bool force_bg = false);
+                           const std::string& fname,
+                           const std::string& path_to_sync,
+                           const bool force_bg = false);
 
 }  // namespace rocksdb

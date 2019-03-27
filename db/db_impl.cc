@@ -2939,8 +2939,8 @@ Status DestroyDB(const std::string& dbname, const Options& options,
       // Delete archival files.
       for (const auto& file : archiveFiles) {
         if (ParseFileName(file, &number, &type) && type == kLogFile) {
-          Status del = DeleteDBFile(
-              &soptions, archivedir + "/" + file, archivedir);
+          Status del =
+              DeleteDBFile(&soptions, archivedir + "/" + file, archivedir);
           if (result.ok() && !del.ok()) {
             result = del;
           }
@@ -2953,10 +2953,9 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     if (wal_dir_exists) {
       for (const auto& file : walDirFiles) {
         if (ParseFileName(file, &number, &type) && type == kLogFile) {
-          Status del = DeleteDBFile(
-              &soptions,
-              LogFileName(soptions.wal_dir, number),
-              soptions.wal_dir);
+          Status del =
+              DeleteDBFile(&soptions, LogFileName(soptions.wal_dir, number),
+                           soptions.wal_dir);
           if (result.ok() && !del.ok()) {
             result = del;
           }
