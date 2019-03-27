@@ -305,6 +305,7 @@ class HdfsLogger : public Logger {
     }
   }
 
+  using Logger::Logv;
   void Logv(const char* format, va_list ap) override {
     const uint64_t thread_id = (*gettid_)();
 
