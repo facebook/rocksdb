@@ -32,11 +32,9 @@ struct FullKey {
   SequenceNumber sequence;
   EntryType type;
 
-  FullKey()
-      : sequence(0)
-  {}  // Intentionally left uninitialized (for speed)
+  FullKey() : sequence(0) {}  // Intentionally left uninitialized (for speed)
   FullKey(const Slice& u, const SequenceNumber& seq, EntryType t)
-      : user_key(u), sequence(seq), type(t) { }
+      : user_key(u), sequence(seq), type(t) {}
   std::string DebugString(bool hex = false) const;
 
   void clear() {

@@ -495,9 +495,7 @@ class Statistics {
   }
 
   // Resets all ticker and histogram stats
-  virtual Status Reset() {
-    return Status::NotSupported("Not implemented");
-  }
+  virtual Status Reset() { return Status::NotSupported("Not implemented"); }
 
   // String representation of the statistic object.
   virtual std::string ToString() const {

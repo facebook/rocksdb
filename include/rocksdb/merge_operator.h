@@ -239,12 +239,9 @@ class AssociativeMergeOperator : public MergeOperator {
   // returns false, it is because client specified bad data or there was
   // internal corruption. The client should assume that this will be treated
   // as an error by the library.
-  virtual bool Merge(const Slice& key,
-                     const Slice* existing_value,
-                     const Slice& value,
-                     std::string* new_value,
+  virtual bool Merge(const Slice& key, const Slice* existing_value,
+                     const Slice& value, std::string* new_value,
                      Logger* logger) const = 0;
-
 
  private:
   // Default implementations of the MergeOperator functions
