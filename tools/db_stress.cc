@@ -1407,7 +1407,8 @@ class StressTest {
       options.env = FLAGS_env;
       Status s = DestroyDB(FLAGS_db, options);
       if (!s.ok()) {
-        fprintf(stderr, "Cannot destroy original db: %s\n", s.ToString().c_str());
+        fprintf(stderr, "Cannot destroy original db: %s\n",
+                s.ToString().c_str());
         exit(1);
       }
     }

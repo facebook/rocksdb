@@ -67,7 +67,7 @@ class HdfsEnv : public Env {
                          const EnvOptions& options) override;
 
   Status NewDirectory(const std::string& name,
-                       std::unique_ptr<Directory>* result) override;
+                      std::unique_ptr<Directory>* result) override;
 
   Status FileExists(const std::string& fname) override;
 
@@ -85,11 +85,12 @@ class HdfsEnv : public Env {
   Status GetFileSize(const std::string& fname, uint64_t* size) override;
 
   Status GetFileModificationTime(const std::string& fname,
-                                         uint64_t* file_mtime) override;
+                                 uint64_t* file_mtime) override;
 
   Status RenameFile(const std::string& src, const std::string& target) override;
 
-  Status LinkFile(const std::string& /*src*/, const std::string& /*target*/) override {
+  Status LinkFile(const std::string& /*src*/,
+                  const std::string& /*target*/) override {
     return Status::NotSupported(); // not supported
   }
 
@@ -100,8 +101,9 @@ class HdfsEnv : public Env {
   Status NewLogger(const std::string& fname,
                    std::shared_ptr<Logger>* result) override;
 
-  void Schedule(void (*function)(void* arg), void* arg,
-                        Priority pri = LOW, void* tag = nullptr, void (*unschedFunction)(void* arg) = 0) override {
+  void Schedule(void (*function)(void* arg), void* arg, Priority pri = LOW,
+                void* tag = nullptr,
+                void (*unschedFunction)(void* arg) = 0) override {
     posixEnv->Schedule(function, arg, pri, tag, unschedFunction);
   }
 
@@ -115,8 +117,7 @@ class HdfsEnv : public Env {
 
   void WaitForJoin() override { posixEnv->WaitForJoin(); }
 
-  unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const
-      override {
+  unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override {
     return posixEnv->GetThreadPoolQueueLen(pri);
   }
 
@@ -124,9 +125,7 @@ class HdfsEnv : public Env {
     return posixEnv->GetTestDirectory(path);
   }
 
-  uint64_t NowMicros() override {
-    return posixEnv->NowMicros();
-  }
+  uint64_t NowMicros() override { return posixEnv->NowMicros(); }
 
   void SleepForMicroseconds(int micros) override {
     posixEnv->SleepForMicroseconds(micros);
@@ -141,7 +140,7 @@ class HdfsEnv : public Env {
   }
 
   Status GetAbsolutePath(const std::string& db_path,
-      std::string* output_path) override {
+                         std::string* output_path) override {
     return posixEnv->GetAbsolutePath(db_path, output_path);
   }
 
@@ -166,9 +165,7 @@ class HdfsEnv : public Env {
     return (uint64_t)pthread_self();
   }
 
-  uint64_t GetThreadID() const override {
-    return HdfsEnv::gettid();
-  }
+  uint64_t GetThreadID() const override { return HdfsEnv::gettid(); }
 
  private:
   std::string fsname_;  // string of the form "hdfs://hostname:port/"

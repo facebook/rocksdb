@@ -11,10 +11,10 @@
 #ifndef ROCKSDB_HDFS_FILE_C
 #define ROCKSDB_HDFS_FILE_C
 
-#include <algorithm>
 #include <stdio.h>
 #include <sys/time.h>
 #include <time.h>
+#include <algorithm>
 #include <iostream>
 #include <sstream>
 #include "rocksdb/status.h"
@@ -253,7 +253,8 @@ class HdfsWritableFile: public WritableFile {
 
   // This is used by HdfsLogger to write data to the debug log file
   virtual Status Append(const char* src, size_t size) {
-    if (hdfsWrite(fileSys_, hfile_, src, static_cast<tSize>(size)) != static_cast<tSize>(size)) {
+    if (hdfsWrite(fileSys_, hfile_, src, static_cast<tSize>(size)) !=
+        static_cast<tSize>(size)) {
       return IOError(filename_, errno);
     }
     return Status::OK();
@@ -281,11 +282,11 @@ class HdfsLogger : public Logger {
   Status HdfsCloseHelper() {
     ROCKS_LOG_DEBUG(mylog, "[hdfs] HdfsLogger closed %s\n",
                     file_->getName().c_str());
-    Status s = file_->Close();
+    // Status s = file_->Close();
     if (mylog != nullptr && mylog == this) {
       mylog = nullptr;
     }
-    return s;
+    return Status::OK();
   }
 
  protected:
@@ -580,9 +581,7 @@ Status HdfsEnv::LockFile(const std::string& /*fname*/, FileLock** lock) {
   return Status::OK();
 }
 
-Status HdfsEnv::UnlockFile(FileLock* /*lock*/) {
-  return Status::OK();
-}
+Status HdfsEnv::UnlockFile(FileLock* /*lock*/) { return Status::OK(); }
 
 Status HdfsEnv::NewLogger(const std::string& fname,
                           std::shared_ptr<Logger>* result) {
