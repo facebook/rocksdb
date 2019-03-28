@@ -3864,11 +3864,11 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnSeek) {
   iter.reset(reader->NewIterator(read_opt, nullptr /*prefix_extractor*/));
   iter->SeekToFirst();
   ASSERT_FALSE(iter->Valid());
-  // ASSERT_TRUE(iter->OutOfBound());
+  ASSERT_TRUE(iter->IsOutOfBound());
   iter.reset(reader->NewIterator(read_opt, nullptr /*prefix_extractor*/));
   iter->Seek("foo");
   ASSERT_FALSE(iter->Valid());
-  // ASSERT_TRUE(iter->OutOfBound());
+  ASSERT_TRUE(iter->IsOutOfBound());
 }
 
 }  // namespace rocksdb

@@ -602,7 +602,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   void Next() override;
   void Prev() override;
   bool Valid() const override {
-    return block_iter_points_to_real_block_ && block_iter_.Valid();
+    return !is_out_of_bound_ && block_iter_points_to_real_block_ &&
+           block_iter_.Valid();
   }
   Slice key() const override {
     assert(Valid());
@@ -621,6 +622,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
       return Status::OK();
     }
   }
+
+  // Whether iterator invalidated for being out of bound.
+  bool IsOutOfBound() override { return is_out_of_bound_; }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     pinned_iters_mgr_ = pinned_iters_mgr;
@@ -670,6 +674,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   void InitDataBlock();
   void FindKeyForward();
   void FindKeyBackward();
+  void CheckOutOfBound();
 
  private:
   BlockBasedTable* table_;
@@ -680,9 +685,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   PinnedIteratorsManager* pinned_iters_mgr_;
   TBlockIter block_iter_;
   bool block_iter_points_to_real_block_;
+  bool is_out_of_bound_ = false;
   // Whether current data block being fully within iterate upper bound.
-  // Valid only when block_iter_points_to_read_block=true and
-  // iterate_upper_bound is non-null.
   bool data_block_within_upper_bound_;
   bool check_filter_;
   // TODO(Zhongyi): pick a better name
