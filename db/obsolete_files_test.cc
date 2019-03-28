@@ -167,7 +167,7 @@ TEST_F(ObsoleteFilesTest, RaceForObsoleteFileDeletion) {
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::DeleteObsoleteFileImpl:AfterDeletion", [&](void* arg) {
         Status* p_status = reinterpret_cast<Status*>(arg);
-        ASSERT_OK(p_status);
+        ASSERT_OK(*p_status);
       });
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::CloseHelper:PendingPurgeFinished", [&](void* arg) {
@@ -246,7 +246,7 @@ TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
     }
   }
   ASSERT_EQ(2, opts_file_count);
-  SyncPoint::GetInstance()->EnableProcessing();
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 } //namespace rocksdb
