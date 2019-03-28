@@ -112,7 +112,6 @@ class BlockBasedTable : public TableReader {
                                 Arena* arena = nullptr,
                                 bool skip_filters = false,
                                 bool for_compaction = false,
-                                bool within_lower_bound = false,
                                 bool within_upper_bound = false) override;
 
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
@@ -580,7 +579,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
                           bool key_includes_seq = true,
                           bool index_key_is_full = true,
                           bool for_compaction = false,
-                          bool hint_within_lower_bound = false,
                           bool hint_within_upper_bound = false)
       : table_(table),
         read_options_(read_options),
@@ -596,7 +594,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
         key_includes_seq_(key_includes_seq),
         index_key_is_full_(index_key_is_full),
         for_compaction_(for_compaction),
-        hint_within_lower_bound_(hint_within_lower_bound),
         hint_within_upper_bound_(hint_within_upper_bound) {}
 
   ~BlockBasedTableIterator() { delete index_iter_; }
@@ -637,14 +634,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
 
   // Whether iterator invalidated for being out of bound.
   bool IsOutOfBound() override { return is_out_of_bound_; }
-
-  bool HintWithinLowerBound() override {
-    assert(Valid());
-    assert(read_options_.iterate_lower_bound != nullptr);
-    // Potentially we can use index key for the previous block as lower bound
-    // of current block, and check if we are wihtin iterate_lower_bound.
-    return hint_within_lower_bound_;
-  }
 
   bool HintWithinUpperBound() override {
     assert(Valid());
@@ -725,7 +714,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   bool index_key_is_full_;
   // If this iterator is created for compaction
   bool for_compaction_;
-  const bool hint_within_lower_bound_;
   const bool hint_within_upper_bound_;
   BlockHandle prev_index_value_;
 

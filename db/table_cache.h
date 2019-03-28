@@ -63,7 +63,6 @@ class TableCache {
       Arena* arena = nullptr, bool skip_filters = false, int level = -1,
       const InternalKey* smallest_compaction_key = nullptr,
       const InternalKey* largest_compaction_key = nullptr,
-      bool hint_within_lower_bound = false,
       bool hint_within_upper_bound = false);
 
   // If a seek to internal key "k" in specified file finds an entry,

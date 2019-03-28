@@ -378,7 +378,7 @@ InternalIterator* CuckooTableReader::NewIterator(
     const ReadOptions& /*read_options*/,
     const SliceTransform* /* prefix_extractor */, Arena* arena,
     bool /*skip_filters*/, bool /*for_compaction*/,
-    bool /*hint_within_lower_bound*/, bool /*hint_within_upper_bound*/) {
+    bool /*hint_within_upper_bound*/) {
   if (!status().ok()) {
     return NewErrorInternalIterator<Slice>(
         Status::Corruption("CuckooTableReader status is not okay."), arena);

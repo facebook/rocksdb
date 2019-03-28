@@ -2565,7 +2565,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::CheckOutOfBound() {
 InternalIterator* BlockBasedTable::NewIterator(
     const ReadOptions& read_options, const SliceTransform* prefix_extractor,
     Arena* arena, bool skip_filters, bool for_compaction,
-    bool hint_within_lower_bound, bool hint_within_upper_bound) {
+    bool hint_within_upper_bound) {
   bool need_upper_bound_check =
       PrefixExtractorChanged(rep_->table_properties.get(), prefix_extractor);
   const bool kIsNotIndex = false;
@@ -2580,7 +2580,7 @@ InternalIterator* BlockBasedTable::NewIterator(
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, kIsNotIndex,
         true /*key_includes_seq*/, true /*index_key_is_full*/, for_compaction,
-        hint_within_lower_bound, hint_within_upper_bound);
+        hint_within_upper_bound);
   } else {
     auto* mem =
         arena->AllocateAligned(sizeof(BlockBasedTableIterator<DataBlockIter>));
@@ -2591,7 +2591,7 @@ InternalIterator* BlockBasedTable::NewIterator(
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, kIsNotIndex,
         true /*key_includes_seq*/, true /*index_key_is_full*/, for_compaction,
-        hint_within_lower_bound, hint_within_upper_bound);
+        hint_within_upper_bound);
   }
 }
 

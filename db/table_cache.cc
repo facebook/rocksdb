@@ -189,8 +189,7 @@ InternalIterator* TableCache::NewIterator(
     TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
     bool for_compaction, Arena* arena, bool skip_filters, int level,
     const InternalKey* smallest_compaction_key,
-    const InternalKey* largest_compaction_key, bool hint_within_lower_bound,
-    bool hint_within_upper_bound) {
+    const InternalKey* largest_compaction_key, bool hint_within_upper_bound) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   Status s;
@@ -247,9 +246,9 @@ InternalIterator* TableCache::NewIterator(
         !options.table_filter(*table_reader->GetTableProperties())) {
       result = NewEmptyInternalIterator<Slice>(arena);
     } else {
-      result = table_reader->NewIterator(
-          options, prefix_extractor, arena, skip_filters, for_compaction,
-          hint_within_lower_bound, hint_within_upper_bound);
+      result = table_reader->NewIterator(options, prefix_extractor, arena,
+                                         skip_filters, for_compaction,
+                                         hint_within_upper_bound);
     }
     if (create_new_table_reader) {
       assert(handle == nullptr);

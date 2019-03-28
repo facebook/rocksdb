@@ -520,7 +520,7 @@ class LevelIterator final : public InternalIterator {
 
   bool HintWithinLowerBound() override {
     assert(Valid());
-    return file_iter_.HintWithinLowerBound();
+    return hint_within_lower_bound_;
   }
 
   bool HintWithinUpperBound() override {
@@ -580,7 +580,7 @@ class LevelIterator final : public InternalIterator {
       smallest_compaction_key = (*compaction_boundaries_)[file_index_].smallest;
       largest_compaction_key = (*compaction_boundaries_)[file_index_].largest;
     }
-    bool hint_within_lower_bound =
+    hint_within_lower_bound_ =
         read_options_.iterate_lower_bound != nullptr &&
         user_comparator_.Compare(ExtractUserKey(file_smallest_key(file_index_)),
                                  *read_options_.iterate_lower_bound) >= 0;
@@ -594,7 +594,7 @@ class LevelIterator final : public InternalIterator {
         nullptr /* don't need reference to table */, file_read_hist_,
         for_compaction_, nullptr /* arena */, skip_filters_, level_,
         smallest_compaction_key, largest_compaction_key,
-        hint_within_lower_bound, hint_within_upper_bound);
+        hint_within_upper_bound);
   }
 
   TableCache* table_cache_;
@@ -610,6 +610,7 @@ class LevelIterator final : public InternalIterator {
   bool should_sample_;
   bool for_compaction_;
   bool skip_filters_;
+  bool hint_within_lower_bound_ = false;
   size_t file_index_;
   int level_;
   RangeDelAggregator* range_del_agg_;

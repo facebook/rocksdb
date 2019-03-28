@@ -43,7 +43,6 @@ class MockTableReader : public TableReader {
                                 Arena* arena = nullptr,
                                 bool skip_filters = false,
                                 bool for_compaction = false,
-                                bool hint_within_lower_bound = false,
                                 bool hint_within_upper_bound = false) override;
 
   Status Get(const ReadOptions& readOptions, const Slice& key,
