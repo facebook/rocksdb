@@ -311,9 +311,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         }
         writer->sequence = next_sequence;
         if (writer->pre_release_callback) {
-          Status ws = writer->pre_release_callback->Callback(writer->sequence,
-                                                             disable_memtable,
-                                                             writer->log_used);
+          Status ws = writer->pre_release_callback->Callback(
+              writer->sequence, disable_memtable, writer->log_used);
           if (!ws.ok()) {
             status = ws;
             break;

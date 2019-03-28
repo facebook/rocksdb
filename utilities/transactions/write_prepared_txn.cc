@@ -332,7 +332,8 @@ Status WritePreparedTxn::RollbackInternal() {
   // with a live snapshot around so that the live snapshot properly skips the
   // entry even if its prepare seq is lower than max_evicted_seq_.
   AddPreparedCallback add_prepared_callback(
-      wpt_db_, db_impl_, ONE_BATCH, db_impl_->immutable_db_options().two_write_queues, !kFirstPrepareBatch);
+      wpt_db_, db_impl_, ONE_BATCH,
+      db_impl_->immutable_db_options().two_write_queues, !kFirstPrepareBatch);
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
       wpt_db_, db_impl_, GetId(), prepare_batch_cnt_, ONE_BATCH);
   PreReleaseCallback* pre_release_callback;
