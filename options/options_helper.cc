@@ -242,6 +242,7 @@ std::unordered_map<std::string, CompressionType>
 #ifndef ROCKSDB_LITE
 
 const std::string kNameComparator = "comparator";
+const std::string kNameMergeOperator = "merge_operator";
 
 template <typename T>
 Status GetStringFromStruct(
@@ -1025,7 +1026,17 @@ Status ParseColumnFamilyOption(const std::string& name,
         if (comp != nullptr && !comp_guard) {
           new_options->comparator = comp;
         }
+      } else if (name == kNameMergeOperator) {
+        // Try to get merge operator from object registry first.
+        std::unique_ptr<std::shared_ptr<MergeOperator>> mo_guard;
+        std::shared_ptr<MergeOperator>* mo =
+            NewCustomObject<std::shared_ptr<MergeOperator>>(value, &mo_guard);
+        // Only support static comparator for now.
+        if (mo != nullptr) {
+          new_options->merge_operator = *mo;
+        }
       }
+
       auto iter = cf_options_type_info.find(name);
       if (iter == cf_options_type_info.end()) {
         return Status::InvalidArgument(
@@ -1917,7 +1928,7 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::compaction_filter_factory),
           OptionType::kCompactionFilterFactory, OptionVerificationType::kByName,
           false, 0}},
-        {"merge_operator",
+        {kNameMergeOperator,
          {offset_of(&ColumnFamilyOptions::merge_operator),
           OptionType::kMergeOperator,
           OptionVerificationType::kByNameAllowFromNull, false, 0}},
