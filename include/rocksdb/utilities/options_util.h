@@ -33,6 +33,12 @@ namespace rocksdb {
 // * merge_operator
 // * compaction_filter
 //
+// User can also choose to load customized comparator and/or merge_operator
+// through object registry:
+// * comparator needs to be registered through Registrar<const Comparator>
+// * merge operator needs to be registered through
+//     Registrar<std::shared_ptr<MergeOperator>>.
+//
 // For table_factory, this function further supports deserializing
 // BlockBasedTableFactory and its BlockBasedTableOptions except the
 // pointer options of BlockBasedTableOptions (flush_block_policy_factory,
