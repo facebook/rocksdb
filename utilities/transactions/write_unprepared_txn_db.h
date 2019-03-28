@@ -124,7 +124,7 @@ class WriteUnpreparedRollbackPreReleaseCallback : public PreReleaseCallback {
   }
 
   virtual Status Callback(SequenceNumber commit_seq, bool is_mem_disabled
-                          __attribute__((__unused__))) override {
+                          __attribute__((__unused__)), uint64_t) override {
     assert(is_mem_disabled);  // implies the 2nd queue
     const uint64_t last_commit_seq = commit_seq;
     db_->AddCommitted(rollback_seq_, last_commit_seq);
