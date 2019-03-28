@@ -282,7 +282,6 @@ class HdfsLogger : public Logger {
   Status HdfsCloseHelper() {
     ROCKS_LOG_DEBUG(mylog, "[hdfs] HdfsLogger closed %s\n",
                     file_->getName().c_str());
-    // Status s = file_->Close();
     if (mylog != nullptr && mylog == this) {
       mylog = nullptr;
     }
