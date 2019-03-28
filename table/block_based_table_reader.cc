@@ -2484,9 +2484,8 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
     block_iter_points_to_real_block_ = true;
     if (read_options_.iterate_upper_bound != nullptr) {
       data_block_within_upper_bound_ =
-          (user_comparator_.Compare(
-               *read_options_.iterate_upper_bound,
-               ExtractUserKey(index_iter_->key())) > 0);
+          (user_comparator_.Compare(*read_options_.iterate_upper_bound,
+                                    ExtractUserKey(index_iter_->key())) > 0);
     }
   }
 }
@@ -2505,8 +2504,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyForward() {
     ResetDataIter();
     if (out_of_bound) {
       // The next block is out of bound. No need to read it.
-      TEST_SYNC_POINT_CALLBACK("BlockBasedTableIterator:out_of_bound",
-                               nullptr);
+      TEST_SYNC_POINT_CALLBACK("BlockBasedTableIterator:out_of_bound", nullptr);
       return;
     }
     // We used to check the current index key for upperbound.
