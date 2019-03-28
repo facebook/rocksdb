@@ -10,6 +10,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
+#include "util/filename.h"
 
 namespace rocksdb {
 // use_fsync maps to options.use_fsync, which determines the way that
@@ -21,13 +22,9 @@ extern Status CopyFile(Env* env, const std::string& source,
 extern Status CreateFile(Env* env, const std::string& destination,
                          const std::string& contents, bool use_fsync);
 
-extern Status DeleteSSTFile(const ImmutableDBOptions* db_options,
-                            const std::string& fname,
-                            const std::string& path_to_sync);
-
 extern Status DeleteDBFile(const ImmutableDBOptions* db_options,
-                            const std::string& fname,
-                            const std::string& path_to_sync,
-                            const bool force_bg);
+                           const std::string& fname,
+                           const std::string& path_to_sync,
+                           const bool force_bg = false);
 
 }  // namespace rocksdb

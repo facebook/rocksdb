@@ -812,7 +812,11 @@ TEST_F(BlobDBTest, SstFileManager) {
   Destroy();
   // Make sure that DestroyBlobDB() also goes through delete scheduler.
   ASSERT_GE(files_scheduled_to_delete, 2);
-  ASSERT_EQ(0, files_deleted_directly);
+  // Due to a timing issue, the WAL may or may not be deleted directly. The
+  // blob file is first scheduled, followed by WAL. If the background trash
+  // thread does not wake up on time, the WAL file will be directly
+  // deleted as the trash size will be > DB size
+  ASSERT_LE(files_deleted_directly, 1);
   SyncPoint::GetInstance()->DisableProcessing();
   sfm->WaitForEmptyTrash();
 }
@@ -855,7 +859,8 @@ TEST_F(BlobDBTest, SstFileManagerRestart) {
   // Make sure that reopening the DB rescan the existing trash files
   Open(bdb_options, db_options);
   ASSERT_GE(files_scheduled_to_delete, 3);
-  ASSERT_EQ(0, files_deleted_directly);
+  // Depending on timing, the WAL file may or may not be directly deleted
+  ASSERT_LE(files_deleted_directly, 1);
 
   sfm->WaitForEmptyTrash();
 
