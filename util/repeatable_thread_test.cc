@@ -61,26 +61,28 @@ TEST_F(RepeatableThreadTest, MockEnvTest) {
 #if defined(OS_MACOSX) && !defined(NDEBUG)
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
-  rocksdb::SyncPoint::GetInstance()->SetCallBack("InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
-    // Obtain the current (real) time in seconds and add 1000 extra seconds to
-    // ensure that RepeatableThread::wait invokes TimedWait with a time greater
-    // than (real) current time. This is to prevent the TimedWait function from
-    // returning immediately without sleeping and releasing the mutex on certain
-    // platforms, e.g. OS X. If TimedWait returns immediately, the mutex will not
-    // be released, and RepeatableThread::TEST_WaitForRun never has a chance to
-    // execute the callback which, in this case, updates the result returned by
-    // mock_env->NowMicros. Consequently, RepeatableThread::wait cannot break out
-    // of the loop, causing test to hang.
-    // The extra 1000 seconds is a best-effort approach because there seems no
-    // reliable and deterministic way to provide the aforementioned guarantee. By
-    // the time RepeatableThread::wait is called, it is no guarantee that the
-    // delay + mock_env->NowMicros will be greater than the current real time.
-    // However, 1000 seconds should be sufficient in most cases.
-    uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
-    if (time_us < mock_env_->RealNowMicros()) {
-      *reinterpret_cast<uint64_t*>(arg) = mock_env_->RealNowMicros() + 1000;
-    }
-  });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
+        // Obtain the current (real) time in seconds and add 1000 extra seconds
+        // to ensure that RepeatableThread::wait invokes TimedWait with a time
+        // greater than (real) current time. This is to prevent the TimedWait
+        // function from returning immediately without sleeping and releasing
+        // the mutex on certain platforms, e.g. OS X. If TimedWait returns
+        // immediately, the mutex will not be released, and
+        // RepeatableThread::TEST_WaitForRun never has a chance to execute the
+        // callback which, in this case, updates the result returned by
+        // mock_env->NowMicros. Consequently, RepeatableThread::wait cannot
+        // break out of the loop, causing test to hang. The extra 1000 seconds
+        // is a best-effort approach because there seems no reliable and
+        // deterministic way to provide the aforementioned guarantee. By the
+        // time RepeatableThread::wait is called, it is no guarantee that the
+        // delay + mock_env->NowMicros will be greater than the current real
+        // time. However, 1000 seconds should be sufficient in most cases.
+        uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
+        if (time_us < mock_env_->RealNowMicros()) {
+          *reinterpret_cast<uint64_t*>(arg) = mock_env_->RealNowMicros() + 1000;
+        }
+      });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 #endif  // OS_MACOSX && !NDEBUG
 
