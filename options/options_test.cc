@@ -32,6 +32,7 @@
 #include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
+#include "utilities/merge_operators/bytesxor.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
@@ -347,6 +348,22 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       base_cf_opt, "comparator=" + kCompName + ";", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.comparator, ReverseBytewiseComparator());
+
+  // MergeOperator from object registry
+  std::unique_ptr<BytesXOROperator> bxo(new BytesXOROperator());
+  std::string kMoName = bxo->Name();
+  static Registrar<std::shared_ptr<MergeOperator>> test_reg_b(
+      kMoName, [](const std::string& /*name*/,
+                  std::unique_ptr<std::shared_ptr<MergeOperator>>*
+                      merge_operator_guard) {
+        merge_operator_guard->reset(
+            new std::shared_ptr<MergeOperator>(new BytesXOROperator()));
+        return merge_operator_guard->get();
+      });
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "merge_operator=" + kMoName + ";", &new_cf_opt));
+  ASSERT_EQ(kMoName, std::string(new_cf_opt.merge_operator->Name()));
 
   // Wrong key/value pair
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
