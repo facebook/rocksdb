@@ -8,6 +8,7 @@
 
 #include "db/db_test_util.h"
 #include "util/repeatable_thread.h"
+#include "util/sync_point.h"
 #include "util/testharness.h"
 
 class RepeatableThreadTest : public testing::Test {
@@ -72,6 +73,19 @@ TEST_F(RepeatableThreadTest, MockEnvTest) {
   uint64_t now_seconds = env->NowMicros() / kSecond + 1000;
   mock_env_->set_current_time(now_seconds);  // in seconds
   std::atomic<int> count{0};
+
+#if defined(OS_MACOSX) && !defined(NDEBUG)
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  rocksdb::SyncPoint::GetInstance()->SetCallBack("InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
+    uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
+    if (time_us < mock_env_->RealNowMicros()) {
+      *reinterpret_cast<uint64_t*>(arg) = mock_env_->RealNowMicros() + 1000;
+    }
+  });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+#endif  // OS_MACOSX && !NDEBUG
+
   rocksdb::RepeatableThread thread([&] { count++; }, "rt_test", mock_env_.get(),
                                    1 * kSecond, 1 * kSecond);
   for (int i = 1; i <= kIteration; i++) {

@@ -25,6 +25,7 @@ class RepeatableThread {
         env_(env),
         delay_us_(delay_us),
         initial_delay_us_(initial_delay_us),
+        mutex_(env),
         cond_var_(&mutex_),
         running_(true),
 #ifndef NDEBUG
