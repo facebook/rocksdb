@@ -410,6 +410,55 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBSSTTest, RateLimitedWALDelete) {
+  Destroy(last_options_);
+
+  std::vector<uint64_t> penalties;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::BackgroundEmptyTrash:Wait",
+      [&](void* arg) { penalties.push_back(*(static_cast<uint64_t*>(arg))); });
+
+  env_->no_slowdown_ = true;
+  env_->time_elapse_only_sleep_ = true;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.env = env_;
+
+  int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
+  Status s;
+  options.sst_file_manager.reset(
+      NewSstFileManager(env_, nullptr, "", 0, false, &s, 0));
+  ASSERT_OK(s);
+  options.sst_file_manager->SetDeleteRateBytesPerSecond(rate_bytes_per_sec);
+  auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
+  sfm->delete_scheduler()->SetMaxTrashDBRatio(2.1);
+
+  ASSERT_OK(TryReopen(options));
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Create 4 files in L0
+  for (char v = 'a'; v <= 'd'; v++) {
+    ASSERT_OK(Put("Key2", DummyString(1024, v)));
+    ASSERT_OK(Put("Key3", DummyString(1024, v)));
+    ASSERT_OK(Put("Key4", DummyString(1024, v)));
+    ASSERT_OK(Put("Key1", DummyString(1024, v)));
+    ASSERT_OK(Put("Key4", DummyString(1024, v)));
+    ASSERT_OK(Flush());
+  }
+  // We created 4 sst files in L0
+  ASSERT_EQ("4", FilesPerLevel(0));
+
+  // Compaction will move the 4 files in L0 to trash and create 1 L1 file
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_EQ("0,1", FilesPerLevel(0));
+
+  sfm->WaitForEmptyTrash();
+  ASSERT_EQ(penalties.size(), 8);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBSSTTest, OpenDBWithExistingTrash) {
   Options options = CurrentOptions();
 
