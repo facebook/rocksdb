@@ -530,12 +530,13 @@ TEST_F(DBOptionsTest, RunStatsDumpPeriodSec) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 #if defined(OS_MACOSX) && !defined(NDEBUG)
-  rocksdb::SyncPoint::GetInstance()->SetCallBack("InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
-    uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
-    if (time_us < mock_env->RealNowMicros()) {
-      *reinterpret_cast<uint64_t*>(arg) = mock_env->RealNowMicros() + 1000;
-    }
-  });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
+        uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
+        if (time_us < mock_env->RealNowMicros()) {
+          *reinterpret_cast<uint64_t*>(arg) = mock_env->RealNowMicros() + 1000;
+        }
+      });
 #endif  // OS_MACOSX && !NDEBUG
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::DumpStats:1", [&](void* /*arg*/) {
@@ -569,12 +570,13 @@ TEST_F(DBOptionsTest, StatsPersistScheduling) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 #if defined(OS_MACOSX) && !defined(NDEBUG)
-  rocksdb::SyncPoint::GetInstance()->SetCallBack("InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
-    uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
-    if (time_us < mock_env->RealNowMicros()) {
-      *reinterpret_cast<uint64_t*>(arg) = mock_env->RealNowMicros() + 1000;
-    }
-  });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
+        uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
+        if (time_us < mock_env->RealNowMicros()) {
+          *reinterpret_cast<uint64_t*>(arg) = mock_env->RealNowMicros() + 1000;
+        }
+      });
 #endif  // OS_MACOSX && !NDEBUG
   int counter = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -604,12 +606,13 @@ TEST_F(DBOptionsTest, PersistentStatsFreshInstall) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 #if defined(OS_MACOSX) && !defined(NDEBUG)
-  rocksdb::SyncPoint::GetInstance()->SetCallBack("InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
-    uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
-    if (time_us < mock_env->RealNowMicros()) {
-      *reinterpret_cast<uint64_t*>(arg) = mock_env->RealNowMicros() + 1000;
-    }
-  });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
+        uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
+        if (time_us < mock_env->RealNowMicros()) {
+          *reinterpret_cast<uint64_t*>(arg) = mock_env->RealNowMicros() + 1000;
+        }
+      });
 #endif  // OS_MACOSX && !NDEBUG
   int counter = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -649,12 +652,13 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
 #if defined(OS_MACOSX) && !defined(NDEBUG)
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
-  rocksdb::SyncPoint::GetInstance()->SetCallBack("InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
-    uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
-    if (time_us < mock_env->RealNowMicros()) {
-      *reinterpret_cast<uint64_t*>(arg) = mock_env->RealNowMicros() + 1000;
-    }
-  });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
+        uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
+        if (time_us < mock_env->RealNowMicros()) {
+          *reinterpret_cast<uint64_t*>(arg) = mock_env->RealNowMicros() + 1000;
+        }
+      });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 #endif  // OS_MACOSX && !NDEBUG
 
@@ -703,12 +707,13 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
 #if defined(OS_MACOSX) && !defined(NDEBUG)
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
-  rocksdb::SyncPoint::GetInstance()->SetCallBack("InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
-    uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
-    if (time_us < mock_env->RealNowMicros()) {
-      *reinterpret_cast<uint64_t*>(arg) = mock_env->RealNowMicros() + 1000;
-    }
-  });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
+        uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
+        if (time_us < mock_env->RealNowMicros()) {
+          *reinterpret_cast<uint64_t*>(arg) = mock_env->RealNowMicros() + 1000;
+        }
+      });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 #endif  // OS_MACOSX && !NDEBUG
 
