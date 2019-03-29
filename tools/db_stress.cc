@@ -1403,7 +1403,14 @@ class StressTest {
           FLAGS_env->DeleteFile(FLAGS_db + "/" + files[i]);
         }
       }
-      DestroyDB(FLAGS_db, Options());
+      Options options;
+      options.env = FLAGS_env;
+      Status s = DestroyDB(FLAGS_db, options);
+      if (!s.ok()) {
+        fprintf(stderr, "Cannot destroy original db: %s\n",
+                s.ToString().c_str());
+        exit(1);
+      }
     }
   }
 
