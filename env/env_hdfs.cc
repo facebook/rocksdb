@@ -602,7 +602,8 @@ Status HdfsEnv::NewLogger(const std::string& fname,
 
 // The factory method for creating an HDFS Env
 Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname) {
-  *hdfs_env = new HdfsEnv(fsname);
+  (void)fsname;
+  *hdfs_env = Env::Default();
   return Status::OK();
 }
 }  // namespace rocksdb

@@ -44,6 +44,7 @@
 
 #include "env/io_posix.h"
 #include "env/posix_logger.h"
+#include "hdfs/env_hdfs.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
 #include "port/port.h"
@@ -1132,6 +1133,16 @@ PosixEnv* PosixEnv::Default() {
 // Default Env
 //
 Env* Env::Default() {
+  static Registrar<Env> hdfs_reg("hdfs://.*",
+                                 [](const std::string& fs_name,
+                                    const void* arg,
+                                    std::unique_ptr<Env>* env_guard) {
+                                   const Env* target = reinterpret_cast<const Env*>(arg);
+                                   assert(env_guard != nullptr);
+                                   env_guard->reset(new HdfsEnv(const_cast<Env*>(target), fs_name));
+                                   return env_guard.get();
+                                 });
+
   PosixEnv* default_env = PosixEnv::Default();
 #ifndef ROCKSDB_LITE
   const char* uri_pattern = getenv("ROCKS_ENV_URI_PATTERN");
