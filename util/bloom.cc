@@ -186,7 +186,7 @@ class FullFilterBitsReader : public FilterBitsReader {
     return HashMayMatch(hash, Slice(data_, data_len_), num_probes_, bit_offset);
   }
 
-  virtual void MayMatch(Slice** keys, bool* may_match, int num_keys) override {
+  virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
     if (data_len_ <= 5) {  // remain same with original filter
       for (int i = 0; i < num_keys; ++i) {
         may_match[i] = false;
@@ -198,8 +198,8 @@ class FullFilterBitsReader : public FilterBitsReader {
     }
     // Other Error params, including a broken filter, regarded as match
     if (num_probes_ == 0 || num_lines_ == 0) return;
-    uint32_t hashes[MultiGetContext::MAX_KEYS_ON_STACK];
-    uint32_t bit_offsets[MultiGetContext::MAX_KEYS_ON_STACK];
+    uint32_t hashes[MultiGetContext::MAX_BATCH_SIZE];
+    uint32_t bit_offsets[MultiGetContext::MAX_BATCH_SIZE];
     for (int i = 0; i < num_keys; ++i) {
       hashes[i] = BloomHash(*keys[i]);
       FilterPrepare(hashes[i], Slice(data_, data_len_), num_lines_,

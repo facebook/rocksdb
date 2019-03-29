@@ -166,6 +166,19 @@ class BlobDB : public StackableDB {
     }
     return MultiGet(options, keys, values);
   }
+  virtual void MultiGet(
+      const ReadOptions& /*options*/,
+      const int num_keys,
+      ColumnFamilyHandle** /*column_families*/,
+      const Slice* /*keys*/,
+      PinnableSlice* /*values*/,
+      Status* statuses,
+      const bool /*sorted_input*/ = false) {
+    for (int i = 0; i < num_keys; ++i) {
+      statuses[i] = Status::NotSupported(
+          "Blob DB doesn't support batched MultiGet");
+    }
+  }
 
   using rocksdb::StackableDB::SingleDelete;
   virtual Status SingleDelete(const WriteOptions& /*wopts*/,

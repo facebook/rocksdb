@@ -352,7 +352,7 @@ class FilePickerMultiGet {
  private:
   struct FilePickerContext;
   using FilePickerContextWrapper = MultiGetContext::Range::IteratorWrapper<
-      std::array<FilePickerContext, MultiGetContext::MAX_KEYS_ON_STACK>>;
+      std::array<FilePickerContext, MultiGetContext::MAX_BATCH_SIZE>>;
 
  public:
   FilePickerMultiGet(std::vector<FileMetaData*>* files, MultiGetRange* range,
@@ -434,7 +434,7 @@ class FilePickerMultiGet {
 
       FdWithKeyRange* f = nullptr;
       FilePickerContextWrapper file_picker_iter(mget_iter_, file_picker_ctx_);
-      auto curr_file_index = (mget_iter_ != current_level_range_.end())
+      unsigned int curr_file_index = (mget_iter_ != current_level_range_.end())
                                  ? file_picker_iter->curr_index_in_curr_level
                                  : curr_file_level_->num_files;
       bool file_hit = false;
@@ -539,7 +539,7 @@ class FilePickerMultiGet {
         }
       }
       if (file_hit) {
-        auto upper_key = mget_iter_;
+        MultiGetRange::Iterator upper_key = mget_iter_;
         if (cmp_largest == 0) {
           // Since cmp_largest is 0, mget_iter_ still points to the last key
           // that falls in this file, instead of the next one. Increment
@@ -586,7 +586,7 @@ class FilePickerMultiGet {
 
     FilePickerContext() = default;
   };
-  std::array<FilePickerContext, MultiGetContext::MAX_KEYS_ON_STACK>
+  std::array<FilePickerContext, MultiGetContext::MAX_BATCH_SIZE>
       file_picker_ctx_;
   MultiGetRange* range_;
   MultiGetRange::Iterator mget_iter_;
@@ -612,7 +612,7 @@ class FilePickerMultiGet {
   // Returns false if there are no more levels to search.
   bool PrepareNextLevel() {
     if (curr_level_ == 0) {
-      auto mget_iter = current_level_range_.begin();
+      MultiGetRange::Iterator mget_iter = current_level_range_.begin();
       FilePickerContextWrapper file_picker_wrapper(mget_iter, file_picker_ctx_);
       if (file_picker_wrapper->curr_index_in_curr_level <
           curr_file_level_->num_files) {
@@ -1708,10 +1708,10 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     pinned_iters_mgr.StartPinning();
   }
 
-  // Even though we know the batch size won't be > MAX_KEYS_ON_STACK,
+  // Even though we know the batch size won't be > MAX_BATCH_SIZE,
   // use autovector in order to avoid unnecessary construction of GetContext
   // objects, which is expensive
-  autovector<GetContext, MultiGetContext::MAX_KEYS_ON_STACK> get_ctx;
+  autovector<GetContext, 16> get_ctx;
   for (auto iter = range->begin(); iter != range->end(); ++iter) {
     assert(iter->s->ok() || iter->s->IsMergeInProgress());
     get_ctx.emplace_back(

@@ -97,10 +97,13 @@ class StackableDB : public DB {
   }
 
   virtual void MultiGet(const ReadOptions& options,
-                        const std::vector<ColumnFamilyHandle*>& column_family,
-                        const std::vector<Slice>& keys, PinnableSlice* values,
-                        Status* statuses) override {
-    return db_->MultiGet(options, column_family, keys, values, statuses);
+                        const int num_keys,
+                        ColumnFamilyHandle** column_family,
+                        const Slice* keys, PinnableSlice* values,
+                        Status* statuses,
+                        const bool sorted_input = false) override {
+    return db_->MultiGet(options, num_keys, column_family, keys,
+                         values, statuses, sorted_input);
   }
 
   using DB::IngestExternalFile;

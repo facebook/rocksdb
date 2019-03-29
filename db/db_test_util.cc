@@ -775,7 +775,8 @@ std::vector<std::string> DBTestBase::MultiGet(std::vector<int> cfs,
     keys.push_back(k[i]);
   }
   if (multiget_batched) {
-    db_->MultiGet(options, handles, keys, pin_values.data(), statuses.data());
+    db_->MultiGet(options, keys.size(), handles.data(), keys.data(),
+        pin_values.data(), statuses.data());
     status = &statuses;
     result.resize(cfs.size());
     for (auto iter = result.begin(); iter != result.end(); ++iter) {
@@ -815,7 +816,8 @@ std::vector<std::string> DBTestBase::MultiGet(const std::vector<std::string>& k,
     keys.push_back(k[i]);
   }
   if (multiget_batched) {
-    db_->MultiGet(options, handles, keys, pin_values.data(), statuses.data());
+    db_->MultiGet(options, keys.size(), handles.data(), keys.data(),
+        pin_values.data(), statuses.data());
     status = &statuses;
     result.resize(k.size());
     for (auto iter = result.begin(); iter != result.end(); ++iter) {

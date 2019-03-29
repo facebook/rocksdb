@@ -2209,7 +2209,8 @@ static void MTThreadBody(void* arg) {
       } else {
         std::vector<PinnableSlice> pin_values(keys.size());
         statuses.resize(keys.size());
-        db->MultiGet(ReadOptions(), t->state->test->handles_, keys,
+        db->MultiGet(ReadOptions(), keys.size(),
+                     t->state->test->handles_.data(), keys.data(),
                      pin_values.data(), statuses.data());
         values.resize(keys.size());
         for (auto s = statuses.begin(); s != statuses.end(); ++s) {

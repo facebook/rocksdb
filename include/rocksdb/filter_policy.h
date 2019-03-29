@@ -75,7 +75,7 @@ class FilterBitsReader {
   virtual bool MayMatch(const Slice& entry) = 0;
 
   // Check if an array of entries match the bits in filter
-  virtual void MayMatch(Slice** keys, bool* may_match, int num_keys) {
+  virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) {
     for (int i = 0; i < num_keys; ++i) {
       may_match[i] = MayMatch(*keys[i]);
     }

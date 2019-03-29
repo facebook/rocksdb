@@ -132,13 +132,16 @@ class DBImpl : public DB {
   // equal to keys.size(). This allows the storage for those to be alloacted
   // by the caller on the stack for small batches
   virtual void MultiGet(const ReadOptions& options,
-                        const std::vector<ColumnFamilyHandle*>& column_family,
-                        const std::vector<Slice>& keys, PinnableSlice* values,
-                        Status* statuses) override;
+                        const int num_keys,
+                        ColumnFamilyHandle** column_family,
+                        const Slice* keys, PinnableSlice* values,
+                        Status* statuses,
+                        const bool sorted_input = false) override;
 
   void MultiGetImpl(const ReadOptions& options,
-      autovector<KeyContext, MultiGetContext::MAX_KEYS_ON_STACK>& key_context,
-      ReadCallback* callback = nullptr, bool* is_blob_index = nullptr);
+      autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE>& key_context,
+      bool sorted_input, ReadCallback* callback = nullptr,
+      bool* is_blob_index = nullptr);
 
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                     const std::string& column_family,

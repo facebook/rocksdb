@@ -53,36 +53,43 @@ struct KeyContext {
 // subsets of keys, potentially non-contiguous. In order to accomplish this,
 // it defines the following classes -
 //
-// MultiGetContext::Range - Specifies a range of keys, by start and end index,
-// from the parent MultiGetContext. Each range contains a bit vector that
-// indicates whether the corresponding keys need to be processed or skipped.
-// A Range object can be copy constructed, and the new object inherits the
-// original Range's bit vector. This is useful for progressively skipping
-// keys as the lookup goes through various stages. For example, when looking
-// up keys in the same SST file, a Range is created excluding keys not
-// belonging to that file. A new Range is then copy constructed and individual
-// keys are skipped based on bloom filter lookup.
+// MultiGetContext::Range
+// MultiGetContext::Range::Iterator
+// MultiGetContext::Range::IteratorWrapper
 //
-// MultiGetContext::Range::Iterator - A forward iterator that iterates over
-// non-skippable keys in a Range, as well as keys whose final value has been
-// found. The latter is tracked by MultiGetContext::value_mask_
-// MultiGetContext::Range::IteratorWrapper - A wrapper around a vector
-// container, such as std::vector, std::array or autovector, that shadows a
+// Here is an example of how this can be used -
 //
-// MultiGetContext::Range::Iterator. The size of the vector must be atleast
-// the number of keys in the MultiGetContext batch (limited by
-// MultiGetContext::MAX_KEYS_ON_STACK), with the indexes of keys being
-// identical to that in MultiGetContext. This is useful for maintaining
-// auxillary data structures that can be quickly accessed while iterating
-// through a MultigetContext::Range. The auxillary data structures can be
-// allocated on stack for efficiency
+// {
+//    MultiGetContext ctx(...);
+//    MultiGetContext::Range range = ctx.GetMultiGetRange();
+//
+//    // Iterate to determine some subset of the keys
+//    MultiGetContext::Range::Iterator start = range.begin();
+//    MultiGetContext::Range::Iterator end = ...;
+//
+//    // Make a new range with a subset of keys
+//    MultiGetContext::Range subrange(range, start, end);
+//
+//    // Define an auxillary vector, if needed, to hold additional data for
+//    // each key
+//    std::array<Foo, MultiGetContext::MAX_BATCH_SIZE> aux;
+//
+//    // Iterate over the subrange and the auxillary vector simultaneously
+//    MultiGetContext::Range::Iterator iter = subrange.begin();
+//    MultiGetContext::Range::IteratorWrapper aux_iter(subrange, aux);
+//    for (; iter != subrange.end(); ++iter) {
+//      KeyContext& key = *iter;
+//      Foo& aux_key = *aux_iter;
+//      ...
+//    }
+//  }
 class MultiGetContext {
  public:
   // Limit the number of keys in a batch to this number. Benchmarks show that
   // there is negligible benefit for batches exceeding this. Keeping this < 64
   // simplifies iteration, as well as reduces the amount of stack allocations
   // htat need to be performed
-  static const int MAX_KEYS_ON_STACK = 32;
+  static const int MAX_BATCH_SIZE = 32;
 
   MultiGetContext(KeyContext** sorted_keys, size_t num_keys,
                   SequenceNumber snapshot)
@@ -108,15 +115,29 @@ class MultiGetContext {
   }
 
  private:
-  char lookup_key_buf[sizeof(LookupKey) * MAX_KEYS_ON_STACK];
+  char lookup_key_buf[sizeof(LookupKey) * MAX_BATCH_SIZE];
   KeyContext** sorted_keys_;
   size_t num_keys_;
   uint64_t value_mask_;
   LookupKey* lookup_key_ptr_;
 
  public:
+  // MultiGetContext::Range - Specifies a range of keys, by start and end index,
+  // from the parent MultiGetContext. Each range contains a bit vector that
+  // indicates whether the corresponding keys need to be processed or skipped.
+  // A Range object can be copy constructed, and the new object inherits the
+  // original Range's bit vector. This is useful for progressively skipping
+  // keys as the lookup goes through various stages. For example, when looking
+  // up keys in the same SST file, a Range is created excluding keys not
+  // belonging to that file. A new Range is then copy constructed and individual
+  // keys are skipped based on bloom filter lookup.
   class Range {
    public:
+    // MultiGetContext::Range::Iterator - A forward iterator that iterates over
+    // non-skippable keys in a Range, as well as keys whose final value has been
+    // found. The latter is tracked by MultiGetContext::value_mask_
+    // MultiGetContext::Range::IteratorWrapper - A wrapper around a vector
+    // container, such as std::vector, std::array or autovector, that shadows a
     class Iterator {
      public:
       // -- iterator traits
@@ -173,6 +194,13 @@ class MultiGetContext {
       size_t index_;
     };
 
+    // MultiGetContext::Range::IteratorWrapper. The size of the vector must be
+    // atleast the number of keys in the MultiGetContext batch (limited by
+    // MultiGetContext::MAX_BATCH_SIZE), with the indexes of keys being
+    // identical to that in MultiGetContext. This is useful for maintaining
+    // auxillary data structures that can be quickly accessed while iterating
+    // through a MultigetContext::Range. The auxillary data structures can be
+    // allocated on stack for efficiency
     template <class T>
     class IteratorWrapper {
      public:

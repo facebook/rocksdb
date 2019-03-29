@@ -422,13 +422,21 @@ class DB {
   }
 
   virtual void MultiGet(const ReadOptions& options,
-                        const std::vector<ColumnFamilyHandle*>& column_family,
-                        const std::vector<Slice>& keys, PinnableSlice* values,
-                        Status* statuses) {
+                        const int num_keys,
+                        ColumnFamilyHandle** column_family,
+                        const Slice* keys, PinnableSlice* values,
+                        Status* statuses,
+                        const bool /*sorted_input*/ = false) {
+    std::vector<ColumnFamilyHandle*> cf;
+    std::vector<Slice> user_keys;
     std::vector<Status> status;
     std::vector<std::string> vals;
 
-    status = MultiGet(options, column_family, keys, &vals);
+    for (int i = 0; i < num_keys; ++i) {
+      cf.emplace_back(column_family[i]);
+      user_keys.emplace_back(keys[i]);
+    }
+    status = MultiGet(options, cf, user_keys, &vals);
     std::copy(status.begin(), status.end(), statuses);
     for (auto& value : vals) {
       values->PinSelf(value);

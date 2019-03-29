@@ -195,13 +195,13 @@ void FullFilterBlockReader::MayMatch(MultiGetRange* range) {
   // &may_match[0] doesn't work for autovector<bool> (compiler error). So
   // declare both keys and may_match as arrays, which is also slightly less
   // expensive compared to autovector
-  Slice* keys[MultiGetContext::MAX_KEYS_ON_STACK];
-  bool may_match[MultiGetContext::MAX_KEYS_ON_STACK];
+  Slice* keys[MultiGetContext::MAX_BATCH_SIZE];
+  bool may_match[MultiGetContext::MAX_BATCH_SIZE];
   int num_keys = 0;
   for (auto iter = range->begin(); iter != range->end(); ++iter) {
     keys[num_keys++] = &iter->ukey;
   }
-  filter_bits_reader_->MayMatch(&keys[0], &may_match[0], num_keys);
+  filter_bits_reader_->MayMatch(num_keys, &keys[0], &may_match[0]);
 
   int i = 0;
   for (auto iter = range->begin(); iter != range->end(); ++iter) {

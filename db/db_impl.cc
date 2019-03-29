@@ -1684,23 +1684,23 @@ inline bool CompareKeyContext(const KeyContext* lhs, const KeyContext* rhs) {
 }
 
 void DBImpl::MultiGet(const ReadOptions& read_options,
-                      const std::vector<ColumnFamilyHandle*>& column_family,
-                      const std::vector<Slice>& keys, PinnableSlice* values,
-                      Status* statuses) {
-  autovector<KeyContext, MultiGetContext::MAX_KEYS_ON_STACK> key_context;
-  size_t index = 0;
-  for (const Slice& user_key : keys) {
-    key_context.emplace_back(user_key, column_family[index], &values[index],
-                             &statuses[index]);
-    index++;
+                      const int num_keys,
+                      ColumnFamilyHandle** column_family,
+                      const Slice* keys, PinnableSlice* values,
+                      Status* statuses,
+                      const bool sorted_input) {
+  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
+  for (int i = 0; i < num_keys; ++i) {
+    key_context.emplace_back(keys[i], column_family[i], &values[i],
+                             &statuses[i]);
   }
 
-  MultiGetImpl(read_options, key_context);
+  MultiGetImpl(read_options, key_context, sorted_input, nullptr, nullptr);
 }
 
 void DBImpl::MultiGetImpl(const ReadOptions& read_options,
-      autovector<KeyContext, MultiGetContext::MAX_KEYS_ON_STACK>& key_context,
-      ReadCallback* callback, bool* is_blob_index) {
+      autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE>& key_context,
+      bool sorted_input, ReadCallback* callback, bool* is_blob_index) {
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
   StopWatch sw(env_, stats_, DB_MULTIGET);
   size_t num_keys = key_context.size();
@@ -1720,18 +1720,41 @@ void DBImpl::MultiGetImpl(const ReadOptions& read_options,
     MultiGetColumnFamilyData() = default;
   };
 
-  autovector<MultiGetColumnFamilyData, MultiGetContext::MAX_KEYS_ON_STACK>
+  autovector<MultiGetColumnFamilyData, MultiGetContext::MAX_BATCH_SIZE>
       multiget_cf_data;
-  autovector<KeyContext*, MultiGetContext::MAX_KEYS_ON_STACK> sorted_keys;
+  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   {
     size_t index = 0;
     for (KeyContext& key : key_context) {
+#ifndef NDEBUG
+      if (index > 0) {
+        KeyContext* lhs = &key_context[index-1];
+        KeyContext* rhs = &key_context[index];
+        ColumnFamilyHandleImpl* cfh =
+          reinterpret_cast<ColumnFamilyHandleImpl*>(lhs->column_family);
+        ColumnFamilyData* cfd = cfh->cfd();
+        uint32_t cf_id1 = cfd->GetID();
+        cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(rhs->column_family);
+        cfd = cfh->cfd();
+        uint32_t cf_id2 = cfd->GetID();
+        assert(cf_id1 <= cf_id2);
+
+        if (cf_id1 == cf_id2) {
+          const Comparator* comparator = cfd->user_comparator();
+          int cmp = comparator->Compare(*(lhs->key), *(rhs->key));
+          assert(cmp <= 0);
+        }
+      }
+#endif
+
       sorted_keys[index] = &key;
       index++;
     }
-    std::sort(sorted_keys.begin(), sorted_keys.begin() + index,
-              CompareKeyContext);
+    if (!sorted_input) {
+      std::sort(sorted_keys.begin(), sorted_keys.begin() + index,
+                CompareKeyContext);
+    }
   }
 
   auto cf_start = sorted_keys.begin();
@@ -1740,8 +1763,9 @@ void DBImpl::MultiGetImpl(const ReadOptions& read_options,
   for (auto iter = sorted_keys.begin(); iter != sorted_keys.begin() + num_keys;
        ++iter) {
     if ((*iter)->column_family != cf) {
-      auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(cf);
-      auto cfd = cfh->cfd();
+      ColumnFamilyHandleImpl* cfh =
+        reinterpret_cast<ColumnFamilyHandleImpl*>(cf);
+      ColumnFamilyData* cfd = cfh->cfd();
       multiget_cf_data.emplace_back(
           MultiGetColumnFamilyData(cfd, cf_start - sorted_keys.begin(),
                                    iter - sorted_keys.begin(), nullptr));
@@ -1750,8 +1774,9 @@ void DBImpl::MultiGetImpl(const ReadOptions& read_options,
     }
   }
   {
-    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(cf);
-    auto cfd = cfh->cfd();
+    ColumnFamilyHandleImpl* cfh =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(cf);
+    ColumnFamilyData* cfd = cfh->cfd();
     multiget_cf_data.emplace_back(MultiGetColumnFamilyData(
         cfd, cf_start - sorted_keys.begin(), num_keys, nullptr));
   }
@@ -1763,15 +1788,15 @@ void DBImpl::MultiGetImpl(const ReadOptions& read_options,
     // its probably ok to take the mutex on the 3rd try so we can succeed for
     // sure
     static const int num_retries = 3;
-    for (auto i = 0; i < num_retries; ++i) {
+    for (int i = 0; i < num_retries; ++i) {
       last_try = (i == num_retries - 1);
       bool retry = false;
 
       if (i > 0) {
         for (auto mgd_iter = multiget_cf_data.begin();
              mgd_iter != multiget_cf_data.end(); ++mgd_iter) {
-          auto super_version = mgd_iter->super_version;
-          auto cfd = mgd_iter->cfd;
+          SuperVersion* super_version = mgd_iter->super_version;
+          ColumnFamilyData* cfd = mgd_iter->cfd;
           if (super_version != nullptr) {
             ReturnAndCleanupSuperVersion(cfd, super_version);
           }
@@ -1814,7 +1839,8 @@ void DBImpl::MultiGetImpl(const ReadOptions& read_options,
         // might be tricky to maintain in case we decide, in future, to do
         // memtable compaction.
         if (!last_try) {
-          auto seq = mgd_iter->super_version->mem->GetEarliestSequenceNumber();
+          SequenceNumber seq =
+            mgd_iter->super_version->mem->GetEarliestSequenceNumber();
           if (seq > snapshot) {
             retry = true;
             break;
@@ -1841,18 +1867,17 @@ void DBImpl::MultiGetImpl(const ReadOptions& read_options,
        col_iter != multiget_cf_data.end(); ++col_iter) {
     size_t num_keys_in_cf = col_iter->end - col_iter->start;
     while (num_keys_in_cf) {
-      size_t batch_size = (num_keys_in_cf > MultiGetContext::MAX_KEYS_ON_STACK)
-                              ? MultiGetContext::MAX_KEYS_ON_STACK
+      size_t batch_size = (num_keys_in_cf > MultiGetContext::MAX_BATCH_SIZE)
+                              ? MultiGetContext::MAX_BATCH_SIZE
                               : num_keys_in_cf;
       MultiGetContext ctx(&sorted_keys[col_iter->start], batch_size, snapshot);
       MultiGetRange range = ctx.GetMultiGetRange();
       bool lookup_current = false;
-      auto mgd = *col_iter;
-      auto super_version = mgd.super_version;
+      MultiGetColumnFamilyData mgd = *col_iter;
+      SuperVersion* super_version = mgd.super_version;
 
       num_keys_in_cf -= batch_size;
       col_iter->start += batch_size;
-      // ctx.InitLookupKeys(snapshot);
       for (auto mget_iter = range.begin(); mget_iter != range.end();
            ++mget_iter) {
         MergeContext& merge_context = mget_iter->merge_context;
@@ -1902,7 +1927,7 @@ void DBImpl::MultiGetImpl(const ReadOptions& read_options,
   PERF_TIMER_GUARD(get_post_process_time);
   size_t num_found = 0;
   uint64_t bytes_read = 0;
-  for (auto& key : key_context) {
+  for (KeyContext& key : key_context) {
     if (key.s->ok()) {
       bytes_read += key.value->size();
       num_found++;
