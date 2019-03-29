@@ -234,11 +234,6 @@ Status WriteUnpreparedTxnDB::Initialize(
     compaction_enabled_cf_handles.push_back(handles[index]);
   }
 
-  Status s = EnableAutoCompaction(compaction_enabled_cf_handles);
-  if (!s.ok()) {
-    return s;
-  }
-
   // create 'real' transactions from recovered shell transactions
   auto rtxns = dbimpl->recovered_transactions();
   for (auto rtxn : rtxns) {
@@ -270,7 +265,7 @@ Status WriteUnpreparedTxnDB::Initialize(
 
     real_trx->SetLogNumber(first_log_number);
     real_trx->SetId(first_seq);
-    s = real_trx->SetName(recovered_trx->name_);
+    Status s = real_trx->SetName(recovered_trx->name_);
     if (!s.ok()) {
       break;
     }
@@ -308,6 +303,20 @@ Status WriteUnpreparedTxnDB::Initialize(
   SequenceNumber prev_max = max_evicted_seq_;
   SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber();
   AdvanceMaxEvictedSeq(prev_max, last_seq);
+  // Create a gap between max and the next snapshot. This simplifies the logic
+  // in IsInSnapshot by not having to consider the special case of max ==
+  // snapshot after recovery. This is tested in IsInSnapshotEmptyMapTest.
+  if (last_seq) {
+    db_impl_->versions_->SetLastAllocatedSequence(last_seq + 1);
+    db_impl_->versions_->SetLastSequence(last_seq + 1);
+    db_impl_->versions_->SetLastPublishedSequence(last_seq + 1);
+  }
+
+  // Compaction should start only after max_evicted_seq_ is set.
+  Status s = EnableAutoCompaction(compaction_enabled_cf_handles);
+  if (!s.ok()) {
+    return s;
+  }
 
   // Rollback unprepared transactions.
   for (auto rtxn : rtxns) {
