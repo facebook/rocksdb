@@ -1026,11 +1026,8 @@ TEST_P(DBIteratorTest, DBIteratorBoundOptimizationTest) {
   int upper_bound_hits = 0;
   Options options = CurrentOptions();
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "BlockBasedTable::BlockEntryIteratorState::KeyReachedUpperBound",
-      [&upper_bound_hits](void* arg) {
-        assert(arg != nullptr);
-        upper_bound_hits += (*static_cast<bool*>(arg) ? 1 : 0);
-      });
+      "BlockBasedTableIterator:out_of_bound",
+      [&upper_bound_hits](void*) { upper_bound_hits++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   options.env = env_;
   options.create_if_missing = true;
