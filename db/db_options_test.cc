@@ -527,6 +527,17 @@ TEST_F(DBOptionsTest, RunStatsDumpPeriodSec) {
   mock_env->set_current_time(0); // in seconds
   options.env = mock_env.get();
   int counter = 0;
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+#if defined(OS_MACOSX) && !defined(NDEBUG)
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
+        uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
+        if (time_us < mock_env->RealNowMicros()) {
+          *reinterpret_cast<uint64_t*>(arg) = mock_env->RealNowMicros() + 1000;
+        }
+      });
+#endif  // OS_MACOSX && !NDEBUG
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::DumpStats:1", [&](void* /*arg*/) {
         counter++;
@@ -556,6 +567,17 @@ TEST_F(DBOptionsTest, StatsPersistScheduling) {
   mock_env.reset(new rocksdb::MockTimeEnv(env_));
   mock_env->set_current_time(0);  // in seconds
   options.env = mock_env.get();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+#if defined(OS_MACOSX) && !defined(NDEBUG)
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
+        uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
+        if (time_us < mock_env->RealNowMicros()) {
+          *reinterpret_cast<uint64_t*>(arg) = mock_env->RealNowMicros() + 1000;
+        }
+      });
+#endif  // OS_MACOSX && !NDEBUG
   int counter = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::PersistStats:Entry", [&](void* /*arg*/) { counter++; });
@@ -581,6 +603,17 @@ TEST_F(DBOptionsTest, PersistentStatsFreshInstall) {
   mock_env.reset(new rocksdb::MockTimeEnv(env_));
   mock_env->set_current_time(0);  // in seconds
   options.env = mock_env.get();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+#if defined(OS_MACOSX) && !defined(NDEBUG)
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
+        uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
+        if (time_us < mock_env->RealNowMicros()) {
+          *reinterpret_cast<uint64_t*>(arg) = mock_env->RealNowMicros() + 1000;
+        }
+      });
+#endif  // OS_MACOSX && !NDEBUG
   int counter = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::PersistStats:Entry", [&](void* /*arg*/) { counter++; });
@@ -616,6 +649,19 @@ TEST_F(DBOptionsTest, GetStatsHistory) {
   mock_env.reset(new rocksdb::MockTimeEnv(env_));
   mock_env->set_current_time(0);  // in seconds
   options.env = mock_env.get();
+#if defined(OS_MACOSX) && !defined(NDEBUG)
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
+        uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
+        if (time_us < mock_env->RealNowMicros()) {
+          *reinterpret_cast<uint64_t*>(arg) = mock_env->RealNowMicros() + 1000;
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+#endif  // OS_MACOSX && !NDEBUG
+
   CreateColumnFamilies({"pikachu"}, options);
   ASSERT_OK(Put("foo", "bar"));
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
@@ -658,6 +704,19 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
   mock_env.reset(new rocksdb::MockTimeEnv(env_));
   mock_env->set_current_time(0);  // in seconds
   options.env = mock_env.get();
+#if defined(OS_MACOSX) && !defined(NDEBUG)
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
+        uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
+        if (time_us < mock_env->RealNowMicros()) {
+          *reinterpret_cast<uint64_t*>(arg) = mock_env->RealNowMicros() + 1000;
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+#endif  // OS_MACOSX && !NDEBUG
+
   CreateColumnFamilies({"pikachu"}, options);
   ASSERT_OK(Put("foo", "bar"));
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
