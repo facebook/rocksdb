@@ -866,6 +866,75 @@ TEST_F(BlobDBTest, SstFileManagerRestart) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(BlobDBTest, SstFileManagerDBSize) {
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  Options db_options;
+
+  DestroyBlobDB(dbname_, db_options, bdb_options);
+
+  int files_deleted_directly = 0;
+  int files_scheduled_to_delete = 0;
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+        {"BlobDBTest::SstFileManagerDBSize:1",
+         "DeleteScheduler::BackgroundEmptyTrash:Wakeup"},
+  });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::ScheduleFileDeletion",
+      [&](void * /*arg*/) { files_scheduled_to_delete++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteFile",
+      [&](void * /*arg*/) { files_deleted_directly++; });
+
+  std::shared_ptr<SstFileManager> sst_file_manager(
+      NewSstFileManager(mock_env_.get()));
+  sst_file_manager->SetDeleteRateBytesPerSecond(1);
+  SstFileManagerImpl *sfm =
+      static_cast<SstFileManagerImpl *>(sst_file_manager.get());
+  db_options.sst_file_manager = sst_file_manager;
+
+  Open(bdb_options, db_options);
+  sfm->WaitForEmptyTrash();
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Create one obselete file
+  blob_db_->Put(WriteOptions(), "foo1", "bar");
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(1, blob_files.size());
+  std::shared_ptr<BlobFile> bfile = blob_files[0];
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(bfile));
+  GCStats gc_stats;
+  ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(bfile, &gc_stats));
+  // Create second obselete file
+  blob_db_->Put(WriteOptions(), "foo2", "bar");
+  blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  // 2 valid files and 1 obsolete file
+  ASSERT_EQ(3, blob_files.size());
+  bfile = blob_files[2];
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(bfile));
+  ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(bfile, &gc_stats));
+  // Clean up the 2 obsolete files
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+
+  // Even if SSTFileManager is not set, DB is creating a dummy one.
+  ASSERT_EQ(2, files_scheduled_to_delete);
+  ASSERT_EQ(1, files_deleted_directly);
+  Destroy();
+  // Make sure that DestroyBlobDB() also goes through delete scheduler.
+  ASSERT_EQ(files_scheduled_to_delete, 5);
+  // Due to a timing issue, the WAL may or may not be deleted directly. The
+  // blob file is first scheduled, followed by WAL. If the background trash
+  // thread does not wake up on time, the WAL file will be directly
+  // deleted as the trash size will be > DB size
+  // The first obsolete Blob file will be marked as trash first and it will
+  // be > .25 of DB size, so 3 Blob file and 1 WAL file deletion after that
+  // will be done directly
+  ASSERT_EQ(files_deleted_directly,4);
+  TEST_SYNC_POINT("BlobDBTest::SstFileManagerDBSize:1");
+  SyncPoint::GetInstance()->DisableProcessing();
+  sfm->WaitForEmptyTrash();
+}
+
 TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
   BlobDBOptions bdb_options;
   bdb_options.min_blob_size = 0;

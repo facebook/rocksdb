@@ -1114,6 +1114,8 @@ Note: The next release will be major release 7.0. See https://github.com/faceboo
 ## 6.1.1 (2019-04-09)
 ### New Features
 * When reading from option file/string/map, customized comparators and/or merge operators can be filled according to object registry.
+* WAL files are subjected to rate limited deletion.
+* Blob files are deleted in foreground or background based on trash to DB size ratio, instead of always deleted in the background.
 
 ### Public API Change
 

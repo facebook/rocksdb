@@ -206,14 +206,32 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
   return true;
 }
 
+void SstFileManagerImpl::RegisterStackedDB(
+          std::string dbname,
+          std::atomic<uint64_t>* size_counter) {
+  MutexLock l(&mu_);
+  stacked_db_sizes_.emplace(dbname, size_counter);
+}
+
+void SstFileManagerImpl::UnregisterStackedDB(std::string dbname) {
+  MutexLock l(&mu_);
+  stacked_db_sizes_.erase(dbname);
+}
+
 uint64_t SstFileManagerImpl::GetCompactionsReservedSize() {
   MutexLock l(&mu_);
   return cur_compactions_reserved_size_;
 }
 
 uint64_t SstFileManagerImpl::GetTotalSize() {
+  uint64_t total_db_size;
   MutexLock l(&mu_);
-  return total_files_size_;
+  total_db_size = total_files_size_;
+  for (std::pair<std::string, std::atomic<uint64_t>*> db
+        : stacked_db_sizes_) {
+    total_db_size += db.second->load(std::memory_order_relaxed);
+  }
+  return total_db_size;
 }
 
 std::unordered_map<std::string, uint64_t>
