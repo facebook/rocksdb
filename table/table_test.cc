@@ -3842,6 +3842,35 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
   }
 }
 
+// BlockBasedTableIterator should invalidate itself and return
+// OutOfBound()=true immediately after Seek(), to allow LevelIterator
+// filter out corresponding level.
+TEST_P(BlockBasedTableTest, OutOfBoundOnSeek) {
+  TableConstructor c(BytewiseComparator(), true /*convert_to_internal_key*/);
+  c.Add("foo", "v1");
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  Options options;
+  const ImmutableCFOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  c.Finish(options, ioptions, moptions, BlockBasedTableOptions(),
+           GetPlainInternalComparator(BytewiseComparator()), &keys, &kvmap);
+  auto* reader = c.GetTableReader();
+  ReadOptions read_opt;
+  std::string upper_bound = "bar";
+  Slice upper_bound_slice(upper_bound);
+  read_opt.iterate_upper_bound = &upper_bound_slice;
+  std::unique_ptr<InternalIterator> iter;
+  iter.reset(reader->NewIterator(read_opt, nullptr /*prefix_extractor*/));
+  iter->SeekToFirst();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->IsOutOfBound());
+  iter.reset(reader->NewIterator(read_opt, nullptr /*prefix_extractor*/));
+  iter->Seek("foo");
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->IsOutOfBound());
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
