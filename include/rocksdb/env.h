@@ -482,8 +482,6 @@ class Env {
   // status of each thread.
   ThreadStatusUpdater* thread_status_updater_;
 
-  static Env* BaseDefault();
-
  private:
   // No copying allowed
   Env(const Env&);

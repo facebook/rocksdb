@@ -340,7 +340,7 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   // Comparator from object registry
   std::string kCompName = "reverse_comp";
   static Registrar<const Comparator> test_reg_a(
-      kCompName, [](const std::string& /*name*/,
+      kCompName, [](const std::string& /*name*/, const void* /*arg*/,
                     std::unique_ptr<const Comparator>* /*comparator_guard*/) {
         return ReverseBytewiseComparator();
       });
@@ -353,7 +353,7 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   std::unique_ptr<BytesXOROperator> bxo(new BytesXOROperator());
   std::string kMoName = bxo->Name();
   static Registrar<std::shared_ptr<MergeOperator>> test_reg_b(
-      kMoName, [](const std::string& /*name*/,
+      kMoName, [](const std::string& /*name*/, const void* /*arg*/,
                   std::unique_ptr<std::shared_ptr<MergeOperator>>*
                       merge_operator_guard) {
         merge_operator_guard->reset(
