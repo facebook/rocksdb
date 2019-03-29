@@ -96,8 +96,14 @@ class MultiGetContext {
       : sorted_keys_(sorted_keys),
         num_keys_(num_keys),
         value_mask_(0),
-        lookup_key_ptr_(reinterpret_cast<LookupKey*>(lookup_key_buf)) {
+        lookup_key_ptr_(reinterpret_cast<LookupKey*>(lookup_key_stack_buf)) {
     int index = 0;
+
+    if (num_keys > MAX_LOOKUP_KEYS_ON_STACK) {
+      lookup_key_heap_buf.reset(new char[sizeof(LookupKey) * num_keys]);
+      lookup_key_ptr_ = reinterpret_cast<LookupKey*>(
+          lookup_key_heap_buf.get());
+    }
 
     for (size_t iter = 0; iter != num_keys_; ++iter) {
       sorted_keys_[iter]->lkey = new (&lookup_key_ptr_[index])
@@ -109,16 +115,19 @@ class MultiGetContext {
   }
 
   ~MultiGetContext() {
-    if (reinterpret_cast<char*>(lookup_key_ptr_) != lookup_key_buf) {
-      delete[] lookup_key_ptr_;
+    for (size_t i = 0; i < num_keys_; ++i) {
+      lookup_key_ptr_[i].~LookupKey();
     }
   }
 
  private:
-  char lookup_key_buf[sizeof(LookupKey) * MAX_BATCH_SIZE];
+  static const int MAX_LOOKUP_KEYS_ON_STACK = 16;
+  alignas(alignof(LookupKey))
+    char lookup_key_stack_buf[sizeof(LookupKey) * MAX_LOOKUP_KEYS_ON_STACK];
   KeyContext** sorted_keys_;
   size_t num_keys_;
   uint64_t value_mask_;
+  std::unique_ptr<char> lookup_key_heap_buf;
   LookupKey* lookup_key_ptr_;
 
  public:
@@ -233,7 +242,7 @@ class MultiGetContext {
 
     bool empty() {
       return (((1ull << end_) - 1) & ~((1ull << start_) - 1) &
-              ~ctx_->value_mask_ & ~skip_mask_) == 0;
+              ~(ctx_->value_mask_ | skip_mask_)) == 0;
     }
 
     void SkipKey(const Iterator& iter) { skip_mask_ |= 1ull << iter.index_; }

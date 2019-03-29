@@ -2783,7 +2783,6 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
                                bool skip_filters) {
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   CachableEntry<FilterBlockReader> filter_entry;
-  bool load_index = false;
   FilterBlockReader* filter = nullptr;
   MultiGetRange sst_file_range(*mget_range, mget_range->begin(),
                                mget_range->end());
@@ -2800,13 +2799,8 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
     // If full filter not useful, Then go into each block
     FullFilterKeysMayMatch(read_options, filter, &sst_file_range, no_io,
                            prefix_extractor);
-    for (auto iter = sst_file_range.begin(); iter != sst_file_range.end();
-         ++iter) {
-      load_index = true;
-      break;
-    }
   }
-  if (load_index) {
+  if (!sst_file_range.empty()) {
     IndexBlockIter iiter_on_stack;
     // if prefix_extractor found in block differs from options, disable
     // BlockPrefixIndex. Only do this check when index_type is kHashSearch.
