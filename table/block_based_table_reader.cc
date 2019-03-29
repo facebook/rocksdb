@@ -2488,11 +2488,6 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
         key_includes_seq_, index_key_is_full_,
         /* get_context */ nullptr, s, prefetch_buffer_.get());
     block_iter_points_to_real_block_ = true;
-    if (read_options_.iterate_upper_bound != nullptr) {
-      data_block_within_upper_bound_ =
-          (user_comparator_.Compare(*read_options_.iterate_upper_bound,
-                                    ExtractUserKey(index_iter_->key())) > 0);
-    }
   }
 }
 
@@ -2506,7 +2501,9 @@ void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyForward() {
     }
     if (read_options_.iterate_upper_bound != nullptr &&
         block_iter_points_to_real_block_) {
-      is_out_of_bound_ = !data_block_within_upper_bound_;
+      is_out_of_bound_ =
+          (user_comparator_.Compare(*read_options_.iterate_upper_bound,
+                                    ExtractUserKey(index_iter_->key())) <= 0);
     }
     ResetDataIter();
     if (is_out_of_bound_) {

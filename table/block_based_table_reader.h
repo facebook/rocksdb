@@ -686,8 +686,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   TBlockIter block_iter_;
   bool block_iter_points_to_real_block_;
   bool is_out_of_bound_ = false;
-  // Whether current data block being fully within iterate upper bound.
-  bool data_block_within_upper_bound_;
   bool check_filter_;
   // TODO(Zhongyi): pick a better name
   bool need_upper_bound_check_;
