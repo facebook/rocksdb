@@ -1284,6 +1284,7 @@ class DBImpl : public DB {
 
     log::Writer* ReleaseWriter() {
       auto* w = writer;
+      writer->Close();
       writer = nullptr;
       return w;
     }

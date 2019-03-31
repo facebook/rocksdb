@@ -1140,7 +1140,7 @@ Env* Env::Default() {
                                    const Env* target = reinterpret_cast<const Env*>(arg);
                                    assert(env_guard != nullptr);
                                    env_guard->reset(new HdfsEnv(const_cast<Env*>(target), fs_name));
-                                   return env_guard.get();
+                                   return env_guard->get();
                                  });
 
   PosixEnv* default_env = PosixEnv::Default();
