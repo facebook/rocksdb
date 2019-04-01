@@ -793,7 +793,7 @@ std::vector<std::string> DBTestBase::MultiGet(const std::vector<std::string>& k,
   for (unsigned int i = 0; i < k.size(); ++i) {
     keys.push_back(k[i]);
   }
-  db_->MultiGet(options, keys.size(), dbfull()->DefaultColumnFamily(),
+  db_->MultiGet(options, dbfull()->DefaultColumnFamily(), keys.size(),
                 keys.data(), pin_values.data(), statuses.data());
   result.resize(k.size());
   for (auto iter = result.begin(); iter != result.end(); ++iter) {

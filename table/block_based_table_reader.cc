@@ -2800,7 +2800,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
     FullFilterKeysMayMatch(read_options, filter, &sst_file_range, no_io,
                            prefix_extractor);
   }
-  if (!sst_file_range.empty()) {
+  if (skip_filters || !sst_file_range.empty()) {
     IndexBlockIter iiter_on_stack;
     // if prefix_extractor found in block differs from options, disable
     // BlockPrefixIndex. Only do this check when index_type is kHashSearch.
@@ -2822,67 +2822,51 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       Status s;
       GetContext* get_context = miter->get_context;
       const Slice& key = miter->ikey;
-      bool matched = false;  // if such user key mathced a key in SST
+      bool matched = false;  // if such user key matched a key in SST
       bool done = false;
       for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
-        BlockHandle handle = iiter->value();
+        DataBlockIter biter;
+        NewDataBlockIterator<DataBlockIter>(
+            rep_, read_options, iiter->value(), &biter, false,
+            true /* key_includes_seq */, get_context);
 
-        bool not_exist_in_filter =
-            filter != nullptr && filter->IsBlockBased() == true &&
-            !filter->KeyMayMatch(ExtractUserKey(key), prefix_extractor,
-                                 handle.offset(), no_io);
-
-        if (not_exist_in_filter) {
-          // Not found
-          // TODO: think about interaction with Merge. If a user key cannot
-          // cross one data block, we should be fine.
-          RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_USEFUL);
-          PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, rep_->level);
+        if (read_options.read_tier == kBlockCacheTier &&
+            biter.status().IsIncomplete()) {
+          // couldn't get block from block_cache
+          // Update Saver.state to Found because we are only looking for
+          // whether we can guarantee the key is not there when "no_io" is set
+          get_context->MarkKeyMayExist();
           break;
-        } else {
-          DataBlockIter biter;
-          NewDataBlockIterator<DataBlockIter>(
-              rep_, read_options, iiter->value(), &biter, false,
-              true /* key_includes_seq */, get_context);
-
-          if (read_options.read_tier == kBlockCacheTier &&
-              biter.status().IsIncomplete()) {
-            // couldn't get block from block_cache
-            // Update Saver.state to Found because we are only looking for
-            // whether we can guarantee the key is not there when "no_io" is set
-            get_context->MarkKeyMayExist();
-            break;
-          }
-          if (!biter.status().ok()) {
-            s = biter.status();
-            break;
-          }
-
-          bool may_exist = biter.SeekForGet(key);
-          if (!may_exist) {
-            // HashSeek cannot find the key this block and the the iter is not
-            // the end of the block, i.e. cannot be in the following blocks
-            // either. In this case, the seek_key cannot be found, so we break
-            // from the top level for-loop.
-            break;
-          }
-
-          // Call the *saver function on each entry/block until it returns false
-          for (; biter.Valid(); biter.Next()) {
-            ParsedInternalKey parsed_key;
-            if (!ParseInternalKey(biter.key(), &parsed_key)) {
-              s = Status::Corruption(Slice());
-            }
-
-            if (!get_context->SaveValue(
-                    parsed_key, biter.value(), &matched,
-                    biter.IsValuePinned() ? &biter : nullptr)) {
-              done = true;
-              break;
-            }
-          }
-          s = biter.status();
         }
+        if (!biter.status().ok()) {
+          s = biter.status();
+          break;
+        }
+
+        bool may_exist = biter.SeekForGet(key);
+        if (!may_exist) {
+          // HashSeek cannot find the key this block and the the iter is not
+          // the end of the block, i.e. cannot be in the following blocks
+          // either. In this case, the seek_key cannot be found, so we break
+          // from the top level for-loop.
+          break;
+        }
+
+        // Call the *saver function on each entry/block until it returns false
+        for (; biter.Valid(); biter.Next()) {
+          ParsedInternalKey parsed_key;
+          if (!ParseInternalKey(biter.key(), &parsed_key)) {
+            s = Status::Corruption(Slice());
+          }
+
+          if (!get_context->SaveValue(
+                  parsed_key, biter.value(), &matched,
+                  biter.IsValuePinned() ? &biter : nullptr)) {
+            done = true;
+            break;
+          }
+        }
+        s = biter.status();
         if (done) {
           // Avoid the extra Next which is expensive in two-level indexes
           break;

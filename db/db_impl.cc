@@ -1675,26 +1675,22 @@ struct CompareKeyContext {
 };
 
 void DBImpl::MultiGet(const ReadOptions& read_options,
-                      const int num_keys,
-                      ColumnFamilyHandle* column_family,
+                      ColumnFamilyHandle* column_family, const int num_keys,
                       const Slice* keys, PinnableSlice* values,
-                      Status* statuses,
-                      const bool sorted_input) {
+                      Status* statuses, const bool sorted_input) {
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
   for (int i = 0; i < num_keys; ++i) {
     key_context.emplace_back(keys[i], &values[i], &statuses[i]);
   }
 
-  MultiGetImpl(read_options, column_family, key_context, sorted_input,
-               nullptr, nullptr);
+  MultiGetImpl(read_options, column_family, key_context, sorted_input, nullptr,
+               nullptr);
 }
 
-void DBImpl::MultiGetImpl(const ReadOptions& read_options,
-                          ColumnFamilyHandle* column_family,
-                          autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE>& key_context,
-                          bool sorted_input,
-                          ReadCallback* callback,
-                          bool* is_blob_index) {
+void DBImpl::MultiGetImpl(
+    const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE>& key_context,
+    bool sorted_input, ReadCallback* callback, bool* is_blob_index) {
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
   StopWatch sw(env_, stats_, DB_MULTIGET);
   size_t num_keys = key_context.size();
@@ -1702,7 +1698,7 @@ void DBImpl::MultiGetImpl(const ReadOptions& read_options,
   PERF_TIMER_GUARD(get_snapshot_time);
 
   ColumnFamilyHandleImpl* cfh =
-    reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+      reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
 
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
@@ -1776,7 +1772,8 @@ void DBImpl::MultiGetImpl(const ReadOptions& read_options,
     size_t batch_size = (keys_left > MultiGetContext::MAX_BATCH_SIZE)
                             ? MultiGetContext::MAX_BATCH_SIZE
                             : keys_left;
-    MultiGetContext ctx(&sorted_keys[num_keys - keys_left], batch_size, snapshot);
+    MultiGetContext ctx(&sorted_keys[num_keys - keys_left], batch_size,
+                        snapshot);
     MultiGetRange range = ctx.GetMultiGetRange();
     bool lookup_current = false;
 
@@ -1794,17 +1791,17 @@ void DBImpl::MultiGetImpl(const ReadOptions& read_options,
            has_unpersisted_data_.load(std::memory_order_relaxed));
       bool done = false;
       if (!skip_memtable) {
-        if (super_version->mem->Get(
-                *(mget_iter->lkey), value->GetSelf(), &s, &merge_context,
-                &mget_iter->max_covering_tombstone_seq, read_options,
-                callback, is_blob_index)) {
+        if (super_version->mem->Get(*(mget_iter->lkey), value->GetSelf(), &s,
+                                    &merge_context,
+                                    &mget_iter->max_covering_tombstone_seq,
+                                    read_options, callback, is_blob_index)) {
           done = true;
           value->PinSelf();
           RecordTick(stats_, MEMTABLE_HIT);
         } else if (super_version->imm->Get(
-                       *(mget_iter->lkey), value->GetSelf(), &s,
-                       &merge_context, &mget_iter->max_covering_tombstone_seq,
-                       read_options, callback, is_blob_index)) {
+                       *(mget_iter->lkey), value->GetSelf(), &s, &merge_context,
+                       &mget_iter->max_covering_tombstone_seq, read_options,
+                       callback, is_blob_index)) {
           done = true;
           value->PinSelf();
           RecordTick(stats_, MEMTABLE_HIT);
@@ -1821,7 +1818,7 @@ void DBImpl::MultiGetImpl(const ReadOptions& read_options,
     if (lookup_current) {
       PERF_TIMER_GUARD(get_from_output_files_time);
       super_version->current->MultiGet(read_options, &range, callback,
-          is_blob_index);
+                                       is_blob_index);
     }
   }
 

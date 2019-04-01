@@ -2213,16 +2213,14 @@ static void MTThreadBody(void* arg) {
         ReadOptions ro;
         ro.snapshot = snapshot;
         for (int cf = 0; cf < kColumnFamilies; ++cf) {
-          db->MultiGet(ro, 1,
-                       t->state->test->handles_[cf], &keys[cf],
+          db->MultiGet(ro, t->state->test->handles_[cf], 1, &keys[cf],
                        &pin_values[cf], &statuses[cf]);
         }
         db->ReleaseSnapshot(snapshot);
         values.resize(keys.size());
         for (int cf = 0; cf < kColumnFamilies; ++cf) {
           if (statuses[cf].ok()) {
-            values[cf].assign(pin_values[cf].data(),
-                                 pin_values[cf].size());
+            values[cf].assign(pin_values[cf].data(), pin_values[cf].size());
           }
         }
       }

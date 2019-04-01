@@ -166,14 +166,11 @@ class BlobDB : public StackableDB {
     }
     return MultiGet(options, keys, values);
   }
-  virtual void MultiGet(
-      const ReadOptions& /*options*/,
-      const int num_keys,
-      ColumnFamilyHandle* /*column_family*/,
-      const Slice* /*keys*/,
-      PinnableSlice* /*values*/,
-      Status* statuses,
-      const bool /*sorted_input*/ = false) {
+  virtual void MultiGet(const ReadOptions& /*options*/,
+                        ColumnFamilyHandle* /*column_family*/,
+                        const int num_keys, const Slice* /*keys*/,
+                        PinnableSlice* /*values*/, Status* statuses,
+                        const bool /*sorted_input*/ = false) {
     for (int i = 0; i < num_keys; ++i) {
       statuses[i] = Status::NotSupported(
           "Blob DB doesn't support batched MultiGet");

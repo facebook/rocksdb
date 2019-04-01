@@ -97,12 +97,11 @@ class StackableDB : public DB {
   }
 
   virtual void MultiGet(const ReadOptions& options,
-                        const int num_keys,
-                        ColumnFamilyHandle* column_family,
+                        ColumnFamilyHandle* column_family, const int num_keys,
                         const Slice* keys, PinnableSlice* values,
                         Status* statuses,
                         const bool sorted_input = false) override {
-    return db_->MultiGet(options, num_keys, column_family, keys,
+    return db_->MultiGet(options, column_family, num_keys, keys,
                          values, statuses, sorted_input);
   }
 

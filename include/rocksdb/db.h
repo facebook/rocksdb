@@ -421,12 +421,29 @@ class DB {
         keys, values);
   }
 
+  // Overloaded MultiGet API that improves performance by batching operations
+  // in the read path for greater efficiency. Currently, only the block based
+  // table format with full filters are supported. Other table formats such
+  // as plain table, block based table with block based filters and
+  // partitioned indexes will still work, but will not get any performance
+  // benefits.
+  // Parameters -
+  // options - ReadOptions
+  // column_family - ColumnFamilyHandle* that the keys belong to. All the keys
+  //                 passed to the API are restricted to a single column family
+  // num_keys - Number of keys to lookup
+  // keys - Pointer to C style array of key Slices with num_keys elements
+  // values - Pointer to C style array of PinnableSlices with num_keys elements
+  // statuses - Pointer to C style array of Status with num_keys elements
+  // sorted_input - If true, it means the input keys are already sorted by key
+  //                order, so the MultiGet() API doesn't have to sort them
+  //                again. If false, the keys will be copied and sorted
+  //                internally by the API - the input array will not be
+  //                modified
   virtual void MultiGet(const ReadOptions& options,
-                        const int num_keys,
-                        ColumnFamilyHandle* column_family,
+                        ColumnFamilyHandle* column_family, const int num_keys,
                         const Slice* keys, PinnableSlice* values,
-                        Status* statuses,
-                        const bool /*sorted_input*/ = false) {
+                        Status* statuses, const bool /*sorted_input*/ = false) {
     std::vector<ColumnFamilyHandle*> cf;
     std::vector<Slice> user_keys;
     std::vector<Status> status;
