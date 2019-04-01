@@ -94,7 +94,7 @@ Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
           ? level
           : level + 1;
   return RunManualCompaction(cfd, level, output_level, 0, 0, begin, end, true,
-                             disallow_trivial_move);
+                             disallow_trivial_move, 0 /*max_sst_file_number*/);
 }
 
 Status DBImpl::TEST_SwitchMemtable(ColumnFamilyData* cfd) {

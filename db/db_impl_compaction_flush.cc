@@ -639,6 +639,25 @@ void DBImpl::NotifyOnFlushCompleted(ColumnFamilyData* cfd,
 #endif  // ROCKSDB_LITE
 }
 
+
+uint64_t DBImpl::GetMaxSSTFileNumber() const {
+  std::vector<std::string> files;
+  uint64_t largest_file_number = 0;
+  env_->GetChildren(dbname_, &files);
+
+  uint64_t number;
+  FileType type;
+  for (size_t i = 0; i < files.size(); ++i) {
+    if (ParseFileName(files[i], &number, &type)) {
+      if (type == kTableFile && number > largest_file_number) {
+        largest_file_number = number;
+      }
+    }
+  }
+  return largest_file_number;
+}
+
+
 Status DBImpl::CompactRange(const CompactRangeOptions& options,
                             ColumnFamilyHandle* column_family,
                             const Slice* begin, const Slice* end) {
@@ -684,6 +703,9 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   }
 
   int max_level_with_files = 0;
+  // largest sst file number before compaction starts, possibly skip any
+  // files with number > max_sst_file_number
+  uint64_t max_sst_file_number = 0;
   {
     InstrumentedMutexLock l(&mutex_);
     Version* base = cfd->current();
@@ -693,9 +715,11 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
         max_level_with_files = level;
       }
     }
+    max_sst_file_number = GetMaxSSTFileNumber();
   }
 
   int final_output_level = 0;
+  uint64_t max_sst_file_number_to_use = 0;
   if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
       cfd->NumberLevels() > 1) {
     // Always compact all files together.
@@ -706,7 +730,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             final_output_level, options.target_path_id,
-                            options.max_subcompactions, begin, end, exclusive);
+                            options.max_subcompactions, begin, end, exclusive,
+                            false, 0);
   } else {
     for (int level = 0; level <= max_level_with_files; level++) {
       int output_level;
@@ -731,6 +756,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
           continue;
         }
         output_level = level;
+        // only use max_sst_file_number for bottom level compaction
+        max_sst_file_number_to_use = max_sst_file_number;
       } else {
         output_level = level + 1;
         if (cfd->ioptions()->compaction_style == kCompactionStyleLevel &&
@@ -739,9 +766,10 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
           output_level = ColumnFamilyData::kCompactToBaseLevel;
         }
       }
+      // max_sst_file_number should only be non-zero for bottom level
       s = RunManualCompaction(cfd, level, output_level, options.target_path_id,
                               options.max_subcompactions, begin, end,
-                              exclusive);
+                              exclusive, false, max_sst_file_number_to_use);
       if (!s.ok()) {
         break;
       }
@@ -1328,7 +1356,8 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                                    int output_level, uint32_t output_path_id,
                                    uint32_t max_subcompactions,
                                    const Slice* begin, const Slice* end,
-                                   bool exclusive, bool disallow_trivial_move) {
+                                   bool exclusive, bool disallow_trivial_move,
+                                   uint64_t max_sst_file_number) {
   assert(input_level == ColumnFamilyData::kCompactAllLevels ||
          input_level >= 0);
 
@@ -1418,7 +1447,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
                manual.output_level, manual.output_path_id, max_subcompactions,
                manual.begin, manual.end, &manual.manual_end,
-               &manual_conflict)) == nullptr &&
+               &manual_conflict, max_sst_file_number)) == nullptr &&
           manual_conflict))) {
       // exclusive manual compactions should not see a conflict during
       // CompactRange

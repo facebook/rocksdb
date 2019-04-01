@@ -545,7 +545,8 @@ Compaction* CompactionPicker::CompactRange(
     VersionStorageInfo* vstorage, int input_level, int output_level,
     uint32_t output_path_id, uint32_t max_subcompactions,
     const InternalKey* begin, const InternalKey* end,
-    InternalKey** compaction_end, bool* manual_conflict) {
+    InternalKey** compaction_end, bool* manual_conflict,
+    uint64_t max_sst_file_number) {
   // CompactionPickerFIFO has its own implementation of compact range
   assert(ioptions_.compaction_style != kCompactionStyleFIFO);
 
@@ -659,6 +660,22 @@ Compaction* CompactionPicker::CompactRange(
     }
   }
   assert(output_path_id < static_cast<uint32_t>(ioptions_.cf_paths.size()));
+
+  // for bottom level compaction, skip files that are created during the
+  // current compaction
+  if (max_sst_file_number > 0) {
+    assert(input_level == output_level);
+    std::vector<FileMetaData*> inputs_shrinked;
+    for (size_t i = 0; i < inputs.size(); ++i) {
+      if (inputs[i]->fd.GetNumber() <= max_sst_file_number) {
+        inputs_shrinked.emplace_back(inputs[i]);
+      }
+    }
+    if (inputs_shrinked.empty()) {
+      return nullptr;
+    }
+    inputs.files.swap(inputs_shrinked);
+  }
 
   InternalKey key_storage;
   InternalKey* next_smallest = &key_storage;

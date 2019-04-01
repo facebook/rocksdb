@@ -383,6 +383,11 @@ class DBImpl : public DB {
   Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
 #endif  // ROCKSDB_LITE
 
+
+  // Collect the largest sst file number under the db directory
+  // REQUIRES: mutex locked
+  uint64_t GetMaxSSTFileNumber() const;
+
   // Similar to GetSnapshot(), but also lets the db know that this snapshot
   // will be used for transaction write-conflict checking.  The DB can then
   // make sure not to compact any keys that would prevent a write-conflict from
@@ -395,11 +400,14 @@ class DBImpl : public DB {
 
   virtual Status GetDbIdentity(std::string& identity) const override;
 
+  // pass non-zero max_sst_file_number to allow bottom level compaction to
+  // skip newly created sst files
   Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                              int output_level, uint32_t output_path_id,
                              uint32_t max_subcompactions, const Slice* begin,
                              const Slice* end, bool exclusive,
-                             bool disallow_trivial_move = false);
+                             bool disallow_trivial_move,
+                             uint64_t max_sst_file_number);
 
   // Return an internal iterator over the current state of the database.
   // The keys of this iterator are internal keys (see format.h).

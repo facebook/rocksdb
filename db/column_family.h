@@ -298,7 +298,8 @@ class ColumnFamilyData {
                            int input_level, int output_level,
                            uint32_t output_path_id, uint32_t max_subcompactions,
                            const InternalKey* begin, const InternalKey* end,
-                           InternalKey** compaction_end, bool* manual_conflict);
+                           InternalKey** compaction_end, bool* manual_conflict,
+                           uint64_t max_sst_file_number);
 
   CompactionPicker* compaction_picker() { return compaction_picker_.get(); }
   // thread-safe

@@ -215,7 +215,8 @@ Compaction* FIFOCompactionPicker::CompactRange(
     VersionStorageInfo* vstorage, int input_level, int output_level,
     uint32_t /*output_path_id*/, uint32_t /*max_subcompactions*/,
     const InternalKey* /*begin*/, const InternalKey* /*end*/,
-    InternalKey** compaction_end, bool* /*manual_conflict*/) {
+    InternalKey** compaction_end, bool* /*manual_conflict*/,
+    uint64_t /*max_sst_file_number*/) {
 #ifdef NDEBUG
   (void)input_level;
   (void)output_level;
