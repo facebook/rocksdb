@@ -170,7 +170,7 @@ class BlobDB : public StackableDB {
                         ColumnFamilyHandle* /*column_family*/,
                         const int num_keys, const Slice* /*keys*/,
                         PinnableSlice* /*values*/, Status* statuses,
-                        const bool /*sorted_input*/ = false) {
+                        const bool /*sorted_input*/ = false) override {
     for (int i = 0; i < num_keys; ++i) {
       statuses[i] = Status::NotSupported(
           "Blob DB doesn't support batched MultiGet");

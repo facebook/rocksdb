@@ -434,7 +434,7 @@ class FilePickerMultiGet {
 
       FdWithKeyRange* f = nullptr;
       FilePickerContextWrapper file_picker_iter(mget_iter_, file_picker_ctx_);
-      unsigned int curr_file_index = (mget_iter_ != current_level_range_.end())
+      size_t curr_file_index = (mget_iter_ != current_level_range_.end())
                                  ? file_picker_iter->curr_index_in_curr_level
                                  : curr_file_level_->num_files;
       bool file_hit = false;
