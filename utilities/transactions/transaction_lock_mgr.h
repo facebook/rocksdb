@@ -73,11 +73,17 @@ class BaseLockMgr {
   void UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
               const std::string& key, Env* env)=0;
 
+  // Resize the deadlock info buffer
+  virtual void Resize(uint32_t)=0;
+  virtual std::vector<DeadlockPath> GetDeadlockInfoBuffer()= 0;
   virtual ~BaseLockMgr(){}
+
+  using LockStatusData = std::unordered_multimap<uint32_t, KeyLockInfo>;
+  virtual LockStatusData GetLockStatusData()=0;
 };
 
 
-class TransactionLockMgr {
+class TransactionLockMgr : public BaseLockMgr {
  public:
   TransactionLockMgr(TransactionDB* txn_db, size_t default_num_stripes,
                      int64_t max_num_locks, uint32_t max_num_deadlocks,
@@ -108,10 +114,9 @@ class TransactionLockMgr {
   void UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
               const std::string& key, Env* env);
 
-  using LockStatusData = std::unordered_multimap<uint32_t, KeyLockInfo>;
-  LockStatusData GetLockStatusData();
-  std::vector<DeadlockPath> GetDeadlockInfoBuffer();
-  void Resize(uint32_t);
+  LockStatusData GetLockStatusData() override;
+  std::vector<DeadlockPath> GetDeadlockInfoBuffer() override;
+  void Resize(uint32_t) override;
 
  private:
   PessimisticTransactionDB* txn_db_impl_;
@@ -195,6 +200,12 @@ class RangeLockMgr :
   Status TryLock(PessimisticTransaction* txn, uint32_t column_family_id,
                  const std::string& key, Env* env, bool exclusive) override ;
 
+  // Resize the deadlock-info buffer, does nothing currently
+  void Resize(uint32_t) override {}
+  std::vector<DeadlockPath> GetDeadlockInfoBuffer() override { 
+    return std::vector<DeadlockPath>();
+  };
+
   // Get a lock on a range
   //  (TODO: this allows to acquire exclusive range locks although they are not
   //  used ATM)
@@ -215,6 +226,7 @@ class RangeLockMgr :
               const std::string& key, Env* env) override ;
 
   RangeLockMgr(TransactionDB* txn_db,
+               const RangeLockingOptions& opts,
                std::shared_ptr<TransactionDBMutexFactory> mutex_factory);
   ~RangeLockMgr();
 
@@ -225,20 +237,16 @@ class RangeLockMgr :
 
   uint64_t get_escalation_count() override;
 
-  TransactionLockMgr::LockStatusData GetLockStatusData();
+  LockStatusData GetLockStatusData() override;
 
-  using RangeLockMgrControl::convert_key_to_endpoint_func;
-  using RangeLockMgrControl::compare_endpoints_func;
-
-  void set_endpoint_cmp_functions(convert_key_to_endpoint_func cvt_func,
-                                  compare_endpoints_func cmp_func) override;
+  typedef RangeLockingOptions::convert_key_to_endpoint_func convert_key_to_endpoint_func;
+  typedef RangeLockingOptions::compare_endpoints_func compare_endpoints_func;
 
  private:
   toku::locktree_manager ltm;
   toku::locktree *lt; // only one tree for now
 
   toku::comparator cmp_;
-  bool cmp_initialized_;
 
   // Convert rowkey to endpoint (TODO: shouldn't "rowkey=const" translate into
   // a pair of [start; end] endpoints in general? They translate into the same
@@ -248,7 +256,7 @@ class RangeLockMgr :
   // User-provided endpoint comparison function
   compare_endpoints_func compare_endpoints;
 
-  TransactionDB* my_txn_db;
+  TransactionDB* my_txn_db_;
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
 
   static int compare_dbt_endpoints(__toku_db*, void *arg, const DBT *a_key, const DBT *b_key);

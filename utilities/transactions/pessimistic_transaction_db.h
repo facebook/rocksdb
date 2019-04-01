@@ -171,15 +171,21 @@ class PessimisticTransactionDB : public TransactionDB {
   friend class TransactionStressTest_TwoPhaseLongPrepareTest_Test;
   friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
   friend class WriteUnpreparedTransactionTest_MarkLogWithPrepSection_Test;
-  TransactionLockMgr lock_mgr_;
 
-  RangeLockMgr range_lock_mgr_;
-  
+  // Lock manager being used. This is either a TransactionLockMgr or a RangeLockMgr
+  std::shared_ptr<BaseLockMgr> lock_mgr_;
+
+  // Non-null if we are using a lock manager that supports range locking.
+  RangeLockMgr *range_lock_mgr_ = nullptr;
+ 
+ public:
   // Return Range Lock Manager if we are actually using it
   virtual RangeLockMgrControl* get_range_lock_manager() override { 
-    return use_range_locking? &range_lock_mgr_ : nullptr; 
+    return range_lock_mgr_;
   }
-
+ private:
+  void init_lock_manager();
+ 
   // Must be held when adding/dropping column families.
   InstrumentedMutex column_family_mutex_;
   Transaction* BeginInternalTransaction(const WriteOptions& options);

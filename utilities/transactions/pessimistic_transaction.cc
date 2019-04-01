@@ -50,7 +50,7 @@ PessimisticTransaction::PessimisticTransaction(
       skip_concurrency_control_(false) {
   txn_db_impl_ = static_cast_with_check<PessimisticTransactionDB>(txn_db);
   db_impl_ = static_cast_with_check<DBImpl>(db_);
-  do_key_tracking_ = ! txn_db_impl_->use_range_locking;
+  do_key_tracking_ = !txn_db_impl_->get_range_lock_manager();
   if (init) {
     Initialize(txn_options);
   }
@@ -92,7 +92,7 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
 }
 
 PessimisticTransaction::~PessimisticTransaction() {
-  txn_db_impl_->UnLock(this, &GetTrackedKeys());
+  txn_db_impl_->UnLock(this, &GetTrackedKeys()/*, all_keys_hint=true*/);
   if (expiration_time_ > 0) {
     txn_db_impl_->RemoveExpirableTransaction(txn_id_);
   }
@@ -621,7 +621,7 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
     // since the snapshot.  This must be done after we locked the key.
     // If we already have validated an earilier snapshot it must has been
     // reflected in tracked_at_seq and ValidateSnapshot will return OK.
-    if (s.ok()) {
+    if (s.ok()) {  //psergey-todo: this check seems to be meaningless, s.ok()==true always
       s = ValidateSnapshot(column_family, key, &tracked_at_seq);
 
       if (!s.ok()) {

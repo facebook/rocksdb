@@ -56,7 +56,6 @@ class RangeLockingTest : public ::testing::Test {
   Options options;
 
   TransactionDBOptions txn_db_options;
-  bool use_stackable_db_;
 
   RangeLockingTest()
       : db(nullptr)  {
@@ -65,15 +64,17 @@ class RangeLockingTest : public ::testing::Test {
 
     DestroyDB(dbname, options);
     Status s;
+    txn_db_options.use_range_locking = true;
+    txn_db_options.range_locking_opts.cvt_func =
+      range_endpoint_convert_same;
+    txn_db_options.range_locking_opts.cmp_func =
+      range_endpoints_compare_default;
     s = TransactionDB::Open(options, txn_db_options, dbname, &db);
     assert(s.ok());
 
     db->use_range_locking= true;
     rocksdb::RangeLockMgrControl *mgr= db->get_range_lock_manager();
     assert(mgr);
-
-    mgr->set_endpoint_cmp_functions(range_endpoint_convert_same,
-                                    range_endpoints_compare_default);
     // can also: mgr->set_max_lock_memory(rocksdb_max_lock_memory);
   }
 

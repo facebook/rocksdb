@@ -30,20 +30,33 @@ PessimisticTransactionDB::PessimisticTransactionDB(
     DB* db, const TransactionDBOptions& txn_db_options)
     : TransactionDB(db),
       db_impl_(static_cast_with_check<DBImpl>(db)),
-      txn_db_options_(txn_db_options),
-      lock_mgr_(this, txn_db_options_.num_stripes, txn_db_options.max_num_locks,
-                txn_db_options_.max_num_deadlocks,
-                txn_db_options_.custom_mutex_factory
-                    ? txn_db_options_.custom_mutex_factory
-                    : std::shared_ptr<TransactionDBMutexFactory>(
-                          new TransactionDBMutexFactoryImpl())),
-      range_lock_mgr_(this,
-                      txn_db_options_.custom_mutex_factory?
-                         txn_db_options_.custom_mutex_factory :
-                           std::shared_ptr<TransactionDBMutexFactory>(
-                              new TransactionDBMutexFactoryImpl())) {
+      txn_db_options_(txn_db_options) {
+  init_lock_manager();
   assert(db_impl_ != nullptr);
   info_log_ = db_impl_->GetDBOptions().info_log;
+}
+
+void PessimisticTransactionDB::init_lock_manager() {
+  BaseLockMgr *lock_mgr;
+
+  std::shared_ptr<TransactionDBMutexFactory> mutex_factory = 
+      txn_db_options_.custom_mutex_factory?
+           txn_db_options_.custom_mutex_factory :
+             std::shared_ptr<TransactionDBMutexFactory>(
+               new TransactionDBMutexFactoryImpl());
+
+  if (txn_db_options_.use_range_locking) {
+    range_lock_mgr_= new RangeLockMgr(this, txn_db_options_.range_locking_opts,
+                                      mutex_factory);
+    lock_mgr = range_lock_mgr_;
+  } else {
+    lock_mgr = new TransactionLockMgr(this, txn_db_options_.num_stripes,
+                                      txn_db_options_.max_num_locks,
+                                      txn_db_options_.max_num_deadlocks,
+                                      mutex_factory);
+    range_lock_mgr_ = nullptr;
+  }
+  lock_mgr_ = std::shared_ptr<BaseLockMgr>(lock_mgr);
 }
 
 // Support initiliazing PessimisticTransactionDB from a stackable db
@@ -66,18 +79,8 @@ PessimisticTransactionDB::PessimisticTransactionDB(
     StackableDB* db, const TransactionDBOptions& txn_db_options)
     : TransactionDB(db),
       db_impl_(static_cast_with_check<DBImpl>(db->GetRootDB())),
-      txn_db_options_(txn_db_options),
-      lock_mgr_(this, txn_db_options_.num_stripes, txn_db_options.max_num_locks,
-                txn_db_options_.max_num_deadlocks,
-                txn_db_options_.custom_mutex_factory
-                    ? txn_db_options_.custom_mutex_factory
-                    : std::shared_ptr<TransactionDBMutexFactory>(
-                          new TransactionDBMutexFactoryImpl())),
-      range_lock_mgr_(this,
-                      txn_db_options_.custom_mutex_factory
-                        ?  txn_db_options_.custom_mutex_factory
-                        : std::shared_ptr<TransactionDBMutexFactory>(
-                              new TransactionDBMutexFactoryImpl())) {
+      txn_db_options_(txn_db_options) {
+  init_lock_manager();
   assert(db_impl_ != nullptr);
 }
 
@@ -369,7 +372,7 @@ Status TransactionDB::WrapStackableDB(
 // allocate a LockMap for it.
 void PessimisticTransactionDB::AddColumnFamily(
     const ColumnFamilyHandle* handle) {
-  lock_mgr_.AddColumnFamily(handle->GetID());
+  lock_mgr_->AddColumnFamily(handle->GetID());
 }
 
 Status PessimisticTransactionDB::CreateColumnFamily(
@@ -383,7 +386,7 @@ Status PessimisticTransactionDB::CreateColumnFamily(
 
   s = db_->CreateColumnFamily(options, column_family_name, handle);
   if (s.ok()) {
-    lock_mgr_.AddColumnFamily((*handle)->GetID());
+    lock_mgr_->AddColumnFamily((*handle)->GetID());
     UpdateCFComparatorMap(*handle);
   }
 
@@ -398,8 +401,7 @@ Status PessimisticTransactionDB::DropColumnFamily(
 
   Status s = db_->DropColumnFamily(column_family);
   if (s.ok()) {
-    //psergey-todo: range_lock_mgr_ ??
-    lock_mgr_.RemoveColumnFamily(column_family->GetID());
+    lock_mgr_->RemoveColumnFamily(column_family->GetID());
   }
 
   return s;
@@ -409,10 +411,7 @@ Status PessimisticTransactionDB::TryLock(PessimisticTransaction* txn,
                                          uint32_t cfh_id,
                                          const std::string& key,
                                          bool exclusive) {
-  if (use_range_locking)
-    return range_lock_mgr_.TryLock(txn, cfh_id, key, GetEnv(), exclusive);
-  else
-    return lock_mgr_.TryLock(txn, cfh_id, key, GetEnv(), exclusive);
+  return lock_mgr_->TryLock(txn, cfh_id, key, GetEnv(), exclusive);
 }
 
 Status
@@ -420,9 +419,9 @@ PessimisticTransactionDB::TryRangeLock(PessimisticTransaction *txn,
                                        uint32_t cfh_id,
                                        const Slice& start_endp,
                                        const Slice& end_endp) {
-  if (use_range_locking) {
-    return range_lock_mgr_.TryRangeLock(txn, cfh_id, start_endp,
-                                        end_endp, /*exclusive=*/false);
+  if (range_lock_mgr_) {
+    return range_lock_mgr_->TryRangeLock(txn, cfh_id, start_endp,
+                                         end_endp, /*exclusive=*/false);
   }
   else
     return Status::NotSupported();
@@ -431,23 +430,16 @@ PessimisticTransactionDB::TryRangeLock(PessimisticTransaction *txn,
 void PessimisticTransactionDB::UnLock(PessimisticTransaction* txn,
                                       const TransactionKeyMap* keys,
                                       bool all_keys_hint) {
-  if (use_range_locking)
-  {
-    if (all_keys_hint)
-      range_lock_mgr_.UnLockAll(txn, GetEnv());
-    else
-      range_lock_mgr_.UnLock(txn, keys, GetEnv());
+  if (all_keys_hint && range_lock_mgr_) {
+    range_lock_mgr_->UnLockAll(txn, GetEnv());
+    return;
   }
-  else
-    lock_mgr_.UnLock(txn, keys, GetEnv());
+  lock_mgr_->UnLock(txn, keys, GetEnv());
 }
 
 void PessimisticTransactionDB::UnLock(PessimisticTransaction* txn,
                                       uint32_t cfh_id, const std::string& key) {
-  if (use_range_locking)
-    range_lock_mgr_.UnLock(txn, cfh_id, key, GetEnv());
-  else
-    lock_mgr_.UnLock(txn, cfh_id, key, GetEnv());
+  lock_mgr_->UnLock(txn, cfh_id, key, GetEnv());
 }
 
 // Used when wrapping DB write operations in a transaction
@@ -638,20 +630,17 @@ void PessimisticTransactionDB::GetAllPreparedTransactions(
 
 TransactionLockMgr::LockStatusData
 PessimisticTransactionDB::GetLockStatusData() {
-  if (use_range_locking)
-    return range_lock_mgr_.GetLockStatusData();
-  else
-    return lock_mgr_.GetLockStatusData();
+  return lock_mgr_->GetLockStatusData();
 }
 
 std::vector<DeadlockPath> PessimisticTransactionDB::GetDeadlockInfoBuffer() {
   // TODO: Here, we should get deadlock info from RangeLockMgr if we are using
   // it. At the moment, it doesn't provide any deadlock information.
-  return lock_mgr_.GetDeadlockInfoBuffer();
+  return lock_mgr_->GetDeadlockInfoBuffer();
 }
 
 void PessimisticTransactionDB::SetDeadlockInfoBufferSize(uint32_t target_size) {
-  lock_mgr_.Resize(target_size);
+  lock_mgr_->Resize(target_size);
 }
 
 void PessimisticTransactionDB::RegisterTransaction(Transaction* txn) {

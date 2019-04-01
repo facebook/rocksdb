@@ -689,7 +689,7 @@ void TransactionLockMgr::UnLock(const PessimisticTransaction* txn,
   }
 }
 
-TransactionLockMgr::LockStatusData TransactionLockMgr::GetLockStatusData() {
+BaseLockMgr::LockStatusData TransactionLockMgr::GetLockStatusData() {
   LockStatusData data;
   // Lock order here is important. The correct order is lock_map_mutex_, then
   // for every column family ID in ascending order lock every stripe in
@@ -991,11 +991,17 @@ int RangeLockMgr::compare_dbt_endpoints(__toku_db*, void *arg,
 
 
 RangeLockMgr::RangeLockMgr(TransactionDB* txn_db,
+                           const RangeLockingOptions& opts,
                            std::shared_ptr<TransactionDBMutexFactory> mutex_factory) :
-                           my_txn_db(txn_db), mutex_factory_(mutex_factory) {
+                           my_txn_db_(txn_db), mutex_factory_(mutex_factory) {
+  convert_key_to_endpoint= opts.cvt_func;
+  compare_endpoints=       opts.cmp_func;
+
   ltm.create(on_create, on_destroy, on_escalate, NULL, mutex_factory_);
-  lt= nullptr;
-  cmp_initialized_= false;
+
+  cmp_.create(compare_dbt_endpoints, (void*)this, NULL);
+  DICTIONARY_ID dict_id = { .dictid = 1 };
+  lt= ltm.get_lt(dict_id, cmp_, /* on_create_extra*/nullptr);
 }
 
 
@@ -1037,28 +1043,13 @@ void RangeLockMgr::on_escalate(TXNID txnid, const locktree *lt,
   // TODO: same as above: lt->get_manager()->note_mem_used(ranges.buffer->total_memory_size());
 }
 
-void 
-RangeLockMgr::set_endpoint_cmp_functions(convert_key_to_endpoint_func cvt_func,
-                                         compare_endpoints_func cmp_func) {
-  convert_key_to_endpoint= cvt_func;
-  compare_endpoints= cmp_func;
-
-  // The rest is like a constructor:
-  assert(!lt);
-
-  cmp_.create(compare_dbt_endpoints, (void*)this, NULL);
-  cmp_initialized_ = true;
-  DICTIONARY_ID dict_id = { .dictid = 1 };
-  lt= ltm.get_lt(dict_id, cmp_, /* on_create_extra*/nullptr);
-}
 
 RangeLockMgr::~RangeLockMgr() {
   if (lt) {
     ltm.release_lt(lt);
   }
   ltm.destroy();
-  if (cmp_initialized_)
-    cmp_.destroy();
+  cmp_.destroy();
 }
 
 uint64_t RangeLockMgr::get_escalation_count() {
@@ -1084,7 +1075,7 @@ uint64_t RangeLockMgr::get_escalation_count() {
 
 
 struct LOCK_PRINT_CONTEXT {
-  TransactionLockMgr::LockStatusData *data;
+  BaseLockMgr::LockStatusData *data;
   // this will not be needed when locks are per-column-family:
   uint32_t cfh_id;
 };
@@ -1112,9 +1103,9 @@ void push_into_lock_status_data(void* param, const DBT *left,
 }
 
 
-TransactionLockMgr::LockStatusData RangeLockMgr::GetLockStatusData() {
-  TransactionLockMgr::LockStatusData data;
-  LOCK_PRINT_CONTEXT ctx = {&data, GetColumnFamilyID(my_txn_db->DefaultColumnFamily()) };
+BaseLockMgr::LockStatusData RangeLockMgr::GetLockStatusData() {
+  LockStatusData data;
+  LOCK_PRINT_CONTEXT ctx = {&data, GetColumnFamilyID(my_txn_db_->DefaultColumnFamily()) };
   lt->dump_locks((void*)&ctx, push_into_lock_status_data);
   return data;
 }
