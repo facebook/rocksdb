@@ -503,7 +503,7 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
 }
 
 inline std::string CompressionOptionsToString(
-    CompressionOptions compression_options) {
+    CompressionOptions& compression_options) {
   std::string result;
   result.reserve(512);
   result.append("window_bits=")
