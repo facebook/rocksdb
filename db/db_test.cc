@@ -2209,15 +2209,20 @@ static void MTThreadBody(void* arg) {
       } else {
         std::vector<PinnableSlice> pin_values(keys.size());
         statuses.resize(keys.size());
-        db->MultiGet(ReadOptions(), keys.size(),
-                     t->state->test->handles_.data(), keys.data(),
-                     pin_values.data(), statuses.data());
+        const Snapshot* snapshot = db->GetSnapshot();
+        ReadOptions ro;
+        ro.snapshot = snapshot;
+        for (int cf = 0; cf < kColumnFamilies; ++cf) {
+          db->MultiGet(ro, 1,
+                       t->state->test->handles_[cf], &keys[cf],
+                       &pin_values[cf], &statuses[cf]);
+        }
+        db->ReleaseSnapshot(snapshot);
         values.resize(keys.size());
-        for (auto s = statuses.begin(); s != statuses.end(); ++s) {
-          auto index = s - statuses.begin();
-          if (s->ok()) {
-            values[index].assign(pin_values[index].data(),
-                                 pin_values[index].size());
+        for (int cf = 0; cf < kColumnFamilies; ++cf) {
+          if (statuses[cf].ok()) {
+            values[cf].assign(pin_values[cf].data(),
+                                 pin_values[cf].size());
           }
         }
       }

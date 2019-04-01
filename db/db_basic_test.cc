@@ -950,14 +950,7 @@ TEST_F(DBBasicTest, DBCloseFlushError) {
   Destroy(options);
 }
 
-class DBMultiGetTest : public DBBasicTest,
-                       public ::testing::WithParamInterface<bool> {
- public:
-  DBMultiGetTest() : DBBasicTest() { multiget_batched_ = GetParam(); }
-  bool multiget_batched_;
-};
-
-TEST_P(DBMultiGetTest, MultiGetMultiCF) {
+TEST_F(DBBasicTest, MultiGetMultiCF) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu", "ilya", "muromec", "dobrynia", "nikitich",
                          "alyosha", "popovich"},
@@ -1001,7 +994,7 @@ TEST_P(DBMultiGetTest, MultiGetMultiCF) {
     keys.push_back("cf" + std::to_string(i) + "_key");
   }
 
-  values = MultiGet(cfs, keys, nullptr, multiget_batched_);
+  values = MultiGet(cfs, keys, nullptr);
   ASSERT_EQ(values.size(), 8);
   for (unsigned int j = 0; j < values.size(); ++j) {
     ASSERT_EQ(values[j], "cf" + std::to_string(j) + "_val2");
@@ -1015,7 +1008,7 @@ TEST_P(DBMultiGetTest, MultiGetMultiCF) {
   }
 }
 
-TEST_P(DBMultiGetTest, MultiGetMultiCFMutex) {
+TEST_F(DBBasicTest, MultiGetMultiCFMutex) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu", "ilya", "muromec", "dobrynia", "nikitich",
                          "alyosha", "popovich"},
@@ -1061,7 +1054,7 @@ TEST_P(DBMultiGetTest, MultiGetMultiCFMutex) {
     keys.push_back("cf" + std::to_string(i) + "_key");
   }
 
-  values = MultiGet(cfs, keys, nullptr, multiget_batched_);
+  values = MultiGet(cfs, keys, nullptr);
   ASSERT_TRUE(last_try);
   ASSERT_EQ(values.size(), 8);
   for (unsigned int j = 0; j < values.size(); ++j) {
@@ -1076,7 +1069,7 @@ TEST_P(DBMultiGetTest, MultiGetMultiCFMutex) {
   }
 }
 
-TEST_P(DBMultiGetTest, MultiGetMultiCFSnapshot) {
+TEST_F(DBBasicTest, MultiGetMultiCFSnapshot) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu", "ilya", "muromec", "dobrynia", "nikitich",
                          "alyosha", "popovich"},
@@ -1121,7 +1114,7 @@ TEST_P(DBMultiGetTest, MultiGetMultiCFSnapshot) {
   }
 
   const Snapshot* snapshot = db_->GetSnapshot();
-  values = MultiGet(cfs, keys, snapshot, multiget_batched_);
+  values = MultiGet(cfs, keys, snapshot);
   db_->ReleaseSnapshot(snapshot);
   ASSERT_EQ(values.size(), 8);
   for (unsigned int j = 0; j < values.size(); ++j) {
@@ -1135,7 +1128,7 @@ TEST_P(DBMultiGetTest, MultiGetMultiCFSnapshot) {
   }
 }
 
-TEST_P(DBMultiGetTest, MultiGetMultiLevel) {
+TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   Reopen(options);
@@ -1193,7 +1186,7 @@ TEST_P(DBMultiGetTest, MultiGetMultiLevel) {
     keys.push_back("key_" + std::to_string(i));
   }
 
-  values = MultiGet(keys, nullptr, multiget_batched_);
+  values = MultiGet(keys, nullptr);
   ASSERT_EQ(values.size(), 16);
   for (unsigned int j = 0; j < values.size(); ++j) {
     int key = j + 64;
@@ -1208,9 +1201,6 @@ TEST_P(DBMultiGetTest, MultiGetMultiLevel) {
     }
   }
 }
-INSTANTIATE_TEST_CASE_P(DBMultiGetTestInstance, DBMultiGetTest,
-                        testing::Values(false, true));
-
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

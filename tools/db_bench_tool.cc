@@ -4659,8 +4659,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         }
       } else {
         db->MultiGet(options, keys.size(),
-                     std::vector<ColumnFamilyHandle*>(
-                         keys.size(), db->DefaultColumnFamily()).data(),
+                     db->DefaultColumnFamily(),
                      keys.data(), pin_values, stat_list.data());
 
         read += entries_per_batch_;

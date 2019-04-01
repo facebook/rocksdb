@@ -423,7 +423,7 @@ class DB {
 
   virtual void MultiGet(const ReadOptions& options,
                         const int num_keys,
-                        ColumnFamilyHandle** column_family,
+                        ColumnFamilyHandle* column_family,
                         const Slice* keys, PinnableSlice* values,
                         Status* statuses,
                         const bool /*sorted_input*/ = false) {
@@ -433,7 +433,7 @@ class DB {
     std::vector<std::string> vals;
 
     for (int i = 0; i < num_keys; ++i) {
-      cf.emplace_back(column_family[i]);
+      cf.emplace_back(column_family);
       user_keys.emplace_back(keys[i]);
     }
     status = MultiGet(options, cf, user_keys, &vals);

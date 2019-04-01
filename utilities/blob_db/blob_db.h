@@ -169,7 +169,7 @@ class BlobDB : public StackableDB {
   virtual void MultiGet(
       const ReadOptions& /*options*/,
       const int num_keys,
-      ColumnFamilyHandle** /*column_families*/,
+      ColumnFamilyHandle* /*column_family*/,
       const Slice* /*keys*/,
       PinnableSlice* /*values*/,
       Status* statuses,

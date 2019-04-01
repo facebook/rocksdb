@@ -18,7 +18,6 @@ class GetContext;
 
 struct KeyContext {
   const Slice* key;
-  ColumnFamilyHandle* column_family;
   LookupKey* lkey;
   Slice ukey;
   Slice ikey;
@@ -31,10 +30,8 @@ struct KeyContext {
   PinnableSlice* value;
   GetContext* get_context;
 
-  KeyContext(const Slice& user_key, ColumnFamilyHandle* col_family,
-             PinnableSlice* val, Status* stat)
+  KeyContext(const Slice& user_key, PinnableSlice* val, Status* stat)
       : key(&user_key),
-        column_family(col_family),
         lkey(nullptr),
         s(stat),
         max_covering_tombstone_seq(0),
