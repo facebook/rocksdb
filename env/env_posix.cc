@@ -1133,6 +1133,8 @@ PosixEnv* PosixEnv::Default() {
 // Default Env
 //
 Env* Env::Default() {
+  PosixEnv* default_env = PosixEnv::Default();
+#ifndef ROCKSDB_LITE
   static Registrar<Env> hdfs_reg("hdfs://.*",
                                  [](const std::string& fs_name,
                                     const void* arg,
@@ -1143,8 +1145,6 @@ Env* Env::Default() {
                                    return env_guard->get();
                                  });
 
-  PosixEnv* default_env = PosixEnv::Default();
-#ifndef ROCKSDB_LITE
   const char* uri_pattern = getenv("ROCKS_ENV_URI_PATTERN");
   if (uri_pattern != nullptr) {
     static Env* custom_env = nullptr;
