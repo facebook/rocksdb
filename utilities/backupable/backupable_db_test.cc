@@ -35,8 +35,6 @@ namespace rocksdb {
 
 namespace {
 
-using std::unique_ptr;
-
 class DummyDB : public StackableDB {
  public:
   /* implicit */
@@ -206,7 +204,7 @@ class TestEnv : public EnvWrapper {
   }
 
   Status NewRandomAccessFile(const std::string& fname,
-                             unique_ptr<RandomAccessFile>* result,
+                             std::unique_ptr<RandomAccessFile>* result,
                              const EnvOptions& options) override {
     MutexLock l(&mutex_);
     Status s = EnvWrapper::NewRandomAccessFile(fname, result, options);

@@ -17,7 +17,6 @@ namespace rocksdb {
 
 struct EnvOptions;
 
-using std::unique_ptr;
 class Status;
 class RandomAccessFile;
 class WritableFile;

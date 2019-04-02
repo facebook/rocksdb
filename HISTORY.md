@@ -1,22 +1,26 @@
 # Rocksdb Change Log
-## Unreleased
+
+### Unreleased
+### New Features
+* When reading from option file/string/map, customized comparators and/or merge operators can be filled according to object registry.
+
+## 6.1.0 (3/27/2019)
 ### New Features
 * Introduce two more stats levels, kExceptHistogramOrTimers and kExceptTimers.
+* Added a feature to perform data-block sampling for compressibility, and report stats to user.
 * Add support for trace filtering.
+* Add DBOptions.avoid_unnecessary_blocking_io. If true, we avoid file deletion when destorying ColumnFamilyHandle and Iterator. Instead, a job is scheduled to delete the files in background.
 
 ### Public API Change
+* Remove bundled fbson library.
 * statistics.stats_level_ becomes atomic. It is preferred to use statistics.set_stats_level() and statistics.get_stats_level() to access it.
+* Introduce a new IOError subcode, PathNotFound, to indicate trying to open a nonexistent file or directory for read.
+* Add initial support for multiple db instances sharing the same data in single-writer, multi-reader mode.
+* Removed some "using std::xxx" from public headers.
 
 ### Bug Fixes
 * Fix JEMALLOC_CXX_THROW macro missing from older Jemalloc versions, causing build failures on some platforms.
-
-
-## Unreleased
-### New Features
-* Added a feature to perform data-block sampling for compressibility, and report stats to user.
-### Public API Change
-### Bug fixes
-
+* Fix SstFileReader not able to open file ingested with write_glbal_seqno=true.
 
 ## 6.0.0 (2/19/2019)
 ### New Features

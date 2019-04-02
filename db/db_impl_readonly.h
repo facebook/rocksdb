@@ -7,9 +7,9 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "db/db_impl.h"
-#include <vector>
 #include <string>
+#include <vector>
+#include "db/db_impl.h"
 
 namespace rocksdb {
 
@@ -122,6 +122,6 @@ class DBImplReadOnly : public DBImpl {
   DBImplReadOnly(const DBImplReadOnly&);
   void operator=(const DBImplReadOnly&);
 };
-}
+}  // namespace rocksdb
 
 #endif  // !ROCKSDB_LITE

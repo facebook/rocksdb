@@ -20,10 +20,9 @@ class FlushBlockPolicy {
  public:
   // Keep track of the key/value sequences and return the boolean value to
   // determine if table builder should flush current data block.
-  virtual bool Update(const Slice& key,
-                      const Slice& value) = 0;
+  virtual bool Update(const Slice& key, const Slice& value) = 0;
 
-  virtual ~FlushBlockPolicy() { }
+  virtual ~FlushBlockPolicy() {}
 };
 
 class FlushBlockPolicyFactory {
@@ -41,7 +40,7 @@ class FlushBlockPolicyFactory {
       const BlockBasedTableOptions& table_options,
       const BlockBuilder& data_block_builder) const = 0;
 
-  virtual ~FlushBlockPolicyFactory() { }
+  virtual ~FlushBlockPolicyFactory() {}
 };
 
 class FlushBlockBySizePolicyFactory : public FlushBlockPolicyFactory {
@@ -59,4 +58,4 @@ class FlushBlockBySizePolicyFactory : public FlushBlockPolicyFactory {
       const BlockBuilder& data_block_builder);
 };
 
-}  // rocksdb
+}  // namespace rocksdb

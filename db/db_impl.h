@@ -178,10 +178,9 @@ class DBImpl : public DB {
   virtual bool GetAggregatedIntProperty(const Slice& property,
                                         uint64_t* aggregated_value) override;
   using DB::GetApproximateSizes;
-  virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
-                                   const Range* range, int n, uint64_t* sizes,
-                                   uint8_t include_flags
-                                   = INCLUDE_FILES) override;
+  virtual void GetApproximateSizes(
+      ColumnFamilyHandle* column_family, const Range* range, int n,
+      uint64_t* sizes, uint8_t include_flags = INCLUDE_FILES) override;
   using DB::GetApproximateMemTableStats;
   virtual void GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
                                            const Range& range,
@@ -284,9 +283,8 @@ class DBImpl : public DB {
   // Status::NotFound() will be returned if the current DB does not have
   // any column family match the specified name.
   // TODO(yhchiang): output parameter is placed in the end in this codebase.
-  virtual void GetColumnFamilyMetaData(
-      ColumnFamilyHandle* column_family,
-      ColumnFamilyMetaData* metadata) override;
+  virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
+                                       ColumnFamilyMetaData* metadata) override;
 
   Status SuggestCompactRange(ColumnFamilyHandle* column_family,
                              const Slice* begin, const Slice* end) override;
@@ -378,9 +376,8 @@ class DBImpl : public DB {
 
   Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                              int output_level, uint32_t output_path_id,
-                             uint32_t max_subcompactions,
-                             const Slice* begin, const Slice* end,
-                             bool exclusive,
+                             uint32_t max_subcompactions, const Slice* begin,
+                             const Slice* end, bool exclusive,
                              bool disallow_trivial_move = false);
 
   // Return an internal iterator over the current state of the database.
@@ -427,8 +424,8 @@ class DBImpl : public DB {
 
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
-  int64_t TEST_MaxNextLevelOverlappingBytes(ColumnFamilyHandle* column_family =
-                                                nullptr);
+  int64_t TEST_MaxNextLevelOverlappingBytes(
+      ColumnFamilyHandle* column_family = nullptr);
 
   // Return the current manifest file no.
   uint64_t TEST_Current_Manifest_FileNo();
@@ -758,6 +755,29 @@ class DBImpl : public DB {
   std::unique_ptr<Tracer> tracer_;
   InstrumentedMutex trace_mutex_;
 
+  // State below is protected by mutex_
+  // With two_write_queues enabled, some of the variables that accessed during
+  // WriteToWAL need different synchronization: log_empty_, alive_log_files_,
+  // logs_, logfile_number_. Refer to the definition of each variable below for
+  // more description.
+  mutable InstrumentedMutex mutex_;
+
+  ColumnFamilyHandleImpl* default_cf_handle_;
+  InternalStats* default_cf_internal_stats_;
+
+  // only used for dynamically adjusting max_total_wal_size. it is a sum of
+  // [write_buffer_size * max_write_buffer_number] over all column families
+  uint64_t max_total_in_memory_state_;
+  // If true, we have only one (default) column family. We use this to optimize
+  // some code-paths
+  bool single_column_family_mode_;
+
+  // The options to access storage files
+  const EnvOptions env_options_;
+
+  // Additonal options for compaction and flush
+  EnvOptions env_options_for_compaction_;
+
   // Except in DB::Open(), WriteOptionsFile can only be called when:
   // Persist options to options file.
   // If need_mutex_lock = false, the method will lock DB mutex.
@@ -778,13 +798,12 @@ class DBImpl : public DB {
                               const MutableCFOptions& mutable_cf_options,
                               int job_id, TableProperties prop);
 
-  void NotifyOnCompactionBegin(ColumnFamilyData* cfd,
-                               Compaction *c, const Status &st,
-                               const CompactionJobStats& job_stats,
-                               int job_id);
+  void NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
+                               const Status& st,
+                               const CompactionJobStats& job_stats, int job_id);
 
-  void NotifyOnCompactionCompleted(ColumnFamilyData* cfd,
-                                   Compaction *c, const Status &st,
+  void NotifyOnCompactionCompleted(ColumnFamilyData* cfd, Compaction* c,
+                                   const Status& st,
                                    const CompactionJobStats& job_stats,
                                    int job_id);
   void NotifyOnMemTableSealed(ColumnFamilyData* cfd,
@@ -845,6 +864,14 @@ class DBImpl : public DB {
   // Actual implementation of Close()
   Status CloseImpl();
 
+  // Recover the descriptor from persistent storage.  May do a significant
+  // amount of work to recover recently logged updates.  Any changes to
+  // be made to the descriptor are added to *edit.
+  virtual Status Recover(
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      bool read_only = false, bool error_if_log_file_exist = false,
+      bool error_if_data_exists_in_logs = false);
+
  private:
   friend class DB;
   friend class ErrorHandler;
@@ -865,6 +892,7 @@ class DBImpl : public DB {
   friend class CompactedDBImpl;
   friend class DBTest_ConcurrentFlushWAL_Test;
   friend class DBTest_MixedSlowdownOptionsStop_Test;
+  friend class DBCompactionTest_CompactBottomLevelFilesWithDeletions_Test;
 #ifndef NDEBUG
   friend class DBTest2_ReadCallbackTest_Test;
   friend class WriteCallbackTest_WriteWithCallbackTest_Test;
@@ -891,13 +919,6 @@ class DBImpl : public DB {
 
   struct PrepickedCompaction;
   struct PurgeFileInfo;
-
-  // Recover the descriptor from persistent storage.  May do a significant
-  // amount of work to recover recently logged updates.  Any changes to
-  // be made to the descriptor are added to *edit.
-  Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
-                 bool read_only = false, bool error_if_log_file_exist = false,
-                 bool error_if_data_exists_in_logs = false);
 
   Status ResumeImpl();
 
@@ -1172,7 +1193,8 @@ class DBImpl : public DB {
   // Return the minimum empty level that could hold the total data in the
   // input level. Return the input level, if such level could not be found.
   int FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd,
-      const MutableCFOptions& mutable_cf_options, int level);
+                                   const MutableCFOptions& mutable_cf_options,
+                                   int level);
 
   // Move the files in the input level to the target level.
   // If target_level < 0, automatically calculate the minimum level that could
@@ -1215,12 +1237,6 @@ class DBImpl : public DB {
   // and log_empty_. Refer to the definition of each variable below for more
   // details.
   InstrumentedMutex log_write_mutex_;
-  // State below is protected by mutex_
-  // With two_write_queues enabled, some of the variables that accessed during
-  // WriteToWAL need different synchronization: log_empty_, alive_log_files_,
-  // logs_, logfile_number_. Refer to the definition of each variable below for
-  // more description.
-  mutable InstrumentedMutex mutex_;
 
   std::atomic<bool> shutting_down_;
   // This condition variable is signaled on these conditions:
@@ -1252,12 +1268,10 @@ class DBImpl : public DB {
   // read and writes are protected by log_write_mutex_ instead. This is to avoid
   // expesnive mutex_ lock during WAL write, which update log_empty_.
   bool log_empty_;
-  ColumnFamilyHandleImpl* default_cf_handle_;
-  InternalStats* default_cf_internal_stats_;
+
   std::unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
   struct LogFileNumberSize {
-    explicit LogFileNumberSize(uint64_t _number)
-        : number(_number) {}
+    explicit LogFileNumberSize(uint64_t _number) : number(_number) {}
     void AddSize(uint64_t new_size) { size += new_size; }
     uint64_t number;
     uint64_t size = 0;
@@ -1320,12 +1334,7 @@ class DBImpl : public DB {
   WriteBatch cached_recoverable_state_;
   std::atomic<bool> cached_recoverable_state_empty_ = {true};
   std::atomic<uint64_t> total_log_size_;
-  // only used for dynamically adjusting max_total_wal_size. it is a sum of
-  // [write_buffer_size * max_write_buffer_number] over all column families
-  uint64_t max_total_in_memory_state_;
-  // If true, we have only one (default) column family. We use this to optimize
-  // some code-paths
-  bool single_column_family_mode_;
+
   // If this is non-empty, we need to delete these log files in background
   // threads. Protected by db mutex.
   autovector<log::Writer*> logs_to_free_;
@@ -1474,15 +1483,15 @@ class DBImpl : public DB {
     uint32_t output_path_id;
     Status status;
     bool done;
-    bool in_progress;             // compaction request being processed?
-    bool incomplete;              // only part of requested range compacted
-    bool exclusive;               // current behavior of only one manual
-    bool disallow_trivial_move;   // Force actual compaction to run
-    const InternalKey* begin;     // nullptr means beginning of key range
-    const InternalKey* end;       // nullptr means end of key range
-    InternalKey* manual_end;      // how far we are compacting
-    InternalKey tmp_storage;      // Used to keep track of compaction progress
-    InternalKey tmp_storage1;     // Used to keep track of compaction progress
+    bool in_progress;            // compaction request being processed?
+    bool incomplete;             // only part of requested range compacted
+    bool exclusive;              // current behavior of only one manual
+    bool disallow_trivial_move;  // Force actual compaction to run
+    const InternalKey* begin;    // nullptr means beginning of key range
+    const InternalKey* end;      // nullptr means end of key range
+    InternalKey* manual_end;     // how far we are compacting
+    InternalKey tmp_storage;     // Used to keep track of compaction progress
+    InternalKey tmp_storage1;    // Used to keep track of compaction progress
   };
   struct PrepickedCompaction {
     // background compaction takes ownership of `compaction`.
@@ -1544,12 +1553,6 @@ class DBImpl : public DB {
 
   std::string db_absolute_path_;
 
-  // The options to access storage files
-  const EnvOptions env_options_;
-
-  // Additonal options for compaction and flush
-  EnvOptions env_options_for_compaction_;
-
   // Number of running IngestExternalFile() calls.
   // REQUIRES: mutex held
   int num_running_ingest_file_;
@@ -1572,6 +1575,10 @@ class DBImpl : public DB {
 
   // Indicate DB was opened successfully
   bool opened_successfully_;
+
+  // The min threshold to triggere bottommost compaction for removing
+  // garbages, among all column families.
+  SequenceNumber bottommost_files_mark_threshold_ = kMaxSequenceNumber;
 
   LogsWithPrepTracker logs_with_prep_tracker_;
 
@@ -1608,9 +1615,9 @@ class DBImpl : public DB {
 
 #ifndef ROCKSDB_LITE
   using DB::GetPropertiesOfAllTables;
-  virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
-                                          TablePropertiesCollection* props)
-      override;
+  virtual Status GetPropertiesOfAllTables(
+      ColumnFamilyHandle* column_family,
+      TablePropertiesCollection* props) override;
   virtual Status GetPropertiesOfTablesInRange(
       ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) override;
@@ -1648,9 +1655,7 @@ class DBImpl : public DB {
   void MarkAsGrabbedForPurge(uint64_t file_number);
 
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
-  Env::WriteLifeTimeHint CalculateWALWriteHint() {
-    return Env::WLTH_SHORT;
-  }
+  Env::WriteLifeTimeHint CalculateWALWriteHint() { return Env::WLTH_SHORT; }
 
   // When set, we use a separate queue for writes that dont write to memtable.
   // In 2PC these are the writes at Prepare phase.
@@ -1712,8 +1717,7 @@ class DBImpl : public DB {
   InstrumentedCondVar atomic_flush_install_cv_;
 };
 
-extern Options SanitizeOptions(const std::string& db,
-                               const Options& src);
+extern Options SanitizeOptions(const std::string& db, const Options& src);
 
 extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);
 

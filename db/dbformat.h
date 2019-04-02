@@ -21,6 +21,7 @@
 #include "rocksdb/types.h"
 #include "util/coding.h"
 #include "util/logging.h"
+#include "util/user_comparator_wrapper.h"
 
 namespace rocksdb {
 
@@ -80,8 +81,7 @@ inline bool IsExtendedValueType(ValueType t) {
 
 // We leave eight bits empty at the bottom so a type and sequence#
 // can be packed together into 64-bits.
-static const SequenceNumber kMaxSequenceNumber =
-    ((0x1ull << 56) - 1);
+static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 
 static const SequenceNumber kDisableGlobalSequenceNumber = port::kMaxUint64;
 
@@ -92,9 +92,9 @@ struct ParsedInternalKey {
 
   ParsedInternalKey()
       : sequence(kMaxSequenceNumber)  // Make code analyzer happy
-        {} // Intentionally left uninitialized (for speed)
+  {}  // Intentionally left uninitialized (for speed)
   ParsedInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t)
-      : user_key(u), sequence(seq), type(t) { }
+      : user_key(u), sequence(seq), type(t) {}
   std::string DebugString(bool hex = false) const;
 
   void clear() {
@@ -160,13 +160,14 @@ class InternalKeyComparator
 #endif
     : public Comparator {
  private:
-  const Comparator* user_comparator_;
+  UserComparatorWrapper user_comparator_;
   std::string name_;
+
  public:
-  explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c),
-    name_("rocksdb.InternalKeyComparator:" +
-          std::string(user_comparator_->Name())) {
-  }
+  explicit InternalKeyComparator(const Comparator* c)
+      : user_comparator_(c),
+        name_("rocksdb.InternalKeyComparator:" +
+              std::string(user_comparator_.Name())) {}
   virtual ~InternalKeyComparator() {}
 
   virtual const char* Name() const override;
@@ -177,12 +178,14 @@ class InternalKeyComparator
                                      const Slice& limit) const override;
   virtual void FindShortSuccessor(std::string* key) const override;
 
-  const Comparator* user_comparator() const { return user_comparator_; }
+  const Comparator* user_comparator() const {
+    return user_comparator_.user_comparator();
+  }
 
   int Compare(const InternalKey& a, const InternalKey& b) const;
   int Compare(const ParsedInternalKey& a, const ParsedInternalKey& b) const;
   virtual const Comparator* GetRootComparator() const override {
-    return user_comparator_->GetRootComparator();
+    return user_comparator_.GetRootComparator();
   }
 };
 
@@ -192,8 +195,9 @@ class InternalKeyComparator
 class InternalKey {
  private:
   std::string rep_;
+
  public:
-  InternalKey() { }   // Leave rep_ as empty to indicate it is invalid
+  InternalKey() {}  // Leave rep_ as empty to indicate it is invalid
   InternalKey(const Slice& _user_key, SequenceNumber s, ValueType t) {
     AppendInternalKey(&rep_, ParsedInternalKey(_user_key, s, t));
   }
@@ -250,8 +254,8 @@ class InternalKey {
   std::string DebugString(bool hex = false) const;
 };
 
-inline int InternalKeyComparator::Compare(
-    const InternalKey& a, const InternalKey& b) const {
+inline int InternalKeyComparator::Compare(const InternalKey& a,
+                                          const InternalKey& b) const {
   return Compare(a.Encode(), b.Encode());
 }
 
@@ -288,7 +292,6 @@ inline uint64_t GetInternalKeySeqno(const Slice& internal_key) {
   return num >> 8;
 }
 
-
 // A helper class useful for DBImpl::Get()
 class LookupKey {
  public:
@@ -324,7 +327,7 @@ class LookupKey {
   const char* start_;
   const char* kstart_;
   const char* end_;
-  char space_[200];      // Avoid allocation for short keys
+  char space_[200];  // Avoid allocation for short keys
 
   // No copying allowed
   LookupKey(const LookupKey&);
@@ -633,14 +636,13 @@ struct RangeTombstone {
   }
 };
 
-inline
-int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
+inline int InternalKeyComparator::Compare(const Slice& akey,
+                                          const Slice& bkey) const {
   // Order by:
   //    increasing user key (according to user-supplied comparator)
   //    decreasing sequence number
   //    decreasing type (though sequence# should be enough to disambiguate)
-  int r = user_comparator_->Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
-  PERF_COUNTER_ADD(user_key_comparison_count, 1);
+  int r = user_comparator_.Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
   if (r == 0) {
     const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8);
     const uint64_t bnum = DecodeFixed64(bkey.data() + bkey.size() - 8);
@@ -653,14 +655,12 @@ int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
   return r;
 }
 
-inline
-int InternalKeyComparator::CompareKeySeq(const Slice& akey,
-                                         const Slice& bkey) const {
+inline int InternalKeyComparator::CompareKeySeq(const Slice& akey,
+                                                const Slice& bkey) const {
   // Order by:
   //    increasing user key (according to user-supplied comparator)
   //    decreasing sequence number
-  int r = user_comparator_->Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
-  PERF_COUNTER_ADD(user_key_comparison_count, 1);
+  int r = user_comparator_.Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
   if (r == 0) {
     // Shift the number to exclude the last byte which contains the value type
     const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8) >> 8;

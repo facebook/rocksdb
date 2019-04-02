@@ -15,10 +15,10 @@
 #endif
 
 #include <inttypes.h>
-#include <string>
-#include <map>
-#include <vector>
 #include <functional>
+#include <map>
+#include <string>
+#include <vector>
 
 #include "rocksdb/utilities/stackable_db.h"
 
@@ -257,8 +257,7 @@ class BackupEngine {
 
   // BackupableDBOptions have to be the same as the ones used in previous
   // BackupEngines for the same backup directory.
-  static Status Open(Env* db_env,
-                     const BackupableDBOptions& options,
+  static Status Open(Env* db_env, const BackupableDBOptions& options,
                      BackupEngine** backup_engine_ptr);
 
   // same as CreateNewBackup, but stores extra application metadata

@@ -172,4 +172,4 @@ class EnvLibrados : public EnvWrapper {
   librados::IoCtx* _GetIoctx(const std::string& prefix);
   friend class LibradosWritableFile;
 };
-}
+}  // namespace rocksdb

@@ -33,6 +33,7 @@
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
+#include "util/user_comparator_wrapper.h"
 
 namespace rocksdb {
 
@@ -52,8 +53,6 @@ struct BlockBasedTableOptions;
 struct EnvOptions;
 struct ReadOptions;
 class GetContext;
-
-using std::unique_ptr;
 
 typedef std::vector<std::pair<std::string, std::string>> KVPairBlock;
 
@@ -364,6 +363,9 @@ class BlockBasedTable : public TableReader {
   static Status ReadMetaBlock(Rep* rep, FilePrefetchBuffer* prefetch_buffer,
                               std::unique_ptr<Block>* meta_block,
                               std::unique_ptr<InternalIterator>* iter);
+  static Status TryReadPropertiesWithGlobalSeqno(
+      Rep* rep, FilePrefetchBuffer* prefetch_buffer, const Slice& handle_value,
+      TableProperties** table_properties);
   static Status ReadPropertiesBlock(Rep* rep,
                                     FilePrefetchBuffer* prefetch_buffer,
                                     InternalIterator* meta_iter,
@@ -382,7 +384,7 @@ class BlockBasedTable : public TableReader {
       const BlockBasedTableOptions& table_options, const int level,
       const bool prefetch_index_and_filter_in_cache);
 
-  Status VerifyChecksumInBlocks(InternalIteratorBase<Slice>* index_iter);
+  Status VerifyChecksumInMetaBlocks(InternalIteratorBase<Slice>* index_iter);
   Status VerifyChecksumInBlocks(InternalIteratorBase<BlockHandle>* index_iter);
 
   // Create the filter from the filter block.
@@ -394,10 +396,10 @@ class BlockBasedTable : public TableReader {
   static void SetupCacheKeyPrefix(Rep* rep, uint64_t file_size);
 
   // Generate a cache key prefix from the file
-  static void GenerateCachePrefix(Cache* cc,
-    RandomAccessFile* file, char* buffer, size_t* size);
-  static void GenerateCachePrefix(Cache* cc,
-    WritableFile* file, char* buffer, size_t* size);
+  static void GenerateCachePrefix(Cache* cc, RandomAccessFile* file,
+                                  char* buffer, size_t* size);
+  static void GenerateCachePrefix(Cache* cc, WritableFile* file, char* buffer,
+                                  size_t* size);
 
   // Helper functions for DumpTable()
   Status DumpIndexBlock(WritableFile* out_file);
@@ -579,6 +581,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
       : table_(table),
         read_options_(read_options),
         icomp_(icomp),
+        user_comparator_(icomp.user_comparator()),
         index_iter_(index_iter),
         pinned_iters_mgr_(nullptr),
         block_iter_points_to_real_block_(false),
@@ -620,6 +623,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
     }
   }
 
+  // Whether iterator invalidated for being out of bound.
   bool IsOutOfBound() override { return is_out_of_bound_; }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
@@ -670,11 +674,13 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   void InitDataBlock();
   void FindKeyForward();
   void FindKeyBackward();
+  void CheckOutOfBound();
 
  private:
   BlockBasedTable* table_;
   const ReadOptions read_options_;
   const InternalKeyComparator& icomp_;
+  UserComparatorWrapper user_comparator_;
   InternalIteratorBase<BlockHandle>* index_iter_;
   PinnedIteratorsManager* pinned_iters_mgr_;
   TBlockIter block_iter_;

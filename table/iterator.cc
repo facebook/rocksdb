@@ -157,10 +157,6 @@ class EmptyInternalIterator : public InternalIteratorBase<TValue> {
 };
 }  // namespace
 
-Iterator* NewEmptyIterator() {
-  return new EmptyIterator(Status::OK());
-}
-
 Iterator* NewErrorIterator(const Status& status) {
   return new EmptyIterator(status);
 }
@@ -180,7 +176,7 @@ InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status,
   if (arena == nullptr) {
     return NewErrorInternalIterator<TValue>(status);
   } else {
-    auto mem = arena->AllocateAligned(sizeof(EmptyIterator));
+    auto mem = arena->AllocateAligned(sizeof(EmptyInternalIterator<TValue>));
     return new (mem) EmptyInternalIterator<TValue>(status);
   }
 }
@@ -201,7 +197,7 @@ InternalIteratorBase<TValue>* NewEmptyInternalIterator(Arena* arena) {
   if (arena == nullptr) {
     return NewEmptyInternalIterator<TValue>();
   } else {
-    auto mem = arena->AllocateAligned(sizeof(EmptyIterator));
+    auto mem = arena->AllocateAligned(sizeof(EmptyInternalIterator<TValue>));
     return new (mem) EmptyInternalIterator<TValue>(Status::OK());
   }
 }

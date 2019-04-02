@@ -28,6 +28,7 @@
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 #include "util/trace_replay.h"
+#include "util/user_comparator_wrapper.h"
 
 namespace rocksdb {
 
@@ -306,7 +307,7 @@ class DBIter final: public Iterator {
   const SliceTransform* prefix_extractor_;
   Env* const env_;
   Logger* logger_;
-  const Comparator* const user_comparator_;
+  UserComparatorWrapper user_comparator_;
   const MergeOperator* const merge_operator_;
   InternalIterator* iter_;
   ReadCallback* read_callback_;
@@ -374,6 +375,7 @@ void DBIter::Next() {
   assert(valid_);
   assert(status_.ok());
 
+  PERF_CPU_TIMER_GUARD(iter_next_cpu_nanos, env_);
   // Release temporarily pinned blocks from last operation
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
@@ -454,7 +456,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
     }
 
     if (iterate_upper_bound_ != nullptr &&
-        user_comparator_->Compare(ikey_.user_key, *iterate_upper_bound_) >= 0) {
+        user_comparator_.Compare(ikey_.user_key, *iterate_upper_bound_) >= 0) {
       break;
     }
 
@@ -469,8 +471,8 @@ bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
     }
 
     if (IsVisible(ikey_.sequence)) {
-      if (skipping && user_comparator_->Compare(ikey_.user_key,
-                                                saved_key_.GetUserKey()) <= 0) {
+      if (skipping && user_comparator_.Compare(ikey_.user_key,
+                                               saved_key_.GetUserKey()) <= 0) {
         num_skipped++;  // skip this entry
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
       } else {
@@ -577,7 +579,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
       // If this happens too many times in a row for the same user key, we want
       // to seek to the target sequence number.
       int cmp =
-          user_comparator_->Compare(ikey_.user_key, saved_key_.GetUserKey());
+          user_comparator_.Compare(ikey_.user_key, saved_key_.GetUserKey());
       if (cmp == 0 || (skipping && cmp <= 0)) {
         num_skipped++;
       } else {
@@ -653,7 +655,7 @@ bool DBIter::MergeValuesNewToOld() {
       return false;
     }
 
-    if (!user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
+    if (!user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
       // hit the next user key, stop right here
       break;
     } else if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type ||
@@ -731,6 +733,8 @@ bool DBIter::MergeValuesNewToOld() {
 void DBIter::Prev() {
   assert(valid_);
   assert(status_.ok());
+
+  PERF_CPU_TIMER_GUARD(iter_prev_cpu_nanos, env_);
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
   bool ok = true;
@@ -771,8 +775,7 @@ bool DBIter::ReverseToForward() {
     if (!ParseKey(&ikey)) {
       return false;
     }
-    if (user_comparator_->Compare(ikey.user_key, saved_key_.GetUserKey()) >=
-        0) {
+    if (user_comparator_.Compare(ikey.user_key, saved_key_.GetUserKey()) >= 0) {
       return true;
     }
     iter_->Next();
@@ -835,8 +838,8 @@ void DBIter::PrevInternal() {
     }
 
     if (iterate_lower_bound_ != nullptr &&
-        user_comparator_->Compare(saved_key_.GetUserKey(),
-                                  *iterate_lower_bound_) < 0) {
+        user_comparator_.Compare(saved_key_.GetUserKey(),
+                                 *iterate_lower_bound_) < 0) {
       // We've iterated earlier than the user-specified lower bound.
       valid_ = false;
       return;
@@ -897,7 +900,7 @@ bool DBIter::FindValueForCurrentKey() {
     }
 
     if (!IsVisible(ikey.sequence) ||
-        !user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
+        !user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
       break;
     }
     if (TooManyInternalKeysSkipped()) {
@@ -1050,7 +1053,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     if (!ParseKey(&ikey)) {
       return false;
     }
-    if (!user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
+    if (!user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
       // No visible values for this key, even though FindValueForCurrentKey()
       // has seen some. This is possible if we're using a tailing iterator, and
       // the entries were discarded in a compaction.
@@ -1106,7 +1109,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     if (!ParseKey(&ikey)) {
       return false;
     }
-    if (!user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
+    if (!user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
       break;
     }
 
@@ -1188,7 +1191,7 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
       return false;
     }
 
-    if (user_comparator_->Compare(ikey.user_key, saved_key_.GetUserKey()) < 0) {
+    if (user_comparator_.Compare(ikey.user_key, saved_key_.GetUserKey()) < 0) {
       return true;
     }
 
@@ -1261,6 +1264,7 @@ SequenceNumber DBIter::MaxVisibleSequenceNumber() {
 }
 
 void DBIter::Seek(const Slice& target) {
+  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
   StopWatch sw(env_, statistics_, DB_SEEK);
   status_ = Status::OK();
   ReleaseTempPinnedData();
@@ -1277,8 +1281,8 @@ void DBIter::Seek(const Slice& target) {
 #endif  // ROCKSDB_LITE
 
   if (iterate_lower_bound_ != nullptr &&
-      user_comparator_->Compare(saved_key_.GetUserKey(),
-                                *iterate_lower_bound_) < 0) {
+      user_comparator_.Compare(saved_key_.GetUserKey(), *iterate_lower_bound_) <
+          0) {
     saved_key_.Clear();
     saved_key_.SetInternalKey(*iterate_lower_bound_, seq);
   }
@@ -1318,6 +1322,7 @@ void DBIter::Seek(const Slice& target) {
 }
 
 void DBIter::SeekForPrev(const Slice& target) {
+  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
   StopWatch sw(env_, statistics_, DB_SEEK);
   status_ = Status::OK();
   ReleaseTempPinnedData();
@@ -1328,8 +1333,8 @@ void DBIter::SeekForPrev(const Slice& target) {
                             kValueTypeForSeekForPrev);
 
   if (iterate_upper_bound_ != nullptr &&
-      user_comparator_->Compare(saved_key_.GetUserKey(),
-                                *iterate_upper_bound_) >= 0) {
+      user_comparator_.Compare(saved_key_.GetUserKey(),
+                               *iterate_upper_bound_) >= 0) {
     saved_key_.Clear();
     saved_key_.SetInternalKey(*iterate_upper_bound_, kMaxSequenceNumber);
   }
@@ -1378,6 +1383,7 @@ void DBIter::SeekToFirst() {
     Seek(*iterate_lower_bound_);
     return;
   }
+  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
   if (prefix_extractor_ != nullptr && !total_order_seek_) {
@@ -1422,13 +1428,14 @@ void DBIter::SeekToLast() {
   if (iterate_upper_bound_ != nullptr) {
     // Seek to last key strictly less than ReadOptions.iterate_upper_bound.
     SeekForPrev(*iterate_upper_bound_);
-    if (Valid() && user_comparator_->Equal(*iterate_upper_bound_, key())) {
+    if (Valid() && user_comparator_.Equal(*iterate_upper_bound_, key())) {
       ReleaseTempPinnedData();
       PrevInternal();
     }
     return;
   }
 
+  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
   if (prefix_extractor_ != nullptr && !total_order_seek_) {

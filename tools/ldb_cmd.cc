@@ -132,12 +132,19 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
   for (const auto& arg : args) {
     if (arg[0] == '-' && arg[1] == '-'){
       std::vector<std::string> splits = StringSplit(arg, '=');
+      // --option_name=option_value
       if (splits.size() == 2) {
         std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
         parsed_params.option_map[optionKey] = splits[1];
-      } else {
+      } else if (splits.size() == 1) {
+        // --flag_name
         std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
         parsed_params.flags.push_back(optionKey);
+      } else {
+        // --option_name=option_value, option_value contains '='
+        std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
+        parsed_params.option_map[optionKey] =
+            arg.substr(splits[0].length() + 1);
       }
     } else {
       cmdTokens.push_back(arg);
@@ -2007,8 +2014,7 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
       log_number = 0;
     }
     log::Reader reader(options.info_log, std::move(wal_file_reader), &reporter,
-                       true /* checksum */, log_number,
-                       false /* retry_after_eof */);
+                       true /* checksum */, log_number);
     std::string scratch;
     WriteBatch batch;
     Slice record;

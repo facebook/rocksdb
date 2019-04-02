@@ -96,6 +96,12 @@ class LDBCommand {
     ldb_options_ = ldb_options;
   }
 
+  const std::map<std::string, std::string>& TEST_GetOptionMap() {
+    return option_map_;
+  }
+
+  const std::vector<std::string>& TEST_GetFlags() { return flags_; }
+
   virtual bool NoDBOpen() { return false; }
 
   virtual ~LDBCommand() { CloseDB(); }

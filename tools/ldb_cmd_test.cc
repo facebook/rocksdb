@@ -81,6 +81,43 @@ TEST_F(LdbCmdTest, MemEnv) {
   tool.Run(3, argv, opts);
 }
 
+TEST_F(LdbCmdTest, OptionParsing) {
+  // test parsing flags
+  {
+    std::vector<std::string> args;
+    args.push_back("scan");
+    args.push_back("--ttl");
+    args.push_back("--timestamp");
+    LDBCommand* command = rocksdb::LDBCommand::InitFromCmdLineArgs(
+        args, Options(), LDBOptions(), nullptr);
+    const std::vector<std::string> flags = command->TEST_GetFlags();
+    EXPECT_EQ(flags.size(), 2);
+    EXPECT_EQ(flags[0], "ttl");
+    EXPECT_EQ(flags[1], "timestamp");
+    delete command;
+  }
+  // test parsing options which contains equal sign in the option value
+  {
+    std::vector<std::string> args;
+    args.push_back("scan");
+    args.push_back("--db=/dev/shm/ldbtest/");
+    args.push_back(
+        "--from='abcd/efg/hijk/lmn/"
+        "opq:__rst.uvw.xyz?a=3+4+bcd+efghi&jk=lm_no&pq=rst-0&uv=wx-8&yz=a&bcd_"
+        "ef=gh.ijk'");
+    LDBCommand* command = rocksdb::LDBCommand::InitFromCmdLineArgs(
+        args, Options(), LDBOptions(), nullptr);
+    const std::map<std::string, std::string> option_map =
+        command->TEST_GetOptionMap();
+    EXPECT_EQ(option_map.at("db"), "/dev/shm/ldbtest/");
+    EXPECT_EQ(option_map.at("from"),
+              "'abcd/efg/hijk/lmn/"
+              "opq:__rst.uvw.xyz?a=3+4+bcd+efghi&jk=lm_no&pq=rst-0&uv=wx-8&yz="
+              "a&bcd_ef=gh.ijk'");
+    delete command;
+  }
+}
+
 } // namespace rocksdb
 
 int main(int argc, char** argv) {

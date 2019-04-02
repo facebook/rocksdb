@@ -24,10 +24,10 @@
 
 #pragma once
 
+#include <stdint.h>
 #include <atomic>
 #include <stack>
 #include <string>
-#include <stdint.h>
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch_base.h"
 

@@ -19,6 +19,7 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "table/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
 #include "util/cast_util.h"
@@ -131,6 +132,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.two_write_queues = immutable_db_options.two_write_queues;
   options.manual_wal_flush = immutable_db_options.manual_wal_flush;
   options.atomic_flush = immutable_db_options.atomic_flush;
+  options.avoid_unnecessary_blocking_io =
+      immutable_db_options.avoid_unnecessary_blocking_io;
 
   return options;
 }
@@ -239,6 +242,9 @@ std::unordered_map<std::string, CompressionType>
         {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
         {"kDisableCompressionOption", kDisableCompressionOption}};
 #ifndef ROCKSDB_LITE
+
+const std::string kNameComparator = "comparator";
+const std::string kNameMergeOperator = "merge_operator";
 
 template <typename T>
 Status GetStringFromStruct(
@@ -1013,6 +1019,26 @@ Status ParseColumnFamilyOption(const std::string& name,
         return s;
       }
     } else {
+      if (name == kNameComparator) {
+        // Try to get comparator from object registry first.
+        std::unique_ptr<const Comparator> comp_guard;
+        const Comparator* comp =
+            NewCustomObject<const Comparator>(value, &comp_guard);
+        // Only support static comparator for now.
+        if (comp != nullptr && !comp_guard) {
+          new_options->comparator = comp;
+        }
+      } else if (name == kNameMergeOperator) {
+        // Try to get merge operator from object registry first.
+        std::unique_ptr<std::shared_ptr<MergeOperator>> mo_guard;
+        std::shared_ptr<MergeOperator>* mo =
+            NewCustomObject<std::shared_ptr<MergeOperator>>(value, &mo_guard);
+        // Only support static comparator for now.
+        if (mo != nullptr) {
+          new_options->merge_operator = *mo;
+        }
+      }
+
       auto iter = cf_options_type_info.find(name);
       if (iter == cf_options_type_info.end()) {
         return Status::InvalidArgument(
@@ -1591,7 +1617,12 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"atomic_flush",
          {offsetof(struct DBOptions, atomic_flush), OptionType::kBoolean,
           OptionVerificationType::kNormal, false,
-          offsetof(struct ImmutableDBOptions, atomic_flush)}}};
+          offsetof(struct ImmutableDBOptions, atomic_flush)}},
+        {"avoid_unnecessary_blocking_io",
+         {offsetof(struct DBOptions, avoid_unnecessary_blocking_io),
+          OptionType::kBoolean, OptionVerificationType::kNormal, false,
+          offsetof(struct ImmutableDBOptions, avoid_unnecessary_blocking_io)}}
+      };
 
 std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
     OptionsHelper::block_base_table_index_type_string_map = {
@@ -1876,7 +1907,7 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::bottommost_compression),
           OptionType::kCompressionType, OptionVerificationType::kNormal, false,
           0}},
-        {"comparator",
+        {kNameComparator,
          {offset_of(&ColumnFamilyOptions::comparator), OptionType::kComparator,
           OptionVerificationType::kByName, false, 0}},
         {"prefix_extractor",
@@ -1904,7 +1935,7 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::compaction_filter_factory),
           OptionType::kCompactionFilterFactory, OptionVerificationType::kByName,
           false, 0}},
-        {"merge_operator",
+        {kNameMergeOperator,
          {offset_of(&ColumnFamilyOptions::merge_operator),
           OptionType::kMergeOperator,
           OptionVerificationType::kByNameAllowFromNull, false, 0}},

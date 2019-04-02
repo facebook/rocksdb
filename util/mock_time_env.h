@@ -31,6 +31,8 @@ class MockTimeEnv : public EnvWrapper {
     return current_time_ * 1000000000;
   }
 
+  uint64_t RealNowMicros() { return target()->NowMicros(); }
+
   void set_current_time(uint64_t time) {
     assert(time >= current_time_);
     current_time_ = time;

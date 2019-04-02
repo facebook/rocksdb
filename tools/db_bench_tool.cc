@@ -1222,7 +1222,7 @@ class ReportFileOpEnv : public EnvWrapper {
       ReportFileOpCounters* counters_;
 
      public:
-      CountingFile(unique_ptr<SequentialFile>&& target,
+      CountingFile(std::unique_ptr<SequentialFile>&& target,
                    ReportFileOpCounters* counters)
           : target_(std::move(target)), counters_(counters) {}
 
@@ -1254,7 +1254,7 @@ class ReportFileOpEnv : public EnvWrapper {
       ReportFileOpCounters* counters_;
 
      public:
-      CountingFile(unique_ptr<RandomAccessFile>&& target,
+      CountingFile(std::unique_ptr<RandomAccessFile>&& target,
                    ReportFileOpCounters* counters)
           : target_(std::move(target)), counters_(counters) {}
       Status Read(uint64_t offset, size_t n, Slice* result,
@@ -1283,7 +1283,7 @@ class ReportFileOpEnv : public EnvWrapper {
       ReportFileOpCounters* counters_;
 
      public:
-      CountingFile(unique_ptr<WritableFile>&& target,
+      CountingFile(std::unique_ptr<WritableFile>&& target,
                    ReportFileOpCounters* counters)
           : target_(std::move(target)), counters_(counters) {}
 

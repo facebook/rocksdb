@@ -78,15 +78,15 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   const ImmutableDBOptions* options_;
   const TransactionLogIterator::ReadOptions read_options_;
   const EnvOptions& soptions_;
-  SequenceNumber startingSequenceNumber_;
+  SequenceNumber starting_sequence_number_;
   std::unique_ptr<VectorLogPtr> files_;
   bool started_;
-  bool isValid_;  // not valid when it starts of.
-  Status currentStatus_;
-  size_t currentFileIndex_;
-  std::unique_ptr<WriteBatch> currentBatch_;
-  std::unique_ptr<log::Reader> currentLogReader_;
-  Status OpenLogFile(const LogFile* logFile,
+  bool is_valid_;  // not valid when it starts of.
+  Status current_status_;
+  size_t current_file_index_;
+  std::unique_ptr<WriteBatch> current_batch_;
+  std::unique_ptr<log::Reader> current_log_reader_;
+  Status OpenLogFile(const LogFile* log_file,
                      std::unique_ptr<SequentialFileReader>* file);
 
   struct LogReporter : public log::Reader::Reporter {
@@ -99,8 +99,9 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
     virtual void Info(const char* s) { ROCKS_LOG_INFO(info_log, "%s", s); }
   } reporter_;
 
-  SequenceNumber currentBatchSeq_; // sequence number at start of current batch
-  SequenceNumber currentLastSeq_; // last sequence in the current batch
+  SequenceNumber
+      current_batch_seq_;  // sequence number at start of current batch
+  SequenceNumber current_last_seq_;  // last sequence in the current batch
   // Used only to get latest seq. num
   // TODO(icanadi) can this be just a callback?
   VersionSet const* const versions_;
@@ -109,14 +110,14 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   bool RestrictedRead(Slice* record, std::string* scratch);
   // Seeks to startingSequenceNumber reading from startFileIndex in files_.
   // If strict is set,then must get a batch starting with startingSequenceNumber
-  void SeekToStartSequence(uint64_t startFileIndex = 0, bool strict = false);
+  void SeekToStartSequence(uint64_t start_file_index = 0, bool strict = false);
   // Implementation of Next. SeekToStartSequence calls it internally with
   // internal=true to let it find next entry even if it has to jump gaps because
   // the iterator may start off from the first available entry but promises to
   // be continuous after that
   void NextImpl(bool internal = false);
   // Check if batch is expected, else return false
-  bool IsBatchExpected(const WriteBatch* batch, SequenceNumber expectedSeq);
+  bool IsBatchExpected(const WriteBatch* batch, SequenceNumber expected_seq);
   // Update current batch if a continuous batch is found, else return false
   void UpdateCurrentWriteBatch(const Slice& record);
   Status OpenLogReader(const LogFile* file);

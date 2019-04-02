@@ -22,8 +22,8 @@ struct SstFileMetaData;
 struct ColumnFamilyMetaData {
   ColumnFamilyMetaData() : size(0), file_count(0), name("") {}
   ColumnFamilyMetaData(const std::string& _name, uint64_t _size,
-                       const std::vector<LevelMetaData>&& _levels) :
-      size(_size), name(_name), levels(_levels) {}
+                       const std::vector<LevelMetaData>&& _levels)
+      : size(_size), name(_name), levels(_levels) {}
 
   // The size of this column family in bytes, which is equal to the sum of
   // the file size of its "levels".
@@ -39,9 +39,8 @@ struct ColumnFamilyMetaData {
 // The metadata that describes a level.
 struct LevelMetaData {
   LevelMetaData(int _level, uint64_t _size,
-                const std::vector<SstFileMetaData>&& _files) :
-      level(_level), size(_size),
-      files(_files) {}
+                const std::vector<SstFileMetaData>&& _files)
+      : level(_level), size(_size), files(_files) {}
 
   // The level which this meta data describes.
   const int level;
@@ -94,9 +93,9 @@ struct SstFileMetaData {
 
   SequenceNumber smallest_seqno;  // Smallest sequence number in file.
   SequenceNumber largest_seqno;   // Largest sequence number in file.
-  std::string smallestkey;     // Smallest user defined key in the file.
-  std::string largestkey;      // Largest user defined key in the file.
-  uint64_t num_reads_sampled;  // How many times the file is read.
+  std::string smallestkey;        // Smallest user defined key in the file.
+  std::string largestkey;         // Largest user defined key in the file.
+  uint64_t num_reads_sampled;     // How many times the file is read.
   bool being_compacted;  // true if the file is currently being compacted.
 
   uint64_t num_entries;
@@ -106,7 +105,7 @@ struct SstFileMetaData {
 // The full set of metadata associated with each SST file.
 struct LiveFileMetaData : SstFileMetaData {
   std::string column_family_name;  // Name of the column family
-  int level;               // Level at which this file resides.
+  int level;                       // Level at which this file resides.
   LiveFileMetaData() : column_family_name(), level(0) {}
 };
 }  // namespace rocksdb

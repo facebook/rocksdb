@@ -98,6 +98,7 @@ cpp_library(
         "db/db_impl_files.cc",
         "db/db_impl_open.cc",
         "db/db_impl_readonly.cc",
+        "db/db_impl_secondary.cc",
         "db/db_impl_write.cc",
         "db/db_info_dumper.cc",
         "db/db_iter.cc",
@@ -603,6 +604,11 @@ ROCKS_TESTS = [
     [
         "db_range_del_test",
         "db/db_range_del_test.cc",
+        "serial",
+    ],
+    [
+        "db_secondary_test",
+        "db/db_secondary_test.cc",
         "serial",
     ],
     [

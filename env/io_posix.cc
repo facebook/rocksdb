@@ -265,7 +265,6 @@ size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
 
   struct stat buf;
   int result = fstat(fd, &buf);
-  assert(result != -1);
   if (result == -1) {
     return 0;
   }
@@ -826,7 +825,7 @@ Status PosixWritableFile::Close() {
     int dummy __attribute__((__unused__));
     dummy = ftruncate(fd_, filesize_);
 #if defined(ROCKSDB_FALLOCATE_PRESENT) && defined(FALLOC_FL_PUNCH_HOLE) && \
-        !defined(TRAVIS)
+    !defined(TRAVIS)
     // in some file systems, ftruncate only trims trailing space if the
     // new file size is smaller than the current size. Calling fallocate
     // with FALLOC_FL_PUNCH_HOLE flag to explicitly release these unused

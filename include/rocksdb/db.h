@@ -58,8 +58,6 @@ class TraceWriter;
 class CompactionJobInfo;
 #endif
 
-using std::unique_ptr;
-
 extern const std::string kDefaultColumnFamilyName;
 struct ColumnFamilyDescriptor {
   std::string name;
@@ -99,16 +97,16 @@ struct Range {
   Slice start;
   Slice limit;
 
-  Range() { }
-  Range(const Slice& s, const Slice& l) : start(s), limit(l) { }
+  Range() {}
+  Range(const Slice& s, const Slice& l) : start(s), limit(l) {}
 };
 
 struct RangePtr {
   const Slice* start;
   const Slice* limit;
 
-  RangePtr() : start(nullptr), limit(nullptr) { }
-  RangePtr(const Slice* s, const Slice* l) : start(s), limit(l) { }
+  RangePtr() : start(nullptr), limit(nullptr) {}
+  RangePtr(const Slice* s, const Slice* l) : start(s), limit(l) {}
 };
 
 struct IngestExternalFileArg {
@@ -133,8 +131,7 @@ class DB {
   // OK on success.
   // Stores nullptr in *dbptr and returns a non-OK status on error.
   // Caller should delete *dbptr when it is no longer needed.
-  static Status Open(const Options& options,
-                     const std::string& name,
+  static Status Open(const Options& options, const std::string& name,
                      DB** dbptr);
 
   // Open the database for read only. All DB interfaces
@@ -144,9 +141,9 @@ class DB {
   //
   // Not supported in ROCKSDB_LITE, in which case the function will
   // return Status::NotSupported.
-  static Status OpenForReadOnly(const Options& options,
-      const std::string& name, DB** dbptr,
-      bool error_if_log_file_exist = false);
+  static Status OpenForReadOnly(const Options& options, const std::string& name,
+                                DB** dbptr,
+                                bool error_if_log_file_exist = false);
 
   // Open the database for read only with column families. When opening DB with
   // read only, you can specify only a subset of column families in the
@@ -161,6 +158,54 @@ class DB {
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
       bool error_if_log_file_exist = false);
+
+  // The following OpenAsSecondary functions create a secondary instance that
+  // can dynamically tail the MANIFEST of a primary that must have already been
+  // created. User can call TryCatchUpWithPrimary to make the secondary
+  // instance catch up with primary (WAL tailing is NOT supported now) whenever
+  // the user feels necessary. Column families created by the primary after the
+  // secondary instance starts are currently ignored by the secondary instance.
+  // Column families opened by secondary and dropped by the primary will be
+  // dropped by secondary as well. However the user of the secondary instance
+  // can still access the data of such dropped column family as long as they
+  // do not destroy the corresponding column family handle.
+  // WAL tailing is not supported at present, but will arrive soon.
+  //
+  // The options argument specifies the options to open the secondary instance.
+  // The name argument specifies the name of the primary db that you have used
+  // to open the primary instance.
+  // The secondary_path argument points to a directory where the secondary
+  // instance stores its info log.
+  // The dbptr is an out-arg corresponding to the opened secondary instance.
+  // The pointer points to a heap-allocated database, and the user should
+  // delete it after use.
+  // Open DB as secondary instance with only the default column family.
+  // Return OK on success, non-OK on failures.
+  static Status OpenAsSecondary(const Options& options, const std::string& name,
+                                const std::string& secondary_path, DB** dbptr);
+
+  // Open DB as secondary instance with column families. You can open a subset
+  // of column families in secondary mode.
+  // The db_options specify the database specific options.
+  // The name argument specifies the name of the primary db that you have used
+  // to open the primary instance.
+  // The secondary_path argument points to a directory where the secondary
+  // instance stores its info log.
+  // The column_families argument specifieds a list of column families to open.
+  // If any of the column families does not exist, the function returns non-OK
+  // status.
+  // The handles is an out-arg corresponding to the opened database column
+  // familiy handles.
+  // The dbptr is an out-arg corresponding to the opened secondary instance.
+  // The pointer points to a heap-allocated database, and the caller should
+  // delete it after use. Before deleting the dbptr, the user should also
+  // delete the pointers stored in handles vector.
+  // Return OK on success, on-OK on failures.
+  static Status OpenAsSecondary(
+      const DBOptions& db_options, const std::string& name,
+      const std::string& secondary_path,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
 
   // Open DB with column families.
   // db_options specify database specific options
@@ -200,7 +245,7 @@ class DB {
                                    const std::string& name,
                                    std::vector<std::string>* column_families);
 
-  DB() { }
+  DB() {}
   virtual ~DB();
 
   // Create a column_family and return the handle of column family
@@ -348,7 +393,8 @@ class DB {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) = 0;
-  virtual Status Get(const ReadOptions& options, const Slice& key, std::string* value) {
+  virtual Status Get(const ReadOptions& options, const Slice& key,
+                     std::string* value) {
     return Get(options, DefaultColumnFamily(), key, value);
   }
 
@@ -369,9 +415,10 @@ class DB {
   virtual std::vector<Status> MultiGet(const ReadOptions& options,
                                        const std::vector<Slice>& keys,
                                        std::vector<std::string>* values) {
-    return MultiGet(options, std::vector<ColumnFamilyHandle*>(
-                                 keys.size(), DefaultColumnFamily()),
-                    keys, values);
+    return MultiGet(
+        options,
+        std::vector<ColumnFamilyHandle*>(keys.size(), DefaultColumnFamily()),
+        keys, values);
   }
 
   // If the key definitely does not exist in the database, then this method
@@ -733,13 +780,10 @@ class DB {
   // include_flags should be of type DB::SizeApproximationFlags
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes,
-                                   uint8_t include_flags
-                                   = INCLUDE_FILES) = 0;
+                                   uint8_t include_flags = INCLUDE_FILES) = 0;
   virtual void GetApproximateSizes(const Range* range, int n, uint64_t* sizes,
-                                   uint8_t include_flags
-                                   = INCLUDE_FILES) {
-    GetApproximateSizes(DefaultColumnFamily(), range, n, sizes,
-                        include_flags);
+                                   uint8_t include_flags = INCLUDE_FILES) {
+    GetApproximateSizes(DefaultColumnFamily(), range, n, sizes, include_flags);
   }
 
   // The method is similar to GetApproximateSizes, except it
@@ -756,8 +800,7 @@ class DB {
 
   // Deprecated versions of GetApproximateSizes
   ROCKSDB_DEPRECATED_FUNC virtual void GetApproximateSizes(
-      const Range* range, int n, uint64_t* sizes,
-      bool include_memtable) {
+      const Range* range, int n, uint64_t* sizes, bool include_memtable) {
     uint8_t include_flags = SizeApproximationFlags::INCLUDE_FILES;
     if (include_memtable) {
       include_flags |= SizeApproximationFlags::INCLUDE_MEMTABLES;
@@ -765,9 +808,8 @@ class DB {
     GetApproximateSizes(DefaultColumnFamily(), range, n, sizes, include_flags);
   }
   ROCKSDB_DEPRECATED_FUNC virtual void GetApproximateSizes(
-      ColumnFamilyHandle* column_family,
-      const Range* range, int n, uint64_t* sizes,
-      bool include_memtable) {
+      ColumnFamilyHandle* column_family, const Range* range, int n,
+      uint64_t* sizes, bool include_memtable) {
     uint8_t include_flags = SizeApproximationFlags::INCLUDE_FILES;
     if (include_memtable) {
       include_flags |= SizeApproximationFlags::INCLUDE_MEMTABLES;
@@ -1027,8 +1069,7 @@ class DB {
                                        ColumnFamilyMetaData* /*metadata*/) {}
 
   // Get the metadata of the default column family.
-  void GetColumnFamilyMetaData(
-      ColumnFamilyMetaData* metadata) {
+  void GetColumnFamilyMetaData(ColumnFamilyMetaData* metadata) {
     GetColumnFamilyMetaData(DefaultColumnFamily(), metadata);
   }
 
@@ -1229,11 +1270,28 @@ class DB {
 
   // Given a time window, return an iterator for accessing stats history
   // User is responsible for deleting StatsHistoryIterator after use
-  virtual Status GetStatsHistory(uint64_t /*start_time*/,
-      uint64_t /*end_time*/,
+  virtual Status GetStatsHistory(
+      uint64_t /*start_time*/, uint64_t /*end_time*/,
       std::unique_ptr<StatsHistoryIterator>* /*stats_iterator*/) {
     return Status::NotSupported("GetStatsHistory() is not implemented.");
   }
+
+#ifndef ROCKSDB_LITE
+  // Make the secondary instance catch up with the primary by tailing and
+  // replaying the MANIFEST and WAL of the primary.
+  // Column families created by the primary after the secondary instance starts
+  // will be ignored unless the secondary instance closes and restarts with the
+  // newly created column families.
+  // Column families that exist before secondary instance starts and dropped by
+  // the primary afterwards will be marked as dropped. However, as long as the
+  // secondary instance does not delete the corresponding column family
+  // handles, the data of the column family is still accessible to the
+  // secondary.
+  // TODO: we will support WAL tailing soon.
+  virtual Status TryCatchUpWithPrimary() {
+    return Status::NotSupported("Supported only by secondary instance");
+  }
+#endif  // !ROCKSDB_LITE
 
  private:
   // No copying allowed
@@ -1245,7 +1303,7 @@ class DB {
 // Be very careful using this method.
 Status DestroyDB(const std::string& name, const Options& options,
                  const std::vector<ColumnFamilyDescriptor>& column_families =
-                   std::vector<ColumnFamilyDescriptor>());
+                     std::vector<ColumnFamilyDescriptor>());
 
 #ifndef ROCKSDB_LITE
 // If a DB cannot be opened, you may attempt to call this method to

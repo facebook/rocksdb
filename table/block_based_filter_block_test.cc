@@ -148,8 +148,8 @@ class BlockBasedFilterBlockTest : public testing::Test {
 };
 
 TEST_F(BlockBasedFilterBlockTest, BlockBasedEmptyBuilder) {
-  FilterBlockBuilder* builder = new BlockBasedFilterBlockBuilder(
-      nullptr, table_options_);
+  FilterBlockBuilder* builder =
+      new BlockBasedFilterBlockBuilder(nullptr, table_options_);
   BlockContents block(builder->Finish());
   ASSERT_EQ("\\x00\\x00\\x00\\x00\\x0b", EscapeString(block.data));
   FilterBlockReader* reader = new BlockBasedFilterBlockReader(
@@ -162,8 +162,8 @@ TEST_F(BlockBasedFilterBlockTest, BlockBasedEmptyBuilder) {
 }
 
 TEST_F(BlockBasedFilterBlockTest, BlockBasedSingleChunk) {
-  FilterBlockBuilder* builder = new BlockBasedFilterBlockBuilder(
-      nullptr, table_options_);
+  FilterBlockBuilder* builder =
+      new BlockBasedFilterBlockBuilder(nullptr, table_options_);
   builder->StartBlock(100);
   builder->Add("foo");
   builder->Add("bar");
@@ -188,8 +188,8 @@ TEST_F(BlockBasedFilterBlockTest, BlockBasedSingleChunk) {
 }
 
 TEST_F(BlockBasedFilterBlockTest, BlockBasedMultiChunk) {
-  FilterBlockBuilder* builder = new BlockBasedFilterBlockBuilder(
-      nullptr, table_options_);
+  FilterBlockBuilder* builder =
+      new BlockBasedFilterBlockBuilder(nullptr, table_options_);
 
   // First filter
   builder->StartBlock(0);
