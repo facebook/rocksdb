@@ -276,6 +276,7 @@ class KeyConvertingIterator : public InternalIterator {
   void SeekToLast() override { iter_->SeekToLast(); }
   void Next() override { iter_->Next(); }
   void Prev() override { iter_->Prev(); }
+  bool IsOutOfBound() override { return iter_->IsOutOfBound(); }
 
   Slice key() const override {
     assert(Valid());
@@ -3851,9 +3852,11 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnSeek) {
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
   Options options;
+  BlockBasedTableOptions table_opt(GetBlockBasedTableOptions());
+  options.table_factory.reset(NewBlockBasedTableFactory(table_opt));
   const ImmutableCFOptions ioptions(options);
   const MutableCFOptions moptions(options);
-  c.Finish(options, ioptions, moptions, BlockBasedTableOptions(),
+  c.Finish(options, ioptions, moptions, table_opt,
            GetPlainInternalComparator(BytewiseComparator()), &keys, &kvmap);
   auto* reader = c.GetTableReader();
   ReadOptions read_opt;
@@ -3865,7 +3868,8 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnSeek) {
   iter->SeekToFirst();
   ASSERT_FALSE(iter->Valid());
   ASSERT_TRUE(iter->IsOutOfBound());
-  iter.reset(reader->NewIterator(read_opt, nullptr /*prefix_extractor*/));
+  iter.reset(new KeyConvertingIterator(
+      reader->NewIterator(read_opt, nullptr /*prefix_extractor*/)));
   iter->Seek("foo");
   ASSERT_FALSE(iter->Valid());
   ASSERT_TRUE(iter->IsOutOfBound());

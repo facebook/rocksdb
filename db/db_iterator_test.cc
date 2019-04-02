@@ -1027,45 +1027,48 @@ TEST_P(DBIteratorTest, DBIteratorBoundMultiSeek) {
 #endif
 
 TEST_P(DBIteratorTest, DBIteratorBoundOptimizationTest) {
-  int upper_bound_hits = 0;
-  Options options = CurrentOptions();
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "BlockBasedTableIterator:out_of_bound",
-      [&upper_bound_hits](void*) { upper_bound_hits++; });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-  options.env = env_;
-  options.create_if_missing = true;
-  options.prefix_extractor = nullptr;
-  BlockBasedTableOptions table_options;
-  table_options.flush_block_policy_factory =
-    std::make_shared<FlushBlockEveryKeyPolicyFactory>();
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  for (auto format_version : {2, 3, 4}) {
+    int upper_bound_hits = 0;
+    Options options = CurrentOptions();
+    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+        "BlockBasedTableIterator:out_of_bound",
+        [&upper_bound_hits](void*) { upper_bound_hits++; });
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    options.env = env_;
+    options.create_if_missing = true;
+    options.prefix_extractor = nullptr;
+    BlockBasedTableOptions table_options;
+    table_options.format_version = format_version;
+    table_options.flush_block_policy_factory =
+        std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-  DestroyAndReopen(options);
-  ASSERT_OK(Put("foo1", "bar1"));
-  ASSERT_OK(Put("foo2", "bar2"));
-  ASSERT_OK(Put("foo4", "bar4"));
-  ASSERT_OK(Flush());
+    DestroyAndReopen(options);
+    ASSERT_OK(Put("foo1", "bar1"));
+    ASSERT_OK(Put("foo2", "bar2"));
+    ASSERT_OK(Put("foo4", "bar4"));
+    ASSERT_OK(Flush());
 
-  Slice ub("foo3");
-  ReadOptions ro;
-  ro.iterate_upper_bound = &ub;
+    Slice ub("foo3");
+    ReadOptions ro;
+    ro.iterate_upper_bound = &ub;
 
-  std::unique_ptr<Iterator> iter(NewIterator(ro));
+    std::unique_ptr<Iterator> iter(NewIterator(ro));
 
-  iter->Seek("foo");
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(iter->key().compare(Slice("foo1")), 0);
-  ASSERT_EQ(upper_bound_hits, 0);
+    iter->Seek("foo");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo1")), 0);
+    ASSERT_EQ(upper_bound_hits, 0);
 
-  iter->Next();
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(iter->key().compare(Slice("foo2")), 0);
-  ASSERT_EQ(upper_bound_hits, 0);
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo2")), 0);
+    ASSERT_EQ(upper_bound_hits, 0);
 
-  iter->Next();
-  ASSERT_FALSE(iter->Valid());
-  ASSERT_EQ(upper_bound_hits, 1);
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_EQ(upper_bound_hits, 1);
+  }
 }
 // TODO(3.13): fix the issue of Seek() + Prev() which might not necessary
 //             return the biggest key which is smaller than the seek key.

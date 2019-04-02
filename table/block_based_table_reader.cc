@@ -284,6 +284,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
               icomparator_, icomparator_->user_comparator(), nullptr,
               kNullStats, true, index_key_includes_seq_, index_value_is_full_),
           false, true, /* prefix_extractor */ nullptr, kIsIndex,
+          index_key_includes_seq_ /* key_includes_seq */,
           index_key_includes_seq_, index_value_is_full_);
     }
     // TODO(myabandeh): Update TwoLevelIterator to be able to make use of
@@ -2501,9 +2502,13 @@ void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyForward() {
     }
     if (read_options_.iterate_upper_bound != nullptr &&
         block_iter_points_to_real_block_) {
+      Slice index_user_key = index_iter_->key();
+      if (index_key_includes_seq_) {
+        index_user_key = ExtractUserKey(index_user_key);
+      }
       is_out_of_bound_ =
           (user_comparator_.Compare(*read_options_.iterate_upper_bound,
-                                    ExtractUserKey(index_iter_->key())) <= 0);
+                                    index_user_key) <= 0);
     }
     ResetDataIter();
     if (is_out_of_bound_) {
@@ -2548,9 +2553,13 @@ template <class TBlockIter, typename TValue>
 void BlockBasedTableIterator<TBlockIter, TValue>::CheckOutOfBound() {
   if (read_options_.iterate_upper_bound != nullptr &&
       block_iter_points_to_real_block_ && block_iter_.Valid()) {
+    Slice current_user_key = block_iter_.key();
+    if (key_includes_seq_) {
+      current_user_key = ExtractUserKey(current_user_key);
+    }
     is_out_of_bound_ =
         user_comparator_.Compare(*read_options_.iterate_upper_bound,
-                                 ExtractUserKey(block_iter_.key())) <= 0;
+                                 current_user_key) <= 0;
   }
 }
 
@@ -2560,6 +2569,9 @@ InternalIterator* BlockBasedTable::NewIterator(
   bool need_upper_bound_check =
       PrefixExtractorChanged(rep_->table_properties.get(), prefix_extractor);
   const bool kIsNotIndex = false;
+  bool index_key_includes_seq =
+      rep_->table_properties == nullptr ||
+      rep_->table_properties->index_key_is_user_key == 0;
   if (arena == nullptr) {
     return new BlockBasedTableIterator<DataBlockIter>(
         this, read_options, rep_->internal_comparator,
@@ -2570,7 +2582,8 @@ InternalIterator* BlockBasedTable::NewIterator(
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, kIsNotIndex,
-        true /*key_includes_seq*/, true /*index_key_is_full*/, for_compaction);
+        true /*key_includes_seq*/, index_key_includes_seq,
+        true /*index_key_is_full*/, for_compaction);
   } else {
     auto* mem =
         arena->AllocateAligned(sizeof(BlockBasedTableIterator<DataBlockIter>));
@@ -2580,7 +2593,8 @@ InternalIterator* BlockBasedTable::NewIterator(
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, kIsNotIndex,
-        true /*key_includes_seq*/, true /*index_key_is_full*/, for_compaction);
+        true /*key_includes_seq*/, index_key_includes_seq,
+        true /*index_key_is_full*/, for_compaction);
   }
 }
 
