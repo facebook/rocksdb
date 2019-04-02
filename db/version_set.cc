@@ -1703,7 +1703,8 @@ void VersionStorageInfo::ComputeCompactionScore(
   ComputeFilesMarkedForCompaction();
   ComputeBottommostFilesMarkedForCompaction();
   if (mutable_cf_options.ttl > 0) {
-    ComputeExpiredTtlFiles(immutable_cf_options, mutable_cf_options.ttl);
+    ComputeExpiredTtlFiles(immutable_cf_options, mutable_cf_options.ttl,
+        mutable_cf_options.bottommost_level_ttl);
   }
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
@@ -1732,7 +1733,8 @@ void VersionStorageInfo::ComputeFilesMarkedForCompaction() {
 }
 
 void VersionStorageInfo::ComputeExpiredTtlFiles(
-    const ImmutableCFOptions& ioptions, const uint64_t ttl) {
+    const ImmutableCFOptions& ioptions, const uint64_t ttl,
+    const uint64_t bottommost_level_ttl) {
   assert(ttl > 0);
 
   expired_ttl_files_.clear();
@@ -1744,13 +1746,25 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
   }
   const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
-  for (int level = 0; level < num_levels() - 1; level++) {
+  uint64_t current_ttl = ttl;
+  for (int level = 0; level < num_levels(); level++) {
+
+    if (level == (num_levels() - 1)) {
+      // bottommost level
+      if (bottommost_level_ttl == 0) {
+        // compaction picking based on ttl is not enabled for bottommost level
+        return;
+      } else {
+        current_ttl = bottommost_level_ttl;
+      }
+    }
+
     for (auto f : files_[level]) {
       if (!f->being_compacted && f->fd.table_reader != nullptr &&
           f->fd.table_reader->GetTableProperties() != nullptr) {
         auto creation_time =
             f->fd.table_reader->GetTableProperties()->creation_time;
-        if (creation_time > 0 && creation_time < (current_time - ttl)) {
+        if (creation_time > 0 && creation_time < (current_time - current_ttl)) {
           expired_ttl_files_.emplace_back(level, f);
         }
       }

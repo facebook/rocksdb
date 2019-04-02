@@ -3517,6 +3517,51 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+// TEST_F(DBCompactionTest, LevelCompactBottommostExpiredTtlFiles) {
+//   const int kNumKeysPerFile = 32;
+//   const int kNumLevelFiles = 2;
+//   const int kValueSize = 1024;
+//
+//   Options options = CurrentOptions();
+//   options.compression = kNoCompression;
+//   options.ttl = 24 * 60 * 60;  // 24 hours
+//   options.bottommost_level_ttl = 48 * 60 * 60;  // 24 hours
+//   options.max_open_files = -1;
+//   env_->time_elapse_only_sleep_ = false;
+//   options.env = env_;
+//
+//   env_->addon_time_.store(0);
+//   DestroyAndReopen(options);
+//
+//   Random rnd(301);
+//   for (int i = 0; i < kNumLevelFiles; ++i) {
+//     for (int j = 0; j < kNumKeysPerFile; ++j) {
+//       ASSERT_OK(
+//           Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+//     }
+//     Flush();
+//   }
+//   dbfull()->TEST_WaitForCompact();
+//   MoveFilesToLevel(6);
+//   ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
+//
+//   env_->addon_time_.fetch_add(50 * 60 * 60);
+//   ASSERT_OK(Put("a", "1"));
+//   Flush();
+//
+//   // ASSERT_EQ("1,0,0,0,0,0,2", FilesPerLevel());
+//   // rocksdb::SyncPoint::GetInstance()->SetCallBack(
+//   //     "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+//   //       Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+//   //       ASSERT_TRUE(compaction->compaction_reason() == CompactionReason::kFlush);
+//   //     });
+//   // rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+//   // dbfull()->TEST_WaitForCompact();
+//   // ASSERT_EQ("1,0,0,0,0,0,2", FilesPerLevel());
+//   // rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+//
+// }
+
 TEST_F(DBCompactionTest, CompactRangeDelayedByL0FileCount) {
   // Verify that, when `CompactRangeOptions::allow_write_stall == false`, manual
   // compaction only triggers flush after it's sure stall won't be triggered for

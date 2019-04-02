@@ -188,6 +188,11 @@ static Status ValidateOptions(
             "TTL is only supported in Block-Based Table format. ");
       }
     }
+
+    if (cfd.options.bottommost_level_ttl > 0 && cfd.options.ttl == 0) {
+      return Status::NotSupported(
+        "Bottommost Level TTL can be set only when TTL is set. ");
+    }
   }
 
   if (db_options.db_paths.size() > 4) {
