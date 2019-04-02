@@ -924,6 +924,8 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
             : "nullptr";
     rep_->props.compression_name =
         CompressionTypeToString(rep_->compression_type);
+    rep_->props.compression_options =
+        CompressionOptionsToString(rep_->compression_opts);
     rep_->props.prefix_extractor_name =
         rep_->moptions.prefix_extractor != nullptr
             ? rep_->moptions.prefix_extractor->Name()

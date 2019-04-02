@@ -53,6 +53,7 @@ struct TablePropertiesNames {
   static const std::string kPrefixExtractorName;
   static const std::string kPropertyCollectors;
   static const std::string kCompression;
+  static const std::string kCompressionOptions;
   static const std::string kCreationTime;
   static const std::string kOldestKeyTime;
 };
@@ -208,6 +209,9 @@ struct TableProperties {
 
   // The compression algo used to compress the SST files.
   std::string compression_name;
+
+  // Compression options used to compress the SST files.
+  std::string compression_options;
 
   // user collected properties
   UserCollectedProperties user_collected_properties;
