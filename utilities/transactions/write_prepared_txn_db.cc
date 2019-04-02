@@ -162,14 +162,14 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   const uint64_t no_log_ref = 0;
   uint64_t seq_used = kMaxSequenceNumber;
   const size_t ZERO_PREPARES = 0;
-  const bool kSepratePrepareCommitBatches = true;
+  const bool kSeperatePrepareCommitBatches = true;
   // Since this is not 2pc, there is no need for AddPrepared but having it in
   // the PreReleaseCallback enables an optimization. Refer to
   // SmallestUnCommittedSeq for more details.
   AddPreparedCallback add_prepared_callback(
       this, db_impl_, batch_cnt,
       db_impl_->immutable_db_options().two_write_queues,
-      !kSepratePrepareCommitBatches);
+      !kSeperatePrepareCommitBatches);
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
       this, db_impl_, kMaxSequenceNumber, ZERO_PREPARES, batch_cnt);
   PreReleaseCallback* pre_release_callback;
