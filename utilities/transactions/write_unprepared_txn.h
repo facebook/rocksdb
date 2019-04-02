@@ -45,8 +45,6 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
   static SequenceNumber CalcMaxVisibleSeq(WriteUnpreparedTxn* txn,
                                           SequenceNumber snapshot_seq) {
     SequenceNumber max_unprepared = CalcMaxUnpreparedSequenceNumber(txn);
-    assert(snapshot_seq < max_unprepared || max_unprepared == 0 ||
-           snapshot_seq == kMaxSequenceNumber);
     return std::max(max_unprepared, snapshot_seq);
   }
   static SequenceNumber CalcMaxUnpreparedSequenceNumber(
