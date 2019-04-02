@@ -295,8 +295,8 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                    public:
                     PublishSeqCallback(DBImpl* db_impl_in)
                         : db_impl_(db_impl_in) {}
-                    Status Callback(SequenceNumber last_seq,
-                                    bool /*not used*/) override {
+                    Status Callback(SequenceNumber last_seq, bool /*not used*/,
+                                    uint64_t) override {
                       db_impl_->SetLastPublishedSequence(last_seq);
                       return Status::OK();
                     }

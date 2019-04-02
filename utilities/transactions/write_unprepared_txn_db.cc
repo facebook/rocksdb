@@ -194,10 +194,9 @@ Status WriteUnpreparedTxnDB::Initialize(
    public:
     explicit CommitSubBatchPreReleaseCallback(WritePreparedTxnDB* db)
         : db_(db) {}
-    Status Callback(SequenceNumber commit_seq, bool is_mem_disabled) override {
-#ifdef NDEBUG
-      (void)is_mem_disabled;
-#endif
+    Status Callback(SequenceNumber commit_seq,
+                    bool is_mem_disabled __attribute__((__unused__)),
+                    uint64_t) override {
       assert(!is_mem_disabled);
       db_->AddCommitted(commit_seq, commit_seq);
       return Status::OK();
