@@ -110,12 +110,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // If the snapshot_seq is already released and snapshot_seq <= max, sets
   // *snap_released to true and returns true as well.
   inline bool IsInSnapshot(uint64_t prep_seq, uint64_t snapshot_seq,
-                           uint64_t min_uncommitted = 0,
+                           uint64_t min_uncommitted = kMinUnCommittedSeq,
                            bool* snap_released = nullptr) const {
     ROCKS_LOG_DETAILS(info_log_,
                       "IsInSnapshot %" PRIu64 " in %" PRIu64
                       " min_uncommitted %" PRIu64,
                       prep_seq, snapshot_seq, min_uncommitted);
+    assert(min_uncommitted >= kMinUnCommittedSeq);
     // Caller is responsible to initialize snap_released.
     assert(snap_released == nullptr || *snap_released == false);
     // Here we try to infer the return value without looking into prepare list.

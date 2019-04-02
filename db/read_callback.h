@@ -24,6 +24,7 @@ class ReadCallback {
 
   inline bool IsVisible(SequenceNumber seq) {
     assert(min_uncommitted_ > 0);
+    assert(min_uncommitted_ >= kMinUnCommittedSeq);
     if (seq < min_uncommitted_) {  // handles seq == 0 as well
       assert(seq <= max_visible_seq_);
       return true;

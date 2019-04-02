@@ -1680,7 +1680,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
   size_t overwrite_seq = wp_db->COMMIT_CACHE_SIZE + seq;
   wp_db->AddCommitted(overwrite_seq, overwrite_seq);
   SequenceNumber snap_seq;
-  uint64_t min_uncommitted = 0;
+  uint64_t min_uncommitted = kMinUnCommittedSeq;
   bool released;
 
   released = false;
