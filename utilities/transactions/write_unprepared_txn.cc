@@ -155,22 +155,10 @@ Status WriteUnpreparedTxn::SingleDelete(ColumnFamilyHandle* column_family,
 Status WriteUnpreparedTxn::MaybeFlushWriteBatchToDB() {
   const bool kPrepared = true;
   Status s;
-
-  bool needs_mark = (log_number_ == 0);
-
   if (max_write_batch_size_ != 0 &&
       write_batch_.GetDataSize() > max_write_batch_size_) {
     assert(GetState() != PREPARED);
     s = FlushWriteBatchToDB(!kPrepared);
-    if (s.ok()) {
-      assert(log_number_ > 0);
-      // This is done to prevent WAL files after log_number_ from being
-      // deleted, because they could potentially contain unprepared batches.
-      if (needs_mark) {
-        dbimpl_->logs_with_prep_tracker()->MarkLogAsContainingPrepSection(
-            log_number_);
-      }
-    }
   }
   return s;
 }
@@ -198,6 +186,7 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDB(bool prepared) {
   WriteOptions write_options = write_options_;
   write_options.disableWAL = false;
   const bool WRITE_AFTER_COMMIT = true;
+  const bool first_prepare_batch = log_number_ == 0;
   // MarkEndPrepare will change Noop marker to the appropriate marker.
   WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_,
                                      !WRITE_AFTER_COMMIT, !prepared);
@@ -210,8 +199,8 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDB(bool prepared) {
   // prepared entries to PreparedHeap and hence enables an optimization. Refer
   // to SmallestUnCommittedSeq for more details.
   AddPreparedCallback add_prepared_callback(
-      wpt_db_, prepare_batch_cnt_,
-      db_impl_->immutable_db_options().two_write_queues);
+      wpt_db_, db_impl_, prepare_batch_cnt_,
+      db_impl_->immutable_db_options().two_write_queues, first_prepare_batch);
   const bool DISABLE_MEMTABLE = true;
   uint64_t seq_used = kMaxSequenceNumber;
   // log_number_ should refer to the oldest log containing uncommitted data
@@ -334,7 +323,8 @@ Status WriteUnpreparedTxn::CommitInternal() {
     explicit PublishSeqPreReleaseCallback(DBImpl* db_impl)
         : db_impl_(db_impl) {}
     Status Callback(SequenceNumber seq,
-                    bool is_mem_disabled __attribute__((__unused__))) override {
+                    bool is_mem_disabled __attribute__((__unused__)),
+                    uint64_t) override {
       assert(is_mem_disabled);
       assert(db_impl_->immutable_db_options().two_write_queues);
       db_impl_->SetLastPublishedSequence(seq);
