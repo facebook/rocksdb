@@ -623,7 +623,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
     }
   }
 
-  // Whether iterator invalidated for being out of bound.
   bool IsOutOfBound() override { return is_out_of_bound_; }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
@@ -674,7 +673,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   void InitDataBlock();
   void FindKeyForward();
   void FindKeyBackward();
-  void CheckOutOfBound();
 
  private:
   BlockBasedTable* table_;
