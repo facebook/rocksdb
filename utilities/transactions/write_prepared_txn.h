@@ -53,7 +53,7 @@ class WritePreparedTxn : public PessimisticTransaction {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 
-  // Note: The bahavior is undefined in presence of interleaved writes to the
+  // Note: The behavior is undefined in presence of interleaved writes to the
   // same trasnaction.
   // To make WAL commit markers visible, the snapshot will be
   // based on the last seq in the WAL that is also published,
