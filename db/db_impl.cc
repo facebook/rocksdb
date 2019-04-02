@@ -1313,7 +1313,8 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
     internal_iter = merge_iter_builder.Finish();
     IterState* cleanup =
         new IterState(this, &mutex_, super_version,
-                      read_options.background_purge_on_iterator_cleanup);
+                      read_options.background_purge_on_iterator_cleanup ||
+                      immutable_db_options_.avoid_unnecessary_blocking_io);
     internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
 
     return internal_iter;
