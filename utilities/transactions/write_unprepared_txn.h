@@ -34,7 +34,7 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
 
   virtual bool IsVisibleFullCheck(SequenceNumber seq) override;
 
-  virtual bool CanReseekToSkip() {
+  bool CanReseekToSkip() override {
     return wup_snapshot_ == max_visible_seq_;
     // Otherwise our own writes uncommitted are in db, and the assumptions
     // behind reseek optinizations are no longer valid.
