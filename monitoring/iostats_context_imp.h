@@ -55,5 +55,6 @@ extern __thread IOStatsContext iostats_context;
 #define IOSTATS(metric) 0
 
 #define IOSTATS_TIMER_GUARD(metric)
+#define IOSTATS_CPU_TIMER_GUARD(metric, env)
 
 #endif  // ROCKSDB_SUPPORT_THREAD_LOCAL
