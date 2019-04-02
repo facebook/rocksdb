@@ -435,8 +435,8 @@ class FilePickerMultiGet {
       FdWithKeyRange* f = nullptr;
       FilePickerContextWrapper file_picker_iter(mget_iter_, file_picker_ctx_);
       size_t curr_file_index = (mget_iter_ != current_level_range_.end())
-                                 ? file_picker_iter->curr_index_in_curr_level
-                                 : curr_file_level_->num_files;
+                                   ? file_picker_iter->curr_index_in_curr_level
+                                   : curr_file_level_->num_files;
       bool file_hit = false;
       int cmp_largest = -1;
       MultiGetRange next_file_range(current_level_range_, prev_mget_iter_end_,

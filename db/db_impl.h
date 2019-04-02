@@ -132,9 +132,9 @@ class DBImpl : public DB {
   // equal to keys.size(). This allows the storage for those to be alloacted
   // by the caller on the stack for small batches
   virtual void MultiGet(const ReadOptions& options,
-                        ColumnFamilyHandle* column_family, const int num_keys,
-                        const Slice* keys, PinnableSlice* values,
-                        Status* statuses,
+                        ColumnFamilyHandle* column_family,
+                        const size_t num_keys, const Slice* keys,
+                        PinnableSlice* values, Status* statuses,
                         const bool sorted_input = false) override;
 
   void MultiGetImpl(

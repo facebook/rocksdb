@@ -441,15 +441,16 @@ class DB {
   //                internally by the API - the input array will not be
   //                modified
   virtual void MultiGet(const ReadOptions& options,
-                        ColumnFamilyHandle* column_family, const int num_keys,
-                        const Slice* keys, PinnableSlice* values,
-                        Status* statuses, const bool /*sorted_input*/ = false) {
+                        ColumnFamilyHandle* column_family,
+                        const size_t num_keys, const Slice* keys,
+                        PinnableSlice* values, Status* statuses,
+                        const bool /*sorted_input*/ = false) {
     std::vector<ColumnFamilyHandle*> cf;
     std::vector<Slice> user_keys;
     std::vector<Status> status;
     std::vector<std::string> vals;
 
-    for (int i = 0; i < num_keys; ++i) {
+    for (size_t i = 0; i < num_keys; ++i) {
       cf.emplace_back(column_family);
       user_keys.emplace_back(keys[i]);
     }

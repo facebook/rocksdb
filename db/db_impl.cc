@@ -1675,11 +1675,11 @@ struct CompareKeyContext {
 };
 
 void DBImpl::MultiGet(const ReadOptions& read_options,
-                      ColumnFamilyHandle* column_family, const int num_keys,
+                      ColumnFamilyHandle* column_family, const size_t num_keys,
                       const Slice* keys, PinnableSlice* values,
                       Status* statuses, const bool sorted_input) {
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
-  for (int i = 0; i < num_keys; ++i) {
+  for (size_t i = 0; i < num_keys; ++i) {
     key_context.emplace_back(keys[i], &values[i], &statuses[i]);
   }
 
