@@ -25,6 +25,7 @@
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
 #include "util/memory_allocator.h"
+#include "util/string_util.h"
 
 #ifdef SNAPPY
 #include <snappy.h>
@@ -506,6 +507,31 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
       assert(false);
       return "";
   }
+}
+
+inline std::string CompressionOptionsToString(
+    CompressionOptions& compression_options) {
+  std::string result;
+  result.reserve(512);
+  result.append("window_bits=")
+      .append(ToString(compression_options.window_bits))
+      .append("; ");
+  result.append("level=")
+      .append(ToString(compression_options.level))
+      .append("; ");
+  result.append("strategy=")
+      .append(ToString(compression_options.strategy))
+      .append("; ");
+  result.append("max_dict_bytes=")
+      .append(ToString(compression_options.max_dict_bytes))
+      .append("; ");
+  result.append("zstd_max_train_bytes=")
+      .append(ToString(compression_options.zstd_max_train_bytes))
+      .append("; ");
+  result.append("enabled=")
+      .append(ToString(compression_options.enabled))
+      .append("; ");
+  return result;
 }
 
 // compress_format_version can have two values:
