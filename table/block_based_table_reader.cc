@@ -2747,63 +2747,6 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   return s;
 }
 
-Status BlockBasedTable::Prefetch(const Slice* const begin,
-                                 const Slice* const end) {
-  auto& comparator = rep_->internal_comparator;
-  auto user_comparator = comparator.user_comparator();
-  // pre-condition
-  if (begin && end && comparator.Compare(*begin, *end) > 0) {
-    return Status::InvalidArgument(*begin, *end);
-  }
-
-  IndexBlockIter iiter_on_stack;
-  auto iiter = NewIndexIterator(ReadOptions(), false, &iiter_on_stack);
-  std::unique_ptr<InternalIteratorBase<BlockHandle>> iiter_unique_ptr;
-  if (iiter != &iiter_on_stack) {
-    iiter_unique_ptr =
-        std::unique_ptr<InternalIteratorBase<BlockHandle>>(iiter);
-  }
-
-  if (!iiter->status().ok()) {
-    // error opening index iterator
-    return iiter->status();
-  }
-
-  // indicates if we are on the last page that need to be pre-fetched
-  bool prefetching_boundary_page = false;
-
-  for (begin ? iiter->Seek(*begin) : iiter->SeekToFirst(); iiter->Valid();
-       iiter->Next()) {
-    BlockHandle block_handle = iiter->value();
-    const bool is_user_key = rep_->table_properties &&
-                             rep_->table_properties->index_key_is_user_key > 0;
-    if (end &&
-        ((!is_user_key && comparator.Compare(iiter->key(), *end) >= 0) ||
-         (is_user_key &&
-          user_comparator->Compare(iiter->key(), ExtractUserKey(*end)) >= 0))) {
-      if (prefetching_boundary_page) {
-        break;
-      }
-
-      // The index entry represents the last key in the data block.
-      // We should load this page into memory as well, but no more
-      prefetching_boundary_page = true;
-    }
-
-    // Load the block specified by the block_handle into the block cache
-    DataBlockIter biter;
-    NewDataBlockIterator<DataBlockIter>(rep_, ReadOptions(), block_handle,
-                                        &biter);
-
-    if (!biter.status().ok()) {
-      // there was an unexpected error while pre-fetching
-      return biter.status();
-    }
-  }
-
-  return Status::OK();
-}
-
 Status BlockBasedTable::VerifyChecksum() {
   Status s;
   // Check Meta blocks
