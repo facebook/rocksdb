@@ -37,10 +37,10 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
   bool CanReseekToSkip() override {
     return wup_snapshot_ == max_visible_seq_;
     // Otherwise our own writes uncommitted are in db, and the assumptions
-    // behind reseek optinizations are no longer valid.
+    // behind reseek optimizations are no longer valid.
   }
 
-  // TODO(myabandeh): override Refresh when Iterator::Referesh is supported
+  // TODO(myabandeh): override Refresh when Iterator::Refresh is supported
  private:
   SequenceNumber CalcMaxVisibleSeq(WriteUnpreparedTxn* txn,
                                    SequenceNumber snapshot_seq) {

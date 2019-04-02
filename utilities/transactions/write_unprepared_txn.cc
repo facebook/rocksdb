@@ -476,7 +476,7 @@ Status WriteUnpreparedTxn::Get(const ReadOptions& options,
   auto snap_seq =
       snapshot != nullptr ? snapshot->GetSequenceNumber() : kMaxSequenceNumber;
   SequenceNumber min_uncommitted =
-      kMaxSequenceNumber;  // by default disable the optimization
+      kMinUnCommittedSeq;  // by default disable the optimization
   if (snapshot != nullptr) {
     min_uncommitted =
         static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)

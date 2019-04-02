@@ -54,7 +54,7 @@ class WritePreparedTxn : public PessimisticTransaction {
                      PinnableSlice* value) override;
 
   // Note: The behavior is undefined in presence of interleaved writes to the
-  // same trasnaction.
+  // same transaction.
   // To make WAL commit markers visible, the snapshot will be
   // based on the last seq in the WAL that is also published,
   // LastPublishedSequence, as opposed to the last seq in the memtable.

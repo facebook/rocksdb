@@ -743,7 +743,7 @@ class WritePreparedTxnReadCallback : public ReadCallback {
     return db_->IsInSnapshot(seq, snapshot, min_uncommitted_);
   }
 
-  // TODO(myabandeh): override Refresh when Iterator::Referesh is supported
+  // TODO(myabandeh): override Refresh when Iterator::Refresh is supported
  private:
   WritePreparedTxnDB* db_;
 };
