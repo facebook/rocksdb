@@ -5,7 +5,7 @@
 [![PPC64le Build Status](http://140.211.168.68:8080/buildStatus/icon?job=Rocksdb)](http://140.211.168.68:8080/job/Rocksdb)
 
 RocksDB is developed and maintained by Facebook Database Engineering Team.
-It is built on earlier work on LevelDB by Sanjay Ghemawat (sanjay@google.com)
+It is built on earlier work on [LevelDB](https://github.com/google/leveldb) by Sanjay Ghemawat (sanjay@google.com)
 and Jeff Dean (jeff@google.com)
 
 This code is a library that forms the core building block for a fast
