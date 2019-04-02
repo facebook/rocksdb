@@ -24,7 +24,7 @@ class SnapshotImpl : public Snapshot {
   // It indicates the smallest uncommitted data at the time the snapshot was
   // taken. This is currently used by WritePrepared transactions to limit the
   // scope of queries to IsInSnpashot.
-  SequenceNumber min_uncommitted_ = 0;
+  SequenceNumber min_uncommitted_ = kMinUnCommittedSeq;
 
   virtual SequenceNumber GetSequenceNumber() const override { return number_; }
 

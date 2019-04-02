@@ -23,17 +23,33 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
                                  SequenceNumber snapshot,
                                  SequenceNumber min_uncommitted,
                                  WriteUnpreparedTxn* txn)
-      // Disable snapshot check on parent class since it would violate
-      // read-your-own-write guarantee.
-      : ReadCallback(kMaxSequenceNumber, min_uncommitted),
+      // Pass our last uncommitted seq as the snapshot to the parent class to
+      // ensure that the parent will not prematurely filter out own writes. We
+      // will do the exact comparison agaisnt snapshots in IsVisibleFullCheck
+      // override.
+      : ReadCallback(CalcMaxVisibleSeq(txn, snapshot), min_uncommitted),
         db_(db),
         txn_(txn),
         wup_snapshot_(snapshot) {}
 
   virtual bool IsVisibleFullCheck(SequenceNumber seq) override;
-  virtual SequenceNumber MaxUnpreparedSequenceNumber() override;
 
+  bool CanReseekToSkip() override {
+    return wup_snapshot_ == max_visible_seq_;
+    // Otherwise our own writes uncommitted are in db, and the assumptions
+    // behind reseek optimizations are no longer valid.
+  }
+
+  // TODO(myabandeh): override Refresh when Iterator::Refresh is supported
  private:
+  SequenceNumber CalcMaxVisibleSeq(WriteUnpreparedTxn* txn,
+                                   SequenceNumber snapshot_seq) {
+    SequenceNumber max_unprepared = CalcMaxUnpreparedSequenceNumber(txn);
+    assert(snapshot_seq < max_unprepared || max_unprepared == 0 ||
+           snapshot_seq == kMaxSequenceNumber);
+    return std::max(max_unprepared, snapshot_seq);
+  }
+  SequenceNumber CalcMaxUnpreparedSequenceNumber(WriteUnpreparedTxn* txn);
   WritePreparedTxnDB* db_;
   WriteUnpreparedTxn* txn_;
   SequenceNumber wup_snapshot_;

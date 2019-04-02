@@ -238,7 +238,12 @@ class DBIter final: public Iterator {
   void SeekToFirst() override;
   void SeekToLast() override;
   Env* env() { return env_; }
-  void set_sequence(uint64_t s) { sequence_ = s; }
+  void set_sequence(uint64_t s) {
+    sequence_ = s;
+    if (read_callback_) {
+      read_callback_->Refresh(s);
+    }
+  }
   void set_valid(bool v) { valid_ = v; }
 
  private:
@@ -258,19 +263,13 @@ class DBIter final: public Iterator {
 
   void PrevInternal();
   bool TooManyInternalKeysSkipped(bool increment = true);
-  bool IsVisible(SequenceNumber sequence);
+  inline bool IsVisible(SequenceNumber sequence);
 
   // CanReseekToSkip() returns whether the iterator can use the optimization
   // where it reseek by sequence number to get the next key when there are too
   // many versions. This is disabled for write unprepared because seeking to
   // sequence number does not guarantee that it is visible.
   inline bool CanReseekToSkip();
-
-  // MaxVisibleSequenceNumber() returns the maximum visible sequence number
-  // for this snapshot. This sequence number may be greater than snapshot
-  // seqno because uncommitted data written to DB for write unprepared will
-  // have a higher sequence number.
-  inline SequenceNumber MaxVisibleSequenceNumber();
 
   // Temporarily pin the blocks that we encounter until ReleaseTempPinnedData()
   // is called
@@ -311,6 +310,8 @@ class DBIter final: public Iterator {
   const MergeOperator* const merge_operator_;
   InternalIterator* iter_;
   ReadCallback* read_callback_;
+  // Max visible sequence number. It is normally the snapshot seq unless we have
+  // uncommitted data in db as in WriteUnCommitted.
   SequenceNumber sequence_;
 
   IterKey saved_key_;
@@ -1246,21 +1247,15 @@ bool DBIter::TooManyInternalKeysSkipped(bool increment) {
 }
 
 bool DBIter::IsVisible(SequenceNumber sequence) {
-  return sequence <= MaxVisibleSequenceNumber() &&
-         (read_callback_ == nullptr || read_callback_->IsVisible(sequence));
+  if (read_callback_ == nullptr) {
+    return sequence <= sequence_;
+  } else {
+    return read_callback_->IsVisible(sequence);
+  }
 }
 
 bool DBIter::CanReseekToSkip() {
-  return read_callback_ == nullptr ||
-         read_callback_->MaxUnpreparedSequenceNumber() == 0;
-}
-
-SequenceNumber DBIter::MaxVisibleSequenceNumber() {
-  if (read_callback_ == nullptr) {
-    return sequence_;
-  }
-
-  return std::max(sequence_, read_callback_->MaxUnpreparedSequenceNumber());
+  return read_callback_ == nullptr || read_callback_->CanReseekToSkip();
 }
 
 void DBIter::Seek(const Slice& target) {
@@ -1270,7 +1265,7 @@ void DBIter::Seek(const Slice& target) {
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
 
-  SequenceNumber seq = MaxVisibleSequenceNumber();
+  SequenceNumber seq = sequence_;
   saved_key_.Clear();
   saved_key_.SetInternalKey(target, seq);
 
@@ -1556,6 +1551,9 @@ Status ArenaWrappedDBIter::Refresh() {
     new (&arena_) Arena();
 
     SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_->mutex());
+    if (read_callback_) {
+      read_callback_->Refresh(latest_seq);
+    }
     Init(env, read_options_, *(cfd_->ioptions()), sv->mutable_cf_options,
          latest_seq, sv->mutable_cf_options.max_sequential_skip_in_iterations,
          cur_sv_number, read_callback_, db_impl_, cfd_, allow_blob_,

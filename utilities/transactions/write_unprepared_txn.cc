@@ -34,12 +34,12 @@ bool WriteUnpreparedTxnReadCallback::IsVisibleFullCheck(SequenceNumber seq) {
   return db_->IsInSnapshot(seq, wup_snapshot_, min_uncommitted_);
 }
 
-SequenceNumber WriteUnpreparedTxnReadCallback::MaxUnpreparedSequenceNumber() {
-  auto unprep_seqs = txn_->GetUnpreparedSequenceNumbers();
+SequenceNumber WriteUnpreparedTxnReadCallback::CalcMaxUnpreparedSequenceNumber(
+    WriteUnpreparedTxn* txn) {
+  auto unprep_seqs = txn->GetUnpreparedSequenceNumbers();
   if (unprep_seqs.size()) {
     return unprep_seqs.rbegin()->first + unprep_seqs.rbegin()->second - 1;
   }
-
   return 0;
 }
 
@@ -379,7 +379,7 @@ Status WriteUnpreparedTxn::RollbackInternal() {
   // Note that we do not use WriteUnpreparedTxnReadCallback because we do not
   // need to read our own writes when reading prior versions of the key for
   // rollback.
-  WritePreparedTxnReadCallback callback(wpt_db_, read_at_seq, 0);
+  WritePreparedTxnReadCallback callback(wpt_db_, read_at_seq);
   for (const auto& cfkey : write_set_keys_) {
     const auto cfid = cfkey.first;
     const auto& keys = cfkey.second;
@@ -475,7 +475,8 @@ Status WriteUnpreparedTxn::Get(const ReadOptions& options,
   auto snapshot = options.snapshot;
   auto snap_seq =
       snapshot != nullptr ? snapshot->GetSequenceNumber() : kMaxSequenceNumber;
-  SequenceNumber min_uncommitted = 0;  // by default disable the optimization
+  SequenceNumber min_uncommitted =
+      kMinUnCommittedSeq;  // by default disable the optimization
   if (snapshot != nullptr) {
     min_uncommitted =
         static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)

@@ -18,7 +18,9 @@ class TestReadCallback : public ReadCallback {
  public:
   TestReadCallback(SnapshotChecker* snapshot_checker,
                    SequenceNumber snapshot_seq)
-      : snapshot_checker_(snapshot_checker), snapshot_seq_(snapshot_seq) {}
+      : ReadCallback(snapshot_seq),
+        snapshot_checker_(snapshot_checker),
+        snapshot_seq_(snapshot_seq) {}
 
   bool IsVisibleFullCheck(SequenceNumber seq) override {
     return snapshot_checker_->CheckInSnapshot(seq, snapshot_seq_) ==

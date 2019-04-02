@@ -20,7 +20,10 @@ namespace rocksdb {
 
 // A dumb ReadCallback which saying every key is committed.
 class DummyReadCallback : public ReadCallback {
+ public:
+  DummyReadCallback() : ReadCallback(kMaxSequenceNumber) {}
   bool IsVisibleFullCheck(SequenceNumber /*seq*/) override { return true; }
+  void SetSnapshot(SequenceNumber seq) { max_visible_seq_ = seq; }
 };
 
 // Test param:
@@ -39,6 +42,7 @@ class DBIteratorTest : public DBTestBase,
     SequenceNumber seq = read_options.snapshot != nullptr
                              ? read_options.snapshot->GetSequenceNumber()
                              : db_->GetLatestSequenceNumber();
+    read_callback_.SetSnapshot(seq);
     bool use_read_callback = GetParam();
     ReadCallback* read_callback = use_read_callback ? &read_callback_ : nullptr;
     return dbfull()->NewIteratorImpl(read_options, cfd, seq, read_callback);
@@ -2476,15 +2480,12 @@ class DBIteratorWithReadCallbackTest : public DBIteratorTest {};
 TEST_F(DBIteratorWithReadCallbackTest, ReadCallback) {
   class TestReadCallback : public ReadCallback {
    public:
-    explicit TestReadCallback(SequenceNumber last_visible_seq)
-        : last_visible_seq_(last_visible_seq) {}
+    explicit TestReadCallback(SequenceNumber max_visible_seq)
+        : ReadCallback(max_visible_seq) {}
 
     bool IsVisibleFullCheck(SequenceNumber seq) override {
-      return seq <= last_visible_seq_;
+      return seq <= max_visible_seq_;
     }
-
-   private:
-    SequenceNumber last_visible_seq_;
   };
 
   ASSERT_OK(Put("foo", "v1"));

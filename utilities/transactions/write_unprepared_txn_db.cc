@@ -31,17 +31,17 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
 
   class InvalidSnapshotReadCallback : public ReadCallback {
    public:
-    InvalidSnapshotReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot,
-                                SequenceNumber min_uncommitted)
-        : ReadCallback(snapshot, min_uncommitted), db_(db) {}
+    InvalidSnapshotReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot)
+        : ReadCallback(snapshot), db_(db) {}
 
     // Will be called to see if the seq number visible; if not it moves on to
     // the next seq number.
     inline bool IsVisibleFullCheck(SequenceNumber seq) override {
       // Becomes true if it cannot tell by comparing seq with snapshot seq since
-      // the snapshot_ is not a real snapshot.
+      // the snapshot is not a real snapshot.
+      auto snapshot = max_visible_seq_;
       bool released = false;
-      auto ret = db_->IsInSnapshot(seq, snapshot_, min_uncommitted_, &released);
+      auto ret = db_->IsInSnapshot(seq, snapshot, min_uncommitted_, &released);
       assert(!released || ret);
       return ret;
     }
@@ -73,8 +73,8 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
           std::map<uint32_t, ColumnFamilyHandle*>& handles,
           bool rollback_merge_operands)
           : db_(db),
-            callback(wpt_db, snap_seq,
-                     0),  // 0 disables min_uncommitted optimization
+            callback(wpt_db, snap_seq),
+            // disable min_uncommitted optimization
             rollback_batch_(dst_batch),
             comparators_(comparators),
             handles_(handles),
@@ -354,6 +354,7 @@ struct WriteUnpreparedTxnDB::IteratorState {
                 std::shared_ptr<ManagedSnapshot> s,
                 SequenceNumber min_uncommitted, WriteUnpreparedTxn* txn)
       : callback(txn_db, sequence, min_uncommitted, txn), snapshot(s) {}
+  SequenceNumber MaxVisibleSeq() { return callback.max_visible_seq(); }
 
   WriteUnpreparedTxnReadCallback callback;
   std::shared_ptr<ManagedSnapshot> snapshot;
@@ -395,8 +396,8 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
   auto* state =
       new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted, txn);
   auto* db_iter =
-      db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback,
-                                !ALLOW_BLOB, !ALLOW_REFRESH);
+      db_impl_->NewIteratorImpl(options, cfd, state->MaxVisibleSeq(),
+                                &state->callback, !ALLOW_BLOB, !ALLOW_REFRESH);
   db_iter->RegisterCleanup(CleanupWriteUnpreparedTxnDBIterator, state, nullptr);
   return db_iter;
 }

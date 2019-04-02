@@ -1262,6 +1262,7 @@ TEST_P(WritePreparedTransactionTest, AdvanceSeqByOne) {
 TEST_P(WritePreparedTransactionTest, TxnInitialize) {
   TransactionOptions txn_options;
   WriteOptions write_options;
+  ASSERT_OK(db->Put(write_options, "key", "value"));
   Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
   ASSERT_OK(txn0->SetName("xid"));
   ASSERT_OK(txn0->Put(Slice("key"), Slice("value1")));
@@ -1274,7 +1275,7 @@ TEST_P(WritePreparedTransactionTest, TxnInitialize) {
   auto snap_impl = reinterpret_cast<const SnapshotImpl*>(snap);
   // If ::Initialize calls the overriden SetSnapshot, min_uncommitted_ must be
   // udpated
-  ASSERT_GT(snap_impl->min_uncommitted_, 0);
+  ASSERT_GT(snap_impl->min_uncommitted_, kMinUnCommittedSeq);
 
   txn0->Rollback();
   txn1->Rollback();
@@ -1679,7 +1680,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
   size_t overwrite_seq = wp_db->COMMIT_CACHE_SIZE + seq;
   wp_db->AddCommitted(overwrite_seq, overwrite_seq);
   SequenceNumber snap_seq;
-  uint64_t min_uncommitted = 0;
+  uint64_t min_uncommitted = kMinUnCommittedSeq;
   bool released;
 
   released = false;

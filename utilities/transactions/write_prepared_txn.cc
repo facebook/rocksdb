@@ -50,7 +50,8 @@ Status WritePreparedTxn::Get(const ReadOptions& read_options,
   auto snapshot = read_options.snapshot;
   auto snap_seq =
       snapshot != nullptr ? snapshot->GetSequenceNumber() : kMaxSequenceNumber;
-  SequenceNumber min_uncommitted = 0;  // by default disable the optimization
+  SequenceNumber min_uncommitted =
+      kMinUnCommittedSeq;  // by default disable the optimization
   if (snapshot != nullptr) {
     min_uncommitted =
         static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
@@ -235,8 +236,7 @@ Status WritePreparedTxn::RollbackInternal() {
         std::map<uint32_t, ColumnFamilyHandle*>& handles,
         bool rollback_merge_operands)
         : db_(db),
-          callback(wpt_db, snap_seq,
-                   0),  // 0 disables min_uncommitted optimization
+          callback(wpt_db, snap_seq),  // disable min_uncommitted optimization
           rollback_batch_(dst_batch),
           comparators_(comparators),
           handles_(handles),

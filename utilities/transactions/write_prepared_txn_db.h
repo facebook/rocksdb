@@ -110,12 +110,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // If the snapshot_seq is already released and snapshot_seq <= max, sets
   // *snap_released to true and returns true as well.
   inline bool IsInSnapshot(uint64_t prep_seq, uint64_t snapshot_seq,
-                           uint64_t min_uncommitted = 0,
+                           uint64_t min_uncommitted = kMinUnCommittedSeq,
                            bool* snap_released = nullptr) const {
     ROCKS_LOG_DETAILS(info_log_,
                       "IsInSnapshot %" PRIu64 " in %" PRIu64
                       " min_uncommitted %" PRIu64,
                       prep_seq, snapshot_seq, min_uncommitted);
+    assert(min_uncommitted >= kMinUnCommittedSeq);
     // Caller is responsible to initialize snap_released.
     assert(snap_released == nullptr || *snap_released == false);
     // Here we try to infer the return value without looking into prepare list.
@@ -730,6 +731,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
 class WritePreparedTxnReadCallback : public ReadCallback {
  public:
+  WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot)
+      : ReadCallback(snapshot), db_(db) {}
   WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot,
                                SequenceNumber min_uncommitted)
       : ReadCallback(snapshot, min_uncommitted), db_(db) {}
@@ -737,9 +740,11 @@ class WritePreparedTxnReadCallback : public ReadCallback {
   // Will be called to see if the seq number visible; if not it moves on to
   // the next seq number.
   inline virtual bool IsVisibleFullCheck(SequenceNumber seq) override {
-    return db_->IsInSnapshot(seq, snapshot_, min_uncommitted_);
+    auto snapshot = max_visible_seq_;
+    return db_->IsInSnapshot(seq, snapshot, min_uncommitted_);
   }
 
+  // TODO(myabandeh): override Refresh when Iterator::Refresh is supported
  private:
   WritePreparedTxnDB* db_;
 };
