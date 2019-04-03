@@ -2875,6 +2875,8 @@ TEST_F(DBTest2, TraceAndReplay) {
   Random rnd(301);
   Iterator* single_iter = nullptr;
 
+  ASSERT_TRUE(db_->EndTrace().IsIOError());
+
   std::string trace_filename = dbname_ + "/rocksdb.trace";
   std::unique_ptr<TraceWriter> trace_writer;
   ASSERT_OK(NewFileTraceWriter(env_, env_opts, trace_filename, &trace_writer));

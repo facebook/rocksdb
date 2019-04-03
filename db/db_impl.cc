@@ -3655,8 +3655,13 @@ Status DBImpl::StartTrace(const TraceOptions& trace_options,
 
 Status DBImpl::EndTrace() {
   InstrumentedMutexLock lock(&trace_mutex_);
-  Status s = tracer_->Close();
-  tracer_.reset();
+  Status s;
+  if (tracer_ != nullptr) {
+    s = tracer_->Close();
+    tracer_.reset();
+  } else {
+    return Status::IOError("No trace file to close");
+  }
   return s;
 }
 
