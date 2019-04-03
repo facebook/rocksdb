@@ -446,8 +446,12 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
  protected:
   virtual Status VerifyCFOptions(
       const ColumnFamilyOptions& cf_options) override;
-  // Assign the min and max sequence numbers for reading from the db. A seq > max is not valid, and a seq < min is valid, and a min <= seq < max requires further checkings. Normally max is defined by the snapshot and min is by minimum uncommitted seq.
-  inline bool AssignMinMaxSeqs(const Snapshot* snapshot, SequenceNumber* min, SequenceNumber* max);
+  // Assign the min and max sequence numbers for reading from the db. A seq >
+  // max is not valid, and a seq < min is valid, and a min <= seq < max requires
+  // further checkings. Normally max is defined by the snapshot and min is by
+  // minimum uncommitted seq.
+  inline bool AssignMinMaxSeqs(const Snapshot* snapshot, SequenceNumber* min,
+                               SequenceNumber* max);
   // Validate is a snapshot sequence number is still valid based on the latest
   // db status. backed_by_snapshot specifies if the number is baked by an actual
   // snapshot object. order specified the memory order with which we load the
@@ -997,7 +1001,6 @@ bool WritePreparedTxnDB::ValidateSnapshot(const SequenceNumber snap_seq,
   }
   return true;
 }
-
 
 }  //  namespace rocksdb
 #endif  // ROCKSDB_LITE

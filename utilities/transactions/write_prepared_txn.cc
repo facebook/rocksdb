@@ -48,10 +48,11 @@ Status WritePreparedTxn::Get(const ReadOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& key, PinnableSlice* pinnable_val) {
   SequenceNumber min_uncommitted, snap_seq;
-  const bool backed_by_snapshot = wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
+  const bool backed_by_snapshot =
+      wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
   WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted);
   auto res = write_batch_.GetFromBatchAndDB(db_, options, column_family, key,
-                                        pinnable_val, &callback);
+                                            pinnable_val, &callback);
   if (LIKELY(wpt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
     return res;
   } else {

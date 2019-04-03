@@ -221,11 +221,12 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
                                ColumnFamilyHandle* column_family,
                                const Slice& key, PinnableSlice* value) {
   SequenceNumber min_uncommitted, snap_seq;
-  const bool backed_by_snapshot = AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
+  const bool backed_by_snapshot =
+      AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
   WritePreparedTxnReadCallback callback(this, snap_seq, min_uncommitted);
   bool* dont_care = nullptr;
   auto res = db_impl_->GetImpl(options, column_family, key, value, dont_care,
-                           &callback);
+                               &callback);
   if (LIKELY(ValidateSnapshot(snap_seq, backed_by_snapshot))) {
     return res;
   } else {
