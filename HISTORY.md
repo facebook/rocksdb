@@ -11,6 +11,7 @@
 ### Bug Fixes
 * Fix a bug in 2PC where a sequence of txn prepare, memtable flush, and crash could result in losing the prepared transaction.
 * Fix a bug in Encryption Env which could cause encrypted files to be read beyond file boundaries.
+* Fix a race condition between WritePrepared::Get and ::Put with duplicate keys.
 
 ## 6.1.0 (3/27/2019)
 ### New Features
