@@ -2480,8 +2480,8 @@ class DBIteratorWithReadCallbackTest : public DBIteratorTest {};
 TEST_F(DBIteratorWithReadCallbackTest, ReadCallback) {
   class TestReadCallback : public ReadCallback {
    public:
-    explicit TestReadCallback(SequenceNumber max_visible_seq)
-        : ReadCallback(max_visible_seq) {}
+    explicit TestReadCallback(SequenceNumber _max_visible_seq)
+        : ReadCallback(_max_visible_seq) {}
 
     bool IsVisibleFullCheck(SequenceNumber seq) override {
       return seq <= max_visible_seq_;

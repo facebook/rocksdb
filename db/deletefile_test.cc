@@ -71,7 +71,9 @@ class DeleteFileTest : public testing::Test {
     }
     db_ = nullptr;
     options_.create_if_missing = create;
-    return DB::Open(options_, dbname_, &db_);
+    Status s = DB::Open(options_, dbname_, &db_);
+    assert(db_);
+    return s;
   }
 
   void CloseDB() {
