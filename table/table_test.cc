@@ -2351,6 +2351,9 @@ TEST_P(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
 
                 for (auto compression_type : compression_types) {
                   for (uint32_t max_dict_bytes : {0, 1 << 14}) {
+                    if (compression_type == kNoCompression && max_dict_bytes)
+                      continue;
+
                     // Create a table
                     Options opt;
                     std::unique_ptr<InternalKeyComparator> ikc;
