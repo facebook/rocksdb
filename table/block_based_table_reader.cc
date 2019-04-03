@@ -3289,19 +3289,19 @@ void BlockBasedTable::Close() {
     // Get the filter block key
     auto key = GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size,
                            rep_->filter_handle, cache_key);
-    rep_->table_options.block_cache->Erase(key);
+    cache->Erase(key);
 
     // Get the index block key
     key = GetCacheKeyFromOffset(rep_->cache_key_prefix,
                                 rep_->cache_key_prefix_size,
                                 rep_->dummy_index_reader_offset, cache_key);
-    rep_->table_options.block_cache->Erase(key);
+    cache->Erase(key);
 
     if (!rep_->compression_dict_handle.IsNull()) {
       // Get the compression dictionary block key
       key = GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size,
                         rep_->compression_dict_handle, cache_key);
-      rep_->table_options.block_cache->Erase(key);
+      cache->Erase(key);
     }
   }
 
