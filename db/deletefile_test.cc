@@ -288,6 +288,7 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
     FlushOptions fo;
     ColumnFamilyHandle* cfh = nullptr;
 
+    assert(db_); // silence a weird clang-analyzer error
     ASSERT_OK(db_->CreateColumnFamily(co, "dropme", &cfh));
 
     ASSERT_OK(db_->Put(wo, cfh, "pika", "chu"));
