@@ -57,6 +57,7 @@ int main() {
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -167,6 +168,17 @@ DEFINE_bool(verbose, false, "Verbose");
 
 DEFINE_bool(progress_reports, true,
             "If true, db_stress will report number of finished operations");
+
+namespace rocksdb {
+static Registrar<Env> hdfs_reg(
+    "hdfs://.*", [](const std::string& fs_name, const void* arg,
+                    std::unique_ptr<Env>* env_guard) {
+      const Env* target = reinterpret_cast<const Env*>(arg);
+      assert(env_guard != nullptr);
+      env_guard->reset(new HdfsEnv(const_cast<Env*>(target), fs_name));
+      return env_guard->get();
+    });
+}
 
 DEFINE_uint64(db_write_buffer_size, rocksdb::Options().db_write_buffer_size,
               "Number of bytes to buffer in all memtables before compacting");

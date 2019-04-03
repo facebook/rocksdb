@@ -18,6 +18,7 @@
 #include <iostream>
 #include <sstream>
 #include "rocksdb/status.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "util/logging.h"
 #include "util/string_util.h"
 
@@ -284,10 +285,11 @@ class HdfsLogger : public Logger {
   Status HdfsCloseHelper() {
     ROCKS_LOG_DEBUG(mylog, "[hdfs] HdfsLogger closed %s\n",
                     file_->getName().c_str());
+    Status s = file_->Close();
     if (mylog != nullptr && mylog == this) {
       mylog = nullptr;
     }
-    return Status::OK();
+    return s;
   }
 
  protected:
@@ -379,9 +381,14 @@ class HdfsLogger : public Logger {
 }  // namespace
 
 // Finally, the hdfs environment
-
-const std::string HdfsEnv::kProto = "hdfs://";
-const std::string HdfsEnv::pathsep = "/";
+static Registrar<Env> hdfs_reg(
+    "hdfs://.*", [](const std::string& fs_name, const void* arg,
+                    std::unique_ptr<Env>* env_guard) {
+      const Env* target = reinterpret_cast<const Env*>(arg);
+      assert(env_guard != nullptr);
+      env_guard->reset(new HdfsEnv(const_cast<Env*>(target), fs_name));
+      return env_guard->get();
+    });
 
 // open a file for sequential reading
 Status HdfsEnv::NewSequentialFile(const std::string& fname,

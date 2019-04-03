@@ -112,15 +112,14 @@ class HdfsEnv : public EnvWrapper {
   std::string fsname_;  // string of the form "hdfs://hostname:port/"
   hdfsFS fileSys_;      //  a single FileSystem object for all files
 
-  static const std::string kProto;
-  static const std::string pathsep;
-
   /**
    * If the URI is specified of the form hdfs://server:port/path,
    * then connect to the specified cluster
    * else connect to default.
    */
   hdfsFS connectToPath(const std::string& uri) {
+    const std::string kProto = "hdfs://";
+    const std::string kPathSep = "/";
     if (uri.empty()) {
       return nullptr;
     }
@@ -140,7 +139,7 @@ class HdfsEnv : public EnvWrapper {
     std::string host(parts[0]);
     std::string remaining(parts[1]);
 
-    int rem = static_cast<int>(remaining.find(pathsep));
+    int rem = static_cast<int>(remaining.find(kPathSep));
     std::string portStr = (rem == 0 ? remaining :
                            remaining.substr(0, rem));
 
