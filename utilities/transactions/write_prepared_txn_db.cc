@@ -217,7 +217,7 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   return s;
 }
 
-void WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
+bool WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
                                           SequenceNumber* min,
                                           SequenceNumber* max) {
   if (snapshot != nullptr) {
@@ -225,9 +225,11 @@ void WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
                ->min_uncommitted_;
     *max = static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
                ->number_;
+    return true;
   } else {
     *min = SmallestUnCommittedSeq();
     *max = db_impl_->GetLastPublishedSequence();
+    return false;
   }
 }
 
@@ -235,11 +237,16 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
                                ColumnFamilyHandle* column_family,
                                const Slice& key, PinnableSlice* value) {
   SequenceNumber min_uncommitted, snap_seq;
-  AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
+  const bool backed_by_snapshot = AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
   WritePreparedTxnReadCallback callback(this, snap_seq, min_uncommitted);
   bool* dont_care = nullptr;
-  return db_impl_->GetImpl(options, column_family, key, value, dont_care,
+  auto res = db_impl_->GetImpl(options, column_family, key, value, dont_care,
                            &callback);
+  if (LIKELY(ValidateSnapshot(snap_seq, backed_by_snapshot))) {
+    return res;
+  } else {
+    return Status::TryAgain();
+  }
 }
 
 void WritePreparedTxnDB::UpdateCFComparatorMap(
