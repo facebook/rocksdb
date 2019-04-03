@@ -1390,12 +1390,11 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     snapshot =
         reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
   } else {
-    // Since we get and reference the super version before getting
-    // the snapshot number, without a mutex protection, it is possible
-    // that a memtable switch happened in the middle and not all the
-    // data for this snapshot is available. But it will contain all
-    // the data available in the super version we have, which is also
-    // a valid snapshot to read from.
+    // TODO(myabandeh): we should fix this race condition.
+    // We shouldn't get snapshot before finding and referencing the super
+    // version because a flush happening in between may compact away data for
+    // the snapshot, so the reader would see neither data that would be visible
+    // to the snapshot nor the newer data inserted afterwards.
     snapshot = last_seq_same_as_publish_seq_
                    ? versions_->LastSequence()
                    : versions_->LastPublishedSequence();
