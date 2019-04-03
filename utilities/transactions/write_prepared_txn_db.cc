@@ -217,22 +217,6 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   return s;
 }
 
-bool WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
-                                          SequenceNumber* min,
-                                          SequenceNumber* max) {
-  if (snapshot != nullptr) {
-    *min = static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-               ->min_uncommitted_;
-    *max = static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-               ->number_;
-    return true;
-  } else {
-    *min = SmallestUnCommittedSeq();
-    *max = db_impl_->GetLastPublishedSequence();
-    return false;
-  }
-}
-
 Status WritePreparedTxnDB::Get(const ReadOptions& options,
                                ColumnFamilyHandle* column_family,
                                const Slice& key, PinnableSlice* value) {

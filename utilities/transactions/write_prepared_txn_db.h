@@ -25,6 +25,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/cast_util.h"
 #include "util/set_comparator.h"
 #include "util/string_util.h"
 #include "utilities/transactions/pessimistic_transaction.h"
@@ -445,8 +446,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
  protected:
   virtual Status VerifyCFOptions(
       const ColumnFamilyOptions& cf_options) override;
-  bool AssignMinMaxSeqs(const Snapshot* snapshot, SequenceNumber* min, SequenceNumber* max);
-  // relax is enough since we care about last value seen by same thread.
+  // Assign the min and max sequence numbers for reading from the db. A seq > max is not valid, and a seq < min is valid, and a min <= seq < max requires further checkings. Normally max is defined by the snapshot and min is by minimum uncommitted seq.
+  inline bool AssignMinMaxSeqs(const Snapshot* snapshot, SequenceNumber* min, SequenceNumber* max);
+  // Validate is a snapshot sequence number is still valid based on the latest
+  // db status. backed_by_snapshot specifies if the number is baked by an actual
+  // snapshot object. order specified the memory order with which we load the
+  // atomic variables: relax is enough for the default since we care about last
+  // value seen by same thread.
   inline bool ValidateSnapshot(
       const SequenceNumber snap_seq, const bool backed_by_snapshot,
       std::memory_order order = std::memory_order_relaxed);
@@ -959,7 +965,23 @@ struct SubBatchCounter : public WriteBatch::Handler {
   bool WriteAfterCommit() const override { return false; }
 };
 
-inline bool WritePreparedTxnDB::ValidateSnapshot(const SequenceNumber snap_seq,
+bool WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
+                                          SequenceNumber* min,
+                                          SequenceNumber* max) {
+  if (snapshot != nullptr) {
+    *min = static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
+               ->min_uncommitted_;
+    *max = static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
+               ->number_;
+    return true;
+  } else {
+    *min = SmallestUnCommittedSeq();
+    *max = db_impl_->GetLastPublishedSequence();
+    return false;
+  }
+}
+
+bool WritePreparedTxnDB::ValidateSnapshot(const SequenceNumber snap_seq,
                                           const bool backed_by_snapshot,
                                           std::memory_order order) {
   if (backed_by_snapshot) {
