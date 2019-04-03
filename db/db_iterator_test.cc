@@ -42,14 +42,21 @@ class DBIteratorTest : public DBTestBase,
     SequenceNumber seq = read_options.snapshot != nullptr
                              ? read_options.snapshot->GetSequenceNumber()
                              : db_->GetLatestSequenceNumber();
-    read_callback_.SetSnapshot(seq);
     bool use_read_callback = GetParam();
-    ReadCallback* read_callback = use_read_callback ? &read_callback_ : nullptr;
+    DummyReadCallback* read_callback = nullptr;
+    if (use_read_callback) {
+      read_callback = new DummyReadCallback();
+      read_callback->SetSnapshot(seq);
+      InstrumentedMutexLock lock(&mutex_);
+      read_callbacks_.push_back(
+          std::unique_ptr<DummyReadCallback>(read_callback));
+    }
     return dbfull()->NewIteratorImpl(read_options, cfd, seq, read_callback);
   }
 
  private:
-  DummyReadCallback read_callback_;
+  InstrumentedMutex mutex_;
+  std::vector<std::unique_ptr<DummyReadCallback>> read_callbacks_;
 };
 
 class FlushBlockEveryKeyPolicy : public FlushBlockPolicy {
