@@ -2360,28 +2360,32 @@ TEST_P(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
                     // Create a table
                     Options opt;
                     std::unique_ptr<InternalKeyComparator> ikc;
-                    ikc.reset(new test::PlainInternalKeyComparator(opt.comparator));
+                    ikc.reset(new test::PlainInternalKeyComparator(
+                      opt.comparator));
                     opt.compression = compression_type;
                     opt.compression_opts.max_dict_bytes = max_dict_bytes;
                     BlockBasedTableOptions table_options =
                       GetBlockBasedTableOptions();
                     table_options.block_size = 1024;
                     table_options.index_type = index_type;
-                    table_options.pin_l0_filter_and_index_blocks_in_cache = pin_l0;
-                    table_options.pin_top_level_index_and_filter = pin_top_level;
+                    table_options.pin_l0_filter_and_index_blocks_in_cache =
+                      pin_l0;
+                    table_options.pin_top_level_index_and_filter =
+                      pin_top_level;
                     table_options.partition_filters = partition_filter;
                     table_options.cache_index_and_filter_blocks =
                       index_and_filter_in_cache;
                     // big enough so we don't ever lose cached values.
-                    table_options.block_cache = std::shared_ptr<rocksdb::Cache>(
-                        new MockCache(16 * 1024 * 1024, 4, false, 0.0));
+                    table_options.block_cache = std::make_shared<MockCache>(
+                      16 * 1024 * 1024, 4, false, 0.0);
                     table_options.filter_policy.reset(
-                        rocksdb::NewBloomFilterPolicy(10, block_based_filter));
-                    opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
+                      rocksdb::NewBloomFilterPolicy(10, block_based_filter));
+                    opt.table_factory.reset(NewBlockBasedTableFactory(
+                      table_options));
 
                     bool convert_to_internal_key = false;
-                    TableConstructor c(BytewiseComparator(), convert_to_internal_key,
-                        level);
+                    TableConstructor c(BytewiseComparator(),
+                      convert_to_internal_key, level);
                     std::string user_key = "k01";
                     std::string key =
                       InternalKey(user_key, 0, kTypeValue).Encode().ToString();
@@ -2390,19 +2394,19 @@ TEST_P(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
                     stl_wrappers::KVMap kvmap;
                     const ImmutableCFOptions ioptions(opt);
                     const MutableCFOptions moptions(opt);
-                    c.Finish(opt, ioptions, moptions, table_options, *ikc, &keys,
-                        &kvmap);
+                    c.Finish(opt, ioptions, moptions, table_options, *ikc,
+                      &keys, &kvmap);
 
                     // Doing a read to make index/filter loaded into the cache
                     auto table_reader =
                       dynamic_cast<BlockBasedTable*>(c.GetTableReader());
                     PinnableSlice value;
-                    GetContext get_context(opt.comparator, nullptr, nullptr, nullptr,
-                        GetContext::kNotFound, user_key, &value,
-                        nullptr, nullptr, nullptr, nullptr);
+                    GetContext get_context(opt.comparator, nullptr, nullptr,
+                      nullptr, GetContext::kNotFound, user_key, &value,
+                      nullptr, nullptr, nullptr, nullptr);
                     InternalKey ikey(user_key, 0, kTypeValue);
                     auto s = table_reader->Get(ReadOptions(), key, &get_context,
-                        moptions.prefix_extractor.get());
+                      moptions.prefix_extractor.get());
                     ASSERT_EQ(get_context.State(), GetContext::kFound);
                     ASSERT_STREQ(value.data(), "hello");
 
@@ -2410,7 +2414,8 @@ TEST_P(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
                     c.ResetTableReader();
 
                     auto usage = table_options.block_cache->GetUsage();
-                    auto pinned_usage = table_options.block_cache->GetPinnedUsage();
+                    auto pinned_usage =
+                      table_options.block_cache->GetPinnedUsage();
                     // The only usage must be for marked data blocks
                     ASSERT_EQ(usage, MockCache::marked_size_);
                     // There must be some pinned data since PinnableSlice has not
