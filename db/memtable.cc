@@ -272,11 +272,6 @@ const char* EncodeKey(std::string* scratch, const Slice& target) {
   return scratch->data();
 }
 
-void MemTableRep::Iterator::SeekInternal(const Slice& internal_key) {
-  Seek(EncodeKey(&tmp_, internal_key));
-}
-
-
 class MemTableIterator : public InternalIterator {
  public:
   MemTableIterator(const MemTable& mem, const ReadOptions& read_options,
@@ -333,7 +328,7 @@ class MemTableIterator : public InternalIterator {
         PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
       }
     }
-    iter_->SeekInternal(k);
+    iter_->Seek(k);
     valid_ = iter_->Valid();
   }
   void SeekForPrev(const Slice& k) override {
@@ -349,7 +344,7 @@ class MemTableIterator : public InternalIterator {
         PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
       }
     }
-    iter_->SeekInternal(k);
+    iter_->Seek(k);
     valid_ = iter_->Valid();
     if (!Valid()) {
       SeekToLast();
@@ -823,11 +818,10 @@ void MemTable::Update(SequenceNumber seq,
                       const Slice& key,
                       const Slice& value) {
   LookupKey lkey(key, seq);
-  Slice mem_key = lkey.memtable_key();
 
   std::unique_ptr<MemTableRep::Iterator> iter(
       table_->GetDynamicPrefixIterator());
-  iter->Seek(mem_key.data());
+  iter->Seek(lkey.internal_key());
 
   if (iter->Valid()) {
     // entry format is:
@@ -882,11 +876,10 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
                               const Slice& key,
                               const Slice& delta) {
   LookupKey lkey(key, seq);
-  Slice memkey = lkey.memtable_key();
 
   std::unique_ptr<MemTableRep::Iterator> iter(
       table_->GetDynamicPrefixIterator());
-  iter->Seek(memkey.data());
+  iter->Seek(lkey.internal_key());
 
   if (iter->Valid()) {
     // entry format is:
@@ -957,14 +950,12 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
 }
 
 size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
-  Slice memkey = key.memtable_key();
-
   // A total ordered iterator is costly for some memtablerep (prefix aware
   // reps). By passing in the user key, we allow efficient iterator creation.
   // The iterator only needs to be ordered within the same user key.
   std::unique_ptr<MemTableRep::Iterator> iter(
       table_->GetDynamicPrefixIterator());
-  iter->Seek(memkey.data());
+  iter->Seek(key.internal_key());
 
   size_t num_successive_merges = 0;
 
@@ -994,7 +985,7 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
 void MemTableRep::Get(const LookupKey& k, void* callback_args,
                       bool (*callback_func)(void* arg, const char* entry)) {
   auto iter = GetDynamicPrefixIterator();
-  for (iter->Seek(k.memtable_key().data());
+  for (iter->Seek(k.internal_key());
        iter->Valid() && callback_func(callback_args, iter->key());
        iter->Next()) {
   }

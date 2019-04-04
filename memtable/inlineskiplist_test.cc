@@ -88,7 +88,7 @@ class InlineSkipTest : public testing::Test {
     TestInlineSkipList::Iterator iter(list);
     ASSERT_FALSE(iter.Valid());
     Key zero = 0;
-    iter.Seek(Encode(&zero));
+    iter.Seek(zero);
     for (Key key : keys_) {
       ASSERT_TRUE(iter.Valid());
       ASSERT_EQ(key, Decode(iter.key()));
@@ -115,9 +115,9 @@ TEST_F(InlineSkipTest, Empty) {
   iter.SeekToFirst();
   ASSERT_TRUE(!iter.Valid());
   key = 100;
-  iter.Seek(Encode(&key));
+  iter.Seek(key);
   ASSERT_TRUE(!iter.Valid());
-  iter.SeekForPrev(Encode(&key));
+  iter.SeekForPrev(key);
   ASSERT_TRUE(!iter.Valid());
   iter.SeekToLast();
   ASSERT_TRUE(!iter.Valid());
@@ -154,12 +154,12 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
     ASSERT_TRUE(!iter.Valid());
 
     uint64_t zero = 0;
-    iter.Seek(Encode(&zero));
+    iter.Seek(zero);
     ASSERT_TRUE(iter.Valid());
     ASSERT_EQ(*(keys.begin()), Decode(iter.key()));
 
     uint64_t max_key = R - 1;
-    iter.SeekForPrev(Encode(&max_key));
+    iter.SeekForPrev(max_key);
     ASSERT_TRUE(iter.Valid());
     ASSERT_EQ(*(keys.rbegin()), Decode(iter.key()));
 
@@ -175,7 +175,7 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
   // Forward iteration test
   for (Key i = 0; i < R; i++) {
     InlineSkipList<TestComparator>::Iterator iter(&list);
-    iter.Seek(Encode(&i));
+    iter.Seek(i);
 
     // Compare against model iterator
     std::set<Key>::iterator model_iter = keys.lower_bound(i);
@@ -195,7 +195,7 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
   // Backward iteration test
   for (Key i = 0; i < R; i++) {
     InlineSkipList<TestComparator>::Iterator iter(&list);
-    iter.SeekForPrev(Encode(&i));
+    iter.SeekForPrev(i);
 
     // Compare against model iterator
     std::set<Key>::iterator model_iter = keys.upper_bound(i);
@@ -431,7 +431,7 @@ class ConcurrentTest {
 
     Key pos = RandomTarget(rnd);
     InlineSkipList<TestComparator>::Iterator iter(&list_);
-    iter.Seek(Encode(&pos));
+    iter.Seek(pos);
     while (true) {
       Key current;
       if (!iter.Valid()) {
@@ -474,7 +474,7 @@ class ConcurrentTest {
         Key new_target = RandomTarget(rnd);
         if (new_target > pos) {
           pos = new_target;
-          iter.Seek(Encode(&new_target));
+          iter.Seek(new_target);
         }
       }
     }

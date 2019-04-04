@@ -127,7 +127,7 @@ class InlineSkipList {
   bool Contains(const char* key) const;
 
   // Return estimated number of entries smaller than `key`.
-  uint64_t EstimateCount(const char* key) const;
+  uint64_t EstimateCount(const DecodedKey& decoded_key) const;
 
   // Validate correctness of the skip-list.
   void TEST_Validate() const;
@@ -160,10 +160,10 @@ class InlineSkipList {
     void Prev();
 
     // Advance to the first entry with a key >= target
-    void Seek(const char* target);
+    void Seek(const DecodedKey& decoded_key);
 
     // Retreat to the last entry with a key <= target
-    void SeekForPrev(const char* target);
+    void SeekForPrev(const DecodedKey& decoded_key);
 
     // Position at the first entry in list.
     // Final state of iterator is Valid() iff list is not empty.
@@ -210,8 +210,16 @@ class InlineSkipList {
     return (compare_(a, b) == 0);
   }
 
+  bool Equal(const DecodedKey& a, const char* b) const {
+    return (compare_(b, a) == 0);
+  }
+
   bool LessThan(const char* a, const char* b) const {
     return (compare_(a, b) < 0);
+  }
+
+  bool LessThan(const DecodedKey& a, const char* b) const {
+    return (compare_(b, a) > 0);
   }
 
   // Return true if key is greater than the data stored in "n".  Null n
@@ -219,9 +227,9 @@ class InlineSkipList {
   bool KeyIsAfterNode(const char* key, Node* n) const;
   bool KeyIsAfterNode(const DecodedKey& key, Node* n) const;
 
-  // Returns the earliest node with a key >= key.
+  // Returns the earliest node with a key >= decoded_key.
   // Return nullptr if there is no such node.
-  Node* FindGreaterOrEqual(const char* key) const;
+  Node* FindGreaterOrEqual(const DecodedKey& decoded_key) const;
 
   // Return the latest node with a key < key.
   // Return head_ if there is no such node.
@@ -388,18 +396,19 @@ inline void InlineSkipList<Comparator>::Iterator::Prev() {
 }
 
 template <class Comparator>
-inline void InlineSkipList<Comparator>::Iterator::Seek(const char* target) {
-  node_ = list_->FindGreaterOrEqual(target);
+inline void InlineSkipList<Comparator>::Iterator::Seek(
+    const DecodedKey& decoded_key) {
+  node_ = list_->FindGreaterOrEqual(decoded_key);
 }
 
 template <class Comparator>
 inline void InlineSkipList<Comparator>::Iterator::SeekForPrev(
-    const char* target) {
-  Seek(target);
+    const DecodedKey& decoded_key) {
+  Seek(decoded_key);
   if (!Valid()) {
     SeekToLast();
   }
-  while (Valid() && list_->LessThan(target, key())) {
+  while (Valid() && list_->LessThan(decoded_key, key())) {
     Prev();
   }
 }
@@ -451,7 +460,8 @@ bool InlineSkipList<Comparator>::KeyIsAfterNode(const DecodedKey& key,
 
 template <class Comparator>
 typename InlineSkipList<Comparator>::Node*
-InlineSkipList<Comparator>::FindGreaterOrEqual(const char* key) const {
+InlineSkipList<Comparator>::FindGreaterOrEqual(
+    const DecodedKey& decoded_key) const {
   // Note: It looks like we could reduce duplication by implementing
   // this function as FindLessThan(key)->Next(0), but we wouldn't be able
   // to exit early on equality and the result wouldn't even be correct.
@@ -460,7 +470,6 @@ InlineSkipList<Comparator>::FindGreaterOrEqual(const char* key) const {
   Node* x = head_;
   int level = GetMaxHeight() - 1;
   Node* last_bigger = nullptr;
-  const DecodedKey key_decoded = compare_.decode_key(key);
   while (true) {
     Node* next = x->Next(level);
     if (next != nullptr) {
@@ -469,10 +478,10 @@ InlineSkipList<Comparator>::FindGreaterOrEqual(const char* key) const {
     // Make sure the lists are sorted
     assert(x == head_ || next == nullptr || KeyIsAfterNode(next->Key(), x));
     // Make sure we haven't overshot during our search
-    assert(x == head_ || KeyIsAfterNode(key_decoded, x));
+    assert(x == head_ || KeyIsAfterNode(decoded_key, x));
     int cmp = (next == nullptr || next == last_bigger)
                   ? 1
-                  : compare_(next->Key(), key_decoded);
+                  : compare_(next->Key(), decoded_key);
     if (cmp == 0 || (cmp > 0 && level == 0)) {
       return next;
     } else if (cmp < 0) {
@@ -551,19 +560,19 @@ InlineSkipList<Comparator>::FindLast() const {
 }
 
 template <class Comparator>
-uint64_t InlineSkipList<Comparator>::EstimateCount(const char* key) const {
+uint64_t InlineSkipList<Comparator>::EstimateCount(
+    const DecodedKey& decoded_key) const {
   uint64_t count = 0;
 
   Node* x = head_;
   int level = GetMaxHeight() - 1;
-  const DecodedKey key_decoded = compare_.decode_key(key);
   while (true) {
-    assert(x == head_ || compare_(x->Key(), key_decoded) < 0);
+    assert(x == head_ || compare_(x->Key(), decoded_key) < 0);
     Node* next = x->Next(level);
     if (next != nullptr) {
       PREFETCH(next->Next(level), 0, 1);
     }
-    if (next == nullptr || compare_(next->Key(), key_decoded) >= 0) {
+    if (next == nullptr || compare_(next->Key(), decoded_key) >= 0) {
       if (level == 0) {
         return count;
       } else {
@@ -913,7 +922,7 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
 
 template <class Comparator>
 bool InlineSkipList<Comparator>::Contains(const char* key) const {
-  Node* x = FindGreaterOrEqual(key);
+  Node* x = FindGreaterOrEqual(compare_.decode_key(key));
   if (x != nullptr && Equal(key, x->Key())) {
     return true;
   } else {

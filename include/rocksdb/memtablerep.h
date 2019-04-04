@@ -202,13 +202,10 @@ class MemTableRep {
     virtual void Prev() = 0;
 
     // Advance to the first entry with a key >= target
-    virtual void Seek(const char* memtable_key) = 0;
-
-    // Advance to the first entry with a key >= ENCODE(target)
-    virtual void SeekInternal(const Slice& internal_key);
+    virtual void Seek(const Slice& internal_key) = 0;
 
     // retreat to the first entry with a key <= target
-    virtual void SeekForPrev(const char* memtable_key) = 0;
+    virtual void SeekForPrev(const Slice& internal_key) = 0;
 
     // Position at the first entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
@@ -217,9 +214,6 @@ class MemTableRep {
     // Position at the last entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
     virtual void SeekToLast() = 0;
-
-  protected:
-    std::string tmp_;       // For passing to EncodeKey
   };
 
   // Return an iterator over the keys in this representation.

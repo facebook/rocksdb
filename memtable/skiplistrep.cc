@@ -71,7 +71,7 @@ public:
  void Get(const LookupKey& k, void* callback_args,
           bool (*callback_func)(void* arg, const char* entry)) override {
    SkipListRep::Iterator iter(&skip_list_);
-   for (iter.Seek(k.memtable_key().data());
+   for (iter.Seek(k.internal_key());
         iter.Valid() && callback_func(callback_args, iter.key()); iter.Next()) {
    }
  }
@@ -79,9 +79,8 @@ public:
   uint64_t ApproximateNumEntries(const Slice& start_ikey,
                                  const Slice& end_ikey) override {
     std::string tmp;
-    uint64_t start_count =
-        skip_list_.EstimateCount(EncodeKey(&tmp, start_ikey));
-    uint64_t end_count = skip_list_.EstimateCount(EncodeKey(&tmp, end_ikey));
+    uint64_t start_count = skip_list_.EstimateCount(start_ikey);
+    uint64_t end_count = skip_list_.EstimateCount(end_ikey);
     return (end_count >= start_count) ? (end_count - start_count) : 0;
   }
 
@@ -116,13 +115,13 @@ public:
     void Prev() override { iter_.Prev(); }
 
     // Advance to the first entry with a key >= target
-    void Seek(const char* memtable_key) override {
-      iter_.Seek(memtable_key);
+    void Seek(const Slice& internal_key) override {
+      iter_.Seek(internal_key);
     }
 
     // Retreat to the last entry with a key <= target
-    void SeekForPrev(const char* memtable_key) override {
-      iter_.SeekForPrev(memtable_key);
+    void SeekForPrev(const Slice& internal_key) override {
+      iter_.SeekForPrev(internal_key);
     }
 
     // Position at the first entry in list.
@@ -183,27 +182,27 @@ public:
       prev_ = iter_;
     }
 
-    void Seek(const char* memtable_key) override {
-      if (prev_.Valid() && rep_.cmp_(memtable_key, prev_.key()) >= 0) {
+    void Seek(const Slice& internal_key) override {
+      if (prev_.Valid() && rep_.cmp_(prev_.key(), internal_key) <= 0) {
         // prev_.key() is smaller or equal to our target key; do a quick
         // linear search (at most lookahead_ steps) starting from prev_
         iter_ = prev_;
 
         size_t cur = 0;
         while (cur++ <= rep_.lookahead_ && iter_.Valid()) {
-          if (rep_.cmp_(memtable_key, iter_.key()) <= 0) {
+          if (rep_.cmp_(iter_.key(), internal_key) >= 0) {
             return;
           }
           Next();
         }
       }
 
-      iter_.Seek(memtable_key);
+      iter_.Seek(internal_key);
       prev_ = iter_;
     }
 
-    void SeekForPrev(const char* memtable_key) override {
-      iter_.SeekForPrev(memtable_key);
+    void SeekForPrev(const Slice& internal_key) override {
+      iter_.SeekForPrev(internal_key);
       prev_ = iter_;
     }
 
