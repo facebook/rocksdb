@@ -2319,6 +2319,9 @@ std::map<std::string, size_t> MockCache::marked_data_in_cache_;
 TEST_P(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
   std::vector<CompressionType> compression_types{kNoCompression};
 
+  // The following are the compression library versions supporting compression
+  // dictionaries. See the test case CacheCompressionDict in the
+  // DBBlockCacheTest suite.
 #ifdef ZLIB
   compression_types.push_back(kZlibCompression);
 #endif  // ZLIB
