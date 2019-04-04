@@ -2418,8 +2418,8 @@ TEST_P(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
                       table_options.block_cache->GetPinnedUsage();
                     // The only usage must be for marked data blocks
                     ASSERT_EQ(usage, MockCache::marked_size_);
-                    // There must be some pinned data since PinnableSlice has not
-                    // released them yet
+                    // There must be some pinned data since PinnableSlice has
+                    // not released them yet
                     ASSERT_GT(pinned_usage, 0);
                     // Release pinnable slice reousrces
                     value.Reset();
