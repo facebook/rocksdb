@@ -106,7 +106,9 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       insert_with_hint_prefix_extractor_(
           ioptions.memtable_insert_with_hint_prefix_extractor),
       oldest_key_time_(std::numeric_limits<uint64_t>::max()),
-      atomic_flush_seqno_(kMaxSequenceNumber) {
+      atomic_flush_seqno_(kMaxSequenceNumber),
+      fragmented_tombstones(std::make_shared<FragmentedTombstones>(new FragmentedTombstones)),
+      range_tombstone_count(0) {
   UpdateFlushState();
   // something went wrong if we need to flush before inserting anything
   assert(!ShouldScheduleFlush());
@@ -416,24 +418,58 @@ InternalIterator* MemTable::NewIterator(const ReadOptions& read_options,
   return new (mem) MemTableIterator(*this, read_options, arena);
 }
 
+void MemTable::InvalidateFragmentedTombstones() {
+    auto new_range_tombstone_count = range_tombstone_count++;
+
+  if (new_range_tombstone_count <= range_tombstone_count) {
+    // we have been preempted, don't invalidate fragmented tombstones
+    return;
+  }
+
+  // assignment here is atomic right?
+  fragmented_tombstones = std::make_shared<FragmentedTombstones>(new FragmentedTombstones);
+}
+
 FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
     const ReadOptions& read_options, SequenceNumber read_seq) {
+  FragmentedRangeTombstoneIterator* fragmented_iter = nullptr;
+  MemTableIterator* unfragmented_iter = nullptr;
+
+  // store these here in case they are invalidated during this function call
+  auto tombstones = fragmented_tombstones;
+
   if (read_options.ignore_range_deletions ||
       is_range_del_table_empty_.load(std::memory_order_relaxed)) {
     return nullptr;
   }
-  auto* unfragmented_iter = new MemTableIterator(
-      *this, read_options, nullptr /* arena */, true /* use_range_del_table */);
-  if (unfragmented_iter == nullptr) {
-    return nullptr;
-  }
-  auto fragmented_tombstone_list =
-      std::make_shared<FragmentedRangeTombstoneList>(
-          std::unique_ptr<InternalIterator>(unfragmented_iter),
-          comparator_.comparator);
 
-  auto* fragmented_iter = new FragmentedRangeTombstoneIterator(
-      fragmented_tombstone_list, comparator_.comparator, read_seq);
+  if (!tombstones->initiate_flag) {
+    bool changed = !tombstones->initiate_flag.exchange(true);
+    for (;;) {
+      if (changed) {
+        // rebuild the fragmented tombstones here
+
+        unfragmented_iter = new MemTableIterator(
+          *this, read_options, nullptr /* arena */, true /* use_range_del_table */);
+
+         if (unfragmented_iter != nullptr) {
+           tombstones->fragmented_tombstones_list =
+             std::make_shared<FragmentedRangeTombstoneList>(
+               std::unique_ptr<InternalIterator>(unfragmented_iter),
+               comparator_.comparator);
+        }
+      } else if (tombstones->fragmented_tombstones_list != nullptr) {
+        break;
+      }
+
+      // fragmented tombstones are rebuilding, spin until they're done
+    }
+  }
+
+  if (tombstones->fragmented_tombstones_list != nullptr) {
+    fragmented_iter = new FragmentedRangeTombstoneIterator(
+        tombstones->fragmented_tombstones_list, comparator_.comparator, read_seq);
+  }
   return fragmented_iter;
 }
 
@@ -573,6 +609,7 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
     }
   }
   if (type == kTypeRangeDeletion) {
+    InvalidateFragmentedTombstones();
     is_range_del_table_empty_.store(false, std::memory_order_relaxed);
   }
   UpdateOldestKeyTime();
