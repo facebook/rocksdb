@@ -3747,22 +3747,22 @@ Status VersionSet::Recover(
     ROCKS_LOG_INFO(
         db_options_->info_log,
         "Recovered from manifest file:%s succeeded,"
-        "manifest_file_number is %lu, next_file_number is %lu, "
-        "last_sequence is %lu, log_number is %lu,"
-        "prev_log_number is %lu,"
-        "max_column_family is %u,"
-        "min_log_number_to_keep is %lu\n",
-        manifest_path.c_str(), (unsigned long)manifest_file_number_,
-        (unsigned long)next_file_number_.load(), (unsigned long)last_sequence_,
-        (unsigned long)log_number, (unsigned long)prev_log_number_,
-        column_family_set_->GetMaxColumnFamily(), min_log_number_to_keep_2pc());
+        "manifest_file_number is %" PRIu64 ", next_file_number is %" PRIu64
+        ", last_sequence is %" PRIu64 ", log_number is %" PRIu64
+        ",prev_log_number is %" PRIu64 ",max_column_family is %" PRIu32
+        ",min_log_number_to_keep is %" PRIu64 "\n",
+        manifest_path.c_str(), manifest_file_number_,
+        next_file_number_.load(), last_sequence_.load(), log_number,
+        prev_log_number_, column_family_set_->GetMaxColumnFamily(),
+        min_log_number_to_keep_2pc());
 
     for (auto cfd : *column_family_set_) {
       if (cfd->IsDropped()) {
         continue;
       }
       ROCKS_LOG_INFO(db_options_->info_log,
-                     "Column family [%s] (ID %u), log number is %" PRIu64 "\n",
+                     "Column family [%s] (ID %" PRIu32
+                     "), log number is %" PRIu64 "\n",
                      cfd->GetName().c_str(), cfd->GetID(), cfd->GetLogNumber());
     }
   }
@@ -4098,9 +4098,10 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       builder->SaveTo(v->storage_info());
       v->PrepareApply(*cfd->GetLatestMutableCFOptions(), false);
 
-      printf("--------------- Column family \"%s\"  (ID %u) --------------\n",
-             cfd->GetName().c_str(), (unsigned int)cfd->GetID());
-      printf("log number: %lu\n", (unsigned long)cfd->GetLogNumber());
+      printf("--------------- Column family \"%s\"  (ID %" PRIu32
+             ") --------------\n",
+             cfd->GetName().c_str(), cfd->GetID());
+      printf("log number: %" PRIu64 "\n", cfd->GetLogNumber());
       auto comparator = comparators.find(cfd->GetID());
       if (comparator != comparators.end()) {
         printf("comparator: %s\n", comparator->second.c_str());
@@ -4117,13 +4118,13 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     last_sequence_ = last_sequence;
     prev_log_number_ = previous_log_number;
 
-    printf(
-        "next_file_number %lu last_sequence "
-        "%lu  prev_log_number %lu max_column_family %u min_log_number_to_keep "
-        "%" PRIu64 "\n",
-        (unsigned long)next_file_number_.load(), (unsigned long)last_sequence,
-        (unsigned long)previous_log_number,
-        column_family_set_->GetMaxColumnFamily(), min_log_number_to_keep_2pc());
+    printf("next_file_number %" PRIu64 " last_sequence %" PRIu64
+           "  prev_log_number %" PRIu64 " max_column_family %" PRIu32
+           " min_log_number_to_keep "
+           "%" PRIu64 "\n",
+           next_file_number_.load(), last_sequence, previous_log_number,
+           column_family_set_->GetMaxColumnFamily(),
+           min_log_number_to_keep_2pc());
   }
 
   return s;

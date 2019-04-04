@@ -32,6 +32,13 @@
 #undef GetCurrentTime
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+#define ROCKSDB_PRINTF_FORMAT_ATTR(format_param, dots_param) \
+    __attribute__((__format__(__printf__, format_param, dots_param)))
+#else
+#define ROCKSDB_PRINTF_FORMAT_ATTR(format_param, dots_param)
+#endif
+
 namespace rocksdb {
 
 class FileLock;
@@ -929,50 +936,49 @@ extern void LogFlush(const std::shared_ptr<Logger>& info_log);
 
 extern void Log(const InfoLogLevel log_level,
                 const std::shared_ptr<Logger>& info_log, const char* format,
-                ...);
+                ...) ROCKSDB_PRINTF_FORMAT_ATTR(3, 4);
 
 // a set of log functions with different log levels.
 extern void Header(const std::shared_ptr<Logger>& info_log, const char* format,
-                   ...);
+                   ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 extern void Debug(const std::shared_ptr<Logger>& info_log, const char* format,
-                  ...);
+                  ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 extern void Info(const std::shared_ptr<Logger>& info_log, const char* format,
-                 ...);
+                 ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 extern void Warn(const std::shared_ptr<Logger>& info_log, const char* format,
-                 ...);
+                 ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 extern void Error(const std::shared_ptr<Logger>& info_log, const char* format,
-                  ...);
+                  ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 extern void Fatal(const std::shared_ptr<Logger>& info_log, const char* format,
-                  ...);
+                  ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 
 // Log the specified data to *info_log if info_log is non-nullptr.
 // The default info log level is InfoLogLevel::INFO_LEVEL.
 extern void Log(const std::shared_ptr<Logger>& info_log, const char* format,
-                ...)
-#if defined(__GNUC__) || defined(__clang__)
-    __attribute__((__format__(__printf__, 2, 3)))
-#endif
-    ;
+                ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 
 extern void LogFlush(Logger* info_log);
 
 extern void Log(const InfoLogLevel log_level, Logger* info_log,
-                const char* format, ...);
+                const char* format, ...) ROCKSDB_PRINTF_FORMAT_ATTR(3, 4);
 
 // The default info log level is InfoLogLevel::INFO_LEVEL.
 extern void Log(Logger* info_log, const char* format, ...)
-#if defined(__GNUC__) || defined(__clang__)
-    __attribute__((__format__(__printf__, 2, 3)))
-#endif
-    ;
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 
 // a set of log functions with different log levels.
-extern void Header(Logger* info_log, const char* format, ...);
-extern void Debug(Logger* info_log, const char* format, ...);
-extern void Info(Logger* info_log, const char* format, ...);
-extern void Warn(Logger* info_log, const char* format, ...);
-extern void Error(Logger* info_log, const char* format, ...);
-extern void Fatal(Logger* info_log, const char* format, ...);
+extern void Header(Logger* info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+extern void Debug(Logger* info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+extern void Info(Logger* info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+extern void Warn(Logger* info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+extern void Error(Logger* info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+extern void Fatal(Logger* info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 
 // A utility routine: write "data" to the named file.
 extern Status WriteStringToFile(Env* env, const Slice& data,

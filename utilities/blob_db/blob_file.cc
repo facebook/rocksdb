@@ -244,14 +244,14 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
     file_size_ = file_size;
   } else {
     ROCKS_LOG_ERROR(info_log_,
-                    "Failed to get size of blob file %" ROCKSDB_PRIszt
+                    "Failed to get size of blob file %" PRIu64
                     ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;
   }
   if (file_size < BlobLogHeader::kSize) {
     ROCKS_LOG_ERROR(info_log_,
-                    "Incomplete blob file blob file %" ROCKSDB_PRIszt
+                    "Incomplete blob file blob file %" PRIu64
                     ", size: %" PRIu64,
                     file_number_, file_size);
     return Status::Corruption("Incomplete blob file header.");
@@ -262,7 +262,7 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
   s = env->NewRandomAccessFile(PathName(), &file, env_options);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
-                    "Failed to open blob file %" ROCKSDB_PRIszt ", status: %s",
+                    "Failed to open blob file %" PRIu64 ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;
   }
@@ -275,7 +275,7 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
   s = file_reader->Read(0, BlobLogHeader::kSize, &header_slice, header_buf);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
-                    "Failed to read header of blob file %" ROCKSDB_PRIszt
+                    "Failed to read header of blob file %" PRIu64
                     ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;
@@ -284,7 +284,7 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
   s = header.DecodeFrom(header_slice);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
-                    "Failed to decode header of blob file %" ROCKSDB_PRIszt
+                    "Failed to decode header of blob file %" PRIu64
                     ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;
@@ -309,7 +309,7 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
                         &footer_slice, footer_buf);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
-                    "Failed to read footer of blob file %" ROCKSDB_PRIszt
+                    "Failed to read footer of blob file %" PRIu64
                     ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;
