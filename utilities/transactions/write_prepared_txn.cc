@@ -53,7 +53,8 @@ Status WritePreparedTxn::Get(const ReadOptions& options,
   WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted);
   auto res = write_batch_.GetFromBatchAndDB(db_, options, column_family, key,
                                             pinnable_val, &callback);
-  if (LIKELY(wpt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
+  if (LIKELY(wpt_db_->ValidateSnapshot(callback.max_visible_seq(),
+                                       backed_by_snapshot))) {
     return res;
   } else {
     return Status::TryAgain();

@@ -980,7 +980,7 @@ bool WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
     return true;
   } else {
     *min = SmallestUnCommittedSeq();
-    *max = db_impl_->GetLastPublishedSequence();
+    *max = 0; // to be assigned later after sv is referenced.
     return false;
   }
 }

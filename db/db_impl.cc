@@ -1383,21 +1383,26 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   TEST_SYNC_POINT("DBImpl::GetImpl:2");
 
   SequenceNumber snapshot;
-  if (callback) {
-    // The callback has already taken read_options.snapshot into account
-    snapshot = callback->max_visible_seq();
-  } else if (read_options.snapshot != nullptr) {
-    snapshot =
-        reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
+  if (read_options.snapshot != nullptr) {
+    if (callback) {
+      // Already caalcualtaed based on read_options.snapshot
+      snapshot = callback->max_visible_seq();
+    } else {
+      snapshot =
+          reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
+    }
   } else {
-    // TODO(myabandeh): we should fix this race condition.
-    // We shouldn't get snapshot before finding and referencing the super
-    // version because a flush happening in between may compact away data for
-    // the snapshot, so the reader would see neither data that would be visible
-    // to the snapshot nor the newer data inserted afterwards.
+    // Note that the snapshot is assigned AFTER referencing the super
+    // version because otherwise a flush happening in between may compact away
+    // data for the snapshot, so the reader would see neither data that was be
+    // visible to the snapshot before compaction nor the newer data inserted
+    // afterwards.
     snapshot = last_seq_same_as_publish_seq_
                    ? versions_->LastSequence()
                    : versions_->LastPublishedSequence();
+    if (callback) {
+      callback->Refresh(snapshot);
+    }
   }
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
