@@ -2500,18 +2500,22 @@ void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyForward() {
     if (!block_iter_.status().ok()) {
       return;
     }
+    bool block_is_out_of_bound = false;
     if (read_options_.iterate_upper_bound != nullptr &&
         block_iter_points_to_real_block_) {
       Slice index_user_key = index_iter_->key();
       if (index_key_includes_seq_) {
         index_user_key = ExtractUserKey(index_user_key);
       }
-      is_out_of_bound_ =
+      // Do not set is_out_of_bound_ here. Even when index key is out of bound,
+      // it can be larger than smallest key of the next file on the level, and
+      // that file may still be within bound.
+      block_is_out_of_bound =
           (user_comparator_.Compare(*read_options_.iterate_upper_bound,
                                     index_user_key) <= 0);
     }
     ResetDataIter();
-    if (is_out_of_bound_) {
+    if (block_is_out_of_bound) {
       // The next block is out of bound. No need to read it.
       TEST_SYNC_POINT_CALLBACK("BlockBasedTableIterator:out_of_bound", nullptr);
       return;
