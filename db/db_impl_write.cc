@@ -1127,7 +1127,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   ROCKS_LOG_INFO(
       immutable_db_options_.info_log,
       "Flushing column family with largest mem table size. Write buffer is "
-      "using %" PRIu64 " bytes out of a total of %" PRIu64 ".",
+      "using %" ROCKSDB_PRIszt " bytes out of a total of %" ROCKSDB_PRIszt ".",
       write_buffer_manager_->memory_usage(),
       write_buffer_manager_->buffer_size());
   // no need to refcount because drop is happening in write thread, so can't
@@ -1479,7 +1479,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       if (!s.ok()) {
         ROCKS_LOG_WARN(immutable_db_options_.info_log,
                        "[%s] Failed to switch from #%" PRIu64 " to #%" PRIu64
-                       "  WAL file -- %s\n",
+                       "  WAL file\n",
                        cfd->GetName().c_str(), cur_log_writer->get_log_number(),
                        new_log_number);
       }

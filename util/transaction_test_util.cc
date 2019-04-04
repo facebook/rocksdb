@@ -344,7 +344,7 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
             roptions.snapshot
                 ? ((SnapshotImpl*)roptions.snapshot)->min_uncommitted_
                 : 0ul,
-            key.size(), key.data(), int_value);
+            static_cast<int>(key.size()), key.data(), int_value);
         total += int_value;
       }
       delete iter;

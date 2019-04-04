@@ -580,7 +580,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
 
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "Recovering log #%" PRIu64 " mode %d", log_number,
-                   immutable_db_options_.wal_recovery_mode);
+                   static_cast<int>(immutable_db_options_.wal_recovery_mode));
     auto logFileDropped = [this, &fname]() {
       uint64_t bytes;
       if (env_->GetFileSize(fname, &bytes).ok()) {
@@ -723,7 +723,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                 " mode %d log filter %s returned "
                 "more records (%d) than original (%d) which is not allowed. "
                 "Aborting recovery.",
-                log_number, immutable_db_options_.wal_recovery_mode,
+                log_number,
+                static_cast<int>(immutable_db_options_.wal_recovery_mode),
                 immutable_db_options_.wal_filter->Name(), new_count,
                 original_count);
             status = Status::NotSupported(

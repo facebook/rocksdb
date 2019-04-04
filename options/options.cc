@@ -173,12 +173,12 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(
         log,
         "        Options.bottommost_compression_opts.max_dict_bytes: "
-        "%" ROCKSDB_PRIszt,
+        "%" PRIu32,
         bottommost_compression_opts.max_dict_bytes);
     ROCKS_LOG_HEADER(
         log,
         "        Options.bottommost_compression_opts.zstd_max_train_bytes: "
-        "%" ROCKSDB_PRIszt,
+        "%" PRIu32,
         bottommost_compression_opts.zstd_max_train_bytes);
     ROCKS_LOG_HEADER(
         log, "                 Options.bottommost_compression_opts.enabled: %s",
@@ -191,11 +191,11 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      compression_opts.strategy);
     ROCKS_LOG_HEADER(
         log,
-        "        Options.compression_opts.max_dict_bytes: %" ROCKSDB_PRIszt,
+        "        Options.compression_opts.max_dict_bytes: %" PRIu32,
         compression_opts.max_dict_bytes);
     ROCKS_LOG_HEADER(log,
                      "        Options.compression_opts.zstd_max_train_bytes: "
-                     "%" ROCKSDB_PRIszt,
+                     "%" PRIu32,
                      compression_opts.zstd_max_train_bytes);
     ROCKS_LOG_HEADER(log,
                      "                 Options.compression_opts.enabled: %s",
@@ -350,7 +350,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      force_consistency_checks);
     ROCKS_LOG_HEADER(log, "               Options.report_bg_io_stats: %d",
                      report_bg_io_stats);
-    ROCKS_LOG_HEADER(log, "                              Options.ttl: %d", ttl);
+    ROCKS_LOG_HEADER(log, "                              Options.ttl: %" PRIu64,
+                     ttl);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {
