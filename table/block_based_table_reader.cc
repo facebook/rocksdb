@@ -3275,21 +3275,36 @@ void BlockBasedTable::Close() {
   if (rep_->closed) {
     return;
   }
-  rep_->filter_entry.Release(rep_->table_options.block_cache.get());
-  rep_->index_entry.Release(rep_->table_options.block_cache.get());
-  // cleanup index and filter blocks to avoid accessing dangling pointer
+
+  Cache* const cache = rep_->table_options.block_cache.get();
+
+  rep_->filter_entry.Release(cache);
+  rep_->index_entry.Release(cache);
+
+  // cleanup index, filter, and compression dictionary blocks
+  // to avoid accessing dangling pointers
   if (!rep_->table_options.no_block_cache) {
     char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
+
     // Get the filter block key
     auto key = GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size,
                            rep_->filter_handle, cache_key);
-    rep_->table_options.block_cache.get()->Erase(key);
+    cache->Erase(key);
+
     // Get the index block key
     key = GetCacheKeyFromOffset(rep_->cache_key_prefix,
                                 rep_->cache_key_prefix_size,
                                 rep_->dummy_index_reader_offset, cache_key);
-    rep_->table_options.block_cache.get()->Erase(key);
+    cache->Erase(key);
+
+    if (!rep_->compression_dict_handle.IsNull()) {
+      // Get the compression dictionary block key
+      key = GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size,
+                        rep_->compression_dict_handle, cache_key);
+      cache->Erase(key);
+    }
   }
+
   rep_->closed = true;
 }
 
