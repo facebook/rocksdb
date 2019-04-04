@@ -105,9 +105,7 @@ class TitanDBTest : public testing::Test {
     }
   }
 
-  void VerifyDB(const std::map<std::string, std::string>& data) {
-    ReadOptions ropts;
-
+  void VerifyDB(const std::map<std::string, std::string>& data, ReadOptions ropts = ReadOptions()) {
     for (auto& kv : data) {
       std::string value;
       ASSERT_OK(db_->Get(ropts, kv.first, &value));
@@ -236,6 +234,22 @@ TEST_F(TitanDBTest, DbIter) {
     iter->Next();
   }
   ASSERT_FALSE(iter->Valid());
+}
+
+TEST_F(TitanDBTest, Snapshot) {
+    Open();
+    std::map<std::string, std::string> data;
+    Put(1, &data);
+    ASSERT_EQ(1, data.size());
+
+    const Snapshot* snapshot(db_->GetSnapshot());
+    ReadOptions ropts;
+    ropts.snapshot = snapshot;
+
+    VerifyDB(data, ropts);
+    Flush();
+    VerifyDB(data, ropts);
+    db_->ReleaseSnapshot(snapshot);
 }
 
 }  // namespace titandb

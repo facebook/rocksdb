@@ -27,7 +27,7 @@ void TitanDBImpl::PurgeObsoleteFiles() {
         candidate_files.end());
 
     for (const auto& candidate_file : candidate_files) {
-      ROCKS_LOG_WARN(db_options_.info_log, "Titan deleting obsolete file [%s]",
+      ROCKS_LOG_INFO(db_options_.info_log, "Titan deleting obsolete file [%s]",
                      candidate_file.c_str());
       s = env_->DeleteFile(candidate_file);
       if (!s.ok()) {
