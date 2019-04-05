@@ -661,7 +661,7 @@ Compaction* CompactionPicker::CompactRange(
   }
   assert(output_path_id < static_cast<uint32_t>(ioptions_.cf_paths.size()));
 
-  // for bottom level compaction, skip files that are created during the
+  // for BOTTOM LEVEL compaction, skip files that are created during the
   // current compaction
   if (max_sst_file_number > 0) {
     assert(input_level == output_level);
@@ -669,6 +669,16 @@ Compaction* CompactionPicker::CompactRange(
     for (size_t i = 0; i < inputs.size(); ++i) {
       if (inputs[i]->fd.GetNumber() <= max_sst_file_number) {
         inputs_shrinked.emplace_back(inputs[i]);
+      } else {
+        // inputs[i] was created during the current manual compaction and
+        // need to be skipped
+        if (inputs_shrinked.empty()) {
+          // haven't found anything to compact, keep looking
+          continue;
+        } else {
+          // already found something to compact, skip the rest files
+          break;
+        }
       }
     }
     if (inputs_shrinked.empty()) {
