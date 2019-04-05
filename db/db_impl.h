@@ -897,10 +897,12 @@ class DBImpl : public DB {
                             bool disable_memtable = false,
                             uint64_t* seq_used = nullptr);
 
-  Status UnorderedWriteMemtable(const WriteOptions& options,
-                                WriteBatch* updates, WriteCallback* callback,
-                                uint64_t log_ref, uint64_t seq,
-                                bool disable_memtable);
+  Status UnorderedWriteMemtable(const WriteOptions& options, WriteBatch* updates,
+                   WriteCallback* callback = nullptr,
+                   uint64_t* log_used = nullptr, uint64_t log_ref = 0,
+                   uint64_t* seq_used = nullptr,
+                   size_t batch_cnt = 0,
+                   PreReleaseCallback* pre_release_callback = nullptr);
 
   // batch_cnt is expected to be non-zero in seq_per_batch mode and indicates
   // the number of sub-patches. A sub-patch is a subset of the write batch that
@@ -1152,6 +1154,10 @@ class DBImpl : public DB {
                     SequenceNumber sequence);
 
   Status ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
+                              uint64_t* log_used, SequenceNumber* last_sequence,
+                              size_t seq_inc);
+
+  Status ConcurrentWriteToWAL(WriteThread::Writer* writer,
                               uint64_t* log_used, SequenceNumber* last_sequence,
                               size_t seq_inc);
 
