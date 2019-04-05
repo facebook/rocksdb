@@ -24,7 +24,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/transaction_db_mutex.h"
 #include "util/cast_util.h"
-#include "util/murmurhash.h"
+#include "util/hash.h"
 #include "util/sync_point.h"
 #include "util/thread_local.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
@@ -183,8 +183,7 @@ TransactionLockMgr::~TransactionLockMgr() {}
 
 size_t LockMap::GetStripe(const std::string& key) const {
   assert(num_stripes_ > 0);
-  static murmur_hash hash;
-  size_t stripe = hash(key) % num_stripes_;
+  size_t stripe = static_cast<size_t>(GetSliceNPHash64(key)) % num_stripes_;
   return stripe;
 }
 
