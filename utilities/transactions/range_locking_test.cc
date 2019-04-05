@@ -72,7 +72,6 @@ class RangeLockingTest : public ::testing::Test {
     s = TransactionDB::Open(options, txn_db_options, dbname, &db);
     assert(s.ok());
 
-    db->use_range_locking= true;
     rocksdb::RangeLockMgrControl *mgr= db->get_range_lock_manager();
     assert(mgr);
     // can also: mgr->set_max_lock_memory(rocksdb_max_lock_memory);
