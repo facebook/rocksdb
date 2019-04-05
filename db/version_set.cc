@@ -1704,7 +1704,7 @@ void VersionStorageInfo::ComputeCompactionScore(
   ComputeBottommostFilesMarkedForCompaction();
   if (mutable_cf_options.ttl > 0) {
     ComputeExpiredTtlFiles(immutable_cf_options, mutable_cf_options.ttl,
-        mutable_cf_options.bottommost_level_ttl);
+                           mutable_cf_options.bottommost_level_ttl);
   }
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
@@ -1748,7 +1748,6 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
 
   uint64_t current_ttl = ttl;
   for (int level = 0; level < num_levels(); level++) {
-
     if (level == (num_levels() - 1)) {
       // bottommost level
       if (bottommost_level_ttl == 0) {
