@@ -5,6 +5,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "port/port.h"
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"
 
@@ -1499,6 +1500,35 @@ TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
+
+TEST_F(DBRangeDelTest, RangeDelConcurrent) {
+
+  port::Thread threads[4];
+
+  // put a bunch of stuff in the db
+  for (int i = 0; i < 200; i++) {
+    ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), std::string("a")+std::to_string(i), Slice("hello")));
+  }
+
+  for (int i = 0; i < 4; i++) {
+    threads[i] = port::Thread([&] (int index) {
+      for (int j = 0; j < 100; j+=2) {
+        db->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), std::string("a")+std::to_string(index+j), string("a")+std::to_string(index+j+1));
+      }
+    }, i);
+  }
+
+  for (int i = 0; i < 4; i++) {
+    threads[i].join();
+  }
+
+  db_->Flush(FlushOptions());
+
+  std::string value;
+  for (int i = 0; i < 104; i++) {
+    ASSERT_TRUE(db_->Get(ReadOptions(), std::string("a")+std::to_string(i), &value).IsNotFound());
+  }
+}
 
 int main(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();
