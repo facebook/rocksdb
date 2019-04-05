@@ -381,9 +381,9 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
       }
     }
 
-    Slice user_key;
+    Slice target_user_key;
     if (!seek_to_first) {
-      user_key = ExtractUserKey(internal_key);
+      target_user_key = ExtractUserKey(internal_key);
     }
     const VersionStorageInfo* vstorage = sv_->current->storage_info();
     const std::vector<FileMetaData*>& l0 = vstorage->LevelFiles(0);
@@ -396,8 +396,8 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
       } else {
         // If the target key passes over the larget key, we are sure Next()
         // won't go over this file.
-        if (user_comparator_->Compare(user_key,
-              l0[i]->largest.user_key()) > 0) {
+        if (user_comparator_->Compare(target_user_key,
+                                      l0[i]->largest.user_key()) > 0) {
           if (read_options_.iterate_upper_bound != nullptr) {
             has_iter_trimmed_for_upper_bound_ = true;
             DeleteIterator(l0_iters_[i]);
