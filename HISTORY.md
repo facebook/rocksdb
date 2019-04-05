@@ -3,6 +3,8 @@
 ### Unreleased
 ### New Features
 * When reading from option file/string/map, customized comparators and/or merge operators can be filled according to object registry.
+* Bottommost level files are also eligible for Level based TTL compactions by setting `bottommost_level_ttl` option.
+
 ### Public API Change
 ### Bug Fixes
 * Fix a bug in 2PC where a sequence of txn prepare, memtable flush, and crash could result in losing the prepared transaction.
