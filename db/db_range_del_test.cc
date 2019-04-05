@@ -8,6 +8,7 @@
 #include "port/port.h"
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"
+#include <iostream>
 
 namespace rocksdb {
 
@@ -1497,25 +1498,21 @@ TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
   ASSERT_EQ(1, num_range_deletions);
 }
 
-#endif  // ROCKSDB_LITE
-
-}  // namespace rocksdb
-
 TEST_F(DBRangeDelTest, RangeDelConcurrent) {
 
   port::Thread threads[4];
 
   // put a bunch of stuff in the db
   for (int i = 0; i < 200; i++) {
-    ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), std::string("a")+std::to_string(i), Slice("hello")));
+    ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), std::string("a")+std::to_string(i), std::string("hello")));
   }
 
   for (int i = 0; i < 4; i++) {
-    threads[i] = port::Thread([&] (int index) {
-      for (int j = 0; j < 100; j+=2) {
-        db->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), std::string("a")+std::to_string(index+j), string("a")+std::to_string(index+j+1));
+    threads[i] = port::Thread([i, this] () {
+      for (int j = 0; j <= 100; j+=2) {
+        db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), std::string("a")+std::to_string(i+j), std::string("a")+std::to_string(i+j+10));
       }
-    }, i);
+    });
   }
 
   for (int i = 0; i < 4; i++) {
@@ -1525,10 +1522,21 @@ TEST_F(DBRangeDelTest, RangeDelConcurrent) {
   db_->Flush(FlushOptions());
 
   std::string value;
-  for (int i = 0; i < 104; i++) {
-    ASSERT_TRUE(db_->Get(ReadOptions(), std::string("a")+std::to_string(i), &value).IsNotFound());
+  for (int i = 0; i < 100; i++) {
+    bool res = db_->Get(ReadOptions(), std::string("a")+std::to_string(i), &value).IsNotFound();
+    std::cout << "i: " << i << " result: " << res << std::endl;
+    ASSERT_TRUE(res);
+  }
+
+  for (int i = 100; i < 200; i++) {
+    bool res = db_->Get(ReadOptions(), std::string("a")+std::to_string(i), &value).IsNotFound();
+    std::cout << "i: " << i << " result: " << res << std::endl;
+    ASSERT_FALSE(res);
   }
 }
+#endif  // ROCKSDB_LITE
+
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();
