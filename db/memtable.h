@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <iostream>
 #include <atomic>
 #include <deque>
 #include <functional>
@@ -65,12 +66,15 @@ struct MemTablePostProcessInfo {
 
 struct FragmentedTombstones {
 public:
-  std::shared_ptr<FragmentedRangeTombstoneList> fragmented_tombstones_list = nullptr;
-  std::atomic_bool initiate_flag = {0};
+  std::shared_ptr<FragmentedRangeTombstoneList> fragmented_tombstones_list;
+  std::atomic_bool initiate_flag;
 
-  FragmentedTombstones() {}
+  FragmentedTombstones():
+    fragmented_tombstones_list(nullptr),
+    initiate_flag(false) {}
+
   FragmentedTombstones(FragmentedTombstones *f) noexcept {
-    initiate_flag = {f->initiate_flag.load()};
+    initiate_flag = f->initiate_flag.load();
     fragmented_tombstones_list = f->fragmented_tombstones_list; // how to deep copy here?
   }
 };

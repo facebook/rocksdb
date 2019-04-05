@@ -419,9 +419,9 @@ InternalIterator* MemTable::NewIterator(const ReadOptions& read_options,
 }
 
 void MemTable::InvalidateFragmentedTombstones() {
-    auto new_range_tombstone_count = range_tombstone_count++;
+    auto new_range_tombstone_count = ++range_tombstone_count;
 
-  if (new_range_tombstone_count <= range_tombstone_count) {
+  if (new_range_tombstone_count < range_tombstone_count) {
     // we have been preempted, don't invalidate fragmented tombstones
     return;
   }
@@ -452,12 +452,16 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
         unfragmented_iter = new MemTableIterator(
           *this, read_options, nullptr /* arena */, true /* use_range_del_table */);
 
-         if (unfragmented_iter != nullptr) {
+        if (unfragmented_iter != nullptr) {
            tombstones->fragmented_tombstones_list =
              std::make_shared<FragmentedRangeTombstoneList>(
                std::unique_ptr<InternalIterator>(unfragmented_iter),
                comparator_.comparator);
-        }
+	   break;
+        } else {
+	  tombstones->initiate_flag.exchange(false);
+	  return nullptr;
+	}
       } else if (tombstones->fragmented_tombstones_list != nullptr) {
         break;
       }
