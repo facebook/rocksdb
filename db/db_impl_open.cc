@@ -191,7 +191,7 @@ static Status ValidateOptions(
 
     if (cfd.options.bottommost_level_ttl > 0 && cfd.options.ttl == 0) {
       return Status::NotSupported(
-        "Bottommost Level TTL can be set only when TTL is set. ");
+          "Bottommost Level TTL can be set only when TTL is set. ");
     }
   }
 
