@@ -60,7 +60,7 @@ toku_instr_key *manager_escalator_mutex_key;
 
 // portability/memory.cc
 size_t
-toku_memory_footprint(void * p, size_t touched)
+toku_memory_footprint(void* , size_t touched)
 {
   return touched;
 }

@@ -194,8 +194,8 @@ class RangeLockMgr :
   public BaseLockMgr, 
   public RangeLockMgrControl {
  public:
-  void AddColumnFamily(uint32_t column_family_id) override { /* do nothing */ }
-  void RemoveColumnFamily(uint32_t column_family_id) override { /* do nothing */ }
+  void AddColumnFamily(uint32_t) override { /* do nothing */ }
+  void RemoveColumnFamily(uint32_t) override { /* do nothing */ }
 
   Status TryLock(PessimisticTransaction* txn, uint32_t column_family_id,
                  const std::string& key, Env* env, bool exclusive) override ;
@@ -262,8 +262,8 @@ class RangeLockMgr :
   static int compare_dbt_endpoints(__toku_db*, void *arg, const DBT *a_key, const DBT *b_key);
   
   // Callbacks
-  static int  on_create(locktree *lt, void *extra) { return 0; /* no error */ }
-  static void on_destroy(locktree *lt) {}
+  static int  on_create(locktree*, void*) { return 0; /* no error */ }
+  static void on_destroy(locktree*) {}
   static void on_escalate(TXNID txnid, const locktree *lt, 
                           const range_buffer &buffer, void *extra);
 

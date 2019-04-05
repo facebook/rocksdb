@@ -784,7 +784,7 @@ Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
                                   uint32_t column_family_id,
                                   const rocksdb::Slice &start_key,
                                   const rocksdb::Slice &end_key,
-                                  bool exclusive) {
+                                  bool /*exclusive*/) {
   toku::lock_request request;
   request.create(mutex_factory_);
   DBT start_key_dbt, end_key_dbt;
@@ -825,8 +825,9 @@ Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
     autovector<TransactionID> wait_ids;
     bool done= false;
 
-    static void lock_wait_callback(void *cdata, TXNID waiter, TXNID waitee) {
+    static void lock_wait_callback(void *cdata, TXNID /*waiter*/, TXNID waitee) {
       auto self= (struct st_wait_info*)cdata;
+      // we know that the waiter is self->txn->GetID() (TODO: assert?)
       if (!self->done)
       {
         self->wait_ids.push_back(waitee);
@@ -882,7 +883,7 @@ Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
 //   (currently it is the same as getting a range lock)
 Status RangeLockMgr::TryLock(PessimisticTransaction* txn,
                              uint32_t column_family_id,
-                             const std::string& key, Env* env, 
+                             const std::string& key, Env*,
                              bool exclusive) {
   std::string endpoint;
   convert_key_to_endpoint(rocksdb::Slice(key.data(), key.size()), &endpoint);
@@ -893,7 +894,7 @@ Status RangeLockMgr::TryLock(PessimisticTransaction* txn,
 static void 
 range_lock_mgr_release_lock_int(toku::locktree *lt,
                                 const PessimisticTransaction* txn,
-                                uint32_t column_family_id,
+                                uint32_t /*column_family_id*/,
                                 const std::string& key) {
   DBT key_dbt; 
   toku_fill_dbt(&key_dbt, key.data(), key.size());
@@ -906,13 +907,13 @@ range_lock_mgr_release_lock_int(toku::locktree *lt,
 
 void RangeLockMgr::UnLock(PessimisticTransaction* txn,
                             uint32_t column_family_id,
-                            const std::string& key, Env* env) {
+                            const std::string& key, Env*) {
   range_lock_mgr_release_lock_int(lt, txn, column_family_id, key);
   toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
 }
 
 void RangeLockMgr::UnLock(const PessimisticTransaction* txn,
-                          const TransactionKeyMap* key_map, Env* env) {
+                          const TransactionKeyMap* key_map, Env*) {
   //TODO: if we collect all locks in a range buffer and then
   // make one call to lock_tree::release_locks(), will that be faster?
   for (auto& key_map_iter : *key_map) {
@@ -928,7 +929,7 @@ void RangeLockMgr::UnLock(const PessimisticTransaction* txn,
   toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
 }
 
-void RangeLockMgr::UnLockAll(const PessimisticTransaction* txn, Env* env) {
+void RangeLockMgr::UnLockAll(const PessimisticTransaction* txn, Env*) {
 
   // owned_locks may hold nullptr if the transaction has never acquired any
   // locks.
@@ -1012,11 +1013,11 @@ RangeLockMgr::RangeLockMgr(TransactionDB* txn_db,
   @param lt      Lock Tree where escalation is happening (currently there is only one)
   @param buffer  Escalation result: list of locks that this transaction now
                  owns in this lock tree.
-  @param extra   Callback context
+  @param void*   Callback context
 */
 
-void RangeLockMgr::on_escalate(TXNID txnid, const locktree *lt,
-                               const range_buffer &buffer, void *extra) {
+void RangeLockMgr::on_escalate(TXNID txnid, const locktree*,
+                               const range_buffer &buffer, void *) {
   auto txn= (PessimisticTransaction*)txnid;
 
   RangeLockList* trx_locks= (RangeLockList*)txn->owned_locks.get();

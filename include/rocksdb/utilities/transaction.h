@@ -280,9 +280,8 @@ class Transaction {
   // Get a range lock on [start_endpoint; end_endpoint].
   //  Note: range endpoints generally a use a different data format than
   //  ranges.
-  virtual Status GetRangeLock(ColumnFamilyHandle* column_family,
-                              const Slice& start_endp,
-                              const Slice& end_endp) {
+  virtual Status GetRangeLock(ColumnFamilyHandle*,
+                              const Slice&, const Slice&) {
     return Status::NotSupported();
   }
 
