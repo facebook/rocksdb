@@ -576,7 +576,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
                           bool check_filter, bool need_upper_bound_check,
                           const SliceTransform* prefix_extractor, bool is_index,
                           bool key_includes_seq = true,
-                          bool index_key_includes_seq = true,
                           bool index_key_is_full = true,
                           bool for_compaction = false)
       : table_(table),
@@ -591,7 +590,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
         prefix_extractor_(prefix_extractor),
         is_index_(is_index),
         key_includes_seq_(key_includes_seq),
-        index_key_includes_seq_(index_key_includes_seq),
         index_key_is_full_(index_key_is_full),
         for_compaction_(for_compaction) {}
 
@@ -610,6 +608,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   Slice key() const override {
     assert(Valid());
     return block_iter_.key();
+  }
+  Slice user_key() const override {
+    if (key_includes_seq_) {
+      return ExtractUserKey(key());
+    }
+    return key();
   }
   TValue value() const override {
     assert(Valid());
@@ -696,7 +700,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   bool is_index_;
   // If the keys in the blocks over which we iterate include 8 byte sequence
   bool key_includes_seq_;
-  bool index_key_includes_seq_;
   bool index_key_is_full_;
   // If this iterator is created for compaction
   bool for_compaction_;
