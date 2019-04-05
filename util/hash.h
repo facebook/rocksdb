@@ -29,7 +29,7 @@ inline uint32_t BloomHash(const Slice& key) {
 }
 
 inline uint64_t GetSliceNPHash64(const Slice& s) {
-  return NPHash64(s.data(), s.size(), 397);
+  return NPHash64(s.data(), s.size(), 0);
 }
 
 inline uint32_t GetSliceHash(const Slice& s) {
