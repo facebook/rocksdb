@@ -1480,8 +1480,19 @@ Status CompactionJob::OpenCompactionOutputFile(
   bool skip_filters =
       cfd->ioptions()->optimize_filters_for_hits && bottommost_level_;
 
-  uint64_t output_file_creation_time =
-      sub_compact->compaction->MaxInputFileCreationTime();
+  uint64_t output_file_creation_time = 0;
+  if (sub_compact->compaction->output_level() ==
+      sub_compact->compaction->number_levels() - 1) {
+    // Don't set the creation time for the bottommost (Lmax) level files based
+    // on the creation times of the input files, so that it can be set to the
+    // current time below. Otherwise bottommost files don't get new creation
+    // time, and they keep getting picked up by the ttl compaction forever in a
+    // loop. This is needed for extending Level TTL Compaction to work with
+    // bottommost level.
+  } else {
+    output_file_creation_time =
+        sub_compact->compaction->MaxInputFileCreationTime();
+  }
   if (output_file_creation_time == 0) {
     int64_t _current_time = 0;
     auto status = db_options_.env->GetCurrentTime(&_current_time);
