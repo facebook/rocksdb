@@ -31,8 +31,8 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
 
   class InvalidSnapshotReadCallback : public ReadCallback {
    public:
-    InvalidSnapshotReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot)
-        : ReadCallback(snapshot), db_(db) {}
+    InvalidSnapshotReadCallback(SequenceNumber snapshot)
+        : ReadCallback(snapshot) {}
 
     inline bool IsVisibleFullCheck(SequenceNumber) override {
       // The seq provided as snapshot is the seq right before we have locked and
@@ -43,9 +43,6 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
     // Ignore the refresh request since we are confident that our snapshot seq
     // is not going to be affected by concurrent compactions (not enabled yet.)
     void Refresh(SequenceNumber) override {}
-
-   private:
-    WritePreparedTxnDB* db_;
   };
 
   // Iterate starting with largest sequence number.
@@ -65,13 +62,12 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
       std::map<uint32_t, CFKeys> keys_;
       bool rollback_merge_operands_;
       RollbackWriteBatchBuilder(
-          DBImpl* db, WritePreparedTxnDB* wpt_db, SequenceNumber snap_seq,
-          WriteBatch* dst_batch,
+          DBImpl* db, SequenceNumber snap_seq, WriteBatch* dst_batch,
           std::map<uint32_t, const Comparator*>& comparators,
           std::map<uint32_t, ColumnFamilyHandle*>& handles,
           bool rollback_merge_operands)
           : db_(db),
-            callback(wpt_db, snap_seq),
+            callback(snap_seq),
             // disable min_uncommitted optimization
             rollback_batch_(dst_batch),
             comparators_(comparators),
@@ -147,7 +143,7 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
       Status MarkRollback(const Slice&) override {
         return Status::InvalidArgument();
       }
-    } rollback_handler(db_impl_, this, last_visible_txn, &rollback_batch,
+    } rollback_handler(db_impl_, last_visible_txn, &rollback_batch,
                        *cf_comp_map_shared_ptr.get(), *cf_map_shared_ptr.get(),
                        txn_db_options_.rollback_merge_operands);
 

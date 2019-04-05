@@ -5344,6 +5344,7 @@ TEST_P(TransactionTest, GetWithoutSnapshot) {
       ASSERT_OK(txn->Put("key", "value"));
       ASSERT_OK(txn->Prepare());
       ASSERT_OK(txn->Commit());
+      delete txn;
     }
     finish = true;
   });
