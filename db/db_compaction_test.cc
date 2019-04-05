@@ -3517,50 +3517,87 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-// TEST_F(DBCompactionTest, LevelCompactBottommostExpiredTtlFiles) {
-//   const int kNumKeysPerFile = 32;
-//   const int kNumLevelFiles = 2;
-//   const int kValueSize = 1024;
-//
-//   Options options = CurrentOptions();
-//   options.compression = kNoCompression;
-//   options.ttl = 24 * 60 * 60;  // 24 hours
-//   options.bottommost_level_ttl = 48 * 60 * 60;  // 24 hours
-//   options.max_open_files = -1;
-//   env_->time_elapse_only_sleep_ = false;
-//   options.env = env_;
-//
-//   env_->addon_time_.store(0);
-//   DestroyAndReopen(options);
-//
-//   Random rnd(301);
-//   for (int i = 0; i < kNumLevelFiles; ++i) {
-//     for (int j = 0; j < kNumKeysPerFile; ++j) {
-//       ASSERT_OK(
-//           Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
-//     }
-//     Flush();
-//   }
-//   dbfull()->TEST_WaitForCompact();
-//   MoveFilesToLevel(6);
-//   ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
-//
-//   env_->addon_time_.fetch_add(50 * 60 * 60);
-//   ASSERT_OK(Put("a", "1"));
-//   Flush();
-//
-//   // ASSERT_EQ("1,0,0,0,0,0,2", FilesPerLevel());
-//   // rocksdb::SyncPoint::GetInstance()->SetCallBack(
-//   //     "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-//   //       Compaction* compaction = reinterpret_cast<Compaction*>(arg);
-//   //       ASSERT_TRUE(compaction->compaction_reason() == CompactionReason::kFlush);
-//   //     });
-//   // rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-//   // dbfull()->TEST_WaitForCompact();
-//   // ASSERT_EQ("1,0,0,0,0,0,2", FilesPerLevel());
-//   // rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-//
-// }
+TEST_F(DBCompactionTest, LevelCompactBottommostExpiredTtlFiles) {
+  const int kNumKeysPerFile = 32;
+  const int kNumLevelFiles = 2;
+  const int kValueSize = 100;
+
+  Options options = CurrentOptions();
+  options.num_levels = 7;            // default levels
+  options.ttl = 24 * 60 * 60;        // 1 day
+  options.bottommost_level_ttl = 0;  // disabled
+  options.max_open_files = -1;       // needed for ttl compaction
+  env_->time_elapse_only_sleep_ = false;
+  options.env = env_;
+
+  env_->addon_time_.store(0);
+  DestroyAndReopen(options);
+
+  int total_ttl_compactions = 0;
+  int bottommost_ttl_compactions = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        if (compaction->compaction_reason() == CompactionReason::kTtl) {
+          total_ttl_compactions++;
+          if (compaction->start_level() == compaction->number_levels() - 1) {
+            // bottommost
+            bottommost_ttl_compactions++;
+          }
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  for (int i = 0; i < kNumLevelFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+    }
+    Flush();
+  }
+  MoveFilesToLevel(6);
+  ASSERT_OK(Put("a", "1"));
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_EQ("1,0,0,0,0,0,2", FilesPerLevel());
+  ASSERT_EQ(0, bottommost_ttl_compactions);
+  ASSERT_EQ(0, total_ttl_compactions);
+
+  // Add 25 hours and do a write
+  env_->addon_time_.fetch_add(25 * 60 * 60);
+  ASSERT_OK(Put("b", "1"));
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ("1,0,0,0,0,0,3", FilesPerLevel());
+  ASSERT_EQ(0, bottommost_ttl_compactions);
+  // The previous file at L0 falls down level by level to bottommost level due
+  // to ttl expiry at each level, as there are no other files in between to
+  // compact it with. Note that if there were some other files in the
+  // intermediate levels with insersecting ranges, this file could stop before
+  // reaching the bottommost level.
+  ASSERT_EQ(6, total_ttl_compactions);
+
+  // Now enable bottommostlevel ttl compaction dynamically by setting to 2 days.
+  // 2 * 24 * 60 * 60 = 172800
+  ASSERT_OK(dbfull()->SetOptions({{"bottommost_level_ttl", "172800"}}));
+
+  // Add another 25 hours and do another write
+  env_->addon_time_.fetch_add(25 * 60 * 60);
+  ASSERT_OK(Put("c", "1"));
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  // The 3 previous bottommost files were already created 50 hours ago i.e.
+  // greater than 2 days ... so they go through through ttl compaction.
+  ASSERT_EQ(3, bottommost_ttl_compactions);
+  // The previous L0 file also now falls down by 6 levels.
+  // So 6 + 3 + (previous value) 6 = 15
+  ASSERT_EQ(15, total_ttl_compactions);
+  ASSERT_EQ("1,0,0,0,0,0,4", FilesPerLevel());
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
 
 TEST_F(DBCompactionTest, CompactRangeDelayedByL0FileCount) {
   // Verify that, when `CompactRangeOptions::allow_write_stall == false`, manual
