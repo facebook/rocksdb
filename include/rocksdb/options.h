@@ -893,6 +893,8 @@ struct DBOptions {
   // Default: false
   bool enable_pipelined_write = false;
 
+  bool unordered_write = false;
+
   // If true, allow multi-writers to update mem tables in parallel.
   // Only some memtable_factory-s support concurrent writes; currently it
   // is implemented only for SkipListFactory.  Concurrent memtable writes

@@ -897,6 +897,11 @@ class DBImpl : public DB {
                             bool disable_memtable = false,
                             uint64_t* seq_used = nullptr);
 
+  Status UnorderedWriteMemtable(const WriteOptions& options,
+                                WriteBatch* updates, WriteCallback* callback,
+                                uint64_t log_ref, uint64_t seq,
+                                bool disable_memtable);
+
   // batch_cnt is expected to be non-zero in seq_per_batch mode and indicates
   // the number of sub-patches. A sub-patch is a subset of the write batch that
   // does not have duplicate keys.
@@ -1286,6 +1291,8 @@ class DBImpl : public DB {
   // and log_empty_. Refer to the definition of each variable below for more
   // details.
   InstrumentedMutex log_write_mutex_;
+
+  mutable port::RWMutex rwlock_;
 
   std::atomic<bool> shutting_down_;
   // This condition variable is signaled on these conditions:
