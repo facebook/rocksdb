@@ -281,6 +281,10 @@ class StackableDB : public DB {
 
   virtual Status FlushWAL(bool sync) override { return db_->FlushWAL(sync); }
 
+  virtual Status LockWAL() override { return db_->LockWAL(); }
+
+  virtual Status UnlockWAL() override { return db_->UnlockWAL(); }
+
 #ifndef ROCKSDB_LITE
 
   virtual Status DisableFileDeletions() override {

@@ -986,6 +986,16 @@ class DB {
   // Currently only works if allow_mmap_writes = false in Options.
   virtual Status SyncWAL() = 0;
 
+  // Lock the WAL. Also flushes the WAL after locking.
+  virtual Status LockWAL() {
+    return Status::NotSupported("LockWAL not implemented");
+  }
+
+  // Unlock the WAL.
+  virtual Status UnlockWAL() {
+    return Status::NotSupported("UnlockWAL not implemented");
+  }
+
   // The sequence number of the most recent transaction.
   virtual SequenceNumber GetLatestSequenceNumber() const = 0;
 
