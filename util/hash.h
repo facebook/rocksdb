@@ -37,8 +37,9 @@ inline uint32_t GetSliceHash(const Slice& s) {
 }
 
 inline uint64_t NPHash64(const char* data, size_t n, uint32_t seed) {
-  // Similar to murmur hash, but reduce one multiplication
-  // out of two. The hash quality is not as good as murmurhash.
+  // Right now murmurhash2B is used. It should able to be freely
+  // changed to a better hash, without worrying about backward
+  // compatibility issue.
   return MURMUR_HASH(data, static_cast<int>(n),
                      static_cast<unsigned int>(seed));
 }
