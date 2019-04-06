@@ -1112,6 +1112,25 @@ Status DBImpl::SyncWAL() {
   return status;
 }
 
+Status DBImpl::LockWAL() {
+  log_write_mutex_.Lock();
+  auto cur_log_writer = logs_.back().writer;
+  auto status = cur_log_writer->WriteBuffer();
+  if (!status.ok()) {
+    ROCKS_LOG_ERROR(immutable_db_options_.info_log, "WAL flush error %s",
+                    status.ToString().c_str());
+    // In case there is a fs error we should set it globally to prevent the
+    // future writes
+    WriteStatusCheck(status);
+  }
+  return status;
+}
+
+Status DBImpl::UnlockWAL() {
+  log_write_mutex_.Unlock();
+  return Status::OK();
+}
+
 void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
                             const Status& status) {
   mutex_.AssertHeld();
