@@ -353,7 +353,7 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      report_bg_io_stats);
     ROCKS_LOG_HEADER(log, "                              Options.ttl: %" PRIu64,
                      ttl);
-    ROCKS_LOG_HEADER(log, "             Options.bottommost_level_ttl: %d",
+    ROCKS_LOG_HEADER(log, "             Options.bottommost_level_ttl: %" PRIu64,
                      bottommost_level_ttl);
 }  // ColumnFamilyOptions::Dump
 
