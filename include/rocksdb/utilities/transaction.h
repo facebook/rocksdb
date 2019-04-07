@@ -24,6 +24,53 @@ using TransactionName = std::string;
 
 using TransactionID = uint64_t;
 
+
+/*
+  A range endpoint.
+
+  Basic ranges can be defined over rowkeys. A Comparator function defines
+  ordering, a range endpoint is just a rowkey.
+
+  When one use lexicographic-like ordering, they may want to request "prefix
+  ranges".
+
+  == Lexicographic ordering ==
+  A lexicographic-like ordering satisfies these criteria:
+
+  1.The ordering is prefix-based. If there are two keys in form
+
+    key_a = {prefix_a suffix_a}
+    key_b = {prefix_b suffix_b}
+  and
+    prefix_a < prefix_b
+  then
+    key_a < key_b.
+
+  An empty string is less than any other constant (from this it follows that
+  for any prefix and suffix, {prefix, suffix} > {prefix})
+
+  == Prefix ranges ==
+  With lexicographic-like ordering, one may to construct ranges from a
+  restriction in form prefix=P:
+   - the left endpoint would would be {P, inf_suffix=false}
+   - the right endpoint would be {P, inf_suffix=true}.
+
+  (TODO: or should we instead of the above just require that [Reverse]ByteWiseComparator
+  is used?)
+*/
+
+class Endpoint {
+ public:
+  Slice slice;
+  bool inf_suffix;
+
+  Endpoint(const char* s, bool inf_suffix_arg=false) :
+    slice(s), inf_suffix(inf_suffix_arg) {}
+
+  Endpoint(const char* s, size_t size, bool inf_suffix_arg=false) :
+    slice(s, size), inf_suffix(inf_suffix_arg) {}
+};
+
 // Provides notification to the caller of SetSnapshotOnNextOperation when
 // the actual snapshot gets created
 class TransactionNotifier {
@@ -281,7 +328,7 @@ class Transaction {
   //  Note: range endpoints generally a use a different data format than
   //  ranges.
   virtual Status GetRangeLock(ColumnFamilyHandle*,
-                              const Slice&, const Slice&) {
+                              const Endpoint&, const Endpoint&) {
     return Status::NotSupported();
   }
 

@@ -36,19 +36,6 @@ using std::string;
 namespace rocksdb {
 
 
-void range_endpoint_convert_same(const rocksdb::Slice &key,
-                                 std::string *res)
-{
-  res->clear();
-  res->append(key.data(), key.size());
-}
-
-int range_endpoints_compare_default(const char *a, size_t a_len,
-                                    const char *b, size_t b_len)
-{
-  return Slice(a, a_len).compare(Slice(b, b_len));
-}
-
 class RangeLockingTest : public ::testing::Test {
  public:
   TransactionDB* db;
@@ -65,10 +52,6 @@ class RangeLockingTest : public ::testing::Test {
     DestroyDB(dbname, options);
     Status s;
     txn_db_options.use_range_locking = true;
-    txn_db_options.range_locking_opts.cvt_func =
-      range_endpoint_convert_same;
-    txn_db_options.range_locking_opts.cmp_func =
-      range_endpoints_compare_default;
     s = TransactionDB::Open(options, txn_db_options, dbname, &db);
     assert(s.ok());
 
@@ -101,7 +84,7 @@ TEST_F(RangeLockingTest, BasicRangeLocking) {
   // Get a range lock
   {
     auto s= txn0->GetRangeLock(db->DefaultColumnFamily(), 
-                               Slice("a"), Slice("c"));
+                               Endpoint("a"), Endpoint("c"));
     ASSERT_EQ(s, Status::OK());
   }
  
@@ -109,7 +92,7 @@ TEST_F(RangeLockingTest, BasicRangeLocking) {
   // Check that range Lock inhibits an overlapping range lock
   {
     auto s= txn1->GetRangeLock(db->DefaultColumnFamily(), 
-                                Slice("b"), Slice("z"));
+                                Endpoint("b"), Endpoint("z"));
     ASSERT_TRUE(s.IsTimedOut());
   }
 
@@ -127,7 +110,7 @@ TEST_F(RangeLockingTest, BasicRangeLocking) {
     ASSERT_EQ(s, Status::OK());
 
     auto s2= txn1->GetRangeLock(db->DefaultColumnFamily(),
-                                Slice("c"), Slice("e"));
+                                Endpoint("c"), Endpoint("e"));
     ASSERT_TRUE(s2.IsTimedOut());
   }
 

@@ -779,15 +779,29 @@ public:
   bool releasing_locks_;
 };
 
+static
+void serialize_endpoint(const Endpoint &endp, std::string *buf) {
+  const char SUFFIX_INF= 0x0;
+  const char SUFFIX_SUP= 0x1;
+  buf->push_back(endp.inf_suffix ? SUFFIX_SUP : SUFFIX_INF);
+  buf->append(endp.slice.data(), endp.slice.size());
+}
+
+
 // Get a range lock on [start_key; end_key] range
 Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
                                   uint32_t column_family_id,
-                                  const rocksdb::Slice &start_key,
-                                  const rocksdb::Slice &end_key,
+                                  const Endpoint &start_endp,
+                                  const Endpoint &end_endp,
                                   bool /*exclusive*/) {
   toku::lock_request request;
   request.create(mutex_factory_);
   DBT start_key_dbt, end_key_dbt;
+
+  std::string start_key;
+  std::string end_key;
+  serialize_endpoint(start_endp, &start_key);
+  serialize_endpoint(end_endp, &end_key);
 
   toku_fill_dbt(&start_key_dbt, start_key.data(), start_key.size());
   toku_fill_dbt(&end_key_dbt, end_key.data(), end_key.size());
@@ -885,10 +899,8 @@ Status RangeLockMgr::TryLock(PessimisticTransaction* txn,
                              uint32_t column_family_id,
                              const std::string& key, Env*,
                              bool exclusive) {
-  std::string endpoint;
-  convert_key_to_endpoint(rocksdb::Slice(key.data(), key.size()), &endpoint);
-  rocksdb::Slice endp_slice(endpoint.data(), endpoint.length());
-  return TryRangeLock(txn, column_family_id, endp_slice, endp_slice, exclusive);
+  Endpoint endp(key.data(), key.size(), false);
+  return TryRangeLock(txn, column_family_id, endp, endp, exclusive);
 }
 
 static void 
@@ -896,8 +908,12 @@ range_lock_mgr_release_lock_int(toku::locktree *lt,
                                 const PessimisticTransaction* txn,
                                 uint32_t /*column_family_id*/,
                                 const std::string& key) {
-  DBT key_dbt; 
-  toku_fill_dbt(&key_dbt, key.data(), key.size());
+  DBT key_dbt;
+  Endpoint endp(key.data(), key.size(), false);
+  std::string endp_image;
+  serialize_endpoint(endp, &endp_image);
+
+  toku_fill_dbt(&key_dbt, endp_image.data(), endp_image.size());
   toku::range_buffer range_buf;
   range_buf.create();
   range_buf.append(&key_dbt, &key_dbt);
@@ -906,8 +922,8 @@ range_lock_mgr_release_lock_int(toku::locktree *lt,
 }
 
 void RangeLockMgr::UnLock(PessimisticTransaction* txn,
-                            uint32_t column_family_id,
-                            const std::string& key, Env*) {
+                          uint32_t column_family_id,
+                          const std::string& key, Env*) {
   range_lock_mgr_release_lock_int(lt, txn, column_family_id, key);
   toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
 }
@@ -982,24 +998,73 @@ void RangeLockMgr::UnLockAll(const PessimisticTransaction* txn, Env*) {
   }
 }
 
+
+
+
 int RangeLockMgr::compare_dbt_endpoints(__toku_db*, void *arg,
                                         const DBT *a_key,
                                         const DBT *b_key) {
   RangeLockMgr* mgr= (RangeLockMgr*) arg;
-  return mgr->compare_endpoints((const char*)a_key->data, a_key->size,
-                                (const char*)b_key->data, b_key->size);
+  // TODO: this should compare endpoints using the user-provided comparator +
+  // endpoint encoding.
+  // (just use one from any column family)
+  
+  const char *a= (const char*)a_key->data;
+  const char *b= (const char*)b_key->data;
+
+  size_t a_len= a_key->size;
+  size_t b_len= b_key->size;
+
+  size_t min_len= std::min(a_len, b_len);
+
+  //compare the values. Skip the first byte as it is the endpoint signifier
+
+  //TODO: use the upper layer' comparison function.
+  int res= memcmp(a+1, b+1, min_len-1);
+  if (!res)
+  {
+    if (b_len > min_len)
+    {
+      // a is shorter;
+      if (a[0] == 0)
+        return  -1; //"a is smaller"
+      else
+      {
+        // a is considered padded with 0xFF:FF:FF:FF...
+        return 1; // "a" is bigger
+      }
+    }
+    else if (a_len > min_len)
+    {
+      // the opposite of the above: b is shorter.
+      if (b[0] == 0)
+        return  1; //"b is smaller"
+      else
+      {
+        // b is considered padded with 0xFF:FF:FF:FF...
+        return -1; // "b" is bigger
+      }
+    }
+    else
+    {
+      // the lengths are equal (and the key values, too)
+      if (a[0] < b[0])
+        return -1;
+      else if (a[0] > b[0])
+        return 1;
+      else
+        return 0;
+    }
+  }
+  else
+    return res;
 }
 
 
 RangeLockMgr::RangeLockMgr(TransactionDB* txn_db,
-                           const RangeLockingOptions& opts,
                            std::shared_ptr<TransactionDBMutexFactory> mutex_factory) :
                            my_txn_db_(txn_db), mutex_factory_(mutex_factory) {
-  convert_key_to_endpoint= opts.cvt_func;
-  compare_endpoints=       opts.cmp_func;
-
   ltm.create(on_create, on_destroy, on_escalate, NULL, mutex_factory_);
-
   cmp_.create(compare_dbt_endpoints, (void*)this, NULL);
   DICTIONARY_ID dict_id = { .dictid = 1 };
   lt= ltm.get_lt(dict_id, cmp_, /* on_create_extra*/nullptr);

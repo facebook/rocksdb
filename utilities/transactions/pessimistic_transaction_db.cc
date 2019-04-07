@@ -46,8 +46,7 @@ void PessimisticTransactionDB::init_lock_manager() {
                new TransactionDBMutexFactoryImpl());
 
   if (txn_db_options_.use_range_locking) {
-    range_lock_mgr_= new RangeLockMgr(this, txn_db_options_.range_locking_opts,
-                                      mutex_factory);
+    range_lock_mgr_= new RangeLockMgr(this, mutex_factory);
     lock_mgr = range_lock_mgr_;
   } else {
     lock_mgr = new TransactionLockMgr(this, txn_db_options_.num_stripes,
@@ -417,8 +416,8 @@ Status PessimisticTransactionDB::TryLock(PessimisticTransaction* txn,
 Status
 PessimisticTransactionDB::TryRangeLock(PessimisticTransaction *txn,
                                        uint32_t cfh_id,
-                                       const Slice& start_endp,
-                                       const Slice& end_endp) {
+                                       const Endpoint& start_endp,
+                                       const Endpoint& end_endp) {
   if (range_lock_mgr_) {
     return range_lock_mgr_->TryRangeLock(txn, cfh_id, start_endp,
                                          end_endp, /*exclusive=*/false);

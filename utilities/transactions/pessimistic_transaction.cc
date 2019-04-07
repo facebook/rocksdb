@@ -670,8 +670,8 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
 
 Status
 PessimisticTransaction::GetRangeLock(ColumnFamilyHandle* column_family,
-                                     const Slice& start_endp,
-                                     const Slice& end_endp) {
+                                     const Endpoint& start_endp,
+                                     const Endpoint& end_endp) {
   ColumnFamilyHandle* cfh =
       column_family ? column_family : db_impl_->DefaultColumnFamily();
   uint32_t cfh_id= GetColumnFamilyID(cfh);

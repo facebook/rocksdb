@@ -211,8 +211,8 @@ class RangeLockMgr :
   //  used ATM)
   Status TryRangeLock(PessimisticTransaction* txn,
                       uint32_t column_family_id,
-                      const rocksdb::Slice &start_key,
-                      const rocksdb::Slice &end_key,
+                      const Endpoint &start_endp,
+                      const Endpoint &end_endp,
                       bool exclusive);
   
   void UnLock(const PessimisticTransaction* txn, const TransactionKeyMap* keys,
@@ -226,7 +226,6 @@ class RangeLockMgr :
               const std::string& key, Env* env) override ;
 
   RangeLockMgr(TransactionDB* txn_db,
-               const RangeLockingOptions& opts,
                std::shared_ptr<TransactionDBMutexFactory> mutex_factory);
   ~RangeLockMgr();
 
@@ -239,22 +238,11 @@ class RangeLockMgr :
 
   LockStatusData GetLockStatusData() override;
 
-  typedef RangeLockingOptions::convert_key_to_endpoint_func convert_key_to_endpoint_func;
-  typedef RangeLockingOptions::compare_endpoints_func compare_endpoints_func;
-
  private:
   toku::locktree_manager ltm;
   toku::locktree *lt; // only one tree for now
 
   toku::comparator cmp_;
-
-  // Convert rowkey to endpoint (TODO: shouldn't "rowkey=const" translate into
-  // a pair of [start; end] endpoints in general? They translate into the same
-  // value in our current encoding, but...)
-  convert_key_to_endpoint_func convert_key_to_endpoint;
-
-  // User-provided endpoint comparison function
-  compare_endpoints_func compare_endpoints;
 
   TransactionDB* my_txn_db_;
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;

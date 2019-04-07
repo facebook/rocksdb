@@ -31,24 +31,6 @@ enum TxnDBWritePolicy {
 
 const uint32_t kInitialMaxDeadlocks = 5;
 
-struct RangeLockingOptions {
-  typedef void (*convert_key_to_endpoint_func)(const rocksdb::Slice &key,
-                                               std::string *endpoint);
-
-  typedef int (*compare_endpoints_func)(const char *a, size_t a_len,
-                                         const char *b, size_t b_len);
-
-  // TODO:  So, functions to compare ranges are here, while
-  // functions to compare rowkeys are in per-column family and are in
-  //  rocksdb::ColumnFamilyOptions
-  //
-  // TODO: Can we change this to work in a way that does not expose the endpoints
-  //  to the user (like discussed on the meeting?)
-  //
-  convert_key_to_endpoint_func cvt_func;
-  compare_endpoints_func cmp_func;
-};
-
 struct TransactionDBOptions {
   // Specifies the maximum number of keys that can be locked at the same time
   // per column family.
@@ -135,9 +117,6 @@ struct TransactionDBOptions {
   // If true, range_locking_opts specifies options on range locking (filling
   // the struct is mandatory)
   bool use_range_locking = false;
-
-  // Members are valid if use_range_locking= true.
-  RangeLockingOptions range_locking_opts;
 
   friend class WritePreparedTxnDB;
   friend class WriteUnpreparedTxn;

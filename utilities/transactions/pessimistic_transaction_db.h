@@ -100,8 +100,8 @@ class PessimisticTransactionDB : public TransactionDB {
                  const std::string& key, bool exclusive);
   Status TryRangeLock(PessimisticTransaction* txn,
                       uint32_t cfh_id,
-                      const Slice& start_endp,
-                      const Slice& end_endp);
+                      const Endpoint& start_endp,
+                      const Endpoint& end_endp);
 
   void UnLock(PessimisticTransaction* txn, const TransactionKeyMap* keys,
               bool all_keys_hint=false);
