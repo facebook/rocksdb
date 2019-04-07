@@ -999,12 +999,10 @@ void RangeLockMgr::UnLockAll(const PessimisticTransaction* txn, Env*) {
 }
 
 
-
-
 int RangeLockMgr::compare_dbt_endpoints(__toku_db*, void *arg,
                                         const DBT *a_key,
                                         const DBT *b_key) {
-  RangeLockMgr* mgr= (RangeLockMgr*) arg;
+  //RangeLockMgr* mgr= (RangeLockMgr*) arg;
   // TODO: this should compare endpoints using the user-provided comparator +
   // endpoint encoding.
   // (just use one from any column family)

@@ -64,6 +64,9 @@ class Endpoint {
   Slice slice;
   bool inf_suffix;
 
+  Endpoint(const Slice &slice_arg, bool inf_suffix_arg=false) :
+    slice(slice_arg), inf_suffix(inf_suffix_arg) {}
+
   Endpoint(const char* s, bool inf_suffix_arg=false) :
     slice(s), inf_suffix(inf_suffix_arg) {}
 
