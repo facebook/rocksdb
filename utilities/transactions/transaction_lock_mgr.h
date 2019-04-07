@@ -55,9 +55,9 @@ struct TrackedTrxInfo {
 class Slice;
 class PessimisticTransactionDB;
 
-/*
-  psergey: this should be 
-*/
+//
+// Base class for Point and Range-based lock manager.
+//
 class BaseLockMgr {
  public:
   virtual void AddColumnFamily(uint32_t column_family_id) = 0;
@@ -71,7 +71,7 @@ class BaseLockMgr {
               Env* env) = 0;
   virtual 
   void UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
-              const std::string& key, Env* env)=0;
+              const std::string& key, Env* env) = 0;
 
   // Resize the deadlock info buffer
   virtual void Resize(uint32_t)=0;
@@ -83,6 +83,7 @@ class BaseLockMgr {
 };
 
 
+// Point lock manager
 class TransactionLockMgr : public BaseLockMgr {
  public:
   TransactionLockMgr(TransactionDB* txn_db, size_t default_num_stripes,
