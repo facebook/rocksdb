@@ -3865,7 +3865,8 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnSeek) {
   Slice upper_bound_slice(upper_bound);
   read_opt.iterate_upper_bound = &upper_bound_slice;
   std::unique_ptr<InternalIterator> iter;
-  iter.reset(reader->NewIterator(read_opt, nullptr /*prefix_extractor*/));
+  iter.reset(new KeyConvertingIterator(
+      reader->NewIterator(read_opt, nullptr /*prefix_extractor*/)));
   iter->SeekToFirst();
   ASSERT_FALSE(iter->Valid());
   ASSERT_TRUE(iter->IsOutOfBound());
@@ -3902,13 +3903,21 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnNext) {
   std::unique_ptr<InternalIterator> iter;
   iter.reset(new KeyConvertingIterator(
       reader->NewIterator(read_opt, nullptr /*prefix_extractor*/)));
-  iter->Seek(ub1);
+  iter->Seek("bar");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("bar", iter->key());
+  iter->Next();
   ASSERT_FALSE(iter->Valid());
   ASSERT_TRUE(iter->IsOutOfBound());
   std::string ub2 = "foo_after";
   Slice ub_slice2(ub2);
+  read_opt.iterate_upper_bound = &ub_slice2;
   iter.reset(new KeyConvertingIterator(
       reader->NewIterator(read_opt, nullptr /*prefix_extractor*/)));
+  iter->Seek("foo");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("foo", iter->key());
+  iter->Next();
   ASSERT_FALSE(iter->Valid());
   ASSERT_FALSE(iter->IsOutOfBound());
 }
