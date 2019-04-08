@@ -17,7 +17,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "util/arena.h"
-#include "util/murmurhash.h"
+#include "util/hash.h"
 
 namespace rocksdb {
 namespace {
@@ -218,7 +218,7 @@ class HashLinkListRep : public MemTableRep {
   }
 
   size_t GetHash(const Slice& slice) const {
-    return MurmurHash(slice.data(), static_cast<int>(slice.size()), 0) %
+    return NPHash64(slice.data(), static_cast<int>(slice.size()), 0) %
            bucket_size_;
   }
 

@@ -83,7 +83,7 @@ class ShardedCache : public Cache {
 
  private:
   static inline uint32_t HashSlice(const Slice& s) {
-    return Hash(s.data(), s.size(), 0);
+    return static_cast<uint32_t>(GetSliceNPHash64(s));
   }
 
   uint32_t Shard(uint32_t hash) {
