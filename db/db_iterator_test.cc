@@ -15,6 +15,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
+#include "table/flush_block_policy.h"
 
 namespace rocksdb {
 
@@ -50,35 +51,6 @@ class DBIteratorTest : public DBTestBase,
 
  private:
   DummyReadCallback read_callback_;
-};
-
-class FlushBlockEveryKeyPolicy : public FlushBlockPolicy {
- public:
-  bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
-    if (!start_) {
-      start_ = true;
-      return false;
-    }
-    return true;
-  }
-
- private:
-  bool start_ = false;
-};
-
-class FlushBlockEveryKeyPolicyFactory : public FlushBlockPolicyFactory {
- public:
-  explicit FlushBlockEveryKeyPolicyFactory() {}
-
-  const char* Name() const override {
-    return "FlushBlockEveryKeyPolicyFactory";
-  }
-
-  FlushBlockPolicy* NewFlushBlockPolicy(
-      const BlockBasedTableOptions& /*table_options*/,
-      const BlockBuilder& /*data_block_builder*/) const override {
-    return new FlushBlockEveryKeyPolicy;
-  }
 };
 
 TEST_P(DBIteratorTest, IteratorProperty) {
