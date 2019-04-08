@@ -2581,6 +2581,7 @@ bool DBImpl::GetAggregatedIntProperty(const Slice& property,
     return false;
   }
 
+  bool ret = false;
   uint64_t sum = 0;
   {
     // Needs mutex to protect the list of column families.
@@ -2592,13 +2593,12 @@ bool DBImpl::GetAggregatedIntProperty(const Slice& property,
       }
       if (GetIntPropertyInternal(cfd, *property_info, true, &value)) {
         sum += value;
-      } else {
-        return false;
+        ret |= true;
       }
     }
   }
   *aggregated_value = sum;
-  return true;
+  return ret;
 }
 
 SuperVersion* DBImpl::GetAndRefSuperVersion(ColumnFamilyData* cfd) {
