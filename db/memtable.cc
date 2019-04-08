@@ -35,7 +35,6 @@
 #include "util/autovector.h"
 #include "util/coding.h"
 #include "util/memory_usage.h"
-#include "util/murmurhash.h"
 #include "util/mutexlock.h"
 #include "util/util.h"
 
@@ -438,8 +437,7 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
 }
 
 port::RWMutex* MemTable::GetLock(const Slice& key) {
-  static murmur_hash hash;
-  return &locks_[hash(key) % locks_.size()];
+  return &locks_[static_cast<size_t>(GetSliceNPHash64(key)) % locks_.size()];
 }
 
 MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
