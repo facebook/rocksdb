@@ -135,7 +135,7 @@ WriteCommittedTxn::WriteCommittedTxn(TransactionDB* txn_db,
 Status PessimisticTransaction::CommitBatch(WriteBatch* batch) {
   TransactionKeyMap keys_to_unlock;
 
-  Status s = do_key_tracking_? LockBatch(batch, &keys_to_unlock): Status::OK();
+  Status s = LockBatch(batch, &keys_to_unlock);
 
   if (!s.ok()) {
     return s;
