@@ -867,7 +867,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   // True if there's any data in the WALs; if not, we can skip re-processing
   // them later
   bool data_seen = false;
-  if (!read_only) {
+  if (!read_only && !secondary) {
     // no need to refcount since client still doesn't have access
     // to the DB and can not drop column families while we iterate
     auto max_log_number = log_numbers.back();
@@ -898,7 +898,6 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
             break;
           }
           flushed = true;
-
           cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
                                  versions_->LastSequence());
         }
