@@ -46,8 +46,15 @@ using TransactionID = uint64_t;
   then
     key_a < key_b.
 
-  An empty string is less than any other constant (from this it follows that
-  for any prefix and suffix, {prefix, suffix} > {prefix})
+  2. An empty string is less than any other value. From this it follows that
+  for any prefix and suffix, {prefix, suffix} > {prefix}.
+
+  3. The row comparison function can compare key prefixes. If the data domain
+  includes keys A and B, then the comparison function is able to compare
+  equal-length prefixes:
+
+    min_len= min(byte_length(A), byte_length(B));
+    cmp(Slice(A, min_len), Slice(B, min_len))
 
   == Prefix ranges ==
   With lexicographic-like ordering, one may to construct ranges from a
