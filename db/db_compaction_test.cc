@@ -4422,6 +4422,56 @@ TEST_F(DBCompactionTest, ManualCompactionFailsInReadOnlyMode) {
   Close();
 }
 
+// ManualCompactionBottomLevelOptimization tests the bottom level manual
+// compaction optimization to skip recompacting files created by Ln-1 to Ln
+// compaction
+TEST_F(DBCompactionTest, ManualCompactionBottomLevelOptimization) {
+  Options opts = CurrentOptions();
+  opts.num_levels = 3;
+  opts.level0_file_num_compaction_trigger = 5;
+  opts.compression = kNoCompression;
+  opts.merge_operator.reset(new NoopMergeOperator());
+  opts.target_file_size_base = 1024;
+  opts.max_bytes_for_level_multiplier = 2;
+  opts.disable_auto_compactions = true;
+  DestroyAndReopen(opts);
+  ColumnFamilyHandleImpl* cfh =
+      static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily());
+  ColumnFamilyData* cfd = cfh->cfd();
+  InternalStats* internal_stats_ptr = cfd->internal_stats();
+  ASSERT_NE(internal_stats_ptr, nullptr);
+
+  Random rnd(301);
+  for (auto i = 0; i < 8; ++i) {
+    for (auto j = 0; j < 10; ++j) {
+      ASSERT_OK(Put("foo" + std::to_string(i*10+j), RandomString(&rnd, 1024)));
+    }
+    Flush();
+  }
+
+  MoveFilesToLevel(2);
+
+  for (auto i = 0; i < 8; ++i) {
+    for (auto j = 0; j < 10; ++j) {
+      ASSERT_OK(Put("bar" + std::to_string(i*10+j), RandomString(&rnd, 1024)));
+    }
+    Flush();
+  }
+  const std::vector<InternalStats::CompactionStats>& comp_stats =
+      internal_stats_ptr->TEST_GetCompactionStats();
+  int num = comp_stats[2].num_input_files_in_output_level;
+  ASSERT_EQ(num, 0);
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  dbfull()->CompactRange(cro, nullptr, nullptr);
+
+  const std::vector<InternalStats::CompactionStats>& comp_stats2 =
+      internal_stats_ptr->TEST_GetCompactionStats();
+  num = comp_stats2[2].num_input_files_in_output_level;
+  ASSERT_EQ(num, 0);
+}
+
 // FixFileIngestionCompactionDeadlock tests and verifies that compaction and
 // file ingestion do not cause deadlock in the event of write stall triggered
 // by number of L0 files reaching level0_stop_writes_trigger.
