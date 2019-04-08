@@ -24,7 +24,12 @@ struct TransactionKeyMapInfo {
   // Earliest sequence number that is relevant to this transaction for this key
   SequenceNumber seq;
 
+  // Number of writes done to this key
   uint32_t num_writes;
+
+  // Number of locking reads done to the key. If both numbers of reads and
+  // writes go down to zero (happens for RollbackToSavePoint and
+  // UndoGetForUpdate) the key will be removed from tracking.
   uint32_t num_reads;
 
   bool exclusive;
