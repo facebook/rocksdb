@@ -107,8 +107,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
           ioptions.memtable_insert_with_hint_prefix_extractor),
       oldest_key_time_(std::numeric_limits<uint64_t>::max()),
       atomic_flush_seqno_(kMaxSequenceNumber),
-      fragmented_tombstones(std::make_shared<FragmentedTombstones>(new FragmentedTombstones)),
-      range_tombstone_count(0) {
+      fragmented_tombstones_(std::make_shared<FragmentedTombstones>(new FragmentedTombstones)),
+      range_tombstone_count_(0) {
   UpdateFlushState();
   // something went wrong if we need to flush before inserting anything
   assert(!ShouldScheduleFlush());
@@ -419,15 +419,14 @@ InternalIterator* MemTable::NewIterator(const ReadOptions& read_options,
 }
 
 void MemTable::InvalidateFragmentedTombstones() {
-    auto new_range_tombstone_count = ++range_tombstone_count;
+    auto new_range_tombstone_count = ++range_tombstone_count_;
 
-  if (new_range_tombstone_count < range_tombstone_count) {
-    // we have been preempted, don't invalidate fragmented tombstones
+  if (new_range_tombstone_count < range_tombstone_count_) {
+    // we have been pre-empted by another invalidation
     return;
   }
 
-  // assignment here is atomic right?
-  fragmented_tombstones = std::make_shared<FragmentedTombstones>(new FragmentedTombstones);
+  fragmented_tombstones_ = std::make_shared<FragmentedTombstones>(new FragmentedTombstones);
 }
 
 FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
@@ -436,7 +435,7 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
   MemTableIterator* unfragmented_iter = nullptr;
 
   // store these here in case they are invalidated during this function call
-  auto tombstones = fragmented_tombstones;
+  auto tombstones = fragmented_tombstones_;
 
   if (read_options.ignore_range_deletions ||
       is_range_del_table_empty_.load(std::memory_order_relaxed)) {
