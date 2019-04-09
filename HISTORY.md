@@ -1,6 +1,6 @@
 # Rocksdb Change Log
 
-### Unreleased
+## 6.1.1 (4/9/2019)
 ### New Features
 * When reading from option file/string/map, customized comparators and/or merge operators can be filled according to object registry.
 ### Public API Change
