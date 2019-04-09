@@ -173,8 +173,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  max_bytes_for_level_multiplier);
   ROCKS_LOG_INFO(log, "                                      ttl: %" PRIu64,
                  ttl);
-  ROCKS_LOG_INFO(log, "                     bottommost_level_ttl: %" PRIu64,
-                 bottommost_level_ttl);
+  ROCKS_LOG_INFO(log, "                      periodic_compaction: %" PRIu64,
+                 periodic_compaction);
   std::string result;
   char buf[10];
   for (const auto m : max_bytes_for_level_multiplier_additional) {

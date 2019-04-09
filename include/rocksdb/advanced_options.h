@@ -644,17 +644,14 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint64_t ttl = 0;
 
-  // Bottommost level files older than this TTL will be picked up for
-  // compaction. The data in the L_max level might be needed around for a much
-  // longer time before requring a cleanup in some use cases. And hence the need
-  // for introducing a separate ttl option for bottommost level.
-  // Supported only in Level compaction.
-  // Pre-req: ttl > 0 && max_open_file == -1.
+  // Files older than this value will be picked up for compaction.
+  // Only supported in Level compaction.
+  // Pre-req: max_open_file == -1.
   // unit: seconds. Ex: 7 days = 7 * 24 * 60 * 60
   // Default: 0 (disabled)
   //
   // Dynamically changeable through SetOptions() API
-  uint64_t bottommost_level_ttl = 0;
+  uint64_t periodic_compaction = 0;
 
   // If this option is set then 1 in N blocks are compressed
   // using a fast (lz4) and slow (zstd) compression algorithm.

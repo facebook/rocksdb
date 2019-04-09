@@ -3525,7 +3525,7 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
 //   Options options = CurrentOptions();
 //   options.num_levels = 7;            // default levels
 //   options.ttl = 24 * 60 * 60;        // 1 day
-//   options.bottommost_level_ttl = 0;  // disabled
+//   options.periodic_compaction = 0;   // disabled
 //   options.max_open_files = -1;       // needed for ttl compaction
 //   env_->time_elapse_only_sleep_ = false;
 //   options.env = env_;
@@ -3581,7 +3581,7 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
 //
 //   // Now enable bottommostlevel ttl compaction dynamically by setting to 2 days.
 //   // 2 * 24 * 60 * 60 = 172800
-//   ASSERT_OK(dbfull()->SetOptions({{"bottommost_level_ttl", "172800"}}));
+//   ASSERT_OK(dbfull()->SetOptions({{"periodic_compaction", "172800"}}));
 //
 //   // Add another 25 hours and do another write
 //   env_->addon_time_.fetch_add(25 * 60 * 60);

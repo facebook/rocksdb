@@ -179,7 +179,7 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   cf_opts.max_bytes_for_level_multiplier =
       mutable_cf_options.max_bytes_for_level_multiplier;
   cf_opts.ttl = mutable_cf_options.ttl;
-  cf_opts.bottommost_level_ttl = mutable_cf_options.bottommost_level_ttl;
+  cf_opts.periodic_compaction = mutable_cf_options.periodic_compaction;
 
   cf_opts.max_bytes_for_level_multiplier_additional.clear();
   for (auto value :
@@ -1961,11 +1961,11 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::ttl), OptionType::kUInt64T,
           OptionVerificationType::kNormal, true,
           offsetof(struct MutableCFOptions, ttl)}},
-        {"bottommost_level_ttl",
-         {offset_of(&ColumnFamilyOptions::bottommost_level_ttl),
+        {"periodic_compaction",
+         {offset_of(&ColumnFamilyOptions::periodic_compaction),
           OptionType::kUInt64T,
           OptionVerificationType::kNormal, true,
-          offsetof(struct MutableCFOptions, bottommost_level_ttl)}},
+          offsetof(struct MutableCFOptions, periodic_compaction)}},
         {"sample_for_compression",
          {offset_of(&ColumnFamilyOptions::sample_for_compression),
           OptionType::kUInt64T, OptionVerificationType::kNormal, true,

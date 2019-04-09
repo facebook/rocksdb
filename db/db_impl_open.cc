@@ -189,9 +189,18 @@ static Status ValidateOptions(
       }
     }
 
-    if (cfd.options.bottommost_level_ttl > 0 && cfd.options.ttl == 0) {
-      return Status::NotSupported(
-          "Bottommost Level TTL can be set only when TTL is set. ");
+    if (cfd.options.periodic_compaction > 0) {
+      if (db_options.max_open_files != -1) {
+        return Status::NotSupported(
+            "Periodic Compaction is only supported when files are always "
+            "kept open (set max_open_files = -1). ");
+      }
+      if (cfd.options.table_factory->Name() !=
+          BlockBasedTableFactory().Name()) {
+        return Status::NotSupported(
+            "Periodic Compaction is only supported in "
+            "Block-Based Table format. ");
+      }
     }
   }
 
