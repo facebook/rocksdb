@@ -2499,7 +2499,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyForward() {
     if (!block_iter_.status().ok()) {
       return;
     }
-    // Whethe next data block is out of upper bound, if there is one.
+    // Whether next data block is out of upper bound, if there is one.
     bool next_block_is_out_of_bound = false;
     if (read_options_.iterate_upper_bound != nullptr &&
         block_iter_points_to_real_block_) {
