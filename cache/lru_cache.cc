@@ -351,7 +351,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
 
   e->value = value;
   e->deleter = deleter;
-  e->charge = charge;
+  e->charge = charge + sizeof(LRUHandle) - 1;
   e->key_length = key.size();
   e->flags = 0;
   e->hash = hash;
