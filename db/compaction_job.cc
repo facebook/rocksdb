@@ -1480,31 +1480,21 @@ Status CompactionJob::OpenCompactionOutputFile(
   bool skip_filters =
       cfd->ioptions()->optimize_filters_for_hits && bottommost_level_;
 
-  uint64_t output_file_creation_time = 0;
-  if (sub_compact->compaction->output_level() ==
-      sub_compact->compaction->number_levels() - 1) {
-    // Don't set the creation time for the bottommost (Lmax) level files based
-    // on the creation times of the input files, so that it can be set to the
-    // current time below. Otherwise bottommost files don't get new creation
-    // time, and they keep getting picked up by the ttl compaction forever in a
-    // loop. This is needed for extending Level TTL Compaction to work with
-    // bottommost level.
-  } else {
-    output_file_creation_time =
-        sub_compact->compaction->MaxInputFileCreationTime();
+  int64_t _current_time = 0;
+  auto get_time_status = db_options_.env->GetCurrentTime(&_current_time);
+  // Safe to proceed even if GetCurrentTime fails. So, log and proceed.
+  if (!get_time_status.ok()) {
+    ROCKS_LOG_WARN(
+        db_options_.info_log,
+        "Failed to get current time. Status: %s",
+        get_time_status.ToString().c_str());
   }
-  if (output_file_creation_time == 0) {
-    int64_t _current_time = 0;
-    auto status = db_options_.env->GetCurrentTime(&_current_time);
-    // Safe to proceed even if GetCurrentTime fails. So, log and proceed.
-    if (!status.ok()) {
-      ROCKS_LOG_WARN(
-          db_options_.info_log,
-          "Failed to get current time to populate creation_time property. "
-          "Status: %s",
-          status.ToString().c_str());
-    }
-    output_file_creation_time = static_cast<uint64_t>(_current_time);
+  uint64_t current_time = static_cast<uint64_t>(_current_time);
+
+  uint64_t latest_key_time =
+      sub_compact->compaction->MaxInputFileCreationTime();
+  if (latest_key_time == 0) {
+    latest_key_time = current_time;
   }
 
   sub_compact->builder.reset(NewTableBuilder(
@@ -1515,8 +1505,8 @@ Status CompactionJob::OpenCompactionOutputFile(
       0 /*sample_for_compression */,
       sub_compact->compaction->output_compression_opts(),
       sub_compact->compaction->output_level(), skip_filters,
-      output_file_creation_time, 0 /* oldest_key_time */,
-      sub_compact->compaction->max_output_file_size()));
+      latest_key_time, 0 /* oldest_key_time */,
+      sub_compact->compaction->max_output_file_size(), current_time));
   LogFlush(db_options_.info_log);
   return s;
 }
