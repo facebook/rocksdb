@@ -133,6 +133,8 @@ class DBImplSecondary : public DBImpl {
   // method can take long time due to all the I/O and CPU costs.
   Status TryCatchUpWithPrimary() override;
 
+  Status GetLogReader(uint64_t log_number, log::FragmentBufferedReader** log_reader);
+
  private:
   friend class DB;
 
@@ -142,6 +144,9 @@ class DBImplSecondary : public DBImpl {
 
   using DBImpl::Recover;
 
+  Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
+                         SequenceNumber* next_sequence, bool read_only) override;
+
   std::unique_ptr<log::FragmentBufferedReader> manifest_reader_;
   std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
   std::unique_ptr<Status> manifest_reader_status_;
@@ -150,6 +155,12 @@ class DBImplSecondary : public DBImpl {
   // `DBImplSecondary::Recover` stage. The log is still active and we
   // may still replay changes in it
   uint64_t curr_log_number_;
+
+  // cache log readers for each log number, used for continue WAL replay
+  // after recovery
+  std::unordered_map<uint64_t, log::FragmentBufferedReader*> log_readers_;
+  std::unordered_map<uint64_t, log::Reader::Reporter*> log_reporters_;
+  std::unordered_map<uint64_t, Status*> log_reader_status_;
 };
 }  // namespace rocksdb
 

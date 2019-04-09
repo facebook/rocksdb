@@ -89,6 +89,8 @@ class Reader {
 
   Reporter* GetReporter() const { return reporter_; }
 
+  uint64_t GetLogNumber() const { return log_number_; }
+
  protected:
   std::shared_ptr<Logger> info_log_;
   const std::unique_ptr<SequentialFileReader> file_;
