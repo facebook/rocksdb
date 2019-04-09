@@ -14,6 +14,8 @@
 #include <utility>
 #include <vector>
 
+#include "cache/simple_deleter.h"
+
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 
@@ -177,13 +179,6 @@ Status ReadBlockFromFile(
   }
 
   return s;
-}
-
-// Delete the entry resided in the cache.
-template <class Entry>
-void DeleteCachedEntry(const Slice& /*key*/, void* value) {
-  auto entry = reinterpret_cast<Entry*>(value);
-  delete entry;
 }
 
 // Release the cached entry and decrement its ref count.
@@ -1171,7 +1166,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
       size_t charge = block_holder->ApproximateMemoryUsage();
       Cache::Handle* cache_handle = nullptr;
       s = block_cache->Insert(block_cache_key, block_holder.get(), charge,
-                              &DeleteCachedEntry<TBlocklike>, &cache_handle);
+                              SimpleDeleter<TBlocklike>::GetInstance(),
+                              &cache_handle);
       if (s.ok()) {
         assert(cache_handle != nullptr);
         block->SetCachedValue(block_holder.release(), block_cache,
@@ -1260,7 +1256,7 @@ Status BlockBasedTable::PutDataBlockToCache(
     s = block_cache_compressed->Insert(
         compressed_block_cache_key, block_cont_for_comp_cache,
         block_cont_for_comp_cache->ApproximateMemoryUsage(),
-        &DeleteCachedEntry<BlockContents>);
+        SimpleDeleter<BlockContents>::GetInstance());
     if (s.ok()) {
       // Avoid the following code to delete this cached block.
       RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD);
@@ -1275,8 +1271,8 @@ Status BlockBasedTable::PutDataBlockToCache(
     size_t charge = block_holder->ApproximateMemoryUsage();
     Cache::Handle* cache_handle = nullptr;
     s = block_cache->Insert(block_cache_key, block_holder.get(), charge,
-                            &DeleteCachedEntry<TBlocklike>, &cache_handle,
-                            priority);
+                            SimpleDeleter<TBlocklike>::GetInstance(),
+                            &cache_handle, priority);
     if (s.ok()) {
       assert(cache_handle != nullptr);
       cached_block->SetCachedValue(block_holder.release(), block_cache,

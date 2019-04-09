@@ -175,11 +175,13 @@ namespace {
 
 // Cache entry meta data.
 struct CacheHandle {
+  using Deleter = Cache::Deleter;
+
   Slice key;
   uint32_t hash;
   void* value;
   size_t charge;
-  void (*deleter)(const Slice&, void* value);
+  Deleter* deleter;
 
   // Flags and counters associated with the cache handle:
   //   lowest bit: n-cache bit
@@ -193,8 +195,7 @@ struct CacheHandle {
 
   CacheHandle(const CacheHandle& a) { *this = a; }
 
-  CacheHandle(const Slice& k, void* v,
-              void (*del)(const Slice& key, void* value))
+  CacheHandle(const Slice& k, void* v, Deleter* del)
       : key(k), value(v), deleter(del) {}
 
   CacheHandle& operator=(const CacheHandle& a) {
@@ -269,8 +270,8 @@ class ClockCacheShard final : public CacheShard {
   void SetCapacity(size_t capacity) override;
   void SetStrictCapacityLimit(bool strict_capacity_limit) override;
   Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
-                void (*deleter)(const Slice& key, void* value),
-                Cache::Handle** handle, Cache::Priority priority) override;
+                Deleter* deleter, Cache::Handle** handle,
+                Cache::Priority priority) override;
   Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
   // If the entry in in cache, increase reference count and return true.
   // Return false otherwise.
@@ -339,9 +340,8 @@ class ClockCacheShard final : public CacheShard {
   bool EvictFromCache(size_t charge, CleanupContext* context);
 
   CacheHandle* Insert(const Slice& key, uint32_t hash, void* value,
-                      size_t change,
-                      void (*deleter)(const Slice& key, void* value),
-                      bool hold_reference, CleanupContext* context);
+                      size_t charge, Deleter* deleter, bool hold_reference,
+                      CleanupContext* context);
 
   // Guards list_, head_, and recycle_. In addition, updating table_ also has
   // to hold the mutex, to avoid the cache being in inconsistent state.
@@ -561,10 +561,10 @@ void ClockCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
                                std::memory_order_relaxed);
 }
 
-CacheHandle* ClockCacheShard::Insert(
-    const Slice& key, uint32_t hash, void* value, size_t charge,
-    void (*deleter)(const Slice& key, void* value), bool hold_reference,
-    CleanupContext* context) {
+CacheHandle* ClockCacheShard::Insert(const Slice& key, uint32_t hash,
+                                     void* value, size_t charge,
+                                     Deleter* deleter, bool hold_reference,
+                                     CleanupContext* context) {
   size_t total_charge =
       CacheHandle::CalcTotalCharge(key, charge, metadata_charge_policy_);
   MutexLock l(&mutex_);
@@ -610,8 +610,7 @@ CacheHandle* ClockCacheShard::Insert(
 }
 
 Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
-                               size_t charge,
-                               void (*deleter)(const Slice& key, void* value),
+                               size_t charge, Deleter* deleter,
                                Cache::Handle** out_handle,
                                Cache::Priority /*priority*/) {
   CleanupContext context;
