@@ -195,7 +195,7 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
   verify_db_func("new_foo_value", "new_bar_value");
 }
 
-TEST_F(DBSecondaryTest, OpenAsSecondaryLogTailing) {
+TEST_F(DBSecondaryTest, OpenAsSecondaryWALTailing) {
   Options options;
   options.env = env_;
   options.level0_file_num_compaction_trigger = 4;

@@ -147,8 +147,9 @@ class DBImplSecondary : public DBImpl {
   std::unique_ptr<Status> manifest_reader_status_;
 
   // the largest WAL file number that has been processed during
-  // `DBImplSecondary::Recover` stage
-  uint64_t max_log_number_processed;
+  // `DBImplSecondary::Recover` stage. The log is still active and we
+  // may still replay changes in it
+  uint64_t curr_log_number_;
 };
 }  // namespace rocksdb
 

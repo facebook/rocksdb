@@ -82,8 +82,8 @@ Status DBImplSecondary::Recover(
       // Recover in the order in which the logs were generated
       std::sort(logs.begin(), logs.end());
       SequenceNumber next_sequence(kMaxSequenceNumber);
-      s = RecoverLogFiles(logs, &next_sequence, false, true);
-      max_log_number_processed = logs.back();
+      s = RecoverLogFiles(logs, &next_sequence, true);
+      curr_log_number_ = logs.back();
     }
   }
 

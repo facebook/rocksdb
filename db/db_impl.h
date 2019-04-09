@@ -847,7 +847,7 @@ class DBImpl : public DB {
 
   // REQUIRES: log_numbers are sorted in ascending order
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
-                         SequenceNumber* next_sequence, bool read_only, bool secondary);
+                         SequenceNumber* next_sequence, bool read_only);
 
   // If disable_memtable is set the application logic must guarantee that the
   // batch will still be skipped from memtable during the recovery. An excption
