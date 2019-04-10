@@ -351,8 +351,6 @@ class FilePicker {
 class FilePickerMultiGet {
  private:
   struct FilePickerContext;
-  using FilePickerContextWrapper = MultiGetContext::Range::IteratorWrapper<
-      std::array<FilePickerContext, MultiGetContext::MAX_BATCH_SIZE>>;
 
  public:
   FilePickerMultiGet(std::vector<FileMetaData*>* files, MultiGetRange* range,
@@ -383,9 +381,8 @@ class FilePickerMultiGet {
     (void)files;
 #endif
     for (auto iter = range_->begin(); iter != range_->end(); ++iter) {
-      FilePickerContextWrapper file_picker_wrapper(iter, file_picker_ctx_);
-
-      *file_picker_wrapper = FilePickerContext(0, FileIndexer::kLevelMaxIndex);
+      file_picker_ctx_[iter.index()] =
+          FilePickerContext(0, FileIndexer::kLevelMaxIndex);
     }
 
     // Setup member variables to search first level.
@@ -433,10 +430,10 @@ class FilePickerMultiGet {
       }
 
       FdWithKeyRange* f = nullptr;
-      FilePickerContextWrapper file_picker_iter(mget_iter_, file_picker_ctx_);
-      size_t curr_file_index = (mget_iter_ != current_level_range_.end())
-                                   ? file_picker_iter->curr_index_in_curr_level
-                                   : curr_file_level_->num_files;
+      size_t curr_file_index =
+          (mget_iter_ != current_level_range_.end())
+              ? file_picker_ctx_[mget_iter_.index()].curr_index_in_curr_level
+              : curr_file_level_->num_files;
       bool file_hit = false;
       int cmp_largest = -1;
       MultiGetRange next_file_range(current_level_range_, prev_mget_iter_end_,
@@ -446,13 +443,15 @@ class FilePickerMultiGet {
         continue;
       }
       hit_file_level_ = curr_level_;
-      is_hit_file_last_in_level_ = file_picker_iter->curr_index_in_curr_level ==
-                                   curr_file_level_->num_files - 1;
+      is_hit_file_last_in_level_ =
+          file_picker_ctx_[mget_iter_.index()].curr_index_in_curr_level ==
+          curr_file_level_->num_files - 1;
       // Loops over all files in current level.
       while (mget_iter_ != current_level_range_.end() &&
-             (file_picker_iter->curr_index_in_curr_level == curr_file_index ||
+             (file_picker_ctx_[mget_iter_.index()].curr_index_in_curr_level ==
+                  curr_file_index ||
               !file_hit)) {
-        struct FilePickerContext& fp_ctx = *file_picker_iter;
+        struct FilePickerContext& fp_ctx = file_picker_ctx_[mget_iter_.index()];
         f = &curr_file_level_->files[fp_ctx.curr_index_in_curr_level];
         Slice& user_key = mget_iter_->ukey;
 
@@ -534,7 +533,8 @@ class FilePickerMultiGet {
         }
         if (!file_hit) {
           curr_file_index = (mget_iter_ != current_level_range_.end())
-                                ? file_picker_iter->curr_index_in_curr_level
+                                ? file_picker_ctx_[mget_iter_.index()]
+                                      .curr_index_in_curr_level
                                 : curr_file_level_->num_files;
         }
       }
@@ -545,7 +545,7 @@ class FilePickerMultiGet {
           // that falls in this file, instead of the next one. Increment
           // upper_key so we can set the range properly for SST MultiGet
           ++upper_key;
-          ++(file_picker_iter->curr_index_in_curr_level);
+          ++(file_picker_ctx_[mget_iter_.index()].curr_index_in_curr_level);
           maybe_repeat_key_ = true;
         }
         // Set the range for this file
@@ -613,8 +613,7 @@ class FilePickerMultiGet {
   bool PrepareNextLevel() {
     if (curr_level_ == 0) {
       MultiGetRange::Iterator mget_iter = current_level_range_.begin();
-      FilePickerContextWrapper file_picker_wrapper(mget_iter, file_picker_ctx_);
-      if (file_picker_wrapper->curr_index_in_curr_level <
+      if (file_picker_ctx_[mget_iter.index()].curr_index_in_curr_level <
           curr_file_level_->num_files) {
 #ifndef NDEBUG
         prev_file_ = nullptr;
@@ -638,7 +637,7 @@ class FilePickerMultiGet {
         for (auto mget_iter = current_level_range_.begin();
              mget_iter != current_level_range_.end(); ++mget_iter) {
           struct FilePickerContext& fp_ctx =
-              *FilePickerContextWrapper(mget_iter, file_picker_ctx_);
+              file_picker_ctx_[mget_iter.index()];
 
           assert(fp_ctx.search_left_bound == 0);
           assert(fp_ctx.search_right_bound == -1 ||
@@ -662,9 +661,7 @@ class FilePickerMultiGet {
           MultiGetRange(*range_, range_->begin(), range_->end());
       for (auto mget_iter = current_level_range_.begin();
            mget_iter != current_level_range_.end(); ++mget_iter) {
-        FilePickerContextWrapper file_picker_wrapper(mget_iter,
-                                                     file_picker_ctx_);
-        struct FilePickerContext& fp_ctx = *file_picker_wrapper;
+        struct FilePickerContext& fp_ctx = file_picker_ctx_[mget_iter.index()];
         if (curr_level_ == 0) {
           // On Level-0, we read through all files to check for overlap.
           start_index = 0;

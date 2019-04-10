@@ -73,10 +73,9 @@ struct KeyContext {
 //
 //    // Iterate over the subrange and the auxillary vector simultaneously
 //    MultiGetContext::Range::Iterator iter = subrange.begin();
-//    MultiGetContext::Range::IteratorWrapper aux_iter(subrange, aux);
 //    for (; iter != subrange.end(); ++iter) {
 //      KeyContext& key = *iter;
-//      Foo& aux_key = *aux_iter;
+//      Foo& aux_key = aux_iter[iter.index()];
 //      ...
 //    }
 //  }
@@ -142,8 +141,6 @@ class MultiGetContext {
     // MultiGetContext::Range::Iterator - A forward iterator that iterates over
     // non-skippable keys in a Range, as well as keys whose final value has been
     // found. The latter is tracked by MultiGetContext::value_mask_
-    // MultiGetContext::Range::IteratorWrapper - A wrapper around a vector
-    // container, such as std::vector, std::array or autovector, that shadows a
     class Iterator {
      public:
       // -- iterator traits
@@ -193,33 +190,13 @@ class MultiGetContext {
         return ctx_->sorted_keys_[index_];
       }
 
+      size_t index() { return index_; }
+
      private:
       friend Range;
       const Range* range_;
       const MultiGetContext* ctx_;
       size_t index_;
-    };
-
-    // MultiGetContext::Range::IteratorWrapper. The size of the vector must be
-    // atleast the number of keys in the MultiGetContext batch (limited by
-    // MultiGetContext::MAX_BATCH_SIZE), with the indexes of keys being
-    // identical to that in MultiGetContext. This is useful for maintaining
-    // auxillary data structures that can be quickly accessed while iterating
-    // through a MultigetContext::Range. The auxillary data structures can be
-    // allocated on stack for efficiency
-    template <class T>
-    class IteratorWrapper {
-     public:
-      IteratorWrapper(const Range::Iterator& iter, T& vector)
-          : iter_(iter), vector_(vector) {}
-
-      typename T::value_type* operator->() { return &vector_[iter_.index_]; }
-
-      typename T::reference operator*() { return vector_[iter_.index_]; }
-
-     private:
-      const Range::Iterator& iter_;
-      T& vector_;
     };
 
     Range(const Range& mget_range,
