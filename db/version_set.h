@@ -137,8 +137,12 @@ class VersionStorageInfo {
   // This computes ttl_expired_files_ and is called by
   // ComputeCompactionScore()
   void ComputeExpiredTtlFiles(const ImmutableCFOptions& ioptions,
-                              const uint64_t ttl,
-                              const uint64_t periodic_compaction);
+                              const uint64_t ttl);
+
+  // This computes files_marked_for_periodic_compaction_ and is called by
+  // ComputeCompactionScore()
+  void ComputeFilesMarkedForPeriodicCompaction(const ImmutableCFOptions& ioptions,
+                            const uint64_t periodic_compaction);
 
   // This computes bottommost_files_marked_for_compaction_ and is called by
   // ComputeCompactionScore() or UpdateOldestSnapshot().
@@ -299,6 +303,13 @@ class VersionStorageInfo {
   const autovector<std::pair<int, FileMetaData*>>& ExpiredTtlFiles() const {
     assert(finalized_);
     return expired_ttl_files_;
+  }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: DB mutex held during access
+  const autovector<std::pair<int, FileMetaData*>>& FilesMarkedForPeriodicCompaction() const {
+    assert(finalized_);
+    return files_marked_for_periodic_compaction_;
   }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
@@ -469,6 +480,8 @@ class VersionStorageInfo {
   autovector<std::pair<int, FileMetaData*>> files_marked_for_compaction_;
 
   autovector<std::pair<int, FileMetaData*>> expired_ttl_files_;
+
+  autovector<std::pair<int, FileMetaData*>> files_marked_for_periodic_compaction_;
 
   // These files are considered bottommost because none of their keys can exist
   // at lower levels. They are not necessarily all in the same level. The marked

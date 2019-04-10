@@ -1703,8 +1703,10 @@ void VersionStorageInfo::ComputeCompactionScore(
   ComputeFilesMarkedForCompaction();
   ComputeBottommostFilesMarkedForCompaction();
   if (mutable_cf_options.ttl > 0) {
-    ComputeExpiredTtlFiles(immutable_cf_options, mutable_cf_options.ttl,
-                           mutable_cf_options.periodic_compaction);
+    ComputeExpiredTtlFiles(immutable_cf_options, mutable_cf_options.ttl);
+  }
+  if (mutable_cf_options.periodic_compaction > 0) {
+    ComputeFilesMarkedForPeriodicCompaction(immutable_cf_options, mutable_cf_options.periodic_compaction);
   }
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
@@ -1733,8 +1735,7 @@ void VersionStorageInfo::ComputeFilesMarkedForCompaction() {
 }
 
 void VersionStorageInfo::ComputeExpiredTtlFiles(
-    const ImmutableCFOptions& ioptions, const uint64_t ttl,
-    const uint64_t periodic_compaction) {
+    const ImmutableCFOptions& ioptions, const uint64_t ttl) {
   assert(ttl > 0);
 
   expired_ttl_files_.clear();
@@ -1746,25 +1747,41 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
   }
   const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
-  uint64_t current_ttl = ttl;
-  for (int level = 0; level < num_levels(); level++) {
-    if (level == (num_levels() - 1)) {
-      // bottommost level
-      if (periodic_compaction == 0) {
-        // compaction picking based on ttl is not enabled for bottommost level
-        return;
-      } else {
-        current_ttl = periodic_compaction;
-      }
-    }
-
+  for (int level = 0; level < num_levels() - 1; level++) {
     for (auto f : files_[level]) {
       if (!f->being_compacted && f->fd.table_reader != nullptr &&
           f->fd.table_reader->GetTableProperties() != nullptr) {
         auto creation_time =
             f->fd.table_reader->GetTableProperties()->creation_time;
-        if (creation_time > 0 && creation_time < (current_time - current_ttl)) {
+        if (creation_time > 0 && creation_time < (current_time - ttl)) {
           expired_ttl_files_.emplace_back(level, f);
+        }
+      }
+    }
+  }
+}
+
+void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
+    const ImmutableCFOptions& ioptions, const uint64_t periodic_compaction) {
+  assert(periodic_compaction > 0);
+
+  files_marked_for_periodic_compaction_.clear();
+
+  int64_t _current_time;
+  auto status = ioptions.env->GetCurrentTime(&_current_time);
+  if (!status.ok()) {
+    return;
+  }
+  const uint64_t current_time = static_cast<uint64_t>(_current_time);
+
+  for (int level = 0; level < num_levels(); level++) {
+    for (auto f : files_[level]) {
+      if (!f->being_compacted && f->fd.table_reader != nullptr &&
+          f->fd.table_reader->GetTableProperties() != nullptr) {
+        auto file_creation_time =
+            f->fd.table_reader->GetTableProperties()->file_creation_time;
+        if (file_creation_time > 0 && file_creation_time < (current_time - periodic_compaction)) {
+          files_marked_for_periodic_compaction_.emplace_back(level, f);
         }
       }
     }
