@@ -88,6 +88,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Some functions that make it easier to optimize RocksDB
   // Use this if your DB is very small (like under 1GB) and you don't want to
   // spend lots of memory for memtables.
+  // An optional cache object is passed in to be used as the block cache
   ColumnFamilyOptions* OptimizeForSmallDb(
       std::shared_ptr<Cache>* cache = nullptr);
 
@@ -1047,7 +1048,6 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
 
   // Use this if your DB is very small (like under 1GB) and you don't want to
   // spend lots of memory for memtables.
-  // An optional cache object is passed in to be used as the block cache
   Options* OptimizeForSmallDb();
 };
 
