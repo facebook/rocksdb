@@ -138,7 +138,7 @@ Status BuildTable(
           column_family_name, file_writer.get(), compression,
           sample_for_compression, compression_opts_for_flush, level,
           false /* skip_filters */, creation_time, oldest_key_time,
-          file_creation_time);
+          0 /*target_file_size*/, file_creation_time);
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),
