@@ -311,14 +311,14 @@ Status TransactionLockMgr::TryLock(PessimisticTransaction* txn,
   int64_t timeout = txn->GetLockTimeout();
 
   return AcquireWithTimeout(txn, lock_map, stripe, column_family_id, key, env,
-                            timeout, lock_info);
+                            timeout, std::move(lock_info));
 }
 
 // Helper function for TryLock().
 Status TransactionLockMgr::AcquireWithTimeout(
     PessimisticTransaction* txn, LockMap* lock_map, LockMapStripe* stripe,
     uint32_t column_family_id, const std::string& key, Env* env,
-    int64_t timeout, const LockInfo& lock_info) {
+    int64_t timeout, LockInfo&& lock_info) {
   Status result;
   uint64_t end_time = 0;
 
@@ -342,7 +342,7 @@ Status TransactionLockMgr::AcquireWithTimeout(
   // Acquire lock if we are able to
   uint64_t expire_time_hint = 0;
   autovector<TransactionID> wait_ids;
-  result = AcquireLocked(lock_map, stripe, key, env, lock_info,
+  result = AcquireLocked(lock_map, stripe, key, env, std::move(lock_info),
                          &expire_time_hint, &wait_ids);
 
   if (!result.ok() && timeout != 0) {
@@ -407,7 +407,7 @@ Status TransactionLockMgr::AcquireWithTimeout(
       }
 
       if (result.ok() || result.IsTimedOut()) {
-        result = AcquireLocked(lock_map, stripe, key, env, lock_info,
+        result = AcquireLocked(lock_map, stripe, key, env, std::move(lock_info),
                                &expire_time_hint, &wait_ids);
       }
     } while (!result.ok() && !timed_out);
@@ -526,7 +526,7 @@ bool TransactionLockMgr::IncrementWaiters(
 Status TransactionLockMgr::AcquireLocked(LockMap* lock_map,
                                          LockMapStripe* stripe,
                                          const std::string& key, Env* env,
-                                         const LockInfo& txn_lock_info,
+                                         LockInfo&& txn_lock_info,
                                          uint64_t* expire_time,
                                          autovector<TransactionID>* txn_ids) {
   assert(txn_lock_info.txn_ids.size() == 1);
@@ -578,7 +578,7 @@ Status TransactionLockMgr::AcquireLocked(LockMap* lock_map,
       result = Status::Busy(Status::SubCode::kLockLimit);
     } else {
       // acquire lock
-      stripe->keys.insert({key, txn_lock_info});
+      stripe->keys.emplace(key, std::move(txn_lock_info));
 
       // Maintain lock count if there is a limit on the number of locks
       if (max_num_locks_) {
