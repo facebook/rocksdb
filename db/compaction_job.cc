@@ -1482,15 +1482,15 @@ Status CompactionJob::OpenCompactionOutputFile(
   bool skip_filters =
       cfd->ioptions()->optimize_filters_for_hits && bottommost_level_;
 
-  int64_t _current_time = 0;
-  auto get_time_status = db_options_.env->GetCurrentTime(&_current_time);
+  int64_t temp_current_time = 0;
+  auto get_time_status = env_->GetCurrentTime(&temp_current_time);
   // Safe to proceed even if GetCurrentTime fails. So, log and proceed.
   if (!get_time_status.ok()) {
     ROCKS_LOG_WARN(db_options_.info_log,
                    "Failed to get current time. Status: %s",
                    get_time_status.ToString().c_str());
   }
-  uint64_t current_time = static_cast<uint64_t>(_current_time);
+  uint64_t current_time = static_cast<uint64_t>(temp_current_time);
 
   uint64_t latest_key_time =
       sub_compact->compaction->MaxInputFileCreationTime();

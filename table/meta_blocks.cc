@@ -89,7 +89,9 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   Add(TablePropertiesNames::kColumnFamilyId, props.column_family_id);
   Add(TablePropertiesNames::kCreationTime, props.creation_time);
   Add(TablePropertiesNames::kOldestKeyTime, props.oldest_key_time);
-  Add(TablePropertiesNames::kFileCreationTime, props.file_creation_time);
+  if (props.file_creation_time > 0) {
+    Add(TablePropertiesNames::kFileCreationTime, props.file_creation_time);
+  }
 
   if (!props.filter_policy_name.empty()) {
     Add(TablePropertiesNames::kFilterPolicy, props.filter_policy_name);
