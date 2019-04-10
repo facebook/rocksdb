@@ -1775,7 +1775,8 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
     return;
   }
   const uint64_t current_time = static_cast<uint64_t>(temp_current_time);
-  const uint64_t allowed_time_limit = current_time - periodic_compaction_seconds;
+  const uint64_t allowed_time_limit =
+      current_time - periodic_compaction_seconds;
 
   for (int level = 0; level < num_levels(); level++) {
     for (auto f : files_[level]) {
@@ -1783,8 +1784,7 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
           f->fd.table_reader->GetTableProperties() != nullptr) {
         auto file_creation_time =
             f->fd.table_reader->GetTableProperties()->file_creation_time;
-        if (file_creation_time > 0 &&
-            file_creation_time < allowed_time_limit) {
+        if (file_creation_time > 0 && file_creation_time < allowed_time_limit) {
           files_marked_for_periodic_compaction_.emplace_back(level, f);
         }
       }

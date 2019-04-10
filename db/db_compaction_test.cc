@@ -3634,11 +3634,12 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   ASSERT_EQ(0, periodic_compactions);
   ASSERT_EQ(0, ttl_compactions);
 
-  // Add some time greater than periodic_compaction_time
+  // Add some time greater than periodic_compaction_time.
   env_->addon_time_.fetch_add(50 * 60 * 60);
   ASSERT_OK(Put("a", "1"));
   Flush();
   dbfull()->TEST_WaitForCompact();
+  // Files in the bottom level go through periodic compactions.
   ASSERT_EQ("1,0,0,2", FilesPerLevel());
   ASSERT_EQ(2, periodic_compactions);
   ASSERT_EQ(0, ttl_compactions);
@@ -3655,11 +3656,13 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   ASSERT_EQ(2, periodic_compactions);
   ASSERT_EQ(3, ttl_compactions);
 
-  // Add some time greater than periodic_compaction_time
+  // Add some time greater than periodic_compaction_time.
   env_->addon_time_.fetch_add(50 * 60 * 60);
   ASSERT_OK(Put("c", "1"));
   Flush();
   dbfull()->TEST_WaitForCompact();
+  // Previous L0 file falls one level at a time to bottom level due to ttl.
+  // And all 4 bottom files go through periodic compactions.
   ASSERT_EQ("1,0,0,4", FilesPerLevel());
   ASSERT_EQ(6, periodic_compactions);
   ASSERT_EQ(6, ttl_compactions);
