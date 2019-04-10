@@ -187,7 +187,6 @@ struct TableProperties {
   // Actual SST file creation time. 0 means unknown.
   uint64_t file_creation_time = 0;
 
-
   // Name of the column family with which this SST file is associated.
   // If column family is unknown, `column_family_name` will be an empty string.
   std::string column_family_name;

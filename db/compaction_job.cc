@@ -1486,10 +1486,9 @@ Status CompactionJob::OpenCompactionOutputFile(
   auto get_time_status = db_options_.env->GetCurrentTime(&_current_time);
   // Safe to proceed even if GetCurrentTime fails. So, log and proceed.
   if (!get_time_status.ok()) {
-    ROCKS_LOG_WARN(
-        db_options_.info_log,
-        "Failed to get current time. Status: %s",
-        get_time_status.ToString().c_str());
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Failed to get current time. Status: %s",
+                   get_time_status.ToString().c_str());
   }
   uint64_t current_time = static_cast<uint64_t>(_current_time);
 
@@ -1506,9 +1505,9 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->output_compression(),
       0 /*sample_for_compression */,
       sub_compact->compaction->output_compression_opts(),
-      sub_compact->compaction->output_level(), skip_filters,
-      latest_key_time, 0 /* oldest_key_time */,
-      sub_compact->compaction->max_output_file_size(), current_time));
+      sub_compact->compaction->output_level(), skip_filters, latest_key_time,
+      0 /* oldest_key_time */, sub_compact->compaction->max_output_file_size(),
+      current_time));
   LogFlush(db_options_.info_log);
   return s;
 }

@@ -470,12 +470,12 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     sanitized_table_options.format_version = 1;
   }
 
-  rep_ = new Rep(
-      ioptions, moptions, sanitized_table_options, internal_comparator,
-      int_tbl_prop_collector_factories, column_family_id, file,
-      compression_type, sample_for_compression, compression_opts, skip_filters,
-      column_family_name, creation_time, oldest_key_time, target_file_size,
-      file_creation_time);
+  rep_ =
+      new Rep(ioptions, moptions, sanitized_table_options, internal_comparator,
+              int_tbl_prop_collector_factories, column_family_id, file,
+              compression_type, sample_for_compression, compression_opts,
+              skip_filters, column_family_name, creation_time, oldest_key_time,
+              target_file_size, file_creation_time);
 
   if (rep_->filter_builder != nullptr) {
     rep_->filter_builder->StartBlock(0);
