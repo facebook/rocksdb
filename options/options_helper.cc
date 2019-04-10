@@ -522,6 +522,11 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
           block_base_table_data_block_index_type_string_map, value,
           reinterpret_cast<BlockBasedTableOptions::DataBlockIndexType*>(
               opt_address));
+    case OptionType::kBlockBasedTableIndexShorteningMode:
+      return ParseEnum<BlockBasedTableOptions::IndexShorteningMode>(
+        block_base_table_index_shortening_mode_string_map, value,
+        reinterpret_cast<BlockBasedTableOptions::IndexShorteningMode*>(
+            opt_address));
     case OptionType::kEncodingType:
       return ParseEnum<EncodingType>(
           encoding_type_string_map, value,
@@ -715,6 +720,12 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<BlockBasedTableOptions::DataBlockIndexType>(
           block_base_table_data_block_index_type_string_map,
           *reinterpret_cast<const BlockBasedTableOptions::DataBlockIndexType*>(
+              opt_address),
+          value);
+    case OptionType::kBlockBasedTableIndexShorteningMode:
+      return SerializeEnum<BlockBasedTableOptions::IndexShorteningMode>(
+          block_base_table_index_shortening_mode_string_map,
+          *reinterpret_cast<const BlockBasedTableOptions::IndexShorteningMode*>(
               opt_address),
           value);
     case OptionType::kFlushBlockPolicyFactory: {
@@ -1639,6 +1650,16 @@ std::unordered_map<std::string, BlockBasedTableOptions::DataBlockIndexType>
          BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch},
         {"kDataBlockBinaryAndHash",
          BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinaryAndHash}};
+
+std::unordered_map<std::string, BlockBasedTableOptions::IndexShorteningMode>
+    OptionsHelper::block_base_table_index_shortening_mode_string_map = {
+      {"kNoShortening",
+       BlockBasedTableOptions::IndexShorteningMode::kNoShortening},
+      {"kShortenSeparators",
+       BlockBasedTableOptions::IndexShorteningMode::kShortenSeparators},
+      {"kShortenSeparatorsAndSuccessor",
+       BlockBasedTableOptions::IndexShorteningMode::
+           kShortenSeparatorsAndSuccessor}};
 
 std::unordered_map<std::string, EncodingType>
     OptionsHelper::encoding_type_string_map = {{"kPlain", kPlain},
