@@ -2416,15 +2416,19 @@ TEST_F(DBTest2, OptimizeForSmallDB) {
 
   // memtable size is costed to the block cache
   ASSERT_NE(0, cache->GetUsage());
-  ASSERT_EQ("v1", Get("foo"));
 
+  ASSERT_EQ("v1", Get("foo"));
   Flush();
 
   size_t prev_size = cache->GetUsage();
   // Remember block cache size, so that we can find that
   // it is filled after Get().
-  ASSERT_EQ("v1", Get("foo"));
+  // Use pinnable slice so that it can ping the block so that
+  // when we check the size it is not evicted.
+  PinnableSlice value;
+  ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "foo", &value));
   ASSERT_GT(cache->GetUsage(), prev_size);
+  value.Reset();
 }
 
 #endif  // ROCKSDB_LITE
