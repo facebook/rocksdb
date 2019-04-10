@@ -630,7 +630,12 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
     // the key is already locked, this func will update some stats on the
     // tracked key. It could also update the tracked_at_seq if it is lower than
     // the existing trackey seq.
-    TrackKey(cfh_id, key_str, tracked_at_seq, read_only, exclusive);
+    //
+    // If assume_tracked is true, we assume that TrackKey has been called
+    // previously.
+    if (!assume_tracked) {
+      TrackKey(cfh_id, key_str, tracked_at_seq, read_only, exclusive);
+    }
   }
 
   return s;
