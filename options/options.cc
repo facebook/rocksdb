@@ -477,15 +477,29 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForSmallDb() {
   max_bytes_for_level_base = 10 * 1048576;
   soft_pending_compaction_bytes_limit = 256 * 1048576;
   hard_pending_compaction_bytes_limit = 1073741824ul;
+
+  // 16MB block cache
+  std::shared_ptr<Cache> cache = NewLRUCache(16 << 20);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.cache_index_and_filter_blocks = true;
+  // Two level iterator to avoid LRU cache imbalance
+  table_options.index_type =
+      BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  table_factory.reset(new BlockBasedTableFactory(table_options));
+
+  // Cost memtable to block cache too.
+  std::shared_ptr<rocksdb::WriteBufferManager> write_buffer_manager =
+      std::make_shared<rocksdb::WriteBufferManager>(0, cache);
+  write_buffer_manager = write_buffer_manager;
+
   return this;
 }
 
 #ifndef ROCKSDB_LITE
 ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup(
     uint64_t block_cache_size_mb) {
-  prefix_extractor.reset(NewNoopTransform());
   BlockBasedTableOptions block_based_options;
-  block_based_options.index_type = BlockBasedTableOptions::kHashSearch;
   block_based_options.data_block_index_type =
       BlockBasedTableOptions::kDataBlockBinaryAndHash;
   block_based_options.data_block_hash_table_util_ratio = 0.75;
@@ -493,7 +507,7 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup(
   block_based_options.block_cache =
       NewLRUCache(static_cast<size_t>(block_cache_size_mb * 1024 * 1024));
   table_factory.reset(new BlockBasedTableFactory(block_based_options));
-  memtable_prefix_bloom_size_ratio = 0.02;
+  memtable_whole_key_filtering = 0.02;
   return this;
 }
 
