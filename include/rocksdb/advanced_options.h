@@ -652,7 +652,7 @@ struct AdvancedColumnFamilyOptions {
   // Default: 0 (disabled)
   //
   // Dynamically changeable through SetOptions() API
-  uint64_t periodic_compaction_time = 0;
+  uint64_t periodic_compaction_seconds = 0;
 
   // If this option is set then 1 in N blocks are compressed
   // using a fast (lz4) and slow (zstd) compression algorithm.

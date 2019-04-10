@@ -1705,9 +1705,9 @@ void VersionStorageInfo::ComputeCompactionScore(
   if (mutable_cf_options.ttl > 0) {
     ComputeExpiredTtlFiles(immutable_cf_options, mutable_cf_options.ttl);
   }
-  if (mutable_cf_options.periodic_compaction_time > 0) {
+  if (mutable_cf_options.periodic_compaction_seconds > 0) {
     ComputeFilesMarkedForPeriodicCompaction(
-        immutable_cf_options, mutable_cf_options.periodic_compaction_time);
+        immutable_cf_options, mutable_cf_options.periodic_compaction_seconds);
   }
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
@@ -1764,8 +1764,8 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
 
 void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
     const ImmutableCFOptions& ioptions,
-    const uint64_t periodic_compaction_time) {
-  assert(periodic_compaction_time > 0);
+    const uint64_t periodic_compaction_seconds) {
+  assert(periodic_compaction_seconds > 0);
 
   files_marked_for_periodic_compaction_.clear();
 
@@ -1783,7 +1783,7 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
         auto file_creation_time =
             f->fd.table_reader->GetTableProperties()->file_creation_time;
         if (file_creation_time > 0 &&
-            file_creation_time < (current_time - periodic_compaction_time)) {
+            file_creation_time < (current_time - periodic_compaction_seconds)) {
           files_marked_for_periodic_compaction_.emplace_back(level, f);
         }
       }

@@ -3523,9 +3523,9 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
   const int kValueSize = 100;
 
   Options options = CurrentOptions();
-  options.num_levels = 7;                           // default levels
-  options.periodic_compaction_time = 24 * 60 * 60;  // 1 day
-  options.max_open_files = -1;                      // needed for ttl compaction
+  options.num_levels = 7;            // default levels
+  options.periodic_compaction_seconds = 24 * 60 * 60;  // 1 day
+  options.max_open_files = -1;       // needed for ttl compaction
   env_->time_elapse_only_sleep_ = false;
   options.env = env_;
 
@@ -3536,8 +3536,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
         Compaction* compaction = reinterpret_cast<Compaction*>(arg);
-        if (compaction->compaction_reason() ==
-            CompactionReason::kPeriodicCompaction) {
+        if (compaction->compaction_reason() == CompactionReason::kPeriodicCompaction) {
           periodic_compactions++;
         }
       });
