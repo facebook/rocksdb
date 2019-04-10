@@ -507,7 +507,8 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup(
   block_based_options.block_cache =
       NewLRUCache(static_cast<size_t>(block_cache_size_mb * 1024 * 1024));
   table_factory.reset(new BlockBasedTableFactory(block_based_options));
-  memtable_whole_key_filtering = 0.02;
+  memtable_prefix_bloom_size_ratio = 0.02;
+  memtable_whole_key_filtering = true;
   return this;
 }
 
