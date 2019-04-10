@@ -3,6 +3,7 @@
 ### Unreleased
 ### New Features
 * When reading from option file/string/map, customized comparators and/or merge operators can be filled according to object registry.
+* Add some flavors of BytewiseComparator(): BytewiseComparatorWithoutSuccessorShortening() and BytewiseComparatorWithoutAnyShortening(). They can improve iterator seek performance in some situations, especially when direct IO is enabled and block cache is disabled, but may increase sst index size. The cost and benefit is very dependent on the use case and requires some understanding of rocksdb internals. See comparator.h for more details.
 ### Public API Change
 ### Bug Fixes
 * Fix a bug in 2PC where a sequence of txn prepare, memtable flush, and crash could result in losing the prepared transaction.

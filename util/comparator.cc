@@ -7,12 +7,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/comparator.h"
+#include <stdint.h>
 #include <algorithm>
 #include <memory>
-#include <stdint.h>
-#include "rocksdb/comparator.h"
-#include "rocksdb/slice.h"
 #include "port/port.h"
+#include "rocksdb/slice.h"
 #include "util/logging.h"
 
 namespace rocksdb {
@@ -20,7 +20,9 @@ namespace rocksdb {
 namespace {
 class BytewiseComparatorImpl : public Comparator {
  public:
-  BytewiseComparatorImpl() { }
+  BytewiseComparatorImpl(bool shorten_successor, bool shorten_separator)
+      : shorten_successor_(shorten_successor),
+        shorten_separator_(shorten_separator) {}
 
   const char* Name() const override { return "leveldb.BytewiseComparator"; }
 
@@ -32,6 +34,9 @@ class BytewiseComparatorImpl : public Comparator {
 
   void FindShortestSeparator(std::string* start,
                              const Slice& limit) const override {
+    if (!shorten_separator_) {
+      return;
+    }
     // Find length of common prefix
     size_t min_length = std::min(start->size(), limit.size());
     size_t diff_index = 0;
@@ -82,13 +87,16 @@ class BytewiseComparatorImpl : public Comparator {
   }
 
   void FindShortSuccessor(std::string* key) const override {
+    if (!shorten_successor_) {
+      return;
+    }
     // Find first character that can be incremented
     size_t n = key->size();
     for (size_t i = 0; i < n; i++) {
       const uint8_t byte = (*key)[i];
       if (byte != static_cast<uint8_t>(0xff)) {
         (*key)[i] = byte + 1;
-        key->resize(i+1);
+        key->resize(i + 1);
         return;
       }
     }
@@ -124,11 +132,14 @@ class BytewiseComparatorImpl : public Comparator {
   bool CanKeysWithDifferentByteContentsBeEqual() const override {
     return false;
   }
+
+  const bool shorten_successor_;
+  const bool shorten_separator_;
 };
 
 class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
  public:
-  ReverseBytewiseComparatorImpl() { }
+  ReverseBytewiseComparatorImpl() : BytewiseComparatorImpl(true, true) {}
 
   const char* Name() const override {
     return "rocksdb.ReverseBytewiseComparator";
@@ -193,16 +204,29 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
     return false;
   }
 };
-}// namespace
+}  // namespace
 
 const Comparator* BytewiseComparator() {
-  static BytewiseComparatorImpl bytewise;
+  static BytewiseComparatorImpl bytewise{/* shorten_successor */ true,
+                                         /* shorten_separator */ true};
   return &bytewise;
 }
 
 const Comparator* ReverseBytewiseComparator() {
   static ReverseBytewiseComparatorImpl rbytewise;
   return &rbytewise;
+}
+
+const Comparator* BytewiseComparatorWithoutSuccessorShortening() {
+  static BytewiseComparatorImpl bytewise{/* shorten_successor */ false,
+                                         /* shorten_separator */ true};
+  return &bytewise;
+}
+
+const Comparator* BytewiseComparatorWithoutAnyShortening() {
+  static BytewiseComparatorImpl bytewise{/* shorten_successor */ false,
+                                         /* shorten_separator */ false};
+  return &bytewise;
 }
 
 }  // namespace rocksdb

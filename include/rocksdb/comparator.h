@@ -89,4 +89,41 @@ extern const Comparator* BytewiseComparator();
 // ordering.
 extern const Comparator* ReverseBytewiseComparator();
 
+// The below comparators are compatible with BytewiseComparator(): they have
+// the Name() and do comparison exactly the same way. They differ only
+// in FindShortestSeparator() and FindShortSuccessor(), which have an effect
+// on sst file indexes. These comparators can improve iterator seek performance
+// in some situations, but may increase index size.
+
+// Same as BytewiseComparator, except that FindShortSuccessor() does nothing.
+// This can improve iterator seek performance when seeking to a key higher
+// than the highest key in some of the sst files.
+// May make sst index slightly bigger.
+//
+// The sst index contains an upper bound of the highest key in the file.
+// This upper bound is obtained using FindShortSuccessor(). If it's
+// overestimated by a lot, an iterator seek above the highest key in the file
+// may unnecessarily read the last data block. This is particularly noticeable
+// when block cache is disabled (ReadOptions::fill_cache = false) and direct IO
+// is enabled (use_direct_reads = true).
+extern const Comparator* BytewiseComparatorWithoutSuccessorShortening();
+
+// Same as BytewiseComparator, except that
+// FindShortestSeparator() and FindShortSuccessor() do nothing.
+// This can improve iterator seek performance in some situations.
+// Likely to make sst index significantly bigger.
+//
+// The sst index contains a key separating each pair of consecutive blocks.
+// Let A be the highest key in one block, B the lowest key in the next block,
+// and I the index entry separating these two blocks:
+// [ ... A] I [B ...]
+// I is allowed to be anywhere in [A, B) and is determined using
+// FindShortestSeparator(). The default comparator picks the shortest key in
+// that range. This comparator, in contrast, picks the leftmost key, i.e. A.
+// This can prevent an unnecessary data block read when seeking to a key between
+// two blocks, more precisely to a key in (A, I]. Such seek will unnecessarily
+// read the first block, then immediately fall through to the second block.
+// If I=A, this can't happen, and the seek will read only the second block.
+extern const Comparator* BytewiseComparatorWithoutAnyShortening();
+
 }  // namespace rocksdb
