@@ -112,6 +112,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   if (immutable_db_options_.unordered_write) {
+    /*
     WriteContext write_context;
     while (!flush_scheduler_.Empty()) {
       // Hacky way to work around of many threads starving for write lock while
@@ -129,6 +130,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         return status;
       }
     }
+    */
     return UnorderedWriteMemtable(write_options, my_batch, callback, log_used, log_ref,
                                   seq_used, batch_cnt, pre_release_callback);
   }
@@ -563,12 +565,23 @@ Status DBImpl::UnorderedWriteMemtable(
     uint64_t* seq_used, size_t batch_cnt,
     PreReleaseCallback* pre_release_callback) {
   assert(immutable_db_options_.allow_concurrent_memtable_write);
-  assert(!my_batch->HasMerge());
+  //assert(!my_batch->HasMerge());
   const bool kDisableMemtable = true;
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
                         !kDisableMemtable, batch_cnt, pre_release_callback);
   bool need_log_sync = write_options.sync;
+  //mutex_.Lock();
+  WriteContext write_context;
+  //PreprocessWrite(write_options, &need_log_sync, &write_context);
+  //mutex_.Unlock();
+  if (UNLIKELY(!flush_scheduler_.Empty())) {
+      rwlock_.WriteLock();
+  mutex_.Lock();
+    ScheduleFlushes(&write_context);
+  mutex_.Unlock();
+      rwlock_.WriteUnlock();
+  }
   Status status;
   size_t total_count = 0;
   size_t valid_batches = 0;

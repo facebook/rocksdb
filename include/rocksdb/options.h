@@ -893,7 +893,7 @@ struct DBOptions {
   // Default: false
   bool enable_pipelined_write = false;
 
-  bool unordered_write = false;
+  bool unordered_write = true;
 
   // If true, allow multi-writers to update mem tables in parallel.
   // Only some memtable_factory-s support concurrent writes; currently it
@@ -1021,12 +1021,12 @@ struct DBOptions {
   // allows the memtable writes not to lag behind other writes. It can be used
   // to optimize MySQL 2PC in which only the commits, which are serial, write to
   // memtable.
-  bool two_write_queues = false;
+  bool two_write_queues = true;
 
   // If true WAL is not flushed automatically after each write. Instead it
   // relies on manual invocation of FlushWAL to write the WAL buffer to its
   // file.
-  bool manual_wal_flush = false;
+  bool manual_wal_flush = true;
 
   // If true, RocksDB supports flushing multiple column families and committing
   // their results atomically to MANIFEST. Note that it is not

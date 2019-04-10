@@ -1471,7 +1471,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
   Status MergeCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value) override {
-    assert(!concurrent_memtable_writes_);
+    //assert(!concurrent_memtable_writes_);
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key, value);
@@ -1562,7 +1562,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
     if (!perform_merge) {
       // Add merge operator to memtable
-      bool mem_res = mem->Add(sequence_, kTypeMerge, key, value);
+      bool mem_res = mem->Add(sequence_, kTypeMerge, key, value, concurrent_memtable_writes_, get_post_process_info(mem));
       if (UNLIKELY(!mem_res)) {
         assert(seq_per_batch_);
         ret_status = Status::TryAgain("key+seq exists");
