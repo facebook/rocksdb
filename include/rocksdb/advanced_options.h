@@ -644,7 +644,8 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint64_t ttl = 0;
 
-  // Files older than this value will be picked up for compaction.
+  // Files older than this value will be picked up for compaction, and
+  // re-written to the same level as they were before.
   // Only supported in Level compaction.
   // Pre-req: max_open_file == -1.
   // unit: seconds. Ex: 7 days = 7 * 24 * 60 * 60

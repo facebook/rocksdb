@@ -3,7 +3,7 @@
 ### Unreleased
 ### New Features
 * When reading from option file/string/map, customized comparators and/or merge operators can be filled according to object registry.
-* Bottommost level files are also eligible for Level based TTL compactions by setting `bottommost_level_ttl` option.
+* Introduce Periodic Compaction for Level style compaction. Files are re-compacted periodically and put in the same level.
 
 ### Public API Change
 ### Bug Fixes
