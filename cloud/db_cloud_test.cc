@@ -14,6 +14,7 @@
 #include "cloud/manifest_reader.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "rocksdb/table.h"
 #include "util/filename.h"
 #include "util/logging.h"
 #include "util/string_util.h"
@@ -725,6 +726,30 @@ TEST_F(CloudTest, Encryption) {
   std::string value;
   ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
   ASSERT_EQ(value, "World");
+  CloseDB();
+}
+
+TEST_F(CloudTest, DirectReads) {
+  options_.use_direct_reads = true;
+  options_.use_direct_io_for_flush_and_compaction = true;
+  BlockBasedTableOptions bbto;
+  bbto.no_block_cache = true;
+  bbto.block_size = 1024;
+  options_.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  OpenDB();
+
+  for (int i = 0; i < 50; ++i) {
+    ASSERT_OK(db_->Put(WriteOptions(), "Hello" + std::to_string(i), "World"));
+  }
+  // create a file
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  std::string value;
+  for (int i = 0; i < 50; ++i) {
+    ASSERT_OK(db_->Get(ReadOptions(), "Hello" + std::to_string(i), &value));
+    ASSERT_EQ(value, "World");
+  }
   CloseDB();
 }
 

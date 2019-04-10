@@ -128,6 +128,34 @@ class S3WritableFile : public WritableFile {
     return local_file_->Append(data);
   }
 
+  Status PositionedAppend(const Slice& data, uint64_t offset) override {
+    return local_file_->PositionedAppend(data, offset);
+  }
+  Status Truncate(uint64_t size) override {
+    return local_file_->Truncate(size);
+  }
+  Status Fsync() override { return local_file_->Fsync(); }
+  bool IsSyncThreadSafe() const override {
+    return local_file_->IsSyncThreadSafe();
+  }
+  bool use_direct_io() const override { return local_file_->use_direct_io(); }
+  size_t GetRequiredBufferAlignment() const override {
+    return local_file_->GetRequiredBufferAlignment();
+  }
+  uint64_t GetFileSize() override { return local_file_->GetFileSize(); }
+  size_t GetUniqueId(char* id, size_t max_size) const override {
+    return local_file_->GetUniqueId(id, max_size);
+  }
+  Status InvalidateCache(size_t offset, size_t length) override {
+    return local_file_->InvalidateCache(offset, length);
+  }
+  Status RangeSync(uint64_t offset, uint64_t nbytes) override {
+    return local_file_->RangeSync(offset, nbytes);
+  }
+  Status Allocate(uint64_t offset, uint64_t len) override {
+    return local_file_->Allocate(offset, len);
+  }
+
   virtual Status Flush() {
     assert(status_.ok());
     return local_file_->Flush();
