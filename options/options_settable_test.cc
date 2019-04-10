@@ -452,7 +452,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "disable_auto_compactions=false;"
       "report_bg_io_stats=true;"
       "ttl=60;"
-      "periodic_compaction=3600;"
+      "periodic_compaction_time=3600;"
       "sample_for_compression=0;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;};",

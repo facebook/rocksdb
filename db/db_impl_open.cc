@@ -189,7 +189,7 @@ static Status ValidateOptions(
       }
     }
 
-    if (cfd.options.periodic_compaction > 0) {
+    if (cfd.options.periodic_compaction_time > 0) {
       if (db_options.max_open_files != -1) {
         return Status::NotSupported(
             "Periodic Compaction is only supported when files are always "

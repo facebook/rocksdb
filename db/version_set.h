@@ -142,7 +142,7 @@ class VersionStorageInfo {
   // This computes files_marked_for_periodic_compaction_ and is called by
   // ComputeCompactionScore()
   void ComputeFilesMarkedForPeriodicCompaction(const ImmutableCFOptions& ioptions,
-                            const uint64_t periodic_compaction);
+                            const uint64_t periodic_compaction_time);
 
   // This computes bottommost_files_marked_for_compaction_ and is called by
   // ComputeCompactionScore() or UpdateOldestSnapshot().

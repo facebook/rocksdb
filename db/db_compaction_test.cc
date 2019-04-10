@@ -3524,7 +3524,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
 
   Options options = CurrentOptions();
   options.num_levels = 7;            // default levels
-  options.periodic_compaction = 24 * 60 * 60;   // 1 day
+  options.periodic_compaction_time = 24 * 60 * 60;   // 1 day
   options.max_open_files = -1;       // needed for ttl compaction
   env_->time_elapse_only_sleep_ = false;
   options.env = env_;

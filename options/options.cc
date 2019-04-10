@@ -88,7 +88,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       force_consistency_checks(options.force_consistency_checks),
       report_bg_io_stats(options.report_bg_io_stats),
       ttl(options.ttl),
-      periodic_compaction(options.periodic_compaction),
+      periodic_compaction_time(options.periodic_compaction_time),
       sample_for_compression(options.sample_for_compression) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
@@ -353,8 +353,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      report_bg_io_stats);
     ROCKS_LOG_HEADER(log, "                              Options.ttl: %" PRIu64,
                      ttl);
-    ROCKS_LOG_HEADER(log, "              Options.periodic_compaction: %" PRIu64,
-                     periodic_compaction);
+    ROCKS_LOG_HEADER(log, "         Options.periodic_compaction_time: %" PRIu64,
+                     periodic_compaction_time);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {
