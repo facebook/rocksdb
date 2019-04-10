@@ -103,8 +103,8 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
                             table_properties.num_entries)
               << "num_data_blocks" << table_properties.num_data_blocks
               << "num_entries" << table_properties.num_entries
-              << "deleted_keys" << table_properties.num_deletions
-              << "merge_operands" << table_properties.num_merge_operands
+              << "num_deletions" << table_properties.num_deletions
+              << "num_merge_operands" << table_properties.num_merge_operands
               << "num_range_deletions" << table_properties.num_merge_operands
               << "format_version" << table_properties.format_version
               << "fixed_key_len" << table_properties.fixed_key_len
@@ -116,6 +116,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << "prefix_extractor_name" << table_properties.prefix_extractor_name
               << "property_collectors" << table_properties.property_collectors_names
               << "compression" << table_properties.compression_name
+              << "compression_options" << table_properties.compression_options
               << "creation_time" << table_properties.creation_time
               << "oldest_key_time" << table_properties.oldest_key_time;
 
