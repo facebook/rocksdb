@@ -6,9 +6,9 @@
 #ifndef ROCKSDB_LITE
 
 #include <algorithm>
+#include <cassert>
 #include <cctype>
 #include <iostream>
-#include <cassert>
 
 #include "rocksdb/env_encryption.h"
 #include "util/aligned_buffer.h"
@@ -897,7 +897,8 @@ Status CTREncryptionProvider::CreateCipherStream(
   // very large chunk of the file (and very likely read over the bounds)
   assert(prefix.size() >= 2 * blockSize);
   if (prefix.size() < 2 * blockSize) {
-    return Status::Corruption("Unable to read from file " + fname + ": read attempt would read beyond file bounds");
+    return Status::Corruption("Unable to read from file " + fname +
+                              ": read attempt would read beyond file bounds");
   }
 
   // Decrypt the encrypted part of the prefix, starting from block 2 (block 0, 1 with initial counter & IV are unencrypted)
