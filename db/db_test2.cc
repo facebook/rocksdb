@@ -2396,6 +2396,41 @@ TEST_F(DBTest2, OptimizeForPointLookup) {
   ASSERT_EQ("v1", Get("foo"));
 }
 
+TEST_F(DBTest2, OptimizeForSmallDB) {
+  Options options = CurrentOptions();
+  Close();
+  options.OptimizeForSmallDb();
+
+  // Find the cache object
+  ASSERT_EQ(std::string(BlockBasedTableFactory::kName),
+            std::string(options.table_factory->Name()));
+  BlockBasedTableOptions* table_options =
+      reinterpret_cast<BlockBasedTableOptions*>(
+          options.table_factory->GetOptions());
+  ASSERT_TRUE(table_options != nullptr);
+  std::shared_ptr<Cache> cache = table_options->block_cache;
+
+  ASSERT_EQ(0, cache->GetUsage());
+  ASSERT_OK(DB::Open(options, dbname_, &db_));
+  ASSERT_OK(Put("foo", "v1"));
+
+  // memtable size is costed to the block cache
+  ASSERT_NE(0, cache->GetUsage());
+
+  ASSERT_EQ("v1", Get("foo"));
+  Flush();
+
+  size_t prev_size = cache->GetUsage();
+  // Remember block cache size, so that we can find that
+  // it is filled after Get().
+  // Use pinnable slice so that it can ping the block so that
+  // when we check the size it is not evicted.
+  PinnableSlice value;
+  ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "foo", &value));
+  ASSERT_GT(cache->GetUsage(), prev_size);
+  value.Reset();
+}
+
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest2, GetRaceFlush1) {
