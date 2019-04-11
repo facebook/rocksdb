@@ -363,8 +363,8 @@ class FilePickerMultiGet {
         returned_file_level_(static_cast<unsigned int>(-1)),
         hit_file_level_(static_cast<unsigned int>(-1)),
         range_(range),
-        mget_iter_(range->begin()),
-        prev_mget_iter_end_(range->begin()),
+        batch_iter_(range->begin()),
+        batch_iter_prev_(range->begin()),
         maybe_repeat_key_(false),
         current_level_range_(*range, range->begin(), range->end()),
         current_file_range_(*range, range->begin(), range->end()),
@@ -381,7 +381,7 @@ class FilePickerMultiGet {
     (void)files;
 #endif
     for (auto iter = range_->begin(); iter != range_->end(); ++iter) {
-      file_picker_ctx_[iter.index()] =
+      fp_ctx_array_[iter.index()] =
           FilePickerContext(0, FileIndexer::kLevelMaxIndex);
     }
 
@@ -406,10 +406,123 @@ class FilePickerMultiGet {
 
   int GetCurrentLevel() const { return curr_level_; }
 
+  // Iterates through files in the current level until it finds a file that
+  // contains atleast one key from the MultiGet batch
+  bool GetNextFileInLevelWithKeys(MultiGetRange* next_file_range,
+                                  size_t* file_index, FdWithKeyRange** fd,
+                                  bool* is_last_key_in_file) {
+    size_t curr_file_index = *file_index;
+    FdWithKeyRange* f = nullptr;
+    bool file_hit = false;
+    int cmp_largest = -1;
+    if (curr_file_index >= curr_file_level_->num_files) {
+      return false;
+    }
+    // Loops over keys in the MultiGet batch until it finds a file with
+    // atleast one of the keys. Then it keeps moving forward until the
+    // last key in the batch that falls in that file
+    while (batch_iter_ != current_level_range_.end() &&
+           (fp_ctx_array_[batch_iter_.index()].curr_index_in_curr_level ==
+                curr_file_index ||
+            !file_hit)) {
+      struct FilePickerContext& fp_ctx = fp_ctx_array_[batch_iter_.index()];
+      f = &curr_file_level_->files[fp_ctx.curr_index_in_curr_level];
+      Slice& user_key = batch_iter_->ukey;
+
+      // Do key range filtering of files or/and fractional cascading if:
+      // (1) not all the files are in level 0, or
+      // (2) there are more than 3 current level files
+      // If there are only 3 or less current level files in the system, we
+      // skip the key range filtering. In this case, more likely, the system
+      // is highly tuned to minimize number of tables queried by each query,
+      // so it is unlikely that key range filtering is more efficient than
+      // querying the files.
+      if (num_levels_ > 1 || curr_file_level_->num_files > 3) {
+        // Check if key is within a file's range. If search left bound and
+        // right bound point to the same find, we are sure key falls in
+        // range.
+        assert(curr_level_ == 0 ||
+               fp_ctx.curr_index_in_curr_level ==
+                   fp_ctx.start_index_in_curr_level ||
+               user_comparator_->Compare(user_key,
+                                         ExtractUserKey(f->smallest_key)) <= 0);
+
+        int cmp_smallest = user_comparator_->Compare(
+            user_key, ExtractUserKey(f->smallest_key));
+        if (cmp_smallest >= 0) {
+          cmp_largest = user_comparator_->Compare(
+              user_key, ExtractUserKey(f->largest_key));
+        } else {
+          cmp_largest = -1;
+        }
+
+        // Setup file search bound for the next level based on the
+        // comparison results
+        if (curr_level_ > 0) {
+          file_indexer_->GetNextLevelIndex(
+              curr_level_, fp_ctx.curr_index_in_curr_level, cmp_smallest,
+              cmp_largest, &fp_ctx.search_left_bound,
+              &fp_ctx.search_right_bound);
+        }
+        // Key falls out of current file's range
+        if (cmp_smallest < 0 || cmp_largest > 0) {
+          next_file_range->SkipKey(batch_iter_);
+        } else {
+          file_hit = true;
+        }
+      } else {
+        file_hit = true;
+      }
+#ifndef NDEBUG
+      // Sanity check to make sure that the files are correctly sorted
+      if (f != prev_file_) {
+        if (prev_file_) {
+          if (curr_level_ != 0) {
+            int comp_sign = internal_comparator_->Compare(
+                prev_file_->largest_key, f->smallest_key);
+            assert(comp_sign < 0);
+          } else if (fp_ctx.curr_index_in_curr_level > 0) {
+            // level == 0, the current file cannot be newer than the previous
+            // one. Use compressed data structure, has no attribute seqNo
+            assert(!NewestFirstBySeqNo(
+                files_[0][fp_ctx.curr_index_in_curr_level],
+                files_[0][fp_ctx.curr_index_in_curr_level - 1]));
+          }
+        }
+        prev_file_ = f;
+      }
+#endif
+      if (cmp_largest == 0) {
+        // cmp_largest is 0, which means the next key will not be in this
+        // file, so stop looking further. Also don't increment megt_iter_
+        // as we may have to look for this key in the next file if we don't
+        // find it in this one
+        break;
+      } else {
+        if (curr_level_ == 0) {
+          // We need to look through all files in level 0
+          ++fp_ctx.curr_index_in_curr_level;
+        }
+        ++batch_iter_;
+      }
+      if (!file_hit) {
+        curr_file_index =
+            (batch_iter_ != current_level_range_.end())
+                ? fp_ctx_array_[batch_iter_.index()].curr_index_in_curr_level
+                : curr_file_level_->num_files;
+      }
+    }
+
+    *fd = f;
+    *file_index = curr_file_index;
+    *is_last_key_in_file = cmp_largest == 0;
+    return file_hit;
+  }
+
   FdWithKeyRange* GetNextFile() {
     while (!search_ended_) {
       // Start searching next level.
-      if (mget_iter_ == current_level_range_.end()) {
+      if (batch_iter_ == current_level_range_.end()) {
         search_ended_ = !PrepareNextLevel();
         continue;
       } else {
@@ -417,145 +530,51 @@ class FilePickerMultiGet {
           maybe_repeat_key_ = false;
           // Check if we found the final value for the last key in the
           // previous lookup range. If we did, then there's no need to look
-          // any further for that key, so advance mget_iter_. Else, keep
-          // mget_iter_ positioned on that key so we look it up again in
+          // any further for that key, so advance batch_iter_. Else, keep
+          // batch_iter_ positioned on that key so we look it up again in
           // the next file
-          if (current_level_range_.CheckKeyDone(mget_iter_)) {
-            ++mget_iter_;
+          if (current_level_range_.CheckKeyDone(batch_iter_)) {
+            ++batch_iter_;
           }
         }
-        // prev_mget_iter_end_ will become the start key for the next file
+        // batch_iter_prev_ will become the start key for the next file
         // lookup
-        prev_mget_iter_end_ = mget_iter_;
+        batch_iter_prev_ = batch_iter_;
       }
 
-      FdWithKeyRange* f = nullptr;
-      size_t curr_file_index =
-          (mget_iter_ != current_level_range_.end())
-              ? file_picker_ctx_[mget_iter_.index()].curr_index_in_curr_level
-              : curr_file_level_->num_files;
-      bool file_hit = false;
-      int cmp_largest = -1;
-      MultiGetRange next_file_range(current_level_range_, prev_mget_iter_end_,
+      MultiGetRange next_file_range(current_level_range_, batch_iter_prev_,
                                     current_level_range_.end());
-      if (curr_file_index >= curr_file_level_->num_files) {
+      size_t curr_file_index =
+          (batch_iter_ != current_level_range_.end())
+              ? fp_ctx_array_[batch_iter_.index()].curr_index_in_curr_level
+              : curr_file_level_->num_files;
+      FdWithKeyRange* f;
+      bool is_last_key_in_file;
+      if (!GetNextFileInLevelWithKeys(&next_file_range, &curr_file_index, &f,
+                                      &is_last_key_in_file)) {
         search_ended_ = !PrepareNextLevel();
-        continue;
-      }
-      hit_file_level_ = curr_level_;
-      is_hit_file_last_in_level_ =
-          file_picker_ctx_[mget_iter_.index()].curr_index_in_curr_level ==
-          curr_file_level_->num_files - 1;
-      // Loops over all files in current level.
-      while (mget_iter_ != current_level_range_.end() &&
-             (file_picker_ctx_[mget_iter_.index()].curr_index_in_curr_level ==
-                  curr_file_index ||
-              !file_hit)) {
-        struct FilePickerContext& fp_ctx = file_picker_ctx_[mget_iter_.index()];
-        f = &curr_file_level_->files[fp_ctx.curr_index_in_curr_level];
-        Slice& user_key = mget_iter_->ukey;
-
-        // Do key range filtering of files or/and fractional cascading if:
-        // (1) not all the files are in level 0, or
-        // (2) there are more than 3 current level files
-        // If there are only 3 or less current level files in the system, we
-        // skip the key range filtering. In this case, more likely, the system
-        // is highly tuned to minimize number of tables queried by each query,
-        // so it is unlikely that key range filtering is more efficient than
-        // querying the files.
-        if (num_levels_ > 1 || curr_file_level_->num_files > 3) {
-          // Check if key is within a file's range. If search left bound and
-          // right bound point to the same find, we are sure key falls in
-          // range.
-          assert(curr_level_ == 0 ||
-                 fp_ctx.curr_index_in_curr_level ==
-                     fp_ctx.start_index_in_curr_level ||
-                 user_comparator_->Compare(
-                     user_key, ExtractUserKey(f->smallest_key)) <= 0);
-
-          int cmp_smallest = user_comparator_->Compare(
-              user_key, ExtractUserKey(f->smallest_key));
-          if (cmp_smallest >= 0) {
-            cmp_largest = user_comparator_->Compare(
-                user_key, ExtractUserKey(f->largest_key));
-          } else {
-            cmp_largest = -1;
-          }
-
-          // Setup file search bound for the next level based on the
-          // comparison results
-          if (curr_level_ > 0) {
-            file_indexer_->GetNextLevelIndex(
-                curr_level_, fp_ctx.curr_index_in_curr_level, cmp_smallest,
-                cmp_largest, &fp_ctx.search_left_bound,
-                &fp_ctx.search_right_bound);
-          }
-          // Key falls out of current file's range
-          if (cmp_smallest < 0 || cmp_largest > 0) {
-            next_file_range.SkipKey(mget_iter_);
-          } else {
-            file_hit = true;
-          }
-        } else {
-          file_hit = true;
-        }
-#ifndef NDEBUG
-        // Sanity check to make sure that the files are correctly sorted
-        if (f != prev_file_) {
-          if (prev_file_) {
-            if (curr_level_ != 0) {
-              int comp_sign = internal_comparator_->Compare(
-                  prev_file_->largest_key, f->smallest_key);
-              assert(comp_sign < 0);
-            } else if (fp_ctx.curr_index_in_curr_level > 0) {
-              // level == 0, the current file cannot be newer than the previous
-              // one. Use compressed data structure, has no attribute seqNo
-              assert(!NewestFirstBySeqNo(
-                  files_[0][fp_ctx.curr_index_in_curr_level],
-                  files_[0][fp_ctx.curr_index_in_curr_level - 1]));
-            }
-          }
-          prev_file_ = f;
-        }
-#endif
-        if (cmp_largest == 0) {
-          // cmp_largest is 0, which means the next key will not be in this
-          // file, so stop looking further. Also don't increment megt_iter_
-          // as we may have to look for this key in the next file if we don't
-          // find it in this one
-          break;
-        } else {
-          if (curr_level_ == 0) {
-            // We need to look through all files in level 0
-            ++fp_ctx.curr_index_in_curr_level;
-          }
-          ++mget_iter_;
-        }
-        if (!file_hit) {
-          curr_file_index = (mget_iter_ != current_level_range_.end())
-                                ? file_picker_ctx_[mget_iter_.index()]
-                                      .curr_index_in_curr_level
-                                : curr_file_level_->num_files;
-        }
-      }
-      if (file_hit) {
-        MultiGetRange::Iterator upper_key = mget_iter_;
-        if (cmp_largest == 0) {
-          // Since cmp_largest is 0, mget_iter_ still points to the last key
+      } else {
+        MultiGetRange::Iterator upper_key = batch_iter_;
+        if (is_last_key_in_file) {
+          // Since cmp_largest is 0, batch_iter_ still points to the last key
           // that falls in this file, instead of the next one. Increment
           // upper_key so we can set the range properly for SST MultiGet
           ++upper_key;
-          ++(file_picker_ctx_[mget_iter_.index()].curr_index_in_curr_level);
+          ++(fp_ctx_array_[batch_iter_.index()].curr_index_in_curr_level);
           maybe_repeat_key_ = true;
         }
         // Set the range for this file
         current_file_range_ =
-            MultiGetRange(next_file_range, prev_mget_iter_end_, upper_key);
+            MultiGetRange(next_file_range, batch_iter_prev_, upper_key);
         returned_file_level_ = curr_level_;
+        hit_file_level_ = curr_level_;
+        is_hit_file_last_in_level_ =
+            curr_file_index == curr_file_level_->num_files - 1;
         return f;
       }
     }
-    // Search ended.
+
+    // Search ended
     return nullptr;
   }
 
@@ -586,11 +605,17 @@ class FilePickerMultiGet {
 
     FilePickerContext() = default;
   };
-  std::array<FilePickerContext, MultiGetContext::MAX_BATCH_SIZE>
-      file_picker_ctx_;
+  std::array<FilePickerContext, MultiGetContext::MAX_BATCH_SIZE> fp_ctx_array_;
   MultiGetRange* range_;
-  MultiGetRange::Iterator mget_iter_;
-  MultiGetRange::Iterator prev_mget_iter_end_;
+  // Iterator to iterate through the keys in a MultiGet batch, that gets reset
+  // at the beginning of each level. Each call to GetNextFile() will position
+  // batch_iter_ at or right after the last key that was found in the returned
+  // SST file
+  MultiGetRange::Iterator batch_iter_;
+  // An iterator that records the previous position of batch_iter_, i.e last
+  // key found in the previous SST file, in order to serve as the start of
+  // the batch key range for the next SST file
+  MultiGetRange::Iterator batch_iter_prev_;
   bool maybe_repeat_key_;
   MultiGetRange current_level_range_;
   MultiGetRange current_file_range_;
@@ -613,13 +638,13 @@ class FilePickerMultiGet {
   bool PrepareNextLevel() {
     if (curr_level_ == 0) {
       MultiGetRange::Iterator mget_iter = current_level_range_.begin();
-      if (file_picker_ctx_[mget_iter.index()].curr_index_in_curr_level <
+      if (fp_ctx_array_[mget_iter.index()].curr_index_in_curr_level <
           curr_file_level_->num_files) {
 #ifndef NDEBUG
         prev_file_ = nullptr;
 #endif
-        prev_mget_iter_end_ = current_level_range_.begin();
-        mget_iter_ = current_level_range_.begin();
+        batch_iter_prev_ = current_level_range_.begin();
+        batch_iter_ = current_level_range_.begin();
         return true;
       }
     }
@@ -636,8 +661,7 @@ class FilePickerMultiGet {
 
         for (auto mget_iter = current_level_range_.begin();
              mget_iter != current_level_range_.end(); ++mget_iter) {
-          struct FilePickerContext& fp_ctx =
-              file_picker_ctx_[mget_iter.index()];
+          struct FilePickerContext& fp_ctx = fp_ctx_array_[mget_iter.index()];
 
           assert(fp_ctx.search_left_bound == 0);
           assert(fp_ctx.search_right_bound == -1 ||
@@ -647,8 +671,9 @@ class FilePickerMultiGet {
           fp_ctx.search_left_bound = 0;
           fp_ctx.search_right_bound = FileIndexer::kLevelMaxIndex;
         }
-        curr_level_++;
-        continue;
+        // Skip all subsequent empty levels
+        while ((*level_files_brief_)[++curr_level_].num_files == 0) {
+        }
       }
 
       // Some files may overlap each other. We find
@@ -661,7 +686,7 @@ class FilePickerMultiGet {
           MultiGetRange(*range_, range_->begin(), range_->end());
       for (auto mget_iter = current_level_range_.begin();
            mget_iter != current_level_range_.end(); ++mget_iter) {
-        struct FilePickerContext& fp_ctx = file_picker_ctx_[mget_iter.index()];
+        struct FilePickerContext& fp_ctx = fp_ctx_array_[mget_iter.index()];
         if (curr_level_ == 0) {
           // On Level-0, we read through all files to check for overlap.
           start_index = 0;
@@ -713,8 +738,8 @@ class FilePickerMultiGet {
 #ifndef NDEBUG
         prev_file_ = nullptr;
 #endif
-        prev_mget_iter_end_ = current_level_range_.begin();
-        mget_iter_ = current_level_range_.begin();
+        batch_iter_prev_ = current_level_range_.begin();
+        batch_iter_ = current_level_range_.begin();
         return true;
       }
       curr_level_++;
