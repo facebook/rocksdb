@@ -19,6 +19,7 @@
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
+#include "table/multiget_context.h"
 #include "table/table_builder.h"
 #include "table/table_reader.h"
 #include "util/coding.h"
@@ -411,6 +412,66 @@ Status TableCache::Get(const ReadOptions& options,
                                 &DeleteEntry<std::string>);
   }
 #endif  // ROCKSDB_LITE
+
+  if (handle != nullptr) {
+    ReleaseHandle(handle);
+  }
+  return s;
+}
+
+// Batched version of TableCache::MultiGet.
+// TODO: Add support for row cache. As of now, this ignores the row cache
+// and directly looks up in the table files
+Status TableCache::MultiGet(const ReadOptions& options,
+                            const InternalKeyComparator& internal_comparator,
+                            const FileMetaData& file_meta,
+                            const MultiGetContext::Range* mget_range,
+                            const SliceTransform* prefix_extractor,
+                            HistogramImpl* file_read_hist, bool skip_filters,
+                            int level) {
+  auto& fd = file_meta.fd;
+  Status s;
+  TableReader* t = fd.table_reader;
+  Cache::Handle* handle = nullptr;
+  if (s.ok()) {
+    if (t == nullptr) {
+      s = FindTable(
+          env_options_, internal_comparator, fd, &handle, prefix_extractor,
+          options.read_tier == kBlockCacheTier /* no_io */,
+          true /* record_read_stats */, file_read_hist, skip_filters, level);
+      if (s.ok()) {
+        t = GetTableReaderFromHandle(handle);
+        assert(t);
+      }
+    }
+    if (s.ok() && !options.ignore_range_deletions) {
+      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+          t->NewRangeTombstoneIterator(options));
+      if (range_del_iter != nullptr) {
+        for (auto iter = mget_range->begin(); iter != mget_range->end();
+             ++iter) {
+          const Slice& k = iter->ikey;
+          SequenceNumber* max_covering_tombstone_seq =
+              iter->get_context->max_covering_tombstone_seq();
+          *max_covering_tombstone_seq = std::max(
+              *max_covering_tombstone_seq,
+              range_del_iter->MaxCoveringTombstoneSeqnum(ExtractUserKey(k)));
+        }
+      }
+    }
+    if (s.ok()) {
+      t->MultiGet(options, mget_range, prefix_extractor, skip_filters);
+    } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {
+      for (auto iter = mget_range->begin(); iter != mget_range->end(); ++iter) {
+        Status* status = iter->s;
+        if (status->IsIncomplete()) {
+          // Couldn't find Table in cache but treat as kFound if no_io set
+          iter->get_context->MarkKeyMayExist();
+          s = Status::OK();
+        }
+      }
+    }
+  }
 
   if (handle != nullptr) {
     ReleaseHandle(handle);

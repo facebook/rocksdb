@@ -76,7 +76,9 @@
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
+#include "table/get_context.h"
 #include "table/merging_iterator.h"
+#include "table/multiget_context.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
 #include "tools/sst_dump_tool_imp.h"
@@ -1657,6 +1659,189 @@ std::vector<Status> DBImpl::MultiGet(
   PERF_TIMER_STOP(get_post_process_time);
 
   return stat_list;
+}
+
+// Order keys by CF ID, followed by key contents
+struct CompareKeyContext {
+  inline bool operator()(const KeyContext* lhs, const KeyContext* rhs) {
+    const Comparator* comparator = cfd->user_comparator();
+    int cmp = comparator->Compare(*(lhs->key), *(rhs->key));
+    if (cmp < 0) {
+      return true;
+    }
+    return false;
+  }
+  const ColumnFamilyData* cfd;
+};
+
+void DBImpl::MultiGet(const ReadOptions& read_options,
+                      ColumnFamilyHandle* column_family, const size_t num_keys,
+                      const Slice* keys, PinnableSlice* values,
+                      Status* statuses, const bool sorted_input) {
+  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
+  for (size_t i = 0; i < num_keys; ++i) {
+    key_context.emplace_back(keys[i], &values[i], &statuses[i]);
+  }
+
+  MultiGetImpl(read_options, column_family, key_context, sorted_input, nullptr,
+               nullptr);
+}
+
+void DBImpl::MultiGetImpl(
+    const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE>& key_context,
+    bool sorted_input, ReadCallback* callback, bool* is_blob_index) {
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
+  StopWatch sw(env_, stats_, DB_MULTIGET);
+  size_t num_keys = key_context.size();
+
+  PERF_TIMER_GUARD(get_snapshot_time);
+
+  ColumnFamilyHandleImpl* cfh =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  ColumnFamilyData* cfd = cfh->cfd();
+
+  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
+  sorted_keys.resize(num_keys);
+  {
+    size_t index = 0;
+    for (KeyContext& key : key_context) {
+#ifndef NDEBUG
+      if (index > 0) {
+        KeyContext* lhs = &key_context[index-1];
+        KeyContext* rhs = &key_context[index];
+        const Comparator* comparator = cfd->user_comparator();
+        int cmp = comparator->Compare(*(lhs->key), *(rhs->key));
+        assert(cmp <= 0);
+      }
+#endif
+
+      sorted_keys[index] = &key;
+      index++;
+    }
+    if (!sorted_input) {
+      CompareKeyContext sort_comparator;
+      sort_comparator.cfd = cfd;
+      std::sort(sorted_keys.begin(), sorted_keys.begin() + index,
+                sort_comparator);
+    }
+  }
+
+  // Keep track of bytes that we read for statistics-recording later
+  PERF_TIMER_STOP(get_snapshot_time);
+
+  // Acquire SuperVersion
+  SuperVersion* super_version = GetAndRefSuperVersion(cfd);
+  SequenceNumber snapshot;
+  if (read_options.snapshot != nullptr) {
+    // Note: In WritePrepared txns this is not necessary but not harmful
+    // either.  Because prep_seq > snapshot => commit_seq > snapshot so if
+    // a snapshot is specified we should be fine with skipping seq numbers
+    // that are greater than that.
+    //
+    // In WriteUnprepared, we cannot set snapshot in the lookup key because we
+    // may skip uncommitted data that should be visible to the transaction for
+    // reading own writes.
+    snapshot =
+        reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
+    if (callback) {
+      snapshot = std::max(snapshot, callback->max_visible_seq());
+    }
+  } else {
+    // Since we get and reference the super version before getting
+    // the snapshot number, without a mutex protection, it is possible
+    // that a memtable switch happened in the middle and not all the
+    // data for this snapshot is available. But it will contain all
+    // the data available in the super version we have, which is also
+    // a valid snapshot to read from.
+    // We shouldn't get snapshot before finding and referencing the super
+    // version because a flush happening in between may compact away data for
+    // the snapshot, but the snapshot is earlier than the data overwriting it,
+    // so users may see wrong results.
+    snapshot = last_seq_same_as_publish_seq_
+                   ? versions_->LastSequence()
+                   : versions_->LastPublishedSequence();
+  }
+
+  // For each of the given keys, apply the entire "get" process as follows:
+  // First look in the memtable, then in the immutable memtable (if any).
+  // s is both in/out. When in, s could either be OK or MergeInProgress.
+  // merge_operands will contain the sequence of merges in the latter case.
+  size_t keys_left = num_keys;
+  while (keys_left) {
+    size_t batch_size = (keys_left > MultiGetContext::MAX_BATCH_SIZE)
+                            ? MultiGetContext::MAX_BATCH_SIZE
+                            : keys_left;
+    MultiGetContext ctx(&sorted_keys[num_keys - keys_left], batch_size,
+                        snapshot);
+    MultiGetRange range = ctx.GetMultiGetRange();
+    bool lookup_current = false;
+
+    keys_left -= batch_size;
+    for (auto mget_iter = range.begin(); mget_iter != range.end();
+         ++mget_iter) {
+      MergeContext& merge_context = mget_iter->merge_context;
+      merge_context.Clear();
+      Status& s = *mget_iter->s;
+      PinnableSlice* value = mget_iter->value;
+      s = Status::OK();
+
+      bool skip_memtable =
+          (read_options.read_tier == kPersistedTier &&
+           has_unpersisted_data_.load(std::memory_order_relaxed));
+      bool done = false;
+      if (!skip_memtable) {
+        if (super_version->mem->Get(*(mget_iter->lkey), value->GetSelf(), &s,
+                                    &merge_context,
+                                    &mget_iter->max_covering_tombstone_seq,
+                                    read_options, callback, is_blob_index)) {
+          done = true;
+          value->PinSelf();
+          RecordTick(stats_, MEMTABLE_HIT);
+        } else if (super_version->imm->Get(
+                       *(mget_iter->lkey), value->GetSelf(), &s, &merge_context,
+                       &mget_iter->max_covering_tombstone_seq, read_options,
+                       callback, is_blob_index)) {
+          done = true;
+          value->PinSelf();
+          RecordTick(stats_, MEMTABLE_HIT);
+        }
+      }
+      if (done) {
+        range.MarkKeyDone(mget_iter);
+      } else {
+        RecordTick(stats_, MEMTABLE_MISS);
+        lookup_current = true;
+      }
+    }
+
+    if (lookup_current) {
+      PERF_TIMER_GUARD(get_from_output_files_time);
+      super_version->current->MultiGet(read_options, &range, callback,
+                                       is_blob_index);
+    }
+  }
+
+  // Post processing (decrement reference counts and record statistics)
+  PERF_TIMER_GUARD(get_post_process_time);
+  size_t num_found = 0;
+  uint64_t bytes_read = 0;
+  for (KeyContext& key : key_context) {
+    if (key.s->ok()) {
+      bytes_read += key.value->size();
+      num_found++;
+    }
+  }
+
+  ReturnAndCleanupSuperVersion(cfd, super_version);
+
+  RecordTick(stats_, NUMBER_MULTIGET_CALLS);
+  RecordTick(stats_, NUMBER_MULTIGET_KEYS_READ, num_keys);
+  RecordTick(stats_, NUMBER_MULTIGET_KEYS_FOUND, num_found);
+  RecordTick(stats_, NUMBER_MULTIGET_BYTES_READ, bytes_read);
+  RecordInHistogram(stats_, BYTES_PER_MULTIGET, bytes_read);
+  PERF_COUNTER_ADD(multiget_read_bytes, bytes_read);
+  PERF_TIMER_STOP(get_post_process_time);
 }
 
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,

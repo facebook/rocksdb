@@ -44,6 +44,8 @@
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "table/get_context.h"
+#include "table/multiget_context.h"
 
 namespace rocksdb {
 
@@ -552,6 +554,7 @@ class VersionStorageInfo {
   void operator=(const VersionStorageInfo&) = delete;
 };
 
+using MultiGetRange = MultiGetContext::Range;
 class Version {
  public:
   // Append to *iters a sequence of iterators that will
@@ -592,6 +595,9 @@ class Version {
            bool* value_found = nullptr, bool* key_exists = nullptr,
            SequenceNumber* seq = nullptr, ReadCallback* callback = nullptr,
            bool* is_blob = nullptr);
+
+  void MultiGet(const ReadOptions&, MultiGetRange* range,
+                ReadCallback* callback = nullptr, bool* is_blob = nullptr);
 
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.

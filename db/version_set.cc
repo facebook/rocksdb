@@ -16,6 +16,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <algorithm>
+#include <array>
 #include <list>
 #include <map>
 #include <set>
@@ -42,6 +43,7 @@
 #include "table/internal_iterator.h"
 #include "table/merging_iterator.h"
 #include "table/meta_blocks.h"
+#include "table/multiget_context.h"
 #include "table/plain_table_factory.h"
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
@@ -340,6 +342,407 @@ class FilePicker {
       prev_file_ = nullptr;
 #endif
       return true;
+    }
+    // curr_level_ = num_levels_. So, no more levels to search.
+    return false;
+  }
+};
+
+class FilePickerMultiGet {
+ private:
+  struct FilePickerContext;
+
+ public:
+  FilePickerMultiGet(std::vector<FileMetaData*>* files, MultiGetRange* range,
+                     autovector<LevelFilesBrief>* file_levels,
+                     unsigned int num_levels, FileIndexer* file_indexer,
+                     const Comparator* user_comparator,
+                     const InternalKeyComparator* internal_comparator)
+      : num_levels_(num_levels),
+        curr_level_(static_cast<unsigned int>(-1)),
+        returned_file_level_(static_cast<unsigned int>(-1)),
+        hit_file_level_(static_cast<unsigned int>(-1)),
+        range_(range),
+        batch_iter_(range->begin()),
+        batch_iter_prev_(range->begin()),
+        maybe_repeat_key_(false),
+        current_level_range_(*range, range->begin(), range->end()),
+        current_file_range_(*range, range->begin(), range->end()),
+#ifndef NDEBUG
+        files_(files),
+#endif
+        level_files_brief_(file_levels),
+        is_hit_file_last_in_level_(false),
+        curr_file_level_(nullptr),
+        file_indexer_(file_indexer),
+        user_comparator_(user_comparator),
+        internal_comparator_(internal_comparator) {
+#ifdef NDEBUG
+    (void)files;
+#endif
+    for (auto iter = range_->begin(); iter != range_->end(); ++iter) {
+      fp_ctx_array_[iter.index()] =
+          FilePickerContext(0, FileIndexer::kLevelMaxIndex);
+    }
+
+    // Setup member variables to search first level.
+    search_ended_ = !PrepareNextLevel();
+    if (!search_ended_) {
+      // REVISIT
+      // Prefetch Level 0 table data to avoid cache miss if possible.
+      // As of now, only PlainTableReader and CuckooTableReader do any
+      // prefetching. This may not be necessary anymore once we implement
+      // batching in those table readers
+      for (unsigned int i = 0; i < (*level_files_brief_)[0].num_files; ++i) {
+        auto* r = (*level_files_brief_)[0].files[i].fd.table_reader;
+        if (r) {
+          for (auto iter = range_->begin(); iter != range_->end(); ++iter) {
+            r->Prepare(iter->ikey);
+          }
+        }
+      }
+    }
+  }
+
+  int GetCurrentLevel() const { return curr_level_; }
+
+  // Iterates through files in the current level until it finds a file that
+  // contains atleast one key from the MultiGet batch
+  bool GetNextFileInLevelWithKeys(MultiGetRange* next_file_range,
+                                  size_t* file_index, FdWithKeyRange** fd,
+                                  bool* is_last_key_in_file) {
+    size_t curr_file_index = *file_index;
+    FdWithKeyRange* f = nullptr;
+    bool file_hit = false;
+    int cmp_largest = -1;
+    if (curr_file_index >= curr_file_level_->num_files) {
+      return false;
+    }
+    // Loops over keys in the MultiGet batch until it finds a file with
+    // atleast one of the keys. Then it keeps moving forward until the
+    // last key in the batch that falls in that file
+    while (batch_iter_ != current_level_range_.end() &&
+           (fp_ctx_array_[batch_iter_.index()].curr_index_in_curr_level ==
+                curr_file_index ||
+            !file_hit)) {
+      struct FilePickerContext& fp_ctx = fp_ctx_array_[batch_iter_.index()];
+      f = &curr_file_level_->files[fp_ctx.curr_index_in_curr_level];
+      Slice& user_key = batch_iter_->ukey;
+
+      // Do key range filtering of files or/and fractional cascading if:
+      // (1) not all the files are in level 0, or
+      // (2) there are more than 3 current level files
+      // If there are only 3 or less current level files in the system, we
+      // skip the key range filtering. In this case, more likely, the system
+      // is highly tuned to minimize number of tables queried by each query,
+      // so it is unlikely that key range filtering is more efficient than
+      // querying the files.
+      if (num_levels_ > 1 || curr_file_level_->num_files > 3) {
+        // Check if key is within a file's range. If search left bound and
+        // right bound point to the same find, we are sure key falls in
+        // range.
+        assert(curr_level_ == 0 ||
+               fp_ctx.curr_index_in_curr_level ==
+                   fp_ctx.start_index_in_curr_level ||
+               user_comparator_->Compare(user_key,
+                                         ExtractUserKey(f->smallest_key)) <= 0);
+
+        int cmp_smallest = user_comparator_->Compare(
+            user_key, ExtractUserKey(f->smallest_key));
+        if (cmp_smallest >= 0) {
+          cmp_largest = user_comparator_->Compare(
+              user_key, ExtractUserKey(f->largest_key));
+        } else {
+          cmp_largest = -1;
+        }
+
+        // Setup file search bound for the next level based on the
+        // comparison results
+        if (curr_level_ > 0) {
+          file_indexer_->GetNextLevelIndex(
+              curr_level_, fp_ctx.curr_index_in_curr_level, cmp_smallest,
+              cmp_largest, &fp_ctx.search_left_bound,
+              &fp_ctx.search_right_bound);
+        }
+        // Key falls out of current file's range
+        if (cmp_smallest < 0 || cmp_largest > 0) {
+          next_file_range->SkipKey(batch_iter_);
+        } else {
+          file_hit = true;
+        }
+      } else {
+        file_hit = true;
+      }
+#ifndef NDEBUG
+      // Sanity check to make sure that the files are correctly sorted
+      if (f != prev_file_) {
+        if (prev_file_) {
+          if (curr_level_ != 0) {
+            int comp_sign = internal_comparator_->Compare(
+                prev_file_->largest_key, f->smallest_key);
+            assert(comp_sign < 0);
+          } else if (fp_ctx.curr_index_in_curr_level > 0) {
+            // level == 0, the current file cannot be newer than the previous
+            // one. Use compressed data structure, has no attribute seqNo
+            assert(!NewestFirstBySeqNo(
+                files_[0][fp_ctx.curr_index_in_curr_level],
+                files_[0][fp_ctx.curr_index_in_curr_level - 1]));
+          }
+        }
+        prev_file_ = f;
+      }
+#endif
+      if (cmp_largest == 0) {
+        // cmp_largest is 0, which means the next key will not be in this
+        // file, so stop looking further. Also don't increment megt_iter_
+        // as we may have to look for this key in the next file if we don't
+        // find it in this one
+        break;
+      } else {
+        if (curr_level_ == 0) {
+          // We need to look through all files in level 0
+          ++fp_ctx.curr_index_in_curr_level;
+        }
+        ++batch_iter_;
+      }
+      if (!file_hit) {
+        curr_file_index =
+            (batch_iter_ != current_level_range_.end())
+                ? fp_ctx_array_[batch_iter_.index()].curr_index_in_curr_level
+                : curr_file_level_->num_files;
+      }
+    }
+
+    *fd = f;
+    *file_index = curr_file_index;
+    *is_last_key_in_file = cmp_largest == 0;
+    return file_hit;
+  }
+
+  FdWithKeyRange* GetNextFile() {
+    while (!search_ended_) {
+      // Start searching next level.
+      if (batch_iter_ == current_level_range_.end()) {
+        search_ended_ = !PrepareNextLevel();
+        continue;
+      } else {
+        if (maybe_repeat_key_) {
+          maybe_repeat_key_ = false;
+          // Check if we found the final value for the last key in the
+          // previous lookup range. If we did, then there's no need to look
+          // any further for that key, so advance batch_iter_. Else, keep
+          // batch_iter_ positioned on that key so we look it up again in
+          // the next file
+          if (current_level_range_.CheckKeyDone(batch_iter_)) {
+            ++batch_iter_;
+          }
+        }
+        // batch_iter_prev_ will become the start key for the next file
+        // lookup
+        batch_iter_prev_ = batch_iter_;
+      }
+
+      MultiGetRange next_file_range(current_level_range_, batch_iter_prev_,
+                                    current_level_range_.end());
+      size_t curr_file_index =
+          (batch_iter_ != current_level_range_.end())
+              ? fp_ctx_array_[batch_iter_.index()].curr_index_in_curr_level
+              : curr_file_level_->num_files;
+      FdWithKeyRange* f;
+      bool is_last_key_in_file;
+      if (!GetNextFileInLevelWithKeys(&next_file_range, &curr_file_index, &f,
+                                      &is_last_key_in_file)) {
+        search_ended_ = !PrepareNextLevel();
+      } else {
+        MultiGetRange::Iterator upper_key = batch_iter_;
+        if (is_last_key_in_file) {
+          // Since cmp_largest is 0, batch_iter_ still points to the last key
+          // that falls in this file, instead of the next one. Increment
+          // upper_key so we can set the range properly for SST MultiGet
+          ++upper_key;
+          ++(fp_ctx_array_[batch_iter_.index()].curr_index_in_curr_level);
+          maybe_repeat_key_ = true;
+        }
+        // Set the range for this file
+        current_file_range_ =
+            MultiGetRange(next_file_range, batch_iter_prev_, upper_key);
+        returned_file_level_ = curr_level_;
+        hit_file_level_ = curr_level_;
+        is_hit_file_last_in_level_ =
+            curr_file_index == curr_file_level_->num_files - 1;
+        return f;
+      }
+    }
+
+    // Search ended
+    return nullptr;
+  }
+
+  // getter for current file level
+  // for GET_HIT_L0, GET_HIT_L1 & GET_HIT_L2_AND_UP counts
+  unsigned int GetHitFileLevel() { return hit_file_level_; }
+
+  // Returns true if the most recent "hit file" (i.e., one returned by
+  // GetNextFile()) is at the last index in its level.
+  bool IsHitFileLastInLevel() { return is_hit_file_last_in_level_; }
+
+  const MultiGetRange& CurrentFileRange() { return current_file_range_; }
+
+ private:
+  unsigned int num_levels_;
+  unsigned int curr_level_;
+  unsigned int returned_file_level_;
+  unsigned int hit_file_level_;
+
+  struct FilePickerContext {
+    int32_t search_left_bound;
+    int32_t search_right_bound;
+    unsigned int curr_index_in_curr_level;
+    unsigned int start_index_in_curr_level;
+
+    FilePickerContext(int32_t left, int32_t right)
+        : search_left_bound(left), search_right_bound(right) {}
+
+    FilePickerContext() = default;
+  };
+  std::array<FilePickerContext, MultiGetContext::MAX_BATCH_SIZE> fp_ctx_array_;
+  MultiGetRange* range_;
+  // Iterator to iterate through the keys in a MultiGet batch, that gets reset
+  // at the beginning of each level. Each call to GetNextFile() will position
+  // batch_iter_ at or right after the last key that was found in the returned
+  // SST file
+  MultiGetRange::Iterator batch_iter_;
+  // An iterator that records the previous position of batch_iter_, i.e last
+  // key found in the previous SST file, in order to serve as the start of
+  // the batch key range for the next SST file
+  MultiGetRange::Iterator batch_iter_prev_;
+  bool maybe_repeat_key_;
+  MultiGetRange current_level_range_;
+  MultiGetRange current_file_range_;
+#ifndef NDEBUG
+  std::vector<FileMetaData*>* files_;
+#endif
+  autovector<LevelFilesBrief>* level_files_brief_;
+  bool search_ended_;
+  bool is_hit_file_last_in_level_;
+  LevelFilesBrief* curr_file_level_;
+  FileIndexer* file_indexer_;
+  const Comparator* user_comparator_;
+  const InternalKeyComparator* internal_comparator_;
+#ifndef NDEBUG
+  FdWithKeyRange* prev_file_;
+#endif
+
+  // Setup local variables to search next level.
+  // Returns false if there are no more levels to search.
+  bool PrepareNextLevel() {
+    if (curr_level_ == 0) {
+      MultiGetRange::Iterator mget_iter = current_level_range_.begin();
+      if (fp_ctx_array_[mget_iter.index()].curr_index_in_curr_level <
+          curr_file_level_->num_files) {
+#ifndef NDEBUG
+        prev_file_ = nullptr;
+#endif
+        batch_iter_prev_ = current_level_range_.begin();
+        batch_iter_ = current_level_range_.begin();
+        return true;
+      }
+    }
+
+    curr_level_++;
+    // Reset key range to saved value
+    while (curr_level_ < num_levels_) {
+      bool level_contains_keys = false;
+      curr_file_level_ = &(*level_files_brief_)[curr_level_];
+      if (curr_file_level_->num_files == 0) {
+        // When current level is empty, the search bound generated from upper
+        // level must be [0, -1] or [0, FileIndexer::kLevelMaxIndex] if it is
+        // also empty.
+
+        for (auto mget_iter = current_level_range_.begin();
+             mget_iter != current_level_range_.end(); ++mget_iter) {
+          struct FilePickerContext& fp_ctx = fp_ctx_array_[mget_iter.index()];
+
+          assert(fp_ctx.search_left_bound == 0);
+          assert(fp_ctx.search_right_bound == -1 ||
+                 fp_ctx.search_right_bound == FileIndexer::kLevelMaxIndex);
+          // Since current level is empty, it will need to search all files in
+          // the next level
+          fp_ctx.search_left_bound = 0;
+          fp_ctx.search_right_bound = FileIndexer::kLevelMaxIndex;
+        }
+        // Skip all subsequent empty levels
+        while ((*level_files_brief_)[++curr_level_].num_files == 0) {
+        }
+      }
+
+      // Some files may overlap each other. We find
+      // all files that overlap user_key and process them in order from
+      // newest to oldest. In the context of merge-operator, this can occur at
+      // any level. Otherwise, it only occurs at Level-0 (since Put/Deletes
+      // are always compacted into a single entry).
+      int32_t start_index = -1;
+      current_level_range_ =
+          MultiGetRange(*range_, range_->begin(), range_->end());
+      for (auto mget_iter = current_level_range_.begin();
+           mget_iter != current_level_range_.end(); ++mget_iter) {
+        struct FilePickerContext& fp_ctx = fp_ctx_array_[mget_iter.index()];
+        if (curr_level_ == 0) {
+          // On Level-0, we read through all files to check for overlap.
+          start_index = 0;
+          level_contains_keys = true;
+        } else {
+          // On Level-n (n>=1), files are sorted. Binary search to find the
+          // earliest file whose largest key >= ikey. Search left bound and
+          // right bound are used to narrow the range.
+          if (fp_ctx.search_left_bound <= fp_ctx.search_right_bound) {
+            if (fp_ctx.search_right_bound == FileIndexer::kLevelMaxIndex) {
+              fp_ctx.search_right_bound =
+                  static_cast<int32_t>(curr_file_level_->num_files) - 1;
+            }
+            // `search_right_bound_` is an inclusive upper-bound, but since it
+            // was determined based on user key, it is still possible the lookup
+            // key falls to the right of `search_right_bound_`'s corresponding
+            // file. So, pass a limit one higher, which allows us to detect this
+            // case.
+            Slice& ikey = mget_iter->ikey;
+            start_index = FindFileInRange(
+                *internal_comparator_, *curr_file_level_, ikey,
+                static_cast<uint32_t>(fp_ctx.search_left_bound),
+                static_cast<uint32_t>(fp_ctx.search_right_bound) + 1);
+            if (start_index == fp_ctx.search_right_bound + 1) {
+              // `ikey_` comes after `search_right_bound_`. The lookup key does
+              // not exist on this level, so let's skip this level and do a full
+              // binary search on the next level.
+              fp_ctx.search_left_bound = 0;
+              fp_ctx.search_right_bound = FileIndexer::kLevelMaxIndex;
+              current_level_range_.SkipKey(mget_iter);
+              continue;
+            } else {
+              level_contains_keys = true;
+            }
+          } else {
+            // search_left_bound > search_right_bound, key does not exist in
+            // this level. Since no comparison is done in this level, it will
+            // need to search all files in the next level.
+            fp_ctx.search_left_bound = 0;
+            fp_ctx.search_right_bound = FileIndexer::kLevelMaxIndex;
+            current_level_range_.SkipKey(mget_iter);
+            continue;
+          }
+        }
+        fp_ctx.start_index_in_curr_level = start_index;
+        fp_ctx.curr_index_in_curr_level = start_index;
+      }
+      if (level_contains_keys) {
+#ifndef NDEBUG
+        prev_file_ = nullptr;
+#endif
+        batch_iter_prev_ = current_level_range_.begin();
+        batch_iter_ = current_level_range_.begin();
+        return true;
+      }
+      curr_level_++;
     }
     // curr_level_ = num_levels_. So, no more levels to search.
     return false;
@@ -1315,6 +1718,163 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       *key_exists = false;
     }
     *status = Status::NotFound(); // Use an empty error message for speed
+  }
+}
+
+void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
+                       ReadCallback* callback, bool* is_blob) {
+  PinnedIteratorsManager pinned_iters_mgr;
+
+  // Pin blocks that we read to hold merge operands
+  if (merge_operator_) {
+    pinned_iters_mgr.StartPinning();
+  }
+
+  // Even though we know the batch size won't be > MAX_BATCH_SIZE,
+  // use autovector in order to avoid unnecessary construction of GetContext
+  // objects, which is expensive
+  autovector<GetContext, 16> get_ctx;
+  for (auto iter = range->begin(); iter != range->end(); ++iter) {
+    assert(iter->s->ok() || iter->s->IsMergeInProgress());
+    get_ctx.emplace_back(
+        user_comparator(), merge_operator_, info_log_, db_statistics_,
+        iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge, iter->ukey,
+        iter->value, nullptr, &(iter->merge_context),
+        &iter->max_covering_tombstone_seq, this->env_, &iter->seq,
+        merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob);
+    iter->get_context = &get_ctx.back();
+  }
+
+  MultiGetRange file_picker_range(*range, range->begin(), range->end());
+  FilePickerMultiGet fp(
+      storage_info_.files_, &file_picker_range,
+      &storage_info_.level_files_brief_, storage_info_.num_non_empty_levels_,
+      &storage_info_.file_indexer_, user_comparator(), internal_comparator());
+  FdWithKeyRange* f = fp.GetNextFile();
+
+  while (f != nullptr) {
+    MultiGetRange file_range = fp.CurrentFileRange();
+    bool timer_enabled =
+        GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
+        get_perf_context()->per_level_perf_context_enabled;
+    StopWatchNano timer(env_, timer_enabled /* auto_start */);
+    Status s = table_cache_->MultiGet(
+        read_options, *internal_comparator(), *f->file_metadata, &file_range,
+        mutable_cf_options_.prefix_extractor.get(),
+        cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
+        IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
+                        fp.IsHitFileLastInLevel()),
+        fp.GetCurrentLevel());
+    // TODO: examine the behavior for corrupted key
+    if (timer_enabled) {
+      PERF_COUNTER_BY_LEVEL_ADD(get_from_table_nanos, timer.ElapsedNanos(),
+                                fp.GetCurrentLevel());
+    }
+    if (!s.ok()) {
+      // TODO: Set status for individual keys appropriately
+      for (auto iter = file_range.begin(); iter != file_range.end(); ++iter) {
+        *iter->s = s;
+        file_range.MarkKeyDone(iter);
+      }
+      return;
+    }
+    uint64_t batch_size = 0;
+    for (auto iter = file_range.begin(); iter != file_range.end(); ++iter) {
+      GetContext& get_context = *iter->get_context;
+      Status* status = iter->s;
+
+      if (get_context.sample()) {
+        sample_file_read_inc(f->file_metadata);
+      }
+      batch_size++;
+      // report the counters before returning
+      if (get_context.State() != GetContext::kNotFound &&
+          get_context.State() != GetContext::kMerge &&
+          db_statistics_ != nullptr) {
+        get_context.ReportCounters();
+      } else {
+        if (iter->max_covering_tombstone_seq > 0) {
+          // The remaining files we look at will only contain covered keys, so
+          // we stop here for this key
+          file_picker_range.SkipKey(iter);
+        }
+      }
+      switch (get_context.State()) {
+        case GetContext::kNotFound:
+          // Keep searching in other files
+          break;
+        case GetContext::kMerge:
+          // TODO: update per-level perfcontext user_key_return_count for kMerge
+          break;
+        case GetContext::kFound:
+          if (fp.GetHitFileLevel() == 0) {
+            RecordTick(db_statistics_, GET_HIT_L0);
+          } else if (fp.GetHitFileLevel() == 1) {
+            RecordTick(db_statistics_, GET_HIT_L1);
+          } else if (fp.GetHitFileLevel() >= 2) {
+            RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
+          }
+          PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
+                                    fp.GetHitFileLevel());
+          file_range.MarkKeyDone(iter);
+          continue;
+        case GetContext::kDeleted:
+          // Use empty error message for speed
+          *status = Status::NotFound();
+          file_range.MarkKeyDone(iter);
+          continue;
+        case GetContext::kCorrupt:
+          *status =
+              Status::Corruption("corrupted key for ", iter->lkey->user_key());
+          file_range.MarkKeyDone(iter);
+          continue;
+        case GetContext::kBlobIndex:
+          ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob index.");
+          *status = Status::NotSupported(
+              "Encounter unexpected blob index. Please open DB with "
+              "rocksdb::blob_db::BlobDB instead.");
+          file_range.MarkKeyDone(iter);
+          continue;
+      }
+    }
+    RecordInHistogram(db_statistics_, SST_BATCH_SIZE, batch_size);
+    if (file_picker_range.empty()) {
+      break;
+    }
+    f = fp.GetNextFile();
+  }
+
+  // Process any left over keys
+  for (auto iter = range->begin(); iter != range->end(); ++iter) {
+    GetContext& get_context = *iter->get_context;
+    Status* status = iter->s;
+    Slice user_key = iter->lkey->user_key();
+
+    if (db_statistics_ != nullptr) {
+      get_context.ReportCounters();
+    }
+    if (GetContext::kMerge == get_context.State()) {
+      if (!merge_operator_) {
+        *status = Status::InvalidArgument(
+            "merge_operator is not properly initialized.");
+        range->MarkKeyDone(iter);
+        continue;
+      }
+      // merge_operands are in saver and we hit the beginning of the key history
+      // do a final merge of nullptr and operands;
+      std::string* str_value =
+          iter->value != nullptr ? iter->value->GetSelf() : nullptr;
+      *status = MergeHelper::TimedFullMerge(
+          merge_operator_, user_key, nullptr, iter->merge_context.GetOperands(),
+          str_value, info_log_, db_statistics_, env_,
+          nullptr /* result_operand */, true);
+      if (LIKELY(iter->value != nullptr)) {
+        iter->value->PinSelf();
+      }
+    } else {
+      range->MarkKeyDone(iter);
+      *status = Status::NotFound();  // Use an empty error message for speed
+    }
   }
 }
 
