@@ -4,6 +4,8 @@
 ### New Features
 * When reading from option file/string/map, customized comparators and/or merge operators can be filled according to object registry.
 * Introduce Periodic Compaction for Level style compaction. Files are re-compacted periodically and put in the same level.
+### Bug Fixes
+* Fix partition filters not being removed from the block cache when the table is closed.
 
 ### Public API Change
 * Change the behavior of OptimizeForPointLookup(): move away from hash-based block-based-table index, and use whole key memtable filtering.
