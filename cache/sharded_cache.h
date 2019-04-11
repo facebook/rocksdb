@@ -31,7 +31,8 @@ class CacheShard {
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) = 0;
   virtual bool Ref(Cache::Handle* handle) = 0;
   virtual bool Release(Cache::Handle* handle, bool force_erase = false) = 0;
-  virtual void Erase(const Slice& key, uint32_t hash, const bool expect_last_ref) = 0;
+  virtual void Erase(const Slice& key, uint32_t hash,
+                     const bool expect_last_ref) = 0;
   virtual void SetCapacity(size_t capacity) = 0;
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) = 0;
   virtual size_t GetUsage() const = 0;

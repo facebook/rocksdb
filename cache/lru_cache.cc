@@ -415,7 +415,8 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   return s;
 }
 
-void LRUCacheShard::Erase(const Slice& key, uint32_t hash, const bool expect_last_ref) {
+void LRUCacheShard::Erase(const Slice& key, uint32_t hash,
+                          const bool expect_last_ref) {
   LRUHandle* e;
   bool last_reference = false;
   {
