@@ -546,7 +546,7 @@ Compaction* CompactionPicker::CompactRange(
     uint32_t output_path_id, uint32_t max_subcompactions,
     const InternalKey* begin, const InternalKey* end,
     InternalKey** compaction_end, bool* manual_conflict,
-    uint64_t max_sst_file_number) {
+    uint64_t max_file_num_to_ignore) {
   // CompactionPickerFIFO has its own implementation of compact range
   assert(ioptions_.compaction_style != kCompactionStyleFIFO);
 
@@ -661,30 +661,29 @@ Compaction* CompactionPicker::CompactRange(
   }
   assert(output_path_id < static_cast<uint32_t>(ioptions_.cf_paths.size()));
 
-  // for BOTTOM LEVEL compaction, skip files that are created during the
-  // current compaction
-  if (max_sst_file_number > 0) {
+  // for BOTTOM LEVEL compaction only, use max_file_num_to_ignore to filter out files
+  // that are created during the current compaction.
+  if (max_file_num_to_ignore != port::kMaxUint64) {
     assert(input_level == output_level);
-    std::vector<FileMetaData*> inputs_shrinked;
+    // inputs_shrunk holds a continuous subset of input files which were all
+    // created before the current manual compaction
+    std::vector<FileMetaData*> inputs_shrunk;
     for (size_t i = 0; i < inputs.size(); ++i) {
-      if (inputs[i]->fd.GetNumber() <= max_sst_file_number) {
-        inputs_shrinked.emplace_back(inputs[i]);
-      } else {
+      if (inputs[i]->fd.GetNumber() < max_file_num_to_ignore) {
+        inputs_shrunk.push_back(inputs[i]);
+      } else if (!inputs_shrunk.empty()) {
         // inputs[i] was created during the current manual compaction and
         // need to be skipped
-        if (inputs_shrinked.empty()) {
-          // haven't found anything to compact, keep looking
-          continue;
-        } else {
-          // already found something to compact, skip the rest files
-          break;
-        }
+        break;
       }
     }
-    if (inputs_shrinked.empty()) {
+    if (inputs_shrunk.empty()) {
       return nullptr;
     }
-    inputs.files.swap(inputs_shrinked);
+    if (inputs.size() != inputs_shrunk.size()) {
+      inputs.files.swap(inputs_shrunk);
+      covering_the_whole_range = false;
+    }
   }
 
   InternalKey key_storage;
