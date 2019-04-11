@@ -123,6 +123,8 @@ class FaultInjectionTestEnv : public EnvWrapper {
   virtual Status RenameFile(const std::string& s,
                             const std::string& t) override;
 
+// Undef to eliminate clash on Windows
+#undef GetFreeSpace
   virtual Status GetFreeSpace(const std::string& path,
                               uint64_t* disk_free) override {
     if (!IsFilesystemActive() && error_ == Status::NoSpace()) {

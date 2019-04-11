@@ -124,6 +124,25 @@ class DBImpl : public DB {
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override;
 
+  // This MultiGet is a batched version, which may be faster than calling Get
+  // multiple times, especially if the keys have some spatial locality that
+  // enables them to be queried in the same SST files/set of files. The larger
+  // the batch size, the more scope for batching and performance improvement
+  // The values and statuses parameters are arrays with number of elements
+  // equal to keys.size(). This allows the storage for those to be alloacted
+  // by the caller on the stack for small batches
+  virtual void MultiGet(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        const size_t num_keys, const Slice* keys,
+                        PinnableSlice* values, Status* statuses,
+                        const bool sorted_input = false) override;
+
+  void MultiGetImpl(
+      const ReadOptions& options, ColumnFamilyHandle* column_family,
+      autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE>& key_context,
+      bool sorted_input, ReadCallback* callback = nullptr,
+      bool* is_blob_index = nullptr);
+
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                     const std::string& column_family,
                                     ColumnFamilyHandle** handle) override;

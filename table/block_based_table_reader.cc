@@ -39,6 +39,7 @@
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/meta_blocks.h"
+#include "table/multiget_context.h"
 #include "table/partitioned_filter_block.h"
 #include "table/persistent_cache_helper.h"
 #include "table/sst_file_writer_collectors.h"
@@ -2623,6 +2624,29 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
   return may_match;
 }
 
+void BlockBasedTable::FullFilterKeysMayMatch(
+    const ReadOptions& read_options, FilterBlockReader* filter,
+    MultiGetRange* range, const bool no_io,
+    const SliceTransform* prefix_extractor) const {
+  if (filter == nullptr || filter->IsBlockBased()) {
+    return;
+  }
+  if (filter->whole_key_filtering()) {
+    filter->KeysMayMatch(range, prefix_extractor, kNotValid, no_io);
+  } else if (!read_options.total_order_seek && prefix_extractor &&
+             rep_->table_properties->prefix_extractor_name.compare(
+                 prefix_extractor->Name()) == 0) {
+    for (auto iter = range->begin(); iter != range->end(); ++iter) {
+      Slice user_key = iter->lkey->user_key();
+
+      if (!prefix_extractor->InDomain(user_key)) {
+        range->SkipKey(iter);
+      }
+    }
+    filter->PrefixesMayMatch(range, prefix_extractor, kNotValid, false);
+  }
+}
+
 Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
                             GetContext* get_context,
                             const SliceTransform* prefix_extractor,
@@ -2631,17 +2655,22 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   Status s;
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   CachableEntry<FilterBlockReader> filter_entry;
-  if (!skip_filters) {
-    filter_entry =
-        GetFilter(prefix_extractor, /*prefetch_buffer*/ nullptr,
-                  read_options.read_tier == kBlockCacheTier, get_context);
-  }
-  FilterBlockReader* filter = filter_entry.value;
+  bool may_match;
+  FilterBlockReader* filter = nullptr;
+  {
+    if (!skip_filters) {
+      filter_entry =
+          GetFilter(prefix_extractor, /*prefetch_buffer*/ nullptr,
+                    read_options.read_tier == kBlockCacheTier, get_context);
+    }
+    filter = filter_entry.value;
 
-  // First check the full filter
-  // If full filter not useful, Then go into each block
-  if (!FullFilterKeyMayMatch(read_options, filter, key, no_io,
-                             prefix_extractor)) {
+    // First check the full filter
+    // If full filter not useful, Then go into each block
+    may_match = FullFilterKeyMayMatch(read_options, filter, key, no_io,
+                                      prefix_extractor);
+  }
+  if (!may_match) {
     RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_USEFUL);
     PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, rep_->level);
   } else {
@@ -2745,6 +2774,122 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
     filter_entry.Release(rep_->table_options.block_cache.get());
   }
   return s;
+}
+
+using MultiGetRange = MultiGetContext::Range;
+void BlockBasedTable::MultiGet(const ReadOptions& read_options,
+                               const MultiGetRange* mget_range,
+                               const SliceTransform* prefix_extractor,
+                               bool skip_filters) {
+  const bool no_io = read_options.read_tier == kBlockCacheTier;
+  CachableEntry<FilterBlockReader> filter_entry;
+  FilterBlockReader* filter = nullptr;
+  MultiGetRange sst_file_range(*mget_range, mget_range->begin(),
+                               mget_range->end());
+  {
+    if (!skip_filters) {
+      // TODO: Figure out where the stats should go
+      filter_entry = GetFilter(prefix_extractor, /*prefetch_buffer*/ nullptr,
+                               read_options.read_tier == kBlockCacheTier,
+                               nullptr /*get_context*/);
+    }
+    filter = filter_entry.value;
+
+    // First check the full filter
+    // If full filter not useful, Then go into each block
+    FullFilterKeysMayMatch(read_options, filter, &sst_file_range, no_io,
+                           prefix_extractor);
+  }
+  if (skip_filters || !sst_file_range.empty()) {
+    IndexBlockIter iiter_on_stack;
+    // if prefix_extractor found in block differs from options, disable
+    // BlockPrefixIndex. Only do this check when index_type is kHashSearch.
+    bool need_upper_bound_check = false;
+    if (rep_->index_type == BlockBasedTableOptions::kHashSearch) {
+      need_upper_bound_check = PrefixExtractorChanged(
+          rep_->table_properties.get(), prefix_extractor);
+    }
+    auto iiter = NewIndexIterator(
+        read_options, need_upper_bound_check, &iiter_on_stack,
+        /* index_entry */ nullptr, sst_file_range.begin()->get_context);
+    std::unique_ptr<InternalIteratorBase<BlockHandle>> iiter_unique_ptr;
+    if (iiter != &iiter_on_stack) {
+      iiter_unique_ptr.reset(iiter);
+    }
+
+    for (auto miter = sst_file_range.begin(); miter != sst_file_range.end();
+         ++miter) {
+      Status s;
+      GetContext* get_context = miter->get_context;
+      const Slice& key = miter->ikey;
+      bool matched = false;  // if such user key matched a key in SST
+      bool done = false;
+      for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
+        DataBlockIter biter;
+        NewDataBlockIterator<DataBlockIter>(
+            rep_, read_options, iiter->value(), &biter, false,
+            true /* key_includes_seq */, get_context);
+
+        if (read_options.read_tier == kBlockCacheTier &&
+            biter.status().IsIncomplete()) {
+          // couldn't get block from block_cache
+          // Update Saver.state to Found because we are only looking for
+          // whether we can guarantee the key is not there when "no_io" is set
+          get_context->MarkKeyMayExist();
+          break;
+        }
+        if (!biter.status().ok()) {
+          s = biter.status();
+          break;
+        }
+
+        bool may_exist = biter.SeekForGet(key);
+        if (!may_exist) {
+          // HashSeek cannot find the key this block and the the iter is not
+          // the end of the block, i.e. cannot be in the following blocks
+          // either. In this case, the seek_key cannot be found, so we break
+          // from the top level for-loop.
+          break;
+        }
+
+        // Call the *saver function on each entry/block until it returns false
+        for (; biter.Valid(); biter.Next()) {
+          ParsedInternalKey parsed_key;
+          if (!ParseInternalKey(biter.key(), &parsed_key)) {
+            s = Status::Corruption(Slice());
+          }
+
+          if (!get_context->SaveValue(
+                  parsed_key, biter.value(), &matched,
+                  biter.IsValuePinned() ? &biter : nullptr)) {
+            done = true;
+            break;
+          }
+        }
+        s = biter.status();
+        if (done) {
+          // Avoid the extra Next which is expensive in two-level indexes
+          break;
+        }
+      }
+      if (matched && filter != nullptr && !filter->IsBlockBased()) {
+        RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_FULL_TRUE_POSITIVE);
+        PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_true_positive, 1,
+                                  rep_->level);
+      }
+      if (s.ok()) {
+        s = iiter->status();
+      }
+      *(miter->s) = s;
+    }
+  }
+
+  // if rep_->filter_entry is not set, we should call Release(); otherwise
+  // don't call, in this case we have a local copy in rep_->filter_entry,
+  // it's pinned to the cache and will be released in the destructor
+  if (!rep_->filter_entry.IsSet()) {
+    filter_entry.Release(rep_->table_options.block_cache.get());
+  }
 }
 
 Status BlockBasedTable::Prefetch(const Slice* const begin,

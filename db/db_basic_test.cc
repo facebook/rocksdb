@@ -994,7 +994,7 @@ TEST_F(DBBasicTest, MultiGetMultiCF) {
     keys.push_back("cf" + std::to_string(i) + "_key");
   }
 
-  values = MultiGet(cfs, keys);
+  values = MultiGet(cfs, keys, nullptr);
   ASSERT_EQ(values.size(), 8);
   for (unsigned int j = 0; j < values.size(); ++j) {
     ASSERT_EQ(values[j], "cf" + std::to_string(j) + "_val2");
@@ -1054,7 +1054,7 @@ TEST_F(DBBasicTest, MultiGetMultiCFMutex) {
     keys.push_back("cf" + std::to_string(i) + "_key");
   }
 
-  values = MultiGet(cfs, keys);
+  values = MultiGet(cfs, keys, nullptr);
   ASSERT_TRUE(last_try);
   ASSERT_EQ(values.size(), 8);
   for (unsigned int j = 0; j < values.size(); ++j) {
@@ -1128,6 +1128,79 @@ TEST_F(DBBasicTest, MultiGetMultiCFSnapshot) {
   }
 }
 
+TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  int num_keys = 0;
+
+  for (int i = 0; i < 128; ++i) {
+    ASSERT_OK(Put("key_" + std::to_string(i), "val_l2_" + std::to_string(i)));
+    num_keys++;
+    if (num_keys == 8) {
+      Flush();
+      num_keys = 0;
+    }
+  }
+  if (num_keys > 0) {
+    Flush();
+    num_keys = 0;
+  }
+  MoveFilesToLevel(2);
+
+  for (int i = 0; i < 128; i += 3) {
+    ASSERT_OK(Put("key_" + std::to_string(i), "val_l1_" + std::to_string(i)));
+    num_keys++;
+    if (num_keys == 8) {
+      Flush();
+      num_keys = 0;
+    }
+  }
+  if (num_keys > 0) {
+    Flush();
+    num_keys = 0;
+  }
+  MoveFilesToLevel(1);
+
+  for (int i = 0; i < 128; i += 5) {
+    ASSERT_OK(Put("key_" + std::to_string(i), "val_l0_" + std::to_string(i)));
+    num_keys++;
+    if (num_keys == 8) {
+      Flush();
+      num_keys = 0;
+    }
+  }
+  if (num_keys > 0) {
+    Flush();
+    num_keys = 0;
+  }
+
+  for (int i = 0; i < 128; i += 9) {
+    ASSERT_OK(Put("key_" + std::to_string(i), "val_mem_" + std::to_string(i)));
+  }
+
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+
+  for (int i = 64; i < 80; ++i) {
+    keys.push_back("key_" + std::to_string(i));
+  }
+
+  values = MultiGet(keys, nullptr);
+  ASSERT_EQ(values.size(), 16);
+  for (unsigned int j = 0; j < values.size(); ++j) {
+    int key = j + 64;
+    if (key % 9 == 0) {
+      ASSERT_EQ(values[j], "val_mem_" + std::to_string(key));
+    } else if (key % 5 == 0) {
+      ASSERT_EQ(values[j], "val_l0_" + std::to_string(key));
+    } else if (key % 3 == 0) {
+      ASSERT_EQ(values[j], "val_l1_" + std::to_string(key));
+    } else {
+      ASSERT_EQ(values[j], "val_l2_" + std::to_string(key));
+    }
+  }
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
