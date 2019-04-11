@@ -1073,6 +1073,9 @@ bool LevelCompactionPicker::NeedsCompaction(
   if (!vstorage->ExpiredTtlFiles().empty()) {
     return true;
   }
+  if (!vstorage->FilesMarkedForPeriodicCompaction().empty()) {
+    return true;
+  }
   if (!vstorage->BottommostFilesMarkedForCompaction().empty()) {
     return true;
   }
@@ -1141,6 +1144,8 @@ class LevelCompactionBuilder {
 
   void PickExpiredTtlFiles();
 
+  void PickFilesMarkedForPeriodicCompaction();
+
   const std::string& cf_name_;
   VersionStorageInfo* vstorage_;
   CompactionPicker* compaction_picker_;
@@ -1203,6 +1208,39 @@ void LevelCompactionBuilder::PickExpiredTtlFiles() {
   start_level_inputs_.files.clear();
 }
 
+void LevelCompactionBuilder::PickFilesMarkedForPeriodicCompaction() {
+  if (vstorage_->FilesMarkedForPeriodicCompaction().empty()) {
+    return;
+  }
+
+  auto continuation = [&](std::pair<int, FileMetaData*> level_file) {
+    // If it's being compacted it has nothing to do here.
+    // If this assert() fails that means that some function marked some
+    // files as being_compacted, but didn't call ComputeCompactionScore()
+    assert(!level_file.second->being_compacted);
+    output_level_ = start_level_ = level_file.first;
+
+    if (start_level_ == 0 &&
+        !compaction_picker_->level0_compactions_in_progress()->empty()) {
+      return false;
+    }
+
+    start_level_inputs_.files = {level_file.second};
+    start_level_inputs_.level = start_level_;
+    return compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
+                                                      &start_level_inputs_);
+  };
+
+  for (auto& level_file : vstorage_->FilesMarkedForPeriodicCompaction()) {
+    if (continuation(level_file)) {
+      // found the compaction!
+      return;
+    }
+  }
+
+  start_level_inputs_.files.clear();
+}
+
 void LevelCompactionBuilder::SetupInitialFiles() {
   // Find the compactions by size on all levels.
   bool skipped_l0_to_base = false;
@@ -1256,7 +1294,6 @@ void LevelCompactionBuilder::SetupInitialFiles() {
   if (start_level_inputs_.empty()) {
     parent_index_ = base_index_ = -1;
 
-    // PickFilesMarkedForCompaction();
     compaction_picker_->PickFilesMarkedForCompaction(
         cf_name_, vstorage_, &start_level_, &output_level_, &start_level_inputs_);
     if (!start_level_inputs_.empty()) {
@@ -1264,7 +1301,10 @@ void LevelCompactionBuilder::SetupInitialFiles() {
       compaction_reason_ = CompactionReason::kFilesMarkedForCompaction;
       return;
     }
+  }
 
+  // Bottommost Files Compaction on deleting tombstones
+  if (start_level_inputs_.empty()) {
     size_t i;
     for (i = 0; i < vstorage_->BottommostFilesMarkedForCompaction().size();
          ++i) {
@@ -1285,11 +1325,23 @@ void LevelCompactionBuilder::SetupInitialFiles() {
       compaction_reason_ = CompactionReason::kBottommostFiles;
       return;
     }
+  }
 
-    assert(start_level_inputs_.empty());
+  // TTL Compaction
+  if (start_level_inputs_.empty()) {
     PickExpiredTtlFiles();
     if (!start_level_inputs_.empty()) {
       compaction_reason_ = CompactionReason::kTtl;
+      return;
+    }
+  }
+
+  // Periodic Compaction
+  if (start_level_inputs_.empty()) {
+    PickFilesMarkedForPeriodicCompaction();
+    if (!start_level_inputs_.empty()) {
+      compaction_reason_ = CompactionReason::kPeriodicCompaction;
+      return;
     }
   }
 }

@@ -3,6 +3,8 @@
 ### Unreleased
 ### New Features
 * When reading from option file/string/map, customized comparators and/or merge operators can be filled according to object registry.
+* Introduce Periodic Compaction for Level style compaction. Files are re-compacted periodically and put in the same level.
+
 ### Public API Change
 ### Bug Fixes
 * Fix a bug in 2PC where a sequence of txn prepare, memtable flush, and crash could result in losing the prepared transaction.

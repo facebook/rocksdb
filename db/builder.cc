@@ -49,7 +49,8 @@ TableBuilder* NewTableBuilder(
     WritableFileWriter* file, const CompressionType compression_type,
     uint64_t sample_for_compression, const CompressionOptions& compression_opts,
     int level, const bool skip_filters, const uint64_t creation_time,
-    const uint64_t oldest_key_time, const uint64_t target_file_size) {
+    const uint64_t oldest_key_time, const uint64_t target_file_size,
+    const uint64_t file_creation_time) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -58,7 +59,8 @@ TableBuilder* NewTableBuilder(
                           int_tbl_prop_collector_factories, compression_type,
                           sample_for_compression, compression_opts,
                           skip_filters, column_family_name, level,
-                          creation_time, oldest_key_time, target_file_size),
+                          creation_time, oldest_key_time, target_file_size,
+                          file_creation_time),
       column_family_id, file);
 }
 
@@ -80,7 +82,7 @@ Status BuildTable(
     TableFileCreationReason reason, EventLogger* event_logger, int job_id,
     const Env::IOPriority io_priority, TableProperties* table_properties,
     int level, const uint64_t creation_time, const uint64_t oldest_key_time,
-    Env::WriteLifeTimeHint write_hint) {
+    Env::WriteLifeTimeHint write_hint, const uint64_t file_creation_time) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -135,7 +137,8 @@ Status BuildTable(
           int_tbl_prop_collector_factories, column_family_id,
           column_family_name, file_writer.get(), compression,
           sample_for_compression, compression_opts_for_flush, level,
-          false /* skip_filters */, creation_time, oldest_key_time);
+          false /* skip_filters */, creation_time, oldest_key_time,
+          0 /*target_file_size*/, file_creation_time);
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),
