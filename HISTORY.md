@@ -3,6 +3,7 @@
 ### Unreleased
 ### New Features
 * When reading from option file/string/map, customized comparators and/or merge operators can be filled according to object registry.
+* Improve range scan performance by avoiding per-key upper bound check in BlockBasedTableIterator.
 
 ## 6.1.0 (3/27/2019)
 ### New Features
