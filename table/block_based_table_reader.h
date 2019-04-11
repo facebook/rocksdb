@@ -610,10 +610,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
     return block_iter_.key();
   }
   Slice user_key() const override {
-    if (key_includes_seq_) {
-      return ExtractUserKey(key());
-    }
-    return key();
+    assert(Valid());
+    return block_iter_.user_key();
   }
   TValue value() const override {
     assert(Valid());
