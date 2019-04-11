@@ -57,6 +57,7 @@ int Fadvise(int fd, off_t offset, size_t len, int advice) {
 }
 
 namespace {
+
 size_t GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
 #ifdef OS_LINUX
   struct stat buf;
@@ -125,7 +126,45 @@ size_t GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
 #endif
   return kDefaultPageSize;
 }
-} //  namespace
+
+#ifdef ROCKSDB_RANGESYNC_PRESENT
+
+#if !defined(ZFS_SUPER_MAGIC)
+// The magic number for ZFS was not exposed until recently. It should be fixed
+// forever so we can just copy the magic number here.
+#define ZFS_SUPER_MAGIC 0x2fc12fc1
+#endif
+
+bool IsSyncFileRangeSupported(int __attribute__((__unused__)) fd) {
+  // `fstatfs` is only available on Linux, but so is `sync_file_range`, so
+  // `defined(ROCKSDB_RANGESYNC_PRESENT)` should imply `defined(OS_LINUX)`.
+  struct statfs buf;
+  int ret = fstatfs(fd, &buf);
+  assert(ret == 0);
+  if (ret != 0) {
+    // We don't know whether the filesystem properly supports `sync_file_range`.
+    // Even if it doesn't, we don't know of any safety issue with trying to call
+    // it anyways. So, to preserve the same behavior as before this `fstatfs`
+    // check was introduced, we assume `sync_file_range` is usable.
+    return true;
+  }
+  if (buf.f_type == ZFS_SUPER_MAGIC) {
+    // Testing on ZFS showed the writeback did not happen asynchronously when
+    // `sync_file_range` was called, even though it returned success. Avoid it
+    // and use `fdatasync` instead to preserve the contract of `bytes_per_sync`,
+    // even though this'll incur extra I/O for metadata.
+    return false;
+  }
+  // No known problems with other filesystems' implementations of
+  // `sync_file_range`, so allow them to use it.
+  return true;
+}
+
+#undef ZFS_SUPER_MAGIC
+
+#endif  // ROCKSDB_RANGESYNC_PRESENT
+
+}  // anonymous namespace
 
 /*
  * DirectIOHelper
@@ -743,6 +782,9 @@ PosixWritableFile::PosixWritableFile(const std::string& fname, int fd,
   allow_fallocate_ = options.allow_fallocate;
   fallocate_with_keep_size_ = options.fallocate_with_keep_size;
 #endif
+#ifdef ROCKSDB_RANGESYNC_PRESENT
+  sync_file_range_supported_ = IsSyncFileRangeSupported(fd_);
+#endif  // ROCKSDB_RANGESYNC_PRESENT
   assert(!options.use_mmap_writes);
 }
 
@@ -945,20 +987,30 @@ Status PosixWritableFile::Allocate(uint64_t offset, uint64_t len) {
 }
 #endif
 
-#ifdef ROCKSDB_RANGESYNC_PRESENT
 Status PosixWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
+  // If `sync_file_range` is not available or not supported by the filesystem
+  // on which the file resides, fall back to `Sync()` (`fdatasync`). While this
+  // upholds the contract of `bytes_per_sync`, it has disadvantages: (1) other
+  // non-Posix `Env`s do not have this behavior yet; and (2) unlike
+  // `sync_file_range`, `fdatasync` can sync metadata, increasing write-amp.
+#ifdef ROCKSDB_RANGESYNC_PRESENT
+  if (!sync_file_range_supported_) {
+    return Sync();
+  }
   assert(offset <= std::numeric_limits<off_t>::max());
   assert(nbytes <= std::numeric_limits<off_t>::max());
-  if (sync_file_range(fd_, static_cast<off_t>(offset),
-      static_cast<off_t>(nbytes), SYNC_FILE_RANGE_WRITE) == 0) {
+  if (sync_file_range(fd_, 0, static_cast<off_t>(offset + nbytes),
+                      SYNC_FILE_RANGE_WAIT_BEFORE | SYNC_FILE_RANGE_WRITE) == 0) {
     return Status::OK();
   } else {
-    return IOError("While sync_file_range offset " + ToString(offset) +
-                       " bytes " + ToString(nbytes),
+    return IOError("While sync_file_range offset " + ToString(0) +
+                       " bytes " + ToString(offset + nbytes),
                    filename_, errno);
   }
-}
+#else
+  return Sync();
 #endif
+}
 
 #ifdef OS_LINUX
 size_t PosixWritableFile::GetUniqueId(char* id, size_t max_size) const {
