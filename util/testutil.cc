@@ -346,6 +346,7 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   // uint64_t options
   static const uint64_t uint_max = static_cast<uint64_t>(UINT_MAX);
   cf_opt->ttl = uint_max + rnd->Uniform(10000);
+  cf_opt->periodic_compaction_seconds = uint_max + rnd->Uniform(10000);
   cf_opt->max_sequential_skip_in_iterations = uint_max + rnd->Uniform(10000);
   cf_opt->target_file_size_base = uint_max + rnd->Uniform(10000);
   cf_opt->max_compaction_bytes =

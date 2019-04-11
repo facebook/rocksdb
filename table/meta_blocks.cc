@@ -89,6 +89,9 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   Add(TablePropertiesNames::kColumnFamilyId, props.column_family_id);
   Add(TablePropertiesNames::kCreationTime, props.creation_time);
   Add(TablePropertiesNames::kOldestKeyTime, props.oldest_key_time);
+  if (props.file_creation_time > 0) {
+    Add(TablePropertiesNames::kFileCreationTime, props.file_creation_time);
+  }
 
   if (!props.filter_policy_name.empty()) {
     Add(TablePropertiesNames::kFilterPolicy, props.filter_policy_name);
@@ -260,6 +263,8 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
        &new_table_properties->creation_time},
       {TablePropertiesNames::kOldestKeyTime,
        &new_table_properties->oldest_key_time},
+      {TablePropertiesNames::kFileCreationTime,
+       &new_table_properties->file_creation_time},
   };
 
   std::string last_key;

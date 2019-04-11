@@ -351,6 +351,7 @@ struct BlockBasedTableBuilder::Rep {
   uint64_t creation_time = 0;
   uint64_t oldest_key_time = 0;
   const uint64_t target_file_size;
+  uint64_t file_creation_time = 0;
 
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
 
@@ -364,7 +365,8 @@ struct BlockBasedTableBuilder::Rep {
       const uint64_t _sample_for_compression,
       const CompressionOptions& _compression_opts, const bool skip_filters,
       const std::string& _column_family_name, const uint64_t _creation_time,
-      const uint64_t _oldest_key_time, const uint64_t _target_file_size)
+      const uint64_t _oldest_key_time, const uint64_t _target_file_size,
+      const uint64_t _file_creation_time)
       : ioptions(_ioptions),
         moptions(_moptions),
         table_options(table_opt),
@@ -401,7 +403,8 @@ struct BlockBasedTableBuilder::Rep {
         column_family_name(_column_family_name),
         creation_time(_creation_time),
         oldest_key_time(_oldest_key_time),
-        target_file_size(_target_file_size) {
+        target_file_size(_target_file_size),
+        file_creation_time(_file_creation_time) {
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
       p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
@@ -453,7 +456,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     const uint64_t sample_for_compression,
     const CompressionOptions& compression_opts, const bool skip_filters,
     const std::string& column_family_name, const uint64_t creation_time,
-    const uint64_t oldest_key_time, const uint64_t target_file_size) {
+    const uint64_t oldest_key_time, const uint64_t target_file_size,
+    const uint64_t file_creation_time) {
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
       sanitized_table_options.checksum != kCRC32c) {
@@ -466,11 +470,12 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     sanitized_table_options.format_version = 1;
   }
 
-  rep_ = new Rep(
-      ioptions, moptions, sanitized_table_options, internal_comparator,
-      int_tbl_prop_collector_factories, column_family_id, file,
-      compression_type, sample_for_compression, compression_opts, skip_filters,
-      column_family_name, creation_time, oldest_key_time, target_file_size);
+  rep_ =
+      new Rep(ioptions, moptions, sanitized_table_options, internal_comparator,
+              int_tbl_prop_collector_factories, column_family_id, file,
+              compression_type, sample_for_compression, compression_opts,
+              skip_filters, column_family_name, creation_time, oldest_key_time,
+              target_file_size, file_creation_time);
 
   if (rep_->filter_builder != nullptr) {
     rep_->filter_builder->StartBlock(0);
@@ -955,6 +960,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
         rep_->use_delta_encoding_for_index_values;
     rep_->props.creation_time = rep_->creation_time;
     rep_->props.oldest_key_time = rep_->oldest_key_time;
+    rep_->props.file_creation_time = rep_->file_creation_time;
 
     // Add basic properties
     property_block_builder.AddTableProperty(rep_->props);

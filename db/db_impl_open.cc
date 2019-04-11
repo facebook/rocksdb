@@ -188,6 +188,20 @@ static Status ValidateOptions(
             "TTL is only supported in Block-Based Table format. ");
       }
     }
+
+    if (cfd.options.periodic_compaction_seconds > 0) {
+      if (db_options.max_open_files != -1) {
+        return Status::NotSupported(
+            "Periodic Compaction is only supported when files are always "
+            "kept open (set max_open_files = -1). ");
+      }
+      if (cfd.options.table_factory->Name() !=
+          BlockBasedTableFactory().Name()) {
+        return Status::NotSupported(
+            "Periodic Compaction is only supported in "
+            "Block-Based Table format. ");
+      }
+    }
   }
 
   if (db_options.db_paths.size() > 4) {
