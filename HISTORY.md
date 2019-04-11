@@ -1,5 +1,9 @@
 # Rocksdb Change Log
 
+## 6.0.3 (4/30/2019)
+### New Features
+* Introduce Periodic Compaction for Level style compaction. Files are re-compacted periodically and put in the same level.
+
 ## 6.0.2 (4/23/2019)
 ## Bug Fixes
 * Fix build failures due to missing JEMALLOC_CXX_THROW macro (#5053)
