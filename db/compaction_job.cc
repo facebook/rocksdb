@@ -97,6 +97,8 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "Flush";
     case CompactionReason::kExternalSstIngestion:
       return "ExternalSstIngestion";
+    case CompactionReason::kPeriodicCompaction:
+      return "PeriodicCompaction";
     case CompactionReason::kNumOfReasons:
       // fall through
     default:
@@ -1480,20 +1482,20 @@ Status CompactionJob::OpenCompactionOutputFile(
   bool skip_filters =
       cfd->ioptions()->optimize_filters_for_hits && bottommost_level_;
 
-  uint64_t output_file_creation_time =
+  int64_t temp_current_time = 0;
+  auto get_time_status = env_->GetCurrentTime(&temp_current_time);
+  // Safe to proceed even if GetCurrentTime fails. So, log and proceed.
+  if (!get_time_status.ok()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Failed to get current time. Status: %s",
+                   get_time_status.ToString().c_str());
+  }
+  uint64_t current_time = static_cast<uint64_t>(temp_current_time);
+
+  uint64_t latest_key_time =
       sub_compact->compaction->MaxInputFileCreationTime();
-  if (output_file_creation_time == 0) {
-    int64_t _current_time = 0;
-    auto status = db_options_.env->GetCurrentTime(&_current_time);
-    // Safe to proceed even if GetCurrentTime fails. So, log and proceed.
-    if (!status.ok()) {
-      ROCKS_LOG_WARN(
-          db_options_.info_log,
-          "Failed to get current time to populate creation_time property. "
-          "Status: %s",
-          status.ToString().c_str());
-    }
-    output_file_creation_time = static_cast<uint64_t>(_current_time);
+  if (latest_key_time == 0) {
+    latest_key_time = current_time;
   }
 
   sub_compact->builder.reset(NewTableBuilder(
@@ -1503,9 +1505,9 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->output_compression(),
       0 /*sample_for_compression */,
       sub_compact->compaction->output_compression_opts(),
-      sub_compact->compaction->output_level(), skip_filters,
-      output_file_creation_time, 0 /* oldest_key_time */,
-      sub_compact->compaction->max_output_file_size()));
+      sub_compact->compaction->output_level(), skip_filters, latest_key_time,
+      0 /* oldest_key_time */, sub_compact->compaction->max_output_file_size(),
+      current_time));
   LogFlush(db_options_.info_log);
   return s;
 }

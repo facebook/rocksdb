@@ -14,7 +14,7 @@
 #include "port/win/port_win.h"
 
 #include <io.h>
-#include "port/dirent.h"
+#include "port/port_dirent.h"
 #include "port/sys_time.h"
 
 #include <cstdlib>

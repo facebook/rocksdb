@@ -159,6 +159,59 @@ bool FullFilterBlockReader::MayMatch(const Slice& entry) {
   return true;  // remain the same with block_based filter
 }
 
+void FullFilterBlockReader::KeysMayMatch(
+    MultiGetRange* range, const SliceTransform* /*prefix_extractor*/,
+    uint64_t block_offset, const bool /*no_io*/) {
+#ifdef NDEBUG
+  (void)range;
+  (void)block_offset;
+#endif
+  assert(block_offset == kNotValid);
+  if (!whole_key_filtering_) {
+    // Simply return. Don't skip any key - consider all keys as likely to be
+    // present
+    return;
+  }
+  MayMatch(range);
+}
+
+void FullFilterBlockReader::PrefixesMayMatch(
+    MultiGetRange* range, const SliceTransform* /* prefix_extractor */,
+    uint64_t block_offset, const bool /*no_io*/) {
+#ifdef NDEBUG
+  (void)range;
+  (void)block_offset;
+#endif
+  assert(block_offset == kNotValid);
+  MayMatch(range);
+}
+
+void FullFilterBlockReader::MayMatch(MultiGetRange* range) {
+  if (contents_.size() == 0) {
+    return;
+  }
+
+  // We need to use an array instead of autovector for may_match since
+  // &may_match[0] doesn't work for autovector<bool> (compiler error). So
+  // declare both keys and may_match as arrays, which is also slightly less
+  // expensive compared to autovector
+  Slice* keys[MultiGetContext::MAX_BATCH_SIZE];
+  bool may_match[MultiGetContext::MAX_BATCH_SIZE];
+  int num_keys = 0;
+  for (auto iter = range->begin(); iter != range->end(); ++iter) {
+    keys[num_keys++] = &iter->ukey;
+  }
+  filter_bits_reader_->MayMatch(num_keys, &keys[0], &may_match[0]);
+
+  int i = 0;
+  for (auto iter = range->begin(); iter != range->end(); ++iter) {
+    if (!may_match[i]) {
+      range->SkipKey(iter);
+    }
+    ++i;
+  }
+}
+
 size_t FullFilterBlockReader::ApproximateMemoryUsage() const {
   size_t usage = block_contents_.usable_size();
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE

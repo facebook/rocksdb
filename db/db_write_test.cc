@@ -166,6 +166,25 @@ TEST_P(DBWriteTest, IOErrorOnSwitchMemtable) {
   Close();
 }
 
+// Test that db->LockWAL() flushes the WAL after locking.
+TEST_P(DBWriteTest, LockWalInEffect) {
+  Options options = GetOptions();
+  Reopen(options);
+  // try the 1st WAL created during open
+  ASSERT_OK(Put("key" + ToString(0), "value"));
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_OK(dbfull()->LockWAL());
+  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty(false));
+  ASSERT_OK(dbfull()->UnlockWAL());
+  // try the 2nd wal created during SwitchWAL
+  dbfull()->TEST_SwitchWAL();
+  ASSERT_OK(Put("key" + ToString(0), "value"));
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_OK(dbfull()->LockWAL());
+  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty(false));
+  ASSERT_OK(dbfull()->UnlockWAL());
+}
+
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
                         testing::Values(DBTestBase::kDefault,
                                         DBTestBase::kConcurrentWALWrites,

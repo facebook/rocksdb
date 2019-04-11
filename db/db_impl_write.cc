@@ -311,8 +311,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         }
         writer->sequence = next_sequence;
         if (writer->pre_release_callback) {
-          Status ws = writer->pre_release_callback->Callback(writer->sequence,
-                                                             disable_memtable);
+          Status ws = writer->pre_release_callback->Callback(
+              writer->sequence, disable_memtable, writer->log_used);
           if (!ws.ok()) {
             status = ws;
             break;
@@ -649,8 +649,8 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
       if (!writer->CallbackFailed() && writer->pre_release_callback) {
         assert(writer->sequence != kMaxSequenceNumber);
         const bool DISABLE_MEMTABLE = true;
-        Status ws = writer->pre_release_callback->Callback(writer->sequence,
-                                                           DISABLE_MEMTABLE);
+        Status ws = writer->pre_release_callback->Callback(
+            writer->sequence, DISABLE_MEMTABLE, writer->log_used);
         if (!ws.ok()) {
           status = ws;
           break;
@@ -993,8 +993,9 @@ Status DBImpl::WriteRecoverableState() {
       const bool DISABLE_MEMTABLE = true;
       for (uint64_t sub_batch_seq = seq + 1;
            sub_batch_seq < next_seq && status.ok(); sub_batch_seq++) {
+        uint64_t const no_log_num = 0;
         status = recoverable_state_pre_release_callback_->Callback(
-            sub_batch_seq, !DISABLE_MEMTABLE);
+            sub_batch_seq, !DISABLE_MEMTABLE, no_log_num);
       }
     }
     if (status.ok()) {
@@ -1126,7 +1127,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   ROCKS_LOG_INFO(
       immutable_db_options_.info_log,
       "Flushing column family with largest mem table size. Write buffer is "
-      "using %" PRIu64 " bytes out of a total of %" PRIu64 ".",
+      "using %" ROCKSDB_PRIszt " bytes out of a total of %" ROCKSDB_PRIszt ".",
       write_buffer_manager_->memory_usage(),
       write_buffer_manager_->buffer_size());
   // no need to refcount because drop is happening in write thread, so can't
@@ -1478,7 +1479,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       if (!s.ok()) {
         ROCKS_LOG_WARN(immutable_db_options_.info_log,
                        "[%s] Failed to switch from #%" PRIu64 " to #%" PRIu64
-                       "  WAL file -- %s\n",
+                       "  WAL file\n",
                        cfd->GetName().c_str(), cur_log_writer->get_log_number(),
                        new_log_number);
       }

@@ -5,6 +5,7 @@
 
 #pragma once
 #include <string>
+#include <db/dbformat.h>
 #include "db/merge_context.h"
 #include "db/read_callback.h"
 #include "rocksdb/env.h"
@@ -60,6 +61,8 @@ class GetContext {
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr);
+
+  GetContext() = default;
 
   void MarkKeyMayExist();
 

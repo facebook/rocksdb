@@ -1114,6 +1114,9 @@ DEFINE_uint64(stats_persist_period_sec,
 DEFINE_uint64(stats_history_buffer_size,
               rocksdb::Options().stats_history_buffer_size,
               "Max number of stats snapshots to keep in memory");
+DEFINE_int64(multiread_stride, 0,
+             "Stride length for the keys in a MultiGet batch");
+DEFINE_bool(multiread_batched, false, "Use the new MultiGet API");
 
 enum RepFactory {
   kSkipList,
@@ -2700,6 +2703,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       } else if (name == "readreverse") {
         method = &Benchmark::ReadReverse;
       } else if (name == "readrandom") {
+        if (FLAGS_multiread_stride) {
+          fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
+                  entries_per_batch_);
+        }
         method = &Benchmark::ReadRandom;
       } else if (name == "readrandomfast") {
         method = &Benchmark::ReadRandomFast;
@@ -4531,6 +4538,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     int64_t read = 0;
     int64_t found = 0;
     int64_t bytes = 0;
+    int num_keys = 0;
+    int64_t key_rand = GetRandomKey(&thread->rand);
     ReadOptions options(FLAGS_verify_checksum, true);
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
@@ -4542,8 +4551,21 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       // We use same key_rand as seed for key and column family so that we can
       // deterministically find the cfh corresponding to a particular key, as it
       // is done in DoWrite method.
-      int64_t key_rand = GetRandomKey(&thread->rand);
       GenerateKeyFromInt(key_rand, FLAGS_num, &key);
+      if (entries_per_batch_ > 1 && FLAGS_multiread_stride) {
+        if (++num_keys == entries_per_batch_) {
+          num_keys = 0;
+          key_rand = GetRandomKey(&thread->rand);
+          if ((key_rand + (entries_per_batch_ - 1) * FLAGS_multiread_stride) >=
+              FLAGS_num) {
+            key_rand = FLAGS_num - entries_per_batch_ * FLAGS_multiread_stride;
+          }
+        } else {
+          key_rand += FLAGS_multiread_stride;
+        }
+      } else {
+        key_rand = GetRandomKey(&thread->rand);
+      }
       read++;
       Status s;
       if (FLAGS_num_column_families > 1) {
@@ -4595,6 +4617,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     std::vector<Slice> keys;
     std::vector<std::unique_ptr<const char[]> > key_guards;
     std::vector<std::string> values(entries_per_batch_);
+    PinnableSlice* pin_values = new PinnableSlice[entries_per_batch_];
+    std::vector<Status> stat_list(entries_per_batch_);
     while (static_cast<int64_t>(keys.size()) < entries_per_batch_) {
       key_guards.push_back(std::unique_ptr<const char[]>());
       keys.push_back(AllocateKey(&key_guards.back()));
@@ -4603,21 +4627,52 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
-      for (int64_t i = 0; i < entries_per_batch_; ++i) {
-        GenerateKeyFromInt(GetRandomKey(&thread->rand), FLAGS_num, &keys[i]);
+      if (FLAGS_multiread_stride) {
+        int64_t key = GetRandomKey(&thread->rand);
+        if ((key + (entries_per_batch_ - 1) * FLAGS_multiread_stride) >=
+            (int64_t)FLAGS_num) {
+          key = FLAGS_num - entries_per_batch_ * FLAGS_multiread_stride;
+        }
+        for (int64_t i = 0; i < entries_per_batch_; ++i) {
+          GenerateKeyFromInt(key, FLAGS_num, &keys[i]);
+          key += FLAGS_multiread_stride;
+        }
+      } else {
+        for (int64_t i = 0; i < entries_per_batch_; ++i) {
+          GenerateKeyFromInt(GetRandomKey(&thread->rand), FLAGS_num, &keys[i]);
+        }
       }
-      std::vector<Status> statuses = db->MultiGet(options, keys, &values);
-      assert(static_cast<int64_t>(statuses.size()) == entries_per_batch_);
+      if (!FLAGS_multiread_batched) {
+        std::vector<Status> statuses = db->MultiGet(options, keys, &values);
+        assert(static_cast<int64_t>(statuses.size()) == entries_per_batch_);
 
-      read += entries_per_batch_;
-      num_multireads++;
-      for (int64_t i = 0; i < entries_per_batch_; ++i) {
-        if (statuses[i].ok()) {
-          ++found;
-        } else if (!statuses[i].IsNotFound()) {
-          fprintf(stderr, "MultiGet returned an error: %s\n",
-                  statuses[i].ToString().c_str());
-          abort();
+        read += entries_per_batch_;
+        num_multireads++;
+        for (int64_t i = 0; i < entries_per_batch_; ++i) {
+          if (statuses[i].ok()) {
+            ++found;
+          } else if (!statuses[i].IsNotFound()) {
+            fprintf(stderr, "MultiGet returned an error: %s\n",
+                    statuses[i].ToString().c_str());
+            abort();
+          }
+        }
+      } else {
+        db->MultiGet(options, db->DefaultColumnFamily(), keys.size(),
+                     keys.data(), pin_values, stat_list.data());
+
+        read += entries_per_batch_;
+        num_multireads++;
+        for (int64_t i = 0; i < entries_per_batch_; ++i) {
+          if (stat_list[i].ok()) {
+            ++found;
+          } else if (!stat_list[i].IsNotFound()) {
+            fprintf(stderr, "MultiGet returned an error: %s\n",
+                    stat_list[i].ToString().c_str());
+            abort();
+          }
+          stat_list[i] = Status::OK();
+          pin_values[i].Reset();
         }
       }
       if (thread->shared->read_rate_limiter.get() != nullptr &&

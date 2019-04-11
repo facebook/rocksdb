@@ -751,30 +751,40 @@ class WritePreparedTxnReadCallback : public ReadCallback {
 
 class AddPreparedCallback : public PreReleaseCallback {
  public:
-  AddPreparedCallback(WritePreparedTxnDB* db, size_t sub_batch_cnt,
-                      bool two_write_queues)
+  AddPreparedCallback(WritePreparedTxnDB* db, DBImpl* db_impl,
+                      size_t sub_batch_cnt, bool two_write_queues,
+                      bool first_prepare_batch)
       : db_(db),
+        db_impl_(db_impl),
         sub_batch_cnt_(sub_batch_cnt),
-        two_write_queues_(two_write_queues) {
+        two_write_queues_(two_write_queues),
+        first_prepare_batch_(first_prepare_batch) {
     (void)two_write_queues_;  // to silence unused private field warning
   }
   virtual Status Callback(SequenceNumber prepare_seq,
-                          bool is_mem_disabled) override {
-#ifdef NDEBUG
-    (void)is_mem_disabled;
-#endif
+                          bool is_mem_disabled __attribute__((__unused__)),
+                          uint64_t log_number) override {
     // Always Prepare from the main queue
     assert(!two_write_queues_ || !is_mem_disabled);  // implies the 1st queue
     for (size_t i = 0; i < sub_batch_cnt_; i++) {
       db_->AddPrepared(prepare_seq + i);
+    }
+    if (first_prepare_batch_) {
+      assert(log_number != 0);
+      db_impl_->logs_with_prep_tracker()->MarkLogAsContainingPrepSection(
+          log_number);
     }
     return Status::OK();
   }
 
  private:
   WritePreparedTxnDB* db_;
+  DBImpl* db_impl_;
   size_t sub_batch_cnt_;
   bool two_write_queues_;
+  // It is 2PC and this is the first prepare batch. Always the case in 2PC
+  // unless it is WriteUnPrepared.
+  bool first_prepare_batch_;
 };
 
 class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
@@ -800,10 +810,8 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
   }
 
   virtual Status Callback(SequenceNumber commit_seq,
-                          bool is_mem_disabled) override {
-#ifdef NDEBUG
-    (void)is_mem_disabled;
-#endif
+                          bool is_mem_disabled __attribute__((__unused__)),
+                          uint64_t) override {
     // Always commit from the 2nd queue
     assert(!db_impl_->immutable_db_options().two_write_queues ||
            is_mem_disabled);
@@ -884,8 +892,8 @@ class WritePreparedRollbackPreReleaseCallback : public PreReleaseCallback {
     assert(prep_batch_cnt_ > 0);
   }
 
-  virtual Status Callback(SequenceNumber commit_seq,
-                          bool is_mem_disabled) override {
+  Status Callback(SequenceNumber commit_seq, bool is_mem_disabled,
+                  uint64_t) override {
     // Always commit from the 2nd queue
     assert(is_mem_disabled);  // implies the 2nd queue
     assert(db_impl_->immutable_db_options().two_write_queues);

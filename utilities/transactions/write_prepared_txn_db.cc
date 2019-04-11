@@ -64,10 +64,9 @@ Status WritePreparedTxnDB::Initialize(
    public:
     explicit CommitSubBatchPreReleaseCallback(WritePreparedTxnDB* db)
         : db_(db) {}
-    Status Callback(SequenceNumber commit_seq, bool is_mem_disabled) override {
-#ifdef NDEBUG
-      (void)is_mem_disabled;
-#endif
+    Status Callback(SequenceNumber commit_seq,
+                    bool is_mem_disabled __attribute__((__unused__)),
+                    uint64_t) override {
       assert(!is_mem_disabled);
       db_->AddCommitted(commit_seq, commit_seq);
       return Status::OK();
@@ -163,11 +162,14 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   const uint64_t no_log_ref = 0;
   uint64_t seq_used = kMaxSequenceNumber;
   const size_t ZERO_PREPARES = 0;
+  const bool kSeperatePrepareCommitBatches = true;
   // Since this is not 2pc, there is no need for AddPrepared but having it in
   // the PreReleaseCallback enables an optimization. Refer to
   // SmallestUnCommittedSeq for more details.
   AddPreparedCallback add_prepared_callback(
-      this, batch_cnt, db_impl_->immutable_db_options().two_write_queues);
+      this, db_impl_, batch_cnt,
+      db_impl_->immutable_db_options().two_write_queues,
+      !kSeperatePrepareCommitBatches);
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
       this, db_impl_, kMaxSequenceNumber, ZERO_PREPARES, batch_cnt);
   PreReleaseCallback* pre_release_callback;
