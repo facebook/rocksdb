@@ -151,8 +151,8 @@ class MultiGetContext {
       typedef int difference_type;
       typedef std::forward_iterator_tag iterator_category;
 
-      Iterator(const Range* range, size_t index)
-          : range_(range), ctx_(range->ctx_), index_(index) {
+      Iterator(const Range* range, size_t idx)
+          : range_(range), ctx_(range->ctx_), index_(idx) {
         while (index_ < range_->end_ &&
                (1ull << index_) &
                    (range_->ctx_->value_mask_ | range_->skip_mask_))
