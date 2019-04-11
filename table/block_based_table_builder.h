@@ -48,7 +48,8 @@ class BlockBasedTableBuilder : public TableBuilder {
       const uint64_t sample_for_compression,
       const CompressionOptions& compression_opts, const bool skip_filters,
       const std::string& column_family_name, const uint64_t creation_time = 0,
-      const uint64_t oldest_key_time = 0, const uint64_t target_file_size = 0);
+      const uint64_t oldest_key_time = 0, const uint64_t target_file_size = 0,
+      const uint64_t file_creation_time = 0);
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~BlockBasedTableBuilder();
