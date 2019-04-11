@@ -415,7 +415,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   return s;
 }
 
-void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
+void LRUCacheShard::Erase(const Slice& key, uint32_t hash, const bool expect_last_ref) {
   LRUHandle* e;
   bool last_reference = false;
   {
@@ -423,6 +423,7 @@ void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
     e = table_.Remove(key, hash);
     if (e != nullptr) {
       last_reference = Unref(e);
+      assert(last_reference || !expect_last_ref);
       if (last_reference) {
         usage_ -= e->charge;
       }

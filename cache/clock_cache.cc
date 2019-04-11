@@ -255,7 +255,8 @@ class ClockCacheShard final : public CacheShard {
   // Not necessary to hold mutex_ before being called.
   bool Ref(Cache::Handle* handle) override;
   bool Release(Cache::Handle* handle, bool force_erase = false) override;
-  void Erase(const Slice& key, uint32_t hash) override;
+  // expect_last_ref is ignored in ClockCache::Erase
+  void Erase(const Slice& key, uint32_t hash, const bool) override;
   bool EraseAndConfirm(const Slice& key, uint32_t hash,
                        CleanupContext* context);
   size_t GetUsage() const override;
@@ -641,7 +642,7 @@ bool ClockCacheShard::Release(Cache::Handle* h, bool force_erase) {
   return erased;
 }
 
-void ClockCacheShard::Erase(const Slice& key, uint32_t hash) {
+void ClockCacheShard::Erase(const Slice& key, uint32_t hash, const bool) {
   CleanupContext context;
   EraseAndConfirm(key, hash, &context);
   Cleanup(context);

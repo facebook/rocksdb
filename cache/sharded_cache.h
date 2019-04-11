@@ -31,7 +31,7 @@ class CacheShard {
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) = 0;
   virtual bool Ref(Cache::Handle* handle) = 0;
   virtual bool Release(Cache::Handle* handle, bool force_erase = false) = 0;
-  virtual void Erase(const Slice& key, uint32_t hash) = 0;
+  virtual void Erase(const Slice& key, uint32_t hash, const bool expect_last_ref) = 0;
   virtual void SetCapacity(size_t capacity) = 0;
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) = 0;
   virtual size_t GetUsage() const = 0;
@@ -67,7 +67,7 @@ class ShardedCache : public Cache {
   virtual Handle* Lookup(const Slice& key, Statistics* stats) override;
   virtual bool Ref(Handle* handle) override;
   virtual bool Release(Handle* handle, bool force_erase = false) override;
-  virtual void Erase(const Slice& key) override;
+  virtual void Erase(const Slice& key, const bool expect_last_ref) override;
   virtual uint64_t NewId() override;
   virtual size_t GetCapacity() const override;
   virtual bool HasStrictCapacityLimit() const override;

@@ -151,12 +151,19 @@ PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
       &comparator_, comparator_.user_comparator(), &biter, kNullStats, true,
       index_key_includes_seq_, index_value_is_full_);
   biter.SeekToFirst();
+  {
+    // We need to release the handles first otherwise erase is not effective
+    Cleanable cleaner;
+    DelegateCleanupsTo(&cleaner);
+  }
   for (; biter.Valid(); biter.Next()) {
     handle = biter.value();
     auto key = BlockBasedTable::GetCacheKey(table_->rep_->cache_key_prefix,
                                             table_->rep_->cache_key_prefix_size,
                                             handle, cache_key);
-    block_cache->Erase(key);
+    const bool kExpectLastRef = true;
+    block_cache->Erase(key, kExpectLastRef);
+    assert(block_cache->Lookup(key, nullptr) == nullptr);
   }
 }
 

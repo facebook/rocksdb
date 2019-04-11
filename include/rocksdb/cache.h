@@ -193,7 +193,7 @@ class Cache {
   // If the cache contains entry for key, erase it.  Note that the
   // underlying entry will be kept around until all existing handles
   // to it have been released.
-  virtual void Erase(const Slice& key) = 0;
+  virtual void Erase(const Slice& key, const bool expect_last_ref = false) = 0;
   // Return a new numeric id.  May be used by multiple clients who are
   // sharding the same cache to partition the key space.  Typically the
   // client will allocate a new id at startup and prepend the id to

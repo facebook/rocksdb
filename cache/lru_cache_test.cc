@@ -55,7 +55,7 @@ class LRUCacheTest : public testing::Test {
 
   bool Lookup(char key) { return Lookup(std::string(1, key)); }
 
-  void Erase(const std::string& key) { cache_->Erase(key, 0 /*hash*/); }
+  void Erase(const std::string& key) { cache_->Erase(key, 0 /*hash*/, false /*expect_last_ref*/); }
 
   void ValidateLRUList(std::vector<std::string> keys,
                        size_t num_high_pri_pool_keys = 0) {
