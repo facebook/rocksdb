@@ -86,15 +86,16 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
       jwriter.StartObject();
 
       // basic properties:
-      jwriter << "data_size" << table_properties.data_size
-              << "index_size" << table_properties.index_size
-              << "index_partitions" << table_properties.index_partitions
-              << "top_level_index_size" << table_properties.top_level_index_size
-              << "index_key_is_user_key" << table_properties.index_key_is_user_key
-              << "index_value_is_delta_encoded" << table_properties.index_value_is_delta_encoded
-              << "filter_size" << table_properties.filter_size
-              << "raw_key_size" << table_properties.raw_key_size
-              << "raw_average_key_size"
+      jwriter << "data_size" << table_properties.data_size << "index_size"
+              << table_properties.index_size << "index_partitions"
+              << table_properties.index_partitions << "top_level_index_size"
+              << table_properties.top_level_index_size
+              << "index_key_is_user_key"
+              << table_properties.index_key_is_user_key
+              << "index_value_is_delta_encoded"
+              << table_properties.index_value_is_delta_encoded << "filter_size"
+              << table_properties.filter_size << "raw_key_size"
+              << table_properties.raw_key_size << "raw_average_key_size"
               << SafeDivide(table_properties.raw_key_size,
                             table_properties.num_entries)
               << "raw_value_size" << table_properties.raw_value_size
@@ -113,12 +114,13 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << "column_family_id" << table_properties.column_family_id
               << "comparator" << table_properties.comparator_name
               << "merge_operator" << table_properties.merge_operator_name
-              << "prefix_extractor_name" << table_properties.prefix_extractor_name
-              << "property_collectors" << table_properties.property_collectors_names
-              << "compression" << table_properties.compression_name
-              << "compression_options" << table_properties.compression_options
-              << "creation_time" << table_properties.creation_time
-              << "oldest_key_time" << table_properties.oldest_key_time;
+              << "prefix_extractor_name"
+              << table_properties.prefix_extractor_name << "property_collectors"
+              << table_properties.property_collectors_names << "compression"
+              << table_properties.compression_name << "compression_options"
+              << table_properties.compression_options << "creation_time"
+              << table_properties.creation_time << "oldest_key_time"
+              << table_properties.oldest_key_time;
 
       // user collected properties
       for (const auto& prop : table_properties.readable_properties) {
