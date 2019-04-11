@@ -101,7 +101,6 @@ namespace rocksdb {
 const std::string kDefaultColumnFamilyName("default");
 const std::string kPersistentStatsColumnFamilyName("_stats_history");
 void DumpRocksDBBuildVersion(Logger* log);
-extern const int kTimestampStringMinimumLength;
 
 CompressionType GetCompressionFlush(
     const ImmutableCFOptions& ioptions,
@@ -153,7 +152,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       mutex_(stats_, env_, DB_MUTEX_WAIT_MICROS,
              immutable_db_options_.use_adaptive_mutex),
       default_cf_handle_(nullptr),
-      persist_stats_cf_handle_(nullptr),
       max_total_in_memory_state_(0),
       env_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
       env_options_for_compaction_(env_->OptimizeForCompactionTableWrite(
@@ -166,6 +164,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       logfile_number_(0),
       log_dir_synced_(false),
       log_empty_(true),
+      persist_stats_cf_handle_(nullptr),
       log_sync_cv_(&mutex_),
       total_log_size_(0),
       is_snapshot_supported_(true),
@@ -658,7 +657,7 @@ void DBImpl::StartTimedTasks() {
 }
 
 // esitmate the total size of stats_history_
-size_t DBImpl::EstimateStatsHistorySize() const {
+size_t DBImpl::EstimateInMemoryStatsHistorySize() const {
   size_t size_total =
       sizeof(std::map<uint64_t, std::map<std::string, uint64_t>>);
   if (stats_history_.size() == 0) return size_total;
@@ -677,7 +676,6 @@ size_t DBImpl::EstimateStatsHistorySize() const {
 void DBImpl::PersistStats() {
   TEST_SYNC_POINT("DBImpl::PersistStats:Entry");
   // 16 digit microseconds timestamp => [Sep 9, 2001 ~ Nov 20, 2286]
-  // int kTimestampStringMinimumLength = 16;
 #ifndef ROCKSDB_LITE
   if (shutdown_initiated_) {
     return;
@@ -700,18 +698,18 @@ void DBImpl::PersistStats() {
     return;
   }
   if (persist_stats_to_disk) {
-    std::string now_micros_string = ToString(now_micros);
+    std::string now_micros_string = rocksdb::ToString(now_micros);
     // make time stamp string equal in length to allow sorting by time
     now_micros_string.insert(
         0, kTimestampStringMinimumLength - now_micros_string.length(), '0');
     int keycount = 0;
     WriteOptions wo;
-    for (auto iter = stats_map.begin(); iter != stats_map.end(); ++iter) {
+    // for (auto iter = stats_map.begin(); iter != stats_map.end(); ++iter) {
+    for (const auto& stat : stats_map) {
       std::string key(now_micros_string);
-      key.append("#").append(iter->first);
+      key.append("#").append(stat.first);
       // TODO(Zhongyi): add counters for failed writes
-      Status s =
-          DB::Put(wo, persist_stats_cf_handle_, key, ToString(iter->second));
+      Status s = Put(wo, persist_stats_cf_handle_, key, ToString(stat.second));
       keycount++;
     }
     // TODO(Zhongyi): add purging for persisted data
@@ -732,10 +730,10 @@ void DBImpl::PersistStats() {
     TEST_SYNC_POINT("DBImpl::PersistStats:StatsCopied");
 
     // delete older stats snapshots to control memory consumption
-    bool purge_needed = EstimateStatsHistorySize() > stats_history_size_limit;
+    bool purge_needed = EstimateInMemoryStatsHistorySize() > stats_history_size_limit;
     while (purge_needed && !stats_history_.empty()) {
       stats_history_.erase(stats_history_.begin());
-      purge_needed = EstimateStatsHistorySize() > stats_history_size_limit;
+      purge_needed = EstimateInMemoryStatsHistorySize() > stats_history_size_limit;
     }
   }
   // TODO: persist stats to disk

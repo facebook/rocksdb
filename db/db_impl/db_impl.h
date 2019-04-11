@@ -1429,7 +1429,7 @@ class DBImpl : public DB {
 
   void PrintStatistics();
 
-  size_t EstimateStatsHistorySize() const;
+  size_t EstimateInMemoryStatsHistorySize() const;
 
   // persist stats to column family "_persistent_stats"
   void PersistStats();

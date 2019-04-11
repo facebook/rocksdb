@@ -13,7 +13,7 @@
 #include "util/string_util.h"
 
 namespace rocksdb {
-
+const int kTimestampStringMinimumLength = 16;
 
 PersistentStatsHistoryIterator::~PersistentStatsHistoryIterator() {}
 

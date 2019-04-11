@@ -376,13 +376,13 @@ Status DBImpl::Recover(
 
   Status s = versions_->Recover(column_families, read_only);
 
-  // create persistent_stats CF for the first time
-  // DB mutex is already held
-  if (mutable_db_options_.persist_stats_to_disk) {
-    s = CreatePersistStatsHandle();
-  }
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
+  }
+  // create persistent_stats CF for the first time
+  // DB mutex is already held
+  if (s.ok() && mutable_db_options_.persist_stats_to_disk) {
+    s = CreatePersistStatsHandle();
   }
   if (s.ok() && !read_only) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -412,13 +412,6 @@ Status DBImpl::Recover(
     default_cf_handle_ = new ColumnFamilyHandleImpl(
         versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
     default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
-    // When recovering from a DB which already contains persistent stats CF,
-    // the CF is already created in VersionSet::ApplyOneVersionEdit, but
-    // column family handle was not. Need to explicitly create handle here.
-    if (mutable_db_options_.persist_stats_to_disk &&
-        persist_stats_cf_handle_ == nullptr) {
-      s = CreatePersistStatsHandle();
-    }
     // TODO(Zhongyi): handle single_column_family_mode_ when
     // persistent_stats is enabled
     single_column_family_mode_ =
@@ -532,7 +525,7 @@ Status DBImpl::CreatePersistStatsHandle() {
     Status s = CreateColumnFamily(ColumnFamilyOptions(),
                            kPersistentStatsColumnFamilyName, &handle);
     persist_stats_cf_handle_ =
-        reinterpret_cast<ColumnFamilyHandleImpl*>(handle);
+        static_cast<ColumnFamilyHandleImpl*>(handle);
     mutex_.Lock();
     return s;
   } else {

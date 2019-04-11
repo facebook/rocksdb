@@ -769,7 +769,7 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
     auto stats_map = stats_iter->GetStatsMap();
     stats_count += stats_map.size();
   }
-  size_t stats_history_size = dbfull()->TEST_EstimateStatsHistorySize();
+  size_t stats_history_size = dbfull()->TEST_EstimateInMemoryStatsHistorySize();
   ASSERT_GE(slice_count, 9);
   ASSERT_GE(stats_history_size, 12000);
   // capping memory cost at 12000 bytes since one slice is around 10000~12000
@@ -789,7 +789,7 @@ TEST_F(DBOptionsTest, InMemoryStatsHistoryPurging) {
     auto stats_map = stats_iter->GetStatsMap();
     stats_count_reopen += stats_map.size();
   }
-  size_t stats_history_size_reopen = dbfull()->TEST_EstimateStatsHistorySize();
+  size_t stats_history_size_reopen = dbfull()->TEST_EstimateInMemoryStatsHistorySize();
   // only one slice can fit under the new stats_history_buffer_size
   ASSERT_LT(slice_count, 2);
   ASSERT_TRUE(stats_history_size_reopen < 12000 &&

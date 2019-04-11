@@ -13,8 +13,7 @@
 namespace rocksdb {
 
 // 16 digit microseconds timestamp => [Sep 9, 2001 ~ Nov 20, 2286]
-// int kTimestampStringMinimumLength = 16;
-const int kTimestampStringMinimumLength = 16;
+extern const int kTimestampStringMinimumLength;
 
 class PersistentStatsHistoryIterator final : public StatsHistoryIterator {
  public:
