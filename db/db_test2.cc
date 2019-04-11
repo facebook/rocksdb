@@ -3665,11 +3665,9 @@ namespace {
 class DummyOldStats : public Statistics {
  public:
   uint64_t getTickerCount(uint32_t /*ticker_type*/) const override { return 0; }
-  void recordTick(uint32_t /* ticker_type*/, uint64_t /* count */) override {
+  void recordTick(uint32_t /* ticker_type */, uint64_t /* count */) override {
     num_rt++;
   }
-  // Set is not supported for fb303 stats, we just forward to the stats object
-  // provided in constructor.
   void setTickerCount(uint32_t /*ticker_type*/, uint64_t /*count*/) override {}
   uint64_t getAndResetTickerCount(uint32_t /*ticker_type*/) override {
     return 0;

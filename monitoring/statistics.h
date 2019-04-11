@@ -57,7 +57,7 @@ class StatisticsImpl : public Statistics {
   // In case a user explictly calls it, for example, they may have a wrapped
   // Statistics object, passing the call to recordTick() into here, nothing
   // will break.
-  virtual void measureTime(uint32_t histogramType, uint64_t time) {
+  void measureTime(uint32_t histogramType, uint64_t time) override {
     recordInHistogram(histogramType, time);
   }
   virtual void recordInHistogram(uint32_t histogram_type,
