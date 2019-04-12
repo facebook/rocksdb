@@ -196,7 +196,7 @@ void FullFilterBlockReader::MayMatch(MultiGetRange* range) {
   // declare both keys and may_match as arrays, which is also slightly less
   // expensive compared to autovector
   Slice* keys[MultiGetContext::MAX_BATCH_SIZE];
-  bool may_match[MultiGetContext::MAX_BATCH_SIZE];
+  bool may_match[MultiGetContext::MAX_BATCH_SIZE] = {false};
   int num_keys = 0;
   for (auto iter = range->begin(); iter != range->end(); ++iter) {
     keys[num_keys++] = &iter->ukey;
