@@ -628,9 +628,26 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   if (s.ok()) {
     // We must track all the locked keys so that we can unlock them later. If
     // the key is already locked, this func will update some stats on the
-    // tracked key. It could also update the tracked_at_seq if it is lower than
-    // the existing trackey seq.
-    TrackKey(cfh_id, key_str, tracked_at_seq, read_only, exclusive);
+    // tracked key. It could also update the tracked_at_seq if it is lower
+    // than the existing tracked key seq. These stats are necessary for
+    // RollbackToSavePoint to determine whether a key can be safely removed
+    // from tracked_keys_. Removal can only be done if a key was only locked
+    // during the current savepoint.
+    //
+    // Recall that if assume_tracked is true, we assume that TrackKey has been
+    // called previously since the last savepoint, with the same exclusive
+    // setting, and at a lower sequence number, so skipping here should be
+    // safe.
+    if (!assume_tracked) {
+      TrackKey(cfh_id, key_str, tracked_at_seq, read_only, exclusive);
+    } else {
+#ifndef NDEBUG
+      assert(tracked_keys_cf->second.count(key_str) > 0);
+      const auto& info = tracked_keys_cf->second.find(key_str)->second;
+      assert(info.seq <= tracked_at_seq);
+      assert(info.exclusive == exclusive);
+#endif
+    }
   }
 
   return s;
