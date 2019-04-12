@@ -640,6 +640,12 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
     // safe.
     if (!assume_tracked) {
       TrackKey(cfh_id, key_str, tracked_at_seq, read_only, exclusive);
+    } else {
+#ifndef NDEBUG
+      const auto& info = tracked_keys_cf->second.find(key_str)->second;
+      assert(info.seq <= tracked_at_seq);
+      assert(info.exclusive == exclusive);
+#endif
     }
   }
 
