@@ -518,11 +518,13 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
                          std::memory_order_relaxed);
     }
 
-    if (bloom_filter_ && prefix_extractor_) {
-      bloom_filter_->Add(prefix_extractor_->Transform(key));
-    }
-    if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
-      bloom_filter_->Add(key);
+    if (type != kTypeRangeDeletion) {
+      if (bloom_filter_ && prefix_extractor_) {
+        bloom_filter_->Add(prefix_extractor_->Transform(key));
+      }
+      if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
+        bloom_filter_->Add(key);
+      }
     }
 
     // The first sequence number inserted into the memtable
