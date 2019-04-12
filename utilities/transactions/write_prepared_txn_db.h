@@ -25,6 +25,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/cast_util.h"
 #include "util/set_comparator.h"
 #include "util/string_util.h"
 #include "utilities/transactions/pessimistic_transaction.h"
@@ -445,6 +446,20 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
  protected:
   virtual Status VerifyCFOptions(
       const ColumnFamilyOptions& cf_options) override;
+  // Assign the min and max sequence numbers for reading from the db. A seq >
+  // max is not valid, and a seq < min is valid, and a min <= seq < max requires
+  // further checkings. Normally max is defined by the snapshot and min is by
+  // minimum uncommitted seq.
+  inline bool AssignMinMaxSeqs(const Snapshot* snapshot, SequenceNumber* min,
+                               SequenceNumber* max);
+  // Validate is a snapshot sequence number is still valid based on the latest
+  // db status. backed_by_snapshot specifies if the number is baked by an actual
+  // snapshot object. order specified the memory order with which we load the
+  // atomic variables: relax is enough for the default since we care about last
+  // value seen by same thread.
+  inline bool ValidateSnapshot(
+      const SequenceNumber snap_seq, const bool backed_by_snapshot,
+      std::memory_order order = std::memory_order_relaxed);
 
  private:
   friend class PreparedHeap_BasicsTest_Test;
@@ -479,6 +494,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_NonAtomicUpdateOfMaxEvictedSeq_Test;
   friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
   friend class WritePreparedTransactionTest_RollbackTest_Test;
+  friend class WriteUnpreparedTxn;
   friend class WriteUnpreparedTxnDB;
   friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
 
@@ -952,6 +968,39 @@ struct SubBatchCounter : public WriteBatch::Handler {
   Status MarkRollback(const Slice&) override { return Status::OK(); }
   bool WriteAfterCommit() const override { return false; }
 };
+
+bool WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
+                                          SequenceNumber* min,
+                                          SequenceNumber* max) {
+  if (snapshot != nullptr) {
+    *min = static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
+               ->min_uncommitted_;
+    *max = static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
+               ->number_;
+    return true;
+  } else {
+    *min = SmallestUnCommittedSeq();
+    *max = 0;  // to be assigned later after sv is referenced.
+    return false;
+  }
+}
+
+bool WritePreparedTxnDB::ValidateSnapshot(const SequenceNumber snap_seq,
+                                          const bool backed_by_snapshot,
+                                          std::memory_order order) {
+  if (backed_by_snapshot) {
+    return true;
+  } else {
+    SequenceNumber max = max_evicted_seq_.load(order);
+    // Validate that max has not advanced the snapshot seq that is not backed
+    // by a real snapshot. This is a very rare case that should not happen in
+    // real workloads.
+    if (UNLIKELY(snap_seq <= max && snap_seq != 0)) {
+      return false;
+    }
+  }
+  return true;
+}
 
 }  //  namespace rocksdb
 #endif  // ROCKSDB_LITE

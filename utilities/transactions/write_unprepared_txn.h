@@ -40,13 +40,15 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
     // behind reseek optimizations are no longer valid.
   }
 
-  // TODO(myabandeh): override Refresh when Iterator::Refresh is supported
+  void Refresh(SequenceNumber seq) override {
+    max_visible_seq_ = std::max(max_visible_seq_, seq);
+    wup_snapshot_ = seq;
+  }
+
  private:
   static SequenceNumber CalcMaxVisibleSeq(WriteUnpreparedTxn* txn,
                                           SequenceNumber snapshot_seq) {
     SequenceNumber max_unprepared = CalcMaxUnpreparedSequenceNumber(txn);
-    assert(snapshot_seq < max_unprepared || max_unprepared == 0 ||
-           snapshot_seq == kMaxSequenceNumber);
     return std::max(max_unprepared, snapshot_seq);
   }
   static SequenceNumber CalcMaxUnpreparedSequenceNumber(
