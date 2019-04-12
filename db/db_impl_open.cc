@@ -1210,10 +1210,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   // Handles create_if_missing, error_if_exists
   s = impl->Recover(column_families);
   if (s.ok()) {
+    EnvOptions env_options(db_options);
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     log::Writer* new_log = nullptr;
     const size_t preallocate_block_size =
         impl->GetWalPreallocateBlockSize(max_write_buffer_size);
+<<<<<<< HEAD
     s = impl->CreateWAL(new_log_number, 0 /*recycle_log_number*/,
                         preallocate_block_size, &new_log);
     {
@@ -1221,6 +1223,11 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       impl->logfile_number_ = new_log_number;
       impl->logs_.emplace_back(new_log_number, new_log);
     }
+=======
+    s = CreateWAL(impl, env_options, new_log_number, 0 /*recycle_log_number*/,
+                  true /*creating_new_log*/, true /* called_from_open*/,
+                  preallocate_block_size, &new_log);
+>>>>>>> Consolidating wal creation
 
     if (s.ok()) {
       // set column family handles
