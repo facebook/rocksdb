@@ -3592,6 +3592,75 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
+  // This test makes sure that periodic compactions are working with an old DB
+  // where file_creation_time of files is 0.
+  // After compactions the new files are created with a valid file_creation_time
+
+  const int kNumKeysPerFile = 32;
+  const int kNumFiles = 4;
+  const int kValueSize = 100;
+
+  Options options = CurrentOptions();
+  options.max_open_files = -1;  // needed for ttl compaction
+  env_->time_elapse_only_sleep_ = false;
+  options.env = env_;
+
+  env_->addon_time_.store(0);
+  DestroyAndReopen(options);
+
+  int periodic_compactions = 0;
+  bool set_file_creation_time_to_zero = true;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        auto compaction_reason = compaction->compaction_reason();
+        if (compaction_reason == CompactionReason::kPeriodicCompaction) {
+          periodic_compactions++;
+          set_file_creation_time_to_zero = false;
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table", [&](void* /*arg*/) {
+        // set file_creation_time to 0 on flushes.
+        set_file_creation_time_to_zero = true;
+      });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "PropertyBlockBuilder::AddTableProperty:Start", [&](void* arg) {
+        TableProperties* props = reinterpret_cast<TableProperties*>(arg);
+        if (set_file_creation_time_to_zero) {
+          props->file_creation_time = 0;
+          set_file_creation_time_to_zero = false;
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  for (int i = 0; i < kNumFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+    }
+    Flush();
+    // Move the first two files to L2.
+    if (i == 1) {
+      MoveFilesToLevel(2);
+    }
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_EQ("2,0,2", FilesPerLevel());
+  ASSERT_EQ(0, periodic_compactions);
+
+  ASSERT_OK(dbfull()->SetOptions({{"periodic_compaction_seconds", "86400"}}));
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ("2,0,2", FilesPerLevel());
+  // Make sure that all files go through periodic compaction.
+  ASSERT_EQ(kNumFiles, periodic_compactions);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   const int kNumKeysPerFile = 32;
   const int kNumLevelFiles = 2;
