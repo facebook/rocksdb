@@ -3696,6 +3696,48 @@ TEST_F(DBTest2, MultiDBParallelOpenTest) {
 }
 #endif  // OS_WIN
 
+namespace {
+class DummyOldStats : public Statistics {
+ public:
+  uint64_t getTickerCount(uint32_t /*ticker_type*/) const override { return 0; }
+  void recordTick(uint32_t /* ticker_type */, uint64_t /* count */) override {
+    num_rt++;
+  }
+  void setTickerCount(uint32_t /*ticker_type*/, uint64_t /*count*/) override {}
+  uint64_t getAndResetTickerCount(uint32_t /*ticker_type*/) override {
+    return 0;
+  }
+  void measureTime(uint32_t /*histogram_type*/, uint64_t /*count*/) override {
+    num_mt++;
+  }
+  void histogramData(uint32_t /*histogram_type*/,
+                     rocksdb::HistogramData* const /*data*/) const override {}
+  std::string getHistogramString(uint32_t /*type*/) const override {
+    return "";
+  }
+  bool HistEnabledForType(uint32_t /*type*/) const override { return false; }
+  std::string ToString() const override { return ""; }
+  int num_rt = 0;
+  int num_mt = 0;
+};
+}  // namespace
+
+TEST_F(DBTest2, OldStatsInterface) {
+  DummyOldStats* dos = new DummyOldStats();
+  std::shared_ptr<Statistics> stats(dos);
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = stats;
+  Reopen(options);
+
+  Put("foo", "bar");
+  ASSERT_EQ("bar", Get("foo"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("bar", Get("foo"));
+
+  ASSERT_GT(dos->num_rt, 0);
+  ASSERT_GT(dos->num_mt, 0);
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
