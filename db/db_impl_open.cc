@@ -15,6 +15,7 @@
 
 #include "db/builder.h"
 #include "db/error_handler.h"
+#include "db/wal_create.h"
 #include "options/options_helper.h"
 #include "rocksdb/wal_filter.h"
 #include "table/block_based_table_factory.h"
@@ -1179,8 +1180,11 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                                      impl->mutable_db_options_));
     std::string log_fname =
         LogFileName(impl->immutable_db_options_.wal_dir, new_log_number);
-    s = NewWritableFile(impl->immutable_db_options_.env, log_fname, &lfile,
-                        opt_env_options);
+
+    s = CreateWal(true, log_fname, impl->env_,
+                  impl->immutable_db_options_.recycle_log_file_num, lfile,
+                  impl->immutable_db_options_, opt_env_options);
+
     if (s.ok()) {
       lfile->SetWriteLifeTimeHint(write_hint);
       lfile->SetPreallocationBlockSize(
@@ -1188,16 +1192,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       {
         InstrumentedMutexLock wl(&impl->log_write_mutex_);
         impl->logfile_number_ = new_log_number;
-        const auto& listeners = impl->immutable_db_options_.listeners;
-        std::unique_ptr<WritableFileWriter> file_writer(
-            new WritableFileWriter(std::move(lfile), log_fname, opt_env_options,
-                                   impl->env_, nullptr /* stats */, listeners));
-        impl->logs_.emplace_back(
-            new_log_number,
-            new log::Writer(
-                std::move(file_writer), new_log_number,
-                impl->immutable_db_options_.recycle_log_file_num > 0,
-                impl->immutable_db_options_.manual_wal_flush));
+        // const auto& listeners = impl->immutable_db_options_.listeners;
+        log::Writer* new_log =
+            CreateLogWriter(lfile, log_fname, opt_env_options, impl->env_,
+                            impl->immutable_db_options_, new_log_number,
+                            impl->immutable_db_options_.manual_wal_flush);
+        impl->logs_.emplace_back(new_log_number, new_log);
       }
 
       // set column family handles

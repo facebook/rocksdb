@@ -14,10 +14,10 @@
 #include <inttypes.h>
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
+#include "db/wal_create.h"
 #include "monitoring/perf_context_imp.h"
 #include "options/options_helper.h"
 #include "util/sync_point.h"
-
 namespace rocksdb {
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
@@ -1430,17 +1430,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     if (creating_new_log) {
       EnvOptions opt_env_opt =
           env_->OptimizeForLogWrite(env_options_, db_options);
-      if (recycle_log_number) {
-        ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                       "reusing log %" PRIu64 " from recycle list\n",
-                       recycle_log_number);
-        std::string old_log_fname =
-            LogFileName(immutable_db_options_.wal_dir, recycle_log_number);
-        s = env_->ReuseWritableFile(log_fname, old_log_fname, &lfile,
-                                    opt_env_opt);
-      } else {
-        s = NewWritableFile(env_, log_fname, &lfile, opt_env_opt);
-      }
+      s = CreateWal(false, log_fname, env_, recycle_log_number, lfile,
+                    immutable_db_options_, opt_env_opt);
+
       if (s.ok()) {
         // Our final size should be less than write_buffer_size
         // (compression, etc) but err on the side of caution.
@@ -1449,12 +1441,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
         // of calling GetWalPreallocateBlockSize()
         lfile->SetPreallocationBlockSize(preallocate_block_size);
         lfile->SetWriteLifeTimeHint(write_hint);
-        std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-            std::move(lfile), log_fname, opt_env_opt, env_, nullptr /* stats */,
-            immutable_db_options_.listeners));
-        new_log = new log::Writer(
-            std::move(file_writer), new_log_number,
-            immutable_db_options_.recycle_log_file_num > 0, manual_wal_flush_);
+        new_log = CreateLogWriter(lfile, log_fname, opt_env_opt, env_,
+                                  immutable_db_options_, new_log_number,
+                                  manual_wal_flush_);
       }
     }
 
