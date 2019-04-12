@@ -220,24 +220,19 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
 Status WritePreparedTxnDB::Get(const ReadOptions& options,
                                ColumnFamilyHandle* column_family,
                                const Slice& key, PinnableSlice* value) {
-  // We are fine with the latest committed value. This could be done by
-  // specifying the snapshot as kMaxSequenceNumber.
-  SequenceNumber seq = kMaxSequenceNumber;
-  SequenceNumber min_uncommitted = 0;
-  if (options.snapshot != nullptr) {
-    seq = options.snapshot->GetSequenceNumber();
-    min_uncommitted = static_cast_with_check<const SnapshotImpl, const Snapshot>(
-                        options.snapshot)
-                        ->min_uncommitted_;
-  } else {
-    min_uncommitted = SmallestUnCommittedSeq();
-  }
-  WritePreparedTxnReadCallback callback(this, seq, min_uncommitted);
+  SequenceNumber min_uncommitted, snap_seq;
+  const bool backed_by_snapshot =
+      AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
+  WritePreparedTxnReadCallback callback(this, snap_seq, min_uncommitted);
   bool* dont_care = nullptr;
-  // Note: no need to specify a snapshot for read options as no specific
-  // snapshot is requested by the user.
-  return db_impl_->GetImpl(options, column_family, key, value, dont_care,
-                           &callback);
+  auto res = db_impl_->GetImpl(options, column_family, key, value, dont_care,
+                               &callback);
+  if (LIKELY(
+          ValidateSnapshot(callback.max_visible_seq(), backed_by_snapshot))) {
+    return res;
+  } else {
+    return Status::TryAgain();
+  }
 }
 
 void WritePreparedTxnDB::UpdateCFComparatorMap(

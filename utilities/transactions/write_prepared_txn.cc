@@ -44,23 +44,21 @@ void WritePreparedTxn::Initialize(const TransactionOptions& txn_options) {
   prepare_batch_cnt_ = 0;
 }
 
-Status WritePreparedTxn::Get(const ReadOptions& read_options,
+Status WritePreparedTxn::Get(const ReadOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& key, PinnableSlice* pinnable_val) {
-  auto snapshot = read_options.snapshot;
-  auto snap_seq =
-      snapshot != nullptr ? snapshot->GetSequenceNumber() : kMaxSequenceNumber;
-  SequenceNumber min_uncommitted =
-      kMinUnCommittedSeq;  // by default disable the optimization
-  if (snapshot != nullptr) {
-    min_uncommitted =
-        static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-            ->min_uncommitted_;
-  }
-
+  SequenceNumber min_uncommitted, snap_seq;
+  const bool backed_by_snapshot =
+      wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
   WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted);
-  return write_batch_.GetFromBatchAndDB(db_, read_options, column_family, key,
-                                        pinnable_val, &callback);
+  auto res = write_batch_.GetFromBatchAndDB(db_, options, column_family, key,
+                                            pinnable_val, &callback);
+  if (LIKELY(wpt_db_->ValidateSnapshot(callback.max_visible_seq(),
+                                       backed_by_snapshot))) {
+    return res;
+  } else {
+    return Status::TryAgain();
+  }
 }
 
 Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options) {
