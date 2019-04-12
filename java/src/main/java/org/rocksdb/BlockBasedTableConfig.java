@@ -480,6 +480,15 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   }
 
   /**
+   * Get the filter policy.
+   *
+   * @return the current filter policy.
+   */
+  public Filter filterPolicy() {
+    return filterPolicy;
+  }
+
+  /**
    * Use the specified filter policy to reduce disk reads.
    *
    * {@link org.rocksdb.Filter} should not be disposed before options instances

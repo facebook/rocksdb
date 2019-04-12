@@ -1288,6 +1288,13 @@ TEST_P(WritePreparedTransactionTest, TxnInitialize) {
 // for example the txn does not add the prepared seq for the second sub-batch to
 // the PreparedHeap structure.
 TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqWithDuplicatesTest) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 1;    // disable commit cache
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  ReOpen();
+
+  ReadOptions ropt;
+  PinnableSlice pinnable_val;
   WriteOptions write_options;
   TransactionOptions txn_options;
   Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
@@ -1296,24 +1303,19 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqWithDuplicatesTest) {
   ASSERT_OK(txn0->Put(Slice("key"), Slice("value2")));
   ASSERT_OK(txn0->Prepare());
 
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-  // Ensure that all the prepared sequence numbers will be removed from the
-  // PreparedHeap.
-  SequenceNumber new_max = wp_db->COMMIT_CACHE_SIZE;
-  wp_db->AdvanceMaxEvictedSeq(0, new_max);
+  ASSERT_OK(db->Put(write_options, "key2", "value"));
+  // Will cause max advance due to disabled commit cache
+  ASSERT_OK(db->Put(write_options, "key3", "value"));
 
-  ReadOptions ropt;
-  PinnableSlice pinnable_val;
   auto s = db->Get(ropt, db->DefaultColumnFamily(), "key", &pinnable_val);
   ASSERT_TRUE(s.IsNotFound());
   delete txn0;
 
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
   wp_db->db_impl_->FlushWAL(true);
   wp_db->TEST_Crash();
   ReOpenNoDelete();
   assert(db != nullptr);
-  wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-  wp_db->AdvanceMaxEvictedSeq(0, new_max);
   s = db->Get(ropt, db->DefaultColumnFamily(), "key", &pinnable_val);
   ASSERT_TRUE(s.IsNotFound());
 
