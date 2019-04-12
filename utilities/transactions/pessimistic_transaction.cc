@@ -643,7 +643,7 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
     } else {
 #ifndef NDEBUG
       assert(tracked_keys_cf->second.count(key_str) > 0);
-      const auto& info = tracked_keys_cf->second[key_str];
+      const auto& info = tracked_keys_cf->second.find(key_str)->second;
       assert(info.seq <= tracked_at_seq);
       assert(info.exclusive == exclusive);
 #endif
