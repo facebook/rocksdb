@@ -4618,6 +4618,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     std::vector<std::unique_ptr<const char[]> > key_guards;
     std::vector<std::string> values(entries_per_batch_);
     PinnableSlice* pin_values = new PinnableSlice[entries_per_batch_];
+    std::unique_ptr<PinnableSlice[]> pin_values_guard(pin_values);
     std::vector<Status> stat_list(entries_per_batch_);
     while (static_cast<int64_t>(keys.size()) < entries_per_batch_) {
       key_guards.push_back(std::unique_ptr<const char[]>());
