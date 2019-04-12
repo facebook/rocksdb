@@ -2540,6 +2540,8 @@ class Benchmark {
     if (FLAGS_seek_missing_prefix) {
       assert(prefix_size_ > 8);
       char* key_ptr = const_cast<char*>(key->data());
+      // This rely on GenerateKeyFromInt filling paddings with '0's.
+      // Putting a '1' will create a non-existing prefix.
       key_ptr[8] = '1';
     }
   }
@@ -4952,7 +4954,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     char value_buffer[256];
     while (!duration.Done(1)) {
       int64_t seek_pos = thread->rand.Next() % FLAGS_num;
-      GenerateKeyFromIntForSeek((uint64_t)seek_pos, FLAGS_num, &key);
+      GenerateKeyFromIntForSeek(static_cast<uint64_t>(seek_pos), FLAGS_num,
+                                &key);
       if (FLAGS_max_scan_distance != 0) {
         if (FLAGS_reverse_iterator) {
           GenerateKeyFromInt(
@@ -6221,7 +6224,7 @@ int db_bench_tool(int argc, char** argv) {
   }
 
   if (FLAGS_seek_missing_prefix && FLAGS_prefix_size <= 8) {
-    fprintf(stderr, "prefix_size > 8 required by --seek_missing_prefix");
+    fprintf(stderr, "prefix_size > 8 required by --seek_missing_prefix\n");
     exit(1);
   }
 
