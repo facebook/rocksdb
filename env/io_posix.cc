@@ -1008,6 +1008,8 @@ Status PosixWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
                    filename_, errno);
   }
 #else
+  (void)offset;
+  (void)nbytes;
   return Sync();
 #endif
 }
