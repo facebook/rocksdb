@@ -1385,7 +1385,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   SequenceNumber snapshot;
   if (read_options.snapshot != nullptr) {
     if (callback) {
-      // Already caalcualtaed based on read_options.snapshot
+      // Already calculated based on read_options.snapshot
       snapshot = callback->max_visible_seq();
     } else {
       snapshot =
