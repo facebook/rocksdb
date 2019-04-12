@@ -1174,6 +1174,7 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
     Flush();
     num_keys = 0;
   }
+  ASSERT_EQ(0, num_keys);
 
   for (int i = 0; i < 128; i += 9) {
     ASSERT_OK(Put("key_" + std::to_string(i), "val_mem_" + std::to_string(i)));
