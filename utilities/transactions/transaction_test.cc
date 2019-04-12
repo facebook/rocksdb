@@ -5331,6 +5331,35 @@ class ThreeBytewiseComparator : public Comparator {
   }
 };
 
+TEST_P(TransactionTest, GetWithoutSnapshot) {
+  WriteOptions write_options;
+  std::atomic<bool> finish = {false};
+  db->Put(write_options, "key", "value");
+  rocksdb::port::Thread commit_thread([&]() {
+    for (int i = 0; i < 100; i++) {
+      TransactionOptions txn_options;
+      Transaction* txn = db->BeginTransaction(write_options, txn_options);
+      ASSERT_OK(txn->SetName("xid"));
+      ASSERT_OK(txn->Put("key", "overridedvalue"));
+      ASSERT_OK(txn->Put("key", "value"));
+      ASSERT_OK(txn->Prepare());
+      ASSERT_OK(txn->Commit());
+      delete txn;
+    }
+    finish = true;
+  });
+  rocksdb::port::Thread read_thread([&]() {
+    while (!finish) {
+      ReadOptions ropt;
+      PinnableSlice pinnable_val;
+      ASSERT_OK(db->Get(ropt, db->DefaultColumnFamily(), "key", &pinnable_val));
+      ASSERT_TRUE(pinnable_val == ("value"));
+    }
+  });
+  commit_thread.join();
+  read_thread.join();
+}
+
 // Test that the transactional db can handle duplicate keys in the write batch
 TEST_P(TransactionTest, DuplicateKeys) {
   ColumnFamilyOptions cf_options;
