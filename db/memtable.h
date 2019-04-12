@@ -75,7 +75,7 @@ public:
 
   FragmentedTombstones(FragmentedTombstones *f) noexcept {
     initiate_flag = f->initiate_flag.load();
-    fragmented_tombstones_list = f->fragmented_tombstones_list; // how to deep copy here?
+    fragmented_tombstones_list = f->fragmented_tombstones_list;
   }
 };
 
