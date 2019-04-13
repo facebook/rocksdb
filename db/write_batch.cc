@@ -36,7 +36,6 @@
 #include "rocksdb/write_batch.h"
 
 #include <map>
-#include <stack>
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
@@ -136,35 +135,43 @@ struct BatchContentClassifier : public WriteBatch::Handler {
 
 }  // anon namespace
 
+// Stack-like struct for storing a sequence of SavePoints
+// std::stack is intentionally not used here as it doesn't
+// provide random access to its elements (which we need for
+// copying savepoints)
 struct SavePoints {
-  std::stack<SavePoint> stack;
+  std::vector<SavePoint> data;
 };
 
 WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes)
-    : save_points_(nullptr), content_flags_(0), max_bytes_(max_bytes), rep_() {
+    : content_flags_(0), max_bytes_(max_bytes), rep_() {
   rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader) ?
     reserved_bytes : WriteBatchInternal::kHeader);
   rep_.resize(WriteBatchInternal::kHeader);
 }
 
 WriteBatch::WriteBatch(const std::string& rep)
-    : save_points_(nullptr),
-      content_flags_(ContentFlags::DEFERRED),
+    : content_flags_(ContentFlags::DEFERRED),
       max_bytes_(0),
       rep_(rep) {}
 
 WriteBatch::WriteBatch(std::string&& rep)
-    : save_points_(nullptr),
-      content_flags_(ContentFlags::DEFERRED),
+    : content_flags_(ContentFlags::DEFERRED),
       max_bytes_(0),
       rep_(std::move(rep)) {}
 
 WriteBatch::WriteBatch(const WriteBatch& src)
-    : save_points_(src.save_points_),
-      wal_term_point_(src.wal_term_point_),
+    : wal_term_point_(src.wal_term_point_),
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
-      rep_(src.rep_) {}
+      rep_(src.rep_) {
+  if (src.save_points_ != nullptr) {
+    save_points_.reset(new SavePoints());
+    save_points_->data.insert(save_points_->data.end(), 
+                              src.save_points_->data.begin(), 
+                              src.save_points_->data.end());
+  }
+}
 
 WriteBatch::WriteBatch(WriteBatch&& src) noexcept
     : save_points_(std::move(src.save_points_)),
@@ -189,7 +196,7 @@ WriteBatch& WriteBatch::operator=(WriteBatch&& src) {
   return *this;
 }
 
-WriteBatch::~WriteBatch() { delete save_points_; }
+WriteBatch::~WriteBatch() { }
 
 WriteBatch::Handler::~Handler() { }
 
@@ -209,8 +216,8 @@ void WriteBatch::Clear() {
   content_flags_.store(0, std::memory_order_relaxed);
 
   if (save_points_ != nullptr) {
-    while (!save_points_->stack.empty()) {
-      save_points_->stack.pop();
+    while (!save_points_->data.empty()) {
+      save_points_->data.pop_back();
     }
   }
 
@@ -716,8 +723,8 @@ Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid,
 
   // all savepoints up to this point are cleared
   if (b->save_points_ != nullptr) {
-    while (!b->save_points_->stack.empty()) {
-      b->save_points_->stack.pop();
+    while (!b->save_points_->data.empty()) {
+      b->save_points_->data.pop_back();
     }
   }
 
@@ -991,21 +998,22 @@ Status WriteBatch::PutLogData(const Slice& blob) {
 
 void WriteBatch::SetSavePoint() {
   if (save_points_ == nullptr) {
-    save_points_ = new SavePoints();
+    save_points_.reset(new SavePoints());
   }
   // Record length and count of current batch of writes.
-  save_points_->stack.push(SavePoint(
-      GetDataSize(), Count(), content_flags_.load(std::memory_order_relaxed)));
+  save_points_->data.emplace_back(
+      GetDataSize(), Count(), content_flags_.load(std::memory_order_relaxed));
 }
 
 Status WriteBatch::RollbackToSavePoint() {
-  if (save_points_ == nullptr || save_points_->stack.size() == 0) {
+  if (save_points_ == nullptr || save_points_->data.empty()) {
     return Status::NotFound();
   }
 
   // Pop the most recent savepoint off the stack
-  SavePoint savepoint = save_points_->stack.top();
-  save_points_->stack.pop();
+  // Intentional copy here... SavePoints are cheap to copy
+  SavePoint savepoint = save_points_->data.back();
+  save_points_->data.pop_back();
 
   assert(savepoint.size <= rep_.size());
   assert(savepoint.count <= Count());
@@ -1025,12 +1033,12 @@ Status WriteBatch::RollbackToSavePoint() {
 }
 
 Status WriteBatch::PopSavePoint() {
-  if (save_points_ == nullptr || save_points_->stack.size() == 0) {
+  if (save_points_ == nullptr || save_points_->data.empty()) {
     return Status::NotFound();
   }
 
   // Pop the most recent savepoint off the stack
-  save_points_->stack.pop();
+  save_points_->data.pop_back();
 
   return Status::OK();
 }

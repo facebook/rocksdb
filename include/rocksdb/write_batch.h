@@ -26,6 +26,7 @@
 
 #include <stdint.h>
 #include <atomic>
+#include <memory>
 #include <stack>
 #include <string>
 #include "rocksdb/status.h"
@@ -337,7 +338,7 @@ class WriteBatch : public WriteBatchBase {
   // remove duplicate keys. Remove it when the hack is replaced with a proper
   // solution.
   friend class WriteBatchWithIndex;
-  SavePoints* save_points_;
+  std::unique_ptr<SavePoints> save_points_;
 
   // When sending a WriteBatch through WriteImpl we might want to
   // specify that only the first x records of the batch be written to

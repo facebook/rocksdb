@@ -7,7 +7,6 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <stack>
 #include <string>
 #include <vector>
 
@@ -223,7 +222,7 @@ class TransactionBaseImpl : public Transaction {
                         const Slice& key) override;
   void UndoGetForUpdate(const Slice& key) override {
     return UndoGetForUpdate(nullptr, key);
-  };
+  }
 
   // Get list of keys in this transaction that must not have any conflicts
   // with writes in other transactions.
@@ -318,7 +317,7 @@ class TransactionBaseImpl : public Transaction {
 
   // Stack of the Snapshot saved at each save point.  Saved snapshots may be
   // nullptr if there was no snapshot at the time SetSavePoint() was called.
-  std::unique_ptr<std::stack<TransactionBaseImpl::SavePoint>> save_points_;
+  std::unique_ptr<std::vector<TransactionBaseImpl::SavePoint>> save_points_;
 
   // Map from column_family_id to map of keys that are involved in this
   // transaction.
