@@ -446,6 +446,7 @@ MAIN_SOURCES =                                                          \
   util/defer_test.cc                                                    \
   util/dynamic_bloom_test.cc                                            \
   util/filelock_test.cc                                                 \
+  util/hash_map_test.cc                                                 \
   util/log_write_bench.cc                                               \
   util/rate_limiter_test.cc                                             \
   util/random_test.cc                                                   \

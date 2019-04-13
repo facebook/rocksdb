@@ -13,6 +13,9 @@
 #include "db/dbformat.h"
 #include "db/read_callback.h"
 
+#include "util/hash.h"
+#include "util/hash_map.h"
+
 #include "rocksdb/db.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -42,8 +45,7 @@ struct TransactionKeyMapInfo {
 };
 
 using TransactionKeyMap =
-    std::unordered_map<uint32_t,
-                       std::unordered_map<std::string, TransactionKeyMapInfo>>;
+    HashMapRB<uint32_t, HashMapRB<std::string, TransactionKeyMapInfo>>;
 
 class DBImpl;
 struct SuperVersion;

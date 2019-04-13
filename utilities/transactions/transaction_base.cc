@@ -209,15 +209,15 @@ Status TransactionBaseImpl::PopSavePoint() {
 
     for (const auto& curr_cf_key_iter : curr_cf_key_map) {
       uint32_t column_family_id = curr_cf_key_iter.first;
-      const std::unordered_map<std::string, TransactionKeyMapInfo>& curr_keys =
+      const HashMapRB<std::string, TransactionKeyMapInfo>& curr_keys =
           curr_cf_key_iter.second;
 
       // If cfid was not previously tracked, just copy everything over.
       auto prev_keys_iter = prev_cf_key_map.find(column_family_id);
       if (prev_keys_iter == prev_cf_key_map.end()) {
-        prev_cf_key_map.emplace(curr_cf_key_iter);
+        prev_cf_key_map.emplace(curr_cf_key_iter.first, curr_cf_key_iter.second);
       } else {
-        std::unordered_map<std::string, TransactionKeyMapInfo>& prev_keys =
+        HashMapRB<std::string, TransactionKeyMapInfo>& prev_keys =
             prev_keys_iter->second;
         for (const auto& key_iter : curr_keys) {
           const std::string& key = key_iter.first;
@@ -226,7 +226,7 @@ Status TransactionBaseImpl::PopSavePoint() {
           // Otherwise, some merging needs to occur.
           auto prev_info = prev_keys.find(key);
           if (prev_info == prev_keys.end()) {
-            prev_keys.emplace(key_iter);
+            prev_keys.emplace(key_iter.first, key_iter.second);
           } else {
             prev_info->second.Merge(info);
           }
