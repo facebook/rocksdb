@@ -1421,16 +1421,14 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   const auto preallocate_block_size =
       GetWalPreallocateBlockSize(mutable_cf_options.write_buffer_size);
   mutex_.Unlock();
-  {
+  if (creating_new_log) {
     s = CreateWAL(this, env_options_, new_log_number, recycle_log_number,
-                  creating_new_log, false /*called_from_open*/,
                   preallocate_block_size, &new_log);
-
-    if (s.ok()) {
-      SequenceNumber seq = versions_->LastSequence();
-      new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
-      context->superversion_context.NewSuperVersion();
-    }
+  }
+  if (s.ok()) {
+    SequenceNumber seq = versions_->LastSequence();
+    new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
+    context->superversion_context.NewSuperVersion();
   }
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "[%s] New memtable created with log file: #%" PRIu64

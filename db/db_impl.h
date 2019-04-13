@@ -1678,9 +1678,8 @@ class DBImpl : public DB {
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   Env::WriteLifeTimeHint CalculateWALWriteHint() { return Env::WLTH_SHORT; }
 
-  static Status CreateWAL(DBImpl* impl, const EnvOptions& env_options,
+  Status CreateWAL(DBImpl* impl, const EnvOptions& env_options,
                           uint64_t log_file_num, uint64_t recycle_log_number,
-                          bool create_new_log, bool called_from_open,
                           const size_t preallocate_block_size,
                           log::Writer** new_log);
 
