@@ -836,6 +836,25 @@ TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilter) {
   ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
 }
 
+TEST_F(DBBloomFilterTest, MemtablePrefixBloomOutOfDomain) {
+  constexpr size_t kPrefixSize = 8;
+  const std::string kKey = "key";
+  assert(kKey.size() < kPrefixSize);
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(kPrefixSize));
+  options.memtable_prefix_bloom_size_ratio = 0.25;
+  Reopen(options);
+  ASSERT_OK(Put(kKey, "v"));
+  ASSERT_EQ("v", Get(kKey));
+  std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
+  iter->Seek(kKey);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kKey, iter->key());
+  iter->SeekForPrev(kKey);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kKey, iter->key());
+}
+
 #ifndef ROCKSDB_LITE
 class BloomStatsTestWithParam
     : public DBBloomFilterTest,
