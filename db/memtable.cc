@@ -315,8 +315,10 @@ class MemTableIterator : public InternalIterator {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_ != nullptr) {
-      if (!bloom_->MayContain(
-              prefix_extractor_->Transform(ExtractUserKey(k)))) {
+      Slice user_key(ExtractUserKey(k));
+      if (prefix_extractor_->InDomain(user_key) &&
+          !bloom_->MayContain(
+              prefix_extractor_->Transform(user_key))) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
         valid_ = false;
         return;
@@ -331,8 +333,10 @@ class MemTableIterator : public InternalIterator {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_ != nullptr) {
-      if (!bloom_->MayContain(
-              prefix_extractor_->Transform(ExtractUserKey(k)))) {
+      Slice user_key(ExtractUserKey(k));
+      if (prefix_extractor_->InDomain(user_key) &&
+          !bloom_->MayContain(
+              prefix_extractor_->Transform(user_key))) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
         valid_ = false;
         return;
@@ -515,7 +519,7 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
                          std::memory_order_relaxed);
     }
 
-    if (prefix_bloom_) {
+    if (prefix_bloom_ && prefix_extractor_->InDomain(key)) {
       assert(prefix_extractor_);
       prefix_bloom_->Add(prefix_extractor_->Transform(key));
     }
@@ -546,7 +550,7 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
       post_process_info->num_deletes++;
     }
 
-    if (prefix_bloom_) {
+    if (prefix_bloom_ && prefix_extractor_->InDomain(key)) {
       assert(prefix_extractor_);
       prefix_bloom_->AddConcurrently(prefix_extractor_->Transform(key));
     }
@@ -758,7 +762,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   bool const may_contain =
       nullptr == prefix_bloom_
           ? false
-          : prefix_bloom_->MayContain(prefix_extractor_->Transform(user_key));
+          : (!prefix_extractor_->InDomain(user_key) || 
+             prefix_bloom_->MayContain(prefix_extractor_->Transform(user_key)));
   if (prefix_bloom_ && !may_contain) {
     // iter is null if prefix bloom says the key does not exist
     PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);

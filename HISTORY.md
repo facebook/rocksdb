@@ -1,5 +1,6 @@
 # Rocksdb Change Log
 ## Cherry-picks
+* Fix crash when memtable prefix bloom is enabled and read/write a key out of domain of prefix extractor.
 * Fix SstFileReader not able to open file ingested with write_glbal_seqno=true.
 * Enable properties block checksum verification for block-based tables.
 * Add support for block checksums verification for external SST files before ingestion.
