@@ -18,6 +18,7 @@
 ## 6.1.0 (3/27/2019)
 ### New Features
 * Introduce two more stats levels, kExceptHistogramOrTimers and kExceptTimers.
+* Added BottommostLevelCompaction::kForceOptimized to avoid double compacting newly compacted files in bottom level compaction of manual compaction.
 * Added a feature to perform data-block sampling for compressibility, and report stats to user.
 * Add support for trace filtering.
 * Add DBOptions.avoid_unnecessary_blocking_io. If true, we avoid file deletion when destorying ColumnFamilyHandle and Iterator. Instead, a job is scheduled to delete the files in background.

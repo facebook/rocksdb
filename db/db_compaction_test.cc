@@ -353,7 +353,7 @@ TEST_P(DBCompactionTestWithParam, CompactionsPreserveDeletes) {
     CompactRangeOptions cro;
     cro.change_level = true;
     cro.target_level = 2;
-    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
 
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->CompactRange(cro, nullptr, nullptr);
@@ -511,7 +511,7 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   CompactRangeOptions cro;
   cro.change_level = true;
   cro.target_level = 2;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   db_->CompactRange(cro, nullptr, nullptr);
   // Only verifying compaction outputs issues one table cache lookup
   // for both data block and range deletion block).
@@ -2260,6 +2260,8 @@ TEST_P(DBCompactionTestWithParam, ConvertCompactionStyle) {
   CompactRangeOptions compact_options;
   compact_options.change_level = true;
   compact_options.target_level = 0;
+  // cannot use kForceOptimized here because the compaction here is expected
+  // to generate one output file
   compact_options.bottommost_level_compaction =
       BottommostLevelCompaction::kForce;
   compact_options.exclusive_manual_compaction = exclusive_manual_compaction_;
@@ -3039,7 +3041,7 @@ TEST_P(DBCompactionTestWithParam, ForceBottommostLevelCompaction) {
   // then compacte the bottommost level L3=>L3 (non trivial move)
   compact_options = CompactRangeOptions();
   compact_options.bottommost_level_compaction =
-      BottommostLevelCompaction::kForce;
+      BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   ASSERT_EQ("0,0,0,1", FilesPerLevel(0));
   ASSERT_EQ(trivial_move, 4);
@@ -4378,7 +4380,7 @@ TEST_F(DBCompactionTest, PartialManualCompaction) {
       {{"max_compaction_bytes", std::to_string(max_compaction_bytes)}}));
 
   CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   dbfull()->CompactRange(cro, nullptr, nullptr);
 }
 
@@ -4425,7 +4427,7 @@ TEST_F(DBCompactionTest, ManualCompactionFailsInReadOnlyMode) {
 // ManualCompactionBottomLevelOptimization tests the bottom level manual
 // compaction optimization to skip recompacting files created by Ln-1 to Ln
 // compaction
-TEST_F(DBCompactionTest, ManualCompactionBottomLevelOptimization) {
+TEST_F(DBCompactionTest, ManualCompactionBottomLevelOptimized) {
   Options opts = CurrentOptions();
   opts.num_levels = 3;
   opts.level0_file_num_compaction_trigger = 5;
@@ -4463,7 +4465,7 @@ TEST_F(DBCompactionTest, ManualCompactionBottomLevelOptimization) {
   ASSERT_EQ(num, 0);
 
   CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   dbfull()->CompactRange(cro, nullptr, nullptr);
 
   const std::vector<InternalStats::CompactionStats>& comp_stats2 =

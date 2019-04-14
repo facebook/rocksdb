@@ -544,6 +544,7 @@ Compaction* CompactionPicker::CompactRange(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, int input_level, int output_level,
     uint32_t output_path_id, uint32_t max_subcompactions,
+    BottommostLevelCompaction bottommost_level_compaction,
     const InternalKey* begin, const InternalKey* end,
     InternalKey** compaction_end, bool* manual_conflict,
     uint64_t max_file_num_to_ignore) {
@@ -663,17 +664,20 @@ Compaction* CompactionPicker::CompactRange(
 
   // for BOTTOM LEVEL compaction only, use max_file_num_to_ignore to filter out files
   // that are created during the current compaction.
-  if (max_file_num_to_ignore != port::kMaxUint64) {
+  if (bottommost_level_compaction == BottommostLevelCompaction::kForceOptimized &&
+      max_file_num_to_ignore != port::kMaxUint64) {
     assert(input_level == output_level);
     // inputs_shrunk holds a continuous subset of input files which were all
     // created before the current manual compaction
     std::vector<FileMetaData*> inputs_shrunk;
+    size_t skip_input_index = inputs.size();
     for (size_t i = 0; i < inputs.size(); ++i) {
       if (inputs[i]->fd.GetNumber() < max_file_num_to_ignore) {
         inputs_shrunk.push_back(inputs[i]);
       } else if (!inputs_shrunk.empty()) {
         // inputs[i] was created during the current manual compaction and
         // need to be skipped
+        skip_input_index = i;
         break;
       }
     }
@@ -682,7 +686,13 @@ Compaction* CompactionPicker::CompactRange(
     }
     if (inputs.size() != inputs_shrunk.size()) {
       inputs.files.swap(inputs_shrunk);
-      covering_the_whole_range = false;
+    }
+    // set covering_the_whole_range to false if there is any file that need to
+    // be compacted in the range of inputs[skip_input_index+1, inputs.size())
+    for (size_t i = skip_input_index + 1; i < inputs.size(); ++i) {
+      if (inputs[i]->fd.GetNumber() < max_file_num_to_ignore) {
+        covering_the_whole_range = false;
+      }
     }
   }
 

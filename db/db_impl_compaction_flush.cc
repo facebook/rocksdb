@@ -712,8 +712,9 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             final_output_level, options.target_path_id,
-                            options.max_subcompactions, begin, end, exclusive,
-                            false, max_file_num_to_ignore);
+                            options.max_subcompactions,
+                            options.bottommost_level_compaction, begin, end,
+                            exclusive, false, max_file_num_to_ignore);
   } else {
     for (int level = 0; level <= max_level_with_files; level++) {
       int output_level;
@@ -751,7 +752,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
         }
       }
       s = RunManualCompaction(cfd, level, output_level, options.target_path_id,
-                              options.max_subcompactions, begin, end,
+                              options.max_subcompactions,
+                              options.bottommost_level_compaction, begin, end,
                               exclusive, false, max_file_num_to_ignore);
       if (!s.ok()) {
         break;
@@ -1338,6 +1340,7 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
 Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                                    int output_level, uint32_t output_path_id,
                                    uint32_t max_subcompactions,
+                                   BottommostLevelCompaction bottommost_level_compaction,
                                    const Slice* begin, const Slice* end,
                                    bool exclusive, bool disallow_trivial_move,
                                    uint64_t max_file_num_to_ignore) {
@@ -1429,6 +1432,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
          ((compaction = manual.cfd->CompactRange(
                *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
                manual.output_level, manual.output_path_id, max_subcompactions,
+               bottommost_level_compaction,
                manual.begin, manual.end, &manual.manual_end,
                &manual_conflict, max_file_num_to_ignore)) == nullptr &&
           manual_conflict))) {

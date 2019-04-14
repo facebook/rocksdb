@@ -400,7 +400,9 @@ class DBImpl : public DB {
   // disable the filtering
   Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                              int output_level, uint32_t output_path_id,
-                             uint32_t max_subcompactions, const Slice* begin,
+                             uint32_t max_subcompactions,
+                             BottommostLevelCompaction bottommost_level_compaction,
+                             const Slice* begin,
                              const Slice* end, bool exclusive,
                              bool disallow_trivial_move,
                              uint64_t max_file_num_to_ignore);

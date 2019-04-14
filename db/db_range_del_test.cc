@@ -439,8 +439,9 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
       reinterpret_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
           ->cfd(),
       1 /* input_level */, 2 /* output_level */, 0 /* output_path_id */,
-      0 /* max_subcompactions */, nullptr /* begin */, nullptr /* end */,
-      true /* exclusive */, true /* disallow_trivial_move */,
+      0 /* max_subcompactions */,
+      BottommostLevelCompaction::kIfHaveCompactionFilter, nullptr /* begin */,
+      nullptr /* end */, true /* exclusive */, true /* disallow_trivial_move */,
       port::kMaxUint64 /* max_file_num_to_ignore */));
 }
 #endif  // ROCKSDB_LITE
