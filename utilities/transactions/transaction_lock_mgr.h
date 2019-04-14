@@ -9,6 +9,7 @@
 #include <chrono>
 #include <string>
 #include <unordered_map>
+#include <memory>
 #include <utility>
 #include <vector>
 
