@@ -449,7 +449,7 @@ bool TransactionLockMgr::IncrementWaiters(
   std::lock_guard<std::mutex> lock(wait_txn_map_mutex_);
   assert(!wait_txn_map_.Contains(id));
 
-  wait_txn_map_.Insert(id, {wait_ids, cf_id, key, exclusive});
+  wait_txn_map_.Insert(id, {wait_ids, cf_id, exclusive, key});
 
   for (auto wait_id : wait_ids) {
     if (rev_wait_txn_map_.Contains(wait_id)) {

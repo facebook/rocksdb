@@ -45,8 +45,8 @@ struct DeadlockInfoBuffer {
 struct TrackedTrxInfo {
   autovector<TransactionID> m_neighbors;
   uint32_t m_cf_id;
-  std::string m_waiting_key;
   bool m_exclusive;
+  std::string m_waiting_key;
 };
 
 class Slice;
