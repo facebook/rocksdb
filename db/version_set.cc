@@ -672,8 +672,11 @@ class FilePickerMultiGet {
           fp_ctx.search_right_bound = FileIndexer::kLevelMaxIndex;
         }
         // Skip all subsequent empty levels
-        while ((*level_files_brief_)[++curr_level_].num_files == 0) {
-        }
+        do {
+          ++curr_level_;
+        } while ((curr_level_ < num_levels_) &&
+                 (*level_files_brief_)[curr_level_].num_files == 0);
+        continue;
       }
 
       // Some files may overlap each other. We find

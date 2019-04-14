@@ -293,8 +293,10 @@ class Transaction {
   // functions in WriteBatch, but will also do conflict checking on the
   // keys being written.
   //
-  // assume_tracked=true expects the key be already tracked. If valid then it
-  // skips ValidateSnapshot. Returns error otherwise.
+  // assume_tracked=true expects the key be already tracked. More
+  // specifically, it means the the key was previous tracked in the same
+  // savepoint, with the same exclusive flag, and at a lower sequence number.
+  // If valid then it skips ValidateSnapshot.  Returns error otherwise.
   //
   // If this Transaction was created on an OptimisticTransactionDB, these
   // functions should always return Status::OK().
