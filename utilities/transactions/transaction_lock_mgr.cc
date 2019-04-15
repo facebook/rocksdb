@@ -192,8 +192,7 @@ void TransactionLockMgr::AddColumnFamily(uint32_t column_family_id) {
 
   if (lock_maps_.find(column_family_id) == lock_maps_.end()) {
     lock_maps_.emplace(column_family_id,
-                       std::shared_ptr<LockMap>(
-                           new LockMap(default_num_stripes_, mutex_factory_)));
+                       std::make_shared<LockMap>(default_num_stripes_, mutex_factory_));
   } else {
     // column_family already exists in lock map
     assert(false);
@@ -450,7 +449,7 @@ bool TransactionLockMgr::IncrementWaiters(
   std::lock_guard<std::mutex> lock(wait_txn_map_mutex_);
   assert(!wait_txn_map_.Contains(id));
 
-  wait_txn_map_.Insert(id, {wait_ids, cf_id, key, exclusive});
+  wait_txn_map_.Insert(id, {wait_ids, cf_id, exclusive, key});
 
   for (auto wait_id : wait_ids) {
     if (rev_wait_txn_map_.Contains(wait_id)) {
