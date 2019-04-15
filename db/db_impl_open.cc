@@ -1107,8 +1107,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
 }
 
 Status DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
-                         const size_t preallocate_block_size,
-                         log::Writer** new_log) {
+                         size_t preallocate_block_size, log::Writer** new_log) {
   Status s;
   std::unique_ptr<WritableFile> lfile;
 
