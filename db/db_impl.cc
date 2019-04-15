@@ -1699,7 +1699,7 @@ void DBImpl::MultiGetImpl(
     size_t index = 0;
     for (KeyContext& key : key_context) {
 #ifndef NDEBUG
-      if (index > 0) {
+      if (index > 0 && sorted_input) {
         KeyContext* lhs = &key_context[index-1];
         KeyContext* rhs = &key_context[index];
         const Comparator* comparator = cfd->user_comparator();
