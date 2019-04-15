@@ -1106,44 +1106,43 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                       !kSeqPerBatch, kBatchPerTxn);
 }
 
-Status DBImpl::CreateWAL(DBImpl* impl, const EnvOptions& env_options,
-                         uint64_t log_file_num, uint64_t recycle_log_number,
-                         const size_t preallocate_block_size, log::Writer** new_log) {
-  assert(impl != nullptr);
+Status DBImpl::CreateWAL(const EnvOptions& env_options, uint64_t log_file_num,
+                         uint64_t recycle_log_number,
+                         const size_t preallocate_block_size,
+                         log::Writer** new_log) {
   Status s;
   std::unique_ptr<WritableFile> lfile;
 
   DBOptions db_options =
-      BuildDBOptions(impl->immutable_db_options_, impl->mutable_db_options_);
+      BuildDBOptions(immutable_db_options_, mutable_db_options_);
   EnvOptions opt_env_options =
-      impl->env_->OptimizeForLogWrite(env_options, db_options);
+      env_->OptimizeForLogWrite(env_options, db_options);
   std::string log_fname =
-      LogFileName(impl->immutable_db_options_.wal_dir, log_file_num);
+      LogFileName(immutable_db_options_.wal_dir, log_file_num);
 
   if (recycle_log_number) {
-    ROCKS_LOG_INFO(impl->immutable_db_options_.info_log,
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "reusing log %" PRIu64 " from recycle list\n",
                    recycle_log_number);
     std::string old_log_fname =
-        LogFileName(impl->immutable_db_options_.wal_dir, recycle_log_number);
-    s = impl->env_->ReuseWritableFile(log_fname, old_log_fname, &lfile,
-                                      opt_env_options);
+        LogFileName(immutable_db_options_.wal_dir, recycle_log_number);
+    s = env_->ReuseWritableFile(log_fname, old_log_fname, &lfile,
+                                opt_env_options);
   } else {
-    s = NewWritableFile(impl->env_, log_fname, &lfile, opt_env_options);
+    s = NewWritableFile(env_, log_fname, &lfile, opt_env_options);
   }
 
   if (s.ok()) {
-    lfile->SetWriteLifeTimeHint(impl->CalculateWALWriteHint());
+    lfile->SetWriteLifeTimeHint(CalculateWALWriteHint());
     lfile->SetPreallocationBlockSize(preallocate_block_size);
 
-    const auto& listeners = impl->immutable_db_options_.listeners;
+    const auto& listeners = immutable_db_options_.listeners;
     std::unique_ptr<WritableFileWriter> file_writer(
         new WritableFileWriter(std::move(lfile), log_fname, opt_env_options,
-                               impl->env_, nullptr /* stats */, listeners));
-    *new_log =
-        new log::Writer(std::move(file_writer), log_file_num,
-                        impl->immutable_db_options_.recycle_log_file_num > 0,
-                        impl->immutable_db_options_.manual_wal_flush);
+                               env_, nullptr /* stats */, listeners));
+    *new_log = new log::Writer(std::move(file_writer), log_file_num,
+                               immutable_db_options_.recycle_log_file_num > 0,
+                               immutable_db_options_.manual_wal_flush);
   }
   return s;
 }
@@ -1217,8 +1216,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     log::Writer* new_log = nullptr;
     const size_t preallocate_block_size =
         impl->GetWalPreallocateBlockSize(max_write_buffer_size);
-    s = impl->CreateWAL(impl, env_options, new_log_number,
-                0 /*recycle_log_number*/, preallocate_block_size, &new_log);
+    s = impl->CreateWAL(env_options, new_log_number,
+                        0 /*recycle_log_number*/
+                        preallocate_block_size,
+                        &new_log);
     {
       InstrumentedMutexLock wl(&impl->log_write_mutex_);
       impl->logfile_number_ = new_log_number;
