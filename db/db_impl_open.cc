@@ -1210,7 +1210,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   // Handles create_if_missing, error_if_exists
   s = impl->Recover(column_families);
   if (s.ok()) {
-    EnvOptions env_options(db_options);
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     log::Writer* new_log = nullptr;
     const size_t preallocate_block_size =
