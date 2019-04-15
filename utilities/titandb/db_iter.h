@@ -1,5 +1,11 @@
 #pragma once
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
+
 #include "db/db_iter.h"
 #include "utilities/titandb/version.h"
 
@@ -135,9 +141,9 @@ class TitanDBIterator : public Iterator {
       std::unique_ptr<BlobFilePrefetcher> prefetcher;
       status_ = storage_->NewPrefetcher(index.file_number, &prefetcher);
       if (status_.IsCorruption()) {
-        fprintf(stderr, "key:%s GetBlobValue err:%s with sequence number:%lu \n",
-                iter_->key().ToString(true).c_str(),
-                status_.ToString().c_str(),
+        fprintf(stderr,
+                "key:%s GetBlobValue err:%s with sequence number:%" PRIu64 "\n",
+                iter_->key().ToString(true).c_str(), status_.ToString().c_str(),
                 options_.snapshot->GetSequenceNumber());
       }
       if (!status_.ok()) return true;
