@@ -1128,6 +1128,88 @@ TEST_F(DBBasicTest, MultiGetMultiCFSnapshot) {
   }
 }
 
+TEST_F(DBBasicTest, MultiGetBatchedSimpleUnsorted) {
+  do {
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+    SetPerfLevel(kEnableCount);
+    ASSERT_OK(Put(1, "k1", "v1"));
+    ASSERT_OK(Put(1, "k2", "v2"));
+    ASSERT_OK(Put(1, "k3", "v3"));
+    ASSERT_OK(Put(1, "k4", "v4"));
+    ASSERT_OK(Delete(1, "k4"));
+    ASSERT_OK(Put(1, "k5", "v5"));
+    ASSERT_OK(Delete(1, "no_key"));
+
+    get_perf_context()->Reset();
+
+    std::vector<Slice> keys({"no_key", "k5", "k4", "k3", "k2", "k1"});
+    std::vector<PinnableSlice> values(keys.size());
+    std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
+    std::vector<Status> s(keys.size());
+
+    db_->MultiGet(ReadOptions(), handles_[1], keys.size(), keys.data(),
+                  values.data(), s.data(), false);
+
+    ASSERT_EQ(values.size(), keys.size());
+    ASSERT_EQ(std::string(values[5].data(), values[5].size()), "v1");
+    ASSERT_EQ(std::string(values[4].data(), values[4].size()), "v2");
+    ASSERT_EQ(std::string(values[3].data(), values[3].size()), "v3");
+    ASSERT_EQ(std::string(values[1].data(), values[1].size()), "v5");
+    // four kv pairs * two bytes per value
+    ASSERT_EQ(8, (int)get_perf_context()->multiget_read_bytes);
+
+    ASSERT_TRUE(s[0].IsNotFound());
+    ASSERT_OK(s[1]);
+    ASSERT_TRUE(s[2].IsNotFound());
+    ASSERT_OK(s[3]);
+    ASSERT_OK(s[4]);
+    ASSERT_OK(s[5]);
+
+    SetPerfLevel(kDisable);
+  } while (ChangeCompactOptions());
+}
+
+TEST_F(DBBasicTest, MultiGetBatchedSimpleSorted) {
+  do {
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+    SetPerfLevel(kEnableCount);
+    ASSERT_OK(Put(1, "k1", "v1"));
+    ASSERT_OK(Put(1, "k2", "v2"));
+    ASSERT_OK(Put(1, "k3", "v3"));
+    ASSERT_OK(Put(1, "k4", "v4"));
+    ASSERT_OK(Delete(1, "k4"));
+    ASSERT_OK(Put(1, "k5", "v5"));
+    ASSERT_OK(Delete(1, "no_key"));
+
+    get_perf_context()->Reset();
+
+    std::vector<Slice> keys({"k1", "k2", "k3", "k4", "k5", "no_key"});
+    std::vector<PinnableSlice> values(keys.size());
+    std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
+    std::vector<Status> s(keys.size());
+
+    db_->MultiGet(ReadOptions(), handles_[1], keys.size(), keys.data(),
+                  values.data(), s.data(), true);
+
+    ASSERT_EQ(values.size(), keys.size());
+    ASSERT_EQ(std::string(values[0].data(), values[0].size()), "v1");
+    ASSERT_EQ(std::string(values[1].data(), values[1].size()), "v2");
+    ASSERT_EQ(std::string(values[2].data(), values[2].size()), "v3");
+    ASSERT_EQ(std::string(values[4].data(), values[4].size()), "v5");
+    // four kv pairs * two bytes per value
+    ASSERT_EQ(8, (int)get_perf_context()->multiget_read_bytes);
+
+    ASSERT_OK(s[0]);
+    ASSERT_OK(s[1]);
+    ASSERT_OK(s[2]);
+    ASSERT_TRUE(s[3].IsNotFound());
+    ASSERT_OK(s[4]);
+    ASSERT_TRUE(s[5].IsNotFound());
+
+    SetPerfLevel(kDisable);
+  } while (ChangeCompactOptions());
+}
+
 TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
