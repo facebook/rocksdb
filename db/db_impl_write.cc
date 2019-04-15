@@ -1418,12 +1418,12 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   // Log this later after lock release. It may be outdated, e.g., if background
   // flush happens before logging, but that should be ok.
   int num_imm_unflushed = cfd->imm()->NumNotFlushed();
-  const auto preallocate_block_size =
-      GetWalPreallocateBlockSize(mutable_cf_options.write_buffer_size);
   mutex_.Unlock();
   if (creating_new_log) {
-    s = CreateWAL(new_log_number, recycle_log_number, preallocate_block_size,
-                  &new_log);
+    // TODO: Write buffer size passed in should be max of all CF's instead
+    // of mutable_cf_options.write_buffer_size.
+    s = CreateWAL(new_log_number, recycle_log_number,
+                  mutable_cf_options.write_buffer_size, &new_log);
   }
   if (s.ok()) {
     SequenceNumber seq = versions_->LastSequence();

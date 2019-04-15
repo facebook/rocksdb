@@ -1679,7 +1679,7 @@ class DBImpl : public DB {
   Env::WriteLifeTimeHint CalculateWALWriteHint() { return Env::WLTH_SHORT; }
 
   Status CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
-                   const size_t preallocate_block_size, log::Writer** new_log);
+                   const size_t write_buffer_size, log::Writer** new_log);
 
   // When set, we use a separate queue for writes that dont write to memtable.
   // In 2PC these are the writes at Prepare phase.

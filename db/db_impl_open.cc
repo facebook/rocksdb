@@ -1107,11 +1107,12 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
 }
 
 Status DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
-                         const size_t preallocate_block_size,
+                         const size_t write_buffer_size,
                          log::Writer** new_log) {
   Status s;
   std::unique_ptr<WritableFile> lfile;
-
+  const auto preallocate_block_size =
+      GetWalPreallocateBlockSize(write_buffer_size);
   DBOptions db_options =
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   EnvOptions opt_env_options =
@@ -1212,11 +1213,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     log::Writer* new_log = nullptr;
-    const size_t preallocate_block_size =
-        impl->GetWalPreallocateBlockSize(max_write_buffer_size);
     s = impl->CreateWAL(new_log_number, 0 /*recycle_log_number*/,
-                        preallocate_block_size, &new_log);
-    {
+                        max_write_buffer_size, &new_log);
+    if (s.ok()) {
       InstrumentedMutexLock wl(&impl->log_write_mutex_);
       impl->logfile_number_ = new_log_number;
       impl->logs_.emplace_back(new_log_number, new_log);
