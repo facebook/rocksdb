@@ -353,7 +353,8 @@ TEST_P(DBCompactionTestWithParam, CompactionsPreserveDeletes) {
     CompactRangeOptions cro;
     cro.change_level = true;
     cro.target_level = 2;
-    cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+    cro.bottommost_level_compaction =
+        BottommostLevelCompaction::kForceOptimized;
 
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->CompactRange(cro, nullptr, nullptr);
@@ -4446,7 +4447,8 @@ TEST_F(DBCompactionTest, ManualCompactionBottomLevelOptimized) {
   Random rnd(301);
   for (auto i = 0; i < 8; ++i) {
     for (auto j = 0; j < 10; ++j) {
-      ASSERT_OK(Put("foo" + std::to_string(i*10+j), RandomString(&rnd, 1024)));
+      ASSERT_OK(
+          Put("foo" + std::to_string(i * 10 + j), RandomString(&rnd, 1024)));
     }
     Flush();
   }
@@ -4455,7 +4457,8 @@ TEST_F(DBCompactionTest, ManualCompactionBottomLevelOptimized) {
 
   for (auto i = 0; i < 8; ++i) {
     for (auto j = 0; j < 10; ++j) {
-      ASSERT_OK(Put("bar" + std::to_string(i*10+j), RandomString(&rnd, 1024)));
+      ASSERT_OK(
+          Put("bar" + std::to_string(i * 10 + j), RandomString(&rnd, 1024)));
     }
     Flush();
   }

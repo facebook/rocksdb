@@ -296,8 +296,7 @@ class ColumnFamilyData {
   // REQUIRES: DB mutex held
   Compaction* CompactRange(const MutableCFOptions& mutable_cf_options,
                            int input_level, int output_level,
-                           uint32_t output_path_id, uint32_t max_subcompactions,
-                           BottommostLevelCompaction bottommost_level_compaction,
+                           const CompactRangeOptions& compact_range_options,
                            const InternalKey* begin, const InternalKey* end,
                            InternalKey** compaction_end, bool* manual_conflict,
                            uint64_t max_file_num_to_ignore);

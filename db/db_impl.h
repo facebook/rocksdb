@@ -399,12 +399,10 @@ class DBImpl : public DB {
   // compacted SST files. Setting max_file_num_to_ignore to kMaxUint64 will
   // disable the filtering
   Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
-                             int output_level, uint32_t output_path_id,
-                             uint32_t max_subcompactions,
-                             BottommostLevelCompaction bottommost_level_compaction,
-                             const Slice* begin,
-                             const Slice* end, bool exclusive,
-                             bool disallow_trivial_move,
+                             int output_level,
+                             const CompactRangeOptions& compact_range_options,
+                             const Slice* begin, const Slice* end,
+                             bool exclusive, bool disallow_trivial_move,
                              uint64_t max_file_num_to_ignore);
 
   // Return an internal iterator over the current state of the database.

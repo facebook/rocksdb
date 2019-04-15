@@ -93,11 +93,8 @@ Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
        cfd->ioptions()->compaction_style == kCompactionStyleFIFO)
           ? level
           : level + 1;
-  return RunManualCompaction(cfd, level, output_level, 0 /*output_path_id*/,
-                             0 /*max_subcompactions*/,
-                             BottommostLevelCompaction::kIfHaveCompactionFilter,
-                             begin, end, true,
-                             disallow_trivial_move,
+  return RunManualCompaction(cfd, level, output_level, CompactRangeOptions(),
+                             begin, end, true, disallow_trivial_move,
                              port::kMaxUint64 /*max_file_num_to_ignore*/);
 }
 
