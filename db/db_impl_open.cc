@@ -1215,27 +1215,13 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     log::Writer* new_log = nullptr;
     const size_t preallocate_block_size =
         impl->GetWalPreallocateBlockSize(max_write_buffer_size);
-<<<<<<< HEAD
-<<<<<<< HEAD
     s = impl->CreateWAL(new_log_number, 0 /*recycle_log_number*/,
                         preallocate_block_size, &new_log);
-=======
-    s = impl->CreateWAL(impl, env_options, new_log_number,
-                0 /*recycle_log_number*/, preallocate_block_size, &new_log);
->>>>>>> Changes based on comments
     {
       InstrumentedMutexLock wl(&impl->log_write_mutex_);
       impl->logfile_number_ = new_log_number;
       impl->logs_.emplace_back(new_log_number, new_log);
     }
-<<<<<<< HEAD
-=======
-    s = CreateWAL(impl, env_options, new_log_number, 0 /*recycle_log_number*/,
-                  true /*creating_new_log*/, true /* called_from_open*/,
-                  preallocate_block_size, &new_log);
->>>>>>> Consolidating wal creation
-=======
->>>>>>> Changes based on comments
 
     if (s.ok()) {
       // set column family handles
