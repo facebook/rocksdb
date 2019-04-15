@@ -988,30 +988,29 @@ Status PosixWritableFile::Allocate(uint64_t offset, uint64_t len) {
 #endif
 
 Status PosixWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
-  // If `sync_file_range` is not available or not supported by the filesystem
-  // on which the file resides, fall back to `Sync()` (`fdatasync`). While this
-  // upholds the contract of `bytes_per_sync`, it has disadvantages: (1) other
-  // non-Posix `Env`s do not have this behavior yet; and (2) unlike
-  // `sync_file_range`, `fdatasync` can sync metadata, increasing write-amp.
 #ifdef ROCKSDB_RANGESYNC_PRESENT
-  if (!sync_file_range_supported_) {
-    return Sync();
-  }
   assert(offset <= std::numeric_limits<off_t>::max());
   assert(nbytes <= std::numeric_limits<off_t>::max());
-  if (sync_file_range(fd_, 0, static_cast<off_t>(offset + nbytes),
-                      SYNC_FILE_RANGE_WAIT_BEFORE | SYNC_FILE_RANGE_WRITE) == 0) {
-    return Status::OK();
-  } else {
-    return IOError("While sync_file_range offset " + ToString(0) +
-                       " bytes " + ToString(offset + nbytes),
-                   filename_, errno);
+  if (sync_file_range_supported_) {
+    int ret;
+    if (strict_bytes_per_sync_) {
+      // Specifying `SYNC_FILE_RANGE_WAIT_BEFORE` together with an offset/length
+      // that spans all bytes written so far tells `sync_file_range` to wait for
+      // any outstanding writeback requests to finish before issuing a new one.
+      ret =
+          sync_file_range(fd_, 0, static_cast<off_t>(offset + nbytes),
+                          SYNC_FILE_RANGE_WAIT_BEFORE | SYNC_FILE_RANGE_WRITE);
+    } else {
+      ret = sync_file_range(fd_, static_cast<off_t>(offset),
+                            static_cast<off_t>(nbytes), SYNC_FILE_RANGE_WRITE);
+    }
+    if (ret != 0) {
+      return IOError("While sync_file_range returned " + ToString(ret),
+                     filename_, errno);
+    }
   }
-#else
-  (void)offset;
-  (void)nbytes;
-  return Sync();
-#endif
+#endif  // ROCKSDB_RANGESYNC_PRESENT
+  return WritableFile::RangeSync(offset, nbytes);
 }
 
 #ifdef OS_LINUX
