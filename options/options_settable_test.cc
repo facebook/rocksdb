@@ -255,6 +255,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "paranoid_checks=true;"
                              "is_fd_close_on_exec=false;"
                              "bytes_per_sync=4295013613;"
+                             "strict_bytes_per_sync=true;"
                              "enable_thread_tracking=false;"
                              "recycle_log_file_num=0;"
                              "create_missing_column_families=true;"
