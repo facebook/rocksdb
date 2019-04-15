@@ -1422,8 +1422,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       GetWalPreallocateBlockSize(mutable_cf_options.write_buffer_size);
   mutex_.Unlock();
   if (creating_new_log) {
-    s = CreateWAL(env_options_, new_log_number, recycle_log_number,
-                  preallocate_block_size, &new_log);
+    s = CreateWAL(new_log_number, recycle_log_number, preallocate_block_size,
+                  &new_log);
   }
   if (s.ok()) {
     SequenceNumber seq = versions_->LastSequence();

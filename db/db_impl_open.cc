@@ -1106,8 +1106,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                       !kSeqPerBatch, kBatchPerTxn);
 }
 
-Status DBImpl::CreateWAL(const EnvOptions& env_options, uint64_t log_file_num,
-                         uint64_t recycle_log_number,
+Status DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
                          const size_t preallocate_block_size,
                          log::Writer** new_log) {
   Status s;
@@ -1116,7 +1115,7 @@ Status DBImpl::CreateWAL(const EnvOptions& env_options, uint64_t log_file_num,
   DBOptions db_options =
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   EnvOptions opt_env_options =
-      env_->OptimizeForLogWrite(env_options, db_options);
+      env_->OptimizeForLogWrite(env_options_, db_options);
   std::string log_fname =
       LogFileName(immutable_db_options_.wal_dir, log_file_num);
 
@@ -1211,15 +1210,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   // Handles create_if_missing, error_if_exists
   s = impl->Recover(column_families);
   if (s.ok()) {
-    EnvOptions env_options(db_options);
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     log::Writer* new_log = nullptr;
     const size_t preallocate_block_size =
         impl->GetWalPreallocateBlockSize(max_write_buffer_size);
-    s = impl->CreateWAL(env_options, new_log_number,
-                        0 /*recycle_log_number*/
-                        preallocate_block_size,
-                        &new_log);
+    s = impl->CreateWAL(new_log_number, 0 /*recycle_log_number*/,
+                        preallocate_block_size, &new_log);
     {
       InstrumentedMutexLock wl(&impl->log_write_mutex_);
       impl->logfile_number_ = new_log_number;
