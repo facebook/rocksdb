@@ -52,6 +52,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/merge_operator.h"
+#include "util/autovector.h"
 #include "util/coding.h"
 #include "util/duplicate_detector.h"
 #include "util/string_util.h"
@@ -137,7 +138,7 @@ struct BatchContentClassifier : public WriteBatch::Handler {
 }  // anon namespace
 
 struct SavePoints {
-  std::stack<SavePoint, std::vector<SavePoint>> stack;
+  std::stack<SavePoint, autovector<SavePoint>> stack;
 };
 
 WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes)
