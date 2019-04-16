@@ -81,6 +81,8 @@ enum Tickers : uint32_t {
   // exist.
   BLOOM_FILTER_FULL_TRUE_POSITIVE,
 
+  BLOOM_FILTER_MICROS,
+
   // # persistent cache hit
   PERSISTENT_CACHE_HIT,
   // # persistent cache miss
@@ -424,6 +426,7 @@ enum Histograms : uint32_t {
   BLOB_DB_DECOMPRESSION_MICROS,
   // Time spent flushing memtable to disk
   FLUSH_TIME,
+  SST_BATCH_SIZE,
 
   HISTOGRAM_ENUM_MAX,
 };

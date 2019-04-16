@@ -272,7 +272,7 @@ Status BlobDBImpl::OpenAllBlobFiles() {
       continue;
     } else if (!read_metadata_status.ok()) {
       ROCKS_LOG_ERROR(db_options_.info_log,
-                      "Unable to read metadata of blob file % " PRIu64
+                      "Unable to read metadata of blob file %" PRIu64
                       ", status: '%s'",
                       file_number, read_metadata_status.ToString().c_str());
       return read_metadata_status;
@@ -345,8 +345,9 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
 
   uint64_t boffset = bfile->GetFileSize();
   if (debug_level_ >= 2 && boffset) {
-    ROCKS_LOG_DEBUG(db_options_.info_log, "Open blob file: %s with offset: %d",
-                    fpath.c_str(), boffset);
+    ROCKS_LOG_DEBUG(db_options_.info_log,
+                    "Open blob file: %s with offset: %" PRIu64, fpath.c_str(),
+                    boffset);
   }
 
   Writer::ElemType et = Writer::kEtNone;
@@ -356,8 +357,8 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
     et = Writer::kEtRecord;
   } else if (bfile->file_size_) {
     ROCKS_LOG_WARN(db_options_.info_log,
-                   "Open blob file: %s with wrong size: %d", fpath.c_str(),
-                   boffset);
+                   "Open blob file: %s with wrong size: %" PRIu64,
+                   fpath.c_str(), boffset);
     return Status::Corruption("Invalid blob file size");
   }
 
@@ -498,7 +499,8 @@ Status BlobDBImpl::SelectBlobFileTTL(uint64_t expiration,
   *blob_file = NewBlobFile("SelectBlobFileTTL");
   assert(*blob_file != nullptr);
 
-  ROCKS_LOG_INFO(db_options_.info_log, "New blob file TTL range: %s %d %d",
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "New blob file TTL range: %s %" PRIu64 " %" PRIu64,
                  (*blob_file)->PathName().c_str(), exp_low, exp_high);
   LogFlush(db_options_.info_log);
 
@@ -736,12 +738,12 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
         RecordTick(statistics_, BLOB_DB_WRITE_BLOB_TTL);
       }
     } else {
-      ROCKS_LOG_ERROR(db_options_.info_log,
-                      "Failed to append blob to FILE: %s: KEY: %s VALSZ: %d"
-                      " status: '%s' blob_file: '%s'",
-                      blob_file->PathName().c_str(), key.ToString().c_str(),
-                      value.size(), s.ToString().c_str(),
-                      blob_file->DumpState().c_str());
+      ROCKS_LOG_ERROR(
+          db_options_.info_log,
+          "Failed to append blob to FILE: %s: KEY: %s VALSZ: %" ROCKSDB_PRIszt
+          " status: '%s' blob_file: '%s'",
+          blob_file->PathName().c_str(), key.ToString().c_str(), value.size(),
+          s.ToString().c_str(), blob_file->DumpState().c_str());
     }
   }
 
@@ -1048,20 +1050,19 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     ROCKS_LOG_DEBUG(db_options_.info_log,
                     "Failed to read blob from blob file %" PRIu64
                     ", blob_offset: %" PRIu64 ", blob_size: %" PRIu64
-                    ", key_size: " PRIu64 ", read " PRIu64
-                    " bytes, status: '%s'",
+                    ", key_size: %" ROCKSDB_PRIszt ", status: '%s'",
                     bfile->BlobFileNumber(), blob_index.offset(),
                     blob_index.size(), key.size(), s.ToString().c_str());
     return s;
   }
   if (blob_record.size() != record_size) {
-    ROCKS_LOG_DEBUG(db_options_.info_log,
-                    "Failed to read blob from blob file %" PRIu64
-                    ", blob_offset: %" PRIu64 ", blob_size: %" PRIu64
-                    ", key_size: " PRIu64 ", read " PRIu64
-                    " bytes, status: '%s'",
-                    bfile->BlobFileNumber(), blob_index.offset(),
-                    blob_index.size(), key.size(), s.ToString().c_str());
+    ROCKS_LOG_DEBUG(
+        db_options_.info_log,
+        "Failed to read blob from blob file %" PRIu64 ", blob_offset: %" PRIu64
+        ", blob_size: %" PRIu64 ", key_size: %" ROCKSDB_PRIszt
+        ", read %" ROCKSDB_PRIszt " bytes, expected %" PRIu64 " bytes",
+        bfile->BlobFileNumber(), blob_index.offset(), blob_index.size(),
+        key.size(), blob_record.size(), record_size);
 
     return Status::Corruption("Failed to retrieve blob from blob index.");
   }
@@ -1073,7 +1074,7 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     ROCKS_LOG_DEBUG(db_options_.info_log,
                     "Unable to decode CRC from blob file %" PRIu64
                     ", blob_offset: %" PRIu64 ", blob_size: %" PRIu64
-                    ", key size: %" PRIu64 ", status: '%s'",
+                    ", key size: %" ROCKSDB_PRIszt ", status: '%s'",
                     bfile->BlobFileNumber(), blob_index.offset(),
                     blob_index.size(), key.size(), s.ToString().c_str());
     return Status::Corruption("Unable to decode checksum.");
@@ -1174,9 +1175,9 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
   }
 
   ROCKS_LOG_INFO(db_options_.info_log, "Starting Sanity Check");
-  ROCKS_LOG_INFO(db_options_.info_log, "Number of files %" PRIu64,
+  ROCKS_LOG_INFO(db_options_.info_log, "Number of files %" ROCKSDB_PRIszt,
                  blob_files_.size());
-  ROCKS_LOG_INFO(db_options_.info_log, "Number of open files %" PRIu64,
+  ROCKS_LOG_INFO(db_options_.info_log, "Number of open files %" ROCKSDB_PRIszt,
                  open_ttl_files_.size());
 
   for (auto bfile : open_ttl_files_) {
@@ -1475,7 +1476,7 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
       bfptr->OpenRandomAccessReader(env_, db_options_, env_options_);
   if (!reader) {
     ROCKS_LOG_ERROR(db_options_.info_log,
-                    "File sequential reader could not be opened",
+                    "File sequential reader could not be opened for %s",
                     bfptr->PathName().c_str());
     return Status::IOError("failed to create sequential reader");
   }

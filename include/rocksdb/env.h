@@ -32,6 +32,13 @@
 #undef GetCurrentTime
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+#define ROCKSDB_PRINTF_FORMAT_ATTR(format_param, dots_param) \
+    __attribute__((__format__(__printf__, format_param, dots_param)))
+#else
+#define ROCKSDB_PRINTF_FORMAT_ATTR(format_param, dots_param)
+#endif
+
 namespace rocksdb {
 
 class FileLock;
@@ -477,6 +484,8 @@ class Env {
     return Status::NotSupported();
   }
 
+  // If you're adding methods here, remember to add them to EnvWrapper too.
+
  protected:
   // The pointer to an internal structure that will update the
   // status of each thread.
@@ -539,6 +548,9 @@ class SequentialFile {
                                 Slice* /*result*/, char* /*scratch*/) {
     return Status::NotSupported();
   }
+
+  // If you're adding methods here, remember to add them to
+  // SequentialFileWrapper too.
 };
 
 // A file abstraction for randomly reading the contents of a file.
@@ -603,6 +615,9 @@ class RandomAccessFile {
   virtual Status InvalidateCache(size_t /*offset*/, size_t /*length*/) {
     return Status::NotSupported("InvalidateCache not supported.");
   }
+
+  // If you're adding methods here, remember to add them to
+  // RandomAccessFileWrapper too.
 };
 
 // A file abstraction for sequential writing.  The implementation
@@ -761,6 +776,9 @@ class WritableFile {
     return Status::OK();
   }
 
+  // If you're adding methods here, remember to add them to
+  // WritableFileWrapper too.
+
  protected:
   size_t preallocation_block_size() { return preallocation_block_size_; }
 
@@ -772,9 +790,6 @@ class WritableFile {
   void operator=(const WritableFile&);
 
  protected:
-  friend class WritableFileWrapper;
-  friend class WritableFileMirror;
-
   Env::IOPriority io_priority_;
   Env::WriteLifeTimeHint write_hint_;
 };
@@ -810,6 +825,9 @@ class RandomRWFile {
   virtual Status Fsync() { return Sync(); }
 
   virtual Status Close() = 0;
+
+  // If you're adding methods here, remember to add them to
+  // RandomRWFileWrapper too.
 
   // No copying allowed
   RandomRWFile(const RandomRWFile&) = delete;
@@ -849,6 +867,9 @@ class Directory {
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
     return 0;
   }
+
+  // If you're adding methods here, remember to add them to
+  // DirectoryWrapper too.
 };
 
 enum InfoLogLevel : unsigned char {
@@ -902,6 +923,8 @@ class Logger {
     log_level_ = log_level;
   }
 
+  // If you're adding methods here, remember to add them to LoggerWrapper too.
+
  protected:
   virtual Status CloseImpl();
   bool closed_;
@@ -929,50 +952,49 @@ extern void LogFlush(const std::shared_ptr<Logger>& info_log);
 
 extern void Log(const InfoLogLevel log_level,
                 const std::shared_ptr<Logger>& info_log, const char* format,
-                ...);
+                ...) ROCKSDB_PRINTF_FORMAT_ATTR(3, 4);
 
 // a set of log functions with different log levels.
 extern void Header(const std::shared_ptr<Logger>& info_log, const char* format,
-                   ...);
+                   ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 extern void Debug(const std::shared_ptr<Logger>& info_log, const char* format,
-                  ...);
+                  ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 extern void Info(const std::shared_ptr<Logger>& info_log, const char* format,
-                 ...);
+                 ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 extern void Warn(const std::shared_ptr<Logger>& info_log, const char* format,
-                 ...);
+                 ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 extern void Error(const std::shared_ptr<Logger>& info_log, const char* format,
-                  ...);
+                  ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 extern void Fatal(const std::shared_ptr<Logger>& info_log, const char* format,
-                  ...);
+                  ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 
 // Log the specified data to *info_log if info_log is non-nullptr.
 // The default info log level is InfoLogLevel::INFO_LEVEL.
 extern void Log(const std::shared_ptr<Logger>& info_log, const char* format,
-                ...)
-#if defined(__GNUC__) || defined(__clang__)
-    __attribute__((__format__(__printf__, 2, 3)))
-#endif
-    ;
+                ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 
 extern void LogFlush(Logger* info_log);
 
 extern void Log(const InfoLogLevel log_level, Logger* info_log,
-                const char* format, ...);
+                const char* format, ...) ROCKSDB_PRINTF_FORMAT_ATTR(3, 4);
 
 // The default info log level is InfoLogLevel::INFO_LEVEL.
 extern void Log(Logger* info_log, const char* format, ...)
-#if defined(__GNUC__) || defined(__clang__)
-    __attribute__((__format__(__printf__, 2, 3)))
-#endif
-    ;
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 
 // a set of log functions with different log levels.
-extern void Header(Logger* info_log, const char* format, ...);
-extern void Debug(Logger* info_log, const char* format, ...);
-extern void Info(Logger* info_log, const char* format, ...);
-extern void Warn(Logger* info_log, const char* format, ...);
-extern void Error(Logger* info_log, const char* format, ...);
-extern void Fatal(Logger* info_log, const char* format, ...);
+extern void Header(Logger* info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+extern void Debug(Logger* info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+extern void Info(Logger* info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+extern void Warn(Logger* info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+extern void Error(Logger* info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+extern void Fatal(Logger* info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 
 // A utility routine: write "data" to the named file.
 extern Status WriteStringToFile(Env* env, const Slice& data,
@@ -982,6 +1004,29 @@ extern Status WriteStringToFile(Env* env, const Slice& data,
 // A utility routine: read contents of named file into *data
 extern Status ReadFileToString(Env* env, const std::string& fname,
                                std::string* data);
+
+// Below are helpers for wrapping most of the classes in this file.
+// They forward all calls to another instance of the class.
+// Useful when wrapping the default implementations.
+// Typical usage is to inherit your wrapper from *Wrapper, e.g.:
+//
+// class MySequentialFileWrapper : public rocksdb::SequentialFileWrapper {
+//  public:
+//   MySequentialFileWrapper(rocksdb::SequentialFile* target):
+//     rocksdb::SequentialFileWrapper(target) {}
+//   Status Read(size_t n, Slice* result, char* scratch) override {
+//     cout << "Doing a read of size " << n << "!" << endl;
+//     return rocksdb::SequentialFileWrapper::Read(n, result, scratch);
+//   }
+//   // All other methods are forwarded to target_ automatically.
+// };
+//
+// This is often more convenient than inheriting the class directly because
+// (a) Don't have to override and forward all methods - the Wrapper will
+//     forward everything you're not explicitly overriding.
+// (b) Don't need to update the wrapper when more methods are added to the
+//     rocksdb class. Unless you actually want to override the behavior.
+//     (And unless rocksdb people forgot to update the *Wrapper class.)
 
 // An implementation of Env that forwards all calls to another Env.
 // May be useful to clients who wish to override just part of the
@@ -1026,6 +1071,11 @@ class EnvWrapper : public Env {
                          const EnvOptions& options) override {
     return target_->NewRandomRWFile(fname, result, options);
   }
+  Status NewMemoryMappedFileBuffer(
+      const std::string& fname,
+      std::unique_ptr<MemoryMappedFileBuffer>* result) override {
+    return target_->NewMemoryMappedFileBuffer(fname, result);
+  }
   Status NewDirectory(const std::string& name,
                       std::unique_ptr<Directory>* result) override {
     return target_->NewDirectory(name, result);
@@ -1043,6 +1093,9 @@ class EnvWrapper : public Env {
   }
   Status DeleteFile(const std::string& f) override {
     return target_->DeleteFile(f);
+  }
+  Status Truncate(const std::string& fname, size_t size) override {
+    return target_->Truncate(fname, size);
   }
   Status CreateDir(const std::string& d) override {
     return target_->CreateDir(d);
@@ -1110,6 +1163,7 @@ class EnvWrapper : public Env {
   }
   uint64_t NowMicros() override { return target_->NowMicros(); }
   uint64_t NowNanos() override { return target_->NowNanos(); }
+  uint64_t NowCPUNanos() override { return target_->NowCPUNanos(); }
 
   void SleepForMicroseconds(int micros) override {
     target_->SleepForMicroseconds(micros);
@@ -1190,16 +1244,66 @@ class EnvWrapper : public Env {
       const ImmutableDBOptions& db_options) const override {
     return target_->OptimizeForCompactionTableRead(env_options, db_options);
   }
+  Status GetFreeSpace(const std::string& path, uint64_t* diskfree) override {
+    return target_->GetFreeSpace(path, diskfree);
+  }
 
  private:
   Env* target_;
 };
 
-// An implementation of WritableFile that forwards all calls to another
-// WritableFile. May be useful to clients who wish to override just part of the
-// functionality of another WritableFile.
-// It's declared as friend of WritableFile to allow forwarding calls to
-// protected virtual methods.
+class SequentialFileWrapper : public SequentialFile {
+ public:
+  explicit SequentialFileWrapper(SequentialFile* target) : target_(target) {}
+
+  Status Read(size_t n, Slice* result, char* scratch) override {
+    return target_->Read(n, result, scratch);
+  }
+  Status Skip(uint64_t n) override { return target_->Skip(n); }
+  bool use_direct_io() const override { return target_->use_direct_io(); }
+  size_t GetRequiredBufferAlignment() const override {
+    return target_->GetRequiredBufferAlignment();
+  }
+  Status InvalidateCache(size_t offset, size_t length) override {
+    return target_->InvalidateCache(offset, length);
+  }
+  Status PositionedRead(uint64_t offset, size_t n, Slice* result,
+                        char* scratch) override {
+    return target_->PositionedRead(offset, n, result, scratch);
+  }
+
+ private:
+  SequentialFile* target_;
+};
+
+class RandomAccessFileWrapper : public RandomAccessFile {
+ public:
+  explicit RandomAccessFileWrapper(RandomAccessFile* target)
+      : target_(target) {}
+
+  Status Read(uint64_t offset, size_t n, Slice* result,
+              char* scratch) const override {
+    return target_->Read(offset, n, result, scratch);
+  }
+  Status Prefetch(uint64_t offset, size_t n) override {
+    return target_->Prefetch(offset, n);
+  }
+  size_t GetUniqueId(char* id, size_t max_size) const override {
+    return target_->GetUniqueId(id, max_size);
+  };
+  void Hint(AccessPattern pattern) override { target_->Hint(pattern); }
+  bool use_direct_io() const override { return target_->use_direct_io(); }
+  size_t GetRequiredBufferAlignment() const override {
+    return target_->GetRequiredBufferAlignment();
+  }
+  Status InvalidateCache(size_t offset, size_t length) override {
+    return target_->InvalidateCache(offset, length);
+  }
+
+ private:
+  RandomAccessFile* target_;
+};
+
 class WritableFileWrapper : public WritableFile {
  public:
   explicit WritableFileWrapper(WritableFile* t) : target_(t) {}
@@ -1268,6 +1372,71 @@ class WritableFileWrapper : public WritableFile {
 
  private:
   WritableFile* target_;
+};
+
+class RandomRWFileWrapper : public RandomRWFile {
+ public:
+  explicit RandomRWFileWrapper(RandomRWFile* target) : target_(target) {}
+
+  bool use_direct_io() const override { return target_->use_direct_io(); }
+  size_t GetRequiredBufferAlignment() const override {
+    return target_->GetRequiredBufferAlignment();
+  }
+  Status Write(uint64_t offset, const Slice& data) override {
+    return target_->Write(offset, data);
+  }
+  Status Read(uint64_t offset, size_t n, Slice* result,
+              char* scratch) const override {
+    return target_->Read(offset, n, result, scratch);
+  }
+  Status Flush() override { return target_->Flush(); }
+  Status Sync() override { return target_->Sync(); }
+  Status Fsync() override { return target_->Fsync(); }
+  Status Close() override { return target_->Close(); }
+
+ private:
+  RandomRWFile* target_;
+};
+
+class DirectoryWrapper : public Directory {
+ public:
+  explicit DirectoryWrapper(Directory* target) : target_(target) {}
+
+  Status Fsync() override { return target_->Fsync(); }
+  size_t GetUniqueId(char* id, size_t max_size) const override {
+    return target_->GetUniqueId(id, max_size);
+  }
+
+ private:
+  Directory* target_;
+};
+
+class LoggerWrapper : public Logger {
+ public:
+  explicit LoggerWrapper(Logger* target) : target_(target) {}
+
+  Status Close() override { return target_->Close(); }
+  void LogHeader(const char* format, va_list ap) override {
+    return target_->LogHeader(format, ap);
+  }
+  void Logv(const char* format, va_list ap) override {
+    return target_->Logv(format, ap);
+  }
+  void Logv(const InfoLogLevel log_level, const char* format,
+            va_list ap) override {
+    return target_->Logv(log_level, format, ap);
+  }
+  size_t GetLogFileSize() const override { return target_->GetLogFileSize(); }
+  void Flush() override { return target_->Flush(); }
+  InfoLogLevel GetInfoLogLevel() const override {
+    return target_->GetInfoLogLevel();
+  }
+  void SetInfoLogLevel(const InfoLogLevel log_level) override {
+    return target_->SetInfoLogLevel(log_level);
+  }
+
+ private:
+  Logger* target_;
 };
 
 // Returns a new environment that stores its data in memory and delegates

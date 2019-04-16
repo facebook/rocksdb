@@ -2153,6 +2153,7 @@ struct MTState {
 struct MTThread {
   MTState* state;
   int id;
+  bool multiget_batched;
 };
 
 static void MTThreadBody(void* arg) {
@@ -2201,8 +2202,28 @@ static void MTThreadBody(void* arg) {
       // same)
       std::vector<Slice> keys(kColumnFamilies, Slice(keybuf));
       std::vector<std::string> values;
-      std::vector<Status> statuses =
-          db->MultiGet(ReadOptions(), t->state->test->handles_, keys, &values);
+      std::vector<Status> statuses;
+      if (!t->multiget_batched) {
+        statuses = db->MultiGet(ReadOptions(), t->state->test->handles_, keys,
+                                &values);
+      } else {
+        std::vector<PinnableSlice> pin_values(keys.size());
+        statuses.resize(keys.size());
+        const Snapshot* snapshot = db->GetSnapshot();
+        ReadOptions ro;
+        ro.snapshot = snapshot;
+        for (int cf = 0; cf < kColumnFamilies; ++cf) {
+          db->MultiGet(ro, t->state->test->handles_[cf], 1, &keys[cf],
+                       &pin_values[cf], &statuses[cf]);
+        }
+        db->ReleaseSnapshot(snapshot);
+        values.resize(keys.size());
+        for (int cf = 0; cf < kColumnFamilies; ++cf) {
+          if (statuses[cf].ok()) {
+            values[cf].assign(pin_values[cf].data(), pin_values[cf].size());
+          }
+        }
+      }
       Status s = statuses[0];
       // all statuses have to be the same
       for (size_t i = 1; i < statuses.size(); ++i) {
@@ -2244,10 +2265,13 @@ static void MTThreadBody(void* arg) {
 
 }  // namespace
 
-class MultiThreadedDBTest : public DBTest,
-                            public ::testing::WithParamInterface<int> {
+class MultiThreadedDBTest
+    : public DBTest,
+      public ::testing::WithParamInterface<std::tuple<int, bool>> {
  public:
-  void SetUp() override { option_config_ = GetParam(); }
+  void SetUp() override {
+    std::tie(option_config_, multiget_batched_) = GetParam();
+  }
 
   static std::vector<int> GenerateOptionConfigs() {
     std::vector<int> optionConfigs;
@@ -2256,6 +2280,8 @@ class MultiThreadedDBTest : public DBTest,
     }
     return optionConfigs;
   }
+
+  bool multiget_batched_;
 };
 
 TEST_P(MultiThreadedDBTest, MultiThreaded) {
@@ -2282,6 +2308,7 @@ TEST_P(MultiThreadedDBTest, MultiThreaded) {
   for (int id = 0; id < kNumThreads; id++) {
     thread[id].state = &mt;
     thread[id].id = id;
+    thread[id].multiget_batched = multiget_batched_;
     env_->StartThread(MTThreadBody, &thread[id]);
   }
 
@@ -2299,7 +2326,9 @@ TEST_P(MultiThreadedDBTest, MultiThreaded) {
 
 INSTANTIATE_TEST_CASE_P(
     MultiThreaded, MultiThreadedDBTest,
-    ::testing::ValuesIn(MultiThreadedDBTest::GenerateOptionConfigs()));
+    ::testing::Combine(
+        ::testing::ValuesIn(MultiThreadedDBTest::GenerateOptionConfigs()),
+        ::testing::Bool()));
 #endif  // ROCKSDB_LITE
 
 // Group commit test:

@@ -5,6 +5,11 @@
 
 #include "util/sst_file_manager_impl.h"
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <vector>
 
 #include "db/db_impl.h"
@@ -189,8 +194,11 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
     needed_headroom -= in_progress_files_size_;
     if (free_space < needed_headroom + size_added_by_compaction) {
       // We hit the condition of not enough disk space
-      ROCKS_LOG_ERROR(logger_, "free space [%d bytes] is less than "
-          "needed headroom [%d bytes]\n", free_space, needed_headroom);
+      ROCKS_LOG_ERROR(logger_,
+                      "free space [%" PRIu64
+                      " bytes] is less than "
+                      "needed headroom [%" ROCKSDB_PRIszt " bytes]\n",
+                      free_space, needed_headroom);
       return false;
     }
   }
@@ -266,17 +274,22 @@ void SstFileManagerImpl::ClearError() {
       // now
       if (bg_err_.severity() == Status::Severity::kHardError) {
         if (free_space < reserved_disk_buffer_) {
-          ROCKS_LOG_ERROR(logger_, "free space [%d bytes] is less than "
-              "required disk buffer [%d bytes]\n", free_space,
-              reserved_disk_buffer_);
+          ROCKS_LOG_ERROR(logger_,
+                          "free space [%" PRIu64
+                          " bytes] is less than "
+                          "required disk buffer [%" PRIu64 " bytes]\n",
+                          free_space, reserved_disk_buffer_);
           ROCKS_LOG_ERROR(logger_, "Cannot clear hard error\n");
           s = Status::NoSpace();
         }
       } else if (bg_err_.severity() == Status::Severity::kSoftError) {
         if (free_space < free_space_trigger_) {
-          ROCKS_LOG_WARN(logger_, "free space [%d bytes] is less than "
-              "free space for compaction trigger [%d bytes]\n", free_space,
-              free_space_trigger_);
+          ROCKS_LOG_WARN(logger_,
+                         "free space [%" PRIu64
+                         " bytes] is less than "
+                         "free space for compaction trigger [%" PRIu64
+                         " bytes]\n",
+                         free_space, free_space_trigger_);
           ROCKS_LOG_WARN(logger_, "Cannot clear soft error\n");
           s = Status::NoSpace();
         }

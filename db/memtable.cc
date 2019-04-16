@@ -35,7 +35,6 @@
 #include "util/autovector.h"
 #include "util/coding.h"
 #include "util/memory_usage.h"
-#include "util/murmurhash.h"
 #include "util/mutexlock.h"
 #include "util/util.h"
 
@@ -319,8 +318,9 @@ class MemTableIterator : public InternalIterator {
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_) {
       // iterator should only use prefix bloom filter
-      if (!bloom_->MayContain(
-              prefix_extractor_->Transform(ExtractUserKey(k)))) {
+      Slice user_key(ExtractUserKey(k));
+      if (prefix_extractor_->InDomain(user_key) &&
+          !bloom_->MayContain(prefix_extractor_->Transform(user_key))) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
         valid_ = false;
         return;
@@ -335,8 +335,9 @@ class MemTableIterator : public InternalIterator {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_) {
-      if (!bloom_->MayContain(
-              prefix_extractor_->Transform(ExtractUserKey(k)))) {
+      Slice user_key(ExtractUserKey(k));
+      if (prefix_extractor_->InDomain(user_key) &&
+          !bloom_->MayContain(prefix_extractor_->Transform(user_key))) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
         valid_ = false;
         return;
@@ -438,8 +439,7 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
 }
 
 port::RWMutex* MemTable::GetLock(const Slice& key) {
-  static murmur_hash hash;
-  return &locks_[hash(key) % locks_.size()];
+  return &locks_[static_cast<size_t>(GetSliceNPHash64(key)) % locks_.size()];
 }
 
 MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
@@ -520,7 +520,8 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
                          std::memory_order_relaxed);
     }
 
-    if (bloom_filter_ && prefix_extractor_) {
+    if (bloom_filter_ && prefix_extractor_ &&
+        prefix_extractor_->InDomain(key)) {
       bloom_filter_->Add(prefix_extractor_->Transform(key));
     }
     if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
@@ -553,7 +554,8 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
       post_process_info->num_deletes++;
     }
 
-    if (bloom_filter_ && prefix_extractor_) {
+    if (bloom_filter_ && prefix_extractor_ &&
+        prefix_extractor_->InDomain(key)) {
       bloom_filter_->AddConcurrently(prefix_extractor_->Transform(key));
     }
     if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
@@ -773,6 +775,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     } else {
       assert(prefix_extractor_);
       may_contain =
+          !prefix_extractor_->InDomain(user_key) ||
           bloom_filter_->MayContain(prefix_extractor_->Transform(user_key));
     }
   }

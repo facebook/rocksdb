@@ -234,7 +234,7 @@ struct CleanupContext {
 };
 
 // A cache shard which maintains its own CLOCK cache.
-class ClockCacheShard : public CacheShard {
+class ClockCacheShard final : public CacheShard {
  public:
   // Hash map type.
   typedef tbb::concurrent_hash_map<CacheKey, CacheHandle*, CacheKey> HashTable;
@@ -672,7 +672,7 @@ void ClockCacheShard::EraseUnRefEntries() {
   Cleanup(context);
 }
 
-class ClockCache : public ShardedCache {
+class ClockCache final : public ShardedCache {
  public:
   ClockCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit)
       : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {

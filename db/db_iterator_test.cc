@@ -15,6 +15,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
+#include "table/flush_block_policy.h"
 
 namespace rocksdb {
 
@@ -42,43 +43,21 @@ class DBIteratorTest : public DBTestBase,
     SequenceNumber seq = read_options.snapshot != nullptr
                              ? read_options.snapshot->GetSequenceNumber()
                              : db_->GetLatestSequenceNumber();
-    read_callback_.SetSnapshot(seq);
     bool use_read_callback = GetParam();
-    ReadCallback* read_callback = use_read_callback ? &read_callback_ : nullptr;
+    DummyReadCallback* read_callback = nullptr;
+    if (use_read_callback) {
+      read_callback = new DummyReadCallback();
+      read_callback->SetSnapshot(seq);
+      InstrumentedMutexLock lock(&mutex_);
+      read_callbacks_.push_back(
+          std::unique_ptr<DummyReadCallback>(read_callback));
+    }
     return dbfull()->NewIteratorImpl(read_options, cfd, seq, read_callback);
   }
 
  private:
-  DummyReadCallback read_callback_;
-};
-
-class FlushBlockEveryKeyPolicy : public FlushBlockPolicy {
- public:
-  bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
-    if (!start_) {
-      start_ = true;
-      return false;
-    }
-    return true;
-  }
-
- private:
-  bool start_ = false;
-};
-
-class FlushBlockEveryKeyPolicyFactory : public FlushBlockPolicyFactory {
- public:
-  explicit FlushBlockEveryKeyPolicyFactory() {}
-
-  const char* Name() const override {
-    return "FlushBlockEveryKeyPolicyFactory";
-  }
-
-  FlushBlockPolicy* NewFlushBlockPolicy(
-      const BlockBasedTableOptions& /*table_options*/,
-      const BlockBuilder& /*data_block_builder*/) const override {
-    return new FlushBlockEveryKeyPolicy;
-  }
+  InstrumentedMutex mutex_;
+  std::vector<std::unique_ptr<DummyReadCallback>> read_callbacks_;
 };
 
 TEST_P(DBIteratorTest, IteratorProperty) {
@@ -2480,8 +2459,8 @@ class DBIteratorWithReadCallbackTest : public DBIteratorTest {};
 TEST_F(DBIteratorWithReadCallbackTest, ReadCallback) {
   class TestReadCallback : public ReadCallback {
    public:
-    explicit TestReadCallback(SequenceNumber max_visible_seq)
-        : ReadCallback(max_visible_seq) {}
+    explicit TestReadCallback(SequenceNumber _max_visible_seq)
+        : ReadCallback(_max_visible_seq) {}
 
     bool IsVisibleFullCheck(SequenceNumber seq) override {
       return seq <= max_visible_seq_;

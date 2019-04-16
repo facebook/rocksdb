@@ -1090,11 +1090,20 @@ static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   }
   return true;
 }
+
 DEFINE_int32(prefix_size, 0, "control the prefix size for HashSkipList and "
              "plain table");
 DEFINE_int64(keys_per_prefix, 0, "control average number of keys generated "
              "per prefix, 0 means no special handling of the prefix, "
              "i.e. use the prefix comes with the generated random number.");
+DEFINE_bool(total_order_seek, false,
+            "Enable total order seek regardless of index format.");
+DEFINE_bool(prefix_same_as_start, false,
+            "Enforce iterator to return keys with prefix same as seek key.");
+DEFINE_bool(
+    seek_missing_prefix, false,
+    "Iterator seek to keys with non-exist prefixes. Require prefix_size > 8");
+
 DEFINE_int32(memtable_insert_with_hint_prefix_size, 0,
              "If non-zero, enable "
              "memtable insert with hint with the given prefix size.");
@@ -1114,6 +1123,9 @@ DEFINE_uint64(stats_persist_period_sec,
 DEFINE_uint64(stats_history_buffer_size,
               rocksdb::Options().stats_history_buffer_size,
               "Max number of stats snapshots to keep in memory");
+DEFINE_int64(multiread_stride, 0,
+             "Stride length for the keys in a MultiGet batch");
+DEFINE_bool(multiread_batched, false, "Use the new MultiGet API");
 
 enum RepFactory {
   kSkipList,
@@ -2526,6 +2538,17 @@ class Benchmark {
     }
   }
 
+  void GenerateKeyFromIntForSeek(uint64_t v, int64_t num_keys, Slice* key) {
+    GenerateKeyFromInt(v, num_keys, key);
+    if (FLAGS_seek_missing_prefix) {
+      assert(prefix_size_ > 8);
+      char* key_ptr = const_cast<char*>(key->data());
+      // This rely on GenerateKeyFromInt filling paddings with '0's.
+      // Putting a '1' will create a non-existing prefix.
+      key_ptr[8] = '1';
+    }
+  }
+
   std::string GetPathForMultiple(std::string base_name, size_t id) {
     if (!base_name.empty()) {
 #ifndef OS_WIN
@@ -2700,6 +2723,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       } else if (name == "readreverse") {
         method = &Benchmark::ReadReverse;
       } else if (name == "readrandom") {
+        if (FLAGS_multiread_stride) {
+          fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
+                  entries_per_batch_);
+        }
         method = &Benchmark::ReadRandom;
       } else if (name == "readrandomfast") {
         method = &Benchmark::ReadRandomFast;
@@ -4531,6 +4558,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     int64_t read = 0;
     int64_t found = 0;
     int64_t bytes = 0;
+    int num_keys = 0;
+    int64_t key_rand = GetRandomKey(&thread->rand);
     ReadOptions options(FLAGS_verify_checksum, true);
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
@@ -4542,8 +4571,21 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       // We use same key_rand as seed for key and column family so that we can
       // deterministically find the cfh corresponding to a particular key, as it
       // is done in DoWrite method.
-      int64_t key_rand = GetRandomKey(&thread->rand);
       GenerateKeyFromInt(key_rand, FLAGS_num, &key);
+      if (entries_per_batch_ > 1 && FLAGS_multiread_stride) {
+        if (++num_keys == entries_per_batch_) {
+          num_keys = 0;
+          key_rand = GetRandomKey(&thread->rand);
+          if ((key_rand + (entries_per_batch_ - 1) * FLAGS_multiread_stride) >=
+              FLAGS_num) {
+            key_rand = FLAGS_num - entries_per_batch_ * FLAGS_multiread_stride;
+          }
+        } else {
+          key_rand += FLAGS_multiread_stride;
+        }
+      } else {
+        key_rand = GetRandomKey(&thread->rand);
+      }
       read++;
       Status s;
       if (FLAGS_num_column_families > 1) {
@@ -4595,6 +4637,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     std::vector<Slice> keys;
     std::vector<std::unique_ptr<const char[]> > key_guards;
     std::vector<std::string> values(entries_per_batch_);
+    PinnableSlice* pin_values = new PinnableSlice[entries_per_batch_];
+    std::unique_ptr<PinnableSlice[]> pin_values_guard(pin_values);
+    std::vector<Status> stat_list(entries_per_batch_);
     while (static_cast<int64_t>(keys.size()) < entries_per_batch_) {
       key_guards.push_back(std::unique_ptr<const char[]>());
       keys.push_back(AllocateKey(&key_guards.back()));
@@ -4603,21 +4648,52 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
-      for (int64_t i = 0; i < entries_per_batch_; ++i) {
-        GenerateKeyFromInt(GetRandomKey(&thread->rand), FLAGS_num, &keys[i]);
+      if (FLAGS_multiread_stride) {
+        int64_t key = GetRandomKey(&thread->rand);
+        if ((key + (entries_per_batch_ - 1) * FLAGS_multiread_stride) >=
+            (int64_t)FLAGS_num) {
+          key = FLAGS_num - entries_per_batch_ * FLAGS_multiread_stride;
+        }
+        for (int64_t i = 0; i < entries_per_batch_; ++i) {
+          GenerateKeyFromInt(key, FLAGS_num, &keys[i]);
+          key += FLAGS_multiread_stride;
+        }
+      } else {
+        for (int64_t i = 0; i < entries_per_batch_; ++i) {
+          GenerateKeyFromInt(GetRandomKey(&thread->rand), FLAGS_num, &keys[i]);
+        }
       }
-      std::vector<Status> statuses = db->MultiGet(options, keys, &values);
-      assert(static_cast<int64_t>(statuses.size()) == entries_per_batch_);
+      if (!FLAGS_multiread_batched) {
+        std::vector<Status> statuses = db->MultiGet(options, keys, &values);
+        assert(static_cast<int64_t>(statuses.size()) == entries_per_batch_);
 
-      read += entries_per_batch_;
-      num_multireads++;
-      for (int64_t i = 0; i < entries_per_batch_; ++i) {
-        if (statuses[i].ok()) {
-          ++found;
-        } else if (!statuses[i].IsNotFound()) {
-          fprintf(stderr, "MultiGet returned an error: %s\n",
-                  statuses[i].ToString().c_str());
-          abort();
+        read += entries_per_batch_;
+        num_multireads++;
+        for (int64_t i = 0; i < entries_per_batch_; ++i) {
+          if (statuses[i].ok()) {
+            ++found;
+          } else if (!statuses[i].IsNotFound()) {
+            fprintf(stderr, "MultiGet returned an error: %s\n",
+                    statuses[i].ToString().c_str());
+            abort();
+          }
+        }
+      } else {
+        db->MultiGet(options, db->DefaultColumnFamily(), keys.size(),
+                     keys.data(), pin_values, stat_list.data());
+
+        read += entries_per_batch_;
+        num_multireads++;
+        for (int64_t i = 0; i < entries_per_batch_; ++i) {
+          if (stat_list[i].ok()) {
+            ++found;
+          } else if (!stat_list[i].IsNotFound()) {
+            fprintf(stderr, "MultiGet returned an error: %s\n",
+                    stat_list[i].ToString().c_str());
+            abort();
+          }
+          stat_list[i] = Status::OK();
+          pin_values[i].Reset();
         }
       }
       if (thread->shared->read_rate_limiter.get() != nullptr &&
@@ -4908,6 +4984,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     int64_t found = 0;
     int64_t bytes = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
+    options.total_order_seek = FLAGS_total_order_seek;
+    options.prefix_same_as_start = FLAGS_prefix_same_as_start;
     options.tailing = FLAGS_use_tailing_iterator;
 
     Iterator* single_iter = nullptr;
@@ -4932,7 +5010,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     char value_buffer[256];
     while (!duration.Done(1)) {
       int64_t seek_pos = thread->rand.Next() % FLAGS_num;
-      GenerateKeyFromInt((uint64_t)seek_pos, FLAGS_num, &key);
+      GenerateKeyFromIntForSeek(static_cast<uint64_t>(seek_pos), FLAGS_num,
+                                &key);
       if (FLAGS_max_scan_distance != 0) {
         if (FLAGS_reverse_iterator) {
           GenerateKeyFromInt(
@@ -6198,6 +6277,11 @@ int db_bench_tool(int argc, char** argv) {
     // When both are set then FLAGS_stats_interval determines the frequency
     // at which the timer is checked for FLAGS_stats_interval_seconds
     FLAGS_stats_interval = 1000;
+  }
+
+  if (FLAGS_seek_missing_prefix && FLAGS_prefix_size <= 8) {
+    fprintf(stderr, "prefix_size > 8 required by --seek_missing_prefix\n");
+    exit(1);
   }
 
   rocksdb::Benchmark benchmark;

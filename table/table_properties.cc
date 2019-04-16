@@ -153,10 +153,18 @@ std::string TableProperties::ToString(
       compression_name.empty() ? std::string("N/A") : compression_name,
       prop_delim, kv_delim);
 
+  AppendProperty(
+      result, "SST file compression options",
+      compression_options.empty() ? std::string("N/A") : compression_options,
+      prop_delim, kv_delim);
+
   AppendProperty(result, "creation time", creation_time, prop_delim, kv_delim);
 
   AppendProperty(result, "time stamp of earliest key", oldest_key_time,
                  prop_delim, kv_delim);
+
+  AppendProperty(result, "file creation time", file_creation_time, prop_delim,
+                 kv_delim);
 
   return result;
 }
@@ -223,9 +231,13 @@ const std::string TablePropertiesNames::kPrefixExtractorName =
 const std::string TablePropertiesNames::kPropertyCollectors =
     "rocksdb.property.collectors";
 const std::string TablePropertiesNames::kCompression = "rocksdb.compression";
+const std::string TablePropertiesNames::kCompressionOptions =
+    "rocksdb.compression_options";
 const std::string TablePropertiesNames::kCreationTime = "rocksdb.creation.time";
 const std::string TablePropertiesNames::kOldestKeyTime =
     "rocksdb.oldest.key.time";
+const std::string TablePropertiesNames::kFileCreationTime =
+    "rocksdb.file.creation.time";
 
 extern const std::string kPropertiesBlock = "rocksdb.properties";
 // Old property block name for backward compatibility

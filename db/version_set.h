@@ -44,6 +44,8 @@
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "table/get_context.h"
+#include "table/multiget_context.h"
 
 namespace rocksdb {
 
@@ -138,6 +140,12 @@ class VersionStorageInfo {
   // ComputeCompactionScore()
   void ComputeExpiredTtlFiles(const ImmutableCFOptions& ioptions,
                               const uint64_t ttl);
+
+  // This computes files_marked_for_periodic_compaction_ and is called by
+  // ComputeCompactionScore()
+  void ComputeFilesMarkedForPeriodicCompaction(
+      const ImmutableCFOptions& ioptions,
+      const uint64_t periodic_compaction_seconds);
 
   // This computes bottommost_files_marked_for_compaction_ and is called by
   // ComputeCompactionScore() or UpdateOldestSnapshot().
@@ -298,6 +306,14 @@ class VersionStorageInfo {
   const autovector<std::pair<int, FileMetaData*>>& ExpiredTtlFiles() const {
     assert(finalized_);
     return expired_ttl_files_;
+  }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: DB mutex held during access
+  const autovector<std::pair<int, FileMetaData*>>&
+  FilesMarkedForPeriodicCompaction() const {
+    assert(finalized_);
+    return files_marked_for_periodic_compaction_;
   }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
@@ -469,6 +485,9 @@ class VersionStorageInfo {
 
   autovector<std::pair<int, FileMetaData*>> expired_ttl_files_;
 
+  autovector<std::pair<int, FileMetaData*>>
+      files_marked_for_periodic_compaction_;
+
   // These files are considered bottommost because none of their keys can exist
   // at lower levels. They are not necessarily all in the same level. The marked
   // ones are eligible for compaction because they contain duplicate key
@@ -535,6 +554,7 @@ class VersionStorageInfo {
   void operator=(const VersionStorageInfo&) = delete;
 };
 
+using MultiGetRange = MultiGetContext::Range;
 class Version {
  public:
   // Append to *iters a sequence of iterators that will
@@ -575,6 +595,9 @@ class Version {
            bool* value_found = nullptr, bool* key_exists = nullptr,
            SequenceNumber* seq = nullptr, ReadCallback* callback = nullptr,
            bool* is_blob = nullptr);
+
+  void MultiGet(const ReadOptions&, MultiGetRange* range,
+                ReadCallback* callback = nullptr, bool* is_blob = nullptr);
 
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.

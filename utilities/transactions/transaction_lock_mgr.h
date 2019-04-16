@@ -9,6 +9,7 @@
 #include <chrono>
 #include <string>
 #include <unordered_map>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -44,8 +45,8 @@ struct DeadlockInfoBuffer {
 struct TrackedTrxInfo {
   autovector<TransactionID> m_neighbors;
   uint32_t m_cf_id;
-  std::string m_waiting_key;
   bool m_exclusive;
+  std::string m_waiting_key;
 };
 
 class Slice;
@@ -130,11 +131,11 @@ class TransactionLockMgr {
   Status AcquireWithTimeout(PessimisticTransaction* txn, LockMap* lock_map,
                             LockMapStripe* stripe, uint32_t column_family_id,
                             const std::string& key, Env* env, int64_t timeout,
-                            const LockInfo& lock_info);
+                            LockInfo&& lock_info);
 
   Status AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
                        const std::string& key, Env* env,
-                       const LockInfo& lock_info, uint64_t* wait_time,
+                       LockInfo&& lock_info, uint64_t* wait_time,
                        autovector<TransactionID>* txn_ids);
 
   void UnLockKey(const PessimisticTransaction* txn, const std::string& key,

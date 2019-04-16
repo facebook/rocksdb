@@ -200,7 +200,7 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
 
   // The total soft write buffer size is about 105000
   std::shared_ptr<Cache> cache = NewLRUCache(4 * 1024 * 1024, 2);
-  ASSERT_LT(cache->GetUsage(), 1024 * 1024);
+  ASSERT_LT(cache->GetUsage(), 256 * 1024);
 
   if (use_old_interface_) {
     options.db_write_buffer_size = 120000;  // this is the real limit
@@ -236,14 +236,14 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
 
   ASSERT_OK(Put(3, Key(1), DummyString(30000), wo));
   if (cost_cache_) {
-    ASSERT_GE(cache->GetUsage(), 1024 * 1024);
-    ASSERT_LE(cache->GetUsage(), 2 * 1024 * 1024);
+    ASSERT_GE(cache->GetUsage(), 256 * 1024);
+    ASSERT_LE(cache->GetUsage(), 2 * 256 * 1024);
   }
   wait_flush();
   ASSERT_OK(Put(0, Key(1), DummyString(60000), wo));
   if (cost_cache_) {
-    ASSERT_GE(cache->GetUsage(), 1024 * 1024);
-    ASSERT_LE(cache->GetUsage(), 2 * 1024 * 1024);
+    ASSERT_GE(cache->GetUsage(), 256 * 1024);
+    ASSERT_LE(cache->GetUsage(), 2 * 256 * 1024);
   }
   wait_flush();
   ASSERT_OK(Put(2, Key(1), DummyString(1), wo));
@@ -339,11 +339,11 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
               static_cast<uint64_t>(2));
   }
   if (cost_cache_) {
-    ASSERT_GE(cache->GetUsage(), 1024 * 1024);
+    ASSERT_GE(cache->GetUsage(), 256 * 1024);
     Close();
     options.write_buffer_manager.reset();
     last_options_.write_buffer_manager.reset();
-    ASSERT_LT(cache->GetUsage(), 1024 * 1024);
+    ASSERT_LT(cache->GetUsage(), 256 * 1024);
   }
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -467,8 +467,8 @@ TEST_F(DBTest2, TestWriteBufferNoLimitWithCache) {
   Reopen(options);
 
   ASSERT_OK(Put("foo", "bar"));
-  // One dummy entry is 1MB.
-  ASSERT_GT(cache->GetUsage(), 500000);
+  // One dummy entry is 256KB.
+  ASSERT_GT(cache->GetUsage(), 128000);
 }
 
 namespace {
@@ -2396,6 +2396,41 @@ TEST_F(DBTest2, OptimizeForPointLookup) {
   ASSERT_EQ("v1", Get("foo"));
 }
 
+TEST_F(DBTest2, OptimizeForSmallDB) {
+  Options options = CurrentOptions();
+  Close();
+  options.OptimizeForSmallDb();
+
+  // Find the cache object
+  ASSERT_EQ(std::string(BlockBasedTableFactory::kName),
+            std::string(options.table_factory->Name()));
+  BlockBasedTableOptions* table_options =
+      reinterpret_cast<BlockBasedTableOptions*>(
+          options.table_factory->GetOptions());
+  ASSERT_TRUE(table_options != nullptr);
+  std::shared_ptr<Cache> cache = table_options->block_cache;
+
+  ASSERT_EQ(0, cache->GetUsage());
+  ASSERT_OK(DB::Open(options, dbname_, &db_));
+  ASSERT_OK(Put("foo", "v1"));
+
+  // memtable size is costed to the block cache
+  ASSERT_NE(0, cache->GetUsage());
+
+  ASSERT_EQ("v1", Get("foo"));
+  Flush();
+
+  size_t prev_size = cache->GetUsage();
+  // Remember block cache size, so that we can find that
+  // it is filled after Get().
+  // Use pinnable slice so that it can ping the block so that
+  // when we check the size it is not evicted.
+  PinnableSlice value;
+  ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "foo", &value));
+  ASSERT_GT(cache->GetUsage(), prev_size);
+  value.Reset();
+}
+
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest2, GetRaceFlush1) {
@@ -2874,6 +2909,8 @@ TEST_F(DBTest2, TraceAndReplay) {
   CreateAndReopenWithCF({"pikachu"}, options);
   Random rnd(301);
   Iterator* single_iter = nullptr;
+
+  ASSERT_TRUE(db_->EndTrace().IsIOError());
 
   std::string trace_filename = dbname_ + "/rocksdb.trace";
   std::unique_ptr<TraceWriter> trace_writer;
@@ -3659,6 +3696,48 @@ TEST_F(DBTest2, MultiDBParallelOpenTest) {
 }
 #endif  // OS_WIN
 
+namespace {
+class DummyOldStats : public Statistics {
+ public:
+  uint64_t getTickerCount(uint32_t /*ticker_type*/) const override { return 0; }
+  void recordTick(uint32_t /* ticker_type */, uint64_t /* count */) override {
+    num_rt++;
+  }
+  void setTickerCount(uint32_t /*ticker_type*/, uint64_t /*count*/) override {}
+  uint64_t getAndResetTickerCount(uint32_t /*ticker_type*/) override {
+    return 0;
+  }
+  void measureTime(uint32_t /*histogram_type*/, uint64_t /*count*/) override {
+    num_mt++;
+  }
+  void histogramData(uint32_t /*histogram_type*/,
+                     rocksdb::HistogramData* const /*data*/) const override {}
+  std::string getHistogramString(uint32_t /*type*/) const override {
+    return "";
+  }
+  bool HistEnabledForType(uint32_t /*type*/) const override { return false; }
+  std::string ToString() const override { return ""; }
+  int num_rt = 0;
+  int num_mt = 0;
+};
+}  // namespace
+
+TEST_F(DBTest2, OldStatsInterface) {
+  DummyOldStats* dos = new DummyOldStats();
+  std::shared_ptr<Statistics> stats(dos);
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = stats;
+  Reopen(options);
+
+  Put("foo", "bar");
+  ASSERT_EQ("bar", Get("foo"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("bar", Get("foo"));
+
+  ASSERT_GT(dos->num_rt, 0);
+  ASSERT_GT(dos->num_mt, 0);
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

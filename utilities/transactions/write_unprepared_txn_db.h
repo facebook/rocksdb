@@ -59,8 +59,9 @@ class WriteUnpreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
     assert(unprep_seqs.size() > 0);
   }
 
-  virtual Status Callback(SequenceNumber commit_seq, bool is_mem_disabled
-                          __attribute__((__unused__))) override {
+  virtual Status Callback(SequenceNumber commit_seq,
+                          bool is_mem_disabled __attribute__((__unused__)),
+                          uint64_t) override {
     const uint64_t last_commit_seq = LIKELY(data_batch_cnt_ <= 1)
                                          ? commit_seq
                                          : commit_seq + data_batch_cnt_ - 1;
@@ -122,8 +123,9 @@ class WriteUnpreparedRollbackPreReleaseCallback : public PreReleaseCallback {
     assert(db_impl_->immutable_db_options().two_write_queues);
   }
 
-  virtual Status Callback(SequenceNumber commit_seq, bool is_mem_disabled
-                          __attribute__((__unused__))) override {
+  virtual Status Callback(SequenceNumber commit_seq,
+                          bool is_mem_disabled __attribute__((__unused__)),
+                          uint64_t) override {
     assert(is_mem_disabled);  // implies the 2nd queue
     const uint64_t last_commit_seq = commit_seq;
     db_->AddCommitted(rollback_seq_, last_commit_seq);

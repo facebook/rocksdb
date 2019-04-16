@@ -99,6 +99,19 @@ class FilterBlockReader {
                            const bool no_io = false,
                            const Slice* const const_ikey_ptr = nullptr) = 0;
 
+  virtual void KeysMayMatch(MultiGetRange* range,
+                            const SliceTransform* prefix_extractor,
+                            uint64_t block_offset = kNotValid,
+                            const bool no_io = false) {
+    for (auto iter = range->begin(); iter != range->end(); ++iter) {
+      const Slice ukey = iter->ukey;
+      const Slice ikey = iter->ikey;
+      if (!KeyMayMatch(ukey, prefix_extractor, block_offset, no_io, &ikey)) {
+        range->SkipKey(iter);
+      }
+    }
+  }
+
   /**
    * no_io and const_ikey_ptr here means the same as in KeyMayMatch
    */
@@ -107,6 +120,20 @@ class FilterBlockReader {
                               uint64_t block_offset = kNotValid,
                               const bool no_io = false,
                               const Slice* const const_ikey_ptr = nullptr) = 0;
+
+  virtual void PrefixesMayMatch(MultiGetRange* range,
+                                const SliceTransform* prefix_extractor,
+                                uint64_t block_offset = kNotValid,
+                                const bool no_io = false) {
+    for (auto iter = range->begin(); iter != range->end(); ++iter) {
+      const Slice ukey = iter->ukey;
+      const Slice ikey = iter->ikey;
+      if (!KeyMayMatch(prefix_extractor->Transform(ukey), prefix_extractor,
+                       block_offset, no_io, &ikey)) {
+        range->SkipKey(iter);
+      }
+    }
+  }
 
   virtual size_t ApproximateMemoryUsage() const = 0;
   virtual size_t size() const { return size_; }

@@ -38,6 +38,7 @@
 #include "table/block_based_table_reader.h"
 #include "table/block_builder.h"
 #include "table/block_fetcher.h"
+#include "table/flush_block_policy.h"
 #include "table/format.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
@@ -330,7 +331,7 @@ class TableConstructor: public Constructor {
         TableBuilderOptions(ioptions, moptions, internal_comparator,
                             &int_tbl_prop_collector_factories,
                             options.compression, options.sample_for_compression,
-                            CompressionOptions(), false /* skip_filters */,
+                            options.compression_opts, false /* skip_filters */,
                             column_family_name, level_),
         TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
         file_writer_.get()));
@@ -2318,93 +2319,122 @@ std::map<std::string, size_t> MockCache::marked_data_in_cache_;
 // table is closed. This test makes sure that the only items remains in the
 // cache after the table is closed are raw data blocks.
 TEST_P(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
+  std::vector<CompressionType> compression_types{kNoCompression};
+
+  // The following are the compression library versions supporting compression
+  // dictionaries. See the test case CacheCompressionDict in the
+  // DBBlockCacheTest suite.
+#ifdef ZLIB
+  compression_types.push_back(kZlibCompression);
+#endif  // ZLIB
+#if LZ4_VERSION_NUMBER >= 10400
+  compression_types.push_back(kLZ4Compression);
+  compression_types.push_back(kLZ4HCCompression);
+#endif  // LZ4_VERSION_NUMBER >= 10400
+#if ZSTD_VERSION_NUMBER >= 500
+  compression_types.push_back(kZSTD);
+#endif  // ZSTD_VERSION_NUMBER >= 500
+
   for (int level: {-1, 0, 1, 10}) {
-  for (auto index_type :
-       {BlockBasedTableOptions::IndexType::kBinarySearch,
+    for (auto index_type :
+        {BlockBasedTableOptions::IndexType::kBinarySearch,
         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch}) {
-    for (bool block_based_filter : {true, false}) {
-      for (bool partition_filter : {true, false}) {
-        if (partition_filter &&
-            (block_based_filter ||
-             index_type !=
-                 BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch)) {
-          continue;
-        }
-        for (bool index_and_filter_in_cache : {true, false}) {
-          for (bool pin_l0 : {true, false}) {
-            for (bool pin_top_level : {true, false}) {
-              if (pin_l0 && !index_and_filter_in_cache) {
-                continue;
-              }
-              // Create a table
-              Options opt;
-              std::unique_ptr<InternalKeyComparator> ikc;
-              ikc.reset(new test::PlainInternalKeyComparator(opt.comparator));
-              opt.compression = kNoCompression;
-              BlockBasedTableOptions table_options =
-                  GetBlockBasedTableOptions();
-              table_options.block_size = 1024;
-              table_options.index_type =
-                  BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-              table_options.pin_l0_filter_and_index_blocks_in_cache = pin_l0;
-              table_options.pin_top_level_index_and_filter = pin_top_level;
-              table_options.partition_filters = partition_filter;
-              table_options.cache_index_and_filter_blocks =
-                  index_and_filter_in_cache;
-              // big enough so we don't ever lose cached values.
-              table_options.block_cache = std::shared_ptr<rocksdb::Cache>(
-                  new MockCache(16 * 1024 * 1024, 4, false, 0.0));
-              table_options.filter_policy.reset(
-                  rocksdb::NewBloomFilterPolicy(10, block_based_filter));
-              opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
-
-              bool convert_to_internal_key = false;
-              TableConstructor c(BytewiseComparator(), convert_to_internal_key,
-                                 level);
-              std::string user_key = "k01";
-              std::string key =
-                  InternalKey(user_key, 0, kTypeValue).Encode().ToString();
-              c.Add(key, "hello");
-              std::vector<std::string> keys;
-              stl_wrappers::KVMap kvmap;
-              const ImmutableCFOptions ioptions(opt);
-              const MutableCFOptions moptions(opt);
-              c.Finish(opt, ioptions, moptions, table_options, *ikc, &keys,
-                       &kvmap);
-
-              // Doing a read to make index/filter loaded into the cache
-              auto table_reader =
-                  dynamic_cast<BlockBasedTable*>(c.GetTableReader());
-              PinnableSlice value;
-              GetContext get_context(opt.comparator, nullptr, nullptr, nullptr,
-                                     GetContext::kNotFound, user_key, &value,
-                                     nullptr, nullptr, nullptr, nullptr);
-              InternalKey ikey(user_key, 0, kTypeValue);
-              auto s = table_reader->Get(ReadOptions(), key, &get_context,
-                                         moptions.prefix_extractor.get());
-              ASSERT_EQ(get_context.State(), GetContext::kFound);
-              ASSERT_STREQ(value.data(), "hello");
-
-              // Close the table
-              c.ResetTableReader();
-
-              auto usage = table_options.block_cache->GetUsage();
-              auto pinned_usage = table_options.block_cache->GetPinnedUsage();
-              // The only usage must be for marked data blocks
-              ASSERT_EQ(usage, MockCache::marked_size_);
-              // There must be some pinned data since PinnableSlice has not
-              // released them yet
-              ASSERT_GT(pinned_usage, 0);
-              // Release pinnable slice reousrces
-              value.Reset();
-              pinned_usage = table_options.block_cache->GetPinnedUsage();
-              ASSERT_EQ(pinned_usage, 0);
+      for (bool block_based_filter : {true, false}) {
+        for (bool partition_filter : {true, false}) {
+          if (partition_filter &&
+              (block_based_filter ||
+               index_type !=
+               BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch)) {
+            continue;
           }
+          for (bool index_and_filter_in_cache : {true, false}) {
+            for (bool pin_l0 : {true, false}) {
+              for (bool pin_top_level : {true, false}) {
+                if (pin_l0 && !index_and_filter_in_cache) {
+                  continue;
+                }
+
+                for (auto compression_type : compression_types) {
+                  for (uint32_t max_dict_bytes : {0, 1 << 14}) {
+                    if (compression_type == kNoCompression && max_dict_bytes)
+                      continue;
+
+                    // Create a table
+                    Options opt;
+                    std::unique_ptr<InternalKeyComparator> ikc;
+                    ikc.reset(new test::PlainInternalKeyComparator(
+                      opt.comparator));
+                    opt.compression = compression_type;
+                    opt.compression_opts.max_dict_bytes = max_dict_bytes;
+                    BlockBasedTableOptions table_options =
+                      GetBlockBasedTableOptions();
+                    table_options.block_size = 1024;
+                    table_options.index_type = index_type;
+                    table_options.pin_l0_filter_and_index_blocks_in_cache =
+                      pin_l0;
+                    table_options.pin_top_level_index_and_filter =
+                      pin_top_level;
+                    table_options.partition_filters = partition_filter;
+                    table_options.cache_index_and_filter_blocks =
+                      index_and_filter_in_cache;
+                    // big enough so we don't ever lose cached values.
+                    table_options.block_cache = std::make_shared<MockCache>(
+                      16 * 1024 * 1024, 4, false, 0.0);
+                    table_options.filter_policy.reset(
+                      rocksdb::NewBloomFilterPolicy(10, block_based_filter));
+                    opt.table_factory.reset(NewBlockBasedTableFactory(
+                      table_options));
+
+                    bool convert_to_internal_key = false;
+                    TableConstructor c(BytewiseComparator(),
+                      convert_to_internal_key, level);
+                    std::string user_key = "k01";
+                    std::string key =
+                      InternalKey(user_key, 0, kTypeValue).Encode().ToString();
+                    c.Add(key, "hello");
+                    std::vector<std::string> keys;
+                    stl_wrappers::KVMap kvmap;
+                    const ImmutableCFOptions ioptions(opt);
+                    const MutableCFOptions moptions(opt);
+                    c.Finish(opt, ioptions, moptions, table_options, *ikc,
+                      &keys, &kvmap);
+
+                    // Doing a read to make index/filter loaded into the cache
+                    auto table_reader =
+                      dynamic_cast<BlockBasedTable*>(c.GetTableReader());
+                    PinnableSlice value;
+                    GetContext get_context(opt.comparator, nullptr, nullptr,
+                      nullptr, GetContext::kNotFound, user_key, &value,
+                      nullptr, nullptr, nullptr, nullptr);
+                    InternalKey ikey(user_key, 0, kTypeValue);
+                    auto s = table_reader->Get(ReadOptions(), key, &get_context,
+                      moptions.prefix_extractor.get());
+                    ASSERT_EQ(get_context.State(), GetContext::kFound);
+                    ASSERT_STREQ(value.data(), "hello");
+
+                    // Close the table
+                    c.ResetTableReader();
+
+                    auto usage = table_options.block_cache->GetUsage();
+                    auto pinned_usage =
+                      table_options.block_cache->GetPinnedUsage();
+                    // The only usage must be for marked data blocks
+                    ASSERT_EQ(usage, MockCache::marked_size_);
+                    // There must be some pinned data since PinnableSlice has
+                    // not released them yet
+                    ASSERT_GT(pinned_usage, 0);
+                    // Release pinnable slice reousrces
+                    value.Reset();
+                    pinned_usage = table_options.block_cache->GetPinnedUsage();
+                    ASSERT_EQ(pinned_usage, 0);
+                  }
+                }
+              }
+            }
           }
         }
       }
     }
-  }
   } // level
 }
 
@@ -3864,7 +3894,8 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnSeek) {
   Slice upper_bound_slice(upper_bound);
   read_opt.iterate_upper_bound = &upper_bound_slice;
   std::unique_ptr<InternalIterator> iter;
-  iter.reset(reader->NewIterator(read_opt, nullptr /*prefix_extractor*/));
+  iter.reset(new KeyConvertingIterator(
+      reader->NewIterator(read_opt, nullptr /*prefix_extractor*/)));
   iter->SeekToFirst();
   ASSERT_FALSE(iter->Valid());
   ASSERT_TRUE(iter->IsOutOfBound());
@@ -3873,6 +3904,51 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnSeek) {
   iter->Seek("foo");
   ASSERT_FALSE(iter->Valid());
   ASSERT_TRUE(iter->IsOutOfBound());
+}
+
+// BlockBasedTableIterator should invalidate itself and return
+// OutOfBound()=true after Next(), if it finds current index key is no smaller
+// than upper bound, unless it is pointing to the last data block.
+TEST_P(BlockBasedTableTest, OutOfBoundOnNext) {
+  TableConstructor c(BytewiseComparator(), true /*convert_to_internal_key*/);
+  c.Add("bar", "v");
+  c.Add("foo", "v");
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  Options options;
+  BlockBasedTableOptions table_opt(GetBlockBasedTableOptions());
+  table_opt.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_opt));
+  const ImmutableCFOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  c.Finish(options, ioptions, moptions, table_opt,
+           GetPlainInternalComparator(BytewiseComparator()), &keys, &kvmap);
+  auto* reader = c.GetTableReader();
+  ReadOptions read_opt;
+  std::string ub1 = "bar_after";
+  Slice ub_slice1(ub1);
+  read_opt.iterate_upper_bound = &ub_slice1;
+  std::unique_ptr<InternalIterator> iter;
+  iter.reset(new KeyConvertingIterator(
+      reader->NewIterator(read_opt, nullptr /*prefix_extractor*/)));
+  iter->Seek("bar");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("bar", iter->key());
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->IsOutOfBound());
+  std::string ub2 = "foo_after";
+  Slice ub_slice2(ub2);
+  read_opt.iterate_upper_bound = &ub_slice2;
+  iter.reset(new KeyConvertingIterator(
+      reader->NewIterator(read_opt, nullptr /*prefix_extractor*/)));
+  iter->Seek("foo");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("foo", iter->key());
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_FALSE(iter->IsOutOfBound());
 }
 
 }  // namespace rocksdb

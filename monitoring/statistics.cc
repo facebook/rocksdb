@@ -45,6 +45,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOOM_FILTER_FULL_POSITIVE, "rocksdb.bloom.filter.full.positive"},
     {BLOOM_FILTER_FULL_TRUE_POSITIVE,
      "rocksdb.bloom.filter.full.true.positive"},
+    {BLOOM_FILTER_MICROS, "rocksdb.bloom.filter.micros"},
     {PERSISTENT_CACHE_HIT, "rocksdb.persistent.cache.hit"},
     {PERSISTENT_CACHE_MISS, "rocksdb.persistent.cache.miss"},
     {SIM_BLOCK_CACHE_HIT, "rocksdb.sim.block.cache.hit"},
@@ -228,6 +229,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {BLOB_DB_COMPRESSION_MICROS, "rocksdb.blobdb.compression.micros"},
     {BLOB_DB_DECOMPRESSION_MICROS, "rocksdb.blobdb.decompression.micros"},
     {FLUSH_TIME, "rocksdb.db.flush.micros"},
+    {SST_BATCH_SIZE, "rocksdb.sst.batch.size"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {

@@ -89,6 +89,9 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   Add(TablePropertiesNames::kColumnFamilyId, props.column_family_id);
   Add(TablePropertiesNames::kCreationTime, props.creation_time);
   Add(TablePropertiesNames::kOldestKeyTime, props.oldest_key_time);
+  if (props.file_creation_time > 0) {
+    Add(TablePropertiesNames::kFileCreationTime, props.file_creation_time);
+  }
 
   if (!props.filter_policy_name.empty()) {
     Add(TablePropertiesNames::kFilterPolicy, props.filter_policy_name);
@@ -114,6 +117,9 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
 
   if (!props.compression_name.empty()) {
     Add(TablePropertiesNames::kCompression, props.compression_name);
+  }
+  if (!props.compression_options.empty()) {
+    Add(TablePropertiesNames::kCompressionOptions, props.compression_options);
   }
 }
 
@@ -257,6 +263,8 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
        &new_table_properties->creation_time},
       {TablePropertiesNames::kOldestKeyTime,
        &new_table_properties->oldest_key_time},
+      {TablePropertiesNames::kFileCreationTime,
+       &new_table_properties->file_creation_time},
   };
 
   std::string last_key;
@@ -313,6 +321,8 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
       new_table_properties->property_collectors_names = raw_val.ToString();
     } else if (key == TablePropertiesNames::kCompression) {
       new_table_properties->compression_name = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kCompressionOptions) {
+      new_table_properties->compression_options = raw_val.ToString();
     } else {
       // handle user-collected properties
       new_table_properties->user_collected_properties.insert(

@@ -27,6 +27,8 @@
 #include "table/block_based_table_factory.h"
 #include "table/filter_block.h"
 #include "table/format.h"
+#include "table/get_context.h"
+#include "table/multiget_context.h"
 #include "table/persistent_cache_helper.h"
 #include "table/table_properties_internal.h"
 #include "table/table_reader.h"
@@ -121,6 +123,11 @@ class BlockBasedTable : public TableReader {
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
+
+  void MultiGet(const ReadOptions& readOptions,
+                const MultiGetContext::Range* mget_range,
+                const SliceTransform* prefix_extractor,
+                bool skip_filters = false) override;
 
   // Pre-fetch the disk blocks that correspond to the key range specified by
   // (kbegin, kend). The call will return error status in the event of
@@ -354,6 +361,11 @@ class BlockBasedTable : public TableReader {
   bool FullFilterKeyMayMatch(
       const ReadOptions& read_options, FilterBlockReader* filter,
       const Slice& user_key, const bool no_io,
+      const SliceTransform* prefix_extractor = nullptr) const;
+
+  void FullFilterKeysMayMatch(
+      const ReadOptions& read_options, FilterBlockReader* filter,
+      MultiGetRange* range, const bool no_io,
       const SliceTransform* prefix_extractor = nullptr) const;
 
   static Status PrefetchTail(
@@ -613,10 +625,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
     return block_iter_.key();
   }
   Slice user_key() const override {
-    if (key_includes_seq_) {
-      return ExtractUserKey(key());
-    }
-    return key();
+    assert(Valid());
+    return block_iter_.user_key();
   }
   TValue value() const override {
     assert(Valid());

@@ -842,6 +842,9 @@ class DBTestBase : public testing::Test {
                                     const std::vector<std::string>& k,
                                     const Snapshot* snapshot = nullptr);
 
+  std::vector<std::string> MultiGet(const std::vector<std::string>& k,
+                                    const Snapshot* snapshot = nullptr);
+
   uint64_t GetNumSnapshots();
 
   uint64_t GetTimeOldestSnapshots();

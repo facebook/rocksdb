@@ -44,23 +44,21 @@ void WritePreparedTxn::Initialize(const TransactionOptions& txn_options) {
   prepare_batch_cnt_ = 0;
 }
 
-Status WritePreparedTxn::Get(const ReadOptions& read_options,
+Status WritePreparedTxn::Get(const ReadOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& key, PinnableSlice* pinnable_val) {
-  auto snapshot = read_options.snapshot;
-  auto snap_seq =
-      snapshot != nullptr ? snapshot->GetSequenceNumber() : kMaxSequenceNumber;
-  SequenceNumber min_uncommitted =
-      kMinUnCommittedSeq;  // by default disable the optimization
-  if (snapshot != nullptr) {
-    min_uncommitted =
-        static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-            ->min_uncommitted_;
-  }
-
+  SequenceNumber min_uncommitted, snap_seq;
+  const bool backed_by_snapshot =
+      wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
   WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted);
-  return write_batch_.GetFromBatchAndDB(db_, read_options, column_family, key,
-                                        pinnable_val, &callback);
+  auto res = write_batch_.GetFromBatchAndDB(db_, options, column_family, key,
+                                            pinnable_val, &callback);
+  if (LIKELY(wpt_db_->ValidateSnapshot(callback.max_visible_seq(),
+                                       backed_by_snapshot))) {
+    return res;
+  } else {
+    return Status::TryAgain();
+  }
 }
 
 Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options) {
@@ -84,6 +82,7 @@ Status WritePreparedTxn::PrepareInternal() {
   WriteOptions write_options = write_options_;
   write_options.disableWAL = false;
   const bool WRITE_AFTER_COMMIT = true;
+  const bool kFirstPrepareBatch = true;
   WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_,
                                      !WRITE_AFTER_COMMIT);
   // For each duplicate key we account for a new sub-batch
@@ -92,8 +91,8 @@ Status WritePreparedTxn::PrepareInternal() {
   // prepared entries to PreparedHeap and hence enables an optimization. Refer to
   // SmallestUnCommittedSeq for more details.
   AddPreparedCallback add_prepared_callback(
-      wpt_db_, prepare_batch_cnt_,
-      db_impl_->immutable_db_options().two_write_queues);
+      wpt_db_, db_impl_, prepare_batch_cnt_,
+      db_impl_->immutable_db_options().two_write_queues, kFirstPrepareBatch);
   const bool DISABLE_MEMTABLE = true;
   uint64_t seq_used = kMaxSequenceNumber;
   Status s = db_impl_->WriteImpl(
@@ -152,9 +151,10 @@ Status WritePreparedTxn::CommitInternal() {
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
       wpt_db_, db_impl_, prepare_seq, prepare_batch_cnt_, commit_batch_cnt);
   // This is to call AddPrepared on CommitTimeWriteBatch
+  const bool kFirstPrepareBatch = true;
   AddPreparedCallback add_prepared_callback(
-      wpt_db_, commit_batch_cnt,
-      db_impl_->immutable_db_options().two_write_queues);
+      wpt_db_, db_impl_, commit_batch_cnt,
+      db_impl_->immutable_db_options().two_write_queues, !kFirstPrepareBatch);
   PreReleaseCallback* pre_release_callback;
   if (do_one_write) {
     pre_release_callback = &update_commit_map;
@@ -321,6 +321,7 @@ Status WritePreparedTxn::RollbackInternal() {
   const uint64_t NO_REF_LOG = 0;
   uint64_t seq_used = kMaxSequenceNumber;
   const size_t ONE_BATCH = 1;
+  const bool kFirstPrepareBatch = true;
   // We commit the rolled back prepared batches. Although this is
   // counter-intuitive, i) it is safe to do so, since the prepared batches are
   // already canceled out by the rollback batch, ii) adding the commit entry to
@@ -329,7 +330,8 @@ Status WritePreparedTxn::RollbackInternal() {
   // with a live snapshot around so that the live snapshot properly skips the
   // entry even if its prepare seq is lower than max_evicted_seq_.
   AddPreparedCallback add_prepared_callback(
-      wpt_db_, ONE_BATCH, db_impl_->immutable_db_options().two_write_queues);
+      wpt_db_, db_impl_, ONE_BATCH,
+      db_impl_->immutable_db_options().two_write_queues, !kFirstPrepareBatch);
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
       wpt_db_, db_impl_, GetId(), prepare_batch_cnt_, ONE_BATCH);
   PreReleaseCallback* pre_release_callback;

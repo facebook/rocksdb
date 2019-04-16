@@ -1310,8 +1310,9 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
                   });
     s = AtomicFlushMemTables(cfds, flush_options, FlushReason::kManualFlush);
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                   "Manual atomic flush finished, status: %s\n",
-                   "=====Column families:=====", s.ToString().c_str());
+                   "Manual atomic flush finished, status: %s\n"
+                   "=====Column families:=====",
+                   s.ToString().c_str());
     for (auto cfh : column_families) {
       auto cfhi = static_cast<ColumnFamilyHandleImpl*>(cfh);
       ROCKS_LOG_INFO(immutable_db_options_.info_log, "%s",
