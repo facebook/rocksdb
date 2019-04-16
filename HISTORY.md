@@ -15,6 +15,7 @@
 * Fix a bug in Encryption Env which could cause encrypted files to be read beyond file boundaries.
 * Fix a race condition between WritePrepared::Get and ::Put with duplicate keys.
 * Fix crash when memtable prefix bloom is enabled and read/write a key out of domain of prefix extractor.
+* Adjust WriteBufferManager's dummy entry size to block cache from 1MB to 256KB.
 
 
 ## 6.1.0 (3/27/2019)
