@@ -123,81 +123,80 @@ Status TransactionBaseImpl::TryLock(ColumnFamilyHandle* column_family,
 
 void TransactionBaseImpl::SetSavePoint() {
   if (save_points_ == nullptr) {
-    save_points_.reset(new std::vector<TransactionBaseImpl::SavePoint>());
+    save_points_.reset(new std::stack<TransactionBaseImpl::SavePoint, std::vector<TransactionBaseImpl::SavePoint>>());
   }
-  save_points_->emplace_back(snapshot_, snapshot_needed_, snapshot_notifier_,
-                             num_puts_, num_deletes_, num_merges_);
+  save_points_->emplace(snapshot_, snapshot_needed_, snapshot_notifier_,
+                        num_puts_, num_deletes_, num_merges_);
   write_batch_.SetSavePoint();
 }
 
 Status TransactionBaseImpl::RollbackToSavePoint() {
-  if (save_points_ == nullptr || save_points_->empty()) {
+  if (save_points_ != nullptr && save_points_->size() > 0) {
+    // Restore saved SavePoint
+    TransactionBaseImpl::SavePoint& save_point = save_points_->top();
+    snapshot_ = save_point.snapshot_;
+    snapshot_needed_ = save_point.snapshot_needed_;
+    snapshot_notifier_ = save_point.snapshot_notifier_;
+    num_puts_ = save_point.num_puts_;
+    num_deletes_ = save_point.num_deletes_;
+    num_merges_ = save_point.num_merges_;
+
+    // Rollback batch
+    Status s = write_batch_.RollbackToSavePoint();
+    assert(s.ok());
+
+    // Rollback any keys that were tracked since the last savepoint
+    const TransactionKeyMap& key_map = save_point.new_keys_;
+    for (const auto& key_map_iter : key_map) {
+      uint32_t column_family_id = key_map_iter.first;
+      auto& keys = key_map_iter.second;
+
+      auto& cf_tracked_keys = tracked_keys_[column_family_id];
+
+      for (const auto& key_iter : keys) {
+        const std::string& key = key_iter.first;
+        uint32_t num_reads = key_iter.second.num_reads;
+        uint32_t num_writes = key_iter.second.num_writes;
+
+        auto tracked_keys_iter = cf_tracked_keys.find(key);
+        assert(tracked_keys_iter != cf_tracked_keys.end());
+
+        // Decrement the total reads/writes of this key by the number of
+        // reads/writes done since the last SavePoint.
+        if (num_reads > 0) {
+          assert(tracked_keys_iter->second.num_reads >= num_reads);
+          tracked_keys_iter->second.num_reads -= num_reads;
+        }
+        if (num_writes > 0) {
+          assert(tracked_keys_iter->second.num_writes >= num_writes);
+          tracked_keys_iter->second.num_writes -= num_writes;
+        }
+        if (tracked_keys_iter->second.num_reads == 0 &&
+            tracked_keys_iter->second.num_writes == 0) {
+          tracked_keys_[column_family_id].erase(tracked_keys_iter);
+        }
+      }
+    }
+
+    save_points_->pop();
+
+    return s;
+  } else {
     assert(write_batch_.RollbackToSavePoint().IsNotFound());
     return Status::NotFound();
   }
-
-  // Restore saved SavePoint
-  TransactionBaseImpl::SavePoint& save_point = save_points_->back();
-  // It is ok to move data out of the SavePoint, as we are going to
-  // pop it off the stack anyway
-  snapshot_ = std::move(save_point.snapshot_);
-  snapshot_needed_ = save_point.snapshot_needed_;
-  snapshot_notifier_ = std::move(save_point.snapshot_notifier_);
-  num_puts_ = save_point.num_puts_;
-  num_deletes_ = save_point.num_deletes_;
-  num_merges_ = save_point.num_merges_;
-
-  // Rollback batch
-  Status s = write_batch_.RollbackToSavePoint();
-  assert(s.ok());
-
-  // Rollback any keys that were tracked since the last savepoint
-  const TransactionKeyMap& key_map = save_point.new_keys_;
-  for (const auto& key_map_iter : key_map) {
-    uint32_t column_family_id = key_map_iter.first;
-    auto& keys = key_map_iter.second;
-
-    auto& cf_tracked_keys = tracked_keys_[column_family_id];
-
-    for (const auto& key_iter : keys) {
-      const std::string& key = key_iter.first;
-      uint32_t num_reads = key_iter.second.num_reads;
-      uint32_t num_writes = key_iter.second.num_writes;
-
-      auto tracked_keys_iter = cf_tracked_keys.find(key);
-      assert(tracked_keys_iter != cf_tracked_keys.end());
-
-      // Decrement the total reads/writes of this key by the number of
-      // reads/writes done since the last SavePoint.
-      if (num_reads > 0) {
-        assert(tracked_keys_iter->second.num_reads >= num_reads);
-        tracked_keys_iter->second.num_reads -= num_reads;
-      }
-      if (num_writes > 0) {
-        assert(tracked_keys_iter->second.num_writes >= num_writes);
-        tracked_keys_iter->second.num_writes -= num_writes;
-      }
-      if (tracked_keys_iter->second.num_reads == 0 &&
-          tracked_keys_iter->second.num_writes == 0) {
-        tracked_keys_[column_family_id].erase(tracked_keys_iter);
-      }
-    }
-  }
-
-  save_points_->pop_back();
-
-  return s;
 }
 
 Status TransactionBaseImpl::PopSavePoint() {
-  if (save_points_ == nullptr || save_points_->empty()) {
+  if (save_points_ == nullptr ||
+      save_points_->empty()) {
     // No SavePoint yet.
     assert(write_batch_.PopSavePoint().IsNotFound());
     return Status::NotFound();
   }
 
   assert(!save_points_->empty());
-  save_points_->pop_back();
+  save_points_->pop();
   return write_batch_.PopSavePoint();
 }
 
@@ -574,7 +573,7 @@ void TransactionBaseImpl::TrackKey(uint32_t cfh_id, const std::string& key,
 
   if (save_points_ != nullptr && !save_points_->empty()) {
     // Update map of tracked keys in this SavePoint
-    TrackKey(&save_points_->back().new_keys_, cfh_id, key, seq, read_only,
+    TrackKey(&save_points_->top().new_keys_, cfh_id, key, seq, read_only,
              exclusive);
   }
 }
@@ -613,8 +612,8 @@ TransactionBaseImpl::GetTrackedKeysSinceSavePoint() {
     // Examine the number of reads/writes performed on all keys written
     // since the last SavePoint and compare to the total number of reads/writes
     // for each key.
-    std::unique_ptr<TransactionKeyMap> result(new TransactionKeyMap());
-    for (const auto& key_map_iter : save_points_->back().new_keys_) {
+    TransactionKeyMap* result = new TransactionKeyMap();
+    for (const auto& key_map_iter : save_points_->top().new_keys_) {
       uint32_t column_family_id = key_map_iter.first;
       auto& keys = key_map_iter.second;
 
@@ -634,12 +633,12 @@ TransactionBaseImpl::GetTrackedKeysSinceSavePoint() {
             total_key_info->second.num_writes == num_writes) {
           // All the reads/writes to this key were done in the last savepoint.
           bool read_only = (num_writes == 0);
-          TrackKey(result.get(), column_family_id, key, key_iter.second.seq,
+          TrackKey(result, column_family_id, key, key_iter.second.seq,
                    read_only, key_iter.second.exclusive);
         }
       }
     }
-    return result;
+    return std::unique_ptr<TransactionKeyMap>(result);
   }
 
   // No SavePoint
@@ -679,7 +678,7 @@ void TransactionBaseImpl::UndoGetForUpdate(ColumnFamilyHandle* column_family,
 
   if (save_points_ != nullptr && !save_points_->empty()) {
     // Check if this key was fetched ForUpdate in this SavePoint
-    auto& cf_savepoint_keys = save_points_->back().new_keys_[column_family_id];
+    auto& cf_savepoint_keys = save_points_->top().new_keys_[column_family_id];
 
     auto savepoint_iter = cf_savepoint_keys.find(key_str);
     if (savepoint_iter != cf_savepoint_keys.end()) {

@@ -27,7 +27,6 @@
 #include <stdint.h>
 #include <atomic>
 #include <memory>
-#include <stack>
 #include <string>
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch_base.h"
