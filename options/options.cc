@@ -89,7 +89,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       report_bg_io_stats(options.report_bg_io_stats),
       ttl(options.ttl),
       periodic_compaction_seconds(options.periodic_compaction_seconds),
-      sample_for_compression(options.sample_for_compression) {
+      sample_for_compression(options.sample_for_compression),
+      compaction_policy_factory(options.compaction_policy_factory) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -356,6 +357,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "         Options.periodic_compaction_seconds: %" PRIu64,
                      periodic_compaction_seconds);
+    ROCKS_LOG_HEADER(
+        log, "           Options.compaction_policy_factory: %s",
+        compaction_policy_factory ? compaction_policy_factory->Name() : "None");
+
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {

@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "rocksdb/compaction_policy.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/universal_compaction.h"
 
@@ -689,6 +690,13 @@ struct AdvancedColumnFamilyOptions {
   // NOT SUPPORTED ANYMORE
   // Does not have any effect.
   bool purge_redundant_kvs_while_flush = true;
+
+  // The compaction policy interface provide a way for application to customize
+  // the way compaction runs. If it is non-null, it overrides the following
+  // options:
+  //   * target_file_size_base
+  //   * target_file_size_multiplier
+  std::shared_ptr<CompactionPolicyFactory> compaction_policy_factory;
 };
 
 }  // namespace rocksdb

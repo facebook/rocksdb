@@ -222,6 +222,9 @@ void MutableCFOptions::Dump(Logger* log) const {
                  compaction_options_fifo.max_table_files_size);
   ROCKS_LOG_INFO(log, "compaction_options_fifo.allow_compaction : %d",
                  compaction_options_fifo.allow_compaction);
+  ROCKS_LOG_INFO(
+      log, "                compaction_policy_factory: %s",
+      compaction_policy_factory ? compaction_policy_factory->Name() : "None");
 }
 
 MutableCFOptions::MutableCFOptions(const Options& options)
