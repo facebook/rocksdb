@@ -38,6 +38,7 @@
 #include "table/block_based_table_reader.h"
 #include "table/block_builder.h"
 #include "table/block_fetcher.h"
+#include "table/flush_block_policy.h"
 #include "table/format.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
@@ -276,6 +277,7 @@ class KeyConvertingIterator : public InternalIterator {
   void SeekToLast() override { iter_->SeekToLast(); }
   void Next() override { iter_->Next(); }
   void Prev() override { iter_->Prev(); }
+  bool IsOutOfBound() override { return iter_->IsOutOfBound(); }
 
   Slice key() const override {
     assert(Valid());
@@ -3869,6 +3871,84 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
       }
     }
   }
+}
+
+// BlockBasedTableIterator should invalidate itself and return
+// OutOfBound()=true immediately after Seek(), to allow LevelIterator
+// filter out corresponding level.
+TEST_P(BlockBasedTableTest, OutOfBoundOnSeek) {
+  TableConstructor c(BytewiseComparator(), true /*convert_to_internal_key*/);
+  c.Add("foo", "v1");
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  Options options;
+  BlockBasedTableOptions table_opt(GetBlockBasedTableOptions());
+  options.table_factory.reset(NewBlockBasedTableFactory(table_opt));
+  const ImmutableCFOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  c.Finish(options, ioptions, moptions, table_opt,
+           GetPlainInternalComparator(BytewiseComparator()), &keys, &kvmap);
+  auto* reader = c.GetTableReader();
+  ReadOptions read_opt;
+  std::string upper_bound = "bar";
+  Slice upper_bound_slice(upper_bound);
+  read_opt.iterate_upper_bound = &upper_bound_slice;
+  std::unique_ptr<InternalIterator> iter;
+  iter.reset(new KeyConvertingIterator(
+      reader->NewIterator(read_opt, nullptr /*prefix_extractor*/)));
+  iter->SeekToFirst();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->IsOutOfBound());
+  iter.reset(new KeyConvertingIterator(
+      reader->NewIterator(read_opt, nullptr /*prefix_extractor*/)));
+  iter->Seek("foo");
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->IsOutOfBound());
+}
+
+// BlockBasedTableIterator should invalidate itself and return
+// OutOfBound()=true after Next(), if it finds current index key is no smaller
+// than upper bound, unless it is pointing to the last data block.
+TEST_P(BlockBasedTableTest, OutOfBoundOnNext) {
+  TableConstructor c(BytewiseComparator(), true /*convert_to_internal_key*/);
+  c.Add("bar", "v");
+  c.Add("foo", "v");
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  Options options;
+  BlockBasedTableOptions table_opt(GetBlockBasedTableOptions());
+  table_opt.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_opt));
+  const ImmutableCFOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  c.Finish(options, ioptions, moptions, table_opt,
+           GetPlainInternalComparator(BytewiseComparator()), &keys, &kvmap);
+  auto* reader = c.GetTableReader();
+  ReadOptions read_opt;
+  std::string ub1 = "bar_after";
+  Slice ub_slice1(ub1);
+  read_opt.iterate_upper_bound = &ub_slice1;
+  std::unique_ptr<InternalIterator> iter;
+  iter.reset(new KeyConvertingIterator(
+      reader->NewIterator(read_opt, nullptr /*prefix_extractor*/)));
+  iter->Seek("bar");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("bar", iter->key());
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->IsOutOfBound());
+  std::string ub2 = "foo_after";
+  Slice ub_slice2(ub2);
+  read_opt.iterate_upper_bound = &ub_slice2;
+  iter.reset(new KeyConvertingIterator(
+      reader->NewIterator(read_opt, nullptr /*prefix_extractor*/)));
+  iter->Seek("foo");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("foo", iter->key());
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_FALSE(iter->IsOutOfBound());
 }
 
 }  // namespace rocksdb

@@ -496,6 +496,13 @@ class IndexBlockIter final : public BlockIter<BlockHandle> {
     value_delta_encoded_ = !value_is_full;
   }
 
+  Slice user_key() const override {
+    if (key_includes_seq_) {
+      return ExtractUserKey(key());
+    }
+    return key();
+  }
+
   virtual BlockHandle value() const override {
     assert(Valid());
     if (value_delta_encoded_) {
