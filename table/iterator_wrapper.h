@@ -74,14 +74,14 @@ class IteratorWrapperBase {
   void SeekToFirst()        { assert(iter_); iter_->SeekToFirst(); Update(); }
   void SeekToLast()         { assert(iter_); iter_->SeekToLast();  Update(); }
 
-  bool HintWithinLowerBound() {
+  bool MayBeOutOfLowerBound() {
     assert(Valid());
-    return iter_->HintWithinLowerBound();
+    return iter_->MayBeOutOfLowerBound();
   }
 
-  bool HintWithinUpperBound() {
+  bool MayBeOutOfUpperBound() {
     assert(Valid());
-    return iter_->HintWithinUpperBound();
+    return iter_->MayBeOutOfUpperBound();
   }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) {

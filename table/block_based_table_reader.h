@@ -642,10 +642,10 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   // Whether iterator invalidated for being out of bound.
   bool IsOutOfBound() override { return is_out_of_bound_; }
 
-  bool HintWithinUpperBound() override {
+  bool MayBeOutOfUpperBound() override {
     assert(Valid());
     assert(read_options_.iterate_upper_bound != nullptr);
-    return data_block_within_upper_bound_;
+    return !data_block_within_upper_bound_;
   }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {

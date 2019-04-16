@@ -281,18 +281,18 @@ class MergingIterator : public InternalIterator {
     return current_->value();
   }
 
-  // Here we simply relay WithinLowerBound/WithinUpperBound result from current
-  // child iterator. Potentially as long as one of child iterator report being
-  // within bound, we can report current key is within bound.
+  // Here we simply relay MayBeOutOfLowerBound/MayBeOutOfUpperBound result
+  // from current child iterator. Potentially as long as one of child iterator
+  // report out of bound is not possible, we know current key is within bound.
 
-  bool HintWithinLowerBound() override {
+  bool MayBeOutOfLowerBound() override {
     assert(Valid());
-    return current_->HintWithinLowerBound();
+    return current_->MayBeOutOfLowerBound();
   }
 
-  bool HintWithinUpperBound() override {
+  bool MayBeOutOfUpperBound() override {
     assert(Valid());
-    return current_->HintWithinUpperBound();
+    return current_->MayBeOutOfUpperBound();
   }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {

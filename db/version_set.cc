@@ -924,14 +924,14 @@ class LevelIterator final : public InternalIterator {
     return file_iter_.iter() ? file_iter_.status() : Status::OK();
   }
 
-  bool HintWithinLowerBound() override {
+  bool MayBeOutOfLowerBound() override {
     assert(Valid());
-    return hint_within_lower_bound_;
+    return may_be_out_of_lower_bound_ && file_iter_.MayBeOutOfLowerBound();
   }
 
-  bool HintWithinUpperBound() override {
+  bool MayBeOutOfUpperBound() override {
     assert(Valid());
-    return file_iter_.HintWithinUpperBound();
+    return file_iter_.MayBeOutOfUpperBound();
   }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
@@ -962,11 +962,6 @@ class LevelIterator final : public InternalIterator {
     return flevel_->files[file_index].smallest_key;
   }
 
-  const Slice& file_largest_key(size_t file_index) {
-    assert(file_index < flevel_->num_files);
-    return flevel_->files[file_index].largest_key;
-  }
-
   bool KeyReachedUpperBound(const Slice& internal_key) {
     return read_options_.iterate_upper_bound != nullptr &&
            user_comparator_.Compare(ExtractUserKey(internal_key),
@@ -986,10 +981,10 @@ class LevelIterator final : public InternalIterator {
       smallest_compaction_key = (*compaction_boundaries_)[file_index_].smallest;
       largest_compaction_key = (*compaction_boundaries_)[file_index_].largest;
     }
-    hint_within_lower_bound_ =
+    may_be_out_of_lower_bound_ =
         read_options_.iterate_lower_bound != nullptr &&
         user_comparator_.Compare(ExtractUserKey(file_smallest_key(file_index_)),
-                                 *read_options_.iterate_lower_bound) >= 0;
+                                 *read_options_.iterate_lower_bound) < 0;
     return table_cache_->NewIterator(
         read_options_, env_options_, icomparator_, *file_meta.file_metadata,
         range_del_agg_, prefix_extractor_,
@@ -1011,7 +1006,7 @@ class LevelIterator final : public InternalIterator {
   bool should_sample_;
   bool for_compaction_;
   bool skip_filters_;
-  bool hint_within_lower_bound_ = false;
+  bool may_be_out_of_lower_bound_ = true;
   size_t file_index_;
   int level_;
   RangeDelAggregator* range_del_agg_;

@@ -84,13 +84,12 @@ class InternalIteratorBase : public Cleanable {
   // upper bound
   virtual bool IsOutOfBound() { return false; }
 
-  // Hint iterate being within iterate_lower_bound. DBIter use it to avoid
-  // double checking for lower bound.
-  virtual bool HintWithinLowerBound() { return false; }
+  // Keys return from this iterator can be smaller than iterate_lower_bound.
+  virtual bool MayBeOutOfLowerBound() { return true; }
 
-  // Hint iterate being within iterate_upper_bound. DBIter use it to avoid
-  // double checking for upper bound.
-  virtual bool HintWithinUpperBound() { return false; }
+  // Keys return from this iterator can be larger or equal to
+  // iterate_upper_bound.
+  virtual bool MayBeOutOfUpperBound() { return true; }
 
   // Pass the PinnedIteratorsManager to the Iterator, most Iterators dont
   // communicate with PinnedIteratorsManager so default implementation is no-op
