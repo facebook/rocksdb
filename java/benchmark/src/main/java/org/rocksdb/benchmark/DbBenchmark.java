@@ -647,7 +647,7 @@ public class DbBenchmark {
           break;
         case "fillbatch":
           tasks.add(new WriteRandomTask(
-              currentTaskId++, randSeed_, num_ / 1000, num_, writeOpt, 1000));
+              currentTaskId++, randSeed_, num_, num_, writeOpt, 1000));
           break;
         case "fillrandom":
           tasks.add(new WriteRandomTask(
