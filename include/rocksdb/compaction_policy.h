@@ -11,6 +11,10 @@
 
 namespace rocksdb {
 
+struct CompactionInfo {
+  int output_level;
+};
+
 struct CompactionOutputInfo {
   Slice next_key;
   uint64_t current_output_file_size;
@@ -32,7 +36,7 @@ class CompactionPolicyFactory {
   virtual const char* Name() const = 0;
 
   virtual std::unique_ptr<CompactionPolicy> NewCompactionPolicy(
-      const CompactionJobInfo& info) = 0;
+      const CompactionInfo& info) = 0;
 };
 
 }  // namespace rocksdb

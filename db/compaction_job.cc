@@ -42,6 +42,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
+#include "rocksdb/compaction_policy.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/statistics.h"
@@ -159,9 +160,10 @@ struct CompactionJob::SubcompactionState {
   uint64_t overlapped_bytes = 0;
   // A flag determine whether the key has been seen in ShouldStopBefore()
   bool seen_key = false;
+  std::unique_ptr<CompactionPolicy> compaction_policy;
 
-  SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
-                     uint64_t size = 0)
+  SubcompactionState(Compaction* c, Slice* _start, Slice* _end, uint64_t size,
+                     std::unique_ptr<CompactionPolicy>&& _compaction_policy)
       : compaction(c),
         start(_start),
         end(_end),
@@ -174,7 +176,8 @@ struct CompactionJob::SubcompactionState {
         approx_size(size),
         grandparent_index(0),
         overlapped_bytes(0),
-        seen_key(false) {
+        seen_key(false),
+        compaction_policy(std::move(_compaction_policy)) {
     assert(compaction != nullptr);
   }
 
@@ -197,6 +200,7 @@ struct CompactionJob::SubcompactionState {
     grandparent_index = std::move(o.grandparent_index);
     overlapped_bytes = std::move(o.overlapped_bytes);
     seen_key = std::move(o.seen_key);
+    compaction_policy = std::move(o.compaction_policy);
     return *this;
   }
 
@@ -427,12 +431,14 @@ void CompactionJob::Prepare() {
     for (size_t i = 0; i <= boundaries_.size(); i++) {
       Slice* start = i == 0 ? nullptr : &boundaries_[i - 1];
       Slice* end = i == boundaries_.size() ? nullptr : &boundaries_[i];
-      compact_->sub_compact_states.emplace_back(c, start, end, sizes_[i]);
+      compact_->sub_compact_states.emplace_back(c, start, end, sizes_[i],
+                                                GetCompactionPolicy());
     }
     RecordInHistogram(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
                       compact_->sub_compact_states.size());
   } else {
-    compact_->sub_compact_states.emplace_back(c, nullptr, nullptr);
+    compact_->sub_compact_states.emplace_back(c, nullptr, nullptr, 0,
+                                              GetCompactionPolicy());
   }
 }
 
@@ -1666,6 +1672,17 @@ void CompactionJob::LogCompaction() {
     stream << "score" << compaction->score() << "input_data_size"
            << compaction->CalculateTotalInputSize();
   }
+}
+
+std::unique_ptr<CompactionPolicy> CompactionJob::GetCompactionPolicy() {
+  auto* c = compact_->compaction;
+  auto* factory = c->mutable_cf_options()->compaction_policy_factory.get();
+  if (factory == nullptr) {
+    return nullptr;
+  }
+  CompactionInfo info;
+  info.output_level = c->output_level();
+  return factory->NewCompactionPolicy(info);
 }
 
 }  // namespace rocksdb

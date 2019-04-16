@@ -122,6 +122,8 @@ class CompactionJob {
 
   void LogCompaction();
 
+  std::unique_ptr<CompactionPolicy> GetCompactionPolicy();
+
   int job_id_;
 
   // CompactionJob state
