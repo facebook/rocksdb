@@ -3593,8 +3593,8 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
 }
 
 TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
-  // This test makes sure that periodic compactions are working with an old DB
-  // where file_creation_time of files is 0.
+  // This test makes sure that periodic compactions are working with a DB
+  // where file_creation_time of some files is 0.
   // After compactions the new files are created with a valid file_creation_time
 
   const int kNumKeysPerFile = 32;
@@ -3617,20 +3617,13 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
         auto compaction_reason = compaction->compaction_reason();
         if (compaction_reason == CompactionReason::kPeriodicCompaction) {
           periodic_compactions++;
-          set_file_creation_time_to_zero = false;
         }
-      });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "FlushJob::WriteLevel0Table", [&](void* /*arg*/) {
-        // set file_creation_time to 0 on flushes.
-        set_file_creation_time_to_zero = true;
       });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "PropertyBlockBuilder::AddTableProperty:Start", [&](void* arg) {
         TableProperties* props = reinterpret_cast<TableProperties*>(arg);
         if (set_file_creation_time_to_zero) {
           props->file_creation_time = 0;
-          set_file_creation_time_to_zero = false;
         }
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
@@ -3647,13 +3640,20 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
       MoveFilesToLevel(2);
     }
   }
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   ASSERT_EQ("2,0,2", FilesPerLevel());
   ASSERT_EQ(0, periodic_compactions);
 
-  ASSERT_OK(dbfull()->SetOptions({{"periodic_compaction_seconds", "86400"}}));
-  dbfull()->TEST_WaitForCompact();
+  Close();
+
+  set_file_creation_time_to_zero = false;
+  // Forward the clock by 2 days.
+  env_->addon_time_.fetch_add(2 * 24 * 60 * 60);
+  options.periodic_compaction_seconds = 1 * 24 * 60 * 60;  // 1 day
+
+  Reopen(options);
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("2,0,2", FilesPerLevel());
   // Make sure that all files go through periodic compaction.
   ASSERT_EQ(kNumFiles, periodic_compactions);
