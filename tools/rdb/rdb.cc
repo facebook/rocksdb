@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 #ifndef BUILDING_NODE_EXTENSION
 #define BUILDING_NODE_EXTENSION
 #endif

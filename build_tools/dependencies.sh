@@ -1,3 +1,4 @@
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 GCC_BASE=/mnt/gvfs/third-party2/gcc/112ec378fec7002ad3e09afde022e656049f7191/5.x/centos7-native/c447969
 CLANG_BASE=/mnt/gvfs/third-party2/llvm-fb/04999bdb3ce81a11073535dcb00b5e13dc1cbaf5/stable/centos7-native/c9f9104
 LIBGCC_BASE=/mnt/gvfs/third-party2/libgcc/92b0c8e5c8eecc71eb042594ce1ab3413799b385/5.x/gcc-5-glibc-2.23/339d858

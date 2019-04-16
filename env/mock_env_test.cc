@@ -1,6 +1,8 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+//
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 #include "env/mock_env.h"
 
