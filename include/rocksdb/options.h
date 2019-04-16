@@ -1026,7 +1026,7 @@ struct DBOptions {
   // If true WAL is not flushed automatically after each write. Instead it
   // relies on manual invocation of FlushWAL to write the WAL buffer to its
   // file.
-  bool manual_wal_flush = true;
+  bool manual_wal_flush = false;
 
   // If true, RocksDB supports flushing multiple column families and committing
   // their results atomically to MANIFEST. Note that it is not
