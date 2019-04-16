@@ -231,7 +231,7 @@ class DBIter final: public Iterator {
     return Status::InvalidArgument("Unidentified property.");
   }
 
-  void Next() override;
+  void Next() final override;
   void Prev() override;
   void Seek(const Slice& target) override;
   void SeekForPrev(const Slice& target) override;

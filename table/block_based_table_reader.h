@@ -611,7 +611,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   void SeekForPrev(const Slice& target) override;
   void SeekToFirst() override;
   void SeekToLast() override;
-  void Next() override;
+  void Next() final override;
+  bool NextAndGetResult(Slice* ret_key) override;
   void Prev() override;
   bool Valid() const override {
     return !is_out_of_bound_ && block_iter_points_to_real_block_ &&
@@ -688,7 +689,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   }
 
   void InitDataBlock();
-  void FindKeyForward();
+  inline void FindKeyForward();
+  void FindBlockForward();
   void FindKeyBackward();
   void CheckOutOfBound();
 
