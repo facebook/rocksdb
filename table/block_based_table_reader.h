@@ -150,6 +150,8 @@ class BlockBasedTable : public TableReader {
   // be close to the file length.
   uint64_t ApproximateOffsetOf(const Slice& key) override;
 
+  bool TEST_BlockInCache(const BlockHandle& handle) const;
+
   // Returns true if the block for the specified key is in cache.
   // REQUIRES: key is in this table && block cache enabled
   bool TEST_KeyInCache(const ReadOptions& options, const Slice& key);
@@ -173,53 +175,34 @@ class BlockBasedTable : public TableReader {
   ~BlockBasedTable();
 
   bool TEST_filter_block_preloaded() const;
-  bool TEST_index_reader_preloaded() const;
+  bool TEST_IndexBlockInCache() const;
 
-  // IndexReader is the interface that provide the functionality for index
+  // IndexReader is the interface that provides the functionality for index
   // access.
   class IndexReader {
    public:
-    explicit IndexReader(const InternalKeyComparator* icomparator,
-                         Statistics* stats)
-        : icomparator_(icomparator), statistics_(stats) {}
+    virtual ~IndexReader() = default;
 
-    virtual ~IndexReader() {}
-
-    // Create an iterator for index access.
-    // If iter is null then a new object is created on heap and the callee will
-    // have the ownership. If a non-null iter is passed in it will be used, and
-    // the returned value is either the same as iter or a new on-heap object
-    // that
-    // wrapps the passed iter. In the latter case the return value would point
-    // to
-    // a different object then iter and the callee has the ownership of the
+    // Create an iterator for index access. If iter is null, then a new object
+    // is created on the heap, and the callee will have the ownership.
+    // If a non-null iter is passed in, it will be used, and the returned value
+    // is either the same as iter or a new on-heap object that
+    // wraps the passed iter. In the latter case the return value points
+    // to a different object then iter, and the callee has the ownership of the
     // returned object.
     virtual InternalIteratorBase<BlockHandle>* NewIterator(
-        IndexBlockIter* iter = nullptr, bool total_order_seek = true,
-        bool fill_cache = true) = 0;
+        const ReadOptions& read_options, bool disable_prefix_seek,
+        IndexBlockIter* iter, GetContext* get_context) = 0;
 
-    // The size of the index.
-    virtual size_t size() const = 0;
-    // Memory usage of the index block
-    virtual size_t usable_size() const = 0;
-    // return the statistics pointer
-    virtual Statistics* statistics() const { return statistics_; }
     // Report an approximation of how much memory has been used other than
-    // memory
-    // that was allocated in block cache.
+    // memory that was allocated in block cache.
     virtual size_t ApproximateMemoryUsage() const = 0;
-
-    virtual void CacheDependencies(bool /* unused */) {}
-
-    // Prefetch all the blocks referenced by this index to the buffer
-    void PrefetchBlocks(FilePrefetchBuffer* buf);
-
-   protected:
-    const InternalKeyComparator* icomparator_;
-
-   private:
-    Statistics* statistics_;
+    // Cache the dependencies of the index reader (e.g. the partitions
+    // of a partitioned index).
+    virtual void CacheDependencies(bool /* pin */) {}
   };
+
+  class IndexReaderCommon;
 
   static Slice GetCacheKey(const char* cache_key_prefix,
                            size_t cache_key_prefix_size,
@@ -271,10 +254,21 @@ class BlockBasedTable : public TableReader {
   //    in uncompressed block cache, also sets cache_handle to reference that
   //    block.
   static Status MaybeReadBlockAndLoadToCache(
-      FilePrefetchBuffer* prefetch_buffer, Rep* rep, const ReadOptions& ro,
-      const BlockHandle& handle, const UncompressionDict& uncompression_dict,
+      FilePrefetchBuffer* prefetch_buffer, const Rep* rep,
+      const ReadOptions& ro, const BlockHandle& handle,
+      const UncompressionDict& uncompression_dict,
       CachableEntry<Block>* block_entry, bool is_index = false,
       GetContext* get_context = nullptr);
+
+  // Similar to the above, with one crucial difference: it will retrieve the
+  // block from the file even if there are no caches configured (assuming the
+  // read options allow I/O).
+  static Status RetrieveBlock(
+      FilePrefetchBuffer* prefetch_buffer, const Rep* rep,
+      const ReadOptions& ro, const BlockHandle& handle,
+      const UncompressionDict& uncompression_dict,
+      CachableEntry<Block>* block_entry, bool is_index,
+      GetContext* get_context);
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file
@@ -305,7 +299,6 @@ class BlockBasedTable : public TableReader {
   InternalIteratorBase<BlockHandle>* NewIndexIterator(
       const ReadOptions& read_options, bool need_upper_bound_check = false,
       IndexBlockIter* input_iter = nullptr,
-      CachableEntry<IndexReader>* index_entry = nullptr,
       GetContext* get_context = nullptr);
 
   // Read block cache from block caches (if set): block_cache and
@@ -316,7 +309,7 @@ class BlockBasedTable : public TableReader {
   //    dictionary.
   static Status GetDataBlockFromCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
-      Cache* block_cache, Cache* block_cache_compressed, Rep* rep,
+      Cache* block_cache, Cache* block_cache_compressed, const Rep* rep,
       const ReadOptions& read_options,
       CachableEntry<Block>* block, const UncompressionDict& uncompression_dict,
       size_t read_amp_bytes_per_bit, bool is_index = false,
@@ -359,9 +352,9 @@ class BlockBasedTable : public TableReader {
   // need to access extra meta blocks for index construction. This parameter
   // helps avoid re-reading meta index block if caller already created one.
   Status CreateIndexReader(
-      FilePrefetchBuffer* prefetch_buffer, IndexReader** index_reader,
-      InternalIterator* preloaded_meta_index_iter = nullptr,
-      const int level = -1);
+      FilePrefetchBuffer* prefetch_buffer,
+      InternalIterator* preloaded_meta_index_iter, bool use_cache,
+      bool prefetch, bool pin, IndexReader** index_reader);
 
   bool FullFilterKeyMayMatch(
       const ReadOptions& read_options, FilterBlockReader* filter,
@@ -398,9 +391,8 @@ class BlockBasedTable : public TableReader {
   static Status PrefetchIndexAndFilterBlocks(
       Rep* rep, FilePrefetchBuffer* prefetch_buffer,
       InternalIterator* meta_iter, BlockBasedTable* new_table,
-      const SliceTransform* prefix_extractor, bool prefetch_all,
-      const BlockBasedTableOptions& table_options, const int level,
-      const bool prefetch_index_and_filter_in_cache);
+      bool prefetch_all, const BlockBasedTableOptions& table_options,
+      const int level);
 
   Status VerifyChecksumInMetaBlocks(InternalIteratorBase<Slice>* index_iter);
   Status VerifyChecksumInBlocks(InternalIteratorBase<BlockHandle>* index_iter);
@@ -411,7 +403,7 @@ class BlockBasedTable : public TableReader {
       const bool is_a_filter_partition,
       const SliceTransform* prefix_extractor = nullptr) const;
 
-  static void SetupCacheKeyPrefix(Rep* rep, uint64_t file_size);
+  static void SetupCacheKeyPrefix(Rep* rep);
 
   // Generate a cache key prefix from the file
   static void GenerateCachePrefix(Cache* cc, RandomAccessFile* file,
@@ -486,18 +478,21 @@ struct BlockBasedTable::Rep {
   size_t persistent_cache_key_prefix_size = 0;
   char compressed_cache_key_prefix[kMaxCacheKeyPrefixSize];
   size_t compressed_cache_key_prefix_size = 0;
-  uint64_t dummy_index_reader_offset =
-      0;  // ID that is unique for the block cache.
   PersistentCacheOptions persistent_cache_options;
 
   // Footer contains the fixed table information
   Footer footer;
-  // `index_reader`, `filter`, and `uncompression_dict` will be populated (i.e.,
-  // non-nullptr) and used only when options.block_cache is nullptr or when
-  // `cache_index_and_filter_blocks == false`. Otherwise, we will get the index,
-  // filter, and compression dictionary blocks via the block cache. In that case
-  // `dummy_index_reader_offset`, `filter_handle`, and `compression_dict_handle`
-  // are used to lookup these meta-blocks in block cache.
+  // `filter` and `uncompression_dict` will be populated (i.e., non-nullptr)
+  // and used only when options.block_cache is nullptr or when
+  // `cache_index_and_filter_blocks == false`. Otherwise, we will get the
+  // filter and compression dictionary blocks via the block cache. In that case,
+  // `filter_handle`, and `compression_dict_handle` are used to lookup these
+  // meta-blocks in block cache.
+  //
+  // Note: the IndexReader object is always stored in this member variable;
+  // the index block itself, however, may or may not be in the block cache
+  // based on the settings above. We plan to change the handling of the
+  // filter and compression dictionary similarly.
   std::unique_ptr<IndexReader> index_reader;
   std::unique_ptr<FilterBlockReader> filter;
   std::unique_ptr<UncompressionDict> uncompression_dict;
@@ -526,12 +521,11 @@ struct BlockBasedTable::Rep {
 
   // only used in level 0 files when pin_l0_filter_and_index_blocks_in_cache is
   // true or in all levels when pin_top_level_index_and_filter is set in
-  // combination with partitioned index/filters: then we do use the LRU cache,
-  // but we always keep the filter & index block's handle checked out here (=we
+  // combination with partitioned filters: then we do use the LRU cache,
+  // but we always keep the filter block's handle checked out here (=we
   // don't call Release()), plus the parsed out objects the LRU cache will never
   // push flush them out, hence they're pinned
   CachableEntry<FilterBlockReader> filter_entry;
-  CachableEntry<IndexReader> index_entry;
   std::shared_ptr<const FragmentedRangeTombstoneList> fragmented_range_dels;
 
   // If global_seqno is used, all Keys in this file will have the same

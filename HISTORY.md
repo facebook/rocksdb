@@ -22,6 +22,10 @@
 ### Bug Fixes
 
 
+### Other changes
+* Partitions of partitioned indexes no longer affect the read amplification statistics.
+* Due to a refactoring, block cache eviction statistics for indexes are temporarily lumped together with those for data blocks. We plan to reintroduce the dedicated statistics for indexes later.
+
 ## 6.2.0 (4/30/2019)
 ### New Features
 * Add an option `strict_bytes_per_sync` that causes a file-writing thread to block rather than exceed the limit on bytes pending writeback specified by `bytes_per_sync` or `wal_bytes_per_sync`.
