@@ -1106,6 +1106,45 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                       !kSeqPerBatch, kBatchPerTxn);
 }
 
+Status DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
+                         size_t preallocate_block_size, log::Writer** new_log) {
+  Status s;
+  std::unique_ptr<WritableFile> lfile;
+
+  DBOptions db_options =
+      BuildDBOptions(immutable_db_options_, mutable_db_options_);
+  EnvOptions opt_env_options =
+      env_->OptimizeForLogWrite(env_options_, db_options);
+  std::string log_fname =
+      LogFileName(immutable_db_options_.wal_dir, log_file_num);
+
+  if (recycle_log_number) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "reusing log %" PRIu64 " from recycle list\n",
+                   recycle_log_number);
+    std::string old_log_fname =
+        LogFileName(immutable_db_options_.wal_dir, recycle_log_number);
+    s = env_->ReuseWritableFile(log_fname, old_log_fname, &lfile,
+                                opt_env_options);
+  } else {
+    s = NewWritableFile(env_, log_fname, &lfile, opt_env_options);
+  }
+
+  if (s.ok()) {
+    lfile->SetWriteLifeTimeHint(CalculateWALWriteHint());
+    lfile->SetPreallocationBlockSize(preallocate_block_size);
+
+    const auto& listeners = immutable_db_options_.listeners;
+    std::unique_ptr<WritableFileWriter> file_writer(
+        new WritableFileWriter(std::move(lfile), log_fname, opt_env_options,
+                               env_, nullptr /* stats */, listeners));
+    *new_log = new log::Writer(std::move(file_writer), log_file_num,
+                               immutable_db_options_.recycle_log_file_num > 0,
+                               immutable_db_options_.manual_wal_flush);
+  }
+  return s;
+}
+
 Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                     const std::vector<ColumnFamilyDescriptor>& column_families,
                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
@@ -1166,40 +1205,23 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     return s;
   }
   impl->mutex_.Lock();
-  auto write_hint = impl->CalculateWALWriteHint();
   // Handles create_if_missing, error_if_exists
   s = impl->Recover(column_families);
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
-    std::unique_ptr<WritableFile> lfile;
-    EnvOptions soptions(db_options);
-    EnvOptions opt_env_options =
-        impl->immutable_db_options_.env->OptimizeForLogWrite(
-            soptions, BuildDBOptions(impl->immutable_db_options_,
-                                     impl->mutable_db_options_));
-    std::string log_fname =
-        LogFileName(impl->immutable_db_options_.wal_dir, new_log_number);
-    s = NewWritableFile(impl->immutable_db_options_.env, log_fname, &lfile,
-                        opt_env_options);
+    log::Writer* new_log = nullptr;
+    const size_t preallocate_block_size =
+        impl->GetWalPreallocateBlockSize(max_write_buffer_size);
+    s = impl->CreateWAL(new_log_number, 0 /*recycle_log_number*/,
+                        preallocate_block_size, &new_log);
     if (s.ok()) {
-      lfile->SetWriteLifeTimeHint(write_hint);
-      lfile->SetPreallocationBlockSize(
-          impl->GetWalPreallocateBlockSize(max_write_buffer_size));
-      {
-        InstrumentedMutexLock wl(&impl->log_write_mutex_);
-        impl->logfile_number_ = new_log_number;
-        const auto& listeners = impl->immutable_db_options_.listeners;
-        std::unique_ptr<WritableFileWriter> file_writer(
-            new WritableFileWriter(std::move(lfile), log_fname, opt_env_options,
-                                   impl->env_, nullptr /* stats */, listeners));
-        impl->logs_.emplace_back(
-            new_log_number,
-            new log::Writer(
-                std::move(file_writer), new_log_number,
-                impl->immutable_db_options_.recycle_log_file_num > 0,
-                impl->immutable_db_options_.manual_wal_flush));
-      }
+      InstrumentedMutexLock wl(&impl->log_write_mutex_);
+      impl->logfile_number_ = new_log_number;
+      assert(new_log != nullptr);
+      impl->logs_.emplace_back(new_log_number, new_log);
+    }
 
+    if (s.ok()) {
       // set column family handles
       for (auto cf : column_families) {
         auto cfd =

@@ -1090,11 +1090,20 @@ static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   }
   return true;
 }
+
 DEFINE_int32(prefix_size, 0, "control the prefix size for HashSkipList and "
              "plain table");
 DEFINE_int64(keys_per_prefix, 0, "control average number of keys generated "
              "per prefix, 0 means no special handling of the prefix, "
              "i.e. use the prefix comes with the generated random number.");
+DEFINE_bool(total_order_seek, false,
+            "Enable total order seek regardless of index format.");
+DEFINE_bool(prefix_same_as_start, false,
+            "Enforce iterator to return keys with prefix same as seek key.");
+DEFINE_bool(
+    seek_missing_prefix, false,
+    "Iterator seek to keys with non-exist prefixes. Require prefix_size > 8");
+
 DEFINE_int32(memtable_insert_with_hint_prefix_size, 0,
              "If non-zero, enable "
              "memtable insert with hint with the given prefix size.");
@@ -2526,6 +2535,17 @@ class Benchmark {
     pos += bytes_to_fill;
     if (key_size_ > pos - start) {
       memset(pos, '0', key_size_ - (pos - start));
+    }
+  }
+
+  void GenerateKeyFromIntForSeek(uint64_t v, int64_t num_keys, Slice* key) {
+    GenerateKeyFromInt(v, num_keys, key);
+    if (FLAGS_seek_missing_prefix) {
+      assert(prefix_size_ > 8);
+      char* key_ptr = const_cast<char*>(key->data());
+      // This rely on GenerateKeyFromInt filling paddings with '0's.
+      // Putting a '1' will create a non-existing prefix.
+      key_ptr[8] = '1';
     }
   }
 
@@ -4964,6 +4984,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     int64_t found = 0;
     int64_t bytes = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
+    options.total_order_seek = FLAGS_total_order_seek;
+    options.prefix_same_as_start = FLAGS_prefix_same_as_start;
     options.tailing = FLAGS_use_tailing_iterator;
 
     Iterator* single_iter = nullptr;
@@ -4988,7 +5010,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     char value_buffer[256];
     while (!duration.Done(1)) {
       int64_t seek_pos = thread->rand.Next() % FLAGS_num;
-      GenerateKeyFromInt((uint64_t)seek_pos, FLAGS_num, &key);
+      GenerateKeyFromIntForSeek(static_cast<uint64_t>(seek_pos), FLAGS_num,
+                                &key);
       if (FLAGS_max_scan_distance != 0) {
         if (FLAGS_reverse_iterator) {
           GenerateKeyFromInt(
@@ -6254,6 +6277,11 @@ int db_bench_tool(int argc, char** argv) {
     // When both are set then FLAGS_stats_interval determines the frequency
     // at which the timer is checked for FLAGS_stats_interval_seconds
     FLAGS_stats_interval = 1000;
+  }
+
+  if (FLAGS_seek_missing_prefix && FLAGS_prefix_size <= 8) {
+    fprintf(stderr, "prefix_size > 8 required by --seek_missing_prefix\n");
+    exit(1);
   }
 
   rocksdb::Benchmark benchmark;
