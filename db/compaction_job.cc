@@ -909,6 +909,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                                   sub_compact->current_output_file_size);
   }
   const auto& c_iter_stats = c_iter->iter_stats();
+  auto* compaction_policy = sub_compact->compaction_policy.get();
 
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
@@ -939,10 +940,16 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     assert(sub_compact->builder != nullptr);
     assert(sub_compact->current_output() != nullptr);
     sub_compact->builder->Add(key, value);
+    if (compaction_policy != nullptr) {
+      compaction_policy->Add(key, value);
+    }
     sub_compact->current_output_file_size = sub_compact->builder->FileSize();
     sub_compact->current_output()->meta.UpdateBoundaries(
         key, c_iter->ikey().sequence);
     sub_compact->num_output_records++;
+
+    Status input_status = input->status();
+    c_iter->Next();
 
     // Close output file if it is big enough. Two possibilities determine it's
     // time to close it: (1) the current key should be this file's last key, (2)
@@ -953,16 +960,23 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     // going to be 1.2MB and max_output_file_size = 1MB, prefer to have 0.6MB
     // and 0.6MB instead of 1MB and 0.2MB)
     bool output_file_ended = false;
-    Status input_status;
-    if (sub_compact->compaction->output_level() != 0 &&
-        sub_compact->current_output_file_size >=
-            sub_compact->compaction->max_output_file_size()) {
-      // (1) this key terminates the file. For historical reasons, the iterator
-      // status before advancing will be given to FinishCompactionOutputFile().
-      input_status = input->status();
-      output_file_ended = true;
+    if (compaction_policy != nullptr) {
+      CompactionOutputInfo output_info;
+      output_info.next_key = c_iter->key();
+      output_info.current_output_file_size =
+          sub_compact->current_output_file_size;
+      output_file_ended =
+          compaction_policy->ShouldEndCurrentOutputFile(output_info);
+    } else {
+      if (sub_compact->compaction->output_level() != 0 &&
+          sub_compact->current_output_file_size >=
+              sub_compact->compaction->max_output_file_size()) {
+        // (1) this key terminates the file. For historical reasons, the
+        // iterator status before advancing will be given to
+        // FinishCompactionOutputFile().
+        output_file_ended = true;
+      }
     }
-    c_iter->Next();
     if (!output_file_ended && c_iter->Valid() &&
         sub_compact->compaction->output_level() != 0 &&
         sub_compact->ShouldStopBefore(c_iter->key(),
@@ -971,7 +985,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       // (2) this key belongs to the next file. For historical reasons, the
       // iterator status after advancing will be given to
       // FinishCompactionOutputFile().
-      input_status = input->status();
       output_file_ended = true;
     }
     if (output_file_ended) {

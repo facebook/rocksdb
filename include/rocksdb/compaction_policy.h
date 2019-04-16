@@ -24,7 +24,8 @@ class CompactionPolicy {
  public:
   virtual ~CompactionPolicy() = default;
 
-  virtual void NotifyKeyAdded(const Slice& key) = 0;
+  // TODO: shall the key be user key or internal key?
+  virtual void Add(const Slice& key, const Slice& value) = 0;
 
   virtual bool ShouldEndCurrentOutputFile(const CompactionOutputInfo& info) = 0;
 };
