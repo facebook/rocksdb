@@ -1418,51 +1418,19 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   // Log this later after lock release. It may be outdated, e.g., if background
   // flush happens before logging, but that should be ok.
   int num_imm_unflushed = cfd->imm()->NumNotFlushed();
-  DBOptions db_options =
-      BuildDBOptions(immutable_db_options_, mutable_db_options_);
   const auto preallocate_block_size =
       GetWalPreallocateBlockSize(mutable_cf_options.write_buffer_size);
-  auto write_hint = CalculateWALWriteHint();
   mutex_.Unlock();
-  {
-    std::string log_fname =
-        LogFileName(immutable_db_options_.wal_dir, new_log_number);
-    if (creating_new_log) {
-      EnvOptions opt_env_opt =
-          env_->OptimizeForLogWrite(env_options_, db_options);
-      if (recycle_log_number) {
-        ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                       "reusing log %" PRIu64 " from recycle list\n",
-                       recycle_log_number);
-        std::string old_log_fname =
-            LogFileName(immutable_db_options_.wal_dir, recycle_log_number);
-        s = env_->ReuseWritableFile(log_fname, old_log_fname, &lfile,
-                                    opt_env_opt);
-      } else {
-        s = NewWritableFile(env_, log_fname, &lfile, opt_env_opt);
-      }
-      if (s.ok()) {
-        // Our final size should be less than write_buffer_size
-        // (compression, etc) but err on the side of caution.
-
-        // use preallocate_block_size instead
-        // of calling GetWalPreallocateBlockSize()
-        lfile->SetPreallocationBlockSize(preallocate_block_size);
-        lfile->SetWriteLifeTimeHint(write_hint);
-        std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-            std::move(lfile), log_fname, opt_env_opt, env_, nullptr /* stats */,
-            immutable_db_options_.listeners));
-        new_log = new log::Writer(
-            std::move(file_writer), new_log_number,
-            immutable_db_options_.recycle_log_file_num > 0, manual_wal_flush_);
-      }
-    }
-
-    if (s.ok()) {
-      SequenceNumber seq = versions_->LastSequence();
-      new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
-      context->superversion_context.NewSuperVersion();
-    }
+  if (creating_new_log) {
+    // TODO: Write buffer size passed in should be max of all CF's instead
+    // of mutable_cf_options.write_buffer_size.
+    s = CreateWAL(new_log_number, recycle_log_number, preallocate_block_size,
+                  &new_log);
+  }
+  if (s.ok()) {
+    SequenceNumber seq = versions_->LastSequence();
+    new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
+    context->superversion_context.NewSuperVersion();
   }
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "[%s] New memtable created with log file: #%" PRIu64
