@@ -4,6 +4,7 @@
 ### New Features
 * When reading from option file/string/map, customized comparators and/or merge operators can be filled according to object registry.
 * Introduce Periodic Compaction for Level style compaction. Files are re-compacted periodically and put in the same level.
+* Improve range scan performance by avoiding per-key upper bound check in BlockBasedTableIterator.
 
 ### Public API Change
 * Change the behavior of OptimizeForPointLookup(): move away from hash-based block-based-table index, and use whole key memtable filtering.
@@ -14,6 +15,7 @@
 * Fix a bug in Encryption Env which could cause encrypted files to be read beyond file boundaries.
 * Fix a race condition between WritePrepared::Get and ::Put with duplicate keys.
 * Fix crash when memtable prefix bloom is enabled and read/write a key out of domain of prefix extractor.
+
 
 ## 6.1.0 (3/27/2019)
 ### New Features

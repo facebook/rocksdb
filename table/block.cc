@@ -286,9 +286,10 @@ void DataBlockIter::Seek(const Slice& target) {
 //    with a smaller [ type | seqno ] (i.e. a larger seqno, or the same seqno
 //    but larger type).
 bool DataBlockIter::SeekForGetImpl(const Slice& target) {
-  Slice user_key = ExtractUserKey(target);
+  Slice target_user_key = ExtractUserKey(target);
   uint32_t map_offset = restarts_ + num_restarts_ * sizeof(uint32_t);
-  uint8_t entry = data_block_hash_index_->Lookup(data_, map_offset, user_key);
+  uint8_t entry =
+      data_block_hash_index_->Lookup(data_, map_offset, target_user_key);
 
   if (entry == kCollision) {
     // HashSeek not effective, falling back
@@ -360,7 +361,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     return true;
   }
 
-  if (user_comparator_->Compare(key_.GetUserKey(), user_key) != 0) {
+  if (user_comparator_->Compare(key_.GetUserKey(), target_user_key) != 0) {
     // the key is not in this block and cannot be at the next block either.
     return false;
   }
