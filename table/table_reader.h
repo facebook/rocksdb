@@ -42,14 +42,11 @@ class TableReader {
   //        all the states but those allocated in arena.
   // skip_filters: disables checking the bloom filters even if they exist. This
   //               option is effective only for block-based table format.
-  // hint_within_lower_bound: hint whether the table is full within
-  //                          iterate_lower_bound.
-  // hint_within_upper_bound: hint whether the table is full within
-  //                          iterate_upper_bound.
-  virtual InternalIterator* NewIterator(
-      const ReadOptions&, const SliceTransform* prefix_extractor,
-      Arena* arena = nullptr, bool skip_filters = false,
-      bool for_compaction = false, bool hint_within_upper_bound = false) = 0;
+  virtual InternalIterator* NewIterator(const ReadOptions&,
+                                        const SliceTransform* prefix_extractor,
+                                        Arena* arena = nullptr,
+                                        bool skip_filters = false,
+                                        bool for_compaction = false) = 0;
 
   virtual FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& /*read_options*/) {

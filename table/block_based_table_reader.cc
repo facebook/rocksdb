@@ -2491,7 +2491,6 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
     block_iter_points_to_real_block_ = true;
     if (read_options_.iterate_upper_bound != nullptr) {
       data_block_within_upper_bound_ =
-          hint_within_upper_bound_ ||
           (user_comparator_.Compare(*read_options_.iterate_upper_bound,
                                     index_iter_->user_key()) > 0);
     }
@@ -2509,8 +2508,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyForward() {
     // Whether next data block is out of upper bound, if there is one.
     bool next_block_is_out_of_bound =
         read_options_.iterate_upper_bound != nullptr &&
-        block_iter_points_to_real_block_ &&
-        !data_block_within_upper_bound_;
+        block_iter_points_to_real_block_ && !data_block_within_upper_bound_;
     ResetDataIter();
     index_iter_->Next();
     if (next_block_is_out_of_bound) {
@@ -2560,16 +2558,14 @@ template <class TBlockIter, typename TValue>
 void BlockBasedTableIterator<TBlockIter, TValue>::CheckOutOfBound() {
   if (read_options_.iterate_upper_bound != nullptr &&
       block_iter_points_to_real_block_ && block_iter_.Valid()) {
-    is_out_of_bound_ = !hint_within_upper_bound_ &&
-                       user_comparator_.Compare(
+    is_out_of_bound_ = user_comparator_.Compare(
                            *read_options_.iterate_upper_bound, user_key()) <= 0;
   }
 }
 
 InternalIterator* BlockBasedTable::NewIterator(
     const ReadOptions& read_options, const SliceTransform* prefix_extractor,
-    Arena* arena, bool skip_filters, bool for_compaction,
-    bool hint_within_upper_bound) {
+    Arena* arena, bool skip_filters, bool for_compaction) {
   bool need_upper_bound_check =
       PrefixExtractorChanged(rep_->table_properties.get(), prefix_extractor);
   const bool kIsNotIndex = false;
@@ -2583,8 +2579,7 @@ InternalIterator* BlockBasedTable::NewIterator(
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, kIsNotIndex,
-        true /*key_includes_seq*/, true /*index_key_is_full*/, for_compaction,
-        hint_within_upper_bound);
+        true /*key_includes_seq*/, true /*index_key_is_full*/, for_compaction);
   } else {
     auto* mem =
         arena->AllocateAligned(sizeof(BlockBasedTableIterator<DataBlockIter>));
@@ -2594,8 +2589,7 @@ InternalIterator* BlockBasedTable::NewIterator(
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, kIsNotIndex,
-        true /*key_includes_seq*/, true /*index_key_is_full*/, for_compaction,
-        hint_within_upper_bound);
+        true /*key_includes_seq*/, true /*index_key_is_full*/, for_compaction);
   }
 }
 

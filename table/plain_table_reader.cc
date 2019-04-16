@@ -195,8 +195,7 @@ void PlainTableReader::SetupForCompaction() {
 
 InternalIterator* PlainTableReader::NewIterator(
     const ReadOptions& options, const SliceTransform* /* prefix_extractor */,
-    Arena* arena, bool /*skip_filters*/, bool /*for_compaction*/,
-    bool /*hint_within_upper_bound*/) {
+    Arena* arena, bool /*skip_filters*/, bool /*for_compaction*/) {
   bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek;
   if (arena == nullptr) {
     return new PlainTableIterator(this, use_prefix_seek);

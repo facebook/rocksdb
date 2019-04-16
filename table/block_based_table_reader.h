@@ -113,8 +113,7 @@ class BlockBasedTable : public TableReader {
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena = nullptr,
                                 bool skip_filters = false,
-                                bool for_compaction = false,
-                                bool within_upper_bound = false) override;
+                                bool for_compaction = false) override;
 
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
@@ -590,8 +589,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
                           const SliceTransform* prefix_extractor, bool is_index,
                           bool key_includes_seq = true,
                           bool index_key_is_full = true,
-                          bool for_compaction = false,
-                          bool hint_within_upper_bound = false)
+                          bool for_compaction = false)
       : table_(table),
         read_options_(read_options),
         icomp_(icomp),
@@ -605,8 +603,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
         is_index_(is_index),
         key_includes_seq_(key_includes_seq),
         index_key_is_full_(index_key_is_full),
-        for_compaction_(for_compaction),
-        hint_within_upper_bound_(hint_within_upper_bound) {}
+        for_compaction_(for_compaction) {}
 
   ~BlockBasedTableIterator() { delete index_iter_; }
 
@@ -724,7 +721,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   bool index_key_is_full_;
   // If this iterator is created for compaction
   bool for_compaction_;
-  const bool hint_within_upper_bound_;
   BlockHandle prev_index_value_;
 
   static const size_t kInitReadaheadSize = 8 * 1024;

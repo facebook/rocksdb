@@ -990,17 +990,12 @@ class LevelIterator final : public InternalIterator {
         read_options_.iterate_lower_bound != nullptr &&
         user_comparator_.Compare(ExtractUserKey(file_smallest_key(file_index_)),
                                  *read_options_.iterate_lower_bound) >= 0;
-    bool hint_within_upper_bound =
-        read_options_.iterate_upper_bound != nullptr &&
-        user_comparator_.Compare(ExtractUserKey(file_largest_key(file_index_)),
-                                 *read_options_.iterate_upper_bound) < 0;
     return table_cache_->NewIterator(
         read_options_, env_options_, icomparator_, *file_meta.file_metadata,
         range_del_agg_, prefix_extractor_,
         nullptr /* don't need reference to table */, file_read_hist_,
         for_compaction_, nullptr /* arena */, skip_filters_, level_,
-        smallest_compaction_key, largest_compaction_key,
-        hint_within_upper_bound);
+        smallest_compaction_key, largest_compaction_key);
   }
 
   TableCache* table_cache_;
@@ -4378,10 +4373,9 @@ Status VersionSet::Recover(
         ", last_sequence is %" PRIu64 ", log_number is %" PRIu64
         ",prev_log_number is %" PRIu64 ",max_column_family is %" PRIu32
         ",min_log_number_to_keep is %" PRIu64 "\n",
-        manifest_path.c_str(), manifest_file_number_,
-        next_file_number_.load(), last_sequence_.load(), log_number,
-        prev_log_number_, column_family_set_->GetMaxColumnFamily(),
-        min_log_number_to_keep_2pc());
+        manifest_path.c_str(), manifest_file_number_, next_file_number_.load(),
+        last_sequence_.load(), log_number, prev_log_number_,
+        column_family_set_->GetMaxColumnFamily(), min_log_number_to_keep_2pc());
 
     for (auto cfd : *column_family_set_) {
       if (cfd->IsDropped()) {

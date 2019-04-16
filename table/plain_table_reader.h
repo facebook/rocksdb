@@ -79,8 +79,7 @@ class PlainTableReader: public TableReader {
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena = nullptr,
                                 bool skip_filters = false,
-                                bool for_compaction = false,
-                                bool hint_within_upper_bound = false) override;
+                                bool for_compaction = false) override;
 
   void Prepare(const Slice& target) override;
 
