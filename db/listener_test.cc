@@ -197,6 +197,9 @@ class TestFlushListener : public EventListener {
 
   void OnFlushCompleted(
       DB* db, const FlushJobInfo& info) override {
+    if (!info.status.ok()) {
+      return;
+    }
     flushed_dbs_.push_back(db);
     flushed_column_family_names_.push_back(info.cf_name);
     if (info.triggered_writes_slowdown) {
@@ -743,6 +746,9 @@ public:
 
   void OnFlushCompleted(DB* /*db*/,
     const FlushJobInfo& flush_job_info) override {
+    if (!flush_job_info.status.ok()) {
+      return;
+    }
     ASSERT_LE(flush_job_info.smallest_seqno, latest_seq_number_);
   }
 };

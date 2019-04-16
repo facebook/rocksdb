@@ -26,7 +26,10 @@ class BlobDBListener : public EventListener {
     blob_db_impl_->SyncBlobFiles();
   }
 
-  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& /*info*/) override {
+  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
+    if (!info.status.ok()) {
+      return;
+    }
     assert(blob_db_impl_ != nullptr);
     blob_db_impl_->UpdateLiveSSTSize();
   }

@@ -205,11 +205,12 @@ Status DBImpl::FlushMemTableToOutputFile(
     Status new_bg_error = s;
     error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
   }
-  if (s.ok()) {
 #ifndef ROCKSDB_LITE
-    // may temporarily unlock and lock the mutex.
-    NotifyOnFlushCompleted(cfd, &file_meta, mutable_cf_options,
-                           job_context->job_id, flush_job.GetTableProperties());
+  // may temporarily unlock and lock the mutex.
+  NotifyOnFlushCompleted(cfd, &file_meta, mutable_cf_options, s,
+                         job_context->job_id, flush_job.GetTableProperties());
+
+  if (s.ok()) {
     auto sfm = static_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
     if (sfm) {
@@ -226,8 +227,8 @@ Status DBImpl::FlushMemTableToOutputFile(
         error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
       }
     }
-#endif  // ROCKSDB_LITE
   }
+#endif  // ROCKSDB_LITE
   return s;
 }
 
@@ -495,7 +496,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         continue;
       }
       NotifyOnFlushCompleted(cfds[i], &file_meta[i], all_mutable_cf_options[i],
-                             job_context->job_id, jobs[i].GetTableProperties());
+                             s, job_context->job_id,
+                             jobs[i].GetTableProperties());
       if (sfm) {
         std::string file_path = MakeTableFileName(
             cfds[i]->ioptions()->cf_paths[0].path, file_meta[i].fd.GetNumber());
@@ -561,6 +563,7 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
     info.cf_name = cfd->GetName();
     // TODO(yhchiang): make db_paths dynamic in case flush does not
     //                 go to L0 in the future.
+    info.status = Status::OK();
     info.file_path = MakeTableFileName(cfd->ioptions()->cf_paths[0].path,
                                        file_meta->fd.GetNumber());
     info.thread_id = env_->GetThreadID();
@@ -590,7 +593,8 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
 void DBImpl::NotifyOnFlushCompleted(ColumnFamilyData* cfd,
                                     FileMetaData* file_meta,
                                     const MutableCFOptions& mutable_cf_options,
-                                    int job_id, TableProperties prop) {
+                                    const Status& st, int job_id,
+                                    TableProperties prop) {
 #ifndef ROCKSDB_LITE
   if (immutable_db_options_.listeners.size() == 0U) {
     return;
@@ -613,6 +617,7 @@ void DBImpl::NotifyOnFlushCompleted(ColumnFamilyData* cfd,
     info.cf_name = cfd->GetName();
     // TODO(yhchiang): make db_paths dynamic in case flush does not
     //                 go to L0 in the future.
+    info.status = st;
     info.file_path = MakeTableFileName(cfd->ioptions()->cf_paths[0].path,
                                        file_meta->fd.GetNumber());
     info.thread_id = env_->GetThreadID();

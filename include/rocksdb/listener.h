@@ -190,6 +190,8 @@ struct FlushJobInfo {
   TableProperties table_properties;
 
   FlushReason flush_reason;
+  // the status indicating whether the flush was successful or not.
+  Status status;
 };
 
 struct CompactionJobInfo {
