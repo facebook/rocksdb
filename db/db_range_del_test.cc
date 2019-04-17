@@ -8,8 +8,6 @@
 #include "port/port.h"
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"
-#include <iostream>
-#include <bitset>
 
 namespace rocksdb {
 
@@ -1533,13 +1531,11 @@ TEST_F(DBRangeDelTest, RangeDelConcurrent) {
   std::string value;
   for (int i = 0; i < 137; i++) {
     bool res = db_->Get(ReadOptions(), keys[i], &value).IsNotFound();
-    std::cout << "i: " << i << " result: " << res << std::endl;
     ASSERT_TRUE(res);
   }
 
   for (int i = 137; i < 200; i++) {
     bool res = db_->Get(ReadOptions(), keys[i], &value).IsNotFound();
-    std::cout << "i: " << i << " result: " << res << std::endl;
     ASSERT_FALSE(res);
   }
 }
