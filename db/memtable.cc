@@ -318,9 +318,9 @@ class MemTableIterator : public InternalIterator {
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_) {
       // iterator should only use prefix bloom filter
-      Slice user_key(ExtractUserKey(k));
-      if (prefix_extractor_->InDomain(user_key) &&
-          !bloom_->MayContain(prefix_extractor_->Transform(user_key))) {
+      Slice user_k(ExtractUserKey(k));
+      if (prefix_extractor_->InDomain(user_k) &&
+          !bloom_->MayContain(prefix_extractor_->Transform(user_k))) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
         valid_ = false;
         return;
@@ -335,9 +335,9 @@ class MemTableIterator : public InternalIterator {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_) {
-      Slice user_key(ExtractUserKey(k));
-      if (prefix_extractor_->InDomain(user_key) &&
-          !bloom_->MayContain(prefix_extractor_->Transform(user_key))) {
+      Slice user_k(ExtractUserKey(k));
+      if (prefix_extractor_->InDomain(user_k) &&
+          !bloom_->MayContain(prefix_extractor_->Transform(user_k))) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
         valid_ = false;
         return;
