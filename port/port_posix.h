@@ -131,7 +131,6 @@ class RWMutex {
 
   void ReadLock();
   void WriteLock();
-  bool TryWriteLock();
   void ReadUnlock();
   void WriteUnlock();
   void AssertHeld() { }

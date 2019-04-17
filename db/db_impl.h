@@ -897,14 +897,6 @@ class DBImpl : public DB {
                             bool disable_memtable = false,
                             uint64_t* seq_used = nullptr);
 
-/*
-  Status UnorderedWriteMemtable(const WriteOptions& options, WriteBatch* updates,
-                   WriteCallback* callback = nullptr,
-                   uint64_t* log_used = nullptr, uint64_t log_ref = 0,
-                   uint64_t* seq_used = nullptr,
-                   size_t batch_cnt = 0,
-                   PreReleaseCallback* pre_release_callback = nullptr);
-*/
   Status UnorderedWriteMemtable(const WriteOptions& write_options,
                                 WriteBatch* my_batch, WriteCallback* callback,
                                 uint64_t log_ref, uint64_t seq,
@@ -936,7 +928,6 @@ bool assign_order = false);
       bool error_if_data_exists_in_logs = false);
 
  private:
-  mutable port::RWMutex rwlock_;
   friend class DB;
   friend class ErrorHandler;
   friend class InternalStats;
@@ -1597,6 +1588,7 @@ bool assign_order = false);
   // last time stats were dumped to LOG
   std::atomic<uint64_t> last_stats_dump_time_microsec_;
 
+  mutable port::RWMutex rwlock_;
   std::atomic<size_t> writers_cnt_;
   std::condition_variable readers_cv_;
   std::mutex readers_mutex_;
