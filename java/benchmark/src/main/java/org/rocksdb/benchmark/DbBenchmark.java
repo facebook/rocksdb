@@ -646,7 +646,7 @@ public class DbBenchmark {
               currentTaskId++, randSeed_, num_, num_, writeOpt, 1));
           break;
         case "fillbatch":
-          tasks.add(new WriteRandomTask(
+          tasks.add(new WriteSequentialTask(
               currentTaskId++, randSeed_, num_, num_, writeOpt, 1000));
           break;
         case "fillrandom":
@@ -911,7 +911,7 @@ public class DbBenchmark {
         "\t\tfillseq          -- write N values in sequential key order in async mode.\n" +
         "\t\tfillrandom       -- write N values in random key order in async mode.\n" +
         "\t\tfillbatch        -- write N/1000 batch where each batch has 1000 values\n" +
-        "\t\t                   in random key order in sync mode.\n" +
+        "\t\t                   in sequential key order in sync mode.\n" +
         "\t\tfillsync         -- write N/100 values in random key order in sync mode.\n" +
         "\t\tfill100K         -- write N/1000 100K values in random order in async mode.\n" +
         "\t\treadseq          -- read N times sequentially.\n" +
