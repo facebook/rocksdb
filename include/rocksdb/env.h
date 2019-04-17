@@ -889,7 +889,7 @@ class Logger {
 
   explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : closed_(false), log_level_(log_level) {}
-  virtual ~Logger();
+  virtual ~Logger() {}
 
   // Close the log file. Must be called before destructor. If the return
   // status is NotSupported(), it means the implementation does cleanup in
@@ -913,7 +913,7 @@ class Logger {
   // of *this (see @SetInfoLogLevel and @GetInfoLogLevel) will not be
   // printed.
   virtual void Logv(const InfoLogLevel log_level, const char* format,
-                    va_list ap);
+                    va_list ap) = 0;
 
   virtual size_t GetLogFileSize() const { return kDoNotSupportGetLogFileSize; }
   // Flush to the OS buffers
