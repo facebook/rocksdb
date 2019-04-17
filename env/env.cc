@@ -91,8 +91,6 @@ WritableFile::~WritableFile() {
 
 MemoryMappedFileBuffer::~MemoryMappedFileBuffer() {}
 
-Logger::~Logger() {}
-
 Status Logger::Close() {
   if (!closed_) {
     closed_ = true;
