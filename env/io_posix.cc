@@ -1009,6 +1009,7 @@ Status PosixWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
       return IOError("While sync_file_range returned " + ToString(ret),
                      filename_, errno);
     }
+    return Status::OK();
   }
 #endif  // ROCKSDB_RANGESYNC_PRESENT
   return WritableFile::RangeSync(offset, nbytes);
