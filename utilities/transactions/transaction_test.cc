@@ -2735,7 +2735,7 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
   }
 }
 
-TEST_P(TransactionTest, ColumnFamiliesMultiGetbatchedTest) {
+TEST_P(TransactionTest, ColumnFamiliesMultiGetBatchedTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   TransactionOptions txn_options;
@@ -2797,7 +2797,8 @@ TEST_P(TransactionTest, ColumnFamiliesMultiGetbatchedTest) {
   // different column families
   s = txn->Delete("AAA");
   ASSERT_OK(s);
-  s = txn->GetForUpdate(snapshot_read_options, handles[1], "foo", &value);
+  s = MultiGetForUpdateOne(txn, snapshot_read_options, handles[1], "foo",
+                           &value);
   ASSERT_TRUE(s.IsNotFound());
   Slice key_slice("AAAZZZ");
   Slice value_slices[2] = {Slice("bar"), Slice("bar")};
@@ -2843,16 +2844,23 @@ TEST_P(TransactionTest, ColumnFamiliesMultiGetbatchedTest) {
 
   std::vector<ColumnFamilyHandle*> multiget_cfh = {handles[1], handles[2],
                                                    handles[0], handles[2]};
-  std::vector<Slice> multiget_keys = {"AAA", "AAAZZZ", "foo", "foo"};
+  std::vector<Slice> multiget_keys = {"foo", "AAA", "AAAZZZ", "foo"};
   std::vector<std::string> values(4);
   std::vector<Status> results;
 
   {
     PinnableSlice pin_values[4];
     results.resize(4);
-    txn->MultiGetForUpdate(snapshot_read_options, multiget_cfh,
-        multiget_keys, pin_values, results.data());
-    for (int i=0; i<4; ++i) {
+    txn->MultiGetSingleCFForUpdate(snapshot_read_options, handles[0], 1,
+                                   &multiget_keys[0], &pin_values[0],
+                                   &results[0]);
+    txn->MultiGetSingleCFForUpdate(snapshot_read_options, handles[1], 1,
+                                   &multiget_keys[1], &pin_values[1],
+                                   &results[1]);
+    txn->MultiGetSingleCFForUpdate(snapshot_read_options, handles[2], 2,
+                                   &multiget_keys[2], &pin_values[2],
+                                   &results[2]);
+    for (int i = 0; i < 4; ++i) {
       values[i].assign(pin_values[i].data(), pin_values[i].size());
     }
   }
@@ -2860,9 +2868,9 @@ TEST_P(TransactionTest, ColumnFamiliesMultiGetbatchedTest) {
   ASSERT_OK(results[1]);
   ASSERT_OK(results[2]);
   ASSERT_TRUE(results[3].IsNotFound());
-  ASSERT_EQ(values[0], "bar");
-  ASSERT_EQ(values[1], "barbar");
-  ASSERT_EQ(values[2], "foo");
+  ASSERT_EQ(values[0], "foo");
+  ASSERT_EQ(values[1], "bar");
+  ASSERT_EQ(values[2], "barbar");
 
   s = txn->SingleDelete(handles[2], "ZZZ");
   ASSERT_OK(s);
@@ -2889,15 +2897,22 @@ TEST_P(TransactionTest, ColumnFamiliesMultiGetbatchedTest) {
   {
     PinnableSlice pin_values[4];
     results.resize(4);
-    txn->MultiGetForUpdate(snapshot_read_options, multiget_cfh,
-        multiget_keys, pin_values, results.data());
-    for (int i=0; i<4; ++i) {
+    txn2->MultiGetSingleCFForUpdate(snapshot_read_options, handles[0], 1,
+                                    &multiget_keys[0], &pin_values[0],
+                                    &results[0]);
+    txn2->MultiGetSingleCFForUpdate(snapshot_read_options, handles[1], 1,
+                                    &multiget_keys[1], &pin_values[1],
+                                    &results[1]);
+    txn2->MultiGetSingleCFForUpdate(snapshot_read_options, handles[2], 2,
+                                    &multiget_keys[2], &pin_values[2],
+                                    &results[2]);
+    for (int i = 0; i < 4; ++i) {
       values[i].assign(pin_values[i].data(), pin_values[i].size());
     }
   }
   // All results should fail since there was a conflict
-  ASSERT_TRUE(results[0].IsBusy());
-  ASSERT_TRUE(results[1].IsBusy());
+  ASSERT_TRUE(results[0].ok());
+  ASSERT_TRUE(results[1].ok());
   ASSERT_TRUE(results[2].IsBusy());
   ASSERT_TRUE(results[3].IsBusy());
 
@@ -3120,16 +3135,14 @@ TEST_P(TransactionTest, PredicateManyPrecedersMultiGetBatched) {
   std::vector<ColumnFamilyHandle*> multiget_cfh;
   std::vector<Status> results;
 
-  for (int i=0; i<3; ++i) {
-    multiget_cfh.push_back(db->DefaultColumnFamily());
-  }
   {
     PinnableSlice pin_values[3];
     results.resize(3);
     multiget_values.resize(3);
-    txn1->MultiGetForUpdate(read_options1, multiget_cfh,
-        multiget_keys, pin_values, results.data());
-    for (int i=0; i<3; ++i) {
+    txn1->MultiGetSingleCFForUpdate(read_options1, db->DefaultColumnFamily(), 3,
+                                    multiget_keys.data(), pin_values,
+                                    results.data());
+    for (int i = 0; i < 3; ++i) {
       multiget_values[i].assign(pin_values[i].data(), pin_values[i].size());
     }
   }
@@ -3145,9 +3158,10 @@ TEST_P(TransactionTest, PredicateManyPrecedersMultiGetBatched) {
     PinnableSlice pin_values[3];
     results.resize(3);
     multiget_values.resize(3);
-    txn1->MultiGetForUpdate(read_options1, multiget_cfh,
-        multiget_keys, pin_values, results.data());
-    for (int i=0; i<3; ++i) {
+    txn1->MultiGetSingleCFForUpdate(read_options1, db->DefaultColumnFamily(), 3,
+                                    multiget_keys.data(), pin_values,
+                                    results.data());
+    for (int i = 0; i < 3; ++i) {
       multiget_values[i].assign(pin_values[i].data(), pin_values[i].size());
     }
   }
@@ -3174,7 +3188,8 @@ TEST_P(TransactionTest, PredicateManyPrecedersMultiGetBatched) {
   s = txn1->Commit();
   ASSERT_OK(s);
 
-  s = txn2->GetForUpdate(read_options2, "4", &value);
+  s = MultiGetForUpdateOne(txn2, read_options2, db->DefaultColumnFamily(), "4",
+                           &value);
   ASSERT_TRUE(s.IsBusy());
 
   txn2->Rollback();

@@ -94,11 +94,9 @@ class TransactionBaseImpl : public Transaction {
                     keys, values);
   }
 
-  void MultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys,
-      PinnableSlice* values, Status* statuses) override;
+  void MultiGet(const ReadOptions& options, ColumnFamilyHandle* column_family,
+                const size_t num_keys, const Slice* keys, PinnableSlice* values,
+                Status* statuses, bool sorted_input = false) override;
 
   using Transaction::MultiGetForUpdate;
   std::vector<Status> MultiGetForUpdate(
@@ -116,11 +114,11 @@ class TransactionBaseImpl : public Transaction {
                              keys, values);
   }
 
-  void MultiGetForUpdate(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys,
-      PinnableSlice* values, Status* statuses) override;
+  void MultiGetSingleCFForUpdate(const ReadOptions& options,
+                                 ColumnFamilyHandle* column_family,
+                                 const size_t num_keys, const Slice* keys,
+                                 PinnableSlice* values, Status* statuses,
+                                 bool sorted_input = false) override;
 
   Iterator* GetIterator(const ReadOptions& read_options) override;
   Iterator* GetIterator(const ReadOptions& read_options,

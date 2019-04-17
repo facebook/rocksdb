@@ -281,13 +281,14 @@ std::vector<Status> TransactionBaseImpl::MultiGet(
   return stat_list;
 }
 
-void TransactionBaseImpl::MultiGet(
-    const ReadOptions& read_options,
-    const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, PinnableSlice* values,
-    Status* statuses) {
-  write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family, keys,
-      values, statuses);
+void TransactionBaseImpl::MultiGet(const ReadOptions& read_options,
+                                   ColumnFamilyHandle* column_family,
+                                   const size_t num_keys, const Slice* keys,
+                                   PinnableSlice* values, Status* statuses,
+                                   bool sorted_input) {
+  write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family,
+                                      num_keys, keys, values, statuses,
+                                      sorted_input);
 }
 
 std::vector<Status> TransactionBaseImpl::MultiGetForUpdate(
@@ -318,17 +319,14 @@ std::vector<Status> TransactionBaseImpl::MultiGetForUpdate(
   return stat_list;
 }
 
-void TransactionBaseImpl::MultiGetForUpdate(
-    const ReadOptions& read_options,
-    const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, PinnableSlice* values,
-    Status* statuses) {
+void TransactionBaseImpl::MultiGetSingleCFForUpdate(
+    const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    const size_t num_keys, const Slice* keys, PinnableSlice* values,
+    Status* statuses, bool sorted_input) {
   // Regardless of whether the MultiGet succeeded, track these keys.
-  size_t num_keys = keys.size();
-
   // Lock all keys
   for (size_t i = 0; i < num_keys; ++i) {
-    Status s = TryLock(column_family[i], keys[i], true /* read_only */,
+    Status s = TryLock(column_family, keys[i], true /* read_only */,
                        true /* exclusive */);
     if (!s.ok()) {
       // Fail entire multiget if we cannot lock all keys
@@ -339,8 +337,9 @@ void TransactionBaseImpl::MultiGetForUpdate(
     }
   }
 
-  write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family, keys,
-      values, statuses);
+  write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family,
+                                      num_keys, keys, values, statuses,
+                                      sorted_input);
 }
 
 Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options) {
