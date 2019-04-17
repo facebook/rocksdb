@@ -434,7 +434,7 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
   FragmentedRangeTombstoneIterator* fragmented_iter = nullptr;
   MemTableIterator* unfragmented_iter = nullptr;
 
-  // store these here in case they are invalidated during this function call
+  // store the fragmented tombstones in case they are invalidated during this function call
   auto tombstones = fragmented_tombstones_;
 
   if (read_options.ignore_range_deletions ||
@@ -446,8 +446,7 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
     bool changed = !tombstones->initiate_flag.exchange(true);
     for (;;) {
       if (changed) {
-        // rebuild the fragmented tombstones here
-
+	// only one thread should rebuild the fragmented tombstones
         unfragmented_iter = new MemTableIterator(
           *this, read_options, nullptr /* arena */, true /* use_range_del_table */);
 
@@ -465,7 +464,7 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
         break;
       }
 
-      // fragmented tombstones are rebuilding, spin until they're done
+      // fragmented tombstones are being rebuild, spin until they are done
     }
   }
 
