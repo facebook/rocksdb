@@ -1598,6 +1598,8 @@ bool assign_order = false);
   std::atomic<uint64_t> last_stats_dump_time_microsec_;
 
   std::atomic<size_t> writers_cnt_;
+  std::condition_variable readers_cv_;
+  std::mutex readers_mutex_;
 
   // Each flush or compaction gets its own job id. this counter makes sure
   // they're unique

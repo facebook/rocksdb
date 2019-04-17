@@ -573,7 +573,10 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
       }
       rwlock_.WriteUnlock();
     }
-    writers_cnt_.fetch_sub(1);
+    writers_cnt = writers_cnt_.fetch_sub(1) - 1;
+    if (writers_cnt == 0) {
+      readers_cv_.notify_all();
+    }
     if (!status.ok()) {
       return status;
     }
@@ -608,7 +611,10 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
     WriteStatusCheck(w.status);
   }
 
-  while (writers_cnt_.load() != 0);
+  if (writers_cnt_.load() != 0) {
+    std::unique_lock<std::mutex> guard(readers_mutex_);
+    readers_cv_.wait(guard, [&] { return writers_cnt_.load() == 0; });
+  }
   ReadLock l(&rwlock_);
 
   ColumnFamilyMemTablesImpl column_family_memtables(
