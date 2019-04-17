@@ -2802,22 +2802,24 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
   if (begin != nullptr) {
     // if within_interval is true, with file_key would find
     // not overlapping ranges in std::lower_bound.
-    auto cmp = [&user_cmp,&within_interval](const FdWithKeyRange& f,
-                                            const InternalKey* k) {
-      auto& file_key = within_interval ? f.file_metadata->smallest :
-                                        f.file_metadata->largest;
+    auto cmp = [&user_cmp, &within_interval](const FdWithKeyRange& f,
+                                             const InternalKey* k) {
+      auto& file_key = within_interval ? f.file_metadata->smallest
+                                       : f.file_metadata->largest;
       return sstableKeyCompare(user_cmp, file_key, *k) < 0;
     };
 
-    start_index = static_cast<int>(std::lower_bound(files,
-      files + (hint_index == -1 ? num_files: hint_index),
-      begin, cmp) - files);
+    start_index = static_cast<int>(
+        std::lower_bound(files,
+                         files + (hint_index == -1 ? num_files : hint_index),
+                         begin, cmp) -
+        files);
 
     if (start_index > 0 && within_interval) {
       bool is_overlapping = true;
       while (is_overlapping && start_index < num_files) {
-        auto &pre_limit = files[start_index-1].file_metadata->largest;
-        auto &cur_start = files[start_index].file_metadata->smallest;
+        auto& pre_limit = files[start_index - 1].file_metadata->largest;
+        auto& cur_start = files[start_index].file_metadata->smallest;
         is_overlapping = sstableKeyCompare(user_cmp, pre_limit, cur_start) == 0;
         start_index += is_overlapping;
       }
@@ -2827,22 +2829,24 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
   if (end != nullptr) {
     // if within_interval is true, with file_key would find
     // not overlapping ranges in std::upper_bound.
-    auto cmp = [&user_cmp,&within_interval](const InternalKey* k,
-                                            const FdWithKeyRange& f) {
-      auto& file_key = within_interval ? f.file_metadata->largest :
-                                         f.file_metadata->smallest;
+    auto cmp = [&user_cmp, &within_interval](const InternalKey* k,
+                                             const FdWithKeyRange& f) {
+      auto& file_key = within_interval ? f.file_metadata->largest
+                                       : f.file_metadata->smallest;
       return sstableKeyCompare(user_cmp, *k, file_key) < 0;
     };
 
-    end_index = static_cast<int>(std::upper_bound(files + start_index,
-      files + num_files, end, cmp) - files);
+    end_index = static_cast<int>(
+        std::upper_bound(files + start_index, files + num_files, end, cmp) -
+        files);
 
     if (end_index < num_files && within_interval) {
       bool is_overlapping = true;
       while (is_overlapping && end_index > start_index) {
         auto& next_start = files[end_index].file_metadata->smallest;
-        auto& cur_limit = files[end_index-1].file_metadata->largest;
-        is_overlapping = sstableKeyCompare(user_cmp, cur_limit, next_start) == 0;
+        auto& cur_limit = files[end_index - 1].file_metadata->largest;
+        is_overlapping =
+            sstableKeyCompare(user_cmp, cur_limit, next_start) == 0;
         end_index -= is_overlapping;
       }
     }
@@ -2858,7 +2862,7 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
     return;
   }
 
-  assert (start_index < end_index);
+  assert(start_index < end_index);
 
   // returns the index where an overlap is found
   if (file_index) {
