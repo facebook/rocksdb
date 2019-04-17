@@ -913,7 +913,7 @@ class Logger {
   // of *this (see @SetInfoLogLevel and @GetInfoLogLevel) will not be
   // printed.
   virtual void Logv(const InfoLogLevel log_level, const char* format,
-                    va_list ap) = 0;
+                    va_list ap) {}
 
   virtual size_t GetLogFileSize() const { return kDoNotSupportGetLogFileSize; }
   // Flush to the OS buffers
