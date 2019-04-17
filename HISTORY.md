@@ -8,6 +8,7 @@
 ### Public API Change
 * Change the behavior of OptimizeForPointLookup(): move away from hash-based block-based-table index, and use whole key memtable filtering.
 * Change the behavior of OptimizeForSmallDb(): use a 16MB block cache, put index and filter blocks into it, and cost the memtable size to it. DBOptions.OptimizeForSmallDb() and ColumnFamilyOptions.OptimizeForSmallDb() start to take an optional cache object.
+* Added BottommostLevelCompaction::kForceOptimized to avoid double compacting newly compacted files in bottom level compaction of manual compaction.
 
 ### Bug Fixes
 * Fix a bug in 2PC where a sequence of txn prepare, memtable flush, and crash could result in losing the prepared transaction.
@@ -18,7 +19,6 @@
 ## 6.1.0 (3/27/2019)
 ### New Features
 * Introduce two more stats levels, kExceptHistogramOrTimers and kExceptTimers.
-* Added BottommostLevelCompaction::kForceOptimized to avoid double compacting newly compacted files in bottom level compaction of manual compaction.
 * Added a feature to perform data-block sampling for compressibility, and report stats to user.
 * Add support for trace filtering.
 * Add DBOptions.avoid_unnecessary_blocking_io. If true, we avoid file deletion when destorying ColumnFamilyHandle and Iterator. Instead, a job is scheduled to delete the files in background.
