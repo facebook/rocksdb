@@ -457,7 +457,9 @@ TEST_F(DBSSTTest, RateLimitedWALDelete) {
   ASSERT_EQ("4", FilesPerLevel(0));
 
   // Compaction will move the 4 files in L0 to trash and create 1 L1 file
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
   ASSERT_EQ("0,1", FilesPerLevel(0));
 
@@ -563,7 +565,7 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   // Compaction will delete both files and regenerate a file in L1 in second
   // db path. The deleted files should still be cleaned up via delete scheduler.
   compact_options.bottommost_level_compaction =
-      BottommostLevelCompaction::kForce;
+      BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel(0));
 

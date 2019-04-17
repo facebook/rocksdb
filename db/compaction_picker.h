@@ -58,9 +58,10 @@ class CompactionPicker {
   virtual Compaction* CompactRange(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       VersionStorageInfo* vstorage, int input_level, int output_level,
-      uint32_t output_path_id, uint32_t max_subcompactions,
+      const CompactRangeOptions& compact_range_options,
       const InternalKey* begin, const InternalKey* end,
-      InternalKey** compaction_end, bool* manual_conflict);
+      InternalKey** compaction_end, bool* manual_conflict,
+      uint64_t max_file_num_to_ignore);
 
   // The maximum allowed output level.  Default value is NumberLevels() - 1.
   virtual int MaxOutputLevel() const { return NumberLevels() - 1; }
@@ -255,12 +256,12 @@ class NullCompactionPicker : public CompactionPicker {
                            const MutableCFOptions& /*mutable_cf_options*/,
                            VersionStorageInfo* /*vstorage*/,
                            int /*input_level*/, int /*output_level*/,
-                           uint32_t /*output_path_id*/,
-                           uint32_t /*max_subcompactions*/,
+                           const CompactRangeOptions& /*compact_range_options*/,
                            const InternalKey* /*begin*/,
                            const InternalKey* /*end*/,
                            InternalKey** /*compaction_end*/,
-                           bool* /*manual_conflict*/) override {
+                           bool* /*manual_conflict*/,
+                           uint64_t /*max_file_num_to_ignore*/) override {
     return nullptr;
   }
 

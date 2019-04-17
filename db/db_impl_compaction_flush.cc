@@ -684,6 +684,10 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   }
 
   int max_level_with_files = 0;
+  // max_file_num_to_ignore can be used to filter out newly created SST files,
+  // useful for bottom level compaction in a manual compaction
+  uint64_t max_file_num_to_ignore = port::kMaxUint64;
+  uint64_t next_file_number = port::kMaxUint64;
   {
     InstrumentedMutexLock l(&mutex_);
     Version* base = cfd->current();
@@ -693,9 +697,11 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
         max_level_with_files = level;
       }
     }
+    next_file_number = versions_->current_next_file_number();
   }
 
   int final_output_level = 0;
+
   if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
       cfd->NumberLevels() > 1) {
     // Always compact all files together.
@@ -705,8 +711,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
       final_output_level--;
     }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
-                            final_output_level, options.target_path_id,
-                            options.max_subcompactions, begin, end, exclusive);
+                            final_output_level, options, begin, end, exclusive,
+                            false, max_file_num_to_ignore);
   } else {
     for (int level = 0; level <= max_level_with_files; level++) {
       int output_level;
@@ -731,6 +737,10 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
           continue;
         }
         output_level = level;
+        // update max_file_num_to_ignore only for bottom level compaction
+        // because data in newly compacted files in middle levels may still need
+        // to be pushed down
+        max_file_num_to_ignore = next_file_number;
       } else {
         output_level = level + 1;
         if (cfd->ioptions()->compaction_style == kCompactionStyleLevel &&
@@ -739,9 +749,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
           output_level = ColumnFamilyData::kCompactToBaseLevel;
         }
       }
-      s = RunManualCompaction(cfd, level, output_level, options.target_path_id,
-                              options.max_subcompactions, begin, end,
-                              exclusive);
+      s = RunManualCompaction(cfd, level, output_level, options, begin, end,
+                              exclusive, false, max_file_num_to_ignore);
       if (!s.ok()) {
         break;
       }
@@ -1324,11 +1333,11 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   return s;
 }
 
-Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
-                                   int output_level, uint32_t output_path_id,
-                                   uint32_t max_subcompactions,
-                                   const Slice* begin, const Slice* end,
-                                   bool exclusive, bool disallow_trivial_move) {
+Status DBImpl::RunManualCompaction(
+    ColumnFamilyData* cfd, int input_level, int output_level,
+    const CompactRangeOptions& compact_range_options, const Slice* begin,
+    const Slice* end, bool exclusive, bool disallow_trivial_move,
+    uint64_t max_file_num_to_ignore) {
   assert(input_level == ColumnFamilyData::kCompactAllLevels ||
          input_level >= 0);
 
@@ -1341,7 +1350,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   manual.cfd = cfd;
   manual.input_level = input_level;
   manual.output_level = output_level;
-  manual.output_path_id = output_path_id;
+  manual.output_path_id = compact_range_options.target_path_id;
   manual.done = false;
   manual.in_progress = false;
   manual.incomplete = false;
@@ -1416,9 +1425,9 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
         (((manual.manual_end = &manual.tmp_storage1) != nullptr) &&
          ((compaction = manual.cfd->CompactRange(
                *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
-               manual.output_level, manual.output_path_id, max_subcompactions,
-               manual.begin, manual.end, &manual.manual_end,
-               &manual_conflict)) == nullptr &&
+               manual.output_level, compact_range_options, manual.begin,
+               manual.end, &manual.manual_end, &manual_conflict,
+               max_file_num_to_ignore)) == nullptr &&
           manual_conflict))) {
       // exclusive manual compactions should not see a conflict during
       // CompactRange

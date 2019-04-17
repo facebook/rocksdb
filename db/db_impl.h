@@ -395,11 +395,15 @@ class DBImpl : public DB {
 
   virtual Status GetDbIdentity(std::string& identity) const override;
 
+  // max_file_num_to_ignore allows bottom level compaction to filter out newly
+  // compacted SST files. Setting max_file_num_to_ignore to kMaxUint64 will
+  // disable the filtering
   Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
-                             int output_level, uint32_t output_path_id,
-                             uint32_t max_subcompactions, const Slice* begin,
-                             const Slice* end, bool exclusive,
-                             bool disallow_trivial_move = false);
+                             int output_level,
+                             const CompactRangeOptions& compact_range_options,
+                             const Slice* begin, const Slice* end,
+                             bool exclusive, bool disallow_trivial_move,
+                             uint64_t max_file_num_to_ignore);
 
   // Return an internal iterator over the current state of the database.
   // The keys of this iterator are internal keys (see format.h).
