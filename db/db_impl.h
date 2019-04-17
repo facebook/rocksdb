@@ -1597,6 +1597,8 @@ bool assign_order = false);
   // last time stats were dumped to LOG
   std::atomic<uint64_t> last_stats_dump_time_microsec_;
 
+  std::atomic<size_t> writers_cnt_;
+
   // Each flush or compaction gets its own job id. this counter makes sure
   // they're unique
   std::atomic<int> next_job_id_;

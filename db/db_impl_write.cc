@@ -561,34 +561,22 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
                                       WriteBatch* my_batch,
                                       WriteCallback* callback, uint64_t log_ref,
                                       uint64_t seq, bool disable_memtable) {
-/*
   WriteContext write_context;
-  while (!flush_scheduler_.Empty()) {
-    // Hacky way to work around of many threads starving for write lock while
-    // it has been flushed by another thread. It's not CPU efficnet but should
-    // work.
-    if (!rwlock_.TryWriteLock()) {
-      continue;
-    }
+  if (UNLIKELY(!flush_scheduler_.Empty())) {
     Status status;
-    if (!flush_scheduler_.Empty()) {
-      InstrumentedMutexLock l(&mutex_);
-      status = ScheduleFlushes(&write_context);
+    size_t writers_cnt = writers_cnt_.fetch_add(1);
+    if (writers_cnt == 0) {
+      rwlock_.WriteLock();
+      if (!flush_scheduler_.Empty()) {
+        InstrumentedMutexLock l(&mutex_);
+        status = ScheduleFlushes(&write_context);
+      }
+      rwlock_.WriteUnlock();
     }
-    rwlock_.WriteUnlock();
+    writers_cnt_.fetch_sub(1);
     if (!status.ok()) {
       return status;
     }
-  }
-*/
-
-  WriteContext write_context;
-  if (UNLIKELY(!flush_scheduler_.Empty())) {
-    rwlock_.WriteLock();
-    mutex_.Lock();
-    ScheduleFlushes(&write_context);
-    mutex_.Unlock();
-    rwlock_.WriteUnlock();
   }
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
@@ -620,6 +608,7 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
     WriteStatusCheck(w.status);
   }
 
+  while (writers_cnt_.load() != 0);
   ReadLock l(&rwlock_);
 
   ColumnFamilyMemTablesImpl column_family_memtables(
