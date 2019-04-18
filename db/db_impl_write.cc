@@ -107,17 +107,21 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   if (two_write_queues_ && disable_memtable) {
+    AssignOrder assign_order = seq_per_batch_ ? DoAssignOrder : DontAssignOrder;
+    // Otherwise it is WAL-only Prepare batches in WriteCommitted policy and
+    // they don't consume sequence.
     return WriteImplWALOnly(write_options, my_batch, callback, log_used,
-                            log_ref, seq_used, batch_cnt, pre_release_callback);
+                            log_ref, seq_used, batch_cnt, pre_release_callback,
+                            assign_order, DontPublishLastSeq);
   }
 
   if (immutable_db_options_.unordered_write) {
     size_t seq_inc = batch_cnt != 0 ? batch_cnt : WriteBatchInternal::Count(my_batch);
     uint64_t seq;
     if (!write_options.disableWAL) {
-      bool kAssignOrder = true;
       status = WriteImplWALOnly(write_options, my_batch, callback, log_used,
-                                log_ref, &seq, seq_inc, pre_release_callback, kAssignOrder);
+                                log_ref, &seq, seq_inc, pre_release_callback,
+                                DoAssignOrder, DoPublishLastSeq);
       if (!status.ok()) {
         return status;
       }
@@ -127,6 +131,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       uint64_t last_seq = versions_->FetchAddLastAllocatedSequence(seq_inc);
       seq = last_seq + 1;
       has_unpersisted_data_.store(true, std::memory_order_relaxed);
+      //TODO(myabandeh): How about publish seq?
     }
     if (seq_used) {
       *seq_used = seq;
@@ -636,7 +641,7 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
                                 WriteBatch* my_batch, WriteCallback* callback,
                                 uint64_t* log_used, uint64_t log_ref,
                                 uint64_t* seq_used, size_t batch_cnt,
-                                PreReleaseCallback* pre_release_callback, bool assign_order) {
+                                PreReleaseCallback* pre_release_callback, AssignOrder assign_order, PublishLastSeq publish_last_seq) {
   Status status;
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
@@ -697,7 +702,7 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   // LastAllocatedSequence is increased inside WriteToWAL under
   // wal_write_mutex_ to ensure ordered events in WAL
   size_t seq_inc = 0 /* total_count */;
-  if (assign_order) {
+  if (assign_order == DoAssignOrder) {
     size_t total_batch_cnt = 0;
     for (auto* writer : write_group) {
       assert(writer->batch_cnt);
@@ -719,7 +724,7 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
       continue;
     }
     writer->sequence = curr_seq;
-    if (assign_order) {
+    if (assign_order == DoAssignOrder) {
       assert(writer->batch_cnt);
       curr_seq += writer->batch_cnt;
     }
@@ -753,6 +758,9 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
         }
       }
     }
+  }
+  if (publish_last_seq == DoPublishLastSeq) {
+    versions_->SetLastSequence(last_sequence + seq_inc);
   }
   nonmem_write_thread_.ExitAsBatchGroupLeader(write_group, status);
   if (status.ok()) {

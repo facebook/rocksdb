@@ -902,15 +902,23 @@ class DBImpl : public DB {
                                 uint64_t log_ref, uint64_t seq,
                                 bool disable_memtable);
 
+  enum AssignOrder {
+    DontAssignOrder, DoAssignOrder
+  };
+  enum PublishLastSeq {
+    DontPublishLastSeq, DoPublishLastSeq
+  };
   // batch_cnt is expected to be non-zero in seq_per_batch mode and indicates
   // the number of sub-patches. A sub-patch is a subset of the write batch that
   // does not have duplicate keys.
   Status WriteImplWALOnly(const WriteOptions& options, WriteBatch* updates,
-                          WriteCallback* callback = nullptr,
-                          uint64_t* log_used = nullptr, uint64_t log_ref = 0,
-                          uint64_t* seq_used = nullptr, size_t batch_cnt = 0,
-                          PreReleaseCallback* pre_release_callback = nullptr,
-bool assign_order = false);
+                          WriteCallback* callback, uint64_t* log_used,
+                          uint64_t log_ref, uint64_t* seq_used,
+                          //TODO(myabandeh): rename batch_cnt to seq_inc
+                          size_t batch_cnt,
+                          PreReleaseCallback* pre_release_callback,
+                          AssignOrder assign_order,
+                          PublishLastSeq publish_last_seq);
 
   // write cached_recoverable_state_ to memtable if it is not empty
   // The writer must be the leader in write_thread_ and holding mutex_
