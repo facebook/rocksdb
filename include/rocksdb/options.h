@@ -929,7 +929,6 @@ struct DBOptions {
   WalFilter* wal_filter = nullptr;
 #endif  // ROCKSDB_LITE
 
-
   // If true, then DB::Open / CreateColumnFamily / DropColumnFamily
   // / SetOptions will fail if options file is not detected or properly
   // persisted.

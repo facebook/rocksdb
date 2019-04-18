@@ -50,6 +50,7 @@ class WritableFile;
 class RandomRWFile;
 class MemoryMappedFileBuffer;
 class Directory;
+class DynamicLibrary;
 struct DBOptions;
 struct ImmutableDBOptions;
 struct MutableDBOptions;
@@ -474,6 +475,14 @@ class Env {
 
   // Returns the ID of the current thread.
   virtual uint64_t GetThreadID() const;
+
+  // Opens `libName` as a dynamic library.  On success, stores a dynamic library
+  // file in `*result`. The file must exist prior to this call.
+  virtual Status LoadLibrary(
+          const std::string& /*libName*/,
+          shared_ptr<DynamicLibrary>* /*result*/) {
+    return Status::NotSupported("LoadLibrary is not implemented in this Env");
+  }
 
 // This seems to clash with a macro on Windows, so #undef it here
 #undef GetFreeSpace
