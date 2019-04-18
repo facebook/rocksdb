@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 #ifndef DBWRAPPER_H
 #define DBWRAPPER_H
 
