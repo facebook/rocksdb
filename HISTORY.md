@@ -24,6 +24,7 @@
 ### Bug Fixes
 * Fix a bug in 2PC where a sequence of txn prepare, memtable flush, and crash could result in losing the prepared transaction.
 * Fix a bug in Encryption Env which could cause encrypted files to be read beyond file boundaries.
+* Fix a bug in GetOverlappingInputsRangeBinarySearch. If no files are found within or overlapping [begin, end), then this function should do `*next_smallest=nullptr`, indicating the smallest key of the file not chosen. 
 
 ## 6.1.0 (3/27/2019)
 ### New Features
