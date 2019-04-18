@@ -127,22 +127,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                                      // every key is a sub-batch consuming a seq
                                      : WriteBatchInternal::Count(my_batch);
     uint64_t seq;
-    // pre_release_callback needs write thread to call it serially
-    const bool skip_write_thread =
-        write_options.disableWAL && pre_release_callback != nullptr;
-    if (!skip_write_thread) {
-      status = WriteImplWALOnly(write_thread_, write_options, my_batch,
-                                callback, log_used, log_ref, &seq,
-                                sub_batch_cnt, pre_release_callback,
-                                DoAssignOrder, DoPublishLastSeq);
-      if (!status.ok()) {
-        return status;
-      }
-    } else {
-      uint64_t last_seq = versions_->FetchAddLastAllocatedSequence(sub_batch_cnt);
-      seq = last_seq + 1;
-      has_unpersisted_data_.store(true, std::memory_order_relaxed);
-      versions_->UpdateLastSequence(last_seq + sub_batch_cnt);
+    // Use a write thread to i) optimize for WAL write, ii) publish last sequence in in increasing order, iii) call pre_release_callback serially
+    status =
+        WriteImplWALOnly(write_thread_, write_options, my_batch, callback,
+                         log_used, log_ref, &seq, sub_batch_cnt,
+                         pre_release_callback, DoAssignOrder, DoPublishLastSeq);
+    if (!status.ok()) {
+      return status;
     }
     if (seq_used) {
       *seq_used = seq;
