@@ -543,9 +543,9 @@ void CompactionPicker::GetGrandparents(
 Compaction* CompactionPicker::CompactRange(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, int input_level, int output_level,
-    uint32_t output_path_id, uint32_t max_subcompactions,
-    const InternalKey* begin, const InternalKey* end,
-    InternalKey** compaction_end, bool* manual_conflict) {
+    const CompactRangeOptions& compact_range_options, const InternalKey* begin,
+    const InternalKey* end, InternalKey** compaction_end, bool* manual_conflict,
+    uint64_t max_file_num_to_ignore) {
   // CompactionPickerFIFO has its own implementation of compact range
   assert(ioptions_.compaction_style != kCompactionStyleFIFO);
 
@@ -609,11 +609,13 @@ Compaction* CompactionPicker::CompactRange(
         output_level,
         MaxFileSizeForLevel(mutable_cf_options, output_level,
                             ioptions_.compaction_style),
-        /* max_compaction_bytes */ LLONG_MAX, output_path_id,
+        /* max_compaction_bytes */ LLONG_MAX,
+        compact_range_options.target_path_id,
         GetCompressionType(ioptions_, vstorage, mutable_cf_options,
                            output_level, 1),
         GetCompressionOptions(ioptions_, vstorage, output_level),
-        max_subcompactions, /* grandparents */ {}, /* is manual */ true);
+        compact_range_options.max_subcompactions, /* grandparents */ {},
+        /* is manual */ true);
     RegisterCompaction(c);
     return c;
   }
@@ -658,7 +660,43 @@ Compaction* CompactionPicker::CompactRange(
       }
     }
   }
-  assert(output_path_id < static_cast<uint32_t>(ioptions_.cf_paths.size()));
+  assert(compact_range_options.target_path_id <
+         static_cast<uint32_t>(ioptions_.cf_paths.size()));
+
+  // for BOTTOM LEVEL compaction only, use max_file_num_to_ignore to filter out
+  // files that are created during the current compaction.
+  if (compact_range_options.bottommost_level_compaction ==
+          BottommostLevelCompaction::kForceOptimized &&
+      max_file_num_to_ignore != port::kMaxUint64) {
+    assert(input_level == output_level);
+    // inputs_shrunk holds a continuous subset of input files which were all
+    // created before the current manual compaction
+    std::vector<FileMetaData*> inputs_shrunk;
+    size_t skip_input_index = inputs.size();
+    for (size_t i = 0; i < inputs.size(); ++i) {
+      if (inputs[i]->fd.GetNumber() < max_file_num_to_ignore) {
+        inputs_shrunk.push_back(inputs[i]);
+      } else if (!inputs_shrunk.empty()) {
+        // inputs[i] was created during the current manual compaction and
+        // need to be skipped
+        skip_input_index = i;
+        break;
+      }
+    }
+    if (inputs_shrunk.empty()) {
+      return nullptr;
+    }
+    if (inputs.size() != inputs_shrunk.size()) {
+      inputs.files.swap(inputs_shrunk);
+    }
+    // set covering_the_whole_range to false if there is any file that need to
+    // be compacted in the range of inputs[skip_input_index+1, inputs.size())
+    for (size_t i = skip_input_index + 1; i < inputs.size(); ++i) {
+      if (inputs[i]->fd.GetNumber() < max_file_num_to_ignore) {
+        covering_the_whole_range = false;
+      }
+    }
+  }
 
   InternalKey key_storage;
   InternalKey* next_smallest = &key_storage;
@@ -724,11 +762,12 @@ Compaction* CompactionPicker::CompactRange(
       MaxFileSizeForLevel(mutable_cf_options, output_level,
                           ioptions_.compaction_style, vstorage->base_level(),
                           ioptions_.level_compaction_dynamic_level_bytes),
-      mutable_cf_options.max_compaction_bytes, output_path_id,
+      mutable_cf_options.max_compaction_bytes,
+      compact_range_options.target_path_id,
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, output_level,
                          vstorage->base_level()),
       GetCompressionOptions(ioptions_, vstorage, output_level),
-      max_subcompactions, std::move(grandparents),
+      compact_range_options.max_subcompactions, std::move(grandparents),
       /* is manual compaction */ true);
 
   TEST_SYNC_POINT_CALLBACK("CompactionPicker::CompactRange:Return", compaction);
