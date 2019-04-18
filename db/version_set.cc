@@ -2857,7 +2857,7 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
   // If there were no overlapping files, return immediately.
   if (start_index == end_index) {
     if (next_smallest) {
-      next_smallest = nullptr;
+      *next_smallest = nullptr;
     }
     return;
   }
