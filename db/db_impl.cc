@@ -1168,8 +1168,11 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() const {
 }
 
 void DBImpl::SetLastPublishedSequence(SequenceNumber seq) {
-  versions_->SetLastSequence(seq);
   versions_->SetLastPublishedSequence(seq);
+}
+
+void DBImpl::SetLastSequence(SequenceNumber seq) {
+  versions_->SetLastSequence(seq);
 }
 
 bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {

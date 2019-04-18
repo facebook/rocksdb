@@ -893,6 +893,12 @@ struct DBOptions {
   // Default: false
   bool enable_pipelined_write = false;
 
+  // If true the write to memtable are done without joining any write thread.
+  // This offers much higher write throughput. The tradeoff is that the writes
+  // visible to a snapshot might change over time. If the application cannot
+  // tolerate that, it should implement its own mechanisms to work around that.
+  // Using TransactionDB with WRITE_PREPARED write policy is one way to achieve
+  // that.
   bool unordered_write = true;
 
   // If true, allow multi-writers to update mem tables in parallel.
@@ -1021,7 +1027,7 @@ struct DBOptions {
   // allows the memtable writes not to lag behind other writes. It can be used
   // to optimize MySQL 2PC in which only the commits, which are serial, write to
   // memtable.
-  bool two_write_queues = true;
+  bool two_write_queues = false;
 
   // If true WAL is not flushed automatically after each write. Instead it
   // relies on manual invocation of FlushWAL to write the WAL buffer to its

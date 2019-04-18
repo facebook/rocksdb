@@ -127,7 +127,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                                      // every key is a sub-batch consuming a seq
                                      : WriteBatchInternal::Count(my_batch);
     uint64_t seq;
-    // Use a write thread to i) optimize for WAL write, ii) publish last sequence in in increasing order, iii) call pre_release_callback serially
+    // Use a write thread to i) optimize for WAL write, ii) publish last
+    // sequence in in increasing order, iii) call pre_release_callback serially
     status =
         WriteImplWALOnly(write_thread_, write_options, my_batch, callback,
                          log_used, log_ref, &seq, sub_batch_cnt,
@@ -140,7 +141,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     }
     if (!disable_memtable) {
       status = UnorderedWriteMemtable(write_options, my_batch, callback,
-                                      log_ref, seq, disable_memtable);
+                                      log_ref, seq);
     }
     return status;
   }
@@ -469,7 +470,6 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
         write_thread_.EnterAsBatchGroupLeader(&w, &wal_write_group);
     const SequenceNumber current_sequence =
         write_thread_.UpdateLastSequence(versions_->LastSequence()) + 1;
-
     size_t total_count = 0;
     size_t total_byte_size = 0;
 
@@ -572,7 +572,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
 Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
                                       WriteBatch* my_batch,
                                       WriteCallback* callback, uint64_t log_ref,
-                                      uint64_t seq, bool disable_memtable) {
+                                      uint64_t seq) {
   WriteContext write_context;
   if (UNLIKELY(!flush_scheduler_.Empty())) {
     Status status;
@@ -598,7 +598,7 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
 
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
-                        disable_memtable);
+                        false /*disable_memtable*/);
 
   size_t total_count = 0;
   size_t total_byte_size = 0;

@@ -887,18 +887,6 @@ class VersionSet {
     last_sequence_.store(s, std::memory_order_release);
   }
 
-  // Update the last sequence to new_last_seq if it is larger
-  void UpdateLastSequence(uint64_t new_last_seq) {
-    // Last visible sequence must always be less than last written seq
-    assert(!db_options_->two_write_queues || s <= last_allocated_sequence_);
-    auto updated_last_seq = last_sequence_.load(std::memory_order_relaxed);
-    while (updated_last_seq < new_last_seq &&
-           !last_sequence_.compare_exchange_weak(updated_last_seq, new_last_seq,
-                                                 std::memory_order_acq_rel,
-                                                 std::memory_order_relaxed)) {
-    };
-  }
-
   // Note: memory_order_release must be sufficient
   void SetLastPublishedSequence(uint64_t s) {
     assert(s >= last_published_sequence_);

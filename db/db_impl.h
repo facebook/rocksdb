@@ -269,6 +269,9 @@ class DBImpl : public DB {
   // REQUIRES: joined the main write queue if two_write_queues is disabled, and
   // the second write queue otherwise.
   virtual void SetLastPublishedSequence(SequenceNumber seq);
+  // REQUIRES: joined the main write queue if two_write_queues is disabled, and
+  // the second write queue otherwise.
+  virtual void SetLastSequence(SequenceNumber seq);
   // Returns LastSequence in last_seq_same_as_publish_seq_
   // mode and LastAllocatedSequence otherwise. This is useful when visiblility
   // depends also on data written to the WAL but not to the memtable.
@@ -897,20 +900,21 @@ class DBImpl : public DB {
                             bool disable_memtable = false,
                             uint64_t* seq_used = nullptr);
 
+  // Write only to memtables without joining any write queue
   Status UnorderedWriteMemtable(const WriteOptions& write_options,
                                 WriteBatch* my_batch, WriteCallback* callback,
-                                uint64_t log_ref, uint64_t seq,
-                                bool disable_memtable);
+                                uint64_t log_ref, uint64_t seq);
 
-  enum AssignOrder {
-    DontAssignOrder, DoAssignOrder
-  };
-  enum PublishLastSeq {
-    DontPublishLastSeq, DoPublishLastSeq
-  };
-  // batch_cnt is expected to be non-zero in seq_per_batch mode and indicates
-  // the number of sub-patches. A sub-patch is a subset of the write batch that
-  // does not have duplicate keys.
+  // Whether the batch requires to be assigned with an order
+  enum AssignOrder { DontAssignOrder, DoAssignOrder };
+  // Whether it requires publishing last sequence or not
+  enum PublishLastSeq { DontPublishLastSeq, DoPublishLastSeq };
+
+  // sub_batch_cnt is expected to be non-zero when assign_order = DoAssignOrder
+  // indicating the number of sub-batches in my_batch. A sub-patch is a subset
+  // of the write batch that does not have duplicate keys. When seq_per_batch is
+  // not set, each key is a separate sub_batch. Otherwise each duplicate key
+  // marks start of a new sub-batch.
   Status WriteImplWALOnly(WriteThread& write_thread,
                           const WriteOptions& options, WriteBatch* updates,
                           WriteCallback* callback, uint64_t* log_used,
@@ -1161,10 +1165,6 @@ class DBImpl : public DB {
                     SequenceNumber sequence);
 
   Status ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
-                              uint64_t* log_used, SequenceNumber* last_sequence,
-                              size_t seq_inc);
-
-  Status ConcurrentWriteToWAL(WriteThread::Writer* writer,
                               uint64_t* log_used, SequenceNumber* last_sequence,
                               size_t seq_inc);
 
@@ -1589,16 +1589,23 @@ class DBImpl : public DB {
   // corresponding call to PurgeObsoleteFiles has not yet finished.
   int pending_purge_obsolete_files_;
 
-  // last time when DeleteObsoleteFiles with full scan was executed. Originaly
+  // last time when DeleteObsoleteFiles with full scan was executed. Originally
   // initialized with startup time.
   uint64_t delete_obsolete_files_last_run_;
 
   // last time stats were dumped to LOG
   std::atomic<uint64_t> last_stats_dump_time_microsec_;
 
+  // In unordered_write mode, this lock protects SwithcMemtable against
+  // concurrent memtable writers.
   mutable port::RWMutex rwlock_;
+  // Number of threads intending to take write lock on rwlock_
   std::atomic<size_t> writers_cnt_;
+  // The threads that need a read lock on rwlock_, can wait on this cv until the
+  // thread that is holding the write lock releases that. This helps giving
+  // write lock higher priority over read locks.
   std::condition_variable readers_cv_;
+  // The mutex used by readers_cv_
   std::mutex readers_mutex_;
 
   // Each flush or compaction gets its own job id. this counter makes sure

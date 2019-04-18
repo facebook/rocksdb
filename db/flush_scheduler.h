@@ -28,6 +28,9 @@ class FlushScheduler {
   // Filters column families that have been dropped.
   ColumnFamilyData* TakeNextColumnFamily();
 
+  // This can be called concurrently with ScheduleFlush but it would miss all
+  // the scheduled flushes after the last synchronization. This would result
+  // into less precise enforcement of memtable sizes but should not matter much.
   bool Empty();
 
   void Clear();
