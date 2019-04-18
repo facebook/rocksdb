@@ -349,7 +349,7 @@ class RangeDelAggregator {
   std::set<uint64_t> files_seen_;
 };
 
-class ReadRangeDelAggregator : public RangeDelAggregator {
+class ReadRangeDelAggregator final : public RangeDelAggregator {
  public:
   ReadRangeDelAggregator(const InternalKeyComparator* icmp,
                          SequenceNumber upper_bound)
@@ -364,7 +364,12 @@ class ReadRangeDelAggregator : public RangeDelAggregator {
       const InternalKey* largest = nullptr) override;
 
   bool ShouldDelete(const ParsedInternalKey& parsed,
-                    RangeDelPositioningMode mode) override;
+                    RangeDelPositioningMode mode) final override {
+    if (rep_.IsEmpty()) {
+      return false;
+    }
+    return ShouldDeleteImpl(parsed, mode);
+  }
 
   bool IsRangeOverlapped(const Slice& start, const Slice& end);
 
@@ -374,6 +379,9 @@ class ReadRangeDelAggregator : public RangeDelAggregator {
 
  private:
   StripeRep rep_;
+
+  bool ShouldDeleteImpl(const ParsedInternalKey& parsed,
+                        RangeDelPositioningMode mode);
 };
 
 class CompactionRangeDelAggregator : public RangeDelAggregator {
