@@ -1374,7 +1374,6 @@ class WritableFileWrapper : public WritableFile {
   WritableFile* target_;
 };
 
-<<<<<<< HEAD
 class RandomRWFileWrapper : public RandomRWFile {
  public:
   explicit RandomRWFileWrapper(RandomRWFile* target) : target_(target) {}
@@ -1439,8 +1438,6 @@ class LoggerWrapper : public Logger {
  private:
   Logger* target_;
 };
-=======
->>>>>>> Undo unintended changes made by SST to master
 
 // Returns a new environment that stores its data in memory and delegates
 // all non-file-storage tasks to base_env. The caller must delete the result
