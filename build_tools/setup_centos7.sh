@@ -1,4 +1,5 @@
 #!/bin/bash
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 set -e
 
 ROCKSDB_VERSION="5.10.3"
