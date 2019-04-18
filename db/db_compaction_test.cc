@@ -353,7 +353,8 @@ TEST_P(DBCompactionTestWithParam, CompactionsPreserveDeletes) {
     CompactRangeOptions cro;
     cro.change_level = true;
     cro.target_level = 2;
-    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    cro.bottommost_level_compaction =
+        BottommostLevelCompaction::kForceOptimized;
 
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->CompactRange(cro, nullptr, nullptr);
@@ -511,7 +512,7 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   CompactRangeOptions cro;
   cro.change_level = true;
   cro.target_level = 2;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   db_->CompactRange(cro, nullptr, nullptr);
   // Only verifying compaction outputs issues one table cache lookup
   // for both data block and range deletion block).
@@ -2260,6 +2261,8 @@ TEST_P(DBCompactionTestWithParam, ConvertCompactionStyle) {
   CompactRangeOptions compact_options;
   compact_options.change_level = true;
   compact_options.target_level = 0;
+  // cannot use kForceOptimized here because the compaction here is expected
+  // to generate one output file
   compact_options.bottommost_level_compaction =
       BottommostLevelCompaction::kForce;
   compact_options.exclusive_manual_compaction = exclusive_manual_compaction_;
@@ -3039,7 +3042,7 @@ TEST_P(DBCompactionTestWithParam, ForceBottommostLevelCompaction) {
   // then compacte the bottommost level L3=>L3 (non trivial move)
   compact_options = CompactRangeOptions();
   compact_options.bottommost_level_compaction =
-      BottommostLevelCompaction::kForce;
+      BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   ASSERT_EQ("0,0,0,1", FilesPerLevel(0));
   ASSERT_EQ(trivial_move, 4);
@@ -4378,7 +4381,7 @@ TEST_F(DBCompactionTest, PartialManualCompaction) {
       {{"max_compaction_bytes", std::to_string(max_compaction_bytes)}}));
 
   CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   dbfull()->CompactRange(cro, nullptr, nullptr);
 }
 
@@ -4420,6 +4423,58 @@ TEST_F(DBCompactionTest, ManualCompactionFailsInReadOnlyMode) {
 
   // Close before mock_env destruct.
   Close();
+}
+
+// ManualCompactionBottomLevelOptimization tests the bottom level manual
+// compaction optimization to skip recompacting files created by Ln-1 to Ln
+// compaction
+TEST_F(DBCompactionTest, ManualCompactionBottomLevelOptimized) {
+  Options opts = CurrentOptions();
+  opts.num_levels = 3;
+  opts.level0_file_num_compaction_trigger = 5;
+  opts.compression = kNoCompression;
+  opts.merge_operator.reset(new NoopMergeOperator());
+  opts.target_file_size_base = 1024;
+  opts.max_bytes_for_level_multiplier = 2;
+  opts.disable_auto_compactions = true;
+  DestroyAndReopen(opts);
+  ColumnFamilyHandleImpl* cfh =
+      static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily());
+  ColumnFamilyData* cfd = cfh->cfd();
+  InternalStats* internal_stats_ptr = cfd->internal_stats();
+  ASSERT_NE(internal_stats_ptr, nullptr);
+
+  Random rnd(301);
+  for (auto i = 0; i < 8; ++i) {
+    for (auto j = 0; j < 10; ++j) {
+      ASSERT_OK(
+          Put("foo" + std::to_string(i * 10 + j), RandomString(&rnd, 1024)));
+    }
+    Flush();
+  }
+
+  MoveFilesToLevel(2);
+
+  for (auto i = 0; i < 8; ++i) {
+    for (auto j = 0; j < 10; ++j) {
+      ASSERT_OK(
+          Put("bar" + std::to_string(i * 10 + j), RandomString(&rnd, 1024)));
+    }
+    Flush();
+  }
+  const std::vector<InternalStats::CompactionStats>& comp_stats =
+      internal_stats_ptr->TEST_GetCompactionStats();
+  int num = comp_stats[2].num_input_files_in_output_level;
+  ASSERT_EQ(num, 0);
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  dbfull()->CompactRange(cro, nullptr, nullptr);
+
+  const std::vector<InternalStats::CompactionStats>& comp_stats2 =
+      internal_stats_ptr->TEST_GetCompactionStats();
+  num = comp_stats2[2].num_input_files_in_output_level;
+  ASSERT_EQ(num, 0);
 }
 
 // FixFileIngestionCompactionDeadlock tests and verifies that compaction and

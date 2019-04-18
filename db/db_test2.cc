@@ -200,7 +200,7 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
 
   // The total soft write buffer size is about 105000
   std::shared_ptr<Cache> cache = NewLRUCache(4 * 1024 * 1024, 2);
-  ASSERT_LT(cache->GetUsage(), 1024 * 1024);
+  ASSERT_LT(cache->GetUsage(), 256 * 1024);
 
   if (use_old_interface_) {
     options.db_write_buffer_size = 120000;  // this is the real limit
@@ -236,14 +236,14 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
 
   ASSERT_OK(Put(3, Key(1), DummyString(30000), wo));
   if (cost_cache_) {
-    ASSERT_GE(cache->GetUsage(), 1024 * 1024);
-    ASSERT_LE(cache->GetUsage(), 2 * 1024 * 1024);
+    ASSERT_GE(cache->GetUsage(), 256 * 1024);
+    ASSERT_LE(cache->GetUsage(), 2 * 256 * 1024);
   }
   wait_flush();
   ASSERT_OK(Put(0, Key(1), DummyString(60000), wo));
   if (cost_cache_) {
-    ASSERT_GE(cache->GetUsage(), 1024 * 1024);
-    ASSERT_LE(cache->GetUsage(), 2 * 1024 * 1024);
+    ASSERT_GE(cache->GetUsage(), 256 * 1024);
+    ASSERT_LE(cache->GetUsage(), 2 * 256 * 1024);
   }
   wait_flush();
   ASSERT_OK(Put(2, Key(1), DummyString(1), wo));
@@ -339,11 +339,11 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
               static_cast<uint64_t>(2));
   }
   if (cost_cache_) {
-    ASSERT_GE(cache->GetUsage(), 1024 * 1024);
+    ASSERT_GE(cache->GetUsage(), 256 * 1024);
     Close();
     options.write_buffer_manager.reset();
     last_options_.write_buffer_manager.reset();
-    ASSERT_LT(cache->GetUsage(), 1024 * 1024);
+    ASSERT_LT(cache->GetUsage(), 256 * 1024);
   }
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -467,8 +467,8 @@ TEST_F(DBTest2, TestWriteBufferNoLimitWithCache) {
   Reopen(options);
 
   ASSERT_OK(Put("foo", "bar"));
-  // One dummy entry is 1MB.
-  ASSERT_GT(cache->GetUsage(), 500000);
+  // One dummy entry is 256KB.
+  ASSERT_GT(cache->GetUsage(), 128000);
 }
 
 namespace {
@@ -1194,7 +1194,7 @@ TEST_F(DBTest2, PresetCompressionDictLocality) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   CompactRangeOptions compact_range_opts;
   compact_range_opts.bottommost_level_compaction =
-      BottommostLevelCompaction::kForce;
+      BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(compact_range_opts, nullptr, nullptr));
 
   // Dictionary compression should not be so good as to compress four totally
@@ -1712,7 +1712,7 @@ TEST_F(DBTest2, MaxCompactionBytesTest) {
     GenerateNewRandomFile(&rnd);
   }
   CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("0,0,8", FilesPerLevel(0));
 
@@ -2303,7 +2303,7 @@ TEST_F(DBTest2, AutomaticCompactionOverlapManualCompaction) {
   // Run a manual compaction that will compact the 2 files in L2
   // into 1 file in L2
   cro.exclusive_manual_compaction = false;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
@@ -2377,7 +2377,7 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
   // into 1 file in L1
   CompactRangeOptions cro;
   cro.exclusive_manual_compaction = false;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   bg_thread.join();
 
