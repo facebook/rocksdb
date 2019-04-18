@@ -899,7 +899,9 @@ struct DBOptions {
   // tolerate that, it should implement its own mechanisms to work around that.
   // Using TransactionDB with WRITE_PREPARED write policy is one way to achieve
   // that.
-  bool unordered_write = true;
+  //
+  // Default: false
+  bool unordered_write = false;
 
   // If true, allow multi-writers to update mem tables in parallel.
   // Only some memtable_factory-s support concurrent writes; currently it
