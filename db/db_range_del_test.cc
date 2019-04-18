@@ -8,6 +8,7 @@
 #include "port/port.h"
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"
+#include <iostream>
 
 namespace rocksdb {
 
@@ -1499,45 +1500,46 @@ TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
 
 TEST_F(DBRangeDelTest, RangeDelConcurrent) {
 
-  port::Thread threads[4];
-  std::string keys[256];
+  const size_t num_keys = 128;
+  const size_t num_threads = 4;
+  port::Thread threads[num_threads];
+  std::string keys[num_keys];
 
-  for (int i = 0; i < 256; i++) {
-    char key[] = {(char)i, '\0'};
-    keys[i] = std::string(key);
+  for (size_t i = 0; i < num_keys; i++) {
+    keys[i] = std::string(1, (char)i);
   }
 
   // put a bunch of stuff in the db
-  for (int i = 0; i < 256; i++) {
+  for (size_t i = 0; i < num_keys; i++) {
     ASSERT_OK(db_->Put(WriteOptions(), keys[i], std::string("hello")));
   }
 
-  // db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), keys[0], keys[138]);
+  for (size_t i = 0; i < num_threads; i++) {
+    threads[i] = port::Thread([i, this, &keys, num_threads, num_keys] () {
+      std::string value;
+      for (size_t j = 0; j < num_keys-(2+num_threads); j+=2) {
+        ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), keys[i+j], keys[i+j+2]));
 
-  for (int i = 0; i < 4; i++) {
-    threads[i] = port::Thread([i, this, &keys] () {
-      for (int j = 0; j <= 124; j+=2) {
-        db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), keys[i+j], keys[i+j+10]);
+	std::cout << "i: " << i << " j: " << j << std::endl;
+	ASSERT_TRUE(db_->Get(ReadOptions(), keys[i+j+1], &value).IsNotFound());
       }
     });
   }
 
-  for (int i = 0; i < 4; i++) {
+  for (size_t i = 0; i < num_threads; i++) {
     threads[i].join();
   }
 
-  ASSERT_OK(db_->Flush(FlushOptions()));
+  //ASSERT_OK(db_->Flush(FlushOptions()));
 
-  std::string value;
-  for (int i = 0; i < 137; i++) {
-    bool res = db_->Get(ReadOptions(), keys[i], &value).IsNotFound();
-    ASSERT_TRUE(res);
-  }
+  //std::string value;
 
-  for (int i = 137; i < 200; i++) {
+  /*
+  for (int i = 130; i < 200; i++) {
     bool res = db_->Get(ReadOptions(), keys[i], &value).IsNotFound();
     ASSERT_FALSE(res);
   }
+  */
 }
 #endif  // ROCKSDB_LITE
 
