@@ -99,27 +99,6 @@ static int LockOrUnlock(int fd, bool lock) {
   return value;
 }
 
-class PosixDynamicLibrary : public DynamicLibrary {
-public:
-  PosixDynamicLibrary(const std::string & name, void *handle)
-    :  name_(name), handle_(handle) {
-    }
-  ~PosixDynamicLibrary() {
-      dlclose(handle_);
-  }
-  
-  virtual FunctionPtr LoadSymbol(const std::string & sym_name) override {
-    void *symbol = dlsym(handle_, sym_name.c_str());
-    return (FunctionPtr) symbol;
-  }
-  
-  virtual const char *Name() const override {
-    return name_.c_str();
-  }
-private:
-  std::string name_;
-    void *handle_;
-};
 
 class PosixFileLock : public FileLock {
  public:
@@ -521,6 +500,7 @@ class PosixEnv : public Env {
   }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
   Status NewDirectory(const std::string& name,
                       std::unique_ptr<Directory>* result) override {
 =======
@@ -539,6 +519,8 @@ class PosixEnv : public Env {
       return status;
     }
 
+=======
+>>>>>>> Undo unintended changes made by SST to master
   virtual Status NewDirectory(const std::string& name,
                               unique_ptr<Directory>* result) override {
 >>>>>>> Add Extension and ExtensionFactory

@@ -50,7 +50,6 @@ class WritableFile;
 class RandomRWFile;
 class MemoryMappedFileBuffer;
 class Directory;
-class DynamicLibrary;
 struct DBOptions;
 struct ImmutableDBOptions;
 struct MutableDBOptions;
@@ -475,14 +474,6 @@ class Env {
 
   // Returns the ID of the current thread.
   virtual uint64_t GetThreadID() const;
-
-  // Opens `libName` as a dynamic library.  On success, stores a dynamic library
-  // file in `*result`. The file must exist prior to this call.
-  virtual Status LoadLibrary(
-          const std::string& /*libName*/,
-          shared_ptr<DynamicLibrary>* /*result*/) {
-    return Status::NotSupported("LoadLibrary is not implemented in this Env");
-  }
 
 // This seems to clash with a macro on Windows, so #undef it here
 #undef GetFreeSpace
@@ -1383,6 +1374,7 @@ class WritableFileWrapper : public WritableFile {
   WritableFile* target_;
 };
 
+<<<<<<< HEAD
 class RandomRWFileWrapper : public RandomRWFile {
  public:
   explicit RandomRWFileWrapper(RandomRWFile* target) : target_(target) {}
@@ -1447,6 +1439,8 @@ class LoggerWrapper : public Logger {
  private:
   Logger* target_;
 };
+=======
+>>>>>>> Undo unintended changes made by SST to master
 
 // Returns a new environment that stores its data in memory and delegates
 // all non-file-storage tasks to base_env. The caller must delete the result
