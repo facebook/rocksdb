@@ -1,23 +1,29 @@
 # Rocksdb Change Log
 
+### Unreleased
+### New Features
+* Improve range scan performance by avoiding per-key upper bound check in BlockBasedTableIterator.
+
+### Public API Change
+* Added BottommostLevelCompaction::kForceOptimized to avoid double compacting newly compacted files in bottom level compaction of manual compaction.
+
+### Bug Fixes
+* Adjust WriteBufferManager's dummy entry size to block cache from 1MB to 256KB.
+
 ## 6.1.1 (4/9/2019)
 ### New Features
 * When reading from option file/string/map, customized comparators and/or merge operators can be filled according to object registry.
 * Introduce Periodic Compaction for Level style compaction. Files are re-compacted periodically and put in the same level.
-* Improve range scan performance by avoiding per-key upper bound check in BlockBasedTableIterator.
 
 ### Public API Change
 * Change the behavior of OptimizeForPointLookup(): move away from hash-based block-based-table index, and use whole key memtable filtering.
 * Change the behavior of OptimizeForSmallDb(): use a 16MB block cache, put index and filter blocks into it, and cost the memtable size to it. DBOptions.OptimizeForSmallDb() and ColumnFamilyOptions.OptimizeForSmallDb() start to take an optional cache object.
-* Added BottommostLevelCompaction::kForceOptimized to avoid double compacting newly compacted files in bottom level compaction of manual compaction.
 
 ### Bug Fixes
 * Fix a bug in 2PC where a sequence of txn prepare, memtable flush, and crash could result in losing the prepared transaction.
 * Fix a bug in Encryption Env which could cause encrypted files to be read beyond file boundaries.
 * Fix a race condition between WritePrepared::Get and ::Put with duplicate keys.
 * Fix crash when memtable prefix bloom is enabled and read/write a key out of domain of prefix extractor.
-* Adjust WriteBufferManager's dummy entry size to block cache from 1MB to 256KB.
-
 
 ## 6.1.0 (3/27/2019)
 ### New Features
