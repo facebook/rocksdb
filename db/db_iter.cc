@@ -257,7 +257,7 @@ class DBIter final: public Iterator {
   bool FindValueForCurrentKeyUsingSeek();
   bool FindUserKeyBeforeSavedKey();
   inline bool FindNextUserEntry(bool skipping, bool prefix_check);
-  bool FindNextUserEntryInternal(bool skipping, bool prefix_check);
+  inline bool FindNextUserEntryInternal(bool skipping, bool prefix_check);
   bool ParseKey(ParsedInternalKey* key);
   bool MergeValuesNewToOld();
 
@@ -379,25 +379,26 @@ void DBIter::Next() {
   PERF_CPU_TIMER_GUARD(iter_next_cpu_nanos, env_);
   // Release temporarily pinned blocks from last operation
   ReleaseTempPinnedData();
-  ResetInternalKeysSkippedCounter();
+  local_stats_.skip_count_ += num_internal_keys_skipped_;
+  local_stats_.skip_count_--;
+  num_internal_keys_skipped_ = 0;
   bool ok = true;
   if (direction_ == kReverse) {
     if (!ReverseToForward()) {
       ok = false;
     }
-  } else if (iter_->Valid() && !current_entry_is_merged_) {
+  } else if (!current_entry_is_merged_) {
     // If the current value is not a merge, the iter position is the
     // current key, which is already returned. We can safely issue a
     // Next() without checking the current key.
     // If the current key is a merge, very likely iter already points
     // to the next internal position.
+    assert(iter_->Valid());
     iter_->Next();
     PERF_COUNTER_ADD(internal_key_skipped_count, 1);
   }
 
-  if (statistics_ != nullptr) {
-    local_stats_.next_count_++;
-  }
+  local_stats_.next_count_++;
   if (ok && iter_->Valid()) {
     FindNextUserEntry(true /* skipping the current user key */,
                       prefix_same_as_start_);
@@ -430,7 +431,7 @@ inline bool DBIter::FindNextUserEntry(bool skipping, bool prefix_check) {
 }
 
 // Actual implementation of DBIter::FindNextUserEntry()
-bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
+inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
   // Loop until we hit an acceptable entry to yield
   assert(iter_->Valid());
   assert(status_.ok());
