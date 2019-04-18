@@ -94,6 +94,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return Status::NotSupported(
         "pipelined_writes is not compatible with seq_per_batch");
   }
+  if (immutable_db_options_.unordered_write && my_batch->HasMerge()) {
+    // TODO(myabandeh): support it
+    return Status::NotSupported(
+        "Merge operands are currently not supported with unordered_write");
+  }
   // Otherwise IsLatestPersistentState optimization does not make sense
   assert(!WriteBatchInternal::IsLatestPersistentState(my_batch) ||
          disable_memtable);
@@ -122,7 +127,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                                      // every key is a sub-batch consuming a seq
                                      : WriteBatchInternal::Count(my_batch);
     uint64_t seq;
-    if (!write_options.disableWAL) {
+    // pre_release_callback needs write thread to call it serially
+    const bool skip_write_thread =
+        write_options.disableWAL && pre_release_callback != nullptr;
+    if (!skip_write_thread) {
       status = WriteImplWALOnly(write_thread_, write_options, my_batch,
                                 callback, log_used, log_ref, &seq,
                                 sub_batch_cnt, pre_release_callback,
@@ -131,12 +139,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         return status;
       }
     } else {
-      //TODO(myabandeh): How about pre-release callback
-      //TODO(myabandeh): What if pre-release is not thread-safe?
       uint64_t last_seq = versions_->FetchAddLastAllocatedSequence(sub_batch_cnt);
       seq = last_seq + 1;
       has_unpersisted_data_.store(true, std::memory_order_relaxed);
-      //TODO(myabandeh): How about publish seq?
+      versions_->UpdateLastSequence(last_seq + sub_batch_cnt);
     }
     if (seq_used) {
       *seq_used = seq;
