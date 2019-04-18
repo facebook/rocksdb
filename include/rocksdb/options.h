@@ -1301,6 +1301,9 @@ enum class BottommostLevelCompaction {
   kIfHaveCompactionFilter,
   // Always compact bottommost level
   kForce,
+  // Always compact bottommost level but in bottommost level avoid
+  // double-compacting files created in the same compaction
+  kForceOptimized,
 };
 
 // CompactRangeOptions is used by CompactRange() call.

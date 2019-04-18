@@ -1194,7 +1194,7 @@ TEST_F(DBTest2, PresetCompressionDictLocality) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   CompactRangeOptions compact_range_opts;
   compact_range_opts.bottommost_level_compaction =
-      BottommostLevelCompaction::kForce;
+      BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(compact_range_opts, nullptr, nullptr));
 
   // Dictionary compression should not be so good as to compress four totally
@@ -1712,7 +1712,7 @@ TEST_F(DBTest2, MaxCompactionBytesTest) {
     GenerateNewRandomFile(&rnd);
   }
   CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("0,0,8", FilesPerLevel(0));
 
@@ -2303,7 +2303,7 @@ TEST_F(DBTest2, AutomaticCompactionOverlapManualCompaction) {
   // Run a manual compaction that will compact the 2 files in L2
   // into 1 file in L2
   cro.exclusive_manual_compaction = false;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
@@ -2377,7 +2377,7 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
   // into 1 file in L1
   CompactRangeOptions cro;
   cro.exclusive_manual_compaction = false;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   bg_thread.join();
 
