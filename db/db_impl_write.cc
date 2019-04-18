@@ -110,9 +110,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     AssignOrder assign_order = seq_per_batch_ ? DoAssignOrder : DontAssignOrder;
     // Otherwise it is WAL-only Prepare batches in WriteCommitted policy and
     // they don't consume sequence.
-    return WriteImplWALOnly(write_options, my_batch, callback, log_used,
-                            log_ref, seq_used, batch_cnt, pre_release_callback,
-                            assign_order, DontPublishLastSeq);
+    return WriteImplWALOnly(nonmem_write_thread_, write_options, my_batch,
+                            callback, log_used, log_ref, seq_used, batch_cnt,
+                            pre_release_callback, assign_order,
+                            DontPublishLastSeq);
   }
 
   if (immutable_db_options_.unordered_write) {
@@ -122,8 +123,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                                      : WriteBatchInternal::Count(my_batch);
     uint64_t seq;
     if (!write_options.disableWAL) {
-      status = WriteImplWALOnly(write_options, my_batch, callback, log_used,
-                                log_ref, &seq, sub_batch_cnt, pre_release_callback,
+      status = WriteImplWALOnly(write_thread_, write_options, my_batch,
+                                callback, log_used, log_ref, &seq,
+                                sub_batch_cnt, pre_release_callback,
                                 DoAssignOrder, DoPublishLastSeq);
       if (!status.ok()) {
         return status;
@@ -643,7 +645,8 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
 // The 2nd write queue. If enabled it will be used only for WAL-only writes.
 // This is the only queue that updates LastPublishedSequence which is only
 // applicable in a two-queue setting.
-Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
+Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
+                                const WriteOptions& write_options,
                                 WriteBatch* my_batch, WriteCallback* callback,
                                 uint64_t* log_used, const uint64_t log_ref,
                                 uint64_t* seq_used, const size_t sub_batch_cnt,
@@ -658,7 +661,7 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   RecordTick(stats_, WRITE_WITH_WAL);
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
 
-  nonmem_write_thread_.JoinBatchGroup(&w);
+  write_thread.JoinBatchGroup(&w);
   assert(w.state != WriteThread::STATE_PARALLEL_MEMTABLE_WRITER);
   if (w.state == WriteThread::STATE_COMPLETED) {
     if (log_used != nullptr) {
@@ -673,7 +676,7 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   assert(w.state == WriteThread::STATE_GROUP_LEADER);
   WriteThread::WriteGroup write_group;
   uint64_t last_sequence;
-  nonmem_write_thread_.EnterAsBatchGroupLeader(&w, &write_group);
+  write_thread.EnterAsBatchGroupLeader(&w, &write_group);
   // Note: no need to update last_batch_group_size_ here since the batch writes
   // to WAL only
 
@@ -770,7 +773,7 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   if (publish_last_seq == DoPublishLastSeq) {
     versions_->SetLastSequence(last_sequence + seq_inc);
   }
-  nonmem_write_thread_.ExitAsBatchGroupLeader(write_group, status);
+  write_thread.ExitAsBatchGroupLeader(write_group, status);
   if (status.ok()) {
     status = w.FinalStatus();
   }
