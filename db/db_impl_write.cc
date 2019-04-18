@@ -116,11 +116,14 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   if (immutable_db_options_.unordered_write) {
-    size_t seq_inc = batch_cnt != 0 ? batch_cnt : WriteBatchInternal::Count(my_batch);
+    const size_t sub_batch_cnt = batch_cnt != 0
+                                     ? batch_cnt
+                                     // every key is a sub-batch consuming a seq
+                                     : WriteBatchInternal::Count(my_batch);
     uint64_t seq;
     if (!write_options.disableWAL) {
       status = WriteImplWALOnly(write_options, my_batch, callback, log_used,
-                                log_ref, &seq, seq_inc, pre_release_callback,
+                                log_ref, &seq, sub_batch_cnt, pre_release_callback,
                                 DoAssignOrder, DoPublishLastSeq);
       if (!status.ok()) {
         return status;
@@ -128,7 +131,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     } else {
       //TODO(myabandeh): How about pre-release callback
       //TODO(myabandeh): What if pre-release is not thread-safe?
-      uint64_t last_seq = versions_->FetchAddLastAllocatedSequence(seq_inc);
+      uint64_t last_seq = versions_->FetchAddLastAllocatedSequence(sub_batch_cnt);
       seq = last_seq + 1;
       has_unpersisted_data_.store(true, std::memory_order_relaxed);
       //TODO(myabandeh): How about publish seq?
@@ -136,8 +139,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     if (seq_used) {
       *seq_used = seq;
     }
-    return UnorderedWriteMemtable(write_options, my_batch, callback, log_ref,
-                                  seq, disable_memtable);
+    if (!disable_memtable) {
+      status = UnorderedWriteMemtable(write_options, my_batch, callback,
+                                      log_ref, seq, disable_memtable);
+    }
+    return status;
   }
 
   if (immutable_db_options_.enable_pipelined_write) {
@@ -639,13 +645,15 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
 // applicable in a two-queue setting.
 Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
                                 WriteBatch* my_batch, WriteCallback* callback,
-                                uint64_t* log_used, uint64_t log_ref,
-                                uint64_t* seq_used, size_t batch_cnt,
-                                PreReleaseCallback* pre_release_callback, AssignOrder assign_order, PublishLastSeq publish_last_seq) {
+                                uint64_t* log_used, const uint64_t log_ref,
+                                uint64_t* seq_used, const size_t sub_batch_cnt,
+                                PreReleaseCallback* pre_release_callback,
+                                const AssignOrder assign_order,
+                                const PublishLastSeq publish_last_seq) {
   Status status;
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
-                        true /* disable_memtable */, batch_cnt,
+                        true /* disable_memtable */, sub_batch_cnt,
                         pre_release_callback);
   RecordTick(stats_, WRITE_WITH_WAL);
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);

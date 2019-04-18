@@ -913,12 +913,11 @@ class DBImpl : public DB {
   // does not have duplicate keys.
   Status WriteImplWALOnly(const WriteOptions& options, WriteBatch* updates,
                           WriteCallback* callback, uint64_t* log_used,
-                          uint64_t log_ref, uint64_t* seq_used,
-                          //TODO(myabandeh): rename batch_cnt to seq_inc
-                          size_t batch_cnt,
+                          const uint64_t log_ref, uint64_t* seq_used,
+                          const size_t sub_batch_cnt,
                           PreReleaseCallback* pre_release_callback,
-                          AssignOrder assign_order,
-                          PublishLastSeq publish_last_seq);
+                          const AssignOrder assign_order,
+                          const PublishLastSeq publish_last_seq);
 
   // write cached_recoverable_state_ to memtable if it is not empty
   // The writer must be the leader in write_thread_ and holding mutex_
