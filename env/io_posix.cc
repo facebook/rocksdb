@@ -37,7 +37,7 @@
 
 #if defined(OS_LINUX) && !defined(F_SET_RW_HINT)
 #define F_LINUX_SPECIFIC_BASE 1024
-#define F_SET_RW_HINT         (F_LINUX_SPECIFIC_BASE + 12)
+#define F_SET_RW_HINT (F_LINUX_SPECIFIC_BASE + 12)
 #endif
 
 namespace rocksdb {
@@ -54,6 +54,65 @@ int Fadvise(int fd, off_t offset, size_t len, int advice) {
   (void)advice;
   return 0;  // simply do nothing.
 #endif
+}
+
+// On MacOS (and probably *BSD), the posix write and pwrite calls do not support
+// buffers larger than 2^31-1 bytes. These two wrappers fix this issue by
+// cutting the buffer in 1GB chunks when having to write buffers larger than
+// 2GB. We use this chunk size to be sure to keep the writes aligned.
+
+bool PosixWriteWrapper(int fd, const void* buf, size_t nbyte) {
+  constexpr size_t LIMIT_2GB = 1UL << 31;
+  constexpr size_t LIMIT_1GB = 1UL << 30;
+
+  const char* src = reinterpret_cast<const char*>(buf);
+  size_t left = nbyte;
+
+  while (left != 0) {
+    size_t bytes_to_write = left;
+    if (bytes_to_write >= LIMIT_2GB) {
+      bytes_to_write = LIMIT_1GB;
+    }
+    ssize_t done = write(fd, src, bytes_to_write);
+    if (done < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      return false;
+    }
+    left -= done;
+    src += done;
+  }
+  return true;
+}
+
+bool PosixPositionedWriteWrapper(int fd, const void* buf, size_t nbyte,
+                                 off_t offset) {
+  constexpr size_t LIMIT_2GB = 1UL << 31;
+  constexpr size_t LIMIT_1GB = 1UL << 30;
+
+  const char* src = reinterpret_cast<const char*>(buf);
+  size_t left = nbyte;
+
+  while (left != 0) {
+    size_t bytes_to_write = left;
+    if (bytes_to_write >= LIMIT_2GB) {
+      bytes_to_write = LIMIT_1GB;
+    }
+
+    ssize_t done = pwrite(fd, src, bytes_to_write, offset);
+    if (done < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      return false;
+    }
+    left -= done;
+    offset += done;
+    src += done;
+  }
+
+  return true;
 }
 
 namespace {
@@ -180,7 +239,7 @@ bool IsSectorAligned(const void* ptr, size_t sector_size) {
   return uintptr_t(ptr) % sector_size == 0;
 }
 
-}
+}  // namespace
 #endif
 
 /*
@@ -752,9 +811,9 @@ Status PosixMmapFile::Allocate(uint64_t offset, uint64_t len) {
   TEST_KILL_RANDOM("PosixMmapFile::Allocate:0", rocksdb_kill_odds);
   int alloc_status = 0;
   if (allow_fallocate_) {
-    alloc_status = fallocate(
-        fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0,
-          static_cast<off_t>(offset), static_cast<off_t>(len));
+    alloc_status =
+        fallocate(fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0,
+                  static_cast<off_t>(offset), static_cast<off_t>(len));
   }
   if (alloc_status == 0) {
     return Status::OK();
@@ -801,19 +860,13 @@ Status PosixWritableFile::Append(const Slice& data) {
     assert(IsSectorAligned(data.data(), GetRequiredBufferAlignment()));
   }
   const char* src = data.data();
-  size_t left = data.size();
-  while (left != 0) {
-    ssize_t done = write(fd_, src, left);
-    if (done < 0) {
-      if (errno == EINTR) {
-        continue;
-      }
-      return IOError("While appending to file", filename_, errno);
-    }
-    left -= done;
-    src += done;
+  size_t nbytes = data.size();
+
+  if (!PosixWriteWrapper(fd_, src, nbytes)) {
+    return IOError("While appending to file", filename_, errno);
   }
-  filesize_ += data.size();
+
+  filesize_ += nbytes;
   return Status::OK();
 }
 
@@ -825,21 +878,13 @@ Status PosixWritableFile::PositionedAppend(const Slice& data, uint64_t offset) {
   }
   assert(offset <= std::numeric_limits<off_t>::max());
   const char* src = data.data();
-  size_t left = data.size();
-  while (left != 0) {
-    ssize_t done = pwrite(fd_, src, left, static_cast<off_t>(offset));
-    if (done < 0) {
-      if (errno == EINTR) {
-        continue;
-      }
-      return IOError("While pwrite to file at offset " + ToString(offset),
-                     filename_, errno);
-    }
-    left -= done;
-    offset += done;
-    src += done;
+  size_t nbytes = data.size();
+  if (!PosixPositionedWriteWrapper(fd_, src, nbytes,
+                                   static_cast<off_t>(offset))) {
+    return IOError("While pwrite to file at offset " + ToString(offset),
+                   filename_, errno);
   }
-  filesize_ = offset;
+  filesize_ = offset + nbytes;
   return Status::OK();
 }
 
@@ -891,8 +936,8 @@ Status PosixWritableFile::Close() {
     // If not, we should hack it with FALLOC_FL_PUNCH_HOLE
     if (result == 0 &&
         (file_stats.st_size + file_stats.st_blksize - 1) /
-            file_stats.st_blksize !=
-        file_stats.st_blocks / (file_stats.st_blksize / 512)) {
+                file_stats.st_blksize !=
+            file_stats.st_blocks / (file_stats.st_blksize / 512)) {
       IOSTATS_TIMER_GUARD(allocate_nanos);
       if (allow_fallocate_) {
         fallocate(fd_, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, filesize_,
@@ -942,10 +987,10 @@ void PosixWritableFile::SetWriteLifeTimeHint(Env::WriteLifeTimeHint hint) {
   }
 #else
   (void)hint;
-#endif // ROCKSDB_VALGRIND_RUN
+#endif  // ROCKSDB_VALGRIND_RUN
 #else
   (void)hint;
-#endif // OS_LINUX
+#endif  // OS_LINUX
 }
 
 Status PosixWritableFile::InvalidateCache(size_t offset, size_t length) {
@@ -974,9 +1019,9 @@ Status PosixWritableFile::Allocate(uint64_t offset, uint64_t len) {
   IOSTATS_TIMER_GUARD(allocate_nanos);
   int alloc_status = 0;
   if (allow_fallocate_) {
-    alloc_status = fallocate(
-        fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0,
-        static_cast<off_t>(offset), static_cast<off_t>(len));
+    alloc_status =
+        fallocate(fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0,
+                  static_cast<off_t>(offset), static_cast<off_t>(len));
   }
   if (alloc_status == 0) {
     return Status::OK();
@@ -1037,24 +1082,12 @@ PosixRandomRWFile::~PosixRandomRWFile() {
 
 Status PosixRandomRWFile::Write(uint64_t offset, const Slice& data) {
   const char* src = data.data();
-  size_t left = data.size();
-  while (left != 0) {
-    ssize_t done = pwrite(fd_, src, left, offset);
-    if (done < 0) {
-      // error while writing to file
-      if (errno == EINTR) {
-        // write was interrupted, try again.
-        continue;
-      }
-      return IOError(
-          "While write random read/write file at offset " + ToString(offset),
-          filename_, errno);
-    }
-
-    // Wrote `done` bytes
-    left -= done;
-    offset += done;
-    src += done;
+  size_t nbytes = data.size();
+  if (!PosixPositionedWriteWrapper(fd_, src, nbytes,
+                                   static_cast<off_t>(offset))) {
+    return IOError(
+        "While write random read/write file at offset " + ToString(offset),
+        filename_, errno);
   }
 
   return Status::OK();
