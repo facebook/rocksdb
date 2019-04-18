@@ -3611,6 +3611,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
 
   int periodic_compactions = 0;
   bool set_file_creation_time_to_zero = true;
+  bool set_creation_time_to_zero = true;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
         Compaction* compaction = reinterpret_cast<Compaction*>(arg);
@@ -3625,6 +3626,9 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
         if (set_file_creation_time_to_zero) {
           props->file_creation_time = 0;
         }
+        if (set_creation_time_to_zero) {
+          props->creation_time = 0;
+        }
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3638,6 +3642,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
     // Move the first two files to L2.
     if (i == 1) {
       MoveFilesToLevel(2);
+      set_creation_time_to_zero = false;
     }
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());

@@ -2358,10 +2358,18 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
     for (auto f : files_[level]) {
       if (!f->being_compacted && f->fd.table_reader != nullptr &&
           f->fd.table_reader->GetTableProperties() != nullptr) {
-        // Try using file_creation_time table property first. Fallback to file
-        // modification time given by the file system if file_creation_time=0.
+        // Compute a file's modification time in the following order:
+        // 1. Use file_creation_time table property if it is > 0.
+        // 2. Use creation_time table property if it is > 0.
+        // 3. Use file's mtime metadata if the above two table properties are 0.
+        // Don't consider the file at all if the modification time cannot be
+        // correctly determined based on the above conditions.
         uint64_t file_modification_time =
             f->fd.table_reader->GetTableProperties()->file_creation_time;
+        if (file_modification_time == 0) {
+          file_modification_time =
+              f->fd.table_reader->GetTableProperties()->creation_time;
+        }
         if (file_modification_time == 0) {
           auto file_path = TableFileName(ioptions.cf_paths, f->fd.GetNumber(),
                                          f->fd.GetPathId());
