@@ -906,7 +906,8 @@ class LevelIterator final : public InternalIterator {
   void SeekForPrev(const Slice& target) override;
   void SeekToFirst() override;
   void SeekToLast() override;
-  void Next() override;
+  void Next() final override;
+  bool NextAndGetResult(Slice* ret_key) override;
   void Prev() override;
 
   bool Valid() const override { return file_iter_.Valid(); }
@@ -941,6 +942,13 @@ class LevelIterator final : public InternalIterator {
   void SkipEmptyFileBackward();
   void SetFileIterator(InternalIterator* iter);
   void InitFileIterator(size_t new_file_index);
+
+  // Called by both of Next() and NextAndGetResult(). Force inline.
+  void NextImpl() {
+    assert(Valid());
+    file_iter_.Next();
+    SkipEmptyFileForward();
+  }
 
   const Slice& file_smallest_key(size_t file_index) {
     assert(file_index < flevel_->num_files);
@@ -1037,10 +1045,15 @@ void LevelIterator::SeekToLast() {
   SkipEmptyFileBackward();
 }
 
-void LevelIterator::Next() {
-  assert(Valid());
-  file_iter_.Next();
-  SkipEmptyFileForward();
+void LevelIterator::Next() { NextImpl(); }
+
+bool LevelIterator::NextAndGetResult(Slice* ret_key) {
+  NextImpl();
+  bool is_valid = Valid();
+  if (is_valid) {
+    *ret_key = key();
+  }
+  return is_valid;
 }
 
 void LevelIterator::Prev() {

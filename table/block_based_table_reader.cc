@@ -2436,6 +2436,17 @@ void BlockBasedTableIterator<TBlockIter, TValue>::Next() {
 }
 
 template <class TBlockIter, typename TValue>
+bool BlockBasedTableIterator<TBlockIter, TValue>::NextAndGetResult(
+    Slice* ret_key) {
+  Next();
+  bool is_valid = Valid();
+  if (is_valid) {
+    *ret_key = key();
+  }
+  return is_valid;
+}
+
+template <class TBlockIter, typename TValue>
 void BlockBasedTableIterator<TBlockIter, TValue>::Prev() {
   assert(block_iter_points_to_real_block_);
   block_iter_.Prev();
@@ -2493,10 +2504,10 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
 }
 
 template <class TBlockIter, typename TValue>
-void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyForward() {
+void BlockBasedTableIterator<TBlockIter, TValue>::FindBlockForward() {
   // TODO the while loop inherits from two-level-iterator. We don't know
   // whether a block can be empty so it can be replaced by an "if".
-  while (!block_iter_.Valid()) {
+  do {
     if (!block_iter_.status().ok()) {
       return;
     }
@@ -2528,6 +2539,15 @@ void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyForward() {
     } else {
       return;
     }
+  } while (!block_iter_.Valid());
+}
+
+template <class TBlockIter, typename TValue>
+void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyForward() {
+  assert(!is_out_of_bound_);
+
+  if (!block_iter_.Valid()) {
+    FindBlockForward();
   }
 }
 
