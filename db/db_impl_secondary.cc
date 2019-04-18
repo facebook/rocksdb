@@ -27,11 +27,7 @@ DBImplSecondary::DBImplSecondary(const DBOptions& db_options,
   LogFlush(immutable_db_options_.info_log);
 }
 
-DBImplSecondary::~DBImplSecondary() {
-  for (auto it : log_readers_) { delete it.second; }
-  for (auto it : log_reporters_) { delete it.second; }
-  for (auto it : log_reader_status_) { delete it.second; }
-}
+DBImplSecondary::~DBImplSecondary() {}
 
 Status DBImplSecondary::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
@@ -73,7 +69,7 @@ Status DBImplSecondary::Recover(
     std::vector<std::string> filenames;
     s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
     if (s.IsNotFound()) {
-      return Status::InvalidArgument("wal_dir not found",
+      return Status::InvalidArgument("IOError while opening wal_dir",
                                      immutable_db_options_.wal_dir);
     } else if (!s.ok()) {
       return s;
@@ -93,6 +89,9 @@ Status DBImplSecondary::Recover(
       std::sort(logs.begin(), logs.end());
       SequenceNumber next_sequence(kMaxSequenceNumber);
       s = RecoverLogFiles(logs, &next_sequence, false);
+      if (!s.ok()) {
+        return s;
+      }
       curr_log_number_ = logs.back();
     }
   }
@@ -102,20 +101,20 @@ Status DBImplSecondary::Recover(
   return s;
 }
 
-
 // try to find log reader using log_number from log_readers_ map, initialize
 // if it doesn't exist
 Status DBImplSecondary::GetLogReader(uint64_t log_number,
-  log::FragmentBufferedReader** log_reader) {
+                                     log::FragmentBufferedReader** log_reader) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
-    const char* fname;
+    std::string fname;
     Status* status;  // nullptr if immutable_db_options_.paranoid_checks==false
     void Corruption(size_t bytes, const Status& s) override {
       ROCKS_LOG_WARN(info_log, "%s%s: dropping %d bytes; %s",
                      (this->status == nullptr ? "(ignoring error) " : ""),
-                     fname, static_cast<int>(bytes), s.ToString().c_str());
+                     fname.c_str(), static_cast<int>(bytes),
+                     s.ToString().c_str());
       if (this->status != nullptr && this->status->ok()) {
         *this->status = s;
       }
@@ -127,7 +126,6 @@ Status DBImplSecondary::GetLogReader(uint64_t log_number,
       iter->second->GetLogNumber() != log_number) {
     // delete the obsolete log reader if log number mismatch
     if (iter != log_readers_.end()) {
-      delete iter->second;
       log_readers_.erase(iter);
       log_reporters_.erase(log_number);
       log_reader_status_.erase(log_number);
@@ -143,10 +141,9 @@ Status DBImplSecondary::GetLogReader(uint64_t log_number,
     std::unique_ptr<SequentialFileReader> file_reader;
     {
       std::unique_ptr<SequentialFile> file;
-      Status status = env_->NewSequentialFile(fname, &file,
-                                       env_->OptimizeForLogRead(env_options_));
+      Status status = env_->NewSequentialFile(
+          fname, &file, env_->OptimizeForLogRead(env_options_));
       if (!status.ok()) {
-        MaybeIgnoreError(&status);
         *log_reader = nullptr;
         return status;
       }
@@ -158,28 +155,27 @@ Status DBImplSecondary::GetLogReader(uint64_t log_number,
     Status* status = new Status();
     reporter->env = env_;
     reporter->info_log = immutable_db_options_.info_log.get();
-    reporter->fname = fname.c_str();
-    if (!immutable_db_options_.paranoid_checks ||
-        immutable_db_options_.wal_recovery_mode ==
-            WALRecoveryMode::kSkipAnyCorruptedRecords) {
-      reporter->status = nullptr;
-    } else {
-      reporter->status = status;
-    }
+    reporter->fname = std::move(fname);
+    reporter->status = status;
     // We intentially make log::Reader do checksumming even if
     // paranoid_checks==false so that corruptions cause entire commits
     // to be skipped instead of propagating bad information (like overly
     // large sequence numbers).
-    log::FragmentBufferedReader* reader = new log::FragmentBufferedReader(immutable_db_options_.info_log,
-        std::move(file_reader), reporter, true /*checksum*/, log_number);
 
-    log_readers_.insert({log_number, reader});
-    log_reporters_.insert({log_number, reporter});
-    log_reader_status_.insert({log_number, status});
+    log_readers_.insert(std::make_pair(
+        log_number,
+        std::unique_ptr<log::FragmentBufferedReader>(
+            new log::FragmentBufferedReader(immutable_db_options_.info_log,
+                                            std::move(file_reader), reporter,
+                                            true /*checksum*/, log_number))));
+    log_reporters_.insert(std::make_pair(
+        log_number, std::unique_ptr<log::Reader::Reporter>(reporter)));
+    log_reader_status_.insert(
+        std::make_pair(log_number, std::unique_ptr<Status>(status)));
   }
   iter = log_readers_.find(log_number);
   assert(iter != log_readers_.end());
-  *log_reader = iter->second;
+  *log_reader = iter->second.get();
   return Status::OK();
 }
 
@@ -192,16 +188,13 @@ Status DBImplSecondary::RecoverLogFiles(
   Status status;
   // for (auto cfd : *versions_->GetColumnFamilySet()) {
   for (auto log_number : log_numbers) {
-    // The previous incarnation may not have written any MANIFEST
-    // records after allocating this log number.  So we manually
-    // update the file number allocation counter in VersionSet.
-    versions_->MarkFileNumberUsed(log_number);
-
-    log::FragmentBufferedReader* reader;
+    log::FragmentBufferedReader* reader = nullptr;
     status = GetLogReader(log_number, &reader);
     if (!status.ok() || reader == nullptr) {
       continue;
     }
+    // Manually update the file number allocation counter in VersionSet.
+    versions_->MarkFileNumberUsed(log_number);
 
     // Determine if we should tolerate incomplete records at the tail end of the
     // Read all the records and add to a memtable
@@ -210,11 +203,11 @@ Status DBImplSecondary::RecoverLogFiles(
     WriteBatch batch;
 
     while (reader->ReadRecord(&record, &scratch,
-                             immutable_db_options_.wal_recovery_mode) &&
+                              immutable_db_options_.wal_recovery_mode) &&
            status.ok()) {
       if (record.size() < WriteBatchInternal::kHeader) {
-        reader->GetReporter()->Corruption(record.size(),
-                            Status::Corruption("log record too small"));
+        reader->GetReporter()->Corruption(
+            record.size(), Status::Corruption("log record too small"));
         continue;
       }
       WriteBatchInternal::SetContents(&batch, record);
@@ -228,10 +221,9 @@ Status DBImplSecondary::RecoverLogFiles(
       // That's why we set ignore missing column families to true
       bool has_valid_writes = false;
       status = WriteBatchInternal::InsertIntoWithoutSchedulingFlush(
-          &batch, column_family_memtables_.get(), &flush_scheduler_, true,
-          log_number, this, false /* concurrent_memtable_writes */,
-          next_sequence, &has_valid_writes, seq_per_batch_, batch_per_txn_);
-      MaybeIgnoreError(&status);
+          &batch, column_family_memtables_.get(), nullptr, true, log_number,
+          this, false /* concurrent_memtable_writes */, next_sequence,
+          &has_valid_writes, seq_per_batch_, batch_per_txn_);
       if (!status.ok()) {
         // We are treating this as a failure while reading since we read valid
         // blocks that do not form coherent data
@@ -244,7 +236,6 @@ Status DBImplSecondary::RecoverLogFiles(
       return status;
     }
 
-    flush_scheduler_.Clear();
     auto last_sequence = *next_sequence - 1;
     if ((*next_sequence != kMaxSequenceNumber) &&
         (versions_->LastSequence() <= last_sequence)) {
