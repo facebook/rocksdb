@@ -118,6 +118,28 @@ int cloexec_flags(int flags, const EnvOptions* options) {
   return flags;
 }
 
+class PosixDynamicLibrary : public DynamicLibrary {
+public:
+  PosixDynamicLibrary(const std::string & name, void *handle)
+    :  name_(name), handle_(handle) {
+    }
+  ~PosixDynamicLibrary() {
+      dlclose(handle_);
+  }
+  
+  virtual FunctionPtr LoadSymbol(const std::string & sym_name) override {
+    void *symbol = dlsym(handle_, sym_name.c_str());
+    return (FunctionPtr) symbol;
+  }
+  
+  virtual const char *Name() const override {
+    return name_.c_str();
+  }
+private:
+  std::string name_;
+    void *handle_;
+};
+
 class PosixEnv : public Env {
  public:
   PosixEnv();
@@ -730,6 +752,41 @@ class PosixEnv : public Env {
     delete my_lock;
     mutex_lockedFiles.Unlock();
     return result;
+  }
+
+#if defined(OS_WIN)
+#define SHARED_LIB_EXT ".dll"
+#elif defined(OS_MACOSX)
+#define SHARED_LIB_EXT ".dylib"
+#else
+#define SHARED_LIB_EXT ".so"
+#endif
+  Status LoadLibrary(const std::string& libName,
+		     shared_ptr<DynamicLibrary>* result) override {
+    Status status;
+    void *hndl = NULL;
+    std::string fullLibName = libName;
+    if (fullLibName.empty()) {
+      hndl = dlopen(NULL, RTLD_NOW);
+    } else {
+      if (fullLibName.find(SHARED_LIB_EXT) == std::string::npos) {
+	fullLibName = fullLibName + SHARED_LIB_EXT;
+      }
+#if ! defined(OS_WIN)
+      if (fullLibName.compare(0, 3, "lib") != 0) {
+	fullLibName = "lib" + fullLibName;
+      }
+#endif
+      hndl = dlopen(fullLibName.c_str(), RTLD_NOW);
+    }
+    if(hndl == NULL){
+      status = Status::IOError(IOErrorMsg("Failed to open shared library", fullLibName),
+			       dlerror());
+      
+    } else {
+      result->reset(new PosixDynamicLibrary(fullLibName, hndl));
+    }
+    return status;
   }
 
   void Schedule(void (*function)(void* arg1), void* arg, Priority pri = LOW,

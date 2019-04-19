@@ -247,6 +247,21 @@ TEST_F(EnvPosixTest, MemoryMappedFileBuffer) {
   ASSERT_EQ(expected_data, actual_data);
 }
 
+TEST_F(EnvPosixTest, LoadLibrary) {
+  std::shared_ptr<DynamicLibrary> library;
+  std::function<void*(void *, const char*)> function;
+  Status status = env_->LoadLibrary("no-such-library", &library);
+  ASSERT_NOK(status);
+  ASSERT_EQ(nullptr, library.get());
+#if ! defined(OS_WIN)
+  status = env_->LoadLibrary("dl", &library);
+  ASSERT_OK(status);
+  ASSERT_NE(nullptr, library.get());
+  ASSERT_NE(nullptr, library->LoadFunction("dlsym", &function));
+  ASSERT_NE(nullptr, function);
+#endif
+}
+
 TEST_P(EnvPosixTestWithParam, UnSchedule) {
   std::atomic<bool> called(false);
   env_->SetBackgroundThreads(1, Env::LOW);

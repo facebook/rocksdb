@@ -41,6 +41,7 @@
 
 namespace rocksdb {
 
+class DynamicLibrary;
 class FileLock;
 class Logger;
 class RandomAccessFile;
@@ -320,6 +321,14 @@ class Env {
   // REQUIRES: lock was returned by a successful LockFile() call
   // REQUIRES: lock has not already been unlocked.
   virtual Status UnlockFile(FileLock* lock) = 0;
+
+  // Opens `libName` as a dynamic library.  On success, stores a dynamic library
+  // file in `*result`. The file must exist prior to this call.
+  virtual Status LoadLibrary(
+          const std::string& /*libName*/,
+          std::shared_ptr<DynamicLibrary>* /*result*/) {
+    return Status::NotSupported("LoadLibrary is not implemented in this Env");
+  }
 
   // Priority for scheduling job in thread pool
   enum Priority { BOTTOM, LOW, HIGH, USER, TOTAL };
@@ -948,6 +957,28 @@ class FileLock {
   void operator=(const FileLock&);
 };
 
+class DynamicLibrary {
+public:
+  typedef void *(*FunctionPtr)();
+  virtual ~DynamicLibrary() {}
+
+  /** Returns the name of the dynamic library */
+  virtual const char* Name() const = 0;
+
+  /** 
+   * Loads the symbol for sym_name from the library and updates the input function.
+   * Returns the loaded symbol
+   */
+  template<typename T>
+  T * LoadFunction(const std::string & sym_name, std::function<T> *function) {
+    T *symbol =  reinterpret_cast<T *>(LoadSymbol(sym_name));
+    *function = symbol;
+    return symbol;
+  }
+  /** Loads and returns the symbol for sym_name from the library  */
+  virtual FunctionPtr LoadSymbol(const std::string & sym_name) = 0;
+};
+  
 extern void LogFlush(const std::shared_ptr<Logger>& info_log);
 
 extern void Log(const InfoLogLevel log_level,
@@ -1137,6 +1168,10 @@ class EnvWrapper : public Env {
   }
 
   Status UnlockFile(FileLock* l) override { return target_->UnlockFile(l); }
+  
+  Status LoadLibrary(const std::string & libName, std::shared_ptr<DynamicLibrary> *result) override {
+    return target_->LoadLibrary(libName, result);
+  }
 
   void Schedule(void (*f)(void* arg), void* a, Priority pri,
                 void* tag = nullptr, void (*u)(void* arg) = nullptr) override {
