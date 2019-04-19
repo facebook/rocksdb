@@ -5,6 +5,9 @@
 #include "util/filename.h"
 #include "util/random.h"
 #include "util/testharness.h"
+#include "blob_file_reader.h"
+#include "blob_file_iterator.h"
+#include "db_iter.h"
 
 namespace rocksdb {
 namespace titandb {
@@ -105,6 +108,21 @@ class TitanDBTest : public testing::Test {
     }
   }
 
+  std::weak_ptr<BlobStorage> GetBlobStorage(ColumnFamilyHandle* cf_handle = nullptr) {
+    if(cf_handle == nullptr) {
+      cf_handle = db_->DefaultColumnFamily();
+    }
+    std::weak_ptr<BlobStorage> blob;
+    const TitanSnapshot* snapshot = dynamic_cast<const TitanSnapshot*>(
+        db_->GetSnapshot());
+    auto* version(snapshot->current());
+    version->Ref();
+    blob = version->GetBlobStorage(cf_handle->GetID());
+    version->Unref();
+    db_->ReleaseSnapshot(snapshot);
+    return blob;
+  }
+
   void VerifyDB(const std::map<std::string, std::string>& data, ReadOptions ropts = ReadOptions()) {
     for (auto& kv : data) {
       std::string value;
@@ -136,6 +154,35 @@ class TitanDBTest : public testing::Test {
         iter->Next();
       }
       delete iter;
+    }
+  }
+
+  void VerifyBlob(
+      uint64_t file_number,
+      const std::map<std::string, std::string>& data) {
+    // Open blob file and iterate in-file records
+    EnvOptions env_opt;
+    uint64_t file_size = 0;
+    std::map<std::string, std::string> file_data;
+    std::unique_ptr<RandomAccessFileReader> readable_file;
+    std::string file_name = BlobFileName(options_.dirname, file_number);
+    ASSERT_OK(env_->GetFileSize(file_name, &file_size));
+    NewBlobFileReader(file_number, 0, options_, env_opt, env_,
+                      &readable_file);
+    BlobFileIterator iter(std::move(readable_file), 
+                          file_number,
+                          file_size,
+                          options_
+                          );
+    iter.SeekToFirst();
+    for(auto& kv : data) {
+      if(kv.second.size() < options_.min_blob_size) {
+        continue;
+      }
+      ASSERT_EQ(iter.Valid(), true);
+      ASSERT_EQ(iter.key(), kv.first);
+      ASSERT_EQ(iter.value(), kv.second);
+      iter.Next();
     }
   }
 
@@ -237,19 +284,76 @@ TEST_F(TitanDBTest, DbIter) {
 }
 
 TEST_F(TitanDBTest, Snapshot) {
-    Open();
-    std::map<std::string, std::string> data;
-    Put(1, &data);
-    ASSERT_EQ(1, data.size());
+  Open();
+  std::map<std::string, std::string> data;
+  Put(1, &data);
+  ASSERT_EQ(1, data.size());
 
-    const Snapshot* snapshot(db_->GetSnapshot());
-    ReadOptions ropts;
-    ropts.snapshot = snapshot;
+  const Snapshot* snapshot(db_->GetSnapshot());
+  ReadOptions ropts;
+  ropts.snapshot = snapshot;
 
-    VerifyDB(data, ropts);
-    Flush();
-    VerifyDB(data, ropts);
-    db_->ReleaseSnapshot(snapshot);
+  VerifyDB(data, ropts);
+  Flush();
+  VerifyDB(data, ropts);
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(TitanDBTest, IngestExternalFiles) {
+  Open();
+  SstFileWriter sst_file_writer(EnvOptions(), options_);
+  ASSERT_EQ(sst_file_writer.FileSize(), 0);
+
+  const uint64_t kNumEntries = 100;
+  std::map<std::string, std::string> total_data;
+  std::map<std::string, std::string> original_data;
+  std::map<std::string, std::string> ingested_data;
+  for (uint64_t i = 1; i <= kNumEntries; i++) {
+    Put(i, &original_data);
+  }
+  ASSERT_EQ(kNumEntries, original_data.size());
+  total_data.insert(original_data.begin(), original_data.end());
+  VerifyDB(total_data);
+  Flush();
+  VerifyDB(total_data);
+
+  const uint64_t kNumIngestedEntries = 100;
+  // Make sure that keys in SST overlaps with existing keys
+  const uint64_t kIngestedStart = kNumEntries - kNumEntries / 2;
+  std::string sst_file = options_.dirname + "/for_ingest.sst";
+  ASSERT_OK(sst_file_writer.Open(sst_file));
+  for (uint64_t i = 1; i <= kNumIngestedEntries; i++) {
+    std::string key = GenKey(kIngestedStart + i);
+    std::string value = GenValue(kIngestedStart + i);
+    ASSERT_OK(sst_file_writer.Put(key, value));
+    total_data[key] = value;
+    ingested_data.emplace(key, value);
+  }
+  ASSERT_OK(sst_file_writer.Finish());
+  IngestExternalFileOptions ifo;
+  ASSERT_OK(db_->IngestExternalFile({sst_file}, ifo));
+  VerifyDB(total_data);
+  Flush();
+  VerifyDB(total_data);
+  for(auto& handle : cf_handles_) {
+    auto blob = GetBlobStorage(handle);
+    ASSERT_EQ(1, blob.lock()->NumBlobFiles());
+  }
+
+  CompactRangeOptions copt;
+  ASSERT_OK(db_->CompactRange(copt, nullptr, nullptr));
+  VerifyDB(total_data);
+  for(auto& handle : cf_handles_) {
+    auto blob = GetBlobStorage(handle);
+    ASSERT_EQ(2, blob.lock()->NumBlobFiles());
+    std::map<uint64_t, std::weak_ptr<BlobFileMeta>> blob_files;
+    blob.lock()->ExportBlobFiles(blob_files);
+    ASSERT_EQ(2, blob_files.size());
+    auto bf = blob_files.begin();
+    VerifyBlob(bf->first, original_data);
+    bf ++;
+    VerifyBlob(bf->first, ingested_data);
+  }
 }
 
 TEST_F(TitanDBTest, DISABLED_ReadAfterDropCF) {

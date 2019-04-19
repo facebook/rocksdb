@@ -24,13 +24,20 @@ Status BlobStorage::NewPrefetcher(uint64_t file_number,
                                     result);
 }
 
-std::weak_ptr<BlobFileMeta> BlobStorage::FindFile(uint64_t file_number) {
+std::weak_ptr<BlobFileMeta> BlobStorage::FindFile(uint64_t file_number) const {
   auto it = files_.find(file_number);
   if (it != files_.end()) {
     assert(file_number == it->second->file_number());
     return it->second;
   }
   return std::weak_ptr<BlobFileMeta>();
+}
+
+void BlobStorage::ExportBlobFiles(
+    std::map<uint64_t, std::weak_ptr<BlobFileMeta>>& ret) const {
+  for(auto& kv : files_) {
+    ret.emplace(kv.first, std::weak_ptr<BlobFileMeta>(kv.second));
+  }
 }
 
 void BlobStorage::ComputeGCScore() {

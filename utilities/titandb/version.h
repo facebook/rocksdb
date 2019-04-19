@@ -37,9 +37,12 @@ class BlobStorage {
 
   // Finds the blob file meta for the specified file number. It is a
   // corruption if the file doesn't exist in the specific version.
-  std::weak_ptr<BlobFileMeta> FindFile(uint64_t file_number);
+  std::weak_ptr<BlobFileMeta> FindFile(uint64_t file_number) const;
 
-  std::size_t NumBlobFiles() { return files_.size(); }
+  void ExportBlobFiles(
+      std::map<uint64_t, std::weak_ptr<BlobFileMeta>>& ret) const;
+
+  std::size_t NumBlobFiles() const { return files_.size(); }
 
   void MarkAllFilesForGC() {
     for (auto& file : files_) {
