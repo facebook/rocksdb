@@ -109,56 +109,6 @@ DBOptions::DBOptions() {}
 DBOptions::DBOptions(const Options& options)
     : DBOptions(*static_cast<const DBOptions*>(&options)) {}
 
-Status DBOptions::AddExtensionFactory(const std::string & name, const std::string & method) {
-#ifndef ROCKSDB_LITE
-  shared_ptr<DynamicLibrary> library;
-  Status status = env->LoadLibrary(name, &library);
-  if (status.ok()) {
-    std::shared_ptr<ExtensionFactory> factory;
-    status = ExtensionFactory::LoadDynamicFactory(library, method, &factory);
-    if (status.ok()) {
-      extension_factories.push_back(factory);
-    }
-  }
-  return status;
-#else
-#endif
-}
-
-template <typename T>
-Status CreateExtensionObject(const std::string & name,
-			     ExtensionType type,
-			     const DBOptions * dbOptions,
-			     const ColumnFamilyOptions * ,
-			     std::shared_ptr<T> * result) {
-  Extension *extension;
-  for (auto rit = dbOptions->extension_factories.crbegin();
-       rit != dbOptions->extension_factories.crend(); ++rit) {
-    extension = (*rit)->CreateExtensionObject(name, type);
-    if (extension != nullptr) {
-      T * resultptr = reinterpret_cast<T *>(extension);
-      if (resultptr != nullptr) {
-	result->reset(resultptr);
-	return Status::OK();
-      }
-    }
-  }
-  return Status::NotFound("Could not create", name);
-}
-
-Status DBOptions::AddEventListener(const std::string & name) {
-  Status s;
-  std::shared_ptr<EventListener> listener;
-  s = CreateExtensionObject(name, kExtensionEventListener, this, NULL, &listener);
-  if (s.ok()) {
-    listeners.emplace_back(listener);
-  }
-  return s;
-  
-}
-  
-
-
 void DBOptions::Dump(Logger* log) const {
     ImmutableDBOptions(*this).Dump(log);
     MutableDBOptions(*this).Dump(log);

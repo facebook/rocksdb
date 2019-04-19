@@ -99,6 +99,7 @@ static int LockOrUnlock(int fd, bool lock) {
   return value;
 }
 
+
 class PosixFileLock : public FileLock {
  public:
   int fd_;
