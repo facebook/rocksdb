@@ -231,12 +231,12 @@ class DBIter final: public Iterator {
     return Status::InvalidArgument("Unidentified property.");
   }
 
-  void Next() final override;
-  void Prev() override;
-  void Seek(const Slice& target) override;
-  void SeekForPrev(const Slice& target) override;
-  void SeekToFirst() override;
-  void SeekToLast() override;
+  inline void Next() final override;
+  inline void Prev() final override;
+  inline void Seek(const Slice& target) final override;
+  inline void SeekForPrev(const Slice& target) final override;
+  inline void SeekToFirst() final override;
+  inline void SeekToLast() final override;
   Env* env() { return env_; }
   void set_sequence(uint64_t s) {
     sequence_ = s;
