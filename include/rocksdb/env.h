@@ -475,17 +475,6 @@ class Env {
   // Returns the ID of the current thread.
   virtual uint64_t GetThreadID() const;
 
-<<<<<<< HEAD
-=======
-  // Opens `libName` as a dynamic library.  On success, stores a dynamic library
-  // file in `*result`. The file must exist prior to this call.
-  virtual Status LoadLibrary(
-          const std::string& /*libName*/,
-          unique_ptr<DynamicLibrary>* /*result*/) {
-    return Status::NotSupported("LoadLibrary is not implemented in this Env");
-  }
-
->>>>>>> parent of d5e13f165... Add Extension and ExtensionFactory
 // This seems to clash with a macro on Windows, so #undef it here
 #undef GetFreeSpace
 

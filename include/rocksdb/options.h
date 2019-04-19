@@ -928,10 +928,6 @@ struct DBOptions {
   WalFilter* wal_filter = nullptr;
 #endif  // ROCKSDB_LITE
 
-<<<<<<< HEAD
-
-=======
->>>>>>> parent of d5e13f165... Add Extension and ExtensionFactory
   // If true, then DB::Open / CreateColumnFamily / DropColumnFamily
   // / SetOptions will fail if options file is not detected or properly
   // persisted.
