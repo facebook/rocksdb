@@ -15,30 +15,25 @@
 #include "rocksdb/status.h"
 
 namespace rocksdb {
-struct DBOptions;
-struct ColumnFamilyOptions;
+  struct DBOptions;
+  struct ColumnFamilyOptions;
   
-using std::unique_ptr;
-using std::shared_ptr;
+  using std::unique_ptr;
+  using std::shared_ptr;
   
-enum ExtensionType : char {
-  kExtensionEventListener = 0,
-  kExtensionTableFactory,
-  kExtensionUnknown
-};
-
   
-class Extension {
+  class Extension {
   public:
-  virtual ~Extension() {}
-  // Names starting with "rocksdb." are reserved and should not be used
-  // by any clients of this package.
-  virtual const char* Name() const = 0;
-  // Sanitizes the specified DB Options and ColumnFamilyOptions.
-  //
-  // If the function cannot find a way to sanitize the input DB Options,
-  // a non-ok Status will be returned.
-  virtual Status SetOptions(const std::unordered_map<std::string, std::string> &,
+    virtual ~Extension() {}
+    // Names starting with "rocksdb." are reserved and should not be used
+    // by any clients of this package.
+    virtual const char* Name() const = 0;
+    
+    // Sanitizes the specified DB Options and ColumnFamilyOptions.
+    //
+    // If the function cannot find a way to sanitize the input DB Options,
+    // a non-ok Status will be returned.
+    virtual Status SetOptions(const std::unordered_map<std::string, std::string> &,
 			      const DBOptions &,
 			      const ColumnFamilyOptions &) const {
       return Status::OK();
@@ -58,21 +53,15 @@ class Extension {
     
   };
 
-  class DynamicLibrary;
   class EventListener;
   
   class ExtensionFactory {
   public:
-    typedef Extension *(*ExtensionFactoryFunction)(const std::string & name, ExtensionType type);
-    static Status LoadDynamicFactory(const std::shared_ptr<DynamicLibrary> & library, const std::string & method, std::shared_ptr<ExtensionFactory> * factory);
-  public:
     virtual ~ExtensionFactory() { }
-    virtual Extension *CreateExtensionObject(const std::string &,
-					     ExtensionType) {
-      return nullptr;
+    virtual Status LoadEventListener(const std::string & name, std::shared_ptr<EventListener> * ) {
+      return Status::NotFound("Event Listener not found", name);
     }
   };
-
 }  // namespace rocksdb
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_EXTENSION_H_
