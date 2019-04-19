@@ -22,9 +22,11 @@ enum CloudType : unsigned char {
 };
 
 enum LogType : unsigned char {
-  kLogNone = 0x0,       // Not really a log env
-  kLogKinesis = 0x1,    // Kinesis
-  kLogKafka = 0x2,      // Kafka
+  kLogNone = 0x0,  // Not really a log env
+  // Important: Kinesis integration currently has a known issue and is not
+  // supported, see https://github.com/rockset/rocksdb-cloud/issues/35
+  kLogKinesis = 0x1,  // Kinesis
+  kLogKafka = 0x2,    // Kafka
   kLogEnd = 0x3,
 };
 
@@ -38,12 +40,12 @@ class AwsCloudAccessCredentials {
 // Defines parameters required to connect to Kafka
 class KafkaLogOptions {
  public:
-   // The config parameters for the kafka client. At a bare minimum,
-   // there needs to be at least one entry in this map that lists the
-   // kafka brokers. That entry is of the type
-   //  ("metadata.broker.list", "kafka1.rockset.com,kafka2.rockset.com"
-   //
-   std::unordered_map<std::string, std::string> client_config_params;
+  // The config parameters for the kafka client. At a bare minimum,
+  // there needs to be at least one entry in this map that lists the
+  // kafka brokers. That entry is of the type
+  //  ("metadata.broker.list", "kafka1.rockset.com,kafka2.rockset.com"
+  //
+  std::unordered_map<std::string, std::string> client_config_params;
 };
 
 enum class CloudRequestOpType {
@@ -90,7 +92,7 @@ class CloudEnvOptions {
   // If true,  then .log and MANIFEST files are stored in a local file system.
   //           they are not uploaded to any cloud logging system.
   // If false, then .log and MANIFEST files are not stored locally, and are
-  //           stored in a cloud-logging system like Kinesis.
+  //           stored in a cloud-logging system like Kinesis or Kafka.
   // Default:  true
   bool keep_local_log_files;
 
@@ -160,7 +162,7 @@ class CloudEnvOptions {
 
   CloudEnvOptions(
       CloudType _cloud_type = CloudType::kCloudAws,
-      LogType _log_type = LogType::kLogKinesis,
+      LogType _log_type = LogType::kLogKafka,
       bool _keep_local_sst_files = false, bool _keep_local_log_files = true,
       uint64_t _purger_periodicity_millis = 10 * 60 * 1000,
       bool _validate_filesize = true,
@@ -307,4 +309,4 @@ class BucketObjectMetadata {
   std::vector<std::string> pathnames;
 };
 
-}  // namespace
+}  // namespace rocksdb
