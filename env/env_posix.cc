@@ -762,7 +762,7 @@ class PosixEnv : public Env {
 #define SHARED_LIB_EXT ".so"
 #endif
   Status LoadLibrary(const std::string& libName,
-		     shared_ptr<DynamicLibrary>* result) override {
+		     std::shared_ptr<DynamicLibrary>* result) override {
     Status status;
     void *hndl = NULL;
     std::string fullLibName = libName;
