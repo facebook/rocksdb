@@ -1596,17 +1596,15 @@ class DBImpl : public DB {
   // last time stats were dumped to LOG
   std::atomic<uint64_t> last_stats_dump_time_microsec_;
 
-  // In unordered_write mode, this lock protects SwithcMemtable against
-  // concurrent memtable writers.
-  mutable port::RWMutex rwlock_;
   // Number of threads intending to take write lock on rwlock_
-  std::atomic<size_t> writers_cnt_;
-  // The threads that need a read lock on rwlock_, can wait on this cv until the
-  // thread that is holding the write lock releases that. This helps giving
-  // write lock higher priority over read locks.
-  std::condition_variable readers_cv_;
-  // The mutex used by readers_cv_
-  std::mutex readers_mutex_;
+  std::atomic<size_t> writers_cnt_ = {};
+  // The thread that wants to switch memtable, can wait on this cv until the
+  // writes the pending writes to memtable finishes.
+  std::condition_variable switch_cv_;
+  // The mutex used by switch_cv_
+  std::mutex switch_mutex_;
+  // Number of threads intending to write to memtable
+  std::atomic<size_t> pending_memtable_writes_ = {};
 
   // Each flush or compaction gets its own job id. this counter makes sure
   // they're unique

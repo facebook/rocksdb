@@ -2474,7 +2474,7 @@ void rocksdb_options_set_enable_pipelined_write(rocksdb_options_t* opt,
 }
 
 void rocksdb_options_set_unordered_write(rocksdb_options_t* opt,
-                                                unsigned char v) {
+                                         unsigned char v) {
   opt->rep.unordered_write = v;
 }
 

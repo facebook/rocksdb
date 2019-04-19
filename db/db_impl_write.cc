@@ -134,6 +134,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          log_used, log_ref, &seq, sub_batch_cnt,
                          pre_release_callback, DoAssignOrder, DoPublishLastSeq);
     if (!status.ok()) {
+      // TODO(myabandeh): update pending_memtable_writes_
       return status;
     }
     if (seq_used) {
@@ -573,27 +574,6 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
                                       WriteBatch* my_batch,
                                       WriteCallback* callback, uint64_t log_ref,
                                       uint64_t seq) {
-  WriteContext write_context;
-  if (UNLIKELY(!flush_scheduler_.Empty())) {
-    Status status;
-    size_t writers_cnt = writers_cnt_.fetch_add(1);
-    if (writers_cnt == 0) {
-      rwlock_.WriteLock();
-      if (!flush_scheduler_.Empty()) {
-        InstrumentedMutexLock l(&mutex_);
-        status = ScheduleFlushes(&write_context);
-      }
-      rwlock_.WriteUnlock();
-    }
-    writers_cnt = writers_cnt_.fetch_sub(1) - 1;
-    if (writers_cnt == 0) {
-      readers_cv_.notify_all();
-    }
-    if (!status.ok()) {
-      return status;
-    }
-  }
-
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
 
@@ -623,20 +603,48 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
     WriteStatusCheck(w.status);
   }
 
-  if (writers_cnt_.load() != 0) {
-    std::unique_lock<std::mutex> guard(readers_mutex_);
-    readers_cv_.wait(guard, [&] { return writers_cnt_.load() == 0; });
-  }
-  ReadLock l(&rwlock_);
-
   ColumnFamilyMemTablesImpl column_family_memtables(
       versions_->GetColumnFamilySet());
   w.status = WriteBatchInternal::InsertInto(
       &w, w.sequence, &column_family_memtables, &flush_scheduler_,
       write_options.ignore_missing_column_families, 0 /*log_number*/, this,
       true /*concurrent_memtable_writes*/);
+  auto pending_cnt = pending_memtable_writes_.fetch_sub(1) - 1;
+  if (pending_cnt == 0) {
+    switch_cv_.notify_all();
+  }
 
-  return w.FinalStatus();
+  if (!w.FinalStatus().ok()) {
+    return w.FinalStatus();
+  }
+
+  WriteContext write_context;
+  if (UNLIKELY(!flush_scheduler_.Empty())) {
+    Status status;
+    size_t writers_cnt = writers_cnt_.fetch_add(1) + 1;
+    if (writers_cnt == 1) {
+      if (!flush_scheduler_.Empty()) {
+        InstrumentedMutexLock l(&mutex_);
+        WriteThread::Writer wb;
+        // Prevents any more memtable-backed writes to the WAL
+        write_thread_.EnterUnbatched(&wb, &mutex_);
+        // Wait for the ones who already wrote to the WAL to finish their
+        // memtable write.
+        if (pending_memtable_writes_.load() != 0) {
+          std::unique_lock<std::mutex> guard(switch_mutex_);
+          switch_cv_.wait(guard,
+                          [&] { return pending_memtable_writes_.load() == 0; });
+        }
+
+        status = ScheduleFlushes(&write_context);
+
+        write_thread_.ExitUnbatched(&wb);
+      }
+    }
+    writers_cnt = writers_cnt_.fetch_sub(1) - 1;
+    return status;
+  }
+  return Status::OK();
 }
 
 // The 2nd write queue. If enabled it will be used only for WAL-only writes.
@@ -757,6 +765,8 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
     for (auto* writer : write_group) {
       if (!writer->CallbackFailed() && writer->pre_release_callback) {
         assert(writer->sequence != kMaxSequenceNumber);
+        // TODO(myabandeh): what if we are in unordered_writes? should
+        // disalbe_memtable be still set to true?
         const bool DISABLE_MEMTABLE = true;
         Status ws = writer->pre_release_callback->Callback(
             writer->sequence, DISABLE_MEMTABLE, writer->log_used);
@@ -769,6 +779,11 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
   }
   if (publish_last_seq == DoPublishLastSeq) {
     versions_->SetLastSequence(last_sequence + seq_inc);
+  }
+  if (immutable_db_options_.unordered_write) {
+    // TODO(myabandeh): count only the ones with disable_memtable=false
+    size_t wgs = write_group.size;
+    pending_memtable_writes_ += wgs;
   }
   write_thread.ExitAsBatchGroupLeader(write_group, status);
   if (status.ok()) {
@@ -1470,11 +1485,7 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 // REQUIRES: this thread is currently at the front of the writer queue
 Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   mutex_.AssertHeld();
-  WriteThread::Writer w;
   WriteThread::Writer nonmem_w;
-  if (immutable_db_options_.unordered_write) {
-    write_thread_.EnterUnbatched(&w, &mutex_);
-  }
   if (two_write_queues_) {
     // SwitchMemtable is a rare event. To simply the reasoning, we make sure
     // that there is no concurrent thread writing to WAL.
@@ -1599,10 +1610,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     s = error_handler_.GetBGError();
 
     if (two_write_queues_) {
-      nonmem_write_thread_.ExitUnbatched(&w);
-    }
-    if (immutable_db_options_.unordered_write) {
-      write_thread_.ExitUnbatched(&nonmem_w);
+      nonmem_write_thread_.ExitUnbatched(&nonmem_w);
     }
     return s;
   }
@@ -1634,9 +1642,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   NotifyOnMemTableSealed(cfd, memtable_info);
   mutex_.Lock();
 #endif  // ROCKSDB_LITE
-  if (immutable_db_options_.unordered_write) {
-    write_thread_.ExitUnbatched(&w);
-  }
   if (two_write_queues_) {
     nonmem_write_thread_.ExitUnbatched(&nonmem_w);
   }
