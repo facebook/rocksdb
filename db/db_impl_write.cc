@@ -1470,7 +1470,11 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 // REQUIRES: this thread is currently at the front of the writer queue
 Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   mutex_.AssertHeld();
+  WriteThread::Writer w;
   WriteThread::Writer nonmem_w;
+  if (immutable_db_options_.unordered_write) {
+    write_thread_.EnterUnbatched(&w, &mutex_);
+  }
   if (two_write_queues_) {
     // SwitchMemtable is a rare event. To simply the reasoning, we make sure
     // that there is no concurrent thread writing to WAL.
@@ -1595,7 +1599,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     s = error_handler_.GetBGError();
 
     if (two_write_queues_) {
-      nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+      nonmem_write_thread_.ExitUnbatched(&w);
+    }
+    if (immutable_db_options_.unordered_write) {
+      write_thread_.ExitUnbatched(&nonmem_w);
     }
     return s;
   }
@@ -1627,6 +1634,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   NotifyOnMemTableSealed(cfd, memtable_info);
   mutex_.Lock();
 #endif  // ROCKSDB_LITE
+  if (immutable_db_options_.unordered_write) {
+    write_thread_.ExitUnbatched(&w);
+  }
   if (two_write_queues_) {
     nonmem_write_thread_.ExitUnbatched(&nonmem_w);
   }
