@@ -265,11 +265,6 @@ Status TitanDBImpl::CreateColumnFamilies(
   return s;
 }
 
-Status TitanDBImpl::DropColumnFamily(
-    ColumnFamilyHandle* handle) {
-  return DropColumnFamilies({handle});
-}
-
 Status TitanDBImpl::DropColumnFamilies(
     const std::vector<ColumnFamilyHandle*>& handles) {
   std::vector<uint32_t> column_families;

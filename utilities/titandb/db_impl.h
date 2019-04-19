@@ -24,7 +24,6 @@ class TitanDBImpl : public TitanDB {
       const std::vector<TitanCFDescriptor>& descs,
       std::vector<ColumnFamilyHandle*>* handles) override;
 
-  Status DropColumnFamily(ColumnFamilyHandle* handle) override;
   Status DropColumnFamilies(
       const std::vector<ColumnFamilyHandle*>& handles) override;
 
