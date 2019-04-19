@@ -133,8 +133,8 @@ class DBImplSecondary : public DBImpl {
   // method can take long time due to all the I/O and CPU costs.
   Status TryCatchUpWithPrimary() override;
 
-  Status GetLogReader(uint64_t log_number,
-                      log::FragmentBufferedReader** log_reader);
+  Status MaybeInitLogReader(uint64_t log_number,
+                              log::FragmentBufferedReader** log_reader);
 
  private:
   friend class DB;

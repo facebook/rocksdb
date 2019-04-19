@@ -97,7 +97,7 @@ Status DBImplSecondary::Recover(
 
 // try to find log reader using log_number from log_readers_ map, initialize
 // if it doesn't exist
-Status DBImplSecondary::GetLogReader(uint64_t log_number,
+Status DBImplSecondary::MaybeInitLogReader(uint64_t log_number,
                                      log::FragmentBufferedReader** log_reader) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
@@ -180,13 +180,19 @@ Status DBImplSecondary::RecoverLogFiles(
     bool /*read_only*/) {
   mutex_.AssertHeld();
   Status status;
-  // for (auto cfd : *versions_->GetColumnFamilySet()) {
   for (auto log_number : log_numbers) {
     log::FragmentBufferedReader* reader = nullptr;
-    status = GetLogReader(log_number, &reader);
-    if (!status.ok() || reader == nullptr) {
-      continue;
+    status = MaybeInitLogReader(log_number, &reader);
+    if (!status.ok()) {
+      return status;
     }
+    if (reader == nullptr) {
+      return Status::NotFound();
+    }
+  }
+  for (auto log_number : log_numbers) {
+    log::FragmentBufferedReader* reader = log_readers_.at(log_number).get();
+    assert(reader != nullptr);
     // Manually update the file number allocation counter in VersionSet.
     versions_->MarkFileNumberUsed(log_number);
 
