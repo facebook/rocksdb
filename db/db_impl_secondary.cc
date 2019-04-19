@@ -60,16 +60,11 @@ Status DBImplSecondary::Recover(
         versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;
 
     // Recover from all newer log files than the ones named in the
-    // descriptor (new log files may have been added by the previous
-    // incarnation without registering them in the descriptor).
-    //
-    // Note that prev_log_number() is no longer used, but we pay
-    // attention to it in case we are recovering a database
-    // produced by an older version of rocksdb.
+    // descriptor.
     std::vector<std::string> filenames;
     s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
     if (s.IsNotFound()) {
-      return Status::InvalidArgument("IOError while opening wal_dir",
+      return Status::InvalidArgument("Failed to open wal_dir",
                                      immutable_db_options_.wal_dir);
     } else if (!s.ok()) {
       return s;
@@ -88,11 +83,10 @@ Status DBImplSecondary::Recover(
       // Recover in the order in which the logs were generated
       std::sort(logs.begin(), logs.end());
       SequenceNumber next_sequence(kMaxSequenceNumber);
-      s = RecoverLogFiles(logs, &next_sequence, false);
-      if (!s.ok()) {
-        return s;
+      s = RecoverLogFiles(logs, &next_sequence, true /*read_only*/);
+      if (s.ok()) {
+        curr_log_number_ = logs.back();
       }
-      curr_log_number_ = logs.back();
     }
   }
 

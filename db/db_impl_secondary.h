@@ -160,11 +160,11 @@ class DBImplSecondary : public DBImpl {
 
   // cache log readers for each log number, used for continue WAL replay
   // after recovery
-  std::unordered_map<uint64_t, std::unique_ptr<log::FragmentBufferedReader>>
+  std::map<uint64_t, std::unique_ptr<log::FragmentBufferedReader>>
       log_readers_;
-  std::unordered_map<uint64_t, std::unique_ptr<log::Reader::Reporter>>
+  std::map<uint64_t, std::unique_ptr<log::Reader::Reporter>>
       log_reporters_;
-  std::unordered_map<uint64_t, std::unique_ptr<Status>> log_reader_status_;
+  std::map<uint64_t, std::unique_ptr<Status>> log_reader_status_;
 };
 }  // namespace rocksdb
 

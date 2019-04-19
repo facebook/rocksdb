@@ -805,8 +805,6 @@ class DBImpl : public DB {
 
   std::unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
 
-  FlushScheduler flush_scheduler_;
-
   // Increase the sequence number after writing each batch, whether memtable is
   // disabled for that or not. Otherwise the sequence number is increased after
   // writing each key into memtable. This implies that when disable_memtable is
@@ -916,8 +914,6 @@ class DBImpl : public DB {
       bool read_only = false, bool error_if_log_file_exist = false,
       bool error_if_data_exists_in_logs = false);
 
-  void MaybeIgnoreError(Status* s) const;
-
  private:
   friend class DB;
   friend class ErrorHandler;
@@ -967,6 +963,8 @@ class DBImpl : public DB {
   struct PurgeFileInfo;
 
   Status ResumeImpl();
+
+  void MaybeIgnoreError(Status* s) const;
 
   const Status CreateArchivalDirectory();
 
@@ -1433,6 +1431,8 @@ class DBImpl : public DB {
   // Note: This is to protect memtable and compaction. If the batch only writes
   // to the WAL its size need not to be included in this.
   uint64_t last_batch_group_size_;
+
+  FlushScheduler flush_scheduler_;
 
   SnapshotList snapshots_;
 
