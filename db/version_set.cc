@@ -2358,9 +2358,32 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
     for (auto f : files_[level]) {
       if (!f->being_compacted && f->fd.table_reader != nullptr &&
           f->fd.table_reader->GetTableProperties() != nullptr) {
-        auto file_creation_time =
+        // Compute a file's modification time in the following order:
+        // 1. Use file_creation_time table property if it is > 0.
+        // 2. Use creation_time table property if it is > 0.
+        // 3. Use file's mtime metadata if the above two table properties are 0.
+        // Don't consider the file at all if the modification time cannot be
+        // correctly determined based on the above conditions.
+        uint64_t file_modification_time =
             f->fd.table_reader->GetTableProperties()->file_creation_time;
-        if (file_creation_time > 0 && file_creation_time < allowed_time_limit) {
+        if (file_modification_time == 0) {
+          file_modification_time =
+              f->fd.table_reader->GetTableProperties()->creation_time;
+        }
+        if (file_modification_time == 0) {
+          auto file_path = TableFileName(ioptions.cf_paths, f->fd.GetNumber(),
+                                         f->fd.GetPathId());
+          status = ioptions.env->GetFileModificationTime(
+              file_path, &file_modification_time);
+          if (!status.ok()) {
+            ROCKS_LOG_WARN(ioptions.info_log,
+                           "Can't get file modification time: %s: %s",
+                           file_path.c_str(), status.ToString().c_str());
+            continue;
+          }
+        }
+        if (file_modification_time > 0 &&
+            file_modification_time < allowed_time_limit) {
           files_marked_for_periodic_compaction_.emplace_back(level, f);
         }
       }
