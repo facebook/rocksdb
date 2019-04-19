@@ -52,7 +52,7 @@ TEST_F(RepeatableThreadTest, TimedTest) {
   thread.cancel();
 }
 
-TEST_F(RepeatableThreadTest, DISABLED_MockEnvTest) {
+TEST_F(RepeatableThreadTest, MockEnvTest) {
   constexpr uint64_t kSecond = 1000000;  // 1s = 1000000us
   constexpr int kIteration = 3;
   mock_env_->set_current_time(0);  // in seconds
