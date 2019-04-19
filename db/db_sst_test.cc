@@ -318,7 +318,7 @@ TEST_F(DBSSTTest, DBWithSstFileManager) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_F(DBSSTTest, DISABLED_RateLimitedDelete) {
+TEST_F(DBSSTTest, RateLimitedDelete) {
   Destroy(last_options_);
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
       {"DBSSTTest::RateLimitedDelete:1",
@@ -899,7 +899,7 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFiles) {
   }
 }
 
-TEST_F(DBSSTTest, DISABLED_GetTotalSstFilesSize) {
+TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   // We don't propagate oldest-key-time table property on compaction and
   // just write 0 as default value. This affect the exact table size, since
   // we encode table properties as varint64. Force time to be 0 to work around

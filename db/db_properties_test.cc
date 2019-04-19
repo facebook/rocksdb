@@ -1413,7 +1413,7 @@ TEST_F(DBPropertiesTest, EstimateNumKeysUnderflow) {
   ASSERT_EQ(0, num_keys);
 }
 
-TEST_F(DBPropertiesTest, DISABLED_EstimateOldestKeyTime) {
+TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
   std::unique_ptr<MockTimeEnv> mock_env(new MockTimeEnv(Env::Default()));
   uint64_t oldest_key_time = 0;
   Options options;
