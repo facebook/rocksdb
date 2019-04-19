@@ -335,7 +335,7 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
       *ret_block_handle = handle;
     }
     if (verification_buf != nullptr) {
-      size_t len = (size_t)(handle.size() + kBlockTrailerSize);
+      size_t len = static_cast<size_t>(handle.size() + kBlockTrailerSize);
       *verification_buf = rocksdb::AllocateBlock(len, memory_allocator);
       if (verification_buf->get() != nullptr) {
         memcpy(verification_buf->get(), block_contents.data.data(), len);
