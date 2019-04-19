@@ -822,7 +822,6 @@ struct DBOptions {
   // when specific RocksDB event happens.
   std::vector<std::shared_ptr<EventListener>> listeners;
 
-  Status AddEventListener(const std::string & name);
   // If true, then the status of the threads involved in this DB will
   // be tracked and available via GetThreadList() API.
   //
@@ -928,7 +927,6 @@ struct DBOptions {
   // currently.
   WalFilter* wal_filter = nullptr;
 #endif  // ROCKSDB_LITE
-
 
   // If true, then DB::Open / CreateColumnFamily / DropColumnFamily
   // / SetOptions will fail if options file is not detected or properly
