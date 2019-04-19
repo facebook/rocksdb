@@ -59,6 +59,36 @@ class CloudEnvImpl : public CloudEnv {
   // from two RocksDB databases running on the same bucket for a short time).
   Status DeleteInvisibleFiles(const std::string& dbname);
 
+  EnvOptions OptimizeForLogRead(const EnvOptions& env_options) const override {
+    return base_env_->OptimizeForLogRead(env_options);
+  }
+  EnvOptions OptimizeForManifestRead(
+      const EnvOptions& env_options) const override {
+    return base_env_->OptimizeForManifestRead(env_options);
+  }
+  EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
+                                 const DBOptions& db_options) const override {
+    return base_env_->OptimizeForLogWrite(env_options, db_options);
+  }
+  EnvOptions OptimizeForManifestWrite(
+      const EnvOptions& env_options) const override {
+    return base_env_->OptimizeForManifestWrite(env_options);
+  }
+  EnvOptions OptimizeForCompactionTableWrite(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& immutable_ops) const override {
+    return base_env_->OptimizeForCompactionTableWrite(env_options,
+                                                      immutable_ops);
+  }
+  EnvOptions OptimizeForCompactionTableRead(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const override {
+    return base_env_->OptimizeForCompactionTableRead(env_options, db_options);
+  }
+  Status GetFreeSpace(const std::string& path, uint64_t* diskfree) override {
+    return base_env_->GetFreeSpace(path, diskfree);
+  }
+
   CloudManifest* GetCloudManifest() { return cloud_manifest_.get(); }
   void TEST_InitEmptyCloudManifest();
   void TEST_DisableCloudManifest() { test_disable_cloud_manifest_ = true; }
