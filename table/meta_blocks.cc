@@ -18,6 +18,7 @@
 #include "table/table_properties_internal.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -67,6 +68,9 @@ void PropertyBlockBuilder::Add(
 }
 
 void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
+  TEST_SYNC_POINT_CALLBACK("PropertyBlockBuilder::AddTableProperty:Start",
+                           const_cast<TableProperties*>(&props));
+
   Add(TablePropertiesNames::kRawKeySize, props.raw_key_size);
   Add(TablePropertiesNames::kRawValueSize, props.raw_value_size);
   Add(TablePropertiesNames::kDataSize, props.data_size);
