@@ -19,6 +19,7 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "util/autovector.h"
 #include "utilities/transactions/transaction_util.h"
 
 namespace rocksdb {
@@ -318,7 +319,7 @@ class TransactionBaseImpl : public Transaction {
 
   // Stack of the Snapshot saved at each save point.  Saved snapshots may be
   // nullptr if there was no snapshot at the time SetSavePoint() was called.
-  std::unique_ptr<std::stack<TransactionBaseImpl::SavePoint>> save_points_;
+  std::unique_ptr<std::stack<TransactionBaseImpl::SavePoint, autovector<TransactionBaseImpl::SavePoint>>> save_points_;
 
   // Map from column_family_id to map of keys that are involved in this
   // transaction.
