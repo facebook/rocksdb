@@ -97,8 +97,8 @@ Status DBImplSecondary::Recover(
 
 // try to find log reader using log_number from log_readers_ map, initialize
 // if it doesn't exist
-Status DBImplSecondary::MaybeInitLogReader(uint64_t log_number,
-                                     log::FragmentBufferedReader** log_reader) {
+Status DBImplSecondary::MaybeInitLogReader(
+    uint64_t log_number, log::FragmentBufferedReader** log_reader) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
@@ -117,12 +117,10 @@ Status DBImplSecondary::MaybeInitLogReader(uint64_t log_number,
   auto iter = log_readers_.find(log_number);
   // make sure the log file is still present
   if (iter == log_readers_.end() ||
-      iter->second->GetLogNumber() != log_number) {
+      iter->second->reader_->GetLogNumber() != log_number) {
     // delete the obsolete log reader if log number mismatch
     if (iter != log_readers_.end()) {
       log_readers_.erase(iter);
-      log_reporters_.erase(log_number);
-      log_reader_status_.erase(log_number);
     }
     // initialize log reader from log_number
     // TODO: min_log_number_to_keep_2pc check needed?
@@ -145,31 +143,28 @@ Status DBImplSecondary::MaybeInitLogReader(uint64_t log_number,
     }
 
     // Create the log reader.
+    LogReaderContainer* log_reader_container = new LogReaderContainer();
     LogReporter* reporter = new LogReporter();
-    Status* status = new Status();
+    log_reader_container->status_ = new Status();
     reporter->env = env_;
     reporter->info_log = immutable_db_options_.info_log.get();
     reporter->fname = std::move(fname);
-    reporter->status = status;
+    reporter->status = log_reader_container->status_;
+    log_reader_container->reporter_ = reporter;
     // We intentially make log::Reader do checksumming even if
     // paranoid_checks==false so that corruptions cause entire commits
     // to be skipped instead of propagating bad information (like overly
     // large sequence numbers).
+    log_reader_container->reader_ = new log::FragmentBufferedReader(
+        immutable_db_options_.info_log, std::move(file_reader), reporter,
+        true /*checksum*/, log_number);
 
     log_readers_.insert(std::make_pair(
-        log_number,
-        std::unique_ptr<log::FragmentBufferedReader>(
-            new log::FragmentBufferedReader(immutable_db_options_.info_log,
-                                            std::move(file_reader), reporter,
-                                            true /*checksum*/, log_number))));
-    log_reporters_.insert(std::make_pair(
-        log_number, std::unique_ptr<log::Reader::Reporter>(reporter)));
-    log_reader_status_.insert(
-        std::make_pair(log_number, std::unique_ptr<Status>(status)));
+        log_number, std::unique_ptr<LogReaderContainer>(log_reader_container)));
   }
   iter = log_readers_.find(log_number);
   assert(iter != log_readers_.end());
-  *log_reader = iter->second.get();
+  *log_reader = iter->second->reader_;
   return Status::OK();
 }
 
@@ -191,7 +186,7 @@ Status DBImplSecondary::RecoverLogFiles(
     }
   }
   for (auto log_number : log_numbers) {
-    log::FragmentBufferedReader* reader = log_readers_.at(log_number).get();
+    log::FragmentBufferedReader* reader = log_readers_.at(log_number)->reader_;
     assert(reader != nullptr);
     // Manually update the file number allocation counter in VersionSet.
     versions_->MarkFileNumberUsed(log_number);

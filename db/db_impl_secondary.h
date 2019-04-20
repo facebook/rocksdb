@@ -12,6 +12,17 @@
 #include "db/db_impl.h"
 
 namespace rocksdb {
+class LogReaderContainer {
+ public:
+  log::FragmentBufferedReader* reader_;
+  log::Reader::Reporter* reporter_;
+  Status* status_;
+  ~LogReaderContainer() {
+    delete reader_;
+    delete reporter_;
+    delete status_;
+  }
+};
 
 class DBImplSecondary : public DBImpl {
  public:
@@ -134,7 +145,7 @@ class DBImplSecondary : public DBImpl {
   Status TryCatchUpWithPrimary() override;
 
   Status MaybeInitLogReader(uint64_t log_number,
-                              log::FragmentBufferedReader** log_reader);
+                            log::FragmentBufferedReader** log_reader);
 
  private:
   friend class DB;
@@ -160,12 +171,9 @@ class DBImplSecondary : public DBImpl {
 
   // cache log readers for each log number, used for continue WAL replay
   // after recovery
-  std::map<uint64_t, std::unique_ptr<log::FragmentBufferedReader>>
-      log_readers_;
-  std::map<uint64_t, std::unique_ptr<log::Reader::Reporter>>
-      log_reporters_;
-  std::map<uint64_t, std::unique_ptr<Status>> log_reader_status_;
+  std::map<uint64_t, std::unique_ptr<LogReaderContainer>> log_readers_;
 };
+
 }  // namespace rocksdb
 
 #endif  // !ROCKSDB_LITE
