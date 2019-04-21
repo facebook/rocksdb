@@ -1,15 +1,63 @@
 version: 1.0.{build}
+
 image: Visual Studio 2017
+
+environment:
+  JAVA_HOME: C:\Program Files\Java\jdk1.8.0
+  SNAPPY_HOME: %APPVEYOR_BUILD_FOLDER%\thirdparty\snappy-1.1.7
+  SNAPPY_INCLUDE: %SNAPPY_HOME% %SNAPPY_HOME\build
+  SNAPPY_LIB_DEBUG: %SNAPPY_HOME\build\Debug\snappy.lib
+  SNAPPY_LIB_RELEASE: %SNAPPY_HOME\build\Release\snappy.lib
+  LZ4_HOME: %APPVEYOR_BUILD_FOLDER%\thirdparty\lz4-1.8.3
+  LZ4_INCLUDE: %LZ4_HOME%\lib
+  LZ4_LIB_DEBUG: %LZ4_HOME%\visual\VS2010\bin\x64_Debug\liblz4_static.lib
+  LZ4_LIB_RELEASE: %LZ4_HOME%\visual\VS2010\bin\x64_Release\liblz4_static.lib
+  ZSTD_HOME: %APPVEYOR_BUILD_FOLDER%\thirdparty\zstd-1.4.0
+  ZSTD_INCLUDE: %ZSTD_HOME%
+  ZSTD_LIB_DEBUG: %ZSTD_HOME%\contrib\vstudio\vc14\x64\ZlibStatDebug\zlibstat.lib
+  ZSTD_LIB_RELEASE: %ZSTD_HOME%\contrib\vstudio\vc14\x64\ZlibStatRelease\zlibstat.lib
+
+install:
+  - md %APPVEYOR_BUILD_FOLDER%\thirdparty
+  - echo "Building Snappy dependency..."
+  - cd %APPVEYOR_BUILD_FOLDER%\thirdparty
+  - curl -fsS -o snappy-1.1.7i.zip https://github.com/google/snappy/archive/1.1.7.zip
+  - unzip snappy-1.1.7.zip
+  - cd snappy-1.1.7
+  - mkdir build
+  - cd build
+  - cmake -DCMAKE_GENERATOR_PLATFORM=x64 ..
+  - msbuild Snappy.sln /p:Configuration=Debug /p:Platform=x64
+  - msbuild Snappy.sln /p:Configuration=Release /p:Platform=x64
+  - echo "Building LZ4 dependency..."
+  - cd %APPVEYOR_BUILD_FOLDER%\thirdparty
+  - curl -fsS -o lz4-1.8.3.zip https://github.com/lz4/lz4/archive/v1.8.3.zip
+  - unzip lz4-1.8.3.zip
+  - cd lz4-1.8.3\visual\VS2010
+  - devenv lz4.sln /upgrade
+  - msbuild lz4.sln /p:Configuration=Debug /p:Platform=x64
+  - msbuild lz4.sln /p:Configuration=Release /p:Platform=x64
+  - echo "Building ZStd dependency..."
+  - cd %APPVEYOR_BUILD_FOLDER%\thirdparty
+  - curl -fsS -o zstd-1.4.0.zip https://github.com/facebook/zstd/archive/v1.4.0.zip
+  - unzip zstd-1.4.0.zip
+  - cd zstd-1.4.0\build\VS2010
+  - devenv zstd.sln /upgrade
+  - msbuild zstd.sln /p:Configuration=Debug /p:Platform=x64
+  - msbuild zstd.sln /p:Configuration=Release /p:Platform=x64
+
 before_build:
-- md %APPVEYOR_BUILD_FOLDER%\build
-- cd %APPVEYOR_BUILD_FOLDER%\build
-- cmake -G "Visual Studio 15 Win64" -DOPTDBG=1 -DWITH_XPRESS=1 -DPORTABLE=1 -DJNI=1 ..
-- cd ..
+  - md %APPVEYOR_BUILD_FOLDER%\build
+  - cd %APPVEYOR_BUILD_FOLDER%\build
+  - cmake -G "Visual Studio 15 Win64" -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DLZ4=1 -DZSTD=1 -DXPRESS=1 -DJNI ..
+  - cd ..
 build:
   project: build\rocksdb.sln
   parallel: true
   verbosity: normal
+
 test:
+
 test_script:
-- ps: build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,db_test2,db_test,env_basic_test,env_test -Concurrency 8
+  - ps: build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,db_test2,db_test,env_basic_test,env_test -Concurrency 8
 
