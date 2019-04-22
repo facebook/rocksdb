@@ -968,7 +968,7 @@ Status BlockBasedTable::TryReadPropertiesWithGlobalSeqno(
         (*table_properties)
             ->properties_offsets.find(
                 ExternalSstFilePropertyNames::kGlobalSeqno);
-    size_t block_size = props_block_handle.size();
+    size_t block_size = static_cast<size_t>(props_block_handle.size());
     if (seqno_pos_iter != (*table_properties)->properties_offsets.end()) {
       uint64_t global_seqno_offset = seqno_pos_iter->second;
       EncodeFixed64(
