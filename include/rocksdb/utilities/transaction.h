@@ -26,15 +26,21 @@ using TransactionID = uint64_t;
 
 
 /*
-  A range endpoint.
+  class Endpoint allows to define prefix ranges.
 
-  Basic ranges can be defined over rowkeys. A Comparator function defines
-  ordering, a range endpoint is just a rowkey.
+  Prefix ranges are introduced below.
 
-  When one use lexicographic-like ordering, they may want to request "prefix
-  ranges".
+  == Basic Ranges ==
 
-  == Lexicographic ordering ==
+  Basic ranges can be defined over rowkeys. Key Comparator defines ordering of
+  rowkeys, a finite closed range is the same as range over numbers:
+
+    lower_endpoint <= X <= upper_endpoint
+
+  The endpoints here are possible rowkey values.
+
+  == Lexicographic-like ordering ==
+
   A lexicographic-like ordering satisfies these criteria:
 
   1.The ordering is prefix-based. If there are two keys in form
@@ -49,21 +55,26 @@ using TransactionID = uint64_t;
   2. An empty string is less than any other value. From this it follows that
   for any prefix and suffix, {prefix, suffix} > {prefix}.
 
-  3. The row comparison function can compare key prefixes. If the data domain
-  includes keys A and B, then the comparison function is able to compare
+  3. The row comparison function is able to compare key prefixes. If the data
+  domain includes keys A and B, then the comparison function is able to compare
   equal-length prefixes:
 
     min_len= min(byte_length(A), byte_length(B));
-    cmp(Slice(A, min_len), Slice(B, min_len))
+    cmp(Slice(A, min_len), Slice(B, min_len))  // this call is valid
 
   == Prefix ranges ==
-  With lexicographic-like ordering, one may to construct ranges from a
+
+  With lexicographic-like ordering, one may wish to construct ranges from a
   restriction in form prefix=P:
    - the left endpoint would would be {P, inf_suffix=false}
    - the right endpoint would be {P, inf_suffix=true}.
 
-  (TODO: or should we instead of the above just require that [Reverse]ByteWiseComparator
-  is used?)
+  == Supported comparators ==
+  BytewiseComparator and ReverseBytweiseComparator meet the lexicographic-like
+  ordering requirements.
+
+  TODO: RangeLocking will refuse to work if any other comparator is used,
+  although other comparators meeting this property could be used as well.
 */
 
 class Endpoint {
@@ -335,8 +346,6 @@ class Transaction {
   }
 
   // Get a range lock on [start_endpoint; end_endpoint].
-  //  Note: range endpoints generally a use a different data format than
-  //  ranges.
   virtual Status GetRangeLock(ColumnFamilyHandle*,
                               const Endpoint&, const Endpoint&) {
     return Status::NotSupported();
