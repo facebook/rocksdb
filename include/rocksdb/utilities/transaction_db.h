@@ -31,6 +31,20 @@ enum TxnDBWritePolicy {
 
 const uint32_t kInitialMaxDeadlocks = 5;
 
+// A handle to control RangeLockMgr
+class RangeLockMgrHandle {
+ public:
+  virtual int set_max_lock_memory(size_t max_lock_memory) = 0;
+  virtual uint64_t get_escalation_count() = 0;
+  virtual ~RangeLockMgrHandle() {};
+};
+
+// A factory function to create a Range Lock Manager
+RangeLockMgrHandle* NewRangeLockManager(
+  std::shared_ptr<TransactionDBMutexFactory> mutex_factory
+);
+
+
 struct TransactionDBOptions {
   // Specifies the maximum number of keys that can be locked at the same time
   // per column family.
@@ -92,6 +106,9 @@ struct TransactionDBOptions {
   // for the special way that myrocks uses this operands.
   bool rollback_merge_operands = false;
 
+  // If non-null, range locking should be used, and the lock manager is passed.
+  std::shared_ptr<RangeLockMgrHandle> range_lock_mgr;
+
   // If true, the TransactionDB implementation might skip concurrency control
   // unless it is overridden by TransactionOptions or
   // TransactionDBWriteOptimizations. This can be used in conjuction with
@@ -114,9 +131,6 @@ struct TransactionDBOptions {
   // is useful for write unprepared which requires named transactions.
   bool autogenerate_name = false;
 
-  // If true, range_locking_opts specifies options on range locking (filling
-  // the struct is mandatory)
-  bool use_range_locking = false;
 
   friend class WritePreparedTxnDB;
   friend class WriteUnpreparedTxn;
@@ -231,15 +245,6 @@ struct DeadlockPath {
   bool empty() { return path.empty() && !limit_exceeded; }
 };
 
-// Interface for controlling Range Locking manager
-class RangeLockMgrControl {
- public:
-
-  virtual int set_max_lock_memory(size_t max_lock_memory) = 0;
-  virtual uint64_t get_escalation_count() = 0;
-
-  virtual ~RangeLockMgrControl(){}
-};
 
 class TransactionDB : public StackableDB {
  public:
@@ -315,7 +320,6 @@ class TransactionDB : public StackableDB {
   virtual std::vector<DeadlockPath> GetDeadlockInfoBuffer() = 0;
   virtual void SetDeadlockInfoBufferSize(uint32_t target_size) = 0;
   
-  virtual RangeLockMgrControl* get_range_lock_manager() { return nullptr; }
  protected:
   // To Create an TransactionDB, call Open()
   // The ownership of db is transferred to the base StackableDB

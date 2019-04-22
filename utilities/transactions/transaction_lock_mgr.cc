@@ -19,6 +19,7 @@
 #include "util/hash.h"
 #include "util/thread_local.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
+#include "utilities/transactions/transaction_db_mutex_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -742,6 +743,18 @@ void TransactionLockMgr::Resize(uint32_t target_size) {
 // RangeLockMgr - a lock manager that supports range locking
 /////////////////////////////////////////////////////////////////////////////
 
+RangeLockMgrHandle* NewRangeLockManager(
+  std::shared_ptr<TransactionDBMutexFactory> mutex_factory) {
+  std::shared_ptr<TransactionDBMutexFactory> use_factory;
+
+  if (mutex_factory)
+    use_factory = mutex_factory;
+  else
+    use_factory.reset(new TransactionDBMutexFactoryImpl());
+
+  return new RangeLockMgr(use_factory);
+}
+
 /*
   Storage for locks that are currently held by a transaction.
 
@@ -1059,9 +1072,8 @@ int RangeLockMgr::compare_dbt_endpoints(__toku_db*, void *arg,
 }
 
 
-RangeLockMgr::RangeLockMgr(TransactionDB* txn_db,
-                           std::shared_ptr<TransactionDBMutexFactory> mutex_factory) :
-                           my_txn_db_(txn_db), mutex_factory_(mutex_factory) {
+RangeLockMgr::RangeLockMgr(std::shared_ptr<TransactionDBMutexFactory> mutex_factory) :
+  mutex_factory_(mutex_factory) {
   ltm.create(on_create, on_destroy, on_escalate, NULL, mutex_factory_);
   cmp_.create(compare_dbt_endpoints, (void*)this, NULL);
   DICTIONARY_ID dict_id = { .dictid = 1 };

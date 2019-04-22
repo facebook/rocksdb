@@ -37,25 +37,28 @@ PessimisticTransactionDB::PessimisticTransactionDB(
 }
 
 void PessimisticTransactionDB::init_lock_manager() {
-  BaseLockMgr *lock_mgr;
 
-  std::shared_ptr<TransactionDBMutexFactory> mutex_factory = 
-      txn_db_options_.custom_mutex_factory?
-           txn_db_options_.custom_mutex_factory :
-             std::shared_ptr<TransactionDBMutexFactory>(
-               new TransactionDBMutexFactoryImpl());
-
-  if (txn_db_options_.use_range_locking) {
-    range_lock_mgr_= new RangeLockMgr(this, mutex_factory);
-    lock_mgr = range_lock_mgr_;
+  if (txn_db_options_.range_lock_mgr) {
+    // A custom lock manager was provided in options
+    std::shared_ptr<RangeLockMgr> tmp;
+    tmp = std::static_pointer_cast<RangeLockMgr>(txn_db_options_.range_lock_mgr);
+    lock_mgr_= tmp;
+    range_lock_mgr_ = static_cast<RangeLockMgr*>(lock_mgr_.get());
   } else {
-    lock_mgr = new TransactionLockMgr(this, txn_db_options_.num_stripes,
-                                      txn_db_options_.max_num_locks,
-                                      txn_db_options_.max_num_deadlocks,
-                                      mutex_factory);
+    // Use point lock manager by default
+    std::shared_ptr<TransactionDBMutexFactory> mutex_factory =
+        txn_db_options_.custom_mutex_factory?
+             txn_db_options_.custom_mutex_factory :
+               std::shared_ptr<TransactionDBMutexFactory>(
+                 new TransactionDBMutexFactoryImpl());
+    auto lock_mgr = new TransactionLockMgr(this, txn_db_options_.num_stripes,
+                                           txn_db_options_.max_num_locks,
+                                           txn_db_options_.max_num_deadlocks,
+                                           mutex_factory);
+    lock_mgr_.reset(lock_mgr);
     range_lock_mgr_ = nullptr;
   }
-  lock_mgr_ = std::shared_ptr<BaseLockMgr>(lock_mgr);
+  lock_mgr_->init(this);
 }
 
 // Support initiliazing PessimisticTransactionDB from a stackable db

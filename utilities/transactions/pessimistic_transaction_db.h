@@ -147,6 +147,8 @@ class PessimisticTransactionDB : public TransactionDB {
   virtual void UpdateCFComparatorMap(const std::vector<ColumnFamilyHandle*>&) {}
   virtual void UpdateCFComparatorMap(ColumnFamilyHandle*) {}
 
+  // Key Tracking should be done only with point lock manager.
+  bool ShouldDoKeyTracking() const { return range_lock_mgr_ == nullptr; }
  protected:
   DBImpl* db_impl_;
   std::shared_ptr<Logger> info_log_;
@@ -178,12 +180,6 @@ class PessimisticTransactionDB : public TransactionDB {
   // Non-null if we are using a lock manager that supports range locking.
   RangeLockMgr *range_lock_mgr_ = nullptr;
  
- public:
-  // Return Range Lock Manager if we are actually using it
-  virtual RangeLockMgrControl* get_range_lock_manager() override { 
-    return range_lock_mgr_;
-  }
- private:
   void init_lock_manager();
  
   // Must be held when adding/dropping column families.

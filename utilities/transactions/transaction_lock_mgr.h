@@ -76,6 +76,9 @@ class BaseLockMgr {
   // Resize the deadlock info buffer
   virtual void Resize(uint32_t)=0;
   virtual std::vector<DeadlockPath> GetDeadlockInfoBuffer()= 0;
+
+  // TransactionDB will call this at start
+  virtual void init(TransactionDB *db_arg) {};
   virtual ~BaseLockMgr(){}
 
   using LockStatusData = std::unordered_multimap<uint32_t, KeyLockInfo>;
@@ -193,7 +196,7 @@ using namespace toku;
 */
 class RangeLockMgr :
   public BaseLockMgr, 
-  public RangeLockMgrControl {
+  public RangeLockMgrHandle {
  public:
   void AddColumnFamily(uint32_t) override { /* do nothing */ }
   void RemoveColumnFamily(uint32_t) override { /* do nothing */ }
@@ -226,8 +229,12 @@ class RangeLockMgr :
   void UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
               const std::string& key, Env* env) override ;
 
-  RangeLockMgr(TransactionDB* txn_db,
-               std::shared_ptr<TransactionDBMutexFactory> mutex_factory);
+  RangeLockMgr(std::shared_ptr<TransactionDBMutexFactory> mutex_factory);
+
+  void init(TransactionDB *db_arg) override {
+    my_txn_db_ = db_arg;
+  }
+
   ~RangeLockMgr();
 
   int set_max_lock_memory(size_t max_lock_memory) override
