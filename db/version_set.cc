@@ -3252,9 +3252,9 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
       r.push_back(':');
       AppendNumberTo(&r, files[i]->fd.GetFileSize());
       r.append("[");
-      AppendNumberTo(&r, files[i]->smallest_seqno);
+      AppendNumberTo(&r, files[i]->fd.smallest_seqno);
       r.append(" .. ");
-      AppendNumberTo(&r, files[i]->largest_seqno);
+      AppendNumberTo(&r, files[i]->fd.largest_seqno);
       r.append("]");
       r.append("[");
       r.append(files[i]->smallest.DebugString(hex));
