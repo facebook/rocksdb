@@ -1183,6 +1183,14 @@ void rocksdb_flush(
   SaveError(errptr, db->rep->Flush(options->rep));
 }
 
+void rocksdb_flush_cf(
+    rocksdb_t* db,
+    const rocksdb_flushoptions_t* options,
+    rocksdb_column_family_handle_t* column_family,
+    char** errptr) {
+  SaveError(errptr, db->rep->Flush(options->rep, column_family->rep));
+}
+
 void rocksdb_disable_file_deletions(
     rocksdb_t* db,
     char** errptr) {
