@@ -2939,7 +2939,7 @@ TEST_P(ColumnFamilyTest, FlushCloseWALFiles) {
   wo.sync = true;
   ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
 
-  ASSERT_EQ(2, env.num_open_wal_file_.load());
+  ASSERT_EQ(1, env.num_open_wal_file_.load());
 
   sleeping_task.WakeUp();
   sleeping_task.WaitUntilDone();
@@ -2984,7 +2984,7 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   wo.sync = true;
   ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
 
-  ASSERT_EQ(2, env.num_open_wal_file_.load());
+  ASSERT_EQ(1, env.num_open_wal_file_.load());
   // Deleting the iterator will clear its super version, triggering
   // closing all files
   delete it;
@@ -3035,11 +3035,11 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile2) {
   wo.sync = true;
   ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
 
-  ASSERT_EQ(2, env.num_open_wal_file_.load());
+  ASSERT_EQ(1, env.num_open_wal_file_.load());
   // Deleting the iterator will clear its super version, triggering
   // closing all files
   delete it;
-  ASSERT_EQ(2, env.num_open_wal_file_.load());
+  ASSERT_EQ(1, env.num_open_wal_file_.load());
 
   TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile2:0");
   TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile2:1");
@@ -3105,11 +3105,11 @@ TEST_P(ColumnFamilyTest, ForwardIteratorCloseWALFile) {
   ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
 
   env.delete_count_.store(0);
-  ASSERT_EQ(2, env.num_open_wal_file_.load());
+  ASSERT_EQ(1, env.num_open_wal_file_.load());
   // Deleting the iterator will clear its super version, triggering
   // closing all files
   it->Seek("");
-  ASSERT_EQ(2, env.num_open_wal_file_.load());
+  ASSERT_EQ(1, env.num_open_wal_file_.load());
   ASSERT_EQ(0, env.delete_count_.load());
 
   TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile2:0");
