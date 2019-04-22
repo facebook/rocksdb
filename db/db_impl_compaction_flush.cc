@@ -791,7 +791,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
 
   class SnapshotListFetchCallbackImpl : public SnapshotListFetchCallback {
     public:
-    SnapshotListFetchCallbackImpl(InstrumentedMutex* mutex, SnapshotList* snapshotlist, Logger* info_log) :mutex_(mutex), snapshotlist_(snapshotlist), info_log_(info_log) {}
+    SnapshotListFetchCallbackImpl(InstrumentedMutex* mutex, SnapshotList* snapshotlist, uint64_t snap_refresh_nanos, Logger* info_log) : SnapshotListFetchCallback(snap_refresh_nanos), mutex_(mutex), snapshotlist_(snapshotlist), info_log_(info_log) {}
     virtual void Refresh(std::vector<SequenceNumber>* snapshots,
                          SequenceNumber max) override {
       mutex_->Lock();
@@ -980,7 +980,7 @@ Status DBImpl::CompactFilesImpl(
 
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJobStats compaction_job_stats;
-  SnapshotListFetchCallbackImpl fetch_callback(&mutex_, &snapshots_, immutable_db_options_.info_log.get());
+  SnapshotListFetchCallbackImpl fetch_callback(&mutex_, &snapshots_, c->mutable_cf_options()->snap_refresh_nanos, immutable_db_options_.info_log.get());
   CompactionJob compaction_job(
       job_context->job_id, c.get(), immutable_db_options_,
       env_options_for_compaction_, versions_.get(), &shutting_down_,
@@ -2635,7 +2635,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     GetSnapshotContext(job_context, &snapshot_seqs,
                        &earliest_write_conflict_snapshot, &snapshot_checker);
     assert(is_snapshot_supported_ || snapshots_.empty());
-    SnapshotListFetchCallbackImpl fetch_callback(&mutex_, &snapshots_, immutable_db_options_.info_log.get());
+    SnapshotListFetchCallbackImpl fetch_callback(&mutex_, &snapshots_, c->mutable_cf_options()->snap_refresh_nanos, immutable_db_options_.info_log.get());
     CompactionJob compaction_job(
         job_context->job_id, c.get(), immutable_db_options_,
         env_options_for_compaction_, versions_.get(), &shutting_down_,
