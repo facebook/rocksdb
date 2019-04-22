@@ -278,7 +278,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Default: 0.5s
   //
   // Dynamically changeable through SetOptions() API
-  uint64_t snap_refresh_nanos  = 500 * 1000 * 1000; // 0.5s
+  uint64_t snap_refresh_nanos = 500 * 1000 * 1000;  // 0.5s
 
   // Disable automatic compactions. Manual compactions can still
   // be issued on this column family

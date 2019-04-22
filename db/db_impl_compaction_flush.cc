@@ -988,7 +988,9 @@ Status DBImpl::CompactFilesImpl(
 
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJobStats compaction_job_stats;
-  SnapshotListFetchCallbackImpl fetch_callback(&mutex_, &snapshots_, c->mutable_cf_options()->snap_refresh_nanos, immutable_db_options_.info_log.get());
+  SnapshotListFetchCallbackImpl fetch_callback(
+      &mutex_, &snapshots_, c->mutable_cf_options()->snap_refresh_nanos,
+      immutable_db_options_.info_log.get());
   CompactionJob compaction_job(
       job_context->job_id, c.get(), immutable_db_options_,
       env_options_for_compaction_, versions_.get(), &shutting_down_,
@@ -999,7 +1001,8 @@ Status DBImpl::CompactFilesImpl(
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       &compaction_job_stats, Env::Priority::USER,
-      immutable_db_options_.max_subcompactions <=1 ? &fetch_callback : nullptr);
+      immutable_db_options_.max_subcompactions <= 1 ? &fetch_callback
+                                                    : nullptr);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -2643,7 +2646,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     GetSnapshotContext(job_context, &snapshot_seqs,
                        &earliest_write_conflict_snapshot, &snapshot_checker);
     assert(is_snapshot_supported_ || snapshots_.empty());
-    SnapshotListFetchCallbackImpl fetch_callback(&mutex_, &snapshots_, c->mutable_cf_options()->snap_refresh_nanos, immutable_db_options_.info_log.get());
+    SnapshotListFetchCallbackImpl fetch_callback(
+        &mutex_, &snapshots_, c->mutable_cf_options()->snap_refresh_nanos,
+        immutable_db_options_.info_log.get());
     CompactionJob compaction_job(
         job_context->job_id, c.get(), immutable_db_options_,
         env_options_for_compaction_, versions_.get(), &shutting_down_,
@@ -2654,7 +2659,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
         &compaction_job_stats, thread_pri,
-      immutable_db_options_.max_subcompactions <=1 ? &fetch_callback : nullptr);
+        immutable_db_options_.max_subcompactions <= 1 ? &fetch_callback
+                                                      : nullptr);
     compaction_job.Prepare();
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,

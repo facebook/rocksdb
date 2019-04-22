@@ -31,6 +31,7 @@ class SnapshotListFetchCallback {
   static constexpr SnapshotListFetchCallback* kDisabled = nullptr;
 
   virtual ~SnapshotListFetchCallback() {}
+
  private:
   const uint64_t snap_refresh_nanos_;
 };
@@ -84,7 +85,7 @@ class CompactionIterator {
                      const CompactionFilter* compaction_filter = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
                      const SequenceNumber preserve_deletes_seqnum = 0,
-    SnapshotListFetchCallback* snap_list_callback = nullptr);
+                     SnapshotListFetchCallback* snap_list_callback = nullptr);
 
   // Constructor with custom CompactionProxy, used for tests.
   CompactionIterator(InternalIterator* input, const Comparator* cmp,
@@ -98,7 +99,7 @@ class CompactionIterator {
                      const CompactionFilter* compaction_filter = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
                      const SequenceNumber preserve_deletes_seqnum = 0,
-    SnapshotListFetchCallback* snap_list_callback = nullptr);
+                     SnapshotListFetchCallback* snap_list_callback = nullptr);
 
   ~CompactionIterator();
 

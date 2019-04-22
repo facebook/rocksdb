@@ -39,8 +39,7 @@ CompactionIterator::CompactionIterator(
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum,
-    SnapshotListFetchCallback* snap_list_callback
-    )
+    SnapshotListFetchCallback* snap_list_callback)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
           earliest_write_conflict_snapshot, snapshot_checker, env,
@@ -61,8 +60,7 @@ CompactionIterator::CompactionIterator(
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum,
-    SnapshotListFetchCallback* snap_list_callback
-    )
+    SnapshotListFetchCallback* snap_list_callback)
     : input_(input),
       cmp_(cmp),
       merge_helper_(merge_helper),
@@ -82,8 +80,7 @@ CompactionIterator::CompactionIterator(
       merge_out_iter_(merge_helper_),
       current_key_committed_(false),
       snap_list_callback_(snap_list_callback),
-      timer_(env_, true)
-  {
+      timer_(env_, true) {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
   assert(snapshots_ != nullptr);
   bottommost_level_ =
@@ -289,7 +286,7 @@ void CompactionIterator::NextFromInput() {
         // inc next refresh period exponentially (by x4)
         auto next_refresh_threshold = nanos << (snap_refresh_cnt_ * 2);
         const uint64_t elapsed = timer_.ElapsedNanos();
-        if (elapsed > next_refresh_threshold) {  
+        if (elapsed > next_refresh_threshold) {
           snap_list_callback_->Refresh(snapshots_, latest_snapshot_);
           snap_refresh_cnt_++;
           ProcessSnapshotList();
