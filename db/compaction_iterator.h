@@ -28,6 +28,7 @@ class SnapshotListFetchCallback {
   virtual void Refresh(std::vector<SequenceNumber>* snapshots,
                        SequenceNumber max) = 0;
   uint64_t snap_refresh_nanos() { return snap_refresh_nanos_; }
+  static constexpr SnapshotListFetchCallback* kDisabled = nullptr;
 
   virtual ~SnapshotListFetchCallback() {}
  private:

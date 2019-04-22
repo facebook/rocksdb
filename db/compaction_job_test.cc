@@ -263,7 +263,7 @@ class CompactionJobTest : public testing::Test {
         nullptr, nullptr, &mutex_, &error_handler_, snapshots,
         earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
         &event_logger, false, false, dbname_, &compaction_job_stats_,
-        Env::Priority::USER);
+        Env::Priority::USER, SnapshotListFetchCallback::kDisabled);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
     compaction_job.Prepare();

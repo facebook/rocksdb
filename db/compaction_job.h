@@ -73,7 +73,7 @@ class CompactionJob {
                 const std::string& dbname,
                 CompactionJobStats* compaction_job_stats,
                 Env::Priority thread_pri,
-                SnapshotListFetchCallback* snap_list_callback = nullptr
+                SnapshotListFetchCallback* snap_list_callback
                 );
 
   ~CompactionJob();

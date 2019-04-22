@@ -789,25 +789,33 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   return s;
 }
 
-  class SnapshotListFetchCallbackImpl : public SnapshotListFetchCallback {
-    public:
-    SnapshotListFetchCallbackImpl(InstrumentedMutex* mutex, SnapshotList* snapshotlist, uint64_t snap_refresh_nanos, Logger* info_log) : SnapshotListFetchCallback(snap_refresh_nanos), mutex_(mutex), snapshotlist_(snapshotlist), info_log_(info_log) {}
-    virtual void Refresh(std::vector<SequenceNumber>* snapshots,
-                         SequenceNumber max) override {
-      mutex_->Lock();
-      size_t prev = snapshots->size();
-      *snapshots = std::move(snapshotlist_->GetAll(nullptr, max));
-      size_t now = snapshots->size();
-      ROCKS_LOG_DEBUG(info_log_,
-                      "Compaction snapshot count refreshed from %zu to %zu",
-                      prev, now);
-      mutex_->Unlock();
+class SnapshotListFetchCallbackImpl : public SnapshotListFetchCallback {
+ public:
+  SnapshotListFetchCallbackImpl(InstrumentedMutex* mutex,
+                                SnapshotList* snapshotlist,
+                                uint64_t snap_refresh_nanos, Logger* info_log)
+      : SnapshotListFetchCallback(snap_refresh_nanos),
+        mutex_(mutex),
+        snapshotlist_(snapshotlist),
+        info_log_(info_log) {}
+  virtual void Refresh(std::vector<SequenceNumber>* snapshots,
+                       SequenceNumber max) override {
+    size_t prev = snapshots->size();
+    {
+      InstrumentedMutexLock l(mutex_);
+      *snapshots = snapshotlist_->GetAll(nullptr, max);
     }
-    private:
-    InstrumentedMutex* mutex_;
-    SnapshotList* snapshotlist_;
-    Logger* info_log_;
-  };
+    size_t now = snapshots->size();
+    ROCKS_LOG_DEBUG(info_log_,
+                    "Compaction snapshot count refreshed from %zu to %zu", prev,
+                    now);
+  }
+
+ private:
+  InstrumentedMutex* mutex_;
+  SnapshotList* snapshotlist_;
+  Logger* info_log_;
+};
 
 Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
                             ColumnFamilyHandle* column_family,
