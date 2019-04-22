@@ -346,14 +346,14 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
   options.statistics = rocksdb::CreateDBStatistics();
   BlockBasedTableOptions table_options;
   table_options.cache_index_and_filter_blocks = true;
-  // 200 bytes are enough to hold the first two blocks
-  std::shared_ptr<Cache> cache = NewLRUCache(200, 0, false);
+  // 500 bytes are enough to hold the first two blocks
+  std::shared_ptr<Cache> cache = NewLRUCache(500, 0, false);
   table_options.block_cache = cache;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20, true));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, options);
 
-  ASSERT_OK(Put(1, "key", "val"));
+  ASSERT_OK(Put(1, "longer_key", "val"));
   // Create a new table
   ASSERT_OK(Flush(1));
   size_t index_bytes_insert =
@@ -367,7 +367,9 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
   cache->SetCapacity(index_bytes_insert + filter_bytes_insert);
   ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_INDEX_BYTES_EVICT), 0);
   ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_FILTER_BYTES_EVICT), 0);
-  ASSERT_OK(Put(1, "key2", "val"));
+  // Note that the second key needs to be no longer than the first one.
+  // Otherwise the second index block may not fit in cache.
+  ASSERT_OK(Put(1, "key", "val"));
   // Create a new table
   ASSERT_OK(Flush(1));
   // cache evicted old index and block entries

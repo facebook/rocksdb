@@ -1004,13 +1004,16 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(value3, iter->value().ToString());
-  ASSERT_EQ(2, get_perf_context()->bloom_sst_hit_count);
+  // The seek doesn't check block-based bloom filter because last index key
+  // starts with the same prefix we're seeking to.
+  uint64_t expected_hits = use_block_based_builder_ ? 1 : 2;
+  ASSERT_EQ(expected_hits, get_perf_context()->bloom_sst_hit_count);
 
   iter->Seek(key2);
   ASSERT_OK(iter->status());
   ASSERT_TRUE(!iter->Valid());
   ASSERT_EQ(1, get_perf_context()->bloom_sst_miss_count);
-  ASSERT_EQ(2, get_perf_context()->bloom_sst_hit_count);
+  ASSERT_EQ(expected_hits, get_perf_context()->bloom_sst_hit_count);
 }
 
 INSTANTIATE_TEST_CASE_P(BloomStatsTestWithParam, BloomStatsTestWithParam,
@@ -1335,6 +1338,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
     table_options.cache_index_and_filter_blocks = true;
     table_options.filter_policy.reset(
         NewBloomFilterPolicy(10, use_block_based_builder));
+    table_options.index_shortening = BlockBasedTableOptions::
+        IndexShorteningMode::kShortenSeparatorsAndSuccessor;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     DestroyAndReopen(options);
 
