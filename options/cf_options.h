@@ -71,7 +71,6 @@ struct ImmutableCFOptions {
   MemTableRepFactory* memtable_factory;
 
   TableFactory* table_factory;
-  TableFactory* original_table_factory{nullptr};
 
   Options::TablePropertiesCollectorFactories
       table_properties_collector_factories;

@@ -278,7 +278,6 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // implementation of TableBuilder and TableReader with default
   // BlockBasedTableOptions.
   std::shared_ptr<TableFactory> table_factory;
-  std::shared_ptr<TableFactory> original_table_factory{nullptr};
 
   // A list of paths where SST files for this column family
   // can be put into, with its target size. Similar to db_paths,

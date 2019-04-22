@@ -243,13 +243,8 @@ Status SstFileWriter::Open(const std::string& file_path) {
 
   // TODO(tec) : If table_factory is using compressed block cache, we will
   // be adding the external sst file blocks into it, which is wasteful.
-  if (r->ioptions.original_table_factory) {
-    r->builder.reset(r->ioptions.original_table_factory->NewTableBuilder(
-        table_builder_options, cf_id, r->file_writer.get()));
-  } else {
-    r->builder.reset(r->ioptions.table_factory->NewTableBuilder(
-        table_builder_options, cf_id, r->file_writer.get()));
-  }
+  r->builder.reset(r->ioptions.table_factory->NewTableBuilder(
+      table_builder_options, cf_id, r->file_writer.get()));
 
   r->file_info = ExternalSstFileInfo();
   r->file_info.file_path = file_path;

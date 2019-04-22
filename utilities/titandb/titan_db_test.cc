@@ -214,21 +214,11 @@ class TitanDBTest : public testing::Test {
     auto db_options = db->GetDBOptions();
     ImmutableCFOptions immu_cf_options(ImmutableDBOptions(db_options),
                                        cf_options);
-    ASSERT_EQ(original_table_factory, immu_cf_options.original_table_factory);
-    ASSERT_NE(original_table_factory, immu_cf_options.table_factory);
+    ASSERT_EQ(original_table_factory, immu_cf_options.table_factory);
     ASSERT_OK(db->Close());
 
     DeleteDir(env_, options_.dirname);
     DeleteDir(env_, dbname_);
-    DB* db2;
-    ASSERT_OK(DB::Open(options, dbname_, &db2));
-    auto cf_options2 = db2->GetOptions(db2->DefaultColumnFamily());
-    auto db_options2 = db2->GetDBOptions();
-    ImmutableCFOptions immu_cf_options2(ImmutableDBOptions(db_options2),
-                                        cf_options2);
-    ASSERT_EQ(nullptr, immu_cf_options2.original_table_factory);
-    ASSERT_EQ(original_table_factory, immu_cf_options2.table_factory);
-    ASSERT_OK(db2->Close());
   }
 
   Env* env_{Env::Default()};

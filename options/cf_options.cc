@@ -48,9 +48,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       db_paths(db_options.db_paths),
       memtable_factory(cf_options.memtable_factory.get()),
       table_factory(cf_options.table_factory.get()),
-      original_table_factory(cf_options.original_table_factory
-                                 ? cf_options.original_table_factory.get()
-                                 : nullptr),
       table_properties_collector_factories(
           cf_options.table_properties_collector_factories),
       advise_random_on_open(db_options.advise_random_on_open),

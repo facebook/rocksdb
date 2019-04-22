@@ -60,6 +60,9 @@ class TitanDBImpl : public TitanDB {
 
   void ReleaseSnapshot(const Snapshot* snapshot) override;
 
+  using TitanDB::GetOptions;
+  Options GetOptions(ColumnFamilyHandle* column_family) const override;
+
   void OnFlushCompleted(const FlushJobInfo& flush_job_info);
 
   void OnCompactionCompleted(const CompactionJobInfo& compaction_job_info);
@@ -122,6 +125,8 @@ class TitanDBImpl : public TitanDB {
   EnvOptions env_options_;
   DBImpl* db_impl_;
   TitanDBOptions db_options_;
+  std::unordered_map<uint32_t, std::shared_ptr<TableFactory>>
+      original_table_factory_;
 
   std::unique_ptr<VersionSet> vset_;
   std::set<uint64_t> pending_outputs_;

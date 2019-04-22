@@ -145,12 +145,14 @@ Status TitanDBImpl::Open(const std::vector<TitanCFDescriptor>& descs,
   if (s.ok()) {
     for (size_t i = 0; i < descs.size(); i++) {
       auto handle = (*handles)[i];
-      column_families.emplace(handle->GetID(), descs[i].options);
+      uint32_t cf_id = handle->GetID();
+      column_families.emplace(cf_id, descs[i].options);
       db_->DestroyColumnFamilyHandle(handle);
       // Replaces the provided table factory with TitanTableFactory.
-      // While we need to preserve original table_factory for SstFileWriter
-      base_descs[i].options.original_table_factory =
-          base_descs[i].options.table_factory;
+      // While we need to preserve original table_factory for GetOptions.
+      auto& original_table_factory = base_descs[i].options.table_factory;
+      assert(original_table_factory != nullptr);
+      original_table_factory_[cf_id] = original_table_factory;
       base_descs[i].options.table_factory = std::make_shared<TitanTableFactory>(
           db_options_, descs[i].options, blob_manager_);
       // Add TableProperties for collecting statistics GC
@@ -465,6 +467,22 @@ void TitanDBImpl::ReleaseSnapshot(const Snapshot* snapshot) {
   s->current()->Unref();
 
   delete s;
+}
+
+Options TitanDBImpl::GetOptions(ColumnFamilyHandle* column_family) const {
+  assert(column_family != nullptr);
+  Options options = db_->GetOptions(column_family);
+  uint32_t cf_id = column_family->GetID();
+  if (original_table_factory_.count(cf_id) > 0) {
+    options.table_factory = original_table_factory_.at(cf_id);
+  } else {
+    ROCKS_LOG_ERROR(
+        db_options_.info_log,
+        "Failed to get original table factory for column family %s.",
+        column_family->GetName().c_str());
+    options.table_factory.reset();
+  }
+  return options;
 }
 
 void TitanDBImpl::OnFlushCompleted(const FlushJobInfo& flush_job_info) {
