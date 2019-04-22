@@ -189,8 +189,12 @@ class HdfsWritableFile: public WritableFile {
   hdfsFile hfile_;
 
  public:
-  HdfsWritableFile(hdfsFS fileSys, const std::string& fname)
-      : fileSys_(fileSys), filename_(fname) , hfile_(nullptr) {
+  HdfsWritableFile(hdfsFS fileSys, const std::string& fname,
+                   const EnvOptions& options)
+      : WritableFile(options),
+        fileSys_(fileSys),
+        filename_(fname),
+        hfile_(nullptr) {
     ROCKS_LOG_DEBUG(mylog, "[hdfs] HdfsWritableFile opening %s\n",
                     filename_.c_str());
     hfile_ = hdfsOpenFile(fileSys_, filename_.c_str(), O_WRONLY, 0, 0, 0);
@@ -419,7 +423,7 @@ Status HdfsEnv::NewWritableFile(const std::string& fname,
                                 const EnvOptions& /*options*/) {
   result->reset();
   Status s;
-  HdfsWritableFile* f = new HdfsWritableFile(fileSys_, fname);
+  HdfsWritableFile* f = new HdfsWritableFile(fileSys_, fname, options);
   if (f == nullptr || !f->isValid()) {
     delete f;
     *result = nullptr;
@@ -586,7 +590,7 @@ Status HdfsEnv::UnlockFile(FileLock* /*lock*/) { return Status::OK(); }
 
 Status HdfsEnv::NewLogger(const std::string& fname,
                           std::shared_ptr<Logger>* result) {
-  HdfsWritableFile* f = new HdfsWritableFile(fileSys_, fname);
+  HdfsWritableFile* f = new HdfsWritableFile(fileSys_, fname, options);
   if (f == nullptr || !f->isValid()) {
     delete f;
     *result = nullptr;

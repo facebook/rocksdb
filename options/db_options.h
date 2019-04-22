@@ -103,6 +103,7 @@ struct MutableDBOptions {
   int max_open_files;
   uint64_t bytes_per_sync;
   uint64_t wal_bytes_per_sync;
+  bool strict_bytes_per_sync;
   size_t compaction_readahead_size;
 };
 

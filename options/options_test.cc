@@ -141,6 +141,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"writable_file_max_buffer_size", "314159"},
       {"bytes_per_sync", "47"},
       {"wal_bytes_per_sync", "48"},
+      {"strict_bytes_per_sync", "true"},
   };
 
   ColumnFamilyOptions base_cf_opt;
@@ -277,6 +278,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.writable_file_max_buffer_size, 314159);
   ASSERT_EQ(new_db_opt.bytes_per_sync, static_cast<uint64_t>(47));
   ASSERT_EQ(new_db_opt.wal_bytes_per_sync, static_cast<uint64_t>(48));
+  ASSERT_EQ(new_db_opt.strict_bytes_per_sync, true);
 
   db_options_map["max_open_files"] = "hello";
   ASSERT_NOK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
