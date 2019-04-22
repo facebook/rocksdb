@@ -98,7 +98,9 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
                             table_properties.num_entries)
               << "num_data_blocks" << table_properties.num_data_blocks
               << "num_entries" << table_properties.num_entries
-              << "filter_policy_name" << table_properties.filter_policy_name;
+              << "filter_policy_name" << table_properties.filter_policy_name
+              << "creation_time" << table_properties.creation_time
+              << "file_creation_time" << table_properties.file_creation_time;
 
       // user collected properties
       for (const auto& prop : table_properties.readable_properties) {
