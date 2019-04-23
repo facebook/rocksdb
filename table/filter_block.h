@@ -125,6 +125,8 @@ class FilterBlockReader {
                               const bool no_io = false,
                               const Slice* const const_ikey_ptr = nullptr) = 0;
 
+  virtual bool FilterMayMatch(const Slice& /*prefix*/) { return true; }
+
   virtual void PrefixesMayMatch(MultiGetRange* range,
                                 const SliceTransform* prefix_extractor,
                                 uint64_t block_offset = kNotValid,

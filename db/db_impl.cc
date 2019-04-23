@@ -1307,6 +1307,8 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
       !read_options.total_order_seek &&
           super_version->mutable_cf_options.prefix_extractor != nullptr);
   // Collect iterator for mutable mem
+  // TODO: skip memtable iterator when prefix not match.
+  // Currently merge_iter must have at least one child.
   merge_iter_builder.AddIterator(
       super_version->mem->NewIterator(read_options, arena));
   std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter;

@@ -1120,6 +1120,10 @@ struct ReadOptions {
   // Default: nullptr
   const Slice* iterate_upper_bound;
 
+  // Only read keys has the specified prefix when prefix_extraxtor is set.
+  // Default: nullptr
+  const Slice* iterate_prefix;
+
   // If non-zero, NewIterator will create a new table reader which
   // performs reads of the given size. Using a large size (> 2MB) can
   // improve the performance of forward iteration on spinning disks.

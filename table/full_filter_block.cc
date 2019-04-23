@@ -135,6 +135,10 @@ bool FullFilterBlockReader::KeyMayMatch(
   return MayMatch(key);
 }
 
+bool FullFilterBlockReader::FilterMayMatch(const Slice& prefix) {
+  return MayMatch(prefix);
+}
+
 bool FullFilterBlockReader::PrefixMayMatch(
     const Slice& prefix, const SliceTransform* /* prefix_extractor */,
     uint64_t block_offset, const bool /*no_io*/,

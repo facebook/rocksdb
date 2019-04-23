@@ -103,6 +103,8 @@ class FullFilterBlockReader : public FilterBlockReader {
       uint64_t block_offset = kNotValid, const bool no_io = false,
       const Slice* const const_ikey_ptr = nullptr) override;
 
+  virtual bool FilterMayMatch(const Slice& prefix) override;
+
   virtual bool PrefixMayMatch(
       const Slice& prefix, const SliceTransform* prefix_extractor,
       uint64_t block_offset = kNotValid, const bool no_io = false,

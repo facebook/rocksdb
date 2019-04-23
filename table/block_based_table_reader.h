@@ -100,6 +100,10 @@ class BlockBasedTable : public TableReader {
                      const SequenceNumber largest_seqno = 0,
                      TailPrefetchStats* tail_prefetch_stats = nullptr);
 
+  virtual bool FilterMayMatch(
+      const Slice& prefix,
+      const SliceTransform* options_prefix_extractor) override;
+
   bool PrefixMayMatch(const Slice& internal_key,
                       const ReadOptions& read_options,
                       const SliceTransform* options_prefix_extractor,

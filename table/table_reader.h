@@ -99,6 +99,12 @@ class TableReader {
     }
   }
 
+  virtual bool FilterMayMatch(
+      const Slice& /* prefix */,
+      const SliceTransform* /*options_prefix_extractor*/) {
+    return true;
+  }
+
   // Prefetch data corresponding to a give range of keys
   // Typically this functionality is required for table implementations that
   // persists the data on a non volatile storage medium like disk/SSD

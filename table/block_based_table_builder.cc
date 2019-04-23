@@ -1063,9 +1063,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
   std::vector<size_t> compression_dict_sample_lens;
   if (!r->data_block_and_keys_buffers.empty()) {
     while (compression_dict_samples.size() < kSampleBytes) {
-      size_t rand_idx =
-          static_cast<size_t>(
-              generator.Uniform(r->data_block_and_keys_buffers.size()));
+      size_t rand_idx = static_cast<size_t>(
+          generator.Uniform(r->data_block_and_keys_buffers.size()));
       size_t copy_len =
           std::min(kSampleBytes - compression_dict_samples.size(),
                    r->data_block_and_keys_buffers[rand_idx].first.size());

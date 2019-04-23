@@ -127,6 +127,14 @@ class TableCache {
       const FileDescriptor& fd,
       const SliceTransform* prefix_extractor = nullptr);
 
+  // Check if prefix match the specified file's filter.
+  bool PrefixMayMatchFile(const ReadOptions& options, const Slice& prefix,
+                          const InternalKeyComparator& internal_comparator,
+                          const FileMetaData& file_meta,
+                          const SliceTransform* prefix_extractor,
+                          HistogramImpl* file_read_hist, bool skip_filters,
+                          int level);
+
   // Release the handle from a cache
   void ReleaseHandle(Cache::Handle* handle);
 

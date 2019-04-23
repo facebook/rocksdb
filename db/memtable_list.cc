@@ -182,8 +182,11 @@ void MemTableListVersion::AddIterators(
 void MemTableListVersion::AddIterators(
     const ReadOptions& options, MergeIteratorBuilder* merge_iter_builder) {
   for (auto& m : memlist_) {
-    merge_iter_builder->AddIterator(
-        m->NewIterator(options, merge_iter_builder->GetArena()));
+    // Skip imutable memtables by prefix bloom filter.
+    if (!options.iterate_prefix || m->PrefixMayMatch(*options.iterate_prefix)) {
+      merge_iter_builder->AddIterator(
+          m->NewIterator(options, merge_iter_builder->GetArena()));
+    }
   }
 }
 

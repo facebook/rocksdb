@@ -299,6 +299,36 @@ InternalIterator* TableCache::NewIterator(
   return result;
 }
 
+bool TableCache::PrefixMayMatchFile(
+    const ReadOptions& options, const Slice& prefix,
+    const InternalKeyComparator& internal_comparator,
+    const FileMetaData& file_meta, const SliceTransform* prefix_extractor,
+    HistogramImpl* file_read_hist, bool skip_filters, int level) {
+  auto& fd = file_meta.fd;
+  Status s;
+  TableReader* t = fd.table_reader;
+  Cache::Handle* handle = nullptr;
+  bool may_match = true;
+  if (t == nullptr) {
+    s = FindTable(
+        env_options_, internal_comparator, fd, &handle, prefix_extractor,
+        options.read_tier == kBlockCacheTier /* no_io */,
+        true /* record_read_stats */, file_read_hist, skip_filters, level);
+    if (s.ok()) {
+      t = GetTableReaderFromHandle(handle);
+    }
+  }
+  if (s.ok()) {
+    may_match = t->FilterMayMatch(prefix, prefix_extractor);
+  }
+
+  if (handle != nullptr) {
+    ReleaseHandle(handle);
+  }
+
+  return may_match;
+}
+
 Status TableCache::Get(const ReadOptions& options,
                        const InternalKeyComparator& internal_comparator,
                        const FileMetaData& file_meta, const Slice& k,

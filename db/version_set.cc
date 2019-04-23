@@ -879,7 +879,8 @@ class LevelIterator final : public InternalIterator {
       bool should_sample, HistogramImpl* file_read_hist, bool for_compaction,
       bool skip_filters, int level, RangeDelAggregator* range_del_agg,
       const std::vector<AtomicCompactionUnitBoundary>* compaction_boundaries =
-          nullptr)
+          nullptr,
+      bool skip_current_sst_filter = false, int file_index_hint = -1)
       : table_cache_(table_cache),
         read_options_(read_options),
         env_options_(env_options),
@@ -891,7 +892,9 @@ class LevelIterator final : public InternalIterator {
         should_sample_(should_sample),
         for_compaction_(for_compaction),
         skip_filters_(skip_filters),
+        skip_current_sst_filter_(skip_current_sst_filter),
         file_index_(flevel_->num_files),
+        file_index_hint_(file_index_hint),
         level_(level),
         range_del_agg_(range_del_agg),
         pinned_iters_mgr_(nullptr),
@@ -974,12 +977,15 @@ class LevelIterator final : public InternalIterator {
       smallest_compaction_key = (*compaction_boundaries_)[file_index_].smallest;
       largest_compaction_key = (*compaction_boundaries_)[file_index_].largest;
     }
+    bool skip_current_sst_filter = skip_current_sst_filter_;
+    skip_current_sst_filter_ = false;
     return table_cache_->NewIterator(
         read_options_, env_options_, icomparator_, *file_meta.file_metadata,
         range_del_agg_, prefix_extractor_,
-        nullptr /* don't need reference to table */,
-        file_read_hist_, for_compaction_, nullptr /* arena */, skip_filters_,
-        level_, smallest_compaction_key, largest_compaction_key);
+        nullptr /* don't need reference to table */, file_read_hist_,
+        for_compaction_, nullptr /* arena */,
+        skip_current_sst_filter || skip_filters_, level_,
+        smallest_compaction_key, largest_compaction_key);
   }
 
   TableCache* table_cache_;
@@ -995,7 +1001,9 @@ class LevelIterator final : public InternalIterator {
   bool should_sample_;
   bool for_compaction_;
   bool skip_filters_;
+  bool skip_current_sst_filter_;
   size_t file_index_;
+  int file_index_hint_;
   int level_;
   RangeDelAggregator* range_del_agg_;
   IteratorWrapper file_iter_;  // May be nullptr
@@ -1007,7 +1015,13 @@ class LevelIterator final : public InternalIterator {
 };
 
 void LevelIterator::Seek(const Slice& target) {
-  size_t new_file_index = FindFile(icomparator_, *flevel_, target);
+  size_t new_file_index = 0;
+  if (file_index_hint_ >= 0) {
+    new_file_index = size_t(file_index_hint_);
+    file_index_hint_ = -1;
+  } else {
+    new_file_index = FindFile(icomparator_, *flevel_, target);
+  }
 
   InitFileIterator(new_file_index);
   if (file_iter_.iter() != nullptr) {
@@ -1445,11 +1459,37 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
     // Merge all level zero files together since they may overlap
     for (size_t i = 0; i < storage_info_.LevelFilesBrief(0).num_files; i++) {
       const auto& file = storage_info_.LevelFilesBrief(0).files[i];
+
+      // Prune sst files by bound.
+      if ((read_options.iterate_upper_bound &&
+           cfd_->user_comparator()->Compare(
+               *read_options.iterate_upper_bound,
+               ExtractUserKey(file.smallest_key)) <= 0) ||
+          (read_options.iterate_lower_bound &&
+           cfd_->user_comparator()->Compare(*read_options.iterate_lower_bound,
+                                            ExtractUserKey(file.largest_key)) >
+               0)) {
+        continue;
+      }
+
+      // Prune sst files by prefix bloom filter.
+      if (read_options.iterate_prefix &&
+          !table_cache_->PrefixMayMatchFile(
+              read_options, *read_options.iterate_prefix,
+              cfd_->internal_comparator(), *file.file_metadata,
+              mutable_cf_options_.prefix_extractor.get(),
+              cfd_->internal_stats()->GetFileReadHist(0),
+              false /* skip_filters */, 0 /* level */)) {
+        continue;
+      }
+
       merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
-          read_options, soptions, cfd_->internal_comparator(), *file.file_metadata,
-          range_del_agg, mutable_cf_options_.prefix_extractor.get(), nullptr,
-          cfd_->internal_stats()->GetFileReadHist(0), false, arena,
-          false /* skip_filters */, 0 /* level */));
+          read_options, soptions, cfd_->internal_comparator(),
+          *file.file_metadata, range_del_agg,
+          mutable_cf_options_.prefix_extractor.get(), nullptr,
+          cfd_->internal_stats()->GetFileReadHist(0),
+          read_options.iterate_prefix, arena, false /* skip_filters */,
+          0 /* level */));
     }
     if (should_sample) {
       // Count ones for every L0 files. This is done per iterator creation
@@ -1461,17 +1501,66 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
       }
     }
   } else if (storage_info_.LevelFilesBrief(level).num_files > 0) {
-    // For levels > 0, we can use a concatenating iterator that sequentially
-    // walks through the non-overlapping files in the level, opening them
-    // lazily.
-    auto* mem = arena->AllocateAligned(sizeof(LevelIterator));
-    merge_iter_builder->AddIterator(new (mem) LevelIterator(
-        cfd_->table_cache(), read_options, soptions,
-        cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
-        mutable_cf_options_.prefix_extractor.get(), should_sample_file_read(),
-        cfd_->internal_stats()->GetFileReadHist(level),
-        false /* for_compaction */, IsFilterSkipped(level), level,
-        range_del_agg));
+    // Check by bloom fitler first
+    if (read_options.iterate_prefix) {
+      auto level_brief = storage_info_.LevelFilesBrief(level);
+      bool reach_bound = false;
+      int file_index =
+          FindFileInRange(cfd_->internal_comparator(), level_brief,
+                          *read_options.iterate_prefix, 0,
+                          static_cast<uint32_t>(level_brief.num_files));
+      while (file_index < int(level_brief.num_files)) {
+        auto file = level_brief.files[file_index];
+        // Prune files by upper bound
+        if (read_options.iterate_upper_bound &&
+            cfd_->user_comparator()->Compare(
+                ExtractUserKey(file.smallest_key),
+                *read_options.iterate_upper_bound) >= 0) {
+          reach_bound = true;
+          break;
+        }
+
+        // Prune files by prefix bloom filter
+        if (!table_cache_->PrefixMayMatchFile(
+                read_options, *read_options.iterate_prefix,
+                cfd_->internal_comparator(), *file.file_metadata,
+                mutable_cf_options_.prefix_extractor.get(),
+                cfd_->internal_stats()->GetFileReadHist(level),
+                false /* skip_filters */, level /* level */)) {
+          file_index += 1;
+        } else {
+          break;
+        }
+      }
+
+      if (reach_bound || file_index >= int(level_brief.num_files)) {
+        // No necessary create iterator for this level.
+        return;
+      }
+
+      auto* mem = arena->AllocateAligned(sizeof(LevelIterator));
+      merge_iter_builder->AddIterator(new (mem) LevelIterator(
+          cfd_->table_cache(), read_options, soptions,
+          cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
+          mutable_cf_options_.prefix_extractor.get(), should_sample_file_read(),
+          cfd_->internal_stats()->GetFileReadHist(level),
+          false /* for_compaction */, IsFilterSkipped(level), level,
+          range_del_agg, nullptr /* compaction_boundaries */,
+          true /* skip_current_sst_filter */,
+          file_index /* file_index_hint */));
+    } else {
+      // For levels > 0, we can use a concatenating iterator that sequentially
+      // walks through the non-overlapping files in the level, opening them
+      // lazily.
+      auto* mem = arena->AllocateAligned(sizeof(LevelIterator));
+      merge_iter_builder->AddIterator(new (mem) LevelIterator(
+          cfd_->table_cache(), read_options, soptions,
+          cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
+          mutable_cf_options_.prefix_extractor.get(), should_sample_file_read(),
+          cfd_->internal_stats()->GetFileReadHist(level),
+          false /* for_compaction */, IsFilterSkipped(level), level,
+          range_del_agg));
+    }
   }
 }
 

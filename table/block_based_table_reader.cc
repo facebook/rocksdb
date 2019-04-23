@@ -2198,6 +2198,38 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
   return new IndexBlockIter();
 }
 
+bool BlockBasedTable::FilterMayMatch(
+    const Slice& prefix, const SliceTransform* options_prefix_extractor) {
+  if (!rep_->filter_policy) {
+    return true;
+  }
+
+  const SliceTransform* prefix_extractor;
+  if (rep_->table_prefix_extractor == nullptr) {
+    prefix_extractor = options_prefix_extractor;
+  } else {
+    prefix_extractor = rep_->table_prefix_extractor.get();
+  }
+
+  bool may_match = true;
+  auto filter_entry = GetFilter(prefix_extractor);
+  FilterBlockReader* filter = filter_entry.value;
+  if (filter != nullptr) {
+    // Currently only support full filter.
+    if (!filter->IsBlockBased()) {
+      may_match = filter->FilterMayMatch(prefix);
+    }
+  }
+
+  // if rep_->filter_entry is not set, we should call Release(); otherwise
+  // don't call, in this case we have a local copy in rep_->filter_entry,
+  // it's pinned to the cache and will be released in the destructor
+  if (!rep_->filter_entry.IsSet()) {
+    filter_entry.Release(rep_->table_options.block_cache.get());
+  }
+  return may_match;
+}
+
 // This will be broken if the user specifies an unusual implementation
 // of Options.comparator, or if the user specifies an unusual
 // definition of prefixes in BlockBasedTableOptions.filter_policy.
