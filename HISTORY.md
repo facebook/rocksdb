@@ -1,5 +1,10 @@
 # Rocksdb Change Log
 
+## 6.0.2 (4/23/2019)
+## Bug Fixes
+* Fix build failures due to missing JEMALLOC_CXX_THROW macro (#5053)
+* Fix compilation on db_bench_tool.cc on Windows (#5227)
+
 ## 6.0.1 (3/26/2019)
 ### New Features
 ### Public API Change
