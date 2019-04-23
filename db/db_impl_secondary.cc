@@ -99,21 +99,6 @@ Status DBImplSecondary::Recover(
 // if it doesn't exist
 Status DBImplSecondary::MaybeInitLogReader(
     uint64_t log_number, log::FragmentBufferedReader** log_reader) {
-  struct LogReporter : public log::Reader::Reporter {
-    Env* env;
-    Logger* info_log;
-    std::string fname;
-    Status* status;  // nullptr if immutable_db_options_.paranoid_checks==false
-    void Corruption(size_t bytes, const Status& s) override {
-      ROCKS_LOG_WARN(info_log, "%s%s: dropping %d bytes; %s",
-                     (this->status == nullptr ? "(ignoring error) " : ""),
-                     fname.c_str(), static_cast<int>(bytes),
-                     s.ToString().c_str());
-      if (this->status != nullptr && this->status->ok()) {
-        *this->status = s;
-      }
-    }
-  };
   auto iter = log_readers_.find(log_number);
   // make sure the log file is still present
   if (iter == log_readers_.end() ||
@@ -143,22 +128,9 @@ Status DBImplSecondary::MaybeInitLogReader(
     }
 
     // Create the log reader.
-    LogReaderContainer* log_reader_container = new LogReaderContainer();
-    LogReporter* reporter = new LogReporter();
-    log_reader_container->status_ = new Status();
-    reporter->env = env_;
-    reporter->info_log = immutable_db_options_.info_log.get();
-    reporter->fname = std::move(fname);
-    reporter->status = log_reader_container->status_;
-    log_reader_container->reporter_ = reporter;
-    // We intentially make log::Reader do checksumming even if
-    // paranoid_checks==false so that corruptions cause entire commits
-    // to be skipped instead of propagating bad information (like overly
-    // large sequence numbers).
-    log_reader_container->reader_ = new log::FragmentBufferedReader(
-        immutable_db_options_.info_log, std::move(file_reader), reporter,
-        true /*checksum*/, log_number);
-
+    LogReaderContainer* log_reader_container = new LogReaderContainer(
+        env_, immutable_db_options_.info_log, std::move(fname),
+        std::move(file_reader), log_number);
     log_readers_.insert(std::make_pair(
         log_number, std::unique_ptr<LogReaderContainer>(log_reader_container)));
   }
@@ -238,6 +210,12 @@ Status DBImplSecondary::RecoverLogFiles(
       versions_->SetLastPublishedSequence(last_sequence);
       versions_->SetLastSequence(last_sequence);
     }
+  }
+  // remove logreaders from map after successfully recovering the WAL
+  if (log_readers_.size() > 1) {
+    auto eraseIter = log_readers_.begin();
+    std::advance(eraseIter, log_readers_.size() - 1);
+    log_readers_.erase(log_readers_.begin(), eraseIter);
   }
   return status;
 }
