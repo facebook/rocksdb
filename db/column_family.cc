@@ -63,9 +63,14 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
     JobContext job_context(0);
     mutex_->Lock();
     if (cfd_->Unref()) {
+      bool dropped = cfd_->IsDropped();
+
       delete cfd_;
+
+      if (dropped) {
+        db_->FindObsoleteFiles(&job_context, false, true);
+      }
     }
-    db_->FindObsoleteFiles(&job_context, false, true);
     mutex_->Unlock();
     if (job_context.HaveSomethingToDelete()) {
       bool defer_purge =
