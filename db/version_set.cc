@@ -3235,11 +3235,11 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
   for (int level = 0; level < storage_info_.num_levels_; level++) {
     // E.g.,
     //   --- level 1 ---
-    //   17:123['a' .. 'd']
-    //   20:43['e' .. 'g']
+    //   17:123[1 .. 124]['a' .. 'd']
+    //   20:43[124 .. 128]['e' .. 'g']
     //
     // if print_stats=true:
-    //   17:123['a' .. 'd'](4096)
+    //   17:123[1 .. 124]['a' .. 'd'](4096)
     r.append("--- level ");
     AppendNumberTo(&r, level);
     r.append(" --- version# ");
@@ -3251,6 +3251,11 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
       AppendNumberTo(&r, files[i]->fd.GetNumber());
       r.push_back(':');
       AppendNumberTo(&r, files[i]->fd.GetFileSize());
+      r.append("[");
+      AppendNumberTo(&r, files[i]->fd.smallest_seqno);
+      r.append(" .. ");
+      AppendNumberTo(&r, files[i]->fd.largest_seqno);
+      r.append("]");
       r.append("[");
       r.append(files[i]->smallest.DebugString(hex));
       r.append(" .. ");
