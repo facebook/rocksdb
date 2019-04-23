@@ -153,13 +153,12 @@ Status DBImplSecondary::RecoverLogFiles(
     if (!status.ok()) {
       return status;
     }
-    if (reader == nullptr) {
-      return Status::NotFound();
-    }
+    assert(reader != nullptr);
   }
   for (auto log_number : log_numbers) {
-    log::FragmentBufferedReader* reader = log_readers_.at(log_number)->reader_;
-    assert(reader != nullptr);
+    auto it  = log_readers_.find(log_number);
+    assert(it != log_readers_.end());
+    log::FragmentBufferedReader* reader = it->second->reader_;
     // Manually update the file number allocation counter in VersionSet.
     versions_->MarkFileNumberUsed(log_number);
 
