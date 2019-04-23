@@ -281,6 +281,16 @@ std::vector<Status> TransactionBaseImpl::MultiGet(
   return stat_list;
 }
 
+void TransactionBaseImpl::MultiGet(const ReadOptions& read_options,
+                                   ColumnFamilyHandle* column_family,
+                                   const size_t num_keys, const Slice* keys,
+                                   PinnableSlice* values, Status* statuses,
+                                   bool sorted_input) {
+  write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family,
+                                      num_keys, keys, values, statuses,
+                                      sorted_input);
+}
+
 std::vector<Status> TransactionBaseImpl::MultiGetForUpdate(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,

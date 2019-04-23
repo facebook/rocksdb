@@ -205,6 +205,19 @@ class Transaction {
                                        const std::vector<Slice>& keys,
                                        std::vector<std::string>* values) = 0;
 
+  // Batched version of MultiGet - see DBImpl::MultiGet(). Sub-classes are
+  // expected to override this with an implementation that calls
+  // DBImpl::MultiGet()
+  virtual void MultiGet(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        const size_t num_keys, const Slice* keys,
+                        PinnableSlice* values, Status* statuses,
+                        const bool /*sorted_input*/ = false) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Get(options, column_family, keys[i], &values[i]);
+    }
+  }
+
   // Read this key and ensure that this transaction will only
   // be able to be committed if this key is not written outside this
   // transaction after it has first been read (or after the snapshot if a
