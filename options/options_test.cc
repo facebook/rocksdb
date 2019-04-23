@@ -759,6 +759,22 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   block_based_table_options.cache_index_and_filter_blocks = true;
   base_options.table_factory.reset(
       NewBlockBasedTableFactory(block_based_table_options));
+
+  // Register an Env with object registry.
+  const static char* kCustomEnvName = "CustomEnv";
+  class CustomEnv : public EnvWrapper {
+   public:
+    explicit CustomEnv(Env* target) : EnvWrapper(target) {}
+
+    virtual const char* Name() const override { return kCustomEnvName; }
+  };
+  static Registrar<Env> test_reg_env(
+      kCustomEnvName,
+      [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/) {
+        static CustomEnv env(Env::Default());
+        return &env;
+      });
+
   ASSERT_OK(GetOptionsFromString(
       base_options,
       "write_buffer_size=10;max_write_buffer_number=16;"
@@ -766,7 +782,7 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
       "compression_opts=4:5:6;create_if_missing=true;max_open_files=1;"
       "bottommost_compression_opts=5:6:7;create_if_missing=true;max_open_files="
       "1;"
-      "rate_limiter_bytes_per_sec=1024",
+      "rate_limiter_bytes_per_sec=1024;env=CustomEnv",
       &new_options));
 
   ASSERT_EQ(new_options.compression_opts.window_bits, 4);
@@ -795,6 +811,7 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.create_if_missing, true);
   ASSERT_EQ(new_options.max_open_files, 1);
   ASSERT_TRUE(new_options.rate_limiter.get() != nullptr);
+  ASSERT_EQ(kCustomEnvName, std::string(new_options.env->Name()));
 }
 
 TEST_F(OptionsTest, DBOptionsSerialization) {
