@@ -764,7 +764,7 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   const static char* kCustomEnvName = "CustomEnv";
   class CustomEnv : public EnvWrapper {
    public:
-    explicit CustomEnv(Env* target) : EnvWrapper(target) {}
+    explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
 
     virtual const char* Name() const override { return kCustomEnvName; }
   };
