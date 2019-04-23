@@ -2426,6 +2426,36 @@ TEST_P(DBIteratorTest, NonBlockingIterationBugRepro) {
   EXPECT_TRUE(iter->status().IsIncomplete());
 }
 
+TEST_P(DBIteratorTest, PrefixFilter) {
+  BlockBasedTableOptions table_opt;
+  table_opt.filter_policy.reset(NewBloomFilterPolicy(10));
+  Options opt;
+  opt.create_if_missing = true;
+  opt.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  opt.table_factory.reset(new BlockBasedTableFactory(table_opt));
+  DestroyAndReopen(opt);
+  ASSERT_OK(Put("a", "v"));
+  ASSERT_OK(Put("c", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("d", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("e", "v"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_OK(Put("f", "v"));
+  ASSERT_OK(Put("g", "v"));
+  ASSERT_OK(Flush());
+  ReadOptions read_opt;
+  Slice prefix = Slice("b");
+  read_opt.total_order_seek = false;
+  read_opt.iterate_prefix = &prefix;
+  read_opt.prefix_same_as_start = true;
+  auto* iter = NewIterator(read_opt);
+  iter->Seek("b1");
+  ASSERT_FALSE(iter->Valid());
+  delete iter;
+}
+
 TEST_P(DBIteratorTest, SeekBackwardAfterOutOfUpperBound) {
   Put("a", "");
   Put("b", "");
