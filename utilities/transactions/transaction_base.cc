@@ -319,29 +319,6 @@ std::vector<Status> TransactionBaseImpl::MultiGetForUpdate(
   return stat_list;
 }
 
-void TransactionBaseImpl::MultiGetSingleCFForUpdate(
-    const ReadOptions& read_options, ColumnFamilyHandle* column_family,
-    const size_t num_keys, const Slice* keys, PinnableSlice* values,
-    Status* statuses, bool sorted_input) {
-  // Regardless of whether the MultiGet succeeded, track these keys.
-  // Lock all keys
-  for (size_t i = 0; i < num_keys; ++i) {
-    Status s = TryLock(column_family, keys[i], true /* read_only */,
-                       true /* exclusive */);
-    if (!s.ok()) {
-      // Fail entire multiget if we cannot lock all keys
-      for (size_t j = 0; j < num_keys; ++j) {
-        statuses[j] = s;
-      }
-      return;
-    }
-  }
-
-  write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family,
-                                      num_keys, keys, values, statuses,
-                                      sorted_input);
-}
-
 Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options) {
   Iterator* db_iter = db_->NewIterator(read_options);
   assert(db_iter);

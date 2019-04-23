@@ -2735,24 +2735,21 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
   }
 }
 
-TEST_P(TransactionTest, ColumnFamiliesMultiGetBatchedTest) {
+TEST_P(TransactionTest, MultiGetBatchedTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   TransactionOptions txn_options;
   string value;
   Status s;
 
-  ColumnFamilyHandle *cfa, *cfb;
+  ColumnFamilyHandle* cf;
   ColumnFamilyOptions cf_options;
 
-  // Create 2 new column families
-  s = db->CreateColumnFamily(cf_options, "CFA", &cfa);
-  ASSERT_OK(s);
-  s = db->CreateColumnFamily(cf_options, "CFB", &cfb);
+  // Create a new column families
+  s = db->CreateColumnFamily(cf_options, "CF", &cf);
   ASSERT_OK(s);
 
-  delete cfa;
-  delete cfb;
+  delete cf;
   delete db;
   db = nullptr;
 
@@ -2762,16 +2759,27 @@ TEST_P(TransactionTest, ColumnFamiliesMultiGetBatchedTest) {
   column_families.push_back(
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
   // open the new column families
-  column_families.push_back(
-      ColumnFamilyDescriptor("CFA", ColumnFamilyOptions()));
-  column_families.push_back(
-      ColumnFamilyDescriptor("CFB", ColumnFamilyOptions()));
+  cf_options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  column_families.push_back(ColumnFamilyDescriptor("CF", cf_options));
 
   std::vector<ColumnFamilyHandle*> handles;
 
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
   s = TransactionDB::Open(options, txn_db_options, dbname, column_families,
                           &handles, &db);
   assert(db != nullptr);
+  ASSERT_OK(s);
+
+  // Write some data to the db
+  WriteBatch batch;
+  batch.Put(handles[1], "aaa", "val1");
+  batch.Put(handles[1], "bbb", "val2");
+  batch.Put(handles[1], "ccc", "val3");
+  batch.Put(handles[1], "ddd", "foo");
+  batch.Put(handles[1], "eee", "val5");
+  batch.Put(handles[1], "fff", "val6");
+  batch.Merge(handles[1], "ggg", "foo");
+  s = db->Write(write_options, &batch);
   ASSERT_OK(s);
 
   Transaction* txn = db->BeginTransaction(write_options);
@@ -2781,155 +2789,33 @@ TEST_P(TransactionTest, ColumnFamiliesMultiGetBatchedTest) {
   snapshot_read_options.snapshot = txn->GetSnapshot();
 
   txn_options.set_snapshot = true;
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
-  ASSERT_TRUE(txn2);
-
   // Write some data to the db
-  WriteBatch batch;
-  batch.Put("foo", "foo");
-  batch.Put(handles[1], "AAA", "bar");
-  batch.Put(handles[1], "AAAZZZ", "bar");
-  s = db->Write(write_options, &batch);
+  s = txn->Delete(handles[1], "bbb");
   ASSERT_OK(s);
-  db->Delete(write_options, handles[1], "AAAZZZ");
-
-  // These keys do not conflict with existing writes since they're in
-  // different column families
-  s = txn->Delete("AAA");
+  s = txn->Put(handles[1], "ccc", "val3_new");
   ASSERT_OK(s);
-  s = MultiGetForUpdateOne(txn, snapshot_read_options, handles[1], "foo",
-                           &value);
-  ASSERT_TRUE(s.IsNotFound());
-  Slice key_slice("AAAZZZ");
-  Slice value_slices[2] = {Slice("bar"), Slice("bar")};
-  s = txn->Put(handles[2], SliceParts(&key_slice, 1),
-               SliceParts(value_slices, 2));
-  ASSERT_OK(s);
-  ASSERT_EQ(3, txn->GetNumKeys());
-
-  s = txn->Commit();
-  ASSERT_OK(s);
-  s = db->Get(read_options, "AAA", &value);
-  ASSERT_TRUE(s.IsNotFound());
-  s = db->Get(read_options, handles[2], "AAAZZZ", &value);
-  ASSERT_EQ(value, "barbar");
-
-  Slice key_slices[3] = {Slice("AAA"), Slice("ZZ"), Slice("Z")};
-  Slice value_slice("barbarbar");
-
-  s = txn2->Delete(handles[2], "XXX");
-  ASSERT_OK(s);
-  s = txn2->Delete(handles[1], "XXX");
+  s = txn->Merge(handles[1], "ddd", "bar");
   ASSERT_OK(s);
 
-  // This write will cause a conflict with the earlier batch write
-  s = txn2->Put(handles[1], SliceParts(key_slices, 3),
-                SliceParts(&value_slice, 1));
-  ASSERT_TRUE(s.IsBusy());
+  std::vector<Slice> keys = {"aaa", "bbb", "ccc", "ddd", "eee", "fff", "ggg"};
+  std::vector<PinnableSlice> values(keys.size());
+  std::vector<Status> statuses(keys.size());
 
-  s = txn2->Commit();
-  ASSERT_OK(s);
-  // In the above the latest change to AAAZZZ in handles[1] is delete.
-  s = db->Get(read_options, handles[1], "AAAZZZ", &value);
-  ASSERT_TRUE(s.IsNotFound());
-
+  txn->MultiGet(snapshot_read_options, handles[1], keys.size(), keys.data(),
+                values.data(), statuses.data());
+  ASSERT_TRUE(statuses[0].ok());
+  ASSERT_EQ(values[0], "val1");
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_TRUE(statuses[2].ok());
+  ASSERT_EQ(values[2], "val3_new");
+  ASSERT_TRUE(statuses[3].IsMergeInProgress());
+  ASSERT_TRUE(statuses[4].ok());
+  ASSERT_EQ(values[4], "val5");
+  ASSERT_TRUE(statuses[5].ok());
+  ASSERT_EQ(values[5], "val6");
+  ASSERT_TRUE(statuses[6].ok());
+  ASSERT_EQ(values[6], "foo");
   delete txn;
-  delete txn2;
-
-  txn = db->BeginTransaction(write_options, txn_options);
-  snapshot_read_options.snapshot = txn->GetSnapshot();
-
-  txn2 = db->BeginTransaction(write_options, txn_options);
-  ASSERT_TRUE(txn);
-
-  std::vector<ColumnFamilyHandle*> multiget_cfh = {handles[1], handles[2],
-                                                   handles[0], handles[2]};
-  std::vector<Slice> multiget_keys = {"foo", "AAA", "AAAZZZ", "foo"};
-  std::vector<std::string> values(4);
-  std::vector<Status> results;
-
-  {
-    PinnableSlice pin_values[4];
-    results.resize(4);
-    txn->MultiGetSingleCFForUpdate(snapshot_read_options, handles[0], 1,
-                                   &multiget_keys[0], &pin_values[0],
-                                   &results[0]);
-    txn->MultiGetSingleCFForUpdate(snapshot_read_options, handles[1], 1,
-                                   &multiget_keys[1], &pin_values[1],
-                                   &results[1]);
-    txn->MultiGetSingleCFForUpdate(snapshot_read_options, handles[2], 2,
-                                   &multiget_keys[2], &pin_values[2],
-                                   &results[2]);
-    for (int i = 0; i < 4; ++i) {
-      values[i].assign(pin_values[i].data(), pin_values[i].size());
-    }
-  }
-  ASSERT_OK(results[0]);
-  ASSERT_OK(results[1]);
-  ASSERT_OK(results[2]);
-  ASSERT_TRUE(results[3].IsNotFound());
-  ASSERT_EQ(values[0], "foo");
-  ASSERT_EQ(values[1], "bar");
-  ASSERT_EQ(values[2], "barbar");
-
-  s = txn->SingleDelete(handles[2], "ZZZ");
-  ASSERT_OK(s);
-  s = txn->Put(handles[2], "ZZZ", "YYY");
-  ASSERT_OK(s);
-  s = txn->Put(handles[2], "ZZZ", "YYYY");
-  ASSERT_OK(s);
-  s = txn->Delete(handles[2], "ZZZ");
-  ASSERT_OK(s);
-  s = txn->Put(handles[2], "AAAZZZ", "barbarbar");
-  ASSERT_OK(s);
-
-  ASSERT_EQ(5, txn->GetNumKeys());
-
-  // Txn should commit
-  s = txn->Commit();
-  ASSERT_OK(s);
-  s = db->Get(read_options, handles[2], "ZZZ", &value);
-  ASSERT_TRUE(s.IsNotFound());
-
-  // Put a key which will conflict with the next txn using the previous snapshot
-  db->Put(write_options, handles[2], "foo", "000");
-
-  {
-    PinnableSlice pin_values[4];
-    results.resize(4);
-    txn2->MultiGetSingleCFForUpdate(snapshot_read_options, handles[0], 1,
-                                    &multiget_keys[0], &pin_values[0],
-                                    &results[0]);
-    txn2->MultiGetSingleCFForUpdate(snapshot_read_options, handles[1], 1,
-                                    &multiget_keys[1], &pin_values[1],
-                                    &results[1]);
-    txn2->MultiGetSingleCFForUpdate(snapshot_read_options, handles[2], 2,
-                                    &multiget_keys[2], &pin_values[2],
-                                    &results[2]);
-    for (int i = 0; i < 4; ++i) {
-      values[i].assign(pin_values[i].data(), pin_values[i].size());
-    }
-  }
-  // All results should fail since there was a conflict
-  ASSERT_TRUE(results[0].ok());
-  ASSERT_TRUE(results[1].ok());
-  ASSERT_TRUE(results[2].IsBusy());
-  ASSERT_TRUE(results[3].IsBusy());
-
-  s = db->Get(read_options, handles[2], "foo", &value);
-  ASSERT_EQ(value, "000");
-
-  s = txn2->Commit();
-  ASSERT_OK(s);
-
-  s = db->DropColumnFamily(handles[1]);
-  ASSERT_OK(s);
-  s = db->DropColumnFamily(handles[2]);
-  ASSERT_OK(s);
-
-  delete txn;
-  delete txn2;
-
   for (auto handle : handles) {
     delete handle;
   }
@@ -3107,89 +2993,6 @@ TEST_P(TransactionTest, PredicateManyPreceders) {
   ASSERT_OK(s);
 
   s = txn2->GetForUpdate(read_options2, "4", &value);
-  ASSERT_TRUE(s.IsBusy());
-
-  txn2->Rollback();
-
-  delete txn1;
-  delete txn2;
-}
-
-TEST_P(TransactionTest, PredicateManyPrecedersMultiGetBatched) {
-  WriteOptions write_options;
-  ReadOptions read_options1, read_options2;
-  TransactionOptions txn_options;
-  string value;
-  Status s;
-
-  txn_options.set_snapshot = true;
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
-  read_options1.snapshot = txn1->GetSnapshot();
-
-  Transaction* txn2 = db->BeginTransaction(write_options);
-  txn2->SetSnapshot();
-  read_options2.snapshot = txn2->GetSnapshot();
-
-  std::vector<Slice> multiget_keys = {"1", "2", "3"};
-  std::vector<std::string> multiget_values;
-  std::vector<ColumnFamilyHandle*> multiget_cfh;
-  std::vector<Status> results;
-
-  {
-    PinnableSlice pin_values[3];
-    results.resize(3);
-    multiget_values.resize(3);
-    txn1->MultiGetSingleCFForUpdate(read_options1, db->DefaultColumnFamily(), 3,
-                                    multiget_keys.data(), pin_values,
-                                    results.data());
-    for (int i = 0; i < 3; ++i) {
-      multiget_values[i].assign(pin_values[i].data(), pin_values[i].size());
-    }
-  }
-  ASSERT_TRUE(results[1].IsNotFound());
-
-  s = txn2->Put("2", "x");  // Conflict's with txn1's MultiGetForUpdate
-  ASSERT_TRUE(s.IsTimedOut());
-
-  txn2->Rollback();
-
-  multiget_values.clear();
-  {
-    PinnableSlice pin_values[3];
-    results.resize(3);
-    multiget_values.resize(3);
-    txn1->MultiGetSingleCFForUpdate(read_options1, db->DefaultColumnFamily(), 3,
-                                    multiget_keys.data(), pin_values,
-                                    results.data());
-    for (int i = 0; i < 3; ++i) {
-      multiget_values[i].assign(pin_values[i].data(), pin_values[i].size());
-    }
-  }
-  ASSERT_TRUE(results[1].IsNotFound());
-
-  s = txn1->Commit();
-  ASSERT_OK(s);
-
-  delete txn1;
-  delete txn2;
-
-  txn1 = db->BeginTransaction(write_options, txn_options);
-  read_options1.snapshot = txn1->GetSnapshot();
-
-  txn2 = db->BeginTransaction(write_options, txn_options);
-  read_options2.snapshot = txn2->GetSnapshot();
-
-  s = txn1->Put("4", "x");
-  ASSERT_OK(s);
-
-  s = txn2->Delete("4");  // conflict
-  ASSERT_TRUE(s.IsTimedOut());
-
-  s = txn1->Commit();
-  ASSERT_OK(s);
-
-  s = MultiGetForUpdateOne(txn2, read_options2, db->DefaultColumnFamily(), "4",
-                           &value);
   ASSERT_TRUE(s.IsBusy());
 
   txn2->Rollback();

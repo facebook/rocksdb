@@ -114,12 +114,6 @@ class TransactionBaseImpl : public Transaction {
                              keys, values);
   }
 
-  void MultiGetSingleCFForUpdate(const ReadOptions& options,
-                                 ColumnFamilyHandle* column_family,
-                                 const size_t num_keys, const Slice* keys,
-                                 PinnableSlice* values, Status* statuses,
-                                 bool sorted_input = false) override;
-
   Iterator* GetIterator(const ReadOptions& read_options) override;
   Iterator* GetIterator(const ReadOptions& read_options,
                         ColumnFamilyHandle* column_family) override;

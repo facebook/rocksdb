@@ -213,20 +213,8 @@ class Transaction {
                         const size_t num_keys, const Slice* keys,
                         PinnableSlice* values, Status* statuses,
                         const bool /*sorted_input*/ = false) {
-    std::vector<Status> status;
-    std::vector<std::string> vals;
-    std::vector<ColumnFamilyHandle*> column_families(num_keys, column_family);
-    std::vector<Slice> user_keys;
-
     for (size_t i = 0; i < num_keys; ++i) {
-      user_keys.emplace_back(keys[i]);
-    }
-
-    status = MultiGet(options, column_families, user_keys, &vals);
-    std::copy(status.begin(), status.end(), statuses);
-    for (auto& value : vals) {
-      values->PinSelf(value);
-      values++;
+      statuses[i] = Get(options, column_family, keys[i], &values[i]);
     }
   }
 
@@ -295,32 +283,6 @@ class Transaction {
   virtual std::vector<Status> MultiGetForUpdate(
       const ReadOptions& options, const std::vector<Slice>& keys,
       std::vector<std::string>* values) = 0;
-
-  // Batched version of MultiGetForUpdate. Sub-classes are expected to
-  // override this with an implementation that calls DBImpl::MultiGet()
-  // It accepts keys from a single column family, to match the capabilities
-  // of DBImpl::MultiGet(). If an attempt to lock any of the keys fails,
-  // the entire call will be returned with Status::Busy().
-  virtual void MultiGetSingleCFForUpdate(
-      const ReadOptions& options, ColumnFamilyHandle* column_family,
-      const size_t num_keys, const Slice* keys, PinnableSlice* values,
-      Status* statuses, const bool /*sorted_input*/ = false) {
-    std::vector<Status> status;
-    std::vector<std::string> vals;
-    std::vector<ColumnFamilyHandle*> column_families(num_keys, column_family);
-    std::vector<Slice> user_keys;
-
-    for (size_t i = 0; i < num_keys; ++i) {
-      user_keys.emplace_back(keys[i]);
-    }
-
-    status = MultiGet(options, column_families, user_keys, &vals);
-    std::copy(status.begin(), status.end(), statuses);
-    for (auto& value : vals) {
-      values->PinSelf(value);
-      values++;
-    }
-  }
 
   // Returns an iterator that will iterate on all keys in the default
   // column family including both keys in the DB and uncommitted keys in this

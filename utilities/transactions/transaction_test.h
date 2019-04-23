@@ -435,38 +435,6 @@ class TransactionTestBase : public ::testing::Test {
       ASSERT_EQ(kv.second, value);
     }
   }
-
-  Status MultiGetForUpdateOne(Transaction* txn, const ReadOptions& ro,
-                              ColumnFamilyHandle* column_family,
-                              const Slice& key, std::string* value) {
-    std::vector<Slice> keys(1);
-    std::vector<PinnableSlice> values(1);
-    std::vector<Status> statuses(1);
-
-    keys[0] = key;
-    txn->MultiGetSingleCFForUpdate(ro, column_family, 1, keys.data(),
-                                   values.data(), statuses.data());
-    if (statuses[0].ok()) {
-      value->assign(values[0].data(), values[0].size());
-    }
-    return statuses[0];
-  }
-
-  Status MultiGetOne(Transaction* txn, const ReadOptions& ro,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     std::string* value) {
-    std::vector<Slice> keys(1);
-    std::vector<PinnableSlice> values(1);
-    std::vector<Status> statuses(1);
-
-    keys[0] = key;
-    txn->MultiGet(ro, column_family, 1, keys.data(), values.data(),
-                  statuses.data());
-    if (statuses[0].ok()) {
-      value->assign(values[0].data(), values[0].size());
-    }
-    return statuses[0];
-  }
 };
 
 class TransactionTest : public TransactionTestBase,
