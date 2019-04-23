@@ -2676,7 +2676,6 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
                                                    handles[0], handles[2]};
   std::vector<Slice> multiget_keys = {"AAA", "AAAZZZ", "foo", "foo"};
   std::vector<std::string> values(4);
-
   std::vector<Status> results = txn->MultiGetForUpdate(
       snapshot_read_options, multiget_cfh, multiget_keys, &values);
   ASSERT_OK(results[0]);
@@ -2731,6 +2730,92 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
   delete txn;
   delete txn2;
 
+  for (auto handle : handles) {
+    delete handle;
+  }
+}
+
+TEST_P(TransactionTest, MultiGetBatchedTest) {
+  WriteOptions write_options;
+  ReadOptions read_options, snapshot_read_options;
+  TransactionOptions txn_options;
+  string value;
+  Status s;
+
+  ColumnFamilyHandle* cf;
+  ColumnFamilyOptions cf_options;
+
+  // Create a new column families
+  s = db->CreateColumnFamily(cf_options, "CF", &cf);
+  ASSERT_OK(s);
+
+  delete cf;
+  delete db;
+  db = nullptr;
+
+  // open DB with three column families
+  std::vector<ColumnFamilyDescriptor> column_families;
+  // have to open default column family
+  column_families.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
+  // open the new column families
+  cf_options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  column_families.push_back(ColumnFamilyDescriptor("CF", cf_options));
+
+  std::vector<ColumnFamilyHandle*> handles;
+
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  s = TransactionDB::Open(options, txn_db_options, dbname, column_families,
+                          &handles, &db);
+  assert(db != nullptr);
+  ASSERT_OK(s);
+
+  // Write some data to the db
+  WriteBatch batch;
+  batch.Put(handles[1], "aaa", "val1");
+  batch.Put(handles[1], "bbb", "val2");
+  batch.Put(handles[1], "ccc", "val3");
+  batch.Put(handles[1], "ddd", "foo");
+  batch.Put(handles[1], "eee", "val5");
+  batch.Put(handles[1], "fff", "val6");
+  batch.Merge(handles[1], "ggg", "foo");
+  s = db->Write(write_options, &batch);
+  ASSERT_OK(s);
+
+  Transaction* txn = db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn);
+
+  txn->SetSnapshot();
+  snapshot_read_options.snapshot = txn->GetSnapshot();
+
+  txn_options.set_snapshot = true;
+  // Write some data to the db
+  s = txn->Delete(handles[1], "bbb");
+  ASSERT_OK(s);
+  s = txn->Put(handles[1], "ccc", "val3_new");
+  ASSERT_OK(s);
+  s = txn->Merge(handles[1], "ddd", "bar");
+  ASSERT_OK(s);
+
+  std::vector<Slice> keys = {"aaa", "bbb", "ccc", "ddd", "eee", "fff", "ggg"};
+  std::vector<PinnableSlice> values(keys.size());
+  std::vector<Status> statuses(keys.size());
+
+  txn->MultiGet(snapshot_read_options, handles[1], keys.size(), keys.data(),
+                values.data(), statuses.data());
+  ASSERT_TRUE(statuses[0].ok());
+  ASSERT_EQ(values[0], "val1");
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_TRUE(statuses[2].ok());
+  ASSERT_EQ(values[2], "val3_new");
+  ASSERT_TRUE(statuses[3].IsMergeInProgress());
+  ASSERT_TRUE(statuses[4].ok());
+  ASSERT_EQ(values[4], "val5");
+  ASSERT_TRUE(statuses[5].ok());
+  ASSERT_EQ(values[5], "val6");
+  ASSERT_TRUE(statuses[6].ok());
+  ASSERT_EQ(values[6], "foo");
+  delete txn;
   for (auto handle : handles) {
     delete handle;
   }
