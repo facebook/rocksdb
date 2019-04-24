@@ -9,8 +9,8 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <algorithm>
 #include <inttypes.h>
+#include <algorithm>
 #include <map>
 #include <string>
 #include <tuple>
@@ -242,7 +242,10 @@ class CompactionJobTest : public testing::Test {
       const std::vector<std::vector<FileMetaData*>>& input_files,
       const stl_wrappers::KVMap& expected_results,
       const std::vector<SequenceNumber>& snapshots = {},
-      SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber, int output_level = 1, bool verify = true, SnapshotListFetchCallback* snapshot_fetcher = SnapshotListFetchCallback::kDisabled) {
+      SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber,
+      int output_level = 1, bool verify = true,
+      SnapshotListFetchCallback* snapshot_fetcher =
+          SnapshotListFetchCallback::kDisabled) {
     auto cfd = versions_->GetColumnFamilySet()->GetDefault();
 
     size_t num_input_files = 0;
@@ -288,16 +291,16 @@ class CompactionJobTest : public testing::Test {
     mutex_.Unlock();
 
     if (verify) {
-    if (expected_results.size() == 0) {
-      ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
-      ASSERT_EQ(compaction_job_stats_.num_input_files, num_input_files);
-      ASSERT_EQ(compaction_job_stats_.num_output_files, 0U);
-    } else {
-      ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
-      ASSERT_EQ(compaction_job_stats_.num_input_files, num_input_files);
-      ASSERT_EQ(compaction_job_stats_.num_output_files, 1U);
-      mock_table_factory_->AssertLatestFile(expected_results);
-    }
+      if (expected_results.size() == 0) {
+        ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
+        ASSERT_EQ(compaction_job_stats_.num_input_files, num_input_files);
+        ASSERT_EQ(compaction_job_stats_.num_output_files, 0U);
+      } else {
+        ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
+        ASSERT_EQ(compaction_job_stats_.num_input_files, num_input_files);
+        ASSERT_EQ(compaction_job_stats_.num_output_files, 1U);
+        mock_table_factory_->AssertLatestFile(expected_results);
+      }
     }
   }
 
@@ -962,7 +965,10 @@ TEST_F(CompactionJobTest, SnapshotRefresh) {
    public:
     SnapshotListFetchCallbackTest(Random64& rand,
                                   std::vector<SequenceNumber>* snapshots)
-        : SnapshotListFetchCallback(0 /*no time delay*/, 1 /*fetch after each key*/), rand_(rand), snapshots_(snapshots) {}
+        : SnapshotListFetchCallback(0 /*no time delay*/,
+                                    1 /*fetch after each key*/),
+          rand_(rand),
+          snapshots_(snapshots) {}
     virtual void Refresh(std::vector<SequenceNumber>* snapshots,
                          SequenceNumber) override {
       assert(snapshots->size());
@@ -978,29 +984,30 @@ TEST_F(CompactionJobTest, SnapshotRefresh) {
     std::vector<SequenceNumber>* snapshots_;
   } snapshot_fetcher(rand, &db_snapshots);
 
-    std::vector<std::pair<const std::string, std::string>> file1_kvs, file2_kvs;
-    std::array<ValueType, 4> types = {kTypeValue, kTypeDeletion, kTypeSingleDeletion};
-    SequenceNumber last_seq = 0;
-    for (int i = 1; i < 100; i++) {
-      SequenceNumber seq = last_seq + 1;
-      last_seq = seq;
-      if (rand.OneIn(2)) {
+  std::vector<std::pair<const std::string, std::string>> file1_kvs, file2_kvs;
+  std::array<ValueType, 4> types = {kTypeValue, kTypeDeletion,
+                                    kTypeSingleDeletion};
+  SequenceNumber last_seq = 0;
+  for (int i = 1; i < 100; i++) {
+    SequenceNumber seq = last_seq + 1;
+    last_seq = seq;
+    if (rand.OneIn(2)) {
       auto type = types[rand.Uniform(types.size())];
-      file1_kvs.push_back({test::KeyStr("k" + ToString(i), seq, type), "v" + ToString(i)});
-      }
+      file1_kvs.push_back(
+          {test::KeyStr("k" + ToString(i), seq, type), "v" + ToString(i)});
     }
-  auto file1 =
-      mock::MakeMockFile(file1_kvs);
-    for (int i = 1; i < 100; i++) {
-      SequenceNumber seq = last_seq + 1;
-      last_seq++;
-      if (rand.OneIn(2)) {
+  }
+  auto file1 = mock::MakeMockFile(file1_kvs);
+  for (int i = 1; i < 100; i++) {
+    SequenceNumber seq = last_seq + 1;
+    last_seq++;
+    if (rand.OneIn(2)) {
       auto type = types[rand.Uniform(types.size())];
-      file2_kvs.push_back({test::KeyStr("k" + ToString(i), seq, type), "v" + ToString(i)});
-      }
+      file2_kvs.push_back(
+          {test::KeyStr("k" + ToString(i), seq, type), "v" + ToString(i)});
     }
-  auto file2 =
-      mock::MakeMockFile(file2_kvs);
+  }
+  auto file2 = mock::MakeMockFile(file2_kvs);
 
   const bool kVerify = true;
   const int output_level_0 = 0;
@@ -1009,12 +1016,16 @@ TEST_F(CompactionJobTest, SnapshotRefresh) {
   AddMockFile(file2);
   SetLastSequence(last_seq);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
-  RunCompaction({files}, file1, db_snapshots, kMaxSequenceNumber, output_level_0, !kVerify, &snapshot_fetcher);
-  // Now db_snapshots are changed. Run the compaction again without snapshot fetcher but with the updated snapshot list.
+  RunCompaction({files}, file1, db_snapshots, kMaxSequenceNumber,
+                output_level_0, !kVerify, &snapshot_fetcher);
+  // Now db_snapshots are changed. Run the compaction again without snapshot
+  // fetcher but with the updated snapshot list.
   compaction_job_stats_.Reset();
   files = cfd_->current()->storage_info()->LevelFiles(0);
-  RunCompaction({files}, file1, db_snapshots, kMaxSequenceNumber, output_level_0 + 1, !kVerify);
-  // The result should be what we get if we run compaction without snapshot fetcher on the updated list of snapshots
+  RunCompaction({files}, file1, db_snapshots, kMaxSequenceNumber,
+                output_level_0 + 1, !kVerify);
+  // The result should be what we get if we run compaction without snapshot
+  // fetcher on the updated list of snapshots
   auto expected = mock_table_factory_->output();
 
   NewDB();
