@@ -1096,6 +1096,7 @@ DEFINE_int32(prefix_size, 0, "control the prefix size for HashSkipList and "
 DEFINE_int64(keys_per_prefix, 0, "control average number of keys generated "
              "per prefix, 0 means no special handling of the prefix, "
              "i.e. use the prefix comes with the generated random number.");
+DEFINE_bool(use_iterate_prefix, false, "Set iterate_prefix for prefix seek.");
 DEFINE_bool(total_order_seek, false,
             "Enable total order seek regardless of index format.");
 DEFINE_bool(prefix_same_as_start, false,
@@ -5005,6 +5006,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     Slice upper_bound = AllocateKey(&upper_bound_key_guard);
     std::unique_ptr<const char[]> lower_bound_key_guard;
     Slice lower_bound = AllocateKey(&lower_bound_key_guard);
+    Slice iterate_prefix;
 
     Duration duration(FLAGS_duration, reads_);
     char value_buffer[256];
@@ -5025,6 +5027,11 @@ void VerifyDBFromDB(std::string& truth_db_name) {
               FLAGS_num, &upper_bound);
           options.iterate_upper_bound = &upper_bound;
         }
+      }
+
+      if (FLAGS_use_iterate_prefix && prefix_extractor_) {
+        iterate_prefix = prefix_extractor_(key);
+        options.iterate_prefix = &iterate_prefix;
       }
 
       if (!FLAGS_use_tailing_iterator) {
