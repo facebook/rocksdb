@@ -13,22 +13,6 @@
 
 namespace rocksdb {
 
-struct LogReporter : public log::Reader::Reporter {
-  Env* env;
-  Logger* info_log;
-  std::string fname;
-  Status* status;  // nullptr if immutable_db_options_.paranoid_checks==false
-  void Corruption(size_t bytes, const Status& s) override {
-    ROCKS_LOG_WARN(info_log, "%s%s: dropping %d bytes; %s",
-                   (this->status == nullptr ? "(ignoring error) " : ""),
-                   fname.c_str(), static_cast<int>(bytes),
-                   s.ToString().c_str());
-    if (this->status != nullptr && this->status->ok()) {
-      *this->status = s;
-    }
-  }
-};
-
 class LogReaderContainer {
  public:
   LogReaderContainer()
@@ -60,6 +44,22 @@ class LogReaderContainer {
     delete reporter_;
     delete status_;
   }
+ private:
+  struct LogReporter : public log::Reader::Reporter {
+    Env* env;
+    Logger* info_log;
+    std::string fname;
+    Status* status;  // nullptr if immutable_db_options_.paranoid_checks==false
+    void Corruption(size_t bytes, const Status& s) override {
+      ROCKS_LOG_WARN(info_log, "%s%s: dropping %d bytes; %s",
+                     (this->status == nullptr ? "(ignoring error) " : ""),
+                     fname.c_str(), static_cast<int>(bytes),
+                     s.ToString().c_str());
+      if (this->status != nullptr && this->status->ok()) {
+        *this->status = s;
+      }
+    }
+  };
 };
 
 class DBImplSecondary : public DBImpl {

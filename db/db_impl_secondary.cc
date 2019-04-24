@@ -71,10 +71,18 @@ Status DBImplSecondary::Recover(
     }
 
     std::vector<uint64_t> logs;
+    // if log_readers_ is non-empty, it means we have applied all logs with log
+    // numbers smaller than the smallest log in log_readers_, so there is no
+    // need to pass these logs to RecoverLogFiles
+    uint64_t log_number_min = 0;
+    if (log_readers_.size() > 0) {
+      log_number_min = log_readers_.begin()->first;
+    }
     for (size_t i = 0; i < filenames.size(); i++) {
       uint64_t number;
       FileType type;
-      if (ParseFileName(filenames[i], &number, &type) && type == kLogFile) {
+      if (ParseFileName(filenames[i], &number, &type) && type == kLogFile &&
+          number >= log_number_min) {
         logs.push_back(number);
       }
     }
