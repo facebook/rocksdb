@@ -22,6 +22,11 @@ const InternalKeyComparator icmp_(BytewiseComparator());
 }  // namespace
 
 stl_wrappers::KVMap MakeMockFile(
+    std::vector<std::pair<const std::string, std::string>> l) {
+  return stl_wrappers::KVMap(l.begin(), l.end(), stl_wrappers::LessOfComparator(&icmp_));
+}
+
+stl_wrappers::KVMap MakeMockFile(
     std::initializer_list<std::pair<const std::string, std::string>> l) {
   return stl_wrappers::KVMap(l, stl_wrappers::LessOfComparator(&icmp_));
 }

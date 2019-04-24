@@ -978,21 +978,36 @@ TEST_F(CompactionJobTest, SnapshotRefresh) {
     std::vector<SequenceNumber>* snapshots_;
   } snapshot_fetcher(rand, &db_snapshots);
 
+    std::vector<std::pair<const std::string, std::string>> file1_kvs, file2_kvs;
+    std::array<ValueType, 4> types = {kTypeValue, kTypeDeletion, kTypeSingleDeletion};
+    SequenceNumber last_seq = 0;
+    for (int i = 1; i < 100; i++) {
+      SequenceNumber seq = last_seq + 1;
+      last_seq = seq;
+      if (rand.OneIn(2)) {
+      auto type = types[rand.Uniform(types.size())];
+      file1_kvs.push_back({test::KeyStr("k" + ToString(i), seq, type), "v" + ToString(i)});
+      }
+    }
   auto file1 =
-      mock::MakeMockFile({{test::KeyStr("A", 6U, kTypeValue), "val3"},
-                          {test::KeyStr("a", 5U, kTypeDeletion), ""},
-                          {test::KeyStr("a", 4U, kTypeValue, true), "val"}});
+      mock::MakeMockFile(file1_kvs);
+    for (int i = 1; i < 100; i++) {
+      SequenceNumber seq = last_seq + 1;
+      last_seq++;
+      if (rand.OneIn(2)) {
+      auto type = types[rand.Uniform(types.size())];
+      file2_kvs.push_back({test::KeyStr("k" + ToString(i), seq, type), "v" + ToString(i)});
+      }
+    }
   auto file2 =
-      mock::MakeMockFile({{test::KeyStr("b", 3U, kTypeSingleDeletion), ""},
-                          {test::KeyStr("b", 2U, kTypeValue, true), "val"},
-                          {test::KeyStr("c", 1U, kTypeValue), "val2"}});
+      mock::MakeMockFile(file2_kvs);
 
   const bool kVerify = true;
   const int output_level_0 = 0;
   NewDB();
   AddMockFile(file1);
   AddMockFile(file2);
-  SetLastSequence(6U);
+  SetLastSequence(last_seq);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
   RunCompaction({files}, file1, db_snapshots, kMaxSequenceNumber, output_level_0, !kVerify, &snapshot_fetcher);
   // Now db_snapshots are changed. Run the compaction again without snapshot fetcher but with the updated snapshot list.
@@ -1005,7 +1020,7 @@ TEST_F(CompactionJobTest, SnapshotRefresh) {
   NewDB();
   AddMockFile(file1);
   AddMockFile(file2);
-  SetLastSequence(6U);
+  SetLastSequence(last_seq);
   files = cfd_->current()->storage_info()->LevelFiles(0);
   RunCompaction({files}, expected, db_snapshots, kMaxSequenceNumber);
 }

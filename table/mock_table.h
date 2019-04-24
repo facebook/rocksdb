@@ -28,6 +28,8 @@ namespace mock {
 
 stl_wrappers::KVMap MakeMockFile(
     std::initializer_list<std::pair<const std::string, std::string>> l = {});
+stl_wrappers::KVMap MakeMockFile(
+    std::vector<std::pair<const std::string, std::string>> l);
 
 struct MockTableFileSystem {
   port::Mutex mutex;
