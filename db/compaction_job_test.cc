@@ -960,7 +960,7 @@ TEST_F(CompactionJobTest, SnapshotRefresh) {
   uint64_t time_seed = env_->NowMicros();
   printf("time_seed is %" PRIu64 "\n", time_seed);  // would help to reproduce
   Random64 rand(time_seed);
-  std::vector<SequenceNumber> db_snapshots = {3U, 5U};
+  std::vector<SequenceNumber> db_snapshots;
   class SnapshotListFetchCallbackTest : public SnapshotListFetchCallback {
    public:
     SnapshotListFetchCallbackTest(Random64& rand,
@@ -974,9 +974,11 @@ TEST_F(CompactionJobTest, SnapshotRefresh) {
       assert(snapshots->size());
       assert(snapshots_->size());
       assert(snapshots_->size() == snapshots->size());
-      uint64_t release_index = rand_.Uniform(snapshots_->size());
-      snapshots_->erase(snapshots_->begin() + release_index);
-      *snapshots = *snapshots_;
+      if (rand_.OneIn(2)) {
+        uint64_t release_index = rand_.Uniform(snapshots_->size());
+        snapshots_->erase(snapshots_->begin() + release_index);
+        *snapshots = *snapshots_;
+      }
     }
 
    private:
@@ -1008,6 +1010,11 @@ TEST_F(CompactionJobTest, SnapshotRefresh) {
     }
   }
   auto file2 = mock::MakeMockFile(file2_kvs);
+  for (SequenceNumber i = 1; i < last_seq + 1; i++) {
+    if (rand.OneIn(5)) {
+      db_snapshots.push_back(i);
+    }
+  }
 
   const bool kVerify = true;
   const int output_level_0 = 0;
