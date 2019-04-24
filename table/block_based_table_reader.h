@@ -25,6 +25,7 @@
 #include "rocksdb/table.h"
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
+#include "table/cachable_entry.h"
 #include "table/filter_block.h"
 #include "table/format.h"
 #include "table/get_context.h"
@@ -220,8 +221,6 @@ class BlockBasedTable : public TableReader {
   // The key retrieved are internal keys.
   Status GetKVPairsFromDataBlocks(std::vector<KVPairBlock>* kv_pair_blocks);
 
-  template <class TValue>
-  struct CachableEntry;
   struct Rep;
 
   Rep* get_rep() { return rep_; }
@@ -311,8 +310,7 @@ class BlockBasedTable : public TableReader {
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed, Rep* rep,
       const ReadOptions& read_options,
-      BlockBasedTable::CachableEntry<Block>* block,
-      const UncompressionDict& uncompression_dict,
+      CachableEntry<Block>* block, const UncompressionDict& uncompression_dict,
       size_t read_amp_bytes_per_bit, bool is_index = false,
       GetContext* get_context = nullptr);
 
@@ -444,29 +442,6 @@ class BlockBasedTable::PartitionedIndexIteratorState
   std::unordered_map<uint64_t, CachableEntry<Block>>* block_map_;
   bool index_key_includes_seq_;
   bool index_key_is_full_;
-};
-
-// CachableEntry represents the entries that *may* be fetched from block cache.
-//  field `value` is the item we want to get.
-//  field `cache_handle` is the cache handle to the block cache. If the value
-//    was not read from cache, `cache_handle` will be nullptr.
-template <class TValue>
-struct BlockBasedTable::CachableEntry {
-  CachableEntry(TValue* _value, Cache::Handle* _cache_handle)
-      : value(_value), cache_handle(_cache_handle) {}
-  CachableEntry() : CachableEntry(nullptr, nullptr) {}
-  void Release(Cache* cache, bool force_erase = false) {
-    if (cache_handle) {
-      cache->Release(cache_handle, force_erase);
-      value = nullptr;
-      cache_handle = nullptr;
-    }
-  }
-  bool IsSet() const { return cache_handle != nullptr; }
-
-  TValue* value = nullptr;
-  // if the entry is from the cache, cache_handle will be populated.
-  Cache::Handle* cache_handle = nullptr;
 };
 
 struct BlockBasedTable::Rep {

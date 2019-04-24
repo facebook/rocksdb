@@ -176,24 +176,14 @@ bool PartitionedFilterBlockReader::KeyMayMatch(
   if (UNLIKELY(filter_handle.size() == 0)) {  // key is out of range
     return false;
   }
-  bool cached = false;
   auto filter_partition =
       GetFilterPartition(nullptr /* prefetch_buffer */, filter_handle, no_io,
-                         &cached, prefix_extractor);
-  if (UNLIKELY(!filter_partition.value)) {
+                         prefix_extractor);
+  if (UNLIKELY(!filter_partition.GetValue())) {
     return true;
   }
-  auto res = filter_partition.value->KeyMayMatch(key, prefix_extractor,
-                                                 block_offset, no_io);
-  if (cached) {
-    return res;
-  }
-  if (LIKELY(filter_partition.IsSet())) {
-    filter_partition.Release(table_->rep_->table_options.block_cache.get());
-  } else {
-    delete filter_partition.value;
-  }
-  return res;
+  return filter_partition.GetValue()->KeyMayMatch(key, prefix_extractor,
+                                                  block_offset, no_io);
 }
 
 bool PartitionedFilterBlockReader::PrefixMayMatch(
@@ -215,24 +205,14 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
   if (UNLIKELY(filter_handle.size() == 0)) {  // prefix is out of range
     return false;
   }
-  bool cached = false;
   auto filter_partition =
       GetFilterPartition(nullptr /* prefetch_buffer */, filter_handle, no_io,
-                         &cached, prefix_extractor);
-  if (UNLIKELY(!filter_partition.value)) {
+                         prefix_extractor);
+  if (UNLIKELY(!filter_partition.GetValue())) {
     return true;
   }
-  auto res = filter_partition.value->PrefixMayMatch(prefix, prefix_extractor,
-                                                    kNotValid, no_io);
-  if (cached) {
-    return res;
-  }
-  if (LIKELY(filter_partition.IsSet())) {
-    filter_partition.Release(table_->rep_->table_options.block_cache.get());
-  } else {
-    delete filter_partition.value;
-  }
-  return res;
+  return filter_partition.GetValue()->PrefixMayMatch(prefix, prefix_extractor,
+                                                     kNotValid, no_io);
 }
 
 BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
@@ -251,10 +231,10 @@ BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
   return fltr_blk_handle;
 }
 
-BlockBasedTable::CachableEntry<FilterBlockReader>
+CachableEntry<FilterBlockReader>
 PartitionedFilterBlockReader::GetFilterPartition(
     FilePrefetchBuffer* prefetch_buffer, BlockHandle& fltr_blk_handle,
-    const bool no_io, bool* cached, const SliceTransform* prefix_extractor) {
+    const bool no_io, const SliceTransform* prefix_extractor) {
   const bool is_a_filter_partition = true;
   auto block_cache = table_->rep_->table_options.block_cache.get();
   if (LIKELY(block_cache != nullptr)) {
@@ -267,9 +247,9 @@ PartitionedFilterBlockReader::GetFilterPartition(
         RecordTick(statistics(), BLOCK_CACHE_FILTER_HIT);
         RecordTick(statistics(), BLOCK_CACHE_HIT);
         RecordTick(statistics(), BLOCK_CACHE_BYTES_READ,
-                   block_cache->GetUsage(iter->second.cache_handle));
-        *cached = true;
-        return iter->second;
+                   block_cache->GetUsage(iter->second.GetCacheHandle()));
+        return {iter->second.GetValue(), nullptr /* cache */,
+          nullptr /* cache_handle */, false /* own_value */};
       }
     }
     return table_->GetFilter(/*prefetch_buffer*/ nullptr, fltr_blk_handle,
@@ -278,7 +258,8 @@ PartitionedFilterBlockReader::GetFilterPartition(
   } else {
     auto filter = table_->ReadFilter(prefetch_buffer, fltr_blk_handle,
                                      is_a_filter_partition, prefix_extractor);
-    return {filter, nullptr};
+    return {filter, nullptr /* cache */, nullptr /* cache_handle */,
+      true /* own_value */};
   }
 }
 
@@ -293,18 +274,10 @@ size_t PartitionedFilterBlockReader::ApproximateMemoryUsage() const {
   // TODO(myabandeh): better estimation for filter_map_ size
 }
 
-// Release the cached entry and decrement its ref count.
-void ReleaseFilterCachedEntry(void* arg, void* h) {
-  Cache* cache = reinterpret_cast<Cache*>(arg);
-  Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
-  cache->Release(handle);
-}
-
 // TODO(myabandeh): merge this with the same function in IndexReader
 void PartitionedFilterBlockReader::CacheDependencies(
     bool pin, const SliceTransform* prefix_extractor) {
   // Before read partitions, prefetch them to avoid lots of IOs
-  auto rep = table_->rep_;
   IndexBlockIter biter;
   Statistics* kNullStats = nullptr;
   idx_on_fltr_blk_->NewIterator<IndexBlockIter>(
@@ -330,7 +303,6 @@ void PartitionedFilterBlockReader::CacheDependencies(
 
   // After prefetch, read the partitions one by one
   biter.SeekToFirst();
-  Cache* block_cache = rep->table_options.block_cache.get();
   for (; biter.Valid(); biter.Next()) {
     handle = biter.value();
     const bool no_io = true;
@@ -338,16 +310,10 @@ void PartitionedFilterBlockReader::CacheDependencies(
     auto filter = table_->GetFilter(
         prefetch_buffer.get(), handle, is_a_filter_partition, !no_io,
         /* get_context */ nullptr, prefix_extractor);
-    if (LIKELY(filter.IsSet())) {
+    if (LIKELY(filter.IsCached())) {
       if (pin) {
         filter_map_[handle.offset()] = std::move(filter);
-        RegisterCleanup(&ReleaseFilterCachedEntry, block_cache,
-                        filter.cache_handle);
-      } else {
-        block_cache->Release(filter.cache_handle);
       }
-    } else {
-      delete filter.value;
     }
   }
 }

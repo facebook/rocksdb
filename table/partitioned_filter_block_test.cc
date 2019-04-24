@@ -35,7 +35,8 @@ class MockedBlockBasedTable : public BlockBasedTable {
     auto obj = new FullFilterBlockReader(
         prefix_extractor, true, BlockContents(slice),
         rep_->table_options.filter_policy->GetFilterBitsReader(slice), nullptr);
-    return {obj, nullptr};
+    return {obj, nullptr /* cache */, nullptr /* cache_handle */,
+      true /* own_value */};
   }
 
   FilterBlockReader* ReadFilter(

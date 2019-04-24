@@ -15,6 +15,7 @@
 
 #include "table/block.h"
 #include "table/block_based_table_reader.h"
+#include "table/cachable_entry.h"
 #include "table/full_filter_block.h"
 #include "table/index_builder.h"
 #include "util/autovector.h"
@@ -69,8 +70,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   BlockHandle last_encoded_handle_;
 };
 
-class PartitionedFilterBlockReader : public FilterBlockReader,
-                                     public Cleanable {
+class PartitionedFilterBlockReader : public FilterBlockReader {
  public:
   explicit PartitionedFilterBlockReader(
       const SliceTransform* prefix_extractor, bool whole_key_filtering,
@@ -93,10 +93,9 @@ class PartitionedFilterBlockReader : public FilterBlockReader,
 
  private:
   BlockHandle GetFilterPartitionHandle(const Slice& entry);
-  BlockBasedTable::CachableEntry<FilterBlockReader> GetFilterPartition(
+  CachableEntry<FilterBlockReader> GetFilterPartition(
       FilePrefetchBuffer* prefetch_buffer, BlockHandle& handle,
-      const bool no_io, bool* cached,
-      const SliceTransform* prefix_extractor = nullptr);
+      const bool no_io, const SliceTransform* prefix_extractor = nullptr);
   virtual void CacheDependencies(
       bool bin, const SliceTransform* prefix_extractor) override;
 
@@ -106,9 +105,7 @@ class PartitionedFilterBlockReader : public FilterBlockReader,
   const BlockBasedTable* table_;
   const bool index_key_includes_seq_;
   const bool index_value_is_full_;
-  std::unordered_map<uint64_t,
-                     BlockBasedTable::CachableEntry<FilterBlockReader>>
-      filter_map_;
+  std::unordered_map<uint64_t, CachableEntry<FilterBlockReader>> filter_map_;
 };
 
 }  // namespace rocksdb
