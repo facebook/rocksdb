@@ -157,6 +157,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       env_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
       env_options_for_compaction_(env_->OptimizeForCompactionTableWrite(
           env_options_, immutable_db_options_)),
+      seq_per_batch_(seq_per_batch),
+      batch_per_txn_(batch_per_txn),
       db_lock_(nullptr),
       shutting_down_(false),
       bg_cv_(&mutex_),
@@ -202,8 +204,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       opened_successfully_(false),
       two_write_queues_(options.two_write_queues),
       manual_wal_flush_(options.manual_wal_flush),
-      seq_per_batch_(seq_per_batch),
-      batch_per_txn_(batch_per_txn),
       // last_sequencee_ is always maintained by the main queue that also writes
       // to the memtable. When two_write_queues_ is disabled last seq in
       // memtable is the same as last seq published to the readers. When it is

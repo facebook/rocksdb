@@ -803,6 +803,23 @@ class DBImpl : public DB {
   // Additonal options for compaction and flush
   EnvOptions env_options_for_compaction_;
 
+  std::unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
+
+  // Increase the sequence number after writing each batch, whether memtable is
+  // disabled for that or not. Otherwise the sequence number is increased after
+  // writing each key into memtable. This implies that when disable_memtable is
+  // set, the seq is not increased at all.
+  //
+  // Default: false
+  const bool seq_per_batch_;
+  // This determines during recovery whether we expect one writebatch per
+  // recovered transaction, or potentially multiple writebatches per
+  // transaction. For WriteUnprepared, this is set to false, since multiple
+  // batches can exist per transaction.
+  //
+  // Default: true
+  const bool batch_per_txn_;
+
   // Except in DB::Open(), WriteOptionsFile can only be called when:
   // Persist options to options file.
   // If need_mutex_lock = false, the method will lock DB mutex.
@@ -1036,8 +1053,8 @@ class DBImpl : public DB {
       JobContext* job_context, LogBuffer* log_buffer, Env::Priority thread_pri);
 
   // REQUIRES: log_numbers are sorted in ascending order
-  Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
-                         SequenceNumber* next_sequence, bool read_only);
+  virtual Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
+                                 SequenceNumber* next_sequence, bool read_only);
 
   // The following two methods are used to flush a memtable to
   // storage. The first one is used at database RecoveryTime (when the
@@ -1294,7 +1311,6 @@ class DBImpl : public DB {
   // expesnive mutex_ lock during WAL write, which update log_empty_.
   bool log_empty_;
 
-  std::unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
   struct LogFileNumberSize {
     explicit LogFileNumberSize(uint64_t _number) : number(_number) {}
     void AddSize(uint64_t new_size) { size += new_size; }
@@ -1689,20 +1705,7 @@ class DBImpl : public DB {
   // In 2PC these are the writes at Prepare phase.
   const bool two_write_queues_;
   const bool manual_wal_flush_;
-  // Increase the sequence number after writing each batch, whether memtable is
-  // disabled for that or not. Otherwise the sequence number is increased after
-  // writing each key into memtable. This implies that when disable_memtable is
-  // set, the seq is not increased at all.
-  //
-  // Default: false
-  const bool seq_per_batch_;
-  // This determines during recovery whether we expect one writebatch per
-  // recovered transaction, or potentially multiple writebatches per
-  // transaction. For WriteUnprepared, this is set to false, since multiple
-  // batches can exist per transaction.
-  //
-  // Default: true
-  const bool batch_per_txn_;
+
   // LastSequence also indicates last published sequence visibile to the
   // readers. Otherwise LastPublishedSequence should be used.
   const bool last_seq_same_as_publish_seq_;

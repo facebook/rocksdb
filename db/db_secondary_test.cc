@@ -195,6 +195,50 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
   verify_db_func("new_foo_value", "new_bar_value");
 }
 
+TEST_F(DBSecondaryTest, OpenAsSecondaryWALTailing) {
+  Options options;
+  options.env = env_;
+  options.level0_file_num_compaction_trigger = 4;
+  Reopen(options);
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("foo", "foo_value" + std::to_string(i)));
+    ASSERT_OK(Put("bar", "bar_value" + std::to_string(i)));
+  }
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondary(options1);
+
+  ReadOptions ropts;
+  ropts.verify_checksums = true;
+  const auto verify_db_func = [&](const std::string& foo_val,
+                                  const std::string& bar_val) {
+    std::string value;
+    ASSERT_OK(db_secondary_->Get(ropts, "foo", &value));
+    ASSERT_EQ(foo_val, value);
+    ASSERT_OK(db_secondary_->Get(ropts, "bar", &value));
+    ASSERT_EQ(bar_val, value);
+    Iterator* iter = db_secondary_->NewIterator(ropts);
+    ASSERT_NE(nullptr, iter);
+    iter->Seek("foo");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("foo", iter->key().ToString());
+    ASSERT_EQ(foo_val, iter->value().ToString());
+    iter->Seek("bar");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("bar", iter->key().ToString());
+    ASSERT_EQ(bar_val, iter->value().ToString());
+    size_t count = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ++count;
+    }
+    ASSERT_EQ(2, count);
+    delete iter;
+  };
+
+  verify_db_func("foo_value2", "bar_value2");
+}
+
 TEST_F(DBSecondaryTest, OpenWithNonExistColumnFamily) {
   Options options;
   options.env = env_;

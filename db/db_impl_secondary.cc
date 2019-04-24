@@ -4,6 +4,12 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/db_impl_secondary.h"
+
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+#include <inttypes.h>
+
 #include "db/db_iter.h"
 #include "db/merge_context.h"
 #include "monitoring/perf_context_imp.h"
@@ -52,10 +58,172 @@ Status DBImplSecondary::Recover(
     default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
     single_column_family_mode_ =
         versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;
+
+    // Recover from all newer log files than the ones named in the
+    // descriptor.
+    std::vector<std::string> filenames;
+    s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
+    if (s.IsNotFound()) {
+      return Status::InvalidArgument("Failed to open wal_dir",
+                                     immutable_db_options_.wal_dir);
+    } else if (!s.ok()) {
+      return s;
+    }
+
+    std::vector<uint64_t> logs;
+    // if log_readers_ is non-empty, it means we have applied all logs with log
+    // numbers smaller than the smallest log in log_readers_, so there is no
+    // need to pass these logs to RecoverLogFiles
+    uint64_t log_number_min = 0;
+    if (log_readers_.size() > 0) {
+      log_number_min = log_readers_.begin()->first;
+    }
+    for (size_t i = 0; i < filenames.size(); i++) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(filenames[i], &number, &type) && type == kLogFile &&
+          number >= log_number_min) {
+        logs.push_back(number);
+      }
+    }
+
+    if (!logs.empty()) {
+      // Recover in the order in which the logs were generated
+      std::sort(logs.begin(), logs.end());
+      SequenceNumber next_sequence(kMaxSequenceNumber);
+      s = RecoverLogFiles(logs, &next_sequence, true /*read_only*/);
+    }
   }
 
-  // TODO: attempt to recover from WAL files.
+  // TODO: update options_file_number_ needed?
+
   return s;
+}
+
+// try to find log reader using log_number from log_readers_ map, initialize
+// if it doesn't exist
+Status DBImplSecondary::MaybeInitLogReader(
+    uint64_t log_number, log::FragmentBufferedReader** log_reader) {
+  auto iter = log_readers_.find(log_number);
+  // make sure the log file is still present
+  if (iter == log_readers_.end() ||
+      iter->second->reader_->GetLogNumber() != log_number) {
+    // delete the obsolete log reader if log number mismatch
+    if (iter != log_readers_.end()) {
+      log_readers_.erase(iter);
+    }
+    // initialize log reader from log_number
+    // TODO: min_log_number_to_keep_2pc check needed?
+    // Open the log file
+    std::string fname = LogFileName(immutable_db_options_.wal_dir, log_number);
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Recovering log #%" PRIu64 " mode %d", log_number,
+                   static_cast<int>(immutable_db_options_.wal_recovery_mode));
+
+    std::unique_ptr<SequentialFileReader> file_reader;
+    {
+      std::unique_ptr<SequentialFile> file;
+      Status status = env_->NewSequentialFile(
+          fname, &file, env_->OptimizeForLogRead(env_options_));
+      if (!status.ok()) {
+        *log_reader = nullptr;
+        return status;
+      }
+      file_reader.reset(new SequentialFileReader(std::move(file), fname));
+    }
+
+    // Create the log reader.
+    LogReaderContainer* log_reader_container = new LogReaderContainer(
+        env_, immutable_db_options_.info_log, std::move(fname),
+        std::move(file_reader), log_number);
+    log_readers_.insert(std::make_pair(
+        log_number, std::unique_ptr<LogReaderContainer>(log_reader_container)));
+  }
+  iter = log_readers_.find(log_number);
+  assert(iter != log_readers_.end());
+  *log_reader = iter->second->reader_;
+  return Status::OK();
+}
+
+// After manifest recovery, replay WALs and refresh log_readers_ if necessary
+// REQUIRES: log_numbers are sorted in ascending order
+Status DBImplSecondary::RecoverLogFiles(
+    const std::vector<uint64_t>& log_numbers, SequenceNumber* next_sequence,
+    bool /*read_only*/) {
+  mutex_.AssertHeld();
+  Status status;
+  for (auto log_number : log_numbers) {
+    log::FragmentBufferedReader* reader = nullptr;
+    status = MaybeInitLogReader(log_number, &reader);
+    if (!status.ok()) {
+      return status;
+    }
+    assert(reader != nullptr);
+  }
+  for (auto log_number : log_numbers) {
+    auto it  = log_readers_.find(log_number);
+    assert(it != log_readers_.end());
+    log::FragmentBufferedReader* reader = it->second->reader_;
+    // Manually update the file number allocation counter in VersionSet.
+    versions_->MarkFileNumberUsed(log_number);
+
+    // Determine if we should tolerate incomplete records at the tail end of the
+    // Read all the records and add to a memtable
+    std::string scratch;
+    Slice record;
+    WriteBatch batch;
+
+    while (reader->ReadRecord(&record, &scratch,
+                              immutable_db_options_.wal_recovery_mode) &&
+           status.ok()) {
+      if (record.size() < WriteBatchInternal::kHeader) {
+        reader->GetReporter()->Corruption(
+            record.size(), Status::Corruption("log record too small"));
+        continue;
+      }
+      WriteBatchInternal::SetContents(&batch, record);
+      // do not check sequence number because user may toggle disableWAL
+      // between writes which breaks sequence number continuity guarantee
+
+      // If column family was not found, it might mean that the WAL write
+      // batch references to the column family that was dropped after the
+      // insert. We don't want to fail the whole write batch in that case --
+      // we just ignore the update.
+      // That's why we set ignore missing column families to true
+      // passing null flush_scheduler will disable memtable flushing which is
+      // needed for secondary instances
+      bool has_valid_writes = false;
+      status = WriteBatchInternal::InsertInto(
+          &batch, column_family_memtables_.get(), nullptr /* flush_scheduler */,
+          true, log_number, this, false /* concurrent_memtable_writes */,
+          next_sequence, &has_valid_writes, seq_per_batch_, batch_per_txn_);
+      if (!status.ok()) {
+        // We are treating this as a failure while reading since we read valid
+        // blocks that do not form coherent data
+        reader->GetReporter()->Corruption(record.size(), status);
+        continue;
+      }
+    }
+
+    if (!status.ok()) {
+      return status;
+    }
+
+    auto last_sequence = *next_sequence - 1;
+    if ((*next_sequence != kMaxSequenceNumber) &&
+        (versions_->LastSequence() <= last_sequence)) {
+      versions_->SetLastAllocatedSequence(last_sequence);
+      versions_->SetLastPublishedSequence(last_sequence);
+      versions_->SetLastSequence(last_sequence);
+    }
+  }
+  // remove logreaders from map after successfully recovering the WAL
+  if (log_readers_.size() > 1) {
+    auto eraseIter = log_readers_.begin();
+    std::advance(eraseIter, log_readers_.size() - 1);
+    log_readers_.erase(log_readers_.begin(), eraseIter);
+  }
+  return status;
 }
 
 // Implementation of the DB interface

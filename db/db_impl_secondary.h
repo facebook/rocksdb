@@ -13,6 +13,55 @@
 
 namespace rocksdb {
 
+class LogReaderContainer {
+ public:
+  LogReaderContainer()
+      : reader_(nullptr), reporter_(nullptr), status_(nullptr) {}
+  LogReaderContainer(Env* env, std::shared_ptr<Logger> info_log,
+                     std::string fname,
+                     std::unique_ptr<SequentialFileReader>&& file_reader,
+                     uint64_t log_number) {
+    LogReporter* reporter = new LogReporter();
+    status_ = new Status();
+    reporter->env = env;
+    reporter->info_log = info_log.get();
+    reporter->fname = std::move(fname);
+    reporter->status = status_;
+    reporter_ = reporter;
+    // We intentially make log::Reader do checksumming even if
+    // paranoid_checks==false so that corruptions cause entire commits
+    // to be skipped instead of propagating bad information (like overly
+    // large sequence numbers).
+    reader_ = new log::FragmentBufferedReader(info_log, std::move(file_reader),
+                                              reporter, true /*checksum*/,
+                                              log_number);
+  }
+  log::FragmentBufferedReader* reader_;
+  log::Reader::Reporter* reporter_;
+  Status* status_;
+  ~LogReaderContainer() {
+    delete reader_;
+    delete reporter_;
+    delete status_;
+  }
+ private:
+  struct LogReporter : public log::Reader::Reporter {
+    Env* env;
+    Logger* info_log;
+    std::string fname;
+    Status* status;  // nullptr if immutable_db_options_.paranoid_checks==false
+    void Corruption(size_t bytes, const Status& s) override {
+      ROCKS_LOG_WARN(info_log, "%s%s: dropping %d bytes; %s",
+                     (this->status == nullptr ? "(ignoring error) " : ""),
+                     fname.c_str(), static_cast<int>(bytes),
+                     s.ToString().c_str());
+      if (this->status != nullptr && this->status->ok()) {
+        *this->status = s;
+      }
+    }
+  };
+};
+
 class DBImplSecondary : public DBImpl {
  public:
   DBImplSecondary(const DBOptions& options, const std::string& dbname);
@@ -133,6 +182,9 @@ class DBImplSecondary : public DBImpl {
   // method can take long time due to all the I/O and CPU costs.
   Status TryCatchUpWithPrimary() override;
 
+  Status MaybeInitLogReader(uint64_t log_number,
+                            log::FragmentBufferedReader** log_reader);
+
  private:
   friend class DB;
 
@@ -142,10 +194,19 @@ class DBImplSecondary : public DBImpl {
 
   using DBImpl::Recover;
 
+  Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
+                         SequenceNumber* next_sequence,
+                         bool read_only) override;
+
   std::unique_ptr<log::FragmentBufferedReader> manifest_reader_;
   std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
   std::unique_ptr<Status> manifest_reader_status_;
+
+  // cache log readers for each log number, used for continue WAL replay
+  // after recovery
+  std::map<uint64_t, std::unique_ptr<LogReaderContainer>> log_readers_;
 };
+
 }  // namespace rocksdb
 
 #endif  // !ROCKSDB_LITE
