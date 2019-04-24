@@ -185,15 +185,6 @@ class WriteBatchInternal {
                            bool seq_per_batch = false, size_t batch_cnt = 0,
                            bool batch_per_txn = true);
 
-  // variant of InsertInto where memtable flush is disabled
-  static Status InsertIntoWithoutSchedulingFlush(
-      const WriteBatch* batch, ColumnFamilyMemTables* memtables,
-      FlushScheduler* flush_scheduler,
-      bool ignore_missing_column_families = false, uint64_t log_number = 0,
-      DB* db = nullptr, bool concurrent_memtable_writes = false,
-      SequenceNumber* next_seq = nullptr, bool* has_valid_writes = nullptr,
-      bool seq_per_batch = false, bool batch_per_txn = true);
-
   static Status Append(WriteBatch* dst, const WriteBatch* src,
                        const bool WAL_only = false);
 

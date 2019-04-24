@@ -84,9 +84,6 @@ Status DBImplSecondary::Recover(
       std::sort(logs.begin(), logs.end());
       SequenceNumber next_sequence(kMaxSequenceNumber);
       s = RecoverLogFiles(logs, &next_sequence, true /*read_only*/);
-      if (s.ok()) {
-        curr_log_number_ = logs.back();
-      }
     }
   }
 
@@ -185,11 +182,13 @@ Status DBImplSecondary::RecoverLogFiles(
       // insert. We don't want to fail the whole write batch in that case --
       // we just ignore the update.
       // That's why we set ignore missing column families to true
+      // passing null flush_scheduler will disable memtable flushing which is
+      // needed for secondary instances
       bool has_valid_writes = false;
-      status = WriteBatchInternal::InsertIntoWithoutSchedulingFlush(
-          &batch, column_family_memtables_.get(), nullptr, true, log_number,
-          this, false /* concurrent_memtable_writes */, next_sequence,
-          &has_valid_writes, seq_per_batch_, batch_per_txn_);
+      status = WriteBatchInternal::InsertInto(
+          &batch, column_family_memtables_.get(), nullptr /* flush_scheduler */,
+          true, log_number, this, false /* concurrent_memtable_writes */,
+          next_sequence, &has_valid_writes, seq_per_batch_, batch_per_txn_);
       if (!status.ok()) {
         // We are treating this as a failure while reading since we read valid
         // blocks that do not form coherent data

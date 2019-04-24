@@ -1586,7 +1586,7 @@ class MemTableInserter : public WriteBatch::Handler {
     return PutCFImpl(column_family_id, key, value, kTypeBlobIndex);
   }
 
-  virtual void CheckMemtableFull() {
+  void CheckMemtableFull() {
     if (flush_scheduler_ != nullptr) {
       auto* cfd = cf_mems_->current();
       assert(cfd != nullptr);
@@ -1746,30 +1746,6 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 };
 
-class MemTableInserterNoFlush : public MemTableInserter {
- public:
-  MemTableInserterNoFlush(SequenceNumber _sequence,
-                          ColumnFamilyMemTables* cf_mems,
-                          FlushScheduler* flush_scheduler,
-                          bool ignore_missing_column_families,
-                          uint64_t recovering_log_number, DB* db,
-                          bool concurrent_memtable_writes,
-                          bool* has_valid_writes = nullptr,
-                          bool seq_per_batch = false, bool batch_per_txn = true)
-      : MemTableInserter(_sequence, cf_mems, flush_scheduler,
-                         ignore_missing_column_families, recovering_log_number,
-                         db, concurrent_memtable_writes, has_valid_writes,
-                         seq_per_batch, batch_per_txn) {}
-
-  MemTableInserterNoFlush(const MemTableInserterNoFlush&) = delete;
-  MemTableInserterNoFlush& operator=(const MemTableInserterNoFlush&) = delete;
-
-  void CheckMemtableFull() override {
-    // disable memtable flush
-    return;
-  }
-};
-
 // This function can only be called in these conditions:
 // 1) During Recovery()
 // 2) During Write(), in a single-threaded write thread
@@ -1841,27 +1817,6 @@ Status WriteBatchInternal::InsertInto(
                             ignore_missing_column_families, log_number, db,
                             concurrent_memtable_writes, has_valid_writes,
                             seq_per_batch, batch_per_txn);
-  Status s = batch->Iterate(&inserter);
-  if (next_seq != nullptr) {
-    *next_seq = inserter.sequence();
-  }
-  if (concurrent_memtable_writes) {
-    inserter.PostProcess();
-  }
-  return s;
-}
-
-Status WriteBatchInternal::InsertIntoWithoutSchedulingFlush(
-    const WriteBatch* batch, ColumnFamilyMemTables* memtables,
-    FlushScheduler* flush_scheduler, bool ignore_missing_column_families,
-    uint64_t log_number, DB* db, bool concurrent_memtable_writes,
-    SequenceNumber* next_seq, bool* has_valid_writes, bool seq_per_batch,
-    bool batch_per_txn) {
-  MemTableInserterNoFlush inserter(Sequence(batch), memtables, flush_scheduler,
-                                   ignore_missing_column_families, log_number,
-                                   db, concurrent_memtable_writes,
-                                   has_valid_writes, seq_per_batch,
-                                   batch_per_txn);
   Status s = batch->Iterate(&inserter);
   if (next_seq != nullptr) {
     *next_seq = inserter.sequence();

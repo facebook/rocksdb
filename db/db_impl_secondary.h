@@ -202,11 +202,6 @@ class DBImplSecondary : public DBImpl {
   std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
   std::unique_ptr<Status> manifest_reader_status_;
 
-  // the largest WAL file number that has been processed during
-  // `DBImplSecondary::Recover` stage. The log is still active and we
-  // may still replay changes in it
-  uint64_t curr_log_number_;
-
   // cache log readers for each log number, used for continue WAL replay
   // after recovery
   std::map<uint64_t, std::unique_ptr<LogReaderContainer>> log_readers_;
