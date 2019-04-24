@@ -143,6 +143,14 @@ void MockTableFactory::AssertLatestFile(
       ParseInternalKey(Slice(key), &ikey);
       std::cout << ikey.DebugString(false) << " -> " << value << std::endl;
     }
+    std::cout << "Expected:" << std::endl;
+    for (const auto& kv : file_contents) {
+      ParsedInternalKey ikey;
+      std::string key, value;
+      std::tie(key, value) = kv;
+      ParseInternalKey(Slice(key), &ikey);
+      std::cout << ikey.DebugString(false) << " -> " << value << std::endl;
+    }
     FAIL();
   }
 }

@@ -1023,8 +1023,11 @@ TEST_F(CompactionJobTest, SnapshotRefresh) {
   AddMockFile(file2);
   SetLastSequence(last_seq);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
+  // put the output on L0 since it is easier to feed them again to the 2nd
+  // compaction
   RunCompaction({files}, file1, db_snapshots, kMaxSequenceNumber,
                 output_level_0, !kVerify, &snapshot_fetcher);
+
   // Now db_snapshots are changed. Run the compaction again without snapshot
   // fetcher but with the updated snapshot list.
   compaction_job_stats_.Reset();
@@ -1040,7 +1043,15 @@ TEST_F(CompactionJobTest, SnapshotRefresh) {
   AddMockFile(file2);
   SetLastSequence(last_seq);
   files = cfd_->current()->storage_info()->LevelFiles(0);
-  RunCompaction({files}, expected, db_snapshots, kMaxSequenceNumber);
+  RunCompaction({files}, expected, db_snapshots, kMaxSequenceNumber,
+                output_level_0, !kVerify);
+  // The 2nd compaction above would get rid of useless delete markers. To get
+  // the output here exactly as what we got above after two compactions, we also
+  // run the compaction for 2nd time.
+  compaction_job_stats_.Reset();
+  files = cfd_->current()->storage_info()->LevelFiles(0);
+  RunCompaction({files}, expected, db_snapshots, kMaxSequenceNumber,
+                output_level_0 + 1, !kVerify);
 }
 
 }  // namespace rocksdb
