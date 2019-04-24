@@ -72,6 +72,9 @@ class FullCompactor : public Compactor {
   // compaction-task to true.
   void OnFlushCompleted(
       DB* db, const FlushJobInfo& info) override {
+    if (!info.status.ok()) {
+      return;
+    }
     CompactionTask* task = PickCompaction(db, info.cf_name);
     if (task != nullptr) {
       if (info.triggered_writes_stop) {

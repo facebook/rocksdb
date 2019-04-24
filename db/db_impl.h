@@ -821,7 +821,8 @@ class DBImpl : public DB {
 
   void NotifyOnFlushCompleted(ColumnFamilyData* cfd, FileMetaData* file_meta,
                               const MutableCFOptions& mutable_cf_options,
-                              int job_id, TableProperties prop);
+                              const Status& st, int job_id,
+                              TableProperties prop);
 
   void NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
                                const Status& st,
