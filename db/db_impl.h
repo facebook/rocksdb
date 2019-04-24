@@ -1309,8 +1309,6 @@ class DBImpl : public DB {
 
     log::Writer* ReleaseWriter() {
       auto* w = writer;
-      // TODO: check for the return value of Close.
-      writer->Close();
       writer = nullptr;
       return w;
     }
