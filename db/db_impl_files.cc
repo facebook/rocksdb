@@ -481,6 +481,11 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     }
 #endif  // !ROCKSDB_LITE
 
+    for (const auto w : state.logs_to_free) {
+      // TODO: maybe check the return value of Close.
+      w->Close();
+    }
+
     Status file_deletion_status;
     if (schedule_only) {
       InstrumentedMutexLock guard_lock(&mutex_);
