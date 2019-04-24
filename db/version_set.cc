@@ -1488,8 +1488,8 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
           *file.file_metadata, range_del_agg,
           mutable_cf_options_.prefix_extractor.get(), nullptr,
           cfd_->internal_stats()->GetFileReadHist(0),
-          read_options.iterate_prefix, arena, false /* skip_filters */,
-          0 /* level */));
+          false /* for_compaction */, arena,
+          read_options.iterate_prefix /* skip_filters */, 0 /* level */));
     }
     if (should_sample) {
       // Count ones for every L0 files. This is done per iterator creation
