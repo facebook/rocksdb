@@ -5,7 +5,12 @@
 
 #ifndef ROCKSDB_LITE
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include <algorithm>
+#include <inttypes.h>
 #include <map>
 #include <string>
 #include <tuple>
@@ -194,6 +199,13 @@ class CompactionJobTest : public testing::Test {
   }
 
   void NewDB() {
+    DestroyDB(dbname_, Options());
+    EXPECT_OK(env_->CreateDirIfMissing(dbname_));
+    versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
+                                   table_cache_.get(), &write_buffer_manager_,
+                                   &write_controller_));
+    compaction_job_stats_.Reset();
+
     VersionEdit new_db;
     new_db.SetLogNumber(0);
     new_db.SetNextFile(2);
@@ -230,7 +242,7 @@ class CompactionJobTest : public testing::Test {
       const std::vector<std::vector<FileMetaData*>>& input_files,
       const stl_wrappers::KVMap& expected_results,
       const std::vector<SequenceNumber>& snapshots = {},
-      SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber) {
+      SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber, int output_level = 1, bool verify = true, SnapshotListFetchCallback* snapshot_fetcher = SnapshotListFetchCallback::kDisabled) {
     auto cfd = versions_->GetColumnFamilySet()->GetDefault();
 
     size_t num_input_files = 0;
@@ -247,7 +259,7 @@ class CompactionJobTest : public testing::Test {
 
     Compaction compaction(cfd->current()->storage_info(), *cfd->ioptions(),
                           *cfd->GetLatestMutableCFOptions(),
-                          compaction_input_files, 1, 1024 * 1024,
+                          compaction_input_files, output_level, 1024 * 1024,
                           10 * 1024 * 1024, 0, kNoCompression,
                           cfd->ioptions()->compression_opts, 0, {}, true);
     compaction.SetInputVersion(cfd->current());
@@ -263,7 +275,7 @@ class CompactionJobTest : public testing::Test {
         nullptr, nullptr, &mutex_, &error_handler_, snapshots,
         earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
         &event_logger, false, false, dbname_, &compaction_job_stats_,
-        Env::Priority::USER, SnapshotListFetchCallback::kDisabled);
+        Env::Priority::USER, snapshot_fetcher);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
     compaction_job.Prepare();
@@ -275,6 +287,7 @@ class CompactionJobTest : public testing::Test {
     ASSERT_OK(compaction_job.Install(*cfd->GetLatestMutableCFOptions()));
     mutex_.Unlock();
 
+    if (verify) {
     if (expected_results.size() == 0) {
       ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
       ASSERT_EQ(compaction_job_stats_.num_input_files, num_input_files);
@@ -284,6 +297,7 @@ class CompactionJobTest : public testing::Test {
       ASSERT_EQ(compaction_job_stats_.num_input_files, num_input_files);
       ASSERT_EQ(compaction_job_stats_.num_output_files, 1U);
       mock_table_factory_->AssertLatestFile(expected_results);
+    }
     }
   }
 
@@ -936,6 +950,64 @@ TEST_F(CompactionJobTest, CorruptionAfterDeletion) {
   SetLastSequence(6U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
   RunCompaction({files}, expected_results);
+}
+
+// Test the snapshot fetcher in compaction
+TEST_F(CompactionJobTest, SnapshotRefresh) {
+  uint64_t time_seed = env_->NowMicros();
+  printf("time_seed is %" PRIu64 "\n", time_seed);  // would help to reproduce
+  Random64 rand(time_seed);
+  std::vector<SequenceNumber> db_snapshots = {3U, 5U};
+  class SnapshotListFetchCallbackTest : public SnapshotListFetchCallback {
+   public:
+    SnapshotListFetchCallbackTest(Random64& rand,
+                                  std::vector<SequenceNumber>* snapshots)
+        : SnapshotListFetchCallback(0 /*no time delay*/, 1 /*fetch after each key*/), rand_(rand), snapshots_(snapshots) {}
+    virtual void Refresh(std::vector<SequenceNumber>* snapshots,
+                         SequenceNumber) override {
+      assert(snapshots->size());
+      assert(snapshots_->size());
+      assert(snapshots_->size() == snapshots->size());
+      uint64_t release_index = rand_.Uniform(snapshots_->size());
+      snapshots_->erase(snapshots_->begin() + release_index);
+      *snapshots = *snapshots_;
+    }
+
+   private:
+    Random64 rand_;
+    std::vector<SequenceNumber>* snapshots_;
+  } snapshot_fetcher(rand, &db_snapshots);
+
+  auto file1 =
+      mock::MakeMockFile({{test::KeyStr("A", 6U, kTypeValue), "val3"},
+                          {test::KeyStr("a", 5U, kTypeDeletion), ""},
+                          {test::KeyStr("a", 4U, kTypeValue, true), "val"}});
+  auto file2 =
+      mock::MakeMockFile({{test::KeyStr("b", 3U, kTypeSingleDeletion), ""},
+                          {test::KeyStr("b", 2U, kTypeValue, true), "val"},
+                          {test::KeyStr("c", 1U, kTypeValue), "val2"}});
+
+  const bool kVerify = true;
+  const int output_level_0 = 0;
+  NewDB();
+  AddMockFile(file1);
+  AddMockFile(file2);
+  SetLastSequence(6U);
+  auto files = cfd_->current()->storage_info()->LevelFiles(0);
+  RunCompaction({files}, file1, db_snapshots, kMaxSequenceNumber, output_level_0, !kVerify, &snapshot_fetcher);
+  // Now db_snapshots are changed. Run the compaction again without snapshot fetcher but with the updated snapshot list.
+  compaction_job_stats_.Reset();
+  files = cfd_->current()->storage_info()->LevelFiles(0);
+  RunCompaction({files}, file1, db_snapshots, kMaxSequenceNumber, output_level_0 + 1, !kVerify);
+  // The result should be what we get if we run compaction without snapshot fetcher on the updated list of snapshots
+  auto expected = mock_table_factory_->output();
+
+  NewDB();
+  AddMockFile(file1);
+  AddMockFile(file2);
+  SetLastSequence(6U);
+  files = cfd_->current()->storage_info()->LevelFiles(0);
+  RunCompaction({files}, expected, db_snapshots, kMaxSequenceNumber);
 }
 
 }  // namespace rocksdb

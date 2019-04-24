@@ -23,17 +23,19 @@ namespace rocksdb {
 
 class SnapshotListFetchCallback {
  public:
-  SnapshotListFetchCallback(uint64_t snap_refresh_nanos)
-      : snap_refresh_nanos_(snap_refresh_nanos) {}
+  SnapshotListFetchCallback(uint64_t snap_refresh_nanos, size_t _key_skip = 1024)
+      : snap_refresh_nanos_(snap_refresh_nanos), key_skip_(_key_skip) {}
   virtual void Refresh(std::vector<SequenceNumber>* snapshots,
                        SequenceNumber max) = 0;
-  uint64_t snap_refresh_nanos() { return snap_refresh_nanos_; }
+  inline uint64_t snap_refresh_nanos() { return snap_refresh_nanos_; }
+  inline uint64_t key_skip() { return key_skip_; }
   static constexpr SnapshotListFetchCallback* kDisabled = nullptr;
 
   virtual ~SnapshotListFetchCallback() {}
 
  private:
   const uint64_t snap_refresh_nanos_;
+  const uint64_t key_skip_;
 };
 
 class CompactionIterator {

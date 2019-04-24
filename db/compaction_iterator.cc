@@ -281,7 +281,7 @@ void CompactionIterator::NextFromInput() {
         !cmp_->Equal(ikey_.user_key, current_user_key_)) {
       key_cnt_++;
       // Use key_cnt_ to reduce the overhead of reading current time
-      if (snap_list_callback_ && snapshots_->size() && key_cnt_ % 1024 == 0) {
+      if (snap_list_callback_ && snapshots_->size() && key_cnt_ % snap_list_callback_->key_skip() == 0) {
         const uint64_t nanos = snap_list_callback_->snap_refresh_nanos();
         // inc next refresh period exponentially (by x4)
         auto next_refresh_threshold = nanos << (snap_refresh_cnt_ * 2);
