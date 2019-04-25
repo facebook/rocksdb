@@ -2461,9 +2461,12 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
     }
     auto* rep = table_->get_rep();
 
-    // Automatically prefetch additional data when a range scan (iterator) does
-    // more than 2 sequential IOs. This is enabled only for user reads and when
-    // ReadOptions.readahead_size is 0.
+    // Prefetch additional data for range scans (iterators). Enabled only for
+    // user reads.
+    // Implicit Auto Readahead:
+    //   Enabled after 2 sequential IOs when ReadOptions.readahead_size == 0.
+    // Explicit user requested readahead:
+    //   Enabled from the very first IO when ReadOptions.readahead_size is set.
     if (!for_compaction_) {
       num_file_reads_++;
       if (num_file_reads_ > start_readahead_after_num_file_reads_) {
