@@ -94,7 +94,7 @@ void TableCache::ReleaseHandle(Cache::Handle* handle) {
 Status TableCache::GetTableReader(
     const EnvOptions& env_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
-    bool sequential_mode, size_t readahead, bool record_read_stats,
+    bool sequential_mode, size_t /*readahead*/, bool record_read_stats,
     HistogramImpl* file_read_hist, std::unique_ptr<TableReader>* table_reader,
     const SliceTransform* prefix_extractor, bool skip_filters, int level,
     bool prefetch_index_and_filter_in_cache, bool for_compaction) {
@@ -105,13 +105,6 @@ Status TableCache::GetTableReader(
 
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   if (s.ok()) {
-    if (readahead > 0 && !env_options.use_mmap_reads) {
-      // Not compatible with mmap files since ReadaheadRandomAccessFile requires
-      // its wrapped file's Read() to copy data into the provided scratch
-      // buffer, which mmap files don't use.
-      // TODO(ajkr): try madvise for mmap files in place of buffered readahead.
-      file = NewReadaheadRandomAccessFile(std::move(file), readahead);
-    }
     if (!sequential_mode && ioptions_.advise_random_on_open) {
       file->Hint(RandomAccessFile::RANDOM);
     }
