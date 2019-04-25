@@ -79,8 +79,7 @@ CompactionIterator::CompactionIterator(
       current_user_key_snapshot_(0),
       merge_out_iter_(merge_helper_),
       current_key_committed_(false),
-      snap_list_callback_(snap_list_callback),
-      timer_(env_, true) {
+      snap_list_callback_(snap_list_callback) {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
   assert(snapshots_ != nullptr);
   bottommost_level_ =
@@ -282,8 +281,7 @@ void CompactionIterator::NextFromInput() {
       num_keys_++;
       // Use num_keys_ to reduce the overhead of reading current time
       if (snap_list_callback_ && snapshots_->size() &&
-          snap_list_callback_->TimeToRefresh(timer_, num_keys_,
-                                             snap_refresh_cnt_)) {
+          snap_list_callback_->TimeToRefresh(num_keys_, snap_refresh_cnt_)) {
         snap_list_callback_->Refresh(snapshots_, latest_snapshot_);
         snap_refresh_cnt_++;
         ProcessSnapshotList();

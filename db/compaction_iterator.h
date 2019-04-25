@@ -21,26 +21,31 @@
 
 namespace rocksdb {
 
+// This callback can be used to refresh the snapshot list from the db. It
+// includes logics to exponentially decrease the refresh rate to limit the
+// overhead of refresh.
 class SnapshotListFetchCallback {
  public:
-  SnapshotListFetchCallback(uint64_t _snap_refresh_nanos,
-                            size_t _every_nth_key = 1024)
-      : snap_refresh_nanos_(_snap_refresh_nanos),
-        every_nth_key_(_every_nth_key) {
-    assert(every_nth_key_ > 0);
-    assert((ceil(log2(every_nth_key_)) == floor(log2(every_nth_key_))));
+  SnapshotListFetchCallback(Env* env, uint64_t snap_refresh_nanos,
+                            size_t every_nth_key = 1024)
+      : timer_(env, /*auto restart*/ true),
+        snap_refresh_nanos_(snap_refresh_nanos),
+        every_nth_key_minus_one_(every_nth_key - 1) {
+    assert(every_nth_key > 0);
+    assert((ceil(log2(every_nth_key)) == floor(log2(every_nth_key))));
   }
+  // Refresh the snapshot list. snapshots will bre replacted with the new list.
+  // max is the upper bound. Note: this function will acquire the db_mutex_.
   virtual void Refresh(std::vector<SequenceNumber>* snapshots,
                        SequenceNumber max) = 0;
-  inline bool TimeToRefresh(StopWatchNano& timer, size_t key_index,
-                            size_t snap_refresh_cnt) {
-    // skip the key if key_index % every_nth_key is not 0.
-    if ((key_index & (every_nth_key_ - 1)) != 0) {
+  inline bool TimeToRefresh(size_t key_index, size_t snap_refresh_cnt) {
+    // skip the key if key_index % every_nth_key (which is of power 2) is not 0.
+    if ((key_index & every_nth_key_minus_one_) != 0) {
       return false;
     }
     // inc next refresh period exponentially (by x4)
     auto next_refresh_threshold = snap_refresh_nanos_ << (snap_refresh_cnt * 2);
-    const uint64_t elapsed = timer.ElapsedNanos();
+    const uint64_t elapsed = timer_.ElapsedNanos();
     return elapsed > next_refresh_threshold;
   }
   static constexpr SnapshotListFetchCallback* kDisabled = nullptr;
@@ -48,9 +53,12 @@ class SnapshotListFetchCallback {
   virtual ~SnapshotListFetchCallback() {}
 
  private:
+  // Time since the callback was created
+  StopWatchNano timer_;
+  // The initial delay before calling ::Refresh
   const uint64_t snap_refresh_nanos_;
-  // Skip evey nth key. The number if of power 2.
-  const uint64_t every_nth_key_;
+  // Skip evey nth key. Number n if of power 2. The math will require n-1.
+  const uint64_t every_nth_key_minus_one_;
 };
 
 class CompactionIterator {
@@ -260,8 +268,6 @@ class CompactionIterator {
   size_t num_keys_ = 0;
   // number of times that snapshot list is refreshed
   size_t snap_refresh_cnt_ = 0;
-  // time since the iterator was created
-  StopWatchNano timer_;
 
   bool IsShuttingDown() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.

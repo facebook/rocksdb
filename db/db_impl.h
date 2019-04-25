@@ -562,8 +562,8 @@ class DBImpl : public DB {
   const SnapshotList& snapshots() const { return snapshots_; }
 
   const std::vector<SequenceNumber> CopySnapshots(
-      SequenceNumber* oldest_write_conflict_snapshot = nullptr,
-      const SequenceNumber& max_seq = kMaxSequenceNumber) const {
+      SequenceNumber* oldest_write_conflict_snapshot,
+      const SequenceNumber& max_seq) const {
     InstrumentedMutexLock l(mutex());
     return snapshots().GetAll(oldest_write_conflict_snapshot, max_seq);
   }
