@@ -27,14 +27,21 @@ class SnapshotListFetchCallback {
                             size_t _every_nth_key = 1024)
       : snap_refresh_nanos_(_snap_refresh_nanos),
         every_nth_key_(_every_nth_key) {
+    assert(every_nth_key_ > 0);
     assert((ceil(log2(every_nth_key_)) == floor(log2(every_nth_key_))));
   }
   virtual void Refresh(std::vector<SequenceNumber>* snapshots,
                        SequenceNumber max) = 0;
-  inline uint64_t snap_refresh_nanos() { return snap_refresh_nanos_; }
-  // skip the key if key_index % every_nth_key is not 0.
-  inline bool skip_key(size_t key_index) {
-    return (key_index & (every_nth_key_ - 1)) != 0;
+  inline bool TimeToRefresh(StopWatchNano& timer, size_t key_index,
+                            size_t snap_refresh_cnt) {
+    // skip the key if key_index % every_nth_key is not 0.
+    if ((key_index & (every_nth_key_ - 1)) != 0) {
+      return false;
+    }
+    // inc next refresh period exponentially (by x4)
+    auto next_refresh_threshold = snap_refresh_nanos_ << (snap_refresh_cnt * 2);
+    const uint64_t elapsed = timer.ElapsedNanos();
+    return elapsed > next_refresh_threshold;
   }
   static constexpr SnapshotListFetchCallback* kDisabled = nullptr;
 

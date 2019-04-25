@@ -282,16 +282,11 @@ void CompactionIterator::NextFromInput() {
       num_keys_++;
       // Use num_keys_ to reduce the overhead of reading current time
       if (snap_list_callback_ && snapshots_->size() &&
-          snap_list_callback_->skip_key(num_keys_)) {
-        const uint64_t nanos = snap_list_callback_->snap_refresh_nanos();
-        // inc next refresh period exponentially (by x4)
-        auto next_refresh_threshold = nanos << (snap_refresh_cnt_ * 2);
-        const uint64_t elapsed = timer_.ElapsedNanos();
-        if (elapsed > next_refresh_threshold) {
-          snap_list_callback_->Refresh(snapshots_, latest_snapshot_);
-          snap_refresh_cnt_++;
-          ProcessSnapshotList();
-        }
+          snap_list_callback_->TimeToRefresh(timer_, num_keys_,
+                                             snap_refresh_cnt_)) {
+        snap_list_callback_->Refresh(snapshots_, latest_snapshot_);
+        snap_refresh_cnt_++;
+        ProcessSnapshotList();
       }
       // First occurrence of this user key
       // Copy key for output
