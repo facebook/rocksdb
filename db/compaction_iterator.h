@@ -23,9 +23,9 @@ namespace rocksdb {
 
 class SnapshotListFetchCallback {
  public:
-  SnapshotListFetchCallback(uint64_t snap_refresh_nanos,
+  SnapshotListFetchCallback(uint64_t _snap_refresh_nanos,
                             size_t _key_skip = 1024)
-      : snap_refresh_nanos_(snap_refresh_nanos), key_skip_(_key_skip) {}
+      : snap_refresh_nanos_(_snap_refresh_nanos), key_skip_(_key_skip) {}
   virtual void Refresh(std::vector<SequenceNumber>* snapshots,
                        SequenceNumber max) = 0;
   inline uint64_t snap_refresh_nanos() { return snap_refresh_nanos_; }
