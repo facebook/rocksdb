@@ -99,7 +99,8 @@
 
 namespace rocksdb {
 const std::string kDefaultColumnFamilyName("default");
-const std::string kPersistentStatsColumnFamilyName("_stats_history");
+const std::string kPersistentStatsColumnFamilyName(
+    "___rocksdb_reserved_stats_history");
 void DumpRocksDBBuildVersion(Logger* log);
 
 CompressionType GetCompressionFlush(
@@ -686,32 +687,46 @@ void DBImpl::PersistStats() {
     return;
   }
   size_t stats_history_size_limit = 0;
-  bool persist_stats_to_disk = false;
   {
     InstrumentedMutexLock l(&mutex_);
     stats_history_size_limit = mutable_db_options_.stats_history_buffer_size;
-    persist_stats_to_disk = mutable_db_options_.persist_stats_to_disk;
   }
 
   std::map<std::string, uint64_t> stats_map;
   if (!statistics->getTickerMap(&stats_map)) {
     return;
   }
-  if (persist_stats_to_disk) {
-    std::string now_micros_string = rocksdb::ToString(now_micros);
+
+  if (immutable_db_options_.persist_stats_to_disk) {
+    const int now_micros_string_length = kNowMicrosStringLength;
+    char timestamp[now_micros_string_length + 1];
     // make time stamp string equal in length to allow sorting by time
-    now_micros_string.insert(
-        0, kTimestampStringMinimumLength - now_micros_string.length(), '0');
-    int keycount = 0;
+    snprintf(timestamp, sizeof(timestamp), "%016d",
+             static_cast<int>(now_micros));
+
     WriteOptions wo;
-    // for (auto iter = stats_map.begin(); iter != stats_map.end(); ++iter) {
-    for (const auto& stat : stats_map) {
-      std::string key(now_micros_string);
-      key.append("#").append(stat.first);
-      // TODO(Zhongyi): add counters for failed writes
-      Status s = Put(wo, persist_stats_cf_handle_, key, ToString(stat.second));
-      keycount++;
+    wo.low_pri = true;
+    wo.no_slowdown = true;
+    wo.sync = false;
+    wo.disableWAL = true;
+    WriteBatch batch;
+    if (stats_slice_initialized_) {
+      for (const auto& stat : stats_map) {
+        char key[100];
+        int length =
+            snprintf(key, sizeof(key), "%s#%s", timestamp, stat.first.c_str());
+        // calculate the delta from last time
+        if (stats_slice_.find(stat.first) != stats_slice_.end()) {
+          uint64_t delta = stat.second - stats_slice_[stat.first];
+          // TODO(Zhongyi): add counters for failed writes
+          batch.Put(persist_stats_cf_handle_, Slice(key, std::min(100, length)),
+                    ToString(delta));
+        }
+      }
     }
+    stats_slice_initialized_ = true;
+    std::swap(stats_slice_, stats_map);
+    Write(rocksdb::WriteOptions(), &batch);
     // TODO(Zhongyi): add purging for persisted data
   } else {
     InstrumentedMutexLock l(&stats_history_mutex_);
@@ -730,10 +745,12 @@ void DBImpl::PersistStats() {
     TEST_SYNC_POINT("DBImpl::PersistStats:StatsCopied");
 
     // delete older stats snapshots to control memory consumption
-    bool purge_needed = EstimateInMemoryStatsHistorySize() > stats_history_size_limit;
+    bool purge_needed =
+        EstimateInMemoryStatsHistorySize() > stats_history_size_limit;
     while (purge_needed && !stats_history_.empty()) {
       stats_history_.erase(stats_history_.begin());
-      purge_needed = EstimateInMemoryStatsHistorySize() > stats_history_size_limit;
+      purge_needed =
+          EstimateInMemoryStatsHistorySize() > stats_history_size_limit;
     }
   }
   // TODO: persist stats to disk
@@ -767,12 +784,7 @@ Status DBImpl::GetStatsHistory(
   if (!stats_iterator) {
     return Status::InvalidArgument("stats_iterator not preallocated.");
   }
-  bool persist_stats_to_disk = false;
-  {
-    InstrumentedMutexLock l(&mutex_);
-    persist_stats_to_disk = mutable_db_options_.persist_stats_to_disk;
-  }
-  if (persist_stats_to_disk) {
+  if (immutable_db_options_.persist_stats_to_disk) {
     stats_iterator->reset(
         new PersistentStatsHistoryIterator(start_time, end_time, this));
   } else {
@@ -995,7 +1007,7 @@ Status DBImpl::SetDBOptions(
           mutex_.Lock();
         }
         if (new_options.stats_persist_period_sec > 0) {
-          CreatePersistStatsHandle();
+          InitPersistStatsColumnFamily();
           thread_persist_stats_.reset(new rocksdb::RepeatableThread(
               [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
               new_options.stats_persist_period_sec * 1000000));

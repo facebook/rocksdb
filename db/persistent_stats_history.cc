@@ -13,7 +13,7 @@
 #include "util/string_util.h"
 
 namespace rocksdb {
-const int kTimestampStringMinimumLength = 16;
+const int kNowMicrosStringLength = 16;
 
 PersistentStatsHistoryIterator::~PersistentStatsHistoryIterator() {}
 
@@ -50,7 +50,9 @@ std::pair<uint64_t, std::string> parseKey(std::string key,
       result.second = "";
     } else {
       result.first = parsed_time;
-      result.second = key.substr(pos + 1);
+      std::string key_resize = key.substr(pos + 1);
+      key_resize.erase(std::find(key_resize.begin(), key_resize.end(), '\0'), key_resize.end());
+      result.second = key_resize;
     }
   }
   return result;
@@ -65,10 +67,10 @@ void PersistentStatsHistoryIterator::AdvanceIteratorByTime(uint64_t start_time,
     ReadOptions ro;
     auto iter =
         db_impl_->NewIterator(ro, db_impl_->PersistentStatsColumnFamily());
-    std::string start_time_string = ToString(std::max(time_, start_time));
-    start_time_string.insert(
-        0, kTimestampStringMinimumLength - start_time_string.length(), '0');
-    iter->Seek(start_time_string);
+    char timestamp[kNowMicrosStringLength+1];
+    snprintf(timestamp, sizeof(timestamp), "%016d",
+             static_cast<int>(std::max(time_, start_time)));
+    iter->Seek(timestamp);
     // no more entries with timestamp >= start_time is found
     if (!iter->Valid()) {
       valid_ = false;

@@ -381,8 +381,8 @@ Status DBImpl::Recover(
   }
   // create persistent_stats CF for the first time
   // DB mutex is already held
-  if (s.ok() && mutable_db_options_.persist_stats_to_disk) {
-    s = CreatePersistStatsHandle();
+  if (s.ok() && immutable_db_options_.persist_stats_to_disk) {
+    s = InitPersistStatsColumnFamily();
   }
   if (s.ok() && !read_only) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -509,7 +509,11 @@ Status DBImpl::Recover(
   return s;
 }
 
-Status DBImpl::CreatePersistStatsHandle() {
+// Initialize the built-in column family for persistent stats. Depending on
+// whether on-disk persistent stats have been enabled before, it may either
+// create a new column family and column family handle or just a column family
+// handle.
+Status DBImpl::InitPersistStatsColumnFamily() {
   if (persist_stats_cf_handle_) {
     return Status::OK();
   }
@@ -523,9 +527,8 @@ Status DBImpl::CreatePersistStatsHandle() {
     mutex_.Unlock();
     ColumnFamilyHandle* handle = nullptr;
     Status s = CreateColumnFamily(ColumnFamilyOptions(),
-                           kPersistentStatsColumnFamilyName, &handle);
-    persist_stats_cf_handle_ =
-        static_cast<ColumnFamilyHandleImpl*>(handle);
+                                  kPersistentStatsColumnFamilyName, &handle);
+    persist_stats_cf_handle_ = static_cast<ColumnFamilyHandleImpl*>(handle);
     mutex_.Lock();
     return s;
   } else {

@@ -1179,7 +1179,7 @@ class DBImpl : public DB {
     PrepickedCompaction* prepicked_compaction;
   };
 
-  Status CreatePersistStatsHandle();
+  Status InitPersistStatsColumnFamily();
 
   Status ResumeImpl();
 
