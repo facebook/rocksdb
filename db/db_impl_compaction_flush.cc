@@ -799,7 +799,8 @@ class SnapshotListFetchCallbackImpl : public SnapshotListFetchCallback {
   virtual void Refresh(std::vector<SequenceNumber>* snapshots,
                        SequenceNumber max) override {
     size_t prev = snapshots->size();
-    *snapshots = db_impl_->CopySnapshots(nullptr, max);
+    snapshots->clear();
+    db_impl_->LoadSnapshots(snapshots, nullptr, max);
     size_t now = snapshots->size();
     ROCKS_LOG_DEBUG(info_log_,
                     "Compaction snapshot count refreshed from %zu to %zu", prev,

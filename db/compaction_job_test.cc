@@ -964,9 +964,9 @@ TEST_F(CompactionJobTest, SnapshotRefresh) {
   std::vector<SequenceNumber> db_snapshots;
   class SnapshotListFetchCallbackTest : public SnapshotListFetchCallback {
    public:
-    SnapshotListFetchCallbackTest(Random64& rand,
+    SnapshotListFetchCallbackTest(Env* env, Random64& rand,
                                   std::vector<SequenceNumber>* snapshots)
-        : SnapshotListFetchCallback(0 /*no time delay*/,
+        : SnapshotListFetchCallback(env, 0 /*no time delay*/,
                                     1 /*fetch after each key*/),
           rand_(rand),
           snapshots_(snapshots) {}
@@ -985,7 +985,7 @@ TEST_F(CompactionJobTest, SnapshotRefresh) {
    private:
     Random64 rand_;
     std::vector<SequenceNumber>* snapshots_;
-  } snapshot_fetcher(rand, &db_snapshots);
+  } snapshot_fetcher(env_, rand, &db_snapshots);
 
   std::vector<std::pair<const std::string, std::string>> file1_kvs, file2_kvs;
   std::array<ValueType, 4> types = {kTypeValue, kTypeDeletion,
