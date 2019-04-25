@@ -17,6 +17,7 @@
 * Adjust WriteBufferManager's dummy entry size to block cache from 1MB to 256KB.
 * Fix a race condition between WritePrepared::Get and ::Put with duplicate keys.
 * Fix crash when memtable prefix bloom is enabled and read/write a key out of domain of prefix extractor.
+* Close a WAL file before another thread deletes it.
 
 ## 6.1.1 (4/9/2019)
 ### New Features
