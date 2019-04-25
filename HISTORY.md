@@ -6,6 +6,7 @@
 * Introduce Periodic Compaction for Level style compaction. Files are re-compacted periodically and put in the same level.
 * Block-based table index now contains exact highest key in the file, rather than an upper bound. This may improve Get() and iterator Seek() performance in some situations, especially when direct IO is enabled and block cache is disabled. A setting BlockBasedTableOptions::index_shortening is introduced to control this behavior. Set it to kShortenSeparatorsAndSuccessor to get the old behavior.
 * When reading from option file/string/map, customized envs can be filled according to object registry.
+* Add an option `snap_refresh_nanos` (default to 0.5s) to periodically refresh the snapshot list in compaction jobs. Assign to 0 to disable the feature.
 
 ### Public API Change
 * Change the behavior of OptimizeForPointLookup(): move away from hash-based block-based-table index, and use whole key memtable filtering.
