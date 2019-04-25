@@ -81,7 +81,8 @@ enum class OptionType {
   kAccessHint,
   kInfoLogLevel,
   kLRUCacheOptions,
-  kUnknown
+  kEnv,
+  kUnknown,
 };
 
 enum class OptionVerificationType {
