@@ -765,13 +765,6 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<CompactionStopStyle>(
           compaction_stop_style_string_map,
           *reinterpret_cast<const CompactionStopStyle*>(opt_address), value);
-    case OptionType::kEnv: {
-      // `opt_address` is a const pointer to the `DBOptions::env` field. That
-      // field itself holds a non-const pointer to an `Env` object.
-      Env* env_ptr = *reinterpret_cast<Env* const*>(opt_address);
-      *value = env_ptr ? env_ptr->Name() : kNullptrString;
-      break;
-    }
     default:
       return false;
   }

@@ -765,9 +765,8 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   class CustomEnv : public EnvWrapper {
    public:
     explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
-
-    virtual const char* Name() const override { return kCustomEnvName; }
   };
+
   static Registrar<Env> test_reg_env(
       kCustomEnvName,
       [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/) {
@@ -811,7 +810,8 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.create_if_missing, true);
   ASSERT_EQ(new_options.max_open_files, 1);
   ASSERT_TRUE(new_options.rate_limiter.get() != nullptr);
-  ASSERT_EQ(kCustomEnvName, std::string(new_options.env->Name()));
+  std::unique_ptr<Env> env_guard;
+  ASSERT_EQ(NewCustomObject<Env>(kCustomEnvName, &env_guard), new_options.env);
 }
 
 TEST_F(OptionsTest, DBOptionsSerialization) {
