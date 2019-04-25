@@ -1215,6 +1215,7 @@ void DBImpl::BackgroundCallPurge() {
       log::Writer* log_writer = *(logs_to_free_queue_.begin());
       logs_to_free_queue_.pop_front();
       mutex_.Unlock();
+      log_writer->Close();
       delete log_writer;
       mutex_.Lock();
     } else {
