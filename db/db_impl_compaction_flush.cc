@@ -791,20 +791,15 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
 
 class SnapshotListFetchCallbackImpl : public SnapshotListFetchCallback {
  public:
-  SnapshotListFetchCallbackImpl(InstrumentedMutex* mutex,
-                                SnapshotList* snapshotlist,
-                                uint64_t snap_refresh_nanos, Logger* info_log)
+  SnapshotListFetchCallbackImpl(DBImpl* db_impl, uint64_t snap_refresh_nanos,
+                                Logger* info_log)
       : SnapshotListFetchCallback(snap_refresh_nanos),
-        mutex_(mutex),
-        snapshotlist_(snapshotlist),
+        db_impl_(db_impl),
         info_log_(info_log) {}
   virtual void Refresh(std::vector<SequenceNumber>* snapshots,
                        SequenceNumber max) override {
     size_t prev = snapshots->size();
-    {
-      InstrumentedMutexLock l(mutex_);
-      *snapshots = snapshotlist_->GetAll(nullptr, max);
-    }
+    *snapshots = db_impl_->CopySnapshots(nullptr, max);
     size_t now = snapshots->size();
     ROCKS_LOG_DEBUG(info_log_,
                     "Compaction snapshot count refreshed from %zu to %zu", prev,
@@ -812,8 +807,7 @@ class SnapshotListFetchCallbackImpl : public SnapshotListFetchCallback {
   }
 
  private:
-  InstrumentedMutex* mutex_;
-  SnapshotList* snapshotlist_;
+  DBImpl* db_impl_;
   Logger* info_log_;
 };
 
@@ -989,7 +983,7 @@ Status DBImpl::CompactFilesImpl(
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJobStats compaction_job_stats;
   SnapshotListFetchCallbackImpl fetch_callback(
-      &mutex_, &snapshots_, c->mutable_cf_options()->snap_refresh_nanos,
+      this, c->mutable_cf_options()->snap_refresh_nanos,
       immutable_db_options_.info_log.get());
   CompactionJob compaction_job(
       job_context->job_id, c.get(), immutable_db_options_,
@@ -2647,7 +2641,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                        &earliest_write_conflict_snapshot, &snapshot_checker);
     assert(is_snapshot_supported_ || snapshots_.empty());
     SnapshotListFetchCallbackImpl fetch_callback(
-        &mutex_, &snapshots_, c->mutable_cf_options()->snap_refresh_nanos,
+        this, c->mutable_cf_options()->snap_refresh_nanos,
         immutable_db_options_.info_log.get());
     CompactionJob compaction_job(
         job_context->job_id, c.get(), immutable_db_options_,

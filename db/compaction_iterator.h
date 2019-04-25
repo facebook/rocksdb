@@ -24,19 +24,26 @@ namespace rocksdb {
 class SnapshotListFetchCallback {
  public:
   SnapshotListFetchCallback(uint64_t _snap_refresh_nanos,
-                            size_t _key_skip = 1024)
-      : snap_refresh_nanos_(_snap_refresh_nanos), key_skip_(_key_skip) {}
+                            size_t _every_nth_key = 1024)
+      : snap_refresh_nanos_(_snap_refresh_nanos),
+        every_nth_key_(_every_nth_key) {
+    assert((ceil(log2(every_nth_key_)) == floor(log2(every_nth_key_))));
+  }
   virtual void Refresh(std::vector<SequenceNumber>* snapshots,
                        SequenceNumber max) = 0;
   inline uint64_t snap_refresh_nanos() { return snap_refresh_nanos_; }
-  inline uint64_t key_skip() { return key_skip_; }
+  // skip the key if key_index % every_nth_key is not 0.
+  inline bool skip_key(size_t key_index) {
+    return (key_index & (every_nth_key_ - 1)) != 0;
+  }
   static constexpr SnapshotListFetchCallback* kDisabled = nullptr;
 
   virtual ~SnapshotListFetchCallback() {}
 
  private:
   const uint64_t snap_refresh_nanos_;
-  const uint64_t key_skip_;
+  // Skip evey nth key. The number if of power 2.
+  const uint64_t every_nth_key_;
 };
 
 class CompactionIterator {
@@ -243,7 +250,7 @@ class CompactionIterator {
   bool current_key_committed_;
   SnapshotListFetchCallback* snap_list_callback_;
   // number of distinct keys processed
-  size_t key_cnt_ = 0;
+  size_t num_keys_ = 0;
   // number of times that snapshot list is refreshed
   size_t snap_refresh_cnt_ = 0;
   // time since the iterator was created

@@ -279,10 +279,10 @@ void CompactionIterator::NextFromInput() {
     // compaction filter). ikey_.user_key is pointing to the copy.
     if (!has_current_user_key_ ||
         !cmp_->Equal(ikey_.user_key, current_user_key_)) {
-      key_cnt_++;
-      // Use key_cnt_ to reduce the overhead of reading current time
+      num_keys_++;
+      // Use num_keys_ to reduce the overhead of reading current time
       if (snap_list_callback_ && snapshots_->size() &&
-          key_cnt_ % snap_list_callback_->key_skip() == 0) {
+          snap_list_callback_->skip_key(num_keys_)) {
         const uint64_t nanos = snap_list_callback_->snap_refresh_nanos();
         // inc next refresh period exponentially (by x4)
         auto next_refresh_threshold = nanos << (snap_refresh_cnt_ * 2);
