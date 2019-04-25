@@ -791,9 +791,9 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
 
 class SnapshotListFetchCallbackImpl : public SnapshotListFetchCallback {
  public:
-  SnapshotListFetchCallbackImpl(DBImpl* db_impl, uint64_t snap_refresh_nanos,
+  SnapshotListFetchCallbackImpl(DBImpl* db_impl, uint64_t _snap_refresh_nanos,
                                 Logger* info_log)
-      : SnapshotListFetchCallback(snap_refresh_nanos),
+      : SnapshotListFetchCallback(_snap_refresh_nanos),
         db_impl_(db_impl),
         info_log_(info_log) {}
   virtual void Refresh(std::vector<SequenceNumber>* snapshots,
