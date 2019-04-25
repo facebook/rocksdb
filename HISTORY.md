@@ -11,7 +11,7 @@
 ### Public API Change
 * Change the behavior of OptimizeForPointLookup(): move away from hash-based block-based-table index, and use whole key memtable filtering.
 * Change the behavior of OptimizeForSmallDb(): use a 16MB block cache, put index and filter blocks into it, and cost the memtable size to it. DBOptions.OptimizeForSmallDb() and ColumnFamilyOptions.OptimizeForSmallDb() start to take an optional cache object.
-* Added BottommostLevelCompaction::kForceOptimized to avoid double compacting newly compacted files in bottom level compaction of manual compaction.
+* Added BottommostLevelCompaction::kForceOptimized to avoid double compacting newly compacted files in the bottommost level compaction of manual compaction. Note this option may prohibit the manual compaction to produce a single file in the bottommost level.
 
 ### Bug Fixes
 * Adjust WriteBufferManager's dummy entry size to block cache from 1MB to 256KB.
