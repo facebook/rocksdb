@@ -20,6 +20,12 @@ class Slice;
 // from multiple threads.
 class Comparator {
  public:
+  Comparator() : timestamp_size(0) {}
+
+  Comparator(size_t ts_sz) : timestamp_size(ts_sz) {}
+
+  Comparator(const Comparator& orig) : timestamp_size(orig.timestamp_size) {}
+
   virtual ~Comparator() {}
 
   // Three-way comparison.  Returns value:
@@ -79,11 +85,18 @@ class Comparator {
   // with the customized comparator.
   virtual bool CanKeysWithDifferentByteContentsBeEqual() const { return true; }
 
-  virtual size_t TimestampSize() const { return 0; }
+  size_t TimestampSize() const { return timestamp_size; }
 
   virtual int CompareWithoutTimestamp(const Slice& a, const Slice& b) const {
     return Compare(a, b);
   }
+
+  virtual int CompareTimestamp(Slice&& /*ts1*/, Slice&& /*ts2*/) const {
+    return 0;
+  }
+
+ protected:
+  size_t timestamp_size;
 };
 
 // Return a builtin comparator that uses lexicographic byte-wise

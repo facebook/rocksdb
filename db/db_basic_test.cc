@@ -1295,12 +1295,10 @@ class DBBasicTestWithTimestampWithParam
  protected:
   class TestComparator : public Comparator {
    private:
-    size_t timestamp_size_;
     const Comparator* cmp_without_ts_;
 
    public:
-    TestComparator(size_t ts_sz)
-        : timestamp_size_(ts_sz), cmp_without_ts_(nullptr) {
+    TestComparator(size_t ts_sz) : Comparator(ts_sz), cmp_without_ts_(nullptr) {
       cmp_without_ts_ = BytewiseComparator();
     }
 
@@ -1312,17 +1310,38 @@ class DBBasicTestWithTimestampWithParam
 
     int Compare(const Slice& a, const Slice& b) const override {
       int r = CompareWithoutTimestamp(a, b);
-      if (r != 0 || 0 == timestamp_size_) {
+      if (r != 0 || 0 == timestamp_size) {
         return r;
       }
-      Slice t1 = Slice(a.data() + a.size() - timestamp_size_, timestamp_size_);
-      Slice t2 = Slice(b.data() + b.size() - timestamp_size_, timestamp_size_);
+      return CompareTimestamp(
+          Slice(a.data() + a.size() - timestamp_size, timestamp_size),
+          Slice(b.data() + b.size() - timestamp_size, timestamp_size));
+    }
+
+    int CompareWithoutTimestamp(const Slice& a, const Slice& b) const override {
+      assert(a.size() >= timestamp_size);
+      assert(b.size() >= timestamp_size);
+      Slice k1 = StripTimestampFromUserKey(a, timestamp_size);
+      Slice k2 = StripTimestampFromUserKey(b, timestamp_size);
+
+      return cmp_without_ts_->Compare(k1, k2);
+    }
+
+    int CompareTimestamp(Slice&& ts1, Slice&& ts2) const override {
+      if (!ts1.data() && !ts2.data()) {
+        return 0;
+      } else if (ts1.data() && !ts2.data()) {
+        return 1;
+      } else if (!ts1.data() && ts2.data()) {
+        return -1;
+      }
+      assert(ts1.size() == ts2.size());
       uint64_t low1 = 0;
       uint64_t low2 = 0;
       uint64_t high1 = 0;
       uint64_t high2 = 0;
-      if (!GetFixed64(&t1, &low1) || !GetFixed64(&t1, &high1) ||
-          !GetFixed64(&t2, &low2) || !GetFixed64(&t2, &high2)) {
+      if (!GetFixed64(&ts1, &low1) || !GetFixed64(&ts1, &high1) ||
+          !GetFixed64(&ts2, &low2) || !GetFixed64(&ts2, &high2)) {
         assert(false);
       }
       if (high1 < high2) {
@@ -1337,17 +1356,6 @@ class DBBasicTestWithTimestampWithParam
       }
       return 0;
     }
-
-    size_t TimestampSize() const override { return timestamp_size_; }
-
-    int CompareWithoutTimestamp(const Slice& a, const Slice& b) const override {
-      assert(a.size() >= timestamp_size_);
-      assert(b.size() >= timestamp_size_);
-      Slice k1 = StripTimestampFromUserKey(a, timestamp_size_);
-      Slice k2 = StripTimestampFromUserKey(b, timestamp_size_);
-
-      return cmp_without_ts_->Compare(k1, k2);
-    }
   };
 
   Slice EncodeTimestamp(uint64_t low, uint64_t high, std::string* ts) {
@@ -1361,7 +1369,7 @@ class DBBasicTestWithTimestampWithParam
 };
 
 TEST_P(DBBasicTestWithTimestampWithParam, PutAndGet) {
-  const int kNumKeysPerFile = 128;
+  const int kNumKeysPerFile = 8192;
   const size_t kNumTimestamps = 6;
   bool memtable_only = GetParam();
   Options options = CurrentOptions();

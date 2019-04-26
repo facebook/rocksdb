@@ -635,12 +635,9 @@ static bool SaveValue(void* arg, const char* entry) {
   uint32_t key_length;
   const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
   Slice user_key_slice = Slice(key_ptr, key_length - 8);
-  if (s->mem->GetInternalKeyComparator().user_comparator()->Equal(
-          user_key_slice, s->key->user_key()) ||
-      s->mem->GetInternalKeyComparator()
-              .user_comparator()
-              ->CompareWithoutTimestamp(user_key_slice, s->key->user_key()) ==
-          0) {
+  if (s->mem->GetInternalKeyComparator()
+          .user_comparator()
+          ->CompareWithoutTimestamp(user_key_slice, s->key->user_key()) == 0) {
     // Correct user key
     const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
     ValueType type;
