@@ -1706,7 +1706,7 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
                          filter_blk_handle, cache_key);
 
   Statistics* statistics = rep_->ioptions.statistics;
-  auto cache_handle = GetEntryFromCache(
+  Cache::Handle* cache_handle = GetEntryFromCache(
       block_cache, key, rep_->level, BLOCK_CACHE_FILTER_MISS,
       BLOCK_CACHE_FILTER_HIT,
       get_context ? &get_context->get_context_stats_.num_cache_filter_miss
