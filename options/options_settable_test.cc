@@ -297,7 +297,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "manual_wal_flush=false;"
                              "seq_per_batch=false;"
                              "atomic_flush=false;"
-                             "avoid_unnecessary_blocking_io=false",
+                             "avoid_unnecessary_blocking_io=false;"
+                             "wait_for_background_work=false",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

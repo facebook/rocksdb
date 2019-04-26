@@ -1047,6 +1047,10 @@ struct DBOptions {
   // If set to true, takes precedence over
   // ReadOptions::background_purge_on_iterator_cleanup.
   bool avoid_unnecessary_blocking_io = false;
+
+  // If true, RocksDB would wait for all background work finished when close.
+  // Set wait_for_background_work as false means we just set the shutdown.
+  bool wait_for_background_work = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

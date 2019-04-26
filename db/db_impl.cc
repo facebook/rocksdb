@@ -445,7 +445,7 @@ Status DBImpl::CloseHelper() {
   // CancelAllBackgroundWork called with false means we just set the shutdown
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
-  CancelAllBackgroundWork(false);
+  CancelAllBackgroundWork(initial_db_options_.wait_for_background_work);
   int bottom_compactions_unscheduled =
       env_->UnSchedule(this, Env::Priority::BOTTOM);
   int compactions_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);
