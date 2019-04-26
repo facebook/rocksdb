@@ -518,7 +518,7 @@ fi
 
 if test "$USE_HDFS"; then
   if test -z "$JAVA_HOME"; then
-    echo "JAVA_HOME has to be set for HDFS usage."
+    echo "JAVA_HOME has to be set for HDFS usage." >&2
     exit 1
   fi
   HDFS_CCFLAGS="$HDFS_CCFLAGS -I$JAVA_HOME/include -I$JAVA_HOME/include/linux -DUSE_HDFS -I$HADOOP_HOME/include"
@@ -562,7 +562,7 @@ EOF
 if [ "$?" = 0 ]; then
   COMMON_FLAGS="$COMMON_FLAGS -DHAVE_SSE42"
 elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use SSE intrinsics, disabling"
+  echo "warning: USE_SSE specified but compiler could not use SSE intrinsics, disabling" >&2
   exit 1
 fi
 
@@ -580,7 +580,7 @@ EOF
 if [ "$?" = 0 ]; then
   COMMON_FLAGS="$COMMON_FLAGS -DHAVE_PCLMUL"
 elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use PCLMUL intrinsics, disabling"
+  echo "warning: USE_SSE specified but compiler could not use PCLMUL intrinsics, disabling" >&2
   exit 1
 fi
 
