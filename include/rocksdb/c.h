@@ -380,6 +380,10 @@ extern ROCKSDB_LIBRARY_API const rocksdb_livefiles_t* rocksdb_livefiles(
 extern ROCKSDB_LIBRARY_API void rocksdb_flush(
     rocksdb_t* db, const rocksdb_flushoptions_t* options, char** errptr);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_flush_cf(
+    rocksdb_t* db, const rocksdb_flushoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_disable_file_deletions(rocksdb_t* db,
                                                                char** errptr);
 
@@ -806,6 +810,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_target_file_size_base(
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_target_file_size_multiplier(
     rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_bytes_for_level_base(
+    rocksdb_options_t*, uint64_t);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_snap_refresh_nanos(
     rocksdb_options_t*, uint64_t);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_level_compaction_dynamic_level_bytes(rocksdb_options_t*,

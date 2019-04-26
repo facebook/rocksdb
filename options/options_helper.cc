@@ -177,6 +177,7 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
       mutable_cf_options.target_file_size_multiplier;
   cf_opts.max_bytes_for_level_base =
       mutable_cf_options.max_bytes_for_level_base;
+  cf_opts.snap_refresh_nanos = mutable_cf_options.snap_refresh_nanos;
   cf_opts.max_bytes_for_level_multiplier =
       mutable_cf_options.max_bytes_for_level_multiplier;
   cf_opts.ttl = mutable_cf_options.ttl;
@@ -247,6 +248,7 @@ std::unordered_map<std::string, CompressionType>
 #ifndef ROCKSDB_LITE
 
 const std::string kNameComparator = "comparator";
+const std::string kNameEnv = "env";
 const std::string kNameMergeOperator = "merge_operator";
 
 template <typename T>
@@ -525,9 +527,9 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
               opt_address));
     case OptionType::kBlockBasedTableIndexShorteningMode:
       return ParseEnum<BlockBasedTableOptions::IndexShorteningMode>(
-        block_base_table_index_shortening_mode_string_map, value,
-        reinterpret_cast<BlockBasedTableOptions::IndexShorteningMode*>(
-            opt_address));
+          block_base_table_index_shortening_mode_string_map, value,
+          reinterpret_cast<BlockBasedTableOptions::IndexShorteningMode*>(
+              opt_address));
     case OptionType::kEncodingType:
       return ParseEnum<EncodingType>(
           encoding_type_string_map, value,
@@ -1179,6 +1181,14 @@ Status ParseDBOption(const std::string& name,
     if (name == "rate_limiter_bytes_per_sec") {
       new_options->rate_limiter.reset(
           NewGenericRateLimiter(static_cast<int64_t>(ParseUint64(value))));
+    } else if (name == kNameEnv) {
+      // Currently `Env` can be deserialized from object registry only.
+      std::unique_ptr<Env> env_guard;
+      Env* env = NewCustomObject<Env>(value, &env_guard);
+      // Only support static env for now.
+      if (env != nullptr && !env_guard) {
+        new_options->env = env;
+      }
     } else {
       auto iter = db_options_type_info.find(name);
       if (iter == db_options_type_info.end()) {
@@ -1388,7 +1398,6 @@ std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::db_options_type_info = {
         /*
          // not yet supported
-          Env* env;
           std::shared_ptr<Cache> row_cache;
           std::shared_ptr<DeleteScheduler> delete_scheduler;
           std::shared_ptr<Logger> info_log;
@@ -1553,8 +1562,8 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionVerificationType::kNormal, true,
           offsetof(struct MutableDBOptions, wal_bytes_per_sync)}},
         {"strict_bytes_per_sync",
-         {offsetof(struct DBOptions, strict_bytes_per_sync), OptionType::kBoolean,
-          OptionVerificationType::kNormal, true,
+         {offsetof(struct DBOptions, strict_bytes_per_sync),
+          OptionType::kBoolean, OptionVerificationType::kNormal, true,
           offsetof(struct MutableDBOptions, strict_bytes_per_sync)}},
         {"stats_dump_period_sec",
          {offsetof(struct DBOptions, stats_dump_period_sec), OptionType::kUInt,
@@ -1639,8 +1648,8 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"avoid_unnecessary_blocking_io",
          {offsetof(struct DBOptions, avoid_unnecessary_blocking_io),
           OptionType::kBoolean, OptionVerificationType::kNormal, false,
-          offsetof(struct ImmutableDBOptions, avoid_unnecessary_blocking_io)}}
-      };
+          offsetof(struct ImmutableDBOptions, avoid_unnecessary_blocking_io)}},
+};
 
 std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
     OptionsHelper::block_base_table_index_type_string_map = {
@@ -1658,13 +1667,13 @@ std::unordered_map<std::string, BlockBasedTableOptions::DataBlockIndexType>
 
 std::unordered_map<std::string, BlockBasedTableOptions::IndexShorteningMode>
     OptionsHelper::block_base_table_index_shortening_mode_string_map = {
-      {"kNoShortening",
-       BlockBasedTableOptions::IndexShorteningMode::kNoShortening},
-      {"kShortenSeparators",
-       BlockBasedTableOptions::IndexShorteningMode::kShortenSeparators},
-      {"kShortenSeparatorsAndSuccessor",
-       BlockBasedTableOptions::IndexShorteningMode::
-           kShortenSeparatorsAndSuccessor}};
+        {"kNoShortening",
+         BlockBasedTableOptions::IndexShorteningMode::kNoShortening},
+        {"kShortenSeparators",
+         BlockBasedTableOptions::IndexShorteningMode::kShortenSeparators},
+        {"kShortenSeparatorsAndSuccessor",
+         BlockBasedTableOptions::IndexShorteningMode::
+             kShortenSeparatorsAndSuccessor}};
 
 std::unordered_map<std::string, EncodingType>
     OptionsHelper::encoding_type_string_map = {{"kPlain", kPlain},
@@ -1902,6 +1911,10 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::max_bytes_for_level_base),
           OptionType::kUInt64T, OptionVerificationType::kNormal, true,
           offsetof(struct MutableCFOptions, max_bytes_for_level_base)}},
+        {"snap_refresh_nanos",
+         {offset_of(&ColumnFamilyOptions::snap_refresh_nanos),
+          OptionType::kUInt64T, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, snap_refresh_nanos)}},
         {"max_bytes_for_level_multiplier",
          {offset_of(&ColumnFamilyOptions::max_bytes_for_level_multiplier),
           OptionType::kDouble, OptionVerificationType::kNormal, true,

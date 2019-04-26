@@ -1183,6 +1183,14 @@ void rocksdb_flush(
   SaveError(errptr, db->rep->Flush(options->rep));
 }
 
+void rocksdb_flush_cf(
+    rocksdb_t* db,
+    const rocksdb_flushoptions_t* options,
+    rocksdb_column_family_handle_t* column_family,
+    char** errptr) {
+  SaveError(errptr, db->rep->Flush(options->rep, column_family->rep));
+}
+
 void rocksdb_disable_file_deletions(
     rocksdb_t* db,
     char** errptr) {
@@ -2204,6 +2212,11 @@ void rocksdb_options_set_target_file_size_multiplier(
 void rocksdb_options_set_max_bytes_for_level_base(
     rocksdb_options_t* opt, uint64_t n) {
   opt->rep.max_bytes_for_level_base = n;
+}
+
+void rocksdb_options_set_snap_refresh_nanos(rocksdb_options_t* opt,
+                                            uint64_t n) {
+  opt->rep.snap_refresh_nanos = n;
 }
 
 void rocksdb_options_set_level_compaction_dynamic_level_bytes(
