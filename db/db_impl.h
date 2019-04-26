@@ -561,6 +561,13 @@ class DBImpl : public DB {
 
   const SnapshotList& snapshots() const { return snapshots_; }
 
+  void LoadSnapshots(std::vector<SequenceNumber>* snap_vector,
+                     SequenceNumber* oldest_write_conflict_snapshot,
+                     const SequenceNumber& max_seq) const {
+    InstrumentedMutexLock l(mutex());
+    snapshots().GetAll(snap_vector, oldest_write_conflict_snapshot, max_seq);
+  }
+
   const ImmutableDBOptions& immutable_db_options() const {
     return immutable_db_options_;
   }
@@ -739,7 +746,7 @@ class DBImpl : public DB {
   // Not thread-safe.
   void SetRecoverableStatePreReleaseCallback(PreReleaseCallback* callback);
 
-  InstrumentedMutex* mutex() { return &mutex_; }
+  InstrumentedMutex* mutex() const { return &mutex_; }
 
   Status NewDB();
 
