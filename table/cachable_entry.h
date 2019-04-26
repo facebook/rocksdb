@@ -123,6 +123,8 @@ public:
   }
 
   void SetOwnedValue(T* value) {
+    assert(value != nullptr);
+
     if (UNLIKELY(value_ == value && own_value_)) {
       assert(cache_ == nullptr && cache_handle_ == nullptr);
       return;
@@ -135,6 +137,8 @@ public:
   }
 
   void SetUnownedValue(T* value) {
+    assert(value != nullptr);
+
     if (UNLIKELY(value_ == value && cache_ == nullptr &&
                  cache_handle_ == nullptr && !own_value_)) {
       return;
@@ -147,6 +151,10 @@ public:
   }
 
   void SetCachedValue(T* value, Cache* cache, Cache::Handle* cache_handle) {
+    assert(value != nullptr);
+    assert(cache != nullptr);
+    assert(cache_handle != nullptr);
+
     if (UNLIKELY(value_ == value && cache_ == cache &&
                  cache_handle_ == cache_handle && !own_value_)) {
       return;
@@ -162,6 +170,8 @@ public:
 
   void SetCacheData(Cache* cache, Cache::Handle* cache_handle) {
     assert(value_ != nullptr);
+    assert(cache != nullptr);
+    assert(cache_handle != nullptr);
 
     cache_ = cache;
     cache_handle_ = cache_handle;
