@@ -1438,6 +1438,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
       block_cache->TEST_mark_as_data_block(block_cache_key, charge);
 #endif  // NDEBUG
       if (s.ok()) {
+        assert(cache_handle != nullptr);
         block->SetCacheData(block_cache, cache_handle);
 
         if (get_context != nullptr) {
