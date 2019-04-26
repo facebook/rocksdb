@@ -3,6 +3,9 @@
 ### Public API Change
 * Now DB::Close() will return Aborted() error when there is unreleased snapshot. Users can retry after all snapshots are released.
 
+### New Features
+* Reduce binary search when iterator reseek into the same data block.
+
 ## 6.2.0 (4/30/2019)
 ### New Features
 * Add an option `strict_bytes_per_sync` that causes a file-writing thread to block rather than exceed the limit on bytes pending writeback specified by `bytes_per_sync` or `wal_bytes_per_sync`.
