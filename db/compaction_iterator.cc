@@ -281,9 +281,8 @@ void CompactionIterator::NextFromInput() {
       num_keys_++;
       // Use num_keys_ to reduce the overhead of reading current time
       if (snap_list_callback_ && snapshots_->size() &&
-          snap_list_callback_->TimeToRefresh(num_keys_, snap_refresh_cnt_)) {
+          snap_list_callback_->TimeToRefresh(num_keys_)) {
         snap_list_callback_->Refresh(snapshots_, latest_snapshot_);
-        snap_refresh_cnt_++;
         ProcessSnapshotList();
       }
       // First occurrence of this user key
