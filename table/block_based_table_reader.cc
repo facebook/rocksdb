@@ -2478,19 +2478,21 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
                    kBlockTrailerSize >
                readahead_limit_)) {
             // Buffered I/O
-            // Discarding the return status of Prefetch calls intentionally, as we
-            // can fallback to reading from disk if Prefetch fails.
+            // Discarding the return status of Prefetch calls intentionally, as
+            // we can fallback to reading from disk if Prefetch fails.
             rep->file->Prefetch(data_block_handle.offset(), readahead_size_);
-            readahead_limit_ =
-                static_cast<size_t>(data_block_handle.offset() + readahead_size_);
+            readahead_limit_ = static_cast<size_t>(data_block_handle.offset() +
+                                                   readahead_size_);
             // Keep exponentially increasing readahead size until
             // kMaxAutoReadaheadSize.
-            readahead_size_ = std::min(kMaxAutoReadaheadSize, readahead_size_ * 2);
+            readahead_size_ =
+                std::min(kMaxAutoReadaheadSize, readahead_size_ * 2);
           } else if (rep->file->use_direct_io() && !prefetch_buffer_) {
             // Direct I/O
             // Let FilePrefetchBuffer take care of the readahead.
-            prefetch_buffer_.reset(new FilePrefetchBuffer(
-                rep->file.get(), kInitAutoReadaheadSize, kMaxAutoReadaheadSize));
+            prefetch_buffer_.reset(
+                new FilePrefetchBuffer(rep->file.get(), kInitAutoReadaheadSize,
+                                       kMaxAutoReadaheadSize));
           }
         }
       } else if (!prefetch_buffer_) {
