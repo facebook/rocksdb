@@ -721,7 +721,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   static const size_t kInitAutoReadaheadSize = 8 * 1024;
   // Found that 256 KB readahead size provides the best performance, based on
   // experiments, for auto readahead. Experiment data is in PR #3282.
-  static const size_t kMaxAutoReadaheadSize = 256 * 1024;
+  static const size_t kMaxAutoReadaheadSize;
   static const int kMinNumFileReadsToStartAutoReadahead = 2;
   size_t readahead_size_ = kInitAutoReadaheadSize;
   size_t readahead_limit_ = 0;

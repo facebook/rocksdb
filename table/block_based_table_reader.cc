@@ -2449,6 +2449,13 @@ void BlockBasedTableIterator<TBlockIter, TValue>::Prev() {
   FindKeyBackward();
 }
 
+// Found that 256 KB readahead size provides the best performance, based on
+// experiments, for auto readahead. Experiment data is in PR #3282.
+template <class TBlockIter, typename TValue>
+const size_t
+    BlockBasedTableIterator<TBlockIter, TValue>::kMaxAutoReadaheadSize =
+        256 * 1024;
+
 template <class TBlockIter, typename TValue>
 void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
   BlockHandle data_block_handle = index_iter_->value();
