@@ -49,7 +49,7 @@ class SnapshotListFetchCallback {
     if (ret) {
       // inc next refresh period exponentially (by x4)
       auto next_refresh_threshold = snap_refresh_nanos_ << 2;
-      // make sure the shit has not overflown the highest 1 bit
+      // make sure the shift has not overflown the highest 1 bit
       snap_refresh_nanos_ =
           std::max(snap_refresh_nanos_, next_refresh_threshold);
     }
