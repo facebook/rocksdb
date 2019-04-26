@@ -25,7 +25,7 @@ namespace rocksdb {
 // a block read directly from file, or uncompressed blocks when there is a
 // compressed block cache but no uncompressed block cache). In such cases, the
 // object has to be destroyed when the CachableEntry is destroyed.
-// 3) It may point to a non-cached object without owning it. In this case,
+// 3) It may point to an object (cached or not) without owning it. In this case,
 // no action is needed when the CachableEntry is destroyed.
 // 4) Sometimes, management of a cached or owned object (see #1 and #2 above)
 // is handed off to some other object. This is termed detaching, and is
