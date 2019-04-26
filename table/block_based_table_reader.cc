@@ -2463,33 +2463,43 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
 
     // Prefetch additional data for range scans (iterators). Enabled only for
     // user reads.
-    // Implicit Auto Readahead:
+    // Implicit auto readahead:
     //   Enabled after 2 sequential IOs when ReadOptions.readahead_size == 0.
     // Explicit user requested readahead:
     //   Enabled from the very first IO when ReadOptions.readahead_size is set.
     if (!for_compaction_) {
-      num_file_reads_++;
-      if (num_file_reads_ > start_readahead_after_num_file_reads_) {
-        if (!rep->file->use_direct_io() &&
-            (data_block_handle.offset() +
-                 static_cast<size_t>(data_block_handle.size()) +
-                 kBlockTrailerSize >
-             readahead_limit_)) {
-          // Buffered I/O
-          // Discarding the return status of Prefetch calls intentionally, as we
-          // can fallback to reading from disk if Prefetch fails.
-          rep->file->Prefetch(data_block_handle.offset(), readahead_size_);
-          readahead_limit_ =
-              static_cast<size_t>(data_block_handle.offset() + readahead_size_);
-          // Keep exponentially increasing readahead size until
-          // max_readahead_size_.
-          readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
-        } else if (rep->file->use_direct_io() && !prefetch_buffer_) {
-          // Direct I/O
-          // Let FilePrefetchBuffer take care of the readahead.
-          prefetch_buffer_.reset(new FilePrefetchBuffer(
-              rep->file.get(), readahead_size_, max_readahead_size_));
+      if (read_options_.readahead_size == 0) {
+        // Implicit auto readahead
+        num_file_reads_++;
+        if (num_file_reads_ > kMinNumFileReadsToStartAutoReadahead) {
+          if (!rep->file->use_direct_io() &&
+              (data_block_handle.offset() +
+                   static_cast<size_t>(data_block_handle.size()) +
+                   kBlockTrailerSize >
+               readahead_limit_)) {
+            // Buffered I/O
+            // Discarding the return status of Prefetch calls intentionally, as we
+            // can fallback to reading from disk if Prefetch fails.
+            rep->file->Prefetch(data_block_handle.offset(), readahead_size_);
+            readahead_limit_ =
+                static_cast<size_t>(data_block_handle.offset() + readahead_size_);
+            // Keep exponentially increasing readahead size until
+            // kMaxAutoReadaheadSize.
+            readahead_size_ = std::min(kMaxAutoReadaheadSize, readahead_size_ * 2);
+          } else if (rep->file->use_direct_io() && !prefetch_buffer_) {
+            // Direct I/O
+            // Let FilePrefetchBuffer take care of the readahead.
+            prefetch_buffer_.reset(new FilePrefetchBuffer(
+                rep->file.get(), kInitAutoReadaheadSize, kMaxAutoReadaheadSize));
+          }
         }
+      } else if (!prefetch_buffer_) {
+        // Explicit user requested readahead
+        // The actual condition is:
+        // if (read_options_.readahead_size != 0 && !prefetch_buffer_)
+        prefetch_buffer_.reset(new FilePrefetchBuffer(
+            rep->file.get(), read_options_.readahead_size,
+            read_options_.readahead_size));
       }
     }
 

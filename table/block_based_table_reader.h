@@ -603,14 +603,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
         is_index_(is_index),
         key_includes_seq_(key_includes_seq),
         index_key_is_full_(index_key_is_full),
-        for_compaction_(for_compaction) {
-    if (read_options.readahead_size > 0) {
-      // explicit user enabled readahead
-      readahead_size_ = read_options.readahead_size;
-      max_readahead_size_ = read_options.readahead_size;
-      start_readahead_after_num_file_reads_ = -1;
-    }
-  }
+        for_compaction_(for_compaction) {}
 
   ~BlockBasedTableIterator() { delete index_iter_; }
 
@@ -731,10 +724,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   static const size_t kMaxAutoReadaheadSize = 256 * 1024;
   static const int kMinNumFileReadsToStartAutoReadahead = 2;
   size_t readahead_size_ = kInitAutoReadaheadSize;
-  size_t max_readahead_size_ = kMaxAutoReadaheadSize;
   size_t readahead_limit_ = 0;
-  int32_t start_readahead_after_num_file_reads_ =
-      kMinNumFileReadsToStartAutoReadahead;
   int64_t num_file_reads_ = 0;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer_;
 };
