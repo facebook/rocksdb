@@ -397,12 +397,18 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     s = error_status.ok() ? s : error_status;
   }
 
+  if (s.IsShutdownInProgress() &&
+      !shutting_down_.load(std::memory_order_acquire)) {
+    s = Status::OK();
+  }
+
   if (s.ok() || s.IsShutdownInProgress()) {
     // Sync on all distinct output directories.
     for (auto dir : distinct_output_dirs) {
       if (dir != nullptr) {
-        s = dir->Fsync();
-        if (!s.ok()) {
+        Status error_status = dir->Fsync();
+        if (!error_status.ok()) {
+          s = error_status;
           break;
         }
       }
@@ -469,7 +475,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         &job_context->memtables_to_free, directories_.GetDbDir(), log_buffer);
   }
 
-  if (s.ok() || s.IsShutdownInProgress()) {
+  if (s.ok()) {
     assert(num_cfs ==
            static_cast<int>(job_context->superversion_contexts.size()));
     for (int i = 0; i != num_cfs; ++i) {

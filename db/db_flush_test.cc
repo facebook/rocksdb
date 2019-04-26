@@ -488,7 +488,7 @@ TEST_P(DBAtomicFlushTest,
   Destroy(options);
 }
 
-TEST_P(DBAtomicFlushTest, FlushAllCFBeforeClose) {
+TEST_P(DBAtomicFlushTest, TriggerFlushAndClose) {
   bool atomic_flush = GetParam();
   if (!atomic_flush) {
     return;
