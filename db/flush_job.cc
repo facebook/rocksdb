@@ -246,7 +246,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
         log_buffer_);
   }
 
-  if (s.ok() && file_meta != nullptr) {
+  if ((s.ok() || s.IsShutdownInProgress()) && file_meta != nullptr) {
     *file_meta = meta_;
   }
   RecordFlushIOStats();

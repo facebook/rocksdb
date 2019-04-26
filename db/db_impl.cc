@@ -432,6 +432,17 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
 }
 
 Status DBImpl::CloseHelper() {
+  if (immutable_db_options_.atomic_flush) {
+    mutex_.Lock();
+    autovector<ColumnFamilyData*> cfds;
+    SelectColumnFamiliesForAtomicFlush(&cfds);
+    mutex_.Unlock();
+    Status s =
+        AtomicFlushMemTables(cfds, FlushOptions(), FlushReason::kShutDown);
+    if (!s.ok()) {
+      return s;
+    }
+  }
   // Guarantee that there is no background error recovery in progress before
   // continuing with the shutdown
   mutex_.Lock();
