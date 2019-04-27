@@ -38,15 +38,22 @@ class SnapshotListFetchCallback {
   // max is the upper bound. Note: this function will acquire the db_mutex_.
   virtual void Refresh(std::vector<SequenceNumber>* snapshots,
                        SequenceNumber max) = 0;
-  inline bool TimeToRefresh(size_t key_index, size_t snap_refresh_cnt) {
+  inline bool TimeToRefresh(const size_t key_index) {
     // skip the key if key_index % every_nth_key (which is of power 2) is not 0.
     if ((key_index & every_nth_key_minus_one_) != 0) {
       return false;
     }
-    // inc next refresh period exponentially (by x4)
-    auto next_refresh_threshold = snap_refresh_nanos_ << (snap_refresh_cnt * 2);
     const uint64_t elapsed = timer_.ElapsedNanos();
-    return elapsed > next_refresh_threshold;
+    auto ret = elapsed > snap_refresh_nanos_;
+    // pre-compute the next time threshold
+    if (ret) {
+      // inc next refresh period exponentially (by x4)
+      auto next_refresh_threshold = snap_refresh_nanos_ << 2;
+      // make sure the shift has not overflown the highest 1 bit
+      snap_refresh_nanos_ =
+          std::max(snap_refresh_nanos_, next_refresh_threshold);
+    }
+    return ret;
   }
   static constexpr SnapshotListFetchCallback* kDisabled = nullptr;
 
@@ -55,8 +62,8 @@ class SnapshotListFetchCallback {
  private:
   // Time since the callback was created
   StopWatchNano timer_;
-  // The initial delay before calling ::Refresh
-  const uint64_t snap_refresh_nanos_;
+  // The delay before calling ::Refresh. To be increased exponentially.
+  uint64_t snap_refresh_nanos_;
   // Skip evey nth key. Number n if of power 2. The math will require n-1.
   const uint64_t every_nth_key_minus_one_;
 };
@@ -266,8 +273,6 @@ class CompactionIterator {
   SnapshotListFetchCallback* snap_list_callback_;
   // number of distinct keys processed
   size_t num_keys_ = 0;
-  // number of times that snapshot list is refreshed
-  size_t snap_refresh_cnt_ = 0;
 
   bool IsShuttingDown() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.
