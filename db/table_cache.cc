@@ -213,9 +213,6 @@ InternalIterator* TableCache::NewIterator(
       readahead = env_options.compaction_readahead_size;
       create_new_table_reader = true;
     }
-  } else {
-    readahead = options.readahead_size;
-    create_new_table_reader = readahead > 0;
   }
 
   auto& fd = file_meta.fd;
