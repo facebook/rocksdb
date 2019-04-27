@@ -1172,6 +1172,7 @@ DEFINE_int32(skip_list_lookahead, 0, "Used with skip_list memtablerep; try "
              "position");
 DEFINE_bool(report_file_operations, false, "if report number of file "
             "operations");
+DEFINE_int32(readahead_size, 0, "Iterator readahead size");
 
 static const bool FLAGS_soft_rate_limit_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_soft_rate_limit, &ValidateRateLimit);
@@ -4987,6 +4988,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     options.total_order_seek = FLAGS_total_order_seek;
     options.prefix_same_as_start = FLAGS_prefix_same_as_start;
     options.tailing = FLAGS_use_tailing_iterator;
+    options.readahead_size = FLAGS_readahead_size;
 
     Iterator* single_iter = nullptr;
     std::vector<Iterator*> multi_iters;
