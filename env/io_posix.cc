@@ -58,21 +58,18 @@ int Fadvise(int fd, off_t offset, size_t len, int advice) {
 
 // On MacOS (and probably *BSD), the posix write and pwrite calls do not support
 // buffers larger than 2^31-1 bytes. These two wrappers fix this issue by
-// cutting the buffer in 1GB chunks when having to write buffers larger than
-// 2GB. We use this chunk size to be sure to keep the writes aligned.
+// cutting the buffer in 1GB chunks. We use this chunk size to be sure to keep
+// the writes aligned.
 
-bool PosixWriteWrapper(int fd, const void* buf, size_t nbyte) {
-  constexpr size_t LIMIT_2GB = 1UL << 31;
-  constexpr size_t LIMIT_1GB = 1UL << 30;
+bool Write(int fd, const char* buf, size_t nbyte) {
+  const size_t kLimit1Gb = 1UL << 30;
 
-  const char* src = reinterpret_cast<const char*>(buf);
+  const char* src = buf;
   size_t left = nbyte;
 
   while (left != 0) {
-    size_t bytes_to_write = left;
-    if (bytes_to_write >= LIMIT_2GB) {
-      bytes_to_write = LIMIT_1GB;
-    }
+    size_t bytes_to_write = std::min(left, kLimit1Gb);
+
     ssize_t done = write(fd, src, bytes_to_write);
     if (done < 0) {
       if (errno == EINTR) {
@@ -86,19 +83,14 @@ bool PosixWriteWrapper(int fd, const void* buf, size_t nbyte) {
   return true;
 }
 
-bool PosixPositionedWriteWrapper(int fd, const void* buf, size_t nbyte,
-                                 off_t offset) {
-  constexpr size_t LIMIT_2GB = 1UL << 31;
-  constexpr size_t LIMIT_1GB = 1UL << 30;
+bool PositionedWrite(int fd, const char* buf, size_t nbyte, off_t offset) {
+  const size_t kLimit1Gb = 1UL << 30;
 
-  const char* src = reinterpret_cast<const char*>(buf);
+  const char* src = buf;
   size_t left = nbyte;
 
   while (left != 0) {
-    size_t bytes_to_write = left;
-    if (bytes_to_write >= LIMIT_2GB) {
-      bytes_to_write = LIMIT_1GB;
-    }
+    size_t bytes_to_write = std::min(left, kLimit1Gb);
 
     ssize_t done = pwrite(fd, src, bytes_to_write, offset);
     if (done < 0) {
@@ -862,7 +854,7 @@ Status PosixWritableFile::Append(const Slice& data) {
   const char* src = data.data();
   size_t nbytes = data.size();
 
-  if (!PosixWriteWrapper(fd_, src, nbytes)) {
+  if (!Write(fd_, src, nbytes)) {
     return IOError("While appending to file", filename_, errno);
   }
 
@@ -879,8 +871,7 @@ Status PosixWritableFile::PositionedAppend(const Slice& data, uint64_t offset) {
   assert(offset <= std::numeric_limits<off_t>::max());
   const char* src = data.data();
   size_t nbytes = data.size();
-  if (!PosixPositionedWriteWrapper(fd_, src, nbytes,
-                                   static_cast<off_t>(offset))) {
+  if (!PositionedWrite(fd_, src, nbytes, static_cast<off_t>(offset))) {
     return IOError("While pwrite to file at offset " + ToString(offset),
                    filename_, errno);
   }
@@ -1083,8 +1074,7 @@ PosixRandomRWFile::~PosixRandomRWFile() {
 Status PosixRandomRWFile::Write(uint64_t offset, const Slice& data) {
   const char* src = data.data();
   size_t nbytes = data.size();
-  if (!PosixPositionedWriteWrapper(fd_, src, nbytes,
-                                   static_cast<off_t>(offset))) {
+  if (!PositionedWrite(fd_, src, nbytes, static_cast<off_t>(offset))) {
     return IOError(
         "While write random read/write file at offset " + ToString(offset),
         filename_, errno);
