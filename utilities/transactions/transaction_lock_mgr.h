@@ -60,8 +60,8 @@ class PessimisticTransactionDB;
 //
 class BaseLockMgr {
  public:
-  virtual void AddColumnFamily(uint32_t column_family_id) = 0;
-  virtual void RemoveColumnFamily(uint32_t column_family_id) = 0;
+  virtual void AddColumnFamily(const ColumnFamilyHandle *cfh) = 0;
+  virtual void RemoveColumnFamily(const ColumnFamilyHandle *cfh) = 0;
 
   virtual
   Status TryLock(PessimisticTransaction* txn, uint32_t column_family_id,
@@ -100,11 +100,11 @@ class TransactionLockMgr : public BaseLockMgr {
 
   // Creates a new LockMap for this column family.  Caller should guarantee
   // that this column family does not already exist.
-  void AddColumnFamily(uint32_t column_family_id);
+  void AddColumnFamily(const ColumnFamilyHandle *cfh);
 
   // Deletes the LockMap for this column family.  Caller should guarantee that
   // this column family is no longer in use.
-  void RemoveColumnFamily(uint32_t column_family_id);
+  void RemoveColumnFamily(const ColumnFamilyHandle *cfh);
 
   // Attempt to lock key.  If OK status is returned, the caller is responsible
   // for calling UnLock() on this key.
@@ -198,8 +198,8 @@ class RangeLockMgr :
   public BaseLockMgr, 
   public RangeLockMgrHandle {
  public:
-  void AddColumnFamily(uint32_t) override { /* do nothing */ }
-  void RemoveColumnFamily(uint32_t) override { /* do nothing */ }
+  void AddColumnFamily(const ColumnFamilyHandle *cfh) override;
+  void RemoveColumnFamily(const ColumnFamilyHandle *cfh) override;
 
   Status TryLock(PessimisticTransaction* txn, uint32_t column_family_id,
                  const std::string& key, Env* env, bool exclusive) override ;
@@ -239,7 +239,7 @@ class RangeLockMgr :
 
   int set_max_lock_memory(size_t max_lock_memory) override
   {
-    return ltm.set_max_lock_memory(max_lock_memory);
+    return ltm_.set_max_lock_memory(max_lock_memory);
   }
 
   uint64_t get_escalation_count() override;
@@ -247,15 +247,28 @@ class RangeLockMgr :
   LockStatusData GetLockStatusData() override;
 
  private:
-  toku::locktree_manager ltm;
-  toku::locktree *lt; // only one tree for now
+  toku::locktree_manager ltm_;
 
-  toku::comparator cmp_;
+  toku::comparator fw_cmp_;
+  toku::comparator bw_cmp_;
 
   TransactionDB* my_txn_db_;
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
 
+  // Map from cf_id to locktree*. Can only be accessed while holding the
+  // ltree_map_mutex_.
+  using LockTreeMap = std::unordered_map<uint32_t, locktree*>;
+  LockTreeMap ltree_map_;
+
+  InstrumentedMutex ltree_map_mutex_;
+
+  // Per-thread cache of ltree_map_.
+  std::unique_ptr<ThreadLocalPtr> ltree_lookup_cache_;
+
+  toku::locktree *get_locktree_by_cfid(uint32_t cf_id);
+
   static int compare_dbt_endpoints(__toku_db*, void *arg, const DBT *a_key, const DBT *b_key);
+  static int compare_dbt_endpoints_rev(__toku_db*, void *arg, const DBT *a_key, const DBT *b_key);
   
   // Callbacks
   static int  on_create(locktree*, void*) { return 0; /* no error */ }

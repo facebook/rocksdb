@@ -374,7 +374,7 @@ Status TransactionDB::WrapStackableDB(
 // allocate a LockMap for it.
 void PessimisticTransactionDB::AddColumnFamily(
     const ColumnFamilyHandle* handle) {
-  lock_mgr_->AddColumnFamily(handle->GetID());
+  lock_mgr_->AddColumnFamily(handle);
 }
 
 Status PessimisticTransactionDB::CreateColumnFamily(
@@ -388,7 +388,7 @@ Status PessimisticTransactionDB::CreateColumnFamily(
 
   s = db_->CreateColumnFamily(options, column_family_name, handle);
   if (s.ok()) {
-    lock_mgr_->AddColumnFamily((*handle)->GetID());
+    lock_mgr_->AddColumnFamily(*handle);
     UpdateCFComparatorMap(*handle);
   }
 
@@ -403,7 +403,7 @@ Status PessimisticTransactionDB::DropColumnFamily(
 
   Status s = db_->DropColumnFamily(column_family);
   if (s.ok()) {
-    lock_mgr_->RemoveColumnFamily(column_family->GetID());
+    lock_mgr_->RemoveColumnFamily(column_family);
   }
 
   return s;
