@@ -1282,11 +1282,10 @@ void push_into_lock_status_data(void* param, const DBT *left,
 
 BaseLockMgr::LockStatusData RangeLockMgr::GetLockStatusData() {
   LockStatusData data;
-  LOCK_PRINT_CONTEXT ctx = {&data, GetColumnFamilyID(my_txn_db_->DefaultColumnFamily()) };
-
   {
     InstrumentedMutexLock l(&ltree_map_mutex_);
     for (auto it : ltree_map_) {
+      LOCK_PRINT_CONTEXT ctx = {&data, it.first };
       it.second->dump_locks((void*)&ctx, push_into_lock_status_data);
     }
   }
