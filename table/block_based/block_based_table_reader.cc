@@ -2672,7 +2672,8 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
   const Slice* const const_ikey_ptr = &internal_key;
   bool may_match = true;
   if (filter->whole_key_filtering()) {
-    size_t ts_sz = rep_->internal_comparator.user_comparator()->TimestampSize();
+    size_t ts_sz =
+        rep_->internal_comparator.user_comparator()->timestamp_size();
     Slice user_key_without_ts = StripTimestampFromUserKey(user_key, ts_sz);
     may_match = filter->KeyMayMatch(user_key_without_ts, prefix_extractor,
                                     kNotValid, no_io, const_ikey_ptr);
@@ -2757,7 +2758,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       iiter_unique_ptr.reset(iiter);
     }
 
-    size_t ts_sz = rep_->internal_comparator.user_comparator()->TimestampSize();
+    size_t ts_sz =
+        rep_->internal_comparator.user_comparator()->timestamp_size();
     bool matched = false;  // if such user key mathced a key in SST
     bool done = false;
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {

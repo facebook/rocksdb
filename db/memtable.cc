@@ -493,7 +493,7 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
-  size_t ts_sz = GetInternalKeyComparator().user_comparator()->TimestampSize();
+  size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
 
   if (!allow_concurrent) {
     // Extract prefix for insert with hint.
@@ -771,7 +771,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   bool found_final_value = false;
   bool merge_in_progress = s->IsMergeInProgress();
   bool may_contain = true;
-  size_t ts_sz = GetInternalKeyComparator().user_comparator()->TimestampSize();
+  size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
   if (bloom_filter_) {
     // when both memtable_whole_key_filtering and prefix_extractor_ are set,
     // only do whole key filtering for Get() to save CPU

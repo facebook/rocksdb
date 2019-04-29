@@ -1259,6 +1259,8 @@ struct ReadOptions {
   // specified timestamp. All timestamps of the same database must be of the
   // same length and format. The user is responsible for providing a customized
   // compare function via Comparator to order <key, timestamp> tuples.
+  // The user-specified timestamp feature is still under active development,
+  // and the API is subject to change.
   const Slice* timestamp;
 
   ReadOptions();
@@ -1320,6 +1322,8 @@ struct WriteOptions {
   // all write operations must be associated with timestamp because RocksDB, as
   // a single-node storage engine currently has no knowledge of global time,
   // thus has to rely on the application.
+  // The user-specified timestamp feature is still under active development,
+  // and the API is subject to change.
   const Slice* timestamp;
 
   WriteOptions()
