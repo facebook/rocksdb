@@ -1193,7 +1193,7 @@ void RangeLockMgr::AddColumnFamily(const ColumnFamilyHandle *cfh) {
     if (!strcmp(cfh->GetComparator()->Name(), "RocksDB_SE_v3.10"))
       ltree_cmp = &fw_cmp_;
     else if (!strcmp(cfh->GetComparator()->Name(),"rev:RocksDB_SE_v3.10"))
-      ltree_cmp = &bw_cmp_;
+      ltree_cmp = &fw_cmp_; // temporary: use the same ordering
     else {
       assert(false);
       ltree_cmp= nullptr;
