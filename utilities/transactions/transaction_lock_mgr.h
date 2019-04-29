@@ -211,8 +211,8 @@ class RangeLockMgr :
   };
 
   // Get a lock on a range
-  //  (TODO: this allows to acquire exclusive range locks although they are not
-  //  used ATM)
+  //  @note only exclusive locks are currently supported (requesting a
+  //  non-exclusive lock will get an exclusive one)
   Status TryRangeLock(PessimisticTransaction* txn,
                       uint32_t column_family_id,
                       const Endpoint &start_endp,
@@ -221,10 +221,7 @@ class RangeLockMgr :
   
   void UnLock(const PessimisticTransaction* txn, const TransactionKeyMap* keys,
               Env* env) override ;
-  /*
-    Same as above, but *keys is guaranteed to hold all the locks obtained by
-    the transaction.
-  */
+  // Release all locks the transaction is holding
   void UnLockAll(const PessimisticTransaction* txn, Env* env);
   void UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
               const std::string& key, Env* env) override ;
@@ -237,8 +234,7 @@ class RangeLockMgr :
 
   ~RangeLockMgr();
 
-  int set_max_lock_memory(size_t max_lock_memory) override
-  {
+  int set_max_lock_memory(size_t max_lock_memory) override {
     return ltm_.set_max_lock_memory(max_lock_memory);
   }
 
@@ -260,8 +256,10 @@ class RangeLockMgr :
   InstrumentedMutex ltree_map_mutex_;
 
   // Per-thread cache of ltree_map_.
+  // (uses the same approach as TransactionLockMgr::lock_maps_cache_)
   std::unique_ptr<ThreadLocalPtr> ltree_lookup_cache_;
 
+  // Get the lock tree which stores locks for Column Family with given cf_id
   toku::locktree *get_locktree_by_cfid(uint32_t cf_id);
 
   static int compare_dbt_endpoints(__toku_db*, void *arg, const DBT *a_key, const DBT *b_key);

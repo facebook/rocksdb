@@ -1169,18 +1169,6 @@ void RangeLockMgr::AddColumnFamily(const ColumnFamilyHandle *cfh) {
   InstrumentedMutexLock l(&ltree_map_mutex_);
   if (ltree_map_.find(column_family_id) == ltree_map_.end()) {
     DICTIONARY_ID dict_id = { .dictid = column_family_id };
-    // "RocksDB_SE_v3.10" // BytewiseComparator() ,ReverseBytewiseComparator()
-    /*
-    toku::comparator *ltree_cmp;
-    if (!strcmp(cfh->GetComparator()->Name(), "RocksDB_SE_v3.10"))
-      ltree_cmp = &fw_cmp_;
-    else if (!strcmp(cfh->GetComparator()->Name(),"rev:RocksDB_SE_v3.10"))
-      ltree_cmp = &bw_cmp_;
-    else {
-      assert(false);
-      ltree_cmp= nullptr;
-    }
-    */
     toku::comparator cmp;
     cmp.create(compare_dbt_endpoints, (void*)cfh->GetComparator(), NULL);
     toku::locktree *ltree= ltm_.get_lt(dict_id, cmp,
@@ -1199,6 +1187,10 @@ void RangeLockMgr::RemoveColumnFamily(const ColumnFamilyHandle *cfh) {
   // Remove lock_map for this column family.  Since the lock map is stored
   // as a shared ptr, concurrent transactions can still keep using it
   // until they release their references to it.
+
+  // TODO^ if one can drop a column family while a transaction is holding a
+  // lock in it, is column family's comparator guaranteed to survive until
+  // all locks are released? (we depend on this).
   {
     InstrumentedMutexLock l(&ltree_map_mutex_);
 
@@ -1252,9 +1244,8 @@ toku::locktree *RangeLockMgr::get_locktree_by_cfid(uint32_t column_family_id) {
 }
 
 struct LOCK_PRINT_CONTEXT {
-  BaseLockMgr::LockStatusData *data;
-  // this will not be needed when locks are per-column-family:
-  uint32_t cfh_id;
+  BaseLockMgr::LockStatusData *data; // Save locks here
+  uint32_t cfh_id; // Column Family whose tree we are traversing
 };
 
 static 

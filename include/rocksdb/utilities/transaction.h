@@ -31,50 +31,52 @@ using TransactionID = uint64_t;
   Prefix ranges are introduced below.
 
   == Basic Ranges ==
-
-  Basic ranges can be defined over rowkeys. Key Comparator defines ordering of
-  rowkeys, a finite closed range is the same as range over numbers:
+  Let's start from basic ranges. Key Comparator defines ordering of rowkeys.
+  Then, one can specify finite closed ranges by just providing rowkeys of their
+  endpoints:
 
     lower_endpoint <= X <= upper_endpoint
 
-  The endpoints here are possible rowkey values.
+  However our goal is to provide a richer set of endpoints. Read on.
 
-  == Lexicographic-like ordering ==
-
-  A lexicographic-like ordering satisfies these criteria:
-
-  1.The ordering is prefix-based. If there are two keys in form
-
-    key_a = {prefix_a suffix_a}
-    key_b = {prefix_b suffix_b}
+  == Lexicographic ordering ==
+  A lexicographic (or dictionary) ordering satisfies these criteria: If there
+  are two keys in form
+    key_a = {prefix_a, suffix_a}
+    key_b = {prefix_b, suffix_b}
   and
     prefix_a < prefix_b
   then
     key_a < key_b.
 
-  2. An empty string is less than any other value. From this it follows that
-  for any prefix and suffix, {prefix, suffix} > {prefix}.
+  == Prefix ranges ==
+  With lexicographic ordering, one may want to define ranges in form
 
-  3. The row comparison function is able to compare key prefixes. If the data
+     "prefix is $PREFIX"
+
+  which translates to a range in form
+
+    {$PREFIX, -infinity} < X < {$PREFIX, +infinity}
+
+  where -infinity will compare less than any possible suffix, and +infinity
+  will compare as greater than any possible suffix.
+
+  class Endpoint allows to define these kind of rangtes.
+
+  == Notes ==
+  BytewiseComparator and ReverseBytewiseComparator produce lexicographic
+  ordering.
+
+  The row comparison function is able to compare key prefixes. If the data
   domain includes keys A and B, then the comparison function is able to compare
   equal-length prefixes:
 
     min_len= min(byte_length(A), byte_length(B));
-    cmp(Slice(A, min_len), Slice(B, min_len))  // this call is valid
+    cmp(Slice(A, min_len), Slice(B, min_len));  // this call is valid
 
-  == Prefix ranges ==
-
-  With lexicographic-like ordering, one may wish to construct ranges from a
-  restriction in form prefix=P:
-   - the left endpoint would would be {P, inf_suffix=false}
-   - the right endpoint would be {P, inf_suffix=true}.
-
-  == Supported comparators ==
-  BytewiseComparator and ReverseBytweiseComparator meet the lexicographic-like
-  ordering requirements.
-
-  TODO: RangeLocking will refuse to work if any other comparator is used,
-  although other comparators meeting this property could be used as well.
+  == Other options ==
+  As far as MyRocks is concerned, the alternative to prefix ranges would be to
+  support both open (non-inclusive) and closed (inclusive) range endpoints.
 */
 
 class Endpoint {
@@ -82,7 +84,7 @@ class Endpoint {
   Slice slice;
 
   /*
-    true  : the key has an "infinity" suffix. A suffix that would compare as
+    true  : the key has a "+infinity" suffix. A suffix that would compare as
             greater than any other suffix
     false : otherwise
   */

@@ -31,7 +31,8 @@ enum TxnDBWritePolicy {
 
 const uint32_t kInitialMaxDeadlocks = 5;
 
-// A handle to control RangeLockMgr
+// A handle to control RangeLockMgr (Range-based lock manager) from outside
+// RocksDB
 class RangeLockMgrHandle {
  public:
   virtual int set_max_lock_memory(size_t max_lock_memory) = 0;
@@ -39,11 +40,14 @@ class RangeLockMgrHandle {
   virtual ~RangeLockMgrHandle() {};
 };
 
-// A factory function to create a Range Lock Manager
+// A factory function to create a Range Lock Manager. The created object should
+// be:
+//  1. Passed in TransactionDBOptions::range_lock_mgr to open the database in
+//     range-locking mode
+//  2. Used to control the lock manager when the DB is already open.
 RangeLockMgrHandle* NewRangeLockManager(
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory
 );
-
 
 struct TransactionDBOptions {
   // Specifies the maximum number of keys that can be locked at the same time
@@ -245,7 +249,6 @@ struct DeadlockPath {
   bool empty() { return path.empty() && !limit_exceeded; }
 };
 
-
 class TransactionDB : public StackableDB {
  public:
   // Optimized version of ::Write that receives more optimization request such
@@ -319,7 +322,7 @@ class TransactionDB : public StackableDB {
   GetLockStatusData() = 0;
   virtual std::vector<DeadlockPath> GetDeadlockInfoBuffer() = 0;
   virtual void SetDeadlockInfoBufferSize(uint32_t target_size) = 0;
-  
+
  protected:
   // To Create an TransactionDB, call Open()
   // The ownership of db is transferred to the base StackableDB
