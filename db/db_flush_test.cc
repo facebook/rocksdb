@@ -488,6 +488,32 @@ TEST_P(DBAtomicFlushTest,
   Destroy(options);
 }
 
+TEST_P(DBAtomicFlushTest, TriggerFlushAndClose) {
+  bool atomic_flush = GetParam();
+  if (!atomic_flush) {
+    return;
+  }
+  const int kNumKeysTriggerFlush = 4;
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = atomic_flush;
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(kNumKeysTriggerFlush));
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  for (int i = 0; i != kNumKeysTriggerFlush; ++i) {
+    ASSERT_OK(Put(0, "key" + std::to_string(i), "value" + std::to_string(i)));
+  }
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Put(0, "key", "value"));
+  Close();
+
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
+  ASSERT_EQ("value", Get(0, "key"));
+}
+
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
                         testing::Bool());
 
