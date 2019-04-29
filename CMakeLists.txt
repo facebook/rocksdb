@@ -92,7 +92,7 @@ else()
   endif()
 
   if(WITH_ZLIB)
-    find_package(zlib REQUIRED)
+    find_package(ZLIB REQUIRED)
     add_definitions(-DZLIB)
     if(ZLIB_INCLUDE_DIRS)
       # CMake 3
