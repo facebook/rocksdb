@@ -802,11 +802,12 @@ public:
   bool releasing_locks_;
 };
 
+static const char SUFFIX_INFIMUM= 0x0;
+static const char SUFFIX_SUPREMUM= 0x1;
+
 static
 void serialize_endpoint(const Endpoint &endp, std::string *buf) {
-  const char SUFFIX_INF= 0x0;
-  const char SUFFIX_SUP= 0x1;
-  buf->push_back(endp.inf_suffix ? SUFFIX_SUP : SUFFIX_INF);
+  buf->push_back(endp.inf_suffix ? SUFFIX_SUPREMUM : SUFFIX_INFIMUM);
   buf->append(endp.slice.data(), endp.slice.size());
 }
 
@@ -1033,11 +1034,6 @@ void RangeLockMgr::UnLockAll(const PessimisticTransaction* txn, Env*) {
 int RangeLockMgr::compare_dbt_endpoints(__toku_db*, void *arg,
                                         const DBT *a_key,
                                         const DBT *b_key) {
-  //RangeLockMgr* mgr= (RangeLockMgr*) arg;
-  // TODO: this should compare endpoints using the user-provided comparator +
-  // endpoint encoding.
-  // (just use one from any column family)
-  
   const char *a= (const char*)a_key->data;
   const char *b= (const char*)b_key->data;
 
@@ -1046,16 +1042,16 @@ int RangeLockMgr::compare_dbt_endpoints(__toku_db*, void *arg,
 
   size_t min_len= std::min(a_len, b_len);
 
-  //compare the values. Skip the first byte as it is the endpoint signifier
-
-  //TODO: use the upper layer' comparison function.
-  int res= memcmp(a+1, b+1, min_len-1);
+  // Compare the values. The first byte encodes the endpoint type, its value
+  // is either SUFFIX_INFIMUM or SUFFIX_SUPREMUM.
+  Comparator *cmp = (Comparator*) arg;
+  int res= cmp->Compare(Slice(a+1, min_len-1), Slice(b+1, min_len-1));
   if (!res)
   {
     if (b_len > min_len)
     {
       // a is shorter;
-      if (a[0] == 0)
+      if (a[0] == SUFFIX_INFIMUM)
         return  -1; //"a is smaller"
       else
       {
@@ -1066,7 +1062,7 @@ int RangeLockMgr::compare_dbt_endpoints(__toku_db*, void *arg,
     else if (a_len > min_len)
     {
       // the opposite of the above: b is shorter.
-      if (b[0] == 0)
+      if (b[0] == SUFFIX_INFIMUM)
         return  1; //"b is smaller"
       else
       {
@@ -1089,21 +1085,10 @@ int RangeLockMgr::compare_dbt_endpoints(__toku_db*, void *arg,
     return res;
 }
 
-int RangeLockMgr::compare_dbt_endpoints_rev(__toku_db* db, void *arg,
-                                            const DBT *a_key,
-                                            const DBT *b_key) {
-  return -compare_dbt_endpoints(db, arg, a_key, b_key);
-}
-
-
 RangeLockMgr::RangeLockMgr(std::shared_ptr<TransactionDBMutexFactory> mutex_factory) :
   mutex_factory_(mutex_factory),
   ltree_lookup_cache_(new ThreadLocalPtr(nullptr)) {
-
   ltm_.create(on_create, on_destroy, on_escalate, NULL, mutex_factory_);
-
-  fw_cmp_.create(compare_dbt_endpoints, (void*)this, NULL);
-  bw_cmp_.create(compare_dbt_endpoints, (void*)this, NULL);
 }
 
 
@@ -1157,8 +1142,6 @@ RangeLockMgr::~RangeLockMgr() {
     ltm_.release_lt(it.second);
   }
   ltm_.destroy();
-  fw_cmp_.destroy();
-  bw_cmp_.destroy();
 }
 
 uint64_t RangeLockMgr::get_escalation_count() {
@@ -1188,18 +1171,24 @@ void RangeLockMgr::AddColumnFamily(const ColumnFamilyHandle *cfh) {
   InstrumentedMutexLock l(&ltree_map_mutex_);
   if (ltree_map_.find(column_family_id) == ltree_map_.end()) {
     DICTIONARY_ID dict_id = { .dictid = column_family_id };
-    toku::comparator *ltree_cmp;
     // "RocksDB_SE_v3.10" // BytewiseComparator() ,ReverseBytewiseComparator()
+    /*
+    toku::comparator *ltree_cmp;
     if (!strcmp(cfh->GetComparator()->Name(), "RocksDB_SE_v3.10"))
       ltree_cmp = &fw_cmp_;
     else if (!strcmp(cfh->GetComparator()->Name(),"rev:RocksDB_SE_v3.10"))
-      ltree_cmp = &fw_cmp_; // temporary: use the same ordering
+      ltree_cmp = &bw_cmp_;
     else {
       assert(false);
       ltree_cmp= nullptr;
     }
-    toku::locktree *ltree= ltm_.get_lt(dict_id, *ltree_cmp,
+    */
+    toku::comparator cmp;
+    cmp.create(compare_dbt_endpoints, (void*)cfh->GetComparator(), NULL);
+    toku::locktree *ltree= ltm_.get_lt(dict_id, cmp,
                                        /* on_create_extra*/nullptr);
+    // This is ok to because get_lt has copied the comparator:
+    cmp.destroy();
     ltree_map_.emplace(column_family_id, ltree);
   } else {
     // column_family already exists in lock map

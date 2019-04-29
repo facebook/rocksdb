@@ -249,9 +249,6 @@ class RangeLockMgr :
  private:
   toku::locktree_manager ltm_;
 
-  toku::comparator fw_cmp_;
-  toku::comparator bw_cmp_;
-
   TransactionDB* my_txn_db_;
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
 
@@ -268,8 +265,7 @@ class RangeLockMgr :
   toku::locktree *get_locktree_by_cfid(uint32_t cf_id);
 
   static int compare_dbt_endpoints(__toku_db*, void *arg, const DBT *a_key, const DBT *b_key);
-  static int compare_dbt_endpoints_rev(__toku_db*, void *arg, const DBT *a_key, const DBT *b_key);
-  
+
   // Callbacks
   static int  on_create(locktree*, void*) { return 0; /* no error */ }
   static void on_destroy(locktree*) {}
@@ -277,8 +273,6 @@ class RangeLockMgr :
                           const range_buffer &buffer, void *extra);
 
 };
-
-
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

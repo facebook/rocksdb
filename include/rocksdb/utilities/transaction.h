@@ -80,6 +80,12 @@ using TransactionID = uint64_t;
 class Endpoint {
  public:
   Slice slice;
+
+  /*
+    true  : the key has an "infinity" suffix. A suffix that would compare as
+            greater than any other suffix
+    false : otherwise
+  */
   bool inf_suffix;
 
   Endpoint(const Slice &slice_arg, bool inf_suffix_arg=false) :
@@ -90,6 +96,8 @@ class Endpoint {
 
   Endpoint(const char* s, size_t size, bool inf_suffix_arg=false) :
     slice(s, size), inf_suffix(inf_suffix_arg) {}
+
+  Endpoint() : inf_suffix(false) {}
 };
 
 // Provides notification to the caller of SetSnapshotOnNextOperation when
