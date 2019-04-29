@@ -397,6 +397,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     s = error_status.ok() ? s : error_status;
   }
 
+  // If db is NOT shutting down, and one or more column families have been
+  // dropped.
+  // TODO: use separate status code for db shutdown and column family dropped.
   if (s.IsShutdownInProgress() &&
       !shutting_down_.load(std::memory_order_acquire)) {
     s = Status::OK();
