@@ -1,6 +1,7 @@
 #pragma once
 
 #include "db/db_impl.h"
+#include "util/repeatable_thread.h"
 #include "rocksdb/utilities/titandb/db.h"
 #include "utilities/titandb/blob_file_manager.h"
 #include "utilities/titandb/version_set.h"
@@ -67,11 +68,13 @@ class TitanDBImpl : public TitanDB {
 
   void OnCompactionCompleted(const CompactionJobInfo& compaction_job_info);
 
+  void StartBackgroundTasks();
  private:
   class FileManager;
   friend class FileManager;
   friend class BlobGCJobTest;
   friend class BaseDbListener;
+  friend class TitanDBTest;
 
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* handle,
                  const Slice& key, PinnableSlice* value);
@@ -106,8 +109,20 @@ class TitanDBImpl : public TitanDB {
   void BackgroundCallGC();
   Status BackgroundGC(LogBuffer* log_buffer);
 
-  // REQUIRES: mutex_ held;
   void PurgeObsoleteFiles();
+
+  SequenceNumber GetOldestSnapshotSequence() {
+    SequenceNumber oldest_snapshot = kMaxSequenceNumber;
+    {
+      // Need to lock DBImpl mutex before access snapshot list.
+      InstrumentedMutexLock l(db_impl_->mutex());
+      auto& snapshots = db_impl_->snapshots();
+      if (!snapshots.empty()) {
+        oldest_snapshot = snapshots.oldest()->GetSequenceNumber();
+      }
+    }
+    return oldest_snapshot;
+  }
 
   FileLock* lock_{nullptr};
   // The lock sequence must be Titan.mutex_.Lock() -> Base DB mutex_.Lock()
@@ -128,6 +143,9 @@ class TitanDBImpl : public TitanDB {
   std::unordered_map<uint32_t, std::shared_ptr<TableFactory>>
       original_table_factory_;
 
+  // handle for purging obsolete blob files at fixed intervals
+  std::unique_ptr<RepeatableThread> thread_purge_obsolete_;
+
   std::unique_ptr<VersionSet> vset_;
   std::set<uint64_t> pending_outputs_;
   std::shared_ptr<BlobFileManager> blob_manager_;
@@ -139,8 +157,6 @@ class TitanDBImpl : public TitanDB {
   std::atomic_int bg_gc_scheduled_{0};
 
   std::atomic_bool shuting_down_{false};
-
-  std::unordered_set<ColumnFamilyData*> cfds_;
 };
 
 }  // namespace titandb

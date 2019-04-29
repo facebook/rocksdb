@@ -24,7 +24,7 @@ void VersionEdit::EncodeTo(std::string* dst) const {
     file->EncodeTo(dst);
   }
   for (auto& file : deleted_files_) {
-    PutVarint32Varint64(dst, kDeletedBlobFile, file);
+    PutVarint32Varint64(dst, kDeletedBlobFile, file.first);
   }
 }
 

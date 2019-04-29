@@ -1,7 +1,5 @@
 #include "utilities/titandb/blob_gc.h"
 
-#include "utilities/titandb/version.h"
-
 namespace rocksdb {
 namespace titandb {
 
@@ -12,17 +10,10 @@ BlobGC::BlobGC(std::vector<BlobFileMeta*>&& blob_files,
   MarkFilesBeingGC();
 }
 
-BlobGC::~BlobGC() {
-  if (current_ != nullptr) {
-    current_->Unref();
-  }
-}
+BlobGC::~BlobGC() {}
 
-void BlobGC::SetInputVersion(ColumnFamilyHandle* cfh, Version* version) {
+void BlobGC::SetColumnFamily(ColumnFamilyHandle* cfh) {
   cfh_ = cfh;
-  current_ = version;
-
-  current_->Ref();
 }
 
 ColumnFamilyData* BlobGC::GetColumnFamilyData() {

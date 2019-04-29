@@ -25,6 +25,7 @@ Status BlobStorage::NewPrefetcher(uint64_t file_number,
 }
 
 std::weak_ptr<BlobFileMeta> BlobStorage::FindFile(uint64_t file_number) const {
+  ReadLock rl(&mutex_);
   auto it = files_.find(file_number);
   if (it != files_.end()) {
     assert(file_number == it->second->file_number());
@@ -35,26 +36,44 @@ std::weak_ptr<BlobFileMeta> BlobStorage::FindFile(uint64_t file_number) const {
 
 void BlobStorage::ExportBlobFiles(
     std::map<uint64_t, std::weak_ptr<BlobFileMeta>>& ret) const {
+  ReadLock rl(&mutex_);
   for(auto& kv : files_) {
     ret.emplace(kv.first, std::weak_ptr<BlobFileMeta>(kv.second));
   }
 }
 
+void BlobStorage::AddBlobFile(std::shared_ptr<BlobFileMeta>& file) {
+  WriteLock wl(&mutex_);
+  files_.emplace(std::make_pair(file->file_number(), file));
+}
+
+void BlobStorage::DeleteBlobFile(uint64_t file) {
+  {
+    WriteLock wl(&mutex_);
+    files_.erase(file);
+  }
+  file_cache_->Evict(file);
+}
+
 void BlobStorage::ComputeGCScore() {
+  // TODO: no need to recompute all everytime
   gc_score_.clear();
-  for (auto& file : files_) {
-    gc_score_.push_back({});
-    auto& gcs = gc_score_.back();
-    gcs.file_number = file.first;
-    //    if (file.second->marked_for_gc_) {
-    //      gcs.score = 1;
-    //      file.second->marked_for_gc_ = false;
-    //    } else if (file.second->file_size() <
-    if (file.second->file_size() <
-        titan_cf_options_.merge_small_file_threshold) {
-      gcs.score = 1;
-    } else {
-      gcs.score = file.second->GetDiscardableRatio();
+
+  {
+    ReadLock rl(&mutex_);
+    for (auto& file : files_) {
+      if (file.second->is_obsolete()) {
+        continue;
+      }
+      gc_score_.push_back({});
+      auto& gcs = gc_score_.back();
+      gcs.file_number = file.first;
+      if (file.second->file_size() <
+          titan_cf_options_.merge_small_file_threshold) {
+        gcs.score = 1;
+      } else {
+        gcs.score = file.second->GetDiscardableRatio();
+      }
     }
   }
 
@@ -64,82 +83,6 @@ void BlobStorage::ComputeGCScore() {
             });
 }
 
-void BlobStorage::AddBlobFiles(
-    const std::map<uint64_t, std::shared_ptr<BlobFileMeta>>& files) {
-  files_.insert(files.begin(), files.end());
-}
-
-void BlobStorage::DeleteBlobFiles(const std::set<uint64_t>& files) {
-  for (const auto& f : files) {
-    files_.erase(f);
-    file_cache_->Evict(f);
-  }
-}
-
-Version::~Version() {
-  assert(refs_ == 0);
-
-  // Remove linked list
-  prev_->next_ = next_;
-  next_->prev_ = prev_;
-
-  // Drop references to files
-  // Close DB will also destruct this class and add live file to here.
-  // But don't worry, ~Version will call after all our code executed.
-  std::vector<uint32_t> obsolete_blob_files;
-  for (auto& b : this->column_families_) {
-    if (b.second.use_count() > 1) continue;
-    for (auto& f : b.second->files_) {
-      if (f.second.use_count() > 1) continue;
-      // Maybe shutting down, so the file state is undefine
-      // assert(f.second->file_state() == BlobFileMeta::FileState::kNormal);
-      obsolete_blob_files.emplace_back(f.second->file_number());
-    }
-  }
-  if (vset_ != nullptr) vset_->AddObsoleteBlobFiles(obsolete_blob_files);
-}
-
-void Version::Ref() { refs_.fetch_add(1, std::memory_order_relaxed); }
-
-void Version::Unref() {
-  int previous_refs = refs_.fetch_sub(1);
-  assert(previous_refs > 0);
-  if (previous_refs == 1) {
-    delete this;
-  }
-}
-
-std::weak_ptr<BlobStorage> Version::GetBlobStorage(uint32_t cf_id) {
-  auto it = column_families_.find(cf_id);
-  if (it != column_families_.end()) {
-    return it->second;
-  }
-  return std::weak_ptr<BlobStorage>();
-}
-
-VersionList::VersionList() { Append(new Version(nullptr)); }
-
-VersionList::~VersionList() {
-  current_->Unref();
-  assert(list_.prev_ == &list_);
-  assert(list_.next_ == &list_);
-}
-
-void VersionList::Append(Version* v) {
-  assert(v->refs_ == 0);
-  assert(v != current_);
-
-  if (current_) {
-    current_->Unref();
-  }
-  current_ = v;
-  current_->Ref();
-
-  v->prev_ = list_.prev_;
-  v->next_ = &list_;
-  v->prev_->next_ = v;
-  v->next_->prev_ = v;
-}
 
 }  // namespace titandb
 }  // namespace rocksdb

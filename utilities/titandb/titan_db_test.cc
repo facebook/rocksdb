@@ -2,6 +2,7 @@
 #include <options/cf_options.h>
 
 #include "rocksdb/utilities/titandb/db.h"
+#include "utilities/titandb/db_impl.h"
 #include "util/filename.h"
 #include "util/random.h"
 #include "util/testharness.h"
@@ -38,6 +39,7 @@ class TitanDBTest : public testing::Test {
   void Open() {
     if (cf_names_.empty()) {
       ASSERT_OK(TitanDB::Open(options_, dbname_, &db_));
+      db_impl_ = reinterpret_cast<TitanDBImpl*>(db_);
     } else {
       TitanDBOptions db_options(options_);
       TitanCFOptions cf_options(options_);
@@ -112,15 +114,7 @@ class TitanDBTest : public testing::Test {
     if(cf_handle == nullptr) {
       cf_handle = db_->DefaultColumnFamily();
     }
-    std::weak_ptr<BlobStorage> blob;
-    const TitanSnapshot* snapshot = dynamic_cast<const TitanSnapshot*>(
-        db_->GetSnapshot());
-    auto* version(snapshot->current());
-    version->Ref();
-    blob = version->GetBlobStorage(cf_handle->GetID());
-    version->Unref();
-    db_->ReleaseSnapshot(snapshot);
-    return blob;
+    return db_impl_->vset_->GetBlobStorage(cf_handle->GetID());
   }
 
   void VerifyDB(const std::map<std::string, std::string>& data, ReadOptions ropts = ReadOptions()) {
@@ -225,6 +219,7 @@ class TitanDBTest : public testing::Test {
   std::string dbname_;
   TitanOptions options_;
   TitanDB* db_{nullptr};
+  TitanDBImpl* db_impl_{nullptr};
   std::vector<std::string> cf_names_;
   std::vector<ColumnFamilyHandle*> cf_handles_;
 };

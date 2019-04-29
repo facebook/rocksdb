@@ -110,6 +110,7 @@ class BlobFileMeta {
     kGCOutput,
     kFlushOrCompactionOutput,
     kDbRestart,
+    kDelete,
   };
 
   enum class FileState {
@@ -118,6 +119,7 @@ class BlobFileMeta {
     kPendingLSM,  // waiting keys adding to LSM
     kBeingGC,     // being gced
     kPendingGC,   // output of gc, waiting gc finish and keys adding to LSM
+    kObsolete,    // already gced, but wait to be physical deleted
   };
 
   BlobFileMeta() = default;
@@ -132,6 +134,7 @@ class BlobFileMeta {
   uint64_t file_number() const { return file_number_; }
   uint64_t file_size() const { return file_size_; }
   FileState file_state() const { return state_; }
+  bool is_obsolete() const { return state_ == FileState::kObsolete; }
   uint64_t discardable_size() const { return discardable_size_; }
 
   void FileStateTransit(const FileEvent& event);
@@ -146,6 +149,7 @@ class BlobFileMeta {
 
   // Not persistent field
   FileState state_{FileState::kInit};
+  SequenceNumber obsolete_sequence_{0};
 
   uint64_t discardable_size_{0};
   //  bool marked_for_gc_{false};

@@ -6,14 +6,17 @@ namespace titandb {
 void TitanDBImpl::PurgeObsoleteFiles() {
   Status s;
   ObsoleteFiles obsolete_files;
-  vset_->GetObsoleteFiles(&obsolete_files);
+  auto oldest_sequence = GetOldestSnapshotSequence();
+  {
+    MutexLock l(&mutex_);
+    vset_->GetObsoleteFiles(&obsolete_files, oldest_sequence);
+  }
 
   {
-    mutex_.Unlock();
     std::vector<std::string> candidate_files;
     for (auto& blob_file : obsolete_files.blob_files) {
       candidate_files.emplace_back(
-          BlobFileName(db_options_.dirname, blob_file));
+          BlobFileName(db_options_.dirname, std::get<0>(blob_file)));
     }
     for (auto& manifest : obsolete_files.manifests) {
       candidate_files.emplace_back(std::move(manifest));
@@ -36,7 +39,6 @@ void TitanDBImpl::PurgeObsoleteFiles() {
         abort();
       }
     }
-    mutex_.Lock();
   }
 }
 

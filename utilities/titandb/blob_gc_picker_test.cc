@@ -6,7 +6,6 @@
 #include "utilities/titandb/blob_file_cache.h"
 #include "utilities/titandb/blob_file_iterator.h"
 #include "utilities/titandb/blob_file_reader.h"
-#include "utilities/titandb/version.h"
 
 namespace rocksdb {
 namespace titandb {

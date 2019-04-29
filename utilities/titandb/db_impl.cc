@@ -58,7 +58,7 @@ class TitanDBImpl::FileManager : public BlobFileManager {
 
     {
       MutexLock l(&db_->mutex_);
-      s = db_->vset_->LogAndApply(&edit, &db_->mutex_);
+      s = db_->vset_->LogAndApply(&edit);
       for (const auto& file : files)
         db_->pending_outputs_.erase(file.second->GetNumber());
     }
@@ -117,6 +117,17 @@ TitanDBImpl::TitanDBImpl(const TitanDBOptions& options,
 }
 
 TitanDBImpl::~TitanDBImpl() { Close(); }
+
+// how often to schedule delete obs files periods
+static constexpr uint32_t kDeleteObsoleteFilesPeriodSecs = 10; // 10s
+
+void TitanDBImpl::StartBackgroundTasks() {
+  if (!thread_purge_obsolete_) {
+    thread_purge_obsolete_.reset(new rocksdb::RepeatableThread(
+        [this]() { TitanDBImpl::PurgeObsoleteFiles(); }, "titanbg", env_,
+        kDeleteObsoleteFilesPeriodSecs * 1000 * 1000));
+  }
+}
 
 Status TitanDBImpl::Open(const std::vector<TitanCFDescriptor>& descs,
                          std::vector<ColumnFamilyHandle*>* handles) {
@@ -189,10 +200,6 @@ Status TitanDBImpl::Open(const std::vector<TitanCFDescriptor>& descs,
   s = DB::Open(db_options_, dbname_, base_descs, handles, &db_);
   if (s.ok()) {
     db_impl_ = reinterpret_cast<DBImpl*>(db_->GetRootDB());
-    for (auto handle : *handles) {
-      auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(handle)->cfd();
-      cfds_.insert(cfd);
-    }
   }
   return s;
 }
@@ -235,6 +242,13 @@ Status TitanDBImpl::CloseImpl() {
     }
   }
 
+  if (thread_purge_obsolete_ != nullptr) {
+    thread_purge_obsolete_->cancel();
+    mutex_.Lock();
+    thread_purge_obsolete_.reset();
+    mutex_.Unlock();
+  }
+
   return Status::OK();
 }
 
@@ -258,9 +272,6 @@ Status TitanDBImpl::CreateColumnFamilies(
     std::map<uint32_t, TitanCFOptions> column_families;
     for (size_t i = 0; i < descs.size(); i++) {
       column_families.emplace((*handles)[i]->GetID(), descs[i].options);
-      auto* cfd =
-          reinterpret_cast<ColumnFamilyHandleImpl*>((*handles)[i])->cfd();
-      cfds_.insert(cfd);
     }
     vset_->AddColumnFamilies(column_families);
   }
@@ -279,12 +290,15 @@ Status TitanDBImpl::DropColumnFamilies(
 
   MutexLock l(&mutex_);
 
+  // TODO:
+  // As rocksdb described, `DropColumnFamilies()` only records the drop of the column family specified by ColumnFamilyHandle.
+  // The actual data is not deleted until the client calls `delete column_family`, namely `DestroyColumnFamilyHandle()`.
+  // We can still continue using the column family if we have outstanding ColumnFamilyHandle pointer.
+  // So we should delete blob files in `DestroyColumnFamilyHandle()` but not here.
   Status s = db_impl_->DropColumnFamilies(handles);
   if (s.ok()) {
-    vset_->DropColumnFamilies(column_families);
-    for (auto cfd : cfds) {
-      cfds_.erase(cfd);
-    }
+    SequenceNumber obsolete_sequence = db_impl_->GetLatestSequenceNumber();
+    vset_->DropColumnFamilies(column_families, obsolete_sequence);
   }
   return s;
 }
@@ -323,20 +337,10 @@ Status TitanDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle* handle,
 Status TitanDBImpl::GetImpl(const ReadOptions& options,
                             ColumnFamilyHandle* handle, const Slice& key,
                             PinnableSlice* value) {
-  auto snap = reinterpret_cast<const TitanSnapshot*>(options.snapshot);
-  auto storage = snap->current()->GetBlobStorage(handle->GetID()).lock();
-
-  auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(handle)->cfd();
-  auto* sv = snap->GetSuperVersion(cfd);
-  if (sv == nullptr) {
-    fprintf(stderr, "GetSuperVersion failed\n");
-    abort();
-  }
-
   Status s;
   bool is_blob_index = false;
   s = db_impl_->GetImpl(options, handle, key, value, nullptr /*value_found*/,
-                        nullptr /*read_callback*/, &is_blob_index, sv);
+                        nullptr /*read_callback*/, &is_blob_index);
   if (!s.ok() || !is_blob_index) return s;
 
   BlobIndex index;
@@ -346,6 +350,11 @@ Status TitanDBImpl::GetImpl(const ReadOptions& options,
 
   BlobRecord record;
   PinnableSlice buffer;
+
+  mutex_.Lock();
+  auto storage = vset_->GetBlobStorage(handle->GetID()).lock();
+  mutex_.Unlock();
+
   s = storage->Get(options, index, &record, &buffer);
   if (s.IsCorruption()) {
     fprintf(stderr, "Key:%s Snapshot:%lu GetBlobFile err:%s\n",
@@ -410,15 +419,14 @@ Iterator* TitanDBImpl::NewIteratorImpl(
     const ReadOptions& options, ColumnFamilyHandle* handle,
     std::shared_ptr<ManagedSnapshot> snapshot) {
   auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(handle)->cfd();
-  auto snap = reinterpret_cast<const TitanSnapshot*>(options.snapshot);
-  auto storage = snap->current()->GetBlobStorage(handle->GetID());
-  auto* sv = snap->GetSuperVersion(cfd);
-  if (sv == nullptr) {
-    return nullptr;
-  }
+  
+  mutex_.Lock();
+  auto storage = vset_->GetBlobStorage(handle->GetID());
+  mutex_.Unlock();
+  
   std::unique_ptr<ArenaWrappedDBIter> iter(db_impl_->NewIteratorImpl(
-      options, cfd, snap->GetSequenceNumber(), nullptr /*read_callback*/,
-      true /*allow_blob*/, true /*allow_refresh*/, sv));
+      options, cfd, options.snapshot->GetSequenceNumber(), nullptr /*read_callback*/,
+      true /*allow_blob*/, true /*allow_refresh*/));
   return new TitanDBIterator(options, storage.lock().get(), snapshot,
                              std::move(iter));
 }
@@ -442,31 +450,14 @@ Status TitanDBImpl::NewIterators(
 }
 
 const Snapshot* TitanDBImpl::GetSnapshot() {
-  Version* current;
-  const Snapshot* snapshot;
-  std::map<ColumnFamilyData*, SuperVersion*> svs;
-  {
-    MutexLock l(&mutex_);
-    current = vset_->current();
-    current->Ref();
-    snapshot = db_->GetSnapshot();
-    for (auto cfd : cfds_) {
-      svs.emplace(cfd, db_impl_->GetReferencedSuperVersion(cfd));
-    }
-  }
-  return new TitanSnapshot(current, snapshot, &svs);
+  return db_->GetSnapshot();
 }
 
 void TitanDBImpl::ReleaseSnapshot(const Snapshot* snapshot) {
-  auto s = reinterpret_cast<const TitanSnapshot*>(snapshot);
-  db_->ReleaseSnapshot(s->snapshot());
-  for (auto sv : s->svs()) {
-    db_impl_->CleanupSuperVersion(sv.second);
-  }
-
-  s->current()->Unref();
-
-  delete s;
+  // TODO: 
+  // We can record here whether the oldest snapshot is released.
+  // If not, we can just skip the next round of purging obsolete files.
+  db_->ReleaseSnapshot(snapshot);
 }
 
 Options TitanDBImpl::GetOptions(ColumnFamilyHandle* column_family) const {
@@ -508,10 +499,7 @@ void TitanDBImpl::OnFlushCompleted(const FlushJobInfo& flush_job_info) {
 
   {
     MutexLock l(&mutex_);
-
-    Version* current = vset_->current();
-    current->Ref();
-    auto blob_storage = current->GetBlobStorage(flush_job_info.cf_id).lock();
+    auto blob_storage = vset_->GetBlobStorage(flush_job_info.cf_id).lock();
     if (!blob_storage) {
       fprintf(stderr, "Column family id:%u Not Found\n", flush_job_info.cf_id);
       abort();
@@ -524,7 +512,6 @@ void TitanDBImpl::OnFlushCompleted(const FlushJobInfo& flush_job_info) {
       }
       file->FileStateTransit(BlobFileMeta::FileEvent::kFlushCompleted);
     }
-    current->Unref();
   }
 }
 
@@ -581,13 +568,10 @@ void TitanDBImpl::OnCompactionCompleted(
 
   {
     MutexLock l(&mutex_);
-    Version* current = vset_->current();
-    current->Ref();
-    auto bs = current->GetBlobStorage(compaction_job_info.cf_id).lock();
+    auto bs = vset_->GetBlobStorage(compaction_job_info.cf_id).lock();
     if (!bs) {
       fprintf(stderr, "Column family id:%u Not Found\n",
               compaction_job_info.cf_id);
-      current->Unref();
       return;
     }
     for (const auto& o : outputs) {
@@ -612,7 +596,6 @@ void TitanDBImpl::OnCompactionCompleted(
       file->AddDiscardableSize(static_cast<uint64_t>(-bfs.second));
     }
     bs->ComputeGCScore();
-    current->Unref();
 
     AddToGCQueue(compaction_job_info.cf_id);
     MaybeScheduleGC();

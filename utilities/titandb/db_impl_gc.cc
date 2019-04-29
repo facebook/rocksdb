@@ -36,8 +36,6 @@ void TitanDBImpl::BackgroundCallGC() {
 
     BackgroundGC(&log_buffer);
 
-    PurgeObsoleteFiles();
-
     {
       mutex_.Unlock();
       log_buffer.FlushBufferToLog();
@@ -70,8 +68,7 @@ Status TitanDBImpl::BackgroundGC(LogBuffer* log_buffer) {
   if (!gc_queue_.empty()) {
     uint32_t column_family_id = PopFirstFromGCQueue();
 
-    auto current = vset_->current();
-    auto bs = current->GetBlobStorage(column_family_id).lock().get();
+    auto bs = vset_->GetBlobStorage(column_family_id).lock().get();
     const auto& titan_cf_options = bs->titan_cf_options();
     std::shared_ptr<BlobGCPicker> blob_gc_picker =
         std::make_shared<BasicBlobGCPicker>(db_options_, titan_cf_options);
@@ -80,7 +77,7 @@ Status TitanDBImpl::BackgroundGC(LogBuffer* log_buffer) {
     if (blob_gc) {
       cfh = db_impl_->GetColumnFamilyHandleUnlocked(column_family_id);
       assert(column_family_id == cfh->GetID());
-      blob_gc->SetInputVersion(cfh.get(), current);
+      blob_gc->SetColumnFamily(cfh.get());
     }
   }
 

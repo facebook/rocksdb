@@ -705,7 +705,6 @@ set(SOURCES
         utilities/titandb/titan_c.cc
         utilities/titandb/util.cc
         utilities/titandb/version.cc
-        utilities/titandb/version_builder.cc
         utilities/titandb/version_edit.cc
         utilities/titandb/version_set.cc
         $<TARGET_OBJECTS:build_version>)

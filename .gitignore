@@ -55,6 +55,7 @@ java/*.log
 java/include/org_rocksdb_*.h
 
 .idea/
+.vscode/
 *.iml
 
 rocksdb.cc

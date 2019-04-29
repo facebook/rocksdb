@@ -9,8 +9,6 @@
 namespace rocksdb {
 namespace titandb {
 
-class Version;
-
 // A BlobGC encapsulates information about a blob gc.
 class BlobGC {
  public:
@@ -33,7 +31,7 @@ class BlobGC {
 
   const TitanCFOptions& titan_cf_options() { return titan_cf_options_; }
 
-  void SetInputVersion(ColumnFamilyHandle* cfh, Version* version);
+  void SetColumnFamily(ColumnFamilyHandle* cfh);
 
   ColumnFamilyHandle* column_family_handle() { return cfh_; }
 
@@ -51,7 +49,6 @@ class BlobGC {
   std::vector<BlobFileMeta*> outputs_;
   TitanCFOptions titan_cf_options_;
   ColumnFamilyHandle* cfh_{nullptr};
-  Version* current_{nullptr};
 };
 
 struct GCScore {

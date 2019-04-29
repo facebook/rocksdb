@@ -444,15 +444,17 @@ Status BlobGCJob::RewriteValidKeyToLSM() {
 }
 
 Status BlobGCJob::DeleteInputBlobFiles() const {
+  SequenceNumber obsolete_sequence = base_db_impl_->GetLatestSequenceNumber();
+
   Status s;
   VersionEdit edit;
   edit.SetColumnFamilyID(blob_gc_->column_family_handle()->GetID());
   for (const auto& file : blob_gc_->sampled_inputs()) {
     ROCKS_LOG_INFO(db_options_.info_log, "Titan add obsolete file [%llu]",
                    file->file_number());
-    edit.DeleteBlobFile(file->file_number());
+    edit.DeleteBlobFile(file->file_number(), obsolete_sequence);
   }
-  s = version_set_->LogAndApply(&edit, this->mutex_);
+  s = version_set_->LogAndApply(&edit);
   // TODO(@DorianZheng) Purge pending outputs
   // base_db_->pending_outputs_.erase(handle->GetNumber());
   return s;

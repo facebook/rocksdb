@@ -29,6 +29,7 @@ Status TitanDB::Open(const TitanDBOptions& db_options,
   auto s = impl->Open(descs, handles);
   if (s.ok()) {
     *db = impl;
+    impl->StartBackgroundTasks();
   } else {
     *db = nullptr;
     delete impl;

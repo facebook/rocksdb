@@ -1,9 +1,7 @@
-#include "utilities/titandb/version.h"
 #include "util/filename.h"
 #include "util/testharness.h"
 #include "utilities/titandb/testutil.h"
 #include "utilities/titandb/util.h"
-#include "utilities/titandb/version_builder.h"
 #include "utilities/titandb/version_edit.h"
 #include "utilities/titandb/version_set.h"
 
@@ -27,7 +25,6 @@ class VersionTest : public testing::Test {
  public:
   TitanDBOptions db_options_;
   TitanCFOptions cf_options_;
-  std::unique_ptr<VersionList> versions_;
   std::shared_ptr<BlobFileCache> file_cache_;
   std::map<uint32_t, std::shared_ptr<BlobStorage>> column_families_;
   std::unique_ptr<VersionSet> vset_;
@@ -49,18 +46,15 @@ class VersionTest : public testing::Test {
     DeleteDir(env_, dbname_);
     vset_.reset(new VersionSet(db_options_));
     ASSERT_OK(vset_->Open({}));
-    versions_.reset(new VersionList);
     column_families_.clear();
     // Sets up some column families.
-    auto v = new Version(nullptr);
     for (uint32_t id = 0; id < 10; id++) {
       std::shared_ptr<BlobStorage> storage;
       storage.reset(new BlobStorage(cf_options_, file_cache_));
       column_families_.emplace(id, storage);
       storage.reset(new BlobStorage(cf_options_, file_cache_));
-      v->column_families_.emplace(id, storage);
+      vset_->column_families_.emplace(id, storage);
     }
-    versions_->Append(v);
   }
 
   void AddBlobFiles(uint32_t cf_id, uint64_t start, uint64_t end) {
@@ -79,16 +73,19 @@ class VersionTest : public testing::Test {
   }
 
   void BuildAndCheck(std::vector<VersionEdit> edits) {
-    VersionBuilder builder(versions_->current());
     for (auto& edit : edits) {
-      builder.Apply(&edit);
+      vset_->Apply(&edit);
     }
-    Version* v = new Version(vset_.get());
-    builder.SaveTo(v);
-    versions_->Append(v);
-    for (auto& it : v->column_families_) {
+    for (auto& it : vset_->column_families_) {
       auto& storage = column_families_[it.first];
-      ASSERT_EQ(storage->files_.size(), it.second->files_.size());
+      // ignore obsolete file
+      auto size = 0;
+      for (auto& file: it.second->files_) {
+        if (!file.second->is_obsolete()) {
+          size++;
+        }
+      }
+      ASSERT_EQ(storage->files_.size(), size);
       for (auto& f : storage->files_) {
         auto iter = it.second->files_.find(f.first);
         ASSERT_TRUE(iter != it.second->files_.end());
@@ -156,12 +153,17 @@ TEST_F(VersionTest, VersionBuilder) {
   DeleteBlobFiles(1, 6, 8);
   DeleteBlobFiles(2, 6, 8);
   BuildAndCheck({del1_6_8, del2_6_8});
-  BuildAndCheck({add1_4_8, del1_4_6, del1_6_8});
 
   // {(0, 4)}, {(4, 6)}
   Reset();
   AddBlobFiles(1, 0, 4);
   AddBlobFiles(2, 4, 6);
+  add1_0_4 = AddBlobFilesEdit(1, 0, 4);
+  add1_4_8 = AddBlobFilesEdit(1, 4, 8);
+  add2_4_8 = AddBlobFilesEdit(2, 4, 8);
+  del1_4_6 = DeleteBlobFilesEdit(1, 4, 6);
+  del1_6_8 = DeleteBlobFilesEdit(1, 6, 8);
+  del2_6_8 = DeleteBlobFilesEdit(2, 6, 8);
   BuildAndCheck({add1_0_4, add1_4_8, del1_4_6, del1_6_8, add2_4_8, del2_6_8});
 }
 
@@ -172,17 +174,17 @@ TEST_F(VersionTest, ObsoleteFiles) {
   {
     auto add1_0_4 = AddBlobFilesEdit(1, 0, 4);
     MutexLock l(&mutex_);
-    vset_->LogAndApply(&add1_0_4, &mutex_);
+    vset_->LogAndApply(&add1_0_4);
   }
   ObsoleteFiles of;
-  vset_->GetObsoleteFiles(&of);
+  vset_->GetObsoleteFiles(&of, kMaxSequenceNumber);
   ASSERT_EQ(of.blob_files.size(), 0);
   {
     auto del1_3_4 = DeleteBlobFilesEdit(1, 3, 4);
     MutexLock l(&mutex_);
-    vset_->LogAndApply(&del1_3_4, &mutex_);
+    vset_->LogAndApply(&del1_3_4);
   }
-  vset_->GetObsoleteFiles(&of);
+  vset_->GetObsoleteFiles(&of, kMaxSequenceNumber);
   ASSERT_EQ(of.blob_files.size(), 1);
 }
 

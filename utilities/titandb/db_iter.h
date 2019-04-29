@@ -7,44 +7,9 @@
 #include <inttypes.h>
 
 #include "db/db_iter.h"
-#include "utilities/titandb/version.h"
 
 namespace rocksdb {
 namespace titandb {
-
-// Wraps the current version together with the snapshot from base DB
-// so that we can safely recycle a steal version when it is dropped.
-// This also implies a guarantee that the current version must contain
-// all the data accessible from base DB.
-class TitanSnapshot : public Snapshot {
- public:
-  TitanSnapshot(Version* _current, const Snapshot* _snapshot,
-                std::map<ColumnFamilyData*, SuperVersion*>* _svs)
-      : current_(_current), snapshot_(_snapshot), svs_(std::move(*_svs)) {}
-
-  Version* current() const { return current_; }
-
-  const Snapshot* snapshot() const { return snapshot_; }
-
-  SuperVersion* GetSuperVersion(ColumnFamilyData* cfd) const {
-    auto iter = svs_.find(cfd);
-    if (iter != svs_.end()) {
-      return iter->second;
-    }
-    return nullptr;
-  }
-
-  const std::map<ColumnFamilyData*, SuperVersion*> svs() const { return svs_; }
-
-  SequenceNumber GetSequenceNumber() const override {
-    return snapshot_->GetSequenceNumber();
-  }
-
- private:
-  Version* const current_;
-  const Snapshot* const snapshot_;
-  const std::map<ColumnFamilyData*, SuperVersion*> svs_;
-};
 
 class TitanDBIterator : public Iterator {
  public:
