@@ -787,12 +787,10 @@ public:
     auto it= buffers_.find(cf_id);
     if (it == buffers_.end()) {
       // create a new one
-      //it->second.create();
       it= buffers_.emplace(cf_id, std::shared_ptr<toku::range_buffer>(new toku::range_buffer())).first;
       it->second->create();
     }
-    else
-      it->second->append(left_key, right_key);
+    it->second->append(left_key, right_key);
   }
 
   std::unordered_map<uint32_t, std::shared_ptr<toku::range_buffer>> buffers_;

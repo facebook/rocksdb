@@ -423,7 +423,7 @@ PessimisticTransactionDB::TryRangeLock(PessimisticTransaction *txn,
                                        const Endpoint& end_endp) {
   if (range_lock_mgr_) {
     return range_lock_mgr_->TryRangeLock(txn, cfh_id, start_endp,
-                                         end_endp, /*exclusive=*/false);
+                                         end_endp, /*exclusive=*/true);
   }
   else
     return Status::NotSupported();

@@ -78,7 +78,7 @@ class BaseLockMgr {
   virtual std::vector<DeadlockPath> GetDeadlockInfoBuffer()= 0;
 
   // TransactionDB will call this at start
-  virtual void init(TransactionDB *db_arg) {};
+  virtual void init(TransactionDB*) {};
   virtual ~BaseLockMgr(){}
 
   using LockStatusData = std::unordered_multimap<uint32_t, KeyLockInfo>;
