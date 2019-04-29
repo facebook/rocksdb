@@ -26,6 +26,13 @@ class Comparator {
 
   Comparator(const Comparator& orig) : timestamp_size_(orig.timestamp_size_) {}
 
+  Comparator& operator=(const Comparator& rhs) {
+    if (this != &rhs) {
+      timestamp_size_ = rhs.timestamp_size_;
+    }
+    return *this;
+  }
+
   virtual ~Comparator() {}
 
   // Three-way comparison.  Returns value:
@@ -85,7 +92,7 @@ class Comparator {
   // with the customized comparator.
   virtual bool CanKeysWithDifferentByteContentsBeEqual() const { return true; }
 
-  size_t timestamp_size() const { return timestamp_size_; }
+  inline size_t timestamp_size() const { return timestamp_size_; }
 
   virtual int CompareWithoutTimestamp(const Slice& a, const Slice& b) const {
     return Compare(a, b);
@@ -95,8 +102,8 @@ class Comparator {
     return 0;
   }
 
- protected:
-  const size_t timestamp_size_;
+ private:
+  size_t timestamp_size_;
 };
 
 // Return a builtin comparator that uses lexicographic byte-wise

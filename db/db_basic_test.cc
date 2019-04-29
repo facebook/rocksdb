@@ -1310,19 +1310,19 @@ class DBBasicTestWithTimestampWithParam
 
     int Compare(const Slice& a, const Slice& b) const override {
       int r = CompareWithoutTimestamp(a, b);
-      if (r != 0 || 0 == timestamp_size_) {
+      if (r != 0 || 0 == timestamp_size()) {
         return r;
       }
       return CompareTimestamp(
-          Slice(a.data() + a.size() - timestamp_size_, timestamp_size_),
-          Slice(b.data() + b.size() - timestamp_size_, timestamp_size_));
+          Slice(a.data() + a.size() - timestamp_size(), timestamp_size()),
+          Slice(b.data() + b.size() - timestamp_size(), timestamp_size()));
     }
 
     int CompareWithoutTimestamp(const Slice& a, const Slice& b) const override {
-      assert(a.size() >= timestamp_size_);
-      assert(b.size() >= timestamp_size_);
-      Slice k1 = StripTimestampFromUserKey(a, timestamp_size_);
-      Slice k2 = StripTimestampFromUserKey(b, timestamp_size_);
+      assert(a.size() >= timestamp_size());
+      assert(b.size() >= timestamp_size());
+      Slice k1 = StripTimestampFromUserKey(a, timestamp_size());
+      Slice k2 = StripTimestampFromUserKey(b, timestamp_size());
 
       return cmp_without_ts_->Compare(k1, k2);
     }
