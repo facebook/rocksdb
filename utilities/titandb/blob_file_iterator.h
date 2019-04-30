@@ -50,7 +50,7 @@ class BlobFileIterator {
   TitanCFOptions titan_cf_options_;
 
   bool init_{false};
-  uint64_t total_blocks_size_{0};
+  uint64_t end_of_blob_record_{0};
 
   // Iterator status
   Status status_;

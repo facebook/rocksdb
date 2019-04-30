@@ -204,12 +204,29 @@ double BlobFileMeta::GetDiscardableRatio() const {
          static_cast<double>(file_size_);
 }
 
+void BlobFileHeader::EncodeTo(std::string* dst) const {
+  PutFixed32(dst, kHeaderMagicNumber);
+  PutFixed32(dst, version);
+}
+
+Status BlobFileHeader::DecodeFrom(Slice* src) {
+  uint32_t magic_number = 0;
+  if (!GetFixed32(src, &magic_number) || magic_number != kHeaderMagicNumber) {
+    return Status::Corruption(
+        "Blob file header magic number missing or mismatched.");
+  }
+  if (!GetFixed32(src, &version) || version != kVersion1) {
+    return Status::Corruption("Blob file header version missing or invalid.");
+  }
+  return Status::OK();
+}
+
 void BlobFileFooter::EncodeTo(std::string* dst) const {
   auto size = dst->size();
   meta_index_handle.EncodeTo(dst);
   // Add padding to make a fixed size footer.
   dst->resize(size + kEncodedLength - 12);
-  PutFixed64(dst, kMagicNumber);
+  PutFixed64(dst, kFooterMagicNumber);
   Slice encoded(dst->data() + size, dst->size() - size);
   PutFixed32(dst, crc32c::Value(encoded.data(), encoded.size()));
 }
@@ -223,7 +240,7 @@ Status BlobFileFooter::DecodeFrom(Slice* src) {
   // Remove padding.
   src->remove_prefix(data + kEncodedLength - 12 - src->data());
   uint64_t magic_number = 0;
-  if (!GetFixed64(src, &magic_number) || magic_number != kMagicNumber) {
+  if (!GetFixed64(src, &magic_number) || magic_number != kFooterMagicNumber) {
     return Status::Corruption("BlobFileFooter", "magic number");
   }
   Slice decoded(data, src->data() - data);

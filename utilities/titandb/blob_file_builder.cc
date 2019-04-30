@@ -3,6 +3,15 @@
 namespace rocksdb {
 namespace titandb {
 
+BlobFileBuilder::BlobFileBuilder(const TitanCFOptions& options,
+                                 WritableFileWriter* file)
+    : options_(options), file_(file), encoder_(options_.blob_file_compression) {
+  BlobFileHeader header;
+  std::string buffer;
+  header.EncodeTo(&buffer);
+  status_ = file_->Append(buffer);
+}
+
 void BlobFileBuilder::Add(const BlobRecord& record, BlobHandle* handle) {
   if (!ok()) return;
 

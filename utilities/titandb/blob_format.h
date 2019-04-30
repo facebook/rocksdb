@@ -155,6 +155,24 @@ class BlobFileMeta {
   //  bool marked_for_gc_{false};
 };
 
+// Blob file header format.
+// The header is mean to be compatible with header of BlobDB blob files, except
+// we use a different magic number.
+//
+// magic_number         : fixed32
+// version              : fixed32
+struct BlobFileHeader {
+  // The first 32bits from $(echo titandb/blob | sha1sum).
+  static const uint32_t kHeaderMagicNumber = 0x2be0a614ul;
+  static const uint32_t kVersion1 = 1;
+  static const uint64_t kEncodedLength = 4 + 4;
+
+  uint32_t version = kVersion1;
+
+  void EncodeTo(std::string* dst) const;
+  Status DecodeFrom(Slice* src);
+};
+
 // Blob file footer format:
 //
 // meta_index_handle    : varint64 offset + varint64 size
@@ -163,7 +181,7 @@ class BlobFileMeta {
 // checksum             : fixed32
 struct BlobFileFooter {
   // The first 64bits from $(echo titandb/blob | sha1sum).
-  static const uint64_t kMagicNumber{0xcd3f52ea0fe14511ull};
+  static const uint64_t kFooterMagicNumber{0x2be0a6148e39edc6ull};
   static const uint64_t kEncodedLength{BlockHandle::kMaxEncodedLength + 8 + 4};
 
   BlockHandle meta_index_handle{BlockHandle::NullBlockHandle()};

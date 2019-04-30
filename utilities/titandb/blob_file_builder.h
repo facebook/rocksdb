@@ -36,10 +36,7 @@ class BlobFileBuilder {
   // Constructs a builder that will store the contents of the file it
   // is building in "*file". Does not close the file. It is up to the
   // caller to sync and close the file after calling Finish().
-  BlobFileBuilder(const TitanCFOptions& options, WritableFileWriter* file)
-      : options_(options),
-        file_(file),
-        encoder_(options_.blob_file_compression) {}
+  BlobFileBuilder(const TitanCFOptions& options, WritableFileWriter* file);
 
   // Adds the record to the file and points the handle to it.
   void Add(const BlobRecord& record, BlobHandle* handle);
