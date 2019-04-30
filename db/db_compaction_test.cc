@@ -3859,7 +3859,7 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
   }
 }
 
-TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
+	TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
   // Verify that, when `CompactRangeOptions::allow_write_stall == false`, delay
   // does not hang if CF is dropped or DB is closed
   const int kNumL0FilesTrigger = 4;
@@ -3871,7 +3871,7 @@ TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
   // i == 1: DB::CancelAllBackgroundWork() unblocks CompactRange. This is to
   //         simulate what happens during Close as we can't call Close (it
   //         blocks on the auto-compaction, making a cycle).
-  for (int i = 0; i < 2; ++i) {
+  for (static int i = 0; i < 2; ++i) {
     CreateAndReopenWithCF({"one"}, options);
     // The calls to close CF/DB wait until the manual compaction stalls.
     // The auto-compaction waits until the manual compaction finishes to ensure
@@ -3893,8 +3893,15 @@ TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
     auto manual_compaction_thread = port::Thread([this]() {
       CompactRangeOptions cro;
       cro.allow_write_stall = false;
-      ASSERT_TRUE(db_->CompactRange(cro, handles_[1], nullptr, nullptr)
-                      .IsShutdownInProgress());
+      Status s = db_->CompactRange(cro, handles_[1], nullptr, nullptr);
+      if (i == 0) {
+          ASSERT_TRUE(db_->CompactRange(cro, handles_[1], nullptr, nullptr)
+                          .IsColumnFamilyDropped());
+      }
+      else {
+          ASSERT_TRUE(db_->CompactRange(cro, handles_[1], nullptr, nullptr)
+                          .IsShutdownInProgress());
+      }
     });
 
     TEST_SYNC_POINT(
