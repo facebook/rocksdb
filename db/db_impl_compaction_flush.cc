@@ -1697,7 +1697,10 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
                        cfd->GetName().c_str());
         bg_cv_.Wait();
       }
-      if (cfd->IsDropped() || shutting_down_.load(std::memory_order_acquire)) {
+      if (cfd->IsDropped()) {
+    	return Status::ColumnFamilyDropped();
+      }
+      if (shutting_down_.load(std::memory_order_acquire)) {
         return Status::ShutdownInProgress();
       }
 

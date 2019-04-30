@@ -431,7 +431,7 @@ TEST_P(DBAtomicFlushTest, FlushMultipleCFs_DropSomeBeforeRequestFlush) {
     cf_ids.push_back(cf_id);
   }
   ASSERT_OK(dbfull()->DropColumnFamily(handles_[1]));
-  ASSERT_TRUE(Flush(cf_ids).IsShutdownInProgress());
+  ASSERT_TRUE(Flush(cf_ids).IsColumnFamilyDropped());
   Destroy(options);
 }
 

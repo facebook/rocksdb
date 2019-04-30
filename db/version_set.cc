@@ -3851,7 +3851,7 @@ Status VersionSet::LogAndApply(
     if (!manifest_writers_.empty()) {
       manifest_writers_.front()->cv.Signal();
     }
-    return Status::ShutdownInProgress();
+    return Status::ColumnFamilyDropped();
   }
 
   return ProcessManifestWrites(writers, mu, db_directory, new_descriptor_log,
