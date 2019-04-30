@@ -432,9 +432,9 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
 }
 
 Status DBImpl::CloseHelper() {
-  mutex_.Lock();
   // Guarantee that there is no background error recovery in progress before
   // continuing with the shutdown
+  mutex_.Lock();
   shutdown_initiated_ = true;
   error_handler_.CancelErrorRecovery();
   while (error_handler_.IsRecoveryInProgress()) {
