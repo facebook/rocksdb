@@ -25,6 +25,7 @@ expected_values_file = tempfile.NamedTemporaryFile()
 default_params = {
     "acquire_snapshot_one_in": 10000,
     "block_size": 16384,
+    "cache_index_and_filter_blocks": lambda: random.randint(0, 1),
     "cache_size": 1048576,
     "checkpoint_one_in": 1000000,
     "compression_type": "snappy",
