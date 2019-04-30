@@ -911,6 +911,8 @@ class DBImpl : public DB {
   Status WriteRecoverableState();
 
   // Actual implementation of Close()
+  // The function will set closed_ if CloseImpl() should not be called
+  // again. And keep it if the Close() can be called again.
   Status CloseImpl();
 
   // Recover the descriptor from persistent storage.  May do a significant
@@ -1268,7 +1270,6 @@ class DBImpl : public DB {
   uint64_t GetMaxTotalWalSize() const;
 
   Directory* GetDataDir(ColumnFamilyData* cfd, size_t path_id) const;
-
   Status CloseHelper();
 
   void WaitForBackgroundWork();

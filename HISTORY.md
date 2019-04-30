@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Public API Change
+* Now DB::Close() will return Aborted() error when there is unreleased snapshot. Users can retry after all snapshots are released.
 
 ## 6.2.0 (4/30/2019)
 ### New Features

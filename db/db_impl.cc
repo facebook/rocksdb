@@ -432,15 +432,21 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
 }
 
 Status DBImpl::CloseHelper() {
-  // Guarantee that there is no background error recovery in progress before
-  // continuing with the shutdown
-  mutex_.Lock();
-  shutdown_initiated_ = true;
-  error_handler_.CancelErrorRecovery();
-  while (error_handler_.IsRecoveryInProgress()) {
-    bg_cv_.Wait();
+  {
+    InstrumentedMutexLock l(&mutex_);
+    // If there is unreleased snapshot, fail the close call
+    if (!snapshots_.empty()) {
+      return Status::Aborted("Cannot close DB with unreleased snapshot.");
+    }
+
+    // Guarantee that there is no background error recovery in progress before
+    // continuing with the shutdown
+    shutdown_initiated_ = true;
+    error_handler_.CancelErrorRecovery();
+    while (error_handler_.IsRecoveryInProgress()) {
+      bg_cv_.Wait();
+    }
   }
-  mutex_.Unlock();
 
   // CancelAllBackgroundWork called with false means we just set the shutdown
   // marker. After this we do a variant of the waiting and unschedule work
@@ -582,6 +588,13 @@ Status DBImpl::CloseHelper() {
       ret = s;
     }
   }
+  closed_ = true;
+  if (ret.IsAborted()) {
+    // Reserve IsAborted() error for those where users didn't release
+    // certain resource and they can release them and come back and
+    // retry. In this case, we wrap this exception to something else.
+    return Status::Incomplete(ret);
+  }
   return ret;
 }
 
@@ -589,7 +602,6 @@ Status DBImpl::CloseImpl() { return CloseHelper(); }
 
 DBImpl::~DBImpl() {
   if (!closed_) {
-    closed_ = true;
     CloseHelper();
   }
 }
@@ -3036,7 +3048,6 @@ DB::~DB() {}
 
 Status DBImpl::Close() {
   if (!closed_) {
-    closed_ = true;
     return CloseImpl();
   }
   return Status::OK();
