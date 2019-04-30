@@ -137,6 +137,12 @@ CFLAGS +=  -DHAVE_POWER8
 HAVE_POWER8=1
 endif
 
+ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc -xc /dev/null 2>&1))
+CXXFLAGS += -march=armv8-a+crc
+CFLAGS += -march=armv8-a+crc
+ARMCRC_SOURCE=1
+endif
+
 # if we're compiling for release, compile without debug code (-DNDEBUG)
 ifeq ($(DEBUG_LEVEL),0)
 OPT += -DNDEBUG
