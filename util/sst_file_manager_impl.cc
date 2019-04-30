@@ -325,7 +325,7 @@ void SstFileManagerImpl::ClearError() {
         cur_instance_ = nullptr;
       }
 
-      if (s.ok() || s.IsShutdownInProgress() ||
+      if (s.ok() || (s.IsShutdownInProgress() || s.IsColumnFamilyDropped()) ||
           (!s.ok() && s.severity() >= Status::Severity::kFatalError)) {
         // If shutdown is in progress, abandon this handler instance
         // and continue with the others

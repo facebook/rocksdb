@@ -3859,7 +3859,7 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
   }
 }
 
-TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
+	TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
   // Verify that, when `CompactRangeOptions::allow_write_stall == false`, delay
   // does not hang if CF is dropped or DB is closed
   const int kNumL0FilesTrigger = 4;
@@ -3871,7 +3871,7 @@ TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
   // i == 1: DB::CancelAllBackgroundWork() unblocks CompactRange. This is to
   //         simulate what happens during Close as we can't call Close (it
   //         blocks on the auto-compaction, making a cycle).
-  for (int i = 0; i < 2; ++i) {
+  for (static int i = 0; i < 2; ++i) {
     CreateAndReopenWithCF({"one"}, options);
     // The calls to close CF/DB wait until the manual compaction stalls.
     // The auto-compaction waits until the manual compaction finishes to ensure
