@@ -1070,6 +1070,18 @@ int rocksdb_property_int(
   }
 }
 
+int rocksdb_property_int_cf(
+    rocksdb_t* db,
+    rocksdb_column_family_handle_t* column_family,
+    const char* propname,
+    uint64_t *out_val) {
+  if (db->rep->GetIntProperty(column_family->rep, Slice(propname), out_val)) {
+    return 0;
+  } else {
+    return -1;
+  }
+}
+
 char* rocksdb_property_value_cf(
     rocksdb_t* db,
     rocksdb_column_family_handle_t* column_family,
