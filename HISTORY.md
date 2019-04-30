@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+
+## 6.2.0 (4/30/2019)
 ### New Features
 * Add an option `strict_bytes_per_sync` that causes a file-writing thread to block rather than exceed the limit on bytes pending writeback specified by `bytes_per_sync` or `wal_bytes_per_sync`.
 * Improve range scan performance by avoiding per-key upper bound check in BlockBasedTableIterator.
