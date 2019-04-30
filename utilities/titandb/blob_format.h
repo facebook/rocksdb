@@ -149,7 +149,6 @@ class BlobFileMeta {
 
   // Not persistent field
   FileState state_{FileState::kInit};
-  SequenceNumber obsolete_sequence_{0};
 
   uint64_t discardable_size_{0};
   //  bool marked_for_gc_{false};
