@@ -297,6 +297,9 @@ DEFINE_int32(set_in_place_one_in, 0,
 DEFINE_int64(cache_size, 2LL * KB * KB * KB,
              "Number of bytes to use as a cache of uncompressed data.");
 
+DEFINE_bool(cache_index_and_filter_blocks, false,
+            "True if indexes/filters should be cached in block cache.");
+
 DEFINE_bool(use_clock_cache, false,
             "Replace default LRU block cache with clock cache.");
 
@@ -2578,6 +2581,8 @@ class StressTest {
     if (FLAGS_options_file.empty()) {
       BlockBasedTableOptions block_based_options;
       block_based_options.block_cache = cache_;
+      block_based_options.cache_index_and_filter_blocks =
+          FLAGS_cache_index_and_filter_blocks;
       block_based_options.block_cache_compressed = compressed_cache_;
       block_based_options.checksum = FLAGS_checksum_type_e;
       block_based_options.block_size = FLAGS_block_size;

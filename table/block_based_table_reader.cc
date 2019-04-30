@@ -838,6 +838,11 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                                          rep->persistent_cache_key_prefix_size),
                              rep->ioptions.statistics);
 
+  // Meta-blocks are not dictionary compressed. Explicitly set the dictionary
+  // handle to null, otherwise it may be seen as uninitialized during the below
+  // meta-block reads.
+  rep->compression_dict_handle = BlockHandle::NullBlockHandle();
+
   // Read metaindex
   std::unique_ptr<Block> meta;
   std::unique_ptr<InternalIterator> meta_iter;
