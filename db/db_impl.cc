@@ -582,12 +582,11 @@ Status DBImpl::CloseHelper() {
       ret = s;
     }
   }
-  closed_ = true;
   if (ret.IsAborted()) {
     // Reserve IsAborted() error for those where users didn't release
     // certain resource and they can release them and come back and
     // retry. In this case, we wrap this exception to something else.
-    return Status::Incomplete(ret);
+    return Status::Incomplete(ret.ToString());
   }
   return ret;
 }
@@ -3051,7 +3050,7 @@ Status DBImpl::Close() {
       }
     }
 
-    close_ = true;
+    closed_ = true;
     return CloseImpl();
   }
   return Status::OK();
