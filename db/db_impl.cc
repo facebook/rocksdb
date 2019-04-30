@@ -432,21 +432,15 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
 }
 
 Status DBImpl::CloseHelper() {
-  {
-    InstrumentedMutexLock l(&mutex_);
-    // If there is unreleased snapshot, fail the close call
-    if (!snapshots_.empty()) {
-      return Status::Aborted("Cannot close DB with unreleased snapshot.");
-    }
-
-    // Guarantee that there is no background error recovery in progress before
-    // continuing with the shutdown
-    shutdown_initiated_ = true;
-    error_handler_.CancelErrorRecovery();
-    while (error_handler_.IsRecoveryInProgress()) {
-      bg_cv_.Wait();
-    }
+  mutex_.Lock();
+  // Guarantee that there is no background error recovery in progress before
+  // continuing with the shutdown
+  shutdown_initiated_ = true;
+  error_handler_.CancelErrorRecovery();
+  while (error_handler_.IsRecoveryInProgress()) {
+    bg_cv_.Wait();
   }
+  mutex_.Unlock();
 
   // CancelAllBackgroundWork called with false means we just set the shutdown
   // marker. After this we do a variant of the waiting and unschedule work
@@ -602,6 +596,7 @@ Status DBImpl::CloseImpl() { return CloseHelper(); }
 
 DBImpl::~DBImpl() {
   if (!closed_) {
+    closed_ = true;
     CloseHelper();
   }
 }
@@ -3048,6 +3043,15 @@ DB::~DB() {}
 
 Status DBImpl::Close() {
   if (!closed_) {
+    {
+      InstrumentedMutexLock l(&mutex_);
+      // If there is unreleased snapshot, fail the close call
+      if (!snapshots_.empty()) {
+        return Status::Aborted("Cannot close DB with unreleased snapshot.");
+      }
+    }
+
+    close_ = true;
     return CloseImpl();
   }
   return Status::OK();
