@@ -269,17 +269,6 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint64_t max_bytes_for_level_base = 256 * 1048576;
 
-  // If non-zero, compactions will periodically refresh the snapshot list. The
-  // delay for the first refresh is snap_refresh_nanos nano seconds and
-  // exponentially increases afterwards. When having many short-lived snapshots,
-  // this option helps reducing the cpu usage of long-running compactions. The
-  // feature is disabled when max_subcompactions is greater than one.
-  //
-  // Default: 0.5s
-  //
-  // Dynamically changeable through SetOptions() API
-  uint64_t snap_refresh_nanos = 500 * 1000 * 1000;  // 0.5s
-
   // Disable automatic compactions. Manual compactions can still
   // be issued on this column family
   //
