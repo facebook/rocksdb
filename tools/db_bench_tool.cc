@@ -762,7 +762,8 @@ DEFINE_bool(use_stderr_info_logger, false,
 
 DEFINE_string(trace_file, "", "Trace workload to a file. ");
 
-DEFINE_uint32(trace_replay_fast_forward, 1, "Fast forward trace replay. ");
+DEFINE_int32(trace_replay_fast_forward, 1,
+             "Fast forward trace replay, must >= 1. ");
 
 static enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   assert(ctype);
@@ -6161,7 +6162,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
     Replayer replayer(db_with_cfh->db, db_with_cfh->cfh,
                       std::move(trace_reader));
-    replayer.SetFastForward(FLAGS_trace_replay_fast_forward);
+    replayer.SetFastForward(
+        static_cast<uint32_t>(FLAGS_trace_replay_fast_forward));
     s = replayer.Replay();
     if (s.ok()) {
       fprintf(stdout, "Replay started from trace_file: %s\n",
