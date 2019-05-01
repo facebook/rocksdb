@@ -169,8 +169,6 @@ void MutableCFOptions::Dump(Logger* log) const {
                  target_file_size_multiplier);
   ROCKS_LOG_INFO(log, "                 max_bytes_for_level_base: %" PRIu64,
                  max_bytes_for_level_base);
-  ROCKS_LOG_INFO(log, "                       snap_refresh_nanos: %" PRIu64,
-                 snap_refresh_nanos);
   ROCKS_LOG_INFO(log, "           max_bytes_for_level_multiplier: %f",
                  max_bytes_for_level_multiplier);
   ROCKS_LOG_INFO(log, "                                      ttl: %" PRIu64,

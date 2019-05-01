@@ -21,53 +21,6 @@
 
 namespace rocksdb {
 
-// This callback can be used to refresh the snapshot list from the db. It
-// includes logics to exponentially decrease the refresh rate to limit the
-// overhead of refresh.
-class SnapshotListFetchCallback {
- public:
-  SnapshotListFetchCallback(Env* env, uint64_t snap_refresh_nanos,
-                            size_t every_nth_key = 1024)
-      : timer_(env, /*auto restart*/ true),
-        snap_refresh_nanos_(snap_refresh_nanos),
-        every_nth_key_minus_one_(every_nth_key - 1) {
-    assert(every_nth_key > 0);
-    assert((ceil(log2(every_nth_key)) == floor(log2(every_nth_key))));
-  }
-  // Refresh the snapshot list. snapshots will bre replacted with the new list.
-  // max is the upper bound. Note: this function will acquire the db_mutex_.
-  virtual void Refresh(std::vector<SequenceNumber>* snapshots,
-                       SequenceNumber max) = 0;
-  inline bool TimeToRefresh(const size_t key_index) {
-    // skip the key if key_index % every_nth_key (which is of power 2) is not 0.
-    if ((key_index & every_nth_key_minus_one_) != 0) {
-      return false;
-    }
-    const uint64_t elapsed = timer_.ElapsedNanos();
-    auto ret = elapsed > snap_refresh_nanos_;
-    // pre-compute the next time threshold
-    if (ret) {
-      // inc next refresh period exponentially (by x4)
-      auto next_refresh_threshold = snap_refresh_nanos_ << 2;
-      // make sure the shift has not overflown the highest 1 bit
-      snap_refresh_nanos_ =
-          std::max(snap_refresh_nanos_, next_refresh_threshold);
-    }
-    return ret;
-  }
-  static constexpr SnapshotListFetchCallback* kDisabled = nullptr;
-
-  virtual ~SnapshotListFetchCallback() {}
-
- private:
-  // Time since the callback was created
-  StopWatchNano timer_;
-  // The delay before calling ::Refresh. To be increased exponentially.
-  uint64_t snap_refresh_nanos_;
-  // Skip evey nth key. Number n if of power 2. The math will require n-1.
-  const uint64_t every_nth_key_minus_one_;
-};
-
 class CompactionIterator {
  public:
   // A wrapper around Compaction. Has a much smaller interface, only what
@@ -116,8 +69,7 @@ class CompactionIterator {
                      const Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
-                     const SequenceNumber preserve_deletes_seqnum = 0,
-                     SnapshotListFetchCallback* snap_list_callback = nullptr);
+                     const SequenceNumber preserve_deletes_seqnum = 0);
 
   // Constructor with custom CompactionProxy, used for tests.
   CompactionIterator(InternalIterator* input, const Comparator* cmp,
@@ -130,8 +82,7 @@ class CompactionIterator {
                      std::unique_ptr<CompactionProxy> compaction,
                      const CompactionFilter* compaction_filter = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
-                     const SequenceNumber preserve_deletes_seqnum = 0,
-                     SnapshotListFetchCallback* snap_list_callback = nullptr);
+                     const SequenceNumber preserve_deletes_seqnum = 0);
 
   ~CompactionIterator();
 
@@ -159,8 +110,6 @@ class CompactionIterator {
  private:
   // Processes the input stream to find the next output
   void NextFromInput();
-  // Process snapshots_ and assign related variables
-  void ProcessSnapshotList();
 
   // Do last preparations before presenting the output to the callee. At this
   // point this only zeroes out the sequence number if possible for better
@@ -195,7 +144,7 @@ class CompactionIterator {
   InternalIterator* input_;
   const Comparator* cmp_;
   MergeHelper* merge_helper_;
-  std::vector<SequenceNumber>* snapshots_;
+  const std::vector<SequenceNumber>* snapshots_;
   // List of snapshots released during compaction.
   // findEarliestVisibleSnapshot() find them out from return of
   // snapshot_checker, and make sure they will not be returned as
@@ -270,9 +219,6 @@ class CompactionIterator {
   // Used to avoid purging uncommitted values. The application can specify
   // uncommitted values by providing a SnapshotChecker object.
   bool current_key_committed_;
-  SnapshotListFetchCallback* snap_list_callback_;
-  // number of distinct keys processed
-  size_t num_keys_ = 0;
 
   bool IsShuttingDown() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.

@@ -215,9 +215,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(
         log, "               Options.max_bytes_for_level_base: %" PRIu64,
         max_bytes_for_level_base);
-    ROCKS_LOG_HEADER(
-        log, "                     Options.snap_refresh_nanos: %" PRIu64,
-        snap_refresh_nanos);
     ROCKS_LOG_HEADER(log, "Options.level_compaction_dynamic_level_bytes: %d",
                      level_compaction_dynamic_level_bytes);
     ROCKS_LOG_HEADER(log, "         Options.max_bytes_for_level_multiplier: %f",
@@ -493,7 +490,6 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForSmallDb(
   write_buffer_size = 2 << 20;
   target_file_size_base = 2 * 1048576;
   max_bytes_for_level_base = 10 * 1048576;
-  snap_refresh_nanos = 0;
   soft_pending_compaction_bytes_limit = 256 * 1048576;
   hard_pending_compaction_bytes_limit = 1073741824ul;
 
