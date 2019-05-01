@@ -40,9 +40,6 @@ void CompactionJobStats::Reset() {
   file_fsync_nanos = 0;
   file_prepare_write_nanos = 0;
 
-  smallest_output_key_prefix.clear();
-  largest_output_key_prefix.clear();
-
   num_single_del_fallthru = 0;
   num_single_del_mismatch = 0;
 }

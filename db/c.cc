@@ -2226,11 +2226,6 @@ void rocksdb_options_set_max_bytes_for_level_base(
   opt->rep.max_bytes_for_level_base = n;
 }
 
-void rocksdb_options_set_snap_refresh_nanos(rocksdb_options_t* opt,
-                                            uint64_t n) {
-  opt->rep.snap_refresh_nanos = n;
-}
-
 void rocksdb_options_set_level_compaction_dynamic_level_bytes(
     rocksdb_options_t* opt, unsigned char v) {
   opt->rep.level_compaction_dynamic_level_bytes = v;

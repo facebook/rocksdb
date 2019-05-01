@@ -816,8 +816,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_target_file_size_multiplier(
     rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_bytes_for_level_base(
     rocksdb_options_t*, uint64_t);
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_snap_refresh_nanos(
-    rocksdb_options_t*, uint64_t);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_level_compaction_dynamic_level_bytes(rocksdb_options_t*,
                                                          unsigned char);

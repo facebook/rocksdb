@@ -177,7 +177,6 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
       mutable_cf_options.target_file_size_multiplier;
   cf_opts.max_bytes_for_level_base =
       mutable_cf_options.max_bytes_for_level_base;
-  cf_opts.snap_refresh_nanos = mutable_cf_options.snap_refresh_nanos;
   cf_opts.max_bytes_for_level_multiplier =
       mutable_cf_options.max_bytes_for_level_multiplier;
   cf_opts.ttl = mutable_cf_options.ttl;
@@ -527,9 +526,9 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
               opt_address));
     case OptionType::kBlockBasedTableIndexShorteningMode:
       return ParseEnum<BlockBasedTableOptions::IndexShorteningMode>(
-          block_base_table_index_shortening_mode_string_map, value,
-          reinterpret_cast<BlockBasedTableOptions::IndexShorteningMode*>(
-              opt_address));
+        block_base_table_index_shortening_mode_string_map, value,
+        reinterpret_cast<BlockBasedTableOptions::IndexShorteningMode*>(
+            opt_address));
     case OptionType::kEncodingType:
       return ParseEnum<EncodingType>(
           encoding_type_string_map, value,
@@ -1667,13 +1666,13 @@ std::unordered_map<std::string, BlockBasedTableOptions::DataBlockIndexType>
 
 std::unordered_map<std::string, BlockBasedTableOptions::IndexShorteningMode>
     OptionsHelper::block_base_table_index_shortening_mode_string_map = {
-        {"kNoShortening",
-         BlockBasedTableOptions::IndexShorteningMode::kNoShortening},
-        {"kShortenSeparators",
-         BlockBasedTableOptions::IndexShorteningMode::kShortenSeparators},
-        {"kShortenSeparatorsAndSuccessor",
-         BlockBasedTableOptions::IndexShorteningMode::
-             kShortenSeparatorsAndSuccessor}};
+      {"kNoShortening",
+       BlockBasedTableOptions::IndexShorteningMode::kNoShortening},
+      {"kShortenSeparators",
+       BlockBasedTableOptions::IndexShorteningMode::kShortenSeparators},
+      {"kShortenSeparatorsAndSuccessor",
+       BlockBasedTableOptions::IndexShorteningMode::
+           kShortenSeparatorsAndSuccessor}};
 
 std::unordered_map<std::string, EncodingType>
     OptionsHelper::encoding_type_string_map = {{"kPlain", kPlain},
@@ -1911,10 +1910,6 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::max_bytes_for_level_base),
           OptionType::kUInt64T, OptionVerificationType::kNormal, true,
           offsetof(struct MutableCFOptions, max_bytes_for_level_base)}},
-        {"snap_refresh_nanos",
-         {offset_of(&ColumnFamilyOptions::snap_refresh_nanos),
-          OptionType::kUInt64T, OptionVerificationType::kNormal, true,
-          offsetof(struct MutableCFOptions, snap_refresh_nanos)}},
         {"max_bytes_for_level_multiplier",
          {offset_of(&ColumnFamilyOptions::max_bytes_for_level_multiplier),
           OptionType::kDouble, OptionVerificationType::kNormal, true,
