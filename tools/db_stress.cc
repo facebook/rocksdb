@@ -3049,20 +3049,20 @@ class NonBatchedOpsStressTest : public StressTest {
       const ReadOptions& read_opts,
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys) {
-    int num_keys = rand_keys.size();
+    size_t num_keys = rand_keys.size();
     std::vector<std::string> key_str;
     std::vector<Slice> keys;
     std::vector<PinnableSlice> values(num_keys);
     std::vector<Status> statuses(num_keys);
     ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
 
-    for (int i = 0; i < num_keys; ++i) {
+    for (size_t i = 0; i < num_keys; ++i) {
       key_str.emplace_back(Key(rand_keys[i]));
       keys.emplace_back(key_str.back());
     }
     db_->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
                   statuses.data());
-    for (auto s : statuses) {
+    for (const auto& s : statuses) {
       if (s.ok()) {
         // found case
         thread->stats.AddGets(1, 1);
