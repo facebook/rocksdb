@@ -1,6 +1,7 @@
 #include "utilities/titandb/blob_format.h"
 
 #include "util/crc32c.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 namespace titandb {
@@ -68,6 +69,8 @@ Status BlobDecoder::DecodeHeader(Slice* src) {
 
 Status BlobDecoder::DecodeRecord(Slice* src, BlobRecord* record,
                                  OwnedSlice* buffer) {
+  TEST_SYNC_POINT_CALLBACK("BlobDecoder::DecodeRecord", &crc_);
+
   Slice input(src->data(), record_size_);
   src->remove_prefix(record_size_);
   uint32_t crc = crc32c::Extend(header_crc_, input.data(), input.size());

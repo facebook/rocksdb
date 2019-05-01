@@ -2,6 +2,7 @@
 
 #include "util/crc32c.h"
 #include "util/filename.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 namespace titandb {
@@ -75,6 +76,8 @@ BlobFileReader::BlobFileReader(const TitanCFOptions& options,
 Status BlobFileReader::Get(const ReadOptions& /*options*/,
                            const BlobHandle& handle, BlobRecord* record,
                            PinnableSlice* buffer) {
+  TEST_SYNC_POINT("BlobFileReader::Get");
+
   std::string cache_key;
   Cache::Handle* cache_handle = nullptr;
   if (cache_) {

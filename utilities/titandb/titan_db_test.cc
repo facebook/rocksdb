@@ -3,9 +3,11 @@
 
 #include "rocksdb/utilities/titandb/db.h"
 #include "utilities/titandb/db_impl.h"
+#include "utilities/titandb/titan_fault_injection_test_env.h"
 #include "util/filename.h"
 #include "util/random.h"
 #include "util/testharness.h"
+#include "util/sync_point.h"
 #include "blob_file_reader.h"
 #include "blob_file_iterator.h"
 #include "db_iter.h"
@@ -360,6 +362,204 @@ TEST_F(TitanDBTest, DISABLED_ReadAfterDropCF) {
     VerifyDB(data);
   }
 }
+
+#ifndef NDEBUG
+TEST_F(TitanDBTest, BlobFileIOError) {
+  std::unique_ptr<TitanFaultInjectionTestEnv> mock_env(
+      new TitanFaultInjectionTestEnv(env_));
+  options_.env = mock_env.get();
+  options_.disable_background_gc = true; // avoid abort by BackgroundGC
+  Open();
+
+  std::map<std::string, std::string> data;
+  const int kNumEntries = 100;
+  for (uint64_t i = 1; i <= kNumEntries; i++) {
+    Put(i, &data);
+  }
+  ASSERT_EQ(kNumEntries, data.size());
+  CompactRangeOptions copts;
+  ASSERT_OK(db_->CompactRange(copts, nullptr, nullptr));
+  VerifyDB(data);
+
+  SyncPoint::GetInstance()->SetCallBack(
+    "BlobFileReader::Get", [&](void *) {
+      mock_env->SetFilesystemActive(
+        false, 
+        Status::IOError("Injected error")
+        );
+    });
+  SyncPoint::GetInstance()->EnableProcessing();
+  for(auto& it : data) {
+    std::string value;
+    if(it.second.size() > options_.min_blob_size) {
+      ASSERT_TRUE(db_->Get(ReadOptions(), it.first, &value).IsIOError());
+      mock_env->SetFilesystemActive(true);
+    }
+  }
+  SyncPoint::GetInstance()->DisableProcessing();
+  mock_env->SetFilesystemActive(true);
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  SyncPoint::GetInstance()->EnableProcessing();
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->status().IsIOError());
+  SyncPoint::GetInstance()->DisableProcessing();
+  mock_env->SetFilesystemActive(true);
+
+  iter.reset(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  SyncPoint::GetInstance()->EnableProcessing();
+  iter->Next(); // second value (k=2) is inlined
+  ASSERT_TRUE(iter->Valid());
+  iter->Next();
+  ASSERT_TRUE(iter->status().IsIOError());
+  SyncPoint::GetInstance()->DisableProcessing();
+  mock_env->SetFilesystemActive(true);
+
+  options_.env = env_;
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  // env must be destructed AFTER db is closed to avoid
+  // `pure abstract method called` complaint.
+  iter.reset(nullptr); // early release to avoid outstanding reference
+  Close();
+  db_ = nullptr;
+}
+
+TEST_F(TitanDBTest, FlushWriteIOErrorHandling) {
+  std::unique_ptr<TitanFaultInjectionTestEnv> mock_env(
+      new TitanFaultInjectionTestEnv(env_));
+  options_.env = mock_env.get();
+  options_.disable_background_gc = true; // avoid abort by BackgroundGC
+  Open();
+
+  std::map<std::string, std::string> data;
+  const int kNumEntries = 100;
+  for (uint64_t i = 1; i <= kNumEntries; i++) {
+    Put(i, &data);
+  }
+  ASSERT_EQ(kNumEntries, data.size());
+  CompactRangeOptions copts;
+  // no compaction to enable Flush
+  VerifyDB(data);
+
+  SyncPoint::GetInstance()->SetCallBack(
+    "FlushJob::Start", [&](void *) {
+      mock_env->SetFilesystemActive(
+        false,
+        Status::IOError("FlushJob injected error")
+        );
+    });
+  SyncPoint::GetInstance()->EnableProcessing();
+  FlushOptions fopts;
+  ASSERT_TRUE(db_->Flush(fopts).IsIOError());
+  SyncPoint::GetInstance()->DisableProcessing();
+  mock_env->SetFilesystemActive(true);
+  // subsequent writes return error too
+  WriteOptions wopts;
+  std::string key = "key_after_flush";
+  std::string value = "value_after_flush";
+  ASSERT_TRUE(db_->Put(wopts, key, value).IsIOError());
+
+  options_.env = env_;
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  // env must be destructed AFTER db is closed to avoid
+  // `pure abstract method called` complaint.
+  Close();
+  db_ = nullptr;
+}
+
+TEST_F(TitanDBTest, CompactionWriteIOErrorHandling) {
+    std::unique_ptr<TitanFaultInjectionTestEnv> mock_env(
+      new TitanFaultInjectionTestEnv(env_));
+  options_.env = mock_env.get();
+  options_.disable_background_gc = true; // avoid abort by BackgroundGC
+  Open();
+
+  std::map<std::string, std::string> data;
+  const int kNumEntries = 100;
+  for (uint64_t i = 1; i <= kNumEntries; i++) {
+    Put(i, &data);
+  }
+  ASSERT_EQ(kNumEntries, data.size());
+  CompactRangeOptions copts;
+  // do not compact to enable following Compaction
+  VerifyDB(data);
+
+  SyncPoint::GetInstance()->SetCallBack(
+    "BackgroundCallCompaction:0", [&](void *) {
+      mock_env->SetFilesystemActive(
+        false,
+        Status::IOError("Compaction injected error")
+        );
+    });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_TRUE(db_->CompactRange(copts, nullptr, nullptr).IsIOError());
+  SyncPoint::GetInstance()->DisableProcessing();
+  mock_env->SetFilesystemActive(true);
+  // subsequent writes return error too
+  WriteOptions wopts;
+  std::string key = "key_after_compaction";
+  std::string value = "value_after_compaction";
+  ASSERT_TRUE(db_->Put(wopts, key, value).IsIOError());
+
+  options_.env = env_;
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  // env must be destructed AFTER db is closed to avoid
+  // `pure abstract method called` complaint.
+  Close();
+  db_ = nullptr;
+}
+
+TEST_F(TitanDBTest, BlobFileCorruptionErrorHandling) {
+  options_.disable_background_gc = true; // avoid abort by BackgroundGC
+  Open();
+  std::map<std::string, std::string> data;
+  const int kNumEntries = 100;
+  for (uint64_t i = 1; i <= kNumEntries; i++) {
+    Put(i, &data);
+  }
+  ASSERT_EQ(kNumEntries, data.size());
+  CompactRangeOptions copt;
+  ASSERT_OK(db_->CompactRange(copt, nullptr, nullptr));
+  VerifyDB(data);
+
+  // Modify the checksum data to reproduce a mismatch
+  SyncPoint::GetInstance()->SetCallBack(
+    "BlobDecoder::DecodeRecord", [&](void* arg) {
+      auto* crc = reinterpret_cast<uint32_t*>(arg);
+      *crc = *crc + 1;
+    });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  for (auto& it : data) {
+    std::string value;
+    if(it.second.size() < options_.min_blob_size) {
+        continue;
+    }
+    ASSERT_TRUE(db_->Get(ReadOptions(), it.first, &value).IsCorruption());
+  }
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  SyncPoint::GetInstance()->EnableProcessing();
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->status().IsCorruption());
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  iter.reset(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  SyncPoint::GetInstance()->EnableProcessing();
+  iter->Next(); // second value (k=2) is inlined
+  ASSERT_TRUE(iter->Valid());
+  iter->Next();
+  ASSERT_TRUE(iter->status().IsCorruption());
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+#endif // !NDEBUG
 
 }  // namespace titandb
 }  // namespace rocksdb
