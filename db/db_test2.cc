@@ -3738,6 +3738,21 @@ TEST_F(DBTest2, OldStatsInterface) {
   ASSERT_GT(dos->num_rt, 0);
   ASSERT_GT(dos->num_mt, 0);
 }
+
+TEST_F(DBTest2, CloseWithUnreleasedSnapshot) {
+  const Snapshot* ss = db_->GetSnapshot();
+
+  for (auto h : handles_) {
+    db_->DestroyColumnFamilyHandle(h);
+  }
+  handles_.clear();
+
+  ASSERT_NOK(db_->Close());
+  db_->ReleaseSnapshot(ss);
+  ASSERT_OK(db_->Close());
+  delete db_;
+  db_ = nullptr;
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

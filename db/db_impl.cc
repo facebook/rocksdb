@@ -582,6 +582,12 @@ Status DBImpl::CloseHelper() {
       ret = s;
     }
   }
+  if (ret.IsAborted()) {
+    // Reserve IsAborted() error for those where users didn't release
+    // certain resource and they can release them and come back and
+    // retry. In this case, we wrap this exception to something else.
+    return Status::Incomplete(ret.ToString());
+  }
   return ret;
 }
 
@@ -3036,6 +3042,14 @@ DB::~DB() {}
 
 Status DBImpl::Close() {
   if (!closed_) {
+    {
+      InstrumentedMutexLock l(&mutex_);
+      // If there is unreleased snapshot, fail the close call
+      if (!snapshots_.empty()) {
+        return Status::Aborted("Cannot close DB with unreleased snapshot.");
+      }
+    }
+
     closed_ = true;
     return CloseImpl();
   }

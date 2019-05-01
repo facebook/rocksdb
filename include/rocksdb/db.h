@@ -232,9 +232,13 @@ class DB {
   // status in case there are any errors. This will not fsync the WAL files.
   // If syncing is required, the caller must first call SyncWAL(), or Write()
   // using an empty write batch with WriteOptions.sync=true.
-  // Regardless of the return status, the DB must be freed. If the return
-  // status is NotSupported(), then the DB implementation does cleanup in the
-  // destructor
+  // Regardless of the return status, the DB must be freed.
+  // If the return status is Aborted(), closing fails because there is
+  // unreleased snapshot in the system. In this case, users can release
+  // the unreleased snapshots and try again and expect it to succeed. For
+  // other status, recalling Close() will be no-op.
+  // If the return status is NotSupported(), then the DB implementation does
+  // cleanup in the destructor
   virtual Status Close() { return Status::NotSupported(); }
 
   // ListColumnFamilies will open the DB specified by argument name
