@@ -2334,16 +2334,34 @@ void BlockBasedTableIterator<TBlockIter, TValue>::Seek(const Slice& target) {
     return;
   }
 
-  SavePrevIndexValue();
-
-  index_iter_->Seek(target);
-
-  if (!index_iter_->Valid()) {
-    ResetDataIter();
-    return;
+  bool need_seek_index = true;
+  if (block_iter_points_to_real_block_) {
+    // Reseek.
+    prev_index_value_ = index_iter_->value();
+    // We can avoid an index seek if:
+    // 1. The new seek key is larger than the current key
+    // 2. The new seek key is within the upper bound of the block
+    // Since we don't necessarily know the internal key for either
+    // the current key or the upper bound, we check user keys and
+    // exclude the equality case. Considering internal keys can
+    // improve for the boundary cases, but it would complicate the
+    // code.
+    if (user_comparator_.Compare(ExtractUserKey(target),
+                                 block_iter_.user_key()) > 0 &&
+        user_comparator_.Compare(ExtractUserKey(target),
+                                 index_iter_->user_key()) < 0) {
+      need_seek_index = false;
+    }
   }
 
-  InitDataBlock();
+  if (need_seek_index) {
+    index_iter_->Seek(target);
+    if (!index_iter_->Valid()) {
+      ResetDataIter();
+      return;
+    }
+    InitDataBlock();
+  }
 
   block_iter_.Seek(target);
 
