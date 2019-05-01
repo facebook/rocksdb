@@ -270,6 +270,40 @@ TEST_F(TitanDBTest, DbIter) {
   ASSERT_FALSE(iter->Valid());
 }
 
+TEST_F(TitanDBTest, DBIterSeek) {
+  Open();
+  std::map<std::string, std::string> data;
+  const int kNumEntries = 100;
+  for (uint64_t i = 1; i <= kNumEntries; i++) {
+    Put(i, &data);
+  }
+  ASSERT_EQ(kNumEntries, data.size());
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(data.begin()->first, iter->key());
+  ASSERT_EQ(data.begin()->second, iter->value());
+  iter->SeekToLast();
+  ASSERT_EQ(data.rbegin()->first, iter->key());
+  ASSERT_EQ(data.rbegin()->second, iter->value());
+  for (auto it = data.rbegin(); it != data.rend(); it++) {
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    iter->SeekForPrev(it->first);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(it->first, iter->key());
+    ASSERT_EQ(it->second, iter->value());
+  }
+  for (const auto& it : data) {
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    iter->Seek(it.first);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(it.first, iter->key());
+    ASSERT_EQ(it.second, iter->value());
+  }
+}
+
 TEST_F(TitanDBTest, Snapshot) {
   Open();
   std::map<std::string, std::string> data;

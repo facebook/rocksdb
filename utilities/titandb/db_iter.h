@@ -24,53 +24,44 @@ class TitanDBIterator : public Iterator {
   bool Valid() const override { return iter_->Valid() && status_.ok(); }
 
   Status status() const override {
-    Status s = iter_->status();
-    if (s.ok()) s = status_;
-    return s;
+    // assume volatile inner iter
+    if(status_.ok()) {
+      return iter_->status();
+    } else {
+      return status_;
+    }
   }
 
   void SeekToFirst() override {
     iter_->SeekToFirst();
-    while (!GetBlobValue()) {
-      iter_->Next();
-    }
+    GetBlobValue();
   }
 
   void SeekToLast() override {
     iter_->SeekToLast();
-    while (!GetBlobValue()) {
-      iter_->Prev();
-    }
+    GetBlobValue();
   }
 
   void Seek(const Slice& target) override {
     iter_->Seek(target);
-    while (!GetBlobValue()) {
-      iter_->Next();
-    }
+    GetBlobValue();
   }
 
   void SeekForPrev(const Slice& target) override {
     iter_->SeekForPrev(target);
-    while (!GetBlobValue()) {
-      iter_->Prev();
-    }
+    GetBlobValue();
   }
 
   void Next() override {
     assert(Valid());
     iter_->Next();
-    while (!GetBlobValue()) {
-      iter_->Next();
-    }
+    GetBlobValue();
   }
 
   void Prev() override {
     assert(Valid());
     iter_->Prev();
-    while (!GetBlobValue()) {
-      iter_->Prev();
-    }
+    GetBlobValue();
   }
 
   Slice key() const override {
@@ -85,11 +76,10 @@ class TitanDBIterator : public Iterator {
   }
 
  private:
-  // return value: false means key has been deleted, we need to skipped it.
-  bool GetBlobValue() {
+  void GetBlobValue() {
     if (!iter_->Valid() || !iter_->IsBlob()) {
       status_ = iter_->status();
-      return true;
+      return;
     }
     assert(iter_->status().ok());
 
@@ -111,13 +101,12 @@ class TitanDBIterator : public Iterator {
                 iter_->key().ToString(true).c_str(), status_.ToString().c_str(),
                 options_.snapshot->GetSequenceNumber());
       }
-      if (!status_.ok()) return true;
+      if (!status_.ok()) return;
       it = files_.emplace(index.file_number, std::move(prefetcher)).first;
     }
 
     buffer_.Reset();
     status_ = it->second->Get(options_, index.blob_handle, &record_, &buffer_);
-    return true;
   }
 
   Status status_;
