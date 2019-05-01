@@ -2450,6 +2450,104 @@ TEST_P(DBIteratorTest, SeekBackwardAfterOutOfUpperBound) {
   ASSERT_EQ("a", it->key().ToString());
 }
 
+TEST_P(DBIteratorTest, AvoidReseekLevelIterator) {
+  Options options = CurrentOptions();
+  options.compression = CompressionType::kNoCompression;
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 800;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+
+  Random rnd(301);
+  std::string random_str = RandomString(&rnd, 180);
+
+  ASSERT_OK(Put("1", random_str));
+  ASSERT_OK(Put("2", random_str));
+  ASSERT_OK(Put("3", random_str));
+  ASSERT_OK(Put("4", random_str));
+  // A new block
+  ASSERT_OK(Put("5", random_str));
+  ASSERT_OK(Put("6", random_str));
+  ASSERT_OK(Put("7", random_str));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("8", random_str));
+  ASSERT_OK(Put("9", random_str));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  int num_find_file_in_level = 0;
+  int num_idx_blk_seek = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "LevelIterator::Seek:BeforeFindFile",
+      [&](void* /*arg*/) { num_find_file_in_level++; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "IndexBlockIter::Seek:0", [&](void* /*arg*/) { num_idx_blk_seek++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  {
+    std::unique_ptr<Iterator> iter(NewIterator(ReadOptions()));
+    iter->Seek("1");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(1, num_find_file_in_level);
+    ASSERT_EQ(1, num_idx_blk_seek);
+
+    iter->Seek("2");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(1, num_find_file_in_level);
+    ASSERT_EQ(1, num_idx_blk_seek);
+
+    iter->Seek("3");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(1, num_find_file_in_level);
+    ASSERT_EQ(1, num_idx_blk_seek);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(1, num_find_file_in_level);
+    ASSERT_EQ(1, num_idx_blk_seek);
+
+    iter->Seek("5");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(1, num_find_file_in_level);
+    ASSERT_EQ(2, num_idx_blk_seek);
+
+    iter->Seek("6");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(1, num_find_file_in_level);
+    ASSERT_EQ(2, num_idx_blk_seek);
+
+    iter->Seek("7");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(1, num_find_file_in_level);
+    ASSERT_EQ(3, num_idx_blk_seek);
+
+    iter->Seek("8");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(2, num_find_file_in_level);
+    // Still re-seek because "8" is the boundary key, which has
+    // the same user key as the seek key.
+    ASSERT_EQ(4, num_idx_blk_seek);
+
+    iter->Seek("5");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(3, num_find_file_in_level);
+    ASSERT_EQ(5, num_idx_blk_seek);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(3, num_find_file_in_level);
+    ASSERT_EQ(5, num_idx_blk_seek);
+
+    // Seek backward never triggers the index block seek to be skipped
+    iter->Seek("5");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(3, num_find_file_in_level);
+    ASSERT_EQ(6, num_idx_blk_seek);
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
 INSTANTIATE_TEST_CASE_P(DBIteratorTestInstance, DBIteratorTest,
                         testing::Values(true, false));
 
