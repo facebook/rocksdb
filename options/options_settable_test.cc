@@ -415,7 +415,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "kBZip2Compression:kNoCompression:kZlibCompression:kBZip2Compression:"
       "kSnappyCompression;"
       "max_bytes_for_level_base=986;"
-      "snap_refresh_nanos=1000000000;"
       "bloom_locality=8016;"
       "target_file_size_base=4294976376;"
       "memtable_huge_page_size=2557;"
