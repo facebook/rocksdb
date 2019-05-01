@@ -11,6 +11,7 @@
 
 #include <cassert>
 #include "rocksdb/cache.h"
+#include "rocksdb/cleanable.h"
 
 namespace rocksdb {
 
@@ -28,9 +29,9 @@ namespace rocksdb {
 // 3) It may point to an object (cached or not) without owning it. In this case,
 // no action is needed when the CachableEntry is destroyed.
 // 4) Sometimes, management of a cached or owned object (see #1 and #2 above)
-// is handed off to some other object. This is termed detaching, and is
-// used for instance with iterators (where cleanup is performed using a chain
-// of cleanup functions, see Cleanable).
+// is transferred to some other object. This is used for instance with iterators
+// (where cleanup is performed using a chain of cleanup functions,
+// see Cleanable).
 //
 // Because of #1 and #2 above, copying a CachableEntry is not safe (and thus not
 // allowed); hence, this is a move-only type, where a move transfers the
@@ -118,7 +119,16 @@ public:
     Reset();
   }
 
-  void Detach() {
+  void TransferTo(Cleanable* cleanable) {
+    if (cleanable) {
+      if (cache_handle_ != nullptr) {
+        assert(cache_ != nullptr);
+        cleanable->RegisterCleanup(&ReleaseCacheHandle, cache_, cache_handle_);
+      } else if (own_value_) {
+        cleanable->RegisterCleanup(&DeleteValue, value_, nullptr);
+      }
+    }
+
     Reset();
   }
 
@@ -193,6 +203,20 @@ private:
     cache_ = nullptr;
     cache_handle_ = nullptr;
     own_value_ = false;
+  }
+
+  static void ReleaseCacheHandle(void* arg1, void* arg2) {
+    Cache* const cache = static_cast<Cache*>(arg1);
+    assert(cache);
+
+    Cache::Handle* const cache_handle = static_cast<Cache::Handle*>(arg2);
+    assert(cache_handle);
+
+    cache->Release(cache_handle);
+  }
+
+  static void DeleteValue(void* arg1, void* /* arg2 */) {
+    delete static_cast<T*>(arg1);
   }
 
 private:

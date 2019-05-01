@@ -112,12 +112,6 @@ inline MemoryAllocator* GetMemoryAllocatorForCompressedBlock(
              : nullptr;
 }
 
-// Delete the resource that is held by the iterator.
-template <class ResourceType>
-void DeleteHeldResource(void* arg, void* /*ignored*/) {
-  delete reinterpret_cast<ResourceType*>(arg);
-}
-
 // Delete the entry resided in the cache.
 template <class Entry>
 void DeleteCachedEntry(const Slice& /*key*/, void* value) {
@@ -2038,11 +2032,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
         &rep->internal_comparator, rep->internal_comparator.user_comparator(),
         iter, rep->ioptions.statistics, kTotalOrderSeek, key_includes_seq,
         index_key_is_full, block_contents_pinned);
-    if (block.IsCached()) {
-      iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
-                            block.GetCacheHandle());
-      block.Detach();
-    } else {
+    if (!block.IsCached()) {
       if (!ro.fill_cache && rep->cache_key_prefix_size != 0) {
         // insert a dummy record to block cache to track the memory usage
         Cache::Handle* cache_handle;
@@ -2074,10 +2064,9 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
           }
         }
       }
-      iter->RegisterCleanup(&DeleteHeldResource<Block>, block.GetValue(),
-        nullptr);
-      block.Detach();
     }
+
+    block.TransferTo(iter);
   } else {
     assert(block.GetValue() == nullptr);
     iter->Invalidate(s);
