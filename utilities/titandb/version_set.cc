@@ -2,7 +2,7 @@
 
 #include <inttypes.h>
 
-#include "util/testharness.h"
+#include "util/autovector.h"
 #include "util/filename.h"
 
 namespace rocksdb {
@@ -101,19 +101,24 @@ Status VersionSet::Recover() {
   // Purge inactive files at start
   std::set<uint64_t> alive_files;
   alive_files.insert(new_manifest_file_number);
-  for (const auto& bs : this->column_families_) {
-    for (const auto& f : bs.second->files_) {
+  for (const auto& bs : column_families_) {
+    autovector<uint64_t> obsolete_files;
+     for (const auto& f : bs.second->files_) {
       if (f.second->is_obsolete()) {
         // delete already obsoleted files at reopen
-        bs.second->DeleteBlobFile(f.second->file_number());
-        for (auto it = this->obsolete_files_.blob_files.begin(); it != this->obsolete_files_.blob_files.end(); ++it) {
+        obsolete_files.push_back(f.second->file_number());
+        for (auto it = obsolete_files_.blob_files.begin(); it != obsolete_files_.blob_files.end(); ++it) {
           if (std::get<0>(*it) == f.second->file_number())  {
-            this->obsolete_files_.blob_files.erase(it);
+            it = this->obsolete_files_.blob_files.erase(it);
+            break;
           }
         }
       } else {
         alive_files.insert(f.second->file_number());
       }
+    }
+    for (uint64_t obsolete_file : obsolete_files) {
+      bs.second->DeleteBlobFile(obsolete_file);
     }
   }
   std::vector<std::string> files;
