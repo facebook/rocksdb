@@ -698,10 +698,10 @@ void DBImpl::PersistStats() {
   }
 
   if (immutable_db_options_.persist_stats_to_disk) {
-    const int now_micros_string_length = kNowMicrosStringLength;
-    char timestamp[now_micros_string_length + 1];
+    char* timestamp = new char[kNowMicrosStringLength + 1];
+    memset(timestamp, 0, kNowMicrosStringLength + 1);
     // make time stamp string equal in length to allow sorting by time
-    snprintf(timestamp, sizeof(timestamp), "%016d",
+    snprintf(timestamp, kNowMicrosStringLength + 1, "%016d",
              static_cast<int>(now_micros));
 
     WriteOptions wo;
@@ -713,6 +713,7 @@ void DBImpl::PersistStats() {
     if (stats_slice_initialized_) {
       for (const auto& stat : stats_map) {
         char key[100];
+        memset(key, 0, 100);
         int length =
             snprintf(key, sizeof(key), "%s#%s", timestamp, stat.first.c_str());
         // calculate the delta from last time
@@ -728,6 +729,7 @@ void DBImpl::PersistStats() {
     std::swap(stats_slice_, stats_map);
     Write(rocksdb::WriteOptions(), &batch);
     // TODO(Zhongyi): add purging for persisted data
+    delete[] timestamp;
   } else {
     InstrumentedMutexLock l(&stats_history_mutex_);
     // calculate the delta from last time

@@ -67,7 +67,8 @@ void PersistentStatsHistoryIterator::AdvanceIteratorByTime(uint64_t start_time,
     ReadOptions ro;
     auto iter =
         db_impl_->NewIterator(ro, db_impl_->PersistentStatsColumnFamily());
-    char timestamp[kNowMicrosStringLength+1];
+    char timestamp[kNowMicrosStringLength + 1];
+    memset(timestamp, 0, kNowMicrosStringLength + 1);
     snprintf(timestamp, sizeof(timestamp), "%016d",
              static_cast<int>(std::max(time_, start_time)));
     iter->Seek(timestamp);
