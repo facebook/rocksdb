@@ -2331,7 +2331,6 @@ TEST_P(ColumnFamilyTest, ReadDroppedColumnFamily) {
     // Since we didn't delete CF handle, RocksDB's contract guarantees that
     // we're still able to read dropped CF
     for (int i = 0; i < 3; ++i) {
-      std::cout << "i-val " << i << "\n";
       std::unique_ptr<Iterator> iterator(
           db_->NewIterator(ReadOptions(), handles_[i]));
       int count = 0;
@@ -2340,8 +2339,6 @@ TEST_P(ColumnFamilyTest, ReadDroppedColumnFamily) {
         ++count;
       }
       ASSERT_OK(iterator->status());
-//      std::cout << "Test "<< count << ":" << kKeysNum;
-//      std::cout << "\nBool "<< (count == kKeysNum);
       ASSERT_EQ(count, kKeysNum * ((i == 2) ? 1 : 2));
     }
 
