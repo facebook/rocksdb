@@ -1,5 +1,9 @@
 # Rocksdb Change Log
 
+## 6.1.2 (5/2/2019)
+### New Features
+* Introduce Periodic Compaction for Level style compaction. Files are re-compacted periodically and put in the same level.
+
 ## 6.1.1 (4/9/2019)
 ### New Features
 * When reading from option file/string/map, customized comparators and/or merge operators can be filled according to object registry.
