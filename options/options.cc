@@ -548,7 +548,10 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeLevelStyleCompaction(
     if (i < 2) {
       compression_per_level[i] = kNoCompression;
     } else {
-      compression_per_level[i] = kSnappyCompression;
+      compression_per_level[i] =
+          LZ4_Supported()
+              ? kLZ4Compression
+              : (Snappy_Supported() ? kSnappyCompression : kNoCompression);
     }
   }
   return this;
