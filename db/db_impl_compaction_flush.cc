@@ -523,7 +523,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
   // Need to undo atomic flush if something went wrong, i.e. s is not OK and
   // it is not because of CF drop.
-//  if (!s.ok() && !s.IsShutdownInProgress()) {
   if (!s.ok() && (!s.IsShutdownInProgress() || !s.IsColumnFamilyDropped())) {
     // Have to cancel the flush jobs that have NOT executed because we need to
     // unref the versions.
