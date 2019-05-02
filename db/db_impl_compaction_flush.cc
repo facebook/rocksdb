@@ -385,7 +385,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     for (const auto& e : exec_status) {
       if (!e.second.ok()) {
         s = e.second;
-        if (!e.second.IsShutdownInProgress() || !e.second.IsColumnFamilyDropped()) {
+        if (!e.second.IsShutdownInProgress() ||
+            !e.second.IsColumnFamilyDropped()) {
           // If a flush job did not return OK, and the CF is not dropped, and
           // the DB is not shutting down, then we have to return this result to
           // caller later.
@@ -1698,7 +1699,7 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
         bg_cv_.Wait();
       }
       if (cfd->IsDropped()) {
-    	return Status::ColumnFamilyDropped();
+        return Status::ColumnFamilyDropped();
       }
       if (shutting_down_.load(std::memory_order_acquire)) {
         return Status::ShutdownInProgress();
@@ -2187,7 +2188,8 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
 
     // If flush failed, we want to delete all temporary files that we might have
     // created. Thus, we force full scan in FindObsoleteFiles()
-    FindObsoleteFiles(&job_context, !s.ok() && (!s.IsShutdownInProgress() || !s.IsColumnFamilyDropped()));
+    FindObsoleteFiles(&job_context, !s.ok() && (!s.IsShutdownInProgress() ||
+                                                !s.IsColumnFamilyDropped()));
     // delete unnecessary files if any, this is done outside the mutex
     if (job_context.HaveSomethingToClean() ||
         job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
@@ -2251,7 +2253,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       mutex_.Unlock();
       env_->SleepForMicroseconds(10000);  // prevent hot loop
       mutex_.Lock();
-    } else if (!s.ok() && (!s.IsShutdownInProgress() || !s.IsColumnFamilyDropped())) {
+    } else if (!s.ok() &&
+               (!s.IsShutdownInProgress() || !s.IsColumnFamilyDropped())) {
       // Wait a little bit before retrying background compaction in
       // case this is an environmental problem and we do not want to
       // chew up resources for failed compactions for the duration of
@@ -2275,7 +2278,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     // If compaction failed, we want to delete all temporary files that we might
     // have created (they might not be all recorded in job_context in case of a
     // failure). Thus, we force full scan in FindObsoleteFiles()
-    FindObsoleteFiles(&job_context, !s.ok() && (!s.IsShutdownInProgress() || !s.IsColumnFamilyDropped()));
+    FindObsoleteFiles(&job_context, !s.ok() && (!s.IsShutdownInProgress() ||
+                                                !s.IsColumnFamilyDropped()));
     TEST_SYNC_POINT("DBImpl::BackgroundCallCompaction:FoundObsoleteFiles");
 
     // delete unnecessary files if any, this is done outside the mutex

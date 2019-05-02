@@ -3859,7 +3859,7 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
   }
 }
 
-	TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
+TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
   // Verify that, when `CompactRangeOptions::allow_write_stall == false`, delay
   // does not hang if CF is dropped or DB is closed
   const int kNumL0FilesTrigger = 4;
@@ -3895,12 +3895,11 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
       cro.allow_write_stall = false;
       Status s = db_->CompactRange(cro, handles_[1], nullptr, nullptr);
       if (i == 0) {
-          ASSERT_TRUE(db_->CompactRange(cro, handles_[1], nullptr, nullptr)
-                          .IsColumnFamilyDropped());
-      }
-      else {
-          ASSERT_TRUE(db_->CompactRange(cro, handles_[1], nullptr, nullptr)
-                          .IsShutdownInProgress());
+        ASSERT_TRUE(db_->CompactRange(cro, handles_[1], nullptr, nullptr)
+                        .IsColumnFamilyDropped());
+      } else {
+        ASSERT_TRUE(db_->CompactRange(cro, handles_[1], nullptr, nullptr)
+                        .IsShutdownInProgress());
       }
     });
 
