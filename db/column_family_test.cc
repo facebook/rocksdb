@@ -2275,80 +2275,80 @@ TEST_P(ColumnFamilyTest, SanitizeOptions) {
   }
 }
 
-//TEST_P(ColumnFamilyTest, ReadDroppedColumnFamily) {
-//  // iter 0 -- drop CF, don't reopen
-//  // iter 1 -- delete CF, reopen
-//  for (int iter = 0; iter < 1; ++iter) {
-//    db_options_.create_missing_column_families = true;
-//    db_options_.max_open_files = 20;
-//    // delete obsolete files always
-//    db_options_.delete_obsolete_files_period_micros = 0;
-//    Open({"default", "one", "two"});
-//    ColumnFamilyOptions options;
-//    options.level0_file_num_compaction_trigger = 100;
-//    options.level0_slowdown_writes_trigger = 200;
-//    options.level0_stop_writes_trigger = 200;
-//    options.write_buffer_size = 100000;  // small write buffer size
-//    Reopen({options, options, options});
-//
-//    // 1MB should create ~10 files for each CF
-//    int kKeysNum = 10000;
-//    PutRandomData(0, kKeysNum, 100);
-//    PutRandomData(1, kKeysNum, 100);
-//    PutRandomData(2, kKeysNum, 100);
-//
-//    {
-//      std::unique_ptr<Iterator> iterator(
-//          db_->NewIterator(ReadOptions(), handles_[2]));
-//      iterator->SeekToFirst();
-//
-//      if (iter == 0) {
-//        // Drop CF two
-//        ASSERT_OK(db_->DropColumnFamily(handles_[2]));
-//      } else {
-//        // delete CF two
-//        db_->DestroyColumnFamilyHandle(handles_[2]);
-//        handles_[2] = nullptr;
-//      }
-//      // Make sure iterator created can still be used.
-//      int count = 0;
-//      for (; iterator->Valid(); iterator->Next()) {
-//        ASSERT_OK(iterator->status());
-//        ++count;
-//      }
-//      ASSERT_OK(iterator->status());
-//      ASSERT_EQ(count, kKeysNum);
-//    }
-//
-//    // Add bunch more data to other CFs
-//    PutRandomData(0, kKeysNum, 100);
-//    PutRandomData(1, kKeysNum, 100);
-//
-//    if (iter == 1) {
-//      Reopen();
-//    }
-//
-//    // Since we didn't delete CF handle, RocksDB's contract guarantees that
-//    // we're still able to read dropped CF
-//    for (int i = 2; i < 3; ++i) {
-//      std::cout << "i-val " << i << "\n";
-//      std::unique_ptr<Iterator> iterator(
-//          db_->NewIterator(ReadOptions(), handles_[i]));
-//      int count = 0;
-//      for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
-//        ASSERT_OK(iterator->status());
-//        ++count;
-//      }
-//      ASSERT_OK(iterator->status());
+TEST_P(ColumnFamilyTest, ReadDroppedColumnFamily) {
+  // iter 0 -- drop CF, don't reopen
+  // iter 1 -- delete CF, reopen
+  for (int iter = 0; iter < 2; ++iter) {
+    db_options_.create_missing_column_families = true;
+    db_options_.max_open_files = 20;
+    // delete obsolete files always
+    db_options_.delete_obsolete_files_period_micros = 0;
+    Open({"default", "one", "two"});
+    ColumnFamilyOptions options;
+    options.level0_file_num_compaction_trigger = 100;
+    options.level0_slowdown_writes_trigger = 200;
+    options.level0_stop_writes_trigger = 200;
+    options.write_buffer_size = 100000;  // small write buffer size
+    Reopen({options, options, options});
+
+    // 1MB should create ~10 files for each CF
+    int kKeysNum = 10000;
+    PutRandomData(0, kKeysNum, 100);
+    PutRandomData(1, kKeysNum, 100);
+    PutRandomData(2, kKeysNum, 100);
+
+    {
+      std::unique_ptr<Iterator> iterator(
+          db_->NewIterator(ReadOptions(), handles_[2]));
+      iterator->SeekToFirst();
+
+      if (iter == 0) {
+        // Drop CF two
+        ASSERT_OK(db_->DropColumnFamily(handles_[2]));
+      } else {
+        // delete CF two
+        db_->DestroyColumnFamilyHandle(handles_[2]);
+        handles_[2] = nullptr;
+      }
+      // Make sure iterator created can still be used.
+      int count = 0;
+      for (; iterator->Valid(); iterator->Next()) {
+        ASSERT_OK(iterator->status());
+        ++count;
+      }
+      ASSERT_OK(iterator->status());
+      ASSERT_EQ(count, kKeysNum);
+    }
+
+    // Add bunch more data to other CFs
+    PutRandomData(0, kKeysNum, 100);
+    PutRandomData(1, kKeysNum, 100);
+
+    if (iter == 1) {
+      Reopen();
+    }
+
+    // Since we didn't delete CF handle, RocksDB's contract guarantees that
+    // we're still able to read dropped CF
+    for (int i = 0; i < 3; ++i) {
+      std::cout << "i-val " << i << "\n";
+      std::unique_ptr<Iterator> iterator(
+          db_->NewIterator(ReadOptions(), handles_[i]));
+      int count = 0;
+      for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
+        ASSERT_OK(iterator->status());
+        ++count;
+      }
+      ASSERT_OK(iterator->status());
 //      std::cout << "Test "<< count << ":" << kKeysNum;
 //      std::cout << "\nBool "<< (count == kKeysNum);
-//      ASSERT_EQ(count, kKeysNum * ((i == 2) ? 1 : 2));
-//    }
-//
-//    Close();
-//    Destroy();
-//  }
-//}
+      ASSERT_EQ(count, kKeysNum * ((i == 2) ? 1 : 2));
+    }
+
+    Close();
+    Destroy();
+  }
+}
 
 TEST_P(ColumnFamilyTest, FlushAndDropRaceCondition) {
   db_options_.create_missing_column_families = true;
