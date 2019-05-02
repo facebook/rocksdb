@@ -33,7 +33,7 @@ class BlobDumpTool {
 
  private:
   std::unique_ptr<RandomAccessFileReader> reader_;
-  std::unique_ptr<char> buffer_;
+  std::unique_ptr<char[]> buffer_;
   size_t buffer_size_;
 
   Status Read(uint64_t offset, size_t size, Slice* result);

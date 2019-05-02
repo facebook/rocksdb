@@ -14,11 +14,6 @@
 
 namespace rocksdb {
 
-struct InternalKeyTablePropertiesNames {
-  static const std::string kDeletedKeys;
-  static const std::string kMergeOperands;
-};
-
 // Base class for internal table properties collector.
 class IntTblPropCollector {
  public:
@@ -31,6 +26,10 @@ class IntTblPropCollector {
   // @params value  the value that is inserted into the table.
   virtual Status InternalAdd(const Slice& key, const Slice& value,
                              uint64_t file_size) = 0;
+
+  virtual void BlockAdd(uint64_t blockRawBytes,
+                        uint64_t blockCompressedBytesFast,
+                        uint64_t blockCompressedBytesSlow) = 0;
 
   virtual UserCollectedProperties GetReadableProperties() const = 0;
 
@@ -49,39 +48,6 @@ class IntTblPropCollectorFactory {
   virtual const char* Name() const = 0;
 };
 
-// Collecting the statistics for internal keys. Visible only by internal
-// rocksdb modules.
-class InternalKeyPropertiesCollector : public IntTblPropCollector {
- public:
-  virtual Status InternalAdd(const Slice& key, const Slice& value,
-                             uint64_t file_size) override;
-
-  virtual Status Finish(UserCollectedProperties* properties) override;
-
-  virtual const char* Name() const override {
-    return "InternalKeyPropertiesCollector";
-  }
-
-  UserCollectedProperties GetReadableProperties() const override;
-
- private:
-  uint64_t deleted_keys_ = 0;
-  uint64_t merge_operands_ = 0;
-};
-
-class InternalKeyPropertiesCollectorFactory
-    : public IntTblPropCollectorFactory {
- public:
-  virtual IntTblPropCollector* CreateIntTblPropCollector(
-      uint32_t /*column_family_id*/) override {
-    return new InternalKeyPropertiesCollector();
-  }
-
-  virtual const char* Name() const override {
-    return "InternalKeyPropertiesCollectorFactory";
-  }
-};
-
 // When rocksdb creates a new table, it will encode all "user keys" into
 // "internal keys", which contains meta information of a given entry.
 //
@@ -97,6 +63,10 @@ class UserKeyTablePropertiesCollector : public IntTblPropCollector {
 
   virtual Status InternalAdd(const Slice& key, const Slice& value,
                              uint64_t file_size) override;
+
+  virtual void BlockAdd(uint64_t blockRawBytes,
+                        uint64_t blockCompressedBytesFast,
+                        uint64_t blockCompressedBytesSlow) override;
 
   virtual Status Finish(UserCollectedProperties* properties) override;
 

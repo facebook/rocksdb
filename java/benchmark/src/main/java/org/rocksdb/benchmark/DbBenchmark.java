@@ -493,7 +493,7 @@ public class DbBenchmark {
       options.setCreateIfMissing(false);
     }
     if (useMemenv_) {
-      options.setEnv(new RocksMemEnv());
+      options.setEnv(new RocksMemEnv(Env.getDefault()));
     }
     switch (memtable_) {
       case "skip_list":

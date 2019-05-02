@@ -22,22 +22,26 @@ class DBBloomFilterTest : public DBTestBase {
 
 class DBBloomFilterTestWithParam
     : public DBTestBase,
-      public testing::WithParamInterface<std::tuple<bool, bool>> {
+      public testing::WithParamInterface<std::tuple<bool, bool, uint32_t>> {
   //                             public testing::WithParamInterface<bool> {
  protected:
   bool use_block_based_filter_;
   bool partition_filters_;
+  uint32_t format_version_;
 
  public:
   DBBloomFilterTestWithParam() : DBTestBase("/db_bloom_filter_tests") {}
 
-  ~DBBloomFilterTestWithParam() {}
+  ~DBBloomFilterTestWithParam() override {}
 
   void SetUp() override {
     use_block_based_filter_ = std::get<0>(GetParam());
     partition_filters_ = std::get<1>(GetParam());
+    format_version_ = std::get<2>(GetParam());
   }
 };
+
+class DBBloomFilterTestDefFormatVersion : public DBBloomFilterTestWithParam {};
 
 class SliceTransformLimitedDomainGeneric : public SliceTransform {
   const char* Name() const override {
@@ -62,7 +66,7 @@ class SliceTransformLimitedDomainGeneric : public SliceTransform {
 // KeyMayExist can lead to a few false positives, but not false negatives.
 // To make test deterministic, use a much larger number of bits per key-20 than
 // bits in the key, so that false positives are eliminated
-TEST_P(DBBloomFilterTestWithParam, KeyMayExist) {
+TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
   do {
     ReadOptions ropts;
     std::string value;
@@ -143,6 +147,7 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloomCustomPrefixExtractor) {
     options.prefix_extractor =
         std::make_shared<SliceTransformLimitedDomainGeneric>();
     options.statistics = rocksdb::CreateDBStatistics();
+    get_perf_context()->EnablePerLevelPerfContext();
     BlockBasedTableOptions bbto;
     bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
     if (partition_filters) {
@@ -167,20 +172,39 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloomCustomPrefixExtractor) {
 
     ASSERT_EQ("foo", Get("barbarbar"));
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+    ASSERT_EQ(
+        0,
+        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
     ASSERT_EQ("foo2", Get("barbarbar2"));
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+    ASSERT_EQ(
+        0,
+        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
     ASSERT_EQ("NOT_FOUND", Get("barbarbar3"));
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+    ASSERT_EQ(
+        0,
+        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
 
     ASSERT_EQ("NOT_FOUND", Get("barfoofoo"));
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+    ASSERT_EQ(
+        1,
+        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
 
     ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
+    ASSERT_EQ(
+        2,
+        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
 
     ro.total_order_seek = true;
     ASSERT_TRUE(db_->Get(ro, "foobarbar", &value).IsNotFound());
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
+    ASSERT_EQ(
+        2,
+        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+    get_perf_context()->Reset();
   }
 }
 
@@ -189,6 +213,7 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloom) {
     Options options = last_options_;
     options.prefix_extractor.reset(NewFixedPrefixTransform(8));
     options.statistics = rocksdb::CreateDBStatistics();
+    get_perf_context()->EnablePerLevelPerfContext();
     BlockBasedTableOptions bbto;
     bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
     if (partition_filters) {
@@ -227,6 +252,10 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloom) {
     ro.total_order_seek = true;
     ASSERT_TRUE(db_->Get(ro, "foobarbar", &value).IsNotFound());
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
+    ASSERT_EQ(
+        2,
+        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+    get_perf_context()->Reset();
   }
 }
 
@@ -235,6 +264,7 @@ TEST_F(DBBloomFilterTest, WholeKeyFilterProp) {
     Options options = last_options_;
     options.prefix_extractor.reset(NewFixedPrefixTransform(3));
     options.statistics = rocksdb::CreateDBStatistics();
+    get_perf_context()->EnablePerLevelPerfContext();
 
     BlockBasedTableOptions bbto;
     bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
@@ -382,6 +412,14 @@ TEST_F(DBBloomFilterTest, WholeKeyFilterProp) {
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 12);
     ASSERT_EQ("bar", Get("barfoo"));
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 12);
+    uint64_t bloom_filter_useful_all_levels = 0;
+    for (auto& kv : (*(get_perf_context()->level_to_perf_context))) {
+      if (kv.second.bloom_filter_useful > 0) {
+        bloom_filter_useful_all_levels += kv.second.bloom_filter_useful;
+      }
+    }
+    ASSERT_EQ(12, bloom_filter_useful_all_levels);
+    get_perf_context()->Reset();
   }
 }
 
@@ -400,6 +438,11 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
     if (partition_filters_) {
       table_options.index_type =
           BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+    }
+    table_options.format_version = format_version_;
+    if (format_version_ >= 4) {
+      // value delta encoding challenged more with index interval > 1
+      table_options.index_block_restart_interval = 8;
     }
     table_options.metadata_block_size = 32;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -456,15 +499,34 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
   } while (ChangeCompactOptions());
 }
 
-INSTANTIATE_TEST_CASE_P(DBBloomFilterTestWithParam, DBBloomFilterTestWithParam,
-                        ::testing::Values(std::make_tuple(true, false),
-                                          std::make_tuple(false, true),
-                                          std::make_tuple(false, false)));
+#ifndef ROCKSDB_VALGRIND_RUN
+INSTANTIATE_TEST_CASE_P(
+    FormatDef, DBBloomFilterTestDefFormatVersion,
+    ::testing::Values(std::make_tuple(true, false, test::kDefaultFormatVersion),
+                      std::make_tuple(false, true, test::kDefaultFormatVersion),
+                      std::make_tuple(false, false,
+                                      test::kDefaultFormatVersion)));
+
+INSTANTIATE_TEST_CASE_P(
+    FormatDef, DBBloomFilterTestWithParam,
+    ::testing::Values(std::make_tuple(true, false, test::kDefaultFormatVersion),
+                      std::make_tuple(false, true, test::kDefaultFormatVersion),
+                      std::make_tuple(false, false,
+                                      test::kDefaultFormatVersion)));
+
+INSTANTIATE_TEST_CASE_P(
+    FormatLatest, DBBloomFilterTestWithParam,
+    ::testing::Values(std::make_tuple(true, false, test::kLatestFormatVersion),
+                      std::make_tuple(false, true, test::kLatestFormatVersion),
+                      std::make_tuple(false, false,
+                                      test::kLatestFormatVersion)));
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
   while (ChangeFilterOptions()) {
     Options options = CurrentOptions();
     options.statistics = rocksdb::CreateDBStatistics();
+    get_perf_context()->EnablePerLevelPerfContext();
     CreateAndReopenWithCF({"pikachu"}, options);
 
     const int maxKey = 10000;
@@ -486,6 +548,10 @@ TEST_F(DBBloomFilterTest, BloomFilterRate) {
       ASSERT_EQ("NOT_FOUND", Get(1, Key(i + 33333)));
     }
     ASSERT_GE(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), maxKey * 0.98);
+    ASSERT_GE(
+        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful,
+        maxKey * 0.98);
+    get_perf_context()->Reset();
   }
 }
 
@@ -576,7 +642,7 @@ class WrappedBloom : public FilterPolicy {
   explicit WrappedBloom(int bits_per_key)
       : filter_(NewBloomFilterPolicy(bits_per_key)), counter_(0) {}
 
-  ~WrappedBloom() { delete filter_; }
+  ~WrappedBloom() override { delete filter_; }
 
   const char* Name() const override { return "WrappedRocksDbFilterPolicy"; }
 
@@ -720,6 +786,75 @@ TEST_F(DBBloomFilterTest, PrefixExtractorBlockFilter) {
   delete iter;
 }
 
+TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilter) {
+  // regression test for #2743. the range delete tombstones in memtable should
+  // be added even when Get() skips searching due to its prefix bloom filter
+  const int kMemtableSize = 1 << 20;              // 1MB
+  const int kMemtablePrefixFilterSize = 1 << 13;  // 8KB
+  const int kPrefixLen = 4;
+  Options options = CurrentOptions();
+  options.memtable_prefix_bloom_size_ratio =
+      static_cast<double>(kMemtablePrefixFilterSize) / kMemtableSize;
+  options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(kPrefixLen));
+  options.write_buffer_size = kMemtableSize;
+  options.memtable_whole_key_filtering = false;
+  Reopen(options);
+  std::string key1("AAAABBBB");
+  std::string key2("AAAACCCC");  // not in DB
+  std::string key3("AAAADDDD");
+  std::string key4("AAAAEEEE");
+  std::string value1("Value1");
+  std::string value3("Value3");
+  std::string value4("Value4");
+
+  ASSERT_OK(Put(key1, value1, WriteOptions()));
+
+  // check memtable bloom stats
+  ASSERT_EQ("NOT_FOUND", Get(key2));
+  ASSERT_EQ(0, get_perf_context()->bloom_memtable_miss_count);
+  // same prefix, bloom filter false positive
+  ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
+
+  // enable whole key bloom filter
+  options.memtable_whole_key_filtering = true;
+  Reopen(options);
+  // check memtable bloom stats
+  ASSERT_OK(Put(key3, value3, WriteOptions()));
+  ASSERT_EQ("NOT_FOUND", Get(key2));
+  // whole key bloom filter kicks in and determines it's a miss
+  ASSERT_EQ(1, get_perf_context()->bloom_memtable_miss_count);
+  ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
+
+  // verify whole key filtering does not depend on prefix_extractor
+  options.prefix_extractor.reset();
+  Reopen(options);
+  // check memtable bloom stats
+  ASSERT_OK(Put(key4, value4, WriteOptions()));
+  ASSERT_EQ("NOT_FOUND", Get(key2));
+  // whole key bloom filter kicks in and determines it's a miss
+  ASSERT_EQ(2, get_perf_context()->bloom_memtable_miss_count);
+  ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
+}
+
+TEST_F(DBBloomFilterTest, MemtablePrefixBloomOutOfDomain) {
+  constexpr size_t kPrefixSize = 8;
+  const std::string kKey = "key";
+  assert(kKey.size() < kPrefixSize);
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(kPrefixSize));
+  options.memtable_prefix_bloom_size_ratio = 0.25;
+  Reopen(options);
+  ASSERT_OK(Put(kKey, "v"));
+  ASSERT_EQ("v", Get(kKey));
+  std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
+  iter->Seek(kKey);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kKey, iter->key());
+  iter->SeekForPrev(kKey);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kKey, iter->key());
+}
+
 #ifndef ROCKSDB_LITE
 class BloomStatsTestWithParam
     : public DBBloomFilterTest,
@@ -757,7 +892,7 @@ class BloomStatsTestWithParam
     DestroyAndReopen(options_);
   }
 
-  ~BloomStatsTestWithParam() {
+  ~BloomStatsTestWithParam() override {
     get_perf_context()->Reset();
     Destroy(options_);
   }
@@ -831,7 +966,7 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_OK(Put(key1, value1, WriteOptions()));
   ASSERT_OK(Put(key3, value3, WriteOptions()));
 
-  unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
+  std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
 
   // check memtable bloom stats
   iter->Seek(key1);
@@ -869,13 +1004,16 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(value3, iter->value().ToString());
-  ASSERT_EQ(2, get_perf_context()->bloom_sst_hit_count);
+  // The seek doesn't check block-based bloom filter because last index key
+  // starts with the same prefix we're seeking to.
+  uint64_t expected_hits = use_block_based_builder_ ? 1 : 2;
+  ASSERT_EQ(expected_hits, get_perf_context()->bloom_sst_hit_count);
 
   iter->Seek(key2);
   ASSERT_OK(iter->status());
   ASSERT_TRUE(!iter->Valid());
   ASSERT_EQ(1, get_perf_context()->bloom_sst_miss_count);
-  ASSERT_EQ(2, get_perf_context()->bloom_sst_hit_count);
+  ASSERT_EQ(expected_hits, get_perf_context()->bloom_sst_hit_count);
 }
 
 INSTANTIATE_TEST_CASE_P(BloomStatsTestWithParam, BloomStatsTestWithParam,
@@ -1007,6 +1145,7 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   options.optimize_filters_for_hits = true;
   options.statistics = rocksdb::CreateDBStatistics();
+  get_perf_context()->EnablePerLevelPerfContext();
   CreateAndReopenWithCF({"mypikachu"}, options);
 
   int numkeys = 200000;
@@ -1053,6 +1192,14 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
   // no bloom filter. Most keys be checked bloom filters twice.
   ASSERT_GT(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 65000 * 2);
   ASSERT_LT(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 120000 * 2);
+  uint64_t bloom_filter_useful_all_levels = 0;
+  for (auto& kv : (*(get_perf_context()->level_to_perf_context))) {
+    if (kv.second.bloom_filter_useful > 0) {
+      bloom_filter_useful_all_levels += kv.second.bloom_filter_useful;
+    }
+  }
+  ASSERT_GT(bloom_filter_useful_all_levels, 65000 * 2);
+  ASSERT_LT(bloom_filter_useful_all_levels, 120000 * 2);
 
   for (int i = 0; i < numkeys; i += 2) {
     ASSERT_EQ(Get(1, Key(i)), "val");
@@ -1162,6 +1309,7 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
   ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
   ASSERT_EQ(2 /* index and data block */,
             TestGetTickerCount(options, BLOCK_CACHE_ADD));
+  get_perf_context()->Reset();
 }
 
 int CountIter(std::unique_ptr<Iterator>& iter, const Slice& key) {
@@ -1190,6 +1338,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
     table_options.cache_index_and_filter_blocks = true;
     table_options.filter_policy.reset(
         NewBloomFilterPolicy(10, use_block_based_builder));
+    table_options.index_shortening = BlockBasedTableOptions::
+        IndexShorteningMode::kShortenSeparatorsAndSuccessor;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     DestroyAndReopen(options);
 

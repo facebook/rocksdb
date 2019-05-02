@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -259,8 +260,8 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
     explicit Handler(Env* env) : env_(env) {}
     WriteBatch updates_ttl;
     Status batch_rewrite_status;
-    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) override {
+    Status PutCF(uint32_t column_family_id, const Slice& key,
+                 const Slice& value) override {
       std::string value_with_ts;
       Status st = AppendTS(value, &value_with_ts, env_);
       if (!st.ok()) {
@@ -271,8 +272,8 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
       }
       return Status::OK();
     }
-    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
-                           const Slice& value) override {
+    Status MergeCF(uint32_t column_family_id, const Slice& key,
+                   const Slice& value) override {
       std::string value_with_ts;
       Status st = AppendTS(value, &value_with_ts, env_);
       if (!st.ok()) {
@@ -283,14 +284,11 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
       }
       return Status::OK();
     }
-    virtual Status DeleteCF(uint32_t column_family_id,
-                            const Slice& key) override {
+    Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
       WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
       return Status::OK();
     }
-    virtual void LogData(const Slice& blob) override {
-      updates_ttl.PutLogData(blob);
-    }
+    void LogData(const Slice& blob) override { updates_ttl.PutLogData(blob); }
 
    private:
     Env* env_;

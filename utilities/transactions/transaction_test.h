@@ -448,6 +448,31 @@ class TransactionTest : public TransactionTestBase,
 
 class TransactionStressTest : public TransactionTest {};
 
-class MySQLStyleTransactionTest : public TransactionTest {};
+class MySQLStyleTransactionTest
+    : public TransactionTestBase,
+      virtual public ::testing::WithParamInterface<
+          std::tuple<bool, bool, TxnDBWritePolicy, bool>> {
+ public:
+  MySQLStyleTransactionTest()
+      : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
+                            std::get<2>(GetParam())),
+        with_slow_threads_(std::get<3>(GetParam())) {
+    if (with_slow_threads_ &&
+        (txn_db_options.write_policy == WRITE_PREPARED ||
+         txn_db_options.write_policy == WRITE_UNPREPARED)) {
+      // The corner case with slow threads involves the caches filling
+      // over which would not happen even with artifial delays. To help
+      // such cases to show up we lower the size of the cache-related data
+      // structures.
+      txn_db_options.wp_snapshot_cache_bits = 1;
+      txn_db_options.wp_commit_cache_bits = 10;
+      EXPECT_OK(ReOpen());
+    }
+  };
+
+ protected:
+  // Also emulate slow threads by addin artiftial delays
+  const bool with_slow_threads_;
+};
 
 }  // namespace rocksdb

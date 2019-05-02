@@ -114,7 +114,7 @@ class PlainTableFileReader {
   };
 
   // Keep buffers for two recent reads.
-  std::array<unique_ptr<Buffer>, 2> buffers_;
+  std::array<std::unique_ptr<Buffer>, 2> buffers_;
   uint32_t num_buf_;
   Status status_;
 

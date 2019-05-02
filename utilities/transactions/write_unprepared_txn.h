@@ -23,19 +23,39 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
                                  SequenceNumber snapshot,
                                  SequenceNumber min_uncommitted,
                                  WriteUnpreparedTxn* txn)
-      : db_(db),
-        snapshot_(snapshot),
-        min_uncommitted_(min_uncommitted),
-        txn_(txn) {}
+      // Pass our last uncommitted seq as the snapshot to the parent class to
+      // ensure that the parent will not prematurely filter out own writes. We
+      // will do the exact comparison agaisnt snapshots in IsVisibleFullCheck
+      // override.
+      : ReadCallback(CalcMaxVisibleSeq(txn, snapshot), min_uncommitted),
+        db_(db),
+        txn_(txn),
+        wup_snapshot_(snapshot) {}
 
-  virtual bool IsVisible(SequenceNumber seq) override;
-  virtual SequenceNumber MaxUnpreparedSequenceNumber() override;
+  virtual bool IsVisibleFullCheck(SequenceNumber seq) override;
+
+  bool CanReseekToSkip() override {
+    return wup_snapshot_ == max_visible_seq_;
+    // Otherwise our own writes uncommitted are in db, and the assumptions
+    // behind reseek optimizations are no longer valid.
+  }
+
+  void Refresh(SequenceNumber seq) override {
+    max_visible_seq_ = std::max(max_visible_seq_, seq);
+    wup_snapshot_ = seq;
+  }
 
  private:
+  static SequenceNumber CalcMaxVisibleSeq(WriteUnpreparedTxn* txn,
+                                          SequenceNumber snapshot_seq) {
+    SequenceNumber max_unprepared = CalcMaxUnpreparedSequenceNumber(txn);
+    return std::max(max_unprepared, snapshot_seq);
+  }
+  static SequenceNumber CalcMaxUnpreparedSequenceNumber(
+      WriteUnpreparedTxn* txn);
   WritePreparedTxnDB* db_;
-  SequenceNumber snapshot_;
-  SequenceNumber min_uncommitted_;
   WriteUnpreparedTxn* txn_;
+  SequenceNumber wup_snapshot_;
 };
 
 class WriteUnpreparedTxn : public WritePreparedTxn {
@@ -48,25 +68,31 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
 
   using TransactionBaseImpl::Put;
   virtual Status Put(ColumnFamilyHandle* column_family, const Slice& key,
-                     const Slice& value) override;
+                     const Slice& value,
+                     const bool assume_tracked = false) override;
   virtual Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
-                     const SliceParts& value) override;
+                     const SliceParts& value,
+                     const bool assume_tracked = false) override;
 
   using TransactionBaseImpl::Merge;
   virtual Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
-                       const Slice& value) override;
+                       const Slice& value,
+                       const bool assume_tracked = false) override;
 
   using TransactionBaseImpl::Delete;
+  virtual Status Delete(ColumnFamilyHandle* column_family, const Slice& key,
+                        const bool assume_tracked = false) override;
   virtual Status Delete(ColumnFamilyHandle* column_family,
-                        const Slice& key) override;
-  virtual Status Delete(ColumnFamilyHandle* column_family,
-                        const SliceParts& key) override;
+                        const SliceParts& key,
+                        const bool assume_tracked = false) override;
 
   using TransactionBaseImpl::SingleDelete;
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
-                              const Slice& key) override;
+                              const Slice& key,
+                              const bool assume_tracked = false) override;
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
-                              const SliceParts& key) override;
+                              const SliceParts& key,
+                              const bool assume_tracked = false) override;
 
   virtual Status RebuildFromWriteBatch(WriteBatch*) override {
     // This function was only useful for recovering prepared transactions, but

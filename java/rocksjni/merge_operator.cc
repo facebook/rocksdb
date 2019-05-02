@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 // Copyright (c) 2014, Vlad Balan (vlad.gm@gmail.com).  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -13,6 +14,7 @@
 #include <string>
 
 #include "include/org_rocksdb_StringAppendOperator.h"
+#include "include/org_rocksdb_UInt64AddOperator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
@@ -46,4 +48,29 @@ void Java_org_rocksdb_StringAppendOperator_disposeInternal(JNIEnv* /*env*/,
   auto* sptr_string_append_op =
       reinterpret_cast<std::shared_ptr<rocksdb::MergeOperator>*>(jhandle);
   delete sptr_string_append_op;  // delete std::shared_ptr
+}
+
+/*
+ * Class:     org_rocksdb_UInt64AddOperator
+ * Method:    newSharedUInt64AddOperator
+ * Signature: ()J
+ */
+jlong Java_org_rocksdb_UInt64AddOperator_newSharedUInt64AddOperator(
+    JNIEnv* /*env*/, jclass /*jclazz*/) {
+  auto* sptr_uint64_add_op = new std::shared_ptr<rocksdb::MergeOperator>(
+      rocksdb::MergeOperators::CreateUInt64AddOperator());
+  return reinterpret_cast<jlong>(sptr_uint64_add_op);
+}
+
+/*
+ * Class:     org_rocksdb_UInt64AddOperator
+ * Method:    disposeInternal
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_UInt64AddOperator_disposeInternal(JNIEnv* /*env*/,
+                                                        jobject /*jobj*/,
+                                                        jlong jhandle) {
+  auto* sptr_uint64_add_op =
+      reinterpret_cast<std::shared_ptr<rocksdb::MergeOperator>*>(jhandle);
+  delete sptr_uint64_add_op;  // delete std::shared_ptr
 }

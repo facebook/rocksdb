@@ -109,11 +109,16 @@ std::string trim(const std::string& str);
 bool ParseBoolean(const std::string& type, const std::string& value);
 
 uint32_t ParseUint32(const std::string& value);
+
+int32_t ParseInt32(const std::string& value);
 #endif
 
 uint64_t ParseUint64(const std::string& value);
 
 int ParseInt(const std::string& value);
+
+
+int64_t ParseInt64(const std::string& value);
 
 double ParseDouble(const std::string& value);
 

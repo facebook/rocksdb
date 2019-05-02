@@ -85,8 +85,9 @@ NON_SHM="TMPD=/tmp/rocksdb_test_tmp"
 GCC_481="ROCKSDB_FBCODE_BUILD_WITH_481=1"
 ASAN="COMPILE_WITH_ASAN=1"
 CLANG="USE_CLANG=1"
-LITE="OPT=\"-DROCKSDB_LITE -g\""
-TSAN="COMPILE_WITH_TSAN=1"
+# in gcc-5 there are known problems with TSAN like https://gcc.gnu.org/bugzilla/show_bug.cgi?id=71090.
+# using platform007 gives us gcc-8 or higher which has that bug fixed.
+TSAN="ROCKSDB_FBCODE_BUILD_WITH_PLATFORM007=1 COMPILE_WITH_TSAN=1"
 UBSAN="COMPILE_WITH_UBSAN=1"
 TSAN_CRASH='CRASH_TEST_EXT_ARGS="--compression_type=zstd --log2_keys_per_lock=22"'
 NON_TSAN_CRASH="CRASH_TEST_EXT_ARGS=--compression_type=zstd"
@@ -345,7 +346,7 @@ LITE_BUILD_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build RocksDB debug version',
-                'shell':'$LITE make J=1 all check || $CONTRUN_NAME=lite $TASK_CREATION_TOOL',
+                'shell':'make J=1 LITE=1 all check || $CONTRUN_NAME=lite $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
@@ -390,6 +391,35 @@ STRESS_CRASH_TEST_COMMANDS="[
                 'name':'Build and run RocksDB debug crash tests',
                 'timeout': 86400,
                 'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 crash_test || $CONTRUN_NAME=crash_test $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            }
+        ],
+        $ARTIFACTS,
+        $REPORT
+    }
+]"
+
+#
+# RocksDB stress/crash test with atomic flush
+#
+STRESS_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
+    {
+        'name':'Rocksdb Stress/Crash Test (atomic flush)',
+        'oncall':'$ONCALL',
+        'timeout': 86400,
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build and run RocksDB debug stress tests',
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+            {
+                'name':'Build and run RocksDB debug crash tests with atomic flush',
+                'timeout': 86400,
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 crash_test_with_atomic_flush || $CONTRUN_NAME=crash_test_with_atomic_flush $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             }
@@ -464,6 +494,28 @@ ASAN_CRASH_TEST_COMMANDS="[
 ]"
 
 #
+# RocksDB crash testing with atomic flush under address sanitizer
+#
+ASAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
+    {
+        'name':'Rocksdb crash test (atomic flush) under ASAN',
+        'oncall':'$ONCALL',
+        'timeout': 86400,
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build and run RocksDB debug asan_crash_test_with_atomic_flush',
+                'timeout': 86400,
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 asan_crash_test_with_atomic_flush || $CONTRUN_NAME=asan_crash_test_with_atomic_flush $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+        ],
+        $REPORT
+    }
+]"
+
+#
 # RocksDB test under undefined behavior sanitizer
 #
 UBSAN_TEST_COMMANDS="[
@@ -497,6 +549,28 @@ UBSAN_CRASH_TEST_COMMANDS="[
                 'name':'Build and run RocksDB debug ubsan_crash_test',
                 'timeout': 86400,
                 'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 ubsan_crash_test || $CONTRUN_NAME=ubsan_crash_test $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+        ],
+        $REPORT
+    }
+]"
+
+#
+# RocksDB crash testing with atomic flush under undefined behavior sanitizer
+#
+UBSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
+    {
+        'name':'Rocksdb crash test (atomic flush) under UBSAN',
+        'oncall':'$ONCALL',
+        'timeout': 86400,
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build and run RocksDB debug ubsan_crash_test_with_atomic_flush',
+                'timeout': 86400,
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 ubsan_crash_test_with_atomic_flush || $CONTRUN_NAME=ubsan_crash_test_with_atomic_flush $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
@@ -572,6 +646,28 @@ TSAN_CRASH_TEST_COMMANDS="[
 ]"
 
 #
+# RocksDB crash test with atomic flush under TSAN
+#
+TSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
+    {
+        'name':'Rocksdb Crash Test with atomic flush under TSAN',
+        'oncall':'$ONCALL',
+        'timeout': 86400,
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Compile and run',
+                'timeout': 86400,
+                'shell':'set -o pipefail && $SHM $DEBUG $TSAN $TSAN_CRASH CRASH_TEST_KILL_ODD=1887 make J=1 crash_test_with_atomic_flush || $CONTRUN_NAME=tsan_crash_test_with_atomic_flush $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+        ],
+        $REPORT
+    }
+]"
+
+#
 # RocksDB format compatible
 #
 
@@ -610,7 +706,7 @@ run_no_compression()
   rm -rf /dev/shm/rocksdb
   mkdir /dev/shm/rocksdb
   make clean
-  cat build_tools/fbcode_config.sh | grep -iv dzlib | grep -iv dlz4 | grep -iv dsnappy | grep -iv dbzip2 > .tmp.fbcode_config.sh
+  cat build_tools/fbcode_config.sh | grep -iv dzstd | grep -iv dzlib | grep -iv dlz4 | grep -iv dsnappy | grep -iv dbzip2 > .tmp.fbcode_config.sh
   mv .tmp.fbcode_config.sh build_tools/fbcode_config.sh
   cat Makefile | grep -v tools/ldb_test.py > .tmp.Makefile
   mv .tmp.Makefile Makefile
@@ -663,12 +759,12 @@ run_regression()
 
   # === lite build ===
   make clean
-  OPT=-DROCKSDB_LITE make -j$(nproc) static_lib
+  make LITE=1 -j$(nproc) static_lib
   send_size_to_ods static_lib_lite $(stat --printf="%s" librocksdb.a)
   strip librocksdb.a
   send_size_to_ods static_lib_lite_stripped $(stat --printf="%s" librocksdb.a)
 
-  OPT=-DROCKSDB_LITE make -j$(nproc) shared_lib
+  make LITE=1 -j$(nproc) shared_lib
   send_size_to_ods shared_lib_lite $(stat --printf="%s" `readlink -f librocksdb.so`)
   strip `readlink -f librocksdb.so`
   send_size_to_ods shared_lib_lite_stripped $(stat --printf="%s" `readlink -f librocksdb.so`)
@@ -752,6 +848,9 @@ case $1 in
   stress_crash)
     echo $STRESS_CRASH_TEST_COMMANDS
     ;;
+  stress_crash_with_atomic_flush)
+    echo $STRESS_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS
+    ;;
   write_stress)
     echo $WRITE_STRESS_COMMANDS
     ;;
@@ -761,11 +860,17 @@ case $1 in
   asan_crash)
     echo $ASAN_CRASH_TEST_COMMANDS
     ;;
+  asan_crash_with_atomic_flush)
+    echo $ASAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS
+    ;;
   ubsan)
     echo $UBSAN_TEST_COMMANDS
     ;;
   ubsan_crash)
     echo $UBSAN_CRASH_TEST_COMMANDS
+    ;;
+  ubsan_crash_with_atomic_flush)
+    echo $UBSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS
     ;;
   valgrind)
     echo $VALGRIND_TEST_COMMANDS
@@ -775,6 +880,9 @@ case $1 in
     ;;
   tsan_crash)
     echo $TSAN_CRASH_TEST_COMMANDS
+    ;;
+  tsan_crash_with_atomic_flush)
+    echo $TSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS
     ;;
   format_compatible)
     echo $FORMAT_COMPATIBLE_COMMANDS

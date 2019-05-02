@@ -35,9 +35,9 @@ class CompactFilesTest : public testing::Test {
 class FlushedFileCollector : public EventListener {
  public:
   FlushedFileCollector() {}
-  ~FlushedFileCollector() {}
+  ~FlushedFileCollector() override {}
 
-  virtual void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
+  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     std::lock_guard<std::mutex> lock(mutex_);
     flushed_files_.push_back(info.file_path);
   }
@@ -256,9 +256,9 @@ TEST_F(CompactFilesTest, CapturingPendingFiles) {
 TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
   class FilterWithGet : public CompactionFilter {
    public:
-    virtual bool Filter(int /*level*/, const Slice& /*key*/,
-                        const Slice& /*value*/, std::string* /*new_value*/,
-                        bool* /*value_changed*/) const override {
+    bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
+                std::string* /*new_value*/,
+                bool* /*value_changed*/) const override {
       if (db_ == nullptr) {
         return true;
       }
@@ -271,7 +271,7 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
       db_ = db;
     }
 
-    virtual const char* Name() const override { return "FilterWithGet"; }
+    const char* Name() const override { return "FilterWithGet"; }
 
    private:
     DB* db_;
@@ -305,6 +305,100 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
   }
 
 
+  delete db;
+}
+
+TEST_F(CompactFilesTest, SentinelCompressionType) {
+  if (!Zlib_Supported()) {
+    fprintf(stderr, "zlib compression not supported, skip this test\n");
+    return;
+  }
+  if (!Snappy_Supported()) {
+    fprintf(stderr, "snappy compression not supported, skip this test\n");
+    return;
+  }
+  // Check that passing `CompressionType::kDisableCompressionOption` to
+  // `CompactFiles` causes it to use the column family compression options.
+  for (auto compaction_style :
+       {CompactionStyle::kCompactionStyleLevel,
+        CompactionStyle::kCompactionStyleUniversal,
+        CompactionStyle::kCompactionStyleNone}) {
+    DestroyDB(db_name_, Options());
+    Options options;
+    options.compaction_style = compaction_style;
+    // L0: Snappy, L1: ZSTD, L2: Snappy
+    options.compression_per_level = {CompressionType::kSnappyCompression,
+                                     CompressionType::kZlibCompression,
+                                     CompressionType::kSnappyCompression};
+    options.create_if_missing = true;
+    FlushedFileCollector* collector = new FlushedFileCollector();
+    options.listeners.emplace_back(collector);
+    DB* db = nullptr;
+    ASSERT_OK(DB::Open(options, db_name_, &db));
+
+    db->Put(WriteOptions(), "key", "val");
+    db->Flush(FlushOptions());
+
+    auto l0_files = collector->GetFlushedFiles();
+    ASSERT_EQ(1, l0_files.size());
+
+    // L0->L1 compaction, so output should be ZSTD-compressed
+    CompactionOptions compaction_opts;
+    compaction_opts.compression = CompressionType::kDisableCompressionOption;
+    ASSERT_OK(db->CompactFiles(compaction_opts, l0_files, 1));
+
+    rocksdb::TablePropertiesCollection all_tables_props;
+    ASSERT_OK(db->GetPropertiesOfAllTables(&all_tables_props));
+    for (const auto& name_and_table_props : all_tables_props) {
+      ASSERT_EQ(CompressionTypeToString(CompressionType::kZlibCompression),
+                name_and_table_props.second->compression_name);
+    }
+    delete db;
+  }
+}
+
+TEST_F(CompactFilesTest, GetCompactionJobInfo) {
+  Options options;
+  options.create_if_missing = true;
+  // Disable RocksDB background compaction.
+  options.compaction_style = kCompactionStyleNone;
+  options.level0_slowdown_writes_trigger = 1000;
+  options.level0_stop_writes_trigger = 1000;
+  options.write_buffer_size = 65536;
+  options.max_write_buffer_number = 2;
+  options.compression = kNoCompression;
+  options.max_compaction_bytes = 5000;
+
+  // Add listener
+  FlushedFileCollector* collector = new FlushedFileCollector();
+  options.listeners.emplace_back(collector);
+
+  DB* db = nullptr;
+  DestroyDB(db_name_, options);
+  Status s = DB::Open(options, db_name_, &db);
+  assert(s.ok());
+  assert(db);
+
+  // create couple files
+  for (int i = 0; i < 500; ++i) {
+    db->Put(WriteOptions(), ToString(i), std::string(1000, 'a' + (i % 26)));
+  }
+  reinterpret_cast<DBImpl*>(db)->TEST_WaitForFlushMemTable();
+  auto l0_files_1 = collector->GetFlushedFiles();
+  CompactionOptions co;
+  co.compression = CompressionType::kLZ4Compression;
+  CompactionJobInfo compaction_job_info;
+  ASSERT_OK(
+      db->CompactFiles(co, l0_files_1, 0, -1, nullptr, &compaction_job_info));
+  ASSERT_EQ(compaction_job_info.base_input_level, 0);
+  ASSERT_EQ(compaction_job_info.cf_id, db->DefaultColumnFamily()->GetID());
+  ASSERT_EQ(compaction_job_info.cf_name, db->DefaultColumnFamily()->GetName());
+  ASSERT_EQ(compaction_job_info.compaction_reason,
+            CompactionReason::kManualCompaction);
+  ASSERT_EQ(compaction_job_info.compression, CompressionType::kLZ4Compression);
+  ASSERT_EQ(compaction_job_info.output_level, 0);
+  ASSERT_OK(compaction_job_info.status);
+  // no assertion failure
   delete db;
 }
 

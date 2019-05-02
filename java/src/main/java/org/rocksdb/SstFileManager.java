@@ -28,6 +28,8 @@ public final class SstFileManager extends RocksObject {
    * instances to track SST file and control there deletion rate.
    *
    * @param env the environment.
+   *
+   * @throws RocksDBException thrown if error happens in underlying native library.
    */
   public SstFileManager(final Env env) throws RocksDBException {
     this(env, null);
@@ -39,6 +41,8 @@ public final class SstFileManager extends RocksObject {
    *
    * @param env the environment.
    * @param logger if not null, the logger will be used to log errors.
+   *
+   * @throws RocksDBException thrown if error happens in underlying native library.
    */
   public SstFileManager(final Env env, /*@Nullable*/  final Logger logger)
       throws RocksDBException {
@@ -57,6 +61,8 @@ public final class SstFileManager extends RocksObject {
    *     this value is set to 1024 (1 Kb / sec) and we deleted a file of size
    *     4 Kb in 1 second, we will wait for another 3 seconds before we delete
    *     other files, Set to 0 to disable deletion rate limiting.
+   *
+   * @throws RocksDBException thrown if error happens in underlying native library.
    */
   public SstFileManager(final Env env, /*@Nullable*/  final Logger logger,
       final long rateBytesPerSec) throws RocksDBException {
@@ -78,6 +84,8 @@ public final class SstFileManager extends RocksObject {
    * @param maxTrashDbRatio if the trash size constitutes for more than this
    *     fraction of the total DB size we will start deleting new files passed
    *     to DeleteScheduler immediately.
+   *
+   *  @throws RocksDBException thrown if error happens in underlying native library.
    */
   public SstFileManager(final Env env, /*@Nullable*/ final Logger logger,
       final long rateBytesPerSec, final double maxTrashDbRatio)
@@ -104,6 +112,8 @@ public final class SstFileManager extends RocksObject {
    * @param bytesMaxDeleteChunk if a single file is larger than delete chunk,
    *     ftruncate the file by this size each time, rather than dropping the whole
    *     file. 0 means to always delete the whole file.
+   *
+   * @throws RocksDBException thrown if error happens in underlying native library.
    */
   public SstFileManager(final Env env, /*@Nullable*/final Logger logger,
       final long rateBytesPerSec, final double maxTrashDbRatio,

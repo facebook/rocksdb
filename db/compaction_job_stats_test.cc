@@ -113,7 +113,7 @@ class CompactionJobStatsTest : public testing::Test,
     Reopen(options);
   }
 
-  ~CompactionJobStatsTest() {
+  ~CompactionJobStatsTest() override {
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
     rocksdb::SyncPoint::GetInstance()->LoadDependency({});
     rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -426,7 +426,7 @@ class CompactionJobStatsChecker : public EventListener {
   // Once a compaction completed, this function will verify the returned
   // CompactionJobInfo with the oldest CompactionJobInfo added earlier
   // in "expected_stats_" which has not yet being used for verification.
-  virtual void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) {
+  void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) override {
     if (verify_next_comp_io_stats_) {
       ASSERT_GT(ci.stats.file_write_nanos, 0);
       ASSERT_GT(ci.stats.file_range_sync_nanos, 0);
@@ -523,7 +523,7 @@ class CompactionJobDeletionStatsChecker : public CompactionJobStatsChecker {
  public:
   // Verifies whether two CompactionJobStats match.
   void Verify(const CompactionJobStats& current_stats,
-              const CompactionJobStats& stats) {
+              const CompactionJobStats& stats) override {
     ASSERT_EQ(
       current_stats.num_input_deletion_records,
       stats.num_input_deletion_records);

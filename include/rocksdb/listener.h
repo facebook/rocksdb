@@ -1,9 +1,12 @@
 // Copyright (c) 2014 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+//
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -27,6 +30,7 @@ enum class TableFileCreationReason {
   kFlush,
   kCompaction,
   kRecovery,
+  kMisc,
 };
 
 struct TableFileCreationBriefInfo {
@@ -87,6 +91,8 @@ enum class CompactionReason : int {
   kFlush,
   // Compaction caused by external sst file ingestion
   kExternalSstIngestion,
+  // Compaction due to SST file being too old
+  kPeriodicCompaction,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };
@@ -103,6 +109,7 @@ enum class FlushReason : int {
   kDeleteFiles = 0x08,
   kAutoCompaction = 0x09,
   kManualFlush = 0x0a,
+  kErrorRecovery = 0xb,
 };
 
 enum class BackgroundErrorReason {
@@ -141,7 +148,24 @@ struct TableFileDeletionInfo {
   Status status;
 };
 
+struct FileOperationInfo {
+  using TimePoint = std::chrono::time_point<std::chrono::system_clock,
+                                            std::chrono::nanoseconds>;
+
+  const std::string& path;
+  uint64_t offset;
+  size_t length;
+  const TimePoint& start_timestamp;
+  const TimePoint& finish_timestamp;
+  Status status;
+  FileOperationInfo(const std::string& _path, const TimePoint& start,
+                    const TimePoint& finish)
+      : path(_path), start_timestamp(start), finish_timestamp(finish) {}
+};
+
 struct FlushJobInfo {
+  // the id of the column family
+  uint32_t cf_id;
   // the name of the column family
   std::string cf_name;
   // the path to the newly created file
@@ -172,9 +196,11 @@ struct FlushJobInfo {
 
 struct CompactionJobInfo {
   CompactionJobInfo() = default;
-  explicit CompactionJobInfo(const CompactionJobStats& _stats) :
-      stats(_stats) {}
+  explicit CompactionJobInfo(const CompactionJobStats& _stats)
+      : stats(_stats) {}
 
+  // the id of the column family where the compaction happened.
+  uint32_t cf_id;
   // the name of the column family where the compaction happened.
   std::string cf_name;
   // the status indicating whether the compaction was successful or not.
@@ -222,7 +248,6 @@ struct MemTableInfo {
   uint64_t num_entries;
   // Total number of deletes in memtable
   uint64_t num_deletes;
-
 };
 
 struct ExternalFileIngestionInfo {
@@ -295,6 +320,15 @@ class EventListener {
   // returned value.
   virtual void OnTableFileDeleted(const TableFileDeletionInfo& /*info*/) {}
 
+  // A callback function to RocksDB which will be called before a
+  // RocksDB starts to compact.  The default implementation is
+  // no-op.
+  //
+  // Note that the this function must be implemented in a way such that
+  // it should not run for an extended period of time before the function
+  // returns.  Otherwise, RocksDB may be blocked.
+  virtual void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& /*ci*/) {}
+
   // A callback function for RocksDB which will be called whenever
   // a registered RocksDB compacts a file. The default implementation
   // is a no-op.
@@ -348,8 +382,7 @@ class EventListener {
   // Note that if applications would like to use the passed reference
   // outside this function call, they should make copies from these
   // returned value.
-  virtual void OnMemTableSealed(
-    const MemTableInfo& /*info*/) {}
+  virtual void OnMemTableSealed(const MemTableInfo& /*info*/) {}
 
   // A callback function for RocksDB which will be called before
   // a column family handle is deleted.
@@ -393,13 +426,39 @@ class EventListener {
   // returns.  Otherwise, RocksDB may be blocked.
   virtual void OnStallConditionsChanged(const WriteStallInfo& /*info*/) {}
 
+  // A callback function for RocksDB which will be called whenever a file read
+  // operation finishes.
+  virtual void OnFileReadFinish(const FileOperationInfo& /* info */) {}
+
+  // A callback function for RocksDB which will be called whenever a file write
+  // operation finishes.
+  virtual void OnFileWriteFinish(const FileOperationInfo& /* info */) {}
+
+  // If true, the OnFileReadFinish and OnFileWriteFinish will be called. If
+  // false, then they won't be called.
+  virtual bool ShouldBeNotifiedOnFileIO() { return false; }
+
+  // A callback function for RocksDB which will be called just before
+  // starting the automatic recovery process for recoverable background
+  // errors, such as NoSpace(). The callback can suppress the automatic
+  // recovery by setting *auto_recovery to false. The database will then
+  // have to be transitioned out of read-only mode by calling DB::Resume()
+  virtual void OnErrorRecoveryBegin(BackgroundErrorReason /* reason */,
+                                    Status /* bg_error */,
+                                    bool* /* auto_recovery */) {}
+
+  // A callback function for RocksDB which will be called once the database
+  // is recovered from read-only mode after an error. When this is called, it
+  // means normal writes to the database can be issued and the user can
+  // initiate any further recovery actions needed
+  virtual void OnErrorRecoveryCompleted(Status /* old_bg_error */) {}
+
   virtual ~EventListener() {}
 };
 
 #else
 
-class EventListener {
-};
+class EventListener {};
 
 #endif  // ROCKSDB_LITE
 

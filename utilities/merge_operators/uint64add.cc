@@ -20,9 +20,9 @@ namespace { // anonymous namespace
 // Implemented as an AssociativeMergeOperator for simplicity and example.
 class UInt64AddOperator : public AssociativeMergeOperator {
  public:
-  virtual bool Merge(const Slice& /*key*/, const Slice* existing_value,
-                     const Slice& value, std::string* new_value,
-                     Logger* logger) const override {
+  bool Merge(const Slice& /*key*/, const Slice* existing_value,
+             const Slice& value, std::string* new_value,
+             Logger* logger) const override {
     uint64_t orig_value = 0;
     if (existing_value){
       orig_value = DecodeInteger(*existing_value, logger);
@@ -36,9 +36,7 @@ class UInt64AddOperator : public AssociativeMergeOperator {
     return true;  // Return true always since corruption will be treated as 0
   }
 
-  virtual const char* Name() const override {
-    return "UInt64AddOperator";
-  }
+  const char* Name() const override { return "UInt64AddOperator"; }
 
  private:
   // Takes the string and decodes it into a uint64_t

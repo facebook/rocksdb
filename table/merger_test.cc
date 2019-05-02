@@ -19,7 +19,7 @@ class MergerTest : public testing::Test {
         rnd_(3),
         merging_iterator_(nullptr),
         single_iterator_(nullptr) {}
-  ~MergerTest() = default;
+  ~MergerTest() override = default;
   std::vector<std::string> GenerateStrings(size_t len, int string_len) {
     std::vector<std::string> ret;
 

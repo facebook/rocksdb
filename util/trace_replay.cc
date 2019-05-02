@@ -16,6 +16,8 @@
 
 namespace rocksdb {
 
+const std::string kTraceMagic = "feedcafedeadbeef";
+
 namespace {
 void EncodeCFAndKey(std::string* dst, uint32_t cf_id, const Slice& key) {
   PutFixed32(dst, cf_id);
@@ -29,43 +31,86 @@ void DecodeCFAndKey(std::string& buffer, uint32_t* cf_id, Slice* key) {
 }
 }  // namespace
 
-Tracer::Tracer(Env* env, std::unique_ptr<TraceWriter>&& trace_writer)
-    : env_(env), trace_writer_(std::move(trace_writer)) {
+Tracer::Tracer(Env* env, const TraceOptions& trace_options,
+               std::unique_ptr<TraceWriter>&& trace_writer)
+    : env_(env),
+      trace_options_(trace_options),
+      trace_writer_(std::move(trace_writer)),
+      trace_request_count_ (0) {
   WriteHeader();
 }
 
 Tracer::~Tracer() { trace_writer_.reset(); }
 
 Status Tracer::Write(WriteBatch* write_batch) {
+  TraceType trace_type = kTraceWrite;
+  if (ShouldSkipTrace(trace_type)) {
+    return Status::OK();
+  }
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.type = kTraceWrite;
+  trace.type = trace_type;
   trace.payload = write_batch->Data();
   return WriteTrace(trace);
 }
 
 Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
+  TraceType trace_type = kTraceGet;
+  if (ShouldSkipTrace(trace_type)) {
+    return Status::OK();
+  }
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.type = kTraceGet;
+  trace.type = trace_type;
   EncodeCFAndKey(&trace.payload, column_family->GetID(), key);
   return WriteTrace(trace);
 }
 
 Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key) {
+  TraceType trace_type = kTraceIteratorSeek;
+  if (ShouldSkipTrace(trace_type)) {
+    return Status::OK();
+  }
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.type = kTraceIteratorSeek;
+  trace.type = trace_type;
   EncodeCFAndKey(&trace.payload, cf_id, key);
   return WriteTrace(trace);
 }
 
 Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
+  TraceType trace_type = kTraceIteratorSeekForPrev;
+  if (ShouldSkipTrace(trace_type)) {
+    return Status::OK();
+  }
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.type = kTraceIteratorSeekForPrev;
+  trace.type = trace_type;
   EncodeCFAndKey(&trace.payload, cf_id, key);
   return WriteTrace(trace);
+}
+
+bool Tracer::ShouldSkipTrace(const TraceType& trace_type) {
+  if (IsTraceFileOverMax()) {
+    return true;
+  }
+  if ((trace_options_.filter & kTraceFilterGet
+    && trace_type == kTraceGet)
+   || (trace_options_.filter & kTraceFilterWrite
+    && trace_type == kTraceWrite)) {
+    return true;
+  }
+  ++trace_request_count_;
+  if (trace_request_count_ < trace_options_.sampling_frequency) {
+    return true;
+  }
+  trace_request_count_ = 0;
+  return false;
+}
+
+bool Tracer::IsTraceFileOverMax() {
+  uint64_t trace_file_size = trace_writer_->GetFileSize();
+  return (trace_file_size > trace_options_.max_trace_file_size);
 }
 
 Status Tracer::WriteHeader() {
@@ -103,7 +148,7 @@ Status Tracer::WriteTrace(const Trace& trace) {
 Status Tracer::Close() { return WriteFooter(); }
 
 Replayer::Replayer(DB* db, const std::vector<ColumnFamilyHandle*>& handles,
-                   unique_ptr<TraceReader>&& reader)
+                   std::unique_ptr<TraceReader>&& reader)
     : trace_reader_(std::move(reader)) {
   assert(db != nullptr);
   db_ = static_cast<DBImpl*>(db->GetRootDB());

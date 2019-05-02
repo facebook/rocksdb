@@ -18,6 +18,7 @@
 #include "db/event_helpers.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
+#include "db/range_del_aggregator.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
 #include "monitoring/iostats_context_imp.h"
@@ -46,18 +47,20 @@ TableBuilder* NewTableBuilder(
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, const std::string& column_family_name,
     WritableFileWriter* file, const CompressionType compression_type,
-    const CompressionOptions& compression_opts, int level,
-    const std::string* compression_dict, const bool skip_filters,
-    const uint64_t creation_time, const uint64_t oldest_key_time) {
+    uint64_t sample_for_compression, const CompressionOptions& compression_opts,
+    int level, const bool skip_filters, const uint64_t creation_time,
+    const uint64_t oldest_key_time, const uint64_t target_file_size,
+    const uint64_t file_creation_time) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
   return ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, internal_comparator,
                           int_tbl_prop_collector_factories, compression_type,
-                          compression_opts, compression_dict, skip_filters,
-                          column_family_name, level, creation_time,
-                          oldest_key_time),
+                          sample_for_compression, compression_opts,
+                          skip_filters, column_family_name, level,
+                          creation_time, oldest_key_time, target_file_size,
+                          file_creation_time),
       column_family_id, file);
 }
 
@@ -65,19 +68,21 @@ Status BuildTable(
     const std::string& dbname, Env* env, const ImmutableCFOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, const EnvOptions& env_options,
     TableCache* table_cache, InternalIterator* iter,
-    std::unique_ptr<InternalIterator> range_del_iter, FileMetaData* meta,
-    const InternalKeyComparator& internal_comparator,
+    std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
+        range_del_iters,
+    FileMetaData* meta, const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, const std::string& column_family_name,
     std::vector<SequenceNumber> snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
     SnapshotChecker* snapshot_checker, const CompressionType compression,
-    const CompressionOptions& compression_opts, bool paranoid_file_checks,
-    InternalStats* internal_stats, TableFileCreationReason reason,
-    EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
-    TableProperties* table_properties, int level, const uint64_t creation_time,
-    const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint) {
+    uint64_t sample_for_compression, const CompressionOptions& compression_opts,
+    bool paranoid_file_checks, InternalStats* internal_stats,
+    TableFileCreationReason reason, EventLogger* event_logger, int job_id,
+    const Env::IOPriority io_priority, TableProperties* table_properties,
+    int level, const uint64_t creation_time, const uint64_t oldest_key_time,
+    Env::WriteLifeTimeHint write_hint, const uint64_t file_creation_time) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -86,12 +91,10 @@ Status BuildTable(
   Status s;
   meta->fd.file_size = 0;
   iter->SeekToFirst();
-  std::unique_ptr<RangeDelAggregator> range_del_agg(
-      new RangeDelAggregator(internal_comparator, snapshots));
-  s = range_del_agg->AddTombstones(std::move(range_del_iter));
-  if (!s.ok()) {
-    // may be non-ok if a range tombstone key is unparsable
-    return s;
+  std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
+      new CompactionRangeDelAggregator(&internal_comparator, snapshots));
+  for (auto& range_del_iter : range_del_iters) {
+    range_del_agg->AddTombstones(std::move(range_del_iter));
   }
 
   std::string fname = TableFileName(ioptions.cf_paths, meta->fd.GetNumber(),
@@ -104,9 +107,14 @@ Status BuildTable(
 
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     TableBuilder* builder;
-    unique_ptr<WritableFileWriter> file_writer;
+    std::unique_ptr<WritableFileWriter> file_writer;
+    // Currently we only enable dictionary compression during compaction to the
+    // bottommost level.
+    CompressionOptions compression_opts_for_flush(compression_opts);
+    compression_opts_for_flush.max_dict_bytes = 0;
+    compression_opts_for_flush.zstd_max_train_bytes = 0;
     {
-      unique_ptr<WritableFile> file;
+      std::unique_ptr<WritableFile> file;
 #ifndef NDEBUG
       bool use_direct_writes = env_options.use_direct_writes;
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
@@ -121,14 +129,16 @@ Status BuildTable(
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
 
-      file_writer.reset(new WritableFileWriter(
-          std::move(file), fname, env_options, ioptions.statistics));
+      file_writer.reset(
+          new WritableFileWriter(std::move(file), fname, env_options, env,
+                                 ioptions.statistics, ioptions.listeners));
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,
-          column_family_name, file_writer.get(), compression, compression_opts,
-          level, nullptr /* compression_dict */, false /* skip_filters */,
-          creation_time, oldest_key_time);
+          column_family_name, file_writer.get(), compression,
+          sample_for_compression, compression_opts_for_flush, level,
+          false /* skip_filters */, creation_time, oldest_key_time,
+          0 /*target_file_size*/, file_creation_time);
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),
@@ -157,8 +167,10 @@ Status BuildTable(
       }
     }
 
-    for (auto it = range_del_agg->NewIterator(); it->Valid(); it->Next()) {
-      auto tombstone = it->Tombstone();
+    auto range_del_it = range_del_agg->NewIterator();
+    for (range_del_it->SeekToFirst(); range_del_it->Valid();
+         range_del_it->Next()) {
+      auto tombstone = range_del_it->Tombstone();
       auto kv = tombstone.Serialize();
       builder->Add(kv.first.Encode(), kv.second);
       meta->UpdateBoundariesForRange(kv.first, tombstone.SerializeEndKey(),

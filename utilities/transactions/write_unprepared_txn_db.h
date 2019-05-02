@@ -59,8 +59,9 @@ class WriteUnpreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
     assert(unprep_seqs.size() > 0);
   }
 
-  virtual Status Callback(SequenceNumber commit_seq, bool is_mem_disabled
-                          __attribute__((__unused__))) override {
+  virtual Status Callback(SequenceNumber commit_seq,
+                          bool is_mem_disabled __attribute__((__unused__)),
+                          uint64_t) override {
     const uint64_t last_commit_seq = LIKELY(data_batch_cnt_ <= 1)
                                          ? commit_seq
                                          : commit_seq + data_batch_cnt_ - 1;
@@ -104,6 +105,45 @@ class WriteUnpreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
   bool includes_data_;
   // Should the callback also publishes the commit seq number
   bool publish_seq_;
+};
+
+class WriteUnpreparedRollbackPreReleaseCallback : public PreReleaseCallback {
+  // TODO(lth): Reduce code duplication with
+  // WritePreparedCommitEntryPreReleaseCallback
+ public:
+  WriteUnpreparedRollbackPreReleaseCallback(
+      WritePreparedTxnDB* db, DBImpl* db_impl,
+      const std::map<SequenceNumber, size_t>& unprep_seqs,
+      SequenceNumber rollback_seq)
+      : db_(db),
+        db_impl_(db_impl),
+        unprep_seqs_(unprep_seqs),
+        rollback_seq_(rollback_seq) {
+    assert(unprep_seqs.size() > 0);
+    assert(db_impl_->immutable_db_options().two_write_queues);
+  }
+
+  virtual Status Callback(SequenceNumber commit_seq,
+                          bool is_mem_disabled __attribute__((__unused__)),
+                          uint64_t) override {
+    assert(is_mem_disabled);  // implies the 2nd queue
+    const uint64_t last_commit_seq = commit_seq;
+    db_->AddCommitted(rollback_seq_, last_commit_seq);
+    // Recall that unprep_seqs maps (un)prepared_seq => prepare_batch_cnt.
+    for (const auto& s : unprep_seqs_) {
+      for (size_t i = 0; i < s.second; i++) {
+        db_->AddCommitted(s.first + i, last_commit_seq);
+      }
+    }
+    db_impl_->SetLastPublishedSequence(last_commit_seq);
+    return Status::OK();
+  }
+
+ private:
+  WritePreparedTxnDB* db_;
+  DBImpl* db_impl_;
+  const std::map<SequenceNumber, size_t>& unprep_seqs_;
+  SequenceNumber rollback_seq_;
 };
 
 struct KeySetBuilder : public WriteBatch::Handler {

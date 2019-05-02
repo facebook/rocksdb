@@ -11,8 +11,7 @@
 // the last "sync". It then checks for data loss errors by purposely dropping
 // file data (or entire files) not protected by a "sync".
 
-#ifndef UTIL_FAULT_INJECTION_TEST_ENV_H_
-#define UTIL_FAULT_INJECTION_TEST_ENV_H_
+#pragma once
 
 #include <map>
 #include <set>
@@ -57,7 +56,7 @@ struct FileState {
 class TestWritableFile : public WritableFile {
  public:
   explicit TestWritableFile(const std::string& fname,
-                            unique_ptr<WritableFile>&& f,
+                            std::unique_ptr<WritableFile>&& f,
                             FaultInjectionTestEnv* env);
   virtual ~TestWritableFile();
   virtual Status Append(const Slice& data) override;
@@ -78,7 +77,7 @@ class TestWritableFile : public WritableFile {
 
  private:
   FileState state_;
-  unique_ptr<WritableFile> target_;
+  std::unique_ptr<WritableFile> target_;
   bool writable_file_opened_;
   FaultInjectionTestEnv* env_;
 };
@@ -95,7 +94,7 @@ class TestDirectory : public Directory {
  private:
   FaultInjectionTestEnv* env_;
   std::string dirname_;
-  unique_ptr<Directory> dir_;
+  std::unique_ptr<Directory> dir_;
 };
 
 class FaultInjectionTestEnv : public EnvWrapper {
@@ -105,18 +104,42 @@ class FaultInjectionTestEnv : public EnvWrapper {
   virtual ~FaultInjectionTestEnv() {}
 
   Status NewDirectory(const std::string& name,
-                      unique_ptr<Directory>* result) override;
+                      std::unique_ptr<Directory>* result) override;
 
   Status NewWritableFile(const std::string& fname,
-                         unique_ptr<WritableFile>* result,
+                         std::unique_ptr<WritableFile>* result,
                          const EnvOptions& soptions) override;
+
+  Status ReopenWritableFile(const std::string& fname,
+                            std::unique_ptr<WritableFile>* result,
+                            const EnvOptions& soptions) override;
+
+  Status NewRandomAccessFile(const std::string& fname,
+                             std::unique_ptr<RandomAccessFile>* result,
+                             const EnvOptions& soptions) override;
 
   virtual Status DeleteFile(const std::string& f) override;
 
   virtual Status RenameFile(const std::string& s,
                             const std::string& t) override;
 
+// Undef to eliminate clash on Windows
+#undef GetFreeSpace
+  virtual Status GetFreeSpace(const std::string& path,
+                              uint64_t* disk_free) override {
+    if (!IsFilesystemActive() && error_ == Status::NoSpace()) {
+      *disk_free = 0;
+      return Status::OK();
+    } else {
+      return target()->GetFreeSpace(path, disk_free);
+    }
+  }
+
   void WritableFileClosed(const FileState& state);
+
+  void WritableFileSynced(const FileState& state);
+
+  void WritableFileAppended(const FileState& state);
 
   // For every file that is not fully synced, make a call to `func` with
   // FileState of the file as the parameter.
@@ -171,5 +194,3 @@ class FaultInjectionTestEnv : public EnvWrapper {
 };
 
 }  // namespace rocksdb
-
-#endif  // UTIL_FAULT_INJECTION_TEST_ENV_H_

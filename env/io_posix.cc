@@ -57,6 +57,7 @@ int Fadvise(int fd, off_t offset, size_t len, int advice) {
 }
 
 namespace {
+
 size_t GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
 #ifdef OS_LINUX
   struct stat buf;
@@ -83,10 +84,14 @@ size_t GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
   if (!device_dir.empty() && device_dir.back() == '/') {
     device_dir.pop_back();
   }
-  // NOTE: sda3 does not have a `queue/` subdir, only the parent sda has it.
+  // NOTE: sda3 and nvme0n1p1 do not have a `queue/` subdir, only the parent sda
+  // and nvme0n1 have it.
   // $ ls -al '/sys/dev/block/8:3'
   // lrwxrwxrwx. 1 root root 0 Jun 26 01:38 /sys/dev/block/8:3 ->
   // ../../block/sda/sda3
+  // $ ls -al '/sys/dev/block/259:4'
+  // lrwxrwxrwx 1 root root 0 Jan 31 16:04 /sys/dev/block/259:4 ->
+  // ../../devices/pci0000:17/0000:17:00.0/0000:18:00.0/nvme/nvme0/nvme0n1/nvme0n1p1
   size_t parent_end = device_dir.rfind('/', device_dir.length() - 1);
   if (parent_end == std::string::npos) {
     return kDefaultPageSize;
@@ -95,8 +100,11 @@ size_t GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
   if (parent_begin == std::string::npos) {
     return kDefaultPageSize;
   }
-  if (device_dir.substr(parent_begin + 1, parent_end - parent_begin - 1) !=
-      "block") {
+  std::string parent =
+      device_dir.substr(parent_begin + 1, parent_end - parent_begin - 1);
+  std::string child = device_dir.substr(parent_end + 1, std::string::npos);
+  if (parent != "block" &&
+      (child.compare(0, 4, "nvme") || child.find('p') != std::string::npos)) {
     device_dir = device_dir.substr(0, parent_end);
   }
   std::string fname = device_dir + "/queue/logical_block_size";
@@ -118,7 +126,45 @@ size_t GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
 #endif
   return kDefaultPageSize;
 }
-} //  namespace
+
+#ifdef ROCKSDB_RANGESYNC_PRESENT
+
+#if !defined(ZFS_SUPER_MAGIC)
+// The magic number for ZFS was not exposed until recently. It should be fixed
+// forever so we can just copy the magic number here.
+#define ZFS_SUPER_MAGIC 0x2fc12fc1
+#endif
+
+bool IsSyncFileRangeSupported(int __attribute__((__unused__)) fd) {
+  // `fstatfs` is only available on Linux, but so is `sync_file_range`, so
+  // `defined(ROCKSDB_RANGESYNC_PRESENT)` should imply `defined(OS_LINUX)`.
+  struct statfs buf;
+  int ret = fstatfs(fd, &buf);
+  assert(ret == 0);
+  if (ret != 0) {
+    // We don't know whether the filesystem properly supports `sync_file_range`.
+    // Even if it doesn't, we don't know of any safety issue with trying to call
+    // it anyways. So, to preserve the same behavior as before this `fstatfs`
+    // check was introduced, we assume `sync_file_range` is usable.
+    return true;
+  }
+  if (buf.f_type == ZFS_SUPER_MAGIC) {
+    // Testing on ZFS showed the writeback did not happen asynchronously when
+    // `sync_file_range` was called, even though it returned success. Avoid it
+    // and use `fdatasync` instead to preserve the contract of `bytes_per_sync`,
+    // even though this'll incur extra I/O for metadata.
+    return false;
+  }
+  // No known problems with other filesystems' implementations of
+  // `sync_file_range`, so allow them to use it.
+  return true;
+}
+
+#undef ZFS_SUPER_MAGIC
+
+#endif  // ROCKSDB_RANGESYNC_PRESENT
+
+}  // anonymous namespace
 
 /*
  * DirectIOHelper
@@ -258,7 +304,6 @@ size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
 
   struct stat buf;
   int result = fstat(fd, &buf);
-  assert(result != -1);
   if (result == -1) {
     return 0;
   }
@@ -728,7 +773,8 @@ Status PosixMmapFile::Allocate(uint64_t offset, uint64_t len) {
  */
 PosixWritableFile::PosixWritableFile(const std::string& fname, int fd,
                                      const EnvOptions& options)
-    : filename_(fname),
+    : WritableFile(options),
+      filename_(fname),
       use_direct_io_(options.use_direct_writes),
       fd_(fd),
       filesize_(0),
@@ -737,6 +783,9 @@ PosixWritableFile::PosixWritableFile(const std::string& fname, int fd,
   allow_fallocate_ = options.allow_fallocate;
   fallocate_with_keep_size_ = options.fallocate_with_keep_size;
 #endif
+#ifdef ROCKSDB_RANGESYNC_PRESENT
+  sync_file_range_supported_ = IsSyncFileRangeSupported(fd_);
+#endif  // ROCKSDB_RANGESYNC_PRESENT
   assert(!options.use_mmap_writes);
 }
 
@@ -818,7 +867,8 @@ Status PosixWritableFile::Close() {
     // but it will be nice to log these errors.
     int dummy __attribute__((__unused__));
     dummy = ftruncate(fd_, filesize_);
-#if defined(ROCKSDB_FALLOCATE_PRESENT) && !defined(TRAVIS)
+#if defined(ROCKSDB_FALLOCATE_PRESENT) && defined(FALLOC_FL_PUNCH_HOLE) && \
+    !defined(TRAVIS)
     // in some file systems, ftruncate only trims trailing space if the
     // new file size is smaller than the current size. Calling fallocate
     // with FALLOC_FL_PUNCH_HOLE flag to explicitly release these unused
@@ -938,20 +988,32 @@ Status PosixWritableFile::Allocate(uint64_t offset, uint64_t len) {
 }
 #endif
 
-#ifdef ROCKSDB_RANGESYNC_PRESENT
 Status PosixWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
+#ifdef ROCKSDB_RANGESYNC_PRESENT
   assert(offset <= std::numeric_limits<off_t>::max());
   assert(nbytes <= std::numeric_limits<off_t>::max());
-  if (sync_file_range(fd_, static_cast<off_t>(offset),
-      static_cast<off_t>(nbytes), SYNC_FILE_RANGE_WRITE) == 0) {
+  if (sync_file_range_supported_) {
+    int ret;
+    if (strict_bytes_per_sync_) {
+      // Specifying `SYNC_FILE_RANGE_WAIT_BEFORE` together with an offset/length
+      // that spans all bytes written so far tells `sync_file_range` to wait for
+      // any outstanding writeback requests to finish before issuing a new one.
+      ret =
+          sync_file_range(fd_, 0, static_cast<off_t>(offset + nbytes),
+                          SYNC_FILE_RANGE_WAIT_BEFORE | SYNC_FILE_RANGE_WRITE);
+    } else {
+      ret = sync_file_range(fd_, static_cast<off_t>(offset),
+                            static_cast<off_t>(nbytes), SYNC_FILE_RANGE_WRITE);
+    }
+    if (ret != 0) {
+      return IOError("While sync_file_range returned " + ToString(ret),
+                     filename_, errno);
+    }
     return Status::OK();
-  } else {
-    return IOError("While sync_file_range offset " + ToString(offset) +
-                       " bytes " + ToString(nbytes),
-                   filename_, errno);
   }
+#endif  // ROCKSDB_RANGESYNC_PRESENT
+  return WritableFile::RangeSync(offset, nbytes);
 }
-#endif
 
 #ifdef OS_LINUX
 size_t PosixWritableFile::GetUniqueId(char* id, size_t max_size) const {

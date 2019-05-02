@@ -16,8 +16,7 @@
 // non-const method, all threads accessing the same Iterator must use
 // external synchronization.
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_
-#define STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_
+#pragma once
 
 #include <string>
 #include "rocksdb/cleanable.h"
@@ -119,5 +118,3 @@ extern Iterator* NewEmptyIterator();
 extern Iterator* NewErrorIterator(const Status& status);
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_

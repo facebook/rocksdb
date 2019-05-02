@@ -23,7 +23,6 @@ namespace rocksdb {
 
 struct EnvOptions;
 
-using std::unique_ptr;
 class BlockBasedTableBuilder;
 
 // A class used to track actual bytes written from the tail in the recent SST
@@ -53,8 +52,8 @@ class BlockBasedTableFactory : public TableFactory {
 
   Status NewTableReader(
       const TableReaderOptions& table_reader_options,
-      unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-      unique_ptr<TableReader>* table_reader,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table_reader,
       bool prefetch_index_and_filter_in_cache = true) const override;
 
   TableBuilder* NewTableBuilder(
@@ -126,6 +125,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"data_block_index_type",
          {offsetof(struct BlockBasedTableOptions, data_block_index_type),
           OptionType::kBlockBasedTableDataBlockIndexType,
+          OptionVerificationType::kNormal, false, 0}},
+        {"index_shortening",
+         {offsetof(struct BlockBasedTableOptions, index_shortening),
+          OptionType::kBlockBasedTableIndexShorteningMode,
           OptionVerificationType::kNormal, false, 0}},
         {"data_block_hash_table_util_ratio",
          {offsetof(struct BlockBasedTableOptions,

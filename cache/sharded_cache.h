@@ -47,7 +47,8 @@ class CacheShard {
 // Keys are sharded by the highest num_shard_bits bits of hash value.
 class ShardedCache : public Cache {
  public:
-  ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit);
+  ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
+               std::shared_ptr<MemoryAllocator> memory_allocator = nullptr);
   virtual ~ShardedCache() = default;
   virtual const char* Name() const override = 0;
   virtual CacheShard* GetShard(int shard) = 0;
@@ -82,7 +83,7 @@ class ShardedCache : public Cache {
 
  private:
   static inline uint32_t HashSlice(const Slice& s) {
-    return Hash(s.data(), s.size(), 0);
+    return static_cast<uint32_t>(GetSliceNPHash64(s));
   }
 
   uint32_t Shard(uint32_t hash) {

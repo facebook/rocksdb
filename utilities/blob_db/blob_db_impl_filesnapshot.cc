@@ -93,7 +93,7 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   for (auto bfile_pair : blob_files_) {
     auto blob_file = bfile_pair.second;
     LiveFileMetaData filemetadata;
-    filemetadata.size = blob_file->GetFileSize();
+    filemetadata.size = static_cast<size_t>(blob_file->GetFileSize());
     // Path should be relative to db_name, but begin with slash.
     filemetadata.name =
         BlobFileName("", bdb_options_.blob_dir, blob_file->BlobFileNumber());

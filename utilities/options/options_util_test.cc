@@ -94,36 +94,82 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
   }
 }
 
+TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
+  // creating db
+  DBOptions db_opt;
+  db_opt.create_if_missing = true;
+  // initialize BlockBasedTableOptions
+  std::shared_ptr<Cache> cache = NewLRUCache(1 * 1024);
+  BlockBasedTableOptions bbt_opts;
+  bbt_opts.block_size = 32 * 1024;
+  // saving cf options
+  std::vector<ColumnFamilyOptions> cf_opts;
+  ColumnFamilyOptions default_column_family_opt = ColumnFamilyOptions();
+  default_column_family_opt.table_factory.reset(
+      NewBlockBasedTableFactory(bbt_opts));
+  cf_opts.push_back(default_column_family_opt);
+
+  ColumnFamilyOptions cf_opt_sample = ColumnFamilyOptions();
+  cf_opt_sample.table_factory.reset(NewBlockBasedTableFactory(bbt_opts));
+  cf_opts.push_back(cf_opt_sample);
+
+  ColumnFamilyOptions cf_opt_plain_table_opt = ColumnFamilyOptions();
+  cf_opt_plain_table_opt.table_factory.reset(NewPlainTableFactory());
+  cf_opts.push_back(cf_opt_plain_table_opt);
+
+  std::vector<std::string> cf_names;
+  cf_names.push_back(kDefaultColumnFamilyName);
+  cf_names.push_back("cf_sample");
+  cf_names.push_back("cf_plain_table_sample");
+  // Saving DB in file
+  const std::string kFileName = "OPTIONS-LOAD_CACHE_123456";
+  PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, env_.get());
+  DBOptions loaded_db_opt;
+  std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
+  ASSERT_OK(LoadOptionsFromFile(kFileName, env_.get(), &loaded_db_opt,
+                                &loaded_cf_descs, false, &cache));
+  for (size_t i = 0; i < loaded_cf_descs.size(); i++) {
+    if (IsBlockBasedTableFactory(cf_opts[i].table_factory.get())) {
+      auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(
+          loaded_cf_descs[i].options.table_factory->GetOptions());
+      // Expect the same cache will be loaded
+      if (loaded_bbt_opt != nullptr) {
+        ASSERT_EQ(loaded_bbt_opt->block_cache.get(), cache.get());
+      }
+    }
+  }
+}
+
 namespace {
 class DummyTableFactory : public TableFactory {
  public:
   DummyTableFactory() {}
-  virtual ~DummyTableFactory() {}
+  ~DummyTableFactory() override {}
 
-  virtual const char* Name() const override { return "DummyTableFactory"; }
+  const char* Name() const override { return "DummyTableFactory"; }
 
-  virtual Status NewTableReader(
+  Status NewTableReader(
       const TableReaderOptions& /*table_reader_options*/,
-      unique_ptr<RandomAccessFileReader>&& /*file*/, uint64_t /*file_size*/,
-      unique_ptr<TableReader>* /*table_reader*/,
+      std::unique_ptr<RandomAccessFileReader>&& /*file*/,
+      uint64_t /*file_size*/, std::unique_ptr<TableReader>* /*table_reader*/,
       bool /*prefetch_index_and_filter_in_cache*/) const override {
     return Status::NotSupported();
   }
 
-  virtual TableBuilder* NewTableBuilder(
+  TableBuilder* NewTableBuilder(
       const TableBuilderOptions& /*table_builder_options*/,
       uint32_t /*column_family_id*/,
       WritableFileWriter* /*file*/) const override {
     return nullptr;
   }
 
-  virtual Status SanitizeOptions(
+  Status SanitizeOptions(
       const DBOptions& /*db_opts*/,
       const ColumnFamilyOptions& /*cf_opts*/) const override {
     return Status::NotSupported();
   }
 
-  virtual std::string GetPrintableTableOptions() const override { return ""; }
+  std::string GetPrintableTableOptions() const override { return ""; }
 
   Status GetOptionString(std::string* /*opt_string*/,
                          const std::string& /*delimiter*/) const override {
@@ -134,39 +180,39 @@ class DummyTableFactory : public TableFactory {
 class DummyMergeOperator : public MergeOperator {
  public:
   DummyMergeOperator() {}
-  virtual ~DummyMergeOperator() {}
+  ~DummyMergeOperator() override {}
 
-  virtual bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
-                           MergeOperationOutput* /*merge_out*/) const override {
+  bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
+                   MergeOperationOutput* /*merge_out*/) const override {
     return false;
   }
 
-  virtual bool PartialMergeMulti(const Slice& /*key*/,
-                                 const std::deque<Slice>& /*operand_list*/,
-                                 std::string* /*new_value*/,
-                                 Logger* /*logger*/) const override {
+  bool PartialMergeMulti(const Slice& /*key*/,
+                         const std::deque<Slice>& /*operand_list*/,
+                         std::string* /*new_value*/,
+                         Logger* /*logger*/) const override {
     return false;
   }
 
-  virtual const char* Name() const override { return "DummyMergeOperator"; }
+  const char* Name() const override { return "DummyMergeOperator"; }
 };
 
 class DummySliceTransform : public SliceTransform {
  public:
   DummySliceTransform() {}
-  virtual ~DummySliceTransform() {}
+  ~DummySliceTransform() override {}
 
   // Return the name of this transformation.
-  virtual const char* Name() const { return "DummySliceTransform"; }
+  const char* Name() const override { return "DummySliceTransform"; }
 
   // transform a src in domain to a dst in the range
-  virtual Slice Transform(const Slice& src) const { return src; }
+  Slice Transform(const Slice& src) const override { return src; }
 
   // determine whether this is a valid src upon the function applies
-  virtual bool InDomain(const Slice& /*src*/) const { return false; }
+  bool InDomain(const Slice& /*src*/) const override { return false; }
 
   // determine whether dst=Transform(src) for some src
-  virtual bool InRange(const Slice& /*dst*/) const { return false; }
+  bool InRange(const Slice& /*dst*/) const override { return false; }
 };
 
 }  // namespace

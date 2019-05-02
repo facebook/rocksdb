@@ -1,4 +1,5 @@
 #!/bin/sh
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 #
 # Set environment variables so that we can compile rocksdb using
 # fbcode settings.  It uses the latest g++ and clang compilers and also
@@ -51,7 +52,7 @@ if test -z $PIC_BUILD; then
 else
   ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd_pic.a"
 fi
-CFLAGS+=" -DZSTD"
+CFLAGS+=" -DZSTD -DZSTD_STATIC_LINKING_ONLY"
 
 # location of gflags headers and libraries
 GFLAGS_INCLUDE=" -I $GFLAGS_BASE/include/"

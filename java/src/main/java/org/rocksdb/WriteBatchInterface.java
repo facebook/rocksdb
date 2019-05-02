@@ -23,6 +23,7 @@ public interface WriteBatchInterface {
      *
      * @param key the specified key to be inserted.
      * @param value the value associated with the specified key.
+     * @throws RocksDBException thrown if error happens in underlying native library.
      */
     void put(byte[] key, byte[] value) throws RocksDBException;
 
@@ -34,6 +35,7 @@ public interface WriteBatchInterface {
      *     instance
      * @param key the specified key to be inserted.
      * @param value the value associated with the specified key.
+     * @throws RocksDBException thrown if error happens in underlying native library.
      */
     void put(ColumnFamilyHandle columnFamilyHandle,
                     byte[] key, byte[] value) throws RocksDBException;
@@ -45,6 +47,7 @@ public interface WriteBatchInterface {
      * @param key the specified key to be merged.
      * @param value the value to be merged with the current value for
      * the specified key.
+     * @throws RocksDBException thrown if error happens in underlying native library.
      */
     void merge(byte[] key, byte[] value) throws RocksDBException;
 
@@ -56,6 +59,7 @@ public interface WriteBatchInterface {
      * @param key the specified key to be merged.
      * @param value the value to be merged with the current value for
      * the specified key.
+     * @throws RocksDBException thrown if error happens in underlying native library.
      */
     void merge(ColumnFamilyHandle columnFamilyHandle,
                       byte[] key, byte[] value) throws RocksDBException;
@@ -66,6 +70,7 @@ public interface WriteBatchInterface {
      * @param key Key to delete within database
      *
      * @deprecated Use {@link #delete(byte[])}
+     * @throws RocksDBException thrown if error happens in underlying native library.
      */
     @Deprecated
     void remove(byte[] key) throws RocksDBException;
@@ -77,6 +82,7 @@ public interface WriteBatchInterface {
      * @param key Key to delete within database
      *
      * @deprecated Use {@link #delete(ColumnFamilyHandle, byte[])}
+     * @throws RocksDBException thrown if error happens in underlying native library.
      */
     @Deprecated
     void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key)
@@ -86,6 +92,7 @@ public interface WriteBatchInterface {
      * <p>If the database contains a mapping for "key", erase it.  Else do nothing.</p>
      *
      * @param key Key to delete within database
+     * @throws RocksDBException thrown if error happens in underlying native library.
      */
     void delete(byte[] key) throws RocksDBException;
 
@@ -94,6 +101,7 @@ public interface WriteBatchInterface {
      *
      * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
      * @param key Key to delete within database
+     * @throws RocksDBException thrown if error happens in underlying native library.
      */
     void delete(ColumnFamilyHandle columnFamilyHandle, byte[] key)
         throws RocksDBException;
@@ -161,6 +169,7 @@ public interface WriteBatchInterface {
      *          First key to delete within database (included)
      * @param endKey
      *          Last key to delete within database (excluded)
+     * @throws RocksDBException thrown if error happens in underlying native library.
      */
     void deleteRange(byte[] beginKey, byte[] endKey) throws RocksDBException;
 
@@ -178,6 +187,7 @@ public interface WriteBatchInterface {
      *          First key to delete within database (included)
      * @param endKey
      *          Last key to delete within database (excluded)
+     * @throws RocksDBException thrown if error happens in underlying native library.
      */
     void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey,
             byte[] endKey) throws RocksDBException;
@@ -195,6 +205,7 @@ public interface WriteBatchInterface {
      * replication.
      *
      * @param blob binary object to be inserted
+     * @throws RocksDBException thrown if error happens in underlying native library.
      */
     void putLogData(byte[] blob) throws RocksDBException;
 

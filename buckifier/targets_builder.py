@@ -1,3 +1,4 @@
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -10,7 +11,7 @@ def pretty_list(lst, indent=8):
 
     if len(lst) == 1:
         return "\"%s\"" % lst[0]
-    
+
     separator = "\",\n%s\"" % (" " * indent)
     res = separator.join(sorted(lst))
     res = "\n" + (" " * indent) + "\"" + res + "\",\n" + (" " * (indent - 4))
@@ -31,13 +32,16 @@ class TARGETSBuilder:
         self.targets_file.close()
 
     def add_library(self, name, srcs, deps=None, headers=None):
+        headers_attr_prefix = ""
         if headers is None:
+            headers_attr_prefix = "auto_"
             headers = "AutoHeaders.RECURSIVE_GLOB"
-        self.targets_file.write(targets_cfg.library_template % (
-            name,
-            pretty_list(srcs),
-            headers,
-            pretty_list(deps)))
+        self.targets_file.write(targets_cfg.library_template.format(
+            name=name,
+            srcs=pretty_list(srcs),
+            headers_attr_prefix=headers_attr_prefix,
+            headers=headers,
+            deps=pretty_list(deps)))
         self.total_lib = self.total_lib + 1
 
     def add_binary(self, name, srcs, deps=None):

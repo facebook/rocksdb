@@ -79,7 +79,10 @@ Slice PartitionedFilterBlockBuilder::Finish(
     std::string handle_encoding;
     last_partition_block_handle.EncodeTo(&handle_encoding);
     std::string handle_delta_encoding;
-    last_partition_block_handle.EncodeSizeTo(&handle_delta_encoding);
+    PutVarsignedint64(
+        &handle_delta_encoding,
+        last_partition_block_handle.size() - last_encoded_handle_.size());
+    last_encoded_handle_ = last_partition_block_handle;
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
     index_on_filter_block_builder_.Add(last_entry.key, handle_encoding,
                                        &handle_delta_encoding_slice);

@@ -42,9 +42,48 @@ public class CompactionOptionsFIFO extends RocksObject {
     return maxTableFilesSize(nativeHandle_);
   }
 
-  private native void setMaxTableFilesSize(long handle, long maxTableFilesSize);
-  private native long maxTableFilesSize(long handle);
+  /**
+   * If true, try to do compaction to compact smaller files into larger ones.
+   * Minimum files to compact follows options.level0_file_num_compaction_trigger
+   * and compaction won't trigger if average compact bytes per del file is
+   * larger than options.write_buffer_size. This is to protect large files
+   * from being compacted again.
+   *
+   * Default: false
+   *
+   * @param allowCompaction true to allow intra-L0 compaction
+   *
+   * @return the reference to the current options.
+   */
+  public CompactionOptionsFIFO setAllowCompaction(
+      final boolean allowCompaction) {
+    setAllowCompaction(nativeHandle_, allowCompaction);
+    return this;
+  }
+
+
+  /**
+   * Check if intra-L0 compaction is enabled.
+   * When enabled, we try to compact smaller files into larger ones.
+   *
+   * See {@link #setAllowCompaction(boolean)}.
+   *
+   * Default: false
+   *
+   * @return true if intra-L0 compaction is enabled, false otherwise.
+   */
+  public boolean allowCompaction() {
+    return allowCompaction(nativeHandle_);
+  }
+
 
   private native static long newCompactionOptionsFIFO();
   @Override protected final native void disposeInternal(final long handle);
+
+  private native void setMaxTableFilesSize(final long handle,
+      final long maxTableFilesSize);
+  private native long maxTableFilesSize(final long handle);
+  private native void setAllowCompaction(final long handle,
+      final boolean allowCompaction);
+  private native boolean allowCompaction(final long handle);
 }

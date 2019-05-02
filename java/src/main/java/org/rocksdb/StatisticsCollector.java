@@ -93,9 +93,9 @@ public class StatisticsCollector {
                   statsCallback.histogramCallback(histogramType, histogramData);
                 }
               }
-
-              Thread.sleep(_statsCollectionInterval);
             }
+
+            Thread.sleep(_statsCollectionInterval);
           }
           catch (final InterruptedException e) {
             Thread.currentThread().interrupt();

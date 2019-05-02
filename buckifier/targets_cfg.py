@@ -1,17 +1,15 @@
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
-rocksdb_target_header = """
-load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
+rocksdb_target_header = """load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
+load("@fbcode_macros//build_defs:cpp_library.bzl", "cpp_library")
+load(":defs.bzl", "test_binary")
 
 REPO_PATH = package_name() + "/"
 
-BUCK_BINS = "buck-out/gen/" + REPO_PATH
-
-TEST_RUNNER = REPO_PATH + "buckifier/rocks_test_runner.sh"
-
-rocksdb_compiler_flags = [
+ROCKSDB_COMPILER_FLAGS = [
     "-fno-builtin-memcmp",
     "-DROCKSDB_PLATFORM_POSIX",
     "-DROCKSDB_LIB_IO_POSIX",
@@ -27,6 +25,7 @@ rocksdb_compiler_flags = [
     "-DBZIP2",
     "-DLZ4",
     "-DZSTD",
+    "-DZSTD_STATIC_LINKING_ONLY",
     "-DGFLAGS=gflags",
     "-DNUMA",
     "-DTBB",
@@ -38,7 +37,7 @@ rocksdb_compiler_flags = [
     "-Wnarrowing",
 ]
 
-rocksdb_external_deps = [
+ROCKSDB_EXTERNAL_DEPS = [
     ("bzip2", None, "bz2"),
     ("snappy", None, "snappy"),
     ("zlib", None, "z"),
@@ -50,13 +49,13 @@ rocksdb_external_deps = [
     ("googletest", None, "gtest"),
 ]
 
-rocksdb_preprocessor_flags = [
+ROCKSDB_PREPROCESSOR_FLAGS = [
     # Directories with files for #include
     "-I" + REPO_PATH + "include/",
     "-I" + REPO_PATH,
 ]
 
-rocksdb_arch_preprocessor_flags = {
+ROCKSDB_ARCH_PREPROCESSOR_FLAGS = {
     "x86_64": [
         "-DHAVE_SSE42",
         "-DHAVE_PCLMUL",
@@ -69,21 +68,28 @@ is_opt_mode = build_mode.startswith("opt")
 
 # -DNDEBUG is added by default in opt mode in fbcode. But adding it twice
 # doesn't harm and avoid forgetting to add it.
-if is_opt_mode:
-    rocksdb_compiler_flags.append("-DNDEBUG")
+ROCKSDB_COMPILER_FLAGS += (["-DNDEBUG"] if is_opt_mode else [])
+
+sanitizer = read_config("fbcode", "sanitizer")
+
+# Do not enable jemalloc if sanitizer presents. RocksDB will further detect
+# whether the binary is linked with jemalloc at runtime.
+ROCKSDB_COMPILER_FLAGS += (["-DROCKSDB_JEMALLOC"] if sanitizer == "" else [])
+
+ROCKSDB_EXTERNAL_DEPS += ([("jemalloc", None, "headers")] if sanitizer == "" else [])
 """
 
 
 library_template = """
 cpp_library(
-    name = "%s",
-    srcs = [%s],
-    headers = %s,
-    arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
-    compiler_flags = rocksdb_compiler_flags,
-    preprocessor_flags = rocksdb_preprocessor_flags,
-    deps = [%s],
-    external_deps = rocksdb_external_deps,
+    name = "{name}",
+    srcs = [{srcs}],
+    {headers_attr_prefix}headers = {headers},
+    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
+    compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    deps = [{deps}],
+    external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 """
 
@@ -91,11 +97,11 @@ binary_template = """
 cpp_binary(
     name = "%s",
     srcs = [%s],
-    arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
-    compiler_flags = rocksdb_compiler_flags,
-    preprocessor_flags = rocksdb_preprocessor_flags,
+    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
+    compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
     deps = [%s],
-    external_deps = rocksdb_external_deps,
+    external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 """
 
@@ -114,28 +120,17 @@ ROCKS_TESTS = [
 # Generate a test rule for each entry in ROCKS_TESTS
 # Do not build the tests in opt mode, since SyncPoint and other test code
 # will not be included.
-if not is_opt_mode:
-    for test_cfg in ROCKS_TESTS:
-        test_name = test_cfg[0]
-        test_cc = test_cfg[1]
-        ttype = "gtest" if test_cfg[2] == "parallel" else "simple"
-        test_bin = test_name + "_bin"
-
-        cpp_binary (
-          name = test_bin,
-          srcs = [test_cc],
-          deps = [":rocksdb_test_lib"],
-          preprocessor_flags = rocksdb_preprocessor_flags,
-          arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
-          compiler_flags = rocksdb_compiler_flags,
-          external_deps = rocksdb_external_deps,
-        )
-
-        custom_unittest(
-          name = test_name,
-          type = ttype,
-          deps = [":" + test_bin],
-          command = [TEST_RUNNER, BUCK_BINS + test_bin]
-        )
-
+[
+    test_binary(
+        parallelism = parallelism,
+        rocksdb_arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
+        rocksdb_compiler_flags = ROCKSDB_COMPILER_FLAGS,
+        rocksdb_external_deps = ROCKSDB_EXTERNAL_DEPS,
+        rocksdb_preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+        test_cc = test_cc,
+        test_name = test_name,
+    )
+    for test_name, test_cc, parallelism in ROCKS_TESTS
+    if not is_opt_mode
+]
 """

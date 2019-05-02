@@ -35,10 +35,13 @@ class RandomTransactionInserter {
  public:
   // num_keys is the number of keys in each set.
   // num_sets is the number of sets of keys.
+  // cmt_delay_ms is the delay between prepare (if there is any) and commit
+  // first_id is the id of the first transaction
   explicit RandomTransactionInserter(
       Random64* rand, const WriteOptions& write_options = WriteOptions(),
       const ReadOptions& read_options = ReadOptions(), uint64_t num_keys = 1000,
-      uint16_t num_sets = 3);
+      uint16_t num_sets = 3, const uint64_t cmt_delay_ms = 0,
+      const uint64_t first_id = 0);
 
   ~RandomTransactionInserter();
 
@@ -76,7 +79,8 @@ class RandomTransactionInserter {
 
   // Returns OK if Invariant is true.
   static Status Verify(DB* db, uint16_t num_sets, uint64_t num_keys_per_set = 0,
-                       bool take_snapshot = false, Random64* rand = nullptr);
+                       bool take_snapshot = false, Random64* rand = nullptr,
+                       uint64_t delay_ms = 0);
 
   // Returns the status of the previous Insert operation
   Status GetLastStatus() { return last_status_; }
@@ -116,7 +120,9 @@ class RandomTransactionInserter {
   Transaction* txn_ = nullptr;
   Transaction* optimistic_txn_ = nullptr;
 
-  std::atomic<int> txn_id_;
+  uint64_t txn_id_;
+  // The delay between ::Prepare and ::Commit
+  const uint64_t cmt_delay_ms_;
 
   bool DoInsert(DB* db, Transaction* txn, bool is_optimistic);
 };

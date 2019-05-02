@@ -38,7 +38,7 @@ class DeleteSchedulerTest : public testing::Test {
     }
   }
 
-  ~DeleteSchedulerTest() {
+  ~DeleteSchedulerTest() override {
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
     rocksdb::SyncPoint::GetInstance()->LoadDependency({});
     rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -89,7 +89,7 @@ class DeleteSchedulerTest : public testing::Test {
     std::string data(size, 'A');
     EXPECT_OK(f->Append(data));
     EXPECT_OK(f->Close());
-    sst_file_mgr_->OnAddFile(file_path);
+    sst_file_mgr_->OnAddFile(file_path, false);
     return file_path;
   }
 

@@ -18,10 +18,13 @@ class TestReadCallback : public ReadCallback {
  public:
   TestReadCallback(SnapshotChecker* snapshot_checker,
                    SequenceNumber snapshot_seq)
-      : snapshot_checker_(snapshot_checker), snapshot_seq_(snapshot_seq) {}
+      : ReadCallback(snapshot_seq),
+        snapshot_checker_(snapshot_checker),
+        snapshot_seq_(snapshot_seq) {}
 
-  bool IsVisible(SequenceNumber seq) override {
-    return snapshot_checker_->IsInSnapshot(seq, snapshot_seq_);
+  bool IsVisibleFullCheck(SequenceNumber seq) override {
+    return snapshot_checker_->CheckInSnapshot(seq, snapshot_seq_) ==
+           SnapshotCheckerResult::kInSnapshot;
   }
 
  private:
@@ -331,8 +334,7 @@ TEST_P(MergeOperatorPinningTest, Randomized) {
 
     VerifyDBFromMap(true_data);
 
-    // Skip HashCuckoo since it does not support merge operators
-  } while (ChangeOptions(kSkipMergePut | kSkipHashCuckoo));
+  } while (ChangeOptions(kSkipMergePut));
 }
 
 class MergeOperatorHook : public MergeOperator {
@@ -340,15 +342,15 @@ class MergeOperatorHook : public MergeOperator {
   explicit MergeOperatorHook(std::shared_ptr<MergeOperator> _merge_op)
       : merge_op_(_merge_op) {}
 
-  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
-                           MergeOperationOutput* merge_out) const override {
+  bool FullMergeV2(const MergeOperationInput& merge_in,
+                   MergeOperationOutput* merge_out) const override {
     before_merge_();
     bool res = merge_op_->FullMergeV2(merge_in, merge_out);
     after_merge_();
     return res;
   }
 
-  virtual const char* Name() const override { return merge_op_->Name(); }
+  const char* Name() const override { return merge_op_->Name(); }
 
   std::shared_ptr<MergeOperator> merge_op_;
   std::function<void()> before_merge_ = []() {};
@@ -547,8 +549,15 @@ TEST_F(DBMergeOperatorTest, SnapshotCheckerAndReadCallback) {
   DestroyAndReopen(options);
 
   class TestSnapshotChecker : public SnapshotChecker {
-    bool IsInSnapshot(SequenceNumber seq,
-                      SequenceNumber snapshot_seq) const override {
+   public:
+    SnapshotCheckerResult CheckInSnapshot(
+        SequenceNumber seq, SequenceNumber snapshot_seq) const override {
+      return IsInSnapshot(seq, snapshot_seq)
+                 ? SnapshotCheckerResult::kInSnapshot
+                 : SnapshotCheckerResult::kNotInSnapshot;
+    }
+
+    bool IsInSnapshot(SequenceNumber seq, SequenceNumber snapshot_seq) const {
       switch (snapshot_seq) {
         case 0:
           return seq == 0;

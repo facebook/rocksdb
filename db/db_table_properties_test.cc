@@ -252,13 +252,14 @@ TEST_F(DBTablePropertiesTest, GetColumnFamilyNameProperty) {
 }
 
 TEST_F(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
-  const int kNumKeys = 1000;
-  const int kWindowSize = 100;
-  const int kNumDelsTrigger = 90;
+  int kNumKeys = 1000;
+  int kWindowSize = 100;
+  int kNumDelsTrigger = 90;
+  std::shared_ptr<TablePropertiesCollectorFactory> compact_on_del =
+    NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger);
 
   Options opts = CurrentOptions();
-  opts.table_properties_collector_factories.emplace_back(
-      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger));
+  opts.table_properties_collector_factories.emplace_back(compact_on_del);
   Reopen(opts);
 
   // add an L1 file to prevent tombstones from dropping due to obsolescence
@@ -280,6 +281,48 @@ TEST_F(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
   ASSERT_GT(NumTableFilesAtLevel(1), 0);
+
+  // Change the window size and deletion trigger and ensure new values take
+  // effect
+  kWindowSize = 50;
+  kNumDelsTrigger = 40;
+  static_cast<CompactOnDeletionCollectorFactory*>
+    (compact_on_del.get())->SetWindowSize(kWindowSize);
+  static_cast<CompactOnDeletionCollectorFactory*>
+    (compact_on_del.get())->SetDeletionTrigger(kNumDelsTrigger);
+  for (int i = 0; i < kNumKeys; ++i) {
+    if (i >= kNumKeys - kWindowSize &&
+        i < kNumKeys - kWindowSize + kNumDelsTrigger) {
+      Delete(Key(i));
+    } else {
+      Put(Key(i), "val");
+    }
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_GT(NumTableFilesAtLevel(1), 0);
+
+  // Change the window size to disable delete triggered compaction
+  kWindowSize = 0;
+  static_cast<CompactOnDeletionCollectorFactory*>
+    (compact_on_del.get())->SetWindowSize(kWindowSize);
+  static_cast<CompactOnDeletionCollectorFactory*>
+    (compact_on_del.get())->SetDeletionTrigger(kNumDelsTrigger);
+  for (int i = 0; i < kNumKeys; ++i) {
+    if (i >= kNumKeys - kWindowSize &&
+        i < kNumKeys - kWindowSize + kNumDelsTrigger) {
+      Delete(Key(i));
+    } else {
+      Put(Key(i), "val");
+    }
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
 }
 
 }  // namespace rocksdb

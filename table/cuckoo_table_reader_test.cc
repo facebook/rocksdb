@@ -95,7 +95,7 @@ class CuckooReaderTest : public testing::Test {
       const Comparator* ucomp = BytewiseComparator()) {
     std::unique_ptr<WritableFile> writable_file;
     ASSERT_OK(env->NewWritableFile(fname, &writable_file, env_options));
-    unique_ptr<WritableFileWriter> file_writer(
+    std::unique_ptr<WritableFileWriter> file_writer(
         new WritableFileWriter(std::move(writable_file), fname, env_options));
 
     CuckooTableBuilder builder(
@@ -115,7 +115,7 @@ class CuckooReaderTest : public testing::Test {
     // Check reader now.
     std::unique_ptr<RandomAccessFile> read_file;
     ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
-    unique_ptr<RandomAccessFileReader> file_reader(
+    std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(std::move(read_file), fname));
     const ImmutableCFOptions ioptions(options);
     CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucomp,
@@ -144,7 +144,7 @@ class CuckooReaderTest : public testing::Test {
   void CheckIterator(const Comparator* ucomp = BytewiseComparator()) {
     std::unique_ptr<RandomAccessFile> read_file;
     ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
-    unique_ptr<RandomAccessFileReader> file_reader(
+    std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(std::move(read_file), fname));
     const ImmutableCFOptions ioptions(options);
     CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucomp,
@@ -323,7 +323,7 @@ TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   CreateCuckooFileAndCheckReader();
   std::unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
-  unique_ptr<RandomAccessFileReader> file_reader(
+  std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(std::move(read_file), fname));
   const ImmutableCFOptions ioptions(options);
   CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucmp,
@@ -411,7 +411,7 @@ void WriteFile(const std::vector<std::string>& keys,
 
   std::unique_ptr<WritableFile> writable_file;
   ASSERT_OK(env->NewWritableFile(fname, &writable_file, env_options));
-  unique_ptr<WritableFileWriter> file_writer(
+  std::unique_ptr<WritableFileWriter> file_writer(
       new WritableFileWriter(std::move(writable_file), fname, env_options));
   CuckooTableBuilder builder(
       file_writer.get(), hash_ratio, 64, 1000, test::Uint64Comparator(), 5,
@@ -432,7 +432,7 @@ void WriteFile(const std::vector<std::string>& keys,
   env->GetFileSize(fname, &file_size);
   std::unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
-  unique_ptr<RandomAccessFileReader> file_reader(
+  std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(std::move(read_file), fname));
 
   const ImmutableCFOptions ioptions(options);
@@ -464,7 +464,7 @@ void ReadKeys(uint64_t num, uint32_t batch_size) {
   env->GetFileSize(fname, &file_size);
   std::unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
-  unique_ptr<RandomAccessFileReader> file_reader(
+  std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(std::move(read_file), fname));
 
   const ImmutableCFOptions ioptions(options);

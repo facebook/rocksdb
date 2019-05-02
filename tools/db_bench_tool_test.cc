@@ -248,6 +248,7 @@ const std::string options_file_content = R"OPTIONS_FILE(
   verify_checksums_in_compaction=true
   merge_operator=nullptr
   memtable_prefix_bloom_bits=0
+  memtable_whole_key_filtering=true
   paranoid_file_checks=false
   inplace_update_num_locks=10000
   optimize_filters_for_hits=false
@@ -279,7 +280,7 @@ const std::string options_file_content = R"OPTIONS_FILE(
 
 TEST_F(DBBenchTest, OptionsFileFromFile) {
   const std::string kOptionsFileName = test_path_ + "/OPTIONS_flash";
-  unique_ptr<WritableFile> writable;
+  std::unique_ptr<WritableFile> writable;
   ASSERT_OK(Env::Default()->NewWritableFile(kOptionsFileName, &writable,
                                             EnvOptions()));
   ASSERT_OK(writable->Append(options_file_content));

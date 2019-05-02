@@ -25,8 +25,7 @@ class LockTest : public testing::Test {
     current_ = this;
   }
 
-  ~LockTest() {
-  }
+  ~LockTest() override {}
 
   Status LockFile(FileLock** db_lock) {
     return env_->LockFile(file_, db_lock);

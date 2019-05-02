@@ -87,11 +87,9 @@ class Uint64ComparatorImpl : public Comparator {
  public:
   Uint64ComparatorImpl() {}
 
-  virtual const char* Name() const override {
-    return "rocksdb.Uint64Comparator";
-  }
+  const char* Name() const override { return "rocksdb.Uint64Comparator"; }
 
-  virtual int Compare(const Slice& a, const Slice& b) const override {
+  int Compare(const Slice& a, const Slice& b) const override {
     assert(a.size() == sizeof(uint64_t) && b.size() == sizeof(uint64_t));
     const uint64_t* left = reinterpret_cast<const uint64_t*>(a.data());
     const uint64_t* right = reinterpret_cast<const uint64_t*>(b.data());
@@ -108,14 +106,12 @@ class Uint64ComparatorImpl : public Comparator {
     }
   }
 
-  virtual void FindShortestSeparator(std::string* /*start*/,
-                                     const Slice& /*limit*/) const override {
+  void FindShortestSeparator(std::string* /*start*/,
+                             const Slice& /*limit*/) const override {
     return;
   }
 
-  virtual void FindShortSuccessor(std::string* /*key*/) const override {
-    return;
-  }
+  void FindShortSuccessor(std::string* /*key*/) const override { return; }
 };
 }  // namespace
 
@@ -126,19 +122,19 @@ const Comparator* Uint64Comparator() {
 
 WritableFileWriter* GetWritableFileWriter(WritableFile* wf,
                                           const std::string& fname) {
-  unique_ptr<WritableFile> file(wf);
+  std::unique_ptr<WritableFile> file(wf);
   return new WritableFileWriter(std::move(file), fname, EnvOptions());
 }
 
 RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf) {
-  unique_ptr<RandomAccessFile> file(raf);
+  std::unique_ptr<RandomAccessFile> file(raf);
   return new RandomAccessFileReader(std::move(file),
                                     "[test RandomAccessFileReader]");
 }
 
 SequentialFileReader* GetSequentialFileReader(SequentialFile* se,
                                               const std::string& fname) {
-  unique_ptr<SequentialFile> file(se);
+  std::unique_ptr<SequentialFile> file(se);
   return new SequentialFileReader(std::move(file), fname);
 }
 
@@ -310,6 +306,7 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   cf_opt->purge_redundant_kvs_while_flush = rnd->Uniform(2);
   cf_opt->force_consistency_checks = rnd->Uniform(2);
   cf_opt->compaction_options_fifo.allow_compaction = rnd->Uniform(2);
+  cf_opt->memtable_whole_key_filtering = rnd->Uniform(2);
 
   // double options
   cf_opt->hard_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
@@ -349,13 +346,13 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   // uint64_t options
   static const uint64_t uint_max = static_cast<uint64_t>(UINT_MAX);
   cf_opt->ttl = uint_max + rnd->Uniform(10000);
+  cf_opt->periodic_compaction_seconds = uint_max + rnd->Uniform(10000);
   cf_opt->max_sequential_skip_in_iterations = uint_max + rnd->Uniform(10000);
   cf_opt->target_file_size_base = uint_max + rnd->Uniform(10000);
   cf_opt->max_compaction_bytes =
       cf_opt->target_file_size_base * rnd->Uniform(100);
   cf_opt->compaction_options_fifo.max_table_files_size =
       uint_max + rnd->Uniform(10000);
-  cf_opt->compaction_options_fifo.ttl = uint_max + rnd->Uniform(10000);
 
   // unsigned int options
   cf_opt->rate_limit_delay_max_milliseconds = rnd->Uniform(10000);
@@ -399,6 +396,22 @@ Status DestroyDir(Env* env, const std::string& dir) {
     s = env->DeleteDir(dir);
   }
   return s;
+}
+
+bool IsDirectIOSupported(Env* env, const std::string& dir) {
+  EnvOptions env_options;
+  env_options.use_mmap_writes = false;
+  env_options.use_direct_writes = true;
+  std::string tmp = TempFileName(dir, 999);
+  Status s;
+  {
+    std::unique_ptr<WritableFile> file;
+    s = env->NewWritableFile(tmp, &file, env_options);
+  }
+  if (s.ok()) {
+    s = env->DeleteFile(tmp);
+  }
+  return s.ok();
 }
 
 }  // namespace test

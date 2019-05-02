@@ -46,7 +46,7 @@ TEST_F(DBStatisticsTest, CompressionStatsTest) {
   Options options = CurrentOptions();
   options.compression = type;
   options.statistics = rocksdb::CreateDBStatistics();
-  options.statistics->stats_level_ = StatsLevel::kExceptTimeForMutex;
+  options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
   DestroyAndReopen(options);
 
   int kNumKeysWritten = 100000;
@@ -105,7 +105,7 @@ TEST_F(DBStatisticsTest, MutexWaitStats) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
-  options.statistics->stats_level_ = StatsLevel::kAll;
+  options.statistics->set_stats_level(StatsLevel::kAll);
   CreateAndReopenWithCF({"pikachu"}, options);
   const uint64_t kMutexWaitDelay = 100;
   ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT,

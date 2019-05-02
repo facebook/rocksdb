@@ -1,3 +1,4 @@
+//  Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 //  Copyright (c) 2017 International Business Machines Corp.
 //  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
@@ -6,8 +7,7 @@
 //  This source code is also licensed under the GPLv2 license found in the
 //  COPYING file in the root directory of this source tree.
 
-#ifndef __OPCODES_H
-#define __OPCODES_H
+#pragma once
 
 #define __PPC_RA(a) (((a)&0x1f) << 16)
 #define __PPC_RB(b) (((b)&0x1f) << 11)
@@ -27,5 +27,3 @@
 #define VPMSUMD(t, a, b) .long PPC_INST_VPMSUMD | VSX_XX3((t), a, b)
 #define MFVRD(a, t) .long PPC_INST_MFVSRD | VSX_XX1((t) + 32, a, 0)
 #define MTVRD(t, a) .long PPC_INST_MTVSRD | VSX_XX1((t) + 32, a, 0)
-
-#endif

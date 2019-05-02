@@ -29,6 +29,22 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
   // rollback batch.
   w_options.disableWAL = true;
 
+  class InvalidSnapshotReadCallback : public ReadCallback {
+   public:
+    InvalidSnapshotReadCallback(SequenceNumber snapshot)
+        : ReadCallback(snapshot) {}
+
+    inline bool IsVisibleFullCheck(SequenceNumber) override {
+      // The seq provided as snapshot is the seq right before we have locked and
+      // wrote to it, so whatever is there, it is committed.
+      return true;
+    }
+
+    // Ignore the refresh request since we are confident that our snapshot seq
+    // is not going to be affected by concurrent compactions (not enabled yet.)
+    void Refresh(SequenceNumber) override {}
+  };
+
   // Iterate starting with largest sequence number.
   for (auto it = rtxn->batches_.rbegin(); it != rtxn->batches_.rend(); it++) {
     auto last_visible_txn = it->first - 1;
@@ -38,7 +54,7 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
     struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
       DBImpl* db_;
       ReadOptions roptions;
-      WritePreparedTxnReadCallback callback;
+      InvalidSnapshotReadCallback callback;
       WriteBatch* rollback_batch_;
       std::map<uint32_t, const Comparator*>& comparators_;
       std::map<uint32_t, ColumnFamilyHandle*>& handles_;
@@ -46,14 +62,13 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
       std::map<uint32_t, CFKeys> keys_;
       bool rollback_merge_operands_;
       RollbackWriteBatchBuilder(
-          DBImpl* db, WritePreparedTxnDB* wpt_db, SequenceNumber snap_seq,
-          WriteBatch* dst_batch,
+          DBImpl* db, SequenceNumber snap_seq, WriteBatch* dst_batch,
           std::map<uint32_t, const Comparator*>& comparators,
           std::map<uint32_t, ColumnFamilyHandle*>& handles,
           bool rollback_merge_operands)
           : db_(db),
-            callback(wpt_db, snap_seq,
-                     0),  // 0 disables min_uncommitted optimization
+            callback(snap_seq),
+            // disable min_uncommitted optimization
             rollback_batch_(dst_batch),
             comparators_(comparators),
             handles_(handles),
@@ -128,7 +143,7 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
       Status MarkRollback(const Slice&) override {
         return Status::InvalidArgument();
       }
-    } rollback_handler(db_impl_, this, last_visible_txn, &rollback_batch,
+    } rollback_handler(db_impl_, last_visible_txn, &rollback_batch,
                        *cf_comp_map_shared_ptr.get(), *cf_map_shared_ptr.get(),
                        txn_db_options_.rollback_merge_operands);
 
@@ -173,11 +188,9 @@ Status WriteUnpreparedTxnDB::Initialize(
    public:
     explicit CommitSubBatchPreReleaseCallback(WritePreparedTxnDB* db)
         : db_(db) {}
-    virtual Status Callback(SequenceNumber commit_seq,
-                            bool is_mem_disabled) override {
-#ifdef NDEBUG
-      (void)is_mem_disabled;
-#endif
+    Status Callback(SequenceNumber commit_seq,
+                    bool is_mem_disabled __attribute__((__unused__)),
+                    uint64_t) override {
       assert(!is_mem_disabled);
       db_->AddCommitted(commit_seq, commit_seq);
       return Status::OK();
@@ -214,11 +227,6 @@ Status WriteUnpreparedTxnDB::Initialize(
     compaction_enabled_cf_handles.push_back(handles[index]);
   }
 
-  Status s = EnableAutoCompaction(compaction_enabled_cf_handles);
-  if (!s.ok()) {
-    return s;
-  }
-
   // create 'real' transactions from recovered shell transactions
   auto rtxns = dbimpl->recovered_transactions();
   for (auto rtxn : rtxns) {
@@ -250,7 +258,7 @@ Status WriteUnpreparedTxnDB::Initialize(
 
     real_trx->SetLogNumber(first_log_number);
     real_trx->SetId(first_seq);
-    s = real_trx->SetName(recovered_trx->name_);
+    Status s = real_trx->SetName(recovered_trx->name_);
     if (!s.ok()) {
       break;
     }
@@ -288,7 +296,16 @@ Status WriteUnpreparedTxnDB::Initialize(
   SequenceNumber prev_max = max_evicted_seq_;
   SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber();
   AdvanceMaxEvictedSeq(prev_max, last_seq);
+  // Create a gap between max and the next snapshot. This simplifies the logic
+  // in IsInSnapshot by not having to consider the special case of max ==
+  // snapshot after recovery. This is tested in IsInSnapshotEmptyMapTest.
+  if (last_seq) {
+    db_impl_->versions_->SetLastAllocatedSequence(last_seq + 1);
+    db_impl_->versions_->SetLastSequence(last_seq + 1);
+    db_impl_->versions_->SetLastPublishedSequence(last_seq + 1);
+  }
 
+  Status s;
   // Rollback unprepared transactions.
   for (auto rtxn : rtxns) {
     auto recovered_trx = rtxn.second;
@@ -303,6 +320,10 @@ Status WriteUnpreparedTxnDB::Initialize(
 
   if (s.ok()) {
     dbimpl->DeleteAllRecoveredTransactions();
+
+    // Compaction should start only after max_evicted_seq_ is set AND recovered
+    // transactions are either added to PrepareHeap or rolled back.
+    s = EnableAutoCompaction(compaction_enabled_cf_handles);
   }
 
   return s;
@@ -325,6 +346,7 @@ struct WriteUnpreparedTxnDB::IteratorState {
                 std::shared_ptr<ManagedSnapshot> s,
                 SequenceNumber min_uncommitted, WriteUnpreparedTxn* txn)
       : callback(txn_db, sequence, min_uncommitted, txn), snapshot(s) {}
+  SequenceNumber MaxVisibleSeq() { return callback.max_visible_seq(); }
 
   WriteUnpreparedTxnReadCallback callback;
   std::shared_ptr<ManagedSnapshot> snapshot;
@@ -366,8 +388,8 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
   auto* state =
       new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted, txn);
   auto* db_iter =
-      db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback,
-                                !ALLOW_BLOB, !ALLOW_REFRESH);
+      db_impl_->NewIteratorImpl(options, cfd, state->MaxVisibleSeq(),
+                                &state->callback, !ALLOW_BLOB, !ALLOW_REFRESH);
   db_iter->RegisterCleanup(CleanupWriteUnpreparedTxnDBIterator, state, nullptr);
   return db_iter;
 }

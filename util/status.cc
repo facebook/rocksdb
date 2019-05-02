@@ -41,7 +41,8 @@ static const char* msgs[static_cast<int>(Status::kMaxSubCode)] = {
     "Deadlock",                                           // kDeadlock
     "Stale file handle",                                  // kStaleFile
     "Memory limit reached",                               // kMemoryLimit
-    "Space limit reached"                                 // kSpaceLimit
+    "Space limit reached",                                // kSpaceLimit
+    "No such file or directory",                          // kPathNotFound
 };
 
 Status::Status(Code _code, SubCode _subcode, const Slice& msg,

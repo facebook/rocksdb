@@ -20,10 +20,12 @@
 #include <limits>
 
 #include "db/compaction_picker.h"
+#include "db/compaction_picker_fifo.h"
 #include "db/compaction_picker_universal.h"
 #include "db/db_impl.h"
 #include "db/internal_stats.h"
 #include "db/job_context.h"
+#include "db/range_del_aggregator.h"
 #include "db/table_properties_collector.h"
 #include "db/version_set.h"
 #include "db/write_controller.h"
@@ -61,12 +63,24 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
     JobContext job_context(0);
     mutex_->Lock();
     if (cfd_->Unref()) {
+      bool dropped = cfd_->IsDropped();
+
       delete cfd_;
+
+      if (dropped) {
+        db_->FindObsoleteFiles(&job_context, false, true);
+      }
     }
-    db_->FindObsoleteFiles(&job_context, false, true);
     mutex_->Unlock();
     if (job_context.HaveSomethingToDelete()) {
-      db_->PurgeObsoleteFiles(job_context);
+      bool defer_purge =
+          db_->immutable_db_options().avoid_unnecessary_blocking_io;
+      db_->PurgeObsoleteFiles(job_context, defer_purge);
+      if (defer_purge) {
+        mutex_->Lock();
+        db_->SchedulePurge();
+        mutex_->Unlock();
+      }
     }
     job_context.Clean();
   }
@@ -105,9 +119,6 @@ void GetIntTblPropCollectorFactory(
     int_tbl_prop_collector_factories->emplace_back(
         new UserKeyTablePropertiesCollectorFactory(collector_factories[i]));
   }
-  // Add collector to collect internal key statistics
-  int_tbl_prop_collector_factories->emplace_back(
-      new InternalKeyPropertiesCollectorFactory);
 }
 
 Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
@@ -130,14 +141,10 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
     }
   }
   if (cf_options.compression_opts.zstd_max_train_bytes > 0) {
-    if (!CompressionTypeSupported(CompressionType::kZSTD)) {
-      // Dictionary trainer is available since v0.6.1, but ZSTD was marked
-      // stable only since v0.8.0. For now we enable the feature in stable
-      // versions only.
+    if (!ZSTD_TrainDictionarySupported()) {
       return Status::InvalidArgument(
-          "zstd dictionary trainer cannot be used because " +
-          CompressionTypeToString(CompressionType::kZSTD) +
-          " is not linked with the binary.");
+          "zstd dictionary trainer cannot be used because ZSTD 1.1.3+ "
+          "is not linked with the binary.");
     }
     if (cf_options.compression_opts.max_dict_bytes == 0) {
       return Status::InvalidArgument(
@@ -945,26 +952,16 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   super_version->imm->AddIterators(read_opts, &merge_iter_builder);
   ScopedArenaIterator memtable_iter(merge_iter_builder.Finish());
 
-  std::vector<InternalIterator*> memtable_range_del_iters;
+  auto read_seq = super_version->current->version_set()->LastSequence();
+  ReadRangeDelAggregator range_del_agg(&internal_comparator_, read_seq);
   auto* active_range_del_iter =
-      super_version->mem->NewRangeTombstoneIterator(read_opts);
-  if (active_range_del_iter != nullptr) {
-    memtable_range_del_iters.push_back(active_range_del_iter);
-  }
-  super_version->imm->AddRangeTombstoneIterators(read_opts,
-                                                 &memtable_range_del_iters);
-  RangeDelAggregator range_del_agg(internal_comparator_, {} /* snapshots */,
-                                   false /* collapse_deletions */);
+      super_version->mem->NewRangeTombstoneIterator(read_opts, read_seq);
+  range_del_agg.AddTombstones(
+      std::unique_ptr<FragmentedRangeTombstoneIterator>(active_range_del_iter));
+  super_version->imm->AddRangeTombstoneIterators(read_opts, nullptr /* arena */,
+                                                 &range_del_agg);
+
   Status status;
-  {
-    std::unique_ptr<InternalIterator> memtable_range_del_iter(
-        NewMergingIterator(&internal_comparator_,
-                           memtable_range_del_iters.empty()
-                               ? nullptr
-                               : &memtable_range_del_iters[0],
-                           static_cast<int>(memtable_range_del_iters.size())));
-    status = range_del_agg.AddTombstones(std::move(memtable_range_del_iter));
-  }
   for (size_t i = 0; i < ranges.size() && status.ok() && !*overlap; ++i) {
     auto* vstorage = super_version->current->storage_info();
     auto* ucmp = vstorage->InternalComparator()->user_comparator();
@@ -997,13 +994,14 @@ const int ColumnFamilyData::kCompactToBaseLevel = -2;
 
 Compaction* ColumnFamilyData::CompactRange(
     const MutableCFOptions& mutable_cf_options, int input_level,
-    int output_level, uint32_t output_path_id, uint32_t max_subcompactions,
+    int output_level, const CompactRangeOptions& compact_range_options,
     const InternalKey* begin, const InternalKey* end,
-    InternalKey** compaction_end, bool* conflict) {
+    InternalKey** compaction_end, bool* conflict,
+    uint64_t max_file_num_to_ignore) {
   auto* result = compaction_picker_->CompactRange(
       GetName(), mutable_cf_options, current_->storage_info(), input_level,
-      output_level, output_path_id, max_subcompactions, begin, end,
-      compaction_end, conflict);
+      output_level, compact_range_options, begin, end, compaction_end, conflict,
+      max_file_num_to_ignore);
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }

@@ -47,21 +47,6 @@ struct BlobCompactionContext;
 class BlobDBImpl;
 class BlobFile;
 
-// this implements the callback from the WAL which ensures that the
-// blob record is present in the blob log. If fsync/fdatasync in not
-// happening on every write, there is the probability that keys in the
-// blob log can lag the keys in blobs
-// TODO(yiwu): implement the WAL filter.
-class BlobReconcileWalFilter : public WalFilter {
- public:
-  virtual WalFilter::WalProcessingOption LogRecordFound(
-      unsigned long long log_number, const std::string& log_file_name,
-      const WriteBatch& batch, WriteBatch* new_batch,
-      bool* batch_changed) override;
-
-  virtual const char* Name() const override { return "BlobDBWalReconciler"; }
-};
-
 // Comparator to sort "TTL" aware Blob files based on the lower value of
 // TTL range.
 struct BlobFileComparatorTTL {
@@ -212,6 +197,8 @@ class BlobDBImpl : public BlobDB {
   void TEST_DeleteObsoleteFiles();
 
   uint64_t TEST_live_sst_size();
+
+  const std::string& TEST_blob_dir() const { return blob_dir_; }
 #endif  //  !NDEBUG
 
  private:
@@ -255,10 +242,11 @@ class BlobDBImpl : public BlobDB {
 
   // find an existing blob log file based on the expiration unix epoch
   // if such a file does not exist, return nullptr
-  std::shared_ptr<BlobFile> SelectBlobFileTTL(uint64_t expiration);
+  Status SelectBlobFileTTL(uint64_t expiration,
+                           std::shared_ptr<BlobFile>* blob_file);
 
   // find an existing blob log file to append the value to
-  std::shared_ptr<BlobFile> SelectBlobFile();
+  Status SelectBlobFile(std::shared_ptr<BlobFile>* blob_file);
 
   std::shared_ptr<BlobFile> FindBlobFileLocked(uint64_t expiration) const;
 
@@ -296,11 +284,8 @@ class BlobDBImpl : public BlobDB {
   // Open all blob files found in blob_dir.
   Status OpenAllBlobFiles();
 
-  // hold write mutex on file and call
-  // creates a Random Access reader for GET call
-  std::shared_ptr<RandomAccessFileReader> GetOrOpenRandomAccessReader(
-      const std::shared_ptr<BlobFile>& bfile, Env* env,
-      const EnvOptions& env_options);
+  Status GetBlobFileReader(const std::shared_ptr<BlobFile>& blob_file,
+                           std::shared_ptr<RandomAccessFileReader>* reader);
 
   // hold write mutex on file and call.
   // Close the above Random Access reader
@@ -312,8 +297,8 @@ class BlobDBImpl : public BlobDB {
 
   // returns a Writer object for the file. If writer is not
   // already present, creates one. Needs Write Mutex to be held
-  std::shared_ptr<Writer> CheckOrCreateWriterLocked(
-      const std::shared_ptr<BlobFile>& bfile);
+  Status CheckOrCreateWriterLocked(const std::shared_ptr<BlobFile>& blob_file,
+                                   std::shared_ptr<Writer>* writer);
 
   // Iterate through keys and values on Blob and write into
   // separate file the remaining blobs and delete/update pointers
@@ -350,7 +335,8 @@ class BlobDBImpl : public BlobDB {
   ColumnFamilyOptions cf_options_;
   EnvOptions env_options_;
 
-  // Raw pointer of statistic. db_options_ has a shared_ptr to hold ownership.
+  // Raw pointer of statistic. db_options_ has a std::shared_ptr to hold
+  // ownership.
   Statistics* statistics_;
 
   // by default this is "blob_dir" under dbname_

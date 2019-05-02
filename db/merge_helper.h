@@ -3,8 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef MERGE_HELPER_H
-#define MERGE_HELPER_H
+#pragma once
 
 #include <deque>
 #include <string>
@@ -79,7 +78,7 @@ class MergeHelper {
   //
   // REQUIRED: The first key in the input is not corrupted.
   Status MergeUntil(InternalIterator* iter,
-                    RangeDelAggregator* range_del_agg = nullptr,
+                    CompactionRangeDelAggregator* range_del_agg = nullptr,
                     const SequenceNumber stop_before = 0,
                     const bool at_bottom = false);
 
@@ -193,5 +192,3 @@ class MergeOutputIterator {
 };
 
 } // namespace rocksdb
-
-#endif

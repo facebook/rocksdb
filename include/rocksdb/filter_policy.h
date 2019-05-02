@@ -17,12 +17,11 @@
 // Most people will want to use the builtin bloom filter support (see
 // NewBloomFilterPolicy() below).
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_FILTER_POLICY_H_
-#define STORAGE_ROCKSDB_INCLUDE_FILTER_POLICY_H_
+#pragma once
 
+#include <stdlib.h>
 #include <memory>
 #include <stdexcept>
-#include <stdlib.h>
 #include <string>
 #include <vector>
 
@@ -48,7 +47,7 @@ class FilterBitsBuilder {
   // Calculate num of entries fit into a space.
 #if defined(_MSC_VER)
 #pragma warning(push)
-#pragma warning(disable : 4702) // unreachable code
+#pragma warning(disable : 4702)  // unreachable code
 #endif
   virtual int CalculateNumEntry(const uint32_t /*space*/) {
 #ifndef ROCKSDB_LITE
@@ -71,6 +70,13 @@ class FilterBitsReader {
 
   // Check if the entry match the bits in filter
   virtual bool MayMatch(const Slice& entry) = 0;
+
+  // Check if an array of entries match the bits in filter
+  virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) {
+    for (int i = 0; i < num_keys; ++i) {
+      may_match[i] = MayMatch(*keys[i]);
+    }
+  }
 };
 
 // We add a new format of filter block called full filter block
@@ -103,8 +109,8 @@ class FilterPolicy {
   //
   // Warning: do not change the initial contents of *dst.  Instead,
   // append the newly constructed filter to *dst.
-  virtual void CreateFilter(const Slice* keys, int n, std::string* dst)
-      const = 0;
+  virtual void CreateFilter(const Slice* keys, int n,
+                            std::string* dst) const = 0;
 
   // "filter" contains the data appended by a preceding call to
   // CreateFilter() on this class.  This method must return true if
@@ -115,9 +121,7 @@ class FilterPolicy {
 
   // Get the FilterBitsBuilder, which is ONLY used for full filter block
   // It contains interface to take individual key, then generate filter
-  virtual FilterBitsBuilder* GetFilterBitsBuilder() const {
-    return nullptr;
-  }
+  virtual FilterBitsBuilder* GetFilterBitsBuilder() const { return nullptr; }
 
   // Get the FilterBitsReader, which is ONLY used for full filter block
   // It contains interface to tell if key can be in filter
@@ -146,8 +150,6 @@ class FilterPolicy {
 // ignores trailing spaces, it would be incorrect to use a
 // FilterPolicy (like NewBloomFilterPolicy) that does not ignore
 // trailing spaces in keys.
-extern const FilterPolicy* NewBloomFilterPolicy(int bits_per_key,
-    bool use_block_based_builder = true);
-}
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_FILTER_POLICY_H_
+extern const FilterPolicy* NewBloomFilterPolicy(
+    int bits_per_key, bool use_block_based_builder = false);
+}  // namespace rocksdb

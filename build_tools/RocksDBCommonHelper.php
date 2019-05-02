@@ -7,12 +7,12 @@
 // Name of the environment variables which need to be set by the entity which
 // triggers continuous runs so that code at the end of the file gets executed
 // and Sandcastle run starts.
-define("ENV_POST_RECEIVE_HOOK", "POST_RECEIVE_HOOK");
-define("ENV_HTTPS_APP_VALUE", "HTTPS_APP_VALUE");
-define("ENV_HTTPS_TOKEN_VALUE", "HTTPS_TOKEN_VALUE");
+const ENV_POST_RECEIVE_HOOK = "POST_RECEIVE_HOOK";
+const ENV_HTTPS_APP_VALUE = "HTTPS_APP_VALUE";
+const ENV_HTTPS_TOKEN_VALUE = "HTTPS_TOKEN_VALUE";
 
-define("PRIMARY_TOKEN_FILE", '/home/krad/.sandcastle');
-define("CONT_RUN_ALIAS", "leveldb");
+const PRIMARY_TOKEN_FILE = '/home/krad/.sandcastle';
+const CONT_RUN_ALIAS = "leveldb";
 
 //////////////////////////////////////////////////////////////////////
 /*  Run tests in sandcastle */
@@ -97,7 +97,7 @@ function getSteps($applyDiff, $diffID, $username, $test) {
   }
 
   // fbcode is a sub-repo. We cannot patch until we add it to ignore otherwise
-  // Git thinks it is an uncommited change.
+  // Git thinks it is an uncommitted change.
   $fix_git_ignore = array(
     "name" => "Fix git ignore",
     "shell" => "echo fbcode >> .git/info/exclude",

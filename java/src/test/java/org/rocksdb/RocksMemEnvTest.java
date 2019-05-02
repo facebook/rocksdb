@@ -33,7 +33,7 @@ public class RocksMemEnvTest {
         "baz".getBytes()
     };
 
-    try (final Env env = new RocksMemEnv();
+    try (final Env env = new RocksMemEnv(Env.getDefault());
          final Options options = new Options()
              .setCreateIfMissing(true)
              .setEnv(env);
@@ -107,7 +107,7 @@ public class RocksMemEnvTest {
         "baz".getBytes()
     };
 
-    try (final Env env = new RocksMemEnv();
+    try (final Env env = new RocksMemEnv(Env.getDefault());
          final Options options = new Options()
              .setCreateIfMissing(true)
              .setEnv(env);
@@ -136,7 +136,7 @@ public class RocksMemEnvTest {
 
   @Test(expected = RocksDBException.class)
   public void createIfMissingFalse() throws RocksDBException {
-    try (final Env env = new RocksMemEnv();
+    try (final Env env = new RocksMemEnv(Env.getDefault());
          final Options options = new Options()
              .setCreateIfMissing(false)
              .setEnv(env);

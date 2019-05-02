@@ -15,8 +15,8 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <string>
 #include <memory>
+#include <string>
 #include <vector>
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
@@ -25,7 +25,6 @@
 #include "util/hash.h"
 
 namespace rocksdb {
-
 
 // A BlockBasedFilterBlockBuilder is used to construct all of the filters for a
 // particular Table.  It generates a single string which is stored as
@@ -36,7 +35,7 @@ namespace rocksdb {
 class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
  public:
   BlockBasedFilterBlockBuilder(const SliceTransform* prefix_extractor,
-      const BlockBasedTableOptions& table_opt);
+                               const BlockBasedTableOptions& table_opt);
 
   virtual bool IsBlockBased() override { return true; }
   virtual void StartBlock(uint64_t block_offset) override;
@@ -66,7 +65,7 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
   std::string result_;              // Filter data computed so far
   std::vector<Slice> tmp_entries_;  // policy_->CreateFilter() argument
   std::vector<uint32_t> filter_offsets_;
-  size_t num_added_;                // Number of keys added
+  size_t num_added_;  // Number of keys added
 
   // No copying allowed
   BlockBasedFilterBlockBuilder(const BlockBasedFilterBlockBuilder&);

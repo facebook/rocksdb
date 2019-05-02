@@ -83,6 +83,8 @@ class SstFileManager {
 
 // Create a new SstFileManager that can be shared among multiple RocksDB
 // instances to track SST file and control there deletion rate.
+// Even though SstFileManager don't track WAL files but it still control
+// there deletion rate.
 //
 // @param env: Pointer to Env object, please see "rocksdb/env.h".
 // @param info_log: If not nullptr, info_log will be used to log errors.
@@ -93,6 +95,7 @@ class SstFileManager {
 //    this value is set to 1024 (1 Kb / sec) and we deleted a file of size 4 Kb
 //    in 1 second, we will wait for another 3 seconds before we delete other
 //    files, Set to 0 to disable deletion rate limiting.
+//    This option also affect the delete rate of WAL files in the DB.
 // @param delete_existing_trash: Deprecated, this argument have no effect, but
 //    if user provide trash_dir we will schedule deletes for files in the dir
 // @param status: If not nullptr, status will contain any errors that happened

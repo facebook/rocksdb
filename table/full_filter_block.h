@@ -107,6 +107,16 @@ class FullFilterBlockReader : public FilterBlockReader {
       const Slice& prefix, const SliceTransform* prefix_extractor,
       uint64_t block_offset = kNotValid, const bool no_io = false,
       const Slice* const const_ikey_ptr = nullptr) override;
+
+  virtual void KeysMayMatch(MultiGetRange* range,
+                            const SliceTransform* prefix_extractor,
+                            uint64_t block_offset = kNotValid,
+                            const bool no_io = false) override;
+
+  virtual void PrefixesMayMatch(MultiGetRange* range,
+                                const SliceTransform* prefix_extractor,
+                                uint64_t block_offset = kNotValid,
+                                const bool no_io = false) override;
   virtual size_t ApproximateMemoryUsage() const override;
   virtual bool RangeMayExist(const Slice* iterate_upper_bound, const Slice& user_key,
                              const SliceTransform* prefix_extractor,
@@ -124,6 +134,7 @@ class FullFilterBlockReader : public FilterBlockReader {
   // No copying allowed
   FullFilterBlockReader(const FullFilterBlockReader&);
   bool MayMatch(const Slice& entry);
+  void MayMatch(MultiGetRange* range);
   void operator=(const FullFilterBlockReader&);
   bool IsFilterCompatible(const Slice* iterate_upper_bound,
                           const Slice& prefix, const Comparator* comparator);

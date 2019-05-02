@@ -25,6 +25,30 @@ public class ReadOptionsTest {
   public ExpectedException exception = ExpectedException.none();
 
   @Test
+  public void altConstructor() {
+    try (final ReadOptions opt = new ReadOptions(true, true)) {
+      assertThat(opt.verifyChecksums()).isTrue();
+      assertThat(opt.fillCache()).isTrue();
+    }
+  }
+
+  @Test
+  public void copyConstructor() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      opt.setVerifyChecksums(false);
+      opt.setFillCache(false);
+      opt.setIterateUpperBound(buildRandomSlice());
+      opt.setIterateLowerBound(buildRandomSlice());
+      try (final ReadOptions other = new ReadOptions(opt)) {
+        assertThat(opt.verifyChecksums()).isEqualTo(other.verifyChecksums());
+        assertThat(opt.fillCache()).isEqualTo(other.fillCache());
+        assertThat(Arrays.equals(opt.iterateUpperBound().data(), other.iterateUpperBound().data())).isTrue();
+        assertThat(Arrays.equals(opt.iterateLowerBound().data(), other.iterateLowerBound().data())).isTrue();
+      }
+    }
+  }
+
+  @Test
   public void verifyChecksum() {
     try (final ReadOptions opt = new ReadOptions()) {
       final Random rand = new Random();
@@ -145,15 +169,36 @@ public class ReadOptionsTest {
   }
 
   @Test
-  public void copyConstructor() {
+  public void iterateLowerBound() {
     try (final ReadOptions opt = new ReadOptions()) {
-      opt.setVerifyChecksums(false);
-      opt.setFillCache(false);
-      opt.setIterateUpperBound(buildRandomSlice());
-      ReadOptions other = new ReadOptions(opt);
-      assertThat(opt.verifyChecksums()).isEqualTo(other.verifyChecksums());
-      assertThat(opt.fillCache()).isEqualTo(other.fillCache());
-      assertThat(Arrays.equals(opt.iterateUpperBound().data(), other.iterateUpperBound().data())).isTrue();
+      Slice lowerBound = buildRandomSlice();
+      opt.setIterateLowerBound(lowerBound);
+      assertThat(Arrays.equals(lowerBound.data(), opt.iterateLowerBound().data())).isTrue();
+    }
+  }
+
+  @Test
+  public void iterateLowerBoundNull() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      assertThat(opt.iterateLowerBound()).isNull();
+    }
+  }
+
+  @Test
+  public void tableFilter() {
+    try (final ReadOptions opt = new ReadOptions();
+         final AbstractTableFilter allTablesFilter = new AllTablesFilter()) {
+      opt.setTableFilter(allTablesFilter);
+    }
+  }
+
+  @Test
+  public void iterStartSeqnum() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      assertThat(opt.iterStartSeqnum()).isEqualTo(0);
+
+      opt.setIterStartSeqnum(10);
+      assertThat(opt.iterStartSeqnum()).isEqualTo(10);
     }
   }
 
@@ -237,6 +282,22 @@ public class ReadOptionsTest {
     }
   }
 
+  @Test
+  public void failSetIterateLowerBoundUninitialized() {
+    try (final ReadOptions readOptions =
+             setupUninitializedReadOptions(exception)) {
+      readOptions.setIterateLowerBound(null);
+    }
+  }
+
+  @Test
+  public void failIterateLowerBoundUninitialized() {
+    try (final ReadOptions readOptions =
+             setupUninitializedReadOptions(exception)) {
+      readOptions.iterateLowerBound();
+    }
+  }
+
   private ReadOptions setupUninitializedReadOptions(
       ExpectedException exception) {
     final ReadOptions readOptions = new ReadOptions();
@@ -252,4 +313,10 @@ public class ReadOptionsTest {
     return new Slice(sliceBytes);
   }
 
+  private static class AllTablesFilter extends AbstractTableFilter {
+    @Override
+    public boolean filter(final TableProperties tableProperties) {
+      return true;
+    }
+  }
 }

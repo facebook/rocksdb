@@ -179,15 +179,16 @@ class autovector {
   typedef std::reverse_iterator<iterator> reverse_iterator;
   typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
 
-  autovector() = default;
+  autovector() : values_(reinterpret_cast<pointer>(buf_)) {}
 
-  autovector(std::initializer_list<T> init_list) {
+  autovector(std::initializer_list<T> init_list)
+      : values_(reinterpret_cast<pointer>(buf_)) {
     for (const T& item : init_list) {
       push_back(item);
     }
   }
 
-  ~autovector() = default;
+  ~autovector() { clear(); }
 
   // -- Immutable operations
   // Indicate if all data resides in in-stack data structure.
@@ -203,10 +204,18 @@ class autovector {
   void resize(size_type n) {
     if (n > kSize) {
       vect_.resize(n - kSize);
+      while (num_stack_items_ < kSize) {
+        new ((void*)(&values_[num_stack_items_++])) value_type();
+      }
       num_stack_items_ = kSize;
     } else {
       vect_.clear();
-      num_stack_items_ = n;
+      while (num_stack_items_ < n) {
+        new ((void*)(&values_[num_stack_items_++])) value_type();
+      }
+      while (num_stack_items_ > n) {
+        values_[--num_stack_items_].~value_type();
+      }
     }
   }
 
@@ -214,12 +223,18 @@ class autovector {
 
   const_reference operator[](size_type n) const {
     assert(n < size());
-    return n < kSize ? values_[n] : vect_[n - kSize];
+    if (n < kSize) {
+      return values_[n];
+    }
+    return vect_[n - kSize];
   }
 
   reference operator[](size_type n) {
     assert(n < size());
-    return n < kSize ? values_[n] : vect_[n - kSize];
+    if (n < kSize) {
+      return values_[n];
+    }
+    return vect_[n - kSize];
   }
 
   const_reference at(size_type n) const {
@@ -255,6 +270,7 @@ class autovector {
   // -- Mutable Operations
   void push_back(T&& item) {
     if (num_stack_items_ < kSize) {
+      new ((void*)(&values_[num_stack_items_])) value_type();
       values_[num_stack_items_++] = std::move(item);
     } else {
       vect_.push_back(item);
@@ -263,6 +279,7 @@ class autovector {
 
   void push_back(const T& item) {
     if (num_stack_items_ < kSize) {
+      new ((void*)(&values_[num_stack_items_])) value_type();
       values_[num_stack_items_++] = item;
     } else {
       vect_.push_back(item);
@@ -271,7 +288,12 @@ class autovector {
 
   template <class... Args>
   void emplace_back(Args&&... args) {
-    push_back(value_type(args...));
+    if (num_stack_items_ < kSize) {
+      new ((void*)(&values_[num_stack_items_++]))
+          value_type(std::forward<Args>(args)...);
+    } else {
+      vect_.emplace_back(std::forward<Args>(args)...);
+    }
   }
 
   void pop_back() {
@@ -279,12 +301,14 @@ class autovector {
     if (!vect_.empty()) {
       vect_.pop_back();
     } else {
-      --num_stack_items_;
+      values_[--num_stack_items_].~value_type();
     }
   }
 
   void clear() {
-    num_stack_items_ = 0;
+    while (num_stack_items_ > 0) {
+      values_[--num_stack_items_].~value_type();
+    }
     vect_.clear();
   }
 
@@ -318,13 +342,17 @@ class autovector {
 
  private:
   size_type num_stack_items_ = 0;  // current number of items
-  value_type values_[kSize];       // the first `kSize` items
+  alignas(alignof(
+      value_type)) char buf_[kSize *
+                             sizeof(value_type)];  // the first `kSize` items
+  pointer values_;
   // used only if there are more than `kSize` items.
   std::vector<T> vect_;
 };
 
 template <class T, size_t kSize>
 autovector<T, kSize>& autovector<T, kSize>::assign(const autovector& other) {
+  values_ = reinterpret_cast<pointer>(buf_);
   // copy the internal vector
   vect_.assign(other.vect_.begin(), other.vect_.end());
 

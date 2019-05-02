@@ -50,7 +50,7 @@ class TraceAnalyzerTest : public testing::Test {
     dbname_ = test_path_ + "/db";
   }
 
-  ~TraceAnalyzerTest() {}
+  ~TraceAnalyzerTest() override {}
 
   void GenerateTrace(std::string trace_path) {
     Options options;

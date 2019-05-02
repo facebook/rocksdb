@@ -79,7 +79,7 @@ class CompactionJobTest : public testing::Test {
         shutting_down_(false),
         preserve_deletes_seqnum_(0),
         mock_table_factory_(new mock::MockTableFactory()),
-        error_handler_(db_options_, &mutex_) {
+        error_handler_(nullptr, db_options_, &mutex_) {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
@@ -172,7 +172,7 @@ class CompactionJobTest : public testing::Test {
         // This is how the key will look like once it's written in bottommost
         // file
         InternalKey bottommost_internal_key(
-            key, (key == "9999") ? sequence_number : 0, kTypeValue);
+            key, 0, kTypeValue);
 
         if (corrupt_id(k)) {
           test::CorruptKeyType(&internal_key);
@@ -200,11 +200,11 @@ class CompactionJobTest : public testing::Test {
     new_db.SetLastSequence(0);
 
     const std::string manifest = DescriptorFileName(dbname_, 1);
-    unique_ptr<WritableFile> file;
+    std::unique_ptr<WritableFile> file;
     Status s = env_->NewWritableFile(
         manifest, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
-    unique_ptr<WritableFileWriter> file_writer(
+    std::unique_ptr<WritableFileWriter> file_writer(
         new WritableFileWriter(std::move(file), manifest, env_options_));
     {
       log::Writer log(std::move(file_writer), 0, false);
@@ -262,7 +262,8 @@ class CompactionJobTest : public testing::Test {
         &shutting_down_, preserve_deletes_seqnum_, &log_buffer, nullptr,
         nullptr, nullptr, &mutex_, &error_handler_, snapshots,
         earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
-        &event_logger, false, false, dbname_, &compaction_job_stats_);
+        &event_logger, false, false, dbname_, &compaction_job_stats_,
+        Env::Priority::USER);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
     compaction_job.Prepare();
@@ -379,7 +380,7 @@ TEST_F(CompactionJobTest, SimpleOverwrite) {
 
   auto expected_results =
       mock::MakeMockFile({{KeyStr("a", 0U, kTypeValue), "val2"},
-                          {KeyStr("b", 4U, kTypeValue), "val3"}});
+                          {KeyStr("b", 0U, kTypeValue), "val3"}});
 
   SetLastSequence(4U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
@@ -432,7 +433,7 @@ TEST_F(CompactionJobTest, SimpleMerge) {
 
   auto expected_results =
       mock::MakeMockFile({{KeyStr("a", 0U, kTypeValue), "3,4,5"},
-                          {KeyStr("b", 2U, kTypeValue), "1,2"}});
+                          {KeyStr("b", 0U, kTypeValue), "1,2"}});
 
   SetLastSequence(5U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
@@ -456,8 +457,7 @@ TEST_F(CompactionJobTest, NonAssocMerge) {
 
   auto expected_results =
       mock::MakeMockFile({{KeyStr("a", 0U, kTypeValue), "3,4,5"},
-                          {KeyStr("b", 2U, kTypeMerge), "2"},
-                          {KeyStr("b", 1U, kTypeMerge), "1"}});
+                          {KeyStr("b", 0U, kTypeValue), "1,2"}});
 
   SetLastSequence(5U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
@@ -484,7 +484,7 @@ TEST_F(CompactionJobTest, MergeOperandFilter) {
 
   auto expected_results =
       mock::MakeMockFile({{KeyStr("a", 0U, kTypeValue), test::EncodeInt(8U)},
-                          {KeyStr("b", 2U, kTypeMerge), test::EncodeInt(2U)}});
+                          {KeyStr("b", 0U, kTypeValue), test::EncodeInt(2U)}});
 
   SetLastSequence(5U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
@@ -747,7 +747,7 @@ TEST_F(CompactionJobTest, SingleDeleteZeroSeq) {
   AddMockFile(file2);
 
   auto expected_results = mock::MakeMockFile({
-      {KeyStr("dummy", 5U, kTypeValue), "val2"},
+      {KeyStr("dummy", 0U, kTypeValue), "val2"},
   });
 
   SetLastSequence(22U);
@@ -931,7 +931,7 @@ TEST_F(CompactionJobTest, CorruptionAfterDeletion) {
       mock::MakeMockFile({{test::KeyStr("A", 0U, kTypeValue), "val3"},
                           {test::KeyStr("a", 0U, kTypeValue, true), "val"},
                           {test::KeyStr("b", 0U, kTypeValue, true), "val"},
-                          {test::KeyStr("c", 1U, kTypeValue), "val2"}});
+                          {test::KeyStr("c", 0U, kTypeValue), "val2"}});
 
   SetLastSequence(6U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);

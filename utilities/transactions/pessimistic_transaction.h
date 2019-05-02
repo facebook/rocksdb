@@ -38,7 +38,8 @@ class PessimisticTransactionDB;
 class PessimisticTransaction : public TransactionBaseImpl {
  public:
   PessimisticTransaction(TransactionDB* db, const WriteOptions& write_options,
-                         const TransactionOptions& txn_options);
+                         const TransactionOptions& txn_options,
+                         const bool init = true);
 
   virtual ~PessimisticTransaction();
 
@@ -135,8 +136,8 @@ class PessimisticTransaction : public TransactionBaseImpl {
   Status LockBatch(WriteBatch* batch, TransactionKeyMap* keys_to_unlock);
 
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
-                 bool read_only, bool exclusive,
-                 bool skip_validate = false) override;
+                 bool read_only, bool exclusive, const bool do_validate = true,
+                 const bool assume_tracked = false) override;
 
   void Clear() override;
 
@@ -182,6 +183,9 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   // Whether to perform deadlock detection or not.
   int64_t deadlock_detect_depth_;
+
+  // Refer to TransactionOptions::skip_concurrency_control
+  bool skip_concurrency_control_;
 
   virtual Status ValidateSnapshot(ColumnFamilyHandle* column_family,
                                   const Slice& key,

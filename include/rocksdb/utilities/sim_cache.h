@@ -73,7 +73,8 @@ class SimCache : public Cache {
   // stop logging to the file automatically after reaching a specific size in
   // bytes, a values of 0 disable this feature
   virtual Status StartActivityLogging(const std::string& activity_log_file,
-                                      Env* env, uint64_t max_logging_size = 0) = 0;
+                                      Env* env,
+                                      uint64_t max_logging_size = 0) = 0;
 
   // Stop cache activity logging if any
   virtual void StopActivityLogging() = 0;

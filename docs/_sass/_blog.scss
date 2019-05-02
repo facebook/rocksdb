@@ -35,9 +35,11 @@
       border-radius: 50%;
       height: 50px;
       left: 50%;
-      margin-left: -25px;
+      margin-left: auto;
+      margin-right: auto;
+      display: inline-block;
       overflow: hidden;
-      position: absolute;
+      position: static;
       top: -25px;
       width: 50px;
     }

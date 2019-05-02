@@ -51,15 +51,13 @@ class DestroyAllCompactionFilter : public CompactionFilter {
  public:
   DestroyAllCompactionFilter() {}
 
-  virtual bool Filter(int /*level*/, const Slice& /*key*/,
-                      const Slice& existing_value, std::string* /*new_value*/,
-                      bool* /*value_changed*/) const override {
+  bool Filter(int /*level*/, const Slice& /*key*/, const Slice& existing_value,
+              std::string* /*new_value*/,
+              bool* /*value_changed*/) const override {
     return existing_value.ToString() == "destroy";
   }
 
-  virtual const char* Name() const override {
-    return "DestroyAllCompactionFilter";
-  }
+  const char* Name() const override { return "DestroyAllCompactionFilter"; }
 };
 
 TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {

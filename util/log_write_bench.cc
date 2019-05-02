@@ -35,9 +35,9 @@ void RunBenchmark() {
   Env* env = Env::Default();
   EnvOptions env_options = env->OptimizeForLogWrite(EnvOptions());
   env_options.bytes_per_sync = FLAGS_bytes_per_sync;
-  unique_ptr<WritableFile> file;
+  std::unique_ptr<WritableFile> file;
   env->NewWritableFile(file_name, &file, env_options);
-  unique_ptr<WritableFileWriter> writer;
+  std::unique_ptr<WritableFileWriter> writer;
   writer.reset(new WritableFileWriter(std::move(file), env_options));
 
   std::string record;

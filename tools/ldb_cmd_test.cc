@@ -12,6 +12,8 @@ using std::string;
 using std::vector;
 using std::map;
 
+namespace rocksdb {
+
 class LdbCmdTest : public testing::Test {};
 
 TEST_F(LdbCmdTest, HexToString) {
@@ -46,6 +48,77 @@ TEST_F(LdbCmdTest, HexToStringBadInputs) {
     }
   }
 }
+
+TEST_F(LdbCmdTest, MemEnv) {
+  std::unique_ptr<Env> env(NewMemEnv(Env::Default()));
+  Options opts;
+  opts.env = env.get();
+  opts.create_if_missing = true;
+
+  DB* db = nullptr;
+  std::string dbname = test::TmpDir();
+  ASSERT_OK(DB::Open(opts, dbname, &db));
+
+  WriteOptions wopts;
+  for (int i = 0; i < 100; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    ASSERT_OK(db->Put(wopts, buf, buf));
+  }
+  FlushOptions fopts;
+  fopts.wait = true;
+  ASSERT_OK(db->Flush(fopts));
+
+  delete db;
+
+  char arg1[] = "./ldb";
+  char arg2[1024];
+  snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
+  char arg3[] = "dump_live_files";
+  char* argv[] = {arg1, arg2, arg3};
+
+  rocksdb::LDBTool tool;
+  tool.Run(3, argv, opts);
+}
+
+TEST_F(LdbCmdTest, OptionParsing) {
+  // test parsing flags
+  {
+    std::vector<std::string> args;
+    args.push_back("scan");
+    args.push_back("--ttl");
+    args.push_back("--timestamp");
+    LDBCommand* command = rocksdb::LDBCommand::InitFromCmdLineArgs(
+        args, Options(), LDBOptions(), nullptr);
+    const std::vector<std::string> flags = command->TEST_GetFlags();
+    EXPECT_EQ(flags.size(), 2);
+    EXPECT_EQ(flags[0], "ttl");
+    EXPECT_EQ(flags[1], "timestamp");
+    delete command;
+  }
+  // test parsing options which contains equal sign in the option value
+  {
+    std::vector<std::string> args;
+    args.push_back("scan");
+    args.push_back("--db=/dev/shm/ldbtest/");
+    args.push_back(
+        "--from='abcd/efg/hijk/lmn/"
+        "opq:__rst.uvw.xyz?a=3+4+bcd+efghi&jk=lm_no&pq=rst-0&uv=wx-8&yz=a&bcd_"
+        "ef=gh.ijk'");
+    LDBCommand* command = rocksdb::LDBCommand::InitFromCmdLineArgs(
+        args, Options(), LDBOptions(), nullptr);
+    const std::map<std::string, std::string> option_map =
+        command->TEST_GetOptionMap();
+    EXPECT_EQ(option_map.at("db"), "/dev/shm/ldbtest/");
+    EXPECT_EQ(option_map.at("from"),
+              "'abcd/efg/hijk/lmn/"
+              "opq:__rst.uvw.xyz?a=3+4+bcd+efghi&jk=lm_no&pq=rst-0&uv=wx-8&yz="
+              "a&bcd_ef=gh.ijk'");
+    delete command;
+  }
+}
+
+} // namespace rocksdb
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

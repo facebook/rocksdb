@@ -88,7 +88,6 @@ TEST_F(DBIOFailureTest, DropWritesFlush) {
     env_->drop_writes_.store(false, std::memory_order_release);
   } while (ChangeCompactOptions());
 }
-#endif  // ROCKSDB_LITE
 
 // Check that CompactRange() returns failure if there is not enough space left
 // on device
@@ -116,6 +115,7 @@ TEST_F(DBIOFailureTest, NoSpaceCompactRange) {
     env_->no_space_.store(false, std::memory_order_release);
   } while (ChangeCompactOptions());
 }
+#endif  // ROCKSDB_LITE
 
 TEST_F(DBIOFailureTest, NonWritableFileSystem) {
   do {

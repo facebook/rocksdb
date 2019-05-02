@@ -1,3 +1,4 @@
+//  Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 //  Copyright (c) 2017 International Business Machines Corp.
 //  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
@@ -6,8 +7,7 @@
 //  This source code is also licensed under the GPLv2 license found in the
 //  COPYING file in the root directory of this source tree.
 
-#ifndef CRC32C_PPC_H
-#define CRC32C_PPC_H
+#pragma once
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,6 +18,4 @@ extern uint32_t crc32c_ppc(uint32_t crc, unsigned char const *buffer,
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

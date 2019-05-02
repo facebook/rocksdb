@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -19,15 +20,16 @@ namespace rocksdb {
 
 Status PlainTableFactory::NewTableReader(
     const TableReaderOptions& table_reader_options,
-    unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-    unique_ptr<TableReader>* table,
+    std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+    std::unique_ptr<TableReader>* table,
     bool /*prefetch_index_and_filter_in_cache*/) const {
   return PlainTableReader::Open(
       table_reader_options.ioptions, table_reader_options.env_options,
       table_reader_options.internal_comparator, std::move(file), file_size,
       table, table_options_.bloom_bits_per_key, table_options_.hash_table_ratio,
       table_options_.index_sparseness, table_options_.huge_page_tlb_size,
-      table_options_.full_scan_mode, table_reader_options.prefix_extractor);
+      table_options_.full_scan_mode, table_reader_options.immortal,
+      table_reader_options.prefix_extractor);
 }
 
 TableBuilder* PlainTableFactory::NewTableBuilder(
@@ -146,15 +148,8 @@ Status GetMemTableRepFactoryFromString(
       mem_factory = new VectorRepFactory();
     }
   } else if (opts_list[0] == "cuckoo") {
-    // Expecting format
-    // cuckoo:<write_buffer_size>
-    if (2 == len) {
-      size_t write_buffer_size = ParseSizeT(opts_list[1]);
-      mem_factory = NewHashCuckooRepFactory(write_buffer_size);
-    } else if (1 == len) {
-      return Status::InvalidArgument("Can't parse memtable_factory option ",
-                                     opts_str);
-    }
+    return Status::NotSupported(
+        "cuckoo hash memtable is not supported anymore.");
   } else {
     return Status::InvalidArgument("Unrecognized memtable_factory option ",
                                    opts_str);

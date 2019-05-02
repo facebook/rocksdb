@@ -15,7 +15,7 @@ class EventLoggerTest : public testing::Test {};
 class StringLogger : public Logger {
  public:
   using Logger::Logv;
-  virtual void Logv(const char* format, va_list ap) override {
+  void Logv(const char* format, va_list ap) override {
     vsnprintf(buffer_, sizeof(buffer_), format, ap);
   }
   char* buffer() { return buffer_; }

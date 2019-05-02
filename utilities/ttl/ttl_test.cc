@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -30,7 +31,7 @@ class SpecialTimeEnv : public EnvWrapper {
   }
 
   void Sleep(int64_t sleep_time) { current_time_ += sleep_time; }
-  virtual Status GetCurrentTime(int64_t* current_time) override {
+  Status GetCurrentTime(int64_t* current_time) override {
     *current_time = current_time_;
     return Status::OK();
   }
@@ -53,7 +54,7 @@ class TtlTest : public testing::Test {
     DestroyDB(dbname_, Options());
   }
 
-  ~TtlTest() {
+  ~TtlTest() override {
     CloseTtl();
     DestroyDB(dbname_, Options());
   }
@@ -301,9 +302,8 @@ class TtlTest : public testing::Test {
     // Keeps key if it is in [kSampleSize_/3, 2*kSampleSize_/3),
     // Change value if it is in [2*kSampleSize_/3, kSampleSize_)
     // Eg. kSampleSize_=6. Drop:key0-1...Keep:key2-3...Change:key4-5...
-    virtual bool Filter(int /*level*/, const Slice& key, const Slice& /*value*/,
-                        std::string* new_value,
-                        bool* value_changed) const override {
+    bool Filter(int /*level*/, const Slice& key, const Slice& /*value*/,
+                std::string* new_value, bool* value_changed) const override {
       assert(new_value != nullptr);
 
       std::string search_str = "0123456789";
@@ -334,9 +334,7 @@ class TtlTest : public testing::Test {
       }
     }
 
-    virtual const char* Name() const override {
-      return "TestFilter";
-    }
+    const char* Name() const override { return "TestFilter"; }
 
    private:
     const int64_t kSampleSize_;
@@ -350,17 +348,15 @@ class TtlTest : public testing::Test {
           kNewValue_(kNewValue) {
       }
 
-      virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      std::unique_ptr<CompactionFilter> CreateCompactionFilter(
           const CompactionFilter::Context& /*context*/) override {
         return std::unique_ptr<CompactionFilter>(
             new TestFilter(kSampleSize_, kNewValue_));
       }
 
-      virtual const char* Name() const override {
-        return "TestFilterFactory";
-      }
+      const char* Name() const override { return "TestFilterFactory"; }
 
-    private:
+     private:
       const int64_t kSampleSize_;
       const std::string kNewValue_;
   };
@@ -370,14 +366,14 @@ class TtlTest : public testing::Test {
   static const int64_t kSampleSize_ = 100;
   std::string dbname_;
   DBWithTTL* db_ttl_;
-  unique_ptr<SpecialTimeEnv> env_;
+  std::unique_ptr<SpecialTimeEnv> env_;
 
  private:
   Options options_;
   KVMap kvmap_;
   KVMap::iterator kv_it_;
   const std::string kNewValue_ = "new_value";
-  unique_ptr<CompactionFilter> test_comp_filter_;
+  std::unique_ptr<CompactionFilter> test_comp_filter_;
 }; // class TtlTest
 
 // If TTL is non positive or not provided, the behaviour is TTL = infinity

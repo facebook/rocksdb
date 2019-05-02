@@ -41,9 +41,7 @@ inline uint32_t PrefixToBucket(const Slice& prefix, uint32_t num_buckets) {
 const uint32_t kNoneBlock = 0x7FFFFFFF;
 const uint32_t kBlockArrayMask = 0x80000000;
 
-inline bool IsNone(uint32_t block_id) {
-  return block_id == kNoneBlock;
-}
+inline bool IsNone(uint32_t block_id) { return block_id == kNoneBlock; }
 
 inline bool IsBlockId(uint32_t block_id) {
   return (block_id & kBlockArrayMask) == 0;
@@ -74,10 +72,9 @@ class BlockPrefixIndex::Builder {
   explicit Builder(const SliceTransform* internal_prefix_extractor)
       : internal_prefix_extractor_(internal_prefix_extractor) {}
 
-  void Add(const Slice& key_prefix, uint32_t start_block,
-           uint32_t num_blocks) {
+  void Add(const Slice& key_prefix, uint32_t start_block, uint32_t num_blocks) {
     PrefixRecord* record = reinterpret_cast<PrefixRecord*>(
-      arena_.AllocateAligned(sizeof(PrefixRecord)));
+        arena_.AllocateAligned(sizeof(PrefixRecord)));
     record->prefix = key_prefix;
     record->start_block = start_block;
     record->end_block = start_block + num_blocks - 1;
@@ -169,7 +166,6 @@ class BlockPrefixIndex::Builder {
   Arena arena_;
 };
 
-
 Status BlockPrefixIndex::Create(const SliceTransform* internal_prefix_extractor,
                                 const Slice& prefixes, const Slice& prefix_meta,
                                 BlockPrefixIndex** prefix_index) {
@@ -191,7 +187,7 @@ Status BlockPrefixIndex::Create(const SliceTransform* internal_prefix_extractor,
     }
     if (pos + prefix_size > prefixes.size()) {
       s = Status::Corruption(
-        "Corrupted prefix meta block: size inconsistency.");
+          "Corrupted prefix meta block: size inconsistency.");
       break;
     }
     Slice prefix(prefixes.data() + pos, prefix_size);
@@ -211,8 +207,7 @@ Status BlockPrefixIndex::Create(const SliceTransform* internal_prefix_extractor,
   return s;
 }
 
-uint32_t BlockPrefixIndex::GetBlocks(const Slice& key,
-                                     uint32_t** blocks) {
+uint32_t BlockPrefixIndex::GetBlocks(const Slice& key, uint32_t** blocks) {
   Slice prefix = internal_prefix_extractor_->Transform(key);
 
   uint32_t bucket = PrefixToBucket(prefix, num_buckets_);
@@ -226,7 +221,7 @@ uint32_t BlockPrefixIndex::GetBlocks(const Slice& key,
   } else {
     uint32_t index = DecodeIndex(block_id);
     assert(index < num_block_array_buffer_entries_);
-    *blocks = &block_array_buffer_[index+1];
+    *blocks = &block_array_buffer_[index + 1];
     uint32_t num_blocks = block_array_buffer_[index];
     assert(num_blocks > 1);
     assert(index + num_blocks < num_block_array_buffer_entries_);

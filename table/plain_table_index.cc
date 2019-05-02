@@ -203,7 +203,7 @@ Slice PlainTableIndexBuilder::FillIndexes(
   assert(sub_index_offset == sub_index_size_);
 
   ROCKS_LOG_DEBUG(ioptions_.info_log,
-                  "hash table size: %d, suffix_map length %" ROCKSDB_PRIszt,
+                  "hash table size: %" PRIu32 ", suffix_map length %" PRIu32,
                   index_size_, sub_index_size_);
   return Slice(allocated, GetTotalSize());
 }

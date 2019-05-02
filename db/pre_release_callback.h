@@ -15,8 +15,8 @@ class PreReleaseCallback {
  public:
   virtual ~PreReleaseCallback() {}
 
-  // Will be called while on the write thread after the write and before the
-  // release of the sequence number. This is useful if any operation needs to be
+  // Will be called while on the write thread after the write to the WAL and
+  // before the write to memtable. This is useful if any operation needs to be
   // done before the write gets visible to the readers, or if we want to reduce
   // the overhead of locking by updating something sequentially while we are on
   // the write thread. If the callback fails, this function returns a non-OK
@@ -26,7 +26,9 @@ class PreReleaseCallback {
   // released.
   // is_mem_disabled is currently used for debugging purposes to assert that
   // the callback is done from the right write queue.
-  virtual Status Callback(SequenceNumber seq, bool is_mem_disabled) = 0;
+  // If non-zero, log_number indicates the WAL log to which we wrote.
+  virtual Status Callback(SequenceNumber seq, bool is_mem_disabled,
+                          uint64_t log_number) = 0;
 };
 
 }  //  namespace rocksdb

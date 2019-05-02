@@ -60,19 +60,19 @@ class Reader {
   Status ReadRecord(BlobLogRecord* record, ReadLevel level = kReadHeader,
                     uint64_t* blob_offset = nullptr);
 
-  Status ReadSlice(uint64_t size, Slice* slice, std::string* buf);
-
   void ResetNextByte() { next_byte_ = 0; }
 
   uint64_t GetNextByte() const { return next_byte_; }
 
  private:
+  Status ReadSlice(uint64_t size, Slice* slice, char* buf);
+
   const std::unique_ptr<RandomAccessFileReader> file_;
   Env* env_;
   Statistics* statistics_;
 
-  std::string backing_store_;
   Slice buffer_;
+  char header_buf_[BlobLogRecord::kHeaderSize];
 
   // which byte to read next. For asserting proper usage
   uint64_t next_byte_;

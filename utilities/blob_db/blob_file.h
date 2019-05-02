@@ -181,6 +181,10 @@ class BlobFile {
   // footer_valid_ to false and return Status::OK.
   Status ReadMetadata(Env* env, const EnvOptions& env_options);
 
+  Status GetReader(Env* env, const EnvOptions& env_options,
+                   std::shared_ptr<RandomAccessFileReader>* reader,
+                   bool* fresh_open);
+
  private:
   std::shared_ptr<Reader> OpenRandomAccessReader(
       Env* env, const DBOptions& db_options,
@@ -189,9 +193,6 @@ class BlobFile {
   Status ReadFooter(BlobLogFooter* footer);
 
   Status WriteFooterAndCloseLocked();
-
-  std::shared_ptr<RandomAccessFileReader> GetOrOpenRandomAccessReader(
-      Env* env, const EnvOptions& env_options, bool* fresh_open);
 
   void CloseRandomAccessLocked();
 

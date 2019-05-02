@@ -52,11 +52,12 @@ DeleteScheduler::~DeleteScheduler() {
 }
 
 Status DeleteScheduler::DeleteFile(const std::string& file_path,
-                                   const std::string& dir_to_sync) {
+                                   const std::string& dir_to_sync,
+                                   const bool force_bg) {
   Status s;
-  if (rate_bytes_per_sec_.load() <= 0 ||
+  if (rate_bytes_per_sec_.load() <= 0 || (!force_bg &&
       total_trash_size_.load() >
-          sst_file_manager_->GetTotalSize() * max_trash_db_ratio_.load()) {
+          sst_file_manager_->GetTotalSize() * max_trash_db_ratio_.load())) {
     // Rate limiting is disabled or trash size makes up more than
     // max_trash_db_ratio_ (default 25%) of the total DB size
     TEST_SYNC_POINT("DeleteScheduler::DeleteFile");
@@ -275,7 +276,7 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
       Status my_status = env_->NumFileLinks(path_in_trash, &num_hard_links);
       if (my_status.ok()) {
         if (num_hard_links == 1) {
-          unique_ptr<WritableFile> wf;
+          std::unique_ptr<WritableFile> wf;
           my_status =
               env_->ReopenWritableFile(path_in_trash, &wf, EnvOptions());
           if (my_status.ok()) {

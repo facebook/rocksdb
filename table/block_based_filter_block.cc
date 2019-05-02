@@ -53,7 +53,6 @@ void AppendItem(std::string* props, const TKey& key, const std::string& value) {
 }
 }  // namespace
 
-
 // See doc/table_format.txt for an explanation of the filter block format.
 
 // Generate new filter every 2KB of data

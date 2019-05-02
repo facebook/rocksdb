@@ -9,38 +9,6 @@
 #include "rocksdb/utilities/table_properties_collectors.h"
 namespace rocksdb {
 
-// A factory of a table property collector that marks a SST
-// file as need-compaction when it observe at least "D" deletion
-// entries in any "N" consecutive entires.
-class CompactOnDeletionCollectorFactory
-    : public TablePropertiesCollectorFactory {
- public:
-  // A factory of a table property collector that marks a SST
-  // file as need-compaction when it observe at least "D" deletion
-  // entries in any "N" consecutive entires.
-  //
-  // @param sliding_window_size "N"
-  // @param deletion_trigger "D"
-  CompactOnDeletionCollectorFactory(
-      size_t sliding_window_size,
-      size_t deletion_trigger) :
-          sliding_window_size_(sliding_window_size),
-          deletion_trigger_(deletion_trigger) {}
-
-  virtual ~CompactOnDeletionCollectorFactory() {}
-
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
-      TablePropertiesCollectorFactory::Context context) override;
-
-  virtual const char* Name() const override {
-    return "CompactOnDeletionCollector";
-  }
-
- private:
-  size_t sliding_window_size_;
-  size_t deletion_trigger_;
-};
-
 class CompactOnDeletionCollector : public TablePropertiesCollector {
  public:
   CompactOnDeletionCollector(

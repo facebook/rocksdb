@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -16,6 +17,7 @@
 //   https://github.com/facebook/rocksdb/wiki/A-Tutorial-of-RocksDB-SST-formats#wiki-examples
 
 #pragma once
+
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -40,12 +42,11 @@ class WritableFileWriter;
 struct EnvOptions;
 struct Options;
 
-using std::unique_ptr;
-
 enum ChecksumType : char {
   kNoChecksum = 0x0,
   kCRC32c = 0x1,
   kxxHash = 0x2,
+  kxxHash64 = 0x3,
 };
 
 // For advanced user only
@@ -59,6 +60,10 @@ struct BlockBasedTableOptions {
 
   // TODO(kailiu) Temporarily disable this feature by making the default value
   // to be false.
+  //
+  // TODO(ajkr) we need to update names of variables controlling meta-block
+  // caching as they should now apply to range tombstone and compression
+  // dictionary meta-blocks, in addition to index and filter meta-blocks.
   //
   // Indicating if we'd put index/filter blocks to the block cache.
   // If not specified, each "table reader" object will pre-load index/filter
@@ -136,6 +141,8 @@ struct BlockBasedTableOptions {
 
   // If non-NULL use the specified cache for compressed blocks.
   // If NULL, rocksdb will not use a compressed block cache.
+  // Note: though it looks similar to `block_cache`, RocksDB doesn't put the
+  //       same type of object there.
   std::shared_ptr<Cache> block_cache_compressed = nullptr;
 
   // Approximate size of user data packed per block.  Note that the
@@ -221,7 +228,7 @@ struct BlockBasedTableOptions {
   // Default: 0 (disabled)
   uint32_t read_amp_bytes_per_bit = 0;
 
-  // We currently have three versions:
+  // We currently have five versions:
   // 0 -- This version is currently written out by all RocksDB's versions by
   // default.  Can be read by really old RocksDB's. Doesn't support changing
   // checksum (default is CRC32).
@@ -238,6 +245,12 @@ struct BlockBasedTableOptions {
   // version 5.15, you should probably use this.
   // This option only affects newly written tables. When reading existing
   // tables, the information about version is read from the footer.
+  // 4 -- Can be read by RocksDB's versions since 5.16. Changes the way we
+  // encode the values in index blocks. If you don't plan to run RocksDB before
+  // version 5.16 and you are using index_block_restart_interval > 1, you should
+  // probably use this as it would reduce the index size.
+  // This option only affects newly written tables. When reading existing
+  // tables, the information about version is read from the footer.
   uint32_t format_version = 2;
 
   // Store index blocks on disk in compressed format. Changing this option to
@@ -247,6 +260,41 @@ struct BlockBasedTableOptions {
 
   // Align data blocks on lesser of page size and block size
   bool block_align = false;
+
+  // This enum allows trading off increased index size for improved iterator
+  // seek performance in some situations, particularly when block cache is
+  // disabled (ReadOptions::fill_cache = false) and direct IO is
+  // enabled (DBOptions::use_direct_reads = true).
+  // The default mode is the best tradeoff for most use cases.
+  // This option only affects newly written tables.
+  //
+  // The index contains a key separating each pair of consecutive blocks.
+  // Let A be the highest key in one block, B the lowest key in the next block,
+  // and I the index entry separating these two blocks:
+  // [ ... A] I [B ...]
+  // I is allowed to be anywhere in [A, B).
+  // If an iterator is seeked to a key in (A, I], we'll unnecessarily read the
+  // first block, then immediately fall through to the second block.
+  // However, if I=A, this can't happen, and we'll read only the second block.
+  // In kNoShortening mode, we use I=A. In other modes, we use the shortest
+  // key in [A, B), which usually significantly reduces index size.
+  //
+  // There's a similar story for the last index entry, which is an upper bound
+  // of the highest key in the file. If it's shortened and therefore
+  // overestimated, iterator is likely to unnecessarily read the last data block
+  // from each file on each seek.
+  enum class IndexShorteningMode : char {
+    // Use full keys.
+    kNoShortening,
+    // Shorten index keys between blocks, but use full key for the last index
+    // key, which is the upper bound of the whole file.
+    kShortenSeparators,
+    // Shorten both keys between blocks and key after last block.
+    kShortenSeparatorsAndSuccessor,
+  };
+
+  IndexShorteningMode index_shortening =
+      IndexShorteningMode::kShortenSeparators;
 };
 
 // Table Properties that are specific to block-based table properties.
@@ -344,13 +392,13 @@ struct PlainTableOptions {
 };
 
 // -- Plain Table with prefix-only seek
-// For this factory, you need to set Options.prefix_extractor properly to make it
-// work. Look-up will starts with prefix hash lookup for key prefix. Inside the
-// hash bucket found, a binary search is executed for hash conflicts. Finally,
-// a linear search is used.
+// For this factory, you need to set Options.prefix_extractor properly to make
+// it work. Look-up will starts with prefix hash lookup for key prefix. Inside
+// the hash bucket found, a binary search is executed for hash conflicts.
+// Finally, a linear search is used.
 
-extern TableFactory* NewPlainTableFactory(const PlainTableOptions& options =
-                                              PlainTableOptions());
+extern TableFactory* NewPlainTableFactory(
+    const PlainTableOptions& options = PlainTableOptions());
 
 struct CuckooTablePropertyNames {
   // The key that is used to fill empty buckets.
@@ -442,10 +490,10 @@ class TableFactory {
   // NewTableReader() is called in three places:
   // (1) TableCache::FindTable() calls the function when table cache miss
   //     and cache the table object returned.
-  // (2) SstFileReader (for SST Dump) opens the table and dump the table
+  // (2) SstFileDumper (for SST Dump) opens the table and dump the table
   //     contents using the iterator of the table.
-  // (3) DBImpl::IngestExternalFile() calls this function to read the contents of
-  //     the sst file it's attempting to add
+  // (3) DBImpl::IngestExternalFile() calls this function to read the contents
+  //     of the sst file it's attempting to add
   //
   // table_reader_options is a TableReaderOptions which contain all the
   //    needed parameters and configuration to open the table.
@@ -454,8 +502,8 @@ class TableFactory {
   // table_reader is the output table reader.
   virtual Status NewTableReader(
       const TableReaderOptions& table_reader_options,
-      unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-      unique_ptr<TableReader>* table_reader,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table_reader,
       bool prefetch_index_and_filter_in_cache = true) const = 0;
 
   // Return a table builder to write to a file for this table type.
@@ -484,9 +532,8 @@ class TableFactory {
   //
   // If the function cannot find a way to sanitize the input DB Options,
   // a non-ok Status will be returned.
-  virtual Status SanitizeOptions(
-      const DBOptions& db_opts,
-      const ColumnFamilyOptions& cf_opts) const = 0;
+  virtual Status SanitizeOptions(const DBOptions& db_opts,
+                                 const ColumnFamilyOptions& cf_opts) const = 0;
 
   // Return a string that contains printable format of table configurations.
   // RocksDB prints configurations at DB Open().
@@ -526,7 +573,8 @@ class TableFactory {
 // @block_based_table_factory:  block based table factory to use. If NULL, use
 //                              a default one.
 // @plain_table_factory: plain table factory to use. If NULL, use a default one.
-// @cuckoo_table_factory: cuckoo table factory to use. If NULL, use a default one.
+// @cuckoo_table_factory: cuckoo table factory to use. If NULL, use a default
+// one.
 extern TableFactory* NewAdaptiveTableFactory(
     std::shared_ptr<TableFactory> table_factory_to_write = nullptr,
     std::shared_ptr<TableFactory> block_based_table_factory = nullptr,

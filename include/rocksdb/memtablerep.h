@@ -35,11 +35,11 @@
 
 #pragma once
 
-#include <memory>
-#include <stdexcept>
+#include <rocksdb/slice.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <rocksdb/slice.h>
+#include <memory>
+#include <stdexcept>
 
 namespace rocksdb {
 
@@ -75,7 +75,7 @@ class MemTableRep {
     virtual int operator()(const char* prefix_len_key,
                            const Slice& key) const = 0;
 
-    virtual ~KeyComparator() { }
+    virtual ~KeyComparator() {}
   };
 
   explicit MemTableRep(Allocator* allocator) : allocator_(allocator) {}
@@ -142,7 +142,7 @@ class MemTableRep {
   // does nothing.  After MarkReadOnly() is called, this table rep will
   // not be written to (ie No more calls to Allocate(), Insert(),
   // or any writes done directly to entries accessed through the iterator.)
-  virtual void MarkReadOnly() { }
+  virtual void MarkReadOnly() {}
 
   // Notify this table rep that it has been flushed to stable storage.
   // By default, does nothing.
@@ -150,7 +150,7 @@ class MemTableRep {
   // Invariant: MarkReadOnly() is called, before MarkFlushed().
   // Note that this method if overridden, should not run for an extended period
   // of time. Otherwise, RocksDB may be blocked.
-  virtual void MarkFlushed() { }
+  virtual void MarkFlushed() {}
 
   // Look up key from the mem table, since the first key in the mem table whose
   // user_key matches the one given k, call the function callback_func(), with
@@ -176,7 +176,7 @@ class MemTableRep {
   // that was allocated through the allocator.  Safe to call from any thread.
   virtual size_t ApproximateMemoryUsage() = 0;
 
-  virtual ~MemTableRep() { }
+  virtual ~MemTableRep() {}
 
   // Iteration over the contents of a skip collection
   class Iterator {
@@ -317,16 +317,14 @@ class VectorRepFactory : public MemTableRepFactory {
   const size_t count_;
 
  public:
-  explicit VectorRepFactory(size_t count = 0) : count_(count) { }
+  explicit VectorRepFactory(size_t count = 0) : count_(count) {}
 
   using MemTableRepFactory::CreateMemTableRep;
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
                                          Allocator*, const SliceTransform*,
                                          Logger* logger) override;
 
-  virtual const char* Name() const override {
-    return "VectorRepFactory";
-  }
+  virtual const char* Name() const override { return "VectorRepFactory"; }
 };
 
 // This class contains a fixed array of buckets, each
@@ -337,8 +335,7 @@ class VectorRepFactory : public MemTableRepFactory {
 //                            link lists in the skiplist
 extern MemTableRepFactory* NewHashSkipListRepFactory(
     size_t bucket_count = 1000000, int32_t skiplist_height = 4,
-    int32_t skiplist_branching_factor = 4
-);
+    int32_t skiplist_branching_factor = 4);
 
 // The factory is to create memtables based on a hash table:
 // it contains a fixed array of buckets, each pointing to either a linked list
@@ -362,39 +359,5 @@ extern MemTableRepFactory* NewHashLinkListRepFactory(
     bool if_log_bucket_dist_when_flash = true,
     uint32_t threshold_use_skiplist = 256);
 
-// This factory creates a cuckoo-hashing based mem-table representation.
-// Cuckoo-hash is a closed-hash strategy, in which all key/value pairs
-// are stored in the bucket array itself instead of in some data structures
-// external to the bucket array.  In addition, each key in cuckoo hash
-// has a constant number of possible buckets in the bucket array.  These
-// two properties together makes cuckoo hash more memory efficient and
-// a constant worst-case read time.  Cuckoo hash is best suitable for
-// point-lookup workload.
-//
-// When inserting a key / value, it first checks whether one of its possible
-// buckets is empty.  If so, the key / value will be inserted to that vacant
-// bucket.  Otherwise, one of the keys originally stored in one of these
-// possible buckets will be "kicked out" and move to one of its possible
-// buckets (and possibly kicks out another victim.)  In the current
-// implementation, such "kick-out" path is bounded.  If it cannot find a
-// "kick-out" path for a specific key, this key will be stored in a backup
-// structure, and the current memtable to be forced to immutable.
-//
-// Note that currently this mem-table representation does not support
-// snapshot (i.e., it only queries latest state) and iterators.  In addition,
-// MultiGet operation might also lose its atomicity due to the lack of
-// snapshot support.
-//
-// Parameters:
-//   write_buffer_size: the write buffer size in bytes.
-//   average_data_size: the average size of key + value in bytes.  This value
-//     together with write_buffer_size will be used to compute the number
-//     of buckets.
-//   hash_function_count: the number of hash functions that will be used by
-//     the cuckoo-hash.  The number also equals to the number of possible
-//     buckets each key will have.
-extern MemTableRepFactory* NewHashCuckooRepFactory(
-    size_t write_buffer_size, size_t average_data_size = 64,
-    unsigned int hash_function_count = 4);
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb

@@ -14,7 +14,7 @@
 namespace rocksdb {
 #ifndef ROCKSDB_LITE
 namespace {
-const size_t kSizeDummyEntry = 1024 * 1024;
+const size_t kSizeDummyEntry = 256 * 1024;
 // The key will be longer than keys for blocks in SST files so they won't
 // conflict.
 const size_t kCacheKeyPrefix = kMaxVarint64Length * 4 + 1;
@@ -79,14 +79,14 @@ WriteBufferManager::~WriteBufferManager() {
 void WriteBufferManager::ReserveMemWithCache(size_t mem) {
 #ifndef ROCKSDB_LITE
   assert(cache_rep_ != nullptr);
-  // Use a mutex to protect various data structures. Can be optimzied to a
+  // Use a mutex to protect various data structures. Can be optimized to a
   // lock-free solution if it ends up with a performance bottleneck.
   std::lock_guard<std::mutex> lock(cache_rep_->cache_mutex_);
 
   size_t new_mem_used = memory_used_.load(std::memory_order_relaxed) + mem;
   memory_used_.store(new_mem_used, std::memory_order_relaxed);
   while (new_mem_used > cache_rep_->cache_allocated_size_) {
-    // Expand size by at least 1MB.
+    // Expand size by at least 256KB.
     // Add a dummy record to the cache
     Cache::Handle* handle;
     cache_rep_->cache_->Insert(cache_rep_->GetNextCacheKey(), nullptr,
@@ -102,14 +102,14 @@ void WriteBufferManager::ReserveMemWithCache(size_t mem) {
 void WriteBufferManager::FreeMemWithCache(size_t mem) {
 #ifndef ROCKSDB_LITE
   assert(cache_rep_ != nullptr);
-  // Use a mutex to protect various data structures. Can be optimzied to a
+  // Use a mutex to protect various data structures. Can be optimized to a
   // lock-free solution if it ends up with a performance bottleneck.
   std::lock_guard<std::mutex> lock(cache_rep_->cache_mutex_);
   size_t new_mem_used = memory_used_.load(std::memory_order_relaxed) - mem;
   memory_used_.store(new_mem_used, std::memory_order_relaxed);
   // Gradually shrink memory costed in the block cache if the actual
   // usage is less than 3/4 of what we reserve from the block cache.
-  // We do this becausse:
+  // We do this because:
   // 1. we don't pay the cost of the block cache immediately a memtable is
   //    freed, as block cache insert is expensive;
   // 2. eventually, if we walk away from a temporary memtable size increase,

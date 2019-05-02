@@ -18,6 +18,9 @@ struct CompactionJobStats {
   // the elapsed time of this compaction in microseconds.
   uint64_t elapsed_micros;
 
+  // the elapsed CPU time of this compaction in microseconds.
+  uint64_t cpu_micros;
+
   // the number of compaction input records.
   uint64_t num_input_records;
   // the number of compaction input files.

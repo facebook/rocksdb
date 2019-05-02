@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "rocksdb/env.h"
+#include "rocksdb/options.h"
 #include "rocksdb/trace_reader_writer.h"
 
 namespace rocksdb {
@@ -21,7 +22,7 @@ class DBImpl;
 class Slice;
 class WriteBatch;
 
-const std::string kTraceMagic = "feedcafedeadbeef";
+extern const std::string kTraceMagic;
 const unsigned int kTraceTimestampSize = 8;
 const unsigned int kTraceTypeSize = 1;
 const unsigned int kTracePayloadLengthSize = 4;
@@ -55,13 +56,15 @@ struct Trace {
 // Trace RocksDB operations using a TraceWriter.
 class Tracer {
  public:
-  Tracer(Env* env, std::unique_ptr<TraceWriter>&& trace_writer);
+  Tracer(Env* env, const TraceOptions& trace_options,
+         std::unique_ptr<TraceWriter>&& trace_writer);
   ~Tracer();
 
   Status Write(WriteBatch* write_batch);
   Status Get(ColumnFamilyHandle* cfname, const Slice& key);
   Status IteratorSeek(const uint32_t& cf_id, const Slice& key);
   Status IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
+  bool IsTraceFileOverMax();
 
   Status Close();
 
@@ -69,9 +72,12 @@ class Tracer {
   Status WriteHeader();
   Status WriteFooter();
   Status WriteTrace(const Trace& trace);
+  bool ShouldSkipTrace(const TraceType& type);
 
   Env* env_;
-  unique_ptr<TraceWriter> trace_writer_;
+  TraceOptions trace_options_;
+  std::unique_ptr<TraceWriter> trace_writer_;
+  uint64_t trace_request_count_;
 };
 
 // Replay RocksDB operations from a trace.

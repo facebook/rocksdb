@@ -158,9 +158,6 @@ class ObsoleteFilesTest : public testing::Test {
 };
 
 TEST_F(ObsoleteFilesTest, RaceForObsoleteFileDeletion) {
-  createLevel0Files(2, 50000);
-  CheckFileTypeCounts(options_.wal_dir, 1, 0, 0);
-
   SyncPoint::GetInstance()->LoadDependency({
       {"DBImpl::BackgroundCallCompaction:FoundObsoleteFiles",
        "ObsoleteFilesTest::RaceForObsoleteFileDeletion:1"},
@@ -170,7 +167,7 @@ TEST_F(ObsoleteFilesTest, RaceForObsoleteFileDeletion) {
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::DeleteObsoleteFileImpl:AfterDeletion", [&](void* arg) {
         Status* p_status = reinterpret_cast<Status*>(arg);
-        ASSERT_TRUE(p_status->ok());
+        ASSERT_OK(*p_status);
       });
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::CloseHelper:PendingPurgeFinished", [&](void* arg) {
@@ -179,6 +176,9 @@ TEST_F(ObsoleteFilesTest, RaceForObsoleteFileDeletion) {
         ASSERT_TRUE(files_grabbed_for_purge_ptr->empty());
       });
   SyncPoint::GetInstance()->EnableProcessing();
+
+  createLevel0Files(2, 50000);
+  CheckFileTypeCounts(options_.wal_dir, 1, 0, 0);
 
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
   port::Thread user_thread([&]() {
@@ -196,12 +196,10 @@ TEST_F(ObsoleteFilesTest, RaceForObsoleteFileDeletion) {
   user_thread.join();
 
   CloseDB();
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
-  createLevel0Files(2, 50000);
-  CheckFileTypeCounts(options_.wal_dir, 1, 0, 0);
-
   std::vector<uint64_t> optsfiles_nums;
   std::vector<bool> optsfiles_keep;
   SyncPoint::GetInstance()->SetCallBack(
@@ -213,6 +211,9 @@ TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
         optsfiles_keep.push_back(*reinterpret_cast<bool*>(arg));
       });
   SyncPoint::GetInstance()->EnableProcessing();
+
+  createLevel0Files(2, 50000);
+  CheckFileTypeCounts(options_.wal_dir, 1, 0, 0);
 
   DBImpl* dbi = static_cast<DBImpl*>(db_);
   ASSERT_OK(dbi->DisableFileDeletions());
@@ -245,6 +246,7 @@ TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
     }
   }
   ASSERT_EQ(2, opts_file_count);
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 } //namespace rocksdb

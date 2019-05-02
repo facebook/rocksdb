@@ -1,4 +1,5 @@
 #! /usr/bin/env python
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 import os
 import sys
 import time
@@ -15,23 +16,30 @@ import argparse
 #       default_params < {blackbox,whitebox}_default_params <
 #       simple_default_params <
 #       {blackbox,whitebox}_simple_default_params < args
+#   for enable_atomic_flush:
+#       default_params < {blackbox,whitebox}_default_params <
+#       atomic_flush_params < args
 
 expected_values_file = tempfile.NamedTemporaryFile()
 
 default_params = {
     "acquire_snapshot_one_in": 10000,
     "block_size": 16384,
+    "cache_index_and_filter_blocks": lambda: random.randint(0, 1),
     "cache_size": 1048576,
     "checkpoint_one_in": 1000000,
+    "compression_type": "snappy",
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
     "clear_column_family_one_in": 0,
     "compact_files_one_in": 1000000,
     "compact_range_one_in": 1000000,
-    "delpercent": 5,
+    "delpercent": 4,
+    "delrangepercent": 1,
     "destroy_db_initially": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "expected_values_path": expected_values_file.name,
+    "flush_one_in": 1000000,
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
@@ -42,6 +50,7 @@ default_params = {
     "prefixpercent": 5,
     "progress_reports": 0,
     "readpercent": 45,
+    "recycle_log_file_num": lambda: random.randint(0, 1),
     "reopen": 20,
     "snapshot_hold_ops": 100000,
     "subcompactions": lambda: random.randint(1, 4),
@@ -55,6 +64,7 @@ default_params = {
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
     "format_version": lambda: random.randint(2, 4),
+    "index_block_restart_interval": lambda: random.choice(range(1, 16)),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -120,6 +130,17 @@ blackbox_simple_default_params = {
 
 whitebox_simple_default_params = {}
 
+atomic_flush_params = {
+    "disable_wal": 1,
+    "reopen": 0,
+    "test_atomic_flush": 1,
+    # use small value for write_buffer_size so that RocksDB triggers flush
+    # more frequently
+    "write_buffer_size": 1024 * 1024,
+    # disable pipelined write when test_atomic_flush is true
+    "enable_pipelined_write": 0,
+}
+
 
 def finalize_and_sanitize(src_params):
     dest_params = dict([(k,  v() if callable(v) else v)
@@ -133,6 +154,9 @@ def finalize_and_sanitize(src_params):
             dest_params["db"]):
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
+    if dest_params.get("test_batches_snapshots") == 1:
+        dest_params["delpercent"] += dest_params["delrangepercent"]
+        dest_params["delrangepercent"] = 0
     return dest_params
 
 
@@ -150,6 +174,8 @@ def gen_cmd_params(args):
             params.update(blackbox_simple_default_params)
         if args.test_type == 'whitebox':
             params.update(whitebox_simple_default_params)
+    if args.enable_atomic_flush:
+        params.update(atomic_flush_params)
 
     for k, v in vars(args).items():
         if v is not None:
@@ -162,7 +188,7 @@ def gen_cmd(params, unknown_params):
         '--{0}={1}'.format(k, v)
         for k, v in finalize_and_sanitize(params).items()
         if k not in set(['test_type', 'simple', 'duration', 'interval',
-                         'random_kill_odd'])
+                         'random_kill_odd', 'enable_atomic_flush'])
         and v is not None] + unknown_params
     return cmd
 
@@ -354,6 +380,7 @@ def main():
         db_stress multiple times")
     parser.add_argument("test_type", choices=["blackbox", "whitebox"])
     parser.add_argument("--simple", action="store_true")
+    parser.add_argument("--enable_atomic_flush", action='store_true')
 
     all_params = dict(default_params.items()
                       + blackbox_default_params.items()

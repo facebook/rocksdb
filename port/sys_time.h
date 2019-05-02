@@ -10,8 +10,7 @@
 // This file is a portable substitute for sys/time.h which does not exist on
 // Windows
 
-#ifndef STORAGE_LEVELDB_PORT_SYS_TIME_H_
-#define STORAGE_LEVELDB_PORT_SYS_TIME_H_
+#pragma once
 
 #if defined(OS_WIN) && defined(_MSC_VER)
 
@@ -44,5 +43,3 @@ using port::localtime_r;
 #include <time.h>
 #include <sys/time.h>
 #endif
-
-#endif  // STORAGE_LEVELDB_PORT_SYS_TIME_H_

@@ -251,7 +251,7 @@ class CacheTierBenchmark {
 
   // create data for a key by filling with a certain pattern
   std::unique_ptr<char[]> NewBlock(const uint64_t val) {
-    unique_ptr<char[]> data(new char[FLAGS_iosize]);
+    std::unique_ptr<char[]> data(new char[FLAGS_iosize]);
     memset(data.get(), val % 255, FLAGS_iosize);
     return data;
   }

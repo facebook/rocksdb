@@ -31,7 +31,7 @@ class CuckooTableDBTest : public testing::Test {
     Reopen();
   }
 
-  ~CuckooTableDBTest() {
+  ~CuckooTableDBTest() override {
     delete db_;
     EXPECT_OK(DestroyDB(dbname_, Options()));
   }

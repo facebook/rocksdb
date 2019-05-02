@@ -3,10 +3,10 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_PERF_CONTEXT_H
-#define STORAGE_ROCKSDB_INCLUDE_PERF_CONTEXT_H
+#pragma once
 
 #include <stdint.h>
+#include <map>
 #include <string>
 
 #include "rocksdb/perf_level.h"
@@ -17,18 +17,64 @@ namespace rocksdb {
 // and transparently.
 // Use SetPerfLevel(PerfLevel::kEnableTime) to enable time stats.
 
-struct PerfContext {
+// Break down performance counters by level and store per-level perf context in
+// PerfContextByLevel
+struct PerfContextByLevel {
+  // # of times bloom filter has avoided file reads, i.e., negatives.
+  uint64_t bloom_filter_useful = 0;
+  // # of times bloom FullFilter has not avoided the reads.
+  uint64_t bloom_filter_full_positive = 0;
+  // # of times bloom FullFilter has not avoided the reads and data actually
+  // exist.
+  uint64_t bloom_filter_full_true_positive = 0;
 
-  void Reset(); // reset all performance counters to zero
+  // total number of user key returned (only include keys that are found, does
+  // not include keys that are deleted or merged without a final put
+  uint64_t user_key_return_count;
+
+  // total nanos spent on reading data from SST files
+  uint64_t get_from_table_nanos;
+
+  uint64_t block_cache_hit_count = 0;   // total number of block cache hits
+  uint64_t block_cache_miss_count = 0;  // total number of block cache misses
+
+  void Reset();  // reset all performance counters to zero
+};
+
+struct PerfContext {
+  ~PerfContext();
+
+  PerfContext() {}
+
+  PerfContext(const PerfContext&);
+  PerfContext& operator=(const PerfContext&);
+  PerfContext(PerfContext&&) noexcept;
+
+  void Reset();  // reset all performance counters to zero
 
   std::string ToString(bool exclude_zero_counters = false) const;
 
-  uint64_t user_key_comparison_count; // total number of user key comparisons
-  uint64_t block_cache_hit_count;     // total number of block cache hits
-  uint64_t block_read_count;          // total number of block reads (with IO)
-  uint64_t block_read_byte;           // total number of bytes from block reads
-  uint64_t block_read_time;           // total nanos spent on block reads
-  uint64_t block_checksum_time;       // total nanos spent on block checksum
+  // enable per level perf context and allocate storage for PerfContextByLevel
+  void EnablePerLevelPerfContext();
+
+  // temporarily disable per level perf contxt by setting the flag to false
+  void DisablePerLevelPerfContext();
+
+  // free the space for PerfContextByLevel, also disable per level perf context
+  void ClearPerLevelPerfContext();
+
+  uint64_t user_key_comparison_count;  // total number of user key comparisons
+  uint64_t block_cache_hit_count;      // total number of block cache hits
+  uint64_t block_read_count;           // total number of block reads (with IO)
+  uint64_t block_read_byte;            // total number of bytes from block reads
+  uint64_t block_read_time;            // total nanos spent on block reads
+  uint64_t block_cache_index_hit_count;   // total number of index block hits
+  uint64_t index_block_read_count;        // total number of index block reads
+  uint64_t block_cache_filter_hit_count;  // total number of filter block hits
+  uint64_t filter_block_read_count;       // total number of filter block reads
+  uint64_t compression_dict_block_read_count;  // total number of compression
+                                               // dictionary block reads
+  uint64_t block_checksum_time;    // total nanos spent on block checksum
   uint64_t block_decompress_time;  // total nanos spent on block decompression
 
   uint64_t get_read_bytes;       // bytes for vals returned by Get
@@ -69,9 +115,9 @@ struct PerfContext {
   //
   uint64_t internal_merge_count;
 
-  uint64_t get_snapshot_time;       // total nanos spent on getting snapshot
-  uint64_t get_from_memtable_time;  // total nanos spent on querying memtables
-  uint64_t get_from_memtable_count;    // number of mem tables queried
+  uint64_t get_snapshot_time;        // total nanos spent on getting snapshot
+  uint64_t get_from_memtable_time;   // total nanos spent on querying memtables
+  uint64_t get_from_memtable_count;  // number of mem tables queried
   // total nanos spent after Get() finds a key
   uint64_t get_post_process_time;
   uint64_t get_from_output_files_time;  // total nanos reading from output files
@@ -169,12 +215,18 @@ struct PerfContext {
   uint64_t env_lock_file_nanos;
   uint64_t env_unlock_file_nanos;
   uint64_t env_new_logger_nanos;
+
+  uint64_t get_cpu_nanos;
+  uint64_t iter_next_cpu_nanos;
+  uint64_t iter_prev_cpu_nanos;
+  uint64_t iter_seek_cpu_nanos;
+
+  std::map<uint32_t, PerfContextByLevel>* level_to_perf_context = nullptr;
+  bool per_level_perf_context_enabled = false;
 };
 
 // Get Thread-local PerfContext object pointer
 // if defined(NPERF_CONTEXT), then the pointer is not thread-local
 PerfContext* get_perf_context();
 
-}
-
-#endif
+}  // namespace rocksdb

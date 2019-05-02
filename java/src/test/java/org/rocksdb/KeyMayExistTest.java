@@ -48,12 +48,33 @@ public class KeyMayExistTest {
         assertThat(exists).isTrue();
         assertThat(retValue.toString()).isEqualTo("value");
 
+        // Slice key
+        StringBuilder builder = new StringBuilder("prefix");
+        int offset = builder.toString().length();
+        builder.append("slice key 0");
+        int len = builder.toString().length() - offset;
+        builder.append("suffix");
+
+        byte[] sliceKey = builder.toString().getBytes();
+        byte[] sliceValue = "slice value 0".getBytes();
+        db.put(sliceKey, offset, len, sliceValue, 0, sliceValue.length);
+
+        retValue = new StringBuilder();
+        exists = db.keyMayExist(sliceKey, offset, len, retValue);
+        assertThat(exists).isTrue();
+        assertThat(retValue.toString().getBytes()).isEqualTo(sliceValue);
+
         // Test without column family but with readOptions
         try (final ReadOptions readOptions = new ReadOptions()) {
           retValue = new StringBuilder();
           exists = db.keyMayExist(readOptions, "key".getBytes(), retValue);
           assertThat(exists).isTrue();
           assertThat(retValue.toString()).isEqualTo("value");
+
+          retValue = new StringBuilder();
+          exists = db.keyMayExist(readOptions, sliceKey, offset, len, retValue);
+          assertThat(exists).isTrue();
+          assertThat(retValue.toString().getBytes()).isEqualTo(sliceValue);
         }
 
         // Test with column family
@@ -63,6 +84,13 @@ public class KeyMayExistTest {
         assertThat(exists).isTrue();
         assertThat(retValue.toString()).isEqualTo("value");
 
+        // Test slice sky with column family
+        retValue = new StringBuilder();
+        exists = db.keyMayExist(columnFamilyHandleList.get(0), sliceKey, offset, len,
+            retValue);
+        assertThat(exists).isTrue();
+        assertThat(retValue.toString().getBytes()).isEqualTo(sliceValue);
+
         // Test with column family and readOptions
         try (final ReadOptions readOptions = new ReadOptions()) {
           retValue = new StringBuilder();
@@ -71,11 +99,23 @@ public class KeyMayExistTest {
               retValue);
           assertThat(exists).isTrue();
           assertThat(retValue.toString()).isEqualTo("value");
+
+          // Test slice key with column family and read options
+          retValue = new StringBuilder();
+          exists = db.keyMayExist(readOptions,
+              columnFamilyHandleList.get(0), sliceKey, offset, len,
+              retValue);
+          assertThat(exists).isTrue();
+          assertThat(retValue.toString().getBytes()).isEqualTo(sliceValue);
         }
 
         // KeyMayExist in CF1 must return false
         assertThat(db.keyMayExist(columnFamilyHandleList.get(1),
             "key".getBytes(), retValue)).isFalse();
+
+        // slice key
+        assertThat(db.keyMayExist(columnFamilyHandleList.get(1),
+           sliceKey, 1, 3, retValue)).isFalse();
       } finally {
         for (final ColumnFamilyHandle columnFamilyHandle :
             columnFamilyHandleList) {

@@ -53,11 +53,13 @@ if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
     FBCODE_BUILD="true"
     # If we're compiling with TSAN we need pic build
     PIC_BUILD=$COMPILE_WITH_TSAN
-    if [ -z "$ROCKSDB_FBCODE_BUILD_WITH_481" ]; then
-      source "$PWD/build_tools/fbcode_config.sh"
-    else
+    if [ -n "$ROCKSDB_FBCODE_BUILD_WITH_481" ]; then
       # we need this to build with MySQL. Don't use for other purposes.
       source "$PWD/build_tools/fbcode_config4.8.1.sh"
+    elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM007" ]; then
+      source "$PWD/build_tools/fbcode_config_platform007.sh"
+    else
+      source "$PWD/build_tools/fbcode_config.sh"
     fi
 fi
 
@@ -232,7 +234,7 @@ else
           #include <linux/falloc.h>
           int main() {
       int fd = open("/dev/null", 0);
-      fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, 0, 1024);
+      fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 1024);
           }
 EOF
         if [ "$?" = 0 ]; then
@@ -368,6 +370,16 @@ EOF
             # JEMALLOC can be enabled either using the flag (like here) or by
             # providing direct link to the jemalloc library
             WITH_JEMALLOC_FLAG=1
+            # check for JEMALLOC installed with HomeBrew
+            if [ "$PLATFORM" == "OS_MACOSX" ]; then
+                if hash brew 2>/dev/null && brew ls --versions jemalloc > /dev/null; then
+                    JEMALLOC_VER=$(brew ls --versions jemalloc | tail -n 1 | cut -f 2 -d ' ')
+                    JEMALLOC_INCLUDE="-I/usr/local/Cellar/jemalloc/${JEMALLOC_VER}/include"
+                    JEMALLOC_LIB="/usr/local/Cellar/jemalloc/${JEMALLOC_VER}/lib/libjemalloc_pic.a"
+                    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS $JEMALLOC_LIB"
+                    JAVA_STATIC_LDFLAGS="$JAVA_STATIC_LDFLAGS $JEMALLOC_LIB"
+                fi
+            fi
         fi
     fi
     if ! test $JEMALLOC && ! test $ROCKSDB_DISABLE_TCMALLOC; then
@@ -474,6 +486,17 @@ EOF
             COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_SCHED_GETCPU_PRESENT"
         fi
     fi
+
+    if ! test $ROCKSDB_DISABLE_ALIGNED_NEW; then
+        # Test whether c++17 aligned-new is supported
+        $CXX $PLATFORM_CXXFLAGS -faligned-new -x c++ - -o /dev/null 2>/dev/null <<EOF
+            struct alignas(1024) t {int a;};
+            int main() {}
+EOF
+        if [ "$?" = 0 ]; then
+            PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS -faligned-new -DHAVE_ALIGNED_NEW"
+        fi
+    fi
 fi
 
 # TODO(tec): Fix -Wshorten-64-to-32 errors on FreeBSD and enable the warning.
@@ -495,8 +518,8 @@ if test "$USE_HDFS"; then
     echo "JAVA_HOME has to be set for HDFS usage."
     exit 1
   fi
-  HDFS_CCFLAGS="$HDFS_CCFLAGS -I$JAVA_HOME/include -I$JAVA_HOME/include/linux -DUSE_HDFS"
-  HDFS_LDFLAGS="$HDFS_LDFLAGS -lhdfs -L$JAVA_HOME/jre/lib/amd64"
+  HDFS_CCFLAGS="$HDFS_CCFLAGS -I$JAVA_HOME/include -I$JAVA_HOME/include/linux -DUSE_HDFS -I$HADOOP_HOME/include"
+  HDFS_LDFLAGS="$HDFS_LDFLAGS -lhdfs -L$JAVA_HOME/jre/lib/amd64 -L$HADOOP_HOME/lib/native"
   HDFS_LDFLAGS="$HDFS_LDFLAGS -L$JAVA_HOME/jre/lib/amd64/server -L$GLIBC_RUNTIME_PATH/lib"
   HDFS_LDFLAGS="$HDFS_LDFLAGS -ldl -lverify -ljava -ljvm"
   COMMON_FLAGS="$COMMON_FLAGS $HDFS_CCFLAGS"

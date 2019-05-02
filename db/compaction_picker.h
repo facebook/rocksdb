@@ -58,9 +58,10 @@ class CompactionPicker {
   virtual Compaction* CompactRange(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       VersionStorageInfo* vstorage, int input_level, int output_level,
-      uint32_t output_path_id, uint32_t max_subcompactions,
+      const CompactRangeOptions& compact_range_options,
       const InternalKey* begin, const InternalKey* end,
-      InternalKey** compaction_end, bool* manual_conflict);
+      InternalKey** compaction_end, bool* manual_conflict,
+      uint64_t max_file_num_to_ignore);
 
   // The maximum allowed output level.  Default value is NumberLevels() - 1.
   virtual int MaxOutputLevel() const { return NumberLevels() - 1; }
@@ -151,7 +152,8 @@ class CompactionPicker {
   // Will return false if it is impossible to apply this compaction.
   bool ExpandInputsToCleanCut(const std::string& cf_name,
                               VersionStorageInfo* vstorage,
-                              CompactionInputFiles* inputs);
+                              CompactionInputFiles* inputs,
+                              InternalKey** next_smallest = nullptr);
 
   // Returns true if any one of the parent files are being compacted
   bool IsRangeInCompaction(VersionStorageInfo* vstorage,
@@ -234,42 +236,6 @@ class LevelCompactionPicker : public CompactionPicker {
 };
 
 #ifndef ROCKSDB_LITE
-class FIFOCompactionPicker : public CompactionPicker {
- public:
-  FIFOCompactionPicker(const ImmutableCFOptions& ioptions,
-                       const InternalKeyComparator* icmp)
-      : CompactionPicker(ioptions, icmp) {}
-
-  virtual Compaction* PickCompaction(const std::string& cf_name,
-                                     const MutableCFOptions& mutable_cf_options,
-                                     VersionStorageInfo* version,
-                                     LogBuffer* log_buffer) override;
-
-  virtual Compaction* CompactRange(
-      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      VersionStorageInfo* vstorage, int input_level, int output_level,
-      uint32_t output_path_id, uint32_t max_subcompactions,
-      const InternalKey* begin, const InternalKey* end,
-      InternalKey** compaction_end, bool* manual_conflict) override;
-
-  // The maximum allowed output level.  Always returns 0.
-  virtual int MaxOutputLevel() const override { return 0; }
-
-  virtual bool NeedsCompaction(
-      const VersionStorageInfo* vstorage) const override;
-
- private:
-  Compaction* PickTTLCompaction(const std::string& cf_name,
-                                const MutableCFOptions& mutable_cf_options,
-                                VersionStorageInfo* version,
-                                LogBuffer* log_buffer);
-
-  Compaction* PickSizeCompaction(const std::string& cf_name,
-                                 const MutableCFOptions& mutable_cf_options,
-                                 VersionStorageInfo* version,
-                                 LogBuffer* log_buffer);
-};
-
 class NullCompactionPicker : public CompactionPicker {
  public:
   NullCompactionPicker(const ImmutableCFOptions& ioptions,
@@ -290,12 +256,12 @@ class NullCompactionPicker : public CompactionPicker {
                            const MutableCFOptions& /*mutable_cf_options*/,
                            VersionStorageInfo* /*vstorage*/,
                            int /*input_level*/, int /*output_level*/,
-                           uint32_t /*output_path_id*/,
-                           uint32_t /*max_subcompactions*/,
+                           const CompactRangeOptions& /*compact_range_options*/,
                            const InternalKey* /*begin*/,
                            const InternalKey* /*end*/,
                            InternalKey** /*compaction_end*/,
-                           bool* /*manual_conflict*/) override {
+                           bool* /*manual_conflict*/,
+                           uint64_t /*max_file_num_to_ignore*/) override {
     return nullptr;
   }
 
@@ -306,6 +272,11 @@ class NullCompactionPicker : public CompactionPicker {
   }
 };
 #endif  // !ROCKSDB_LITE
+
+bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
+                           size_t min_files_to_compact,
+                           uint64_t max_compact_bytes_per_del_file,
+                           CompactionInputFiles* comp_inputs);
 
 CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
                                    const VersionStorageInfo* vstorage,

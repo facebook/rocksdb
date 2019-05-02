@@ -15,8 +15,7 @@ class BloomBlockBuilder {
  public:
   static const std::string kBloomBlock;
 
-  explicit BloomBlockBuilder(uint32_t num_probes = 6)
-      : bloom_(num_probes, nullptr) {}
+  explicit BloomBlockBuilder(uint32_t num_probes = 6) : bloom_(num_probes) {}
 
   void SetTotalBits(Allocator* allocator, uint32_t total_bits,
                     uint32_t locality, size_t huge_page_tlb_size,

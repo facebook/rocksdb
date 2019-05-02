@@ -324,8 +324,6 @@ class VersionBuilder::Rep {
       // Merge the set of added files with the set of pre-existing files.
       // Drop any deleted files.  Store the result in *v.
       const auto& base_files = base_vstorage_->LevelFiles(level);
-      auto base_iter = base_files.begin();
-      auto base_end = base_files.end();
       const auto& unordered_added_files = levels_[level].added_files;
       vstorage->Reserve(level,
                         base_files.size() + unordered_added_files.size());
@@ -339,47 +337,87 @@ class VersionBuilder::Rep {
       std::sort(added_files.begin(), added_files.end(), cmp);
 
 #ifndef NDEBUG
-      FileMetaData* prev_file = nullptr;
-#endif
-
+      FileMetaData* prev_added_file = nullptr;
       for (const auto& added : added_files) {
-#ifndef NDEBUG
-        if (level > 0 && prev_file != nullptr) {
+        if (level > 0 && prev_added_file != nullptr) {
           assert(base_vstorage_->InternalComparator()->Compare(
-                     prev_file->smallest, added->smallest) <= 0);
+                     prev_added_file->smallest, added->smallest) <= 0);
         }
-        prev_file = added;
+        prev_added_file = added;
+      }
 #endif
 
-        // Add all smaller files listed in base_
-        for (auto bpos = std::upper_bound(base_iter, base_end, added, cmp);
-             base_iter != bpos; ++base_iter) {
-          MaybeAddFile(vstorage, level, *base_iter);
+      auto base_iter = base_files.begin();
+      auto base_end = base_files.end();
+      auto added_iter = added_files.begin();
+      auto added_end = added_files.end();
+      while (added_iter != added_end || base_iter != base_end) {
+        if (base_iter == base_end ||
+                (added_iter != added_end && cmp(*added_iter, *base_iter))) {
+          MaybeAddFile(vstorage, level, *added_iter++);
+        } else {
+          MaybeAddFile(vstorage, level, *base_iter++);
         }
-
-        MaybeAddFile(vstorage, level, added);
-      }
-
-      // Add remaining base files
-      for (; base_iter != base_end; ++base_iter) {
-        MaybeAddFile(vstorage, level, *base_iter);
       }
     }
 
     CheckConsistency(vstorage);
   }
 
-  void LoadTableHandlers(InternalStats* internal_stats, int max_threads,
-                         bool prefetch_index_and_filter_in_cache,
-                         const SliceTransform* prefix_extractor) {
+  Status LoadTableHandlers(InternalStats* internal_stats, int max_threads,
+                           bool prefetch_index_and_filter_in_cache,
+                           bool is_initial_load,
+                           const SliceTransform* prefix_extractor) {
     assert(table_cache_ != nullptr);
+
+    size_t table_cache_capacity = table_cache_->get_cache()->GetCapacity();
+    bool always_load = (table_cache_capacity == TableCache::kInfiniteCapacity);
+    size_t max_load = port::kMaxSizet;
+
+    if (!always_load) {
+      // If it is initial loading and not set to always laoding all the
+      // files, we only load up to kInitialLoadLimit files, to limit the
+      // time reopening the DB.
+      const size_t kInitialLoadLimit = 16;
+      size_t load_limit;
+      // If the table cache is not 1/4 full, we pin the table handle to
+      // file metadata to avoid the cache read costs when reading the file.
+      // The downside of pinning those files is that LRU won't be followed
+      // for those files. This doesn't matter much because if number of files
+      // of the DB excceeds table cache capacity, eventually no table reader
+      // will be pinned and LRU will be followed.
+      if (is_initial_load) {
+        load_limit = std::min(kInitialLoadLimit, table_cache_capacity / 4);
+      } else {
+        load_limit = table_cache_capacity / 4;
+      }
+
+      size_t table_cache_usage = table_cache_->get_cache()->GetUsage();
+      if (table_cache_usage >= load_limit) {
+        // TODO (yanqin) find a suitable status code.
+        return Status::OK();
+      } else {
+        max_load = load_limit - table_cache_usage;
+      }
+    }
+
     // <file metadata, level>
     std::vector<std::pair<FileMetaData*, int>> files_meta;
+    std::vector<Status> statuses;
     for (int level = 0; level < num_levels_; level++) {
       for (auto& file_meta_pair : levels_[level].added_files) {
         auto* file_meta = file_meta_pair.second;
-        assert(!file_meta->table_reader_handle);
-        files_meta.emplace_back(file_meta, level);
+        // If the file has been opened before, just skip it.
+        if (!file_meta->table_reader_handle) {
+          files_meta.emplace_back(file_meta, level);
+          statuses.emplace_back(Status::OK());
+        }
+        if (files_meta.size() >= max_load) {
+          break;
+        }
+      }
+      if (files_meta.size() >= max_load) {
+        break;
       }
     }
 
@@ -393,7 +431,7 @@ class VersionBuilder::Rep {
 
         auto* file_meta = files_meta[file_idx].first;
         int level = files_meta[file_idx].second;
-        table_cache_->FindTable(
+        statuses[file_idx] = table_cache_->FindTable(
             env_options_, *(base_vstorage_->InternalComparator()),
             file_meta->fd, &file_meta->table_reader_handle, prefix_extractor,
             false /*no_io */, true /* record_read_stats */,
@@ -415,6 +453,12 @@ class VersionBuilder::Rep {
     for (auto& t : threads) {
       t.join();
     }
+    for (const auto& s : statuses) {
+      if (!s.ok()) {
+        return s;
+      }
+    }
+    return Status::OK();
   }
 
   void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
@@ -454,12 +498,13 @@ void VersionBuilder::SaveTo(VersionStorageInfo* vstorage) {
   rep_->SaveTo(vstorage);
 }
 
-void VersionBuilder::LoadTableHandlers(InternalStats* internal_stats,
-                                       int max_threads,
-                                       bool prefetch_index_and_filter_in_cache,
-                                       const SliceTransform* prefix_extractor) {
-  rep_->LoadTableHandlers(internal_stats, max_threads,
-                          prefetch_index_and_filter_in_cache, prefix_extractor);
+Status VersionBuilder::LoadTableHandlers(
+    InternalStats* internal_stats, int max_threads,
+    bool prefetch_index_and_filter_in_cache, bool is_initial_load,
+    const SliceTransform* prefix_extractor) {
+  return rep_->LoadTableHandlers(internal_stats, max_threads,
+                                 prefetch_index_and_filter_in_cache,
+                                 is_initial_load, prefix_extractor);
 }
 
 void VersionBuilder::MaybeAddFile(VersionStorageInfo* vstorage, int level,
