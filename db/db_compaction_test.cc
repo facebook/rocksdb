@@ -3871,7 +3871,7 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
   // i == 1: DB::CancelAllBackgroundWork() unblocks CompactRange. This is to
   //         simulate what happens during Close as we can't call Close (it
   //         blocks on the auto-compaction, making a cycle).
-  for (static int i = 0; i < 2; ++i) {
+  for (int i = 0; i < 2; ++i) {
     CreateAndReopenWithCF({"one"}, options);
     // The calls to close CF/DB wait until the manual compaction stalls.
     // The auto-compaction waits until the manual compaction finishes to ensure
@@ -3890,7 +3890,7 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
       }
       Flush(1);
     }
-    auto manual_compaction_thread = port::Thread([this]() {
+    auto manual_compaction_thread = port::Thread([this, i]() {
       CompactRangeOptions cro;
       cro.allow_write_stall = false;
       Status s = db_->CompactRange(cro, handles_[1], nullptr, nullptr);
