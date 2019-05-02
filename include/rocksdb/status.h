@@ -187,11 +187,11 @@ class Status {
   }
 
   static Status ColumnFamilyDropped(SubCode msg = kNone) {
-	  return Status(kColumnFamilyDropped, msg);
+    return Status(kColumnFamilyDropped, msg);
   }
 
   static Status ColumnFamilyDropped(const Slice& msg,
-                                   const Slice& msg2 = Slice()) {
+                                    const Slice& msg2 = Slice()) {
     return Status(kColumnFamilyDropped, msg, msg2);
   }
 

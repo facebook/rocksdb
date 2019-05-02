@@ -3859,7 +3859,7 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
   }
 }
 
-	TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
+TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
   // Verify that, when `CompactRangeOptions::allow_write_stall == false`, delay
   // does not hang if CF is dropped or DB is closed
   const int kNumL0FilesTrigger = 4;
