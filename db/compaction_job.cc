@@ -1004,7 +1004,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   RecordDroppedKeys(c_iter_stats, &sub_compact->compaction_job_stats);
   RecordCompactionIOStats();
 
-  if (cfd->IsDropped()) {
+  if (status.ok() && cfd->IsDropped()) {
 	  status = Status::ColumnFamilyDropped(
 			  "Column family dropped during compaction");
   }
