@@ -798,6 +798,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   return s;
 }
 
+namespace {
 class SnapshotListFetchCallbackImpl : public SnapshotListFetchCallback {
  public:
   SnapshotListFetchCallbackImpl(DBImpl* db_impl, Env* env,
@@ -820,6 +821,7 @@ class SnapshotListFetchCallbackImpl : public SnapshotListFetchCallback {
   DBImpl* db_impl_;
   Logger* info_log_;
 };
+}  // namespace
 
 Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
                             ColumnFamilyHandle* column_family,
