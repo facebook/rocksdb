@@ -903,14 +903,18 @@ class DBImpl : public DB {
   // Write only to memtables without joining any write queue
   Status UnorderedWriteMemtable(const WriteOptions& write_options,
                                 WriteBatch* my_batch, WriteCallback* callback,
-                                uint64_t log_ref, uint64_t seq);
+                                uint64_t log_ref, SequenceNumber seq);
 
   // Whether the batch requires to be assigned with an order
-  enum AssignOrder { DontAssignOrder, DoAssignOrder };
+  enum AssignOrder : bool { kDontAssignOrder, kDoAssignOrder };
   // Whether it requires publishing last sequence or not
-  enum PublishLastSeq { DontPublishLastSeq, DoPublishLastSeq };
+  enum PublishLastSeq : bool { kDontPublishLastSeq, kDoPublishLastSeq };
 
-  // sub_batch_cnt is expected to be non-zero when assign_order = DoAssignOrder
+  // Join the write_thread to write the batch only to the WAL. It is the
+  // responsibility of the caller to also write the write batch to the memtable
+  // if it required.
+  //
+  // sub_batch_cnt is expected to be non-zero when assign_order = kDoAssignOrder
   // indicating the number of sub-batches in my_batch. A sub-patch is a subset
   // of the write batch that does not have duplicate keys. When seq_per_batch is
   // not set, each key is a separate sub_batch. Otherwise each duplicate key
@@ -1596,12 +1600,10 @@ class DBImpl : public DB {
   // last time stats were dumped to LOG
   std::atomic<uint64_t> last_stats_dump_time_microsec_;
 
-  // Number of threads intending to take write lock on rwlock_
-  std::atomic<size_t> writers_cnt_ = {};
   // The thread that wants to switch memtable, can wait on this cv until the
-  // writes the pending writes to memtable finishes.
+  // pending writes to memtable finishes.
   std::condition_variable switch_cv_;
-  // The mutex used by switch_cv_
+  // The mutex used by switch_cv_. mutex_ should be acquired beforehand.
   std::mutex switch_mutex_;
   // Number of threads intending to write to memtable
   std::atomic<size_t> pending_memtable_writes_ = {};

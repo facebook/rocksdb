@@ -112,13 +112,14 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   if (two_write_queues_ && disable_memtable) {
-    AssignOrder assign_order = seq_per_batch_ ? DoAssignOrder : DontAssignOrder;
+    AssignOrder assign_order =
+        seq_per_batch_ ? kDoAssignOrder : kDontAssignOrder;
     // Otherwise it is WAL-only Prepare batches in WriteCommitted policy and
     // they don't consume sequence.
     return WriteImplWALOnly(nonmem_write_thread_, write_options, my_batch,
                             callback, log_used, log_ref, seq_used, batch_cnt,
                             pre_release_callback, assign_order,
-                            DontPublishLastSeq);
+                            kDontPublishLastSeq);
   }
 
   if (immutable_db_options_.unordered_write) {
@@ -129,10 +130,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     uint64_t seq;
     // Use a write thread to i) optimize for WAL write, ii) publish last
     // sequence in in increasing order, iii) call pre_release_callback serially
-    status =
-        WriteImplWALOnly(write_thread_, write_options, my_batch, callback,
-                         log_used, log_ref, &seq, sub_batch_cnt,
-                         pre_release_callback, DoAssignOrder, DoPublishLastSeq);
+    status = WriteImplWALOnly(write_thread_, write_options, my_batch, callback,
+                              log_used, log_ref, &seq, sub_batch_cnt,
+                              pre_release_callback, kDoAssignOrder,
+                              kDoPublishLastSeq);
     if (!status.ok()) {
       // TODO(myabandeh): update pending_memtable_writes_
       return status;
@@ -573,7 +574,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
 Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
                                       WriteBatch* my_batch,
                                       WriteCallback* callback, uint64_t log_ref,
-                                      uint64_t seq) {
+                                      SequenceNumber seq) {
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
 
@@ -707,7 +708,7 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
   // LastAllocatedSequence is increased inside WriteToWAL under
   // wal_write_mutex_ to ensure ordered events in WAL
   size_t seq_inc = 0 /* total_count */;
-  if (assign_order == DoAssignOrder) {
+  if (assign_order == kDoAssignOrder) {
     size_t total_batch_cnt = 0;
     for (auto* writer : write_group) {
       assert(writer->batch_cnt);
@@ -729,7 +730,7 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
       continue;
     }
     writer->sequence = curr_seq;
-    if (assign_order == DoAssignOrder) {
+    if (assign_order == kDoAssignOrder) {
       assert(writer->batch_cnt);
       curr_seq += writer->batch_cnt;
     }
@@ -766,10 +767,10 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
       }
     }
   }
-  if (publish_last_seq == DoPublishLastSeq) {
+  if (publish_last_seq == kDoPublishLastSeq) {
     versions_->SetLastSequence(last_sequence + seq_inc);
-  }
-  if (immutable_db_options_.unordered_write) {
+    // Currnetly we only use kDoPublishLastSeq in unordered_write
+    assert(immutable_db_options_.unordered_write);
     // TODO(myabandeh): count only the ones with disable_memtable=false
     size_t wgs = write_group.size;
     pending_memtable_writes_ += wgs;
