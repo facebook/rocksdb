@@ -617,33 +617,6 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
   if (!w.FinalStatus().ok()) {
     return w.FinalStatus();
   }
-
-  WriteContext write_context;
-  if (UNLIKELY(!flush_scheduler_.Empty())) {
-    Status status;
-    size_t writers_cnt = writers_cnt_.fetch_add(1) + 1;
-    if (writers_cnt == 1) {
-      if (!flush_scheduler_.Empty()) {
-        InstrumentedMutexLock l(&mutex_);
-        WriteThread::Writer wb;
-        // Prevents any more memtable-backed writes to the WAL
-        write_thread_.EnterUnbatched(&wb, &mutex_);
-        // Wait for the ones who already wrote to the WAL to finish their
-        // memtable write.
-        if (pending_memtable_writes_.load() != 0) {
-          std::unique_lock<std::mutex> guard(switch_mutex_);
-          switch_cv_.wait(guard,
-                          [&] { return pending_memtable_writes_.load() == 0; });
-        }
-
-        status = ScheduleFlushes(&write_context);
-
-        write_thread_.ExitUnbatched(&wb);
-      }
-    }
-    writers_cnt = writers_cnt_.fetch_sub(1) - 1;
-    return status;
-  }
   return Status::OK();
 }
 
@@ -679,6 +652,22 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
   }
   // else we are the leader of the write batch group
   assert(w.state == WriteThread::STATE_GROUP_LEADER);
+
+  WriteContext write_context;
+  if (UNLIKELY(!flush_scheduler_.Empty())) {
+    if (!flush_scheduler_.Empty()) {
+      InstrumentedMutexLock l(&mutex_);
+      // Wait for the ones who already wrote to the WAL to finish their
+      // memtable write.
+      if (pending_memtable_writes_.load() != 0) {
+        std::unique_lock<std::mutex> guard(switch_mutex_);
+        switch_cv_.wait(guard,
+                        [&] { return pending_memtable_writes_.load() == 0; });
+      }
+      status = ScheduleFlushes(&write_context);
+    }
+  }
+
   WriteThread::WriteGroup write_group;
   uint64_t last_sequence;
   write_thread.EnterAsBatchGroupLeader(&w, &write_group);
