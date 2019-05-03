@@ -3057,6 +3057,8 @@ class NonBatchedOpsStressTest : public StressTest {
     size_t num_keys = rand_keys.size();
     std::vector<std::string> key_str;
     std::vector<Slice> keys;
+    key_str.reserve(num_keys);
+    keys.reserve(num_keys);
     std::vector<PinnableSlice> values(num_keys);
     std::vector<Status> statuses(num_keys);
     ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
@@ -3615,6 +3617,8 @@ class BatchedOpsStressTest : public StressTest {
       ReadOptions readoptionscopy = readoptions;
       readoptionscopy.snapshot = db_->GetSnapshot();
       std::vector<std::string> key_str;
+      key_str.reserve(num_keys);
+      key_slices.reserve(num_keys);
       std::string from_db;
       ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
 
@@ -3888,6 +3892,8 @@ class AtomicFlushStressTest : public StressTest {
     size_t num_keys = rand_keys.size();
     std::vector<std::string> key_str;
     std::vector<Slice> keys;
+    keys.reserve(num_keys);
+    key_str.reserve(num_keys);
     std::vector<PinnableSlice> values(num_keys);
     std::vector<Status> statuses(num_keys);
     ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
