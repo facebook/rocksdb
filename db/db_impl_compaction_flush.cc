@@ -2275,6 +2275,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     // have created (they might not be all recorded in job_context in case of a
     // failure). Thus, we force full scan in FindObsoleteFiles()
     FindObsoleteFiles(&job_context, !s.ok() && (!s.IsShutdownInProgress() &&
+                                                !s.IsColumnFamilyDropped()));
     TEST_SYNC_POINT("DBImpl::BackgroundCallCompaction:FoundObsoleteFiles");
 
     // delete unnecessary files if any, this is done outside the mutex
