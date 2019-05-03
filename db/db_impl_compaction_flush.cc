@@ -201,7 +201,7 @@ Status DBImpl::FlushMemTableToOutputFile(
                      cfd->current()->storage_info()->LevelSummary(&tmp));
   }
 
-  if (!s.ok() && (!s.IsShutdownInProgress() || !s.IsColumnFamilyDropped())) {
+  if (!s.ok() && (!s.IsShutdownInProgress() && !s.IsColumnFamilyDropped())) {
     Status new_bg_error = s;
     error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
   }

@@ -467,6 +467,8 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
         return 0xC;
       case rocksdb::Status::Code::kTryAgain:
         return 0xD;
+      case rocksdb::Status::Code::kColumnFamilyDropped:
+        return 0xE;
       default:
         return 0x7F;  // undefined
     }
@@ -583,6 +585,12 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
         status = std::unique_ptr<rocksdb::Status>(
             new rocksdb::Status(rocksdb::Status::TryAgain(
               rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+        break;
+      case 0xE:
+        // ColumnFamilyDropped
+        status = std::unique_ptr<rocksdb::Status>(
+            new rocksdb::Status(rocksdb::Status::ColumnFamilyDropped(
+                rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0x7F:
       default:
