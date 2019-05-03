@@ -1774,7 +1774,11 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         iter->value, nullptr, &(iter->merge_context),
         &iter->max_covering_tombstone_seq, this->env_, &iter->seq,
         merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob);
-    iter->get_context = &get_ctx.back();
+  }
+  int get_ctx_index = 0;
+  for (auto iter = range->begin(); iter != range->end();
+       ++iter, get_ctx_index++) {
+    iter->get_context = &(get_ctx[get_ctx_index]);
   }
 
   MultiGetRange file_picker_range(*range, range->begin(), range->end());
