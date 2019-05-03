@@ -654,18 +654,22 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
   // else we are the leader of the write batch group
   assert(w.state == WriteThread::STATE_GROUP_LEADER);
 
-  WriteContext write_context;
-  if (UNLIKELY(!flush_scheduler_.Empty())) {
-    if (!flush_scheduler_.Empty()) {
-      InstrumentedMutexLock l(&mutex_);
-      // Wait for the ones who already wrote to the WAL to finish their
-      // memtable write.
-      if (pending_memtable_writes_.load() != 0) {
-        std::unique_lock<std::mutex> guard(switch_mutex_);
-        switch_cv_.wait(guard,
-                        [&] { return pending_memtable_writes_.load() == 0; });
+  if (publish_last_seq == kDoPublishLastSeq) {
+    // Currnetly we only use kDoPublishLastSeq in unordered_write
+    assert(immutable_db_options_.unordered_write);
+    WriteContext write_context;
+    if (UNLIKELY(!flush_scheduler_.Empty())) {
+      if (!flush_scheduler_.Empty()) {
+        InstrumentedMutexLock l(&mutex_);
+        // Wait for the ones who already wrote to the WAL to finish their
+        // memtable write.
+        if (pending_memtable_writes_.load() != 0) {
+          std::unique_lock<std::mutex> guard(switch_mutex_);
+          switch_cv_.wait(guard,
+                          [&] { return pending_memtable_writes_.load() == 0; });
+        }
+        status = ScheduleFlushes(&write_context);
       }
-      status = ScheduleFlushes(&write_context);
     }
   }
 
