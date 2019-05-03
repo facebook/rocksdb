@@ -893,7 +893,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       &existing_snapshots_, earliest_write_conflict_snapshot_,
       snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_), false,
       &range_del_agg, sub_compact->compaction, compaction_filter,
-      shutting_down_, preserve_deletes_seqnum_, snap_list_callback_));
+      shutting_down_, preserve_deletes_seqnum_,
+      // Currently range_del_agg is incompatible with snapshot refresh feature.
+      range_del_agg.IsEmpty() ? snap_list_callback_ : nullptr));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() && sub_compact->compaction->output_level() != 0) {
