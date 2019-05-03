@@ -3606,7 +3606,7 @@ class BatchedOpsStressTest : public StressTest {
       const ReadOptions& readoptions,
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys) {
-    int num_keys = rand_keys.size();
+    size_t num_keys = rand_keys.size();
     std::vector<Status> statuses(num_keys);
     std::string keys[10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
     for (int key = 0; key < 10; ++key) {
@@ -3618,13 +3618,13 @@ class BatchedOpsStressTest : public StressTest {
       std::string from_db;
       ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
 
-      for (int rand_key = 0; rand_key < num_keys; ++rand_key) {
+      for (size_t rand_key = 0; rand_key < num_keys; ++rand_key) {
         key_str.emplace_back(keys[key] + Key(rand_keys[rand_key]));
         key_slices.emplace_back(key_str.back());
       }
       db_->MultiGet(readoptionscopy, cfh, num_keys, key_slices.data(),
           values.data(), statuses.data());
-      for (int i = 0; i < num_keys; i++) {
+      for (size_t i = 0; i < num_keys; i++) {
         Status s = statuses[i];
         if (!s.ok() && !s.IsNotFound()) {
           fprintf(stderr, "get error: %s\n", s.ToString().c_str());
@@ -3651,7 +3651,7 @@ class BatchedOpsStressTest : public StressTest {
       db_->ReleaseSnapshot(readoptionscopy.snapshot);
 
       // Now that we retrieved all values, check that they all match
-      for (int i = 1; i < num_keys; i++) {
+      for (size_t i = 1; i < num_keys; i++) {
         if (values[i] != values[0]) {
           fprintf(stderr, "error : inconsistent values for key %s: %s, %s\n",
                   key_str[i].c_str(),
@@ -3885,14 +3885,14 @@ class AtomicFlushStressTest : public StressTest {
       const ReadOptions& read_opts,
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys) {
-    int num_keys = rand_keys.size();
+    size_t num_keys = rand_keys.size();
     std::vector<std::string> key_str;
     std::vector<Slice> keys;
     std::vector<PinnableSlice> values(num_keys);
     std::vector<Status> statuses(num_keys);
     ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
 
-    for (int i = 0; i < num_keys; ++i) {
+    for (size_t i = 0; i < num_keys; ++i) {
       key_str.emplace_back(Key(rand_keys[i]));
       keys.emplace_back(key_str.back());
     }
