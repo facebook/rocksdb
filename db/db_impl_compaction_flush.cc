@@ -798,6 +798,31 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   return s;
 }
 
+namespace {
+class SnapshotListFetchCallbackImpl : public SnapshotListFetchCallback {
+ public:
+  SnapshotListFetchCallbackImpl(DBImpl* db_impl, Env* env,
+                                uint64_t snap_refresh_nanos, Logger* info_log)
+      : SnapshotListFetchCallback(env, snap_refresh_nanos),
+        db_impl_(db_impl),
+        info_log_(info_log) {}
+  virtual void Refresh(std::vector<SequenceNumber>* snapshots,
+                       SequenceNumber max) override {
+    size_t prev = snapshots->size();
+    snapshots->clear();
+    db_impl_->LoadSnapshots(snapshots, nullptr, max);
+    size_t now = snapshots->size();
+    ROCKS_LOG_DEBUG(info_log_,
+                    "Compaction snapshot count refreshed from %zu to %zu", prev,
+                    now);
+  }
+
+ private:
+  DBImpl* db_impl_;
+  Logger* info_log_;
+};
+}  // namespace
+
 Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
                             ColumnFamilyHandle* column_family,
                             const std::vector<std::string>& input_file_names,
@@ -969,6 +994,9 @@ Status DBImpl::CompactFilesImpl(
 
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJobStats compaction_job_stats;
+  SnapshotListFetchCallbackImpl fetch_callback(
+      this, env_, c->mutable_cf_options()->snap_refresh_nanos,
+      immutable_db_options_.info_log.get());
   CompactionJob compaction_job(
       job_context->job_id, c.get(), immutable_db_options_,
       env_options_for_compaction_, versions_.get(), &shutting_down_,
@@ -978,7 +1006,9 @@ Status DBImpl::CompactFilesImpl(
       snapshot_checker, table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
-      &compaction_job_stats, Env::Priority::USER);
+      &compaction_job_stats, Env::Priority::USER,
+      immutable_db_options_.max_subcompactions <= 1 ? &fetch_callback
+                                                    : nullptr);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -2622,6 +2652,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     GetSnapshotContext(job_context, &snapshot_seqs,
                        &earliest_write_conflict_snapshot, &snapshot_checker);
     assert(is_snapshot_supported_ || snapshots_.empty());
+    SnapshotListFetchCallbackImpl fetch_callback(
+        this, env_, c->mutable_cf_options()->snap_refresh_nanos,
+        immutable_db_options_.info_log.get());
     CompactionJob compaction_job(
         job_context->job_id, c.get(), immutable_db_options_,
         env_options_for_compaction_, versions_.get(), &shutting_down_,
@@ -2631,7 +2664,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
         &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
-        &compaction_job_stats, thread_pri);
+        &compaction_job_stats, thread_pri,
+        immutable_db_options_.max_subcompactions <= 1 ? &fetch_callback
+                                                      : nullptr);
     compaction_job.Prepare();
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,

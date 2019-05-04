@@ -5,6 +5,7 @@
 
 ### New Features
 * Reduce binary search when iterator reseek into the same data block.
+* Add an option `snap_refresh_nanos` (default to 0.1s) to periodically refresh the snapshot list in compaction jobs. Assign to 0 to disable the feature.
 
 ## 6.2.0 (4/30/2019)
 ### New Features
