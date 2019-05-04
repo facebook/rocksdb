@@ -343,8 +343,9 @@ def whitebox_crash_main(args, unknown_args):
         if additional_opts['kill_random_test'] is None and (retncode == 0):
             # we expect zero retncode if no kill option
             expected = True
-        elif additional_opts['kill_random_test'] is not None and retncode < 0:
-            # we expect negative retncode if kill option was given
+        elif additional_opts['kill_random_test'] is not None and retncode <= 0:
+            # When kill option is given, the test MIGHT kill itself.
+            # If it does, negative retncode is expected. Otherwise 0.
             expected = True
 
         if not expected:
