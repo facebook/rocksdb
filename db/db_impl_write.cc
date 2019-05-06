@@ -94,11 +94,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return Status::NotSupported(
         "pipelined_writes is not compatible with seq_per_batch");
   }
-  if (immutable_db_options_.unordered_write && my_batch->HasMerge()) {
-    // TODO(myabandeh): support it
-    return Status::NotSupported(
-        "Merge operands are currently not supported with unordered_write");
-  }
   // Otherwise IsLatestPersistentState optimization does not make sense
   assert(!WriteBatchInternal::IsLatestPersistentState(my_batch) ||
          disable_memtable);
