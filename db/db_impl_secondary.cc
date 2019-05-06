@@ -59,35 +59,9 @@ Status DBImplSecondary::Recover(
     single_column_family_mode_ =
         versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;
 
-    // Recover from all newer log files than the ones named in the
-    // descriptor.
-    std::vector<std::string> filenames;
-    s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
-    if (s.IsNotFound()) {
-      return Status::InvalidArgument("Failed to open wal_dir",
-                                     immutable_db_options_.wal_dir);
-    } else if (!s.ok()) {
-      return s;
-    }
-
     std::vector<uint64_t> logs;
-    // if log_readers_ is non-empty, it means we have applied all logs with log
-    // numbers smaller than the smallest log in log_readers_, so there is no
-    // need to pass these logs to RecoverLogFiles
-    uint64_t log_number_min = 0;
-    if (log_readers_.size() > 0) {
-      log_number_min = log_readers_.begin()->first;
-    }
-    for (size_t i = 0; i < filenames.size(); i++) {
-      uint64_t number;
-      FileType type;
-      if (ParseFileName(filenames[i], &number, &type) && type == kLogFile &&
-          number >= log_number_min) {
-        logs.push_back(number);
-      }
-    }
-
-    if (!logs.empty()) {
+    s = FindNewLogNumbers(&logs);
+    if (s.ok() && !logs.empty()) {
       // Recover in the order in which the logs were generated
       std::sort(logs.begin(), logs.end());
       SequenceNumber next_sequence(kMaxSequenceNumber);
@@ -97,6 +71,36 @@ Status DBImplSecondary::Recover(
 
   // TODO: update options_file_number_ needed?
 
+  return s;
+}
+
+// List wal_dir and find all new WALs, return these log numbers
+Status DBImplSecondary::FindNewLogNumbers(std::vector<uint64_t>* logs) {
+  std::vector<std::string> filenames;
+  Status s;
+  s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
+  if (s.IsNotFound()) {
+    return Status::InvalidArgument("Failed to open wal_dir",
+                                   immutable_db_options_.wal_dir);
+  } else if (!s.ok()) {
+    return s;
+  }
+
+  // if log_readers_ is non-empty, it means we have applied all logs with log
+  // numbers smaller than the smallest log in log_readers_, so there is no
+  // need to pass these logs to RecoverLogFiles
+  uint64_t log_number_min = 0;
+  if (log_readers_.size() > 0) {
+    log_number_min = log_readers_.begin()->first;
+  }
+  for (size_t i = 0; i < filenames.size(); i++) {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(filenames[i], &number, &type) && type == kLogFile &&
+        number >= log_number_min) {
+      logs->push_back(number);
+    }
+  }
   return s;
 }
 
@@ -377,6 +381,7 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   assert(versions_.get() != nullptr);
   assert(manifest_reader_.get() != nullptr);
   Status s;
+  // read the manifest and apply new changes to the secondary instance
   std::unordered_set<ColumnFamilyData*> cfds_changed;
   InstrumentedMutexLock lock_guard(&mutex_);
   s = static_cast<ReactiveVersionSet*>(versions_.get())
@@ -389,6 +394,16 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
     }
     sv_context.Clean();
   }
+  // find new WAL and apply them in order to the secondary instance
+   std::vector<uint64_t> logs;
+   s = FindNewLogNumbers(&logs);
+
+   if (s.ok() && !logs.empty()) {
+     // Recover in the order in which the logs were generated
+     std::sort(logs.begin(), logs.end());
+     SequenceNumber next_sequence(kMaxSequenceNumber);
+     s = RecoverLogFiles(logs, &next_sequence, true /*read_only*/);
+   }
   return s;
 }
 
