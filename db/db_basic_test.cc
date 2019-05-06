@@ -1293,6 +1293,24 @@ class DBBasicTestWithTimestampWithParam
       : DBTestBase("/db_basic_test_with_timestamp") {}
 
  protected:
+  class TestClock : public Clock {
+   public:
+    TestClock(const std::string& _name) : Clock(_name) {}
+
+    std::string Now() override {
+      std::string ret;
+      ret.reserve(16);
+      uint64_t low = ts_.load(std::memory_order_relaxed);
+      PutFixed64(&ret, low);
+      PutFixed64(&ret, static_cast<uint64_t>(0));
+      ts_.store(low + 1, std::memory_order_relaxed);
+      return ret;
+    }
+
+   private:
+    std::atomic<uint64_t> ts_{0};
+  };
+
   class TestComparator : public Comparator {
    private:
     const Comparator* cmp_without_ts_;
@@ -1375,6 +1393,7 @@ TEST_P(DBBasicTestWithTimestampWithParam, PutAndGet) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.env = env_;
+  options.app_clock = std::make_shared<TestClock>("TestClock");
   options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
   std::string tmp;
   size_t ts_sz = EncodeTimestamp(0, 0, &tmp).size();

@@ -1077,7 +1077,7 @@ struct DBOptions {
 
   // If not null, RocksDB uses this user-specified clock to perform
   // timestamp-related operation, e.g. get current timestamp, etc.
-  std::shared_ptr<Clock> app_clock;
+  std::shared_ptr<Clock> app_clock = nullptr;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

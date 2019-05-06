@@ -137,6 +137,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.atomic_flush = immutable_db_options.atomic_flush;
   options.avoid_unnecessary_blocking_io =
       immutable_db_options.avoid_unnecessary_blocking_io;
+  options.app_clock = immutable_db_options.app_clock;
 
   return options;
 }
