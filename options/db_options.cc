@@ -88,7 +88,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       two_write_queues(options.two_write_queues),
       manual_wal_flush(options.manual_wal_flush),
       atomic_flush(options.atomic_flush),
-      avoid_unnecessary_blocking_io(options.avoid_unnecessary_blocking_io) {
+      avoid_unnecessary_blocking_io(options.avoid_unnecessary_blocking_io),
+      app_clock(options.app_clock) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {

@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/clock.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/listener.h"
@@ -1073,6 +1074,10 @@ struct DBOptions {
   // If set to true, takes precedence over
   // ReadOptions::background_purge_on_iterator_cleanup.
   bool avoid_unnecessary_blocking_io = false;
+
+  // If not null, RocksDB uses this user-specified clock to perform
+  // timestamp-related operation, e.g. get current timestamp, etc.
+  std::shared_ptr<Clock> app_clock;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
