@@ -250,17 +250,35 @@ TEST_F(EnvPosixTest, MemoryMappedFileBuffer) {
 TEST_F(EnvPosixTest, LoadLibrary) {
   std::shared_ptr<DynamicLibrary> library;
   std::function<void*(void *, const char*)> function;
-  Status status = env_->LoadLibrary("no-such-library", &library);
+  Status status = env_->LoadLibrary("no-such-library", "", &library);
   ASSERT_NOK(status);
   ASSERT_EQ(nullptr, library.get());
 #if ! defined(OS_WIN)
-  status = env_->LoadLibrary("dl", &library);
+  status = env_->LoadLibrary("dl", "", &library);
   ASSERT_OK(status);
   ASSERT_NE(nullptr, library.get());
   ASSERT_NE(nullptr, library->LoadFunction("dlsym", &function));
   ASSERT_NE(nullptr, function);
+  ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
 #endif
 }
+
+#if ! defined(OS_WIN)
+TEST_F(EnvPosixTest, LoadLibraryWithSearchPath) {
+  std::shared_ptr<DynamicLibrary> library;
+  std::function<void*(void *, const char*)> function;
+  ASSERT_NOK(env_->LoadLibrary("no-such-library", "/tmp", &library));
+  ASSERT_EQ(nullptr, library.get());
+  ASSERT_NOK(env_->LoadLibrary("dl", "/tmp", &library));
+  ASSERT_EQ(nullptr, library.get());
+
+  ASSERT_OK(env_->LoadLibrary("dl", "/tmp:/usr/lib", &library));
+  ASSERT_NE(nullptr, library.get());
+  ASSERT_EQ(strncmp(library->Name(), "/usr/lib/libdl", strlen("/usr/lib/libdl")), 0);
+
+  ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
+}
+#endif
 
 TEST_P(EnvPosixTestWithParam, UnSchedule) {
   std::atomic<bool> called(false);
