@@ -332,7 +332,7 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
   // For manual recover, shutdown, and fatal error  cases, set
   // recovery_in_prog_ to false. For automatic background recovery, leave it
   // as is regardless of success or failure as it will be retried
-  if (is_manual || (s.IsShutdownInProgress() || s.IsColumnFamilyDropped()) ||
+  if (is_manual || s.IsShutdownInProgress() ||
       bg_error_.severity() >= Status::Severity::kFatalError) {
     recovery_in_prog_ = false;
   }

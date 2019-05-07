@@ -266,7 +266,9 @@ class Status {
 
   // Returns true iff the status indicates the proposed compaction is too large
   bool IsCompactionTooLarge() const { return code() == kCompactionTooLarge; }
-  bool IsColumnFamilyDropped() const {return code() == kColumnFamilyDropped;}
+
+  // Returns true iff the status indicates Column Family Dropped
+  bool IsColumnFamilyDropped() const { return code() == kColumnFamilyDropped; }
 
   // Returns true iff the status indicates a NoSpace error
   // This is caused by an I/O error returning the specific "out of space"
