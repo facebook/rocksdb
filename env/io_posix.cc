@@ -56,12 +56,14 @@ int Fadvise(int fd, off_t offset, size_t len, int advice) {
 #endif
 }
 
+namespace {
+
 // On MacOS (and probably *BSD), the posix write and pwrite calls do not support
 // buffers larger than 2^31-1 bytes. These two wrappers fix this issue by
 // cutting the buffer in 1GB chunks. We use this chunk size to be sure to keep
 // the writes aligned.
 
-bool Write(int fd, const char* buf, size_t nbyte) {
+bool PosixWrite(int fd, const char* buf, size_t nbyte) {
   const size_t kLimit1Gb = 1UL << 30;
 
   const char* src = buf;
@@ -83,7 +85,7 @@ bool Write(int fd, const char* buf, size_t nbyte) {
   return true;
 }
 
-bool PositionedWrite(int fd, const char* buf, size_t nbyte, off_t offset) {
+bool PosixPositionedWrite(int fd, const char* buf, size_t nbyte, off_t offset) {
   const size_t kLimit1Gb = 1UL << 30;
 
   const char* src = buf;
@@ -106,8 +108,6 @@ bool PositionedWrite(int fd, const char* buf, size_t nbyte, off_t offset) {
 
   return true;
 }
-
-namespace {
 
 size_t GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
 #ifdef OS_LINUX
@@ -854,7 +854,7 @@ Status PosixWritableFile::Append(const Slice& data) {
   const char* src = data.data();
   size_t nbytes = data.size();
 
-  if (!Write(fd_, src, nbytes)) {
+  if (!PosixWrite(fd_, src, nbytes)) {
     return IOError("While appending to file", filename_, errno);
   }
 
@@ -871,7 +871,7 @@ Status PosixWritableFile::PositionedAppend(const Slice& data, uint64_t offset) {
   assert(offset <= std::numeric_limits<off_t>::max());
   const char* src = data.data();
   size_t nbytes = data.size();
-  if (!PositionedWrite(fd_, src, nbytes, static_cast<off_t>(offset))) {
+  if (!PosixPositionedWrite(fd_, src, nbytes, static_cast<off_t>(offset))) {
     return IOError("While pwrite to file at offset " + ToString(offset),
                    filename_, errno);
   }
@@ -1074,7 +1074,7 @@ PosixRandomRWFile::~PosixRandomRWFile() {
 Status PosixRandomRWFile::Write(uint64_t offset, const Slice& data) {
   const char* src = data.data();
   size_t nbytes = data.size();
-  if (!PositionedWrite(fd_, src, nbytes, static_cast<off_t>(offset))) {
+  if (!PosixPositionedWrite(fd_, src, nbytes, static_cast<off_t>(offset))) {
     return IOError(
         "While write random read/write file at offset " + ToString(offset),
         filename_, errno);
