@@ -65,7 +65,7 @@ default_params = {
     "writepercent": 35,
     "format_version": lambda: random.randint(2, 4),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
-    "use_multiget" : lambda: random.randint(0, 1),
+    "use_multiget" : 0,
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
