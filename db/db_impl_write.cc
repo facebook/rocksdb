@@ -654,8 +654,8 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
     assert(immutable_db_options_.unordered_write);
     WriteContext write_context;
     if (UNLIKELY(!flush_scheduler_.Empty())) {
+      InstrumentedMutexLock l(&mutex_);
       if (!flush_scheduler_.Empty()) {
-        InstrumentedMutexLock l(&mutex_);
         // Wait for the ones who already wrote to the WAL to finish their
         // memtable write.
         if (pending_memtable_writes_.load() != 0) {
