@@ -59,12 +59,7 @@ Status DBImplSecondary::Recover(
     single_column_family_mode_ =
         versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;
 
-    std::vector<uint64_t> logs;
-    s = FindNewLogNumbers(&logs);
-    if (s.ok() && !logs.empty()) {
-      SequenceNumber next_sequence(kMaxSequenceNumber);
-      s = RecoverLogFiles(logs, &next_sequence, true /*read_only*/);
-    }
+    s = FindAndRecoverLogFiles();
   }
 
   // TODO: update options_file_number_ needed?
@@ -301,6 +296,18 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   return s;
 }
 
+// find new WAL and apply them in order to the secondary instance
+Status DBImplSecondary::FindAndRecoverLogFiles() {
+  Status s;
+  std::vector<uint64_t> logs;
+  s = FindNewLogNumbers(&logs);
+  if (s.ok() && !logs.empty()) {
+    SequenceNumber next_sequence(kMaxSequenceNumber);
+    s = RecoverLogFiles(logs, &next_sequence, true /*read_only*/);
+  }
+  return s;
+}
+
 Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
                                        ColumnFamilyHandle* column_family) {
   if (read_options.managed) {
@@ -397,15 +404,9 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
     }
     sv_context.Clean();
   }
-  // find new WAL and apply them in order to the secondary instance
-   std::vector<uint64_t> logs;
-   if (s.ok()) {
-     s = FindNewLogNumbers(&logs);
-   }
-   if (s.ok() && !logs.empty()) {
-     SequenceNumber next_sequence(kMaxSequenceNumber);
-     s = RecoverLogFiles(logs, &next_sequence, true /*read_only*/);
-   }
+  // list wal_dir to discover new WALs and apply new changes to the secondary
+  // instance
+  s = FindAndRecoverLogFiles();
   return s;
 }
 
