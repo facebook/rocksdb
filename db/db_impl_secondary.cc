@@ -62,8 +62,6 @@ Status DBImplSecondary::Recover(
     std::vector<uint64_t> logs;
     s = FindNewLogNumbers(&logs);
     if (s.ok() && !logs.empty()) {
-      // Recover in the order in which the logs were generated
-      std::sort(logs.begin(), logs.end());
       SequenceNumber next_sequence(kMaxSequenceNumber);
       s = RecoverLogFiles(logs, &next_sequence, true /*read_only*/);
     }
@@ -76,6 +74,7 @@ Status DBImplSecondary::Recover(
 
 // List wal_dir and find all new WALs, return these log numbers
 Status DBImplSecondary::FindNewLogNumbers(std::vector<uint64_t>* logs) {
+  assert(logs != nullptr);
   std::vector<std::string> filenames;
   Status s;
   s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
@@ -100,6 +99,10 @@ Status DBImplSecondary::FindNewLogNumbers(std::vector<uint64_t>* logs) {
         number >= log_number_min) {
       logs->push_back(number);
     }
+  }
+  // Recover logs in the order that they were generated
+  if (!logs->empty()) {
+    std::sort(logs->begin(), logs->end());
   }
   return s;
 }
@@ -396,11 +399,10 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   }
   // find new WAL and apply them in order to the secondary instance
    std::vector<uint64_t> logs;
-   s = FindNewLogNumbers(&logs);
-
+   if (s.ok()) {
+     s = FindNewLogNumbers(&logs);
+   }
    if (s.ok() && !logs.empty()) {
-     // Recover in the order in which the logs were generated
-     std::sort(logs.begin(), logs.end());
      SequenceNumber next_sequence(kMaxSequenceNumber);
      s = RecoverLogFiles(logs, &next_sequence, true /*read_only*/);
    }
