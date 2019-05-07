@@ -653,7 +653,10 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
     // Currnetly we only use kDoPublishLastSeq in unordered_write
     assert(immutable_db_options_.unordered_write);
     WriteContext write_context;
-    if (UNLIKELY(!flush_scheduler_.Empty())) {
+    if (error_handler_.IsDBStopped()) {
+      status = error_handler_.GetBGError();
+    }
+    if (UNLIKELY(status.ok() && !flush_scheduler_.Empty())) {
       InstrumentedMutexLock l(&mutex_);
       if (!flush_scheduler_.Empty()) {
         // Wait for the ones who already wrote to the WAL to finish their
@@ -665,6 +668,13 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
         }
         status = ScheduleFlushes(&write_context);
       }
+    }
+    WriteStatusCheck(status);
+    if (!status.ok()) {
+      WriteThread::WriteGroup write_group;
+      write_thread.EnterAsBatchGroupLeader(&w, &write_group);
+      write_thread.ExitAsBatchGroupLeader(write_group, status);
+      return status;
     }
   }
 
