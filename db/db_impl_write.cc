@@ -656,14 +656,9 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
     if (error_handler_.IsDBStopped()) {
       status = error_handler_.GetBGError();
     }
-    // Do preliminary check to avoid the cost of obtaining mutex (It is
-    // effective when disableWAL=true)
-    if (UNLIKELY(status.ok() &&
-                 (!flush_scheduler_.Empty() || write_controller_.IsStopped() ||
-                  write_controller_.NeedsDelay() ||
-                  write_buffer_manager_->ShouldFlush() ||
-                  (!single_column_family_mode_ &&
-                   total_log_size_ > GetMaxTotalWalSize())))) {
+    // TODO(myabandeh): Make preliminary checks thread-safe so we could do them
+    // without paying the cost of obtaining the mutex.
+    if (status.ok()) {
       InstrumentedMutexLock l(&mutex_);
       bool need_log_sync = false;
       status = PreprocessWrite(write_options, &need_log_sync, &write_context);
