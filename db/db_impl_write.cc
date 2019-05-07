@@ -609,6 +609,9 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
   if (pending_cnt == 0) {
     switch_cv_.notify_all();
   }
+  if (write_options.disableWAL) {
+    has_unpersisted_data_.store(true, std::memory_order_relaxed);
+  }
 
   if (!w.FinalStatus().ok()) {
     return w.FinalStatus();
