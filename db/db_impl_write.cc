@@ -656,20 +656,19 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
     if (error_handler_.IsDBStopped()) {
       status = error_handler_.GetBGError();
     }
-    if (UNLIKELY(status.ok() && !flush_scheduler_.Empty())) {
+    // Do preliminary check to avoid the cost of obtaining mutex (It is
+    // effective when disableWAL=true)
+    if (UNLIKELY(status.ok() &&
+                 (!flush_scheduler_.Empty() || write_controller_.IsStopped() ||
+                  write_controller_.NeedsDelay() ||
+                  write_buffer_manager_->ShouldFlush() ||
+                  (!single_column_family_mode_ &&
+                   total_log_size_ > GetMaxTotalWalSize())))) {
       InstrumentedMutexLock l(&mutex_);
-      if (!flush_scheduler_.Empty()) {
-        // Wait for the ones who already wrote to the WAL to finish their
-        // memtable write.
-        if (pending_memtable_writes_.load() != 0) {
-          std::unique_lock<std::mutex> guard(switch_mutex_);
-          switch_cv_.wait(guard,
-                          [&] { return pending_memtable_writes_.load() == 0; });
-        }
-        status = ScheduleFlushes(&write_context);
-      }
+      bool need_log_sync = false;
+      status = PreprocessWrite(write_options, &need_log_sync, &write_context);
+      WriteStatusCheck(status);
     }
-    WriteStatusCheck(status);
     if (!status.ok()) {
       WriteThread::WriteGroup write_group;
       write_thread.EnterAsBatchGroupLeader(&w, &write_group);
@@ -836,6 +835,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
          versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1);
   if (UNLIKELY(status.ok() && !single_column_family_mode_ &&
                total_log_size_ > GetMaxTotalWalSize())) {
+    WaitForPendingWrites();
     status = SwitchWAL(write_context);
   }
 
@@ -845,10 +845,12 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     // thread is writing to another DB with the same write buffer, they may also
     // be flushed. We may end up with flushing much more DBs than needed. It's
     // suboptimal but still correct.
+    WaitForPendingWrites();
     status = HandleWriteBufferFull(write_context);
   }
 
   if (UNLIKELY(status.ok() && !flush_scheduler_.Empty())) {
+    WaitForPendingWrites();
     status = ScheduleFlushes(write_context);
   }
 

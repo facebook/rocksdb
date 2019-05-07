@@ -1143,6 +1143,20 @@ class DBImpl : public DB {
       const autovector<const uint64_t*>& flush_memtable_ids,
       bool resuming_from_bg_err);
 
+  inline void WaitForPendingWrites() {
+    if(!immutable_db_options_.unordered_write) {
+      // Then the writes are finished before the next write group starts
+      return;
+    }
+    // Wait for the ones who already wrote to the WAL to finish their
+    // memtable write.
+    if (pending_memtable_writes_.load() != 0) {
+      std::unique_lock<std::mutex> guard(switch_mutex_);
+      switch_cv_.wait(guard,
+                      [&] { return pending_memtable_writes_.load() == 0; });
+    }
+  }
+
   // REQUIRES: mutex locked and in write thread.
   void AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds);
 
