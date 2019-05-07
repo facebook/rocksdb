@@ -272,9 +272,10 @@ TEST_F(EnvPosixTest, LoadLibraryWithSearchPath) {
   ASSERT_NOK(env_->LoadLibrary("dl", "/tmp", &library));
   ASSERT_EQ(nullptr, library.get());
 
-  ASSERT_OK(env_->LoadLibrary("dl", "/tmp:/usr/lib", &library));
+  ASSERT_OK(env_->LoadLibrary("dl", "/tmp:/usr/lib:/usr/lib64", &library));
   ASSERT_NE(nullptr, library.get());
-  ASSERT_EQ(strncmp(library->Name(), "/usr/lib/libdl", strlen("/usr/lib/libdl")), 0);
+  ASSERT_EQ(strncmp(library->Name(), "/usr/lib", strlen("/usr/lib")), 0);
+  ASSERT_NE(strstr(library->Name(), "libdl"), nullptr);
 
   ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
 }

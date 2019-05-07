@@ -71,6 +71,17 @@
 #endif
 
 namespace rocksdb {
+#if defined(OS_WIN)
+static const std::string kSharedLibExt = ".dll";
+static const char kPathSeparator = ';';
+#else
+static const char kPathSeparator = ':';
+#if defined(OS_MACOSX)
+static const std::string kSharedLibExt = ".dylib";
+#else
+static const std::string kSharedLibExt = ".so";
+#endif
+#endif
 
 namespace {
 
@@ -754,69 +765,58 @@ class PosixEnv : public Env {
     return result;
   }
 
-#if defined(OS_WIN)
-#define SHARED_LIB_EXT ".dll"
-#define PATH_SEPARATOR ';'
-#elif defined(OS_MACOSX)
-#define SHARED_LIB_EXT ".dylib"
-#define PATH_SEPARATOR ':'
-#else
-#define SHARED_LIB_EXT ".so"
-#define PATH_SEPARATOR ':'
-#endif
-
 /**
  * Loads the named library into the result.
  * If the input name is empty, the current executable is loaded
  * On *nix systems, a "lib" prefix is added to the name if one is not supplied
  * Comparably, the appropriate shared library extension is added to the name if not supplied.
- * If searchPath is not specified, the shared library will be loaded using the default path (LD_LIBRARY_PATH)
- * If searchPath is specified, the shared library will be searched for in the directories
+ * If search_path is not specified, the shared library will be loaded using the default path (LD_LIBRARY_PATH)
+ * If search_path is specified, the shared library will be searched for in the directories
  * provided by the search path
  */
-Status LoadLibrary(const std::string& libName,
-		     const std::string & searchPath,
+Status LoadLibrary(const std::string& name,
+		     const std::string & path,
 		     std::shared_ptr<DynamicLibrary>* result) override {
     Status status;
-    if (libName.empty()) {
+    if (name.empty()) {
       void *hndl = dlopen(NULL, RTLD_NOW);
       if (hndl != nullptr) {
-	result->reset(new PosixDynamicLibrary(libName, hndl));
+	result->reset(new PosixDynamicLibrary(name, hndl));
 	return Status::OK();
       }
     } else {
-      std::string libraryName = libName;
-      if (libraryName.find(SHARED_LIB_EXT) == std::string::npos) {
-	libraryName = libraryName + SHARED_LIB_EXT;
+      std::string library_name = name;
+      if (library_name.find(kSharedLibExt) == std::string::npos) {
+	library_name = library_name + kSharedLibExt;
       }
 #if ! defined(OS_WIN)
-      if (libraryName.find('/') == std::string::npos && 
-	  libraryName.compare(0, 3, "lib") != 0) {
-	libraryName = "lib" + libraryName;
+      if (library_name.find('/') == std::string::npos && 
+	  library_name.compare(0, 3, "lib") != 0) {
+	library_name = "lib" + library_name;
       }
 #endif
-      if (searchPath.empty()) {
-	void *hndl = dlopen(libraryName.c_str(), RTLD_NOW);
+      if (path.empty()) {
+	void *hndl = dlopen(library_name.c_str(), RTLD_NOW);
 	if (hndl != nullptr) {
-	  result->reset(new PosixDynamicLibrary(libraryName, hndl));
+	  result->reset(new PosixDynamicLibrary(library_name, hndl));
 	  return Status::OK();
 	}
       } else {
-	std::string path;
-	std::stringstream ss(searchPath);
-	while (getline(ss, path, PATH_SEPARATOR)) {
+	std::string local_path;
+	std::stringstream ss(path);
+	while (getline(ss, local_path, kPathSeparator)) {
 	  if (! path.empty()) {
-	  std::string fullLibraryName = path + "/" + libraryName;
-	  void *hndl = dlopen(fullLibraryName.c_str(), RTLD_NOW);
+	  std::string full_name = local_path + "/" + library_name;
+	  void *hndl = dlopen(full_name.c_str(), RTLD_NOW);
 	  if (hndl != nullptr) {
-	    result->reset(new PosixDynamicLibrary(fullLibraryName, hndl));
+	    result->reset(new PosixDynamicLibrary(full_name, hndl));
 	    return Status::OK();
 	  }
 	  }
 	}
       }
     }
-    return Status::IOError(IOErrorMsg("Failed to open shared library", libName),
+    return Status::IOError(IOErrorMsg("Failed to open shared library: xs", name),
 			   dlerror());
   }
 

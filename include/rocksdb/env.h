@@ -322,15 +322,15 @@ class Env {
   // REQUIRES: lock has not already been unlocked.
   virtual Status UnlockFile(FileLock* lock) = 0;
 
-  // Opens `libName` as a dynamic library.
-  // If the 'searchPath' is specified, breaks the path into its components based on
+  // Opens `lib_name` as a dynamic library.
+  // If the 'search_path' is specified, breaks the path into its components based on
   // the appropriate platform separator (";" or ";") and looks for the library in those
-  // directories.  If 'searchPath is not specified, uses the default library path search
+  // directories.  If 'search path is not specified, uses the default library path search
   // mechanism (such as LD_LIBRARY_PATH).
   // On success, stores a dynamic library in `*result`.
   virtual Status LoadLibrary(
-          const std::string& /*libName*/,
-	  const std::string & /*searchPath */,
+          const std::string& /*lib_name*/,
+	  const std::string & /*search_path */,
           std::shared_ptr<DynamicLibrary>* /*result*/) {
     return Status::NotSupported("LoadLibrary is not implemented in this Env");
   }
@@ -1174,10 +1174,10 @@ class EnvWrapper : public Env {
 
   Status UnlockFile(FileLock* l) override { return target_->UnlockFile(l); }
   
-  Status LoadLibrary(const std::string & libName,
-		     const std::string & searchPath,
+  Status LoadLibrary(const std::string & lib_name,
+		     const std::string & search_path,
 		     std::shared_ptr<DynamicLibrary> *result) override {
-    return target_->LoadLibrary(libName, searchPath, result);
+    return target_->LoadLibrary(lib_name, search_path, result);
   }
 
   void Schedule(void (*f)(void* arg), void* a, Priority pri,
