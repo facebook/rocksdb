@@ -60,6 +60,7 @@ class Status {
     kTryAgain = 13,
     kCompactionTooLarge = 14,
     kColumnFamilyDropped = 15,
+    kMaxCode
   };
 
   Code code() const { return code_; }
@@ -266,6 +267,7 @@ class Status {
   // Returns true iff the status indicates the proposed compaction is too large
   bool IsCompactionTooLarge() const { return code() == kCompactionTooLarge; }
 
+  // Returns true iff the status indicates Column Family Dropped
   bool IsColumnFamilyDropped() const { return code() == kColumnFamilyDropped; }
 
   // Returns true iff the status indicates a NoSpace error

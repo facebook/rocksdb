@@ -201,7 +201,7 @@ Status DBImpl::FlushMemTableToOutputFile(
                      cfd->current()->storage_info()->LevelSummary(&tmp));
   }
 
-  if (!s.ok() && (!s.IsShutdownInProgress() && !s.IsColumnFamilyDropped())) {
+  if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
     Status new_bg_error = s;
     error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
   }
@@ -398,15 +398,11 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     s = error_status.ok() ? s : error_status;
   }
 
-  // If db is NOT shutting down, and one or more column families have been
-  // dropped.
-  // TODO: use separate status code for db shutdown and column family dropped.
-  if (s.IsColumnFamilyDropped() &&
-      !shutting_down_.load(std::memory_order_acquire)) {
+  if (s.IsColumnFamilyDropped()) {
     s = Status::OK();
   }
 
-  if (s.ok() || (s.IsShutdownInProgress() || s.IsColumnFamilyDropped())) {
+  if (s.ok() || s.IsShutdownInProgress() || s.IsColumnFamilyDropped()) {
     // Sync on all distinct output directories.
     for (auto dir : distinct_output_dirs) {
       if (dir != nullptr) {
@@ -1053,7 +1049,7 @@ Status DBImpl::CompactFilesImpl(
 
   if (status.ok()) {
     // Done
-  } else if (status.IsShutdownInProgress() || status.IsColumnFamilyDropped()) {
+  } else if (status.IsColumnFamilyDropped()) {
     // Ignore compaction errors found during shutting down
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
@@ -2163,7 +2159,7 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
 
     Status s = BackgroundFlush(&made_progress, &job_context, &log_buffer,
                                &reason, thread_pri);
-    if (!s.ok() && (!s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) &&
+    if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped() &&
         reason != FlushReason::kErrorRecovery) {
       // Wait a little bit before retrying background flush in
       // case this is an environmental problem and we do not want to
