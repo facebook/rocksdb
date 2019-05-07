@@ -1295,7 +1295,7 @@ class DBBasicTestWithTimestampWithParam
  protected:
   class TestClock : public Clock {
    public:
-    TestClock(const std::string& _name) : Clock(_name) {}
+    explicit TestClock(const std::string& _name) : Clock(_name) {}
 
     std::string Now() override {
       std::string ret;
@@ -1316,7 +1316,8 @@ class DBBasicTestWithTimestampWithParam
     const Comparator* cmp_without_ts_;
 
    public:
-    TestComparator(size_t ts_sz) : Comparator(ts_sz), cmp_without_ts_(nullptr) {
+    explicit TestComparator(size_t ts_sz)
+        : Comparator(ts_sz), cmp_without_ts_(nullptr) {
       cmp_without_ts_ = BytewiseComparator();
     }
 
