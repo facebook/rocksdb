@@ -1998,6 +1998,7 @@ void DBImpl::SchedulePendingPurge(std::string fname, std::string dir_to_sync,
   mutex_.AssertHeld();
   PurgeFileInfo file_info(fname, dir_to_sync, type, number, job_id);
   purge_queue_.push_back(std::move(file_info));
+  purge_queue_filenum_.insert(number);
 }
 
 void DBImpl::BGWorkFlush(void* arg) {
@@ -2970,15 +2971,12 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
 // In the future, if we want to reduce the cost of search, we may try to keep
 // the vector sorted.
 bool DBImpl::ShouldPurge(uint64_t file_number) const {
-  for (auto fn : files_grabbed_for_purge_) {
-    if (file_number == fn) {
-      return false;
-    }
+  if (files_grabbed_for_purge_.find(file_number) !=
+      files_grabbed_for_purge_.end()) {
+    return false;
   }
-  for (const auto& purge_file_info : purge_queue_) {
-    if (purge_file_info.number == file_number) {
-      return false;
-    }
+  if (purge_queue_filenum_.find(file_number) != purge_queue_filenum_.end()) {
+    return false;
   }
   return true;
 }
@@ -2986,7 +2984,7 @@ bool DBImpl::ShouldPurge(uint64_t file_number) const {
 // MarkAsGrabbedForPurge is called by FindObsoleteFiles, and db mutex
 // (mutex_) should already be held.
 void DBImpl::MarkAsGrabbedForPurge(uint64_t file_number) {
-  files_grabbed_for_purge_.emplace_back(file_number);
+  files_grabbed_for_purge_.insert(file_number);
 }
 
 void DBImpl::SetSnapshotChecker(SnapshotChecker* snapshot_checker) {

@@ -1231,6 +1231,7 @@ void DBImpl::BackgroundCallPurge() {
       auto number = purge_file->number;
       auto job_id = purge_file->job_id;
       purge_queue_.pop_front();
+      purge_queue_filenum_.erase(number);
 
       mutex_.Unlock();
       DeleteObsoleteFileImpl(job_id, fname, dir_to_sync, type, number);
