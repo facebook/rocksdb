@@ -114,7 +114,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return WriteImplWALOnly(nonmem_write_thread_, write_options, my_batch,
                             callback, log_used, log_ref, seq_used, batch_cnt,
                             pre_release_callback, assign_order,
-                            kDontPublishLastSeq);
+                            kDontPublishLastSeq, disable_memtable);
   }
 
   if (immutable_db_options_.unordered_write) {
@@ -128,7 +128,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     status = WriteImplWALOnly(write_thread_, write_options, my_batch, callback,
                               log_used, log_ref, &seq, sub_batch_cnt,
                               pre_release_callback, kDoAssignOrder,
-                              kDoPublishLastSeq);
+                              kDoPublishLastSeq, disable_memtable);
     if (!status.ok()) {
       // TODO(myabandeh): update pending_memtable_writes_
       return status;
@@ -617,7 +617,8 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
                                 uint64_t* seq_used, const size_t sub_batch_cnt,
                                 PreReleaseCallback* pre_release_callback,
                                 const AssignOrder assign_order,
-                                const PublishLastSeq publish_last_seq) {
+                                const PublishLastSeq publish_last_seq,
+                                const bool disable_memtable) {
   Status status;
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
@@ -749,11 +750,8 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
     for (auto* writer : write_group) {
       if (!writer->CallbackFailed() && writer->pre_release_callback) {
         assert(writer->sequence != kMaxSequenceNumber);
-        // TODO(myabandeh): what if we are in unordered_writes? should
-        // disalbe_memtable be still set to true?
-        const bool DISABLE_MEMTABLE = true;
         Status ws = writer->pre_release_callback->Callback(
-            writer->sequence, DISABLE_MEMTABLE, writer->log_used);
+            writer->sequence, disable_memtable, writer->log_used);
         if (!ws.ok()) {
           status = ws;
           break;
