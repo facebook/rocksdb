@@ -147,12 +147,13 @@ PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
   IndexBlockIter biter;
   BlockHandle handle;
   Statistics* kNullStats = nullptr;
-  idx_on_fltr_blk_->NewIterator<IndexBlockIter>(
+  idx_on_fltr_blk_->NewIndexIterator(
       &comparator_, comparator_.user_comparator(), &biter, kNullStats, true,
-      index_key_includes_seq_, index_value_is_full_);
+      /* have_first_key */ false, index_key_includes_seq_,
+      index_value_is_full_);
   biter.SeekToFirst();
   for (; biter.Valid(); biter.Next()) {
-    handle = biter.value();
+    handle = biter.value().handle;
     auto key = BlockBasedTable::GetCacheKey(table_->rep_->cache_key_prefix,
                                             table_->rep_->cache_key_prefix_size,
                                             handle, cache_key);
@@ -221,15 +222,16 @@ BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
     const Slice& entry) {
   IndexBlockIter iter;
   Statistics* kNullStats = nullptr;
-  idx_on_fltr_blk_->NewIterator<IndexBlockIter>(
+  idx_on_fltr_blk_->NewIndexIterator(
       &comparator_, comparator_.user_comparator(), &iter, kNullStats, true,
-      index_key_includes_seq_, index_value_is_full_);
+      /* have_first_key */ false, index_key_includes_seq_,
+      index_value_is_full_);
   iter.Seek(entry);
   if (UNLIKELY(!iter.Valid())) {
     return BlockHandle(0, 0);
   }
   assert(iter.Valid());
-  BlockHandle fltr_blk_handle = iter.value();
+  BlockHandle fltr_blk_handle = iter.value().handle;
   return fltr_blk_handle;
 }
 
@@ -280,18 +282,19 @@ void PartitionedFilterBlockReader::CacheDependencies(
   BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
   IndexBlockIter biter;
   Statistics* kNullStats = nullptr;
-  idx_on_fltr_blk_->NewIterator<IndexBlockIter>(
+  idx_on_fltr_blk_->NewIndexIterator(
       &comparator_, comparator_.user_comparator(), &biter, kNullStats, true,
-      index_key_includes_seq_, index_value_is_full_);
+      /* have_first_key */ false, index_key_includes_seq_,
+      index_value_is_full_);
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();
-  BlockHandle handle = biter.value();
+  BlockHandle handle = biter.value().handle;
   uint64_t prefetch_off = handle.offset();
 
   // Read the last block's offset
   biter.SeekToLast();
-  handle = biter.value();
+  handle = biter.value().handle;
   uint64_t last_off = handle.offset() + handle.size() + kBlockTrailerSize;
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
@@ -304,7 +307,7 @@ void PartitionedFilterBlockReader::CacheDependencies(
   // After prefetch, read the partitions one by one
   biter.SeekToFirst();
   for (; biter.Valid(); biter.Next()) {
-    handle = biter.value();
+    handle = biter.value().handle;
     const bool no_io = true;
     const bool is_a_filter_partition = true;
     auto filter = table_->GetFilter(

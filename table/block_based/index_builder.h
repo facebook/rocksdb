@@ -58,6 +58,7 @@ class IndexBuilder {
   // To allow further optimization, we provide `last_key_in_current_block` and
   // `first_key_in_next_block`, based on which the specific implementation can
   // determine the best index key to be used for the index block.
+  // Called before the OnKeyAdded() call for first_key_in_next_block.
   // @last_key_in_current_block: this parameter maybe overridden with the value
   //                             "substitute key".
   // @first_key_in_next_block: it will be nullptr if the entry being added is
@@ -123,7 +124,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
       const InternalKeyComparator* comparator,
       const int index_block_restart_interval, const uint32_t format_version,
       const bool use_value_delta_encoding,
-      BlockBasedTableOptions::IndexShorteningMode shortening_mode)
+      BlockBasedTableOptions::IndexShorteningMode shortening_mode,
+      bool include_first_key)
       : IndexBuilder(comparator),
         index_block_builder_(index_block_restart_interval,
                              true /*use_delta_encoding*/,
@@ -131,9 +133,17 @@ class ShortenedIndexBuilder : public IndexBuilder {
         index_block_builder_without_seq_(index_block_restart_interval,
                                          true /*use_delta_encoding*/,
                                          use_value_delta_encoding),
+        use_value_delta_encoding_(use_value_delta_encoding),
+        include_first_key_(include_first_key),
         shortening_mode_(shortening_mode) {
     // Making the default true will disable the feature for old versions
     seperator_is_key_plus_seq_ = (format_version <= 2);
+  }
+
+  virtual void OnKeyAdded(const Slice& key) override {
+    if (include_first_key_ && current_block_first_internal_key_.empty()) {
+      current_block_first_internal_key_.assign(key.data(), key.size());
+    }
   }
 
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
@@ -159,20 +169,27 @@ class ShortenedIndexBuilder : public IndexBuilder {
     }
     auto sep = Slice(*last_key_in_current_block);
 
-    std::string handle_encoding;
-    block_handle.EncodeTo(&handle_encoding);
-    std::string handle_delta_encoding;
-    PutVarsignedint64(&handle_delta_encoding,
-                      block_handle.size() - last_encoded_handle_.size());
-    assert(handle_delta_encoding.size() != 0);
-    last_encoded_handle_ = block_handle;
-    const Slice handle_delta_encoding_slice(handle_delta_encoding);
-    index_block_builder_.Add(sep, handle_encoding,
-                             &handle_delta_encoding_slice);
-    if (!seperator_is_key_plus_seq_) {
-      index_block_builder_without_seq_.Add(ExtractUserKey(sep), handle_encoding,
-                                           &handle_delta_encoding_slice);
+    assert(!include_first_key_ || !current_block_first_internal_key_.empty());
+    IndexValue entry(block_handle, current_block_first_internal_key_);
+    std::string encoded_entry;
+    std::string delta_encoded_entry;
+    entry.EncodeTo(&encoded_entry, include_first_key_, nullptr);
+    if (use_value_delta_encoding_ && !last_encoded_handle_.IsNull()) {
+      entry.EncodeTo(&delta_encoded_entry, include_first_key_,
+                     &last_encoded_handle_);
+    } else {
+      // If it's the first block, or delta encoding is disabled,
+      // BlockBuilder::Add() below won't use delta-encoded slice.
     }
+    last_encoded_handle_ = block_handle;
+    const Slice delta_encoded_entry_slice(delta_encoded_entry);
+    index_block_builder_.Add(sep, encoded_entry, &delta_encoded_entry_slice);
+    if (!seperator_is_key_plus_seq_) {
+      index_block_builder_without_seq_.Add(ExtractUserKey(sep), encoded_entry,
+                                           &delta_encoded_entry_slice);
+    }
+
+    current_block_first_internal_key_.clear();
   }
 
   using IndexBuilder::Finish;
@@ -200,9 +217,12 @@ class ShortenedIndexBuilder : public IndexBuilder {
  private:
   BlockBuilder index_block_builder_;
   BlockBuilder index_block_builder_without_seq_;
+  const bool use_value_delta_encoding_;
   bool seperator_is_key_plus_seq_;
+  const bool include_first_key_;
   BlockBasedTableOptions::IndexShorteningMode shortening_mode_;
-  BlockHandle last_encoded_handle_;
+  BlockHandle last_encoded_handle_ = BlockHandle::NullBlockHandle();
+  std::string current_block_first_internal_key_;
 };
 
 // HashIndexBuilder contains a binary-searchable primary index and the
@@ -243,7 +263,7 @@ class HashIndexBuilder : public IndexBuilder {
       : IndexBuilder(comparator),
         primary_index_builder_(comparator, index_block_restart_interval,
                                format_version, use_value_delta_encoding,
-                               shortening_mode),
+                               shortening_mode, /* include_first_key */ false),
         hash_key_extractor_(hash_key_extractor) {}
 
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
