@@ -19,6 +19,49 @@ namespace rocksdb {
 
 #ifndef ROCKSDB_LITE
 
+class ColumnFamilyCollector : public WriteBatch::Handler {
+  std::unordered_set<uint32_t> column_family_ids_;
+
+ public:
+  explicit ColumnFamilyCollector() {}
+
+  ~ColumnFamilyCollector() override {}
+
+  Status PutCF(uint32_t column_family_id, const Slice&, const Slice&) override {
+    if (column_family_ids_.find(column_family_id) == column_family_ids_.end()) {
+      column_family_ids_.insert(column_family_id);
+    }
+    return Status::OK();
+  }
+
+  Status DeleteCF(uint32_t column_family_id, const Slice&) override {
+    if (column_family_ids_.find(column_family_id) == column_family_ids_.end()) {
+      column_family_ids_.insert(column_family_id);
+    }
+    return Status::OK();
+  }
+
+  // TODO(yanqin): handle other operations
+
+  const std::unordered_set<uint32_t>& column_families() const {
+    return column_family_ids_;
+  }
+};
+
+Status CollectColumnFamilyIdsFromWriteBatch(
+    const WriteBatch& batch, std::vector<uint32_t>* column_family_ids) {
+  assert(column_family_ids != nullptr);
+  column_family_ids->clear();
+  ColumnFamilyCollector handler;
+  Status s = batch.Iterate(&handler);
+  if (s.ok()) {
+    for (const auto& cf : handler.column_families()) {
+      column_family_ids->push_back(cf);
+    }
+  }
+  return s;
+}
+
 DBImplSecondary::DBImplSecondary(const DBOptions& db_options,
                                  const std::string& dbname)
     : DBImpl(db_options, dbname) {
@@ -64,6 +107,18 @@ Status DBImplSecondary::Recover(
 
   // TODO: update options_file_number_ needed?
 
+  return s;
+}
+
+// find new WAL and apply them in order to the secondary instance
+Status DBImplSecondary::FindAndRecoverLogFiles() {
+  Status s;
+  std::vector<uint64_t> logs;
+  s = FindNewLogNumbers(&logs);
+  if (s.ok() && !logs.empty()) {
+    SequenceNumber next_sequence(kMaxSequenceNumber);
+    s = RecoverLogFiles(logs, &next_sequence, true /*read_only*/);
+  }
   return s;
 }
 
@@ -184,6 +239,17 @@ Status DBImplSecondary::RecoverLogFiles(
         continue;
       }
       WriteBatchInternal::SetContents(&batch, record);
+      std::vector<uint32_t> column_family_ids;
+      status = CollectColumnFamilyIdsFromWriteBatch(batch, &column_family_ids);
+      if (status.ok()) {
+        for (const auto id : column_family_ids) {
+          ColumnFamilyData* cfd =
+              versions_->GetColumnFamilySet()->GetColumnFamily(id);
+          if (cfd == nullptr) {
+            continue;
+          }
+        }
+      }
       // do not check sequence number because user may toggle disableWAL
       // between writes which breaks sequence number continuity guarantee
 
@@ -194,11 +260,14 @@ Status DBImplSecondary::RecoverLogFiles(
       // That's why we set ignore missing column families to true
       // passing null flush_scheduler will disable memtable flushing which is
       // needed for secondary instances
-      bool has_valid_writes = false;
-      status = WriteBatchInternal::InsertInto(
-          &batch, column_family_memtables_.get(), nullptr /* flush_scheduler */,
-          true, log_number, this, false /* concurrent_memtable_writes */,
-          next_sequence, &has_valid_writes, seq_per_batch_, batch_per_txn_);
+      if (status.ok()) {
+        bool has_valid_writes = false;
+        status = WriteBatchInternal::InsertInto(
+            &batch, column_family_memtables_.get(),
+            nullptr /* flush_scheduler */, true, log_number, this,
+            false /* concurrent_memtable_writes */, next_sequence,
+            &has_valid_writes, seq_per_batch_, batch_per_txn_);
+      }
       if (!status.ok()) {
         // We are treating this as a failure while reading since we read valid
         // blocks that do not form coherent data
@@ -296,18 +365,6 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   return s;
 }
 
-// find new WAL and apply them in order to the secondary instance
-Status DBImplSecondary::FindAndRecoverLogFiles() {
-  Status s;
-  std::vector<uint64_t> logs;
-  s = FindNewLogNumbers(&logs);
-  if (s.ok() && !logs.empty()) {
-    SequenceNumber next_sequence(kMaxSequenceNumber);
-    s = RecoverLogFiles(logs, &next_sequence, true /*read_only*/);
-  }
-  return s;
-}
-
 Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
                                        ColumnFamilyHandle* column_family) {
   if (read_options.managed) {
@@ -396,6 +453,11 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   InstrumentedMutexLock lock_guard(&mutex_);
   s = static_cast<ReactiveVersionSet*>(versions_.get())
           ->ReadAndApply(&mutex_, &manifest_reader_, &cfds_changed);
+  // list wal_dir to discover new WALs and apply new changes to the secondary
+  // instance
+  if (s.ok()) {
+    s = FindAndRecoverLogFiles();
+  }
   if (s.ok()) {
     SuperVersionContext sv_context(true /* create_superversion */);
     for (auto cfd : cfds_changed) {
@@ -404,9 +466,6 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
     }
     sv_context.Clean();
   }
-  // list wal_dir to discover new WALs and apply new changes to the secondary
-  // instance
-  s = FindAndRecoverLogFiles();
   return s;
 }
 
