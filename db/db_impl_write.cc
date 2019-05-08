@@ -588,7 +588,7 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
         total_byte_size, WriteBatchInternal::ByteSize(w.batch));
   }
 
-  auto stats = default_cf_internal_stats_;
+  InternalStats* stats = default_cf_internal_stats_;
   stats->AddDBStats(InternalStats::NUMBER_KEYS_WRITTEN, total_count);
   RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
   stats->AddDBStats(InternalStats::BYTES_WRITTEN, total_byte_size);
@@ -605,7 +605,7 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
       &w, w.sequence, &column_family_memtables, &flush_scheduler_,
       write_options.ignore_missing_column_families, 0 /*log_number*/, this,
       true /*concurrent_memtable_writes*/);
-  auto pending_cnt = pending_memtable_writes_.fetch_sub(1) - 1;
+  size_t pending_cnt = pending_memtable_writes_.fetch_sub(1) - 1;
   if (pending_cnt == 0) {
     switch_cv_.notify_all();
   }
