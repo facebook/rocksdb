@@ -138,9 +138,15 @@ public:
       dlclose(handle_);
   }
   
-  virtual FunctionPtr LoadSymbol(const std::string & sym_name) override {
-    void *symbol = dlsym(handle_, sym_name.c_str());
-    return (FunctionPtr) symbol;
+  virtual Status LoadSymbol(const std::string & sym_name, FunctionPtr *func) override {
+    char *err = dlerror(); // Clear any old error
+    *func = (FunctionPtr) dlsym(handle_, sym_name.c_str());
+    if (*func != nullptr) {
+      return Status::OK();
+    } else {
+      err = dlerror();
+      return Status::NotFound("Error finding symbol: " + sym_name, err);
+    }
   }
   
   virtual const char *Name() const override {
@@ -778,6 +784,7 @@ Status LoadLibrary(const std::string& name,
 		     const std::string & path,
 		     std::shared_ptr<DynamicLibrary>* result) override {
     Status status;
+    assert(result != nullptr);
     if (name.empty()) {
       void *hndl = dlopen(NULL, RTLD_NOW);
       if (hndl != nullptr) {

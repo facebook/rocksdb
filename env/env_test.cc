@@ -257,8 +257,10 @@ TEST_F(EnvPosixTest, LoadLibrary) {
   status = env_->LoadLibrary("dl", "", &library);
   ASSERT_OK(status);
   ASSERT_NE(nullptr, library.get());
-  ASSERT_NE(nullptr, library->LoadFunction("dlsym", &function));
+  ASSERT_OK(library->LoadFunction("dlsym", &function));
   ASSERT_NE(nullptr, function);
+  ASSERT_NOK(library->LoadFunction("no-such-method", &function));
+  ASSERT_EQ(nullptr, function);
   ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
 #endif
 }
@@ -271,13 +273,16 @@ TEST_F(EnvPosixTest, LoadLibraryWithSearchPath) {
   ASSERT_EQ(nullptr, library.get());
   ASSERT_NOK(env_->LoadLibrary("dl", "/tmp", &library));
   ASSERT_EQ(nullptr, library.get());
-
-  ASSERT_OK(env_->LoadLibrary("dl", "/tmp:/usr/lib:/usr/lib64", &library));
+#ifdef ROCKSDB_DLL // If we are building or using shared libraries
+  char buff[1024];
+  std::string cwd = getcwd(buff, sizeof(buff));
+  
+  ASSERT_OK(env_->LoadLibrary("rocksdb", "/tmp:/usr/lib:/usr/lib64:" + cwd, &library));
   ASSERT_NE(nullptr, library.get());
-  ASSERT_EQ(strncmp(library->Name(), "/usr/lib", strlen("/usr/lib")), 0);
-  ASSERT_NE(strstr(library->Name(), "libdl"), nullptr);
-
+  ASSERT_EQ(libname.find(cwd), 0);
+  ASSERT_NE(libname.find("rocksdb", cwd.size()), std::string::npos);
   ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
+#endif // ROCKSDB_DLL
 }
 #endif
 

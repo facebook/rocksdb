@@ -975,13 +975,14 @@ public:
    * Returns the loaded symbol
    */
   template<typename T>
-  T * LoadFunction(const std::string & sym_name, std::function<T> *function) {
-    T *symbol =  reinterpret_cast<T *>(LoadSymbol(sym_name));
-    *function = symbol;
-    return symbol;
+  Status LoadFunction(const std::string & sym_name, std::function<T> *function) {
+    FunctionPtr ptr;
+    Status s = LoadSymbol(sym_name, &ptr);
+    *function = reinterpret_cast<T *>(ptr);
+    return s;
   }
   /** Loads and returns the symbol for sym_name from the library  */
-  virtual FunctionPtr LoadSymbol(const std::string & sym_name) = 0;
+  virtual Status LoadSymbol(const std::string & sym_name, FunctionPtr *func) = 0;
 };
   
 extern void LogFlush(const std::shared_ptr<Logger>& info_log);
