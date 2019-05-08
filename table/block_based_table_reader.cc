@@ -3178,7 +3178,7 @@ BlockBasedTableOptions::IndexType BlockBasedTable::UpdateIndexType() {
 Status BlockBasedTable::CreateIndexReader(
     FilePrefetchBuffer* prefetch_buffer, IndexReader** index_reader,
     InternalIterator* preloaded_meta_index_iter, int level) {
-  auto index_type_on_file = UpdateIndexType();
+  auto index_type_on_file = rep_->index_type;
 
   auto file = rep_->file.get();
   const InternalKeyComparator* icomparator = &rep_->internal_comparator;
