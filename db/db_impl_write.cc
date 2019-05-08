@@ -576,41 +576,29 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
                         false /*disable_memtable*/);
 
-  size_t total_count = 0;
-  size_t total_byte_size = 0;
+  if (w.CheckCallback(this) && w.ShouldWriteToMemtable()) {
+    w.sequence = seq;
+    size_t total_count = WriteBatchInternal::Count(my_batch);
+    InternalStats* stats = default_cf_internal_stats_;
+    stats->AddDBStats(InternalStats::NUMBER_KEYS_WRITTEN, total_count);
+    RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
 
-  if (w.CheckCallback(this)) {
-    if (w.ShouldWriteToMemtable()) {
-      w.sequence = seq;
-      total_count += WriteBatchInternal::Count(my_batch);
-    }
-    total_byte_size = WriteBatchInternal::AppendedByteSize(
-        total_byte_size, WriteBatchInternal::ByteSize(w.batch));
-  }
+    ColumnFamilyMemTablesImpl column_family_memtables(
+        versions_->GetColumnFamilySet());
+    w.status = WriteBatchInternal::InsertInto(
+        &w, w.sequence, &column_family_memtables, &flush_scheduler_,
+        write_options.ignore_missing_column_families, 0 /*log_number*/, this,
+        true /*concurrent_memtable_writes*/);
 
-  InternalStats* stats = default_cf_internal_stats_;
-  stats->AddDBStats(InternalStats::NUMBER_KEYS_WRITTEN, total_count);
-  RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
-  stats->AddDBStats(InternalStats::BYTES_WRITTEN, total_byte_size);
-  RecordTick(stats_, BYTES_WRITTEN, total_byte_size);
-  RecordInHistogram(stats_, BYTES_PER_WRITE, total_byte_size);
-
-  if (!w.CallbackFailed()) {
     WriteStatusCheck(w.status);
+    if (write_options.disableWAL) {
+      has_unpersisted_data_.store(true, std::memory_order_relaxed);
+    }
   }
 
-  ColumnFamilyMemTablesImpl column_family_memtables(
-      versions_->GetColumnFamilySet());
-  w.status = WriteBatchInternal::InsertInto(
-      &w, w.sequence, &column_family_memtables, &flush_scheduler_,
-      write_options.ignore_missing_column_families, 0 /*log_number*/, this,
-      true /*concurrent_memtable_writes*/);
   size_t pending_cnt = pending_memtable_writes_.fetch_sub(1) - 1;
   if (pending_cnt == 0) {
     switch_cv_.notify_all();
-  }
-  if (write_options.disableWAL) {
-    has_unpersisted_data_.store(true, std::memory_order_relaxed);
   }
 
   if (!w.FinalStatus().ok()) {
