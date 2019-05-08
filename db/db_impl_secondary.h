@@ -194,6 +194,8 @@ class DBImplSecondary : public DBImpl {
 
   using DBImpl::Recover;
 
+  Status FindAndRecoverLogFiles();
+  Status FindNewLogNumbers(std::vector<uint64_t>* logs);
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                          SequenceNumber* next_sequence,
                          bool read_only) override;
