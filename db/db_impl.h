@@ -903,7 +903,8 @@ class DBImpl : public DB {
   // Write only to memtables without joining any write queue
   Status UnorderedWriteMemtable(const WriteOptions& write_options,
                                 WriteBatch* my_batch, WriteCallback* callback,
-                                uint64_t log_ref, SequenceNumber seq);
+                                uint64_t log_ref, SequenceNumber seq,
+                                const size_t sub_batch_cnt);
 
   // Whether the batch requires to be assigned with an order
   enum AssignOrder : bool { kDontAssignOrder, kDoAssignOrder };
@@ -926,7 +927,8 @@ class DBImpl : public DB {
                           const size_t sub_batch_cnt,
                           PreReleaseCallback* pre_release_callback,
                           const AssignOrder assign_order,
-                          const PublishLastSeq publish_last_seq);
+                          const PublishLastSeq publish_last_seq,
+                          const bool disable_memtable);
 
   // write cached_recoverable_state_ to memtable if it is not empty
   // The writer must be the leader in write_thread_ and holding mutex_

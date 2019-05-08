@@ -138,7 +138,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     }
     if (!disable_memtable) {
       status = UnorderedWriteMemtable(write_options, my_batch, callback,
-                                      log_ref, seq);
+                                      log_ref, seq, sub_batch_cnt);
     }
     return status;
   }
@@ -569,7 +569,8 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
 Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
                                       WriteBatch* my_batch,
                                       WriteCallback* callback, uint64_t log_ref,
-                                      SequenceNumber seq) {
+                                      SequenceNumber seq,
+                                      const size_t sub_batch_cnt) {
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
 
@@ -588,7 +589,7 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
     w.status = WriteBatchInternal::InsertInto(
         &w, w.sequence, &column_family_memtables, &flush_scheduler_,
         write_options.ignore_missing_column_families, 0 /*log_number*/, this,
-        true /*concurrent_memtable_writes*/);
+        true /*concurrent_memtable_writes*/, seq_per_batch_, sub_batch_cnt);
 
     WriteStatusCheck(w.status);
     if (write_options.disableWAL) {
