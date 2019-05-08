@@ -717,7 +717,7 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
   if (assign_order == kDoAssignOrder) {
     size_t total_batch_cnt = 0;
     for (auto* writer : write_group) {
-      assert(writer->batch_cnt);
+      assert(writer->batch_cnt || !seq_per_batch_);
       total_batch_cnt += writer->batch_cnt;
     }
     seq_inc = total_batch_cnt;
@@ -737,7 +737,7 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
     }
     writer->sequence = curr_seq;
     if (assign_order == kDoAssignOrder) {
-      assert(writer->batch_cnt);
+      assert(writer->batch_cnt || !seq_per_batch_);
       curr_seq += writer->batch_cnt;
     }
     // else seq advances only by memtable writes
