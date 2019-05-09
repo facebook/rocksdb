@@ -2959,16 +2959,10 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
 }
 
 // ShouldPurge is called by FindObsoleteFiles when doing a full scan,
-// and db mutex (mutex_) should already be held. This function performs a
-// linear scan of an vector (files_grabbed_for_purge_) in search of a
-// certain element. We expect FindObsoleteFiles with full scan to occur once
-// every 10 hours by default, and the size of the vector is small.
-// Therefore, the cost is affordable even if the mutex is held.
+// and db mutex (mutex_) should already be held.
 // Actually, the current implementation of FindObsoleteFiles with
 // full_scan=true can issue I/O requests to obtain list of files in
 // directories, e.g. env_->getChildren while holding db mutex.
-// In the future, if we want to reduce the cost of search, we may try to keep
-// the vector sorted.
 bool DBImpl::ShouldPurge(uint64_t file_number) const {
   if (files_grabbed_for_purge_.find(file_number) !=
       files_grabbed_for_purge_.end()) {
