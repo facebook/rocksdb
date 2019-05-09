@@ -94,6 +94,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return Status::NotSupported(
         "pipelined_writes is not compatible with seq_per_batch");
   }
+  if (immutable_db_options_.unordered_write &&
+      immutable_db_options_.enable_pipelined_write) {
+    return Status::NotSupported(
+        "pipelined_writes is not compatible with unordered_write");
+  }
   // Otherwise IsLatestPersistentState optimization does not make sense
   assert(!WriteBatchInternal::IsLatestPersistentState(my_batch) ||
          disable_memtable);
@@ -703,7 +708,9 @@ Status DBImpl::WriteImplWALOnly(
     size_t total_batch_cnt = 0;
     for (auto* writer : write_group) {
       assert(writer->batch_cnt || !seq_per_batch_);
-      total_batch_cnt += writer->batch_cnt;
+      if (!writer->CallbackFailed()) {
+        total_batch_cnt += writer->batch_cnt;
+      }
     }
     seq_inc = total_batch_cnt;
   }
