@@ -1463,7 +1463,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
         }
       } else {
         RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
-        block->Clear();
+        block->Reset();
       }
     }
   }
@@ -1583,7 +1583,7 @@ Status BlockBasedTable::PutDataBlockToCache(
                  cached_block->GetCacheHandle())) == cached_block->GetValue());
     } else {
       RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
-      cached_block->Clear();
+      cached_block->Reset();
     }
   }
 

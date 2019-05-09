@@ -69,7 +69,7 @@ public:
     assert(!!cache_ == !!cache_handle_);
     assert(!cache_handle_ || !own_value_);
 
-    rhs.Reset();
+    rhs.ResetFields();
   }
 
   CachableEntry& operator=(CachableEntry&& rhs) {
@@ -77,7 +77,7 @@ public:
       return *this;
     }
 
-    Release();
+    ReleaseResource();
 
     value_ = rhs.value_;
     cache_ = rhs.cache_;
@@ -89,13 +89,13 @@ public:
     assert(!!cache_ == !!cache_handle_);
     assert(!cache_handle_ || !own_value_);
 
-    rhs.Reset();
+    rhs.ResetFields();
 
     return *this;
   }
 
   ~CachableEntry() {
-    Release();
+    ReleaseResource();
   }
 
   bool IsEmpty() const {
@@ -114,9 +114,9 @@ public:
   Cache::Handle* GetCacheHandle() const { return cache_handle_; }
   bool GetOwnValue() const { return own_value_; }
 
-  void Clear() {
-    Release();
-    Reset();
+  void Reset() {
+    ReleaseResource();
+    ResetFields();
   }
 
   void TransferTo(Cleanable* cleanable) {
@@ -129,7 +129,7 @@ public:
       }
     }
 
-    Reset();
+    ResetFields();
   }
 
   void SetOwnedValue(T* value) {
@@ -140,7 +140,7 @@ public:
       return;
     }
 
-    Clear();
+    Reset();
 
     value_ = value;
     own_value_ = true;
@@ -154,7 +154,7 @@ public:
       return;
     }
 
-    Clear();
+    Reset();
 
     value_ = value;
     assert(!own_value_);
@@ -170,7 +170,7 @@ public:
       return;
     }
 
-    Clear();
+    Reset();
 
     value_ = value;
     cache_ = cache;
@@ -189,7 +189,7 @@ public:
   }
 
 private:
-  void Release() {
+  void ReleaseResource() {
     if (LIKELY(cache_handle_ != nullptr)) {
       assert(cache_ != nullptr);
       cache_->Release(cache_handle_);
@@ -198,7 +198,7 @@ private:
     }
   }
 
-  void Reset() {
+  void ResetFields() {
     value_ = nullptr;
     cache_ = nullptr;
     cache_handle_ = nullptr;
