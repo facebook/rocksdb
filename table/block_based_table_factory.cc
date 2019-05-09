@@ -301,6 +301,9 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   snprintf(buffer, kBufferSize, "  data_block_index_type: %d\n",
            table_options_.data_block_index_type);
   ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  index_shortening: %d\n",
+           static_cast<int>(table_options_.index_shortening));
+  ret.append(buffer);
   snprintf(buffer, kBufferSize, "  data_block_hash_table_util_ratio: %lf\n",
            table_options_.data_block_hash_table_util_ratio);
   ret.append(buffer);

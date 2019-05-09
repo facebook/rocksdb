@@ -438,6 +438,12 @@ class SpecialEnv : public EnvWrapper {
         return s;
       }
 
+      virtual Status Prefetch(uint64_t offset, size_t n) override {
+        Status s = target_->Prefetch(offset, n);
+        *bytes_read_ += n;
+        return s;
+      }
+
      private:
       std::unique_ptr<RandomAccessFile> target_;
       anon::AtomicCounter* counter_;

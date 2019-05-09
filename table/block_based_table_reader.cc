@@ -838,6 +838,11 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                                          rep->persistent_cache_key_prefix_size),
                              rep->ioptions.statistics);
 
+  // Meta-blocks are not dictionary compressed. Explicitly set the dictionary
+  // handle to null, otherwise it may be seen as uninitialized during the below
+  // meta-block reads.
+  rep->compression_dict_handle = BlockHandle::NullBlockHandle();
+
   // Read metaindex
   std::unique_ptr<Block> meta;
   std::unique_ptr<InternalIterator> meta_iter;
@@ -968,7 +973,7 @@ Status BlockBasedTable::TryReadPropertiesWithGlobalSeqno(
         (*table_properties)
             ->properties_offsets.find(
                 ExternalSstFilePropertyNames::kGlobalSeqno);
-    size_t block_size = props_block_handle.size();
+    size_t block_size = static_cast<size_t>(props_block_handle.size());
     if (seqno_pos_iter != (*table_properties)->properties_offsets.end()) {
       uint64_t global_seqno_offset = seqno_pos_iter->second;
       EncodeFixed64(
@@ -2167,10 +2172,6 @@ BlockBasedTable::PartitionedIndexIteratorState::PartitionedIndexIteratorState(
       index_key_includes_seq_(index_key_includes_seq),
       index_key_is_full_(index_key_is_full) {}
 
-template <class TBlockIter, typename TValue>
-const size_t BlockBasedTableIterator<TBlockIter, TValue>::kMaxReadaheadSize =
-    256 * 1024;
-
 InternalIteratorBase<BlockHandle>*
 BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
     const BlockHandle& handle) {
@@ -2333,16 +2334,34 @@ void BlockBasedTableIterator<TBlockIter, TValue>::Seek(const Slice& target) {
     return;
   }
 
-  SavePrevIndexValue();
-
-  index_iter_->Seek(target);
-
-  if (!index_iter_->Valid()) {
-    ResetDataIter();
-    return;
+  bool need_seek_index = true;
+  if (block_iter_points_to_real_block_) {
+    // Reseek.
+    prev_index_value_ = index_iter_->value();
+    // We can avoid an index seek if:
+    // 1. The new seek key is larger than the current key
+    // 2. The new seek key is within the upper bound of the block
+    // Since we don't necessarily know the internal key for either
+    // the current key or the upper bound, we check user keys and
+    // exclude the equality case. Considering internal keys can
+    // improve for the boundary cases, but it would complicate the
+    // code.
+    if (user_comparator_.Compare(ExtractUserKey(target),
+                                 block_iter_.user_key()) > 0 &&
+        user_comparator_.Compare(ExtractUserKey(target),
+                                 index_iter_->user_key()) < 0) {
+      need_seek_index = false;
+    }
   }
 
-  InitDataBlock();
+  if (need_seek_index) {
+    index_iter_->Seek(target);
+    if (!index_iter_->Valid()) {
+      ResetDataIter();
+      return;
+    }
+    InitDataBlock();
+  }
 
   block_iter_.Seek(target);
 
@@ -2436,11 +2455,29 @@ void BlockBasedTableIterator<TBlockIter, TValue>::Next() {
 }
 
 template <class TBlockIter, typename TValue>
+bool BlockBasedTableIterator<TBlockIter, TValue>::NextAndGetResult(
+    Slice* ret_key) {
+  Next();
+  bool is_valid = Valid();
+  if (is_valid) {
+    *ret_key = key();
+  }
+  return is_valid;
+}
+
+template <class TBlockIter, typename TValue>
 void BlockBasedTableIterator<TBlockIter, TValue>::Prev() {
   assert(block_iter_points_to_real_block_);
   block_iter_.Prev();
   FindKeyBackward();
 }
+
+// Found that 256 KB readahead size provides the best performance, based on
+// experiments, for auto readahead. Experiment data is in PR #3282.
+template <class TBlockIter, typename TValue>
+const size_t
+    BlockBasedTableIterator<TBlockIter, TValue>::kMaxAutoReadaheadSize =
+        256 * 1024;
 
 template <class TBlockIter, typename TValue>
 void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
@@ -2454,32 +2491,47 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
     }
     auto* rep = table_->get_rep();
 
-    // Automatically prefetch additional data when a range scan (iterator) does
-    // more than 2 sequential IOs. This is enabled only for user reads and when
-    // ReadOptions.readahead_size is 0.
-    if (!for_compaction_ && read_options_.readahead_size == 0) {
-      num_file_reads_++;
-      if (num_file_reads_ > 2) {
-        if (!rep->file->use_direct_io() &&
-            (data_block_handle.offset() +
-                 static_cast<size_t>(data_block_handle.size()) +
-                 kBlockTrailerSize >
-             readahead_limit_)) {
-          // Buffered I/O
-          // Discarding the return status of Prefetch calls intentionally, as we
-          // can fallback to reading from disk if Prefetch fails.
-          rep->file->Prefetch(data_block_handle.offset(), readahead_size_);
-          readahead_limit_ =
-              static_cast<size_t>(data_block_handle.offset() + readahead_size_);
-          // Keep exponentially increasing readahead size until
-          // kMaxReadaheadSize.
-          readahead_size_ = std::min(kMaxReadaheadSize, readahead_size_ * 2);
-        } else if (rep->file->use_direct_io() && !prefetch_buffer_) {
-          // Direct I/O
-          // Let FilePrefetchBuffer take care of the readahead.
-          prefetch_buffer_.reset(new FilePrefetchBuffer(
-              rep->file.get(), kInitReadaheadSize, kMaxReadaheadSize));
+    // Prefetch additional data for range scans (iterators). Enabled only for
+    // user reads.
+    // Implicit auto readahead:
+    //   Enabled after 2 sequential IOs when ReadOptions.readahead_size == 0.
+    // Explicit user requested readahead:
+    //   Enabled from the very first IO when ReadOptions.readahead_size is set.
+    if (!for_compaction_) {
+      if (read_options_.readahead_size == 0) {
+        // Implicit auto readahead
+        num_file_reads_++;
+        if (num_file_reads_ > kMinNumFileReadsToStartAutoReadahead) {
+          if (!rep->file->use_direct_io() &&
+              (data_block_handle.offset() +
+                   static_cast<size_t>(data_block_handle.size()) +
+                   kBlockTrailerSize >
+               readahead_limit_)) {
+            // Buffered I/O
+            // Discarding the return status of Prefetch calls intentionally, as
+            // we can fallback to reading from disk if Prefetch fails.
+            rep->file->Prefetch(data_block_handle.offset(), readahead_size_);
+            readahead_limit_ = static_cast<size_t>(data_block_handle.offset() +
+                                                   readahead_size_);
+            // Keep exponentially increasing readahead size until
+            // kMaxAutoReadaheadSize.
+            readahead_size_ =
+                std::min(kMaxAutoReadaheadSize, readahead_size_ * 2);
+          } else if (rep->file->use_direct_io() && !prefetch_buffer_) {
+            // Direct I/O
+            // Let FilePrefetchBuffer take care of the readahead.
+            prefetch_buffer_.reset(
+                new FilePrefetchBuffer(rep->file.get(), kInitAutoReadaheadSize,
+                                       kMaxAutoReadaheadSize));
+          }
         }
+      } else if (!prefetch_buffer_) {
+        // Explicit user requested readahead
+        // The actual condition is:
+        // if (read_options_.readahead_size != 0 && !prefetch_buffer_)
+        prefetch_buffer_.reset(new FilePrefetchBuffer(
+            rep->file.get(), read_options_.readahead_size,
+            read_options_.readahead_size));
       }
     }
 
@@ -2498,10 +2550,10 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
 }
 
 template <class TBlockIter, typename TValue>
-void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyForward() {
+void BlockBasedTableIterator<TBlockIter, TValue>::FindBlockForward() {
   // TODO the while loop inherits from two-level-iterator. We don't know
   // whether a block can be empty so it can be replaced by an "if".
-  while (!block_iter_.Valid()) {
+  do {
     if (!block_iter_.status().ok()) {
       return;
     }
@@ -2529,6 +2581,15 @@ void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyForward() {
     } else {
       return;
     }
+  } while (!block_iter_.Valid());
+}
+
+template <class TBlockIter, typename TValue>
+void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyForward() {
+  assert(!is_out_of_bound_);
+
+  if (!block_iter_.Valid()) {
+    FindBlockForward();
   }
 }
 
@@ -3118,7 +3179,7 @@ BlockBasedTableOptions::IndexType BlockBasedTable::UpdateIndexType() {
 Status BlockBasedTable::CreateIndexReader(
     FilePrefetchBuffer* prefetch_buffer, IndexReader** index_reader,
     InternalIterator* preloaded_meta_index_iter, int level) {
-  auto index_type_on_file = UpdateIndexType();
+  auto index_type_on_file = rep_->index_type;
 
   auto file = rep_->file.get();
   const InternalKeyComparator* icomparator = &rep_->internal_comparator;

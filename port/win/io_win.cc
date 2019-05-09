@@ -383,21 +383,23 @@ Status WinMmapFile::PreallocateInternal(uint64_t spaceToReserve) {
   return fallocate(filename_, hFile_, spaceToReserve);
 }
 
-WinMmapFile::WinMmapFile(const std::string& fname, HANDLE hFile, size_t page_size,
-  size_t allocation_granularity, const EnvOptions& options)
-  : WinFileData(fname, hFile, false),
-  hMap_(NULL),
-  page_size_(page_size),
-  allocation_granularity_(allocation_granularity),
-  reserved_size_(0),
-  mapping_size_(0),
-  view_size_(0),
-  mapped_begin_(nullptr),
-  mapped_end_(nullptr),
-  dst_(nullptr),
-  last_sync_(nullptr),
-  file_offset_(0),
-  pending_sync_(false) {
+WinMmapFile::WinMmapFile(const std::string& fname, HANDLE hFile,
+                         size_t page_size, size_t allocation_granularity,
+                         const EnvOptions& options)
+    : WinFileData(fname, hFile, false),
+      WritableFile(options),
+      hMap_(NULL),
+      page_size_(page_size),
+      allocation_granularity_(allocation_granularity),
+      reserved_size_(0),
+      mapping_size_(0),
+      view_size_(0),
+      mapped_begin_(nullptr),
+      mapped_end_(nullptr),
+      dst_(nullptr),
+      last_sync_(nullptr),
+      file_offset_(0),
+      pending_sync_(false) {
   // Allocation granularity must be obtained from GetSystemInfo() and must be
   // a power of two.
   assert(allocation_granularity > 0);
@@ -966,7 +968,8 @@ WinWritableFile::WinWritableFile(const std::string& fname, HANDLE hFile,
                                  size_t alignment, size_t /* capacity */,
                                  const EnvOptions& options)
     : WinFileData(fname, hFile, options.use_direct_writes),
-      WinWritableImpl(this, alignment) {
+      WinWritableImpl(this, alignment),
+      WritableFile(options) {
   assert(!options.use_mmap_writes);
 }
 

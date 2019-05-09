@@ -84,6 +84,8 @@ class Writer {
 
   Status WriteBuffer();
 
+  Status Close();
+
   bool TEST_BufferIsEmpty();
 
  private:

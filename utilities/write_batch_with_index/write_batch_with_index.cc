@@ -922,6 +922,109 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
   return s;
 }
 
+void WriteBatchWithIndex::MultiGetFromBatchAndDB(
+    DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    const size_t num_keys, const Slice* keys, PinnableSlice* values,
+    Status* statuses, bool sorted_input) {
+  MultiGetFromBatchAndDB(db, read_options, column_family, num_keys, keys,
+                         values, statuses, sorted_input, nullptr);
+}
+
+void WriteBatchWithIndex::MultiGetFromBatchAndDB(
+    DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    const size_t num_keys, const Slice* keys, PinnableSlice* values,
+    Status* statuses, bool sorted_input, ReadCallback* callback) {
+  const ImmutableDBOptions& immuable_db_options =
+      static_cast_with_check<DBImpl, DB>(db->GetRootDB())
+          ->immutable_db_options();
+
+  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
+  // To hold merges from the write batch
+  autovector<std::pair<WriteBatchWithIndexInternal::Result, MergeContext>,
+             MultiGetContext::MAX_BATCH_SIZE>
+      merges;
+  // Since the lifetime of the WriteBatch is the same as that of the transaction
+  // we cannot pin it as otherwise the returned value will not be available
+  // after the transaction finishes.
+  for (size_t i = 0; i < num_keys; ++i) {
+    MergeContext merge_context;
+    PinnableSlice* pinnable_val = &values[i];
+    std::string& batch_value = *pinnable_val->GetSelf();
+    Status* s = &statuses[i];
+    WriteBatchWithIndexInternal::Result result =
+        WriteBatchWithIndexInternal::GetFromBatch(
+            immuable_db_options, this, column_family, keys[i], &merge_context,
+            &rep->comparator, &batch_value, rep->overwrite_key, s);
+
+    if (result == WriteBatchWithIndexInternal::Result::kFound) {
+      pinnable_val->PinSelf();
+      continue;
+    }
+    if (result == WriteBatchWithIndexInternal::Result::kDeleted) {
+      *s = Status::NotFound();
+      continue;
+    }
+    if (result == WriteBatchWithIndexInternal::Result::kError) {
+      continue;
+    }
+    if (result == WriteBatchWithIndexInternal::Result::kMergeInProgress &&
+        rep->overwrite_key == true) {
+      // Since we've overwritten keys, we do not know what other operations are
+      // in this batch for this key, so we cannot do a Merge to compute the
+      // result.  Instead, we will simply return MergeInProgress.
+      *s = Status::MergeInProgress();
+      continue;
+    }
+
+    assert(result == WriteBatchWithIndexInternal::Result::kMergeInProgress ||
+           result == WriteBatchWithIndexInternal::Result::kNotFound);
+    key_context.emplace_back(keys[i], &values[i], &statuses[i]);
+    merges.emplace_back(result, std::move(merge_context));
+  }
+
+  // Did not find key in batch OR could not resolve Merges.  Try DB.
+  static_cast_with_check<DBImpl, DB>(db->GetRootDB())
+      ->MultiGetImpl(read_options, column_family, key_context, sorted_input,
+                     callback);
+
+  ColumnFamilyHandleImpl* cfh =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  const MergeOperator* merge_operator = cfh->cfd()->ioptions()->merge_operator;
+  for (auto iter = key_context.begin(); iter != key_context.end(); ++iter) {
+    KeyContext& key = *iter;
+    if (key.s->ok() || key.s->IsNotFound()) {  // DB Get Succeeded
+      size_t index = iter - key_context.begin();
+      std::pair<WriteBatchWithIndexInternal::Result, MergeContext>&
+          merge_result = merges[index];
+      if (merge_result.first ==
+          WriteBatchWithIndexInternal::Result::kMergeInProgress) {
+        // Merge result from DB with merges in Batch
+        Statistics* statistics = immuable_db_options.statistics.get();
+        Env* env = immuable_db_options.env;
+        Logger* logger = immuable_db_options.info_log.get();
+
+        Slice* merge_data;
+        if (key.s->ok()) {
+          merge_data = iter->value;
+        } else {  // Key not present in db (s.IsNotFound())
+          merge_data = nullptr;
+        }
+
+        if (merge_operator) {
+          *key.s = MergeHelper::TimedFullMerge(
+              merge_operator, *key.key, merge_data,
+              merge_result.second.GetOperands(), key.value->GetSelf(), logger,
+              statistics, env);
+          key.value->PinSelf();
+        } else {
+          *key.s =
+              Status::InvalidArgument("Options::merge_operator must be set");
+        }
+      }
+    }
+  }
+}
+
 void WriteBatchWithIndex::SetSavePoint() { rep->write_batch.SetSavePoint(); }
 
 Status WriteBatchWithIndex::RollbackToSavePoint() {

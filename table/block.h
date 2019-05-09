@@ -392,7 +392,7 @@ class DataBlockIter final : public BlockIter<Slice> {
 
   virtual void Prev() override;
 
-  virtual void Next() override;
+  virtual void Next() final override;
 
   // Try to advance to the next entry in the block. If there is data corruption
   // or error, report it to the caller instead of aborting the process. May

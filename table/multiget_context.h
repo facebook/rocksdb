@@ -123,7 +123,7 @@ class MultiGetContext {
   KeyContext** sorted_keys_;
   size_t num_keys_;
   uint64_t value_mask_;
-  std::unique_ptr<char> lookup_key_heap_buf;
+  std::unique_ptr<char[]> lookup_key_heap_buf;
   LookupKey* lookup_key_ptr_;
 
  public:

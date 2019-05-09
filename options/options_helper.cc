@@ -59,6 +59,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       mutable_db_options.max_background_compactions;
   options.bytes_per_sync = mutable_db_options.bytes_per_sync;
   options.wal_bytes_per_sync = mutable_db_options.wal_bytes_per_sync;
+  options.strict_bytes_per_sync = mutable_db_options.strict_bytes_per_sync;
   options.max_subcompactions = immutable_db_options.max_subcompactions;
   options.max_background_flushes = immutable_db_options.max_background_flushes;
   options.max_log_file_size = immutable_db_options.max_log_file_size;
@@ -176,6 +177,7 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
       mutable_cf_options.target_file_size_multiplier;
   cf_opts.max_bytes_for_level_base =
       mutable_cf_options.max_bytes_for_level_base;
+  cf_opts.snap_refresh_nanos = mutable_cf_options.snap_refresh_nanos;
   cf_opts.max_bytes_for_level_multiplier =
       mutable_cf_options.max_bytes_for_level_multiplier;
   cf_opts.ttl = mutable_cf_options.ttl;
@@ -246,6 +248,7 @@ std::unordered_map<std::string, CompressionType>
 #ifndef ROCKSDB_LITE
 
 const std::string kNameComparator = "comparator";
+const std::string kNameEnv = "env";
 const std::string kNameMergeOperator = "merge_operator";
 
 template <typename T>
@@ -522,6 +525,11 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
           block_base_table_data_block_index_type_string_map, value,
           reinterpret_cast<BlockBasedTableOptions::DataBlockIndexType*>(
               opt_address));
+    case OptionType::kBlockBasedTableIndexShorteningMode:
+      return ParseEnum<BlockBasedTableOptions::IndexShorteningMode>(
+          block_base_table_index_shortening_mode_string_map, value,
+          reinterpret_cast<BlockBasedTableOptions::IndexShorteningMode*>(
+              opt_address));
     case OptionType::kEncodingType:
       return ParseEnum<EncodingType>(
           encoding_type_string_map, value,
@@ -715,6 +723,12 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<BlockBasedTableOptions::DataBlockIndexType>(
           block_base_table_data_block_index_type_string_map,
           *reinterpret_cast<const BlockBasedTableOptions::DataBlockIndexType*>(
+              opt_address),
+          value);
+    case OptionType::kBlockBasedTableIndexShorteningMode:
+      return SerializeEnum<BlockBasedTableOptions::IndexShorteningMode>(
+          block_base_table_index_shortening_mode_string_map,
+          *reinterpret_cast<const BlockBasedTableOptions::IndexShorteningMode*>(
               opt_address),
           value);
     case OptionType::kFlushBlockPolicyFactory: {
@@ -1167,6 +1181,14 @@ Status ParseDBOption(const std::string& name,
     if (name == "rate_limiter_bytes_per_sec") {
       new_options->rate_limiter.reset(
           NewGenericRateLimiter(static_cast<int64_t>(ParseUint64(value))));
+    } else if (name == kNameEnv) {
+      // Currently `Env` can be deserialized from object registry only.
+      std::unique_ptr<Env> env_guard;
+      Env* env = NewCustomObject<Env>(value, &env_guard);
+      // Only support static env for now.
+      if (env != nullptr && !env_guard) {
+        new_options->env = env;
+      }
     } else {
       auto iter = db_options_type_info.find(name);
       if (iter == db_options_type_info.end()) {
@@ -1376,7 +1398,6 @@ std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::db_options_type_info = {
         /*
          // not yet supported
-          Env* env;
           std::shared_ptr<Cache> row_cache;
           std::shared_ptr<DeleteScheduler> delete_scheduler;
           std::shared_ptr<Logger> info_log;
@@ -1540,6 +1561,10 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct DBOptions, wal_bytes_per_sync), OptionType::kUInt64T,
           OptionVerificationType::kNormal, true,
           offsetof(struct MutableDBOptions, wal_bytes_per_sync)}},
+        {"strict_bytes_per_sync",
+         {offsetof(struct DBOptions, strict_bytes_per_sync),
+          OptionType::kBoolean, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableDBOptions, strict_bytes_per_sync)}},
         {"stats_dump_period_sec",
          {offsetof(struct DBOptions, stats_dump_period_sec), OptionType::kUInt,
           OptionVerificationType::kNormal, true,
@@ -1623,8 +1648,8 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"avoid_unnecessary_blocking_io",
          {offsetof(struct DBOptions, avoid_unnecessary_blocking_io),
           OptionType::kBoolean, OptionVerificationType::kNormal, false,
-          offsetof(struct ImmutableDBOptions, avoid_unnecessary_blocking_io)}}
-      };
+          offsetof(struct ImmutableDBOptions, avoid_unnecessary_blocking_io)}},
+};
 
 std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
     OptionsHelper::block_base_table_index_type_string_map = {
@@ -1639,6 +1664,16 @@ std::unordered_map<std::string, BlockBasedTableOptions::DataBlockIndexType>
          BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch},
         {"kDataBlockBinaryAndHash",
          BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinaryAndHash}};
+
+std::unordered_map<std::string, BlockBasedTableOptions::IndexShorteningMode>
+    OptionsHelper::block_base_table_index_shortening_mode_string_map = {
+        {"kNoShortening",
+         BlockBasedTableOptions::IndexShorteningMode::kNoShortening},
+        {"kShortenSeparators",
+         BlockBasedTableOptions::IndexShorteningMode::kShortenSeparators},
+        {"kShortenSeparatorsAndSuccessor",
+         BlockBasedTableOptions::IndexShorteningMode::
+             kShortenSeparatorsAndSuccessor}};
 
 std::unordered_map<std::string, EncodingType>
     OptionsHelper::encoding_type_string_map = {{"kPlain", kPlain},
@@ -1876,6 +1911,10 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::max_bytes_for_level_base),
           OptionType::kUInt64T, OptionVerificationType::kNormal, true,
           offsetof(struct MutableCFOptions, max_bytes_for_level_base)}},
+        {"snap_refresh_nanos",
+         {offset_of(&ColumnFamilyOptions::snap_refresh_nanos),
+          OptionType::kUInt64T, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, snap_refresh_nanos)}},
         {"max_bytes_for_level_multiplier",
          {offset_of(&ColumnFamilyOptions::max_bytes_for_level_multiplier),
           OptionType::kDouble, OptionVerificationType::kNormal, true,

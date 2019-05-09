@@ -368,6 +368,7 @@ void AssignEnvOptions(EnvOptions* env_options, const DBOptions& options) {
   env_options->writable_file_max_buffer_size =
       options.writable_file_max_buffer_size;
   env_options->allow_fallocate = options.allow_fallocate;
+  env_options->strict_bytes_per_sync = options.strict_bytes_per_sync;
 }
 
 }

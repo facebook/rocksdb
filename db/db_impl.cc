@@ -157,6 +157,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       env_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
       env_options_for_compaction_(env_->OptimizeForCompactionTableWrite(
           env_options_, immutable_db_options_)),
+      seq_per_batch_(seq_per_batch),
+      batch_per_txn_(batch_per_txn),
       db_lock_(nullptr),
       shutting_down_(false),
       bg_cv_(&mutex_),
@@ -202,8 +204,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       opened_successfully_(false),
       two_write_queues_(options.two_write_queues),
       manual_wal_flush_(options.manual_wal_flush),
-      seq_per_batch_(seq_per_batch),
-      batch_per_txn_(batch_per_txn),
       // last_sequencee_ is always maintained by the main queue that also writes
       // to the memtable. When two_write_queues_ is disabled last seq in
       // memtable is the same as last seq published to the readers. When it is
@@ -581,6 +581,12 @@ Status DBImpl::CloseHelper() {
     if (ret.ok()) {
       ret = s;
     }
+  }
+  if (ret.IsAborted()) {
+    // Reserve IsAborted() error for those where users didn't release
+    // certain resource and they can release them and come back and
+    // retry. In this case, we wrap this exception to something else.
+    return Status::Incomplete(ret.ToString());
   }
   return ret;
 }
@@ -1209,7 +1215,15 @@ void DBImpl::BackgroundCallPurge() {
   // both queues are empty. This is stricter than what is needed, but can make
   // it easier for us to reason the correctness.
   while (!purge_queue_.empty() || !logs_to_free_queue_.empty()) {
-    if (!purge_queue_.empty()) {
+    // Check logs_to_free_queue_ first and close log writers.
+    if (!logs_to_free_queue_.empty()) {
+      assert(!logs_to_free_queue_.empty());
+      log::Writer* log_writer = *(logs_to_free_queue_.begin());
+      logs_to_free_queue_.pop_front();
+      mutex_.Unlock();
+      delete log_writer;
+      mutex_.Lock();
+    } else {
       auto purge_file = purge_queue_.begin();
       auto fname = purge_file->fname;
       auto dir_to_sync = purge_file->dir_to_sync;
@@ -1220,13 +1234,6 @@ void DBImpl::BackgroundCallPurge() {
 
       mutex_.Unlock();
       DeleteObsoleteFileImpl(job_id, fname, dir_to_sync, type, number);
-      mutex_.Lock();
-    } else {
-      assert(!logs_to_free_queue_.empty());
-      log::Writer* log_writer = *(logs_to_free_queue_.begin());
-      logs_to_free_queue_.pop_front();
-      mutex_.Unlock();
-      delete log_writer;
       mutex_.Lock();
     }
   }
@@ -3035,6 +3042,14 @@ DB::~DB() {}
 
 Status DBImpl::Close() {
   if (!closed_) {
+    {
+      InstrumentedMutexLock l(&mutex_);
+      // If there is unreleased snapshot, fail the close call
+      if (!snapshots_.empty()) {
+        return Status::Aborted("Cannot close DB with unreleased snapshot.");
+      }
+    }
+
     closed_ = true;
     return CloseImpl();
   }

@@ -1172,6 +1172,7 @@ DEFINE_int32(skip_list_lookahead, 0, "Used with skip_list memtablerep; try "
              "position");
 DEFINE_bool(report_file_operations, false, "if report number of file "
             "operations");
+DEFINE_int32(readahead_size, 0, "Iterator readahead size");
 
 static const bool FLAGS_soft_rate_limit_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_soft_rate_limit, &ValidateRateLimit);
@@ -4816,10 +4817,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     // the limit of qps initiation
     if (FLAGS_sine_a != 0 || FLAGS_sine_d != 0) {
       thread->shared->read_rate_limiter.reset(NewGenericRateLimiter(
-          read_rate, 100000 /* refill_period_us */, 10 /* fairness */,
+          static_cast<int64_t>(read_rate), 100000 /* refill_period_us */, 10 /* fairness */,
           RateLimiter::Mode::kReadsOnly));
       thread->shared->write_rate_limiter.reset(
-          NewGenericRateLimiter(write_rate));
+          NewGenericRateLimiter(static_cast<int64_t>(write_rate)));
     }
 
     Duration duration(FLAGS_duration, reads_);
@@ -4855,9 +4856,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
             mix_rate_with_noise * query.ratio_[1] * FLAGS_mix_ave_kv_size;
 
         thread->shared->write_rate_limiter.reset(
-            NewGenericRateLimiter(write_rate));
+            NewGenericRateLimiter(static_cast<int64_t>(write_rate)));
         thread->shared->read_rate_limiter.reset(NewGenericRateLimiter(
-            read_rate,
+            static_cast<int64_t>(read_rate),
             FLAGS_sine_mix_rate_interval_milliseconds * uint64_t{1000}, 10,
             RateLimiter::Mode::kReadsOnly));
       }
@@ -4987,6 +4988,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     options.total_order_seek = FLAGS_total_order_seek;
     options.prefix_same_as_start = FLAGS_prefix_same_as_start;
     options.tailing = FLAGS_use_tailing_iterator;
+    options.readahead_size = FLAGS_readahead_size;
 
     Iterator* single_iter = nullptr;
     std::vector<Iterator*> multi_iters;

@@ -646,6 +646,12 @@ struct AdvancedColumnFamilyOptions {
 
   // Files older than this value will be picked up for compaction, and
   // re-written to the same level as they were before.
+  //
+  // A file's age is computed by looking at file_creation_time or creation_time
+  // table properties in order, if they have valid non-zero values; if not, the
+  // age is based on the file's last modified time (given by the underlying
+  // Env).
+  //
   // Only supported in Level compaction.
   // Pre-req: max_open_file == -1.
   // unit: seconds. Ex: 7 days = 7 * 24 * 60 * 60

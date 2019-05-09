@@ -269,6 +269,17 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint64_t max_bytes_for_level_base = 256 * 1048576;
 
+  // If non-zero, compactions will periodically refresh the snapshot list. The
+  // delay for the first refresh is snap_refresh_nanos nano seconds and
+  // exponentially increases afterwards. When having many short-lived snapshots,
+  // this option helps reducing the cpu usage of long-running compactions. The
+  // feature is disabled when max_subcompactions is greater than one.
+  //
+  // Default: 0.1s
+  //
+  // Dynamically changeable through SetOptions() API
+  uint64_t snap_refresh_nanos = 100 * 1000 * 1000;  // 0.1s
+
   // Disable automatic compactions. Manual compactions can still
   // be issued on this column family
   //
@@ -818,6 +829,27 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   uint64_t wal_bytes_per_sync = 0;
 
+  // When true, guarantees WAL files have at most `wal_bytes_per_sync`
+  // bytes submitted for writeback at any given time, and SST files have at most
+  // `bytes_per_sync` bytes pending writeback at any given time. This can be
+  // used to handle cases where processing speed exceeds I/O speed during file
+  // generation, which can lead to a huge sync when the file is finished, even
+  // with `bytes_per_sync` / `wal_bytes_per_sync` properly configured.
+  //
+  //  - If `sync_file_range` is supported it achieves this by waiting for any
+  //    prior `sync_file_range`s to finish before proceeding. In this way,
+  //    processing (compression, etc.) can proceed uninhibited in the gap
+  //    between `sync_file_range`s, and we block only when I/O falls behind.
+  //  - Otherwise the `WritableFile::Sync` method is used. Note this mechanism
+  //    always blocks, thus preventing the interleaving of I/O and processing.
+  //
+  // Note: Enabling this option does not provide any additional persistence
+  // guarantees, as it may use `sync_file_range`, which does not write out
+  // metadata.
+  //
+  // Default: false
+  bool strict_bytes_per_sync = false;
+
   // A vector of EventListeners whose callback functions will be called
   // when specific RocksDB event happens.
   std::vector<std::shared_ptr<EventListener>> listeners;
@@ -1099,9 +1131,14 @@ struct ReadOptions {
   // Default: nullptr
   const Slice* iterate_upper_bound;
 
-  // If non-zero, NewIterator will create a new table reader which
-  // performs reads of the given size. Using a large size (> 2MB) can
-  // improve the performance of forward iteration on spinning disks.
+  // RocksDB does auto-readahead for iterators on noticing more than two reads
+  // for a table file. The readahead starts at 8KB and doubles on every
+  // additional read upto 256KB.
+  // This option can help if most of the range scans are large, and if it is
+  // determined that a larger readahead than that enabled by auto-readahead is
+  // needed.
+  // Using a large readahead size (> 2MB) can typically improve the performance
+  // of forward iteration on spinning disks.
   // Default: 0
   size_t readahead_size;
 

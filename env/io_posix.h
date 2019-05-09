@@ -118,6 +118,11 @@ class PosixWritableFile : public WritableFile {
   bool allow_fallocate_;
   bool fallocate_with_keep_size_;
 #endif
+#ifdef ROCKSDB_RANGESYNC_PRESENT
+  // Even if the syscall is present, the filesystem may still not properly
+  // support it, so we need to do a dynamic check too.
+  bool sync_file_range_supported_;
+#endif  // ROCKSDB_RANGESYNC_PRESENT
 
  public:
   explicit PosixWritableFile(const std::string& fname, int fd,
@@ -144,9 +149,7 @@ class PosixWritableFile : public WritableFile {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(uint64_t offset, uint64_t len) override;
 #endif
-#ifdef ROCKSDB_RANGESYNC_PRESENT
   virtual Status RangeSync(uint64_t offset, uint64_t nbytes) override;
-#endif
 #ifdef OS_LINUX
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 #endif

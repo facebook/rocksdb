@@ -119,17 +119,19 @@ class IndexBuilder {
 //     substitute key that serves the same function.
 class ShortenedIndexBuilder : public IndexBuilder {
  public:
-  explicit ShortenedIndexBuilder(const InternalKeyComparator* comparator,
-                                 const int index_block_restart_interval,
-                                 const uint32_t format_version,
-                                 const bool use_value_delta_encoding)
+  explicit ShortenedIndexBuilder(
+      const InternalKeyComparator* comparator,
+      const int index_block_restart_interval, const uint32_t format_version,
+      const bool use_value_delta_encoding,
+      BlockBasedTableOptions::IndexShorteningMode shortening_mode)
       : IndexBuilder(comparator),
         index_block_builder_(index_block_restart_interval,
                              true /*use_delta_encoding*/,
                              use_value_delta_encoding),
         index_block_builder_without_seq_(index_block_restart_interval,
                                          true /*use_delta_encoding*/,
-                                         use_value_delta_encoding) {
+                                         use_value_delta_encoding),
+        shortening_mode_(shortening_mode) {
     // Making the default true will disable the feature for old versions
     seperator_is_key_plus_seq_ = (format_version <= 2);
   }
@@ -138,8 +140,11 @@ class ShortenedIndexBuilder : public IndexBuilder {
                              const Slice* first_key_in_next_block,
                              const BlockHandle& block_handle) override {
     if (first_key_in_next_block != nullptr) {
-      comparator_->FindShortestSeparator(last_key_in_current_block,
-                                         *first_key_in_next_block);
+      if (shortening_mode_ !=
+          BlockBasedTableOptions::IndexShorteningMode::kNoShortening) {
+        comparator_->FindShortestSeparator(last_key_in_current_block,
+                                           *first_key_in_next_block);
+      }
       if (!seperator_is_key_plus_seq_ &&
           comparator_->user_comparator()->Compare(
               ExtractUserKey(*last_key_in_current_block),
@@ -147,7 +152,10 @@ class ShortenedIndexBuilder : public IndexBuilder {
         seperator_is_key_plus_seq_ = true;
       }
     } else {
-      comparator_->FindShortSuccessor(last_key_in_current_block);
+      if (shortening_mode_ == BlockBasedTableOptions::IndexShorteningMode::
+                                  kShortenSeparatorsAndSuccessor) {
+        comparator_->FindShortSuccessor(last_key_in_current_block);
+      }
     }
     auto sep = Slice(*last_key_in_current_block);
 
@@ -193,6 +201,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
   BlockBuilder index_block_builder_;
   BlockBuilder index_block_builder_without_seq_;
   bool seperator_is_key_plus_seq_;
+  BlockBasedTableOptions::IndexShorteningMode shortening_mode_;
   BlockHandle last_encoded_handle_;
 };
 
@@ -225,13 +234,16 @@ class ShortenedIndexBuilder : public IndexBuilder {
 // data copy or small heap allocations for prefixes.
 class HashIndexBuilder : public IndexBuilder {
  public:
-  explicit HashIndexBuilder(const InternalKeyComparator* comparator,
-                            const SliceTransform* hash_key_extractor,
-                            int index_block_restart_interval,
-                            int format_version, bool use_value_delta_encoding)
+  explicit HashIndexBuilder(
+      const InternalKeyComparator* comparator,
+      const SliceTransform* hash_key_extractor,
+      int index_block_restart_interval, int format_version,
+      bool use_value_delta_encoding,
+      BlockBasedTableOptions::IndexShorteningMode shortening_mode)
       : IndexBuilder(comparator),
         primary_index_builder_(comparator, index_block_restart_interval,
-                               format_version, use_value_delta_encoding),
+                               format_version, use_value_delta_encoding,
+                               shortening_mode),
         hash_key_extractor_(hash_key_extractor) {}
 
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
@@ -389,7 +401,7 @@ class PartitionedIndexBuilder : public IndexBuilder {
     std::unique_ptr<ShortenedIndexBuilder> value;
   };
   std::list<Entry> entries_;  // list of partitioned indexes and their keys
-  BlockBuilder index_block_builder_;  // top-level index builder
+  BlockBuilder index_block_builder_;              // top-level index builder
   BlockBuilder index_block_builder_without_seq_;  // same for user keys
   // the active partition index builder
   ShortenedIndexBuilder* sub_index_builder_;

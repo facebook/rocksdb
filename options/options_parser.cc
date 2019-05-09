@@ -569,6 +569,12 @@ bool AreEqualOptions(
               offset1) ==
           *reinterpret_cast<const BlockBasedTableOptions::DataBlockIndexType*>(
               offset2));
+    case OptionType::kBlockBasedTableIndexShorteningMode:
+      return (
+          *reinterpret_cast<const BlockBasedTableOptions::IndexShorteningMode*>(
+              offset1) ==
+          *reinterpret_cast<const BlockBasedTableOptions::IndexShorteningMode*>(
+              offset2));
     case OptionType::kWALRecoveryMode:
       return (*reinterpret_cast<const WALRecoveryMode*>(offset1) ==
               *reinterpret_cast<const WALRecoveryMode*>(offset2));

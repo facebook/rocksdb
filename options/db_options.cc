@@ -240,6 +240,7 @@ MutableDBOptions::MutableDBOptions()
       max_open_files(-1),
       bytes_per_sync(0),
       wal_bytes_per_sync(0),
+      strict_bytes_per_sync(false),
       compaction_readahead_size(0) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
@@ -258,6 +259,7 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       max_open_files(options.max_open_files),
       bytes_per_sync(options.bytes_per_sync),
       wal_bytes_per_sync(options.wal_bytes_per_sync),
+      strict_bytes_per_sync(options.strict_bytes_per_sync),
       compaction_readahead_size(options.compaction_readahead_size) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
@@ -293,6 +295,9 @@ void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "                     Options.wal_bytes_per_sync: %" PRIu64,
                    wal_bytes_per_sync);
+  ROCKS_LOG_HEADER(log,
+                   "                  Options.strict_bytes_per_sync: %d",
+                   strict_bytes_per_sync);
   ROCKS_LOG_HEADER(log,
                    "      Options.compaction_readahead_size: %" ROCKSDB_PRIszt,
                    compaction_readahead_size);

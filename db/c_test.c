@@ -1,6 +1,7 @@
 /* Copyright (c) 2011 The LevelDB Authors. All rights reserved.
    Use of this source code is governed by a BSD-style license that can be
    found in the LICENSE file. See the AUTHORS file for names of contributors. */
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 #include <stdio.h>
 
@@ -1186,6 +1187,12 @@ int main(int argc, char** argv) {
 
     rocksdb_put_cf(db, woptions, handles[1], "foo", 3, "hello", 5, &err);
     CheckNoError(err);
+
+    rocksdb_flushoptions_t *flush_options = rocksdb_flushoptions_create();
+    rocksdb_flushoptions_set_wait(flush_options, 1);
+    rocksdb_flush_cf(db, flush_options, handles[1], &err);
+    CheckNoError(err)
+    rocksdb_flushoptions_destroy(flush_options);
 
     CheckGetCF(db, roptions, handles[1], "foo", "hello");
     CheckPinGetCF(db, roptions, handles[1], "foo", "hello");

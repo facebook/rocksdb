@@ -82,16 +82,22 @@ ifeq ($(MAKECMDGOALS),rocksdbjavastatic)
 endif
 
 ifeq ($(MAKECMDGOALS),rocksdbjavastaticrelease)
-	DEBUG_LEVEL=0
+	ifneq ($(DEBUG_LEVEL),2)
+		DEBUG_LEVEL=0
+	endif
 endif
 
 ifeq ($(MAKECMDGOALS),rocksdbjavastaticreleasedocker)
-        DEBUG_LEVEL=0
+	ifneq ($(DEBUG_LEVEL),2)
+        	DEBUG_LEVEL=0
+	endif
 endif
 
 ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
 	DEBUG_LEVEL=0
 endif
+
+$(info $$DEBUG_LEVEL is ${DEBUG_LEVEL})
 
 # Lite build flag.
 LITE ?= 0
@@ -135,6 +141,12 @@ ifeq (,$(shell $(CXX) -fsyntax-only -mcpu=power8 -xc /dev/null 2>&1))
 CXXFLAGS += -DHAVE_POWER8
 CFLAGS +=  -DHAVE_POWER8
 HAVE_POWER8=1
+endif
+
+ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc -xc /dev/null 2>&1))
+CXXFLAGS += -march=armv8-a+crc
+CFLAGS += -march=armv8-a+crc
+ARMCRC_SOURCE=1
 endif
 
 # if we're compiling for release, compile without debug code (-DNDEBUG)
@@ -1821,27 +1833,15 @@ rocksdbjavastaticreleasedocker: rocksdbjavastatic rocksdbjavastaticdockerx86 roc
 
 rocksdbjavastaticdockerx86:
 	mkdir -p java/target
-	DOCKER_LINUX_X86_CONTAINER=`docker ps -aqf name=rocksdb_linux_x86-be`; \
-	if [ -z "$$DOCKER_LINUX_X86_CONTAINER" ]; then \
-		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_x86-be evolvedbinary/rocksjava:centos6_x86-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
-	fi
-	docker start -a rocksdb_linux_x86-be
+	docker run --rm --name rocksdb_linux_x86-be --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --env DEBUG_LEVEL=$(DEBUG_LEVEL) evolvedbinary/rocksjava:centos6_x86-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh
 
 rocksdbjavastaticdockerx86_64:
 	mkdir -p java/target
-	DOCKER_LINUX_X64_CONTAINER=`docker ps -aqf name=rocksdb_linux_x64-be`; \
-	if [ -z "$$DOCKER_LINUX_X64_CONTAINER" ]; then \
-		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_x64-be evolvedbinary/rocksjava:centos6_x64-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
-	fi
-	docker start -a rocksdb_linux_x64-be
+	docker run --rm --name rocksdb_linux_x64-be --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --env DEBUG_LEVEL=$(DEBUG_LEVEL) evolvedbinary/rocksjava:centos6_x64-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh
 
 rocksdbjavastaticdockerppc64le:
 	mkdir -p java/target
-	DOCKER_LINUX_PPC64LE_CONTAINER=`docker ps -aqf name=rocksdb_linux_ppc64le-be`; \
-	if [ -z "$$DOCKER_LINUX_PPC64LE_CONTAINER" ]; then \
-		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_ppc64le-be evolvedbinary/rocksjava:centos7_ppc64le-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
-	fi
-	docker start -a rocksdb_linux_ppc64le-be
+	docker run --rm --name rocksdb_linux_ppc64le-be --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --env DEBUG_LEVEL=$(DEBUG_LEVEL) evolvedbinary/rocksjava:centos7_ppc64le-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh
 
 rocksdbjavastaticpublish: rocksdbjavastaticrelease rocksdbjavastaticpublishcentral
 

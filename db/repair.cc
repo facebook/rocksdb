@@ -517,8 +517,10 @@ class Repairer {
       }
     }
     if (status.ok()) {
+      ReadOptions ropts;
+      ropts.total_order_seek = true;
       InternalIterator* iter = table_cache_->NewIterator(
-          ReadOptions(), env_options_, cfd->internal_comparator(), t->meta,
+          ropts, env_options_, cfd->internal_comparator(), t->meta,
           nullptr /* range_del_agg */,
           cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
       bool empty = true;

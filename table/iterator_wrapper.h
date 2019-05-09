@@ -63,7 +63,11 @@ class IteratorWrapperBase {
   }
   // Methods below require iter() != nullptr
   Status status() const     { assert(iter_); return iter_->status(); }
-  void Next()               { assert(iter_); iter_->Next();        Update(); }
+  void Next() {
+    assert(iter_);
+    valid_ = iter_->NextAndGetResult(&key_);
+    assert(!valid_ || iter_->status().ok());
+  }
   void Prev()               { assert(iter_); iter_->Prev();        Update(); }
   void Seek(const Slice& k) { assert(iter_); iter_->Seek(k);       Update(); }
   void SeekForPrev(const Slice& k) {

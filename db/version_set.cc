@@ -906,7 +906,8 @@ class LevelIterator final : public InternalIterator {
   void SeekForPrev(const Slice& target) override;
   void SeekToFirst() override;
   void SeekToLast() override;
-  void Next() override;
+  void Next() final override;
+  bool NextAndGetResult(Slice* ret_key) override;
   void Prev() override;
 
   bool Valid() const override { return file_iter_.Valid(); }
@@ -956,6 +957,13 @@ class LevelIterator final : public InternalIterator {
   void SkipEmptyFileBackward();
   void SetFileIterator(InternalIterator* iter);
   void InitFileIterator(size_t new_file_index);
+
+  // Called by both of Next() and NextAndGetResult(). Force inline.
+  void NextImpl() {
+    assert(Valid());
+    file_iter_.Next();
+    SkipEmptyFileForward();
+  }
 
   const Slice& file_smallest_key(size_t file_index) {
     assert(file_index < flevel_->num_files);
@@ -1019,9 +1027,25 @@ class LevelIterator final : public InternalIterator {
 };
 
 void LevelIterator::Seek(const Slice& target) {
-  size_t new_file_index = FindFile(icomparator_, *flevel_, target);
+  // Check whether the seek key fall under the same file
+  bool need_to_reseek = true;
+  if (file_iter_.iter() != nullptr && file_index_ < flevel_->num_files) {
+    const FdWithKeyRange& cur_file = flevel_->files[file_index_];
+    if (icomparator_.InternalKeyComparator::Compare(
+            target, cur_file.largest_key) <= 0 &&
+        icomparator_.InternalKeyComparator::Compare(
+            target, cur_file.smallest_key) >= 0) {
+      need_to_reseek = false;
+      assert(static_cast<size_t>(FindFile(icomparator_, *flevel_, target)) ==
+             file_index_);
+    }
+  }
+  if (need_to_reseek) {
+    TEST_SYNC_POINT("LevelIterator::Seek:BeforeFindFile");
+    size_t new_file_index = FindFile(icomparator_, *flevel_, target);
+    InitFileIterator(new_file_index);
+  }
 
-  InitFileIterator(new_file_index);
   if (file_iter_.iter() != nullptr) {
     file_iter_.Seek(target);
   }
@@ -1057,10 +1081,15 @@ void LevelIterator::SeekToLast() {
   SkipEmptyFileBackward();
 }
 
-void LevelIterator::Next() {
-  assert(Valid());
-  file_iter_.Next();
-  SkipEmptyFileForward();
+void LevelIterator::Next() { NextImpl(); }
+
+bool LevelIterator::NextAndGetResult(Slice* ret_key) {
+  NextImpl();
+  bool is_valid = Valid();
+  if (is_valid) {
+    *ret_key = key();
+  }
+  return is_valid;
 }
 
 void LevelIterator::Prev() {
@@ -1765,7 +1794,11 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         iter->value, nullptr, &(iter->merge_context),
         &iter->max_covering_tombstone_seq, this->env_, &iter->seq,
         merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob);
-    iter->get_context = &get_ctx.back();
+  }
+  int get_ctx_index = 0;
+  for (auto iter = range->begin(); iter != range->end();
+       ++iter, get_ctx_index++) {
+    iter->get_context = &(get_ctx[get_ctx_index]);
   }
 
   MultiGetRange file_picker_range(*range, range->begin(), range->end());
@@ -2365,9 +2398,32 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
     for (auto f : files_[level]) {
       if (!f->being_compacted && f->fd.table_reader != nullptr &&
           f->fd.table_reader->GetTableProperties() != nullptr) {
-        auto file_creation_time =
+        // Compute a file's modification time in the following order:
+        // 1. Use file_creation_time table property if it is > 0.
+        // 2. Use creation_time table property if it is > 0.
+        // 3. Use file's mtime metadata if the above two table properties are 0.
+        // Don't consider the file at all if the modification time cannot be
+        // correctly determined based on the above conditions.
+        uint64_t file_modification_time =
             f->fd.table_reader->GetTableProperties()->file_creation_time;
-        if (file_creation_time > 0 && file_creation_time < allowed_time_limit) {
+        if (file_modification_time == 0) {
+          file_modification_time =
+              f->fd.table_reader->GetTableProperties()->creation_time;
+        }
+        if (file_modification_time == 0) {
+          auto file_path = TableFileName(ioptions.cf_paths, f->fd.GetNumber(),
+                                         f->fd.GetPathId());
+          status = ioptions.env->GetFileModificationTime(
+              file_path, &file_modification_time);
+          if (!status.ok()) {
+            ROCKS_LOG_WARN(ioptions.info_log,
+                           "Can't get file modification time: %s: %s",
+                           file_path.c_str(), status.ToString().c_str());
+            continue;
+          }
+        }
+        if (file_modification_time > 0 &&
+            file_modification_time < allowed_time_limit) {
           files_marked_for_periodic_compaction_.emplace_back(level, f);
         }
       }
@@ -2792,14 +2848,6 @@ void VersionStorageInfo::GetCleanInputsWithinInterval(
     return;
   }
 
-  const auto& level_files = level_files_brief_[level];
-  if (begin == nullptr) {
-    begin = &level_files.files[0].file_metadata->smallest;
-  }
-  if (end == nullptr) {
-    end = &level_files.files[level_files.num_files - 1].file_metadata->largest;
-  }
-
   GetOverlappingInputsRangeBinarySearch(level, begin, end, inputs,
                                         hint_index, file_index,
                                         true /* within_interval */);
@@ -2817,202 +2865,99 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
     std::vector<FileMetaData*>* inputs, int hint_index, int* file_index,
     bool within_interval, InternalKey** next_smallest) const {
   assert(level > 0);
-  int min = 0;
-  int mid = 0;
-  int max = static_cast<int>(files_[level].size()) - 1;
-  bool foundOverlap = false;
+
   auto user_cmp = user_comparator_;
+  const FdWithKeyRange* files = level_files_brief_[level].files;
+  const int num_files = static_cast<int>(level_files_brief_[level].num_files);
 
-  // if the caller already knows the index of a file that has overlap,
-  // then we can skip the binary search.
-  if (hint_index != -1) {
-    mid = hint_index;
-    foundOverlap = true;
-  }
+  // begin to use binary search to find lower bound
+  // and upper bound.
+  int start_index = 0;
+  int end_index = num_files;
 
-  while (!foundOverlap && min <= max) {
-    mid = (min + max)/2;
-    FdWithKeyRange* f = &(level_files_brief_[level].files[mid]);
-    auto& smallest = f->file_metadata->smallest;
-    auto& largest = f->file_metadata->largest;
-    if ((!within_interval && sstableKeyCompare(user_cmp, begin, largest) > 0) ||
-        (within_interval && sstableKeyCompare(user_cmp, begin, smallest) > 0)) {
-      min = mid + 1;
-    } else if ((!within_interval &&
-                sstableKeyCompare(user_cmp, smallest, end) > 0) ||
-               (within_interval &&
-                sstableKeyCompare(user_cmp, largest, end) > 0)) {
-      max = mid - 1;
-    } else {
-      foundOverlap = true;
-      break;
+  if (begin != nullptr) {
+    // if within_interval is true, with file_key would find
+    // not overlapping ranges in std::lower_bound.
+    auto cmp = [&user_cmp, &within_interval](const FdWithKeyRange& f,
+                                             const InternalKey* k) {
+      auto& file_key = within_interval ? f.file_metadata->smallest
+                                       : f.file_metadata->largest;
+      return sstableKeyCompare(user_cmp, file_key, *k) < 0;
+    };
+
+    start_index = static_cast<int>(
+        std::lower_bound(files,
+                         files + (hint_index == -1 ? num_files : hint_index),
+                         begin, cmp) -
+        files);
+
+    if (start_index > 0 && within_interval) {
+      bool is_overlapping = true;
+      while (is_overlapping && start_index < num_files) {
+        auto& pre_limit = files[start_index - 1].file_metadata->largest;
+        auto& cur_start = files[start_index].file_metadata->smallest;
+        is_overlapping = sstableKeyCompare(user_cmp, pre_limit, cur_start) == 0;
+        start_index += is_overlapping;
+      }
     }
   }
 
+  if (end != nullptr) {
+    // if within_interval is true, with file_key would find
+    // not overlapping ranges in std::upper_bound.
+    auto cmp = [&user_cmp, &within_interval](const InternalKey* k,
+                                             const FdWithKeyRange& f) {
+      auto& file_key = within_interval ? f.file_metadata->largest
+                                       : f.file_metadata->smallest;
+      return sstableKeyCompare(user_cmp, *k, file_key) < 0;
+    };
+
+    end_index = static_cast<int>(
+        std::upper_bound(files + start_index, files + num_files, end, cmp) -
+        files);
+
+    if (end_index < num_files && within_interval) {
+      bool is_overlapping = true;
+      while (is_overlapping && end_index > start_index) {
+        auto& next_start = files[end_index].file_metadata->smallest;
+        auto& cur_limit = files[end_index - 1].file_metadata->largest;
+        is_overlapping =
+            sstableKeyCompare(user_cmp, cur_limit, next_start) == 0;
+        end_index -= is_overlapping;
+      }
+    }
+  }
+
+  assert(start_index <= end_index);
+
   // If there were no overlapping files, return immediately.
-  if (!foundOverlap) {
+  if (start_index == end_index) {
     if (next_smallest) {
-      next_smallest = nullptr;
+      *next_smallest = nullptr;
     }
     return;
   }
+
+  assert(start_index < end_index);
+
   // returns the index where an overlap is found
   if (file_index) {
-    *file_index = mid;
+    *file_index = start_index;
   }
 
-  int start_index, end_index;
-  if (within_interval) {
-    ExtendFileRangeWithinInterval(level, begin, end, mid,
-                                  &start_index, &end_index);
-  } else {
-    ExtendFileRangeOverlappingInterval(level, begin, end, mid,
-                                       &start_index, &end_index);
-    assert(end_index >= start_index);
-  }
   // insert overlapping files into vector
-  for (int i = start_index; i <= end_index; i++) {
+  for (int i = start_index; i < end_index; i++) {
     inputs->push_back(files_[level][i]);
   }
 
   if (next_smallest != nullptr) {
     // Provide the next key outside the range covered by inputs
-    if (++end_index < static_cast<int>(files_[level].size())) {
+    if (end_index < static_cast<int>(files_[level].size())) {
       **next_smallest = files_[level][end_index]->smallest;
     } else {
       *next_smallest = nullptr;
     }
   }
-}
-
-// Store in *start_index and *end_index the range of all files in
-// "level" that overlap [begin,end]
-// The mid_index specifies the index of at least one file that
-// overlaps the specified range. From that file, iterate backward
-// and forward to find all overlapping files.
-// Use FileLevel in searching, make it faster
-void VersionStorageInfo::ExtendFileRangeOverlappingInterval(
-    int level, const InternalKey* begin, const InternalKey* end,
-    unsigned int mid_index, int* start_index, int* end_index) const {
-  auto user_cmp = user_comparator_;
-  const FdWithKeyRange* files = level_files_brief_[level].files;
-#ifndef NDEBUG
-  {
-    // assert that the file at mid_index overlaps with the range
-    assert(mid_index < level_files_brief_[level].num_files);
-    const FdWithKeyRange* f = &files[mid_index];
-    auto& smallest = f->file_metadata->smallest;
-    auto& largest = f->file_metadata->largest;
-    if (sstableKeyCompare(user_cmp, begin, smallest) <= 0) {
-      assert(sstableKeyCompare(user_cmp, smallest, end) <= 0);
-    } else {
-      // fprintf(stderr, "ExtendFileRangeOverlappingInterval\n%s - %s\n%s - %s\n%d %d\n",
-      //         begin ? begin->DebugString().c_str() : "(null)",
-      //         end ? end->DebugString().c_str() : "(null)",
-      //         smallest->DebugString().c_str(),
-      //         largest->DebugString().c_str(),
-      //         sstableKeyCompare(user_cmp, smallest, begin),
-      //         sstableKeyCompare(user_cmp, largest, begin));
-      assert(sstableKeyCompare(user_cmp, begin, largest) <= 0);
-    }
-  }
-#endif
-  *start_index = mid_index + 1;
-  *end_index = mid_index;
-  int count __attribute__((__unused__));
-  count = 0;
-
-  // check backwards from 'mid' to lower indices
-  for (int i = mid_index; i >= 0 ; i--) {
-    const FdWithKeyRange* f = &files[i];
-    auto& largest = f->file_metadata->largest;
-    if (sstableKeyCompare(user_cmp, begin, largest) <= 0) {
-      *start_index = i;
-      assert((count++, true));
-    } else {
-      break;
-    }
-  }
-  // check forward from 'mid+1' to higher indices
-  for (unsigned int i = mid_index+1;
-       i < level_files_brief_[level].num_files; i++) {
-    const FdWithKeyRange* f = &files[i];
-    auto& smallest = f->file_metadata->smallest;
-    if (sstableKeyCompare(user_cmp, smallest, end) <= 0) {
-      assert((count++, true));
-      *end_index = i;
-    } else {
-      break;
-    }
-  }
-  assert(count == *end_index - *start_index + 1);
-}
-
-// Store in *start_index and *end_index the clean range of all files in
-// "level" within [begin,end]
-// The mid_index specifies the index of at least one file within
-// the specified range. From that file, iterate backward
-// and forward to find all overlapping files and then "shrink" to
-// the clean range required.
-// Use FileLevel in searching, make it faster
-void VersionStorageInfo::ExtendFileRangeWithinInterval(
-    int level, const InternalKey* begin, const InternalKey* end,
-    unsigned int mid_index, int* start_index, int* end_index) const {
-  assert(level != 0);
-  auto* user_cmp = user_comparator_;
-  const FdWithKeyRange* files = level_files_brief_[level].files;
-#ifndef NDEBUG
-  {
-    // assert that the file at mid_index is within the range
-    assert(mid_index < level_files_brief_[level].num_files);
-    const FdWithKeyRange* f = &files[mid_index];
-    auto& smallest = f->file_metadata->smallest;
-    auto& largest = f->file_metadata->largest;
-    assert(sstableKeyCompare(user_cmp, begin, smallest) <= 0 &&
-           sstableKeyCompare(user_cmp, largest, end) <= 0);
-  }
-#endif
-  ExtendFileRangeOverlappingInterval(level, begin, end, mid_index,
-                                     start_index, end_index);
-  int left = *start_index;
-  int right = *end_index;
-  // shrink from left to right
-  while (left <= right) {
-    auto& smallest = files[left].file_metadata->smallest;
-    if (sstableKeyCompare(user_cmp, begin, smallest) > 0) {
-      left++;
-      continue;
-    }
-    if (left > 0) {  // If not first file
-      auto& largest = files[left - 1].file_metadata->largest;
-      if (sstableKeyCompare(user_cmp, smallest, largest) == 0) {
-        left++;
-        continue;
-      }
-    }
-    break;
-  }
-  // shrink from right to left
-  while (left <= right) {
-    auto& largest = files[right].file_metadata->largest;
-    if (sstableKeyCompare(user_cmp, largest, end) > 0) {
-      right--;
-      continue;
-    }
-    if (right < static_cast<int>(level_files_brief_[level].num_files) -
-                    1) {  // If not the last file
-      auto& smallest = files[right + 1].file_metadata->smallest;
-      if (sstableKeyCompare(user_cmp, smallest, largest) == 0) {
-        // The last user key in range overlaps with the next file's first key
-        right--;
-        continue;
-      }
-    }
-    break;
-  }
-
-  *start_index = left;
-  *end_index = right;
 }
 
 uint64_t VersionStorageInfo::NumLevelBytes(int level) const {
@@ -3330,11 +3275,11 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
   for (int level = 0; level < storage_info_.num_levels_; level++) {
     // E.g.,
     //   --- level 1 ---
-    //   17:123['a' .. 'd']
-    //   20:43['e' .. 'g']
+    //   17:123[1 .. 124]['a' .. 'd']
+    //   20:43[124 .. 128]['e' .. 'g']
     //
     // if print_stats=true:
-    //   17:123['a' .. 'd'](4096)
+    //   17:123[1 .. 124]['a' .. 'd'](4096)
     r.append("--- level ");
     AppendNumberTo(&r, level);
     r.append(" --- version# ");
@@ -3346,6 +3291,11 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
       AppendNumberTo(&r, files[i]->fd.GetNumber());
       r.push_back(':');
       AppendNumberTo(&r, files[i]->fd.GetFileSize());
+      r.append("[");
+      AppendNumberTo(&r, files[i]->fd.smallest_seqno);
+      r.append(" .. ");
+      AppendNumberTo(&r, files[i]->fd.largest_seqno);
+      r.append("]");
       r.append("[");
       r.append(files[i]->smallest.DebugString(hex));
       r.append(" .. ");

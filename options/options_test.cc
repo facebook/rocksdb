@@ -74,6 +74,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"target_file_size_base", "12"},
       {"target_file_size_multiplier", "13"},
       {"max_bytes_for_level_base", "14"},
+      {"snap_refresh_nanos", "1000000000"},
       {"level_compaction_dynamic_level_bytes", "true"},
       {"max_bytes_for_level_multiplier", "15.0"},
       {"max_bytes_for_level_multiplier_additional", "16:17:18"},
@@ -141,6 +142,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"writable_file_max_buffer_size", "314159"},
       {"bytes_per_sync", "47"},
       {"wal_bytes_per_sync", "48"},
+      {"strict_bytes_per_sync", "true"},
   };
 
   ColumnFamilyOptions base_cf_opt;
@@ -182,6 +184,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.target_file_size_base, static_cast<uint64_t>(12));
   ASSERT_EQ(new_cf_opt.target_file_size_multiplier, 13);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_base, 14U);
+  ASSERT_EQ(new_cf_opt.snap_refresh_nanos, 1000000000U);
   ASSERT_EQ(new_cf_opt.level_compaction_dynamic_level_bytes, true);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier, 15.0);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional.size(), 3U);
@@ -277,6 +280,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.writable_file_max_buffer_size, 314159);
   ASSERT_EQ(new_db_opt.bytes_per_sync, static_cast<uint64_t>(47));
   ASSERT_EQ(new_db_opt.wal_bytes_per_sync, static_cast<uint64_t>(48));
+  ASSERT_EQ(new_db_opt.strict_bytes_per_sync, true);
 
   db_options_map["max_open_files"] = "hello";
   ASSERT_NOK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
@@ -757,6 +761,21 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   block_based_table_options.cache_index_and_filter_blocks = true;
   base_options.table_factory.reset(
       NewBlockBasedTableFactory(block_based_table_options));
+
+  // Register an Env with object registry.
+  const static char* kCustomEnvName = "CustomEnv";
+  class CustomEnv : public EnvWrapper {
+   public:
+    explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
+  };
+
+  static Registrar<Env> test_reg_env(
+      kCustomEnvName,
+      [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/) {
+        static CustomEnv env(Env::Default());
+        return &env;
+      });
+
   ASSERT_OK(GetOptionsFromString(
       base_options,
       "write_buffer_size=10;max_write_buffer_number=16;"
@@ -764,7 +783,7 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
       "compression_opts=4:5:6;create_if_missing=true;max_open_files=1;"
       "bottommost_compression_opts=5:6:7;create_if_missing=true;max_open_files="
       "1;"
-      "rate_limiter_bytes_per_sec=1024",
+      "rate_limiter_bytes_per_sec=1024;env=CustomEnv",
       &new_options));
 
   ASSERT_EQ(new_options.compression_opts.window_bits, 4);
@@ -793,6 +812,8 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.create_if_missing, true);
   ASSERT_EQ(new_options.max_open_files, 1);
   ASSERT_TRUE(new_options.rate_limiter.get() != nullptr);
+  std::unique_ptr<Env> env_guard;
+  ASSERT_EQ(NewCustomObject<Env>(kCustomEnvName, &env_guard), new_options.env);
 }
 
 TEST_F(OptionsTest, DBOptionsSerialization) {

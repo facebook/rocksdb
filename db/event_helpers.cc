@@ -120,7 +120,8 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << table_properties.compression_name << "compression_options"
               << table_properties.compression_options << "creation_time"
               << table_properties.creation_time << "oldest_key_time"
-              << table_properties.oldest_key_time;
+              << table_properties.oldest_key_time << "file_creation_time"
+              << table_properties.file_creation_time;
 
       // user collected properties
       for (const auto& prop : table_properties.readable_properties) {

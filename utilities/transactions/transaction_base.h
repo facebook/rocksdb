@@ -19,6 +19,7 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "util/autovector.h"
 #include "utilities/transactions/transaction_util.h"
 
 namespace rocksdb {
@@ -46,7 +47,7 @@ class TransactionBaseImpl : public Transaction {
   void SetSavePoint() override;
 
   Status RollbackToSavePoint() override;
-  
+
   Status PopSavePoint() override;
 
   using Transaction::Get;
@@ -79,6 +80,7 @@ class TransactionBaseImpl : public Transaction {
                         exclusive, do_validate);
   }
 
+  using Transaction::MultiGet;
   std::vector<Status> MultiGet(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
@@ -93,6 +95,11 @@ class TransactionBaseImpl : public Transaction {
                     keys, values);
   }
 
+  void MultiGet(const ReadOptions& options, ColumnFamilyHandle* column_family,
+                const size_t num_keys, const Slice* keys, PinnableSlice* values,
+                Status* statuses, bool sorted_input = false) override;
+
+  using Transaction::MultiGetForUpdate;
   std::vector<Status> MultiGetForUpdate(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
@@ -318,7 +325,7 @@ class TransactionBaseImpl : public Transaction {
 
   // Stack of the Snapshot saved at each save point.  Saved snapshots may be
   // nullptr if there was no snapshot at the time SetSavePoint() was called.
-  std::unique_ptr<std::stack<TransactionBaseImpl::SavePoint>> save_points_;
+  std::unique_ptr<std::stack<TransactionBaseImpl::SavePoint, autovector<TransactionBaseImpl::SavePoint>>> save_points_;
 
   // Map from column_family_id to map of keys that are involved in this
   // transaction.

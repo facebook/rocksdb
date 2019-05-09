@@ -1070,6 +1070,18 @@ int rocksdb_property_int(
   }
 }
 
+int rocksdb_property_int_cf(
+    rocksdb_t* db,
+    rocksdb_column_family_handle_t* column_family,
+    const char* propname,
+    uint64_t *out_val) {
+  if (db->rep->GetIntProperty(column_family->rep, Slice(propname), out_val)) {
+    return 0;
+  } else {
+    return -1;
+  }
+}
+
 char* rocksdb_property_value_cf(
     rocksdb_t* db,
     rocksdb_column_family_handle_t* column_family,
@@ -1181,6 +1193,14 @@ void rocksdb_flush(
     const rocksdb_flushoptions_t* options,
     char** errptr) {
   SaveError(errptr, db->rep->Flush(options->rep));
+}
+
+void rocksdb_flush_cf(
+    rocksdb_t* db,
+    const rocksdb_flushoptions_t* options,
+    rocksdb_column_family_handle_t* column_family,
+    char** errptr) {
+  SaveError(errptr, db->rep->Flush(options->rep, column_family->rep));
 }
 
 void rocksdb_disable_file_deletions(
@@ -2204,6 +2224,11 @@ void rocksdb_options_set_target_file_size_multiplier(
 void rocksdb_options_set_max_bytes_for_level_base(
     rocksdb_options_t* opt, uint64_t n) {
   opt->rep.max_bytes_for_level_base = n;
+}
+
+void rocksdb_options_set_snap_refresh_nanos(rocksdb_options_t* opt,
+                                            uint64_t n) {
+  opt->rep.snap_refresh_nanos = n;
 }
 
 void rocksdb_options_set_level_compaction_dynamic_level_bytes(

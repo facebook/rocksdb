@@ -611,7 +611,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   void SeekForPrev(const Slice& target) override;
   void SeekToFirst() override;
   void SeekToLast() override;
-  void Next() override;
+  void Next() final override;
+  bool NextAndGetResult(Slice* ret_key) override;
   void Prev() override;
   bool Valid() const override {
     return !is_out_of_bound_ && block_iter_points_to_real_block_ &&
@@ -694,7 +695,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   }
 
   void InitDataBlock();
-  void FindKeyForward();
+  inline void FindKeyForward();
+  void FindBlockForward();
   void FindKeyBackward();
   void CheckOutOfBound();
 
@@ -723,13 +725,15 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   bool for_compaction_;
   BlockHandle prev_index_value_;
 
-  static const size_t kInitReadaheadSize = 8 * 1024;
+  // All the below fields control iterator readahead
+  static const size_t kInitAutoReadaheadSize = 8 * 1024;
   // Found that 256 KB readahead size provides the best performance, based on
-  // experiments.
-  static const size_t kMaxReadaheadSize;
-  size_t readahead_size_ = kInitReadaheadSize;
+  // experiments, for auto readahead. Experiment data is in PR #3282.
+  static const size_t kMaxAutoReadaheadSize;
+  static const int kMinNumFileReadsToStartAutoReadahead = 2;
+  size_t readahead_size_ = kInitAutoReadaheadSize;
   size_t readahead_limit_ = 0;
-  int num_file_reads_ = 0;
+  int64_t num_file_reads_ = 0;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer_;
 };
 

@@ -52,6 +52,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/merge_operator.h"
+#include "util/autovector.h"
 #include "util/coding.h"
 #include "util/duplicate_detector.h"
 #include "util/string_util.h"
@@ -137,34 +138,36 @@ struct BatchContentClassifier : public WriteBatch::Handler {
 }  // anon namespace
 
 struct SavePoints {
-  std::stack<SavePoint> stack;
+  std::stack<SavePoint, autovector<SavePoint>> stack;
 };
 
 WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes)
-    : save_points_(nullptr), content_flags_(0), max_bytes_(max_bytes), rep_() {
+    : content_flags_(0), max_bytes_(max_bytes), rep_() {
   rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader) ?
     reserved_bytes : WriteBatchInternal::kHeader);
   rep_.resize(WriteBatchInternal::kHeader);
 }
 
 WriteBatch::WriteBatch(const std::string& rep)
-    : save_points_(nullptr),
-      content_flags_(ContentFlags::DEFERRED),
+    : content_flags_(ContentFlags::DEFERRED),
       max_bytes_(0),
       rep_(rep) {}
 
 WriteBatch::WriteBatch(std::string&& rep)
-    : save_points_(nullptr),
-      content_flags_(ContentFlags::DEFERRED),
+    : content_flags_(ContentFlags::DEFERRED),
       max_bytes_(0),
       rep_(std::move(rep)) {}
 
 WriteBatch::WriteBatch(const WriteBatch& src)
-    : save_points_(src.save_points_),
-      wal_term_point_(src.wal_term_point_),
+    : wal_term_point_(src.wal_term_point_),
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
-      rep_(src.rep_) {}
+      rep_(src.rep_) {
+  if (src.save_points_ != nullptr) {
+    save_points_.reset(new SavePoints());
+    save_points_->stack = src.save_points_->stack;
+  }
+}
 
 WriteBatch::WriteBatch(WriteBatch&& src) noexcept
     : save_points_(std::move(src.save_points_)),
@@ -189,7 +192,7 @@ WriteBatch& WriteBatch::operator=(WriteBatch&& src) {
   return *this;
 }
 
-WriteBatch::~WriteBatch() { delete save_points_; }
+WriteBatch::~WriteBatch() { }
 
 WriteBatch::Handler::~Handler() { }
 
@@ -991,7 +994,7 @@ Status WriteBatch::PutLogData(const Slice& blob) {
 
 void WriteBatch::SetSavePoint() {
   if (save_points_ == nullptr) {
-    save_points_ = new SavePoints();
+    save_points_.reset(new SavePoints());
   }
   // Record length and count of current batch of writes.
   save_points_->stack.push(SavePoint(
