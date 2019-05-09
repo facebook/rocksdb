@@ -9,6 +9,7 @@
 ### Performance Improvements
 * Reduce binary search when iterator reseek into the same data block.
 * DBIter::Next() can skip user key checking if previous entry's seqnum is 0.
+* Merging iterator to avoid child iterator reseek for some cases
 
 ## 6.2.0 (4/30/2019)
 ### New Features

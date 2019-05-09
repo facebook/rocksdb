@@ -20,7 +20,8 @@ class PinnedIteratorsManager;
 template <class TValue>
 class InternalIteratorBase : public Cleanable {
  public:
-  InternalIteratorBase() {}
+  InternalIteratorBase() : is_mutable_(true) {}
+  InternalIteratorBase(bool _is_mutable) : is_mutable_(_is_mutable) {}
   virtual ~InternalIteratorBase() {}
 
   // An iterator is either positioned at a key/value pair, or
@@ -119,6 +120,7 @@ class InternalIteratorBase : public Cleanable {
   virtual Status GetProperty(std::string /*prop_name*/, std::string* /*prop*/) {
     return Status::NotSupported("");
   }
+  bool is_mutable() const { return is_mutable_; }
 
  protected:
   void SeekForPrevImpl(const Slice& target, const Comparator* cmp) {
@@ -130,6 +132,7 @@ class InternalIteratorBase : public Cleanable {
       Prev();
     }
   }
+  bool is_mutable_;
 
  private:
   // No copying allowed
