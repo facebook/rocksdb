@@ -893,12 +893,19 @@ struct DBOptions {
   // Default: false
   bool enable_pipelined_write = false;
 
-  // If true the write to memtable are done without joining any write thread.
-  // This offers much higher write throughput. The tradeoff is that the writes
-  // visible to a snapshot might change over time. If the application cannot
-  // tolerate that, it should implement its own mechanisms to work around that.
-  // Using TransactionDB with WRITE_PREPARED write policy is one way to achieve
-  // that.
+  // If false, rocksdb does not advance the sequence number for new snapshots
+  // unless all the writes with lower sequence numbers are already finished.
+  // This provides the immutability that we except from snapshots. If true, then
+  // this property is relaxed: the writes issues after the snapshot is obtained
+  // (with larger sequence numbers) will be still not visible to the reads from
+  // that snapshot, however, there still might be pending writes (with lower
+  // sequence number) that will change the state visible to the snapshot after
+  // they are landed to the memtable. unordered_write trades higher write
+  // throughput with relaxing the guarantees of snapshots. If the application
+  // cannot tolerate the relaxed guarantees, it can implement its own mechanisms
+  // to work around that and yet benefit from the higher throughput. Using
+  // TransactionDB with WRITE_PREPARED write policy is one way to achieve
+  // immutable snapshots despite unordered_write.
   //
   // Default: false
   bool unordered_write = false;

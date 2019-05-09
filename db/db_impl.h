@@ -921,7 +921,7 @@ class DBImpl : public DB {
   // not set, each key is a separate sub_batch. Otherwise each duplicate key
   // marks start of a new sub-batch.
   Status WriteImplWALOnly(
-      WriteThread& write_thread, const WriteOptions& options,
+      WriteThread* write_thread, const WriteOptions& options,
       WriteBatch* updates, WriteCallback* callback, uint64_t* log_used,
       const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
       PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
