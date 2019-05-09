@@ -178,16 +178,6 @@ public:
     assert(!own_value_);
   }
 
-  void SetCacheData(Cache* cache, Cache::Handle* cache_handle) {
-    assert(value_ != nullptr);
-    assert(cache != nullptr);
-    assert(cache_handle != nullptr);
-
-    cache_ = cache;
-    cache_handle_ = cache_handle;
-    own_value_ = false;
-  }
-
 private:
   void ReleaseResource() {
     if (LIKELY(cache_handle_ != nullptr)) {

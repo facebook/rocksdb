@@ -1416,16 +1416,15 @@ Status BlockBasedTable::GetDataBlockFromCache(
 
   // Insert uncompressed block into block cache
   if (s.ok()) {
-    block->SetOwnedValue(
-        new Block(std::move(contents), rep->get_global_seqno(is_index),
-                  read_amp_bytes_per_bit,
-                  statistics));  // uncompressed block
+    std::unique_ptr<Block> block_holder(
+      new Block(std::move(contents), rep->get_global_seqno(is_index),
+                read_amp_bytes_per_bit, statistics));  // uncompressed block
 
-    if (block_cache != nullptr && block->GetValue()->own_bytes() &&
+    if (block_cache != nullptr && block_holder->own_bytes() &&
         read_options.fill_cache) {
-      size_t charge = block->GetValue()->ApproximateMemoryUsage();
+      size_t charge = block_holder->ApproximateMemoryUsage();
       Cache::Handle* cache_handle = nullptr;
-      s = block_cache->Insert(block_cache_key, block->GetValue(), charge,
+      s = block_cache->Insert(block_cache_key, block_holder.get(), charge,
                               &DeleteCachedEntry<Block>,
                               &cache_handle);
 #ifndef NDEBUG
@@ -1433,7 +1432,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
 #endif  // NDEBUG
       if (s.ok()) {
         assert(cache_handle != nullptr);
-        block->SetCacheData(block_cache, cache_handle);
+        block->SetCachedValue(block_holder.release(), block_cache,
+                              cache_handle);
 
         if (get_context != nullptr) {
           get_context->get_context_stats_.num_cache_add++;
@@ -1463,8 +1463,9 @@ Status BlockBasedTable::GetDataBlockFromCache(
         }
       } else {
         RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
-        block->Reset();
       }
+    } else {
+      block->SetOwnedValue(block_holder.release());
     }
   }
 
@@ -1489,29 +1490,27 @@ Status BlockBasedTable::PutDataBlockToCache(
          block_cache_compressed != nullptr);
 
   Status s;
-  // Retrieve the uncompressed contents into a new buffer
-  BlockContents uncompressed_block_contents;
   Statistics* statistics = ioptions.statistics;
+
+  std::unique_ptr<Block> block_holder;
   if (raw_block_comp_type != kNoCompression) {
+    // Retrieve the uncompressed contents into a new buffer
+    BlockContents uncompressed_block_contents;
     UncompressionContext context(raw_block_comp_type);
     UncompressionInfo info(context, uncompression_dict, raw_block_comp_type);
     s = UncompressBlockContents(info, raw_block_contents->data.data(),
                                 raw_block_contents->data.size(),
                                 &uncompressed_block_contents, format_version,
                                 ioptions, memory_allocator);
-  }
-  if (!s.ok()) {
-    return s;
-  }
+    if (!s.ok()) {
+      return s;
+    }
 
-  if (raw_block_comp_type != kNoCompression) {
-    cached_block->SetOwnedValue(
-      new Block(std::move(uncompressed_block_contents), seq_no,
-                read_amp_bytes_per_bit, statistics));  // uncompressed block
+    block_holder.reset(new Block(std::move(uncompressed_block_contents), seq_no,
+                                 read_amp_bytes_per_bit, statistics));
   } else {
-    cached_block->SetOwnedValue(
-      new Block(std::move(*raw_block_contents), seq_no,
-                read_amp_bytes_per_bit, statistics));
+    block_holder.reset(new Block(std::move(*raw_block_contents), seq_no,
+                                 read_amp_bytes_per_bit, statistics));
   }
 
   // Insert compressed block into compressed block cache.
@@ -1541,10 +1540,10 @@ Status BlockBasedTable::PutDataBlockToCache(
   }
 
   // insert into uncompressed block cache
-  if (block_cache != nullptr && cached_block->GetValue()->own_bytes()) {
-    size_t charge = cached_block->GetValue()->ApproximateMemoryUsage();
+  if (block_cache != nullptr && block_holder->own_bytes()) {
+    size_t charge = block_holder->ApproximateMemoryUsage();
     Cache::Handle* cache_handle = nullptr;
-    s = block_cache->Insert(block_cache_key, cached_block->GetValue(), charge,
+    s = block_cache->Insert(block_cache_key, block_holder.get(), charge,
                             &DeleteCachedEntry<Block>,
                             &cache_handle, priority);
 #ifndef NDEBUG
@@ -1552,7 +1551,8 @@ Status BlockBasedTable::PutDataBlockToCache(
 #endif  // NDEBUG
     if (s.ok()) {
       assert(cache_handle != nullptr);
-      cached_block->SetCacheData(block_cache, cache_handle);
+      cached_block->SetCachedValue(block_holder.release(), block_cache,
+                                   cache_handle);
 
       if (get_context != nullptr) {
         get_context->get_context_stats_.num_cache_add++;
@@ -1583,8 +1583,9 @@ Status BlockBasedTable::PutDataBlockToCache(
                  cached_block->GetCacheHandle())) == cached_block->GetValue());
     } else {
       RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
-      cached_block->Reset();
     }
+  } else {
+    cached_block->SetOwnedValue(block_holder.release());
   }
 
   return s;
