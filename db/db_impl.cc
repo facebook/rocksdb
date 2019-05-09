@@ -1214,30 +1214,28 @@ void DBImpl::BackgroundCallPurge() {
   // We use one single loop to clear both queues so that after existing the loop
   // both queues are empty. This is stricter than what is needed, but can make
   // it easier for us to reason the correctness.
-  while (!purge_queue_.empty() || !logs_to_free_queue_.empty()) {
-    // Check logs_to_free_queue_ first and close log writers.
-    if (!logs_to_free_queue_.empty()) {
-      assert(!logs_to_free_queue_.empty());
-      log::Writer* log_writer = *(logs_to_free_queue_.begin());
-      logs_to_free_queue_.pop_front();
-      mutex_.Unlock();
-      delete log_writer;
-      mutex_.Lock();
-    } else {
-      auto purge_file = purge_queue_.begin();
-      auto fname = purge_file->fname;
-      auto dir_to_sync = purge_file->dir_to_sync;
-      auto type = purge_file->type;
-      auto number = purge_file->number;
-      auto job_id = purge_file->job_id;
-      purge_queue_.pop_front();
-      purge_queue_filenum_.erase(number);
-
-      mutex_.Unlock();
-      DeleteObsoleteFileImpl(job_id, fname, dir_to_sync, type, number);
-      mutex_.Lock();
-    }
+  while (!logs_to_free_queue_.empty()) {
+    assert(!logs_to_free_queue_.empty());
+    log::Writer* log_writer = *(logs_to_free_queue_.begin());
+    logs_to_free_queue_.pop_front();
+    mutex_.Unlock();
+    delete log_writer;
+    mutex_.Lock();
   }
+  for (auto file : purge_files_) {
+    auto purge_file = file.second;
+    auto fname = purge_file.fname;
+    auto dir_to_sync = purge_file.dir_to_sync;
+    auto type = purge_file.type;
+    auto number = purge_file.number;
+    auto job_id = purge_file.job_id;
+
+    mutex_.Unlock();
+    DeleteObsoleteFileImpl(job_id, fname, dir_to_sync, type, number);
+    mutex_.Lock();
+  }
+  purge_files_.clear();
+
   bg_purge_scheduled_--;
 
   bg_cv_.SignalAll();

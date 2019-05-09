@@ -1997,8 +1997,7 @@ void DBImpl::SchedulePendingPurge(std::string fname, std::string dir_to_sync,
                                   FileType type, uint64_t number, int job_id) {
   mutex_.AssertHeld();
   PurgeFileInfo file_info(fname, dir_to_sync, type, number, job_id);
-  purge_queue_.push_back(std::move(file_info));
-  purge_queue_filenum_.insert(number);
+  purge_files_.insert({{number, std::move(file_info)}});
 }
 
 void DBImpl::BGWorkFlush(void* arg) {
@@ -2975,7 +2974,7 @@ bool DBImpl::ShouldPurge(uint64_t file_number) const {
       files_grabbed_for_purge_.end()) {
     return false;
   }
-  if (purge_queue_filenum_.find(file_number) != purge_queue_filenum_.end()) {
+  if (purge_files_.find(file_number) != purge_files_.end()) {
     return false;
   }
   return true;

@@ -1455,7 +1455,7 @@ class DBImpl : public DB {
   std::list<uint64_t> pending_outputs_;
 
   // PurgeFileInfo is a structure to hold information of files to be deleted in
-  // purge_queue_
+  // purge_files_
   struct PurgeFileInfo {
     std::string fname;
     std::string dir_to_sync;
@@ -1492,9 +1492,8 @@ class DBImpl : public DB {
   // ColumnFamilyData::pending_compaction_ == true)
   std::deque<ColumnFamilyData*> compaction_queue_;
 
-  // A queue to store filenames of the files to be purged
-  std::deque<PurgeFileInfo> purge_queue_;
-  std::unordered_set<uint64_t> purge_queue_filenum_;
+  // A map to store filenames of the files to be purged
+  std::unordered_map<uint64_t, PurgeFileInfo> purge_files_;
 
   // A vector to store the file numbers that have been assigned to certain
   // JobContext. Current implementation tracks ssts only.
