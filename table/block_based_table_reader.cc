@@ -2456,11 +2456,12 @@ void BlockBasedTableIterator<TBlockIter, TValue>::Next() {
 
 template <class TBlockIter, typename TValue>
 bool BlockBasedTableIterator<TBlockIter, TValue>::NextAndGetResult(
-    Slice* ret_key) {
+    IterateResult* result) {
   Next();
   bool is_valid = Valid();
   if (is_valid) {
-    *ret_key = key();
+    result->key = key();
+    result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
   }
   return is_valid;
 }

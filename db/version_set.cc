@@ -924,7 +924,7 @@ class LevelIterator final : public InternalIterator {
   void SeekToFirst() override;
   void SeekToLast() override;
   void Next() final override;
-  bool NextAndGetResult(Slice* ret_key) override;
+  bool NextAndGetResult(IterateResult* result) override;
   void Prev() override;
 
   bool Valid() const override { return file_iter_.Valid(); }
@@ -942,12 +942,12 @@ class LevelIterator final : public InternalIterator {
     return file_iter_.iter() ? file_iter_.status() : Status::OK();
   }
 
-  bool MayBeOutOfLowerBound() override {
+  inline bool MayBeOutOfLowerBound() override {
     assert(Valid());
     return may_be_out_of_lower_bound_ && file_iter_.MayBeOutOfLowerBound();
   }
 
-  bool MayBeOutOfUpperBound() override {
+  inline bool MayBeOutOfUpperBound() override {
     assert(Valid());
     return file_iter_.MayBeOutOfUpperBound();
   }
@@ -1100,11 +1100,12 @@ void LevelIterator::SeekToLast() {
 
 void LevelIterator::Next() { NextImpl(); }
 
-bool LevelIterator::NextAndGetResult(Slice* ret_key) {
+bool LevelIterator::NextAndGetResult(IterateResult* result) {
   NextImpl();
   bool is_valid = Valid();
   if (is_valid) {
-    *ret_key = key();
+    result->key = key();
+    result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
   }
   return is_valid;
 }

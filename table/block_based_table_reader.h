@@ -613,7 +613,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   void SeekToFirst() override;
   void SeekToLast() override;
   void Next() final override;
-  bool NextAndGetResult(Slice* ret_key) override;
+  bool NextAndGetResult(IterateResult* result) override;
   void Prev() override;
   bool Valid() const override {
     return !is_out_of_bound_ && block_iter_points_to_real_block_ &&
@@ -644,7 +644,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   // Whether iterator invalidated for being out of bound.
   bool IsOutOfBound() override { return is_out_of_bound_; }
 
-  bool MayBeOutOfUpperBound() override {
+  inline bool MayBeOutOfUpperBound() override {
     assert(Valid());
     assert(read_options_.iterate_upper_bound != nullptr);
     return !data_block_within_upper_bound_;

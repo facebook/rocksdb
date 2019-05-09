@@ -17,6 +17,11 @@ namespace rocksdb {
 
 class PinnedIteratorsManager;
 
+struct IterateResult {
+  Slice key = Slice();
+  bool may_be_out_of_upper_bound = true;
+};
+
 template <class TValue>
 class InternalIteratorBase : public Cleanable {
  public:
@@ -55,11 +60,12 @@ class InternalIteratorBase : public Cleanable {
   // REQUIRES: Valid()
   virtual void Next() = 0;
 
-  virtual bool NextAndGetResult(Slice* ret_key) {
+  virtual bool NextAndGetResult(IterateResult* result) {
     Next();
     bool is_valid = Valid();
     if (is_valid) {
-      *ret_key = key();
+      result->key = key();
+      result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
     }
     return is_valid;
   }
