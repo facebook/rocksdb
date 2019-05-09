@@ -4,8 +4,11 @@
 * Now DB::Close() will return Aborted() error when there is unreleased snapshot. Users can retry after all snapshots are released.
 
 ### New Features
-* Reduce binary search when iterator reseek into the same data block.
 * Add an option `snap_refresh_nanos` (default to 0.1s) to periodically refresh the snapshot list in compaction jobs. Assign to 0 to disable the feature.
+
+### Performance Improvements
+* Reduce binary search when iterator reseek into the same data block.
+* DBIter::Next() can skip user key checking if previous entry's seqnum is 0.
 
 ## 6.2.0 (4/30/2019)
 ### New Features
