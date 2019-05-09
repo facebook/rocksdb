@@ -693,6 +693,7 @@ class DBTestBase : public testing::Test {
     kPartitionedFilterWithNewTableReaderForCompactions,
     kUniversalSubcompactions,
     kxxHash64Checksum,
+    kUnorderedWrite,
     // This must be the last line
     kEnd,
   };
