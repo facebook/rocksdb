@@ -416,6 +416,18 @@ class FilePickerMultiGet {
     bool file_hit = false;
     int cmp_largest = -1;
     if (curr_file_index >= curr_file_level_->num_files) {
+      // In the unlikely case the next key is a duplicate of the current key,
+      // and the current key is the last in the level and the internal key
+      // was not found, we need to skip lookup for the remaining keys and
+      // reset the search bounds
+      if (batch_iter_ != current_level_range_.end()) {
+        ++batch_iter_;
+        for (; batch_iter_ != current_level_range_.end(); ++batch_iter_) {
+          struct FilePickerContext& fp_ctx = fp_ctx_array_[batch_iter_.index()];
+          fp_ctx.search_left_bound = 0;
+          fp_ctx.search_right_bound = FileIndexer::kLevelMaxIndex;
+        }
+      }
       return false;
     }
     // Loops over keys in the MultiGet batch until it finds a file with
@@ -533,7 +545,10 @@ class FilePickerMultiGet {
           // any further for that key, so advance batch_iter_. Else, keep
           // batch_iter_ positioned on that key so we look it up again in
           // the next file
-          if (current_level_range_.CheckKeyDone(batch_iter_)) {
+          // For L0, always advance the key because we will look in the next
+          // file regardless for all keys not found yet
+          if (current_level_range_.CheckKeyDone(batch_iter_) ||
+              curr_level_ == 0) {
             ++batch_iter_;
           }
         }
@@ -601,7 +616,8 @@ class FilePickerMultiGet {
     unsigned int start_index_in_curr_level;
 
     FilePickerContext(int32_t left, int32_t right)
-        : search_left_bound(left), search_right_bound(right) {}
+        : search_left_bound(left), search_right_bound(right),
+          curr_index_in_curr_level(0), start_index_in_curr_level(0) {}
 
     FilePickerContext() = default;
   };
