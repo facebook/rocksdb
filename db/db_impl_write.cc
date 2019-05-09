@@ -610,20 +610,16 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
 // The 2nd write queue. If enabled it will be used only for WAL-only writes.
 // This is the only queue that updates LastPublishedSequence which is only
 // applicable in a two-queue setting.
-Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
-                                const WriteOptions& write_options,
-                                WriteBatch* my_batch, WriteCallback* callback,
-                                uint64_t* log_used, const uint64_t log_ref,
-                                uint64_t* seq_used, const size_t sub_batch_cnt,
-                                PreReleaseCallback* pre_release_callback,
-                                const AssignOrder assign_order,
-                                const PublishLastSeq publish_last_seq,
-                                const bool disable_memtable) {
+Status DBImpl::WriteImplWALOnly(
+    WriteThread& write_thread, const WriteOptions& write_options,
+    WriteBatch* my_batch, WriteCallback* callback, uint64_t* log_used,
+    const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
+    PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
+    const PublishLastSeq publish_last_seq, const bool disable_memtable) {
   Status status;
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
-                        disable_memtable, sub_batch_cnt,
-                        pre_release_callback);
+                        disable_memtable, sub_batch_cnt, pre_release_callback);
   RecordTick(stats_, WRITE_WITH_WAL);
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
 

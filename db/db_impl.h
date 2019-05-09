@@ -920,15 +920,12 @@ class DBImpl : public DB {
   // of the write batch that does not have duplicate keys. When seq_per_batch is
   // not set, each key is a separate sub_batch. Otherwise each duplicate key
   // marks start of a new sub-batch.
-  Status WriteImplWALOnly(WriteThread& write_thread,
-                          const WriteOptions& options, WriteBatch* updates,
-                          WriteCallback* callback, uint64_t* log_used,
-                          const uint64_t log_ref, uint64_t* seq_used,
-                          const size_t sub_batch_cnt,
-                          PreReleaseCallback* pre_release_callback,
-                          const AssignOrder assign_order,
-                          const PublishLastSeq publish_last_seq,
-                          const bool disable_memtable);
+  Status WriteImplWALOnly(
+      WriteThread& write_thread, const WriteOptions& options,
+      WriteBatch* updates, WriteCallback* callback, uint64_t* log_used,
+      const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
+      PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
+      const PublishLastSeq publish_last_seq, const bool disable_memtable);
 
   // write cached_recoverable_state_ to memtable if it is not empty
   // The writer must be the leader in write_thread_ and holding mutex_
@@ -1146,7 +1143,7 @@ class DBImpl : public DB {
       bool resuming_from_bg_err);
 
   inline void WaitForPendingWrites() {
-    if(!immutable_db_options_.unordered_write) {
+    if (!immutable_db_options_.unordered_write) {
       // Then the writes are finished before the next write group starts
       return;
     }

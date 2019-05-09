@@ -42,29 +42,32 @@ namespace rocksdb {
 
 INSTANTIATE_TEST_CASE_P(
     DBAsBaseDB, TransactionTest,
-    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED, kOrderedWrite),
-                      std::make_tuple(false, true, WRITE_COMMITTED, kOrderedWrite),
-                      std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite),
-                      std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite),
-                      std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite),
-                      std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite),
-                      std::make_tuple(false, false, WRITE_UNPREPARED, kOrderedWrite),
-                      std::make_tuple(false, true, WRITE_UNPREPARED, kOrderedWrite)));
+    ::testing::Values(
+        std::make_tuple(false, false, WRITE_COMMITTED, kOrderedWrite),
+        std::make_tuple(false, true, WRITE_COMMITTED, kOrderedWrite),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite),
+        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite),
+        std::make_tuple(false, false, WRITE_UNPREPARED, kOrderedWrite),
+        std::make_tuple(false, true, WRITE_UNPREPARED, kOrderedWrite)));
 INSTANTIATE_TEST_CASE_P(
     DBAsBaseDB, TransactionStressTest,
-    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED, kOrderedWrite),
-                      std::make_tuple(false, true, WRITE_COMMITTED, kOrderedWrite),
-                      std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite),
-                      std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite),
-                      std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite),
-                      std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite),
-                      std::make_tuple(false, false, WRITE_UNPREPARED, kOrderedWrite),
-                      std::make_tuple(false, true, WRITE_UNPREPARED, kOrderedWrite)));
+    ::testing::Values(
+        std::make_tuple(false, false, WRITE_COMMITTED, kOrderedWrite),
+        std::make_tuple(false, true, WRITE_COMMITTED, kOrderedWrite),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite),
+        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite),
+        std::make_tuple(false, false, WRITE_UNPREPARED, kOrderedWrite),
+        std::make_tuple(false, true, WRITE_UNPREPARED, kOrderedWrite)));
 INSTANTIATE_TEST_CASE_P(
     StackableDBAsBaseDB, TransactionTest,
-    ::testing::Values(std::make_tuple(true, true, WRITE_COMMITTED, kOrderedWrite),
-                      std::make_tuple(true, true, WRITE_PREPARED, kOrderedWrite),
-                      std::make_tuple(true, true, WRITE_UNPREPARED, kOrderedWrite)));
+    ::testing::Values(
+        std::make_tuple(true, true, WRITE_COMMITTED, kOrderedWrite),
+        std::make_tuple(true, true, WRITE_PREPARED, kOrderedWrite),
+        std::make_tuple(true, true, WRITE_UNPREPARED, kOrderedWrite)));
 
 // MySQLStyleTransactionTest takes far too long for valgrind to run.
 #ifndef ROCKSDB_VALGRIND_RUN

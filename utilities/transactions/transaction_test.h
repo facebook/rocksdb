@@ -52,7 +52,8 @@ class TransactionTestBase : public ::testing::Test {
   bool use_stackable_db_;
 
   TransactionTestBase(bool use_stackable_db, bool two_write_queue,
-                      TxnDBWritePolicy write_policy, WriteOrdering write_ordering)
+                      TxnDBWritePolicy write_policy,
+                      WriteOrdering write_ordering)
       : db(nullptr), env(nullptr), use_stackable_db_(use_stackable_db) {
     options.create_if_missing = true;
     options.max_write_buffer_number = 2;
@@ -440,9 +441,10 @@ class TransactionTestBase : public ::testing::Test {
   }
 };
 
-class TransactionTest : public TransactionTestBase,
-                        virtual public ::testing::WithParamInterface<
-                            std::tuple<bool, bool, TxnDBWritePolicy, WriteOrdering>> {
+class TransactionTest
+    : public TransactionTestBase,
+      virtual public ::testing::WithParamInterface<
+          std::tuple<bool, bool, TxnDBWritePolicy, WriteOrdering>> {
  public:
   TransactionTest()
       : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
