@@ -130,7 +130,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                               pre_release_callback, kDoAssignOrder,
                               kDoPublishLastSeq, disable_memtable);
     if (!status.ok()) {
-      // TODO(myabandeh): update pending_memtable_writes_
       return status;
     }
     if (seq_used) {
@@ -623,7 +622,7 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
   Status status;
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
-                        true /* disable_memtable */, sub_batch_cnt,
+                        disable_memtable, sub_batch_cnt,
                         pre_release_callback);
   RecordTick(stats_, WRITE_WITH_WAL);
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
@@ -643,7 +642,7 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
   assert(w.state == WriteThread::STATE_GROUP_LEADER);
 
   if (publish_last_seq == kDoPublishLastSeq) {
-    // Currnetly we only use kDoPublishLastSeq in unordered_write
+    // Currently we only use kDoPublishLastSeq in unordered_write
     assert(immutable_db_options_.unordered_write);
     WriteContext write_context;
     if (error_handler_.IsDBStopped()) {
@@ -720,6 +719,7 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
     last_sequence = versions_->FetchAddLastAllocatedSequence(seq_inc);
   }
 
+  size_t memtable_write_cnt = 0;
   auto curr_seq = last_sequence + 1;
   for (auto* writer : write_group) {
     if (writer->CallbackFailed()) {
@@ -729,6 +729,9 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
     if (assign_order == kDoAssignOrder) {
       assert(writer->batch_cnt || !seq_per_batch_);
       curr_seq += writer->batch_cnt;
+    }
+    if (!writer->disable_memtable) {
+      memtable_write_cnt++;
     }
     // else seq advances only by memtable writes
   }
@@ -762,11 +765,11 @@ Status DBImpl::WriteImplWALOnly(WriteThread& write_thread,
   }
   if (publish_last_seq == kDoPublishLastSeq) {
     versions_->SetLastSequence(last_sequence + seq_inc);
-    // Currnetly we only use kDoPublishLastSeq in unordered_write
+    // Currently we only use kDoPublishLastSeq in unordered_write
     assert(immutable_db_options_.unordered_write);
-    // TODO(myabandeh): count only the ones with disable_memtable=false
-    size_t wgs = write_group.size;
-    pending_memtable_writes_ += wgs;
+  }
+  if (immutable_db_options_.unordered_write && status.ok()) {
+    pending_memtable_writes_ += memtable_write_cnt;
   }
   write_thread.ExitAsBatchGroupLeader(write_group, status);
   if (status.ok()) {

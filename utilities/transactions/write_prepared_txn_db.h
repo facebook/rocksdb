@@ -857,9 +857,6 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
         db_->AddCommitted(commit_seq + i, last_commit_seq);
       }
     }
-    if (db_impl_->immutable_db_options().unordered_write) {
-      db_impl_->SetLastSequence(last_commit_seq);
-    }
     if (db_impl_->immutable_db_options().two_write_queues) {
       assert(is_mem_disabled);  // implies the 2nd queue
       // Publish the sequence number. We can do that here assuming the callback
@@ -923,9 +920,6 @@ class WritePreparedRollbackPreReleaseCallback : public PreReleaseCallback {
     db_->AddCommitted(rollback_seq_, last_commit_seq);
     for (size_t i = 0; i < prep_batch_cnt_; i++) {
       db_->AddCommitted(prep_seq_ + i, last_commit_seq);
-    }
-    if (db_impl_->immutable_db_options().unordered_write) {
-      db_impl_->SetLastSequence(last_commit_seq);
     }
     db_impl_->SetLastPublishedSequence(last_commit_seq);
     return Status::OK();

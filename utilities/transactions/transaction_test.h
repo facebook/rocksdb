@@ -39,6 +39,8 @@ namespace rocksdb {
 // Return true if the ith bit is set in combination represented by comb
 bool IsInCombination(size_t i, size_t comb) { return comb & (size_t(1) << i); }
 
+enum WriteOrdering : bool { kOrderedWrite, kUnorderedWrite };
+
 class TransactionTestBase : public ::testing::Test {
  public:
   TransactionDB* db;
@@ -50,11 +52,12 @@ class TransactionTestBase : public ::testing::Test {
   bool use_stackable_db_;
 
   TransactionTestBase(bool use_stackable_db, bool two_write_queue,
-                      TxnDBWritePolicy write_policy)
+                      TxnDBWritePolicy write_policy, WriteOrdering write_ordering)
       : db(nullptr), env(nullptr), use_stackable_db_(use_stackable_db) {
     options.create_if_missing = true;
     options.max_write_buffer_number = 2;
     options.write_buffer_size = 4 * 1024;
+    options.unordered_write = write_ordering == kUnorderedWrite;
     options.level0_file_num_compaction_trigger = 2;
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
     env = new FaultInjectionTestEnv(Env::Default());
@@ -439,11 +442,11 @@ class TransactionTestBase : public ::testing::Test {
 
 class TransactionTest : public TransactionTestBase,
                         virtual public ::testing::WithParamInterface<
-                            std::tuple<bool, bool, TxnDBWritePolicy>> {
+                            std::tuple<bool, bool, TxnDBWritePolicy, WriteOrdering>> {
  public:
   TransactionTest()
       : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
-                            std::get<2>(GetParam())){};
+                            std::get<2>(GetParam()), std::get<3>(GetParam())){};
 };
 
 class TransactionStressTest : public TransactionTest {};
@@ -451,12 +454,12 @@ class TransactionStressTest : public TransactionTest {};
 class MySQLStyleTransactionTest
     : public TransactionTestBase,
       virtual public ::testing::WithParamInterface<
-          std::tuple<bool, bool, TxnDBWritePolicy, bool>> {
+          std::tuple<bool, bool, TxnDBWritePolicy, WriteOrdering, bool>> {
  public:
   MySQLStyleTransactionTest()
       : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
-                            std::get<2>(GetParam())),
-        with_slow_threads_(std::get<3>(GetParam())) {
+                            std::get<2>(GetParam()), std::get<3>(GetParam())),
+        with_slow_threads_(std::get<4>(GetParam())) {
     if (with_slow_threads_ &&
         (txn_db_options.write_policy == WRITE_PREPARED ||
          txn_db_options.write_policy == WRITE_UNPREPARED)) {
