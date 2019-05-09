@@ -1211,9 +1211,6 @@ void DBImpl::SchedulePurge() {
 void DBImpl::BackgroundCallPurge() {
   mutex_.Lock();
 
-  // We use one single loop to clear both queues so that after existing the loop
-  // both queues are empty. This is stricter than what is needed, but can make
-  // it easier for us to reason the correctness.
   while (!logs_to_free_queue_.empty()) {
     assert(!logs_to_free_queue_.empty());
     log::Writer* log_writer = *(logs_to_free_queue_.begin());
