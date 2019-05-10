@@ -520,6 +520,9 @@ TEST_P(DBAtomicFlushTest, PickMemtablesRaceWithBackgroundFlush) {
   options.create_if_missing = true;
   options.atomic_flush = atomic_flush;
   options.max_write_buffer_number = 4;
+  // Set min_write_buffer_number_to_merge to be greater than 1, so that
+  // a column family with one memtable in the imm will not cause IsFlushPending
+  // to return true when flush_requested_ is false.
   options.min_write_buffer_number_to_merge = 2;
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_EQ(2, handles_.size());
