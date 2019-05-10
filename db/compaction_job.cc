@@ -1008,7 +1008,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     status =
         Status::ColumnFamilyDropped("Column family dropped during compaction");
   }
-  if (status.ok() && shutting_down_->load(std::memory_order_relaxed)) {
+  if ((status.ok() || status.IsColumnFamilyDropped()) &&
+      shutting_down_->load(std::memory_order_relaxed)) {
     status = Status::ShutdownInProgress("Database shutdown");
   }
   if (status.ok()) {

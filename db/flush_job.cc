@@ -232,7 +232,8 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
   if (s.ok() && cfd_->IsDropped()) {
     s = Status::ColumnFamilyDropped("Column family dropped during compaction");
   }
-  if (s.ok() && shutting_down_->load(std::memory_order_acquire)) {
+  if ((s.ok() || s.IsColumnFamilyDropped()) &&
+      shutting_down_->load(std::memory_order_acquire)) {
     s = Status::ShutdownInProgress("Database shutdown");
   }
 

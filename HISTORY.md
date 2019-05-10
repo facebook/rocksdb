@@ -20,7 +20,7 @@
 
 ### Bug Fixes
 * Added new status code kColumnFamilyDropped to distinguish between Column Family Dropped and DB Shutdown in progress.
-
+	
 ## 6.2.0 (4/30/2019)
 ### New Features
 * Add an option `strict_bytes_per_sync` that causes a file-writing thread to block rather than exceed the limit on bytes pending writeback specified by `bytes_per_sync` or `wal_bytes_per_sync`.
