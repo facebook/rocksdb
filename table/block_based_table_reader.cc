@@ -200,9 +200,9 @@ bool PrefixExtractorChanged(const TableProperties* table_properties,
 
 class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
 public:
-  IndexReaderCommon(BlockBasedTable* table,
+  IndexReaderCommon(BlockBasedTable* t,
                     CachableEntry<Block>&& index_block)
-      : table_(table)
+      : table_(t)
       , index_block_(std::move(index_block))
   {
     assert(table_ != nullptr);
@@ -470,9 +470,9 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
   }
 
  private:
-  PartitionIndexReader(BlockBasedTable* table,
+  PartitionIndexReader(BlockBasedTable* t,
                        CachableEntry<Block>&& index_block)
-    : IndexReaderCommon(table, std::move(index_block))
+    : IndexReaderCommon(t, std::move(index_block))
   {}
 
   std::unordered_map<uint64_t, CachableEntry<Block>> partition_map_;
@@ -551,9 +551,9 @@ class BinarySearchIndexReader : public BlockBasedTable::IndexReaderCommon {
   }
 
  private:
-  BinarySearchIndexReader(BlockBasedTable* table,
+  BinarySearchIndexReader(BlockBasedTable* t,
                           CachableEntry<Block>&& index_block)
-    : IndexReaderCommon(table, std::move(index_block))
+    : IndexReaderCommon(t, std::move(index_block))
   {}
 };
 
@@ -697,9 +697,9 @@ class HashIndexReader : public BlockBasedTable::IndexReaderCommon {
   }
 
  private:
-  HashIndexReader(BlockBasedTable* table,
+  HashIndexReader(BlockBasedTable* t,
                   CachableEntry<Block>&& index_block)
-      : IndexReaderCommon(table, std::move(index_block))
+      : IndexReaderCommon(t, std::move(index_block))
   {}
 
   std::unique_ptr<BlockPrefixIndex> prefix_index_;
@@ -1291,6 +1291,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     s = new_table->CreateIndexReader(prefetch_buffer, meta_iter, use_cache,
                                      prefetch_index, pin_index, &index_reader);
     if (s.ok()) {
+      assert(index_reader != nullptr);
       rep->index_reader.reset(index_reader);
       // The partitions of partitioned index are always stored in cache. They
       // are hence follow the configuration for pin and prefetch regardless of
