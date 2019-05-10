@@ -519,7 +519,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
   auto* v = compact_->compaction->input_version();
   for (auto it = bounds.begin();;) {
     const Slice a = *it;
-    it++;
+    ++it;
 
     if (it == bounds.end()) {
       break;
