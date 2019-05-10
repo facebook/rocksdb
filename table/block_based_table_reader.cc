@@ -2325,7 +2325,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::Seek(const Slice& target) {
   }
 
   bool need_seek_index = true;
-  if (block_iter_points_to_real_block_) {
+  if (block_iter_points_to_real_block_ && block_iter_.Valid()) {
     // Reseek.
     prev_index_value_ = index_iter_->value();
     // We can avoid an index seek if:
