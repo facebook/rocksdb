@@ -3268,6 +3268,22 @@ void rocksdb_env_join_all_threads(rocksdb_env_t* env) {
   env->rep->WaitForJoin();
 }
 
+void rocksdb_env_lower_thread_pool_io_priority(rocksdb_env_t* env) {
+  env->rep->LowerThreadPoolIOPriority();
+}
+
+void rocksdb_env_lower_high_priority_thread_pool_io_priority(rocksdb_env_t* env) {
+  env->rep->LowerThreadPoolIOPriority(Env::HIGH);
+}
+
+void rocksdb_env_lower_thread_pool_cpu_priority(rocksdb_env_t* env) {
+  env->rep->LowerThreadPoolCPUPriority();
+}
+
+void rocksdb_env_lower_high_priority_thread_pool_cpu_priority(rocksdb_env_t* env) {
+  env->rep->LowerThreadPoolCPUPriority(Env::HIGH);
+}
+
 void rocksdb_env_destroy(rocksdb_env_t* env) {
   if (!env->is_default) delete env->rep;
   delete env;
