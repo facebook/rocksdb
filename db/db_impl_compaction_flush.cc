@@ -2080,6 +2080,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
   autovector<BGFlushArg> bg_flush_args;
   std::vector<SuperVersionContext>& superversion_contexts =
       job_context->superversion_contexts;
+  autovector<ColumnFamilyData*> column_families_not_to_flush;
   while (!flush_queue_.empty()) {
     // This cfd is already referenced
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
@@ -2090,9 +2091,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
       ColumnFamilyData* cfd = iter.first;
       if (cfd->IsDropped() || !cfd->imm()->IsFlushPending()) {
         // can't flush this CF, try next one
-        if (cfd->Unref()) {
-          delete cfd;
-        }
+        column_families_not_to_flush.push_back(cfd);
         continue;
       }
       superversion_contexts.emplace_back(SuperVersionContext(true));
@@ -2129,6 +2128,11 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
         delete cfd;
         arg.cfd_ = nullptr;
       }
+    }
+  }
+  for (auto cfd : column_families_not_to_flush) {
+    if (cfd->Unref()) {
+      delete cfd;
     }
   }
   return status;
