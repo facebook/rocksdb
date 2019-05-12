@@ -227,6 +227,18 @@ class MergingIterator : public InternalIterator {
     current_ = CurrentForward();
   }
 
+  // Identical to InternalIteratorBase::NextAndGetResult. Copy the
+  // implementation here to get Next(), Valid(), etc inlined.
+  bool NextAndGetResult(IterateResult* result) override {
+    Next();
+    bool is_valid = Valid();
+    if (is_valid) {
+      result->key = key();
+      result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
+    }
+    return is_valid;
+  }
+
   void Prev() override {
     assert(Valid());
     // Ensure that all children are positioned before key().
