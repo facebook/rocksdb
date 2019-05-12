@@ -646,7 +646,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
 
   inline bool MayBeOutOfUpperBound() override {
     assert(Valid());
-    assert(read_options_.iterate_upper_bound != nullptr);
     return !data_block_within_upper_bound_;
   }
 
