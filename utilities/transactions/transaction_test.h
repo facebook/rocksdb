@@ -356,6 +356,9 @@ class TransactionTestBase : public ::testing::Test {
     Transaction* txn;
 
     txn_db_options.write_policy = from_policy;
+    if (txn_db_options.write_policy == WRITE_COMMITTED) {
+      options.unordered_write = false;
+    }
     ReOpen();
 
     for (int i = 0; i < 1024; i++) {
@@ -404,6 +407,9 @@ class TransactionTestBase : public ::testing::Test {
     }  // for i
 
     txn_db_options.write_policy = to_policy;
+    if (txn_db_options.write_policy == WRITE_COMMITTED) {
+      options.unordered_write = false;
+    }
     auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
     // Before upgrade/downgrade the WAL must be emptied
     if (empty_wal) {
