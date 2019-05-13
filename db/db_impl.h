@@ -269,9 +269,6 @@ class DBImpl : public DB {
   // REQUIRES: joined the main write queue if two_write_queues is disabled, and
   // the second write queue otherwise.
   virtual void SetLastPublishedSequence(SequenceNumber seq);
-  // REQUIRES: joined the main write queue if two_write_queues is disabled, and
-  // the second write queue otherwise.
-  virtual void SetLastSequence(SequenceNumber seq);
   // Returns LastSequence in last_seq_same_as_publish_seq_
   // mode and LastAllocatedSequence otherwise. This is useful when visiblility
   // depends also on data written to the WAL but not to the memtable.

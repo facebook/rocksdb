@@ -1171,10 +1171,6 @@ void DBImpl::SetLastPublishedSequence(SequenceNumber seq) {
   versions_->SetLastPublishedSequence(seq);
 }
 
-void DBImpl::SetLastSequence(SequenceNumber seq) {
-  versions_->SetLastSequence(seq);
-}
-
 bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
   if (seqnum > preserve_deletes_seqnum_.load()) {
     preserve_deletes_seqnum_.store(seqnum);

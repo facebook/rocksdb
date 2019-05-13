@@ -221,6 +221,11 @@ Status TransactionDB::Open(
     std::vector<ColumnFamilyHandle*>* handles, TransactionDB** dbptr) {
   Status s;
   DB* db = nullptr;
+  if (txn_db_options.write_policy == WRITE_COMMITTED &&
+      db_options.unordered_write) {
+    return Status::NotSupported(
+        "WRITE_COMMITTED is incompatible with unordered_writes");
+  }
   if (txn_db_options.write_policy == WRITE_UNPREPARED &&
       db_options.unordered_write) {
     // TODO(lth): support it
