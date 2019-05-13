@@ -485,25 +485,6 @@ class FilePickerMultiGet {
       } else {
         file_hit = true;
       }
-#ifndef NDEBUG
-      // Sanity check to make sure that the files are correctly sorted
-      if (f != prev_file_) {
-        if (prev_file_) {
-          if (curr_level_ != 0) {
-            int comp_sign = internal_comparator_->Compare(
-                prev_file_->largest_key, f->smallest_key);
-            assert(comp_sign < 0);
-          } else if (fp_ctx.curr_index_in_curr_level > 0) {
-            // level == 0, the current file cannot be newer than the previous
-            // one. Use compressed data structure, has no attribute seqNo
-            assert(!NewestFirstBySeqNo(
-                files_[0][fp_ctx.curr_index_in_curr_level],
-                files_[0][fp_ctx.curr_index_in_curr_level - 1]));
-          }
-        }
-        prev_file_ = f;
-      }
-#endif
       if (cmp_largest == 0) {
         // cmp_largest is 0, which means the next key will not be in this
         // file, so stop looking further. Also don't increment megt_iter_
@@ -645,9 +626,6 @@ class FilePickerMultiGet {
   FileIndexer* file_indexer_;
   const Comparator* user_comparator_;
   const InternalKeyComparator* internal_comparator_;
-#ifndef NDEBUG
-  FdWithKeyRange* prev_file_;
-#endif
 
   // Setup local variables to search next level.
   // Returns false if there are no more levels to search.
@@ -656,9 +634,6 @@ class FilePickerMultiGet {
       MultiGetRange::Iterator mget_iter = current_level_range_.begin();
       if (fp_ctx_array_[mget_iter.index()].curr_index_in_curr_level <
           curr_file_level_->num_files) {
-#ifndef NDEBUG
-        prev_file_ = nullptr;
-#endif
         batch_iter_prev_ = current_level_range_.begin();
         batch_iter_ = current_level_range_.begin();
         return true;
@@ -754,9 +729,6 @@ class FilePickerMultiGet {
         fp_ctx.curr_index_in_curr_level = start_index;
       }
       if (level_contains_keys) {
-#ifndef NDEBUG
-        prev_file_ = nullptr;
-#endif
         batch_iter_prev_ = current_level_range_.begin();
         batch_iter_ = current_level_range_.begin();
         return true;
