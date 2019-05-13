@@ -78,6 +78,7 @@ Status DBImplSecondary::Recover(
     bool /*error_if_data_exists_in_logs*/) {
   mutex_.AssertHeld();
 
+  JobContext job_context(0);
   Status s;
   s = static_cast<ReactiveVersionSet*>(versions_.get())
           ->Recover(column_families, &manifest_reader_, &manifest_reporter_,
@@ -102,7 +103,8 @@ Status DBImplSecondary::Recover(
     single_column_family_mode_ =
         versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;
 
-    s = FindAndRecoverLogFiles();
+    std::unordered_set<ColumnFamilyData*> cfds_changed;
+    s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
   }
 
   // TODO: update options_file_number_ needed?
@@ -111,13 +113,17 @@ Status DBImplSecondary::Recover(
 }
 
 // find new WAL and apply them in order to the secondary instance
-Status DBImplSecondary::FindAndRecoverLogFiles() {
+Status DBImplSecondary::FindAndRecoverLogFiles(
+    std::unordered_set<ColumnFamilyData*>* cfds_changed,
+    JobContext* job_context) {
+  assert(nullptr != cfds_changed);
+  assert(nullptr != job_context);
   Status s;
   std::vector<uint64_t> logs;
   s = FindNewLogNumbers(&logs);
   if (s.ok() && !logs.empty()) {
     SequenceNumber next_sequence(kMaxSequenceNumber);
-    s = RecoverLogFiles(logs, &next_sequence, true /*read_only*/);
+    s = RecoverLogFiles(logs, &next_sequence, cfds_changed, job_context);
   }
   return s;
 }
@@ -206,7 +212,10 @@ Status DBImplSecondary::MaybeInitLogReader(
 // REQUIRES: log_numbers are sorted in ascending order
 Status DBImplSecondary::RecoverLogFiles(
     const std::vector<uint64_t>& log_numbers, SequenceNumber* next_sequence,
-    bool /*read_only*/) {
+    std::unordered_set<ColumnFamilyData*>* cfds_changed,
+    JobContext* job_context) {
+  assert(nullptr != cfds_changed);
+  assert(nullptr != job_context);
   mutex_.AssertHeld();
   Status status;
   for (auto log_number : log_numbers) {
@@ -242,11 +251,31 @@ Status DBImplSecondary::RecoverLogFiles(
       std::vector<uint32_t> column_family_ids;
       status = CollectColumnFamilyIdsFromWriteBatch(batch, &column_family_ids);
       if (status.ok()) {
+        SequenceNumber seq = versions_->LastSequence();
         for (const auto id : column_family_ids) {
           ColumnFamilyData* cfd =
               versions_->GetColumnFamilySet()->GetColumnFamily(id);
           if (cfd == nullptr) {
             continue;
+          }
+          if (cfds_changed->count(cfd) == 0) {
+            cfds_changed->insert(cfd);
+          }
+          auto curr_log_num = std::numeric_limits<uint64_t>::max();
+          if (current_log_.count(cfd) > 0) {
+            curr_log_num = current_log_[cfd];
+          }
+          if (!cfd->mem()->IsEmpty() &&
+              (curr_log_num == std::numeric_limits<uint64_t>::max() ||
+               curr_log_num != log_number)) {
+            const MutableCFOptions mutable_cf_options =
+                *cfd->GetLatestMutableCFOptions();
+            MemTable* new_mem =
+                cfd->ConstructNewMemtable(mutable_cf_options, seq);
+            cfd->mem()->SetNextLogNumber(log_number);
+            cfd->imm()->Add(cfd->mem(), &job_context->memtables_to_free);
+            new_mem->Ref();
+            cfd->SetMemtable(new_mem);
           }
         }
       }
@@ -268,7 +297,22 @@ Status DBImplSecondary::RecoverLogFiles(
             false /* concurrent_memtable_writes */, next_sequence,
             &has_valid_writes, seq_per_batch_, batch_per_txn_);
       }
-      if (!status.ok()) {
+      if (status.ok()) {
+        for (const auto id : column_family_ids) {
+          ColumnFamilyData* cfd =
+              versions_->GetColumnFamilySet()->GetColumnFamily(id);
+          if (cfd == nullptr) {
+            continue;
+          }
+          std::unordered_map<ColumnFamilyData*, uint64_t>::iterator iter =
+              current_log_.find(cfd);
+          if (iter == current_log_.end()) {
+            current_log_.insert({cfd, log_number});
+          } else if (log_number > iter->second) {
+            iter->second = log_number;
+          }
+        }
+      } else {
         // We are treating this as a failure while reading since we read valid
         // blocks that do not form coherent data
         reader->GetReporter()->Corruption(record.size(), status);
@@ -450,18 +494,21 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   Status s;
   // read the manifest and apply new changes to the secondary instance
   std::unordered_set<ColumnFamilyData*> cfds_changed;
+  JobContext job_context(0);
   InstrumentedMutexLock lock_guard(&mutex_);
   s = static_cast<ReactiveVersionSet*>(versions_.get())
           ->ReadAndApply(&mutex_, &manifest_reader_, &cfds_changed);
   // list wal_dir to discover new WALs and apply new changes to the secondary
   // instance
   if (s.ok()) {
-    s = FindAndRecoverLogFiles();
+    s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
   }
   if (s.ok()) {
     SuperVersionContext sv_context(true /* create_superversion */);
     for (auto cfd : cfds_changed) {
       sv_context.NewSuperVersion();
+      cfd->imm()->RemoveOldMemTables(cfd->GetLogNumber(),
+                                     &job_context.memtables_to_free);
       cfd->InstallSuperVersion(&sv_context, &mutex_);
     }
     sv_context.Clean();

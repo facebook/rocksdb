@@ -243,6 +243,11 @@ TEST_F(DBSecondaryTest, OpenAsSecondaryWALTailing) {
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   verify_db_func("new_foo_value", "new_bar_value");
+
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo", "new_foo_value_1"));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  verify_db_func("new_foo_value_1", "new_bar_value");
 }
 
 TEST_F(DBSecondaryTest, OpenWithNonExistColumnFamily) {

@@ -194,11 +194,14 @@ class DBImplSecondary : public DBImpl {
 
   using DBImpl::Recover;
 
-  Status FindAndRecoverLogFiles();
+  Status FindAndRecoverLogFiles(
+      std::unordered_set<ColumnFamilyData*>* cfds_changed,
+      JobContext* job_context);
   Status FindNewLogNumbers(std::vector<uint64_t>* logs);
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                          SequenceNumber* next_sequence,
-                         bool read_only) override;
+                         std::unordered_set<ColumnFamilyData*>* cfds_changed,
+                         JobContext* job_context);
 
   std::unique_ptr<log::FragmentBufferedReader> manifest_reader_;
   std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
@@ -207,6 +210,8 @@ class DBImplSecondary : public DBImpl {
   // cache log readers for each log number, used for continue WAL replay
   // after recovery
   std::map<uint64_t, std::unique_ptr<LogReaderContainer>> log_readers_;
+
+  std::unordered_map<ColumnFamilyData*, uint64_t> current_log_;
 };
 
 }  // namespace rocksdb

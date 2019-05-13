@@ -294,6 +294,9 @@ class MemTableList {
     }
   }
 
+  void RemoveOldMemTables(uint64_t log_number,
+                          autovector<MemTable*>* to_delete);
+
  private:
   friend Status InstallMemtableAtomicFlushResults(
       const autovector<MemTableList*>* imm_lists,
