@@ -232,7 +232,7 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
   ASSERT_TRUE(res);
   value.clear();
 
-  // Write Merge concurrnetly
+  // Write Merge concurrently
   rocksdb::port::Thread write_thread1([&]() {
     std::string v1;
     for (int seq = 1; seq < num_ops / 2; seq++) {
