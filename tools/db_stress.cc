@@ -3610,26 +3610,27 @@ class BatchedOpsStressTest : public StressTest {
       const std::vector<int64_t>& rand_keys) {
     size_t num_keys = rand_keys.size();
     std::vector<Status> ret_status(num_keys);
-    std::string keys[10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
+    std::array<std::string, 10> keys = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
+    size_t num_prefixes = keys.size();
     for (size_t rand_key = 0; rand_key < num_keys; ++rand_key) {
       std::vector<Slice> key_slices;
-      std::vector<PinnableSlice> values(10);
-      std::vector<Status> statuses(10);
+      std::vector<PinnableSlice> values(num_prefixes);
+      std::vector<Status> statuses(num_prefixes);
       ReadOptions readoptionscopy = readoptions;
       readoptionscopy.snapshot = db_->GetSnapshot();
       std::vector<std::string> key_str;
-      key_str.reserve(10);
-      key_slices.reserve(10);
+      key_str.reserve(num_prefixes);
+      key_slices.reserve(num_prefixes);
       std::string from_db;
       ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
 
-      for (int key = 0; key < 10; ++key) {
+      for (size_t key = 0; key < num_prefixes; ++key) {
         key_str.emplace_back(keys[key] + Key(rand_keys[rand_key]));
         key_slices.emplace_back(key_str.back());
       }
-      db_->MultiGet(readoptionscopy, cfh, 10, key_slices.data(),
+      db_->MultiGet(readoptionscopy, cfh, num_prefixes, key_slices.data(),
           values.data(), statuses.data());
-      for (size_t i = 0; i < 10; i++) {
+      for (size_t i = 0; i < num_prefixes; i++) {
         Status s = statuses[i];
         if (!s.ok() && !s.IsNotFound()) {
           fprintf(stderr, "get error: %s\n", s.ToString().c_str());
@@ -3658,7 +3659,7 @@ class BatchedOpsStressTest : public StressTest {
       db_->ReleaseSnapshot(readoptionscopy.snapshot);
 
       // Now that we retrieved all values, check that they all match
-      for (size_t i = 1; i < 10; i++) {
+      for (size_t i = 1; i < num_prefixes; i++) {
         if (values[i] != values[0]) {
           fprintf(stderr, "error : inconsistent values for key %s: %s, %s\n",
                   key_str[i].c_str(),
