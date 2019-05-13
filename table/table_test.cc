@@ -2296,7 +2296,7 @@ TEST_P(BlockBasedTableTest, BlockCacheDisabledTest) {
 
   // preloading filter/index blocks is enabled.
   auto reader = dynamic_cast<BlockBasedTable*>(c.GetTableReader());
-  ASSERT_TRUE(reader->TEST_filter_block_preloaded());
+  ASSERT_FALSE(reader->TEST_FilterBlockInCache());
   ASSERT_FALSE(reader->TEST_IndexBlockInCache());
 
   {
@@ -2343,7 +2343,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
   // preloading filter/index blocks is prohibited.
   auto* reader = dynamic_cast<BlockBasedTable*>(c.GetTableReader());
-  ASSERT_TRUE(!reader->TEST_filter_block_preloaded());
+  ASSERT_FALSE(reader->TEST_FilterBlockInCache());
   ASSERT_TRUE(reader->TEST_IndexBlockInCache());
 
   // -- PART 1: Open with regular block cache.
@@ -2476,7 +2476,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
   MutableCFOptions moptions4(options);
   ASSERT_OK(c3.Reopen(ioptions4, moptions4));
   reader = dynamic_cast<BlockBasedTable*>(c3.GetTableReader());
-  ASSERT_TRUE(!reader->TEST_filter_block_preloaded());
+  ASSERT_FALSE(reader->TEST_FilterBlockInCache());
   PinnableSlice value;
   GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, user_key, &value, nullptr,
