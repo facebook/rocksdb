@@ -353,7 +353,7 @@ class FilePickerMultiGet {
   struct FilePickerContext;
 
  public:
-  FilePickerMultiGet(std::vector<FileMetaData*>* files, MultiGetRange* range,
+  FilePickerMultiGet(MultiGetRange* range,
                      autovector<LevelFilesBrief>* file_levels,
                      unsigned int num_levels, FileIndexer* file_indexer,
                      const Comparator* user_comparator,
@@ -368,18 +368,12 @@ class FilePickerMultiGet {
         maybe_repeat_key_(false),
         current_level_range_(*range, range->begin(), range->end()),
         current_file_range_(*range, range->begin(), range->end()),
-#ifndef NDEBUG
-        files_(files),
-#endif
         level_files_brief_(file_levels),
         is_hit_file_last_in_level_(false),
         curr_file_level_(nullptr),
         file_indexer_(file_indexer),
         user_comparator_(user_comparator),
         internal_comparator_(internal_comparator) {
-#ifdef NDEBUG
-    (void)files;
-#endif
     for (auto iter = range_->begin(); iter != range_->end(); ++iter) {
       fp_ctx_array_[iter.index()] =
           FilePickerContext(0, FileIndexer::kLevelMaxIndex);
@@ -616,9 +610,6 @@ class FilePickerMultiGet {
   bool maybe_repeat_key_;
   MultiGetRange current_level_range_;
   MultiGetRange current_file_range_;
-#ifndef NDEBUG
-  std::vector<FileMetaData*>* files_;
-#endif
   autovector<LevelFilesBrief>* level_files_brief_;
   bool search_ended_;
   bool is_hit_file_last_in_level_;
@@ -1772,7 +1763,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
   MultiGetRange file_picker_range(*range, range->begin(), range->end());
   FilePickerMultiGet fp(
-      storage_info_.files_, &file_picker_range,
+      &file_picker_range,
       &storage_info_.level_files_brief_, storage_info_.num_non_empty_levels_,
       &storage_info_.file_indexer_, user_comparator(), internal_comparator());
   FdWithKeyRange* f = fp.GetNextFile();
