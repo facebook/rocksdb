@@ -893,6 +893,31 @@ struct DBOptions {
   // Default: false
   bool enable_pipelined_write = false;
 
+  // Setting unordered_write to true trades higher write throughput with
+  // relaxing the immutability guarantee of snapshots. This violates the
+  // repeatability one expects from ::Get from a snapshot, as well as
+  // ::MultiGet and Iterator's consistent-point-in-time view property.
+  // If the application cannot tolerate the relaxed guarantees, it can implement
+  // its own mechanisms to work around that and yet benefit from the higher
+  // throughput. Using TransactionDB with WRITE_PREPARED write policy is one way
+  // to achieve immutable snapshots despite unordered_write.
+  //
+  // By default, i.e., when it is false, rocksdb does not advance the sequence
+  // number for new snapshots unless all the writes with lower sequence numbers
+  // are already finished. This provides the immutability that we except from
+  // snapshots. Moreover, since Iterator and MultiGet internally depend on
+  // snapshots, the snapshot immutability results into Iterator and MultiGet
+  // offering consistent-point-in-time view. If set to true, although
+  // Read-Your-Own-Write property is still provided, the snapshot immutability
+  // property is relaxed: the writes issued after the snapshot is obtained (with
+  // larger sequence numbers) will be still not visible to the reads from that
+  // snapshot, however, there still might be pending writes (with lower sequence
+  // number) that will change the state visible to the snapshot after they are
+  // landed to the memtable.
+  //
+  // Default: false
+  bool unordered_write = false;
+
   // If true, allow multi-writers to update mem tables in parallel.
   // Only some memtable_factory-s support concurrent writes; currently it
   // is implemented only for SkipListFactory.  Concurrent memtable writes

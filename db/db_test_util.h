@@ -140,6 +140,11 @@ class SpecialMemTableRep : public MemTableRep {
     memtable_->Insert(handle);
   }
 
+  void InsertConcurrently(KeyHandle handle) override {
+    num_entries_++;
+    memtable_->Insert(handle);
+  }
+
   // Returns true iff an entry that compares equal to key is in the list.
   virtual bool Contains(const char* key) const override {
     return memtable_->Contains(key);
@@ -688,6 +693,7 @@ class DBTestBase : public testing::Test {
     kPartitionedFilterWithNewTableReaderForCompactions,
     kUniversalSubcompactions,
     kxxHash64Checksum,
+    kUnorderedWrite,
     // This must be the last line
     kEnd,
   };

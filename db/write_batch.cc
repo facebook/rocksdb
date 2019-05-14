@@ -1471,7 +1471,6 @@ class MemTableInserter : public WriteBatch::Handler {
 
   Status MergeCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value) override {
-    assert(!concurrent_memtable_writes_);
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key, value);
@@ -1498,6 +1497,8 @@ class MemTableInserter : public WriteBatch::Handler {
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetImmutableMemTableOptions();
     bool perform_merge = false;
+    assert(!concurrent_memtable_writes_ ||
+           moptions->max_successive_merges == 0);
 
     // If we pass DB through and options.max_successive_merges is hit
     // during recovery, Get() will be issued which will try to acquire
@@ -1505,6 +1506,7 @@ class MemTableInserter : public WriteBatch::Handler {
     // So we disable merge in recovery
     if (moptions->max_successive_merges > 0 && db_ != nullptr &&
         recovering_log_number_ == 0) {
+      assert(!concurrent_memtable_writes_);
       LookupKey lkey(key, sequence_);
 
       // Count the number of successive merges at the head
@@ -1550,6 +1552,7 @@ class MemTableInserter : public WriteBatch::Handler {
         perform_merge = false;
       } else {
         // 3) Add value to memtable
+        assert(!concurrent_memtable_writes_);
         bool mem_res = mem->Add(sequence_, kTypeValue, key, new_value);
         if (UNLIKELY(!mem_res)) {
           assert(seq_per_batch_);
@@ -1562,7 +1565,9 @@ class MemTableInserter : public WriteBatch::Handler {
 
     if (!perform_merge) {
       // Add merge operator to memtable
-      bool mem_res = mem->Add(sequence_, kTypeMerge, key, value);
+      bool mem_res =
+          mem->Add(sequence_, kTypeMerge, key, value,
+                   concurrent_memtable_writes_, get_post_process_info(mem));
       if (UNLIKELY(!mem_res)) {
         assert(seq_per_batch_);
         ret_status = Status::TryAgain("key+seq exists");
