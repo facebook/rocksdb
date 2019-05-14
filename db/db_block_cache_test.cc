@@ -380,6 +380,9 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
             index_bytes_insert);
   ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_FILTER_BYTES_INSERT),
             filter_bytes_insert);
+  // The index eviction statistics were broken by the refactoring that moved
+  // the index readers out of the block cache. Disabling these until we can
+  // bring the stats back.
   // ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_INDEX_BYTES_EVICT),
   //           index_bytes_insert);
   ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_FILTER_BYTES_EVICT),
