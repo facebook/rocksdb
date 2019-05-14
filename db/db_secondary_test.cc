@@ -524,6 +524,66 @@ TEST_F(DBSecondaryTest, SwitchManifest) {
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   range_scan_db();
 }
+
+TEST_F(DBSecondaryTest, SwitchWAL) {
+  const int kNumKeysPerMemtable = 1;
+  const std::string kCFName1 = "pikachu";
+  Options options;
+  options.env = env_;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 2;
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(kNumKeysPerMemtable));
+  CreateAndReopenWithCF({kCFName1}, options);
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondaryWithColumnFamilies({kCFName1}, options1);
+  ASSERT_EQ(2, handles_secondary_.size());
+
+  const auto& verify_db = [](DB* db1,
+                             const std::vector<ColumnFamilyHandle*>& handles1,
+                             DB* db2,
+                             const std::vector<ColumnFamilyHandle*>& handles2) {
+    ASSERT_NE(nullptr, db1);
+    ASSERT_NE(nullptr, db2);
+    ReadOptions read_opts;
+    read_opts.verify_checksums = true;
+    ASSERT_EQ(handles1.size(), handles2.size());
+    for (size_t i = 0; i != handles1.size(); ++i) {
+      std::unique_ptr<Iterator> it1(db1->NewIterator(read_opts, handles1[i]));
+      std::unique_ptr<Iterator> it2(db2->NewIterator(read_opts, handles2[i]));
+      it1->SeekToFirst();
+      it2->SeekToFirst();
+      for (; it1->Valid() && it2->Valid(); it1->Next(), it2->Next()) {
+        ASSERT_EQ(it1->key(), it2->key());
+        ASSERT_EQ(it1->value(), it2->value());
+      }
+      ASSERT_FALSE(it1->Valid());
+      ASSERT_FALSE(it2->Valid());
+
+      for (it1->SeekToFirst(); it1->Valid(); it1->Next()) {
+        std::string value;
+        ASSERT_OK(db2->Get(read_opts, handles2[i], it1->key(), &value));
+        ASSERT_EQ(it1->value(), value);
+      }
+      for (it2->SeekToFirst(); it2->Valid(); it2->Next()) {
+        std::string value;
+        ASSERT_OK(db1->Get(read_opts, handles1[i], it2->key(), &value));
+        ASSERT_EQ(it2->value(), value);
+      }
+    }
+  };
+  for (int k = 0; k != 8; ++k) {
+    ASSERT_OK(
+        Put(0 /*cf*/, "key" + std::to_string(k), "value" + std::to_string(k)));
+    ASSERT_OK(
+        Put(1 /*cf*/, "key" + std::to_string(k), "value" + std::to_string(k)));
+    ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+    verify_db(dbfull(), handles_, db_secondary_, handles_secondary_);
+  }
+}
 #endif  //! ROCKSDB_LITE
 
 }  // namespace rocksdb

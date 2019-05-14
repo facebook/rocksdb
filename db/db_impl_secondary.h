@@ -207,10 +207,11 @@ class DBImplSecondary : public DBImpl {
   std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
   std::unique_ptr<Status> manifest_reader_status_;
 
-  // cache log readers for each log number, used for continue WAL replay
+  // Cache log readers for each log number, used for continue WAL replay
   // after recovery
   std::map<uint64_t, std::unique_ptr<LogReaderContainer>> log_readers_;
 
+  // Current WAL number replayed for each column family.
   std::unordered_map<ColumnFamilyData*, uint64_t> current_log_;
 };
 

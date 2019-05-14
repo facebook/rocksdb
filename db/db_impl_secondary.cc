@@ -109,6 +109,7 @@ Status DBImplSecondary::Recover(
 
   // TODO: update options_file_number_ needed?
 
+  job_context.Clean();
   return s;
 }
 
@@ -494,7 +495,7 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   Status s;
   // read the manifest and apply new changes to the secondary instance
   std::unordered_set<ColumnFamilyData*> cfds_changed;
-  JobContext job_context(0);
+  JobContext job_context(0, true /*create_superversion*/);
   InstrumentedMutexLock lock_guard(&mutex_);
   s = static_cast<ReactiveVersionSet*>(versions_.get())
           ->ReadAndApply(&mutex_, &manifest_reader_, &cfds_changed);
@@ -504,14 +505,14 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
     s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
   }
   if (s.ok()) {
-    SuperVersionContext sv_context(true /* create_superversion */);
     for (auto cfd : cfds_changed) {
-      sv_context.NewSuperVersion();
       cfd->imm()->RemoveOldMemTables(cfd->GetLogNumber(),
                                      &job_context.memtables_to_free);
+      auto& sv_context = job_context.superversion_contexts.back();
       cfd->InstallSuperVersion(&sv_context, &mutex_);
+      sv_context.NewSuperVersion();
     }
-    sv_context.Clean();
+    job_context.Clean();
   }
   return s;
 }
