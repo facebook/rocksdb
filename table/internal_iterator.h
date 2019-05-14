@@ -18,8 +18,8 @@ namespace rocksdb {
 class PinnedIteratorsManager;
 
 struct IterateResult {
-  Slice key = Slice();
-  bool may_be_out_of_upper_bound = true;
+  Slice key;
+  bool may_be_out_of_upper_bound;
 };
 
 template <class TValue>
@@ -60,12 +60,20 @@ class InternalIteratorBase : public Cleanable {
   // REQUIRES: Valid()
   virtual void Next() = 0;
 
+  // Moves to the next entry in the source, and return result. Iterator
+  // implementation should override this method to help methods inline better,
+  // or when MayBeOutOfUpperBound() is non-trivial.
+  // REQUIRES: Valid()
   virtual bool NextAndGetResult(IterateResult* result) {
     Next();
     bool is_valid = Valid();
     if (is_valid) {
       result->key = key();
-      result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
+      // Default may_be_out_of_upper_bound to true to avoid unnecessary virtual
+      // call. If an implementation has non-trivial MayBeOutOfUpperBound(),
+      // it should also override NextAndGetResult().
+      result->may_be_out_of_upper_bound = true;
+      assert(MayBeOutOfUpperBound());
     }
     return is_valid;
   }

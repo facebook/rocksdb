@@ -227,8 +227,6 @@ class MergingIterator : public InternalIterator {
     current_ = CurrentForward();
   }
 
-  // Identical to InternalIteratorBase::NextAndGetResult. Copy the
-  // implementation here to get Next(), Valid(), etc inlined.
   bool NextAndGetResult(IterateResult* result) override {
     Next();
     bool is_valid = Valid();
