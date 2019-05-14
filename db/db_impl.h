@@ -897,14 +897,32 @@ class DBImpl : public DB {
                             bool disable_memtable = false,
                             uint64_t* seq_used = nullptr);
 
-  // batch_cnt is expected to be non-zero in seq_per_batch mode and indicates
-  // the number of sub-patches. A sub-patch is a subset of the write batch that
-  // does not have duplicate keys.
-  Status WriteImplWALOnly(const WriteOptions& options, WriteBatch* updates,
-                          WriteCallback* callback = nullptr,
-                          uint64_t* log_used = nullptr, uint64_t log_ref = 0,
-                          uint64_t* seq_used = nullptr, size_t batch_cnt = 0,
-                          PreReleaseCallback* pre_release_callback = nullptr);
+  // Write only to memtables without joining any write queue
+  Status UnorderedWriteMemtable(const WriteOptions& write_options,
+                                WriteBatch* my_batch, WriteCallback* callback,
+                                uint64_t log_ref, SequenceNumber seq,
+                                const size_t sub_batch_cnt);
+
+  // Whether the batch requires to be assigned with an order
+  enum AssignOrder : bool { kDontAssignOrder, kDoAssignOrder };
+  // Whether it requires publishing last sequence or not
+  enum PublishLastSeq : bool { kDontPublishLastSeq, kDoPublishLastSeq };
+
+  // Join the write_thread to write the batch only to the WAL. It is the
+  // responsibility of the caller to also write the write batch to the memtable
+  // if it required.
+  //
+  // sub_batch_cnt is expected to be non-zero when assign_order = kDoAssignOrder
+  // indicating the number of sub-batches in my_batch. A sub-patch is a subset
+  // of the write batch that does not have duplicate keys. When seq_per_batch is
+  // not set, each key is a separate sub_batch. Otherwise each duplicate key
+  // marks start of a new sub-batch.
+  Status WriteImplWALOnly(
+      WriteThread* write_thread, const WriteOptions& options,
+      WriteBatch* updates, WriteCallback* callback, uint64_t* log_used,
+      const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
+      PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
+      const PublishLastSeq publish_last_seq, const bool disable_memtable);
 
   // write cached_recoverable_state_ to memtable if it is not empty
   // The writer must be the leader in write_thread_ and holding mutex_
@@ -1120,6 +1138,20 @@ class DBImpl : public DB {
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const uint64_t*>& flush_memtable_ids,
       bool resuming_from_bg_err);
+
+  inline void WaitForPendingWrites() {
+    if (!immutable_db_options_.unordered_write) {
+      // Then the writes are finished before the next write group starts
+      return;
+    }
+    // Wait for the ones who already wrote to the WAL to finish their
+    // memtable write.
+    if (pending_memtable_writes_.load() != 0) {
+      std::unique_lock<std::mutex> guard(switch_mutex_);
+      switch_cv_.wait(guard,
+                      [&] { return pending_memtable_writes_.load() == 0; });
+    }
+  }
 
   // REQUIRES: mutex locked and in write thread.
   void AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds);
@@ -1571,12 +1603,20 @@ class DBImpl : public DB {
   // corresponding call to PurgeObsoleteFiles has not yet finished.
   int pending_purge_obsolete_files_;
 
-  // last time when DeleteObsoleteFiles with full scan was executed. Originaly
+  // last time when DeleteObsoleteFiles with full scan was executed. Originally
   // initialized with startup time.
   uint64_t delete_obsolete_files_last_run_;
 
   // last time stats were dumped to LOG
   std::atomic<uint64_t> last_stats_dump_time_microsec_;
+
+  // The thread that wants to switch memtable, can wait on this cv until the
+  // pending writes to memtable finishes.
+  std::condition_variable switch_cv_;
+  // The mutex used by switch_cv_. mutex_ should be acquired beforehand.
+  std::mutex switch_mutex_;
+  // Number of threads intending to write to memtable
+  std::atomic<size_t> pending_memtable_writes_ = {};
 
   // Each flush or compaction gets its own job id. this counter makes sure
   // they're unique

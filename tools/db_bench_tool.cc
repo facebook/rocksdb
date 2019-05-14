@@ -891,6 +891,9 @@ DEFINE_uint64(delayed_write_rate, 8388608u,
 DEFINE_bool(enable_pipelined_write, true,
             "Allow WAL and memtable writes to be pipelined");
 
+DEFINE_bool(unordered_write, false,
+            "Allow WAL and memtable writes to be pipelined");
+
 DEFINE_bool(allow_concurrent_memtable_write, true,
             "Allow multi-writers to update mem tables in parallel.");
 
@@ -3552,6 +3555,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     options.enable_write_thread_adaptive_yield =
         FLAGS_enable_write_thread_adaptive_yield;
     options.enable_pipelined_write = FLAGS_enable_pipelined_write;
+    options.unordered_write = FLAGS_unordered_write;
     options.write_thread_max_yield_usec = FLAGS_write_thread_max_yield_usec;
     options.write_thread_slow_yield_usec = FLAGS_write_thread_slow_yield_usec;
     options.rate_limit_delay_max_milliseconds =

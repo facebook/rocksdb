@@ -228,6 +228,17 @@ static Status ValidateOptions(
     return Status::InvalidArgument("keep_log_file_num must be greater than 0");
   }
 
+  if (db_options.unordered_write &&
+      !db_options.allow_concurrent_memtable_write) {
+    return Status::InvalidArgument(
+        "unordered_write is incompatible with !allow_concurrent_memtable_write");
+  }
+
+  if (db_options.unordered_write && db_options.enable_pipelined_write) {
+    return Status::InvalidArgument(
+        "unordered_write is incompatible with enable_pipelined_write");
+  }
+
   return Status::OK();
 }
 }  // namespace
