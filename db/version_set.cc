@@ -353,7 +353,7 @@ class FilePickerMultiGet {
   struct FilePickerContext;
 
  public:
-  FilePickerMultiGet(std::vector<FileMetaData*>* files, MultiGetRange* range,
+  FilePickerMultiGet(MultiGetRange* range,
                      autovector<LevelFilesBrief>* file_levels,
                      unsigned int num_levels, FileIndexer* file_indexer,
                      const Comparator* user_comparator,
@@ -368,18 +368,12 @@ class FilePickerMultiGet {
         maybe_repeat_key_(false),
         current_level_range_(*range, range->begin(), range->end()),
         current_file_range_(*range, range->begin(), range->end()),
-#ifndef NDEBUG
-        files_(files),
-#endif
         level_files_brief_(file_levels),
         is_hit_file_last_in_level_(false),
         curr_file_level_(nullptr),
         file_indexer_(file_indexer),
         user_comparator_(user_comparator),
         internal_comparator_(internal_comparator) {
-#ifdef NDEBUG
-    (void)files;
-#endif
     for (auto iter = range_->begin(); iter != range_->end(); ++iter) {
       fp_ctx_array_[iter.index()] =
           FilePickerContext(0, FileIndexer::kLevelMaxIndex);
@@ -485,25 +479,6 @@ class FilePickerMultiGet {
       } else {
         file_hit = true;
       }
-#ifndef NDEBUG
-      // Sanity check to make sure that the files are correctly sorted
-      if (f != prev_file_) {
-        if (prev_file_) {
-          if (curr_level_ != 0) {
-            int comp_sign = internal_comparator_->Compare(
-                prev_file_->largest_key, f->smallest_key);
-            assert(comp_sign < 0);
-          } else if (fp_ctx.curr_index_in_curr_level > 0) {
-            // level == 0, the current file cannot be newer than the previous
-            // one. Use compressed data structure, has no attribute seqNo
-            assert(!NewestFirstBySeqNo(
-                files_[0][fp_ctx.curr_index_in_curr_level],
-                files_[0][fp_ctx.curr_index_in_curr_level - 1]));
-          }
-        }
-        prev_file_ = f;
-      }
-#endif
       if (cmp_largest == 0) {
         // cmp_largest is 0, which means the next key will not be in this
         // file, so stop looking further. Also don't increment megt_iter_
@@ -635,9 +610,6 @@ class FilePickerMultiGet {
   bool maybe_repeat_key_;
   MultiGetRange current_level_range_;
   MultiGetRange current_file_range_;
-#ifndef NDEBUG
-  std::vector<FileMetaData*>* files_;
-#endif
   autovector<LevelFilesBrief>* level_files_brief_;
   bool search_ended_;
   bool is_hit_file_last_in_level_;
@@ -645,9 +617,6 @@ class FilePickerMultiGet {
   FileIndexer* file_indexer_;
   const Comparator* user_comparator_;
   const InternalKeyComparator* internal_comparator_;
-#ifndef NDEBUG
-  FdWithKeyRange* prev_file_;
-#endif
 
   // Setup local variables to search next level.
   // Returns false if there are no more levels to search.
@@ -656,9 +625,6 @@ class FilePickerMultiGet {
       MultiGetRange::Iterator mget_iter = current_level_range_.begin();
       if (fp_ctx_array_[mget_iter.index()].curr_index_in_curr_level <
           curr_file_level_->num_files) {
-#ifndef NDEBUG
-        prev_file_ = nullptr;
-#endif
         batch_iter_prev_ = current_level_range_.begin();
         batch_iter_ = current_level_range_.begin();
         return true;
@@ -754,9 +720,6 @@ class FilePickerMultiGet {
         fp_ctx.curr_index_in_curr_level = start_index;
       }
       if (level_contains_keys) {
-#ifndef NDEBUG
-        prev_file_ = nullptr;
-#endif
         batch_iter_prev_ = current_level_range_.begin();
         batch_iter_ = current_level_range_.begin();
         return true;
@@ -1800,7 +1763,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
   MultiGetRange file_picker_range(*range, range->begin(), range->end());
   FilePickerMultiGet fp(
-      storage_info_.files_, &file_picker_range,
+      &file_picker_range,
       &storage_info_.level_files_brief_, storage_info_.num_non_empty_levels_,
       &storage_info_.file_indexer_, user_comparator(), internal_comparator());
   FdWithKeyRange* f = fp.GetNextFile();
