@@ -24,7 +24,7 @@
 
 ### Other changes
 * Partitions of partitioned indexes no longer affect the read amplification statistics.
-* Due to a refactoring, block cache eviction statistics for indexes are temporarily lumped together with those for data blocks. We plan to reintroduce the dedicated statistics for indexes later.
+* Due to a refactoring, block cache eviction statistics for indexes are temporarily broken. We plan to reintroduce them in a later phase.
 
 ## 6.2.0 (4/30/2019)
 ### New Features
