@@ -255,7 +255,7 @@ const std::string kNameMergeOperator = "merge_operator";
 template <typename T>
 Status GetStringFromStruct(
     std::string* opt_string, const T& options,
-    const std::unordered_map<std::string, OptionTypeInfo> type_info,
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info,
     const std::string& delimiter);
 
 namespace {
@@ -350,7 +350,7 @@ bool FIFOCompactionOptionsSpecialCase(const std::string& opt_str,
 template <typename T>
 bool SerializeStruct(
     const T& options, std::string* value,
-    std::unordered_map<std::string, OptionTypeInfo> type_info_map) {
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info_map) {
   std::string opt_str;
   Status s = GetStringFromStruct(&opt_str, options, type_info_map, ";");
   if (!s.ok()) {
@@ -363,7 +363,7 @@ bool SerializeStruct(
 template <typename T>
 bool ParseSingleStructOption(
     const std::string& opt_val_str, T* options,
-    std::unordered_map<std::string, OptionTypeInfo> type_info_map) {
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info_map) {
   size_t end = opt_val_str.find('=');
   std::string key = opt_val_str.substr(0, end);
   std::string value = opt_val_str.substr(end + 1);
@@ -380,7 +380,7 @@ bool ParseSingleStructOption(
 template <typename T>
 bool ParseStructOptions(
     const std::string& opt_str, T* options,
-    std::unordered_map<std::string, OptionTypeInfo> type_info_map) {
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info_map) {
   assert(!opt_str.empty());
 
   size_t start = 0;
@@ -1092,7 +1092,7 @@ Status ParseColumnFamilyOption(const std::string& name,
 template <typename T>
 bool SerializeSingleStructOption(
     std::string* opt_string, const T& options,
-    const std::unordered_map<std::string, OptionTypeInfo> type_info,
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info,
     const std::string& name, const std::string& delimiter) {
   auto iter = type_info.find(name);
   if (iter == type_info.end()) {
@@ -1112,7 +1112,7 @@ bool SerializeSingleStructOption(
 template <typename T>
 Status GetStringFromStruct(
     std::string* opt_string, const T& options,
-    const std::unordered_map<std::string, OptionTypeInfo> type_info,
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info,
     const std::string& delimiter) {
   assert(opt_string);
   opt_string->clear();
