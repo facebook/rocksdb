@@ -214,9 +214,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   WriteThread::WriteGroup write_group;
   bool in_parallel_group = false;
   uint64_t last_sequence = kMaxSequenceNumber;
-  if (!two_write_queues_) {
-    last_sequence = versions_->LastSequence();
-  }
 
   mutex_.Lock();
 
@@ -231,6 +228,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     PERF_TIMER_STOP(write_pre_and_post_process_time);
 
     status = PreprocessWrite(write_options, &need_log_sync, &write_context);
+    if (!two_write_queues_) {
+      // Assign it after ::PreprocessWrite since the sequence might advance
+      // inside it by WriteRecoverableState
+      last_sequence = versions_->LastSequence();
+    }
 
     PERF_TIMER_START(write_pre_and_post_process_time);
   }
@@ -1113,8 +1115,12 @@ Status DBImpl::WriteRecoverableState() {
       for (uint64_t sub_batch_seq = seq + 1;
            sub_batch_seq < next_seq && status.ok(); sub_batch_seq++) {
         uint64_t const no_log_num = 0;
+        // Unlock it since the callback might end up locking mutex. e.g.,
+        // AddCommitted -> AdvanceMaxEvictedSeq -> GetSnapshotListFromDB
+        mutex_.Unlock();
         status = recoverable_state_pre_release_callback_->Callback(
             sub_batch_seq, !DISABLE_MEMTABLE, no_log_num);
+        mutex_.Lock();
       }
     }
     if (status.ok()) {
