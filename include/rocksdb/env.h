@@ -570,6 +570,26 @@ class SequentialFile {
   // SequentialFileWrapper too.
 };
 
+// A read IO request structure for use in MultiRead
+struct ReadRequest {
+  // File offset in bytes
+  uint64_t offset;
+
+  // Length to read in bytes
+  size_t len;
+
+  // A buffer that MultiRead()  can optionally place data in. It can
+  // ignore this and allocate its own buffer
+  char* scratch;
+
+  // Output parameter set by MultiRead() to point to the data buffer, and
+  // the number of valid bytes
+  Slice result;
+
+  // Status of read
+  Status status;
+};
+
 // A file abstraction for randomly reading the contents of a file.
 class RandomAccessFile {
  public:
@@ -592,6 +612,17 @@ class RandomAccessFile {
   // Readahead the file starting from offset by n bytes for caching.
   virtual Status Prefetch(uint64_t /*offset*/, size_t /*n*/) {
     return Status::OK();
+  }
+
+  // Read a bunch of blocks as described by reqs. The blocks can
+  // optionally be read in parallel. This is a synchronous call, i.e it
+  // should return after all reads have completed. The reads will be
+  // non-overlapping
+  virtual void MultiRead(std::vector<ReadRequest>* reqs) {
+    for (size_t i = 0; i < reqs->size(); ++i) {
+      ReadRequest& req = (*reqs)[i];
+      req.status = Read(req.offset, req.len, &req.result, req.scratch);
+    }
   }
 
   // Tries to get an unique ID for this file that will be the same each time
