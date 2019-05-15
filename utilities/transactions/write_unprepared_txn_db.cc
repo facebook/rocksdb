@@ -46,7 +46,7 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
   };
 
   // Iterate starting with largest sequence number.
-  for (auto it = rtxn->batches_.rbegin(); it != rtxn->batches_.rend(); it++) {
+  for (auto it = rtxn->batches_.rbegin(); it != rtxn->batches_.rend(); ++it) {
     auto last_visible_txn = it->first - 1;
     const auto& batch = it->second.batch_;
     WriteBatch rollback_batch;

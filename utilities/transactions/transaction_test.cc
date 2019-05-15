@@ -567,7 +567,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
     TransactionID leaf_id =
         dlock_entry[dlock_entry.size() - 1].m_txn_id - offset_root;
 
-    for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); it++) {
+    for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); ++it) {
       auto dl_node = *it;
       ASSERT_EQ(dl_node.m_txn_id, offset_root + leaf_id);
       ASSERT_EQ(dl_node.m_cf_id, 0);
@@ -774,7 +774,7 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
     }
 
     // Iterates backwards over path verifying decreasing txn_ids.
-    for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); it++) {
+    for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); ++it) {
       auto dl_node = *it;
       ASSERT_EQ(dl_node.m_txn_id, len + curr_txn_id - 1);
       ASSERT_EQ(dl_node.m_cf_id, 0);

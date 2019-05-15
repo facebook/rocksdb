@@ -2794,7 +2794,7 @@ void DBImpl::RemoveManualCompaction(DBImpl::ManualCompactionState* m) {
       it = manual_compaction_dequeue_.erase(it);
       return;
     }
-    it++;
+    ++it;
   }
   assert(false);
   return;
@@ -2815,7 +2815,7 @@ bool DBImpl::ShouldntRunManualCompaction(ManualCompactionState* m) {
   bool seen = false;
   while (it != manual_compaction_dequeue_.end()) {
     if (m == (*it)) {
-      it++;
+      ++it;
       seen = true;
       continue;
     } else if (MCOverlap(m, (*it)) && (!seen && !(*it)->in_progress)) {
@@ -2824,7 +2824,7 @@ bool DBImpl::ShouldntRunManualCompaction(ManualCompactionState* m) {
       // and (*it) is ahead in the queue and is not yet in progress
       return true;
     }
-    it++;
+    ++it;
   }
   return false;
 }
@@ -2842,7 +2842,7 @@ bool DBImpl::HaveManualCompaction(ColumnFamilyData* cfd) {
       // in progress
       return true;
     }
-    it++;
+    ++it;
   }
   return false;
 }
@@ -2855,7 +2855,7 @@ bool DBImpl::HasExclusiveManualCompaction() {
     if ((*it)->exclusive) {
       return true;
     }
-    it++;
+    ++it;
   }
   return false;
 }
