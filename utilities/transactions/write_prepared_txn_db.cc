@@ -798,7 +798,7 @@ void WritePreparedTxnDB::UpdateSnapshots(
   // afterwards.
   size_t i = 0;
   auto it = snapshots.begin();
-  for (; it != snapshots.end() && i < SNAPSHOT_CACHE_SIZE; it++, i++) {
+  for (; it != snapshots.end() && i < SNAPSHOT_CACHE_SIZE; ++it, ++i) {
     snapshot_cache_[i].store(*it, std::memory_order_release);
     TEST_IDX_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots:p:", ++sync_i);
     TEST_IDX_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots:s:", sync_i);
@@ -812,7 +812,7 @@ void WritePreparedTxnDB::UpdateSnapshots(
   }
 #endif
   snapshots_.clear();
-  for (; it != snapshots.end(); it++) {
+  for (; it != snapshots.end(); ++it) {
     // Insert them to a vector that is less efficient to access
     // concurrently
     snapshots_.push_back(*it);

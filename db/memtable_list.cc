@@ -437,7 +437,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
           ++mem_id;
         }
       } else {
-        for (auto it = current_->memlist_.rbegin(); batch_count-- > 0; it++) {
+        for (auto it = current_->memlist_.rbegin(); batch_count-- > 0; ++it) {
           MemTable* m = *it;
           // commit failed. setup state so that we can flush again.
           ROCKS_LOG_BUFFER(log_buffer, "Level-0 commit table #%" PRIu64

@@ -725,7 +725,7 @@ class DBImpl : public DB {
 
   void DeleteAllRecoveredTransactions() {
     for (auto it = recovered_transactions_.begin();
-         it != recovered_transactions_.end(); it++) {
+         it != recovered_transactions_.end(); ++it) {
       delete it->second;
     }
     recovered_transactions_.clear();

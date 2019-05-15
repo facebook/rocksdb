@@ -121,7 +121,7 @@ Status PessimisticTransactionDB::Initialize(
   assert(dbimpl != nullptr);
   auto rtrxs = dbimpl->recovered_transactions();
 
-  for (auto it = rtrxs.begin(); it != rtrxs.end(); it++) {
+  for (auto it = rtrxs.begin(); it != rtrxs.end(); ++it) {
     auto recovered_trx = it->second;
     assert(recovered_trx);
     assert(recovered_trx->batches_.size() == 1);
@@ -594,7 +594,7 @@ void PessimisticTransactionDB::GetAllPreparedTransactions(
   assert(transv);
   transv->clear();
   std::lock_guard<std::mutex> lock(name_map_mutex_);
-  for (auto it = transactions_.begin(); it != transactions_.end(); it++) {
+  for (auto it = transactions_.begin(); it != transactions_.end(); ++it) {
     if (it->second->GetState() == Transaction::PREPARED) {
       transv->push_back(it->second);
     }

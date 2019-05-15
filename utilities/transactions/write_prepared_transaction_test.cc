@@ -1099,7 +1099,7 @@ TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccessTest) {
           new_snapshots.push_back(snapshots[old_snapshots.size() + i]);
         }
         for (auto it = common_snapshots.begin(); it != common_snapshots.end();
-             it++) {
+             ++it) {
           auto snapshot = *it;
           // Create a commit entry that is around the snapshot and thus should
           // be not be discarded
@@ -1166,12 +1166,12 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
   // b. delayed prepared should contain every txn <= max and prepared should
   // only contain txns > max
   auto it = initial_prepared.begin();
-  for (; it != initial_prepared.end() && *it <= new_max; it++) {
+  for (; it != initial_prepared.end() && *it <= new_max; ++it) {
     ASSERT_EQ(1, wp_db->delayed_prepared_.erase(*it));
   }
   ASSERT_TRUE(wp_db->delayed_prepared_.empty());
   for (; it != initial_prepared.end() && !wp_db->prepared_txns_.empty();
-       it++, wp_db->prepared_txns_.pop()) {
+       ++it, wp_db->prepared_txns_.pop()) {
     ASSERT_EQ(*it, wp_db->prepared_txns_.top());
   }
   ASSERT_TRUE(it == initial_prepared.end());
