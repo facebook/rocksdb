@@ -201,6 +201,15 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64le")
   endif(HAS_ALTIVEC)
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64le")
 
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
+        CHECK_C_COMPILER_FLAG("-march=armv8-a+crc" HAS_ARMV8_CRC)
+  if(HAS_ARMV8_CRC)
+    message(STATUS " HAS_ARMV8_CRC yes")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a+crc -Wno-unused-function")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a+crc -Wno-unused-function")
+  endif(HAS_ARMV8_CRC)
+endif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
+
 option(PORTABLE "build a portable binary" OFF)
 option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
 if(PORTABLE)
@@ -213,7 +222,7 @@ else()
   if(MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
   else()
-    if(NOT HAVE_POWER8)
+    if(NOT HAVE_POWER8 AND NOT HAS_ARMV8_CRC)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
     endif()
   endif()
@@ -693,6 +702,11 @@ if(HAVE_POWER8)
     util/crc32c_ppc.c
     util/crc32c_ppc_asm.S)
 endif(HAVE_POWER8)
+
+if(HAS_ARMV8_CRC)
+  list(APPEND SOURCES
+    util/crc32c_arm64.cc)
+endif(HAS_ARMV8_CRC)
 
 if(WIN32)
   list(APPEND SOURCES
