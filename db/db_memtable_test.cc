@@ -222,7 +222,6 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
   options.allow_concurrent_memtable_write = true;
   ImmutableCFOptions ioptions(options);
   WriteBufferManager wb(options.db_write_buffer_size);
-  MemTablePostProcessInfo post_process_info;
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
                                kMaxSequenceNumber, 0 /* column_family_id */);
 
@@ -234,21 +233,23 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
 
   // Write Merge concurrently
   rocksdb::port::Thread write_thread1([&]() {
+  MemTablePostProcessInfo post_process_info1;
     std::string v1;
     for (int seq = 1; seq < num_ops / 2; seq++) {
       PutFixed64(&v1, seq);
       bool res1 =
-          mem->Add(seq, kTypeMerge, "key", v1, true, &post_process_info);
+          mem->Add(seq, kTypeMerge, "key", v1, true, &post_process_info1);
       ASSERT_TRUE(res1);
       v1.clear();
     }
   });
   rocksdb::port::Thread write_thread2([&]() {
+  MemTablePostProcessInfo post_process_info2;
     std::string v2;
     for (int seq = num_ops / 2; seq < num_ops; seq++) {
       PutFixed64(&v2, seq);
       bool res2 =
-          mem->Add(seq, kTypeMerge, "key", v2, true, &post_process_info);
+          mem->Add(seq, kTypeMerge, "key", v2, true, &post_process_info2);
       ASSERT_TRUE(res2);
       v2.clear();
     }
