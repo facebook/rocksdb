@@ -397,6 +397,7 @@ EOF
           #include <malloc.h>
           int main() {
             size_t res = malloc_usable_size(0);
+            (void)res;
             return 0;
           }
 EOF
@@ -411,6 +412,7 @@ EOF
           #include <pthread.h>
           int main() {
             int x = PTHREAD_MUTEX_ADAPTIVE_NP;
+            (void)x;
             return 0;
           }
 EOF
@@ -422,7 +424,7 @@ EOF
     if ! test $ROCKSDB_DISABLE_BACKTRACE; then
         # Test whether backtrace is available
         $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-          #include <execinfo.h>>
+          #include <execinfo.h>
           int main() {
             void* frames[1];
             backtrace_symbols(frames, backtrace(frames, 1));
@@ -480,6 +482,7 @@ EOF
           #include <sched.h>
           int main() {
             int cpuid = sched_getcpu();
+            (void)cpuid;
           }
 EOF
         if [ "$?" = 0 ]; then
@@ -515,7 +518,7 @@ fi
 
 if test "$USE_HDFS"; then
   if test -z "$JAVA_HOME"; then
-    echo "JAVA_HOME has to be set for HDFS usage."
+    echo "JAVA_HOME has to be set for HDFS usage." >&2
     exit 1
   fi
   HDFS_CCFLAGS="$HDFS_CCFLAGS -I$JAVA_HOME/include -I$JAVA_HOME/include/linux -DUSE_HDFS -I$HADOOP_HOME/include"
@@ -553,12 +556,13 @@ $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
   #include <nmmintrin.h>
   int main() {
     volatile uint32_t x = _mm_crc32_u32(0, 0);
+    (void)x;
   }
 EOF
 if [ "$?" = 0 ]; then
   COMMON_FLAGS="$COMMON_FLAGS -DHAVE_SSE42"
 elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use SSE intrinsics, disabling"
+  echo "warning: USE_SSE specified but compiler could not use SSE intrinsics, disabling" >&2
   exit 1
 fi
 
@@ -570,12 +574,13 @@ $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
     const auto b = _mm_set_epi64x(0, 0);
     const auto c = _mm_clmulepi64_si128(a, b, 0x00);
     auto d = _mm_cvtsi128_si64(c);
+    (void)d;
   }
 EOF
 if [ "$?" = 0 ]; then
   COMMON_FLAGS="$COMMON_FLAGS -DHAVE_PCLMUL"
 elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use PCLMUL intrinsics, disabling"
+  echo "warning: USE_SSE specified but compiler could not use PCLMUL intrinsics, disabling" >&2
   exit 1
 fi
 
@@ -589,6 +594,7 @@ if [ "$PLATFORM" != IOS ]; then
   #endif
   int main() {
     static __thread int tls;
+    (void)tls;
   }
 EOF
   if [ "$?" = 0 ]; then
