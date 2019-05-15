@@ -22,26 +22,44 @@ namespace rocksdb {
 class ColumnFamilyCollector : public WriteBatch::Handler {
   std::unordered_set<uint32_t> column_family_ids_;
 
+  Status AddColumnFamilyId(uint32_t column_family_id) {
+    if (column_family_ids_.find(column_family_id) == column_family_ids_.end()) {
+      column_family_ids_.insert(column_family_id);
+    }
+    return Status::OK();
+  }
+
  public:
   explicit ColumnFamilyCollector() {}
 
   ~ColumnFamilyCollector() override {}
 
   Status PutCF(uint32_t column_family_id, const Slice&, const Slice&) override {
-    if (column_family_ids_.find(column_family_id) == column_family_ids_.end()) {
-      column_family_ids_.insert(column_family_id);
-    }
-    return Status::OK();
+    return AddColumnFamilyId(column_family_id);
   }
 
   Status DeleteCF(uint32_t column_family_id, const Slice&) override {
-    if (column_family_ids_.find(column_family_id) == column_family_ids_.end()) {
-      column_family_ids_.insert(column_family_id);
-    }
-    return Status::OK();
+    return AddColumnFamilyId(column_family_id);
   }
 
-  // TODO(yanqin): handle other operations
+  Status SingleDeleteCF(uint32_t column_family_id, const Slice&) override {
+    return AddColumnFamilyId(column_family_id);
+  }
+
+  Status DeleteRangeCF(uint32_t column_family_id, const Slice&,
+                       const Slice&) override {
+    return AddColumnFamilyId(column_family_id);
+  }
+
+  Status MergeCF(uint32_t column_family_id, const Slice&,
+                 const Slice&) override {
+    return AddColumnFamilyId(column_family_id);
+  }
+
+  Status PutBlobIndexCF(uint32_t column_family_id, const Slice&,
+                        const Slice&) override {
+    return AddColumnFamilyId(column_family_id);
+  }
 
   const std::unordered_set<uint32_t>& column_families() const {
     return column_family_ids_;
