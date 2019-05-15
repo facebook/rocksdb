@@ -170,6 +170,12 @@ class FilterBlockReader {
                           const_ikey_ptr, /* get_context */ nullptr,
                           lookup_context);
   }
+
+  virtual bool IsFilterCompatible(const Slice* /*iterate_upper_bound*/,
+                                  const Slice& /*prefix*/,
+                                  const Comparator* /*comparator*/) const {
+    return false;
+  }
 };
 
 }  // namespace rocksdb

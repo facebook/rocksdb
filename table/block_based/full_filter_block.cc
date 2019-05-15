@@ -309,6 +309,7 @@ bool FullFilterBlockReader::RangeMayExist(
     return true;
   }
   Slice prefix = prefix_extractor->Transform(user_key);
+  // TODO: this check may be redundant now
   if (need_upper_bound_check &&
       !IsFilterCompatible(iterate_upper_bound, prefix, comparator)) {
     *filter_checked = false;

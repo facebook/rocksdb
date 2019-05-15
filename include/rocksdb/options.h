@@ -1235,6 +1235,9 @@ struct ReadOptions {
   // changing implementation of prefix extractor.
   bool total_order_seek;
 
+  // Enable a unified seek mode which
+  bool unified_seek;
+
   // Enforce that the iterator only iterates over the same prefix as the seek.
   // This option is effective only for prefix seeks, i.e. prefix_extractor is
   // non-null for the column family and total_order_seek is false.  Unlike

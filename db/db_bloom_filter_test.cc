@@ -1323,6 +1323,58 @@ int CountIter(std::unique_ptr<Iterator>& iter, const Slice& key) {
   return count;
 }
 
+TEST_F(DBBloomFilterTest, UnifiedSeek) {
+  Options options;
+  options.create_if_missing = true;
+  options.prefix_extractor.reset(NewCappedPrefixTransform(4));
+  options.disable_auto_compactions = true;
+  options.statistics = CreateDBStatistics();
+  // Enable prefix bloom for SST files
+  BlockBasedTableOptions table_options;
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  table_options.index_shortening = BlockBasedTableOptions::IndexShorteningMode::
+      kShortenSeparatorsAndSuccessor;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("abcexxx0", "val1"));
+  ASSERT_OK(Put("abcexxx1", "val2"));
+  ASSERT_OK(Put("abcexxx2", "val3"));
+  ASSERT_OK(Put("abcexxx3", "val4"));
+  ASSERT_OK(Put("abcexxx4", "val5"));
+  dbfull()->Flush(FlushOptions());
+  {
+    // make sure we can see all keys
+    Slice upper_bound("abcf");
+    ReadOptions read_options;
+    read_options.iterate_upper_bound = &upper_bound;
+    read_options.unified_seek = true;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    iter->Seek("abcd0000");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(CountIter(iter, "abcd0000"), 5);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 0);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  }
+  {
+    // when range is compatible, make sure BF will be used
+    Slice upper_bound("abcezzzz");
+    ReadOptions read_options;
+    read_options.iterate_upper_bound = &upper_bound;
+    read_options.unified_seek = true;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    // same prefix "abce" for seek key and upper bound, BF should be used
+    ASSERT_EQ(CountIter(iter, "abce0000"), 5);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 1);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+    // incompatible bounds, no BF used
+    ASSERT_EQ(CountIter(iter, "abcd0000"), 5);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 1);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  }
+}
+
 // use iterate_upper_bound to hint compatiability of existing bloom filters.
 // The BF is considered compatible if 1) upper bound and seek key transform
 // into the same string, or 2) the transformed seek key is of the same length

@@ -2521,6 +2521,27 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
   return new IndexBlockIter();
 }
 
+bool BlockBasedTable::IsFilterCompatible(
+    const Slice& internal_key, const ReadOptions& read_options,
+    const bool need_upper_bound_check) const {
+  if (read_options.unified_seek || need_upper_bound_check) {
+    const SliceTransform* prefix_extractor = rep_->table_prefix_extractor.get();
+
+    auto user_key = ExtractUserKey(internal_key);
+    if (prefix_extractor == nullptr || !prefix_extractor->InDomain(user_key)) {
+      return false;
+    }
+    FilterBlockReader* const filter = rep_->filter.get();
+    if (filter && !filter->IsBlockBased()) {
+      Slice prefix = prefix_extractor->Transform(user_key);
+      return filter->IsFilterCompatible(
+          read_options.iterate_upper_bound, prefix,
+          rep_->internal_comparator.user_comparator());
+    }
+  }
+  return false;
+}
+
 // This will be broken if the user specifies an unusual implementation
 // of Options.comparator, or if the user specifies an unusual
 // definition of prefixes in BlockBasedTableOptions.filter_policy.
@@ -3058,7 +3079,7 @@ InternalIterator* BlockBasedTable::NewIterator(
                 rep_->index_type == BlockBasedTableOptions::kHashSearch,
             /*input_iter=*/nullptr, /*get_context=*/nullptr, &lookup_context),
         !skip_filters && !read_options.total_order_seek &&
-            prefix_extractor != nullptr,
+            !read_options.unified_seek && prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, BlockType::kData, caller,
         compaction_readahead_size);
   } else {
@@ -3066,12 +3087,13 @@ InternalIterator* BlockBasedTable::NewIterator(
         arena->AllocateAligned(sizeof(BlockBasedTableIterator<DataBlockIter>));
     return new (mem) BlockBasedTableIterator<DataBlockIter>(
         this, read_options, rep_->internal_comparator,
-        NewIndexIterator(read_options, need_upper_bound_check &&
-                         rep_->index_type == BlockBasedTableOptions::kHashSearch,
-                         /*input_iter=*/nullptr, /*get_context=*/nullptr,
-                         &lookup_context),
+        NewIndexIterator(
+            read_options,
+            need_upper_bound_check &&
+                rep_->index_type == BlockBasedTableOptions::kHashSearch,
+            /*input_iter=*/nullptr, /*get_context=*/nullptr, &lookup_context),
         !skip_filters && !read_options.total_order_seek &&
-            prefix_extractor != nullptr,
+            !read_options.unified_seek && prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, BlockType::kData, caller,
         compaction_readahead_size);
   }

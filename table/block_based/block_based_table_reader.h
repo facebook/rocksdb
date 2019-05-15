@@ -126,6 +126,10 @@ class BlockBasedTable : public TableReader {
                       const bool need_upper_bound_check,
                       BlockCacheLookupContext* lookup_context) const;
 
+  // check if bloom filter should be enabled
+  bool IsFilterCompatible(const Slice& internal_key, const ReadOptions&,
+                          const bool need_upper_bound_check) const;
+
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
@@ -714,7 +718,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   }
 
   bool CheckPrefixMayMatch(const Slice& ikey) {
-    if (check_filter_ &&
+    if ((check_filter_ || table_->IsFilterCompatible(
+                              ikey, read_options_, need_upper_bound_check_)) &&
         !table_->PrefixMayMatch(ikey, read_options_, prefix_extractor_,
                                 need_upper_bound_check_, &lookup_context_)) {
       // TODO remember the iterator is invalidated because of prefix
