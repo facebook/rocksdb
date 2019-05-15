@@ -5096,6 +5096,9 @@ Status TransactionStressTestInserter(
   WriteOptions write_options;
   ReadOptions read_options;
   TransactionOptions txn_options;
+  if (rand->OneIn(2)) {
+    txn_options.use_only_the_last_commit_time_batch_for_recovery = true;
+  }
   // Inside the inserter we might also retake the snapshot. We do both since two
   // separte functions are engaged for each.
   txn_options.set_snapshot = rand->OneIn(2);

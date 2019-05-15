@@ -477,6 +477,7 @@ class MySQLStyleTransactionTest
       // structures.
       txn_db_options.wp_snapshot_cache_bits = 1;
       txn_db_options.wp_commit_cache_bits = 10;
+      options.write_buffer_size = 1024;
       EXPECT_OK(ReOpen());
     }
   };
