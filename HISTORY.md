@@ -13,7 +13,6 @@
 * Merging iterator to avoid child iterator reseek for some cases
 
 ### Bug Fixes
-* Fix an assertion failure `IsFlushPending() == true` caused by one bg thread releasing the db mutex in ~ColumnFamilyData and another thread clearing `flush_requested_` flag.
 
 ## 6.2.0 (4/30/2019)
 ### New Features
@@ -34,6 +33,7 @@
 * Fix a race condition between WritePrepared::Get and ::Put with duplicate keys.
 * Fix crash when memtable prefix bloom is enabled and read/write a key out of domain of prefix extractor.
 * Close a WAL file before another thread deletes it.
+* Fix an assertion failure `IsFlushPending() == true` caused by one bg thread releasing the db mutex in ~ColumnFamilyData and another thread clearing `flush_requested_` flag.
 
 ## 6.1.1 (4/9/2019)
 ### New Features
