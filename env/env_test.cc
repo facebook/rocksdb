@@ -1107,6 +1107,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
     file->MultiRead(&reqs);
     for (size_t i = 0; i < reqs.size(); ++i) {
       auto buf = NewAligned(kSectorSize * 8, i*2 + 1);
+      ASSERT_OK(reqs[i].status);
       ASSERT_EQ(memcmp(reqs[i].scratch, buf.get(), kSectorSize), 0);
     }
   }
