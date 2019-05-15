@@ -262,13 +262,15 @@ Status DBImplSecondary::RecoverLogFiles(
           if (cfds_changed->count(cfd) == 0) {
             cfds_changed->insert(cfd);
           }
-          auto curr_log_num = std::numeric_limits<uint64_t>::max();
-          if (current_log_.count(cfd) > 0) {
-            curr_log_num = current_log_[cfd];
+          auto curr_log_num = port::kMaxUint64;
+          if (cfd_to_current_log_.count(cfd) > 0) {
+            curr_log_num = cfd_to_current_log_[cfd];
           }
-          if (!cfd->mem()->IsEmpty() &&
-              (curr_log_num == std::numeric_limits<uint64_t>::max() ||
-               curr_log_num != log_number)) {
+          // If the active memtable contains records added by replaying an
+          // earlier WAL, then we need to seal the memtable, add it to the
+          // immutable memtable list and create a new active memtable.
+          if (!cfd->mem()->IsEmpty() && (curr_log_num == port::kMaxUint64 ||
+                                         curr_log_num != log_number)) {
             const MutableCFOptions mutable_cf_options =
                 *cfd->GetLatestMutableCFOptions();
             MemTable* new_mem =
@@ -306,9 +308,9 @@ Status DBImplSecondary::RecoverLogFiles(
             continue;
           }
           std::unordered_map<ColumnFamilyData*, uint64_t>::iterator iter =
-              current_log_.find(cfd);
-          if (iter == current_log_.end()) {
-            current_log_.insert({cfd, log_number});
+              cfd_to_current_log_.find(cfd);
+          if (iter == cfd_to_current_log_.end()) {
+            cfd_to_current_log_.insert({cfd, log_number});
           } else if (log_number > iter->second) {
             iter->second = log_number;
           }

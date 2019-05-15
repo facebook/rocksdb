@@ -212,7 +212,7 @@ class DBImplSecondary : public DBImpl {
   std::map<uint64_t, std::unique_ptr<LogReaderContainer>> log_readers_;
 
   // Current WAL number replayed for each column family.
-  std::unordered_map<ColumnFamilyData*, uint64_t> current_log_;
+  std::unordered_map<ColumnFamilyData*, uint64_t> cfd_to_current_log_;
 };
 
 }  // namespace rocksdb
