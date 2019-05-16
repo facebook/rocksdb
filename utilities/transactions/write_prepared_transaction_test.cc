@@ -573,7 +573,6 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite),
         std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite),
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite)));
 
 #ifndef ROCKSDB_VALGRIND_RUN
@@ -644,29 +643,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 16, 20),
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 17, 20),
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 18, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 19, 20),
-
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 0, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 1, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 2, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 3, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 4, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 5, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 6, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 7, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 8, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 9, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 10, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 11, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 12, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 13, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 14, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 15, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 16, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 17, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 18, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 19,
-                        20)));
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 19, 20)));
 
 INSTANTIATE_TEST_CASE_P(
     TwoWriteQueues, SeqAdvanceConcurrentTest,
@@ -704,18 +681,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 6, 10),
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 7, 10),
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 8, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 9, 10),
-
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 0, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 1, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 2, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 3, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 4, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 5, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 6, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 7, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 8, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite, 9, 10)));
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 9, 10)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(WritePreparedTransactionTest, CommitMapTest) {

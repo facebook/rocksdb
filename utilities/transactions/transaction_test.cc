@@ -47,7 +47,6 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, true, WRITE_COMMITTED, kOrderedWrite),
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite),
         std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite),
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite),
         std::make_tuple(false, false, WRITE_UNPREPARED, kOrderedWrite),
         std::make_tuple(false, true, WRITE_UNPREPARED, kOrderedWrite)));
@@ -58,7 +57,6 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, true, WRITE_COMMITTED, kOrderedWrite),
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite),
         std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite),
-        std::make_tuple(false, false, WRITE_PREPARED, kUnorderedWrite),
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite),
         std::make_tuple(false, false, WRITE_UNPREPARED, kOrderedWrite),
         std::make_tuple(false, true, WRITE_UNPREPARED, kOrderedWrite)));
