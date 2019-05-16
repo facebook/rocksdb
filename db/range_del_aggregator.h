@@ -320,8 +320,10 @@ class RangeDelAggregator {
                       RangeDelPositioningMode mode);
 
     void Invalidate() {
-      InvalidateForwardIter();
-      InvalidateReverseIter();
+      if (!IsEmpty()) {
+        InvalidateForwardIter();
+        InvalidateReverseIter();
+      }
     }
 
     bool IsRangeOverlapped(const Slice& start, const Slice& end);
