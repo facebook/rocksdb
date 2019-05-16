@@ -899,8 +899,9 @@ struct DBOptions {
   // ::MultiGet and Iterator's consistent-point-in-time view property.
   // If the application cannot tolerate the relaxed guarantees, it can implement
   // its own mechanisms to work around that and yet benefit from the higher
-  // throughput. Using TransactionDB with WRITE_PREPARED write policy is one way
-  // to achieve immutable snapshots despite unordered_write.
+  // throughput. Using TransactionDB with WRITE_PREPARED write policy and
+  // two_write_queues=true is one way to achieve immutable snapshots despite
+  // unordered_write.
   //
   // By default, i.e., when it is false, rocksdb does not advance the sequence
   // number for new snapshots unless all the writes with lower sequence numbers

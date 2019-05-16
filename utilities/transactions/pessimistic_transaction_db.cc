@@ -232,6 +232,12 @@ Status TransactionDB::Open(
     return Status::NotSupported(
         "WRITE_UNPREPARED is currently incompatible with unordered_writes");
   }
+  if (txn_db_options.write_policy == WRITE_PREPARED &&
+      db_options.unordered_write && !db_options.two_write_queues) {
+    return Status::NotSupported(
+        "WRITE_UNPREPARED is incompatible with unordered_writes if "
+        "two_write_queues is not enabled.");
+  }
 
   std::vector<ColumnFamilyDescriptor> column_families_copy = column_families;
   std::vector<size_t> compaction_enabled_cf_indices;
