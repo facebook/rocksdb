@@ -2933,6 +2933,8 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       iiter_unique_ptr.reset(iiter);
     }
 
+    std::unique_ptr<DataBlockIter> biter(new DataBlockIter());;
+    BlockHandle bhandle;
     for (auto miter = sst_file_range.begin(); miter != sst_file_range.end();
          ++miter) {
       Status s;
@@ -2941,25 +2943,28 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       bool matched = false;  // if such user key matched a key in SST
       bool done = false;
       for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
-        DataBlockIter biter;
-        NewDataBlockIterator<DataBlockIter>(
-            read_options, iiter->value(), &biter, BlockType::kData,
-            true /* key_includes_seq */, get_context);
+        if (iiter->value().offset() != bhandle.offset()) {
+          bhandle = iiter->value();
+          biter.reset(new DataBlockIter());
+          NewDataBlockIterator<DataBlockIter>(
+              rep_, read_options, bhandle, biter.get(), false,
+              true /* key_includes_seq */, get_context);
+        }
 
         if (read_options.read_tier == kBlockCacheTier &&
-            biter.status().IsIncomplete()) {
+            biter->status().IsIncomplete()) {
           // couldn't get block from block_cache
           // Update Saver.state to Found because we are only looking for
           // whether we can guarantee the key is not there when "no_io" is set
           get_context->MarkKeyMayExist();
           break;
         }
-        if (!biter.status().ok()) {
-          s = biter.status();
+        if (!biter->status().ok()) {
+          s = biter->status();
           break;
         }
 
-        bool may_exist = biter.SeekForGet(key);
+        bool may_exist = biter->SeekForGet(key);
         if (!may_exist) {
           // HashSeek cannot find the key this block and the the iter is not
           // the end of the block, i.e. cannot be in the following blocks
@@ -2969,20 +2974,20 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         }
 
         // Call the *saver function on each entry/block until it returns false
-        for (; biter.Valid(); biter.Next()) {
+        for (; biter->Valid(); biter->Next()) {
           ParsedInternalKey parsed_key;
-          if (!ParseInternalKey(biter.key(), &parsed_key)) {
+          if (!ParseInternalKey(biter->key(), &parsed_key)) {
             s = Status::Corruption(Slice());
           }
 
           if (!get_context->SaveValue(
-                  parsed_key, biter.value(), &matched,
-                  biter.IsValuePinned() ? &biter : nullptr)) {
+                  parsed_key, biter->value(), &matched,
+                  biter->IsValuePinned() ? biter.get() : nullptr)) {
             done = true;
             break;
           }
         }
-        s = biter.status();
+        s = biter->status();
         if (done) {
           // Avoid the extra Next which is expensive in two-level indexes
           break;
