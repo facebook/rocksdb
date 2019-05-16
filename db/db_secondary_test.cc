@@ -584,6 +584,71 @@ TEST_F(DBSecondaryTest, SwitchWAL) {
     verify_db(dbfull(), handles_, db_secondary_, handles_secondary_);
   }
 }
+
+TEST_F(DBSecondaryTest, CatchUpAfterFlush) {
+  const int kNumKeysPerMemtable = 16;
+  Options options;
+  options.env = env_;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 2;
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(kNumKeysPerMemtable));
+  Reopen(options);
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondary(options1);
+
+  WriteOptions write_opts;
+  WriteBatch wb;
+  wb.Put("key0", "value0");
+  wb.Put("key1", "value1");
+  ASSERT_OK(dbfull()->Write(write_opts, &wb));
+  ReadOptions read_opts;
+  std::unique_ptr<Iterator> iter1(db_secondary_->NewIterator(read_opts));
+  iter1->Seek("key0");
+  ASSERT_FALSE(iter1->Valid());
+  iter1->Seek("key1");
+  ASSERT_FALSE(iter1->Valid());
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  iter1->Seek("key0");
+  ASSERT_FALSE(iter1->Valid());
+  iter1->Seek("key1");
+  ASSERT_FALSE(iter1->Valid());
+  std::unique_ptr<Iterator> iter2(db_secondary_->NewIterator(read_opts));
+  iter2->Seek("key0");
+  ASSERT_TRUE(iter2->Valid());
+  ASSERT_EQ("value0", iter2->value());
+  iter2->Seek("key1");
+  ASSERT_TRUE(iter2->Valid());
+  ASSERT_EQ("value1", iter2->value());
+
+  {
+    WriteBatch wb1;
+    wb1.Put("key0", "value01");
+    wb1.Put("key1", "value11");
+    ASSERT_OK(dbfull()->Write(write_opts, &wb1));
+  }
+
+  {
+    WriteBatch wb2;
+    wb2.Put("key0", "new_value0");
+    wb2.Delete("key1");
+    ASSERT_OK(dbfull()->Write(write_opts, &wb2));
+  }
+
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  std::unique_ptr<Iterator> iter3(db_secondary_->NewIterator(read_opts));
+  // iter3 should not see value01 and value11 at all.
+  iter3->Seek("key0");
+  ASSERT_TRUE(iter3->Valid());
+  ASSERT_EQ("new_value0", iter3->value());
+  iter3->Seek("key1");
+  ASSERT_FALSE(iter3->Valid());
+}
 #endif  //! ROCKSDB_LITE
 
 }  // namespace rocksdb
