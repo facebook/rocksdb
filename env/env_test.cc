@@ -247,42 +247,46 @@ TEST_F(EnvPosixTest, MemoryMappedFileBuffer) {
   ASSERT_EQ(expected_data, actual_data);
 }
 
-TEST_F(EnvPosixTest, LoadLibrary) {
+TEST_F(EnvPosixTest, LoadRocksDBLibrary) {
   std::shared_ptr<DynamicLibrary> library;
   std::function<void*(void *, const char*)> function;
   Status status = env_->LoadLibrary("no-such-library", "", &library);
   ASSERT_NOK(status);
   ASSERT_EQ(nullptr, library.get());
-#if ! defined(OS_WIN)
-  status = env_->LoadLibrary("dl", "", &library);
-  ASSERT_OK(status);
-  ASSERT_NE(nullptr, library.get());
-  ASSERT_OK(library->LoadFunction("dlsym", &function));
-  ASSERT_NE(nullptr, function);
-  ASSERT_NOK(library->LoadFunction("no-such-method", &function));
-  ASSERT_EQ(nullptr, function);
-  ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
-#endif
+  status = env_->LoadLibrary("rocksdb", "", &library);
+  if (status.ok()) { // If we have can find a rocksdb shared library
+    ASSERT_NE(nullptr, library.get());
+    ASSERT_OK(library->LoadFunction("rocksdb_create_default_env", &function)); // from C definition
+    ASSERT_NE(nullptr, function);
+    ASSERT_NOK(library->LoadFunction("no-such-method", &function));
+    ASSERT_EQ(nullptr, function);
+    ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
+  } else {
+    ASSERT_EQ(nullptr, library.get());
+  }
 }
 
 #if ! defined(OS_WIN)
-TEST_F(EnvPosixTest, LoadLibraryWithSearchPath) {
+TEST_F(EnvPosixTest, LoadRocksDBLibraryWithSearchPath) {
   std::shared_ptr<DynamicLibrary> library;
   std::function<void*(void *, const char*)> function;
   ASSERT_NOK(env_->LoadLibrary("no-such-library", "/tmp", &library));
   ASSERT_EQ(nullptr, library.get());
   ASSERT_NOK(env_->LoadLibrary("dl", "/tmp", &library));
   ASSERT_EQ(nullptr, library.get());
-#ifdef ROCKSDB_DLL // If we are building or using shared libraries
+  Status status = env_->LoadLibrary("rocksdb", "/tmp:./", &library);
+  if (status.ok()) {
+    ASSERT_NE(nullptr, library.get());
+    ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
+  }
   char buff[1024];
   std::string cwd = getcwd(buff, sizeof(buff));
   
-  ASSERT_OK(env_->LoadLibrary("rocksdb", "/tmp:/usr/lib:/usr/lib64:" + cwd, &library));
-  ASSERT_NE(nullptr, library.get());
-  ASSERT_EQ(libname.find(cwd), 0);
-  ASSERT_NE(libname.find("rocksdb", cwd.size()), std::string::npos);
-  ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
-#endif // ROCKSDB_DLL
+  status = env_->LoadLibrary("rocksdb", "/tmp:" + cwd, &library);
+  if (status.ok()) {
+    ASSERT_NE(nullptr, library.get());
+    ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
+  }
 }
 #endif
 
