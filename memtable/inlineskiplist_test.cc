@@ -179,7 +179,7 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
 
     // Repeat seek to the first key five times, to cover reseek code.
     // Doing some Next() in the middle.
-    // In this case, reseek should be triggered.
+    // In this case, reseek should not be triggered.
     for (int i = 0; i < 5; i++) {
       uint64_t zero = 0;
       iter.Seek(Encode(&zero));
