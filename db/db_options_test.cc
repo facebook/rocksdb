@@ -807,7 +807,6 @@ int countkeys(Iterator* iter) {
   return count;
 }
 
-// TODO(Zhognyi): add data correctness verification
 TEST_F(DBOptionsTest, GetStatsHistoryFromDisk) {
   Options options;
   options.create_if_missing = true;
@@ -954,6 +953,9 @@ TEST_F(DBOptionsTest, PersitentStatsVerifyValue) {
     }
   }
   ASSERT_EQ(recovered_value, new_recovered_value);
+
+  // TODO(Zhongyi): also add test to read raw values from disk and verify
+  // correctness
   Close();
 }
 

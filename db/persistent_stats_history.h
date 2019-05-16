@@ -12,9 +12,6 @@
 
 namespace rocksdb {
 
-// 16 digit microseconds timestamp => [Sep 9, 2001 ~ Nov 20, 2286]
-extern const int kNowMicrosStringLength;
-
 class PersistentStatsHistoryIterator final : public StatsHistoryIterator {
  public:
   PersistentStatsHistoryIterator(uint64_t start_time, uint64_t end_time,

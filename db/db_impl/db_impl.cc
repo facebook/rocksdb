@@ -676,7 +676,6 @@ size_t DBImpl::EstimateInMemoryStatsHistorySize() const {
 
 void DBImpl::PersistStats() {
   TEST_SYNC_POINT("DBImpl::PersistStats:Entry");
-  // 16 digit microseconds timestamp => [Sep 9, 2001 ~ Nov 20, 2286]
 #ifndef ROCKSDB_LITE
   if (shutdown_initiated_) {
     return;
@@ -698,11 +697,13 @@ void DBImpl::PersistStats() {
   }
 
   if (immutable_db_options_.persist_stats_to_disk) {
-    char* timestamp = new char[kNowMicrosStringLength + 1];
-    memset(timestamp, 0, kNowMicrosStringLength + 1);
+    // 10 digit microseconds timestamp => [Sep 9, 2001 ~ Nov 20, 2286]
+    const int kNowSecondsStringLength = 10;
+    char timestamp[kNowSecondsStringLength + 1];
     // make time stamp string equal in length to allow sorting by time
-    snprintf(timestamp, kNowMicrosStringLength + 1, "%016d",
-             static_cast<int>(now_micros));
+    snprintf(timestamp, sizeof(timestamp), "%010d",
+             static_cast<int>(now_micros / 1000000));
+    timestamp[kNowSecondsStringLength] = '\0';
 
     WriteOptions wo;
     wo.low_pri = true;
@@ -713,7 +714,6 @@ void DBImpl::PersistStats() {
     if (stats_slice_initialized_) {
       for (const auto& stat : stats_map) {
         char key[100];
-        memset(key, 0, 100);
         int length =
             snprintf(key, sizeof(key), "%s#%s", timestamp, stat.first.c_str());
         // calculate the delta from last time
@@ -729,7 +729,6 @@ void DBImpl::PersistStats() {
     std::swap(stats_slice_, stats_map);
     Write(rocksdb::WriteOptions(), &batch);
     // TODO(Zhongyi): add purging for persisted data
-    delete[] timestamp;
   } else {
     InstrumentedMutexLock l(&stats_history_mutex_);
     // calculate the delta from last time

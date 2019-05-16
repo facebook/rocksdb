@@ -379,23 +379,17 @@ Status DBImpl::Recover(
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
   }
-  // create persistent_stats CF for the first time
-  // DB mutex is already held
-  if (s.ok() && immutable_db_options_.persist_stats_to_disk) {
-    s = InitPersistStatsColumnFamily();
-  }
   if (s.ok() && !read_only) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      // skip directory creation if persistent_stats CF was just created
-      if (cfd->GetName().compare(kPersistentStatsColumnFamilyName) == 0 &&
-          persist_stats_cf_handle_ != nullptr) {
-        continue;
-      }
       s = cfd->AddDirectories();
       if (!s.ok()) {
         return s;
       }
     }
+  }
+  // DB mutex is already held
+  if (s.ok() && immutable_db_options_.persist_stats_to_disk) {
+    s = InitPersistStatsColumnFamily();
   }
 
   // Initial max_total_in_memory_state_ before recovery logs. Log recovery

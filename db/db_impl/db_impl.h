@@ -1179,6 +1179,8 @@ class DBImpl : public DB {
     PrepickedCompaction* prepicked_compaction;
   };
 
+  // Initialize the built-in column family for persistent stats.
+  // Required: DB mutex held
   Status InitPersistStatsColumnFamily();
 
   Status ResumeImpl();
