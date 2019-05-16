@@ -1077,7 +1077,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
 #endif
     ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
     for (size_t i = 0; i < kNumSectors; ++i) {
-      auto data = NewAligned(kSectorSize * 8, i + 1);
+      auto data = NewAligned(kSectorSize * 8, static_cast<const char>(i + 1));
       Slice slice(data.get(), kSectorSize);
       ASSERT_OK(wfile->Append(slice));
     }

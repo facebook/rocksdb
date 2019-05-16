@@ -619,6 +619,7 @@ class RandomAccessFile {
   // should return after all reads have completed. The reads will be
   // non-overlapping
   virtual void MultiRead(std::vector<ReadRequest>* reqs) {
+    assert(reqs != nullptr);
     for (size_t i = 0; i < reqs->size(); ++i) {
       ReadRequest& req = (*reqs)[i];
       req.status = Read(req.offset, req.len, &req.result, req.scratch);
@@ -1345,6 +1346,9 @@ class RandomAccessFileWrapper : public RandomAccessFile {
   Status Read(uint64_t offset, size_t n, Slice* result,
               char* scratch) const override {
     return target_->Read(offset, n, result, scratch);
+  }
+  void MultiRead(std::vector<ReadRequest>* reqs) override {
+    target_->MultiRead(reqs);
   }
   Status Prefetch(uint64_t offset, size_t n) override {
     return target_->Prefetch(offset, n);
