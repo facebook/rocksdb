@@ -6,6 +6,7 @@
 ### New Features
 * Add an option `snap_refresh_nanos` (default to 0.1s) to periodically refresh the snapshot list in compaction jobs. Assign to 0 to disable the feature.
 * Add an option `unordered_write` which trades snapshot guarantees with higher write throughput. When used with WRITE_PREPARED transactions, it offers higher throughput with however no compromise on guarantees.
+* Allow DBImplSecondary to remove memtables with obsolete data after replaying MANIFEST and WAL.
 
 ### Performance Improvements
 * Reduce binary search when iterator reseek into the same data block.
