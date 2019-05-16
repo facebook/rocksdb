@@ -176,6 +176,13 @@ class InlineSkipList {
    private:
     const InlineSkipList* list_;
     Node* node_;
+    // A hint for reseeking to the next position.
+    // This points to the previous position of guessed seek result
+    Node* hint_prev_ = nullptr;
+    // we can potentially remove this memory usage by hacking into
+    // `hint_prev_` but the code will be harder to read. Can consider it
+    // if it is needed.
+    int num_seek_to_same_pos = 0;
     // Intentionally copyable
   };
 
@@ -389,7 +396,49 @@ inline void InlineSkipList<Comparator>::Iterator::Prev() {
 
 template <class Comparator>
 inline void InlineSkipList<Comparator>::Iterator::Seek(const char* target) {
+  // Generate hint when needed.
+  // This will make current Seek() slightly slower, but will benefit
+  // following seeks.
+  const int kThresholdSetupHint = 2;
+  if (num_seek_to_same_pos == kThresholdSetupHint && node_ != nullptr) {
+    // Most likely reseeked to the same position, though there are other
+    // cases, but he counter doesn't have to be totally accurate.
+    // Hint will be rechecked again, so a wrong hint will never generate
+    // wrong results.
+    // Only generate hint when we just hit kThresholdSetupHint.
+    hint_prev_ = list_->FindLessThan(node_->Key());
+    // We don't handle the case that we seek to the first or beyond the last
+    // entry. We couldn't handle it but not doing it for now to keep the
+    // code simpler.
+    if (hint_prev_ == list_->head_) {
+      hint_prev_ = nullptr;
+    }
+  }
+
+  if (hint_prev_ != nullptr) {
+    // try reseek to the same position.
+    Node* hint_node = hint_prev_->Next(0);
+    assert(hint_node != nullptr);
+    if (list_->LessThan(hint_prev_->Key(), target) &&
+        !list_->LessThan(hint_node->Key(), target)) {
+      node_ = hint_node;
+      num_seek_to_same_pos++;
+      return;
+    } else {
+      // Hint didn't work. Reset it.
+      hint_prev_ = nullptr;
+    }
+  }
+
+  Node* prev_node_ = node_;  // For tracking seeking to the same position.
+
   node_ = list_->FindGreaterOrEqual(target);
+
+  if (prev_node_ == node_) {
+    num_seek_to_same_pos++;
+  } else {
+    num_seek_to_same_pos = 0;
+  }
 }
 
 template <class Comparator>

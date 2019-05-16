@@ -153,15 +153,52 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
     InlineSkipList<TestComparator>::Iterator iter(&list);
     ASSERT_TRUE(!iter.Valid());
 
-    uint64_t zero = 0;
-    iter.Seek(Encode(&zero));
-    ASSERT_TRUE(iter.Valid());
-    ASSERT_EQ(*(keys.begin()), Decode(iter.key()));
+    // Repeat five times, to cover reseek code.
+    // In this case, reseek shouldn't be triggered as
+    // There is no prev of the seek results.
+    for (int i = 0; i < 5; i++) {
+      uint64_t zero = 0;
+      iter.Seek(Encode(&zero));
+      ASSERT_TRUE(iter.Valid());
+      ASSERT_EQ(*(keys.begin()), Decode(iter.key()));
+    }
 
     uint64_t max_key = R - 1;
     iter.SeekForPrev(Encode(&max_key));
     ASSERT_TRUE(iter.Valid());
     ASSERT_EQ(*(keys.rbegin()), Decode(iter.key()));
+
+    // Repeat seek five times, to cover reseek code.
+    // In this case, reseek should be triggered.
+    for (int i = 0; i < 5; i++) {
+      Key last_key = *keys.rbegin();
+      iter.Seek(Encode(&last_key));
+      ASSERT_TRUE(iter.Valid());
+      ASSERT_EQ(*(keys.rbegin()), Decode(iter.key()));
+    }
+
+    // Repeat seek to the first key five times, to cover reseek code.
+    // Doing some Next() in the middle.
+    // In this case, reseek should be triggered.
+    for (int i = 0; i < 5; i++) {
+      uint64_t zero = 0;
+      iter.Seek(Encode(&zero));
+      ASSERT_TRUE(iter.Valid());
+      ASSERT_EQ(*(keys.begin()), Decode(iter.key()));
+      if (i % 2 == 0) {
+        iter.Next();
+      } else {
+        iter.Prev();
+      }
+    }
+
+    // Repeat seek five times for not found key, to cover reseek code.
+    // In this case, reseek should be not triggered.
+    uint64_t large_key = R + 1;
+    for (int i = 0; i < 5; i++) {
+      iter.Seek(Encode(&large_key));
+      ASSERT_FALSE(iter.Valid());
+    }
 
     iter.SeekToFirst();
     ASSERT_TRUE(iter.Valid());
