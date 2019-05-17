@@ -155,9 +155,21 @@ Replayer::Replayer(DB* db, const std::vector<ColumnFamilyHandle*>& handles,
   for (ColumnFamilyHandle* cfh : handles) {
     cf_map_[cfh->GetID()] = cfh;
   }
+  fast_forward_ = 1;
 }
 
 Replayer::~Replayer() { trace_reader_.reset(); }
+
+Status Replayer::SetFastForward(uint32_t fast_forward) {
+  Status s;
+  if (fast_forward < 1) {
+    s = Status::InvalidArgument("Wrong fast forward speed!");
+  } else {
+    fast_forward_ = fast_forward;
+    s = Status::OK();
+  }
+  return s;
+}
 
 Status Replayer::Replay() {
   Status s;
@@ -182,7 +194,8 @@ Status Replayer::Replay() {
     }
 
     std::this_thread::sleep_until(
-        replay_epoch + std::chrono::microseconds(trace.ts - header.ts));
+        replay_epoch +
+        std::chrono::microseconds((trace.ts - header.ts) / fast_forward_));
     if (trace.type == kTraceWrite) {
       WriteBatch batch(trace.payload);
       db_->Write(woptions, &batch);
