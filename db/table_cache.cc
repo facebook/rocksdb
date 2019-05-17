@@ -26,6 +26,8 @@
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
+#include "test_util/sync_point.h"
+#include "table/block_based/block_based_table_reader.h"
 
 namespace rocksdb {
 
@@ -43,12 +45,12 @@ static void UnrefEntry(void* arg1, void* arg2) {
   cache->Release(h);
 }
 
-static void DeleteTableReader(void* arg1, void* arg2) {
-  TableReader* table_reader = reinterpret_cast<TableReader*>(arg1);
-  Statistics* stats = reinterpret_cast<Statistics*>(arg2);
-  RecordTick(stats, NO_FILE_CLOSES);
-  delete table_reader;
-}
+//static void DeleteTableReader(void* arg1, void* arg2) {
+//  TableReader* table_reader = reinterpret_cast<TableReader*>(arg1);
+//  Statistics* stats = reinterpret_cast<Statistics*>(arg2);
+//  RecordTick(stats, NO_FILE_CLOSES);
+//  delete table_reader;
+//}
 
 static Slice GetSliceForFileNumber(const uint64_t* file_number) {
   return Slice(reinterpret_cast<const char*>(file_number),
@@ -112,7 +114,7 @@ Status TableCache::GetTableReader(
       // its wrapped file's Read() to copy data into the provided scratch
       // buffer, which mmap files don't use.
       // TODO(ajkr): try madvise for mmap files in place of buffered readahead.
-      file = NewReadaheadRandomAccessFile(std::move(file), readahead);
+//      file = NewReadaheadRandomAccessFile(std::move(file), readahead);
     }
     if (!sequential_mode && ioptions_.advise_random_on_open) {
       file->Hint(RandomAccessFile::RANDOM);
@@ -202,7 +204,7 @@ InternalIterator* TableCache::NewIterator(
   if (table_reader_ptr != nullptr) {
     *table_reader_ptr = nullptr;
   }
-  size_t readahead = 0;
+//  size_t readahead = 0;
   if (for_compaction) {
 #ifndef NDEBUG
     bool use_direct_reads_for_compaction = env_options.use_direct_reads;
@@ -212,22 +214,31 @@ InternalIterator* TableCache::NewIterator(
     if (ioptions_.new_table_reader_for_compaction_inputs) {
       // get compaction_readahead_size from env_options allows us to set the
       // value dynamically
-      readahead = env_options.compaction_readahead_size;
+//      readahead = env_options.compaction_readahead_size;
       create_new_table_reader = true;
     }
   }
 
   auto& fd = file_meta.fd;
   if (create_new_table_reader) {
-    std::unique_ptr<TableReader> table_reader_unique_ptr;
-    s = GetTableReader(
-        env_options, icomparator, fd, true /* sequential_mode */, readahead,
-        !for_compaction /* record stats */, nullptr, &table_reader_unique_ptr,
-        prefix_extractor, false /* skip_filters */, level,
-        true /* prefetch_index_and_filter_in_cache */, for_compaction);
-    if (s.ok()) {
-      table_reader = table_reader_unique_ptr.release();
-    }
+//    std::unique_ptr<TableReader> table_reader_unique_ptr;
+//    s = GetTableReader(
+//        env_options, icomparator, fd, true /* sequential_mode */, readahead,
+//        !for_compaction /* record stats */, nullptr, &table_reader_unique_ptr,
+//        prefix_extractor, false /* skip_filters */, level,
+//        true /* prefetch_index_and_filter_in_cache */, for_compaction);
+//    if (s.ok()) {
+//      table_reader = table_reader_unique_ptr.release();
+//    }
+	  table_reader = fd.table_reader;
+	  if (table_reader == nullptr) {
+		  s = FindTable(env_options, icomparator, fd, &handle, prefix_extractor,
+	  		    		options.read_tier == kBlockCacheTier, !for_compaction /*false*/,
+	  					/*file_read_hist*/ nullptr, /*skip_filters*/ false, level, true);
+		  if (s.ok()) {
+			  table_reader = GetTableReaderFromHandle(handle);
+	  	  }
+	  }
   } else {
     table_reader = fd.table_reader;
     if (table_reader == nullptr) {
@@ -250,9 +261,9 @@ InternalIterator* TableCache::NewIterator(
                                          skip_filters, for_compaction);
     }
     if (create_new_table_reader) {
-      assert(handle == nullptr);
-      result->RegisterCleanup(&DeleteTableReader, table_reader,
-                              ioptions_.statistics);
+//      assert(handle == nullptr);
+//      result->RegisterCleanup(&DeleteTableReader, table_reader,
+//                              ioptions_.statistics);
     } else if (handle != nullptr) {
       result->RegisterCleanup(&UnrefEntry, cache_, handle);
       handle = nullptr;  // prevent from releasing below

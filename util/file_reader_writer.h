@@ -169,6 +169,10 @@ class RandomAccessFileReader {
   std::string file_name() const { return file_name_; }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
+
+  void set_for_compaction(bool for_compaction) {
+		for_compaction_ = for_compaction;
+  }
 };
 
 // WritableFileWriter is a wrapper on top of Env::WritableFile. It provides

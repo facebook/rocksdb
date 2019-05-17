@@ -2144,6 +2144,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
       s = block_cache->Insert(unique_key, nullptr,
                               block.GetValue()->ApproximateMemoryUsage(),
                               nullptr, &cache_handle);
+
       if (s.ok()) {
         assert(cache_handle != nullptr);
         iter->RegisterCleanup(&ForceReleaseCachedEntry, block_cache,
@@ -2678,7 +2679,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
     //   Enabled after 2 sequential IOs when ReadOptions.readahead_size == 0.
     // Explicit user requested readahead:
     //   Enabled from the very first IO when ReadOptions.readahead_size is set.
-    if (!for_compaction_) {
+//    if (!for_compaction_) {
       if (read_options_.readahead_size == 0) {
         // Implicit auto readahead
         num_file_reads_++;
@@ -2714,7 +2715,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
             rep->file.get(), read_options_.readahead_size,
             read_options_.readahead_size));
       }
-    }
+//    }
 
     Status s;
     table_->NewDataBlockIterator<TBlockIter>(
