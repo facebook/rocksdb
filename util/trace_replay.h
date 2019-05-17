@@ -88,6 +88,7 @@ class Replayer {
   ~Replayer();
 
   Status Replay();
+  Status SetFastForward(uint32_t fast_forward);
 
  private:
   Status ReadHeader(Trace* header);
@@ -97,6 +98,7 @@ class Replayer {
   DBImpl* db_;
   std::unique_ptr<TraceReader> trace_reader_;
   std::unordered_map<uint32_t, ColumnFamilyHandle*> cf_map_;
+  uint32_t fast_forward_;
 };
 
 }  // namespace rocksdb
