@@ -1385,13 +1385,13 @@ Status DBImpl::Get(const ReadOptions& read_options,
     }
     return GetImpl(read_options, column_family, key, value);
   }
-  Slice akey;
-  std::string buf;
-  Status s = AppendTimestamp(key, *(read_options.timestamp), &akey, &buf);
-  if (!s.ok()) {
-    return s;
-  }
   if (read_options.timestamp != nullptr) {
+    Slice akey;
+    std::string buf;
+    Status s = AppendTimestamp(key, *(read_options.timestamp), &akey, &buf);
+    if (!s.ok()) {
+      return s;
+    }
     return GetImpl(read_options, column_family, akey, value);
   } else {
     return Status::InvalidArgument("Timestamp must be specified.");

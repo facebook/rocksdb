@@ -1677,6 +1677,23 @@ size_t DBImpl::GetWalPreallocateBlockSize(uint64_t write_buffer_size) const {
 // can call if they wish
 Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                const Slice& key, const Slice& value) {
+  ColumnFamilyData* cfd =
+      static_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  const Comparator* comparator = cfd->user_comparator();
+  if (comparator->timestamp_size() == 0) {
+    if (opt.timestamp != nullptr) {
+      return Status::InvalidArgument("Timestamp not supported");
+    }
+    // Pre-allocate size of write batch conservatively.
+    // 8 bytes are taken by header, 4 bytes for count, 1 byte for type,
+    // and we allocate 11 extra bytes for key length, as well as value length.
+    WriteBatch batch(key.size() + value.size() + 24);
+    Status s = batch.Put(column_family, key, value);
+    if (!s.ok()) {
+      return s;
+    }
+    return Write(opt, &batch);
+  }
   if (opt.timestamp != nullptr) {
     Slice akey;
     std::string buf;
@@ -1690,16 +1707,9 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
       return s;
     }
     return Write(opt, &batch);
+  } else {
+    return Status::InvalidArgument("Timestamp must be specified.");
   }
-  // Pre-allocate size of write batch conservatively.
-  // 8 bytes are taken by header, 4 bytes for count, 1 byte for type,
-  // and we allocate 11 extra bytes for key length, as well as value length.
-  WriteBatch batch(key.size() + value.size() + 24);
-  Status s = batch.Put(column_family, key, value);
-  if (!s.ok()) {
-    return s;
-  }
-  return Write(opt, &batch);
 }
 
 Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
