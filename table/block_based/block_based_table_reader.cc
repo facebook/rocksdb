@@ -2934,7 +2934,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
     }
 
     DataBlockIter biter;
-    BlockHandle bhandle;
+    BlockHandle bhandle = BlockHandle::NullBlockHandle();
     for (auto miter = sst_file_range.begin(); miter != sst_file_range.end();
          ++miter) {
       Status s;
@@ -2943,7 +2943,8 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       bool matched = false;  // if such user key matched a key in SST
       bool done = false;
       for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
-        if (iiter->value().offset() != bhandle.offset()) {
+        if (iiter->value().offset() != bhandle.offset() ||
+            iiter->value().size() != bhandle.size()) {
           bhandle = iiter->value();
           biter.Invalidate(Status::OK());
           NewDataBlockIterator<DataBlockIter>(
