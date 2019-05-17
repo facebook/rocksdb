@@ -588,7 +588,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   void SeekToFirst() override;
   void SeekToLast() override;
   void Next() final override;
-  bool NextAndGetResult(Slice* ret_key) override;
+  bool NextAndGetResult(IterateResult* result) override;
   void Prev() override;
   bool Valid() const override {
     return !is_out_of_bound_ && block_iter_points_to_real_block_ &&
@@ -618,6 +618,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
 
   // Whether iterator invalidated for being out of bound.
   bool IsOutOfBound() override { return is_out_of_bound_; }
+
+  inline bool MayBeOutOfUpperBound() override {
+    assert(Valid());
+    return !data_block_within_upper_bound_;
+  }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     pinned_iters_mgr_ = pinned_iters_mgr;
@@ -680,6 +685,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   TBlockIter block_iter_;
   bool block_iter_points_to_real_block_;
   bool is_out_of_bound_ = false;
+  // Whether current data block being fully within iterate upper bound.
+  bool data_block_within_upper_bound_ = false;
   bool check_filter_;
   // TODO(Zhongyi): pick a better name
   bool need_upper_bound_check_;
