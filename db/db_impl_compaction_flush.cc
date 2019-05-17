@@ -2713,7 +2713,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   if (status.ok() || status.IsCompactionTooLarge()) {
     // Done
-  } else if (status.IsShutdownInProgress() || status.IsColumnFamilyDropped()) {
+  } else if (status.IsColumnFamilyDropped()) {
     // Ignore compaction errors found during shutting down
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log, "Compaction error: %s",
