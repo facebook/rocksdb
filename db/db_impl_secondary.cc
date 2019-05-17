@@ -18,68 +18,6 @@
 namespace rocksdb {
 
 #ifndef ROCKSDB_LITE
-
-class ColumnFamilyCollector : public WriteBatch::Handler {
-  std::unordered_set<uint32_t> column_family_ids_;
-
-  Status AddColumnFamilyId(uint32_t column_family_id) {
-    if (column_family_ids_.find(column_family_id) == column_family_ids_.end()) {
-      column_family_ids_.insert(column_family_id);
-    }
-    return Status::OK();
-  }
-
- public:
-  explicit ColumnFamilyCollector() {}
-
-  ~ColumnFamilyCollector() override {}
-
-  Status PutCF(uint32_t column_family_id, const Slice&, const Slice&) override {
-    return AddColumnFamilyId(column_family_id);
-  }
-
-  Status DeleteCF(uint32_t column_family_id, const Slice&) override {
-    return AddColumnFamilyId(column_family_id);
-  }
-
-  Status SingleDeleteCF(uint32_t column_family_id, const Slice&) override {
-    return AddColumnFamilyId(column_family_id);
-  }
-
-  Status DeleteRangeCF(uint32_t column_family_id, const Slice&,
-                       const Slice&) override {
-    return AddColumnFamilyId(column_family_id);
-  }
-
-  Status MergeCF(uint32_t column_family_id, const Slice&,
-                 const Slice&) override {
-    return AddColumnFamilyId(column_family_id);
-  }
-
-  Status PutBlobIndexCF(uint32_t column_family_id, const Slice&,
-                        const Slice&) override {
-    return AddColumnFamilyId(column_family_id);
-  }
-
-  const std::unordered_set<uint32_t>& column_families() const {
-    return column_family_ids_;
-  }
-};
-
-Status CollectColumnFamilyIdsFromWriteBatch(
-    const WriteBatch& batch, std::vector<uint32_t>* column_family_ids) {
-  assert(column_family_ids != nullptr);
-  column_family_ids->clear();
-  ColumnFamilyCollector handler;
-  Status s = batch.Iterate(&handler);
-  if (s.ok()) {
-    for (const auto& cf : handler.column_families()) {
-      column_family_ids->push_back(cf);
-    }
-  }
-  return s;
-}
-
 DBImplSecondary::DBImplSecondary(const DBOptions& db_options,
                                  const std::string& dbname)
     : DBImpl(db_options, dbname) {
