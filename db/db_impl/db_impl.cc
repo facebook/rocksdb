@@ -1376,10 +1376,12 @@ ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value) {
-  if (immutable_db_options_.app_clock == nullptr) {
+  ColumnFamilyData* cfd =
+      static_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  const Comparator* comparator = cfd->user_comparator();
+  if (comparator->timestamp_size() == 0) {
     if (read_options.timestamp != nullptr) {
-      return Status::InvalidArgument(
-          "Timestamp requires user-specified clock.");
+      return Status::InvalidArgument("Timestamp not supported");
     }
     return GetImpl(read_options, column_family, key, value);
   }
@@ -1391,11 +1393,9 @@ Status DBImpl::Get(const ReadOptions& read_options,
   }
   if (read_options.timestamp != nullptr) {
     return GetImpl(read_options, column_family, akey, value);
+  } else {
+    return Status::InvalidArgument("Timestamp must be specified.");
   }
-  Slice ts = immutable_db_options_.app_clock->Now();
-  ReadOptions read_opts_copy(read_options);
-  read_opts_copy.timestamp = &ts;
-  return GetImpl(read_opts_copy, column_family, akey, value);
 }
 
 Status DBImpl::GetImpl(const ReadOptions& read_options,

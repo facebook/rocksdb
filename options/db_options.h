@@ -81,7 +81,6 @@ struct ImmutableDBOptions {
   bool manual_wal_flush;
   bool atomic_flush;
   bool avoid_unnecessary_blocking_io;
-  std::shared_ptr<Clock> app_clock;
 };
 
 struct MutableDBOptions {
