@@ -13,13 +13,11 @@
 * Merging iterator to avoid child iterator reseek for some cases
 * Reduce iterator key comparision for upper/lower bound check.
 
-### Bug Fixes
-
-### Bug Fixes
+### General Improvements
 * Added new status code kColumnFamilyDropped to distinguish between Column Family Dropped and DB Shutdown in progress.
 
 ### Bug Fixes
-* Added new status code kColumnFamilyDropped to distinguish between Column Family Dropped and DB Shutdown in progress.
+
 	
 ## 6.2.0 (4/30/2019)
 ### New Features
