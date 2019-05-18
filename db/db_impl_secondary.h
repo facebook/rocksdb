@@ -96,40 +96,40 @@ class DBImplSecondary : public DBImpl {
   Status Put(const WriteOptions& /*options*/,
              ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
              const Slice& /*value*/) override {
-    return Status::NotSupported("Not supported operation in read only mode.");
+    return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
   using DBImpl::Merge;
   Status Merge(const WriteOptions& /*options*/,
                ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
                const Slice& /*value*/) override {
-    return Status::NotSupported("Not supported operation in read only mode.");
+    return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
   using DBImpl::Delete;
   Status Delete(const WriteOptions& /*options*/,
                 ColumnFamilyHandle* /*column_family*/,
                 const Slice& /*key*/) override {
-    return Status::NotSupported("Not supported operation in read only mode.");
+    return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
   using DBImpl::SingleDelete;
   Status SingleDelete(const WriteOptions& /*options*/,
                       ColumnFamilyHandle* /*column_family*/,
                       const Slice& /*key*/) override {
-    return Status::NotSupported("Not supported operation in read only mode.");
+    return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
   Status Write(const WriteOptions& /*options*/,
                WriteBatch* /*updates*/) override {
-    return Status::NotSupported("Not supported operation in read only mode.");
+    return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
   using DBImpl::CompactRange;
   Status CompactRange(const CompactRangeOptions& /*options*/,
                       ColumnFamilyHandle* /*column_family*/,
                       const Slice* /*begin*/, const Slice* /*end*/) override {
-    return Status::NotSupported("Not supported operation in read only mode.");
+    return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
   using DBImpl::CompactFiles;
@@ -140,32 +140,32 @@ class DBImplSecondary : public DBImpl {
       const int /*output_level*/, const int /*output_path_id*/ = -1,
       std::vector<std::string>* const /*output_file_names*/ = nullptr,
       CompactionJobInfo* /*compaction_job_info*/ = nullptr) override {
-    return Status::NotSupported("Not supported operation in read only mode.");
+    return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
   Status DisableFileDeletions() override {
-    return Status::NotSupported("Not supported operation in read only mode.");
+    return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
   Status EnableFileDeletions(bool /*force*/) override {
-    return Status::NotSupported("Not supported operation in read only mode.");
+    return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
   Status GetLiveFiles(std::vector<std::string>&,
                       uint64_t* /*manifest_file_size*/,
                       bool /*flush_memtable*/ = true) override {
-    return Status::NotSupported("Not supported operation in read only mode.");
+    return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
   using DBImpl::Flush;
   Status Flush(const FlushOptions& /*options*/,
                ColumnFamilyHandle* /*column_family*/) override {
-    return Status::NotSupported("Not supported operation in read only mode.");
+    return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
   using DBImpl::SyncWAL;
   Status SyncWAL() override {
-    return Status::NotSupported("Not supported operation in read only mode.");
+    return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
   using DB::IngestExternalFile;
@@ -173,7 +173,7 @@ class DBImplSecondary : public DBImpl {
       ColumnFamilyHandle* /*column_family*/,
       const std::vector<std::string>& /*external_files*/,
       const IngestExternalFileOptions& /*ingestion_options*/) override {
-    return Status::NotSupported("Not supported operation in read only mode.");
+    return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
   // Try to catch up with the primary by reading as much as possible from the
@@ -185,6 +185,70 @@ class DBImplSecondary : public DBImpl {
   Status MaybeInitLogReader(uint64_t log_number,
                             log::FragmentBufferedReader** log_reader);
 
+ protected:
+  class ColumnFamilyCollector : public WriteBatch::Handler {
+    std::unordered_set<uint32_t> column_family_ids_;
+
+    Status AddColumnFamilyId(uint32_t column_family_id) {
+      if (column_family_ids_.find(column_family_id) ==
+          column_family_ids_.end()) {
+        column_family_ids_.insert(column_family_id);
+      }
+      return Status::OK();
+    }
+
+   public:
+    explicit ColumnFamilyCollector() {}
+
+    ~ColumnFamilyCollector() override {}
+
+    Status PutCF(uint32_t column_family_id, const Slice&,
+                 const Slice&) override {
+      return AddColumnFamilyId(column_family_id);
+    }
+
+    Status DeleteCF(uint32_t column_family_id, const Slice&) override {
+      return AddColumnFamilyId(column_family_id);
+    }
+
+    Status SingleDeleteCF(uint32_t column_family_id, const Slice&) override {
+      return AddColumnFamilyId(column_family_id);
+    }
+
+    Status DeleteRangeCF(uint32_t column_family_id, const Slice&,
+                         const Slice&) override {
+      return AddColumnFamilyId(column_family_id);
+    }
+
+    Status MergeCF(uint32_t column_family_id, const Slice&,
+                   const Slice&) override {
+      return AddColumnFamilyId(column_family_id);
+    }
+
+    Status PutBlobIndexCF(uint32_t column_family_id, const Slice&,
+                          const Slice&) override {
+      return AddColumnFamilyId(column_family_id);
+    }
+
+    const std::unordered_set<uint32_t>& column_families() const {
+      return column_family_ids_;
+    }
+  };
+
+  Status CollectColumnFamilyIdsFromWriteBatch(
+      const WriteBatch& batch, std::vector<uint32_t>* column_family_ids) {
+    assert(column_family_ids != nullptr);
+    column_family_ids->clear();
+    ColumnFamilyCollector handler;
+    Status s = batch.Iterate(&handler);
+    if (s.ok()) {
+      for (const auto& cf : handler.column_families()) {
+        column_family_ids->push_back(cf);
+      }
+    }
+    return s;
+  }
+
  private:
   friend class DB;
 
@@ -194,19 +258,25 @@ class DBImplSecondary : public DBImpl {
 
   using DBImpl::Recover;
 
-  Status FindAndRecoverLogFiles();
+  Status FindAndRecoverLogFiles(
+      std::unordered_set<ColumnFamilyData*>* cfds_changed,
+      JobContext* job_context);
   Status FindNewLogNumbers(std::vector<uint64_t>* logs);
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                          SequenceNumber* next_sequence,
-                         bool read_only) override;
+                         std::unordered_set<ColumnFamilyData*>* cfds_changed,
+                         JobContext* job_context);
 
   std::unique_ptr<log::FragmentBufferedReader> manifest_reader_;
   std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
   std::unique_ptr<Status> manifest_reader_status_;
 
-  // cache log readers for each log number, used for continue WAL replay
+  // Cache log readers for each log number, used for continue WAL replay
   // after recovery
   std::map<uint64_t, std::unique_ptr<LogReaderContainer>> log_readers_;
+
+  // Current WAL number replayed for each column family.
+  std::unordered_map<ColumnFamilyData*, uint64_t> cfd_to_current_log_;
 };
 
 }  // namespace rocksdb
