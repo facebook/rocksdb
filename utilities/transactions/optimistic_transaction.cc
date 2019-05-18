@@ -5,8 +5,6 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "utilities/transactions/optimistic_transaction.h"
-
 #include <string>
 
 #include "db/column_family.h"
@@ -18,6 +16,9 @@
 #include "util/cast_util.h"
 #include "util/string_util.h"
 #include "utilities/transactions/transaction_util.h"
+#include "utilities/transactions/optimistic_transaction.h"
+#include "utilities/transactions/optimistic_transaction_db_impl.h"
+
 
 namespace rocksdb {
 
@@ -54,14 +55,28 @@ Status OptimisticTransaction::Prepare() {
 }
 
 Status OptimisticTransaction::Commit() {
-  // Set up callback which will call CheckTransactionForConflicts() to
-  // check whether this transaction is safe to be committed.
-  OptimisticTransactionCallback callback(this);
+  auto txn_db_impl = dynamic_cast<OptimisticTransactionDBImpl*>(txn_db_); 
+  assert(txn_db_impl);
+  const size_t space = txn_db_impl->GetLockBucketsSize();
+  std::set<size_t> lk_idxes;
+  std::vector<std::unique_lock<std::mutex>> lks;
+  for (auto& cfit : GetTrackedKeys()) {
+    for (auto& keyit : cfit.second) {
+      lk_idxes.insert(static_cast<size_t>(GetSliceNPHash64(keyit.first)) % space);
+    }
+  }
+  for (auto v : lk_idxes) {
+    lks.emplace_back(txn_db_impl->LockBucket(v));
+  }
 
   DBImpl* db_impl = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
+  Status s = TransactionUtil::CheckKeysForConflicts(db_impl, GetTrackedKeys(),
+                                                true /* cache_only */);
+  if (!s.ok()) {
+    return s;
+  }
 
-  Status s = db_impl->WriteWithCallback(
-      write_options_, GetWriteBatch()->GetWriteBatch(), &callback);
+  s = db_impl->Write(write_options_, GetWriteBatch()->GetWriteBatch());
 
   if (s.ok()) {
     Clear();
@@ -104,25 +119,6 @@ Status OptimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
 
   // Always return OK. Confilct checking will happen at commit time.
   return Status::OK();
-}
-
-// Returns OK if it is safe to commit this transaction.  Returns Status::Busy
-// if there are read or write conflicts that would prevent us from committing OR
-// if we can not determine whether there would be any such conflicts.
-//
-// Should only be called on writer thread in order to avoid any race conditions
-// in detecting write conflicts.
-Status OptimisticTransaction::CheckTransactionForConflicts(DB* db) {
-  Status result;
-
-  auto db_impl = static_cast_with_check<DBImpl, DB>(db);
-
-  // Since we are on the write thread and do not want to block other writers,
-  // we will do a cache-only conflict check.  This can result in TryAgain
-  // getting returned if there is not sufficient memtable history to check
-  // for conflicts.
-  return TransactionUtil::CheckKeysForConflicts(db_impl, GetTrackedKeys(),
-                                                true /* cache_only */);
 }
 
 Status OptimisticTransaction::SetName(const TransactionName& /* unused */) {

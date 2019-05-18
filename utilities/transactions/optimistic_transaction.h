@@ -58,13 +58,6 @@ class OptimisticTransaction : public TransactionBaseImpl {
 
   void Initialize(const OptimisticTransactionOptions& txn_options);
 
-  // Returns OK if it is safe to commit this transaction.  Returns Status::Busy
-  // if there are read or write conflicts that would prevent us from committing
-  // OR if we can not determine whether there would be any such conflicts.
-  //
-  // Should only be called on writer thread.
-  Status CheckTransactionForConflicts(DB* db);
-
   void Clear() override;
 
   void UnlockGetForUpdate(ColumnFamilyHandle* /* unused */,
@@ -75,22 +68,6 @@ class OptimisticTransaction : public TransactionBaseImpl {
   // No copying allowed
   OptimisticTransaction(const OptimisticTransaction&);
   void operator=(const OptimisticTransaction&);
-};
-
-// Used at commit time to trigger transaction validation
-class OptimisticTransactionCallback : public WriteCallback {
- public:
-  explicit OptimisticTransactionCallback(OptimisticTransaction* txn)
-      : txn_(txn) {}
-
-  Status Callback(DB* db) override {
-    return txn_->CheckTransactionForConflicts(db);
-  }
-
-  bool AllowWriteBatching() override { return false; }
-
- private:
-  OptimisticTransaction* txn_;
 };
 
 }  // namespace rocksdb
