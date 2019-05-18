@@ -294,6 +294,13 @@ class MemTableList {
     }
   }
 
+  // Used only by DBImplSecondary during log replay.
+  // Remove memtables whose data were written before the WAL with log_number
+  // was created, i.e. mem->GetNextLogNumber() <= log_number. The memtables are
+  // not freed, but put into a vector for future deref and reclamation.
+  void RemoveOldMemTables(uint64_t log_number,
+                          autovector<MemTable*>* to_delete);
+
  private:
   friend Status InstallMemtableAtomicFlushResults(
       const autovector<MemTableList*>* imm_lists,
