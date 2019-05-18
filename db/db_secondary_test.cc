@@ -243,6 +243,11 @@ TEST_F(DBSecondaryTest, OpenAsSecondaryWALTailing) {
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   verify_db_func("new_foo_value", "new_bar_value");
+
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo", "new_foo_value_1"));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  verify_db_func("new_foo_value_1", "new_bar_value");
 }
 
 TEST_F(DBSecondaryTest, OpenWithNonExistColumnFamily) {
@@ -518,6 +523,131 @@ TEST_F(DBSecondaryTest, SwitchManifest) {
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   range_scan_db();
+}
+
+TEST_F(DBSecondaryTest, SwitchWAL) {
+  const int kNumKeysPerMemtable = 1;
+  const std::string kCFName1 = "pikachu";
+  Options options;
+  options.env = env_;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 2;
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(kNumKeysPerMemtable));
+  CreateAndReopenWithCF({kCFName1}, options);
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondaryWithColumnFamilies({kCFName1}, options1);
+  ASSERT_EQ(2, handles_secondary_.size());
+
+  const auto& verify_db = [](DB* db1,
+                             const std::vector<ColumnFamilyHandle*>& handles1,
+                             DB* db2,
+                             const std::vector<ColumnFamilyHandle*>& handles2) {
+    ASSERT_NE(nullptr, db1);
+    ASSERT_NE(nullptr, db2);
+    ReadOptions read_opts;
+    read_opts.verify_checksums = true;
+    ASSERT_EQ(handles1.size(), handles2.size());
+    for (size_t i = 0; i != handles1.size(); ++i) {
+      std::unique_ptr<Iterator> it1(db1->NewIterator(read_opts, handles1[i]));
+      std::unique_ptr<Iterator> it2(db2->NewIterator(read_opts, handles2[i]));
+      it1->SeekToFirst();
+      it2->SeekToFirst();
+      for (; it1->Valid() && it2->Valid(); it1->Next(), it2->Next()) {
+        ASSERT_EQ(it1->key(), it2->key());
+        ASSERT_EQ(it1->value(), it2->value());
+      }
+      ASSERT_FALSE(it1->Valid());
+      ASSERT_FALSE(it2->Valid());
+
+      for (it1->SeekToFirst(); it1->Valid(); it1->Next()) {
+        std::string value;
+        ASSERT_OK(db2->Get(read_opts, handles2[i], it1->key(), &value));
+        ASSERT_EQ(it1->value(), value);
+      }
+      for (it2->SeekToFirst(); it2->Valid(); it2->Next()) {
+        std::string value;
+        ASSERT_OK(db1->Get(read_opts, handles1[i], it2->key(), &value));
+        ASSERT_EQ(it2->value(), value);
+      }
+    }
+  };
+  for (int k = 0; k != 8; ++k) {
+    ASSERT_OK(
+        Put(0 /*cf*/, "key" + std::to_string(k), "value" + std::to_string(k)));
+    ASSERT_OK(
+        Put(1 /*cf*/, "key" + std::to_string(k), "value" + std::to_string(k)));
+    ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+    verify_db(dbfull(), handles_, db_secondary_, handles_secondary_);
+  }
+}
+
+TEST_F(DBSecondaryTest, CatchUpAfterFlush) {
+  const int kNumKeysPerMemtable = 16;
+  Options options;
+  options.env = env_;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 2;
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(kNumKeysPerMemtable));
+  Reopen(options);
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondary(options1);
+
+  WriteOptions write_opts;
+  WriteBatch wb;
+  wb.Put("key0", "value0");
+  wb.Put("key1", "value1");
+  ASSERT_OK(dbfull()->Write(write_opts, &wb));
+  ReadOptions read_opts;
+  std::unique_ptr<Iterator> iter1(db_secondary_->NewIterator(read_opts));
+  iter1->Seek("key0");
+  ASSERT_FALSE(iter1->Valid());
+  iter1->Seek("key1");
+  ASSERT_FALSE(iter1->Valid());
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  iter1->Seek("key0");
+  ASSERT_FALSE(iter1->Valid());
+  iter1->Seek("key1");
+  ASSERT_FALSE(iter1->Valid());
+  std::unique_ptr<Iterator> iter2(db_secondary_->NewIterator(read_opts));
+  iter2->Seek("key0");
+  ASSERT_TRUE(iter2->Valid());
+  ASSERT_EQ("value0", iter2->value());
+  iter2->Seek("key1");
+  ASSERT_TRUE(iter2->Valid());
+  ASSERT_EQ("value1", iter2->value());
+
+  {
+    WriteBatch wb1;
+    wb1.Put("key0", "value01");
+    wb1.Put("key1", "value11");
+    ASSERT_OK(dbfull()->Write(write_opts, &wb1));
+  }
+
+  {
+    WriteBatch wb2;
+    wb2.Put("key0", "new_value0");
+    wb2.Delete("key1");
+    ASSERT_OK(dbfull()->Write(write_opts, &wb2));
+  }
+
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  std::unique_ptr<Iterator> iter3(db_secondary_->NewIterator(read_opts));
+  // iter3 should not see value01 and value11 at all.
+  iter3->Seek("key0");
+  ASSERT_TRUE(iter3->Valid());
+  ASSERT_EQ("new_value0", iter3->value());
+  iter3->Seek("key1");
+  ASSERT_FALSE(iter3->Valid());
 }
 #endif  //! ROCKSDB_LITE
 
