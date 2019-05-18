@@ -18,6 +18,7 @@ class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
  public:
   explicit OptimisticTransactionDBImpl(DB* db, bool take_ownership = true, size_t lock_bucket_size = 1024*1024)
       : OptimisticTransactionDB(db), db_owner_(take_ownership) {
+    // TODO(deyukong): perhaps it's better to define a configure for this param
     bucketed_locks_.reserve(lock_bucket_size);
     for (size_t i = 0; i < lock_bucket_size; ++i) {
       bucketed_locks_.emplace_back(

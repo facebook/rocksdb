@@ -55,14 +55,19 @@ Status OptimisticTransaction::Prepare() {
 }
 
 Status OptimisticTransaction::Commit() {
-  auto txn_db_impl = dynamic_cast<OptimisticTransactionDBImpl*>(txn_db_); 
+  auto txn_db_impl =
+    static_cast_with_check<OptimisticTransactionDBImpl,  OptimisticTransactionDB>(txn_db_);
   assert(txn_db_impl);
   const size_t space = txn_db_impl->GetLockBucketsSize();
+
+  // NOTE(deyukong): we guarantee that we take the bucket lock in ascending
+  // order, so that we will never deadlock.
   std::set<size_t> lk_idxes;
   std::vector<std::unique_lock<std::mutex>> lks;
+  static murmur_hash hash;
   for (auto& cfit : GetTrackedKeys()) {
     for (auto& keyit : cfit.second) {
-      lk_idxes.insert(static_cast<size_t>(GetSliceNPHash64(keyit.first)) % space);
+      lk_idxes.insert(static_cast<size_t>(hash(keyit.first)) % space);
     }
   }
   for (auto v : lk_idxes) {
