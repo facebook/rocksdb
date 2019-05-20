@@ -3890,11 +3890,17 @@ TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
       }
       Flush(1);
     }
-    auto manual_compaction_thread = port::Thread([this]() {
+    auto manual_compaction_thread = port::Thread([this, i]() {
       CompactRangeOptions cro;
       cro.allow_write_stall = false;
-      ASSERT_TRUE(db_->CompactRange(cro, handles_[1], nullptr, nullptr)
-                      .IsShutdownInProgress());
+      Status s = db_->CompactRange(cro, handles_[1], nullptr, nullptr);
+      if (i == 0) {
+        ASSERT_TRUE(db_->CompactRange(cro, handles_[1], nullptr, nullptr)
+                        .IsColumnFamilyDropped());
+      } else {
+        ASSERT_TRUE(db_->CompactRange(cro, handles_[1], nullptr, nullptr)
+                        .IsShutdownInProgress());
+      }
     });
 
     TEST_SYNC_POINT(

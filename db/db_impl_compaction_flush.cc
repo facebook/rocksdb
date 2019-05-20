@@ -201,7 +201,7 @@ Status DBImpl::FlushMemTableToOutputFile(
                      cfd->current()->storage_info()->LevelSummary(&tmp));
   }
 
-  if (!s.ok() && !s.IsShutdownInProgress()) {
+  if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
     Status new_bg_error = s;
     error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
   }
@@ -254,7 +254,7 @@ Status DBImpl::FlushMemTablesToOutputFiles(
         snapshot_checker, log_buffer, thread_pri);
     if (!s.ok()) {
       status = s;
-      if (!s.IsShutdownInProgress()) {
+      if (!s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
         // At this point, DB is not shutting down, nor is cfd dropped.
         // Something is wrong, thus we break out of the loop.
         break;
@@ -385,7 +385,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     for (const auto& e : exec_status) {
       if (!e.second.ok()) {
         s = e.second;
-        if (!e.second.IsShutdownInProgress()) {
+        if (!e.second.IsShutdownInProgress() &&
+            !e.second.IsColumnFamilyDropped()) {
           // If a flush job did not return OK, and the CF is not dropped, and
           // the DB is not shutting down, then we have to return this result to
           // caller later.
@@ -397,15 +398,11 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     s = error_status.ok() ? s : error_status;
   }
 
-  // If db is NOT shutting down, and one or more column families have been
-  // dropped.
-  // TODO: use separate status code for db shutdown and column family dropped.
-  if (s.IsShutdownInProgress() &&
-      !shutting_down_.load(std::memory_order_acquire)) {
+  if (s.IsColumnFamilyDropped()) {
     s = Status::OK();
   }
 
-  if (s.ok() || s.IsShutdownInProgress()) {
+  if (s.ok() || s.IsShutdownInProgress() || s.IsColumnFamilyDropped()) {
     // Sync on all distinct output directories.
     for (auto dir : distinct_output_dirs) {
       if (dir != nullptr) {
@@ -523,7 +520,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
   // Need to undo atomic flush if something went wrong, i.e. s is not OK and
   // it is not because of CF drop.
-  if (!s.ok() && !s.IsShutdownInProgress()) {
+  if (!s.ok() && !s.IsColumnFamilyDropped()) {
     // Have to cancel the flush jobs that have NOT executed because we need to
     // unref the versions.
     for (int i = 0; i != num_cfs; ++i) {
@@ -1052,7 +1049,7 @@ Status DBImpl::CompactFilesImpl(
 
   if (status.ok()) {
     // Done
-  } else if (status.IsShutdownInProgress()) {
+  } else if (status.IsColumnFamilyDropped()) {
     // Ignore compaction errors found during shutting down
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
@@ -1697,7 +1694,10 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
                        cfd->GetName().c_str());
         bg_cv_.Wait();
       }
-      if (cfd->IsDropped() || shutting_down_.load(std::memory_order_acquire)) {
+      if (cfd->IsDropped()) {
+        return Status::ColumnFamilyDropped();
+      }
+      if (shutting_down_.load(std::memory_order_acquire)) {
         return Status::ShutdownInProgress();
       }
 
@@ -2159,7 +2159,7 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
 
     Status s = BackgroundFlush(&made_progress, &job_context, &log_buffer,
                                &reason, thread_pri);
-    if (!s.ok() && !s.IsShutdownInProgress() &&
+    if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped() &&
         reason != FlushReason::kErrorRecovery) {
       // Wait a little bit before retrying background flush in
       // case this is an environmental problem and we do not want to
@@ -2184,7 +2184,8 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
 
     // If flush failed, we want to delete all temporary files that we might have
     // created. Thus, we force full scan in FindObsoleteFiles()
-    FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress());
+    FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress() &&
+                                        !s.IsColumnFamilyDropped());
     // delete unnecessary files if any, this is done outside the mutex
     if (job_context.HaveSomethingToClean() ||
         job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
@@ -2248,7 +2249,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       mutex_.Unlock();
       env_->SleepForMicroseconds(10000);  // prevent hot loop
       mutex_.Lock();
-    } else if (!s.ok() && !s.IsShutdownInProgress()) {
+    } else if (!s.ok() && !s.IsShutdownInProgress() &&
+               !s.IsColumnFamilyDropped()) {
       // Wait a little bit before retrying background compaction in
       // case this is an environmental problem and we do not want to
       // chew up resources for failed compactions for the duration of
@@ -2272,7 +2274,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     // If compaction failed, we want to delete all temporary files that we might
     // have created (they might not be all recorded in job_context in case of a
     // failure). Thus, we force full scan in FindObsoleteFiles()
-    FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress());
+    FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress() &&
+                                        !s.IsColumnFamilyDropped());
     TEST_SYNC_POINT("DBImpl::BackgroundCallCompaction:FoundObsoleteFiles");
 
     // delete unnecessary files if any, this is done outside the mutex
@@ -2710,7 +2713,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   if (status.ok() || status.IsCompactionTooLarge()) {
     // Done
-  } else if (status.IsShutdownInProgress()) {
+  } else if (status.IsColumnFamilyDropped()) {
     // Ignore compaction errors found during shutting down
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log, "Compaction error: %s",
