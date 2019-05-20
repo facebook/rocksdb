@@ -235,7 +235,7 @@ Status TransactionDB::Open(
   if (txn_db_options.write_policy == WRITE_PREPARED &&
       db_options.unordered_write && !db_options.two_write_queues) {
     return Status::NotSupported(
-        "WRITE_UNPREPARED is incompatible with unordered_writes if "
+        "WRITE_PREPARED is incompatible with unordered_writes if "
         "two_write_queues is not enabled.");
   }
 
