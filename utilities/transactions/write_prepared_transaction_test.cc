@@ -1396,6 +1396,7 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
     }
     DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
     auto seq = db_impl->TEST_GetLastVisibleSequence();
+    with_empty_commits = 0;
     exp_seq = seq;
     // This is increased before writing the batch for commit
     commit_writes = 0;
@@ -1487,12 +1488,12 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
     assert(db != nullptr);
     db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
     seq = db_impl->TEST_GetLastVisibleSequence();
-    ASSERT_LE(exp_seq, seq);
+    ASSERT_LE(exp_seq, seq + with_empty_commits);
 
     // Check if flush preserves the last sequence number
     db_impl->Flush(fopt);
     seq = db_impl->GetLatestSequenceNumber();
-    ASSERT_LE(exp_seq, seq);
+    ASSERT_LE(exp_seq, seq + with_empty_commits);
 
     // Check if recovery after flush preserves the last sequence number
     db_impl->FlushWAL(true);
@@ -1500,7 +1501,7 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
     assert(db != nullptr);
     db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
     seq = db_impl->GetLatestSequenceNumber();
-    ASSERT_LE(exp_seq, seq);
+    ASSERT_LE(exp_seq, seq + with_empty_commits);
   }
 }
 
