@@ -598,7 +598,7 @@ Status InstallMemtableAtomicFlushResults(
     imm->InstallNewVersion();
   }
 
-  if (s.ok() || s.IsShutdownInProgress()) {
+  if (s.ok() || s.IsColumnFamilyDropped()) {
     for (size_t i = 0; i != cfds.size(); ++i) {
       if (cfds[i]->IsDropped()) {
         continue;
