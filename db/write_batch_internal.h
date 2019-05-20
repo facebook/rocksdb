@@ -21,6 +21,7 @@ namespace rocksdb {
 class MemTable;
 class FlushScheduler;
 class ColumnFamilyData;
+using TrimHistoryScheduler = FlushScheduler;
 
 class ColumnFamilyMemTables {
  public:
@@ -162,7 +163,7 @@ class WriteBatchInternal {
   static Status InsertInto(
       WriteThread::WriteGroup& write_group, SequenceNumber sequence,
       ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
-      FlushScheduler* trim_history_scheduler,
+      TrimHistoryScheduler* trim_history_scheduler,
       bool ignore_missing_column_families = false, uint64_t log_number = 0,
       DB* db = nullptr, bool concurrent_memtable_writes = false,
       bool seq_per_batch = false, bool batch_per_txn = true);
@@ -171,7 +172,7 @@ class WriteBatchInternal {
   // next_seq returns the seq after last sequence number used in MemTable insert
   static Status InsertInto(
       const WriteBatch* batch, ColumnFamilyMemTables* memtables,
-      FlushScheduler* flush_scheduler, FlushScheduler* trim_history_scheduler,
+      FlushScheduler* flush_scheduler, TrimHistoryScheduler* trim_history_scheduler,
       bool ignore_missing_column_families = false, uint64_t log_number = 0,
       DB* db = nullptr, bool concurrent_memtable_writes = false,
       SequenceNumber* next_seq = nullptr, bool* has_valid_writes = nullptr,
@@ -180,7 +181,7 @@ class WriteBatchInternal {
   static Status InsertInto(WriteThread::Writer* writer, SequenceNumber sequence,
                            ColumnFamilyMemTables* memtables,
                            FlushScheduler* flush_scheduler,
-                           FlushScheduler* trim_history_scheduler,
+                           TrimHistoryScheduler* trim_history_scheduler,
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
                            bool concurrent_memtable_writes = false,

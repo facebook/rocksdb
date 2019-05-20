@@ -139,11 +139,12 @@ size_t MemTable::ApproximateMemoryUsage() {
     }
     total_usage += usage;
   }
+  approximate_memory_usage_ = total_usage;
   // otherwise, return the actual usage
   return total_usage;
 }
 
-bool MemTable::ShouldFlushNow() const {
+bool MemTable::ShouldFlushNow() {
   size_t write_buffer_size = write_buffer_size_.load(std::memory_order_relaxed);
   // In a lot of times, we cannot allocate arena blocks that exactly matches the
   // buffer size. Thus we have to decide if we should over-allocate or
@@ -158,6 +159,8 @@ bool MemTable::ShouldFlushNow() const {
   auto allocated_memory = table_->ApproximateMemoryUsage() +
                           range_del_table_->ApproximateMemoryUsage() +
                           arena_.MemoryAllocatedBytes();
+
+  approximate_memory_usage_ = allocated_memory;
 
   // if we can still allocate one more block without exceeding the
   // over-allocation ratio, then we should not flush.

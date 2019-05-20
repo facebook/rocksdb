@@ -281,7 +281,7 @@ class MemTableList {
 
   bool HasFlushRequested() { return flush_requested_; }
 
-  // Returns true if a flush should be scheduled and the caller should
+  // Returns true if a trim history should be scheduled and the caller should
   // be the one to schedule it
   bool MarkTrimHistoryNeeded() {
     auto expected = false;

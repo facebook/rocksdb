@@ -600,8 +600,9 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
         versions_->GetColumnFamilySet());
     w.status = WriteBatchInternal::InsertInto(
         &w, w.sequence, &column_family_memtables, &flush_scheduler_,
-        write_options.ignore_missing_column_families, 0 /*log_number*/, this,
-        true /*concurrent_memtable_writes*/, seq_per_batch_, sub_batch_cnt);
+        &trim_history_scheduler_, write_options.ignore_missing_column_families,
+        0 /*log_number*/, this, true /*concurrent_memtable_writes*/,
+        seq_per_batch_, sub_batch_cnt);
 
     WriteStatusCheck(w.status);
     if (write_options.disableWAL) {
@@ -1708,7 +1709,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
 
   cfd->mem()->SetNextLogNumber(logfile_number_);
   cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_,
-                  new_mem->ApproximateMemoryUsage());
+                  cfd->mem()->ApproximateMemoryUsage());
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
   InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
