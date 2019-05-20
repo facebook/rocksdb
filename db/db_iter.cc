@@ -467,7 +467,7 @@ inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) 
 
     is_key_seqnum_zero_ = (ikey_.sequence == 0);
 
-    if (iterate_upper_bound_ != nullptr &&
+    if (iterate_upper_bound_ != nullptr && iter_.MayBeOutOfUpperBound() &&
         user_comparator_.Compare(ikey_.user_key, *iterate_upper_bound_) >= 0) {
       break;
     }
@@ -859,7 +859,7 @@ void DBIter::PrevInternal() {
       return;
     }
 
-    if (iterate_lower_bound_ != nullptr &&
+    if (iterate_lower_bound_ != nullptr && iter_.MayBeOutOfLowerBound() &&
         user_comparator_.Compare(saved_key_.GetUserKey(),
                                  *iterate_lower_bound_) < 0) {
       // We've iterated earlier than the user-specified lower bound.

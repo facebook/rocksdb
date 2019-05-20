@@ -638,4 +638,22 @@ Status InstallMemtableAtomicFlushResults(
   return s;
 }
 
+void MemTableList::RemoveOldMemTables(uint64_t log_number,
+                                      autovector<MemTable*>* to_delete) {
+  assert(to_delete != nullptr);
+  InstallNewVersion();
+  auto& memlist = current_->memlist_;
+  for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
+    MemTable* mem = *it;
+    if (mem->GetNextLogNumber() > log_number) {
+      break;
+    }
+    current_->Remove(mem, to_delete);
+    --num_flush_not_started_;
+    if (0 == num_flush_not_started_) {
+      imm_flush_needed.store(false, std::memory_order_release);
+    }
+  }
+}
+
 }  // namespace rocksdb

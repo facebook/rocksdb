@@ -6,11 +6,13 @@
 ### New Features
 * Add an option `snap_refresh_nanos` (default to 0.1s) to periodically refresh the snapshot list in compaction jobs. Assign to 0 to disable the feature.
 * Add an option `unordered_write` which trades snapshot guarantees with higher write throughput. When used with WRITE_PREPARED transactions with two_write_queues=true, it offers higher throughput with however no compromise on guarantees.
+* Allow DBImplSecondary to remove memtables with obsolete data after replaying MANIFEST and WAL.
 
 ### Performance Improvements
 * Reduce binary search when iterator reseek into the same data block.
 * DBIter::Next() can skip user key checking if previous entry's seqnum is 0.
 * Merging iterator to avoid child iterator reseek for some cases
+* Reduce iterator key comparision for upper/lower bound check.
 
 ### Bug Fixes
 
