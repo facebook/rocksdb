@@ -605,6 +605,11 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
 
   size_t pending_cnt = pending_memtable_writes_.fetch_sub(1) - 1;
   if (pending_cnt == 0) {
+    // switch_cv_ waits until pending_memtable_writes_ = 0. Locking its mutex
+    // before notify ensures that cv is in waiting state when it is notified
+    // thus not missing the update to pending_memtable_writes_ even though it is
+    // not modified under the mutex.
+    std::lock_guard<std::mutex> lck(switch_mutex_);
     switch_cv_.notify_all();
   }
 
