@@ -60,6 +60,9 @@ Status DBImplSecondary::Recover(
     s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
   }
 
+  if (s.IsPathNotFound()) {
+    s = Status::OK();
+  }
   // TODO: update options_file_number_ needed?
 
   job_context.Clean();
@@ -474,6 +477,9 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   // instance
   if (s.ok()) {
     s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
+  }
+  if (s.IsPathNotFound()) {
+    s = Status::OK();
   }
   if (s.ok()) {
     for (auto cfd : cfds_changed) {
