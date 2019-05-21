@@ -132,7 +132,9 @@ class MemTable {
 
   // As a cheap version of `ApproximateMemoryUsage()`, this function doens't
   // require external synchronization. The value may be less accurate though
-  size_t ApproximateMemoryUsageCheap() { return approximate_memory_usage_; }
+  size_t ApproximateMemoryUsageCheap() {
+    return approximate_memory_usage_.load(std::memory_order_relaxed);
+  }
 
   // This method heuristically determines if the memtable should continue to
   // host more data.
@@ -492,7 +494,7 @@ class MemTable {
 
   // keep track of memory usage in table_, arena_, and range_del_table_.
   // Gets refrshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
-  uint64_t approximate_memory_usage_ = 0;
+  std::atomic<uint64_t> approximate_memory_usage_;
 
   // Returns a heuristic flush decision
   bool ShouldFlushNow();

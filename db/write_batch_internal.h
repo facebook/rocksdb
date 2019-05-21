@@ -172,7 +172,8 @@ class WriteBatchInternal {
   // next_seq returns the seq after last sequence number used in MemTable insert
   static Status InsertInto(
       const WriteBatch* batch, ColumnFamilyMemTables* memtables,
-      FlushScheduler* flush_scheduler, TrimHistoryScheduler* trim_history_scheduler,
+      FlushScheduler* flush_scheduler,
+      TrimHistoryScheduler* trim_history_scheduler,
       bool ignore_missing_column_families = false, uint64_t log_number = 0,
       DB* db = nullptr, bool concurrent_memtable_writes = false,
       SequenceNumber* next_seq = nullptr, bool* has_valid_writes = nullptr,

@@ -479,6 +479,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
                            cfd->GetName().c_str(), m->file_number_, mem_id);
           assert(m->file_number_ > 0);
           current_->Remove(m, to_delete);
+          UpdateMemoryUsageExcludingLast();
           ++mem_id;
         }
       } else {
@@ -519,10 +520,12 @@ void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete,
   if (num_flush_not_started_ == 1) {
     imm_flush_needed.store(true, std::memory_order_release);
   }
+  UpdateMemoryUsageExcludingLast();
 }
 
 void MemTableList::TrimHistory(autovector<MemTable*>* to_delete, size_t usage) {
   current_->TrimHistory(to_delete, usage);
+  UpdateMemoryUsageExcludingLast();
 }
 
 // Returns an estimate of the number of bytes of data in use.
@@ -535,6 +538,18 @@ size_t MemTableList::ApproximateUnflushedMemTablesMemoryUsage() {
 }
 
 size_t MemTableList::ApproximateMemoryUsage() { return current_memory_usage_; }
+
+size_t MemTableList::ApproximateMemoryUsageExcludingLast() {
+  size_t usage = current_memory_usage_excluding_last_.load(std::memory_order_relaxed);
+  return usage;
+}
+
+// Update current_memory_usage_excluding_last_, need to call whenever state changes for
+// MemtableListVersion (whenever InstallNewVersion() is called)
+void MemTableList::UpdateMemoryUsageExcludingLast() {
+  size_t total_memtable_size = current_->ApproximateMemoryUsageExcludingLast();
+  current_memory_usage_excluding_last_.store(total_memtable_size, std::memory_order_release);
+}
 
 uint64_t MemTableList::ApproximateOldestKeyTime() const {
   if (!current_->memlist_.empty()) {
@@ -663,6 +678,7 @@ Status InstallMemtableAtomicFlushResults(
                          cfds[i]->GetName().c_str(), m->GetFileNumber(),
                          mem_id);
         imm->current_->Remove(m, to_delete);
+        imm->UpdateMemoryUsageExcludingLast();
       }
     }
   } else {
@@ -704,6 +720,7 @@ void MemTableList::RemoveOldMemTables(uint64_t log_number,
       imm_flush_needed.store(false, std::memory_order_release);
     }
   }
+  UpdateMemoryUsageExcludingLast();
 }
 
 }  // namespace rocksdb

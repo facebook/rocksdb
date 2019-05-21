@@ -113,10 +113,6 @@ class MemTableListVersion {
 
   uint64_t GetTotalNumDeletes() const;
 
-  int64_t GetMaxWriteBufferSizeToMaintain() const {
-    return max_write_buffer_size_to_maintain_;
-  }
-
   MemTable::MemTableStats ApproximateStats(const Slice& start_ikey,
                                            const Slice& end_ikey);
 
@@ -191,9 +187,9 @@ class MemTableListVersion {
 // recoverability from a crash.
 //
 //
-// Other than imm_flush_needed, this class is not thread-safe and requires
-// external synchronization (such as holding the db mutex or being on the
-// write thread.)
+// Other than imm_flush_needed and imm_trim_needed, this class is not
+// thread-safe and requires external synchronization (such as holding the db
+// mutex or being on the write thread.)
 class MemTableList {
  public:
   // A list of memtables.
@@ -208,16 +204,17 @@ class MemTableList {
                                          max_write_buffer_size_to_maintain)),
         num_flush_not_started_(0),
         commit_in_progress_(false),
-        flush_requested_(false) {
+        flush_requested_(false),
+        current_memory_usage_(0),
+        current_memory_usage_excluding_last_(0) {
     current_->Ref();
-    current_memory_usage_ = 0;
   }
 
   // Should not delete MemTableList without making sure MemTableList::current()
   // is Unref()'d.
   ~MemTableList() {}
 
-  MemTableListVersion* current() { return current_; }
+  MemTableListVersion* current() const { return current_; }
 
   // so that background threads can detect non-nullptr pointer to
   // determine whether there is anything more to start flushing.
@@ -263,6 +260,12 @@ class MemTableList {
   // Returns an estimate of the number of bytes of data in use.
   size_t ApproximateMemoryUsage();
 
+  // Returns the cached current_memory_usage_excluding_last_ value
+  size_t ApproximateMemoryUsageExcludingLast();
+
+  // Update current_memory_usage_excluding_last_ from MemtableListVersion
+  void UpdateMemoryUsageExcludingLast();
+
   void TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
 
   // Returns an estimate of the number of bytes of data used by
@@ -287,6 +290,12 @@ class MemTableList {
     auto expected = false;
     return imm_trim_needed.compare_exchange_strong(
         expected, true, std::memory_order_relaxed, std::memory_order_relaxed);
+  }
+
+  void ResetTrimHistoryNeeded() {
+    auto expected = true;
+    imm_trim_needed.compare_exchange_strong(
+        expected, false, std::memory_order_relaxed, std::memory_order_relaxed);
   }
 
   // Copying allowed
@@ -368,6 +377,8 @@ class MemTableList {
 
   // The current memory usage.
   size_t current_memory_usage_;
+
+  std::atomic<size_t> current_memory_usage_excluding_last_;
 };
 
 // Installs memtable atomic flush results.

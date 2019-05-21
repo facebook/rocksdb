@@ -6,11 +6,11 @@
 #include "util/string_util.h"
 
 #include <errno.h>
-#include <cinttypes>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <algorithm>
+#include <cinttypes>
 #include <cmath>
 #include <sstream>
 #include <string>

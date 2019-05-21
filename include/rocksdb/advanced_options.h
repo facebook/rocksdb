@@ -179,13 +179,22 @@ struct AdvancedColumnFamilyOptions {
   // The total maximum number of write buffers to maintain in memory including
   // copies of buffers that have already been flushed.  Unlike
   // max_write_buffer_number, this parameter does not affect flushing.
+  // This parameter is being replaced by max_write_buffer_size_to_maintain.
+  // If both parameters are set to non-zero values, this parameter will be
+  // ignored.
   int max_write_buffer_number_to_maintain = 0;
 
   // The total maximum size(bytes) of write buffers to maintain in memory
   // including copies of buffers that have already been flushed. This parameter
-  // does not affect flushing.
-  // This controls the minimum amount of write history that will be available
-  // in memory for conflict checking when Transactions are used.
+  // only affects trimming of flushed buffers and does not affect flushing.
+  // This controls the maximum amount of write history that will be available
+  // in memory for conflict checking when Transactions are used. The actual
+  // size of write history (flushed Memtables) might be higher than this limit
+  // if further trimming will reduce write history total size below this
+  // limit. For example, if max_write_buffer_size_to_maintain is set to 64MB,
+  // and there are three flushed Memtables, with sizes of 32MB, 20MB, 20MB.
+  // Because trimming the next Memtable of size 20MB will reduce total memory
+  // usage to 52MB which is below the limit, RocksDB will stop trimming.
   //
   // When using an OptimisticTransactionDB:
   // If this value is too low, some transactions may fail at commit time due

@@ -1759,12 +1759,13 @@ class MemTableInserter : public WriteBatch::Handler {
     if (trim_history_scheduler_ != nullptr) {
       auto* cfd = cf_mems_->current();
       assert(cfd != nullptr);
-      if (cfd->imm()->imm_trim_needed.load(std::memory_order_relaxed) ==
+      if (cfd->ioptions()->max_write_buffer_size_to_maintain > 0 &&
+          cfd->imm()->imm_trim_needed.load(std::memory_order_relaxed) ==
               false &&
           cfd->mem()->ApproximateMemoryUsageCheap() +
-                  cfd->imm()->ApproximateMemoryUsage() >=
+                  cfd->imm()->ApproximateMemoryUsageExcludingLast() >=
               static_cast<size_t>(
-                  cfd->imm()->current()->GetMaxWriteBufferSizeToMaintain()) &&
+                  cfd->ioptions()->max_write_buffer_size_to_maintain) &&
           cfd->imm()->MarkTrimHistoryNeeded()) {
         trim_history_scheduler_->ScheduleWork(cfd);
       }
@@ -1926,9 +1927,9 @@ class MemTableInserter : public WriteBatch::Handler {
 Status WriteBatchInternal::InsertInto(
     WriteThread::WriteGroup& write_group, SequenceNumber sequence,
     ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
-    TrimHistoryScheduler* trim_history_scheduler, bool ignore_missing_column_families,
-    uint64_t recovery_log_number, DB* db, bool concurrent_memtable_writes,
-    bool seq_per_batch, bool batch_per_txn) {
+    TrimHistoryScheduler* trim_history_scheduler,
+    bool ignore_missing_column_families, uint64_t recovery_log_number, DB* db,
+    bool concurrent_memtable_writes, bool seq_per_batch, bool batch_per_txn) {
   MemTableInserter inserter(
       sequence, memtables, flush_scheduler, trim_history_scheduler,
       ignore_missing_column_families, recovery_log_number, db,
@@ -1959,9 +1960,10 @@ Status WriteBatchInternal::InsertInto(
 Status WriteBatchInternal::InsertInto(
     WriteThread::Writer* writer, SequenceNumber sequence,
     ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
-    TrimHistoryScheduler* trim_history_scheduler, bool ignore_missing_column_families,
-    uint64_t log_number, DB* db, bool concurrent_memtable_writes,
-    bool seq_per_batch, size_t batch_cnt, bool batch_per_txn) {
+    TrimHistoryScheduler* trim_history_scheduler,
+    bool ignore_missing_column_families, uint64_t log_number, DB* db,
+    bool concurrent_memtable_writes, bool seq_per_batch, size_t batch_cnt,
+    bool batch_per_txn) {
 #ifdef NDEBUG
   (void)batch_cnt;
 #endif
@@ -1984,7 +1986,8 @@ Status WriteBatchInternal::InsertInto(
 
 Status WriteBatchInternal::InsertInto(
     const WriteBatch* batch, ColumnFamilyMemTables* memtables,
-    FlushScheduler* flush_scheduler, TrimHistoryScheduler* trim_history_scheduler,
+    FlushScheduler* flush_scheduler,
+    TrimHistoryScheduler* trim_history_scheduler,
     bool ignore_missing_column_families, uint64_t log_number, DB* db,
     bool concurrent_memtable_writes, SequenceNumber* next_seq,
     bool* has_valid_writes, bool seq_per_batch, bool batch_per_txn) {
