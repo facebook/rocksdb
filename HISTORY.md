@@ -13,6 +13,7 @@
 * DBIter::Next() can skip user key checking if previous entry's seqnum is 0.
 * Merging iterator to avoid child iterator reseek for some cases
 * Reduce iterator key comparision for upper/lower bound check.
+* Log Writer will flush after finishing the whole record, rather than a fragment.
 
 ### General Improvements
 * Added new status code kColumnFamilyDropped to distinguish between Column Family Dropped and DB Shutdown in progress.
