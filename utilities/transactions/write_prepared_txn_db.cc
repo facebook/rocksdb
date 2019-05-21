@@ -108,6 +108,18 @@ Transaction* WritePreparedTxnDB::BeginTransaction(
   }
 }
 
+Status WritePreparedTxnDB::Write(const WriteOptions& opts,
+                                 WriteBatch* updates) {
+  if (txn_db_options_.skip_concurrency_control) {
+    // Skip locking the rows
+    const size_t UNKNOWN_BATCH_CNT = 0;
+    WritePreparedTxn* NO_TXN = nullptr;
+    return WriteInternal(opts, updates, UNKNOWN_BATCH_CNT, NO_TXN);
+  } else {
+    return PessimisticTransactionDB::WriteWithConcurrencyControl(opts, updates);
+  }
+}
+
 Status WritePreparedTxnDB::Write(
     const WriteOptions& opts,
     const TransactionDBWriteOptimizations& optimizations, WriteBatch* updates) {
@@ -123,7 +135,7 @@ Status WritePreparedTxnDB::Write(
   } else {
     // TODO(myabandeh): Make use of skip_duplicate_key_check hint
     // Fall back to unoptimized version
-    return PessimisticTransactionDB::Write(opts, updates);
+    return PessimisticTransactionDB::WriteWithConcurrencyControl(opts, updates);
   }
 }
 

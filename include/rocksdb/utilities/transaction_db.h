@@ -94,6 +94,13 @@ struct TransactionDBOptions {
   // for the special way that myrocks uses this operands.
   bool rollback_merge_operands = false;
 
+  // If true, the TransactionDB implementation might skip concurrency control
+  // unless it is overridden by TransactionOptions or
+  // TransactionDBWriteOptimizations. This can be used in conjuction with
+  // DBOptions::unordered_write when the TransactionDB is used solely for write
+  // ordering rather than concurrency control.
+  bool skip_concurrency_control = false;
+
  private:
   // 128 entries
   size_t wp_snapshot_cache_bits = static_cast<size_t>(7);
