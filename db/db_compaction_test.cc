@@ -497,14 +497,15 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
 
   // Create new iterator for:
   // (1) 1 for verifying flush results
-  // (2) 3 for compaction input files
-  // (3) 1 for verifying compaction results.
-  ASSERT_EQ(num_new_table_reader, 5);
+  // (2) 1 for verifying compaction results.
+  // (3) Compaction will not create new iterators anymore
+  //     if there is one already.
+  ASSERT_EQ(num_new_table_reader, 2);
 
   num_table_cache_lookup = 0;
   num_new_table_reader = 0;
   ASSERT_EQ(Key(1), Get(Key(1)));
-  ASSERT_EQ(num_table_cache_lookup + old_num_table_cache_lookup2, 3);
+  ASSERT_EQ(num_table_cache_lookup + old_num_table_cache_lookup2, 5);
   ASSERT_EQ(num_new_table_reader, 0);
 
   num_table_cache_lookup = 0;
@@ -519,13 +520,14 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   // May preload table cache too.
   ASSERT_GE(num_table_cache_lookup, 1);
   old_num_table_cache_lookup2 = num_table_cache_lookup;
-  // One for compaction input, one for verifying compaction results.
-  ASSERT_EQ(num_new_table_reader, 2);
+  // One for verifying compaction results.
+  // No new iterator created for compaction.
+  ASSERT_EQ(num_new_table_reader, 1);
 
   num_table_cache_lookup = 0;
   num_new_table_reader = 0;
   ASSERT_EQ(Key(1), Get(Key(1)));
-  ASSERT_EQ(num_table_cache_lookup + old_num_table_cache_lookup2, 2);
+  ASSERT_EQ(num_table_cache_lookup + old_num_table_cache_lookup2, 3);
   ASSERT_EQ(num_new_table_reader, 0);
 
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();

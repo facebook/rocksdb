@@ -70,7 +70,8 @@ Status SequentialFileReader::Skip(uint64_t n) {
 }
 
 Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
-                                    char* scratch) const {
+                                    char* scratch,
+									bool for_compaction) const {
   Status s;
   uint64_t elapsed = 0;
   {
@@ -90,7 +91,7 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
       buf.AllocateNewBuffer(read_size);
       while (buf.CurrentSize() < read_size) {
         size_t allowed;
-        if (for_compaction_ && rate_limiter_ != nullptr) {
+        if (for_compaction && rate_limiter_ != nullptr) {
           allowed = rate_limiter_->RequestToken(
               buf.Capacity() - buf.CurrentSize(), buf.Alignment(),
               Env::IOPriority::IO_LOW, stats_, RateLimiter::OpType::kRead);
@@ -134,7 +135,7 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
       const char* res_scratch = nullptr;
       while (pos < n) {
         size_t allowed;
-        if (for_compaction_ && rate_limiter_ != nullptr) {
+        if (for_compaction && rate_limiter_ != nullptr) {
           if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
             sw.DelayStart();
           }

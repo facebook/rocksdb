@@ -234,7 +234,7 @@ class BlockBasedTable : public TableReader {
       TBlockIter* input_iter, BlockType block_type, bool key_includes_seq,
       bool index_key_is_full, GetContext* get_context,
       BlockCacheLookupContext* lookup_context, Status s,
-      FilePrefetchBuffer* prefetch_buffer) const;
+      FilePrefetchBuffer* prefetch_buffer, bool for_compaction = false) const;
 
   class PartitionedIndexIteratorState;
 
@@ -283,7 +283,8 @@ class BlockBasedTable : public TableReader {
                        const UncompressionDict& uncompression_dict,
                        CachableEntry<Block>* block_entry, BlockType block_type,
                        GetContext* get_context,
-                       BlockCacheLookupContext* lookup_context) const;
+                       BlockCacheLookupContext* lookup_context,
+					   bool for_compaction = false) const;
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file

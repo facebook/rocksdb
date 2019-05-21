@@ -158,7 +158,8 @@ class RandomAccessFileReader {
   RandomAccessFileReader(const RandomAccessFileReader&) = delete;
   RandomAccessFileReader& operator=(const RandomAccessFileReader&) = delete;
 
-  Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
+  Status Read(uint64_t offset, size_t n, Slice* result, char* scratch,
+		  	  bool for_compaction = false) const;
 
   Status Prefetch(uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n);
@@ -170,9 +171,6 @@ class RandomAccessFileReader {
 
   bool use_direct_io() const { return file_->use_direct_io(); }
 
-  void set_for_compaction(bool for_compaction) {
-		for_compaction_ = for_compaction;
-  }
 };
 
 // WritableFileWriter is a wrapper on top of Env::WritableFile. It provides

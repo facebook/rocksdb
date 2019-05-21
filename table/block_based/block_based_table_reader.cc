@@ -83,12 +83,13 @@ Status ReadBlockFromFile(
     bool do_uncompress, bool maybe_compressed, BlockType block_type,
     const UncompressionDict& uncompression_dict,
     const PersistentCacheOptions& cache_options, SequenceNumber global_seqno,
-    size_t read_amp_bytes_per_bit, MemoryAllocator* memory_allocator) {
+    size_t read_amp_bytes_per_bit, MemoryAllocator* memory_allocator,
+	bool for_compaction = false) {
   BlockContents contents;
   BlockFetcher block_fetcher(file, prefetch_buffer, footer, options, handle,
                              &contents, ioptions, do_uncompress,
-                             maybe_compressed, block_type, uncompression_dict,
-                             cache_options, memory_allocator);
+                             maybe_compressed, uncompression_dict,
+                             cache_options, memory_allocator, nullptr, for_compaction);
   Status s = block_fetcher.ReadBlockContents();
   if (s.ok()) {
     result->reset(new Block(std::move(contents), global_seqno,
@@ -2075,7 +2076,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     const ReadOptions& ro, const BlockHandle& handle, TBlockIter* input_iter,
     BlockType block_type, bool key_includes_seq, bool index_key_is_full,
     GetContext* get_context, BlockCacheLookupContext* lookup_context, Status s,
-    FilePrefetchBuffer* prefetch_buffer) const {
+    FilePrefetchBuffer* prefetch_buffer, bool for_compaction) const {
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
 
   TBlockIter* iter = input_iter != nullptr ? input_iter : new TBlockIter;
@@ -2094,7 +2095,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
 
   CachableEntry<Block> block;
   s = RetrieveBlock(prefetch_buffer, ro, handle, uncompression_dict, &block,
-                    block_type, get_context, lookup_context);
+                    block_type, get_context, lookup_context, for_compaction);
 
   if (!s.ok()) {
     assert(block.IsEmpty());
@@ -2298,7 +2299,7 @@ Status BlockBasedTable::RetrieveBlock(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
     CachableEntry<Block>* block_entry, BlockType block_type,
-    GetContext* get_context, BlockCacheLookupContext* lookup_context) const {
+    GetContext* get_context, BlockCacheLookupContext* lookup_context, bool for_compaction) const {
   assert(block_entry);
   assert(block_entry->IsEmpty());
 
@@ -2721,7 +2722,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
     table_->NewDataBlockIterator<TBlockIter>(
         read_options_, data_block_handle, &block_iter_, block_type_,
         key_includes_seq_, index_key_is_full_,
-        /*get_context=*/nullptr, &lookup_context_, s, prefetch_buffer_.get());
+        /*get_context=*/nullptr, &lookup_context_, s, prefetch_buffer_.get(), for_compaction_);
     block_iter_points_to_real_block_ = true;
   }
 }
