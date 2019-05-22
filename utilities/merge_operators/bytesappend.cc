@@ -33,7 +33,7 @@ namespace rocksdb {
         return true;
     }
 
-    const char *Name() {
+    const char *BytesAppendOperator::Name() const {
         return "BytesAppendOperator";
     }
 
