@@ -1104,9 +1104,9 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
     }
 #endif
     ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
-    file->MultiRead(&reqs);
+    file->MultiRead(reqs.data(), reqs.size());
     for (size_t i = 0; i < reqs.size(); ++i) {
-      auto buf = NewAligned(kSectorSize * 8, i*2 + 1);
+      auto buf = NewAligned(kSectorSize * 8, static_cast<const char>(i*2 + 1));
       ASSERT_OK(reqs[i].status);
       ASSERT_EQ(memcmp(reqs[i].scratch, buf.get(), kSectorSize), 0);
     }
