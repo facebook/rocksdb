@@ -4041,9 +4041,13 @@ Status VersionSet::ExtractInfoFromVersionEdit(
   return Status::OK();
 }
 
-Status VersionSet::GetCurrentManifestPath(std::string* manifest_path,
-  uint64_t* manifest_file_number, const std::string& dbname, Env* env) {
+Status VersionSet::GetCurrentManifestPath(const std::string& dbname, Env* env,
+                                          std::string* manifest_path,
+                                          uint64_t* manifest_file_number) {
+  assert(env != nullptr);
   assert(manifest_path != nullptr);
+  assert(manifest_file_number != nullptr);
+
   std::string fname;
   Status s = ReadFileToString(env, CurrentFileName(dbname), &fname);
   if (!s.ok()) {
@@ -4081,8 +4085,8 @@ Status VersionSet::Recover(
 
   // Read "CURRENT" file, which contains a pointer to the current manifest file
   std::string manifest_path;
-  Status s = GetCurrentManifestPath(&manifest_path, &manifest_file_number_,
-                                    dbname_, env_);
+  Status s = GetCurrentManifestPath(dbname_, env_, &manifest_path,
+                                    &manifest_file_number_);
   if (!s.ok()) {
     return s;
   }
@@ -4325,8 +4329,8 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
   // Read "CURRENT" file, which contains a pointer to the current manifest file
   std::string manifest_path;
   uint64_t manifest_file_number;
-  Status s = GetCurrentManifestPath(&manifest_path, &manifest_file_number,
-                                    dbname, env);
+  Status s = GetCurrentManifestPath(dbname, env, &manifest_path,
+                                    &manifest_file_number);
   if (!s.ok()) {
     return s;
   }
@@ -5508,8 +5512,8 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
   Status s;
   do {
     std::string manifest_path;
-    s = GetCurrentManifestPath(&manifest_path, &manifest_file_number_,
-                                dbname_, env_);
+    s = GetCurrentManifestPath(dbname_, env_, &manifest_path,
+                               &manifest_file_number_);
     std::unique_ptr<SequentialFile> manifest_file;
     if (s.ok()) {
       if (nullptr == manifest_reader->get() ||
