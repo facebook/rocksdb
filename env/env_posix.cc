@@ -7,9 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors
 #include <dirent.h>
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <dlfcn.h>
 
 #if defined(OS_LINUX)
 #include <linux/fs.h>
@@ -110,7 +110,6 @@ static int LockOrUnlock(int fd, bool lock) {
   return value;
 }
 
-
 class PosixFileLock : public FileLock {
  public:
   int fd_;
@@ -130,17 +129,14 @@ int cloexec_flags(int flags, const EnvOptions* options) {
 }
 
 class PosixDynamicLibrary : public DynamicLibrary {
-public:
-  PosixDynamicLibrary(const std::string & name, void *handle)
-    :  name_(name), handle_(handle) {
-    }
-  ~PosixDynamicLibrary() override {
-      dlclose(handle_);
-  }
+ public:
+  PosixDynamicLibrary(const std::string& name, void* handle)
+      : name_(name), handle_(handle) {}
+  ~PosixDynamicLibrary() override { dlclose(handle_); }
 
-  Status LoadSymbol(const std::string & sym_name, FunctionPtr *func) override {
-    char *err = dlerror(); // Clear any old error
-    *func = (FunctionPtr) dlsym(handle_, sym_name.c_str());
+  Status LoadSymbol(const std::string& sym_name, FunctionPtr* func) override {
+    char* err = dlerror();  // Clear any old error
+    *func = (FunctionPtr)dlsym(handle_, sym_name.c_str());
     if (*func != nullptr) {
       return Status::OK();
     } else {
@@ -149,12 +145,11 @@ public:
     }
   }
 
-  const char *Name() const override {
-    return name_.c_str();
-  }
-private:
+  const char* Name() const override { return name_.c_str(); }
+
+ private:
   std::string name_;
-    void *handle_;
+  void* handle_;
 };
 
 class PosixEnv : public Env {
@@ -771,60 +766,60 @@ class PosixEnv : public Env {
     return result;
   }
 
-/**
- * Loads the named library into the result.
- * If the input name is empty, the current executable is loaded
- * On *nix systems, a "lib" prefix is added to the name if one is not supplied
- * Comparably, the appropriate shared library extension is added to the name if not supplied.
- * If search_path is not specified, the shared library will be loaded using the default path (LD_LIBRARY_PATH)
- * If search_path is specified, the shared library will be searched for in the directories
- * provided by the search path
- */
-Status LoadLibrary(const std::string& name,
-		     const std::string & path,
-		     std::shared_ptr<DynamicLibrary>* result) override {
+  /**
+   * Loads the named library into the result.
+   * If the input name is empty, the current executable is loaded
+   * On *nix systems, a "lib" prefix is added to the name if one is not supplied
+   * Comparably, the appropriate shared library extension is added to the name
+   * if not supplied. If search_path is not specified, the shared library will
+   * be loaded using the default path (LD_LIBRARY_PATH) If search_path is
+   * specified, the shared library will be searched for in the directories
+   * provided by the search path
+   */
+  Status LoadLibrary(const std::string& name, const std::string& path,
+                     std::shared_ptr<DynamicLibrary>* result) override {
     Status status;
     assert(result != nullptr);
     if (name.empty()) {
-      void *hndl = dlopen(NULL, RTLD_NOW);
+      void* hndl = dlopen(NULL, RTLD_NOW);
       if (hndl != nullptr) {
-	result->reset(new PosixDynamicLibrary(name, hndl));
-	return Status::OK();
+        result->reset(new PosixDynamicLibrary(name, hndl));
+        return Status::OK();
       }
     } else {
       std::string library_name = name;
       if (library_name.find(kSharedLibExt) == std::string::npos) {
-	library_name = library_name + kSharedLibExt;
+        library_name = library_name + kSharedLibExt;
       }
-#if ! defined(OS_WIN)
+#if !defined(OS_WIN)
       if (library_name.find('/') == std::string::npos &&
-	  library_name.compare(0, 3, "lib") != 0) {
-	library_name = "lib" + library_name;
+          library_name.compare(0, 3, "lib") != 0) {
+        library_name = "lib" + library_name;
       }
 #endif
       if (path.empty()) {
-	void *hndl = dlopen(library_name.c_str(), RTLD_NOW);
-	if (hndl != nullptr) {
-	  result->reset(new PosixDynamicLibrary(library_name, hndl));
-	  return Status::OK();
-	}
+        void* hndl = dlopen(library_name.c_str(), RTLD_NOW);
+        if (hndl != nullptr) {
+          result->reset(new PosixDynamicLibrary(library_name, hndl));
+          return Status::OK();
+        }
       } else {
-	std::string local_path;
-	std::stringstream ss(path);
-	while (getline(ss, local_path, kPathSeparator)) {
-	  if (! path.empty()) {
-	  std::string full_name = local_path + "/" + library_name;
-	  void *hndl = dlopen(full_name.c_str(), RTLD_NOW);
-	  if (hndl != nullptr) {
-	    result->reset(new PosixDynamicLibrary(full_name, hndl));
-	    return Status::OK();
-	  }
-	  }
-	}
+        std::string local_path;
+        std::stringstream ss(path);
+        while (getline(ss, local_path, kPathSeparator)) {
+          if (!path.empty()) {
+            std::string full_name = local_path + "/" + library_name;
+            void* hndl = dlopen(full_name.c_str(), RTLD_NOW);
+            if (hndl != nullptr) {
+              result->reset(new PosixDynamicLibrary(full_name, hndl));
+              return Status::OK();
+            }
+          }
+        }
       }
     }
-    return Status::IOError(IOErrorMsg("Failed to open shared library: xs", name),
-			   dlerror());
+    return Status::IOError(
+        IOErrorMsg("Failed to open shared library: xs", name), dlerror());
   }
 
   void Schedule(void (*function)(void* arg1), void* arg, Priority pri = LOW,

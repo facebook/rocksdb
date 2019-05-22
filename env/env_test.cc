@@ -249,14 +249,15 @@ TEST_F(EnvPosixTest, MemoryMappedFileBuffer) {
 
 TEST_F(EnvPosixTest, LoadRocksDBLibrary) {
   std::shared_ptr<DynamicLibrary> library;
-  std::function<void*(void *, const char*)> function;
+  std::function<void*(void*, const char*)> function;
   Status status = env_->LoadLibrary("no-such-library", "", &library);
   ASSERT_NOK(status);
   ASSERT_EQ(nullptr, library.get());
   status = env_->LoadLibrary("rocksdb", "", &library);
-  if (status.ok()) { // If we have can find a rocksdb shared library
+  if (status.ok()) {  // If we have can find a rocksdb shared library
     ASSERT_NE(nullptr, library.get());
-    ASSERT_OK(library->LoadFunction("rocksdb_create_default_env", &function)); // from C definition
+    ASSERT_OK(library->LoadFunction("rocksdb_create_default_env",
+                                    &function));  // from C definition
     ASSERT_NE(nullptr, function);
     ASSERT_NOK(library->LoadFunction("no-such-method", &function));
     ASSERT_EQ(nullptr, function);
@@ -266,10 +267,10 @@ TEST_F(EnvPosixTest, LoadRocksDBLibrary) {
   }
 }
 
-#if ! defined(OS_WIN)
+#if !defined(OS_WIN)
 TEST_F(EnvPosixTest, LoadRocksDBLibraryWithSearchPath) {
   std::shared_ptr<DynamicLibrary> library;
-  std::function<void*(void *, const char*)> function;
+  std::function<void*(void*, const char*)> function;
   ASSERT_NOK(env_->LoadLibrary("no-such-library", "/tmp", &library));
   ASSERT_EQ(nullptr, library.get());
   ASSERT_NOK(env_->LoadLibrary("dl", "/tmp", &library));
@@ -281,7 +282,7 @@ TEST_F(EnvPosixTest, LoadRocksDBLibraryWithSearchPath) {
   }
   char buff[1024];
   std::string cwd = getcwd(buff, sizeof(buff));
-  
+
   status = env_->LoadLibrary("rocksdb", "/tmp:" + cwd, &library);
   if (status.ok()) {
     ASSERT_NE(nullptr, library.get());
