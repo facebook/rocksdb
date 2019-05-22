@@ -1020,6 +1020,20 @@ class VersionSet {
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                        VersionEdit* edit);
 
+  Status ReadAndRecover(
+      log::Reader* reader,
+      const std::unordered_map<std::string, ColumnFamilyOptions>&
+          name_to_options,
+      std::unordered_map<int, std::string>& column_families_not_found,
+      std::unordered_map<
+          uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>& builders,
+      std::vector<VersionEdit>& replay_buffer,
+      size_t* num_read_entries_in_last_atomic_group, bool* have_log_number,
+      uint64_t* log_number, bool* have_prev_log_number,
+      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
+      bool* have_last_sequence, SequenceNumber* last_sequence,
+      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
+
   // REQUIRES db mutex
   Status ApplyOneVersionEditToBuilder(
       VersionEdit& edit,
@@ -1128,11 +1142,11 @@ class ReactiveVersionSet : public VersionSet {
 
   // REQUIRES db mutex
   Status ApplyOneVersionEditToBuilder(
-      VersionEdit& edit, bool* have_log_number, uint64_t* log_number,
-      bool* have_prev_log_number, uint64_t* previous_log_number,
-      bool* have_next_file, uint64_t* next_file, bool* have_last_sequence,
-      SequenceNumber* last_sequence, uint64_t* min_log_number_to_keep,
-      uint32_t* max_column_family);
+      VersionEdit& edit, std::unordered_set<ColumnFamilyData*>* cfds_changed,
+      bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
+      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
+      bool* have_last_sequence, SequenceNumber* last_sequence,
+      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
 
   Status MaybeSwitchManifest(
       log::Reader::Reporter* reporter,
@@ -1141,6 +1155,11 @@ class ReactiveVersionSet : public VersionSet {
  private:
   std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
       active_version_builders_;
+  // Records version edits in one atomic group.
+  // When the secondary reads all edits in the atomic group, it applies these
+  // edits and clears this buffer.
+  std::vector<VersionEdit> replay_buffer_;
+  uint64_t num_read_entries_in_last_atomic_group_;
 
   using VersionSet::LogAndApply;
   using VersionSet::Recover;
