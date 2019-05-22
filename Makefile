@@ -232,10 +232,6 @@ ifneq ($(filter -DROCKSDB_LITE,$(OPT)),)
 	LUA_PATH =
 endif
 
-ifeq ($(PLATFORM), OS_LINUX)
-        EXEC_LDFLAGS += -ldl
-endif
-
 # ASAN doesn't work well with jemalloc. If we're compiling with ASAN, we should use regular malloc.
 ifdef COMPILE_WITH_ASAN
 	DISABLE_JEMALLOC=1
