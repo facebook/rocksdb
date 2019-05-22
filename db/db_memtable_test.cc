@@ -322,7 +322,7 @@ TEST_F(DBMemTableTest, ColumnFamilyId) {
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
-  for (int cf = 0; cf < 2; ++cf) {
+  for (uint32_t cf = 0; cf < 2; ++cf) {
     ASSERT_OK(Put(cf, "key", "val"));
     ASSERT_OK(Flush(cf));
     ASSERT_EQ(

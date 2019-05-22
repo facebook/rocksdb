@@ -444,11 +444,11 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksCachePriority) {
               TestGetTickerCount(options, BLOCK_CACHE_ADD));
     ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
     if (priority == Cache::Priority::LOW) {
-      ASSERT_EQ(0, MockCache::high_pri_insert_count);
-      ASSERT_EQ(2, MockCache::low_pri_insert_count);
+      ASSERT_EQ(static_cast<uint32_t>(0), MockCache::high_pri_insert_count);
+      ASSERT_EQ(static_cast<uint32_t>(2), MockCache::low_pri_insert_count);
     } else {
-      ASSERT_EQ(2, MockCache::high_pri_insert_count);
-      ASSERT_EQ(0, MockCache::low_pri_insert_count);
+      ASSERT_EQ(static_cast<uint32_t>(2), MockCache::high_pri_insert_count);
+      ASSERT_EQ(static_cast<uint32_t>(0), MockCache::low_pri_insert_count);
     }
 
     // Access data block.
@@ -462,11 +462,11 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksCachePriority) {
 
     // Data block should be inserted with low priority.
     if (priority == Cache::Priority::LOW) {
-      ASSERT_EQ(0, MockCache::high_pri_insert_count);
-      ASSERT_EQ(3, MockCache::low_pri_insert_count);
+      ASSERT_EQ(static_cast<uint32_t>(0), MockCache::high_pri_insert_count);
+      ASSERT_EQ(static_cast<uint32_t>(3), MockCache::low_pri_insert_count);
     } else {
-      ASSERT_EQ(2, MockCache::high_pri_insert_count);
-      ASSERT_EQ(1, MockCache::low_pri_insert_count);
+      ASSERT_EQ(static_cast<uint32_t>(2), MockCache::high_pri_insert_count);
+      ASSERT_EQ(static_cast<uint32_t>(1), MockCache::low_pri_insert_count);
     }
   }
 }
