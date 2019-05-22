@@ -45,7 +45,7 @@ class BlockFetcher {
                const PersistentCacheOptions& cache_options,
                MemoryAllocator* memory_allocator = nullptr,
                MemoryAllocator* memory_allocator_compressed = nullptr,
-			   bool for_compaction = false)
+               bool for_compaction = false)
       : file_(file),
         prefetch_buffer_(prefetch_buffer),
         footer_(footer),
@@ -60,7 +60,7 @@ class BlockFetcher {
         cache_options_(cache_options),
         memory_allocator_(memory_allocator),
         memory_allocator_compressed_(memory_allocator_compressed),
-		for_compaction_(for_compaction){}
+        for_compaction_(for_compaction) {}
 
   Status ReadBlockContents();
   CompressionType get_compression_type() const { return compression_type_; }

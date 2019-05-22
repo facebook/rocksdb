@@ -2640,7 +2640,7 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
   const int kBytesPerKey = 1024;
   const int kNumL0Files = 4;
 
-  for (auto use_direct_io : {false}) {
+  for (auto use_direct_io : {false, true}) {
     if (use_direct_io && !IsDirectIOSupported()) {
       continue;
     }

@@ -84,12 +84,12 @@ Status ReadBlockFromFile(
     const UncompressionDict& uncompression_dict,
     const PersistentCacheOptions& cache_options, SequenceNumber global_seqno,
     size_t read_amp_bytes_per_bit, MemoryAllocator* memory_allocator,
-	bool for_compaction = false) {
+    bool for_compaction = false) {
   BlockContents contents;
-  BlockFetcher block_fetcher(file, prefetch_buffer, footer, options, handle,
-                             &contents, ioptions, do_uncompress,
-                             maybe_compressed, uncompression_dict,
-                             cache_options, memory_allocator, nullptr, for_compaction);
+  BlockFetcher block_fetcher(
+      file, prefetch_buffer, footer, options, handle, &contents, ioptions,
+      do_uncompress, maybe_compressed, uncompression_dict, cache_options,
+      memory_allocator, nullptr, for_compaction);
   Status s = block_fetcher.ReadBlockContents();
   if (s.ok()) {
     result->reset(new Block(std::move(contents), global_seqno,

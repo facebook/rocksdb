@@ -159,7 +159,7 @@ class RandomAccessFileReader {
   RandomAccessFileReader& operator=(const RandomAccessFileReader&) = delete;
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch,
-		  	  bool for_compaction = false) const;
+              bool for_compaction = false) const;
 
   Status Prefetch(uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n);
@@ -345,7 +345,8 @@ class FilePrefetchBuffer {
   // reader : the file reader.
   // offset : the file offset to start reading from.
   // n      : the number of bytes to read.
-  Status Prefetch(RandomAccessFileReader* reader, uint64_t offset, size_t n);
+  Status Prefetch(RandomAccessFileReader* reader, uint64_t offset, size_t n,
+		  	  	  bool for_compaction = false);
 
   // Tries returning the data for a file raed from this buffer, if that data is
   // in the buffer.
@@ -356,7 +357,8 @@ class FilePrefetchBuffer {
   // offset : the file offset.
   // n      : the number of bytes.
   // result : output buffer to put the data into.
-  bool TryReadFromCache(uint64_t offset, size_t n, Slice* result);
+  bool TryReadFromCache(uint64_t offset, size_t n, Slice* result,
+		  	  	  	  	bool for_compaction = false);
 
   // The minimum `offset` ever passed to TryReadFromCache(). This will nly be
   // tracked if track_min_offset = true.
