@@ -617,13 +617,17 @@ class RandomAccessFile {
   // Read a bunch of blocks as described by reqs. The blocks can
   // optionally be read in parallel. This is a synchronous call, i.e it
   // should return after all reads have completed. The reads will be
-  // non-overlapping
-  virtual void MultiRead(ReadRequest* reqs, size_t num_reqs) {
+  // non-overlapping. If the function return Status is not ok, status of
+  // individual requests will be ignored and return status will be assumed
+  // for all read requests. The function return status is only meant for any
+  // any errors that occur before even processing specific read requests
+  virtual Status MultiRead(ReadRequest* reqs, size_t num_reqs) {
     assert(reqs != nullptr);
     for (size_t i = 0; i < num_reqs; ++i) {
       ReadRequest& req = reqs[i];
       req.status = Read(req.offset, req.len, &req.result, req.scratch);
     }
+    return Status::OK();
   }
 
   // Tries to get an unique ID for this file that will be the same each time
@@ -1347,8 +1351,8 @@ class RandomAccessFileWrapper : public RandomAccessFile {
               char* scratch) const override {
     return target_->Read(offset, n, result, scratch);
   }
-  void MultiRead(ReadRequest* reqs, size_t num_reqs) override {
-    target_->MultiRead(reqs, num_reqs);
+  Status MultiRead(ReadRequest* reqs, size_t num_reqs) override {
+    return target_->MultiRead(reqs, num_reqs);
   }
   Status Prefetch(uint64_t offset, size_t n) override {
     return target_->Prefetch(offset, n);

@@ -1081,7 +1081,6 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
       Slice slice(data.get(), kSectorSize);
       ASSERT_OK(wfile->Append(slice));
     }
-    ASSERT_OK(wfile->InvalidateCache(0, 0));
     ASSERT_OK(wfile->Close());
   }
 
@@ -1104,7 +1103,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
     }
 #endif
     ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
-    file->MultiRead(reqs.data(), reqs.size());
+    ASSERT_OK(file->MultiRead(reqs.data(), reqs.size()));
     for (size_t i = 0; i < reqs.size(); ++i) {
       auto buf = NewAligned(kSectorSize * 8, static_cast<const char>(i*2 + 1));
       ASSERT_OK(reqs[i].status);
