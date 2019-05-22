@@ -134,11 +134,11 @@ public:
   PosixDynamicLibrary(const std::string & name, void *handle)
     :  name_(name), handle_(handle) {
     }
-  ~PosixDynamicLibrary() {
+  ~PosixDynamicLibrary() override {
       dlclose(handle_);
   }
-  
-  virtual Status LoadSymbol(const std::string & sym_name, FunctionPtr *func) override {
+
+  Status LoadSymbol(const std::string & sym_name, FunctionPtr *func) override {
     char *err = dlerror(); // Clear any old error
     *func = (FunctionPtr) dlsym(handle_, sym_name.c_str());
     if (*func != nullptr) {
@@ -148,8 +148,8 @@ public:
       return Status::NotFound("Error finding symbol: " + sym_name, err);
     }
   }
-  
-  virtual const char *Name() const override {
+
+  const char *Name() const override {
     return name_.c_str();
   }
 private:
@@ -797,7 +797,7 @@ Status LoadLibrary(const std::string& name,
 	library_name = library_name + kSharedLibExt;
       }
 #if ! defined(OS_WIN)
-      if (library_name.find('/') == std::string::npos && 
+      if (library_name.find('/') == std::string::npos &&
 	  library_name.compare(0, 3, "lib") != 0) {
 	library_name = "lib" + library_name;
       }
