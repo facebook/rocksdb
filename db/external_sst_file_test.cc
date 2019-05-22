@@ -7,8 +7,8 @@
 
 #include <functional>
 #include "db/db_test_util.h"
-#include "port/stack_trace.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
 #include "util/fault_injection_test_env.h"
 #include "util/filename.h"
@@ -16,7 +16,7 @@
 
 namespace rocksdb {
 
-// A test environment that can configured to fail the Link operation.
+// A test environment that can be configured to fail the Link operation.
 class ExternalSSTTestEnv : public EnvWrapper {
  public:
   ExternalSSTTestEnv(Env* t, bool fail_link)
@@ -2100,7 +2100,7 @@ TEST_F(ExternalSSTFileTest, LinkFailExternalSst) {
   uint64_t file_size = 0;
   ASSERT_OK(env_->GetFileSize(file_path, &file_size));
 
-  // Failed move fall back to copy.
+  // Failed move falls back to copy.
   {
     IngestExternalFileOptions ifo;
     ifo.move_files = true;
