@@ -7,14 +7,31 @@
 
 #include <functional>
 #include "db/db_test_util.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
+#include "port/port.h"
 #include "rocksdb/sst_file_writer.h"
 #include "util/fault_injection_test_env.h"
 #include "util/filename.h"
 #include "util/testutil.h"
 
 namespace rocksdb {
+
+// A test environment that can configured to fail the Link operation.
+class ExternalSSTTestEnv : public EnvWrapper {
+ public:
+  ExternalSSTTestEnv(Env* t, bool fail_link)
+      : EnvWrapper(t), fail_link_(fail_link){};
+
+  Status LinkFile(const std::string& s, const std::string& t) override {
+    if (fail_link_) {
+      return Status::NotSupported("Link failed");
+    }
+    return target()->LinkFile(s, t);
+  }
+
+ private:
+  bool fail_link_;
+};
 
 class ExternalSSTFileTest
     : public DBTestBase,
@@ -2060,6 +2077,77 @@ TEST_F(ExternalSSTFileTest, LinkExternalSst) {
     ASSERT_EQ(file_size, bytes_moved);
   } else {
     ASSERT_EQ(file_size, bytes_copied);
+  }
+}
+
+/*
+ * Test and verify the functionality of ingestion_options.move_files and ingestion_options.failed_move_fall_back_to_copy
+ */
+TEST_F(ExternalSSTFileTest, LinkFailExternalSst) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  const int kNumKeys = 10000;
+
+  std::string file_path = sst_files_dir_ + "file1.sst";
+  // Create SstFileWriter for default column family
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+  ASSERT_OK(sst_file_writer.Open(file_path));
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(sst_file_writer.Put(Key(i), Key(i) + "_value"));
+  }
+  ASSERT_OK(sst_file_writer.Finish());
+  uint64_t file_size = 0;
+  ASSERT_OK(env_->GetFileSize(file_path, &file_size));
+
+  // Failed move fall back to copy.
+  {
+    IngestExternalFileOptions ifo;
+    ifo.move_files = true;
+    ifo.failed_move_fall_back_to_copy = true;
+    ExternalSSTTestEnv test_env(env_, true);
+    InstrumentedMutex mutex_;
+    std::list<uint64_t>::iterator pending_output_elem;
+    const uint64_t next_file_number =
+        dbfull()->Test_GetVersionSet()->FetchAddFileNumber(1);
+
+    ColumnFamilyData* cfd =
+        static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())->cfd();
+    ExternalSstFileIngestionJob job(&test_env, dbfull()->Test_GetVersionSet(),
+                                    cfd, dbfull()->immutable_db_options(),
+                                    dbfull()->Test_GetEnvOptions(), nullptr,
+                                    ifo);
+    SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
+    ASSERT_OK(job.Prepare({file_path}, next_file_number + 1, super_version));
+    dbfull()->CleanupSuperVersion(super_version);
+    // Copy file is true since a failed link falls back to copy file.
+    ASSERT_TRUE(job.files_to_ingest()[0].copy_file);
+  }
+
+  // Failed move does not fall back to copy and Prepare returns failure.
+  {
+    IngestExternalFileOptions ifo;
+    ifo.move_files = true;
+    ifo.failed_move_fall_back_to_copy = false;
+    ExternalSSTTestEnv test_env(env_, true);
+    InstrumentedMutex mutex_;
+    std::list<uint64_t>::iterator pending_output_elem;
+    const uint64_t next_file_number =
+        dbfull()->Test_GetVersionSet()->FetchAddFileNumber(1);
+
+    ColumnFamilyData* cfd =
+        static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())->cfd();
+    ExternalSstFileIngestionJob job(&test_env, dbfull()->Test_GetVersionSet(),
+                                    cfd, dbfull()->immutable_db_options(),
+                                    dbfull()->Test_GetEnvOptions(), nullptr,
+                                    ifo);
+    SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
+    const Status s =
+        job.Prepare({file_path}, next_file_number + 1, super_version);
+    ASSERT_TRUE(s.IsNotSupported());
+    dbfull()->CleanupSuperVersion(super_version);
+    // Copy file is false since a failed link does not fall back to copy file.
+    ASSERT_FALSE(job.files_to_ingest()[0].copy_file);
   }
 }
 

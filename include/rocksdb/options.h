@@ -1398,6 +1398,8 @@ struct CompactRangeOptions {
 struct IngestExternalFileOptions {
   // Can be set to true to move the files instead of copying them.
   bool move_files = false;
+  // If set to true, ingestion falls back to copy when move fails.
+  bool failed_move_fall_back_to_copy = true;
   // If set to false, an ingested file keys could appear in existing snapshots
   // that where created before the file was ingested.
   bool snapshot_consistency = true;
