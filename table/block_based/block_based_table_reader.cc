@@ -2934,7 +2934,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
     }
 
     DataBlockIter biter;
-    BlockHandle bhandle = BlockHandle::NullBlockHandle();
+    uint64_t offset = std::numeric_limits<uint64_t>::max();
     for (auto miter = sst_file_range.begin(); miter != sst_file_range.end();
          ++miter) {
       Status s;
@@ -2943,13 +2943,14 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       bool matched = false;  // if such user key matched a key in SST
       bool done = false;
       for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
-        if (iiter->value().offset() != bhandle.offset() ||
-            iiter->value().size() != bhandle.size()) {
-          bhandle = iiter->value();
+        bool reusing_block = true;
+        if (iiter->value().offset() != offset) {
+          offset = iiter->value().offset();
           biter.Invalidate(Status::OK());
           NewDataBlockIterator<DataBlockIter>(
-              rep_, read_options, bhandle, &biter, false,
+              rep_, read_options, iiter->value(), &biter, false,
               true /* key_includes_seq */, get_context);
+          reusing_block = false;
         }
 
         if (read_options.read_tier == kBlockCacheTier &&
@@ -2977,13 +2978,27 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         // Call the *saver function on each entry/block until it returns false
         for (; biter.Valid(); biter.Next()) {
           ParsedInternalKey parsed_key;
+          Cleanable dummy;
+          Cleanable* value_pinner = nullptr;
+
           if (!ParseInternalKey(biter.key(), &parsed_key)) {
             s = Status::Corruption(Slice());
           }
+          if (biter.IsValuePinned()) {
+            if (reusing_block) {
+              Cache* block_cache = rep_->table_options.block_cache.get();
+              assert(biter.cache_handle() != nullptr);
+              block_cache->Ref(biter.cache_handle());
+              dummy.RegisterCleanup(&ReleaseCachedEntry, block_cache,
+                                    biter.cache_handle());
+              value_pinner = &dummy;
+            } else {
+              value_pinner = &biter;
+            }
+          }
 
           if (!get_context->SaveValue(
-                  parsed_key, biter.value(), &matched,
-                  biter.IsValuePinned() ? &biter : nullptr)) {
+                  parsed_key, biter.value(), &matched, value_pinner)) {
             done = true;
             break;
           }
