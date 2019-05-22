@@ -807,7 +807,9 @@ class VersionSet {
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* new_cf_options = nullptr);
 
-  Status GetCurrentManifestPath(std::string* manifest_filename);
+  static Status GetCurrentManifestPath(const std::string& dbname, Env* env,
+                                       std::string* manifest_filename,
+                                       uint64_t* manifest_file_number);
 
   // Recover the last saved descriptor from persistent storage.
   // If read_only == true, Recover() will not complain if some column families
