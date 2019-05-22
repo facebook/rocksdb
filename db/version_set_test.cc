@@ -767,6 +767,9 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
 class VersionSetAtomicGroupTest : public VersionSetTestBase,
                                   public testing::Test {
  public:
+  const static int kTestVersionSetRecover;
+  const static int kTestReactiveVersionSetRecover;
+  const static int kTestReactiveVersionSetReadAndApply;
   VersionSetAtomicGroupTest() : VersionSetTestBase() {}
 
   void SetUp() override {
@@ -895,6 +898,10 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
   VersionEdit edit_with_incorrect_group_size_;
   std::unique_ptr<log::Writer> log_writer_;
 };
+
+const int VersionSetAtomicGroupTest::kTestVersionSetRecover = 0;
+const int VersionSetAtomicGroupTest::kTestReactiveVersionSetRecover = 1;
+const int VersionSetAtomicGroupTest::kTestReactiveVersionSetReadAndApply = 2;
 
 TEST_F(VersionSetAtomicGroupTest, HandleValidAtomicGroupWithVersionSetRecover) {
   const int kAtomicGroupSize = 3;
