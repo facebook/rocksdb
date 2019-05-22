@@ -91,9 +91,6 @@ extern void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
                                       const std::vector<FileMetaData*>& files,
                                       Arena* arena);
 
-// Information of the storage associated with each Version, including number of
-// levels of LSM tree, files information at each level, files marked for
-// compaction, etc.
 class VersionStorageInfo {
  public:
   VersionStorageInfo(const InternalKeyComparator* internal_comparator,
@@ -540,8 +537,6 @@ class VersionStorageInfo {
 };
 
 using MultiGetRange = MultiGetContext::Range;
-// A column family's version consists of the SST files owned by the column
-// family at a certain point in time.
 class Version {
  public:
   // Append to *iters a sequence of iterators that will
@@ -752,9 +747,23 @@ struct ObsoleteFileInfo {
 
 class BaseReferencedVersionBuilder;
 
-// VersionSet is the collection of versions of all the column families of the
-// database. Each database owns one VersionSet. A VersionSet has access to all
-// column families via ColumnFamilySet, i.e. set of the column families.
+class AtomicGroupReadBuffer {
+ public:
+  Status AddEdit(VersionEdit* edit);
+  void Clear();
+  bool IsFull() const;
+  bool IsEmpty() const;
+
+  uint64_t TEST_read_edits_in_atomic_group() const {
+    return read_edits_in_atomic_group_;
+  }
+  std::vector<VersionEdit>& replay_buffer() { return replay_buffer_; }
+
+ private:
+  uint64_t read_edits_in_atomic_group_ = 0;
+  std::vector<VersionEdit> replay_buffer_;
+};
+
 class VersionSet {
  public:
   VersionSet(const std::string& dbname, const ImmutableDBOptions* db_options,
@@ -1029,15 +1038,13 @@ class VersionSet {
                                        VersionEdit* edit);
 
   Status ReadAndRecover(
-      log::Reader* reader,
+      log::Reader* reader, AtomicGroupReadBuffer* read_buffer,
       const std::unordered_map<std::string, ColumnFamilyOptions>&
           name_to_options,
       std::unordered_map<int, std::string>& column_families_not_found,
       std::unordered_map<
           uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>& builders,
-      std::vector<VersionEdit>& replay_buffer,
-      size_t* num_read_entries_in_last_atomic_group, bool* have_log_number,
-      uint64_t* log_number, bool* have_prev_log_number,
+      bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
       uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
       bool* have_last_sequence, SequenceNumber* last_sequence,
       uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
@@ -1125,10 +1132,6 @@ class VersionSet {
                          VersionEdit* edit, InstrumentedMutex* mu);
 };
 
-// ReactiveVersionSet represents a collection of versions of the column
-// families of the database. Users of ReactiveVersionSet, e.g. DBImplSecondary,
-// need to replay the MANIFEST (description log in older terms) in order to
-// reconstruct and install versions.
 class ReactiveVersionSet : public VersionSet {
  public:
   ReactiveVersionSet(const std::string& dbname,
@@ -1149,6 +1152,13 @@ class ReactiveVersionSet : public VersionSet {
                  std::unique_ptr<log::Reader::Reporter>* manifest_reporter,
                  std::unique_ptr<Status>* manifest_reader_status);
 
+  uint64_t TEST_read_edits_in_atomic_group() const {
+    return read_buffer_.TEST_read_edits_in_atomic_group();
+  }
+  std::vector<VersionEdit>& replay_buffer() {
+    return read_buffer_.replay_buffer();
+  }
+
  protected:
   using VersionSet::ApplyOneVersionEditToBuilder;
 
@@ -1167,11 +1177,7 @@ class ReactiveVersionSet : public VersionSet {
  private:
   std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
       active_version_builders_;
-  // Records version edits in one atomic group.
-  // When the secondary reads all edits in the atomic group, it applies these
-  // edits and clears this buffer.
-  std::vector<VersionEdit> replay_buffer_;
-  uint64_t num_read_entries_in_last_atomic_group_;
+  AtomicGroupReadBuffer read_buffer_;
 
   using VersionSet::LogAndApply;
   using VersionSet::Recover;
