@@ -4132,12 +4132,14 @@ Status VersionSet::ReadAndRecover(
   Slice record;
   std::string scratch;
   size_t recovered_edits = 0;
+
   while (reader->ReadRecord(&record, &scratch) && s.ok()) {
     VersionEdit edit;
     s = edit.DecodeFrom(record);
     if (!s.ok()) {
       break;
     }
+
     s = read_buffer->AddEdit(&edit);
     if (!s.ok()) {
       break;
@@ -5413,7 +5415,6 @@ Status ReactiveVersionSet::ReadAndApply(
       if (!s.ok()) {
         break;
       }
-
       s = read_buffer_.AddEdit(&edit);
       if (!s.ok()) {
         break;
