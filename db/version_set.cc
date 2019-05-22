@@ -3313,6 +3313,35 @@ struct VersionSet::ManifestWriter {
         edit_list(e) {}
 };
 
+Status AtomicGroupReadBuffer::AddEdit(const VersionEdit& edit) {
+  assert(edit.is_in_atomic_group_);
+  if (replay_buffer_.empty()) {
+    replay_buffer_.resize(edit.remaining_entries_ + 1);
+  }
+  read_edits_in_atomic_group_++;
+
+  if (read_edits_in_atomic_group_ + edit.remaining_entries_ !=
+      static_cast<uint32_t>(replay_buffer_.size())) {
+    return Status::Corruption("corrupted atomic group");
+  }
+  replay_buffer_[read_edits_in_atomic_group_ - 1] = std::move(edit);
+  if (read_edits_in_atomic_group_ == replay_buffer_.size()) {
+    return Status::OK();
+  }
+  return Status::OK();
+}
+
+bool AtomicGroupReadBuffer::IsFull() {
+  return read_edits_in_atomic_group_ == replay_buffer_.size();
+}
+
+bool AtomicGroupReadBuffer::IsEmpty() { return replay_buffer_.empty(); }
+
+void AtomicGroupReadBuffer::Clear() {
+  read_edits_in_atomic_group_ = 0;
+  replay_buffer_.clear();
+}
+
 VersionSet::VersionSet(const std::string& dbname,
                        const ImmutableDBOptions* _db_options,
                        const EnvOptions& storage_options, Cache* table_cache,
@@ -4072,21 +4101,19 @@ Status VersionSet::GetCurrentManifestPath(const std::string& dbname, Env* env,
 }
 
 Status VersionSet::ReadAndRecover(
-    log::Reader* reader,
+    log::Reader* reader, AtomicGroupReadBuffer* read_buffer,
     const std::unordered_map<std::string, ColumnFamilyOptions>& name_to_options,
     std::unordered_map<int, std::string>& column_families_not_found,
     std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>&
         builders,
-    std::vector<VersionEdit>& replay_buffer,
-    size_t* num_read_entries_in_last_atomic_group, bool* have_log_number,
-    uint64_t* log_number, bool* have_prev_log_number,
+    bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
     uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
     bool* have_last_sequence, SequenceNumber* last_sequence,
     uint64_t* min_log_number_to_keep, uint32_t* max_column_family) {
   Status s;
   Slice record;
   std::string scratch;
-  size_t num_entries_decoded = 0;
+  size_t recovered_edits = 0;
   while (reader->ReadRecord(&record, &scratch) && s.ok()) {
     VersionEdit edit;
     s = edit.DecodeFrom(record);
@@ -4095,25 +4122,21 @@ Status VersionSet::ReadAndRecover(
     }
 
     if (edit.is_in_atomic_group_) {
-      if (replay_buffer.empty()) {
-        replay_buffer.resize(edit.remaining_entries_ + 1);
+      TEST_SYNC_POINT_CALLBACK("VersionSet::Recover:AtomicGroup", &edit);
+      if (read_buffer->IsEmpty()) {
         TEST_SYNC_POINT_CALLBACK("VersionSet::Recover:FirstInAtomicGroup",
                                  &edit);
       }
-      ++num_entries_decoded;
-      *num_read_entries_in_last_atomic_group = num_entries_decoded;
-      if (num_entries_decoded + edit.remaining_entries_ !=
-          static_cast<uint32_t>(replay_buffer.size())) {
+      s = read_buffer->AddEdit(edit);
+      if (!s.ok()) {
         TEST_SYNC_POINT_CALLBACK("VersionSet::Recover:IncorrectAtomicGroupSize",
                                  &edit);
-        s = Status::Corruption("corrupted atomic group");
         break;
       }
-      replay_buffer[num_entries_decoded - 1] = std::move(edit);
-      if (num_entries_decoded == replay_buffer.size()) {
+      if (read_buffer->IsFull()) {
         TEST_SYNC_POINT_CALLBACK("VersionSet::Recover:LastInAtomicGroup",
                                  &edit);
-        for (auto& e : replay_buffer) {
+        for (auto& e : read_buffer->replay_buffer()) {
           s = ApplyOneVersionEditToBuilder(
               e, name_to_options, column_families_not_found, builders,
               have_log_number, log_number, have_prev_log_number,
@@ -4123,14 +4146,13 @@ Status VersionSet::ReadAndRecover(
           if (!s.ok()) {
             break;
           }
+
+          recovered_edits++;
         }
-        replay_buffer.clear();
-        num_entries_decoded = 0;
-        *num_read_entries_in_last_atomic_group = 0;
+        read_buffer->Clear();
       }
-      TEST_SYNC_POINT("VersionSet::Recover:AtomicGroup");
     } else {
-      if (!replay_buffer.empty()) {
+      if (!read_buffer->IsEmpty()) {
         TEST_SYNC_POINT_CALLBACK(
             "VersionSet::Recover:AtomicGroupMixedWithNormalEdits", &edit);
         s = Status::Corruption("corrupted atomic group");
@@ -4141,11 +4163,16 @@ Status VersionSet::ReadAndRecover(
           have_log_number, log_number, have_prev_log_number,
           previous_log_number, have_next_file, next_file, have_last_sequence,
           last_sequence, min_log_number_to_keep, max_column_family);
+      if (s.ok()) {
+        recovered_edits++;
+      }
     }
     if (!s.ok()) {
       break;
     }
   }
+  TEST_SYNC_POINT_CALLBACK("VersionSet::Recover:RecoveredEdits",
+                           &recovered_edits);
   return s;
 }
 
@@ -4226,14 +4253,13 @@ Status VersionSet::Recover(
                        true /* checksum */, 0 /* log_number */);
     Slice record;
     std::string scratch;
-    std::vector<VersionEdit> replay_buffer;
-    size_t num_read_entries_in_last_atomic_group;
+
+    AtomicGroupReadBuffer read_buffer;
     s = ReadAndRecover(
-        &reader, cf_name_to_options, column_families_not_found, builders,
-        replay_buffer, &num_read_entries_in_last_atomic_group, &have_log_number,
-        &log_number, &have_prev_log_number, &previous_log_number,
-        &have_next_file, &next_file, &have_last_sequence, &last_sequence,
-        &min_log_number_to_keep, &max_column_family);
+        &reader, &read_buffer, cf_name_to_options, column_families_not_found,
+        builders, &have_log_number, &log_number, &have_prev_log_number,
+        &previous_log_number, &have_next_file, &next_file, &have_last_sequence,
+        &last_sequence, &min_log_number_to_keep, &max_column_family);
   }
 
   if (s.ok()) {
@@ -5244,14 +5270,11 @@ Status ReactiveVersionSet::Recover(
     assert(reader != nullptr);
     Slice record;
     std::string scratch;
-
     s = ReadAndRecover(
-        reader, cf_name_to_options, column_families_not_found, builders,
-        replay_buffer_, &num_read_entries_in_last_atomic_group_,
-        &have_log_number, &log_number, &have_prev_log_number,
+        reader, &read_buffer, cf_name_to_options, column_families_not_found,
+        builders, &have_log_number, &log_number, &have_prev_log_number,
         &previous_log_number, &have_next_file, &next_file, &have_last_sequence,
         &last_sequence, &min_log_number_to_keep, &max_column_family);
-
     if (s.ok()) {
       bool enough = have_next_file && have_log_number && have_last_sequence;
       if (enough) {
@@ -5371,7 +5394,7 @@ Status ReactiveVersionSet::ReadAndApply(
   uint64_t previous_log_number = 0;
   uint32_t max_column_family = 0;
   uint64_t min_log_number_to_keep = 0;
-
+  uint64_t applied_edits = 0;
   while (s.ok()) {
     Slice record;
     std::string scratch;
@@ -5385,26 +5408,12 @@ Status ReactiveVersionSet::ReadAndApply(
       }
 
       if (edit.is_in_atomic_group_) {
-        if (replay_buffer_.empty()) {
-          replay_buffer_.resize(edit.remaining_entries_ + 1);
-          TEST_SYNC_POINT_CALLBACK("VersionSet::Recover:FirstInAtomicGroup",
-                                   &edit);
-        }
-        num_read_entries_in_last_atomic_group_++;
-
-        if (num_read_entries_in_last_atomic_group_ + edit.remaining_entries_ !=
-            static_cast<uint32_t>(replay_buffer_.size())) {
-          TEST_SYNC_POINT_CALLBACK(
-              "VersionSet::Recover:IncorrectAtomicGroupSize", &edit);
-          s = Status::Corruption("corrupted atomic group");
+        s = read_buffer.AddEdit(edit);
+        if (!s.ok()) {
           break;
         }
-        replay_buffer_[num_read_entries_in_last_atomic_group_ - 1] =
-            std::move(edit);
-        if (num_read_entries_in_last_atomic_group_ == replay_buffer_.size()) {
-          TEST_SYNC_POINT_CALLBACK("VersionSet::Recover:LastInAtomicGroup",
-                                   &edit);
-          for (auto& e : replay_buffer_) {
+        if (read_buffer.IsFull()) {
+          for (auto& e : read_buffer.replay_buffer()) {
             s = ApplyOneVersionEditToBuilder(
                 e, cfds_changed, &have_log_number, &log_number,
                 &have_prev_log_number, &previous_log_number, &have_next_file,
@@ -5413,12 +5422,12 @@ Status ReactiveVersionSet::ReadAndApply(
             if (!s.ok()) {
               break;
             }
+            applied_edits++;
           }
-          replay_buffer_.clear();
-          num_read_entries_in_last_atomic_group_ = 0;
+          read_buffer.Clear();
         }
       } else {
-        if (!replay_buffer_.empty()) {
+        if (!read_buffer.IsEmpty()) {
           TEST_SYNC_POINT_CALLBACK(
               "VersionSet::Recover:AtomicGroupMixedWithNormalEdits", &edit);
           s = Status::Corruption("corrupted atomic group");
@@ -5429,6 +5438,9 @@ Status ReactiveVersionSet::ReadAndApply(
             &have_prev_log_number, &previous_log_number, &have_next_file,
             &next_file, &have_last_sequence, &last_sequence,
             &min_log_number_to_keep, &max_column_family);
+        if (s.ok()) {
+          applied_edits++;
+        }
       }
       if (!s.ok()) {
         break;
@@ -5461,6 +5473,8 @@ Status ReactiveVersionSet::ReadAndApply(
       }
     }
   }
+  TEST_SYNC_POINT_CALLBACK("ReactiveVersionSet::ReadAndApply:AppliedEdits",
+                           &applied_edits);
   return s;
 }
 
