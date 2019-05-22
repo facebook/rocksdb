@@ -4041,10 +4041,15 @@ Status VersionSet::ExtractInfoFromVersionEdit(
   return Status::OK();
 }
 
-Status VersionSet::GetCurrentManifestPath(std::string* manifest_path) {
+Status VersionSet::GetCurrentManifestPath(const std::string& dbname, Env* env,
+                                          std::string* manifest_path,
+                                          uint64_t* manifest_file_number) {
+  assert(env != nullptr);
   assert(manifest_path != nullptr);
+  assert(manifest_file_number != nullptr);
+
   std::string fname;
-  Status s = ReadFileToString(env_, CurrentFileName(dbname_), &fname);
+  Status s = ReadFileToString(env, CurrentFileName(dbname), &fname);
   if (!s.ok()) {
     return s;
   }
@@ -4054,12 +4059,12 @@ Status VersionSet::GetCurrentManifestPath(std::string* manifest_path) {
   // remove the trailing '\n'
   fname.resize(fname.size() - 1);
   FileType type;
-  bool parse_ok = ParseFileName(fname, &manifest_file_number_, &type);
+  bool parse_ok = ParseFileName(fname, manifest_file_number, &type);
   if (!parse_ok || type != kDescriptorFile) {
     return Status::Corruption("CURRENT file corrupted");
   }
-  *manifest_path = dbname_;
-  if (dbname_.back() != '/') {
+  *manifest_path = dbname;
+  if (dbname.back() != '/') {
     manifest_path->push_back('/');
   }
   *manifest_path += fname;
@@ -4080,7 +4085,8 @@ Status VersionSet::Recover(
 
   // Read "CURRENT" file, which contains a pointer to the current manifest file
   std::string manifest_path;
-  Status s = GetCurrentManifestPath(&manifest_path);
+  Status s = GetCurrentManifestPath(dbname_, env_, &manifest_path,
+                                    &manifest_file_number_);
   if (!s.ok()) {
     return s;
   }
@@ -4321,26 +4327,22 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
   // so we're fine using the defaults
   EnvOptions soptions;
   // Read "CURRENT" file, which contains a pointer to the current manifest file
-  std::string current;
-  Status s = ReadFileToString(env, CurrentFileName(dbname), &current);
+  std::string manifest_path;
+  uint64_t manifest_file_number;
+  Status s = GetCurrentManifestPath(dbname, env, &manifest_path,
+                                    &manifest_file_number);
   if (!s.ok()) {
     return s;
   }
-  if (current.empty() || current[current.size()-1] != '\n') {
-    return Status::Corruption("CURRENT file does not end with newline");
-  }
-  current.resize(current.size() - 1);
-
-  std::string dscname = dbname + "/" + current;
 
   std::unique_ptr<SequentialFileReader> file_reader;
   {
     std::unique_ptr<SequentialFile> file;
-    s = env->NewSequentialFile(dscname, &file, soptions);
+    s = env->NewSequentialFile(manifest_path, &file, soptions);
     if (!s.ok()) {
       return s;
   }
-  file_reader.reset(new SequentialFileReader(std::move(file), dscname));
+  file_reader.reset(new SequentialFileReader(std::move(file), manifest_path));
   }
 
   std::map<uint32_t, std::string> column_family_names;
@@ -5510,7 +5512,8 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
   Status s;
   do {
     std::string manifest_path;
-    s = GetCurrentManifestPath(&manifest_path);
+    s = GetCurrentManifestPath(dbname_, env_, &manifest_path,
+                               &manifest_file_number_);
     std::unique_ptr<SequentialFile> manifest_file;
     if (s.ok()) {
       if (nullptr == manifest_reader->get() ||
