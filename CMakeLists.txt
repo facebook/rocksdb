@@ -467,7 +467,7 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
-include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
+include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.8.1/fused-src)
 find_package(Threads REQUIRED)
 
 # Main library source code
@@ -855,7 +855,7 @@ endif()
 
 option(WITH_TESTS "build with tests" ON)
 if(WITH_TESTS)
-  add_subdirectory(third-party/gtest-1.7.0/fused-src/gtest)
+  add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   set(TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
