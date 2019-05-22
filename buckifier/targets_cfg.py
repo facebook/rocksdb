@@ -47,6 +47,7 @@ ROCKSDB_EXTERNAL_DEPS = [
     ("tbb", None),
     ("numa", None, "numa"),
     ("googletest", None, "gtest"),
+    ("glibc", None, "dl"),
 ]
 
 ROCKSDB_PREPROCESSOR_FLAGS = [
