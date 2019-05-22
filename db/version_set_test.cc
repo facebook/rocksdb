@@ -607,6 +607,7 @@ class VersionSetTestBase {
   const static std::string kColumnFamilyName1;
   const static std::string kColumnFamilyName2;
   const static std::string kColumnFamilyName3;
+  int num_initial_edits;
 
   VersionSetTestBase()
       : env_(Env::Default()),
@@ -618,6 +619,9 @@ class VersionSetTestBase {
         versions_(new VersionSet(dbname_, &db_options_, env_options_,
                                  table_cache_.get(), &write_buffer_manager_,
                                  &write_controller_)),
+        reactive_versions_(new ReactiveVersionSet(
+            dbname_, &db_options_, env_options_, table_cache_.get(),
+            &write_buffer_manager_, &write_controller_)),
         shutting_down_(false),
         mock_table_factory_(std::make_shared<mock::MockTableFactory>()) {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
@@ -653,7 +657,7 @@ class VersionSetTestBase {
       new_cfs.emplace_back(new_cf);
     }
     *last_seqno = last_seq;
-
+    num_initial_edits = new_cfs.size() + 1;
     const std::string manifest = DescriptorFileName(dbname_, 1);
     std::unique_ptr<WritableFile> file;
     Status s = env_->NewWritableFile(
@@ -708,6 +712,7 @@ class VersionSetTestBase {
   WriteController write_controller_;
   WriteBufferManager write_buffer_manager_;
   std::shared_ptr<VersionSet> versions_;
+  std::shared_ptr<ReactiveVersionSet> reactive_versions_;
   InstrumentedMutex mutex_;
   std::atomic<bool> shutting_down_;
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
@@ -721,44 +726,52 @@ class VersionSetTest : public VersionSetTestBase, public testing::Test {
  public:
   VersionSetTest() : VersionSetTestBase() {}
 };
+//
+// TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
+//   NewDB();
+//   const int kGroupSize = 5;
+//   autovector<VersionEdit> edits;
+//   for (int i = 0; i != kGroupSize; ++i) {
+//     edits.emplace_back(VersionEdit());
+//   }
+//   autovector<ColumnFamilyData*> cfds;
+//   autovector<const MutableCFOptions*> all_mutable_cf_options;
+//   autovector<autovector<VersionEdit*>> edit_lists;
+//   for (int i = 0; i != kGroupSize; ++i) {
+//     cfds.emplace_back(versions_->GetColumnFamilySet()->GetDefault());
+//     all_mutable_cf_options.emplace_back(&mutable_cf_options_);
+//     autovector<VersionEdit*> edit_list;
+//     edit_list.emplace_back(&edits[i]);
+//     edit_lists.emplace_back(edit_list);
+//   }
+//
+//   SyncPoint::GetInstance()->DisableProcessing();
+//   SyncPoint::GetInstance()->ClearAllCallBacks();
+//   int count = 0;
+//   SyncPoint::GetInstance()->SetCallBack(
+//       "VersionSet::ProcessManifestWrites:SameColumnFamily", [&](void* arg) {
+//         uint32_t* cf_id = reinterpret_cast<uint32_t*>(arg);
+//         EXPECT_EQ(0, *cf_id);
+//         ++count;
+//       });
+//   SyncPoint::GetInstance()->EnableProcessing();
+//   mutex_.Lock();
+//   Status s =
+//       versions_->LogAndApply(cfds, all_mutable_cf_options, edit_lists,
+//       &mutex_);
+//   mutex_.Unlock();
+//   EXPECT_OK(s);
+//   EXPECT_EQ(kGroupSize - 1, count);
+// }
 
-TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
-  NewDB();
-  const int kGroupSize = 5;
-  autovector<VersionEdit> edits;
-  for (int i = 0; i != kGroupSize; ++i) {
-    edits.emplace_back(VersionEdit());
-  }
-  autovector<ColumnFamilyData*> cfds;
-  autovector<const MutableCFOptions*> all_mutable_cf_options;
-  autovector<autovector<VersionEdit*>> edit_lists;
-  for (int i = 0; i != kGroupSize; ++i) {
-    cfds.emplace_back(versions_->GetColumnFamilySet()->GetDefault());
-    all_mutable_cf_options.emplace_back(&mutable_cf_options_);
-    autovector<VersionEdit*> edit_list;
-    edit_list.emplace_back(&edits[i]);
-    edit_lists.emplace_back(edit_list);
-  }
+class VersionSetAtomicGroupTest : public VersionSetTestBase,
+                                  public testing::TestWithParam<bool> {
+ public:
+  VersionSetAtomicGroupTest() : VersionSetTestBase() {}
+};
 
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
-  int count = 0;
-  SyncPoint::GetInstance()->SetCallBack(
-      "VersionSet::ProcessManifestWrites:SameColumnFamily", [&](void* arg) {
-        uint32_t* cf_id = reinterpret_cast<uint32_t*>(arg);
-        EXPECT_EQ(0, *cf_id);
-        ++count;
-      });
-  SyncPoint::GetInstance()->EnableProcessing();
-  mutex_.Lock();
-  Status s =
-      versions_->LogAndApply(cfds, all_mutable_cf_options, edit_lists, &mutex_);
-  mutex_.Unlock();
-  EXPECT_OK(s);
-  EXPECT_EQ(kGroupSize - 1, count);
-}
-
-TEST_F(VersionSetTest, HandleValidAtomicGroup) {
+TEST_P(VersionSetAtomicGroupTest, HandleValidAtomicGroup) {
+  const bool test_reactive_version_set = GetParam();
   std::vector<ColumnFamilyDescriptor> column_families;
   SequenceNumber last_seqno;
   std::unique_ptr<log::Writer> log_writer;
@@ -807,16 +820,39 @@ TEST_F(VersionSetTest, HandleValidAtomicGroup) {
         EXPECT_TRUE(first_in_atomic_group);
         last_in_atomic_group = true;
       });
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Recover:RecoveredEdits", [&](void* arg) {
+        int* recovered_edits = reinterpret_cast<int*>(arg);
+        EXPECT_EQ(num_initial_edits + kAtomicGroupSize, *recovered_edits);
+      });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  EXPECT_OK(versions_->Recover(column_families, false));
-  EXPECT_EQ(column_families.size(),
-            versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
-  EXPECT_TRUE(first_in_atomic_group);
-  EXPECT_TRUE(last_in_atomic_group);
+  if (test_reactive_version_set) {
+    std::unique_ptr<log::FragmentBufferedReader> manifest_reader;
+    std::unique_ptr<log::Reader::Reporter> manifest_reporter;
+    std::unique_ptr<Status> manifest_reader_status;
+    EXPECT_OK(reactive_versions_->Recover(column_families, &manifest_reader,
+                                          &manifest_reporter,
+                                          &manifest_reader_status));
+    EXPECT_EQ(
+        column_families.size(),
+        reactive_versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
+    EXPECT_TRUE(first_in_atomic_group);
+    EXPECT_TRUE(last_in_atomic_group);
+    // The recover should clean up the replay buffer.
+    EXPECT_TRUE(reactive_versions_->read_edits_in_atomic_group() == 0);
+    EXPECT_TRUE(reactive_versions_->replay_buffer().size() == 0);
+  } else {
+    EXPECT_OK(versions_->Recover(column_families, false));
+    EXPECT_EQ(column_families.size(),
+              versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
+    EXPECT_TRUE(first_in_atomic_group);
+    EXPECT_TRUE(last_in_atomic_group);
+  }
 }
 
-TEST_F(VersionSetTest, HandleIncompleteTrailingAtomicGroup) {
+TEST_P(VersionSetAtomicGroupTest, HandleIncompleteTrailingAtomicGroup) {
+  const bool test_reactive_version_set = GetParam();
   std::vector<ColumnFamilyDescriptor> column_families;
   SequenceNumber last_seqno;
   std::unique_ptr<log::Writer> log_writer;
@@ -840,7 +876,7 @@ TEST_F(VersionSetTest, HandleIncompleteTrailingAtomicGroup) {
     s = log_writer->AddRecord(record);
     ASSERT_OK(s);
   }
-  log_writer.reset();
+  // log_writer.reset();
 
   s = SetCurrentFile(env_, dbname_, 1, nullptr);
   ASSERT_OK(s);
@@ -851,6 +887,8 @@ TEST_F(VersionSetTest, HandleIncompleteTrailingAtomicGroup) {
   bool first_in_atomic_group = false;
   bool last_in_atomic_group = false;
   size_t num = 0;
+  bool checked_recovered_edits = false;
+  bool checked_applied_edits = false;
 
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::Recover:FirstInAtomicGroup", [&](void* arg) {
@@ -862,19 +900,77 @@ TEST_F(VersionSetTest, HandleIncompleteTrailingAtomicGroup) {
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::Recover:LastInAtomicGroup",
       [&](void* /* arg */) { last_in_atomic_group = true; });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Recover:RecoveredEdits", [&](void* arg) {
+        int* recovered_edits = reinterpret_cast<int*>(arg);
+        EXPECT_EQ(num_initial_edits, *recovered_edits);
+        checked_recovered_edits = true;
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "ReactiveVersionSet::ReadAndApply:AppliedEdits", [&](void* arg) {
+        int* applied_edits = reinterpret_cast<int*>(arg);
+        EXPECT_EQ(kAtomicGroupSize, *applied_edits);
+        checked_applied_edits = true;
+      });
+
   SyncPoint::GetInstance()->SetCallBack("VersionSet::Recover:AtomicGroup",
                                         [&](void* /* arg */) { ++num; });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  EXPECT_OK(versions_->Recover(column_families, false));
-  EXPECT_EQ(column_families.size(),
-            versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
-  EXPECT_TRUE(first_in_atomic_group);
-  EXPECT_FALSE(last_in_atomic_group);
-  EXPECT_EQ(kNumberOfPersistedVersionEdits, num);
+  if (test_reactive_version_set) {
+    std::unique_ptr<log::FragmentBufferedReader> manifest_reader;
+    std::unique_ptr<log::Reader::Reporter> manifest_reporter;
+    std::unique_ptr<Status> manifest_reader_status;
+    EXPECT_OK(reactive_versions_->Recover(column_families, &manifest_reader,
+                                          &manifest_reporter,
+                                          &manifest_reader_status));
+    EXPECT_EQ(
+        column_families.size(),
+        reactive_versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
+    EXPECT_TRUE(first_in_atomic_group);
+    EXPECT_FALSE(last_in_atomic_group);
+    // Reactive version set should store the edits in the replay buffer.
+    EXPECT_TRUE(reactive_versions_->read_edits_in_atomic_group() ==
+                kNumberOfPersistedVersionEdits);
+    EXPECT_TRUE(reactive_versions_->replay_buffer().size() == kAtomicGroupSize);
+
+    // Write the last edit.
+    VersionEdit last_edit;
+    last_edit.SetLogNumber(0);
+    last_edit.SetNextFile(2);
+    last_edit.MarkAtomicGroup(--remaining);
+    last_edit.SetLastSequence(last_seqno++);
+    std::string record;
+    last_edit.EncodeTo(&record);
+    s = log_writer->AddRecord(record);
+    ASSERT_OK(s);
+
+    // Read and Apply.
+    InstrumentedMutex mu;
+    std::unordered_set<ColumnFamilyData*> cfds_changed;
+    EXPECT_OK(
+        reactive_versions_->ReadAndApply(&mu, &manifest_reader, &cfds_changed));
+    // Reactive version set should be empty now.
+    EXPECT_TRUE(reactive_versions_->read_edits_in_atomic_group() == 0);
+    EXPECT_TRUE(reactive_versions_->replay_buffer().size() == 0);
+    EXPECT_TRUE(checked_recovered_edits);
+    EXPECT_TRUE(checked_applied_edits);
+  } else {
+    EXPECT_OK(versions_->Recover(column_families, false));
+    EXPECT_EQ(column_families.size(),
+              versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
+    EXPECT_TRUE(first_in_atomic_group);
+    EXPECT_FALSE(last_in_atomic_group);
+    EXPECT_EQ(kNumberOfPersistedVersionEdits, num);
+    EXPECT_TRUE(checked_recovered_edits);
+    EXPECT_FALSE(checked_applied_edits);
+  }
 }
 
-TEST_F(VersionSetTest, HandleCorruptedAtomicGroup) {
+TEST_P(VersionSetAtomicGroupTest, HandleCorruptedAtomicGroup) {
+  const bool test_reactive_version_set = GetParam();
   std::vector<ColumnFamilyDescriptor> column_families;
   SequenceNumber last_seqno;
   std::unique_ptr<log::Writer> log_writer;
@@ -915,13 +1011,28 @@ TEST_F(VersionSetTest, HandleCorruptedAtomicGroup) {
         mixed = true;
       });
   SyncPoint::GetInstance()->EnableProcessing();
-  EXPECT_NOK(versions_->Recover(column_families, false));
-  EXPECT_EQ(column_families.size(),
-            versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
+
+  int expected_num_column_families = 0;
+  if (test_reactive_version_set) {
+    std::unique_ptr<log::FragmentBufferedReader> manifest_reader;
+    std::unique_ptr<log::Reader::Reporter> manifest_reporter;
+    std::unique_ptr<Status> manifest_reader_status;
+    EXPECT_NOK(reactive_versions_->Recover(column_families, &manifest_reader,
+                                           &manifest_reporter,
+                                           &manifest_reader_status));
+    expected_num_column_families =
+        reactive_versions_->GetColumnFamilySet()->NumberOfColumnFamilies();
+  } else {
+    EXPECT_NOK(versions_->Recover(column_families, false));
+    expected_num_column_families =
+        versions_->GetColumnFamilySet()->NumberOfColumnFamilies();
+  }
+  EXPECT_EQ(column_families.size(), expected_num_column_families);
   EXPECT_TRUE(mixed);
 }
 
-TEST_F(VersionSetTest, HandleIncorrectAtomicGroupSize) {
+TEST_P(VersionSetAtomicGroupTest, HandleIncorrectAtomicGroupSize) {
+  const bool test_reactive_version_set = GetParam();
   std::vector<ColumnFamilyDescriptor> column_families;
   SequenceNumber last_seqno;
   std::unique_ptr<log::Writer> log_writer;
@@ -964,10 +1075,20 @@ TEST_F(VersionSetTest, HandleIncorrectAtomicGroupSize) {
         incorrect_group_size = true;
       });
   SyncPoint::GetInstance()->EnableProcessing();
-  EXPECT_NOK(versions_->Recover(column_families, false));
-  EXPECT_EQ(column_families.size(),
-            versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
-  EXPECT_TRUE(incorrect_group_size);
+
+  if (test_reactive_version_set) {
+    std::unique_ptr<log::FragmentBufferedReader> manifest_reader;
+    std::unique_ptr<log::Reader::Reporter> manifest_reporter;
+    std::unique_ptr<Status> manifest_reader_status;
+    EXPECT_NOK(reactive_versions_->Recover(column_families, &manifest_reader,
+                                           &manifest_reporter,
+                                           &manifest_reader_status));
+  } else {
+    EXPECT_NOK(versions_->Recover(column_families, false));
+    EXPECT_EQ(column_families.size(),
+              versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
+    EXPECT_TRUE(incorrect_group_size);
+  }
 }
 
 class VersionSetTestDropOneCF : public VersionSetTestBase,
@@ -1088,6 +1209,8 @@ INSTANTIATE_TEST_CASE_P(
     testing::Values(VersionSetTestBase::kColumnFamilyName1,
                     VersionSetTestBase::kColumnFamilyName2,
                     VersionSetTestBase::kColumnFamilyName3));
+INSTANTIATE_TEST_CASE_P(VersionSetAtomicGroupTest, VersionSetAtomicGroupTest,
+                        testing::Values(true, false));
 
 }  // namespace rocksdb
 
