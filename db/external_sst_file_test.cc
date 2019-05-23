@@ -2121,7 +2121,6 @@ TEST_P(ExternSSTFileLinkFailFallbackTest, LinkFailFallBackExternalSst) {
 
   ExternalSSTTestEnv test_env(options.env, true);
   InstrumentedMutex mutex_;
-  std::list<uint64_t>::iterator pending_output_elem;
   const uint64_t next_file_number =
       dbfull()->Test_GetVersionSet()->FetchAddFileNumber(1);
   ColumnFamilyData* cfd =
