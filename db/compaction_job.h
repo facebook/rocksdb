@@ -55,6 +55,11 @@ class Version;
 class VersionEdit;
 class VersionSet;
 
+// CompactionJob is responsible for executing the compaction. Each (manual or
+// automated) compaction corresponds to a CompactionJob object, and usually
+// goes through the stages of `Prepare()`->`Run()`->`Install()`. CompactionJob
+// will divide the compaction into subcompactions and execute them in parallel
+// if needed.
 class CompactionJob {
  public:
   CompactionJob(
@@ -80,17 +85,28 @@ class CompactionJob {
   CompactionJob& operator=(const CompactionJob& job) = delete;
 
   // REQUIRED: mutex held
+  // Prepare for the compaction by setting up boundaries for each subcompaction
   void Prepare();
   // REQUIRED mutex not held
+  // Launch threads for each subcompaction and wait for them to finish. After
+  // that, verify table is usable and finally do bookkeeping to unify
+  // subcompaction results
   Status Run();
 
   // REQUIRED: mutex held
+  // Add compaction input/output to the current version
   Status Install(const MutableCFOptions& mutable_cf_options);
 
  private:
   struct SubcompactionState;
 
   void AggregateStatistics();
+
+  // Generates a histogram representing potential divisions of key ranges from
+  // the input. It adds the starting and/or ending keys of certain input files
+  // to the working set and then finds the approximate size of data in between
+  // each consecutive pair of slices. Then it divides these ranges into
+  // consecutive groups such that each group has a similar size.
   void GenSubcompactionBoundaries();
 
   // update the thread status for starting a compaction.
@@ -163,6 +179,7 @@ class CompactionJob {
 
   EventLogger* event_logger_;
 
+  // Is this compaction creating a file in the bottom most level?
   bool bottommost_level_;
   bool paranoid_file_checks_;
   bool measure_io_stats_;
