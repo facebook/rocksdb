@@ -53,6 +53,8 @@ class StatsHistoryIterator {
   // REQUIRES: Valid()
   virtual uint64_t GetStatsTime() const = 0;
 
+  virtual int GetVersion() const { return -1; }
+
   // Return the current stats history as an std::map which specifies the
   // mapping from stats name to stats value . The underlying storage
   // for the returned map is valid only until the next modification of

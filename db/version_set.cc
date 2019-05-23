@@ -3972,9 +3972,10 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
           {edit.column_family_, edit.column_family_name_});
     } else {
       // recover persistent_stats CF from a DB that already contains it
-      // TODO(Zhongyi): find out a way to pass cf options
       if (is_persistent_stats_column_family) {
-        cfd = CreateColumnFamily(ColumnFamilyOptions(), &edit);
+        ColumnFamilyOptions co;
+        co.OptimizeForPersistentStats();
+        cfd = CreateColumnFamily(co, &edit);
       } else {
         cfd = CreateColumnFamily(cf_options->second, &edit);
       }

@@ -13,6 +13,7 @@
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
+#include "db/persistent_stats_history.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
@@ -859,11 +860,14 @@ TEST_F(DBOptionsTest, GetStatsHistoryFromDisk) {
     stats_count += stats_map.size();
   }
   ASSERT_EQ(slice_count, 3);
-  ASSERT_EQ(stats_count, key_count3);
+  // 3 extra keys for version keys
+  ASSERT_EQ(stats_count, key_count3 - 3);
   // verify reopen will not cause data loss
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   db_->GetStatsHistory(0, 16 * kMicrosInSec, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
+  // verify version value is restored correctly
+  ASSERT_EQ(stats_iter->GetVersion(), kPersistentStatsVersion);
   size_t stats_count_reopen = 0;
   int slice_count_reopen = 0;
   int non_zero_count_recover = 0;

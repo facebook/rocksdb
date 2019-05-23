@@ -8,9 +8,14 @@
 
 #pragma once
 
+#include "db/db_impl/db_impl.h"
 #include "rocksdb/stats_history.h"
 
 namespace rocksdb {
+
+extern const int kMicrosInSecond;
+extern const char* kVersionKeyString;
+extern const int kPersistentStatsVersion;
 
 class PersistentStatsHistoryIterator final : public StatsHistoryIterator {
  public:
@@ -20,6 +25,7 @@ class PersistentStatsHistoryIterator final : public StatsHistoryIterator {
         start_time_(start_time),
         end_time_(end_time),
         valid_(true),
+        version_(0),
         db_impl_(db_impl) {
     AdvanceIteratorByTime(start_time_, end_time_);
   }
@@ -29,8 +35,24 @@ class PersistentStatsHistoryIterator final : public StatsHistoryIterator {
 
   void Next() override;
   uint64_t GetStatsTime() const override;
+  int GetVersion() const override { return version_; }
 
   const std::map<std::string, uint64_t>& GetStatsMap() const override;
+
+  // Encode timestamp and stats key into buf
+  // Format: timestamp(10 digit) + '#' + key
+  // Total length of encoded key will be capped at 100 bytes
+  static int EncodeKey(uint64_t timestamp, const std::string& key, int size,
+                       char* buf);
+
+  // Encode timestamp and version key into buf
+  // Format: timestamp(10 digit) + '#' + kVersionKeyString
+  // Total length of encoded key will be capped at 100 bytes
+  static int EncodeVersionKey(uint64_t timestamp, int size, char* buf);
+  // Seek to timestamp_str + '#' + kVersionKeyString and read the version
+  // number of the persitent stats
+  // If version number matches, reset iter to timestamp_str
+  static int DecodeVersionNumber(const char* timestamp_str, Iterator* iter);
 
  private:
   // advance the iterator to the next stats history record with timestamp
@@ -51,6 +73,7 @@ class PersistentStatsHistoryIterator final : public StatsHistoryIterator {
   std::map<std::string, uint64_t> stats_map_;
   Status status_;
   bool valid_;
+  int version_;
   DBImpl* db_impl_;
 };
 

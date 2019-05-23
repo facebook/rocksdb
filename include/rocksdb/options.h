@@ -92,6 +92,8 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   ColumnFamilyOptions* OptimizeForSmallDb(
       std::shared_ptr<Cache>* cache = nullptr);
 
+  ColumnFamilyOptions* OptimizeForPersistentStats();
+
   // Use this if you don't need to keep the data sorted, i.e. you'll never use
   // an iterator, only Put() and Get() API calls
   //

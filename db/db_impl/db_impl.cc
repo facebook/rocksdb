@@ -643,7 +643,7 @@ void DBImpl::StartTimedTasks() {
       if (!thread_dump_stats_) {
         thread_dump_stats_.reset(new rocksdb::RepeatableThread(
             [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
-            stats_dump_period_sec * 1000000));
+            stats_dump_period_sec * kMicrosInSecond));
       }
     }
     stats_persist_period_sec = mutable_db_options_.stats_persist_period_sec;
@@ -651,7 +651,7 @@ void DBImpl::StartTimedTasks() {
       if (!thread_persist_stats_) {
         thread_persist_stats_.reset(new rocksdb::RepeatableThread(
             [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
-            stats_persist_period_sec * 1000000));
+            stats_persist_period_sec * kMicrosInSecond));
       }
     }
   }
@@ -697,14 +697,6 @@ void DBImpl::PersistStats() {
   }
 
   if (immutable_db_options_.persist_stats_to_disk) {
-    // 10 digit microseconds timestamp => [Sep 9, 2001 ~ Nov 20, 2286]
-    const int kNowSecondsStringLength = 10;
-    char timestamp[kNowSecondsStringLength + 1];
-    // make time stamp string equal in length to allow sorting by time
-    snprintf(timestamp, sizeof(timestamp), "%010d",
-             static_cast<int>(now_micros / 1000000));
-    timestamp[kNowSecondsStringLength] = '\0';
-
     WriteOptions wo;
     wo.low_pri = true;
     wo.no_slowdown = true;
@@ -712,14 +704,20 @@ void DBImpl::PersistStats() {
     wo.disableWAL = true;
     WriteBatch batch;
     if (stats_slice_initialized_) {
+      // write version key
+      char version_key[100];
+      int version_key_length = PersistentStatsHistoryIterator::EncodeVersionKey(
+          now_micros, 100, version_key);
+      batch.Put(persist_stats_cf_handle_,
+                Slice(version_key, std::min(100, version_key_length)),
+                ToString(kPersistentStatsVersion));
       for (const auto& stat : stats_map) {
         char key[100];
-        int length =
-            snprintf(key, sizeof(key), "%s#%s", timestamp, stat.first.c_str());
+        int length = PersistentStatsHistoryIterator::EncodeKey(
+            now_micros, stat.first, 100, key);
         // calculate the delta from last time
         if (stats_slice_.find(stat.first) != stats_slice_.end()) {
           uint64_t delta = stat.second - stats_slice_[stat.first];
-          // TODO(Zhongyi): add counters for failed writes
           batch.Put(persist_stats_cf_handle_, Slice(key, std::min(100, length)),
                     ToString(delta));
         }
@@ -727,7 +725,13 @@ void DBImpl::PersistStats() {
     }
     stats_slice_initialized_ = true;
     std::swap(stats_slice_, stats_map);
-    Write(rocksdb::WriteOptions(), &batch);
+    Status s = Write(wo, &batch);
+    // TODO(Zhongyi): add counters for failed writes
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                      "Writing to persistent stats CF failed -- %s\n",
+                      s.ToString().c_str());
+    }
     // TODO(Zhongyi): add purging for persisted data
   } else {
     InstrumentedMutexLock l(&stats_history_mutex_);
@@ -995,7 +999,7 @@ Status DBImpl::SetDBOptions(
         if (new_options.stats_dump_period_sec > 0) {
           thread_dump_stats_.reset(new rocksdb::RepeatableThread(
               [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
-              new_options.stats_dump_period_sec * 1000000));
+              new_options.stats_dump_period_sec * kMicrosInSecond));
         } else {
           thread_dump_stats_.reset();
         }
@@ -1008,10 +1012,9 @@ Status DBImpl::SetDBOptions(
           mutex_.Lock();
         }
         if (new_options.stats_persist_period_sec > 0) {
-          InitPersistStatsColumnFamily();
           thread_persist_stats_.reset(new rocksdb::RepeatableThread(
               [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
-              new_options.stats_persist_period_sec * 1000000));
+              new_options.stats_persist_period_sec * kMicrosInSecond));
         } else {
           thread_persist_stats_.reset();
         }

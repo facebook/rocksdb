@@ -502,7 +502,17 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForSmallDb(
       BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
   table_factory.reset(new BlockBasedTableFactory(table_options));
 
+  return this;
+}
 
+ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPersistentStats() {
+  write_buffer_size = 2 << 20;
+  target_file_size_base = 2 * 1048576;
+  max_bytes_for_level_base = 10 * 1048576;
+  snap_refresh_nanos = 0;
+  soft_pending_compaction_bytes_limit = 256 * 1048576;
+  hard_pending_compaction_bytes_limit = 1073741824ul;
+  compression = kNoCompression;
   return this;
 }
 
