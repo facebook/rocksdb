@@ -2051,6 +2051,7 @@ TEST_F(ExternalSSTFileTest, FileWithCFInfo) {
 TEST_P(ExternSSTFileLinkFailFallbackTest, LinkFailFallBackExternalSst) {
   const bool fail_link = std::get<0>(GetParam());
   const bool failed_move_fall_back_to_copy = std::get<1>(GetParam());
+
   ExternalSSTTestEnv* test_env = new ExternalSSTTestEnv(env_, fail_link);
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
