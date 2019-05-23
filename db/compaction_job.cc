@@ -415,7 +415,6 @@ void CompactionJob::Prepare() {
 
   write_hint_ =
       c->column_family_data()->CalculateSSTWriteHint(c->output_level());
-  // Is this compaction producing files at the bottommost level?
   bottommost_level_ = c->bottommost_level();
 
   if (c->ShouldFormSubcompactions()) {
@@ -445,11 +444,6 @@ struct RangeWithSize {
       : range(a, b), size(s) {}
 };
 
-// Generates a histogram representing potential divisions of key ranges from
-// the input. It adds the starting and/or ending keys of certain input files
-// to the working set and then finds the approximate size of data in between
-// each consecutive pair of slices. Then it divides these ranges into
-// consecutive groups such that each group has a similar size.
 void CompactionJob::GenSubcompactionBoundaries() {
   auto* c = compact_->compaction;
   auto* cfd = c->column_family_data();
