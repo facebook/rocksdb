@@ -20,6 +20,12 @@
 
 namespace rocksdb {
 
+// The file contains two classes PlainTableIndex and PlainTableIndexBuilder
+// The two classes implement the index format of PlainTable.
+// For descripton of PlainTable format, see comments of class
+// PlainTableFactory
+//
+//
 // PlainTableIndex contains buckets size of index_size_, each is a
 // 32-bit integer. The lower 31 bits contain an offset value (explained below)
 // and the first bit of the integer indicates type of the offset.
@@ -55,6 +61,10 @@ namespace rocksdb {
 //    ....
 //   record N file offset:  fixedint32
 // <end>
+
+// The class loads the index block from a PlainTable SST file, and executes
+// the index lookup.
+// The class is used by PlainTableReader class.
 class PlainTableIndex {
  public:
   enum IndexSearchResult {
@@ -72,11 +82,22 @@ class PlainTableIndex {
         index_(nullptr),
         sub_index_(nullptr) {}
 
+  // The function that executes the lookup the hash table.
+  // The hash key is `prefix_hash`. The function fills the hash bucket
+  // content in `bucket_value`, which is up to the caller to interpret.
   IndexSearchResult GetOffset(uint32_t prefix_hash,
                               uint32_t* bucket_value) const;
 
-  Status InitFromRawData(Slice data);
+  // Initialize data from `index_data`, which points to raw data for
+  // index stored in the SST file.
+  Status InitFromRawData(Slice index_data);
 
+  // Decode the sub index for specific hash bucket.
+  // The `offset` is the value returned as `bucket_value` by GetOffset()
+  // and is only valid when the return value is `kSubindex`.
+  // The return value is the pointer to the starting address of the
+  // sub-index. `upper_bound` is filled with the value indicating how many
+  // entries the sub-index has.
   const char* GetSubIndexBasePtrAndUpperBound(uint32_t offset,
                                               uint32_t* upper_bound) const {
     const char* index_ptr = &sub_index_[offset];
@@ -106,9 +127,10 @@ class PlainTableIndex {
 // After calling Finish(), it returns Slice, which is usually
 // used either to initialize PlainTableIndex or
 // to save index to sst file.
-// For more details about the  index, please refer to:
+// For more details about the index, please refer to:
 // https://github.com/facebook/rocksdb/wiki/PlainTable-Format
 // #wiki-in-memory-index-format
+// The class is used by PlainTableBuilder class.
 class PlainTableIndexBuilder {
  public:
   PlainTableIndexBuilder(Arena* arena, const ImmutableCFOptions& ioptions,

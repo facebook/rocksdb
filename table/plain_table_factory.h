@@ -24,7 +24,19 @@ class WritableFile;
 class Table;
 class TableBuilder;
 
-// IndexedTable requires fixed length key, configured as a constructor
+// PlainTableFactory is the entrance function to the PlainTable format of
+// SST files. It returns instances PlainTableBuilder as the builder
+// class and PlainTableReader as the reader class, where the format is
+// actually implemented.
+//
+// The PlainTable is designed for memory-mapped file systems, e.g. tmpfs.
+// Data is not organized in blocks, which allows fast access. Because of
+// following downsides
+// 1. Data compression is not supported.
+// 2. Data is not checksumed.
+// it is not recommended to use this format on other type of file systems.
+// 
+// PlainTable requires fixed length key, configured as a constructor
 // parameter of the factory class. Output file format:
 // +-------------+-----------------+
 // | version     | user_key_length |
