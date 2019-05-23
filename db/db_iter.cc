@@ -46,6 +46,8 @@ static void DumpInternalIter(Iterator* iter) {
 }
 #endif
 
+// See file header of db_iter.h for the descripton for class DBIter.
+//
 // Memtables and sstables that make the DB representation contain
 // (userkey,seq,type) => uservalue entries.  DBIter
 // combines multiple entries for the same userkey found in the DB
