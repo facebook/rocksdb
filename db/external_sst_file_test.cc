@@ -2117,7 +2117,6 @@ TEST_P(ExternSSTFileLinkFailFallbackTest, LinkFailFallBackExternalSst) {
     }
   }
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  delete test_env;
 }
 
 class TestIngestExternalFileListener : public EventListener {
