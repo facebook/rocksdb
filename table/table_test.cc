@@ -2083,8 +2083,8 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
                       0);
     // Cache miss, Bytes read from cache should not change
     ASSERT_EQ(props.GetCacheBytesRead(), last_cache_bytes_read);
-    ASSERT_EQ(static_cast<size_t>(props.GetCacheBytesWrite()),
-              table_options.block_cache->GetUsage());
+    ASSERT_EQ(props.GetCacheBytesWrite(),
+              static_cast<int64_t>(table_options.block_cache->GetUsage()));
     last_cache_bytes_read = props.GetCacheBytesRead();
   }
 
@@ -2098,7 +2098,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
     // Cache hit, bytes read from cache should increase
     ASSERT_GT(props.GetCacheBytesRead(), last_cache_bytes_read);
     ASSERT_EQ(props.GetCacheBytesWrite(),
-              table_options.block_cache->GetUsage());
+              static_cast<int64_t>(table_options.block_cache->GetUsage()));
   }
   // release the iterator so that the block cache can reset correctly.
   iter.reset();

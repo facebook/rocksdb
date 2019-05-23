@@ -1475,7 +1475,7 @@ TEST_F(CompactionPickerTest, CacheNextCompactionIndex) {
   compaction.reset(level_compaction_picker.PickCompaction(
       cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() == nullptr);
-  ASSERT_EQ(4U, vstorage_->NextCompactionIndex(1 /* level */));
+  ASSERT_EQ(4, vstorage_->NextCompactionIndex(1 /* level */));
 }
 
 }  // namespace rocksdb

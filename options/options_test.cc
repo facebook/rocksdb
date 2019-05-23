@@ -175,7 +175,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.level, 6);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.strategy, 7);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.max_dict_bytes, 8u);
-  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.zstd_max_train_bytes, 9);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.zstd_max_train_bytes, 9u);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.enabled, true);
   ASSERT_EQ(new_cf_opt.num_levels, 8);
   ASSERT_EQ(new_cf_opt.level0_file_num_compaction_trigger, 8);

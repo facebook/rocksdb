@@ -448,10 +448,10 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionSizeAmplification) {
   ASSERT_EQ(dbfull()
                 ->GetOptions(handles_[1])
                 .compaction_options_universal.max_size_amplification_percent,
-            110);
+            110u);
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
                                                      &mutable_cf_options));
-  ASSERT_EQ(110, mutable_cf_options.compaction_options_universal
+  ASSERT_EQ(110u, mutable_cf_options.compaction_options_universal
                      .max_size_amplification_percent);
 
   dbfull()->TEST_WaitForCompact();

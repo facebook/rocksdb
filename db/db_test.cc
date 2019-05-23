@@ -4697,7 +4697,7 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.max_size_amplification_percent,
-            200);
+            200u);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.compression_size_percent,
@@ -4718,7 +4718,7 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.max_size_amplification_percent,
-            200);
+            200u);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.compression_size_percent,
@@ -4739,7 +4739,7 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.max_size_amplification_percent,
-            200);
+            200u);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.compression_size_percent,
