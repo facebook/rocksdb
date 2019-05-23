@@ -510,7 +510,6 @@ class DBImpl : public DB {
   bool TEST_IsPersistentStatsEnabled() const;
   size_t TEST_EstiamteStatsHistorySize() const;
   VersionSet* Test_GetVersionSet() const { return versions_.get(); }
-  EnvOptions Test_GetEnvOptions() const { return env_options_; }
 
 #endif  // NDEBUG
 
