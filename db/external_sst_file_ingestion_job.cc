@@ -109,6 +109,7 @@ Status ExternalSstFileIngestionJob::Prepare(
     }
 
     if (f.copy_file) {
+      TEST_SYNC_POINT("ExternalSstFileIngestionJob::Prepare:CopyFile");
       status = CopyFile(env_, path_outside_db, path_inside_db, 0,
                         db_options_.use_fsync);
     }
