@@ -127,8 +127,8 @@ TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {
   auto& new_files = parsed.GetNewFiles();
   ASSERT_TRUE(new_files[0].second.marked_for_compaction);
   ASSERT_TRUE(!new_files[1].second.marked_for_compaction);
-  ASSERT_EQ(3, new_files[0].second.fd.GetPathId());
-  ASSERT_EQ(3, new_files[1].second.fd.GetPathId());
+  ASSERT_EQ(3u, new_files[0].second.fd.GetPathId());
+  ASSERT_EQ(3u, new_files[1].second.fd.GetPathId());
   ASSERT_EQ(1u, parsed.GetDeletedFiles().size());
 }
 

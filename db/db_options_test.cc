@@ -507,10 +507,10 @@ TEST_F(DBOptionsTest, SetStatsDumpPeriodSec) {
   options.stats_dump_period_sec = 5;
   options.env = env_;
   Reopen(options);
-  ASSERT_EQ(static_cast<uint32_t>(5), dbfull()->GetDBOptions().stats_dump_period_sec);
+  ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_dump_period_sec);
 
   for (int i = 0; i < 20; i++) {
-    int num = rand() % 5000 + 1;
+    unsigned int num = rand() % 5000 + 1;
     ASSERT_OK(
         dbfull()->SetDBOptions({{"stats_dump_period_sec", ToString(num)}}));
     ASSERT_EQ(num, dbfull()->GetDBOptions().stats_dump_period_sec);
