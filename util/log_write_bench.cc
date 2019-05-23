@@ -40,7 +40,8 @@ void RunBenchmark() {
   env->NewWritableFile(file_name, &file, env_options);
   std::unique_ptr<WritableFileWriter> writer;
   writer.reset(new WritableFileWriter(std::move(file), file_name, env_options,
-    env, nullptr/* stats */, options.listeners));
+                                      env, nullptr /* stats */,
+                                      options.listeners));
 
   std::string record;
   record.assign(FLAGS_record_size, 'X');
