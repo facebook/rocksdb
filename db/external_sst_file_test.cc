@@ -35,7 +35,7 @@ class ExternalSSTTestEnv : public EnvWrapper {
 
 class ExternSSTFileLinkFailFallbackTest
     : public DBTestBase,
-      public ::testing::WithParamInterface<bool> {
+      public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   ExternSSTFileLinkFailFallbackTest() : DBTestBase("/external_sst_file_test") {
     sst_files_dir_ = dbname_ + "/sst_files/";
@@ -2045,17 +2045,26 @@ TEST_F(ExternalSSTFileTest, FileWithCFInfo) {
 }
 
 /*
- * Test and verify the functionality of ingestion_options.move_files.
+ * Test and verify the functionality of ingestion_options.move_files and
+ * ingestion_options.failed_move_fall_back_to_copy
  */
-TEST_F(ExternalSSTFileTest, LinkExternalSst) {
+TEST_P(ExternSSTFileLinkFailFallbackTest, LinkFailFallBackExternalSst) {
+  const bool fail_link = std::get<0>(GetParam());
+  const bool failed_move_fall_back_to_copy = std::get<1>(GetParam());
+  ExternalSSTTestEnv* test_env = new ExternalSSTTestEnv(env_, fail_link);
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
+  options.env = test_env;
+  const EnvOptions env_options;
   DestroyAndReopen(options);
   const int kNumKeys = 10000;
+  IngestExternalFileOptions ifo;
+  ifo.move_files = true;
+  ifo.failed_move_fall_back_to_copy = failed_move_fall_back_to_copy;
 
   std::string file_path = sst_files_dir_ + "file1.sst";
   // Create SstFileWriter for default column family
-  SstFileWriter sst_file_writer(EnvOptions(), options);
+  SstFileWriter sst_file_writer(env_options, options);
   ASSERT_OK(sst_file_writer.Open(file_path));
   for (int i = 0; i < kNumKeys; i++) {
     ASSERT_OK(sst_file_writer.Put(Key(i), Key(i) + "_value"));
@@ -2064,9 +2073,13 @@ TEST_F(ExternalSSTFileTest, LinkExternalSst) {
   uint64_t file_size = 0;
   ASSERT_OK(env_->GetFileSize(file_path, &file_size));
 
-  IngestExternalFileOptions ifo;
-  ifo.move_files = true;
-  ASSERT_OK(db_->IngestExternalFile({file_path}, ifo));
+  bool copyfile = false;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "ExternalSstFileIngestionJob::Prepare:CopyFile",
+      [&](void* /* arg */) { copyfile = true; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status s = db_->IngestExternalFile({file_path}, ifo);
 
   ColumnFamilyHandleImpl* cfh =
       static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily());
@@ -2080,76 +2093,30 @@ TEST_F(ExternalSSTFileTest, LinkExternalSst) {
     bytes_copied += stats.bytes_written;
     bytes_moved += stats.bytes_moved;
   }
-  // If bytes_moved > 0, it means external sst resides on the same FS
-  // supporting hard link operation. Therefore,
-  // 0 bytes should be copied, and the bytes_moved == file_size.
-  // Otherwise, FS does not support hard link, or external sst file resides on
-  // a different file system, then the bytes_copied should be equal to
-  // file_size.
-  if (bytes_moved > 0) {
+
+  if (!fail_link) {
+    // Link operation succeeds. External SST should be moved.
+    ASSERT_OK(s);
     ASSERT_EQ(0, bytes_copied);
     ASSERT_EQ(file_size, bytes_moved);
-  } else {
-    ASSERT_EQ(file_size, bytes_copied);
-  }
-}
-
-/*
- * Test and verify the functionality of ingestion_options.move_files and
- * ingestion_options.failed_move_fall_back_to_copy
- */
-TEST_P(ExternSSTFileLinkFailFallbackTest, LinkFailFallBackExternalSst) {
-  Options options = CurrentOptions();
-  options.disable_auto_compactions = true;
-  const EnvOptions env_options;
-  DestroyAndReopen(options);
-  const int kNumKeys = 10000;
-  IngestExternalFileOptions ifo;
-  ifo.move_files = true;
-  ifo.failed_move_fall_back_to_copy = GetParam();
-
-  std::string file_path = sst_files_dir_ + "file1.sst";
-  // Create SstFileWriter for default column family
-  SstFileWriter sst_file_writer(env_options, options);
-  ASSERT_OK(sst_file_writer.Open(file_path));
-  for (int i = 0; i < kNumKeys; i++) {
-    ASSERT_OK(sst_file_writer.Put(Key(i), Key(i) + "_value"));
-  }
-  ASSERT_OK(sst_file_writer.Finish());
-  uint64_t file_size = 0;
-  ASSERT_OK(env_->GetFileSize(file_path, &file_size));
-
-  ExternalSSTTestEnv test_env(options.env, true);
-  InstrumentedMutex mutex_;
-  const uint64_t next_file_number =
-      dbfull()->Test_GetVersionSet()->FetchAddFileNumber(1);
-  ColumnFamilyData* cfd =
-      static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())->cfd();
-  ExternalSstFileIngestionJob job(&test_env, dbfull()->Test_GetVersionSet(),
-                                  cfd, dbfull()->immutable_db_options(),
-                                  env_options, nullptr, ifo);
-  SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
-  bool copyfile = false;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "ExternalSstFileIngestionJob::Prepare:CopyFile",
-      [&](void* /* arg */) { copyfile = true; });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-
-  const Status s =
-      job.Prepare({file_path}, next_file_number + 1, super_version);
-  dbfull()->CleanupSuperVersion(super_version);
-  if (ifo.failed_move_fall_back_to_copy) {
-    ASSERT_OK(s);
-    // Copy file is true since a failed link falls back to copy file.
-    ASSERT_TRUE(job.files_to_ingest()[0].copy_file);
-    ASSERT_TRUE(copyfile);
-  } else {
-    ASSERT_TRUE(s.IsNotSupported());
-    // Copy file is false since a failed link does not fall back to copy file.
-    ASSERT_FALSE(job.files_to_ingest()[0].copy_file);
     ASSERT_FALSE(copyfile);
+  } else {
+    // Link operation fails.
+    ASSERT_EQ(0, bytes_moved);
+    if (failed_move_fall_back_to_copy) {
+      ASSERT_OK(s);
+      // Copy file is true since a failed link falls back to copy file.
+      ASSERT_TRUE(copyfile);
+      ASSERT_EQ(file_size, bytes_copied);
+    } else {
+      ASSERT_TRUE(s.IsNotSupported());
+      // Copy file is false since a failed link does not fall back to copy file.
+      ASSERT_FALSE(copyfile);
+      ASSERT_EQ(0, bytes_copied);
+    }
   }
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  delete test_env;
 }
 
 class TestIngestExternalFileListener : public EventListener {
@@ -2757,7 +2724,9 @@ INSTANTIATE_TEST_CASE_P(ExternalSSTFileTest, ExternalSSTFileTest,
 
 INSTANTIATE_TEST_CASE_P(ExternSSTFileLinkFailFallbackTest,
                         ExternSSTFileLinkFailFallbackTest,
-                        testing::Values(true, false));
+                        testing::Values(std::make_tuple(false, false),
+                                        std::make_tuple(false, true),
+                                        std::make_tuple(true, false)));
 
 }  // namespace rocksdb
 
