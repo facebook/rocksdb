@@ -306,7 +306,7 @@ inline uint64_t GetInternalKeySeqno(const Slice& internal_key) {
 //    address.
 // 2. For copied key, a short inline buffer is kept to reduce memory
 //    allocation for smaller keys.
-// 3. It tracks user key or internal key, and allow conversation between them.
+// 3. It tracks user key or internal key, and allow conversion between them.
 class IterKey {
  public:
   IterKey()
