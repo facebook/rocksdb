@@ -174,7 +174,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.window_bits, 5);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.level, 6);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.strategy, 7);
-  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.max_dict_bytes, 8);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.max_dict_bytes, 8u);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.zstd_max_train_bytes, 9);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.enabled, true);
   ASSERT_EQ(new_cf_opt.num_levels, 8);
@@ -544,7 +544,7 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
              "cache_index_and_filter_blocks=1;index_type=kBinarySearch;"
              "bad_option=1",
              &new_opt));
-  ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
+  ASSERT_EQ(static_cast<unsigned int>(table_opt.cache_index_and_filter_blocks),
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 

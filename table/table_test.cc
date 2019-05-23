@@ -2083,7 +2083,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
                       0);
     // Cache miss, Bytes read from cache should not change
     ASSERT_EQ(props.GetCacheBytesRead(), last_cache_bytes_read);
-    ASSERT_EQ(props.GetCacheBytesWrite(),
+    ASSERT_EQ(static_cast<size_t>(props.GetCacheBytesWrite()),
               table_options.block_cache->GetUsage());
     last_cache_bytes_read = props.GetCacheBytesRead();
   }

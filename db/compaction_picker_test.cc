@@ -1470,7 +1470,7 @@ TEST_F(CompactionPickerTest, CacheNextCompactionIndex) {
   ASSERT_EQ(1U, compaction->num_input_files(0));
   ASSERT_EQ(0U, compaction->num_input_files(1));
   ASSERT_EQ(4U, compaction->input(0, 0)->fd.GetNumber());
-  ASSERT_EQ(3U, vstorage_->NextCompactionIndex(1 /* level */));
+  ASSERT_EQ(3, vstorage_->NextCompactionIndex(1 /* level */));
 
   compaction.reset(level_compaction_picker.PickCompaction(
       cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));

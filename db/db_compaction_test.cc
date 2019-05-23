@@ -776,7 +776,7 @@ TEST_F(DBCompactionTest, BGCompactionsAllowed) {
 
   // Now all column families qualify compaction but only one should be
   // scheduled, because no column family hits speed up condition.
-  ASSERT_EQ(1, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+  ASSERT_EQ(1U, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
 
   for (size_t i = 0; i < kTotalTasks; i++) {
     sleeping_tasks[i].WakeUp();
