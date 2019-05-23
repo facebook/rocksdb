@@ -654,6 +654,7 @@ set(SOURCES
         utilities/merge_operators/string_append/stringappend.cc
         utilities/merge_operators/string_append/stringappend2.cc
         utilities/merge_operators/uint64add.cc
+        utilities/merge_operators/bytesappend.cc
         utilities/option_change_migration/option_change_migration.cc
         utilities/options/options_util.cc
         utilities/persistent_cache/block_cache_tier.cc
@@ -967,6 +968,7 @@ if(WITH_TESTS)
         utilities/checkpoint/checkpoint_test.cc
         utilities/memory/memory_test.cc
         utilities/merge_operators/string_append/stringappend_test.cc
+        utilities/merge_operators/bytesappend_test.cc
         utilities/object_registry_test.cc
         utilities/option_change_migration/option_change_migration_test.cc
         utilities/options/options_util_test.cc
