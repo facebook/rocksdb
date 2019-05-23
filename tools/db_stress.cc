@@ -38,6 +38,7 @@ int main() {
 #include <stdlib.h>
 #include <sys/types.h>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <exception>
 #include <queue>
