@@ -27,9 +27,9 @@ namespace rocksdb {
 // a iterator that converts internal keys (yielded by an InternalIterator)
 // that were live at the specified sequence number into appropriate user
 // keys.
-// Each internal key is consist of user key, a sequence number, and a value
+// Each internal key is consist of a user key, a sequence number, and a value
 // type. DBIter deals with multiple key versions, tombstones, merge operands,
-// etc, and expose an Iterator.
+// etc, and exposes an Iterator.
 // For example, DBIter may wrap following InternalIterator:
 //    user key: AAA  value: v3   seqno: 100    type: Put
 //    user key: AAA  value: v2   seqno: 97     type: Put
@@ -38,10 +38,10 @@ namespace rocksdb {
 //    user key: BBC  value: N/A  seqno: 98     type: Delete
 //    user key: BBC  value: v1   seqno: 95     type: Put
 // If the snapshot passed in is 102, then the DBIter is expected to
-// expose following iterator:
+// expose the following iterator:
 //    key: AAA  value: v3
 //    key: BBB  value: v1
-// while if the snapshot passed in is 96, then it should expose:
+// If the snapshot passed in is 96, then it should expose:
 //    key: AAA  value: v1
 //    key: BBB  value: v1
 //    key: BBC  value: v1
@@ -66,7 +66,7 @@ extern Iterator* NewDBIterator(
 // a iterator hierarchy whose memory can be allocated inline. In that way,
 // accessing the iterator tree can be more cache friendly. It is also faster
 // to allocate.
-// When operating the class using Iterator interface, the behavior is exactly
+// When using the class's Iterator interface, the behavior is exactly
 // the same as the inner DBIter.
 class ArenaWrappedDBIter : public Iterator {
  public:
