@@ -746,7 +746,7 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::ProcessManifestWrites:SameColumnFamily", [&](void* arg) {
         uint32_t* cf_id = reinterpret_cast<uint32_t*>(arg);
-        EXPECT_EQ(static_cast<uint32_t>(0), *cf_id);
+        EXPECT_EQ(0u, *cf_id);
         ++count;
       });
   SyncPoint::GetInstance()->EnableProcessing();
