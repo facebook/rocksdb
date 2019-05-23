@@ -13,14 +13,14 @@ namespace rocksdb {
 
 // BytesAppend merge operator appends the bytes to the end of the original value.
 class BytesAppendOperator : public AssociativeMergeOperator {
-  public:
-    virtual bool Merge(const Slice &key,
-                       const Slice *existing_value,
-                       const Slice &value,
-                       std::string *new_value,
-                       Logger *logger) const override;
+ public:
+  virtual bool Merge(const Slice &key,
+                     const Slice *existing_value,
+                     const Slice &value,
+                     std::string *new_value,
+                     Logger *logger) const override;
 
-    virtual const char *Name() const override;
+  virtual const char *Name() const override;
 };
 
 }  // namespace rocksdb
