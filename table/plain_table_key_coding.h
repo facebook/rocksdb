@@ -11,6 +11,11 @@
 #include "db/dbformat.h"
 #include "table/plain_table_reader.h"
 
+// The file contains three helper classes of PlainTable format,
+// PlainTableKeyEncoder, PlainTableKeyDecoder and PlainTableFileReader.
+// These classes issue the lowest level of operations of PlainTable.
+// Actual data format of the key is documented in comments of class
+// PlainTableFactory.
 namespace rocksdb {
 
 class WritableFile;
@@ -18,8 +23,8 @@ struct ParsedInternalKey;
 struct PlainTableReaderFileInfo;
 enum PlainTableEntryType : unsigned char;
 
-// Helper class to write out a key to an output file
-// Actual data format of the key is documented in plain_table_factory.h
+// Helper class for PlainTable format to write out a key to an output file
+// The class is used in PlainTableBuilder.
 class PlainTableKeyEncoder {
  public:
   explicit PlainTableKeyEncoder(EncodingType encoding_type,
@@ -53,6 +58,10 @@ class PlainTableKeyEncoder {
   IterKey pre_prefix_;
 };
 
+// The class does raw file reads for PlainTableReader.
+// It hides whether it is a mmap-read, or a non-mmap read.
+// The class is implemented in a way to favor the performance of mmap case.
+// The class is used by PlainTableReader.
 class PlainTableFileReader {
  public:
   explicit PlainTableFileReader(const PlainTableReaderFileInfo* _file_info)
@@ -122,7 +131,7 @@ class PlainTableFileReader {
 };
 
 // A helper class to decode keys from input buffer
-// Actual data format of the key is documented in plain_table_factory.h
+// The class is used by PlainTableBuilder.
 class PlainTableKeyDecoder {
  public:
   explicit PlainTableKeyDecoder(const PlainTableReaderFileInfo* file_info,

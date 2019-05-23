@@ -24,6 +24,9 @@ class BlockHandle;
 class WritableFile;
 class TableBuilder;
 
+// The builder class of PlainTable. For description of PlainTable format
+// See comments of class PlainTableFactory, where instances of
+// PlainTableReader are created.
 class PlainTableBuilder: public TableBuilder {
  public:
   // Create a builder that will store the contents of the table it is
