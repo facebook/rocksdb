@@ -583,7 +583,7 @@ TEST_F(DBOptionsTest, StatsPersistScheduling) {
       "DBImpl::PersistStats:Entry", [&](void* /*arg*/) { counter++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   Reopen(options);
-  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_persist_period_sec);
+  ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_persist_period_sec);
   dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
   ASSERT_GE(counter, 1);
 
@@ -632,12 +632,12 @@ TEST_F(DBOptionsTest, SetOptionsStatsPersistPeriodSec) {
   options.stats_persist_period_sec = 5;
   options.env = env_;
   Reopen(options);
-  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_persist_period_sec);
+  ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_persist_period_sec);
 
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "12345"}}));
-  ASSERT_EQ(12345, dbfull()->GetDBOptions().stats_persist_period_sec);
+  ASSERT_EQ(12345u, dbfull()->GetDBOptions().stats_persist_period_sec);
   ASSERT_NOK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "abcde"}}));
-  ASSERT_EQ(12345, dbfull()->GetDBOptions().stats_persist_period_sec);
+  ASSERT_EQ(12345u, dbfull()->GetDBOptions().stats_persist_period_sec);
 }
 
 TEST_F(DBOptionsTest, GetStatsHistory) {

@@ -384,10 +384,10 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
              "write_buffer_size=13; =100;", &new_cf_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
 
-  const int64_t kilo = 1024UL;
-  const int64_t mega = 1024 * kilo;
-  const int64_t giga = 1024 * mega;
-  const int64_t tera = 1024 * giga;
+  const uint64_t kilo = 1024UL;
+  const uint64_t mega = 1024 * kilo;
+  const uint64_t giga = 1024 * mega;
+  const uint64_t tera = 1024 * giga;
 
   // Units (k)
   ASSERT_OK(GetColumnFamilyOptionsFromString(
@@ -398,7 +398,7 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
             "max_write_buffer_number=16m;inplace_update_num_locks=17M",
             &new_cf_opt));
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 16 * mega);
-  ASSERT_EQ(new_cf_opt.inplace_update_num_locks, 17 * mega);
+  ASSERT_EQ(new_cf_opt.inplace_update_num_locks, 17u * mega);
   // Units (g)
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       base_cf_opt,

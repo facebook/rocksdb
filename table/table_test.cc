@@ -3392,8 +3392,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   };
 
   GetVersionAndGlobalSeqno();
-  ASSERT_EQ(2, version);
-  ASSERT_EQ(0, global_seqno);
+  ASSERT_EQ(2u, version);
+  ASSERT_EQ(0u, global_seqno);
 
   InternalIterator* iter = GetTableInternalIter();
   char current_c = 'a';
@@ -3413,8 +3413,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   // Update global sequence number to 10
   SetGlobalSeqno(10);
   GetVersionAndGlobalSeqno();
-  ASSERT_EQ(2, version);
-  ASSERT_EQ(10, global_seqno);
+  ASSERT_EQ(2u, version);
+  ASSERT_EQ(10u, global_seqno);
 
   iter = GetTableInternalIter();
   current_c = 'a';
@@ -3450,8 +3450,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   // Update global sequence number to 3
   SetGlobalSeqno(3);
   GetVersionAndGlobalSeqno();
-  ASSERT_EQ(2, version);
-  ASSERT_EQ(3, global_seqno);
+  ASSERT_EQ(2u, version);
+  ASSERT_EQ(3u, global_seqno);
 
   iter = GetTableInternalIter();
   current_c = 'a';
