@@ -15,6 +15,7 @@
 
 #include "include/org_rocksdb_StringAppendOperator.h"
 #include "include/org_rocksdb_UInt64AddOperator.h"
+#include "include/org_rocksdb_BytesAppend.h"
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
@@ -73,4 +74,29 @@ void Java_org_rocksdb_UInt64AddOperator_disposeInternal(JNIEnv* /*env*/,
   auto* sptr_uint64_add_op =
       reinterpret_cast<std::shared_ptr<rocksdb::MergeOperator>*>(jhandle);
   delete sptr_uint64_add_op;  // delete std::shared_ptr
+}
+
+/*
+ * Class:     org_rocksdb_BytesAppendOperator
+ * Method:    newSharedBytesAppendOperator
+ * Signature: (C)J
+ */
+jlong Java_org_rocksdb_BytesAppendOperator_newSharedBytesAppendOperator(
+  JNIEnv* /*env*/, jclass /*jclazz*/) {
+  auto* sptr_bytes_append_op = new std::shared_ptr<rocksdb::MergeOperator>(
+    rocksdb::MergeOperators::CreateBytesAppendOperator());
+  return reinterpret_cast<jlong>(sptr_bytes_append_op);
+}
+
+/*
+ * Class:     org_rocksdb_BytesAppendOperator
+ * Method:    disposeInternal
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_BytesAppendOperator_disposeInternal(JNIEnv* /*env*/,
+                                                           jobject /*jobj*/,
+                                                           jlong jhandle) {
+  auto* sptr_bytes_append_op =
+    reinterpret_cast<std::shared_ptr<rocksdb::MergeOperator>*>(jhandle);
+  delete sptr_bytes_append_op;  // delete std::shared_ptr
 }

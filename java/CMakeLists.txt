@@ -145,6 +145,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.SstFileWriter
         org.rocksdb.Statistics
         org.rocksdb.StringAppendOperator
+        org.rocksdb.BytesAppendOperator
         org.rocksdb.TableFormatConfig
         org.rocksdb.ThreadStatus
         org.rocksdb.TimedEnv
@@ -314,6 +315,7 @@ add_jar(
   src/main/java/org/rocksdb/StatsLevel.java
   src/main/java/org/rocksdb/Status.java
   src/main/java/org/rocksdb/StringAppendOperator.java
+  src/main/java/org/rocksdb/BytsAppendOperator.java
   src/main/java/org/rocksdb/TableFilter.java
   src/main/java/org/rocksdb/TableProperties.java
   src/main/java/org/rocksdb/TableFormatConfig.java
