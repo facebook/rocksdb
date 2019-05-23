@@ -2055,7 +2055,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
                       0, 0, 0);
     ASSERT_EQ(props.GetCacheBytesRead(), 0);
     ASSERT_EQ(props.GetCacheBytesWrite(),
-              table_options.block_cache->GetUsage());
+              static_cast<int64_t>(table_options.block_cache->GetUsage()));
     last_cache_bytes_read = props.GetCacheBytesRead();
   }
 

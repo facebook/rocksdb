@@ -288,7 +288,7 @@ TEST_P(TransactionTest, WaitingTxn) {
         ASSERT_EQ(key, "foo");
         ASSERT_EQ(wait.size(), 1);
         ASSERT_EQ(wait[0], id1);
-        ASSERT_EQ(cf_id, 0);
+        ASSERT_EQ(cf_id, static_cast<uint32_t>(0));
       });
 
   get_perf_context()->Reset();

@@ -78,9 +78,9 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   ASSERT_TRUE(new_files[0].second.marked_for_compaction);
   ASSERT_TRUE(!new_files[1].second.marked_for_compaction);
   ASSERT_TRUE(new_files[2].second.marked_for_compaction);
-  ASSERT_EQ(3, new_files[0].second.fd.GetPathId());
-  ASSERT_EQ(3, new_files[1].second.fd.GetPathId());
-  ASSERT_EQ(0, new_files[2].second.fd.GetPathId());
+  ASSERT_EQ(static_cast<uint32_t>(3), new_files[0].second.fd.GetPathId());
+  ASSERT_EQ(static_cast<uint32_t>(3), new_files[1].second.fd.GetPathId());
+  ASSERT_EQ(static_cast<uint32_t>(0), new_files[2].second.fd.GetPathId());
 }
 
 TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {

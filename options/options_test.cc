@@ -167,7 +167,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.compression_opts.window_bits, 4);
   ASSERT_EQ(new_cf_opt.compression_opts.level, 5);
   ASSERT_EQ(new_cf_opt.compression_opts.strategy, 6);
-  ASSERT_EQ(new_cf_opt.compression_opts.max_dict_bytes, 7);
+  ASSERT_EQ(new_cf_opt.compression_opts.max_dict_bytes, static_cast<uint32_t>(7));
   ASSERT_EQ(new_cf_opt.compression_opts.zstd_max_train_bytes, 8);
   ASSERT_EQ(new_cf_opt.compression_opts.enabled, true);
   ASSERT_EQ(new_cf_opt.bottommost_compression, kLZ4Compression);

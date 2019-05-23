@@ -36,7 +36,7 @@ static std::string PrintContents(WriteBatch* b) {
   std::string state;
   ColumnFamilyMemTablesDefault cf_mems_default(mem);
   Status s = WriteBatchInternal::InsertInto(b, &cf_mems_default, nullptr);
-  int count = 0;
+  uint32_t count = 0;
   int put_count = 0;
   int delete_count = 0;
   int single_delete_count = 0;

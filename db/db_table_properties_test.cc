@@ -230,7 +230,7 @@ TEST_F(DBTablePropertiesTest, GetColumnFamilyNameProperty) {
 
   // Create one table per CF, then verify it was created with the column family
   // name property.
-  for (int cf = 0; cf < 2; ++cf) {
+  for (uint32_t cf = 0; cf < 2; ++cf) {
     Put(cf, "key", "val");
     Flush(cf);
 

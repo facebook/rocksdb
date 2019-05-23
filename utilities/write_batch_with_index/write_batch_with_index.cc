@@ -568,7 +568,7 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
   input.remove_prefix(offset);
 
   // Loop through all entries in Rep and add each one to the index
-  int found = 0;
+  uint32_t found = 0;
   while (s.ok() && !input.empty()) {
     Slice key, value, blob, xid;
     uint32_t column_family_id = 0;  // default
