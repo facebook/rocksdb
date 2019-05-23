@@ -273,9 +273,26 @@ class NullCompactionPicker : public CompactionPicker {
 };
 #endif  // !ROCKSDB_LITE
 
+// Attempts to find an intra L0 compaction conforming to the given parameters.
+//
+// @param level_files                     Metadata for L0 files.
+// @param min_files_to_compact            Minimum number of files required to
+//                                        do the compaction.
+// @param max_compact_bytes_per_del_file  Maximum average size in bytes per
+//                                        file that is going to get deleted by
+//                                        the compaction.
+// @param max_compaction_bytes            Maximum total size in bytes (in terms
+//                                        of compensated file size) for files
+//                                        to be compacted.
+// @param [out] comp_inputs               If a compaction was found, will be
+//                                        initialized with corresponding input
+//                                        files. Cannot be nullptr.
+//
+// @return                                true iff compaction was found.
 bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
                            size_t min_files_to_compact,
                            uint64_t max_compact_bytes_per_del_file,
+                           uint64_t max_compaction_bytes,
                            CompactionInputFiles* comp_inputs);
 
 CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
