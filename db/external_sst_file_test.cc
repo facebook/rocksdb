@@ -2083,7 +2083,7 @@ TEST_F(ExternalSSTFileTest, LinkExternalSst) {
 /*
  * Test and verify the functionality of ingestion_options.move_files and ingestion_options.failed_move_fall_back_to_copy
  */
-TEST_F(ExternalSSTFileTest, LinkFailExternalSst) {
+TEST_F(ExternalSSTFileTest, LinkFailFallBackExternalSst) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
@@ -2101,7 +2101,6 @@ TEST_F(ExternalSSTFileTest, LinkFailExternalSst) {
   ASSERT_OK(env_->GetFileSize(file_path, &file_size));
 
   // Failed move falls back to copy.
-  {
     IngestExternalFileOptions ifo;
     ifo.move_files = true;
     ifo.failed_move_fall_back_to_copy = true;
@@ -2122,33 +2121,46 @@ TEST_F(ExternalSSTFileTest, LinkFailExternalSst) {
     dbfull()->CleanupSuperVersion(super_version);
     // Copy file is true since a failed link falls back to copy file.
     ASSERT_TRUE(job.files_to_ingest()[0].copy_file);
-  }
+}
 
-  // Failed move does not fall back to copy and Prepare returns failure.
-  {
-    IngestExternalFileOptions ifo;
-    ifo.move_files = true;
-    ifo.failed_move_fall_back_to_copy = false;
-    ExternalSSTTestEnv test_env(env_, true);
-    InstrumentedMutex mutex_;
-    std::list<uint64_t>::iterator pending_output_elem;
-    const uint64_t next_file_number =
-        dbfull()->Test_GetVersionSet()->FetchAddFileNumber(1);
+TEST_F(ExternalSSTFileTest, LinkFailNoFallBackExternalSst) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  const int kNumKeys = 10000;
 
-    ColumnFamilyData* cfd =
-        static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())->cfd();
-    ExternalSstFileIngestionJob job(&test_env, dbfull()->Test_GetVersionSet(),
-                                    cfd, dbfull()->immutable_db_options(),
-                                    dbfull()->Test_GetEnvOptions(), nullptr,
-                                    ifo);
-    SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
-    const Status s =
-        job.Prepare({file_path}, next_file_number + 1, super_version);
-    ASSERT_TRUE(s.IsNotSupported());
-    dbfull()->CleanupSuperVersion(super_version);
-    // Copy file is false since a failed link does not fall back to copy file.
-    ASSERT_FALSE(job.files_to_ingest()[0].copy_file);
+  std::string file_path = sst_files_dir_ + "file1.sst";
+  // Create SstFileWriter for default column family
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+  ASSERT_OK(sst_file_writer.Open(file_path));
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(sst_file_writer.Put(Key(i), Key(i) + "_value"));
   }
+  ASSERT_OK(sst_file_writer.Finish());
+  uint64_t file_size = 0;
+  ASSERT_OK(env_->GetFileSize(file_path, &file_size));
+
+  IngestExternalFileOptions ifo;
+  ifo.move_files = true;
+  ifo.failed_move_fall_back_to_copy = false;
+  ExternalSSTTestEnv test_env(env_, true);
+  InstrumentedMutex mutex_;
+  std::list<uint64_t>::iterator pending_output_elem;
+  const uint64_t next_file_number =
+      dbfull()->Test_GetVersionSet()->FetchAddFileNumber(1);
+
+  ColumnFamilyData* cfd =
+      static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())->cfd();
+  ExternalSstFileIngestionJob job(&test_env, dbfull()->Test_GetVersionSet(),
+                                  cfd, dbfull()->immutable_db_options(),
+                                  dbfull()->Test_GetEnvOptions(), nullptr, ifo);
+  SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
+  const Status s =
+      job.Prepare({file_path}, next_file_number + 1, super_version);
+  ASSERT_TRUE(s.IsNotSupported());
+  dbfull()->CleanupSuperVersion(super_version);
+  // Copy file is false since a failed link does not fall back to copy file.
+  ASSERT_FALSE(job.files_to_ingest()[0].copy_file);
 }
 
 class TestIngestExternalFileListener : public EventListener {
