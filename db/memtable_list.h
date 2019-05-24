@@ -27,6 +27,7 @@
 
 namespace rocksdb {
 
+
 class ColumnFamilyData;
 class InternalKeyComparator;
 class InstrumentedMutex;
