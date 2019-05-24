@@ -52,7 +52,7 @@ extern const double kIncSlowdownRatio;
 // following:
 //
 //       +----------------------+    +----------------------+   +--------+
-//   +---+ ColumnFamilyHandle 1 | +--+ ColumnFamilyHandle 1 |   | DBImpl |
+//   +---+ ColumnFamilyHandle 1 | +--+ ColumnFamilyHandle 2 |   | DBImpl |
 //   |   +----------------------+ |  +----------------------+   +----+---+
 //   | +--------------------------+                                  |
 //   | |                               +-----------------------------+
@@ -144,9 +144,9 @@ extern const double kIncSlowdownRatio;
 //                               +------>+   Version t  +-------->  empty
 //                                 imm   +--------------+
 //
-// In this example, even if the current LSM-tree is consist of Version A and
+// In this example, even if the current LSM-tree consists of Version A and
 // memtable a, which is also referenced by SuperVersion, two older SuperVersion
-// SuperVersion2 and Superversion1 still exists, and are referenced by a
+// SuperVersion2 and Superversion1 still exist, and are referenced by a
 // compaction job and an old iterator Iter1, respectively. SuperVersion2
 // contains Version B, memtable a and memtable b; SuperVersion1 contains
 // Version B and memtable b (mutable). As a result, Version B and memtable b
