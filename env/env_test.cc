@@ -247,6 +247,7 @@ TEST_F(EnvPosixTest, MemoryMappedFileBuffer) {
   ASSERT_EQ(expected_data, actual_data);
 }
 
+#ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
 TEST_F(EnvPosixTest, LoadRocksDBLibrary) {
   std::shared_ptr<DynamicLibrary> library;
   std::function<void*(void*, const char*)> function;
@@ -266,8 +267,9 @@ TEST_F(EnvPosixTest, LoadRocksDBLibrary) {
     ASSERT_EQ(nullptr, library.get());
   }
 }
+#endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
 
-#if !defined(OS_WIN)
+#if !defined(OS_WIN) && !defined(ROCKSDB_NO_DYNAMIC_EXTENSION)
 TEST_F(EnvPosixTest, LoadRocksDBLibraryWithSearchPath) {
   std::shared_ptr<DynamicLibrary> library;
   std::function<void*(void*, const char*)> function;
@@ -289,7 +291,7 @@ TEST_F(EnvPosixTest, LoadRocksDBLibraryWithSearchPath) {
     ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
   }
 }
-#endif
+#endif  // !OS_WIN && !ROCKSDB_NO_DYNAMIC_EXTENSION
 
 TEST_P(EnvPosixTestWithParam, UnSchedule) {
   std::atomic<bool> called(false);

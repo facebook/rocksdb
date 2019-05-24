@@ -35,6 +35,7 @@ ROCKSDB_COMPILER_FLAGS = [
     "-DROCKSDB_PTHREAD_ADAPTIVE_MUTEX",
     "-DROCKSDB_BACKTRACE",
     "-Wnarrowing",
+    "-DROCKSDB_NO_DYNAMIC_EXTENSION",
 ]
 
 ROCKSDB_EXTERNAL_DEPS = [
@@ -47,7 +48,6 @@ ROCKSDB_EXTERNAL_DEPS = [
     ("tbb", None),
     ("numa", None, "numa"),
     ("googletest", None, "gtest"),
-    ("glibc", None, "dl"),
 ]
 
 ROCKSDB_PREPROCESSOR_FLAGS = [

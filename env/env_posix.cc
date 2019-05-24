@@ -7,7 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors
 #include <dirent.h>
+#ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
 #include <dlfcn.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
 
@@ -128,6 +130,7 @@ int cloexec_flags(int flags, const EnvOptions* options) {
   return flags;
 }
 
+#ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
 class PosixDynamicLibrary : public DynamicLibrary {
  public:
   PosixDynamicLibrary(const std::string& name, void* handle)
@@ -151,6 +154,7 @@ class PosixDynamicLibrary : public DynamicLibrary {
   std::string name_;
   void* handle_;
 };
+#endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
 
 class PosixEnv : public Env {
  public:
@@ -766,6 +770,7 @@ class PosixEnv : public Env {
     return result;
   }
 
+#ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
   /**
    * Loads the named library into the result.
    * If the input name is empty, the current executable is loaded
@@ -821,6 +826,7 @@ class PosixEnv : public Env {
     return Status::IOError(
         IOErrorMsg("Failed to open shared library: xs", name), dlerror());
   }
+#endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
 
   void Schedule(void (*function)(void* arg1), void* arg, Priority pri = LOW,
                 void* tag = nullptr,
