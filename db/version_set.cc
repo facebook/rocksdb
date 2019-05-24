@@ -3314,6 +3314,7 @@ struct VersionSet::ManifestWriter {
 };
 
 Status AtomicGroupReadBuffer::AddEdit(VersionEdit* edit) {
+  assert(edit != nullptr);
   if (edit->is_in_atomic_group_) {
     TEST_SYNC_POINT("AtomicGroupReadBuffer::AddEdit:AtomicGroup");
     if (replay_buffer_.empty()) {
@@ -4125,6 +4126,8 @@ Status VersionSet::ReadAndRecover(
     uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
     bool* have_last_sequence, SequenceNumber* last_sequence,
     uint64_t* min_log_number_to_keep, uint32_t* max_column_family) {
+  assert(reader != nullptr);
+  assert(read_buffer != nullptr);
   Status s;
   Slice record;
   std::string scratch;
@@ -4141,7 +4144,7 @@ Status VersionSet::ReadAndRecover(
     }
     if (edit.is_in_atomic_group_) {
       if (read_buffer->IsFull()) {
-        // Apply edits in a atomic group when we have read all edits in the
+        // Apply edits in an atomic group when we have read all edits in the
         // group.
         for (auto& e : read_buffer->replay_buffer()) {
           s = ApplyOneVersionEditToBuilder(
@@ -4156,6 +4159,9 @@ Status VersionSet::ReadAndRecover(
 
           recovered_edits++;
         }
+        if (!s.ok()) {
+          break;
+        }
         read_buffer->Clear();
       }
     } else {
@@ -4169,9 +4175,10 @@ Status VersionSet::ReadAndRecover(
         recovered_edits++;
       }
     }
-    if (!s.ok()) {
-      break;
-    }
+  }
+  if (!s.ok()) {
+    // Clear the buffer if we fail to decode/apply an edit.
+    read_buffer->Clear();
   }
   TEST_SYNC_POINT_CALLBACK("VersionSet::Recover:RecoveredEdits",
                            &recovered_edits);
@@ -5415,7 +5422,7 @@ Status ReactiveVersionSet::ReadAndApply(
       }
       if (edit.is_in_atomic_group_) {
         if (read_buffer.IsFull()) {
-          // Apply edits in a atomic group when we have read all edits in the
+          // Apply edits in an atomic group when we have read all edits in the
           // group.
           for (auto& e : read_buffer.replay_buffer()) {
             s = ApplyOneVersionEditToBuilder(
@@ -5427,6 +5434,9 @@ Status ReactiveVersionSet::ReadAndApply(
               break;
             }
             applied_edits++;
+          }
+          if (!s.ok()) {
+            break;
           }
           read_buffer.Clear();
         }
@@ -5441,9 +5451,10 @@ Status ReactiveVersionSet::ReadAndApply(
           applied_edits++;
         }
       }
-      if (!s.ok()) {
-        break;
-      }
+    }
+    if (!s.ok()) {
+      // Clear the buffer if we fail to decode/apply an edit.
+      read_buffer.Clear();
     }
     // It's possible that:
     // 1) s.IsCorruption(), indicating the current MANIFEST is corrupted.
@@ -5514,8 +5525,8 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
     // Drop the column family by setting it to be 'dropped' without destroying
     // the column family handle.
     // TODO (haoyu) figure out how to handle column faimly drop for
-    // secondary instance. (Is it possible that ref count for cfd is 0 but the
-    // ref count for its versions is higher than 0?)
+    // secondary instance. (Is it possible that the ref count for cfd is 0 but
+    // the ref count for its versions is higher than 0?)
     cfd->SetDropped();
     if (cfd->Unref()) {
       delete cfd;

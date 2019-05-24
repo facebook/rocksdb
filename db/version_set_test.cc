@@ -619,7 +619,7 @@ class VersionSetTestBase {
         versions_(new VersionSet(dbname_, &db_options_, env_options_,
                                  table_cache_.get(), &write_buffer_manager_,
                                  &write_controller_)),
-        reactive_versions_(new ReactiveVersionSet(
+        reactive_versions_(std::make_shared<ReactiveVersionSet>(
             dbname_, &db_options_, env_options_, table_cache_.get(),
             &write_buffer_manager_, &write_controller_)),
         shutting_down_(false),
