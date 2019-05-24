@@ -15,6 +15,9 @@
 
 namespace rocksdb {
 
+// This file contains Tracer and Replayer classes that enable to capture and
+// replay RocksDB traces.
+
 class ColumnFamilyHandle;
 class ColumnFamilyData;
 class DB;
@@ -29,6 +32,8 @@ const unsigned int kTracePayloadLengthSize = 4;
 const unsigned int kTraceMetadataSize =
     kTraceTimestampSize + kTraceTypeSize + kTracePayloadLengthSize;
 
+// Types of supported Traces.
+// All traceable operations should be added to this enum.
 enum TraceType : char {
   kTraceBegin = 1,
   kTraceEnd = 2,
@@ -36,13 +41,16 @@ enum TraceType : char {
   kTraceGet = 4,
   kTraceIteratorSeek = 5,
   kTraceIteratorSeekForPrev = 6,
+  // All trace types should be added before kTraceMax
   kTraceMax,
 };
 
 // TODO: This should also be made part of public interface to help users build
 // custom TracerReaders and TraceWriters.
+//
+// The data structure that defines a single trace.
 struct Trace {
-  uint64_t ts;
+  uint64_t ts;  // timestamp
   TraceType type;
   std::string payload;
 
@@ -53,25 +61,47 @@ struct Trace {
   }
 };
 
-// Trace RocksDB operations using a TraceWriter.
+// Tracer captures all RocksDB operations using a user provided TraceWriter.
+// Every RocksDB operation is written as a single trace. Each trace will have a
+// timestamp and type, followed by the trace payload.
 class Tracer {
  public:
   Tracer(Env* env, const TraceOptions& trace_options,
          std::unique_ptr<TraceWriter>&& trace_writer);
   ~Tracer();
 
+  // Trace all write operations -- Put, Merge, Delete, SingleDelete, Write
   Status Write(WriteBatch* write_batch);
+
+  // Trace Get operations.
   Status Get(ColumnFamilyHandle* cfname, const Slice& key);
+
+  // Trace Iterators.
   Status IteratorSeek(const uint32_t& cf_id, const Slice& key);
   Status IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
+
+  // Returns true if the trace is over the configured max trace file limit.
+  // False otherwise.
   bool IsTraceFileOverMax();
 
+  // Writes a trace footer at the end of the tracing
   Status Close();
 
  private:
+  // Write a trace header at the beginning, typically on initiating a trace,
+  // with some metadata like a magic number, trace version, RocksDB version, and
+  // trace format.
   Status WriteHeader();
+
+  // Write a trace footer, typically on ending a trace, with some metadata.
   Status WriteFooter();
+
+  // Write a single trace using the provided TraceWriter to the underlying
+  // system, say, a filesystem or a streaming service.
   Status WriteTrace(const Trace& trace);
+
+  // Helps in filtering and sampling of traces.
+  // Returns true if a trace should be skipped, false otherwise.
   bool ShouldSkipTrace(const TraceType& type);
 
   Env* env_;
@@ -80,14 +110,23 @@ class Tracer {
   uint64_t trace_request_count_;
 };
 
-// Replay RocksDB operations from a trace.
+// Replayer helps to replay the captured RocksDB operations, using a user
+// provided TraceReader.
+// The Replayer is instantiated via db_bench today, on using "replay" benchmark.
 class Replayer {
  public:
   Replayer(DB* db, const std::vector<ColumnFamilyHandle*>& handles,
            std::unique_ptr<TraceReader>&& reader);
   ~Replayer();
 
+  // Replay all the traces from the provided trace stream, taking the delay
+  // between the traces into consideration.
   Status Replay();
+
+  // Enables to fast forward a replay by reducing the delay between the traces
+  // based on the provided `fast_forward`.
+  // fast_forward : if 1, replay at the same rate as in the trace file.
+  //                if > 1, replay at a faster rate.
   Status SetFastForward(uint32_t fast_forward);
 
  private:
