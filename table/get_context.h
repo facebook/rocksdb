@@ -46,9 +46,11 @@ struct GetContextStats {
 
 // A class to hold context about a point lookup, such as pointer to value
 // slice, key, merge context etc, as well as the current state of the
-// lookup. When a TableReader finds the internal key, it
-// calls SaveValue() to update the value for the key. This can happen
-// repeatedly in case of merge operands.
+// lookup. Any user using GetContext to track the lookup result must call
+// SaveValue() whenever the internal key is found. This can happen
+// repeatedly in case of merge operands. In case the key may exist with
+// high probability, but IO is required to confirm and the user doesn't allow
+// it, MarkKeyMayExist() must be called instead of SaveValue().
 class GetContext {
  public:
   // Current state of the point lookup. All except kNotFound and kMerge are
@@ -158,6 +160,9 @@ class GetContext {
   bool* is_blob_index_;
 };
 
+// Call this to replay a log and bring the get_context up to date. The replay
+// log must have been created by another GetContext object, whose replay log
+// must have been set by calling GetContext::SetReplayLog().
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
                          GetContext* get_context,
                          Cleanable* value_pinner = nullptr);
