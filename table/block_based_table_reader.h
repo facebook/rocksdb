@@ -60,10 +60,11 @@ class GetContext;
 typedef std::vector<std::pair<std::string, std::string>> KVPairBlock;
 
 // Reader class for BlockBasedTable format.
-// For the format of BlockBasedTables refer to https://fburl.com/xc8lqvwy.
+// For the format of BlockBasedTable refer to
+// https://github.com/facebook/rocksdb/wiki/Rocksdb-BlockBasedTable-Format.
 // This is the default table type. Data is chucked into fixed size blocks and
 // each block in-turn stores entries. When storing data, we can compress and/or
-// encode data efficiently within a block, which often resulted in a much smaller
+// encode data efficiently within a block, which often results in a much smaller
 // data size compared with the raw data size. As for the record retrieval, we'll
 // first locate the block where target record may reside, then read the block to
 // memory, and finally search that record within the block. Of course, to avoid
@@ -451,7 +452,7 @@ class BlockBasedTable::PartitionedIndexIteratorState
   bool index_key_is_full_;
 };
 
-// Stores all the properties associated with a BlockBasedTable reader.
+// Stores all the properties associated with a BlockBasedTable.
 // These are immutable.
 struct BlockBasedTable::Rep {
   Rep(const ImmutableCFOptions& _ioptions, const EnvOptions& _env_options,
@@ -562,7 +563,7 @@ struct BlockBasedTable::Rep {
   }
 };
 
-// Iterates over the contents of BlockBasedTables.
+// Iterates over the contents of BlockBasedTable.
 template <class TBlockIter, typename TValue = Slice>
 class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
  public:

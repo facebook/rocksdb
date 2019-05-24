@@ -30,8 +30,7 @@ class MultiGetContext;
 // Tables are immutable and persistent.  A Table may be safely accessed from
 // multiple threads without external synchronization. Table readers are used
 // for reading various types of table formats supported by rocksdb including
-// BlockBasedTable, PlainTable and CuckooTable format. Actual implementation
-// in the corresponding child classes.
+// BlockBasedTable, PlainTable and CuckooTable format.
 class TableReader {
  public:
   virtual ~TableReader() {}
