@@ -950,8 +950,10 @@ TEST_P(VersionSetAtomicGroupTest, HandleIncompleteTrailingAtomicGroup) {
     // Read and Apply.
     InstrumentedMutex mu;
     std::unordered_set<ColumnFamilyData*> cfds_changed;
+    mu.Lock();
     EXPECT_OK(
         reactive_versions_->ReadAndApply(&mu, &manifest_reader, &cfds_changed));
+    mu.Unlock();
     // Reactive version set should be empty now.
     EXPECT_TRUE(reactive_versions_->read_edits_in_atomic_group() == 0);
     EXPECT_TRUE(reactive_versions_->replay_buffer().size() == 0);

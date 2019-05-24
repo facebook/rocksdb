@@ -3324,7 +3324,7 @@ Status AtomicGroupReadBuffer::AddEdit(const VersionEdit& edit) {
       static_cast<uint32_t>(replay_buffer_.size())) {
     return Status::Corruption("corrupted atomic group");
   }
-  replay_buffer_[read_edits_in_atomic_group_ - 1] = std::move(edit);
+  replay_buffer_[read_edits_in_atomic_group_ - 1] = edit;
   if (read_edits_in_atomic_group_ == replay_buffer_.size()) {
     return Status::OK();
   }
