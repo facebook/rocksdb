@@ -46,8 +46,7 @@ class InMemoryStatsHistoryIterator final : public StatsHistoryIterator {
   // REQUIRES: Valid()
   uint64_t GetStatsTime() const override;
 
-  // This function is idempotent and will not be affected by the background
-  // garbage collection.
+  // This function is idempotent
   // REQUIRES: Valid()
   const std::map<std::string, uint64_t>& GetStatsMap() const override;
 

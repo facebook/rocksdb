@@ -26,12 +26,16 @@ class DBImpl;
 // recording.
 // Example:
 //   std::unique_ptr<StatsHistoryIterator> stats_iter;
-//   db->GetStatsHistory(0 /* start_time */, env->NowMicros() /* end_time*/,
-//                       &stats_iter);
-//   for (; stats_iter->Valid(); stats_iter->Next()) {
-//     uint64_t stats_time = stats_iter->GetStatsTime();
-//     auto stats_map = stats_iter->GetStatsMap();
-//     process(stats_time, stats_map);
+//   Status s = db->GetStatsHistory(0 /* start_time */,
+//                                  env->NowMicros() /* end_time*/,
+//                                  &stats_iter);
+//   if (s.ok) {
+//     for (; stats_iter->Valid(); stats_iter->Next()) {
+//       uint64_t stats_time = stats_iter->GetStatsTime();
+//       const std::map<std::string, uint64_t>& stats_map =
+//           stats_iter->GetStatsMap();
+//       process(stats_time, stats_map);
+//     }
 //   }
 class StatsHistoryIterator {
  public:
