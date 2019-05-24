@@ -42,7 +42,7 @@ class ExternSSTFileLinkFailFallbackTest
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   ExternSSTFileLinkFailFallbackTest() : DBTestBase("/external_sst_file_test"),
-  test_env_(std::make_shared<ExternalSSTTestEnv>(env_, true)) {
+  test_env_(new ExternalSSTTestEnv(env_, true)) {
     sst_files_dir_ = dbname_ + "/sst_files/";
     test::DestroyDir(env_, sst_files_dir_);
     env_->CreateDir(sst_files_dir_);
@@ -50,7 +50,7 @@ class ExternSSTFileLinkFailFallbackTest
 
  protected:
   std::string sst_files_dir_;
-  std::shared_ptr<ExternalSSTTestEnv> test_env_;
+  ExternalSSTTestEnv* test_env_;
 };
 
 class ExternalSSTFileTest
@@ -2060,7 +2060,7 @@ TEST_P(ExternSSTFileLinkFailFallbackTest, LinkFailFallBackExternalSst) {
   test_env_->set_fail_link(fail_link);
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
-  options.env = test_env_.get();
+  options.env = test_env_;
   const EnvOptions env_options;
   DestroyAndReopen(options);
   const int kNumKeys = 10000;
