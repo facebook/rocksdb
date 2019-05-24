@@ -38,7 +38,8 @@ class HistogramImpl;
 // MultiGet() and NewIterator() methods that hide the instantiation,
 // caching and access to the TableReader. The main purpose of this is
 // performance - by caching the TableReader, it avoids unnecessary file opens
-// and object allocation and instantiation.
+// and object allocation and instantiation. One exception is compaction, where
+// a new TableReader may be instantiated - see NewIterator() comments
 //
 // Another service provided by TableCache is managing the row cache - if the
 // DB is configured with a row cache, and the lookup key is present in the row
@@ -59,6 +60,8 @@ class TableCache {
   // returned iterator is live.
   // @param range_del_agg If non-nullptr, adds range deletions to the
   //    aggregator. If an error occurs, returns it in a NewErrorInternalIterator
+  // @param for_compaction If true, a new TableReader may be allocated (but
+  //                       not cached), depending on the CF options
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
   InternalIterator* NewIterator(
