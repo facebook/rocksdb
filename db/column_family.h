@@ -82,7 +82,7 @@ extern const double kIncSlowdownRatio;
 //       +--------+--------+   |     |                  |
 //       |                 |   |     |       +----------v----------+
 // +---> |SuperVersion 1.a +----------------->                     |
-//       |                 +-------+ |       | MemTableListVersion |
+//       |                 +------+  |       | MemTableListVersion |
 //       +---+-------------+   |  |  |       |                     |
 //           |                 |  |  |       +----+------------+---+
 //           |      current    |  |  |            |            |
@@ -128,7 +128,7 @@ extern const double kIncSlowdownRatio;
 //              |              +----+ |  |     mem        |    +------------+
 //              +--------------+    | |  +--------------------->            |
 //                                  | +------------------------> MemTable a |
-//                                  |                     |    |            |
+//                                  |          mem        |    |            |
 //              +--------------+    |                     |    +------------+
 //              |              +--------------------------+
 //  Iter1 +-----> SuperVersion |    |                          +------------+
@@ -141,7 +141,7 @@ extern const double kIncSlowdownRatio;
 //                               |       +--------------+
 //                               |       +--------------+
 //                               |       | MemtableList |
-//                               +------>+   Version t  +-------->  empty
+//                               +------>+   Version t  +-------->  Empty
 //                                 imm   +--------------+
 //
 // In this example, even if the current LSM-tree consists of Version A and
