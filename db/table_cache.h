@@ -32,6 +32,19 @@ struct FileDescriptor;
 class GetContext;
 class HistogramImpl;
 
+// Manages caching for TableReader objects for a column family. The actual
+// cache is allocated separately and passed to the constructor. TableCache
+// wraps around the underlying SST file readers by providing Get(),
+// MultiGet() and NewIterator() methods that hide the instantiation,
+// caching and access to the TableReader. The main purpose of this is
+// performance - by caching the TableReader, it avoids unnecessary file opens
+// and object allocation and instantiation. One exception is compaction, where
+// a new TableReader may be instantiated - see NewIterator() comments
+//
+// Another service provided by TableCache is managing the row cache - if the
+// DB is configured with a row cache, and the lookup key is present in the row
+// cache, lookup is very fast. The row cache is obtained from
+// ioptions.row_cache
 class TableCache {
  public:
   TableCache(const ImmutableCFOptions& ioptions,
@@ -39,14 +52,16 @@ class TableCache {
   ~TableCache();
 
   // Return an iterator for the specified file number (the corresponding
-  // file length must be exactly "file_size" bytes).  If "tableptr" is
-  // non-nullptr, also sets "*tableptr" to point to the Table object
+  // file length must be exactly "file_size" bytes).  If "table_reader_ptr"
+  // is non-nullptr, also sets "*table_reader_ptr" to point to the Table object
   // underlying the returned iterator, or nullptr if no Table object underlies
-  // the returned iterator.  The returned "*tableptr" object is owned by
-  // the cache and should not be deleted, and is valid for as long as the
+  // the returned iterator.  The returned "*table_reader_ptr" object is owned
+  // by the cache and should not be deleted, and is valid for as long as the
   // returned iterator is live.
   // @param range_del_agg If non-nullptr, adds range deletions to the
   //    aggregator. If an error occurs, returns it in a NewErrorInternalIterator
+  // @param for_compaction If true, a new TableReader may be allocated (but
+  //                       not cached), depending on the CF options
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
   InternalIterator* NewIterator(
@@ -61,11 +76,13 @@ class TableCache {
       const InternalKey* largest_compaction_key = nullptr);
 
   // If a seek to internal key "k" in specified file finds an entry,
-  // call (*handle_result)(arg, found_key, found_value) repeatedly until
-  // it returns false.
-  // @param get_context State for get operation. If its range_del_agg() returns
-  //    non-nullptr, adds range deletions to the aggregator. If an error occurs,
-  //    returns non-ok status.
+  // call get_context->SaveValue() repeatedly until
+  // it returns false. As a side effect, it will insert the TableReader
+  // into the cache and potentially evict another entry
+  // @param get_context Context for get operation. The result of the lookup
+  //                    can be retrieved by calling get_context->State()
+  // @param file_read_hist If non-nullptr, the file reader statistics are
+  //                       recorded
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
   Status Get(const ReadOptions& options,
@@ -76,6 +93,15 @@ class TableCache {
              HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
              int level = -1);
 
+  // If a seek to internal key "k" in specified file finds an entry,
+  // call get_context->SaveValue() repeatedly until
+  // it returns false. As a side effect, it will insert the TableReader
+  // into the cache and potentially evict another entry
+  // @param mget_range Pointer to the structure describing a batch of keys to
+  //                   be looked up in this table file. The result is stored
+  //                   in the embedded GetContext
+  // @param skip_filters Disables loading/accessing the filter block
+  // @param level The level this table is at, -1 for "not set / don't know"
   Status MultiGet(const ReadOptions& options,
                   const InternalKeyComparator& internal_comparator,
                   const FileMetaData& file_meta,
