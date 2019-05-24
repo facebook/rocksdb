@@ -3313,20 +3313,35 @@ struct VersionSet::ManifestWriter {
         edit_list(e) {}
 };
 
-Status AtomicGroupReadBuffer::AddEdit(const VersionEdit& edit) {
-  assert(edit.is_in_atomic_group_);
-  if (replay_buffer_.empty()) {
-    replay_buffer_.resize(edit.remaining_entries_ + 1);
-  }
-  read_edits_in_atomic_group_++;
-
-  if (read_edits_in_atomic_group_ + edit.remaining_entries_ !=
-      static_cast<uint32_t>(replay_buffer_.size())) {
-    return Status::Corruption("corrupted atomic group");
-  }
-  replay_buffer_[read_edits_in_atomic_group_ - 1] = edit;
-  if (read_edits_in_atomic_group_ == replay_buffer_.size()) {
+Status AtomicGroupReadBuffer::AddEdit(VersionEdit* edit) {
+  if (edit->is_in_atomic_group_) {
+    TEST_SYNC_POINT("AtomicGroupReadBuffer::AddEdit:AtomicGroup");
+    if (replay_buffer_.empty()) {
+      replay_buffer_.resize(edit->remaining_entries_ + 1);
+      TEST_SYNC_POINT_CALLBACK(
+          "AtomicGroupReadBuffer::AddEdit:FirstInAtomicGroup", edit);
+    }
+    read_edits_in_atomic_group_++;
+    if (read_edits_in_atomic_group_ + edit->remaining_entries_ !=
+        static_cast<uint32_t>(replay_buffer_.size())) {
+      TEST_SYNC_POINT_CALLBACK(
+          "AtomicGroupReadBuffer::AddEdit:IncorrectAtomicGroupSize", edit);
+      return Status::Corruption("corrupted atomic group");
+    }
+    replay_buffer_[read_edits_in_atomic_group_ - 1] = std::move(*edit);
+    if (read_edits_in_atomic_group_ == replay_buffer_.size()) {
+      TEST_SYNC_POINT_CALLBACK(
+          "AtomicGroupReadBuffer::AddEdit:LastInAtomicGroup", edit);
+      return Status::OK();
+    }
     return Status::OK();
+  }
+
+  // A normal edit.
+  if (!replay_buffer().empty()) {
+    TEST_SYNC_POINT_CALLBACK(
+        "AtomicGroupReadBuffer::AddEdit:AtomicGroupMixedWithNormalEdits", edit);
+    return Status::Corruption("corrupted atomic group");
   }
   return Status::OK();
 }
@@ -4120,22 +4135,14 @@ Status VersionSet::ReadAndRecover(
     if (!s.ok()) {
       break;
     }
-
+    s = read_buffer->AddEdit(&edit);
+    if (!s.ok()) {
+      break;
+    }
     if (edit.is_in_atomic_group_) {
-      TEST_SYNC_POINT_CALLBACK("VersionSet::Recover:AtomicGroup", &edit);
-      if (read_buffer->IsEmpty()) {
-        TEST_SYNC_POINT_CALLBACK("VersionSet::Recover:FirstInAtomicGroup",
-                                 &edit);
-      }
-      s = read_buffer->AddEdit(edit);
-      if (!s.ok()) {
-        TEST_SYNC_POINT_CALLBACK("VersionSet::Recover:IncorrectAtomicGroupSize",
-                                 &edit);
-        break;
-      }
       if (read_buffer->IsFull()) {
-        TEST_SYNC_POINT_CALLBACK("VersionSet::Recover:LastInAtomicGroup",
-                                 &edit);
+        // Apply edits in a atomic group when we have read all edits in the
+        // group.
         for (auto& e : read_buffer->replay_buffer()) {
           s = ApplyOneVersionEditToBuilder(
               e, name_to_options, column_families_not_found, builders,
@@ -4152,12 +4159,7 @@ Status VersionSet::ReadAndRecover(
         read_buffer->Clear();
       }
     } else {
-      if (!read_buffer->IsEmpty()) {
-        TEST_SYNC_POINT_CALLBACK(
-            "VersionSet::Recover:AtomicGroupMixedWithNormalEdits", &edit);
-        s = Status::Corruption("corrupted atomic group");
-        break;
-      }
+      // Apply a normal edit immediately.
       s = ApplyOneVersionEditToBuilder(
           edit, name_to_options, column_families_not_found, builders,
           have_log_number, log_number, have_prev_log_number,
@@ -5407,12 +5409,14 @@ Status ReactiveVersionSet::ReadAndApply(
         break;
       }
 
+      s = read_buffer.AddEdit(&edit);
+      if (!s.ok()) {
+        break;
+      }
       if (edit.is_in_atomic_group_) {
-        s = read_buffer.AddEdit(edit);
-        if (!s.ok()) {
-          break;
-        }
         if (read_buffer.IsFull()) {
+          // Apply edits in a atomic group when we have read all edits in the
+          // group.
           for (auto& e : read_buffer.replay_buffer()) {
             s = ApplyOneVersionEditToBuilder(
                 e, cfds_changed, &have_log_number, &log_number,
@@ -5427,12 +5431,7 @@ Status ReactiveVersionSet::ReadAndApply(
           read_buffer.Clear();
         }
       } else {
-        if (!read_buffer.IsEmpty()) {
-          TEST_SYNC_POINT_CALLBACK(
-              "VersionSet::Recover:AtomicGroupMixedWithNormalEdits", &edit);
-          s = Status::Corruption("corrupted atomic group");
-          break;
-        }
+        // Apply a normal edit immediately.
         s = ApplyOneVersionEditToBuilder(
             edit, cfds_changed, &have_log_number, &log_number,
             &have_prev_log_number, &previous_log_number, &have_next_file,
@@ -5514,6 +5513,9 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
   } else if (edit.is_column_family_drop_) {
     // Drop the column family by setting it to be 'dropped' without destroying
     // the column family handle.
+    // TODO (haoyu) figure out how to handle column faimly drop for
+    // secondary instance. (Is it possible that ref count for cfd is 0 but the
+    // ref count for its versions is higher than 0?)
     cfd->SetDropped();
     if (cfd->Unref()) {
       delete cfd;
@@ -5530,28 +5532,31 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
     return s;
   }
 
-  s = builder->LoadTableHandlers(
-      cfd->internal_stats(), db_options_->max_file_opening_threads,
-      false /* prefetch_index_and_filter_in_cache */,
-      false /* is_initial_load */,
-      cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
-  TEST_SYNC_POINT_CALLBACK(
-      "ReactiveVersionSet::ReadAndApply:AfterLoadTableHandlers", &s);
-  if (!s.ok() && !s.IsPathNotFound()) {
-  } else if (s.IsPathNotFound()) {
-    s = Status::OK();
-  } else {  // s.ok() == true
-    auto version =
-        new Version(cfd, this, env_options_, *cfd->GetLatestMutableCFOptions(),
-                    current_version_number_++);
-    builder->SaveTo(version->storage_info());
-    version->PrepareApply(*cfd->GetLatestMutableCFOptions(), true);
-    AppendVersion(cfd, version);
-    active_version_builders_.erase(builder_iter);
-    if (cfds_changed->count(cfd) == 0) {
-      cfds_changed->insert(cfd);
+  if (cfd != nullptr) {
+    s = builder->LoadTableHandlers(
+        cfd->internal_stats(), db_options_->max_file_opening_threads,
+        false /* prefetch_index_and_filter_in_cache */,
+        false /* is_initial_load */,
+        cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
+    TEST_SYNC_POINT_CALLBACK(
+        "ReactiveVersionSet::ReadAndApply:AfterLoadTableHandlers", &s);
+    if (!s.ok() && !s.IsPathNotFound()) {
+    } else if (s.IsPathNotFound()) {
+      s = Status::OK();
+    } else {  // s.ok() == true
+      auto version = new Version(cfd, this, env_options_,
+                                 *cfd->GetLatestMutableCFOptions(),
+                                 current_version_number_++);
+      builder->SaveTo(version->storage_info());
+      version->PrepareApply(*cfd->GetLatestMutableCFOptions(), true);
+      AppendVersion(cfd, version);
+      active_version_builders_.erase(builder_iter);
+      if (cfds_changed->count(cfd) == 0) {
+        cfds_changed->insert(cfd);
+      }
     }
   }
+
   if (have_next_file) {
     next_file_number_.store(*next_file + 1);
   }

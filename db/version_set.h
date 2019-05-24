@@ -754,7 +754,7 @@ class BaseReferencedVersionBuilder;
 
 class AtomicGroupReadBuffer {
  public:
-  Status AddEdit(const VersionEdit& edit);
+  Status AddEdit(VersionEdit* edit);
   void Clear();
   bool IsFull();
   bool IsEmpty();
