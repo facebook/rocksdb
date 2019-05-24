@@ -15,8 +15,8 @@
 
 namespace rocksdb {
 
-// This file contains Tracer and Replayer classes that enable to capture and
-// replay RocksDB traces.
+// This file contains Tracer and Replayer classes that enable capturing and
+// replaying RocksDB traces.
 
 class ColumnFamilyHandle;
 class ColumnFamilyData;
@@ -32,8 +32,7 @@ const unsigned int kTracePayloadLengthSize = 4;
 const unsigned int kTraceMetadataSize =
     kTraceTimestampSize + kTraceTypeSize + kTracePayloadLengthSize;
 
-// Types of supported Traces.
-// All traceable operations should be added to this enum.
+// Supported Trace types.
 enum TraceType : char {
   kTraceBegin = 1,
   kTraceEnd = 2,
@@ -123,10 +122,11 @@ class Replayer {
   // between the traces into consideration.
   Status Replay();
 
-  // Enables to fast forward a replay by reducing the delay between the traces
-  // based on the provided `fast_forward`.
-  // fast_forward : if 1, replay at the same rate as in the trace file.
-  //                if > 1, replay at a faster rate.
+  // Enables fast forwarding a replay by reducing the delay between the ingested
+  // traces.
+  // fast_forward : Rate of replay speedup.
+  //   If 1, replay the operations at the same rate as in the trace stream.
+  //   If > 1, speed up the replay by this amount.
   Status SetFastForward(uint32_t fast_forward);
 
  private:
