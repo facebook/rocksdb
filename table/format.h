@@ -194,6 +194,10 @@ inline CompressionType get_block_compression_type(const char* block_data,
   return static_cast<CompressionType>(block_data[block_size]);
 }
 
+// Represents the contents of a block read from an SST file. Depending on how
+// it's created, it may or may not own the actual block bytes. As an example,
+// BlockContents objects representing data read from mmapped files only point
+// into the mmapped region.
 struct BlockContents {
   Slice data;  // Actual contents of data
   CacheAllocationPtr allocation;
@@ -206,16 +210,20 @@ struct BlockContents {
 
   BlockContents() {}
 
+  // Does not take ownership of the underlying data bytes.
   BlockContents(const Slice& _data) : data(_data) {}
 
+  // Takes ownership of the underlying data bytes.
   BlockContents(CacheAllocationPtr&& _data, size_t _size)
       : data(_data.get(), _size), allocation(std::move(_data)) {}
 
+  // Takes ownership of the underlying data bytes.
   BlockContents(std::unique_ptr<char[]>&& _data, size_t _size)
       : data(_data.get(), _size) {
     allocation.reset(_data.release());
   }
 
+  // Returns whether the object has ownership of the underlying data bytes.
   bool own_bytes() const { return allocation.get() != nullptr; }
 
   // It's the caller's responsibility to make sure that this is
