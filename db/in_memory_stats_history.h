@@ -24,6 +24,8 @@ namespace rocksdb {
 // garbage collection.
 class InMemoryStatsHistoryIterator final : public StatsHistoryIterator {
  public:
+  // Setup InMemoryStatsHistoryIterator to return stats snapshots between
+  // microsecond timestamps [start_time, end_time)
   InMemoryStatsHistoryIterator(uint64_t start_time, uint64_t end_time,
                                DBImpl* db_impl)
       : start_time_(start_time),
@@ -36,15 +38,17 @@ class InMemoryStatsHistoryIterator final : public StatsHistoryIterator {
   bool Valid() const override;
   Status status() const override;
 
-  // Move to the next stats snapshot currently visible in
-  // DBImpl::stats_history_. Because of garbage collection, the next stats
-  // snapshot may or may not be right after the current one. When reading
-  // from DBImpl::stats_history_, this call will be protected by DB Mutex so it
-  // will not return partial or corrupted results.
+  // Move to the next stats snapshot currently available
+  // This function may invalidate the iterator
+  // REQUIRES: Valid()
   void Next() override;
 
+  // REQUIRES: Valid()
   uint64_t GetStatsTime() const override;
 
+  // This function is idempotent and will not be affected by the background
+  // garbage collection.
+  // REQUIRES: Valid()
   const std::map<std::string, uint64_t>& GetStatsMap() const override;
 
  private:

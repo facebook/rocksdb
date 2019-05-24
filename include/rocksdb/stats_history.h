@@ -22,14 +22,22 @@ class DBImpl;
 // access statistics snapshots that was automatically stored by RocksDB.
 // Depending on options, the stats can be in memory or on disk.
 // The stats snapshots are indexed by time that they were recorded, and each
-// stats snapshot is an std::map from individual stat name to an integer value
-// of the stat at the time of recording.
+// stats snapshot contains individual stat name and value at the time of
+// recording.
+// Example:
+//   std::unique_ptr<StatsHistoryIterator> stats_iter;
+//   db->GetStatsHistory(0 /* start_time */, env->NowMicros() /* end_time*/,
+//                       &stats_iter);
+//   for (; stats_iter->Valid(); stats_iter->Next()) {
+//     uint64_t stats_time = stats_iter->GetStatsTime();
+//     auto stats_map = stats_iter->GetStatsMap();
+//     process(stats_time, stats_map);
+//   }
 class StatsHistoryIterator {
  public:
   StatsHistoryIterator() {}
   virtual ~StatsHistoryIterator() {}
 
-  // Return if the iterator is valid or now
   virtual bool Valid() const = 0;
 
   // Moves to the next stats history record.  After this call, Valid() is
