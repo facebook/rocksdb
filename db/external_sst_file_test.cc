@@ -45,10 +45,22 @@ class ExternSSTFileLinkFailFallbackTest
     sst_files_dir_ = dbname_ + "/sst_files/";
     test::DestroyDir(env_, sst_files_dir_);
     env_->CreateDir(sst_files_dir_);
+    options_ = CurrentOptions();
+    options_.disable_auto_compactions = true;
+    options_.env = test_env_;
+  }
+
+  void TearDown() override {
+    delete db_;
+    db_ = nullptr;
+    ASSERT_OK(DestroyDB(dbname_, options_));
+    delete test_env_;
+    test_env_ = nullptr;
   }
 
  protected:
   std::string sst_files_dir_;
+  Options options_;
   ExternalSSTTestEnv* test_env_;
 };
 
@@ -2057,11 +2069,8 @@ TEST_P(ExternSSTFileLinkFailFallbackTest, LinkFailFallBackExternalSst) {
   const bool fail_link = std::get<0>(GetParam());
   const bool failed_move_fall_back_to_copy = std::get<1>(GetParam());
   test_env_->set_fail_link(fail_link);
-  Options options = CurrentOptions();
-  options.disable_auto_compactions = true;
-  options.env = test_env_;
   const EnvOptions env_options;
-  DestroyAndReopen(options);
+  DestroyAndReopen(options_);
   const int kNumKeys = 10000;
   IngestExternalFileOptions ifo;
   ifo.move_files = true;
@@ -2069,7 +2078,7 @@ TEST_P(ExternSSTFileLinkFailFallbackTest, LinkFailFallBackExternalSst) {
 
   std::string file_path = sst_files_dir_ + "file1.sst";
   // Create SstFileWriter for default column family
-  SstFileWriter sst_file_writer(env_options, options);
+  SstFileWriter sst_file_writer(env_options, options_);
   ASSERT_OK(sst_file_writer.Open(file_path));
   for (int i = 0; i < kNumKeys; i++) {
     ASSERT_OK(sst_file_writer.Put(Key(i), Key(i) + "_value"));
