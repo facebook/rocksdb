@@ -29,9 +29,7 @@ class ExternalSSTTestEnv : public EnvWrapper {
     return target()->LinkFile(s, t);
   }
 
-  void set_fail_link(bool fail_link) {
-    fail_link_ = fail_link;
-  }
+  void set_fail_link(bool fail_link) { fail_link_ = fail_link; }
 
  private:
   bool fail_link_;
@@ -41,8 +39,9 @@ class ExternSSTFileLinkFailFallbackTest
     : public DBTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
-  ExternSSTFileLinkFailFallbackTest() : DBTestBase("/external_sst_file_test"),
-  test_env_(new ExternalSSTTestEnv(env_, true)) {
+  ExternSSTFileLinkFailFallbackTest()
+      : DBTestBase("/external_sst_file_test"),
+        test_env_(new ExternalSSTTestEnv(env_, true)) {
     sst_files_dir_ = dbname_ + "/sst_files/";
     test::DestroyDir(env_, sst_files_dir_);
     env_->CreateDir(sst_files_dir_);
