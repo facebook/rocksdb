@@ -14,6 +14,8 @@
 #include "util/autovector.h"
 
 namespace rocksdb {
+// The file contains class Compaction, as well as some helper functions
+// and data structures used by the class.
 
 // Utility for comparing sstable boundary keys. Returns -1 if either a or b is
 // null which provides the property that a==null indicates a key that is less
@@ -63,7 +65,7 @@ class ColumnFamilyData;
 class VersionStorageInfo;
 class CompactionFilter;
 
-// A Compaction encapsulates information about a compaction.
+// A Compaction encapsulates metadata about a compaction.
 class Compaction {
  public:
   Compaction(VersionStorageInfo* input_version,
@@ -376,7 +378,7 @@ class Compaction {
   CompactionReason compaction_reason_;
 };
 
-// Utility function
+// Return sum of sizes of all files in `files`.
 extern uint64_t TotalFileSize(const std::vector<FileMetaData*>& files);
 
 }  // namespace rocksdb
