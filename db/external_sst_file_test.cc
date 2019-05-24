@@ -42,7 +42,7 @@ class ExternSSTFileLinkFailFallbackTest
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   ExternSSTFileLinkFailFallbackTest() : DBTestBase("/external_sst_file_test"),
-  test_env_(new ExternalSSTTestEnv(env_, true)) {
+  test_env_(std::make_shared<ExternalSSTTestEnv>(env_, true)) {
     sst_files_dir_ = dbname_ + "/sst_files/";
     test::DestroyDir(env_, sst_files_dir_);
     env_->CreateDir(sst_files_dir_);
