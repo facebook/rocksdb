@@ -6,6 +6,7 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+
 #pragma once
 #include <atomic>
 #include <sstream>
@@ -22,9 +23,21 @@ namespace rocksdb {
 class Statistics;
 class HistogramImpl;
 
+// This file provides provides the following main abstractions:
+// SequentialFileReader : wrapper over Env::SequentialFile
+// RandomAccessFileReader : wrapper over Env::RandomAccessFile
+// WritableFileWriter : wrapper over Env::WritableFile
+// In addition, it also exposed NewReadaheadRandomAccessFile, NewWritableFile,
+// and ReadOneLine primitives.
+
+// NewReadaheadRandomAccessFile provides a wrapper over RandomAccessFile to
+// always prefetch additional data with every read. This is mainly used in
+// Compaction Table Readers.
 std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
   std::unique_ptr<RandomAccessFile>&& file, size_t readahead_size);
 
+// SequentialFileReader is a wrapper on top of Env::SequentialFile. It is
+// responsible for handling Buffered and Direct reads appropriately.
 class SequentialFileReader {
  private:
   std::unique_ptr<SequentialFile> file_;
@@ -61,6 +74,11 @@ class SequentialFileReader {
   bool use_direct_io() const { return file_->use_direct_io(); }
 };
 
+// RandomAccessFileReader is a wrapper on top of Env::RnadomAccessFile. It is
+// responsible for:
+// - Handling Buffered and Direct reads appropriately.
+// - Rate limiting compaction reads.
+// - Notifying any interested listeners on the completion of a read.
 class RandomAccessFileReader {
  private:
 #ifndef ROCKSDB_LITE
@@ -151,7 +169,12 @@ class RandomAccessFileReader {
   bool use_direct_io() const { return file_->use_direct_io(); }
 };
 
-// Use posix write to write data to a file.
+// WritableFileWriter is a wrapper on top of Env::WritableFile. It provides
+// facilites to:
+// - Handle Buffered and Direct writes.
+// - Rate limit writes.
+// - Flush and Sync the data to the underlying filesystem.
+// - Notify any interested listeners on the completion of a write.
 class WritableFileWriter {
  private:
 #ifndef ROCKSDB_LITE
@@ -277,10 +300,14 @@ class WritableFileWriter {
   Status SyncInternal(bool use_fsync);
 };
 
-// FilePrefetchBuffer can automatically do the readahead if file_reader,
-// readahead_size, and max_readahead_size are passed in.
+// FilePrefetchBuffer is a smart buffer to store and read data.
+// It can automatically do a readahead if a file_reader, readahead_size, and
+// max_readahead_size are passed in to the constructor.
 // max_readahead_size should be greater than or equal to readahead_size.
 // readahead_size will be doubled on every IO, until max_readahead_size.
+//
+// It can also be used to track the minimum file offset ever passed in, which
+// can be used for adaptive readahead of a file footer/metadata.
 class FilePrefetchBuffer {
  public:
   // If `track_min_offset` is true, track minimum offset ever read.
@@ -317,9 +344,12 @@ class FilePrefetchBuffer {
   bool track_min_offset_;
 };
 
+// Returns a WritableFile.
 extern Status NewWritableFile(Env* env, const std::string& fname,
                               std::unique_ptr<WritableFile>* result,
                               const EnvOptions& options);
+
+// Read a single line from a file.
 bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
                  std::string* output, bool* has_data, Status* result);
 
