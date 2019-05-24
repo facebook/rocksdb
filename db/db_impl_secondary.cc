@@ -120,8 +120,6 @@ Status DBImplSecondary::FindNewLogNumbers(std::vector<uint64_t>* logs) {
   return s;
 }
 
-// try to find log reader using log_number from log_readers_ map, initialize
-// if it doesn't exist
 Status DBImplSecondary::MaybeInitLogReader(
     uint64_t log_number, log::FragmentBufferedReader** log_reader) {
   auto iter = log_readers_.find(log_number);
