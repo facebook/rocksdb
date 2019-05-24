@@ -29,6 +29,10 @@ class ExternalSSTTestEnv : public EnvWrapper {
     return target()->LinkFile(s, t);
   }
 
+  void set_fail_link(bool fail_link) {
+    fail_link_ = fail_link;
+  }
+
  private:
   bool fail_link_;
 };
@@ -37,7 +41,8 @@ class ExternSSTFileLinkFailFallbackTest
     : public DBTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
-  ExternSSTFileLinkFailFallbackTest() : DBTestBase("/external_sst_file_test") {
+  ExternSSTFileLinkFailFallbackTest() : DBTestBase("/external_sst_file_test"),
+  test_env_(new ExternalSSTTestEnv(env_, true)) {
     sst_files_dir_ = dbname_ + "/sst_files/";
     test::DestroyDir(env_, sst_files_dir_);
     env_->CreateDir(sst_files_dir_);
@@ -45,6 +50,7 @@ class ExternSSTFileLinkFailFallbackTest
 
  protected:
   std::string sst_files_dir_;
+  std::shared_ptr<ExternalSSTTestEnv> test_env_;
 };
 
 class ExternalSSTFileTest
@@ -2051,11 +2057,10 @@ TEST_F(ExternalSSTFileTest, FileWithCFInfo) {
 TEST_P(ExternSSTFileLinkFailFallbackTest, LinkFailFallBackExternalSst) {
   const bool fail_link = std::get<0>(GetParam());
   const bool failed_move_fall_back_to_copy = std::get<1>(GetParam());
-
-  ExternalSSTTestEnv* test_env = new ExternalSSTTestEnv(env_, fail_link);
+  test_env_->set_fail_link(fail_link);
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
-  options.env = test_env;
+  options.env = test_env_.get();
   const EnvOptions env_options;
   DestroyAndReopen(options);
   const int kNumKeys = 10000;
@@ -2724,9 +2729,9 @@ INSTANTIATE_TEST_CASE_P(ExternalSSTFileTest, ExternalSSTFileTest,
 
 INSTANTIATE_TEST_CASE_P(ExternSSTFileLinkFailFallbackTest,
                         ExternSSTFileLinkFailFallbackTest,
-                        testing::Values(std::make_tuple(false, false),
-                                        std::make_tuple(false, true),
-                                        std::make_tuple(true, false)));
+                        testing::Values(std::make_tuple(true, false),
+                                        std::make_tuple(true, true),
+                                        std::make_tuple(false, false)));
 
 }  // namespace rocksdb
 
