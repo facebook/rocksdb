@@ -629,8 +629,6 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowed) {
   std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
   auto sfm = static_cast<SstFileManagerImpl*>(sst_file_manager.get());
 
-  SyncPoint::GetInstance()->DisableProcessing();
-
   Options options = CurrentOptions();
   options.sst_file_manager = sst_file_manager;
   options.disable_auto_compactions = true;
