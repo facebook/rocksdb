@@ -447,7 +447,8 @@ struct HistogramData {
   double min = 0.0;
 };
 
-// Reduce statistics overhead by disabling collection of certain types of stats
+// StatsLevel can be used to reduce statistics overhead by skipping certain
+// types of stats in the stats collection process.
 // Usage:
 //   options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
 enum StatsLevel : uint8_t {
