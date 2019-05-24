@@ -11,7 +11,6 @@
 #include <map>
 #include <string>
 
-// #include "db/db_impl.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 
@@ -19,11 +18,18 @@ namespace rocksdb {
 
 class DBImpl;
 
+// StatsHistoryIterator is the main interface for users to programmatically
+// access statistics snapshots that was automatically stored by RocksDB.
+// Depending on options, the stats can be in memory or on disk.
+// The stats snapshots are indexed by time that they were recorded, and each
+// stats snapshot is an std::map from individual stat name to an integer value
+// of the stat at the time of recording.
 class StatsHistoryIterator {
  public:
   StatsHistoryIterator() {}
   virtual ~StatsHistoryIterator() {}
 
+  // Return if the iterator is valid or now
   virtual bool Valid() const = 0;
 
   // Moves to the next stats history record.  After this call, Valid() is
