@@ -13,8 +13,7 @@
 
 namespace rocksdb {
 
-// A wrapper class to hold log reader, log reporter, log status to alleviate
-// the burden of managing and deleting of these objects.
+// A wrapper class to hold log reader, log reporter, log status.
 class LogReaderContainer {
  public:
   LogReaderContainer()
@@ -67,16 +66,16 @@ class LogReaderContainer {
 // The secondary instance shares access to the storage as the primary.
 // The secondary is able to read and replay changes described in both the
 // MANIFEST and the WAL files without coordination with the primary.
-// The secondary instance can be opened using `DB::OpenAsSecondary`, and can
-// catch up with primary using `DBImplSecondary::TryCatchUpWithPrimary`.
+// The secondary instance can be opened using `DB::OpenAsSecondary`. After
+// that, it can call `DBImplSecondary::TryCatchUpWithPrimary` to make best
+// effort attempts to catch up with the primary.
 class DBImplSecondary : public DBImpl {
  public:
   DBImplSecondary(const DBOptions& options, const std::string& dbname);
   ~DBImplSecondary() override;
 
-  // Recover descriptor from persistent storage. In addition to replaying
-  // MANIFEST and WAL, it also initializes manifest_reader_ and log_readers_ to
-  // facilitate future operations.
+  // Recover by replaying MANIFEST and WAL. Also initialize manifest_reader_
+  // and log_readers_ to facilitate future operations.
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only, bool error_if_log_file_exist,
                  bool error_if_data_exists_in_logs) override;
@@ -193,13 +192,13 @@ class DBImplSecondary : public DBImpl {
   Status TryCatchUpWithPrimary() override;
 
 
-  // try to find log reader using log_number from log_readers_ map, initialize
+  // Try to find log reader using log_number from log_readers_ map, initialize
   // if it doesn't exist
   Status MaybeInitLogReader(uint64_t log_number,
                             log::FragmentBufferedReader** log_reader);
 
  protected:
-  // ColumnFamilyCollector is a special write batch handler which does nothing
+  // ColumnFamilyCollector is a write batch handler which does nothing
   // except recording unique column family IDs
   class ColumnFamilyCollector : public WriteBatch::Handler {
     std::unordered_set<uint32_t> column_family_ids_;
