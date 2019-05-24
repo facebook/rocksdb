@@ -11,7 +11,6 @@
 #include <map>
 #include <string>
 
-// #include "db/db_impl.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 
@@ -19,6 +18,25 @@ namespace rocksdb {
 
 class DBImpl;
 
+// StatsHistoryIterator is the main interface for users to programmatically
+// access statistics snapshots that was automatically stored by RocksDB.
+// Depending on options, the stats can be in memory or on disk.
+// The stats snapshots are indexed by time that they were recorded, and each
+// stats snapshot contains individual stat name and value at the time of
+// recording.
+// Example:
+//   std::unique_ptr<StatsHistoryIterator> stats_iter;
+//   Status s = db->GetStatsHistory(0 /* start_time */,
+//                                  env->NowMicros() /* end_time*/,
+//                                  &stats_iter);
+//   if (s.ok) {
+//     for (; stats_iter->Valid(); stats_iter->Next()) {
+//       uint64_t stats_time = stats_iter->GetStatsTime();
+//       const std::map<std::string, uint64_t>& stats_map =
+//           stats_iter->GetStatsMap();
+//       process(stats_time, stats_map);
+//     }
+//   }
 class StatsHistoryIterator {
  public:
   StatsHistoryIterator() {}

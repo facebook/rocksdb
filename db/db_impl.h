@@ -761,7 +761,6 @@ class DBImpl : public DB {
   static Status CreateAndNewDirectory(Env* env, const std::string& dirname,
                                       std::unique_ptr<Directory>* directory);
 
-  // Given a time window, return an iterator for accessing stats history
   Status GetStatsHistory(
       uint64_t start_time, uint64_t end_time,
       std::unique_ptr<StatsHistoryIterator>* stats_iterator) override;

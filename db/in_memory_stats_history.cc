@@ -17,6 +17,10 @@ bool InMemoryStatsHistoryIterator::Valid() const { return valid_; }
 
 Status InMemoryStatsHistoryIterator::status() const { return status_; }
 
+// Because of garbage collection, the next stats snapshot may or may not be
+// right after the current one. When reading from DBImpl::stats_history_, this
+// call will be protected by DB Mutex so it will not return partial or
+// corrupted results.
 void InMemoryStatsHistoryIterator::Next() {
   // increment start_time by 1 to avoid infinite loop
   AdvanceIteratorByTime(GetStatsTime() + 1, end_time_);
