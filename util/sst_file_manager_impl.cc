@@ -266,6 +266,9 @@ void SstFileManagerImpl::ClearError() {
 
     uint64_t free_space;
     Status s = env_->GetFreeSpace(path_, &free_space);
+    free_space = max_allowed_space_ > 0
+                     ? std::min(max_allowed_space_, free_space)
+                     : free_space;
     if (s.ok()) {
       // In case of multi-DB instances, some of them may have experienced a
       // soft error and some a hard error. In the SstFileManagerImpl, a hard
