@@ -386,7 +386,7 @@ public class MergeTest {
           // Test also with createColumnFamily
           try (final ColumnFamilyOptions cfHandleOpts =
                        new ColumnFamilyOptions()
-                               .setMergeOperator(stringAppendOperator);
+                               .setMergeOperator(bytesAppendOperator);
                final ColumnFamilyHandle cfHandle =
                        db.createColumnFamily(
                                new ColumnFamilyDescriptor("new_cf2".getBytes(),

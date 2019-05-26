@@ -15,7 +15,7 @@
 
 #include "include/org_rocksdb_StringAppendOperator.h"
 #include "include/org_rocksdb_UInt64AddOperator.h"
-#include "include/org_rocksdb_BytesAppend.h"
+#include "include/org_rocksdb_BytesAppendOperator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
