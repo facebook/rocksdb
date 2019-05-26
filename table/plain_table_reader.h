@@ -56,16 +56,17 @@ struct PlainTableReaderFileInfo {
         file(std::move(_file)) {}
 };
 
+// The reader class of PlainTable. For description of PlainTable format
+// See comments of class PlainTableFactory, where instances of
+// PlainTableReader are created.
+class PlainTableReader: public TableReader {
+ public:
 // Based on following output file format shown in plain_table_factory.h
-// When opening the output file, IndexedTableReader creates a hash table
-// from key prefixes to offset of the output file. IndexedTable will decide
+// When opening the output file, PlainTableReader creates a hash table
+// from key prefixes to offset of the output file. PlainTable will decide
 // whether it points to the data offset of the first key with the key prefix
 // or the offset of it. If there are too many keys share this prefix, it will
 // create a binary search-able index from the suffix to offset on disk.
-//
-// The implementation of IndexedTableReader requires output file is mmaped
-class PlainTableReader: public TableReader {
- public:
   static Status Open(const ImmutableCFOptions& ioptions,
                      const EnvOptions& env_options,
                      const InternalKeyComparator& internal_comparator,

@@ -121,7 +121,7 @@ Status PessimisticTransactionDB::Initialize(
   assert(dbimpl != nullptr);
   auto rtrxs = dbimpl->recovered_transactions();
 
-  for (auto it = rtrxs.begin(); it != rtrxs.end(); it++) {
+  for (auto it = rtrxs.begin(); it != rtrxs.end(); ++it) {
     auto recovered_trx = it->second;
     assert(recovered_trx);
     assert(recovered_trx->batches_.size() == 1);
@@ -221,9 +221,24 @@ Status TransactionDB::Open(
     std::vector<ColumnFamilyHandle*>* handles, TransactionDB** dbptr) {
   Status s;
   DB* db = nullptr;
+  if (txn_db_options.write_policy == WRITE_COMMITTED &&
+      db_options.unordered_write) {
+    return Status::NotSupported(
+        "WRITE_COMMITTED is incompatible with unordered_writes");
+  }
+  if (txn_db_options.write_policy == WRITE_UNPREPARED &&
+      db_options.unordered_write) {
+    // TODO(lth): support it
+    return Status::NotSupported(
+        "WRITE_UNPREPARED is currently incompatible with unordered_writes");
+  }
+  if (txn_db_options.write_policy == WRITE_PREPARED &&
+      db_options.unordered_write && !db_options.two_write_queues) {
+    return Status::NotSupported(
+        "WRITE_UNPREPARED is incompatible with unordered_writes if "
+        "two_write_queues is not enabled.");
+  }
 
-  ROCKS_LOG_WARN(db_options.info_log, "Transaction write_policy is %" PRId32,
-                 static_cast<int>(txn_db_options.write_policy));
   std::vector<ColumnFamilyDescriptor> column_families_copy = column_families;
   std::vector<size_t> compaction_enabled_cf_indices;
   DBOptions db_options_2pc = db_options;
@@ -238,6 +253,9 @@ Status TransactionDB::Open(
   s = DBImpl::Open(db_options_2pc, dbname, column_families_copy, handles, &db,
                    use_seq_per_batch, use_batch_per_txn);
   if (s.ok()) {
+    ROCKS_LOG_WARN(db->GetDBOptions().info_log,
+                   "Transaction write_policy is %" PRId32,
+                   static_cast<int>(txn_db_options.write_policy));
     s = WrapDB(db, txn_db_options, compaction_enabled_cf_indices, *handles,
                dbptr);
   }
@@ -582,7 +600,7 @@ void PessimisticTransactionDB::GetAllPreparedTransactions(
   assert(transv);
   transv->clear();
   std::lock_guard<std::mutex> lock(name_map_mutex_);
-  for (auto it = transactions_.begin(); it != transactions_.end(); it++) {
+  for (auto it = transactions_.begin(); it != transactions_.end(); ++it) {
     if (it->second->GetState() == Transaction::PREPARED) {
       transv->push_back(it->second);
     }

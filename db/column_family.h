@@ -45,7 +45,113 @@ class InstrumentedMutexLock;
 struct SuperVersionContext;
 
 extern const double kIncSlowdownRatio;
-
+// This file contains a list of data structures for managing column family
+// level metadata. 
+//
+// The basic relationships among classes declared here are illustrated as
+// following:
+//
+//       +----------------------+    +----------------------+   +--------+
+//   +---+ ColumnFamilyHandle 1 | +--+ ColumnFamilyHandle 2 |   | DBImpl |
+//   |   +----------------------+ |  +----------------------+   +----+---+
+//   | +--------------------------+                                  |
+//   | |                               +-----------------------------+
+//   | |                               |
+//   | | +-----------------------------v-------------------------------+
+//   | | |                                                             |
+//   | | |                      ColumnFamilySet                        |
+//   | | |                                                             |
+//   | | +-------------+--------------------------+----------------+---+
+//   | |               |                          |                |
+//   | +-------------------------------------+    |                |
+//   |                 |                     |    |                v
+//   |   +-------------v-------------+ +-----v----v---------+
+//   |   |                           | |                    |
+//   |   |     ColumnFamilyData 1    | | ColumnFamilyData 2 |    ......
+//   |   |                           | |                    |
+//   +--->                           | |                    |
+//       |                 +---------+ |                    |
+//       |                 | MemTable| |                    |
+//       |                 |  List   | |                    |
+//       +--------+---+--+-+----+----+ +--------------------++
+//                |   |  |      |
+//                |   |  |      |
+//                |   |  |      +-----------------------+
+//                |   |  +-----------+                  |
+//                v   +--------+     |                  |
+//       +--------+--------+   |     |                  |
+//       |                 |   |     |       +----------v----------+
+// +---> |SuperVersion 1.a +----------------->                     |
+//       |                 +------+  |       | MemTableListVersion |
+//       +---+-------------+   |  |  |       |                     |
+//           |                 |  |  |       +----+------------+---+
+//           |      current    |  |  |            |            |
+//           |   +-------------+  |  |mem         |            |
+//           |   |                |  |            |            |
+//         +-v---v-------+    +---v--v---+  +-----v----+  +----v-----+
+//         |             |    |          |  |          |  |          |
+//         | Version 1.a |    | memtable |  | memtable |  | memtable |
+//         |             |    |   1.a    |  |   1.b    |  |   1.c    |
+//         +-------------+    |          |  |          |  |          |
+//                            +----------+  +----------+  +----------+
+// 
+// DBImpl keeps a ColumnFamilySet, which references to all column families by
+// pointing to respective ColumnFamilyData object of each column family.
+// This is how DBImpl can list and operate on all the column families.
+// ColumnFamilyHandle also points to ColumnFamilyData directly, so that
+// when a user executes a query, it can directly find memtables and Version
+// as well as SuperVersion to the column family, without going through
+// ColumnFamilySet.
+//
+// ColumnFamilySet points to the latest view of the LSM-tree (list of memtables
+// and SST files) indirectly, while ongoing operations may hold references
+// to a current or an out-of-date SuperVersion, which in turn points to a
+// point-in-time view of the LSM-tree. This guarantees the memtables and SST
+// files being operated on will not go away, until the SuperVersion is
+// unreferenced to 0 and destoryed.
+//
+// The following graph illustrates a possible referencing relationships:
+//
+// Column       +--------------+      current       +-----------+
+// Family +---->+              +------------------->+           |
+//  Data        | SuperVersion +----------+         | Version A |
+//              |      3       |   imm    |         |           |
+// Iter2 +----->+              |  +-------v------+  +-----------+
+//              +-----+--------+  | MemtableList +----------------> Empty
+//                    |           |   Version r  |  +-----------+
+//                    |           +--------------+  |           |
+//                    +------------------+   current| Version B |
+//              +--------------+         |   +----->+           |
+//              |              |         |   |      +-----+-----+
+// Compaction +>+ SuperVersion +-------------+            ^
+//    Job       |      2       +------+  |                |current
+//              |              +----+ |  |     mem        |    +------------+
+//              +--------------+    | |  +--------------------->            |
+//                                  | +------------------------> MemTable a |
+//                                  |          mem        |    |            |
+//              +--------------+    |                     |    +------------+
+//              |              +--------------------------+
+//  Iter1 +-----> SuperVersion |    |                          +------------+
+//              |      1       +------------------------------>+            |
+//              |              +-+  |        mem               | MemTable b |
+//              +--------------+ |  |                          |            |
+//                               |  |    +--------------+      +-----^------+
+//                               |  |imm | MemtableList |            |
+//                               |  +--->+   Version s  +------------+
+//                               |       +--------------+
+//                               |       +--------------+
+//                               |       | MemtableList |
+//                               +------>+   Version t  +-------->  Empty
+//                                 imm   +--------------+
+//
+// In this example, even if the current LSM-tree consists of Version A and
+// memtable a, which is also referenced by SuperVersion, two older SuperVersion
+// SuperVersion2 and Superversion1 still exist, and are referenced by a
+// compaction job and an old iterator Iter1, respectively. SuperVersion2
+// contains Version B, memtable a and memtable b; SuperVersion1 contains
+// Version B and memtable b (mutable). As a result, Version B and memtable b
+// are prevented from being destroyed or deleted.
+  
 // ColumnFamilyHandleImpl is the class that clients use to access different
 // column families. It has non-trivial destructor, which gets called when client
 // is done using the column family

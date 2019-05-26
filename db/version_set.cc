@@ -353,7 +353,7 @@ class FilePickerMultiGet {
   struct FilePickerContext;
 
  public:
-  FilePickerMultiGet(std::vector<FileMetaData*>* files, MultiGetRange* range,
+  FilePickerMultiGet(MultiGetRange* range,
                      autovector<LevelFilesBrief>* file_levels,
                      unsigned int num_levels, FileIndexer* file_indexer,
                      const Comparator* user_comparator,
@@ -368,18 +368,12 @@ class FilePickerMultiGet {
         maybe_repeat_key_(false),
         current_level_range_(*range, range->begin(), range->end()),
         current_file_range_(*range, range->begin(), range->end()),
-#ifndef NDEBUG
-        files_(files),
-#endif
         level_files_brief_(file_levels),
         is_hit_file_last_in_level_(false),
         curr_file_level_(nullptr),
         file_indexer_(file_indexer),
         user_comparator_(user_comparator),
         internal_comparator_(internal_comparator) {
-#ifdef NDEBUG
-    (void)files;
-#endif
     for (auto iter = range_->begin(); iter != range_->end(); ++iter) {
       fp_ctx_array_[iter.index()] =
           FilePickerContext(0, FileIndexer::kLevelMaxIndex);
@@ -416,6 +410,18 @@ class FilePickerMultiGet {
     bool file_hit = false;
     int cmp_largest = -1;
     if (curr_file_index >= curr_file_level_->num_files) {
+      // In the unlikely case the next key is a duplicate of the current key,
+      // and the current key is the last in the level and the internal key
+      // was not found, we need to skip lookup for the remaining keys and
+      // reset the search bounds
+      if (batch_iter_ != current_level_range_.end()) {
+        ++batch_iter_;
+        for (; batch_iter_ != current_level_range_.end(); ++batch_iter_) {
+          struct FilePickerContext& fp_ctx = fp_ctx_array_[batch_iter_.index()];
+          fp_ctx.search_left_bound = 0;
+          fp_ctx.search_right_bound = FileIndexer::kLevelMaxIndex;
+        }
+      }
       return false;
     }
     // Loops over keys in the MultiGet batch until it finds a file with
@@ -473,25 +479,6 @@ class FilePickerMultiGet {
       } else {
         file_hit = true;
       }
-#ifndef NDEBUG
-      // Sanity check to make sure that the files are correctly sorted
-      if (f != prev_file_) {
-        if (prev_file_) {
-          if (curr_level_ != 0) {
-            int comp_sign = internal_comparator_->Compare(
-                prev_file_->largest_key, f->smallest_key);
-            assert(comp_sign < 0);
-          } else if (fp_ctx.curr_index_in_curr_level > 0) {
-            // level == 0, the current file cannot be newer than the previous
-            // one. Use compressed data structure, has no attribute seqNo
-            assert(!NewestFirstBySeqNo(
-                files_[0][fp_ctx.curr_index_in_curr_level],
-                files_[0][fp_ctx.curr_index_in_curr_level - 1]));
-          }
-        }
-        prev_file_ = f;
-      }
-#endif
       if (cmp_largest == 0) {
         // cmp_largest is 0, which means the next key will not be in this
         // file, so stop looking further. Also don't increment megt_iter_
@@ -533,7 +520,10 @@ class FilePickerMultiGet {
           // any further for that key, so advance batch_iter_. Else, keep
           // batch_iter_ positioned on that key so we look it up again in
           // the next file
-          if (current_level_range_.CheckKeyDone(batch_iter_)) {
+          // For L0, always advance the key because we will look in the next
+          // file regardless for all keys not found yet
+          if (current_level_range_.CheckKeyDone(batch_iter_) ||
+              curr_level_ == 0) {
             ++batch_iter_;
           }
         }
@@ -601,7 +591,8 @@ class FilePickerMultiGet {
     unsigned int start_index_in_curr_level;
 
     FilePickerContext(int32_t left, int32_t right)
-        : search_left_bound(left), search_right_bound(right) {}
+        : search_left_bound(left), search_right_bound(right),
+          curr_index_in_curr_level(0), start_index_in_curr_level(0) {}
 
     FilePickerContext() = default;
   };
@@ -619,9 +610,6 @@ class FilePickerMultiGet {
   bool maybe_repeat_key_;
   MultiGetRange current_level_range_;
   MultiGetRange current_file_range_;
-#ifndef NDEBUG
-  std::vector<FileMetaData*>* files_;
-#endif
   autovector<LevelFilesBrief>* level_files_brief_;
   bool search_ended_;
   bool is_hit_file_last_in_level_;
@@ -629,9 +617,6 @@ class FilePickerMultiGet {
   FileIndexer* file_indexer_;
   const Comparator* user_comparator_;
   const InternalKeyComparator* internal_comparator_;
-#ifndef NDEBUG
-  FdWithKeyRange* prev_file_;
-#endif
 
   // Setup local variables to search next level.
   // Returns false if there are no more levels to search.
@@ -640,9 +625,6 @@ class FilePickerMultiGet {
       MultiGetRange::Iterator mget_iter = current_level_range_.begin();
       if (fp_ctx_array_[mget_iter.index()].curr_index_in_curr_level <
           curr_file_level_->num_files) {
-#ifndef NDEBUG
-        prev_file_ = nullptr;
-#endif
         batch_iter_prev_ = current_level_range_.begin();
         batch_iter_ = current_level_range_.begin();
         return true;
@@ -738,9 +720,6 @@ class FilePickerMultiGet {
         fp_ctx.curr_index_in_curr_level = start_index;
       }
       if (level_contains_keys) {
-#ifndef NDEBUG
-        prev_file_ = nullptr;
-#endif
         batch_iter_prev_ = current_level_range_.begin();
         batch_iter_ = current_level_range_.begin();
         return true;
@@ -880,7 +859,8 @@ class LevelIterator final : public InternalIterator {
       bool skip_filters, int level, RangeDelAggregator* range_del_agg,
       const std::vector<AtomicCompactionUnitBoundary>* compaction_boundaries =
           nullptr)
-      : table_cache_(table_cache),
+      : InternalIterator(false),
+        table_cache_(table_cache),
         read_options_(read_options),
         env_options_(env_options),
         icomparator_(icomparator),
@@ -907,7 +887,7 @@ class LevelIterator final : public InternalIterator {
   void SeekToFirst() override;
   void SeekToLast() override;
   void Next() final override;
-  bool NextAndGetResult(Slice* ret_key) override;
+  bool NextAndGetResult(IterateResult* result) override;
   void Prev() override;
 
   bool Valid() const override { return file_iter_.Valid(); }
@@ -915,23 +895,38 @@ class LevelIterator final : public InternalIterator {
     assert(Valid());
     return file_iter_.key();
   }
+
   Slice value() const override {
     assert(Valid());
     return file_iter_.value();
   }
+
   Status status() const override {
     return file_iter_.iter() ? file_iter_.status() : Status::OK();
   }
+
+  inline bool MayBeOutOfLowerBound() override {
+    assert(Valid());
+    return may_be_out_of_lower_bound_ && file_iter_.MayBeOutOfLowerBound();
+  }
+
+  inline bool MayBeOutOfUpperBound() override {
+    assert(Valid());
+    return file_iter_.MayBeOutOfUpperBound();
+  }
+
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     pinned_iters_mgr_ = pinned_iters_mgr;
     if (file_iter_.iter()) {
       file_iter_.SetPinnedItersMgr(pinned_iters_mgr);
     }
   }
+
   bool IsKeyPinned() const override {
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
            file_iter_.iter() && file_iter_.IsKeyPinned();
   }
+
   bool IsValuePinned() const override {
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
            file_iter_.iter() && file_iter_.IsValuePinned();
@@ -974,12 +969,16 @@ class LevelIterator final : public InternalIterator {
       smallest_compaction_key = (*compaction_boundaries_)[file_index_].smallest;
       largest_compaction_key = (*compaction_boundaries_)[file_index_].largest;
     }
+    may_be_out_of_lower_bound_ =
+        read_options_.iterate_lower_bound != nullptr &&
+        user_comparator_.Compare(ExtractUserKey(file_smallest_key(file_index_)),
+                                 *read_options_.iterate_lower_bound) < 0;
     return table_cache_->NewIterator(
         read_options_, env_options_, icomparator_, *file_meta.file_metadata,
         range_del_agg_, prefix_extractor_,
-        nullptr /* don't need reference to table */,
-        file_read_hist_, for_compaction_, nullptr /* arena */, skip_filters_,
-        level_, smallest_compaction_key, largest_compaction_key);
+        nullptr /* don't need reference to table */, file_read_hist_,
+        for_compaction_, nullptr /* arena */, skip_filters_, level_,
+        smallest_compaction_key, largest_compaction_key);
   }
 
   TableCache* table_cache_;
@@ -995,6 +994,7 @@ class LevelIterator final : public InternalIterator {
   bool should_sample_;
   bool for_compaction_;
   bool skip_filters_;
+  bool may_be_out_of_lower_bound_ = true;
   size_t file_index_;
   int level_;
   RangeDelAggregator* range_del_agg_;
@@ -1063,11 +1063,12 @@ void LevelIterator::SeekToLast() {
 
 void LevelIterator::Next() { NextImpl(); }
 
-bool LevelIterator::NextAndGetResult(Slice* ret_key) {
+bool LevelIterator::NextAndGetResult(IterateResult* result) {
   NextImpl();
   bool is_valid = Valid();
   if (is_valid) {
-    *ret_key = key();
+    result->key = key();
+    result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
   }
   return is_valid;
 }
@@ -1783,7 +1784,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
   MultiGetRange file_picker_range(*range, range->begin(), range->end());
   FilePickerMultiGet fp(
-      storage_info_.files_, &file_picker_range,
+      &file_picker_range,
       &storage_info_.level_files_brief_, storage_info_.num_non_empty_levels_,
       &storage_info_.file_indexer_, user_comparator(), internal_comparator());
   FdWithKeyRange* f = fp.GetNextFile();
@@ -3841,8 +3842,6 @@ Status VersionSet::LogAndApply(
     }
   }
   if (0 == num_undropped_cfds) {
-    // TODO (yanqin) maybe use a different status code to denote column family
-    // drop other than OK and ShutdownInProgress
     for (int i = 0; i != num_cfds; ++i) {
       manifest_writers_.pop_front();
     }
@@ -3850,7 +3849,7 @@ Status VersionSet::LogAndApply(
     if (!manifest_writers_.empty()) {
       manifest_writers_.front()->cv.Signal();
     }
-    return Status::ShutdownInProgress();
+    return Status::ColumnFamilyDropped();
   }
 
   return ProcessManifestWrites(writers, mu, db_directory, new_descriptor_log,
@@ -4042,10 +4041,15 @@ Status VersionSet::ExtractInfoFromVersionEdit(
   return Status::OK();
 }
 
-Status VersionSet::GetCurrentManifestPath(std::string* manifest_path) {
+Status VersionSet::GetCurrentManifestPath(const std::string& dbname, Env* env,
+                                          std::string* manifest_path,
+                                          uint64_t* manifest_file_number) {
+  assert(env != nullptr);
   assert(manifest_path != nullptr);
+  assert(manifest_file_number != nullptr);
+
   std::string fname;
-  Status s = ReadFileToString(env_, CurrentFileName(dbname_), &fname);
+  Status s = ReadFileToString(env, CurrentFileName(dbname), &fname);
   if (!s.ok()) {
     return s;
   }
@@ -4055,12 +4059,12 @@ Status VersionSet::GetCurrentManifestPath(std::string* manifest_path) {
   // remove the trailing '\n'
   fname.resize(fname.size() - 1);
   FileType type;
-  bool parse_ok = ParseFileName(fname, &manifest_file_number_, &type);
+  bool parse_ok = ParseFileName(fname, manifest_file_number, &type);
   if (!parse_ok || type != kDescriptorFile) {
     return Status::Corruption("CURRENT file corrupted");
   }
-  *manifest_path = dbname_;
-  if (dbname_.back() != '/') {
+  *manifest_path = dbname;
+  if (dbname.back() != '/') {
     manifest_path->push_back('/');
   }
   *manifest_path += fname;
@@ -4081,7 +4085,8 @@ Status VersionSet::Recover(
 
   // Read "CURRENT" file, which contains a pointer to the current manifest file
   std::string manifest_path;
-  Status s = GetCurrentManifestPath(&manifest_path);
+  Status s = GetCurrentManifestPath(dbname_, env_, &manifest_path,
+                                    &manifest_file_number_);
   if (!s.ok()) {
     return s;
   }
@@ -4298,10 +4303,9 @@ Status VersionSet::Recover(
         ", last_sequence is %" PRIu64 ", log_number is %" PRIu64
         ",prev_log_number is %" PRIu64 ",max_column_family is %" PRIu32
         ",min_log_number_to_keep is %" PRIu64 "\n",
-        manifest_path.c_str(), manifest_file_number_,
-        next_file_number_.load(), last_sequence_.load(), log_number,
-        prev_log_number_, column_family_set_->GetMaxColumnFamily(),
-        min_log_number_to_keep_2pc());
+        manifest_path.c_str(), manifest_file_number_, next_file_number_.load(),
+        last_sequence_.load(), log_number, prev_log_number_,
+        column_family_set_->GetMaxColumnFamily(), min_log_number_to_keep_2pc());
 
     for (auto cfd : *column_family_set_) {
       if (cfd->IsDropped()) {
@@ -4323,26 +4327,22 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
   // so we're fine using the defaults
   EnvOptions soptions;
   // Read "CURRENT" file, which contains a pointer to the current manifest file
-  std::string current;
-  Status s = ReadFileToString(env, CurrentFileName(dbname), &current);
+  std::string manifest_path;
+  uint64_t manifest_file_number;
+  Status s = GetCurrentManifestPath(dbname, env, &manifest_path,
+                                    &manifest_file_number);
   if (!s.ok()) {
     return s;
   }
-  if (current.empty() || current[current.size()-1] != '\n') {
-    return Status::Corruption("CURRENT file does not end with newline");
-  }
-  current.resize(current.size() - 1);
-
-  std::string dscname = dbname + "/" + current;
 
   std::unique_ptr<SequentialFileReader> file_reader;
   {
     std::unique_ptr<SequentialFile> file;
-    s = env->NewSequentialFile(dscname, &file, soptions);
+    s = env->NewSequentialFile(manifest_path, &file, soptions);
     if (!s.ok()) {
       return s;
   }
-  file_reader.reset(new SequentialFileReader(std::move(file), dscname));
+  file_reader.reset(new SequentialFileReader(std::move(file), manifest_path));
   }
 
   std::map<uint32_t, std::string> column_family_names;
@@ -5512,7 +5512,8 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
   Status s;
   do {
     std::string manifest_path;
-    s = GetCurrentManifestPath(&manifest_path);
+    s = GetCurrentManifestPath(dbname_, env_, &manifest_path,
+                               &manifest_file_number_);
     std::unique_ptr<SequentialFile> manifest_file;
     if (s.ok()) {
       if (nullptr == manifest_reader->get() ||

@@ -42,19 +42,23 @@ uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
 bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
                            size_t min_files_to_compact,
                            uint64_t max_compact_bytes_per_del_file,
+                           uint64_t max_compaction_bytes,
                            CompactionInputFiles* comp_inputs) {
   size_t compact_bytes = static_cast<size_t>(level_files[0]->fd.file_size);
+  uint64_t compensated_compact_bytes = level_files[0]->compensated_file_size;
   size_t compact_bytes_per_del_file = port::kMaxSizet;
-  // compaction range will be [0, span_len).
+  // Compaction range will be [0, span_len).
   size_t span_len;
-  // pull in files until the amount of compaction work per deleted file begins
-  // increasing.
+  // Pull in files until the amount of compaction work per deleted file begins
+  // increasing or maximum total compaction size is reached.
   size_t new_compact_bytes_per_del_file = 0;
   for (span_len = 1; span_len < level_files.size(); ++span_len) {
     compact_bytes += static_cast<size_t>(level_files[span_len]->fd.file_size);
+    compensated_compact_bytes += level_files[span_len]->compensated_file_size;
     new_compact_bytes_per_del_file = compact_bytes / span_len;
     if (level_files[span_len]->being_compacted ||
-        new_compact_bytes_per_del_file > compact_bytes_per_del_file) {
+        new_compact_bytes_per_del_file > compact_bytes_per_del_file ||
+        compensated_compact_bytes > max_compaction_bytes) {
       break;
     }
     compact_bytes_per_del_file = new_compact_bytes_per_del_file;
@@ -1627,7 +1631,9 @@ bool LevelCompactionBuilder::PickIntraL0Compaction() {
     return false;
   }
   return FindIntraL0Compaction(level_files, kMinFilesForIntraL0Compaction,
-                               port::kMaxUint64, &start_level_inputs_);
+                               port::kMaxUint64,
+                               mutable_cf_options_.max_compaction_bytes,
+                               &start_level_inputs_);
 }
 }  // namespace
 

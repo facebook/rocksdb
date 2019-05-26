@@ -25,6 +25,7 @@
 #include "rocksdb/table.h"
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
+#include "table/cachable_entry.h"
 #include "table/filter_block.h"
 #include "table/format.h"
 #include "table/get_context.h"
@@ -58,9 +59,17 @@ class GetContext;
 
 typedef std::vector<std::pair<std::string, std::string>> KVPairBlock;
 
-// A Table is a sorted map from strings to strings.  Tables are
-// immutable and persistent.  A Table may be safely accessed from
-// multiple threads without external synchronization.
+// Reader class for BlockBasedTable format.
+// For the format of BlockBasedTable refer to
+// https://github.com/facebook/rocksdb/wiki/Rocksdb-BlockBasedTable-Format.
+// This is the default table type. Data is chucked into fixed size blocks and
+// each block in-turn stores entries. When storing data, we can compress and/or
+// encode data efficiently within a block, which often results in a much smaller
+// data size compared with the raw data size. As for the record retrieval, we'll
+// first locate the block where target record may reside, then read the block to
+// memory, and finally search that record within the block. Of course, to avoid
+// frequent reads of the same block, we introduced the block cache to keep the
+// loaded blocks in the memory.
 class BlockBasedTable : public TableReader {
  public:
   static const std::string kFilterBlockPrefix;
@@ -220,8 +229,6 @@ class BlockBasedTable : public TableReader {
   // The key retrieved are internal keys.
   Status GetKVPairsFromDataBlocks(std::vector<KVPairBlock>* kv_pair_blocks);
 
-  template <class TValue>
-  struct CachableEntry;
   struct Rep;
 
   Rep* get_rep() { return rep_; }
@@ -311,8 +318,7 @@ class BlockBasedTable : public TableReader {
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed, Rep* rep,
       const ReadOptions& read_options,
-      BlockBasedTable::CachableEntry<Block>* block,
-      const UncompressionDict& uncompression_dict,
+      CachableEntry<Block>* block, const UncompressionDict& uncompression_dict,
       size_t read_amp_bytes_per_bit, bool is_index = false,
       GetContext* get_context = nullptr);
 
@@ -427,7 +433,7 @@ class BlockBasedTable : public TableReader {
   friend class PartitionedFilterBlockTest;
 };
 
-// Maitaning state of a two-level iteration on a partitioned index structure
+// Maitaning state of a two-level iteration on a partitioned index structure.
 class BlockBasedTable::PartitionedIndexIteratorState
     : public TwoLevelIteratorState {
  public:
@@ -446,29 +452,8 @@ class BlockBasedTable::PartitionedIndexIteratorState
   bool index_key_is_full_;
 };
 
-// CachableEntry represents the entries that *may* be fetched from block cache.
-//  field `value` is the item we want to get.
-//  field `cache_handle` is the cache handle to the block cache. If the value
-//    was not read from cache, `cache_handle` will be nullptr.
-template <class TValue>
-struct BlockBasedTable::CachableEntry {
-  CachableEntry(TValue* _value, Cache::Handle* _cache_handle)
-      : value(_value), cache_handle(_cache_handle) {}
-  CachableEntry() : CachableEntry(nullptr, nullptr) {}
-  void Release(Cache* cache, bool force_erase = false) {
-    if (cache_handle) {
-      cache->Release(cache_handle, force_erase);
-      value = nullptr;
-      cache_handle = nullptr;
-    }
-  }
-  bool IsSet() const { return cache_handle != nullptr; }
-
-  TValue* value = nullptr;
-  // if the entry is from the cache, cache_handle will be populated.
-  Cache::Handle* cache_handle = nullptr;
-};
-
+// Stores all the properties associated with a BlockBasedTable.
+// These are immutable.
 struct BlockBasedTable::Rep {
   Rep(const ImmutableCFOptions& _ioptions, const EnvOptions& _env_options,
       const BlockBasedTableOptions& _table_opt,
@@ -578,6 +563,7 @@ struct BlockBasedTable::Rep {
   }
 };
 
+// Iterates over the contents of BlockBasedTable.
 template <class TBlockIter, typename TValue = Slice>
 class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
  public:
@@ -590,7 +576,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
                           bool key_includes_seq = true,
                           bool index_key_is_full = true,
                           bool for_compaction = false)
-      : table_(table),
+      : InternalIteratorBase<TValue>(false),
+        table_(table),
         read_options_(read_options),
         icomp_(icomp),
         user_comparator_(icomp.user_comparator()),
@@ -612,7 +599,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   void SeekToFirst() override;
   void SeekToLast() override;
   void Next() final override;
-  bool NextAndGetResult(Slice* ret_key) override;
+  bool NextAndGetResult(IterateResult* result) override;
   void Prev() override;
   bool Valid() const override {
     return !is_out_of_bound_ && block_iter_points_to_real_block_ &&
@@ -642,6 +629,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
 
   // Whether iterator invalidated for being out of bound.
   bool IsOutOfBound() override { return is_out_of_bound_; }
+
+  inline bool MayBeOutOfUpperBound() override {
+    assert(Valid());
+    return !data_block_within_upper_bound_;
+  }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     pinned_iters_mgr_ = pinned_iters_mgr;
@@ -704,6 +696,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   TBlockIter block_iter_;
   bool block_iter_points_to_real_block_;
   bool is_out_of_bound_ = false;
+  // Whether current data block being fully within iterate upper bound.
+  bool data_block_within_upper_bound_ = false;
   bool check_filter_;
   // TODO(Zhongyi): pick a better name
   bool need_upper_bound_check_;

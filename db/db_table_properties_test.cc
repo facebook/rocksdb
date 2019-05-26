@@ -139,12 +139,12 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
   Options options;
   options.create_if_missing = true;
   options.write_buffer_size = 4096;
-  options.max_write_buffer_number = 3;
+  options.max_write_buffer_number = 2;
   options.level0_file_num_compaction_trigger = 2;
   options.level0_slowdown_writes_trigger = 2;
-  options.level0_stop_writes_trigger = 4;
+  options.level0_stop_writes_trigger = 2;
   options.target_file_size_base = 2048;
-  options.max_bytes_for_level_base = 10240;
+  options.max_bytes_for_level_base = 40960;
   options.max_bytes_for_level_multiplier = 4;
   options.hard_pending_compaction_bytes_limit = 16 * 1024;
   options.num_levels = 8;

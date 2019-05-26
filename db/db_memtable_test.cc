@@ -204,6 +204,76 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
   delete mem;
 }
 
+// A simple test to verify that the concurrent merge writes is functional
+TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
+  int num_ops = 1000;
+  std::string value;
+  Status s;
+  MergeContext merge_context;
+  Options options;
+  // A merge operator that is not sensitive to concurrent writes since in this
+  // test we don't order the writes.
+  options.merge_operator = MergeOperators::CreateUInt64AddOperator();
+
+  // Create a MemTable
+  InternalKeyComparator cmp(BytewiseComparator());
+  auto factory = std::make_shared<SkipListFactory>();
+  options.memtable_factory = factory;
+  options.allow_concurrent_memtable_write = true;
+  ImmutableCFOptions ioptions(options);
+  WriteBufferManager wb(options.db_write_buffer_size);
+  MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
+                               kMaxSequenceNumber, 0 /* column_family_id */);
+
+  // Put 0 as the base
+  PutFixed64(&value, static_cast<uint64_t>(0));
+  bool res = mem->Add(0, kTypeValue, "key", value);
+  ASSERT_TRUE(res);
+  value.clear();
+
+  // Write Merge concurrently
+  rocksdb::port::Thread write_thread1([&]() {
+  MemTablePostProcessInfo post_process_info1;
+    std::string v1;
+    for (int seq = 1; seq < num_ops / 2; seq++) {
+      PutFixed64(&v1, seq);
+      bool res1 =
+          mem->Add(seq, kTypeMerge, "key", v1, true, &post_process_info1);
+      ASSERT_TRUE(res1);
+      v1.clear();
+    }
+  });
+  rocksdb::port::Thread write_thread2([&]() {
+  MemTablePostProcessInfo post_process_info2;
+    std::string v2;
+    for (int seq = num_ops / 2; seq < num_ops; seq++) {
+      PutFixed64(&v2, seq);
+      bool res2 =
+          mem->Add(seq, kTypeMerge, "key", v2, true, &post_process_info2);
+      ASSERT_TRUE(res2);
+      v2.clear();
+    }
+  });
+  write_thread1.join();
+  write_thread2.join();
+
+  Status status;
+  ReadOptions roptions;
+  SequenceNumber max_covering_tombstone_seq = 0;
+  LookupKey lkey("key", kMaxSequenceNumber);
+  res = mem->Get(lkey, &value, &status, &merge_context,
+                 &max_covering_tombstone_seq, roptions);
+  ASSERT_TRUE(res);
+  uint64_t ivalue = DecodeFixed64(Slice(value).data());
+  uint64_t sum = 0;
+  for (int seq = 0; seq < num_ops; seq++) {
+    sum += seq;
+  }
+  ASSERT_EQ(ivalue, sum);
+
+  delete mem;
+}
+
 TEST_F(DBMemTableTest, InsertWithHint) {
   Options options;
   options.allow_concurrent_memtable_write = false;

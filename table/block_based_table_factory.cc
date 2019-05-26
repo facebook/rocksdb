@@ -227,7 +227,7 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
 }
 
 Status BlockBasedTableFactory::SanitizeOptions(
-    const DBOptions& /*db_opts*/, const ColumnFamilyOptions& cf_opts) const {
+    const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) const {
   if (table_options_.index_type == BlockBasedTableOptions::kHashSearch &&
       cf_opts.prefix_extractor == nullptr) {
     return Status::InvalidArgument(
@@ -267,6 +267,12 @@ Status BlockBasedTableFactory::SanitizeOptions(
     return Status::InvalidArgument(
         "data_block_hash_table_util_ratio should be greater than 0 when "
         "data_block_index_type is set to kDataBlockBinaryAndHash");
+  }
+  if (db_opts.unordered_write && cf_opts.max_successive_merges > 0) {
+    // TODO(myabandeh): support it
+    return Status::InvalidArgument(
+        "max_successive_merges larger than 0 is currently inconsistent with "
+        "unordered_write");
   }
   return Status::OK();
 }

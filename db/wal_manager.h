@@ -28,6 +28,10 @@
 namespace rocksdb {
 
 #ifndef ROCKSDB_LITE
+
+// WAL manager provides the abstraction for reading the WAL files as a single
+// unit. Internally, it opens and reads the files using Reader or Writer
+// abstraction.
 class WalManager {
  public:
   WalManager(const ImmutableDBOptions& db_options,
@@ -40,6 +44,8 @@ class WalManager {
 
   Status GetSortedWalFiles(VectorLogPtr& files);
 
+  // Allow user to tail transaction log to find all recent changes to the
+  // database that are newer than `seq_number`.
   Status GetUpdatesSince(
       SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
       const TransactionLogIterator::ReadOptions& read_options,

@@ -1095,6 +1095,8 @@ TEST_F(DBBloomFilterTest, PrefixScan) {
     options.max_background_compactions = 2;
     options.create_if_missing = true;
     options.memtable_factory.reset(NewHashSkipListRepFactory(16));
+    assert(!options.unordered_write);
+    // It is incompatible with allow_concurrent_memtable_write=false
     options.allow_concurrent_memtable_write = false;
 
     BlockBasedTableOptions table_options;

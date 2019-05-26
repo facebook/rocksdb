@@ -751,7 +751,7 @@ TEST_F(PrefixTest, PrefixSeekModePrev) {
       for (size_t k = 0; k < 9; k++) {
         if (rnd.OneIn(2) || it == whole_map.begin()) {
           iter->Next();
-          it++;
+          ++it;
           if (FLAGS_enable_print) {
             std::cout << "Next >> ";
           }

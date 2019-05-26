@@ -15,6 +15,9 @@
 
 namespace rocksdb {
 
+// Simple wrapper around port::Thread that supports calling a callback every
+// X seconds. If you pass in 0, then it will call your callback repeatedly
+// without delay.
 class RepeatableThread {
  public:
   RepeatableThread(std::function<void()> function,

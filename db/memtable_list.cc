@@ -277,8 +277,12 @@ void MemTableList::PickMemtablesToFlush(const uint64_t* max_memtable_id,
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_PICK_MEMTABLES_TO_FLUSH);
   const auto& memlist = current_->memlist_;
+  bool atomic_flush = false;
   for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
     MemTable* m = *it;
+    if (!atomic_flush && m->atomic_flush_seqno_ != kMaxSequenceNumber) {
+      atomic_flush = true;
+    }
     if (max_memtable_id != nullptr && m->GetID() > *max_memtable_id) {
       break;
     }
@@ -292,7 +296,9 @@ void MemTableList::PickMemtablesToFlush(const uint64_t* max_memtable_id,
       ret->push_back(m);
     }
   }
-  flush_requested_ = false;  // start-flush request is complete
+  if (!atomic_flush || num_flush_not_started_ == 0) {
+    flush_requested_ = false;  // start-flush request is complete
+  }
 }
 
 void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
@@ -431,7 +437,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
           ++mem_id;
         }
       } else {
-        for (auto it = current_->memlist_.rbegin(); batch_count-- > 0; it++) {
+        for (auto it = current_->memlist_.rbegin(); batch_count-- > 0; ++it) {
           MemTable* m = *it;
           // commit failed. setup state so that we can flush again.
           ROCKS_LOG_BUFFER(log_buffer, "Level-0 commit table #%" PRIu64
@@ -592,7 +598,7 @@ Status InstallMemtableAtomicFlushResults(
     imm->InstallNewVersion();
   }
 
-  if (s.ok() || s.IsShutdownInProgress()) {
+  if (s.ok() || s.IsColumnFamilyDropped()) {
     for (size_t i = 0; i != cfds.size(); ++i) {
       if (cfds[i]->IsDropped()) {
         continue;
@@ -630,6 +636,24 @@ Status InstallMemtableAtomicFlushResults(
   }
 
   return s;
+}
+
+void MemTableList::RemoveOldMemTables(uint64_t log_number,
+                                      autovector<MemTable*>* to_delete) {
+  assert(to_delete != nullptr);
+  InstallNewVersion();
+  auto& memlist = current_->memlist_;
+  for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
+    MemTable* mem = *it;
+    if (mem->GetNextLogNumber() > log_number) {
+      break;
+    }
+    current_->Remove(mem, to_delete);
+    --num_flush_not_started_;
+    if (0 == num_flush_not_started_) {
+      imm_flush_needed.store(false, std::memory_order_release);
+    }
+  }
 }
 
 }  // namespace rocksdb
