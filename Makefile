@@ -1165,7 +1165,7 @@ stringappend_test: utilities/merge_operators/string_append/stringappend_test.o $
 	$(AM_LINK)
 
 bytesappend_test: utilities/merge_operators/bytesappend_test.o $(LIBOBJECTS) $(TESTHARNESS)
-
+    $(AM_LINK)
 cassandra_format_test: utilities/cassandra/cassandra_format_test.o utilities/cassandra/test_utils.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
