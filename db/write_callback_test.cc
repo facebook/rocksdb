@@ -124,6 +124,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
       {false, false, true, false, true},
   };
 
+  for (auto& unordered_write : {true, false}) {
   for (auto& seq_per_batch : {true, false}) {
   for (auto& two_queues : {true, false}) {
     for (auto& allow_parallel : {true, false}) {
@@ -133,15 +134,22 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
             for (auto& write_group : write_scenarios) {
               Options options;
               options.create_if_missing = true;
+              options.unordered_write = unordered_write;
               options.allow_concurrent_memtable_write = allow_parallel;
               options.enable_pipelined_write = enable_pipelined_write;
               options.two_write_queues = two_queues;
+              // Skip unsupported combinations
               if (options.enable_pipelined_write && seq_per_batch) {
-                // This combination is not supported
                 continue;
               }
               if (options.enable_pipelined_write && options.two_write_queues) {
-                // This combination is not supported
+                continue;
+              }
+              if (options.unordered_write &&
+                  !options.allow_concurrent_memtable_write) {
+                continue;
+              }
+              if (options.unordered_write && options.enable_pipelined_write) {
                 continue;
               }
 
@@ -358,8 +366,9 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
         }
       }
     }
-}
-}
+  }
+  }
+  }
 }
 
 TEST_F(WriteCallbackTest, WriteCallBackTest) {

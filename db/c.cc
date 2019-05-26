@@ -2473,6 +2473,11 @@ void rocksdb_options_set_enable_pipelined_write(rocksdb_options_t* opt,
   opt->rep.enable_pipelined_write = v;
 }
 
+void rocksdb_options_set_unordered_write(rocksdb_options_t* opt,
+                                         unsigned char v) {
+  opt->rep.unordered_write = v;
+}
+
 void rocksdb_options_set_max_subcompactions(rocksdb_options_t* opt,
                                             uint32_t n) {
   opt->rep.max_subcompactions = n;
@@ -3266,6 +3271,22 @@ void rocksdb_env_set_high_priority_background_threads(rocksdb_env_t* env, int n)
 
 void rocksdb_env_join_all_threads(rocksdb_env_t* env) {
   env->rep->WaitForJoin();
+}
+
+void rocksdb_env_lower_thread_pool_io_priority(rocksdb_env_t* env) {
+  env->rep->LowerThreadPoolIOPriority();
+}
+
+void rocksdb_env_lower_high_priority_thread_pool_io_priority(rocksdb_env_t* env) {
+  env->rep->LowerThreadPoolIOPriority(Env::HIGH);
+}
+
+void rocksdb_env_lower_thread_pool_cpu_priority(rocksdb_env_t* env) {
+  env->rep->LowerThreadPoolCPUPriority();
+}
+
+void rocksdb_env_lower_high_priority_thread_pool_cpu_priority(rocksdb_env_t* env) {
+  env->rep->LowerThreadPoolCPUPriority(Env::HIGH);
 }
 
 void rocksdb_env_destroy(rocksdb_env_t* env) {

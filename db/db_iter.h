@@ -21,11 +21,36 @@
 
 namespace rocksdb {
 
+// This file declares the factory functions of DBIter, in its original form
+// or a wrapped form with class ArenaWrappedDBIter, which is defined here.
+// Class DBIter, which is declared and implemented inside db_iter.cc, is
+// a iterator that converts internal keys (yielded by an InternalIterator)
+// that were live at the specified sequence number into appropriate user
+// keys.
+// Each internal key is consist of a user key, a sequence number, and a value
+// type. DBIter deals with multiple key versions, tombstones, merge operands,
+// etc, and exposes an Iterator.
+// For example, DBIter may wrap following InternalIterator:
+//    user key: AAA  value: v3   seqno: 100    type: Put
+//    user key: AAA  value: v2   seqno: 97     type: Put
+//    user key: AAA  value: v1   seqno: 95     type: Put
+//    user key: BBB  value: v1   seqno: 90     type: Put
+//    user key: BBC  value: N/A  seqno: 98     type: Delete
+//    user key: BBC  value: v1   seqno: 95     type: Put
+// If the snapshot passed in is 102, then the DBIter is expected to
+// expose the following iterator:
+//    key: AAA  value: v3
+//    key: BBB  value: v1
+// If the snapshot passed in is 96, then it should expose:
+//    key: AAA  value: v1
+//    key: BBB  value: v1
+//    key: BBC  value: v1
+//
 class Arena;
 class DBIter;
 
 // Return a new iterator that converts internal keys (yielded by
-// "*internal_iter") that were live at the specified "sequence" number
+// "*internal_iter") that were live at the specified `sequence` number
 // into appropriate user keys.
 extern Iterator* NewDBIterator(
     Env* env, const ReadOptions& read_options,
@@ -41,6 +66,8 @@ extern Iterator* NewDBIterator(
 // a iterator hierarchy whose memory can be allocated inline. In that way,
 // accessing the iterator tree can be more cache friendly. It is also faster
 // to allocate.
+// When using the class's Iterator interface, the behavior is exactly
+// the same as the inner DBIter.
 class ArenaWrappedDBIter : public Iterator {
  public:
   virtual ~ArenaWrappedDBIter();

@@ -20,7 +20,8 @@ class WriteUnpreparedTransactionTestBase : public TransactionTestBase {
   WriteUnpreparedTransactionTestBase(bool use_stackable_db,
                                      bool two_write_queue,
                                      TxnDBWritePolicy write_policy)
-      : TransactionTestBase(use_stackable_db, two_write_queue, write_policy){}
+      : TransactionTestBase(use_stackable_db, two_write_queue, write_policy,
+                            kOrderedWrite) {}
 };
 
 class WriteUnpreparedTransactionTest

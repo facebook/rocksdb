@@ -18,7 +18,6 @@
 namespace rocksdb {
 
 #ifndef ROCKSDB_LITE
-
 DBImplSecondary::DBImplSecondary(const DBOptions& db_options,
                                  const std::string& dbname)
     : DBImpl(db_options, dbname) {
@@ -35,6 +34,7 @@ Status DBImplSecondary::Recover(
     bool /*error_if_data_exists_in_logs*/) {
   mutex_.AssertHeld();
 
+  JobContext job_context(0);
   Status s;
   s = static_cast<ReactiveVersionSet*>(versions_.get())
           ->Recover(column_families, &manifest_reader_, &manifest_reporter_,
@@ -59,49 +59,67 @@ Status DBImplSecondary::Recover(
     single_column_family_mode_ =
         versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;
 
-    // Recover from all newer log files than the ones named in the
-    // descriptor.
-    std::vector<std::string> filenames;
-    s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
-    if (s.IsNotFound()) {
-      return Status::InvalidArgument("Failed to open wal_dir",
-                                     immutable_db_options_.wal_dir);
-    } else if (!s.ok()) {
-      return s;
-    }
-
-    std::vector<uint64_t> logs;
-    // if log_readers_ is non-empty, it means we have applied all logs with log
-    // numbers smaller than the smallest log in log_readers_, so there is no
-    // need to pass these logs to RecoverLogFiles
-    uint64_t log_number_min = 0;
-    if (log_readers_.size() > 0) {
-      log_number_min = log_readers_.begin()->first;
-    }
-    for (size_t i = 0; i < filenames.size(); i++) {
-      uint64_t number;
-      FileType type;
-      if (ParseFileName(filenames[i], &number, &type) && type == kLogFile &&
-          number >= log_number_min) {
-        logs.push_back(number);
-      }
-    }
-
-    if (!logs.empty()) {
-      // Recover in the order in which the logs were generated
-      std::sort(logs.begin(), logs.end());
-      SequenceNumber next_sequence(kMaxSequenceNumber);
-      s = RecoverLogFiles(logs, &next_sequence, true /*read_only*/);
-    }
+    std::unordered_set<ColumnFamilyData*> cfds_changed;
+    s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
   }
 
   // TODO: update options_file_number_ needed?
 
+  job_context.Clean();
   return s;
 }
 
-// try to find log reader using log_number from log_readers_ map, initialize
-// if it doesn't exist
+// find new WAL and apply them in order to the secondary instance
+Status DBImplSecondary::FindAndRecoverLogFiles(
+    std::unordered_set<ColumnFamilyData*>* cfds_changed,
+    JobContext* job_context) {
+  assert(nullptr != cfds_changed);
+  assert(nullptr != job_context);
+  Status s;
+  std::vector<uint64_t> logs;
+  s = FindNewLogNumbers(&logs);
+  if (s.ok() && !logs.empty()) {
+    SequenceNumber next_sequence(kMaxSequenceNumber);
+    s = RecoverLogFiles(logs, &next_sequence, cfds_changed, job_context);
+  }
+  return s;
+}
+
+// List wal_dir and find all new WALs, return these log numbers
+Status DBImplSecondary::FindNewLogNumbers(std::vector<uint64_t>* logs) {
+  assert(logs != nullptr);
+  std::vector<std::string> filenames;
+  Status s;
+  s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
+  if (s.IsNotFound()) {
+    return Status::InvalidArgument("Failed to open wal_dir",
+                                   immutable_db_options_.wal_dir);
+  } else if (!s.ok()) {
+    return s;
+  }
+
+  // if log_readers_ is non-empty, it means we have applied all logs with log
+  // numbers smaller than the smallest log in log_readers_, so there is no
+  // need to pass these logs to RecoverLogFiles
+  uint64_t log_number_min = 0;
+  if (log_readers_.size() > 0) {
+    log_number_min = log_readers_.begin()->first;
+  }
+  for (size_t i = 0; i < filenames.size(); i++) {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(filenames[i], &number, &type) && type == kLogFile &&
+        number >= log_number_min) {
+      logs->push_back(number);
+    }
+  }
+  // Recover logs in the order that they were generated
+  if (!logs->empty()) {
+    std::sort(logs->begin(), logs->end());
+  }
+  return s;
+}
+
 Status DBImplSecondary::MaybeInitLogReader(
     uint64_t log_number, log::FragmentBufferedReader** log_reader) {
   auto iter = log_readers_.find(log_number);
@@ -149,7 +167,10 @@ Status DBImplSecondary::MaybeInitLogReader(
 // REQUIRES: log_numbers are sorted in ascending order
 Status DBImplSecondary::RecoverLogFiles(
     const std::vector<uint64_t>& log_numbers, SequenceNumber* next_sequence,
-    bool /*read_only*/) {
+    std::unordered_set<ColumnFamilyData*>* cfds_changed,
+    JobContext* job_context) {
+  assert(nullptr != cfds_changed);
+  assert(nullptr != job_context);
   mutex_.AssertHeld();
   Status status;
   for (auto log_number : log_numbers) {
@@ -182,6 +203,39 @@ Status DBImplSecondary::RecoverLogFiles(
         continue;
       }
       WriteBatchInternal::SetContents(&batch, record);
+      std::vector<uint32_t> column_family_ids;
+      status = CollectColumnFamilyIdsFromWriteBatch(batch, &column_family_ids);
+      if (status.ok()) {
+        SequenceNumber seq = versions_->LastSequence();
+        for (const auto id : column_family_ids) {
+          ColumnFamilyData* cfd =
+              versions_->GetColumnFamilySet()->GetColumnFamily(id);
+          if (cfd == nullptr) {
+            continue;
+          }
+          if (cfds_changed->count(cfd) == 0) {
+            cfds_changed->insert(cfd);
+          }
+          auto curr_log_num = port::kMaxUint64;
+          if (cfd_to_current_log_.count(cfd) > 0) {
+            curr_log_num = cfd_to_current_log_[cfd];
+          }
+          // If the active memtable contains records added by replaying an
+          // earlier WAL, then we need to seal the memtable, add it to the
+          // immutable memtable list and create a new active memtable.
+          if (!cfd->mem()->IsEmpty() && (curr_log_num == port::kMaxUint64 ||
+                                         curr_log_num != log_number)) {
+            const MutableCFOptions mutable_cf_options =
+                *cfd->GetLatestMutableCFOptions();
+            MemTable* new_mem =
+                cfd->ConstructNewMemtable(mutable_cf_options, seq);
+            cfd->mem()->SetNextLogNumber(log_number);
+            cfd->imm()->Add(cfd->mem(), &job_context->memtables_to_free);
+            new_mem->Ref();
+            cfd->SetMemtable(new_mem);
+          }
+        }
+      }
       // do not check sequence number because user may toggle disableWAL
       // between writes which breaks sequence number continuity guarantee
 
@@ -192,12 +246,30 @@ Status DBImplSecondary::RecoverLogFiles(
       // That's why we set ignore missing column families to true
       // passing null flush_scheduler will disable memtable flushing which is
       // needed for secondary instances
-      bool has_valid_writes = false;
-      status = WriteBatchInternal::InsertInto(
-          &batch, column_family_memtables_.get(), nullptr /* flush_scheduler */,
-          true, log_number, this, false /* concurrent_memtable_writes */,
-          next_sequence, &has_valid_writes, seq_per_batch_, batch_per_txn_);
-      if (!status.ok()) {
+      if (status.ok()) {
+        bool has_valid_writes = false;
+        status = WriteBatchInternal::InsertInto(
+            &batch, column_family_memtables_.get(),
+            nullptr /* flush_scheduler */, true, log_number, this,
+            false /* concurrent_memtable_writes */, next_sequence,
+            &has_valid_writes, seq_per_batch_, batch_per_txn_);
+      }
+      if (status.ok()) {
+        for (const auto id : column_family_ids) {
+          ColumnFamilyData* cfd =
+              versions_->GetColumnFamilySet()->GetColumnFamily(id);
+          if (cfd == nullptr) {
+            continue;
+          }
+          std::unordered_map<ColumnFamilyData*, uint64_t>::iterator iter =
+              cfd_to_current_log_.find(cfd);
+          if (iter == cfd_to_current_log_.end()) {
+            cfd_to_current_log_.insert({cfd, log_number});
+          } else if (log_number > iter->second) {
+            iter->second = log_number;
+          }
+        }
+      } else {
         // We are treating this as a failure while reading since we read valid
         // blocks that do not form coherent data
         reader->GetReporter()->Corruption(record.size(), status);
@@ -377,17 +449,26 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   assert(versions_.get() != nullptr);
   assert(manifest_reader_.get() != nullptr);
   Status s;
+  // read the manifest and apply new changes to the secondary instance
   std::unordered_set<ColumnFamilyData*> cfds_changed;
+  JobContext job_context(0, true /*create_superversion*/);
   InstrumentedMutexLock lock_guard(&mutex_);
   s = static_cast<ReactiveVersionSet*>(versions_.get())
           ->ReadAndApply(&mutex_, &manifest_reader_, &cfds_changed);
+  // list wal_dir to discover new WALs and apply new changes to the secondary
+  // instance
   if (s.ok()) {
-    SuperVersionContext sv_context(true /* create_superversion */);
+    s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
+  }
+  if (s.ok()) {
     for (auto cfd : cfds_changed) {
-      sv_context.NewSuperVersion();
+      cfd->imm()->RemoveOldMemTables(cfd->GetLogNumber(),
+                                     &job_context.memtables_to_free);
+      auto& sv_context = job_context.superversion_contexts.back();
       cfd->InstallSuperVersion(&sv_context, &mutex_);
+      sv_context.NewSuperVersion();
     }
-    sv_context.Clean();
+    job_context.Clean();
   }
   return s;
 }

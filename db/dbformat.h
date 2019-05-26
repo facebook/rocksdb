@@ -28,6 +28,12 @@
 
 namespace rocksdb {
 
+// The file declares data structures and functions that deal with internal
+// keys.
+// Each internal key contains a user key, a sequence number (SequenceNumber)
+// and a type (ValueType), and they are usually encoded together.
+// There are some related helper classes here.
+
 class InternalKey;
 
 // Value types encoded as the last component of internal keys.
@@ -88,6 +94,8 @@ static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 
 static const SequenceNumber kDisableGlobalSequenceNumber = port::kMaxUint64;
 
+// The data structure that represents an internal key in the way that user_key,
+// sequence number and type are stored in separated forms.
 struct ParsedInternalKey {
   Slice user_key;
   SequenceNumber sequence;
@@ -192,9 +200,7 @@ class InternalKeyComparator
   }
 };
 
-// Modules in this directory should keep internal keys wrapped inside
-// the following class instead of plain strings so that we do not
-// incorrectly use string comparisons instead of an InternalKeyComparator.
+// The class represent the internal key in encoded form.
 class InternalKey {
  private:
   std::string rep_;
@@ -295,6 +301,12 @@ inline uint64_t GetInternalKeySeqno(const Slice& internal_key) {
   return num >> 8;
 }
 
+// The class to store keys in an efficient way. It allows:
+// 1. Users can either copy the key into it, or have it point to an unowned
+//    address.
+// 2. For copied key, a short inline buffer is kept to reduce memory
+//    allocation for smaller keys.
+// 3. It tracks user key or internal key, and allow conversion between them.
 class IterKey {
  public:
   IterKey()
@@ -506,6 +518,8 @@ class IterKey {
   void operator=(const IterKey&) = delete;
 };
 
+// Convert from a SliceTranform of user keys, to a SliceTransform of
+// user keys.
 class InternalKeySliceTransform : public SliceTransform {
  public:
   explicit InternalKeySliceTransform(const SliceTransform* transform)
@@ -631,6 +645,7 @@ inline int InternalKeyComparator::CompareKeySeq(const Slice& akey,
   return r;
 }
 
+// Wrap InternalKeyComparator as a comparator class for ParsedInternalKey.
 struct ParsedInternalKeyComparator {
   explicit ParsedInternalKeyComparator(const InternalKeyComparator* c)
       : cmp(c) {}

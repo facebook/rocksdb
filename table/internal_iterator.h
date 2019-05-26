@@ -17,10 +17,16 @@ namespace rocksdb {
 
 class PinnedIteratorsManager;
 
+struct IterateResult {
+  Slice key;
+  bool may_be_out_of_upper_bound;
+};
+
 template <class TValue>
 class InternalIteratorBase : public Cleanable {
  public:
-  InternalIteratorBase() {}
+  InternalIteratorBase() : is_mutable_(true) {}
+  InternalIteratorBase(bool _is_mutable) : is_mutable_(_is_mutable) {}
   virtual ~InternalIteratorBase() {}
 
   // An iterator is either positioned at a key/value pair, or
@@ -54,11 +60,20 @@ class InternalIteratorBase : public Cleanable {
   // REQUIRES: Valid()
   virtual void Next() = 0;
 
-  virtual bool NextAndGetResult(Slice* ret_key) {
+  // Moves to the next entry in the source, and return result. Iterator
+  // implementation should override this method to help methods inline better,
+  // or when MayBeOutOfUpperBound() is non-trivial.
+  // REQUIRES: Valid()
+  virtual bool NextAndGetResult(IterateResult* result) {
     Next();
     bool is_valid = Valid();
     if (is_valid) {
-      *ret_key = key();
+      result->key = key();
+      // Default may_be_out_of_upper_bound to true to avoid unnecessary virtual
+      // call. If an implementation has non-trivial MayBeOutOfUpperBound(),
+      // it should also override NextAndGetResult().
+      result->may_be_out_of_upper_bound = true;
+      assert(MayBeOutOfUpperBound());
     }
     return is_valid;
   }
@@ -93,6 +108,13 @@ class InternalIteratorBase : public Cleanable {
   // upper bound
   virtual bool IsOutOfBound() { return false; }
 
+  // Keys return from this iterator can be smaller than iterate_lower_bound.
+  virtual bool MayBeOutOfLowerBound() { return true; }
+
+  // Keys return from this iterator can be larger or equal to
+  // iterate_upper_bound.
+  virtual bool MayBeOutOfUpperBound() { return true; }
+
   // Pass the PinnedIteratorsManager to the Iterator, most Iterators dont
   // communicate with PinnedIteratorsManager so default implementation is no-op
   // but for Iterators that need to communicate with PinnedIteratorsManager
@@ -119,6 +141,7 @@ class InternalIteratorBase : public Cleanable {
   virtual Status GetProperty(std::string /*prop_name*/, std::string* /*prop*/) {
     return Status::NotSupported("");
   }
+  bool is_mutable() const { return is_mutable_; }
 
  protected:
   void SeekForPrevImpl(const Slice& target, const Comparator* cmp) {
@@ -130,6 +153,7 @@ class InternalIteratorBase : public Cleanable {
       Prev();
     }
   }
+  bool is_mutable_;
 
  private:
   // No copying allowed

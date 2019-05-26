@@ -229,10 +229,12 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
   // This will release and re-acquire the mutex.
   Status s = WriteLevel0Table();
 
-  if (s.ok() &&
-      (shutting_down_->load(std::memory_order_acquire) || cfd_->IsDropped())) {
-    s = Status::ShutdownInProgress(
-        "Database shutdown or Column family drop during flush");
+  if (s.ok() && cfd_->IsDropped()) {
+    s = Status::ColumnFamilyDropped("Column family dropped during compaction");
+  }
+  if ((s.ok() || s.IsColumnFamilyDropped()) &&
+      shutting_down_->load(std::memory_order_acquire)) {
+    s = Status::ShutdownInProgress("Database shutdown");
   }
 
   if (!s.ok()) {

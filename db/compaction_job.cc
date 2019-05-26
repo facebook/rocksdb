@@ -415,7 +415,6 @@ void CompactionJob::Prepare() {
 
   write_hint_ =
       c->column_family_data()->CalculateSSTWriteHint(c->output_level());
-  // Is this compaction producing files at the bottommost level?
   bottommost_level_ = c->bottommost_level();
 
   if (c->ShouldFormSubcompactions()) {
@@ -445,11 +444,6 @@ struct RangeWithSize {
       : range(a, b), size(s) {}
 };
 
-// Generates a histogram representing potential divisions of key ranges from
-// the input. It adds the starting and/or ending keys of certain input files
-// to the working set and then finds the approximate size of data in between
-// each consecutive pair of slices. Then it divides these ranges into
-// consecutive groups such that each group has a similar size.
 void CompactionJob::GenSubcompactionBoundaries() {
   auto* c = compact_->compaction;
   auto* cfd = c->column_family_data();
@@ -519,7 +513,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
   auto* v = compact_->compaction->input_version();
   for (auto it = bounds.begin();;) {
     const Slice a = *it;
-    it++;
+    ++it;
 
     if (it == bounds.end()) {
       break;
@@ -1004,10 +998,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   RecordDroppedKeys(c_iter_stats, &sub_compact->compaction_job_stats);
   RecordCompactionIOStats();
 
-  if (status.ok() &&
-      (shutting_down_->load(std::memory_order_relaxed) || cfd->IsDropped())) {
-    status = Status::ShutdownInProgress(
-        "Database shutdown or Column family drop during compaction");
+  if (status.ok() && cfd->IsDropped()) {
+    status =
+        Status::ColumnFamilyDropped("Column family dropped during compaction");
+  }
+  if ((status.ok() || status.IsColumnFamilyDropped()) &&
+      shutting_down_->load(std::memory_order_relaxed)) {
+    status = Status::ShutdownInProgress("Database shutdown");
   }
   if (status.ok()) {
     status = input->status();

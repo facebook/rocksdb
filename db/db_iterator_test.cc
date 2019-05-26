@@ -2548,6 +2548,75 @@ TEST_P(DBIteratorTest, AvoidReseekLevelIterator) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_P(DBIteratorTest, AvoidReseekChildIterator) {
+  Options options = CurrentOptions();
+  options.compression = CompressionType::kNoCompression;
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 800;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+
+  Random rnd(301);
+  std::string random_str = RandomString(&rnd, 180);
+
+  ASSERT_OK(Put("1", random_str));
+  ASSERT_OK(Put("2", random_str));
+  ASSERT_OK(Put("3", random_str));
+  ASSERT_OK(Put("4", random_str));
+  ASSERT_OK(Put("8", random_str));
+  ASSERT_OK(Put("9", random_str));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("5", random_str));
+  ASSERT_OK(Put("6", random_str));
+  ASSERT_OK(Put("7", random_str));
+  ASSERT_OK(Flush());
+
+  // These two keys will be kept in memtable.
+  ASSERT_OK(Put("0", random_str));
+  ASSERT_OK(Put("8", random_str));
+
+  int num_iter_wrapper_seek = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "IteratorWrapper::Seek:0",
+      [&](void* /*arg*/) { num_iter_wrapper_seek++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+  {
+    std::unique_ptr<Iterator> iter(NewIterator(ReadOptions()));
+    iter->Seek("1");
+    ASSERT_TRUE(iter->Valid());
+    // DBIter always wraps internal iterator with IteratorWrapper,
+    // and in merging iterator each child iterator will be wrapped
+    // with IteratorWrapper.
+    ASSERT_EQ(4, num_iter_wrapper_seek);
+
+    // child position: 1 and 5
+    num_iter_wrapper_seek = 0;
+    iter->Seek("2");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(3, num_iter_wrapper_seek);
+
+    // child position: 2 and 5
+    num_iter_wrapper_seek = 0;
+    iter->Seek("6");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(4, num_iter_wrapper_seek);
+
+    // child position: 8 and 6
+    num_iter_wrapper_seek = 0;
+    iter->Seek("7");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(3, num_iter_wrapper_seek);
+
+    // child position: 8 and 7
+    num_iter_wrapper_seek = 0;
+    iter->Seek("5");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(4, num_iter_wrapper_seek);
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
 INSTANTIATE_TEST_CASE_P(DBIteratorTestInstance, DBIteratorTest,
                         testing::Values(true, false));
 

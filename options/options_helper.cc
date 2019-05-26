@@ -103,6 +103,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.enable_thread_tracking = immutable_db_options.enable_thread_tracking;
   options.delayed_write_rate = mutable_db_options.delayed_write_rate;
   options.enable_pipelined_write = immutable_db_options.enable_pipelined_write;
+  options.unordered_write = immutable_db_options.unordered_write;
   options.allow_concurrent_memtable_write =
       immutable_db_options.allow_concurrent_memtable_write;
   options.enable_write_thread_adaptive_yield =
@@ -254,7 +255,7 @@ const std::string kNameMergeOperator = "merge_operator";
 template <typename T>
 Status GetStringFromStruct(
     std::string* opt_string, const T& options,
-    const std::unordered_map<std::string, OptionTypeInfo> type_info,
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info,
     const std::string& delimiter);
 
 namespace {
@@ -349,7 +350,7 @@ bool FIFOCompactionOptionsSpecialCase(const std::string& opt_str,
 template <typename T>
 bool SerializeStruct(
     const T& options, std::string* value,
-    std::unordered_map<std::string, OptionTypeInfo> type_info_map) {
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info_map) {
   std::string opt_str;
   Status s = GetStringFromStruct(&opt_str, options, type_info_map, ";");
   if (!s.ok()) {
@@ -362,7 +363,7 @@ bool SerializeStruct(
 template <typename T>
 bool ParseSingleStructOption(
     const std::string& opt_val_str, T* options,
-    std::unordered_map<std::string, OptionTypeInfo> type_info_map) {
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info_map) {
   size_t end = opt_val_str.find('=');
   std::string key = opt_val_str.substr(0, end);
   std::string value = opt_val_str.substr(end + 1);
@@ -379,7 +380,7 @@ bool ParseSingleStructOption(
 template <typename T>
 bool ParseStructOptions(
     const std::string& opt_str, T* options,
-    std::unordered_map<std::string, OptionTypeInfo> type_info_map) {
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info_map) {
   assert(!opt_str.empty());
 
   size_t start = 0;
@@ -1091,7 +1092,7 @@ Status ParseColumnFamilyOption(const std::string& name,
 template <typename T>
 bool SerializeSingleStructOption(
     std::string* opt_string, const T& options,
-    const std::unordered_map<std::string, OptionTypeInfo> type_info,
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info,
     const std::string& name, const std::string& delimiter) {
   auto iter = type_info.find(name);
   if (iter == type_info.end()) {
@@ -1111,7 +1112,7 @@ bool SerializeSingleStructOption(
 template <typename T>
 Status GetStringFromStruct(
     std::string* opt_string, const T& options,
-    const std::unordered_map<std::string, OptionTypeInfo> type_info,
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info,
     const std::string& delimiter) {
   assert(opt_string);
   opt_string->clear();
@@ -1583,6 +1584,9 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"enable_pipelined_write",
          {offsetof(struct DBOptions, enable_pipelined_write),
           OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
+        {"unordered_write",
+         {offsetof(struct DBOptions, unordered_write), OptionType::kBoolean,
+          OptionVerificationType::kNormal, false, 0}},
         {"allow_concurrent_memtable_write",
          {offsetof(struct DBOptions, allow_concurrent_memtable_write),
           OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},

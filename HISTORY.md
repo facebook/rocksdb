@@ -4,8 +4,23 @@
 * Now DB::Close() will return Aborted() error when there is unreleased snapshot. Users can retry after all snapshots are released.
 
 ### New Features
-* Reduce binary search when iterator reseek into the same data block.
 * Add an option `snap_refresh_nanos` (default to 0.1s) to periodically refresh the snapshot list in compaction jobs. Assign to 0 to disable the feature.
+* Add an option `unordered_write` which trades snapshot guarantees with higher write throughput. When used with WRITE_PREPARED transactions with two_write_queues=true, it offers higher throughput with however no compromise on guarantees.
+* Allow DBImplSecondary to remove memtables with obsolete data after replaying MANIFEST and WAL.
+* Add an option `failed_move_fall_back_to_copy` (default is true) for external SST ingestion. When `move_files` is true and hard link fails, ingestion falls back to copy if `failed_move_fall_back_to_copy` is true. Otherwise, ingestion reports an error.
+
+### Performance Improvements
+* Reduce binary search when iterator reseek into the same data block.
+* DBIter::Next() can skip user key checking if previous entry's seqnum is 0.
+* Merging iterator to avoid child iterator reseek for some cases
+* Reduce iterator key comparision for upper/lower bound check.
+* Log Writer will flush after finishing the whole record, rather than a fragment.
+
+### General Improvements
+* Added new status code kColumnFamilyDropped to distinguish between Column Family Dropped and DB Shutdown in progress.
+
+### Bug Fixes
+
 
 ## 6.2.0 (4/30/2019)
 ### New Features
@@ -26,6 +41,7 @@
 * Fix a race condition between WritePrepared::Get and ::Put with duplicate keys.
 * Fix crash when memtable prefix bloom is enabled and read/write a key out of domain of prefix extractor.
 * Close a WAL file before another thread deletes it.
+* Fix an assertion failure `IsFlushPending() == true` caused by one bg thread releasing the db mutex in ~ColumnFamilyData and another thread clearing `flush_requested_` flag.
 
 ## 6.1.1 (4/9/2019)
 ### New Features

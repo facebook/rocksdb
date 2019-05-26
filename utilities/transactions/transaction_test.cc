@@ -42,40 +42,44 @@ namespace rocksdb {
 
 INSTANTIATE_TEST_CASE_P(
     DBAsBaseDB, TransactionTest,
-    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
-                      std::make_tuple(false, true, WRITE_COMMITTED),
-                      std::make_tuple(false, false, WRITE_PREPARED),
-                      std::make_tuple(false, true, WRITE_PREPARED),
-                      std::make_tuple(false, false, WRITE_UNPREPARED),
-                      std::make_tuple(false, true, WRITE_UNPREPARED)));
+    ::testing::Values(
+        std::make_tuple(false, false, WRITE_COMMITTED, kOrderedWrite),
+        std::make_tuple(false, true, WRITE_COMMITTED, kOrderedWrite),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite),
+        std::make_tuple(false, false, WRITE_UNPREPARED, kOrderedWrite),
+        std::make_tuple(false, true, WRITE_UNPREPARED, kOrderedWrite)));
 INSTANTIATE_TEST_CASE_P(
     DBAsBaseDB, TransactionStressTest,
-    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
-                      std::make_tuple(false, true, WRITE_COMMITTED),
-                      std::make_tuple(false, false, WRITE_PREPARED),
-                      std::make_tuple(false, true, WRITE_PREPARED),
-                      std::make_tuple(false, false, WRITE_UNPREPARED),
-                      std::make_tuple(false, true, WRITE_UNPREPARED)));
+    ::testing::Values(
+        std::make_tuple(false, false, WRITE_COMMITTED, kOrderedWrite),
+        std::make_tuple(false, true, WRITE_COMMITTED, kOrderedWrite),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite),
+        std::make_tuple(false, false, WRITE_UNPREPARED, kOrderedWrite),
+        std::make_tuple(false, true, WRITE_UNPREPARED, kOrderedWrite)));
 INSTANTIATE_TEST_CASE_P(
     StackableDBAsBaseDB, TransactionTest,
-    ::testing::Values(std::make_tuple(true, true, WRITE_COMMITTED),
-                      std::make_tuple(true, true, WRITE_PREPARED),
-                      std::make_tuple(true, true, WRITE_UNPREPARED)));
+    ::testing::Values(
+        std::make_tuple(true, true, WRITE_COMMITTED, kOrderedWrite),
+        std::make_tuple(true, true, WRITE_PREPARED, kOrderedWrite),
+        std::make_tuple(true, true, WRITE_UNPREPARED, kOrderedWrite)));
 
 // MySQLStyleTransactionTest takes far too long for valgrind to run.
 #ifndef ROCKSDB_VALGRIND_RUN
 INSTANTIATE_TEST_CASE_P(
     MySQLStyleTransactionTest, MySQLStyleTransactionTest,
-    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED, false),
-                      std::make_tuple(false, true, WRITE_COMMITTED, false),
-                      std::make_tuple(false, false, WRITE_PREPARED, false),
-                      std::make_tuple(false, false, WRITE_PREPARED, true),
-                      std::make_tuple(false, true, WRITE_PREPARED, false),
-                      std::make_tuple(false, true, WRITE_PREPARED, true),
-                      std::make_tuple(false, false, WRITE_UNPREPARED, false),
-                      std::make_tuple(false, false, WRITE_UNPREPARED, true),
-                      std::make_tuple(false, true, WRITE_UNPREPARED, false),
-                      std::make_tuple(false, true, WRITE_UNPREPARED, true)));
+    ::testing::Values(
+        std::make_tuple(false, false, WRITE_COMMITTED, kOrderedWrite, false),
+        std::make_tuple(false, true, WRITE_COMMITTED, kOrderedWrite, false),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, false),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, true),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, false),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, true),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, false),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, true)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
@@ -559,7 +563,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
     TransactionID leaf_id =
         dlock_entry[dlock_entry.size() - 1].m_txn_id - offset_root;
 
-    for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); it++) {
+    for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); ++it) {
       auto dl_node = *it;
       ASSERT_EQ(dl_node.m_txn_id, offset_root + leaf_id);
       ASSERT_EQ(dl_node.m_cf_id, 0);
@@ -766,7 +770,7 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
     }
 
     // Iterates backwards over path verifying decreasing txn_ids.
-    for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); it++) {
+    for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); ++it) {
       auto dl_node = *it;
       ASSERT_EQ(dl_node.m_txn_id, len + curr_txn_id - 1);
       ASSERT_EQ(dl_node.m_cf_id, 0);
@@ -5088,6 +5092,9 @@ Status TransactionStressTestInserter(
   WriteOptions write_options;
   ReadOptions read_options;
   TransactionOptions txn_options;
+  if (rand->OneIn(2)) {
+    txn_options.use_only_the_last_commit_time_batch_for_recovery = true;
+  }
   // Inside the inserter we might also retake the snapshot. We do both since two
   // separte functions are engaged for each.
   txn_options.set_snapshot = rand->OneIn(2);
@@ -5646,7 +5653,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     }    // do_rollback
   }      // do_prepare
 
-  {
+  if (!options.unordered_write) {
     // Also test with max_successive_merges > 0. max_successive_merges will not
     // affect our algorithm for duplicate key insertion but we add the test to
     // verify that.
@@ -5697,6 +5704,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
 
     std::unique_ptr<const Comparator> comp_gc(new ThreeBytewiseComparator());
     cf_options.comparator = comp_gc.get();
+    cf_options.merge_operator = MergeOperators::CreateStringAppendOperator();
     ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &cf_handle));
     delete cf_handle;
     std::vector<ColumnFamilyDescriptor> cfds{

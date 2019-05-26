@@ -762,6 +762,9 @@ DEFINE_bool(use_stderr_info_logger, false,
 
 DEFINE_string(trace_file, "", "Trace workload to a file. ");
 
+DEFINE_int32(trace_replay_fast_forward, 1,
+             "Fast forward trace replay, must >= 1. ");
+
 static enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   assert(ctype);
 
@@ -889,6 +892,9 @@ DEFINE_uint64(delayed_write_rate, 8388608u,
               "level0_slowdown_writes_trigger triggers");
 
 DEFINE_bool(enable_pipelined_write, true,
+            "Allow WAL and memtable writes to be pipelined");
+
+DEFINE_bool(unordered_write, false,
             "Allow WAL and memtable writes to be pipelined");
 
 DEFINE_bool(allow_concurrent_memtable_write, true,
@@ -2102,10 +2108,10 @@ class Benchmark {
       cv_.SignalAll();
     }
 
-    bool WaitForRecovery(uint64_t /*abs_time_us*/) {
+    bool WaitForRecovery(uint64_t abs_time_us) {
       InstrumentedMutexLock l(&mutex_);
       if (!recovery_complete_) {
-        cv_.Wait(/*abs_time_us*/);
+        cv_.TimedWait(abs_time_us);
       }
       if (recovery_complete_) {
         recovery_complete_ = false;
@@ -3552,6 +3558,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     options.enable_write_thread_adaptive_yield =
         FLAGS_enable_write_thread_adaptive_yield;
     options.enable_pipelined_write = FLAGS_enable_pipelined_write;
+    options.unordered_write = FLAGS_unordered_write;
     options.write_thread_max_yield_usec = FLAGS_write_thread_max_yield_usec;
     options.write_thread_slow_yield_usec = FLAGS_write_thread_slow_yield_usec;
     options.rate_limit_delay_max_milliseconds =
@@ -6159,6 +6166,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
     Replayer replayer(db_with_cfh->db, db_with_cfh->cfh,
                       std::move(trace_reader));
+    replayer.SetFastForward(
+        static_cast<uint32_t>(FLAGS_trace_replay_fast_forward));
     s = replayer.Replay();
     if (s.ok()) {
       fprintf(stdout, "Replay started from trace_file: %s\n",

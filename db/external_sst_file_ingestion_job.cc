@@ -92,26 +92,27 @@ Status ExternalSstFileIngestionJob::Prepare(
   // Copy/Move external files into DB
   for (IngestedFileInfo& f : files_to_ingest_) {
     f.fd = FileDescriptor(next_file_number++, 0, f.file_size);
-
+    f.copy_file = false;
     const std::string path_outside_db = f.external_file_path;
     const std::string path_inside_db =
         TableFileName(cfd_->ioptions()->cf_paths, f.fd.GetNumber(),
                       f.fd.GetPathId());
-
     if (ingestion_options_.move_files) {
       status = env_->LinkFile(path_outside_db, path_inside_db);
-      if (status.IsNotSupported()) {
-        // Original file is on a different FS, use copy instead of hard linking
-        status = CopyFile(env_, path_outside_db, path_inside_db, 0,
-                          db_options_.use_fsync);
+      if (status.IsNotSupported() &&
+          ingestion_options_.failed_move_fall_back_to_copy) {
+        // Original file is on a different FS, use copy instead of hard linking.
         f.copy_file = true;
-      } else {
-        f.copy_file = false;
       }
     } else {
+      f.copy_file = true;
+    }
+
+    if (f.copy_file) {
+      TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:CopyFile",
+                               nullptr);
       status = CopyFile(env_, path_outside_db, path_inside_db, 0,
                         db_options_.use_fsync);
-      f.copy_file = true;
     }
     TEST_SYNC_POINT("ExternalSstFileIngestionJob::Prepare:FileAdded");
     if (!status.ok()) {

@@ -305,6 +305,7 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
                    &sleeping_task_after, Env::Priority::HIGH);
     // If background purge is enabled, the file should still be there.
     CheckFileTypeCounts(dbname_, 0, bg_purge ? 1 : 0, 1);
+    TEST_SYNC_POINT("DeleteFileTest::BackgroundPurgeCFDropTest:1");
 
     // Execute background purges.
     sleeping_task_after.WakeUp();
@@ -318,6 +319,13 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
     do_test(false);
   }
 
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DeleteFileTest::BackgroundPurgeCFDropTest:1",
+        "DBImpl::BGWorkPurge:start"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
   options_.avoid_unnecessary_blocking_io = true;
   ASSERT_OK(ReopenDB(false));
   {
@@ -326,6 +334,7 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
   }
 
   CloseDB();
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 // This test is to reproduce a bug that read invalid ReadOption in iterator

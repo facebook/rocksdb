@@ -1798,6 +1798,44 @@ TEST_P(BlockBasedTableTest, PartitionIndexTest) {
   }
 }
 
+TEST_P(BlockBasedTableTest, IndexSeekOptimizationIncomplete) {
+  std::unique_ptr<InternalKeyComparator> comparator(
+      new InternalKeyComparator(BytewiseComparator()));
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  Options options;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  const ImmutableCFOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+
+  TableConstructor c(BytewiseComparator());
+  AddInternalKey(&c, "pika");
+
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  c.Finish(options, ioptions, moptions, table_options, *comparator, &keys,
+           &kvmap);
+  ASSERT_EQ(1, keys.size());
+
+  auto reader = c.GetTableReader();
+  ReadOptions ropt;
+  ropt.read_tier = ReadTier::kBlockCacheTier;
+  std::unique_ptr<InternalIterator> iter(
+      reader->NewIterator(ropt, /* prefix_extractor */ nullptr));
+
+  auto ikey = [](Slice user_key) {
+    return InternalKey(user_key, 0, kTypeValue).Encode().ToString();
+  };
+
+  iter->Seek(ikey("pika"));
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsIncomplete());
+
+  // This used to crash at some point.
+  iter->Seek(ikey("pika"));
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsIncomplete());
+}
+
 // It's very hard to figure out the index block size of a block accurately.
 // To make sure we get the index size, we just make sure as key number
 // grows, the filter block size also grows.
