@@ -439,7 +439,7 @@ TEST_F(DBSSTTest, RateLimitedWALDelete) {
   ASSERT_OK(s);
   options.sst_file_manager->SetDeleteRateBytesPerSecond(rate_bytes_per_sec);
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
-  sfm->delete_scheduler()->SetMaxTrashDBRatio(2.1);
+  sfm->delete_scheduler()->SetMaxTrashDBRatio(3.1);
 
   ASSERT_OK(TryReopen(options));
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
