@@ -264,7 +264,7 @@ void SstFileManagerImpl::ClearError() {
       return;
     }
 
-    uint64_t free_space;
+    uint64_t free_space = 0;
     Status s = env_->GetFreeSpace(path_, &free_space);
     free_space = max_allowed_space_ > 0
                      ? std::min(max_allowed_space_, free_space)
