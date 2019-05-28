@@ -151,11 +151,6 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
 
   bool do_one_write = !db_impl_->immutable_db_options().two_write_queues;
   WriteOptions write_options(write_options_orig);
-  bool sync = write_options.sync;
-  if (!do_one_write) {
-    // No need to sync on the first write
-    write_options.sync = false;
-  }
   // In the absence of Prepare markers, use Noop as a batch separator
   WriteBatchInternal::InsertNoop(batch);
   const bool DISABLE_MEMTABLE = true;
@@ -192,8 +187,6 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   if (do_one_write) {
     return s;
   }  // else do the 2nd write for commit
-  // Set the original value of sync
-  write_options.sync = sync;
   ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
                     "CommitBatchInternal 2nd write prepare_seq: %" PRIu64,
                     prepare_seq);
@@ -203,10 +196,9 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   WritePreparedCommitEntryPreReleaseCallback update_commit_map_with_prepare(
       this, db_impl_, prepare_seq, batch_cnt, ZERO_COMMITS);
   WriteBatch empty_batch;
-  empty_batch.PutLogData(Slice());
-  const size_t ONE_BATCH = 1;
-  // In the absence of Prepare markers, use Noop as a batch separator
-  WriteBatchInternal::InsertNoop(&empty_batch);
+  write_options.disableWAL = true;
+  write_options.sync = false;
+  const size_t ONE_BATCH = 1; // Just to inc the seq
   s = db_impl_->WriteImpl(write_options, &empty_batch, nullptr, nullptr,
                           no_log_ref, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           &update_commit_map_with_prepare);

@@ -214,6 +214,8 @@ class TransactionTestBase : public ::testing::Test {
   std::atomic<size_t> exp_seq = {0};
   std::atomic<size_t> commit_writes = {0};
   std::atomic<size_t> expected_commits = {0};
+  // Without Prepare, the commit does not write to WAL
+  std::atomic<size_t> with_empty_commits = {0};
   std::function<void(size_t, Status)> txn_t0_with_status = [&](size_t index,
                                                                Status exp_s) {
     // Test DB's internal txn. It involves no prepare phase nor a commit marker.
@@ -231,6 +233,7 @@ class TransactionTestBase : public ::testing::Test {
         exp_seq++;
       }
     }
+    with_empty_commits++;
   };
   std::function<void(size_t)> txn_t0 = [&](size_t index) {
     return txn_t0_with_status(index, Status::OK());
@@ -257,6 +260,7 @@ class TransactionTestBase : public ::testing::Test {
       }
     }
     ASSERT_OK(s);
+    with_empty_commits++;
   };
   std::function<void(size_t)> txn_t2 = [&](size_t index) {
     // Commit without prepare. It should write to DB without a commit marker.
@@ -282,6 +286,7 @@ class TransactionTestBase : public ::testing::Test {
       }
     }
     delete txn;
+    with_empty_commits++;
   };
   std::function<void(size_t)> txn_t3 = [&](size_t index) {
     // A full 2pc txn that also involves a commit marker.
