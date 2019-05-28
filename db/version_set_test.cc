@@ -657,7 +657,7 @@ class VersionSetTestBase {
       new_cfs.emplace_back(new_cf);
     }
     *last_seqno = last_seq;
-    num_initial_edits = new_cfs.size() + 1;
+    num_initial_edits = static_cast<int>(new_cfs.size() + 1);
     const std::string manifest = DescriptorFileName(dbname_, 1);
     std::unique_ptr<WritableFile> file;
     Status s = env_->NewWritableFile(
