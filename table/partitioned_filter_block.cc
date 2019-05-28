@@ -238,18 +238,21 @@ PartitionedFilterBlockReader::GetFilterPartition(
   const bool is_a_filter_partition = true;
   auto block_cache = table_->rep_->table_options.block_cache.get();
   if (LIKELY(block_cache != nullptr)) {
-    if (filter_map_.size() != 0) {
-      auto iter = filter_map_.find(fltr_blk_handle.offset());
-      // This is a possible scenario since block cache might not have had space
-      // for the partition
-      if (iter != filter_map_.end()) {
-        PERF_COUNTER_ADD(block_cache_hit_count, 1);
-        RecordTick(statistics(), BLOCK_CACHE_FILTER_HIT);
-        RecordTick(statistics(), BLOCK_CACHE_HIT);
-        RecordTick(statistics(), BLOCK_CACHE_BYTES_READ,
-                   block_cache->GetUsage(iter->second.GetCacheHandle()));
-        return {iter->second.GetValue(), nullptr /* cache */,
-          nullptr /* cache_handle */, false /* own_value */};
+    {
+      MutexLock lock_guard(&mutex_);
+      if (filter_map_.size() != 0) {
+        auto iter = filter_map_.find(fltr_blk_handle.offset());
+        // This is a possible scenario since block cache might not have had space
+        // for the partition
+        if (iter != filter_map_.end()) {
+          PERF_COUNTER_ADD(block_cache_hit_count, 1);
+          RecordTick(statistics(), BLOCK_CACHE_FILTER_HIT);
+          RecordTick(statistics(), BLOCK_CACHE_HIT);
+          RecordTick(statistics(), BLOCK_CACHE_BYTES_READ,
+                     block_cache->GetUsage(iter->second.GetCacheHandle()));
+          return {iter->second.GetValue(), nullptr /* cache */,
+            nullptr /* cache_handle */, false /* own_value */};
+        }
       }
     }
     return table_->GetFilter(/*prefetch_buffer*/ nullptr, fltr_blk_handle,
@@ -312,6 +315,7 @@ void PartitionedFilterBlockReader::CacheDependencies(
         /* get_context */ nullptr, prefix_extractor);
     if (LIKELY(filter.IsCached())) {
       if (pin) {
+        MutexLock lock_guard(&mutex_);
         filter_map_[handle.offset()] = std::move(filter);
       }
     }

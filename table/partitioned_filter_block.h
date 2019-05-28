@@ -19,6 +19,7 @@
 #include "table/full_filter_block.h"
 #include "table/index_builder.h"
 #include "util/autovector.h"
+#include "util/mutexlock.h"
 
 namespace rocksdb {
 
@@ -106,6 +107,7 @@ class PartitionedFilterBlockReader : public FilterBlockReader {
   const bool index_key_includes_seq_;
   const bool index_value_is_full_;
   std::unordered_map<uint64_t, CachableEntry<FilterBlockReader>> filter_map_;
+  port::Mutex mutex_;
 };
 
 }  // namespace rocksdb
