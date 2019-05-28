@@ -522,23 +522,16 @@ Status PessimisticTransactionDB::Merge(const WriteOptions& options,
 
 Status PessimisticTransactionDB::Write(const WriteOptions& opts,
                                        WriteBatch* updates) {
-  // Need to lock all keys in this batch to prevent write conflicts with
-  // concurrent transactions.
-  Transaction* txn = BeginInternalTransaction(opts);
-  txn->DisableIndexing();
+  return WriteWithConcurrencyControl(opts, updates);
+}
 
-  auto txn_impl =
-      static_cast_with_check<PessimisticTransaction, Transaction>(txn);
-
-  // Since commitBatch sorts the keys before locking, concurrent Write()
-  // operations will not cause a deadlock.
-  // In order to avoid a deadlock with a concurrent Transaction, Transactions
-  // should use a lock timeout.
-  Status s = txn_impl->CommitBatch(updates);
-
-  delete txn;
-
-  return s;
+Status WriteCommittedTxnDB::Write(const WriteOptions& opts,
+                                  WriteBatch* updates) {
+  if (txn_db_options_.skip_concurrency_control) {
+    return db_impl_->Write(opts, updates);
+  } else {
+    return WriteWithConcurrencyControl(opts, updates);
+  }
 }
 
 Status WriteCommittedTxnDB::Write(
@@ -547,7 +540,7 @@ Status WriteCommittedTxnDB::Write(
   if (optimizations.skip_concurrency_control) {
     return db_impl_->Write(opts, updates);
   } else {
-    return Write(opts, updates);
+    return WriteWithConcurrencyControl(opts, updates);
   }
 }
 
