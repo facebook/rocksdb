@@ -212,8 +212,6 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
   virtual Status Write(const WriteOptions& opts,
                        const TransactionDBWriteOptimizations& optimizations,
                        WriteBatch* updates) override;
-
-  using TransactionDB::Write;
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 };
 
