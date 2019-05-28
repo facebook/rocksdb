@@ -372,6 +372,11 @@ bool ParseSingleStructOption(
     return false;
   }
   const auto& opt_info = iter->second;
+  if (opt_info.verification == OptionVerificationType::kDeprecated) {
+    // Should also skip deprecated sub-options such as
+    // fifo_compaction_options_type_info.ttl
+    return true;
+  }
   return ParseOptionHelper(
       reinterpret_cast<char*>(options) + opt_info.mutable_offset, opt_info.type,
       value);
