@@ -24,11 +24,26 @@
 
 namespace rocksdb {
 
+// The file contains an abstract class CompactionPicker, and its two
+// sub-classes LevelCompactionPicker and NullCompactionPicker, as
+// well as some helper functions used by them.
+
 class LogBuffer;
 class Compaction;
 class VersionStorageInfo;
 struct CompactionInputFiles;
 
+// An abstract class to pick compactions from an existing LSM-tree.
+//
+// Each compaction style inherits the class and implement the
+// interface to form automatic compactions. If NeedCompaction() is true,
+// then call PickCompaction() to find what files need to be compacted
+// and where to put the output files.
+//
+// Non-virtual functions CompactRange() and CompactFiles() are used to
+// pick files to compact based on users' DB::CompactRange() and
+// DB::CompactFiles() requests, respectively. There is little
+// compaction style specific logic for them.
 class CompactionPicker {
  public:
   CompactionPicker(const ImmutableCFOptions& ioptions,
@@ -221,6 +236,9 @@ class CompactionPicker {
   const InternalKeyComparator* const icmp_;
 };
 
+// Picking compactions for leveled compaction. See wiki page
+// https://github.com/facebook/rocksdb/wiki/Leveled-Compaction
+// for description of Leveled compaction.
 class LevelCompactionPicker : public CompactionPicker {
  public:
   LevelCompactionPicker(const ImmutableCFOptions& ioptions,
@@ -236,6 +254,8 @@ class LevelCompactionPicker : public CompactionPicker {
 };
 
 #ifndef ROCKSDB_LITE
+// A dummy compaction that never triggers any automatic
+// compaction.
 class NullCompactionPicker : public CompactionPicker {
  public:
   NullCompactionPicker(const ImmutableCFOptions& ioptions,
