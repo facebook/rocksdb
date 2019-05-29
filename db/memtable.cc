@@ -36,6 +36,7 @@
 #include "util/coding.h"
 #include "util/memory_usage.h"
 #include "util/mutexlock.h"
+#include "util/random.h"
 #include "util/util.h"
 
 namespace rocksdb {
@@ -1009,6 +1010,23 @@ void MemTable::RefLogContainingPrepSection(uint64_t log) {
 
 uint64_t MemTable::GetMinLogContainingPrepSection() {
   return min_prep_log_referenced_.load();
+}
+
+bool MemTable::ShouldFlushAfterSampledRead() {
+  // TODO: Make the two constants options.
+  static const int kSampleRate = 1024;
+  static const int kNumReadsUntilFlush = 1024 * 1024;
+
+  if (!Random::GetTLSInstance()->OneIn(kSampleRate)) {
+    return false;
+  }
+  uint64_t num_reads = num_reads_sampled_.fetch_add(kSampleRate) + kSampleRate;
+  do {
+    if (num_reads < kNumReadsUntilFlush) {
+      return false;
+    }
+  } while (!num_reads_sampled_.compare_exchange_weak(num_reads, 0LL));
+  return true;
 }
 
 }  // namespace rocksdb

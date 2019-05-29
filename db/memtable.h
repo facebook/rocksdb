@@ -401,6 +401,13 @@ class MemTable {
     flush_in_progress_ = in_progress;
   }
 
+  // Records one (sampled) read to the memtable and returns whether the
+  // memtable should be flushed as a result. This will only return true once
+  // when the read trigger is reached (internal counter will be reset). So if
+  // this returns true, the caller is responsible for triggering memtable
+  // flush.
+  bool ShouldFlushAfterSampledRead();
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -478,6 +485,11 @@ class MemTable {
   // sequence numbers greater than or equal to seq are flushed, while all
   // writes with sequence number smaller than seq are flushed.
   SequenceNumber atomic_flush_seqno_;
+
+  // Total number of reads to the memtable, used to decide whether a flush
+  // should be triggered. This is sampled and will be reset every time the
+  // read trigger happens, see ShouldFlushAfterSampledRead().
+  std::atomic<uint64_t> num_reads_sampled_{0};
 
   // Returns a heuristic flush decision
   bool ShouldFlushNow() const;
