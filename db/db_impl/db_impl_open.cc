@@ -145,7 +145,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
 }
 
 namespace {
-
 Status SanitizeOptionsByTable(
     const DBOptions& db_opts,
     const std::vector<ColumnFamilyDescriptor>& column_families) {
@@ -158,52 +157,23 @@ Status SanitizeOptionsByTable(
   }
   return Status::OK();
 }
+}  // namespace
 
-static Status ValidateOptions(
+Status DBImpl::ValidateOptions(
     const DBOptions& db_options,
     const std::vector<ColumnFamilyDescriptor>& column_families) {
   Status s;
-
   for (auto& cfd : column_families) {
-    s = CheckCompressionSupported(cfd.options);
-    if (s.ok() && db_options.allow_concurrent_memtable_write) {
-      s = CheckConcurrentWritesSupported(cfd.options);
-    }
-    if (s.ok()) {
-      s = CheckCFPathsSupported(db_options, cfd.options);
-    }
+    s = ColumnFamilyData::ValidateOptions(db_options, cfd.options);
     if (!s.ok()) {
       return s;
     }
-
-    if (cfd.options.ttl > 0) {
-      if (db_options.max_open_files != -1) {
-        return Status::NotSupported(
-            "TTL is only supported when files are always "
-            "kept open (set max_open_files = -1). ");
-      }
-      if (cfd.options.table_factory->Name() !=
-          BlockBasedTableFactory().Name()) {
-        return Status::NotSupported(
-            "TTL is only supported in Block-Based Table format. ");
-      }
-    }
-
-    if (cfd.options.periodic_compaction_seconds > 0) {
-      if (db_options.max_open_files != -1) {
-        return Status::NotSupported(
-            "Periodic Compaction is only supported when files are always "
-            "kept open (set max_open_files = -1). ");
-      }
-      if (cfd.options.table_factory->Name() !=
-          BlockBasedTableFactory().Name()) {
-        return Status::NotSupported(
-            "Periodic Compaction is only supported in "
-            "Block-Based Table format. ");
-      }
-    }
   }
+  s = ValidateOptions(db_options);
+  return s;
+}
 
+Status DBImpl::ValidateOptions(const DBOptions& db_options) {
   if (db_options.db_paths.size() > 4) {
     return Status::NotSupported(
         "More than four DB paths are not supported yet. ");
@@ -241,7 +211,7 @@ static Status ValidateOptions(
 
   return Status::OK();
 }
-}  // namespace
+
 Status DBImpl::NewDB() {
   VersionEdit new_db;
   new_db.SetLogNumber(0);

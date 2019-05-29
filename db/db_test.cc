@@ -4884,11 +4884,14 @@ TEST_F(DBTest, DynamicMiscOptions) {
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[0],
                                                      &mutable_cf_options));
   ASSERT_EQ(CompressionType::kNoCompression, mutable_cf_options.compression);
+  // Appveyor fails with: Compression type Snappy is not linked with the binary
+#ifndef OS_WIN
   ASSERT_OK(dbfull()->SetOptions({{"compression", "kSnappyCompression"}}));
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[0],
                                                      &mutable_cf_options));
   ASSERT_EQ(CompressionType::kSnappyCompression,
             mutable_cf_options.compression);
+#endif
   // Test paranoid_file_checks already done in db_block_cache_test
   ASSERT_OK(
       dbfull()->SetOptions(handles_[1], {{"paranoid_file_checks", "true"}}));
