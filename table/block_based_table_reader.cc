@@ -198,6 +198,10 @@ bool PrefixExtractorChanged(const TableProperties* table_properties,
 
 }  // namespace
 
+// Encapsulates common functionality for the various index reader
+// implementations. Provides access to the index block regardless of whether
+// it is owned by the reader or stored in the cache, or whether it is pinned
+// in the cache or not.
 class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
 public:
   IndexReaderCommon(BlockBasedTable* t,
