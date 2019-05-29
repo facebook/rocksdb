@@ -18,7 +18,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/table.h"
 #include "table/internal_iterator.h"
-#include "table/meta_blocks.h"
+#include "../meta_blocks.h"
 #include "table/cuckoo/cuckoo_table_factory.h"
 #include "table/get_context.h"
 #include "util/arena.h"

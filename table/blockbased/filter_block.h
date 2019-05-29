@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 #include "db/dbformat.h"
-#include "format.h"
+#include "table/format.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"

@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
+
 #include <stdio.h>
 #include <algorithm>
 #include <set>
@@ -19,8 +20,8 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
-#include "table/block.h"
-#include "table/block_builder.h"
+#include "table/blockbased/block.h"
+#include "table/blockbased/block_builder.h"
 #include "table/format.h"
 #include "util/random.h"
 #include "test_util/testharness.h"

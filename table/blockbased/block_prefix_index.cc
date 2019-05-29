@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "table/block_prefix_index.h"
+#include "table/blockbased/block_prefix_index.h"
 
 #include <vector>
 

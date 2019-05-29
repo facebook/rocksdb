@@ -18,10 +18,11 @@
 #include <memory>
 #include <string>
 #include <vector>
+
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "table/filter_block.h"
+#include "table/blockbased/filter_block.h"
 #include "util/hash.h"
 
 namespace rocksdb {

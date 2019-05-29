@@ -18,7 +18,7 @@
 
 #include "rocksdb/comparator.h"
 #include "table/blockbased/block_based_table_factory.h"
-#include "table/block_builder.h"
+#include "table/blockbased/block_builder.h"
 #include "table/format.h"
 
 namespace rocksdb {

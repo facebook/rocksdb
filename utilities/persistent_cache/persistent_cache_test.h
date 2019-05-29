@@ -20,7 +20,7 @@
 
 #include "db/db_test_util.h"
 #include "rocksdb/cache.h"
-#include "table/block_builder.h"
+#include "table/blockbased/block_builder.h"
 #include "port/port.h"
 #include "util/arena.h"
 #include "test_util/testharness.h"

@@ -13,7 +13,7 @@
 #include <stdint.h>
 #include "rocksdb/slice.h"
 #include "rocksdb/table.h"
-#include "table/data_block_hash_index.h"
+#include "table/blockbased/data_block_hash_index.h"
 
 namespace rocksdb {
 

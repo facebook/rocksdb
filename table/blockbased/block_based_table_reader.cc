@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+#include "../meta_blocks.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 
@@ -27,20 +28,18 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
-
-#include "table/block.h"
+#include "table/blockbased/block.h"
 #include "table/blockbased/block_based_filter_block.h"
 #include "table/blockbased/block_based_table_factory.h"
-#include "table/block_fetcher.h"
-#include "table/block_prefix_index.h"
-#include "table/filter_block.h"
+#include "table/blockbased/block_fetcher.h"
+#include "table/blockbased/block_prefix_index.h"
+#include "table/blockbased/filter_block.h"
+#include "table/blockbased/full_filter_block.h"
+#include "table/blockbased/partitioned_filter_block.h"
 #include "table/format.h"
-#include "table/full_filter_block.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
-#include "table/meta_blocks.h"
 #include "table/multiget_context.h"
-#include "table/partitioned_filter_block.h"
 #include "table/persistent_cache_helper.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/two_level_iterator.h"

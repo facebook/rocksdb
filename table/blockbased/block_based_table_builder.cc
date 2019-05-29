@@ -29,14 +29,15 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/table.h"
 
-#include "table/block.h"
+#include "table/blockbased/block.h"
 #include "table/blockbased/block_based_table_factory.h"
 #include "table/blockbased/block_based_table_reader.h"
 #include "table/blockbased/block_based_filter_block.h"
-#include "table/block_builder.h"
-#include "table/filter_block.h"
+#include "table/blockbased/block_builder.h"
+#include "table/blockbased/filter_block.h"
+#include "table/blockbased/full_filter_block.h"
+#include "table/blockbased/partitioned_filter_block.h"
 #include "table/format.h"
-#include "table/full_filter_block.h"
 #include "table/table_builder.h"
 
 #include "util/coding.h"
@@ -48,7 +49,6 @@
 #include "util/xxhash.h"
 
 #include "table/index_builder.h"
-#include "table/partitioned_filter_block.h"
 
 namespace rocksdb {
 
