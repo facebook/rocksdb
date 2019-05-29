@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+#include "../block_fetcher.h"
 #include "../meta_blocks.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
@@ -31,7 +32,6 @@
 #include "table/blockbased/block.h"
 #include "table/blockbased/block_based_filter_block.h"
 #include "table/blockbased/block_based_table_factory.h"
-#include "table/blockbased/block_fetcher.h"
 #include "table/blockbased/block_prefix_index.h"
 #include "table/blockbased/filter_block.h"
 #include "table/blockbased/full_filter_block.h"

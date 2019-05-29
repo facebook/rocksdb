@@ -104,23 +104,23 @@ LIB_SOURCES =                                                   \
   table/blockbased/block_based_table_factory.cc                 \
   table/blockbased/block_based_table_reader.cc                  \
   table/blockbased/block_builder.cc                             \
-  table/blockbased/block_fetcher.cc                             \
   table/blockbased/block_prefix_index.cc                        \
+  table/blockbased/data_block_hash_index.cc                     \
+  table/blockbased/data_block_footer.cc                         \
+  table/blockbased/flush_block_policy.cc                        \
+  table/blockbased/full_filter_block.cc                         \
+  table/blockbased/index_builder.cc                             \
+  table/blockbased/partitioned_filter_block.cc                  \
+  table/block_fetcher.cc                             			\
   table/bloom_block.cc                               			\
   table/cuckoo/cuckoo_table_builder.cc                          \
   table/cuckoo/cuckoo_table_factory.cc                          \
   table/cuckoo/cuckoo_table_reader.cc                           \
-  table/blockbased/data_block_hash_index.cc                     \
-  table/blockbased/data_block_footer.cc                         \
-  table/blockbased/flush_block_policy.cc                        \
   table/format.cc                                               \
-  table/blockbased/full_filter_block.cc                         \
   table/get_context.cc                                          \
-  table/blockbased/index_builder.cc                                        \
   table/iterator.cc                                             \
   table/merging_iterator.cc                                     \
   table/meta_blocks.cc                                          \
-  table/blockbased/partitioned_filter_block.cc                  \
   table/persistent_cache_helper.cc                              \
   table/plain/plain_table_builder.cc                            \
   table/plain/plain_table_factory.cc                            \

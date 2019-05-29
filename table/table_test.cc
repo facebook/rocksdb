@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "block_fetcher.h"
 #include "cache/lru_cache.h"
 #include "db/dbformat.h"
 #include "db/memtable.h"
@@ -38,7 +39,6 @@
 #include "table/blockbased/block_based_table_factory.h"
 #include "table/blockbased/block_based_table_reader.h"
 #include "table/blockbased/block_builder.h"
-#include "table/blockbased/block_fetcher.h"
 #include "table/blockbased/flush_block_policy.h"
 #include "table/format.h"
 #include "table/get_context.h"
