@@ -568,10 +568,10 @@ set(SOURCES
         port/stack_trace.cc
         table/adaptive_table_factory.cc
         table/block.cc
-        table/block_based_filter_block.cc
-        table/block_based_table_builder.cc
-        table/block_based_table_factory.cc
-        table/block_based_table_reader.cc
+        table/blockbased/block_based_filter_block.cc
+        table/blockbased/block_based_table_builder.cc
+        table/blockbased/block_based_table_factory.cc
+        table/blockbased/block_based_table_reader.cc
         table/block_builder.cc
         table/block_fetcher.cc
         table/block_prefix_index.cc
@@ -940,7 +940,7 @@ if(WITH_TESTS)
         monitoring/statistics_test.cc
         options/options_settable_test.cc
         options/options_test.cc
-        table/block_based_filter_block_test.cc
+        table/blockbased/block_based_filter_block_test.cc
         table/block_test.cc
         table/cleanable_test.cc
         table/cuckoo_table_builder_test.cc

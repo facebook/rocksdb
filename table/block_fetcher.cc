@@ -16,7 +16,7 @@
 #include "monitoring/statistics.h"
 #include "rocksdb/env.h"
 #include "table/block.h"
-#include "table/block_based_table_reader.h"
+#include "table/blockbased/block_based_table_reader.h"
 #include "table/format.h"
 #include "table/persistent_cache_helper.h"
 #include "util/coding.h"

@@ -10,7 +10,7 @@
 #include "db/table_properties_collector.h"
 #include "rocksdb/slice.h"
 #include "table/block.h"
-#include "table/block_based_table_reader.h"
+#include "table/blockbased/block_based_table_reader.h"
 #include "table/block_builder.h"
 #include "table/data_block_hash_index.h"
 #include "table/get_context.h"

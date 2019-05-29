@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "table/block_based_table_factory.h"
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -24,8 +23,9 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/flush_block_policy.h"
-#include "table/block_based_table_builder.h"
-#include "table/block_based_table_reader.h"
+#include "table/blockbased/block_based_table_factory.h"
+#include "table/blockbased/block_based_table_builder.h"
+#include "table/blockbased/block_based_table_reader.h"
 #include "table/format.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"

@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "table/block_based_table_builder.h"
+#include "table/blockbased/block_based_table_builder.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -30,9 +30,9 @@
 #include "rocksdb/table.h"
 
 #include "table/block.h"
-#include "table/block_based_filter_block.h"
-#include "table/block_based_table_factory.h"
-#include "table/block_based_table_reader.h"
+#include "table/blockbased/block_based_table_factory.h"
+#include "table/blockbased/block_based_table_reader.h"
+#include "table/blockbased/block_based_filter_block.h"
 #include "table/block_builder.h"
 #include "table/filter_block.h"
 #include "table/format.h"

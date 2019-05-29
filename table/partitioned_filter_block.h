@@ -14,7 +14,7 @@
 #include "rocksdb/slice_transform.h"
 
 #include "table/block.h"
-#include "table/block_based_table_reader.h"
+#include "table/blockbased/block_based_table_reader.h"
 #include "table/cachable_entry.h"
 #include "table/full_filter_block.h"
 #include "table/index_builder.h"

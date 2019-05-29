@@ -17,7 +17,7 @@ int main() {
 #include "rocksdb/db.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
-#include "table/block_based_table_factory.h"
+#include "table/blockbased/block_based_table_factory.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/plain_table_factory.h"

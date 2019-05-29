@@ -18,7 +18,7 @@
 #include "port/port.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block.h"
-#include "table/block_based_table_reader.h"
+#include "table/blockbased/block_based_table_reader.h"
 #include "util/coding.h"
 
 namespace rocksdb {

@@ -20,7 +20,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/object_registry.h"
-#include "table/block_based_table_factory.h"
+#include "table/blockbased/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
 #include "util/cast_util.h"
 #include "util/string_util.h"

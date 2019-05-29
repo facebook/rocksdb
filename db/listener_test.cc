@@ -22,7 +22,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
-#include "table/block_based_table_factory.h"
+#include "table/blockbased/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
 #include "util/hash.h"
 #include "util/logging.h"

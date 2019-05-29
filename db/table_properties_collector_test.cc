@@ -14,7 +14,7 @@
 #include "db/table_properties_collector.h"
 #include "options/cf_options.h"
 #include "rocksdb/table.h"
-#include "table/block_based_table_factory.h"
+#include "table/blockbased/block_based_table_factory.h"
 #include "table/meta_blocks.h"
 #include "table/plain_table_factory.h"
 #include "table/table_builder.h"

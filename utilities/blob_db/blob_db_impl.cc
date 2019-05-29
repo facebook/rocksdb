@@ -23,7 +23,7 @@
 #include "rocksdb/utilities/stackable_db.h"
 #include "rocksdb/utilities/transaction.h"
 #include "table/block.h"
-#include "table/block_based_table_builder.h"
+#include "table/blockbased/block_based_table_builder.h"
 #include "table/block_builder.h"
 #include "table/meta_blocks.h"
 #include "util/cast_util.h"
