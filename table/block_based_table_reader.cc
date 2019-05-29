@@ -246,9 +246,9 @@ protected:
     return properties == nullptr || !properties->index_value_is_delta_encoded;
   }
 
-  Status GetIndexBlock(const ReadOptions& read_options,
-                       GetContext* get_context,
-                       CachableEntry<Block>* index_block) const;
+  Status GetOrReadIndexBlock(const ReadOptions& read_options,
+                             GetContext* get_context,
+                             CachableEntry<Block>* index_block) const;
 
   size_t ApproximateIndexBlockMemoryUsage() const {
     assert(!index_block_.GetOwnValue() || index_block_.GetValue() != nullptr);
@@ -283,7 +283,7 @@ Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
   return s;
 }
 
-Status BlockBasedTable::IndexReaderCommon::GetIndexBlock(
+Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
   const ReadOptions& read_options, GetContext* get_context,
   CachableEntry<Block>* index_block) const {
 
@@ -338,7 +338,8 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
       IndexBlockIter* iter, GetContext* get_context) override {
 
     CachableEntry<Block> index_block;
-    const Status s = GetIndexBlock(read_options, get_context, &index_block);
+    const Status s = GetOrReadIndexBlock(read_options, get_context,
+                                         &index_block);
     if (!s.ok()) {
       if (iter != nullptr) {
         iter->Invalidate(s);
@@ -398,8 +399,8 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
     Statistics* kNullStats = nullptr;
 
     CachableEntry<Block> index_block;
-    Status s = GetIndexBlock(ReadOptions(), nullptr /* get_context */,
-                             &index_block);
+    Status s = GetOrReadIndexBlock(ReadOptions(), nullptr /* get_context */,
+                                   &index_block);
     if (!s.ok()) {
       ROCKS_LOG_WARN(rep->ioptions.info_log,
                      "Error retrieving top-level index block while trying to "
@@ -521,7 +522,8 @@ class BinarySearchIndexReader : public BlockBasedTable::IndexReaderCommon {
       const ReadOptions& read_options, bool /* disable_prefix_seek */,
       IndexBlockIter* iter, GetContext* get_context) override {
     CachableEntry<Block> index_block;
-    const Status s = GetIndexBlock(read_options, get_context, &index_block);
+    const Status s = GetOrReadIndexBlock(read_options, get_context,
+                                         &index_block);
     if (!s.ok()) {
       if (iter != nullptr) {
         iter->Invalidate(s);
@@ -660,7 +662,8 @@ class HashIndexReader : public BlockBasedTable::IndexReaderCommon {
       const ReadOptions& read_options, bool disable_prefix_seek,
       IndexBlockIter* iter, GetContext* get_context) override {
     CachableEntry<Block> index_block;
-    const Status s = GetIndexBlock(read_options, get_context, &index_block);
+    const Status s = GetOrReadIndexBlock(read_options, get_context,
+                                         &index_block);
     if (!s.ok()) {
       if (iter != nullptr) {
         iter->Invalidate(s);
