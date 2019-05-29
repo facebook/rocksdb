@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
+
 #ifndef ROCKSDB_LITE
 #include <stdint.h>
 #include <string>
@@ -13,8 +14,8 @@
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "table/bloom_block.h"
-#include "table/plain_table_index.h"
-#include "table/plain_table_key_coding.h"
+#include "table/plain/plain_table_index.h"
+#include "table/plain/plain_table_key_coding.h"
 #include "table/table_builder.h"
 
 namespace rocksdb {

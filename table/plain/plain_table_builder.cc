@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
-#include "table/plain_table_builder.h"
+#include "table/plain/plain_table_builder.h"
 
 #include <assert.h>
 
@@ -17,11 +17,11 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
-#include "table/plain_table_factory.h"
+#include "table/plain/plain_table_factory.h"
 #include "db/dbformat.h"
 #include "table/block_builder.h"
 #include "table/bloom_block.h"
-#include "table/plain_table_index.h"
+#include "table/plain/plain_table_index.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "util/coding.h"

@@ -11,7 +11,7 @@
 
 #include <inttypes.h>
 
-#include "table/plain_table_index.h"
+#include "table/plain/plain_table_index.h"
 #include "util/coding.h"
 #include "util/hash.h"
 

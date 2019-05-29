@@ -4,12 +4,13 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
+
 #ifndef ROCKSDB_LITE
 
 #include <array>
 #include "rocksdb/slice.h"
 #include "db/dbformat.h"
-#include "table/plain_table_reader.h"
+#include "table/plain/plain_table_reader.h"
 
 // The file contains three helper classes of PlainTable format,
 // PlainTableKeyEncoder, PlainTableKeyDecoder and PlainTableFileReader.

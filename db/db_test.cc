@@ -56,7 +56,7 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "table/blockbased/block_based_table_factory.h"
 #include "table/mock_table.h"
-#include "table/plain_table_factory.h"
+#include "table/plain/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/compression.h"
 #include "util/file_reader_writer.h"

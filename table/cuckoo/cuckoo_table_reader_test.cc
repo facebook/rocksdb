@@ -22,9 +22,9 @@ int main() {
 #include <string>
 #include <map>
 
-#include "table/cuckoo_table_builder.h"
-#include "table/cuckoo_table_factory.h"
-#include "table/cuckoo_table_reader.h"
+#include "table/cuckoo/cuckoo_table_builder.h"
+#include "table/cuckoo/cuckoo_table_factory.h"
+#include "table/cuckoo/cuckoo_table_reader.h"
 #include "table/get_context.h"
 #include "table/meta_blocks.h"
 #include "util/arena.h"

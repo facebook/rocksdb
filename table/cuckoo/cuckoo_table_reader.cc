@@ -8,7 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #ifndef ROCKSDB_LITE
-#include "table/cuckoo_table_reader.h"
+#include "table/cuckoo/cuckoo_table_reader.h"
 
 #include <algorithm>
 #include <limits>
@@ -19,7 +19,7 @@
 #include "rocksdb/table.h"
 #include "table/internal_iterator.h"
 #include "table/meta_blocks.h"
-#include "table/cuckoo_table_factory.h"
+#include "table/cuckoo/cuckoo_table_factory.h"
 #include "table/get_context.h"
 #include "util/arena.h"
 #include "util/coding.h"

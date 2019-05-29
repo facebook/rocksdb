@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
-#include "table/cuckoo_table_builder.h"
+#include "table/cuckoo/cuckoo_table_builder.h"
 
 #include <assert.h>
 #include <algorithm>
@@ -16,7 +16,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
 #include "table/block_builder.h"
-#include "table/cuckoo_table_factory.h"
+#include "table/cuckoo/cuckoo_table_factory.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "util/autovector.h"

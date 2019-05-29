@@ -576,9 +576,9 @@ set(SOURCES
         table/block_fetcher.cc
         table/block_prefix_index.cc
         table/bloom_block.cc
-        table/cuckoo_table_builder.cc
-        table/cuckoo_table_factory.cc
-        table/cuckoo_table_reader.cc
+        table/cuckoo/cuckoo_table_builder.cc
+        table/cuckoo/cuckoo_table_factory.cc
+        table/cuckoo/cuckoo_table_reader.cc
         table/data_block_hash_index.cc
         table/data_block_footer.cc
         table/flush_block_policy.cc
@@ -591,11 +591,11 @@ set(SOURCES
         table/meta_blocks.cc
         table/partitioned_filter_block.cc
         table/persistent_cache_helper.cc
-        table/plain_table_builder.cc
-        table/plain_table_factory.cc
-        table/plain_table_index.cc
-        table/plain_table_key_coding.cc
-        table/plain_table_reader.cc
+        table/plain/plain_table_builder.cc
+        table/plain/plain_table_factory.cc
+        table/plain/plain_table_index.cc
+        table/plain/plain_table_key_coding.cc
+        table/plain/plain_table_reader.cc
         table/sst_file_reader.cc
         table/sst_file_writer.cc
         table/table_properties.cc
@@ -943,8 +943,8 @@ if(WITH_TESTS)
         table/blockbased/block_based_filter_block_test.cc
         table/block_test.cc
         table/cleanable_test.cc
-        table/cuckoo_table_builder_test.cc
-        table/cuckoo_table_reader_test.cc
+        table/cuckoo/cuckoo_table_builder_test.cc
+        table/cuckoo/cuckoo_table_reader_test.cc
         table/data_block_hash_index_test.cc
         table/full_filter_block_test.cc
         table/merger_test.cc

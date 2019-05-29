@@ -11,7 +11,7 @@
 #include <utility>
 
 #include "table/meta_blocks.h"
-#include "table/cuckoo_table_builder.h"
+#include "table/cuckoo/cuckoo_table_builder.h"
 #include "util/file_reader_writer.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"

@@ -1,3 +1,4 @@
+
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -34,7 +35,7 @@
 #include "table/block_builder.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
-#include "table/plain_table_factory.h"
+#include "table/plain/plain_table_factory.h"
 #include "table/table_reader.h"
 #include "util/compression.h"
 #include "util/random.h"

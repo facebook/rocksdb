@@ -4,11 +4,11 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
-#include "table/cuckoo_table_factory.h"
+#include "table/cuckoo/cuckoo_table_factory.h"
 
 #include "db/dbformat.h"
-#include "table/cuckoo_table_builder.h"
-#include "table/cuckoo_table_reader.h"
+#include "table/cuckoo/cuckoo_table_builder.h"
+#include "table/cuckoo/cuckoo_table_reader.h"
 
 namespace rocksdb {
 

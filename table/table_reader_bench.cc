@@ -20,7 +20,7 @@ int main() {
 #include "table/blockbased/block_based_table_factory.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
-#include "table/plain_table_factory.h"
+#include "table/plain/plain_table_factory.h"
 #include "table/table_builder.h"
 #include "util/file_reader_writer.h"
 #include "util/gflags_compat.h"

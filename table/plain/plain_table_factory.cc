@@ -4,7 +4,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #ifndef ROCKSDB_LITE
-#include "table/plain_table_factory.h"
+#include "table/plain/plain_table_factory.h"
 
 #include <stdint.h>
 #include <memory>
@@ -12,8 +12,8 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
-#include "table/plain_table_builder.h"
-#include "table/plain_table_reader.h"
+#include "table/plain/plain_table_builder.h"
+#include "table/plain/plain_table_reader.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
