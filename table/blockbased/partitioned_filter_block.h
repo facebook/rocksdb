@@ -9,6 +9,7 @@
 #include <string>
 #include <unordered_map>
 #include "db/dbformat.h"
+#include "index_builder.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
@@ -16,7 +17,6 @@
 #include "table/blockbased/block_based_table_reader.h"
 #include "table/blockbased/full_filter_block.h"
 #include "table/blockbased/cachable_entry.h"
-#include "table/index_builder.h"
 #include "util/autovector.h"
 
 namespace rocksdb {

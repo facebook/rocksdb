@@ -116,7 +116,7 @@ LIB_SOURCES =                                                   \
   table/format.cc                                               \
   table/blockbased/full_filter_block.cc                         \
   table/get_context.cc                                          \
-  table/index_builder.cc                                        \
+  table/blockbased/index_builder.cc                                        \
   table/iterator.cc                                             \
   table/merging_iterator.cc                                     \
   table/meta_blocks.cc                                          \

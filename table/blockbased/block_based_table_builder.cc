@@ -20,6 +20,7 @@
 #include <utility>
 
 #include "db/dbformat.h"
+#include "index_builder.h"
 
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
@@ -48,7 +49,6 @@
 #include "util/string_util.h"
 #include "util/xxhash.h"
 
-#include "table/index_builder.h"
 
 namespace rocksdb {
 
