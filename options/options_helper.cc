@@ -10,7 +10,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "../table/plain/plain_table_factory.h"
+#include "table/plain/plain_table_factory.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"

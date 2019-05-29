@@ -34,7 +34,7 @@
 #include "table/blockbased/block_based_table_factory.h"
 #include "table/blockbased/block_builder.h"
 #include "table/format.h"
-#include "../table/meta_blocks.h"
+#include "table/meta_blocks.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/table_reader.h"
 #include "util/compression.h"

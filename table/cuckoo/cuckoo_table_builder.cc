@@ -18,7 +18,7 @@
 #include "table/blockbased/block_builder.h"
 #include "table/cuckoo/cuckoo_table_factory.h"
 #include "table/format.h"
-#include "../meta_blocks.h"
+#include "table/meta_blocks.h"
 #include "util/autovector.h"
 #include "util/file_reader_writer.h"
 #include "util/random.h"

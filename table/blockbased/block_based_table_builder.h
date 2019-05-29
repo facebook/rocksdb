@@ -14,7 +14,7 @@
 #include <utility>
 #include <vector>
 
-#include "../meta_blocks.h"
+#include "table/meta_blocks.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"

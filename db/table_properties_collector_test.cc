@@ -13,7 +13,7 @@
 #include "db/dbformat.h"
 #include "db/table_properties_collector.h"
 
-#include "../table/meta_blocks.h"
+#include "table/meta_blocks.h"
 #include "options/cf_options.h"
 #include "rocksdb/table.h"
 #include "table/blockbased/block_based_table_factory.h"

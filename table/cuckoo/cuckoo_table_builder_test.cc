@@ -10,7 +10,7 @@
 #include <map>
 #include <utility>
 
-#include "../meta_blocks.h"
+#include "table/meta_blocks.h"
 #include "table/cuckoo/cuckoo_table_builder.h"
 #include "util/file_reader_writer.h"
 #include "test_util/testharness.h"

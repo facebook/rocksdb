@@ -26,7 +26,7 @@
 #include "table/blockbased/block.h"
 #include "table/blockbased/block_based_table_builder.h"
 #include "table/blockbased/block_builder.h"
-#include "../../table/meta_blocks.h"
+#include "table/meta_blocks.h"
 #include "util/cast_util.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"

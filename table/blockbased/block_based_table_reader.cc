@@ -15,8 +15,8 @@
 #include <utility>
 #include <vector>
 
-#include "../block_fetcher.h"
-#include "../meta_blocks.h"
+#include "table/block_fetcher.h"
+#include "table/meta_blocks.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 

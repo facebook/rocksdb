@@ -20,11 +20,11 @@
 #include "rocksdb/statistics.h"
 
 #include "table/blockbased/block.h"
-#include "../bloom_block.h"
+#include "table/bloom_block.h"
 #include "table/blockbased/filter_block.h"
 #include "table/format.h"
 #include "table/internal_iterator.h"
-#include "../meta_blocks.h"
+#include "table/meta_blocks.h"
 #include "table/two_level_iterator.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/plain/plain_table_key_coding.h"
