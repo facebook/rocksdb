@@ -690,7 +690,7 @@ TEST_F(OptionsTest, GetPlainTableOptionsFromString) {
             "index_sparseness=8;huge_page_tlb_size=4;encoding_type=kPrefix;"
             "full_scan_mode=true;store_index_in_file=true",
             &new_opt));
-  ASSERT_EQ(new_opt.user_key_len, 66);
+  ASSERT_EQ(new_opt.user_key_len, 66u);
   ASSERT_EQ(new_opt.bloom_bits_per_key, 20);
   ASSERT_EQ(new_opt.hash_table_ratio, 0.5);
   ASSERT_EQ(new_opt.index_sparseness, 8);

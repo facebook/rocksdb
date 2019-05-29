@@ -3668,7 +3668,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     Block properties_block(std::move(properties_contents),
                            kDisableGlobalSequenceNumber);
 
-    ASSERT_EQ(properties_block.NumRestarts(), 1);
+    ASSERT_EQ(properties_block.NumRestarts(), 1u);
   }
 }
 
