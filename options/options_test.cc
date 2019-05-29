@@ -544,7 +544,7 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
              "cache_index_and_filter_blocks=1;index_type=kBinarySearch;"
              "bad_option=1",
              &new_opt));
-  ASSERT_EQ(static_cast<unsigned int>(table_opt.cache_index_and_filter_blocks),
+  ASSERT_EQ(static_cast<bool>(table_opt.cache_index_and_filter_blocks),
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 

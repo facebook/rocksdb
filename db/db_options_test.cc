@@ -620,7 +620,7 @@ TEST_F(DBOptionsTest, PersistentStatsFreshInstall) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   Reopen(options);
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "5"}}));
-  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_persist_period_sec);
+  ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_persist_period_sec);
   dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
   ASSERT_GE(counter, 1);
   Close();

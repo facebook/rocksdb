@@ -4712,7 +4712,7 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
       {{"compaction_options_universal", "{size_ratio=7;}"}}));
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
-            2);
+            2u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
             UINT_MAX);
   ASSERT_EQ(dbfull()
@@ -4733,7 +4733,7 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
       {{"compaction_options_universal", "{min_merge_width=11;}"}}));
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
-            11);
+            11u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
             UINT_MAX);
   ASSERT_EQ(dbfull()
