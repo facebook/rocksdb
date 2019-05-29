@@ -790,14 +790,14 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.compression_opts.level, 5);
   ASSERT_EQ(new_options.compression_opts.strategy, 6);
   ASSERT_EQ(new_options.compression_opts.max_dict_bytes, 0u);
-  ASSERT_EQ(new_options.compression_opts.zstd_max_train_bytes, 0);
+  ASSERT_EQ(new_options.compression_opts.zstd_max_train_bytes, 0u);
   ASSERT_EQ(new_options.compression_opts.enabled, false);
   ASSERT_EQ(new_options.bottommost_compression, kDisableCompressionOption);
   ASSERT_EQ(new_options.bottommost_compression_opts.window_bits, 5);
   ASSERT_EQ(new_options.bottommost_compression_opts.level, 6);
   ASSERT_EQ(new_options.bottommost_compression_opts.strategy, 7);
   ASSERT_EQ(new_options.bottommost_compression_opts.max_dict_bytes, 0u);
-  ASSERT_EQ(new_options.bottommost_compression_opts.zstd_max_train_bytes, 0);
+  ASSERT_EQ(new_options.bottommost_compression_opts.zstd_max_train_bytes, 0u);
   ASSERT_EQ(new_options.bottommost_compression_opts.enabled, false);
   ASSERT_EQ(new_options.write_buffer_size, 10U);
   ASSERT_EQ(new_options.max_write_buffer_number, 16);
