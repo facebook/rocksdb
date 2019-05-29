@@ -430,6 +430,7 @@ TEST_F(DBSSTTest, RateLimitedWALDelete) {
   env_->time_elapse_only_sleep_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
+  options.compression = kNoCompression;
   options.env = env_;
 
   int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
