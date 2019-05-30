@@ -3,13 +3,13 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#include "util/file_util.h"
+#include "file/file_util.h"
 
 #include <string>
 #include <algorithm>
 
+#include "file/sst_file_manager_impl.h"
 #include "rocksdb/env.h"
-#include "util/sst_file_manager_impl.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {

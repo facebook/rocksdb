@@ -27,6 +27,7 @@
 #include "db/db_impl.h"
 #include "db/dbformat.h"
 #include "env/mock_env.h"
+#include "file/filename.h"
 #include "memtable/hash_linklist_rep.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -45,7 +46,6 @@
 #include "table/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/compression.h"
-#include "util/filename.h"
 #include "util/mock_time_env.h"
 #include "util/mutexlock.h"
 

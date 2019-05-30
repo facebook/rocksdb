@@ -21,13 +21,13 @@
 #include <vector>
 
 #include "db/wal_manager.h"
+#include "file/file_util.h"
+#include "file/filename.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/utilities/checkpoint.h"
-#include "util/file_util.h"
-#include "util/filename.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {

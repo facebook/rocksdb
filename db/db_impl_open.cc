@@ -15,11 +15,11 @@
 
 #include "db/builder.h"
 #include "db/error_handler.h"
+#include "file/sst_file_manager_impl.h"
 #include "options/options_helper.h"
 #include "rocksdb/wal_filter.h"
 #include "table/block_based_table_factory.h"
 #include "util/rate_limiter.h"
-#include "util/sst_file_manager_impl.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
