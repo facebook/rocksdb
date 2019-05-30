@@ -24,7 +24,7 @@
 #include "rocksdb/table_properties.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/plain/plain_table_factory.h"
-#include "util/filename.h"
+#include "file/filename.h"
 #include "util/hash.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
