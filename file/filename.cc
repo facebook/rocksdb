@@ -407,4 +407,33 @@ Status SyncManifest(Env* env, const ImmutableDBOptions* db_options,
   return file->Sync(db_options->use_fsync);
 }
 
+Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
+                       const std::string& dbname,
+                       std::vector<std::string>* file_names) {
+  uint64_t number = 0;
+  FileType type;
+  std::string path;
+
+  if (!db_log_dir.empty()) {
+    path = db_log_dir;
+  } else {
+    path = dbname;
+  }
+
+  InfoLogPrefix info_log_prefix(!db_log_dir.empty(), dbname);
+  Status s = env->GetChildren(path, file_names);
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  for (auto f : file_names) {
+    if (ParseFileName(f, &number, info_log_prefix.prefix, &type) &&
+        (type == kInfoLogFile)) {
+      info_log_list->push_back(f);
+    }
+  }
+  return Status::OK();
+}
+
 }  // namespace rocksdb

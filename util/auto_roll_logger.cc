@@ -3,8 +3,9 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#include <algorithm>
 #include "util/auto_roll_logger.h"
+#include <algorithm>
+#include "file/filename.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 
@@ -94,24 +95,10 @@ void AutoRollLogger::GetExistingFiles() {
     std::swap(old_log_files_, empty);
   }
 
-  std::vector<std::string> all_files;
-  std::string parent_dir = db_log_dir_.empty() ? dbname_ : db_log_dir_;
-  Status s = env_->GetChildren(parent_dir, &all_files);
+  std::vector<std::string> info_log_files;
+  Status s = GetInfoLogFiles(env_, db_log_dir_, dbname_, &info_log_files);
   if (status_.ok()) {
     status_ = s;
-  }
-  InfoLogPrefix info_log_prefix(!db_log_dir_.empty(), dbname_);
-  std::vector<std::string> info_log_files;
-  for (const std::string& f : all_files) {
-    // Files we cannot recognize cannot be log file.
-    uint64_t number;
-    FileType type;
-    if (!ParseFileName(f, &number, info_log_prefix.prefix, &type)) {
-      continue;
-    }
-    if (type == kInfoLogFile) {
-      info_log_files.push_back(f);
-    }
   }
   // We need to sort the file before enqueing it so that when we
   // delete file from the front, it is the oldest file.
