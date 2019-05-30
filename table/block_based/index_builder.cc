@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "table/blockbased/index_builder.h"
+#include "table/block_based/index_builder.h"
 
 #include <assert.h>
 #include <inttypes.h>
@@ -18,7 +18,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/flush_block_policy.h"
 #include "table/format.h"
-#include "table/blockbased/partitioned_filter_block.h"
+#include "table/block_based/partitioned_filter_block.h"
 
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
 namespace rocksdb {

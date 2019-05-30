@@ -19,9 +19,9 @@
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
 
-#include "table/blockbased/block.h"
+#include "table/block_based/block.h"
 #include "table/bloom_block.h"
-#include "table/blockbased/filter_block.h"
+#include "table/block_based/filter_block.h"
 #include "table/format.h"
 #include "table/internal_iterator.h"
 #include "table/meta_blocks.h"

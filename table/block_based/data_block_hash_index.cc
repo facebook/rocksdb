@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "rocksdb/slice.h"
-#include "table/blockbased/data_block_hash_index.h"
+#include "table/block_based/data_block_hash_index.h"
 #include "util/coding.h"
 #include "util/hash.h"
 

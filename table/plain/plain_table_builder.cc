@@ -19,7 +19,7 @@
 #include "rocksdb/table.h"
 #include "table/plain/plain_table_factory.h"
 #include "db/dbformat.h"
-#include "table/blockbased/block_builder.h"
+#include "table/block_based/block_builder.h"
 #include "table/bloom_block.h"
 #include "table/plain/plain_table_index.h"
 #include "table/format.h"

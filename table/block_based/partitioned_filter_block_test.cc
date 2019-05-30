@@ -9,7 +9,7 @@
 #include "rocksdb/filter_policy.h"
 
 #include "table/full_filter_bits_builder.h"
-#include "table/blockbased/partitioned_filter_block.h"
+#include "table/block_based/partitioned_filter_block.h"
 
 #include "index_builder.h"
 #include "util/coding.h"

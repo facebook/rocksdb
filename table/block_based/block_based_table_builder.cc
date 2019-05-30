@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "table/blockbased/block_based_table_builder.h"
+#include "table/block_based/block_based_table_builder.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -30,14 +30,14 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/table.h"
 
-#include "table/blockbased/block.h"
-#include "table/blockbased/block_based_table_factory.h"
-#include "table/blockbased/block_based_table_reader.h"
-#include "table/blockbased/block_based_filter_block.h"
-#include "table/blockbased/block_builder.h"
-#include "table/blockbased/filter_block.h"
-#include "table/blockbased/full_filter_block.h"
-#include "table/blockbased/partitioned_filter_block.h"
+#include "table/block_based/block.h"
+#include "table/block_based/block_based_table_factory.h"
+#include "table/block_based/block_based_table_reader.h"
+#include "table/block_based/block_based_filter_block.h"
+#include "table/block_based/block_builder.h"
+#include "table/block_based/filter_block.h"
+#include "table/block_based/full_filter_block.h"
+#include "table/block_based/partitioned_filter_block.h"
 #include "table/format.h"
 #include "table/table_builder.h"
 

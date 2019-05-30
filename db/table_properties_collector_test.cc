@@ -16,7 +16,7 @@
 #include "table/meta_blocks.h"
 #include "options/cf_options.h"
 #include "rocksdb/table.h"
-#include "table/blockbased/block_based_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/table_builder.h"
 #include "util/coding.h"

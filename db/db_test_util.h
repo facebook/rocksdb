@@ -42,7 +42,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/checkpoint.h"
-#include "table/blockbased/block_based_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"

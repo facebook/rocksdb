@@ -11,7 +11,7 @@
 #include "db/table_properties_collector.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
-#include "table/blockbased/block.h"
+#include "table/block_based/block.h"
 #include "table/format.h"
 #include "table/internal_iterator.h"
 #include "table/persistent_cache_helper.h"

@@ -20,7 +20,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/table.h"
-#include "table/blockbased/block_based_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/internal_iterator.h"
 #include "table/plain/plain_table_factory.h"
 #include "util/mutexlock.h"

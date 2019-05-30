@@ -6,7 +6,7 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-#include "table/blockbased/block_based_table_reader.h"
+#include "table/block_based/block_based_table_reader.h"
 
 #include <algorithm>
 #include <array>
@@ -29,13 +29,13 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
-#include "table/blockbased/block.h"
-#include "table/blockbased/block_based_filter_block.h"
-#include "table/blockbased/block_based_table_factory.h"
-#include "table/blockbased/block_prefix_index.h"
-#include "table/blockbased/filter_block.h"
-#include "table/blockbased/full_filter_block.h"
-#include "table/blockbased/partitioned_filter_block.h"
+#include "table/block_based/block.h"
+#include "table/block_based/block_based_filter_block.h"
+#include "table/block_based/block_based_table_factory.h"
+#include "table/block_based/block_prefix_index.h"
+#include "table/block_based/filter_block.h"
+#include "table/block_based/full_filter_block.h"
+#include "table/block_based/partitioned_filter_block.h"
 #include "table/format.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"

@@ -16,7 +16,7 @@
 #include "rocksdb/slice_transform.h"
 #include "db/dbformat.h"
 #include "util/hash.h"
-#include "table/blockbased/filter_block.h"
+#include "table/block_based/filter_block.h"
 
 namespace rocksdb {
 
