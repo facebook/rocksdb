@@ -32,10 +32,12 @@ struct TableReaderOptions {
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
                      bool _skip_filters = false, bool _immortal = false,
-                     int _level = -1)
+                     int _level = -1, uint32_t _cf_id = 0,
+                     const std::string& _cf_name = "", uint64_t _fd_number = 0)
       : TableReaderOptions(_ioptions, _prefix_extractor, _env_options,
                            _internal_comparator, _skip_filters, _immortal,
-                           _level, 0 /* _largest_seqno */) {}
+                           _level, 0 /* _largest_seqno */, _cf_id, _cf_name,
+                           _fd_number) {}
 
   // @param skip_filters Disables loading/accessing the filter block
   TableReaderOptions(const ImmutableCFOptions& _ioptions,
@@ -43,7 +45,8 @@ struct TableReaderOptions {
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
                      bool _skip_filters, bool _immortal, int _level,
-                     SequenceNumber _largest_seqno)
+                     SequenceNumber _largest_seqno, uint32_t _cf_id,
+                     const std::string& _cf_name, uint64_t _fd_number)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
@@ -51,7 +54,10 @@ struct TableReaderOptions {
         skip_filters(_skip_filters),
         immortal(_immortal),
         level(_level),
-        largest_seqno(_largest_seqno) {}
+        largest_seqno(_largest_seqno),
+        cf_id(_cf_id),
+        cf_name(_cf_name),
+        fd_number(_fd_number) {}
 
   const ImmutableCFOptions& ioptions;
   const SliceTransform* prefix_extractor;
@@ -65,6 +71,12 @@ struct TableReaderOptions {
   int level;
   // largest seqno in the table
   SequenceNumber largest_seqno;
+
+  // Which column family does this table/file belongs to.
+  uint32_t cf_id;
+  std::string cf_name;
+  // The file number.
+  uint64_t fd_number;
 };
 
 struct TableBuilderOptions {

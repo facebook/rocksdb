@@ -48,7 +48,8 @@ class HistogramImpl;
 class TableCache {
  public:
   TableCache(const ImmutableCFOptions& ioptions,
-             const EnvOptions& storage_options, Cache* cache);
+             const EnvOptions& storage_options, Cache* cache,
+             uint32_t cf_id = 0, const std::string& cf_name = "");
   ~TableCache();
 
   // Return an iterator for the specified file number (the corresponding
@@ -188,6 +189,8 @@ class TableCache {
   Cache* const cache_;
   std::string row_cache_id_;
   bool immortal_tables_;
+  uint32_t cf_id_;
+  std::string cf_name_;
 };
 
 }  // namespace rocksdb

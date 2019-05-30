@@ -148,7 +148,7 @@ class PartitionedFilterBlockTest
     const bool kImmortal = true;
     table.reset(new MockedBlockBasedTable(
         new BlockBasedTable::Rep(ioptions, env_options, table_options_, icomp,
-                                 !kSkipFilters, 0, !kImmortal)));
+                                 !kSkipFilters, 0, !kImmortal, 0, "test", 0)));
     auto reader = new PartitionedFilterBlockReader(
         prefix_extractor, true, BlockContents(slice), nullptr, nullptr, icomp,
         table.get(), pib->seperator_is_key_plus_seq(),
