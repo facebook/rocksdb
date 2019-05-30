@@ -21,8 +21,6 @@
 #include "rocksdb/table_properties.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/plain/plain_table_index.h"
-#include "table/plain_table_factory.h"
-#include "table/plain_table_index.h"
 #include "table/table_reader.h"
 #include "util/dynamic_bloom.h"
 #include "util/file_reader_writer.h"
