@@ -98,7 +98,7 @@ class PartitionedFilterBlockTest
                partition_size * table_options_.block_size_deviation / 100;
   }
 
-  int last_offset = 10;
+  uint64_t last_offset = 10;
   BlockHandle Write(const Slice& slice) {
     BlockHandle bh(last_offset + 1, slice.size());
     slices[bh.offset()] = slice;
