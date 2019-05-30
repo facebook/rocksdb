@@ -1285,6 +1285,31 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
   }
 }
 
+TEST_F(DBBasicTest, TruncateManifestAfterSyncFailure) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.env = env_;
+  Reopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:AfterSyncManifest", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto* s = reinterpret_cast<Status*>(arg);
+        ASSERT_OK(*s);
+        // Manually overwrite return status
+        *s = Status::Corruption();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_NOK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->EnableProcessing();
+  Reopen(options);
+}
+
 class DBBasicTestWithTimestampWithParam
     : public DBTestBase,
       public testing::WithParamInterface<bool> {

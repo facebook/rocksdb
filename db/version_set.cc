@@ -3664,6 +3664,8 @@ Status VersionSet::ProcessManifestWrites(
       }
       if (s.ok()) {
         s = SyncManifest(env_, db_options_, descriptor_log_->file());
+        TEST_SYNC_POINT_CALLBACK(
+            "VersionSet::ProcessManifestWrites:AfterSyncManifest", &s);
       }
       if (!s.ok()) {
         ROCKS_LOG_ERROR(db_options_->info_log, "MANIFEST write %s\n",
