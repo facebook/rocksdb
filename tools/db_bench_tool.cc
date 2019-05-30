@@ -6237,7 +6237,8 @@ class Benchmark {
                       std::move(trace_reader));
     replayer.SetFastForward(
         static_cast<uint32_t>(FLAGS_trace_replay_fast_forward));
-    s = replayer.Replay();
+    //s = replayer.Replay();
+    s = replayer.MultiThreadReplay(15);
     if (s.ok()) {
       fprintf(stdout, "Replay started from trace_file: %s\n",
               FLAGS_trace_file.c_str());

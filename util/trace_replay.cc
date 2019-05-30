@@ -14,6 +14,7 @@
 #include "util/coding.h"
 #include "util/string_util.h"
 
+
 namespace rocksdb {
 
 const std::string kTraceMagic = "feedcafedeadbeef";
@@ -152,6 +153,7 @@ Replayer::Replayer(DB* db, const std::vector<ColumnFamilyHandle*>& handles,
     : trace_reader_(std::move(reader)) {
   assert(db != nullptr);
   db_ = static_cast<DBImpl*>(db->GetRootDB());
+  env_ = Env::Default();
   for (ColumnFamilyHandle* cfh : handles) {
     cf_map_[cfh->GetID()] = cfh;
   }
@@ -264,6 +266,69 @@ Status Replayer::Replay() {
   return s;
 }
 
+Status Replayer::MultiThreadReplay(uint32_t threads_num) {
+  Status s;
+  Trace header;
+  s = ReadHeader(&header);
+  if (!s.ok()) {
+    return s;
+  }
+  int threads = env_->GetBackgroundThreads(Env::Priority::LOW);
+  printf("threads: %d\n", threads);
+  if (threads_num > 1) {
+    env_->SetBackgroundThreads(static_cast<int>(threads_num));
+  }
+  threads = env_->GetBackgroundThreads(Env::Priority::LOW);
+  printf("threads: %d\n", threads);
+
+  std::chrono::system_clock::time_point replay_epoch =
+      std::chrono::system_clock::now();
+  WriteOptions woptions;
+  ReadOptions roptions;
+  ReplayerWorkerArg* ra;
+  uint64_t ops = 0;
+  while (s.ok()) {
+    ra = new ReplayerWorkerArg;
+    ra->db = db_;
+    s = ReadTrace(&(ra->trace_entry));
+    if (!s.ok()) {
+      break;
+    }
+    ra->woptions = woptions;
+    ra->roptions = roptions;
+
+    std::this_thread::sleep_until(
+        replay_epoch +
+        std::chrono::microseconds((ra->trace_entry.ts - header.ts) / fast_forward_));
+    if (ra->trace_entry.type == kTraceWrite) {
+      env_->Schedule(&Replayer::BGWorkWriteBatch, ra);
+      ops++;
+    } else if (ra->trace_entry.type == kTraceGet) {
+      env_->Schedule(&Replayer::BGWorkGet, ra);
+      ops++;
+    } else if (ra->trace_entry.type == kTraceIteratorSeek) {
+      env_->Schedule(&Replayer::BGWorkIterSeek, ra);
+      ops++;
+    } else if (ra->trace_entry.type == kTraceIteratorSeekForPrev) {
+      env_->Schedule(&Replayer::BGWorkIterSeekForPrev, ra);
+      ops++;
+    } else if (ra->trace_entry.type == kTraceEnd) {
+      // Do nothing for now.
+      // TODO: Add some validations later.
+      delete ra;
+      break;
+    }
+  }
+
+  if (s.IsIncomplete()) {
+    // Reaching eof returns Incomplete status at the moment.
+    // Could happen when killing a process without calling EndTrace() API.
+    // TODO: Add better error handling.
+    return Status::OK();
+  }
+  return s;
+}
+
 Status Replayer::ReadHeader(Trace* header) {
   assert(header != nullptr);
   Status s = ReadTrace(header);
@@ -308,6 +373,81 @@ Status Replayer::ReadTrace(Trace* trace) {
   enc_slice.remove_prefix(kTraceTypeSize + kTracePayloadLengthSize);
   trace->payload = enc_slice.ToString();
   return s;
+}
+
+void Replayer::BGWorkGet(void* arg) {
+  ReplayerWorkerArg ra = *(reinterpret_cast<ReplayerWorkerArg*>(arg));
+  delete reinterpret_cast<ReplayerWorkerArg*>(arg);
+  auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(ra.cf_map);
+  uint32_t cf_id = 0;
+  Slice key;
+  DecodeCFAndKey(ra.trace_entry.payload, &cf_id, &key);
+  if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
+    return;
+  }
+
+  std::string value;
+  if (cf_id == 0) {
+      reinterpret_cast<DB*>(ra.db)->Get(ra.roptions, key, &value);
+  } else {
+      reinterpret_cast<DB*>(ra.db)->Get(ra.roptions, (*cf_map)[cf_id], key, &value);
+  }
+
+  return;
+}
+
+void Replayer::BGWorkWriteBatch(void* arg) {
+  ReplayerWorkerArg ra = *(reinterpret_cast<ReplayerWorkerArg*>(arg));
+  delete reinterpret_cast<ReplayerWorkerArg*>(arg);
+  WriteBatch batch(ra.trace_entry.payload);
+  reinterpret_cast<DB*>(ra.db)->Write(ra.woptions, &batch);
+  return;
+}
+
+void Replayer::BGWorkIterSeek(void* arg) {
+  ReplayerWorkerArg ra = *(reinterpret_cast<ReplayerWorkerArg*>(arg));
+  delete reinterpret_cast<ReplayerWorkerArg*>(arg);
+  auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(ra.cf_map);
+  uint32_t cf_id = 0;
+  Slice key;
+  DecodeCFAndKey(ra.trace_entry.payload, &cf_id, &key);
+  if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
+      return;
+  }
+
+  std::string value;
+  Iterator* single_iter = nullptr;
+  if (cf_id == 0) {
+    single_iter = reinterpret_cast<DB*>(ra.db)->NewIterator(ra.roptions);
+  } else {
+    single_iter = reinterpret_cast<DB*>(ra.db)->NewIterator(ra.roptions, (*cf_map)[cf_id]);
+  }
+  single_iter->Seek(key);
+  delete single_iter;
+  return;
+}
+
+void Replayer::BGWorkIterSeekForPrev(void* arg) {
+  ReplayerWorkerArg ra = *(reinterpret_cast<ReplayerWorkerArg*>(arg));
+  delete reinterpret_cast<ReplayerWorkerArg*>(arg);
+  auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(ra.cf_map);
+  uint32_t cf_id = 0;
+  Slice key;
+  DecodeCFAndKey(ra.trace_entry.payload, &cf_id, &key);
+  if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
+      return;
+  }
+
+  std::string value;
+  Iterator* single_iter = nullptr;
+  if (cf_id == 0) {
+    single_iter = reinterpret_cast<DB*>(ra.db)->NewIterator(ra.roptions);
+  } else {
+    single_iter = reinterpret_cast<DB*>(ra.db)->NewIterator(ra.roptions, (*cf_map)[cf_id]);
+  }
+  single_iter->SeekForPrev(key);
+  delete single_iter;
+  return;
 }
 
 }  // namespace rocksdb
