@@ -1138,24 +1138,14 @@ TEST_F(DBTest2, PresetCompressionDict) {
       ASSERT_EQ(0, NumTableFilesAtLevel(0, 1));
       ASSERT_GT(NumTableFilesAtLevel(1, 1), 0);
 
-      // Count the live sst files size
-      size_t all_sst_bytes = 0;
-      std::vector<std::string> files;
-      uint64_t manifest_file_size = 0;
-      ASSERT_OK(db_->GetLiveFiles(files, &manifest_file_size));
-      for (const auto& file : files) {
-        if (file.substr(file.size() - 4, std::string::npos) == ".sst") {
-          uint64_t curr_bytes;
-          env_->GetFileSize(dbname_ + "/" + file, &curr_bytes);
-          all_sst_bytes += static_cast<size_t>(curr_bytes);
-        }
-      }
+      // Get the live sst files size
+      size_t total_sst_bytes = TotalSize(1);
       if (i == kWithoutDict) {
-        bytes_without_dict = all_sst_bytes;
+        bytes_without_dict = total_sst_bytes;
       } else if (i == kWithDict) {
-        bytes_with_dict = all_sst_bytes;
+        bytes_with_dict = total_sst_bytes;
       } else if (i == kWithZSTDTrainedDict) {
-        bytes_with_zstd_trained_dict = all_sst_bytes;
+        bytes_with_zstd_trained_dict = total_sst_bytes;
       }
 
       for (size_t j = 0; j < kNumL0Files * (kL0FileBytes / kBlockSizeBytes);
