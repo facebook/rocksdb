@@ -27,8 +27,12 @@ class PreReleaseCallback {
   // is_mem_disabled is currently used for debugging purposes to assert that
   // the callback is done from the right write queue.
   // If non-zero, log_number indicates the WAL log to which we wrote.
+  // index >= 0 specifies the order of callback in the same write thread.
+  // total > index specifies the total number of callbacks in the same write
+  // thread. Together with index, could be used to reduce the redundant
+  // operations among the callbacks.
   virtual Status Callback(SequenceNumber seq, bool is_mem_disabled,
-                          uint64_t log_number) = 0;
+                          uint64_t log_number, size_t index, size_t total) = 0;
 };
 
 }  //  namespace rocksdb

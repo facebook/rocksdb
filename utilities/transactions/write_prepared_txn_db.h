@@ -778,7 +778,8 @@ class AddPreparedCallback : public PreReleaseCallback {
   }
   virtual Status Callback(SequenceNumber prepare_seq,
                           bool is_mem_disabled __attribute__((__unused__)),
-                          uint64_t log_number) override {
+                          uint64_t log_number, size_t /*index*/,
+                          size_t /*total*/) override {
     // Always Prepare from the main queue
     assert(!two_write_queues_ || !is_mem_disabled);  // implies the 1st queue
     for (size_t i = 0; i < sub_batch_cnt_; i++) {
@@ -826,7 +827,8 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
 
   virtual Status Callback(SequenceNumber commit_seq,
                           bool is_mem_disabled __attribute__((__unused__)),
-                          uint64_t) override {
+                          uint64_t, size_t /*index*/,
+                          size_t /*total*/) override {
     // Always commit from the 2nd queue
     assert(!db_impl_->immutable_db_options().two_write_queues ||
            is_mem_disabled);
@@ -907,8 +909,8 @@ class WritePreparedRollbackPreReleaseCallback : public PreReleaseCallback {
     assert(prep_batch_cnt_ > 0);
   }
 
-  Status Callback(SequenceNumber commit_seq, bool is_mem_disabled,
-                  uint64_t) override {
+  Status Callback(SequenceNumber commit_seq, bool is_mem_disabled, uint64_t,
+                  size_t /*index*/, size_t /*total*/) override {
     // Always commit from the 2nd queue
     assert(is_mem_disabled);  // implies the 2nd queue
     assert(db_impl_->immutable_db_options().two_write_queues);
