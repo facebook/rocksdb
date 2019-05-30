@@ -9,10 +9,10 @@
 #include <utility>
 #include <vector>
 
-#include "db/db_impl.h"
 #include "db/dbformat.h"
 #include "db/table_properties_collector.h"
 
+#include "db/db_impl/db_impl.h"
 #include "options/cf_options.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_factory.h"

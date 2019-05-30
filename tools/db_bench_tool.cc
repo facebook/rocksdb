@@ -33,7 +33,7 @@
 #include <thread>
 #include <unordered_map>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
 #include "hdfs/env_hdfs.h"

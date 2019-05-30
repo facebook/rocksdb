@@ -39,7 +39,7 @@
 #include "db/wal_manager.h"
 #include "db/write_controller.h"
 #include "db/write_thread.h"
-#include "memtable_list.h"
+#include "db/memtable_list.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "port/port.h"

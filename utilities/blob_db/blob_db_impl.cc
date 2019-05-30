@@ -11,7 +11,7 @@
 #include <iomanip>
 #include <memory>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/write_batch_internal.h"
 #include "file/file_util.h"
 #include "file/filename.h"

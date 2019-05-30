@@ -25,7 +25,7 @@
 #include <vector>
 
 #include "db/builder.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
 #include "db/error_handler.h"

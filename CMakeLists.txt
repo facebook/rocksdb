@@ -489,15 +489,15 @@ set(SOURCES
         db/compaction_picker_universal.cc
         db/convenience.cc
         db/db_filesnapshot.cc
-        db/db_impl.cc
-        db/db_impl_write.cc
-        db/db_impl_compaction_flush.cc
-        db/db_impl_files.cc
-        db/db_impl_open.cc
-        db/db_impl_debug.cc
-        db/db_impl_experimental.cc
-        db/db_impl_readonly.cc
-        db/db_impl_secondary.cc
+        db/db_impl/db_impl.cc
+        db/db_impl/db_impl_write.cc
+        db/db_impl/db_impl_compaction_flush.cc
+        db/db_impl/db_impl_files.cc
+        db/db_impl/db_impl_open.cc
+        db/db_impl/db_impl_debug.cc
+        db/db_impl/db_impl_experimental.cc
+        db/db_impl/db_impl_readonly.cc
+        db/db_impl/db_impl_secondary.cc
         db/db_info_dumper.cc
         db/db_iter.cc
         db/dbformat.cc
@@ -888,7 +888,7 @@ if(WITH_TESTS)
         db/db_options_test.cc
         db/db_properties_test.cc
         db/db_range_del_test.cc
-        db/db_secondary_test.cc
+        db/db_impl/db_secondary_test.cc
         db/db_sst_test.cc
         db/db_statistics_test.cc
         db/db_table_properties_test.cc

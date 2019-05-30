@@ -18,6 +18,9 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "test_util/testharness.h"
+#include "db/dbformat.h"
+#include "db/write_batch_internal.h"
+#include "db/db_impl/db_impl.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {

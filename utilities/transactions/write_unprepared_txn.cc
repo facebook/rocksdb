@@ -6,7 +6,7 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/write_unprepared_txn.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "util/cast_util.h"
 #include "utilities/transactions/write_unprepared_txn_db.h"
 

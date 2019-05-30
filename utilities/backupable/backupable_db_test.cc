@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <string>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "env/env_chroot.h"
 #include "file/filename.h"
 #include "port/port.h"

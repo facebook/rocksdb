@@ -14,7 +14,7 @@
 #include <stdint.h>
 #include <algorithm>
 #include <string>
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/job_context.h"
 #include "db/version_set.h"
 #include "file/file_util.h"
