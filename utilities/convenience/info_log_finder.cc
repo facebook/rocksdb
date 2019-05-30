@@ -17,8 +17,9 @@ Status GetInfoLogList(DB* db, std::vector<std::string>* info_log_list) {
   if (!db) {
     return Status::InvalidArgument("DB pointer is not valid");
   }
-  const Options& options = ;
-  return GetInfoLogFiles(options.env, db->GetOptions().db_log_dir,
-                         db->GetName(), info_log_list);
+  std::string parent_path;
+  const Options& options = db->GetOptions();
+  return GetInfoLogFiles(options.env, options.db_log_dir, db->GetName(),
+                         &parent_path, info_log_list);
 }
 }  // namespace rocksdb

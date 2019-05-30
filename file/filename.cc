@@ -408,26 +408,29 @@ Status SyncManifest(Env* env, const ImmutableDBOptions* db_options,
 }
 
 Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
-                       const std::string& dbname,
-                       std::vector<std::string>* file_names) {
+                       const std::string& dbname, std::string* parent_dir,
+                       std::vector<std::string>* info_log_list) {
+  assert(parent_dir != nullptr);
+  assert(info_log_list != nullptr);
   uint64_t number = 0;
   FileType type;
-  std::string path;
 
   if (!db_log_dir.empty()) {
-    path = db_log_dir;
+    *parent_dir = db_log_dir;
   } else {
-    path = dbname;
+    *parent_dir = dbname;
   }
 
   InfoLogPrefix info_log_prefix(!db_log_dir.empty(), dbname);
-  Status s = env->GetChildren(path, file_names);
+
+  std::vector<std::string> file_names;
+  Status s = env->GetChildren(*parent_dir, &file_names);
 
   if (!s.ok()) {
     return s;
   }
 
-  for (auto f : file_names) {
+  for (auto& f : file_names) {
     if (ParseFileName(f, &number, info_log_prefix.prefix, &type) &&
         (type == kInfoLogFile)) {
       info_log_list->push_back(f);
