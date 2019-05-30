@@ -24,7 +24,7 @@
 #include "table/merging_iterator.h"
 #include "util/coding.h"
 #include "util/log_buffer.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 

@@ -11,7 +11,7 @@
 // the last "sync". It then checks for data loss errors by purposely dropping
 // file data (or entire files) not protected by a "sync".
 
-#include "util/fault_injection_test_env.h"
+#include "test_util/fault_injection_test_env.h"
 #include <functional>
 #include <utility>
 

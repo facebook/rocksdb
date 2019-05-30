@@ -13,8 +13,8 @@
 #include "db/version_edit.h"
 #include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 namespace rocksdb {
 

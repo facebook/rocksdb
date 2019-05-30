@@ -31,7 +31,7 @@ int main() {
 #include "util/random.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 #include "utilities/merge_operators.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;

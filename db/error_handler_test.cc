@@ -12,9 +12,9 @@
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/sst_file_manager.h"
-#include "util/fault_injection_test_env.h"
+#include "test_util/fault_injection_test_env.h"
 #if !defined(ROCKSDB_LITE)
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 #endif
 
 namespace rocksdb {

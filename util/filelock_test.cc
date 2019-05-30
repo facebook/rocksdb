@@ -9,7 +9,7 @@
 #include <vector>
 #include <fcntl.h>
 #include "util/coding.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 

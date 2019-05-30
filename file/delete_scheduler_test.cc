@@ -17,9 +17,9 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 #ifndef ROCKSDB_LITE
 

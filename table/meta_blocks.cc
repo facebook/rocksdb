@@ -18,7 +18,7 @@
 #include "table/table_properties_internal.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 

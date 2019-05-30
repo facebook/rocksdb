@@ -11,7 +11,7 @@
 #include "db/db_test_util.h"
 #include "util/arena.h"
 #include "util/random.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 #include "utilities/persistent_cache/hash_table.h"
 #include "utilities/persistent_cache/hash_table_evictable.h"
 

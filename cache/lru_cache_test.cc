@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 #include "port/port.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 

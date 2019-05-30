@@ -54,7 +54,7 @@
 #include "util/logging.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 #include "util/thread_local.h"
 #include "util/threadpool_imp.h"
 

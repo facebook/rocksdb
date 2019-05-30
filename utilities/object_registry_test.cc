@@ -6,7 +6,7 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/object_registry.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 

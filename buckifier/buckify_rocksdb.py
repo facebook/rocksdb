@@ -118,7 +118,7 @@ def generate_targets(repo_path):
         "rocksdb_tools_lib",
         src_mk.get("BENCH_LIB_SOURCES", []) +
         src_mk.get("ANALYZER_LIB_SOURCES", []) +
-        ["util/testutil.cc"],
+        ["test_util/testutil.cc"],
         [":rocksdb_lib"])
 
     # test for every test we found in the Makefile

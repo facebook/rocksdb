@@ -20,7 +20,7 @@
 #include "util/file_reader_writer.h"
 #include "util/logging.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 #include "utilities/checkpoint/checkpoint_impl.h"
 
 #ifndef __STDC_FORMAT_MACROS

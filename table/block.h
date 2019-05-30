@@ -31,7 +31,7 @@
 #include "table/data_block_hash_index.h"
 #include "table/internal_iterator.h"
 #include "util/random.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 

@@ -12,7 +12,7 @@
 #include "monitoring/iostats_context_imp.h"
 #include "util/aligned_buffer.h"
 #include "util/coding.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 namespace port {

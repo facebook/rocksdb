@@ -33,7 +33,7 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/stop_watch.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 #include "util/timer_queue.h"
 #include "utilities/blob_db/blob_compaction_filter.h"
 #include "utilities/blob_db/blob_db_iterator.h"

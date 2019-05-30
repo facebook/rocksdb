@@ -6,7 +6,7 @@
 #include <string>
 
 #include "util/event_logger.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 

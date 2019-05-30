@@ -20,8 +20,8 @@
 #include "db/db_test_util.h"
 #include "rocksdb/env.h"
 #include "util/random.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 
