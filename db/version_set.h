@@ -751,13 +751,13 @@ class AtomicGroupReadBuffer {
  public:
   Status AddEdit(VersionEdit* edit);
   void Clear();
-  bool IsFull();
-  bool IsEmpty();
+  bool IsFull() const;
+  bool IsEmpty() const;
 
-  uint64_t read_edits_in_atomic_group() const {
+  uint64_t TEST_read_edits_in_atomic_group() const {
     return read_edits_in_atomic_group_;
   }
-  std::vector<VersionEdit> replay_buffer() const { return replay_buffer_; }
+  std::vector<VersionEdit>& replay_buffer() { return replay_buffer_; }
 
  private:
   uint64_t read_edits_in_atomic_group_ = 0;
@@ -1152,11 +1152,11 @@ class ReactiveVersionSet : public VersionSet {
                  std::unique_ptr<log::Reader::Reporter>* manifest_reporter,
                  std::unique_ptr<Status>* manifest_reader_status);
 
-  uint64_t read_edits_in_atomic_group() const {
-    return read_buffer.read_edits_in_atomic_group();
+  uint64_t TEST_read_edits_in_atomic_group() const {
+    return read_buffer_.TEST_read_edits_in_atomic_group();
   }
-  std::vector<VersionEdit> replay_buffer() const {
-    return read_buffer.replay_buffer();
+  std::vector<VersionEdit>& replay_buffer() {
+    return read_buffer_.replay_buffer();
   }
 
  protected:
@@ -1177,7 +1177,7 @@ class ReactiveVersionSet : public VersionSet {
  private:
   std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
       active_version_builders_;
-  AtomicGroupReadBuffer read_buffer;
+  AtomicGroupReadBuffer read_buffer_;
 
   using VersionSet::LogAndApply;
   using VersionSet::Recover;

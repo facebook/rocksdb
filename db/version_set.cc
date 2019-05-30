@@ -3347,11 +3347,11 @@ Status AtomicGroupReadBuffer::AddEdit(VersionEdit* edit) {
   return Status::OK();
 }
 
-bool AtomicGroupReadBuffer::IsFull() {
+bool AtomicGroupReadBuffer::IsFull() const {
   return read_edits_in_atomic_group_ == replay_buffer_.size();
 }
 
-bool AtomicGroupReadBuffer::IsEmpty() { return replay_buffer_.empty(); }
+bool AtomicGroupReadBuffer::IsEmpty() const { return replay_buffer_.empty(); }
 
 void AtomicGroupReadBuffer::Clear() {
   read_edits_in_atomic_group_ = 0;
@@ -4179,7 +4179,7 @@ Status VersionSet::ReadAndRecover(
     // Clear the buffer if we fail to decode/apply an edit.
     read_buffer->Clear();
   }
-  TEST_SYNC_POINT_CALLBACK("VersionSet::Recover:RecoveredEdits",
+  TEST_SYNC_POINT_CALLBACK("VersionSet::ReadAndRecover:RecoveredEdits",
                            &recovered_edits);
   return s;
 }
@@ -5278,7 +5278,7 @@ Status ReactiveVersionSet::Recover(
     Slice record;
     std::string scratch;
     s = ReadAndRecover(
-        reader, &read_buffer, cf_name_to_options, column_families_not_found,
+        reader, &read_buffer_, cf_name_to_options, column_families_not_found,
         builders, &have_log_number, &log_number, &have_prev_log_number,
         &previous_log_number, &have_next_file, &next_file, &have_last_sequence,
         &last_sequence, &min_log_number_to_keep, &max_column_family);
@@ -5414,15 +5414,15 @@ Status ReactiveVersionSet::ReadAndApply(
         break;
       }
 
-      s = read_buffer.AddEdit(&edit);
+      s = read_buffer_.AddEdit(&edit);
       if (!s.ok()) {
         break;
       }
       if (edit.is_in_atomic_group_) {
-        if (read_buffer.IsFull()) {
+        if (read_buffer_.IsFull()) {
           // Apply edits in an atomic group when we have read all edits in the
           // group.
-          for (auto& e : read_buffer.replay_buffer()) {
+          for (auto& e : read_buffer_.replay_buffer()) {
             s = ApplyOneVersionEditToBuilder(
                 e, cfds_changed, &have_log_number, &log_number,
                 &have_prev_log_number, &previous_log_number, &have_next_file,
@@ -5436,7 +5436,7 @@ Status ReactiveVersionSet::ReadAndApply(
           if (!s.ok()) {
             break;
           }
-          read_buffer.Clear();
+          read_buffer_.Clear();
         }
       } else {
         // Apply a normal edit immediately.
@@ -5452,7 +5452,7 @@ Status ReactiveVersionSet::ReadAndApply(
     }
     if (!s.ok()) {
       // Clear the buffer if we fail to decode/apply an edit.
-      read_buffer.Clear();
+      read_buffer_.Clear();
     }
     // It's possible that:
     // 1) s.IsCorruption(), indicating the current MANIFEST is corrupted.
@@ -5497,7 +5497,8 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
 
   // If we cannot find this column family in our column family set, then it
   // may be a new column family created by the primary after the secondary
-  // starts. Ignore it for now.
+  // starts. It is also possible that the secondary instance opens only a subset
+  // of column families. Ignore it for now.
   if (nullptr == cfd) {
     return Status::OK();
   }

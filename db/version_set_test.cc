@@ -820,7 +820,7 @@ TEST_P(VersionSetAtomicGroupTest, HandleValidAtomicGroup) {
         last_in_atomic_group = true;
       });
   SyncPoint::GetInstance()->SetCallBack(
-      "VersionSet::Recover:RecoveredEdits", [&](void* arg) {
+      "VersionSet::ReadAndRecover:RecoveredEdits", [&](void* arg) {
         int* recovered_edits = reinterpret_cast<int*>(arg);
         if (test_use_case == kTestReactiveVersionSetReadAndApply) {
           EXPECT_EQ(num_initial_edits, *recovered_edits);
@@ -870,7 +870,7 @@ TEST_P(VersionSetAtomicGroupTest, HandleValidAtomicGroup) {
     EXPECT_TRUE(first_in_atomic_group);
     EXPECT_TRUE(last_in_atomic_group);
     // The recover should clean up the replay buffer.
-    EXPECT_TRUE(reactive_versions_->read_edits_in_atomic_group() == 0);
+    EXPECT_TRUE(reactive_versions_->TEST_read_edits_in_atomic_group() == 0);
     EXPECT_TRUE(reactive_versions_->replay_buffer().size() == 0);
     EXPECT_TRUE(is_num_recovered_edits_correct);
     EXPECT_FALSE(is_num_applied_edits_correct);
@@ -897,7 +897,7 @@ TEST_P(VersionSetAtomicGroupTest, HandleValidAtomicGroup) {
   EXPECT_TRUE(first_in_atomic_group);
   EXPECT_TRUE(last_in_atomic_group);
   // The recover should clean up the replay buffer.
-  EXPECT_TRUE(reactive_versions_->read_edits_in_atomic_group() == 0);
+  EXPECT_TRUE(reactive_versions_->TEST_read_edits_in_atomic_group() == 0);
   EXPECT_TRUE(reactive_versions_->replay_buffer().size() == 0);
   EXPECT_TRUE(is_num_recovered_edits_correct);
   EXPECT_TRUE(is_num_applied_edits_correct);
@@ -940,7 +940,7 @@ TEST_P(VersionSetAtomicGroupTest, HandleIncompleteTrailingAtomicGroup) {
       [&](void* /* arg */) { last_in_atomic_group = true; });
 
   SyncPoint::GetInstance()->SetCallBack(
-      "VersionSet::Recover:RecoveredEdits", [&](void* arg) {
+      "VersionSet::ReadAndRecover:RecoveredEdits", [&](void* arg) {
         int* recovered_edits = reinterpret_cast<int*>(arg);
         EXPECT_EQ(num_initial_edits, *recovered_edits);
         is_num_recovered_edits_correct = true;
@@ -995,7 +995,7 @@ TEST_P(VersionSetAtomicGroupTest, HandleIncompleteTrailingAtomicGroup) {
     EXPECT_FALSE(last_in_atomic_group);
     EXPECT_EQ(kNumberOfPersistedVersionEdits, num);
     // Reactive version set should store the edits in the replay buffer.
-    EXPECT_TRUE(reactive_versions_->read_edits_in_atomic_group() ==
+    EXPECT_TRUE(reactive_versions_->TEST_read_edits_in_atomic_group() ==
                 kNumberOfPersistedVersionEdits);
     EXPECT_TRUE(reactive_versions_->replay_buffer().size() == kAtomicGroupSize);
     // Write the last record. The reactive version set should now apply all
@@ -1010,7 +1010,7 @@ TEST_P(VersionSetAtomicGroupTest, HandleIncompleteTrailingAtomicGroup) {
         reactive_versions_->ReadAndApply(&mu, &manifest_reader, &cfds_changed));
     mu.Unlock();
     // Reactive version set should be empty now.
-    EXPECT_TRUE(reactive_versions_->read_edits_in_atomic_group() == 0);
+    EXPECT_TRUE(reactive_versions_->TEST_read_edits_in_atomic_group() == 0);
     EXPECT_TRUE(reactive_versions_->replay_buffer().size() == 0);
     EXPECT_TRUE(is_num_recovered_edits_correct);
     EXPECT_TRUE(is_num_applied_edits_correct);
@@ -1045,7 +1045,7 @@ TEST_P(VersionSetAtomicGroupTest, HandleIncompleteTrailingAtomicGroup) {
   EXPECT_FALSE(last_in_atomic_group);
   EXPECT_EQ(kNumberOfPersistedVersionEdits, num);
   // Reactive version set should store the edits in the replay buffer.
-  EXPECT_TRUE(reactive_versions_->read_edits_in_atomic_group() ==
+  EXPECT_TRUE(reactive_versions_->TEST_read_edits_in_atomic_group() ==
               kNumberOfPersistedVersionEdits);
   EXPECT_TRUE(reactive_versions_->replay_buffer().size() == kAtomicGroupSize);
   EXPECT_TRUE(is_num_recovered_edits_correct);
