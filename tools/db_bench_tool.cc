@@ -3881,12 +3881,12 @@ class Benchmark {
     } else if (FLAGS_use_secondary_db) {
       if (FLAGS_secondary_path.empty()) {
         std::string default_secondary_path;
-        rocksdb::Env::Default()->GetTestDirectory(&default_secondary_path);
+        FLAGS_env->GetTestDirectory(&default_secondary_path);
         default_secondary_path += "/dbbench_secondary";
         FLAGS_secondary_path = default_secondary_path;
       }
       s = DB::OpenAsSecondary(options, db_name, FLAGS_secondary_path, &db->db);
-      if (s.ok()) {
+      if (s.ok() && FLAGS_secondary_update_interval > 0) {
         secondary_update_thread_.reset(new port::Thread(
             [this](int interval, DBWithColumnFamilies* _db) {
               while (0 == secondary_update_stopped_.load(
@@ -3899,7 +3899,7 @@ class Benchmark {
                   break;
                 }
                 ++secondary_db_updates_;
-                Env::Default()->SleepForMicroseconds(interval * 1000000);
+                FLAGS_env->SleepForMicroseconds(interval * 1000000);
               }
             },
             FLAGS_secondary_update_interval, db));

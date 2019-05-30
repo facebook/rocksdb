@@ -205,6 +205,10 @@ Status DBImplSecondary::RecoverLogFiles(
       SequenceNumber seq = versions_->LastSequence();
       WriteBatchInternal::SetContents(&batch, record);
       SequenceNumber seq_of_batch = WriteBatchInternal::Sequence(&batch);
+      // If the write batch's sequence number is smaller than the last sequence
+      // number of the db, then we should skip this write batch because its
+      // data must reside in an SST that has already been added in the prior
+      // MANIFEST replay.
       if (seq_of_batch < seq) {
         continue;
       }
