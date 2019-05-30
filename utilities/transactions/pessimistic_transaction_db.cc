@@ -22,7 +22,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"
 #include "utilities/transactions/write_prepared_txn_db.h"

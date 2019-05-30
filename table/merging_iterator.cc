@@ -23,7 +23,7 @@
 #include "util/autovector.h"
 #include "util/heap.h"
 #include "util/stop_watch.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes

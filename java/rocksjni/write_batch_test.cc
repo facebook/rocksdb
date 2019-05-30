@@ -23,7 +23,7 @@
 #include "rocksjni/portal.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 /*
  * Class:     org_rocksdb_WriteBatchTest

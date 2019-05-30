@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "util/sync_point_impl.h"
+#include "test_util/sync_point_impl.h"
 
 #ifndef NDEBUG
 namespace rocksdb {

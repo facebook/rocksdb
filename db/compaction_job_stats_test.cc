@@ -58,9 +58,9 @@
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "utilities/merge_operators.h"
 
 #if !defined(IOS_CROSS_COMPILE)

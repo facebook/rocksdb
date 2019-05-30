@@ -25,7 +25,7 @@
 #include "util/log_buffer.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 namespace {

@@ -10,7 +10,7 @@
 #include <string>
 
 #include "rocksdb/env.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 

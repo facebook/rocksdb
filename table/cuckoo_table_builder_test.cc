@@ -13,8 +13,8 @@
 #include "table/meta_blocks.h"
 #include "table/cuckoo_table_builder.h"
 #include "util/file_reader_writer.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 namespace rocksdb {
 extern const uint64_t kCuckooTableMagicNumber;

@@ -18,7 +18,7 @@
 #include "db/db_impl.h"
 #include "db/write_batch_internal.h"
 #include "utilities/merge_operators.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 

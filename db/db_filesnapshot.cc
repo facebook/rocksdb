@@ -23,7 +23,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "util/mutexlock.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 

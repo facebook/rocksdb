@@ -16,7 +16,7 @@
 #include "db/event_helpers.h"
 #include "monitoring/perf_context_imp.h"
 #include "options/options_helper.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 // Convenience methods

@@ -12,7 +12,7 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/write_batch.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 #include "port/port.h"
 
 using namespace rocksdb;

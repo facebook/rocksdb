@@ -17,8 +17,8 @@
 #include "rocksdb/write_batch.h"
 #include "port/port.h"
 #include "util/random.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
 
 using std::string;
 

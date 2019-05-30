@@ -17,7 +17,7 @@
 #include "port/port.h"
 #include "util/random.h"
 #include "util/rate_limiter.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 

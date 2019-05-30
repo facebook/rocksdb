@@ -20,8 +20,8 @@
 #include "table/table_builder.h"
 #include "table/table_reader.h"
 #include "util/mutexlock.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 namespace rocksdb {
 namespace mock {

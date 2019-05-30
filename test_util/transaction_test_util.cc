@@ -8,7 +8,7 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include "util/transaction_test_util.h"
+#include "test_util/transaction_test_util.h"
 
 #include <inttypes.h>
 #include <algorithm>

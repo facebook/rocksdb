@@ -13,7 +13,7 @@
 #include "port/port.h"
 #include "util/logging.h"
 #include "util/stop_watch.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 #include "utilities/persistent_cache/block_cache_tier_file.h"
 
 namespace rocksdb {

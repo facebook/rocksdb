@@ -13,7 +13,7 @@
 #include "util/arena.h"
 #include "util/hash.h"
 #include "util/random.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 

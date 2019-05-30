@@ -28,7 +28,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/utilities/checkpoint.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 

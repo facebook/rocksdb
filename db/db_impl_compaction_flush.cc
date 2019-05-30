@@ -22,7 +22,7 @@
 #include "monitoring/thread_status_updater.h"
 #include "monitoring/thread_status_util.h"
 #include "util/concurrent_task_limiter_impl.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 

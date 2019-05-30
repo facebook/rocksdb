@@ -15,8 +15,8 @@
 #include "table/data_block_hash_index.h"
 #include "table/get_context.h"
 #include "table/table_builder.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 namespace rocksdb {
 

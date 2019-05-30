@@ -15,7 +15,7 @@
 #include "rocksdb/env.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 

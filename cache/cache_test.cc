@@ -18,7 +18,7 @@
 #include "cache/lru_cache.h"
 #include "util/coding.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 

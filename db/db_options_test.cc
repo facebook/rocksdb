@@ -20,8 +20,8 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/stats_history.h"
 #include "util/random.h"
-#include "util/sync_point.h"
-#include "util/testutil.h"
+#include "test_util/sync_point.h"
+#include "test_util/testutil.h"
 
 namespace rocksdb {
 

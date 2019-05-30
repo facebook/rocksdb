@@ -19,7 +19,7 @@
 #include "util/cast_util.h"
 #include "util/file_reader_writer.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 #include "port/port.h"
 

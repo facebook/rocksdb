@@ -28,8 +28,8 @@
 #include "table/block_based_table_builder.h"
 #include "table/meta_blocks.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 namespace rocksdb {
 

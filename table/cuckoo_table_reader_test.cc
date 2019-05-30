@@ -31,8 +31,8 @@ int main() {
 #include "util/gflags_compat.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::SetUsageMessage;

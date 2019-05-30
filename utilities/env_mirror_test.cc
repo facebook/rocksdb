@@ -8,7 +8,7 @@
 
 #include "rocksdb/utilities/env_mirror.h"
 #include "env/mock_env.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 

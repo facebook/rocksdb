@@ -39,7 +39,7 @@ int main() {
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
-#include "util/testutil.h"
+#include "test_util/testutil.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
