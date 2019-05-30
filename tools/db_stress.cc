@@ -1967,13 +1967,18 @@ class StressTest {
     const int writeBound = prefixBound + (int)FLAGS_writepercent;
     const int delBound = writeBound + (int)FLAGS_delpercent;
     const int delRangeBound = delBound + (int)FLAGS_delrangepercent;
+    const uint64_t ops_per_open = FLAGS_ops_per_thread / (FLAGS_reopen + 1);
+    int multiget_batch_size = 0;
 
     thread->stats.Start();
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
       if (thread->shared->HasVerificationFailedYet()) {
         break;
       }
-      if (i != 0 && (i % (FLAGS_ops_per_thread / (FLAGS_reopen + 1))) == 0) {
+      // Check if the multiget batch crossed the ops_per_open boundary. If it
+      // did, then we should vote to reopen
+      if (i != 0 && (i % ops_per_open == 0 ||
+          i % ops_per_open < (i - multiget_batch_size) % ops_per_open)) {
         {
           thread->stats.FinishedSingleOp();
           MutexLock l(thread->shared->GetMutex());
@@ -2168,7 +2173,7 @@ class StressTest {
             snap_state);
       }
       while (!thread->snapshot_queue.empty() &&
-          i == thread->snapshot_queue.front().first) {
+          i >= thread->snapshot_queue.front().first) {
         auto snap_state = thread->snapshot_queue.front().second;
         assert(snap_state.snapshot);
         // Note: this is unsafe as the cf might be dropped concurrently. But it
@@ -2185,13 +2190,24 @@ class StressTest {
       }
 
       int prob_op = thread->rand.Uniform(100);
+      // Reset this in case we pick something other than a read op. We don't
+      // want to use a stale value when deciding at the beginning of the loop
+      // whether to vote to reopen
+      multiget_batch_size = 0;
       if (prob_op >= 0 && prob_op < (int)FLAGS_readpercent) {
         // OPERATION read
         if (FLAGS_use_multiget) {
-          int num_keys = thread->rand.Uniform(64);
-          rand_keys = GenerateNKeys(thread, num_keys, i);
+          // Leave room for one more iteration of the loop with a single key
+          // batch. This is to ensure that each thread does exactly the same
+          // number of ops
+          multiget_batch_size = static_cast<int>(
+              std::min(static_cast<uint64_t>(thread->rand.Uniform(64)),
+                                       FLAGS_ops_per_thread - i - 1));
+          // If its the last iteration, ensure that multiget_batch_size is 1
+          multiget_batch_size = std::max(multiget_batch_size, 1);
+          rand_keys = GenerateNKeys(thread, multiget_batch_size, i);
           TestMultiGet(thread, read_opts, rand_column_families, rand_keys);
-          i += num_keys - 1;
+          i += multiget_batch_size - 1;
         } else {
           TestGet(thread, read_opts, rand_column_families, rand_keys);
         }
