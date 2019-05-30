@@ -10,7 +10,7 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include "util/filename.h"
+#include "file/filename.h"
 #include <inttypes.h>
 
 #include <ctype.h>

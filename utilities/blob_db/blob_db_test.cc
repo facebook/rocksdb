@@ -14,13 +14,13 @@
 #include <vector>
 
 #include "db/db_test_util.h"
+#include "file/file_util.h"
+#include "file/sst_file_manager_impl.h"
 #include "port/port.h"
 #include "rocksdb/utilities/debug.h"
 #include "util/cast_util.h"
 #include "util/fault_injection_test_env.h"
-#include "util/file_util.h"
 #include "util/random.h"
-#include "util/sst_file_manager_impl.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"

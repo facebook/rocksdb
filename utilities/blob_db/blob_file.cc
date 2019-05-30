@@ -19,7 +19,7 @@
 #include "db/column_family.h"
 #include "db/db_impl.h"
 #include "db/dbformat.h"
-#include "util/filename.h"
+#include "file/filename.h"
 #include "util/logging.h"
 #include "utilities/blob_db/blob_db_impl.h"
 

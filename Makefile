@@ -1369,7 +1369,7 @@ fault_injection_test: db/fault_injection_test.o $(LIBOBJECTS) $(TESTHARNESS)
 rate_limiter_test: util/rate_limiter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-delete_scheduler_test: util/delete_scheduler_test.o $(LIBOBJECTS) $(TESTHARNESS)
+delete_scheduler_test: file/delete_scheduler_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 filename_test: db/filename_test.o $(LIBOBJECTS) $(TESTHARNESS)

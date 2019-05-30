@@ -67,6 +67,10 @@ LIB_SOURCES =                                                   \
   env/env_posix.cc                                              \
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
+  file/delete_scheduler.cc                                      \
+  file/file_util.cc                                             \
+  file/filename.cc                                              \
+  file/sst_file_manager_impl.cc                                 \
   memtable/alloc_tracker.cc                                     \
   memtable/hash_linklist_rep.cc                                 \
   memtable/hash_skiplist_rep.cc                                 \
@@ -139,12 +143,9 @@ LIB_SOURCES =                                                   \
   util/concurrent_arena.cc                                      \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \
-  util/delete_scheduler.cc                                      \
   util/dynamic_bloom.cc                                         \
   util/event_logger.cc                                          \
   util/file_reader_writer.cc                                    \
-  util/file_util.cc                                             \
-  util/filename.cc                                              \
   util/filter_policy.cc                                         \
   util/hash.cc                                                  \
   util/jemalloc_nodump_allocator.cc                             \
@@ -153,7 +154,6 @@ LIB_SOURCES =                                                   \
   util/random.cc                                                \
   util/rate_limiter.cc                                          \
   util/slice.cc                                                 \
-  util/sst_file_manager_impl.cc                                 \
   util/status.cc                                                \
   util/string_util.cc                                           \
   util/sync_point.cc                                            \
