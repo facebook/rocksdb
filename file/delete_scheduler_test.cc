@@ -12,10 +12,10 @@
 #include <thread>
 #include <vector>
 
+#include "file/delete_scheduler.h"
+#include "file/sst_file_manager_impl.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "util/delete_scheduler.h"
-#include "util/sst_file_manager_impl.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"

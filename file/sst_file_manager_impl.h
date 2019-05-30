@@ -13,8 +13,8 @@
 
 #include "db/compaction.h"
 #include "db/error_handler.h"
+#include "file/delete_scheduler.h"
 #include "rocksdb/sst_file_manager.h"
-#include "util/delete_scheduler.h"
 
 namespace rocksdb {
 

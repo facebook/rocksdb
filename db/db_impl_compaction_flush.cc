@@ -16,12 +16,12 @@
 #include "db/builder.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
+#include "file/sst_file_manager_impl.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_updater.h"
 #include "monitoring/thread_status_util.h"
 #include "util/concurrent_task_limiter_impl.h"
-#include "util/sst_file_manager_impl.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {

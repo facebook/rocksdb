@@ -538,6 +538,10 @@ set(SOURCES
         env/env_encryption.cc
         env/env_hdfs.cc
         env/mock_env.cc
+        file/delete_scheduler.cc
+        file/file_util.cc
+        file/filename.cc
+        file/sst_file_manager_impl.cc
         memtable/alloc_tracker.cc
         memtable/hash_linklist_rep.cc
         memtable/hash_skiplist_rep.cc
@@ -612,12 +616,9 @@ set(SOURCES
         util/concurrent_arena.cc
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
-        util/delete_scheduler.cc
         util/dynamic_bloom.cc
         util/event_logger.cc
         util/file_reader_writer.cc
-        util/file_util.cc
-        util/filename.cc
         util/filter_policy.cc
         util/hash.cc
         util/jemalloc_nodump_allocator.cc
@@ -626,7 +627,6 @@ set(SOURCES
         util/random.cc
         util/rate_limiter.cc
         util/slice.cc
-        util/sst_file_manager_impl.cc
         util/status.cc
         util/string_util.cc
         util/sync_point.cc
@@ -931,6 +931,7 @@ if(WITH_TESTS)
         env/env_basic_test.cc
         env/env_test.cc
         env/mock_env_test.cc
+        file/delete_scheduler_test.cc
         memtable/inlineskiplist_test.cc
         memtable/skiplist_test.cc
         memtable/write_buffer_manager_test.cc
@@ -959,7 +960,6 @@ if(WITH_TESTS)
         util/bloom_test.cc
         util/coding_test.cc
         util/crc32c_test.cc
-        util/delete_scheduler_test.cc
         util/dynamic_bloom_test.cc
         util/event_logger_test.cc
         util/file_reader_writer_test.cc

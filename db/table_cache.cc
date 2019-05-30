@@ -12,7 +12,7 @@
 #include "db/dbformat.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/version_edit.h"
-#include "util/filename.h"
+#include "file/filename.h"
 
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/statistics.h"

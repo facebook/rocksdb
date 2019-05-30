@@ -17,12 +17,12 @@
 #include <vector>
 
 #include "db/version_edit.h"
+#include "file/file_util.h"
 #include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
 #include "util/file_reader_writer.h"
-#include "util/file_util.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 
