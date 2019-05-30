@@ -430,6 +430,7 @@ TEST_F(DBSSTTest, RateLimitedWALDelete) {
   env_->time_elapse_only_sleep_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
+  options.compression = kNoCompression;
   options.env = env_;
 
   int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
@@ -439,7 +440,7 @@ TEST_F(DBSSTTest, RateLimitedWALDelete) {
   ASSERT_OK(s);
   options.sst_file_manager->SetDeleteRateBytesPerSecond(rate_bytes_per_sec);
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
-  sfm->delete_scheduler()->SetMaxTrashDBRatio(2.1);
+  sfm->delete_scheduler()->SetMaxTrashDBRatio(3.1);
 
   ASSERT_OK(TryReopen(options));
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
