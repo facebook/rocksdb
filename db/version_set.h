@@ -91,6 +91,9 @@ extern void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
                                       const std::vector<FileMetaData*>& files,
                                       Arena* arena);
 
+// Information of the storage associated with each Version, including number of
+// levels of LSM tree, files information at each level, files marked for
+// compaction, etc.
 class VersionStorageInfo {
  public:
   VersionStorageInfo(const InternalKeyComparator* internal_comparator,
@@ -537,6 +540,8 @@ class VersionStorageInfo {
 };
 
 using MultiGetRange = MultiGetContext::Range;
+// A column family's version consists of the SST files owned by the column
+// family at a certain point in time.
 class Version {
  public:
   // Append to *iters a sequence of iterators that will
@@ -747,6 +752,9 @@ struct ObsoleteFileInfo {
 
 class BaseReferencedVersionBuilder;
 
+// VersionSet is the collection of versions of all the column families of the
+// database. Each database owns one VersionSet. A VersionSet has access to all
+// column families via ColumnFamilySet, i.e. set of the column families.
 class VersionSet {
  public:
   VersionSet(const std::string& dbname, const ImmutableDBOptions* db_options,
@@ -1103,6 +1111,10 @@ class VersionSet {
                          VersionEdit* edit, InstrumentedMutex* mu);
 };
 
+// ReactiveVersionSet represents a collection of versions of the column
+// families of the database. Users of ReactiveVersionSet, e.g. DBImplSecondary,
+// need to replay the MANIFEST (description log in older terms) in order to
+// reconstruct and install versions.
 class ReactiveVersionSet : public VersionSet {
  public:
   ReactiveVersionSet(const std::string& dbname,
