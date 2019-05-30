@@ -941,12 +941,13 @@ if(WITH_TESTS)
         options/options_settable_test.cc
         options/options_test.cc
         table/blockbased/block_based_filter_block_test.cc
-        table/block_test.cc
+        table/blockbased/block_test.cc
+        table/blockbased/data_block_hash_index_test.cc
+        table/blockbased/full_filter_block_test.cc
+       	table/blockbased/partitioned_filter_block_test.cc 	
         table/cleanable_test.cc
         table/cuckoo/cuckoo_table_builder_test.cc
         table/cuckoo/cuckoo_table_reader_test.cc
-        table/data_block_hash_index_test.cc
-        table/full_filter_block_test.cc
         table/merger_test.cc
         table/sst_file_reader_test.cc
         table/table_test.cc

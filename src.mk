@@ -319,7 +319,6 @@ MAIN_SOURCES =                                                          \
   db/obsolete_files_test.cc						\
   db/options_settable_test.cc                                           \
   db/options_file_test.cc                                               \
-  db/partitioned_filter_block_test.cc                                   \
   db/perf_context_test.cc                                               \
   db/persistent_cache_test.cc                                           \
   db/plain_table_db_test.cc                                             \
@@ -349,12 +348,13 @@ MAIN_SOURCES =                                                          \
   monitoring/statistics_test.cc                                         \
   options/options_test.cc                                               \
   table/blockbased/block_based_filter_block_test.cc                     \
-  table/block_test.cc                                                   \
+  table/blockbased/block_test.cc                                        \
+  table/blockbased/data_block_hash_index_test.cc                        \
+  table/blockbased/full_filter_block_test.cc                            \
+  table/blockbased/partitioned_filter_block_test.cc                     \
   table/cleanable_test.cc                                               \
   table/cuckoo/cuckoo_table_builder_test.cc                             \
   table/cuckoo/cuckoo_table_reader_test.cc                              \
-  table/data_block_hash_index_test.cc                                   \
-  table/full_filter_block_test.cc                                       \
   table/merger_test.cc                                                  \
   table/sst_file_reader_test.cc                                         \
   table/table_reader_bench.cc                                           \
