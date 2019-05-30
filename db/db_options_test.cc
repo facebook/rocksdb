@@ -1027,9 +1027,10 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
-  // ttl used to be part of compaction_options_fifo but got deprecated in 6.0.
-  // We still need to handle old SetOptions calls but should ignore ttl as
-  // part of compaction_options_fifo.
+  // In release 6.0, ttl was promoted from a secondary level option under
+  // compaction_options_fifo to a top level option under ColumnFamilyOptions.
+  // We still need to handle old SetOptions calls but should ignore
+  // ttl under compaction_options_fifo.
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_fifo",
         "{allow_compaction=true;max_table_files_size=1024;ttl=731;}"},
