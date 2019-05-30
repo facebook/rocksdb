@@ -151,7 +151,7 @@ class CompactionJob {
 
   Env* env_;
   // env_option optimized for compaction table reads
-  EnvOptions env_optiosn_for_read_;
+  EnvOptions env_options_for_read_;
   VersionSet* versions_;
   const std::atomic<bool>* shutting_down_;
   const SequenceNumber preserve_deletes_seqnum_;

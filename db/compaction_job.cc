@@ -324,7 +324,7 @@ CompactionJob::CompactionJob(
       db_options_(db_options),
       env_options_(env_options),
       env_(db_options.env),
-      env_optiosn_for_read_(
+      env_options_for_read_(
           env_->OptimizeForCompactionTableRead(env_options, db_options_)),
       versions_(versions),
       shutting_down_(shutting_down),
@@ -836,7 +836,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // Although the v2 aggregator is what the level iterator(s) know about,
   // the AddTombstones calls will be propagated down to the v1 aggregator.
   std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
-      sub_compact->compaction, &range_del_agg, env_optiosn_for_read_));
+      sub_compact->compaction, &range_del_agg, env_options_for_read_));
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
