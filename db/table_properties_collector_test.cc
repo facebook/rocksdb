@@ -20,8 +20,8 @@
 #include "table/table_builder.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 namespace rocksdb {
 

@@ -131,6 +131,9 @@ LIB_SOURCES =                                                   \
   table/sst_file_writer.cc                                      \
   table/table_properties.cc                                     \
   table/two_level_iterator.cc                                   \
+  test_util/sync_point.cc                                       \
+  test_util/sync_point_impl.cc                                  \
+  test_util/transaction_test_util.cc                            \
   tools/dump/db_dump_tool.cc                                    \
   util/arena.cc                                                 \
   util/auto_roll_logger.cc                                      \
@@ -156,12 +159,9 @@ LIB_SOURCES =                                                   \
   util/slice.cc                                                 \
   util/status.cc                                                \
   util/string_util.cc                                           \
-  util/sync_point.cc                                            \
-  util/sync_point_impl.cc                                       \
   util/thread_local.cc                                          \
   util/threadpool_imp.cc                                        \
   util/trace_replay.cc                                          \
-  util/transaction_test_util.cc                                 \
   util/xxhash.cc                                                \
   utilities/backupable/backupable_db.cc                         \
   utilities/blob_db/blob_compaction_filter.cc                   \
@@ -242,15 +242,15 @@ ANALYZER_LIB_SOURCES = \
 
 MOCK_LIB_SOURCES = \
   table/mock_table.cc \
-  util/fault_injection_test_env.cc
+  test_util/fault_injection_test_env.cc
 
 BENCH_LIB_SOURCES = \
   tools/db_bench_tool.cc                                        \
 
 TEST_LIB_SOURCES = \
   db/db_test_util.cc                                            \
-  util/testharness.cc                                           \
-  util/testutil.cc                                              \
+  test_util/testharness.cc                                           \
+  test_util/testutil.cc                                              \
   utilities/cassandra/test_utils.cc                             \
 
 MAIN_SOURCES =                                                          \

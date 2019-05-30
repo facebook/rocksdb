@@ -15,8 +15,8 @@
 #include "util/crc32c.h"
 #include "util/logging.h"
 #include "util/random.h"
-#include "util/testharness.h"
-#include "util/transaction_test_util.h"
+#include "test_util/testharness.h"
+#include "test_util/transaction_test_util.h"
 #include "port/port.h"
 
 using std::string;

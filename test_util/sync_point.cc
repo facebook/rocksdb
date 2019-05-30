@@ -3,8 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "util/sync_point.h"
-#include "util/sync_point_impl.h"
+#include "test_util/sync_point.h"
+#include "test_util/sync_point_impl.h"
 
 int rocksdb_kill_odds = 0;
 std::vector<std::string> rocksdb_kill_prefix_blacklist;

@@ -10,8 +10,8 @@
 
 #include "port/port.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {

@@ -600,6 +600,10 @@ set(SOURCES
         table/sst_file_writer.cc
         table/table_properties.cc
         table/two_level_iterator.cc
+        test_util/sync_point.cc
+        test_util/sync_point_impl.cc
+        test_util/testutil.cc
+        test_util/transaction_test_util.cc
         tools/db_bench_tool.cc
         tools/dump/db_dump_tool.cc
         tools/ldb_cmd.cc
@@ -629,13 +633,9 @@ set(SOURCES
         util/slice.cc
         util/status.cc
         util/string_util.cc
-        util/sync_point.cc
-        util/sync_point_impl.cc
-        util/testutil.cc
         util/thread_local.cc
         util/threadpool_imp.cc
         util/trace_replay.cc
-        util/transaction_test_util.cc
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
         utilities/blob_db/blob_compaction_filter.cc
@@ -1006,7 +1006,7 @@ if(WITH_TESTS)
     tools/db_bench.cc
     table/table_reader_bench.cc
     utilities/persistent_cache/hash_table_bench.cc)
-  add_library(testharness OBJECT util/testharness.cc)
+  add_library(testharness OBJECT test_util/testharness.cc)
   foreach(sourcefile ${BENCHMARKS})
     get_filename_component(exename ${sourcefile} NAME_WE)
     add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile}
@@ -1020,7 +1020,7 @@ if(WITH_TESTS)
       db/db_test_util.cc
       monitoring/thread_status_updater_debug.cc
       table/mock_table.cc
-      util/fault_injection_test_env.cc
+      test_util/fault_injection_test_env.cc
       utilities/cassandra/test_utils.cc
   )
   # test utilities are only build in debug

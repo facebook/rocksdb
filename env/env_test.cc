@@ -44,9 +44,9 @@
 #include "util/log_buffer.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 #ifdef OS_LINUX
 static const size_t kPageSize = sysconf(_SC_PAGESIZE);

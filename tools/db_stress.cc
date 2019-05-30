@@ -72,9 +72,9 @@ int main() {
 #include "util/string_util.h"
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
-#include "util/testutil.h"
+#include "test_util/testutil.h"
 
 #include "utilities/merge_operators.h"
 

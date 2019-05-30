@@ -16,7 +16,7 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 

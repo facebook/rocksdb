@@ -6,7 +6,7 @@
 #include "monitoring/instrumented_mutex.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 namespace {

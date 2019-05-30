@@ -26,7 +26,7 @@ int main() {
 #include "util/coding.h"
 #include "util/random.h"
 #include "util/stop_watch.h"
-#include "util/testutil.h"
+#include "test_util/testutil.h"
 
 #include "util/gflags_compat.h"
 

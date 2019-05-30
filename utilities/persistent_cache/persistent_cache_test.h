@@ -23,7 +23,7 @@
 #include "table/block_builder.h"
 #include "port/port.h"
 #include "util/arena.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 #include "utilities/persistent_cache/volatile_tier_impl.h"
 
 namespace rocksdb {

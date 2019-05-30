@@ -14,8 +14,8 @@
 #include "rocksdb/experimental.h"
 #include "rocksdb/utilities/convenience.h"
 #include "util/concurrent_task_limiter_impl.h"
-#include "util/fault_injection_test_env.h"
-#include "util/sync_point.h"
+#include "test_util/fault_injection_test_env.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 

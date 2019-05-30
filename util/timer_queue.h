@@ -32,7 +32,7 @@
 #include <vector>
 
 #include "port/port.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 // Allows execution of handlers at a specified time in the future
 // Guarantees:

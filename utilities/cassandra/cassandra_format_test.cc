@@ -5,7 +5,7 @@
 
 #include <cstring>
 #include <memory>
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 #include "utilities/cassandra/format.h"
 #include "utilities/cassandra/serialize.h"
 #include "utilities/cassandra/test_utils.h"

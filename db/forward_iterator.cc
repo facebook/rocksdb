@@ -22,7 +22,7 @@
 #include "rocksdb/slice_transform.h"
 #include "table/merging_iterator.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 

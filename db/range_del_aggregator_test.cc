@@ -12,7 +12,7 @@
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/range_tombstone_fragmenter.h"
-#include "util/testutil.h"
+#include "test_util/testutil.h"
 
 namespace rocksdb {
 

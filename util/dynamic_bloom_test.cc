@@ -29,8 +29,8 @@ int main() {
 #include "util/gflags_compat.h"
 #include "util/logging.h"
 #include "util/stop_watch.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
