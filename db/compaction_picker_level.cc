@@ -13,19 +13,12 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-#include <limits>
-#include <queue>
 #include <string>
 #include <utility>
 #include <vector>
-#include "db/column_family.h"
-#include "monitoring/statistics.h"
-#include "util/filename.h"
+
+#include "test_util/sync_point.h"
 #include "util/log_buffer.h"
-#include "util/random.h"
-#include "util/string_util.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -256,7 +249,8 @@ void LevelCompactionBuilder::SetupInitialFiles() {
     parent_index_ = base_index_ = -1;
 
     compaction_picker_->PickFilesMarkedForCompaction(
-        cf_name_, vstorage_, &start_level_, &output_level_, &start_level_inputs_);
+        cf_name_, vstorage_, &start_level_, &output_level_,
+        &start_level_inputs_);
     if (!start_level_inputs_.empty()) {
       is_manual_ = true;
       compaction_reason_ = CompactionReason::kFilesMarkedForCompaction;
@@ -548,10 +542,9 @@ bool LevelCompactionBuilder::PickIntraL0Compaction() {
     // resort to L0->L0 compaction yet.
     return false;
   }
-  return FindIntraL0Compaction(level_files, kMinFilesForIntraL0Compaction,
-                               port::kMaxUint64,
-                               mutable_cf_options_.max_compaction_bytes,
-                               &start_level_inputs_);
+  return FindIntraL0Compaction(
+      level_files, kMinFilesForIntraL0Compaction, port::kMaxUint64,
+      mutable_cf_options_.max_compaction_bytes, &start_level_inputs_);
 }
 }  // namespace
 
@@ -563,4 +556,3 @@ Compaction* LevelCompactionPicker::PickCompaction(
   return builder.PickCompaction();
 }
 }  // namespace rocksdb
-
