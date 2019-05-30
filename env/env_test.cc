@@ -40,13 +40,13 @@
 #include "env/env_chroot.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/log_buffer.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
-#include "test_util/sync_point.h"
-#include "test_util/testharness.h"
-#include "test_util/testutil.h"
 
 #ifdef OS_LINUX
 static const size_t kPageSize = sysconf(_SC_PAGESIZE);

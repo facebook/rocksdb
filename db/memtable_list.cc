@@ -22,9 +22,9 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "table/merging_iterator.h"
+#include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/log_buffer.h"
-#include "test_util/sync_point.h"
 
 namespace rocksdb {
 

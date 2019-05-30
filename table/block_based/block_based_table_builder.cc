@@ -31,9 +31,9 @@
 #include "rocksdb/table.h"
 
 #include "table/block_based/block.h"
+#include "table/block_based/block_based_filter_block.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
-#include "table/block_based/block_based_filter_block.h"
 #include "table/block_based/block_builder.h"
 #include "table/block_based/filter_block.h"
 #include "table/block_based/full_filter_block.h"
@@ -41,14 +41,13 @@
 #include "table/format.h"
 #include "table/table_builder.h"
 
+#include "memory/memory_allocator.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
-#include "util/memory_allocator.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"
-
 
 namespace rocksdb {
 

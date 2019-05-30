@@ -24,15 +24,14 @@
 #include "rocksdb/table_properties.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/plain/plain_table_factory.h"
-#include "file/filename.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/hash.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
 #include "util/string_util.h"
-#include "test_util/sync_point.h"
-#include "test_util/testharness.h"
-#include "test_util/testutil.h"
 #include "utilities/merge_operators.h"
 
 #ifndef ROCKSDB_LITE

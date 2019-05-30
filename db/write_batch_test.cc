@@ -18,8 +18,8 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
-#include "util/string_util.h"
 #include "test_util/testharness.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 

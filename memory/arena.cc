@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "util/arena.h"
+#include "memory/arena.h"
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
 #ifdef OS_FREEBSD
 #include <malloc_np.h>
@@ -21,8 +21,8 @@
 #include <algorithm>
 #include "port/port.h"
 #include "rocksdb/env.h"
-#include "util/logging.h"
 #include "test_util/sync_point.h"
+#include "util/logging.h"
 
 namespace rocksdb {
 

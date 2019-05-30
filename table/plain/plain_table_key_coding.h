@@ -8,8 +8,8 @@
 #ifndef ROCKSDB_LITE
 
 #include <array>
-#include "rocksdb/slice.h"
 #include "db/dbformat.h"
+#include "rocksdb/slice.h"
 #include "table/plain/plain_table_reader.h"
 
 // The file contains three helper classes of PlainTable format,

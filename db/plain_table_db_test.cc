@@ -29,12 +29,12 @@
 #include "table/plain/plain_table_key_coding.h"
 #include "table/plain/plain_table_reader.h"
 #include "table/table_builder.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/hash.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
-#include "test_util/testharness.h"
-#include "test_util/testutil.h"
 #include "utilities/merge_operators.h"
 
 using std::unique_ptr;

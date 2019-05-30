@@ -11,9 +11,9 @@
 #include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/stackable_db.h"
 #include "table/block_based/block_based_table_factory.h"
-#include "util/string_util.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 

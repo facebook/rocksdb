@@ -8,8 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/dbformat.h"
-#include "util/logging.h"
 #include "test_util/testharness.h"
+#include "util/logging.h"
 
 namespace rocksdb {
 

@@ -46,14 +46,14 @@
 #include "table/mock_table.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
-#include "util/compression.h"
 #include "test_util/mock_time_env.h"
+#include "util/compression.h"
 #include "util/mutexlock.h"
 
-#include "util/string_util.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {

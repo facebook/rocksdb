@@ -23,10 +23,10 @@ int main() {
 #include "db/range_tombstone_fragmenter.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
+#include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/random.h"
 #include "util/stop_watch.h"
-#include "test_util/testutil.h"
 
 #include "util/gflags_compat.h"
 

@@ -10,12 +10,12 @@
 #pragma once
 #include <algorithm>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
-#include <string>
-#include "rocksdb/cache.h"
 #include "db/dbformat.h"
-#include "util/arena.h"
+#include "memory/arena.h"
+#include "rocksdb/cache.h"
 #include "util/autovector.h"
 
 namespace rocksdb {

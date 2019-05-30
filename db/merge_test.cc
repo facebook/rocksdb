@@ -7,6 +7,9 @@
 #include <memory>
 #include <iostream>
 
+#include "db/db_impl.h"
+#include "db/dbformat.h"
+#include "db/write_batch_internal.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
@@ -14,11 +17,8 @@
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/db_ttl.h"
-#include "db/dbformat.h"
-#include "db/db_impl.h"
-#include "db/write_batch_internal.h"
-#include "utilities/merge_operators.h"
 #include "test_util/testharness.h"
+#include "utilities/merge_operators.h"
 
 namespace rocksdb {
 

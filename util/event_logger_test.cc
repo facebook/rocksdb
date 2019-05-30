@@ -5,8 +5,8 @@
 
 #include <string>
 
-#include "util/event_logger.h"
 #include "test_util/testharness.h"
+#include "util/event_logger.h"
 
 namespace rocksdb {
 

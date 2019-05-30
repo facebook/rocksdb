@@ -1977,8 +1977,9 @@ class StressTest {
       }
       // Check if the multiget batch crossed the ops_per_open boundary. If it
       // did, then we should vote to reopen
-      if (i != 0 && (i % ops_per_open == 0 ||
-          i % ops_per_open < (i - multiget_batch_size) % ops_per_open)) {
+      if (i != 0 &&
+          (i % ops_per_open == 0 ||
+           i % ops_per_open < (i - multiget_batch_size) % ops_per_open)) {
         {
           thread->stats.FinishedSingleOp();
           MutexLock l(thread->shared->GetMutex());
@@ -2173,7 +2174,7 @@ class StressTest {
             snap_state);
       }
       while (!thread->snapshot_queue.empty() &&
-          i >= thread->snapshot_queue.front().first) {
+             i >= thread->snapshot_queue.front().first) {
         auto snap_state = thread->snapshot_queue.front().second;
         assert(snap_state.snapshot);
         // Note: this is unsafe as the cf might be dropped concurrently. But it
@@ -2202,7 +2203,7 @@ class StressTest {
           // number of ops
           multiget_batch_size = static_cast<int>(
               std::min(static_cast<uint64_t>(thread->rand.Uniform(64)),
-                                       FLAGS_ops_per_thread - i - 1));
+                       FLAGS_ops_per_thread - i - 1));
           // If its the last iteration, ensure that multiget_batch_size is 1
           multiget_batch_size = std::max(multiget_batch_size, 1);
           rand_keys = GenerateNKeys(thread, multiget_batch_size, i);
