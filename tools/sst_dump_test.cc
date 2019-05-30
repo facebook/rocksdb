@@ -13,7 +13,7 @@
 #include "rocksdb/sst_dump_tool.h"
 
 #include "rocksdb/filter_policy.h"
-#include "table/block_based_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/table_builder.h"
 #include "util/file_reader_writer.h"
 #include "test_util/testharness.h"

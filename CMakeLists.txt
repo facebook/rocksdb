@@ -566,36 +566,36 @@ set(SOURCES
         options/options_parser.cc
         options/options_sanity_check.cc
         port/stack_trace.cc
-        table/adaptive_table_factory.cc
-        table/block.cc
-        table/block_based_filter_block.cc
-        table/block_based_table_builder.cc
-        table/block_based_table_factory.cc
-        table/block_based_table_reader.cc
-        table/block_builder.cc
+        table/adaptive/adaptive_table_factory.cc
+        table/block_based/block.cc
+        table/block_based/block_based_filter_block.cc
+        table/block_based/block_based_table_builder.cc
+        table/block_based/block_based_table_factory.cc
+        table/block_based/block_based_table_reader.cc
+        table/block_based/block_builder.cc
+        table/block_based/block_prefix_index.cc
+        table/block_based/data_block_hash_index.cc
+        table/block_based/data_block_footer.cc
+        table/block_based/flush_block_policy.cc
+        table/block_based/full_filter_block.cc
+        table/block_based/index_builder.cc
+        table/block_based/partitioned_filter_block.cc
         table/block_fetcher.cc
-        table/block_prefix_index.cc
         table/bloom_block.cc
-        table/cuckoo_table_builder.cc
-        table/cuckoo_table_factory.cc
-        table/cuckoo_table_reader.cc
-        table/data_block_hash_index.cc
-        table/data_block_footer.cc
-        table/flush_block_policy.cc
+        table/cuckoo/cuckoo_table_builder.cc
+        table/cuckoo/cuckoo_table_factory.cc
+        table/cuckoo/cuckoo_table_reader.cc
         table/format.cc
-        table/full_filter_block.cc
         table/get_context.cc
-        table/index_builder.cc
         table/iterator.cc
         table/merging_iterator.cc
         table/meta_blocks.cc
-        table/partitioned_filter_block.cc
         table/persistent_cache_helper.cc
-        table/plain_table_builder.cc
-        table/plain_table_factory.cc
-        table/plain_table_index.cc
-        table/plain_table_key_coding.cc
-        table/plain_table_reader.cc
+        table/plain/plain_table_builder.cc
+        table/plain/plain_table_factory.cc
+        table/plain/plain_table_index.cc
+        table/plain/plain_table_key_coding.cc
+        table/plain/plain_table_reader.cc
         table/sst_file_reader.cc
         table/sst_file_writer.cc
         table/table_properties.cc
@@ -940,13 +940,14 @@ if(WITH_TESTS)
         monitoring/statistics_test.cc
         options/options_settable_test.cc
         options/options_test.cc
-        table/block_based_filter_block_test.cc
-        table/block_test.cc
+        table/block_based/block_based_filter_block_test.cc
+        table/block_based/block_test.cc
+        table/block_based/data_block_hash_index_test.cc
+        table/block_based/full_filter_block_test.cc
+       	table/block_based/partitioned_filter_block_test.cc 	
         table/cleanable_test.cc
-        table/cuckoo_table_builder_test.cc
-        table/cuckoo_table_reader_test.cc
-        table/data_block_hash_index_test.cc
-        table/full_filter_block_test.cc
+        table/cuckoo/cuckoo_table_builder_test.cc
+        table/cuckoo/cuckoo_table_reader_test.cc
         table/merger_test.cc
         table/sst_file_reader_test.cc
         table/table_test.cc
