@@ -326,9 +326,9 @@ cpp_library(
 cpp_library(
     name = "rocksdb_tools_lib",
     srcs = [
+        "test_util/testutil.cc",
         "tools/db_bench_tool.cc",
         "tools/trace_analyzer_tool.cc",
-        "util/testutil.cc",
     ],
     auto_headers = AutoHeaders.RECURSIVE_GLOB,
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
