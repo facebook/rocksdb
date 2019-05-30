@@ -4174,13 +4174,6 @@ Status VersionSet::ReadAndRecover(
         recovered_edits++;
       }
     }
-<<<<<<< HEAD
-=======
-  }
-  if (!s.ok()) {
-    // Clear the buffer if we fail to decode/apply an edit.
-    read_buffer->Clear();
->>>>>>> Address lint comments
   }
   if (!s.ok()) {
     // Clear the buffer if we fail to decode/apply an edit.
@@ -5426,11 +5419,7 @@ Status ReactiveVersionSet::ReadAndApply(
         break;
       }
       if (edit.is_in_atomic_group_) {
-<<<<<<< HEAD
         if (read_buffer_.IsFull()) {
-=======
-        if (read_buffer.IsFull()) {
->>>>>>> Address lint comments
           // Apply edits in an atomic group when we have read all edits in the
           // group.
           for (auto& e : read_buffer_.replay_buffer()) {
@@ -5447,11 +5436,7 @@ Status ReactiveVersionSet::ReadAndApply(
           if (!s.ok()) {
             break;
           }
-<<<<<<< HEAD
           read_buffer_.Clear();
-=======
-          read_buffer.Clear();
->>>>>>> Address lint comments
         }
       } else {
         // Apply a normal edit immediately.
@@ -5467,11 +5452,7 @@ Status ReactiveVersionSet::ReadAndApply(
     }
     if (!s.ok()) {
       // Clear the buffer if we fail to decode/apply an edit.
-<<<<<<< HEAD
       read_buffer_.Clear();
-=======
-      read_buffer.Clear();
->>>>>>> Address lint comments
     }
     // It's possible that:
     // 1) s.IsCorruption(), indicating the current MANIFEST is corrupted.
