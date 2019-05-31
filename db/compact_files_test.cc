@@ -14,9 +14,9 @@
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
 
 namespace rocksdb {
 

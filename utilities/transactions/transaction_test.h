@@ -21,13 +21,13 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
-#include "util/fault_injection_test_env.h"
+#include "test_util/fault_injection_test_env.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
+#include "test_util/transaction_test_util.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
-#include "util/transaction_test_util.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
@@ -214,6 +214,8 @@ class TransactionTestBase : public ::testing::Test {
   std::atomic<size_t> exp_seq = {0};
   std::atomic<size_t> commit_writes = {0};
   std::atomic<size_t> expected_commits = {0};
+  // Without Prepare, the commit does not write to WAL
+  std::atomic<size_t> with_empty_commits = {0};
   std::function<void(size_t, Status)> txn_t0_with_status = [&](size_t index,
                                                                Status exp_s) {
     // Test DB's internal txn. It involves no prepare phase nor a commit marker.
@@ -231,6 +233,7 @@ class TransactionTestBase : public ::testing::Test {
         exp_seq++;
       }
     }
+    with_empty_commits++;
   };
   std::function<void(size_t)> txn_t0 = [&](size_t index) {
     return txn_t0_with_status(index, Status::OK());
@@ -257,6 +260,7 @@ class TransactionTestBase : public ::testing::Test {
       }
     }
     ASSERT_OK(s);
+    with_empty_commits++;
   };
   std::function<void(size_t)> txn_t2 = [&](size_t index) {
     // Commit without prepare. It should write to DB without a commit marker.
@@ -282,6 +286,7 @@ class TransactionTestBase : public ::testing::Test {
       }
     }
     delete txn;
+    with_empty_commits++;
   };
   std::function<void(size_t)> txn_t3 = [&](size_t index) {
     // A full 2pc txn that also involves a commit marker.

@@ -4,14 +4,14 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#include <string>
 #include <db/dbformat.h>
+#include <string>
 #include "db/merge_context.h"
 #include "db/read_callback.h"
 #include "rocksdb/env.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/types.h"
-#include "table/block.h"
+#include "table/block_based/block.h"
 
 namespace rocksdb {
 class MergeContext;

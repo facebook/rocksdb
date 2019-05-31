@@ -12,7 +12,7 @@
 #include "db/dbformat.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/version_edit.h"
-#include "util/filename.h"
+#include "file/filename.h"
 
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/statistics.h"
@@ -22,10 +22,10 @@
 #include "table/multiget_context.h"
 #include "table/table_builder.h"
 #include "table/table_reader.h"
+#include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 

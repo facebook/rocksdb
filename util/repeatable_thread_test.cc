@@ -7,9 +7,9 @@
 #include <memory>
 
 #include "db/db_test_util.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
 #include "util/repeatable_thread.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
 
 class RepeatableThreadTest : public testing::Test {
  public:

@@ -67,6 +67,13 @@ LIB_SOURCES =                                                   \
   env/env_posix.cc                                              \
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
+  file/delete_scheduler.cc                                      \
+  file/file_util.cc                                             \
+  file/filename.cc                                              \
+  file/sst_file_manager_impl.cc                                 \
+  memory/arena.cc                                               \
+  memory/concurrent_arena.cc                                    \
+  memory/jemalloc_nodump_allocator.cc                           \
   memtable/alloc_tracker.cc                                     \
   memtable/hash_linklist_rep.cc                                 \
   memtable/hash_skiplist_rep.cc                                 \
@@ -93,42 +100,44 @@ LIB_SOURCES =                                                   \
   options/options_sanity_check.cc                               \
   port/port_posix.cc                                            \
   port/stack_trace.cc                                           \
-  table/adaptive_table_factory.cc                               \
-  table/block.cc                                                \
-  table/block_based_filter_block.cc                             \
-  table/block_based_table_builder.cc                            \
-  table/block_based_table_factory.cc                            \
-  table/block_based_table_reader.cc                             \
-  table/block_builder.cc                                        \
-  table/block_fetcher.cc                                        \
-  table/block_prefix_index.cc                                   \
-  table/bloom_block.cc                                          \
-  table/cuckoo_table_builder.cc                                 \
-  table/cuckoo_table_factory.cc                                 \
-  table/cuckoo_table_reader.cc                                  \
-  table/data_block_hash_index.cc                                \
-  table/data_block_footer.cc                                    \
-  table/flush_block_policy.cc                                   \
+  table/adaptive/adaptive_table_factory.cc                      \
+  table/block_based/block.cc                                     \
+  table/block_based/block_based_filter_block.cc                  \
+  table/block_based/block_based_table_builder.cc                 \
+  table/block_based/block_based_table_factory.cc                 \
+  table/block_based/block_based_table_reader.cc                  \
+  table/block_based/block_builder.cc                             \
+  table/block_based/block_prefix_index.cc                        \
+  table/block_based/data_block_hash_index.cc                     \
+  table/block_based/data_block_footer.cc                         \
+  table/block_based/flush_block_policy.cc                        \
+  table/block_based/full_filter_block.cc                         \
+  table/block_based/index_builder.cc                             \
+  table/block_based/partitioned_filter_block.cc                  \
+  table/block_fetcher.cc                             			\
+  table/bloom_block.cc                               			\
+  table/cuckoo/cuckoo_table_builder.cc                          \
+  table/cuckoo/cuckoo_table_factory.cc                          \
+  table/cuckoo/cuckoo_table_reader.cc                           \
   table/format.cc                                               \
-  table/full_filter_block.cc                                    \
   table/get_context.cc                                          \
-  table/index_builder.cc                                        \
   table/iterator.cc                                             \
   table/merging_iterator.cc                                     \
   table/meta_blocks.cc                                          \
-  table/partitioned_filter_block.cc                             \
   table/persistent_cache_helper.cc                              \
-  table/plain_table_builder.cc                                  \
-  table/plain_table_factory.cc                                  \
-  table/plain_table_index.cc                                    \
-  table/plain_table_key_coding.cc                               \
-  table/plain_table_reader.cc                                   \
+  table/plain/plain_table_builder.cc                            \
+  table/plain/plain_table_factory.cc                            \
+  table/plain/plain_table_index.cc                              \
+  table/plain/plain_table_key_coding.cc                         \
+  table/plain/plain_table_reader.cc                             \
   table/sst_file_reader.cc                                      \
   table/sst_file_writer.cc                                      \
   table/table_properties.cc                                     \
   table/two_level_iterator.cc                                   \
+  test_util/sync_point.cc                                       \
+  test_util/sync_point_impl.cc                                  \
+  test_util/transaction_test_util.cc                            \
   tools/dump/db_dump_tool.cc                                    \
-  util/arena.cc                                                 \
   util/auto_roll_logger.cc                                      \
   util/bloom.cc                                                 \
   util/build_version.cc                                         \
@@ -136,32 +145,23 @@ LIB_SOURCES =                                                   \
   util/compaction_job_stats_impl.cc                             \
   util/comparator.cc                                            \
   util/compression_context_cache.cc                             \
-  util/concurrent_arena.cc                                      \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \
-  util/delete_scheduler.cc                                      \
   util/dynamic_bloom.cc                                         \
   util/event_logger.cc                                          \
   util/file_reader_writer.cc                                    \
-  util/file_util.cc                                             \
-  util/filename.cc                                              \
   util/filter_policy.cc                                         \
   util/hash.cc                                                  \
-  util/jemalloc_nodump_allocator.cc                             \
   util/log_buffer.cc                                            \
   util/murmurhash.cc                                            \
   util/random.cc                                                \
   util/rate_limiter.cc                                          \
   util/slice.cc                                                 \
-  util/sst_file_manager_impl.cc                                 \
   util/status.cc                                                \
   util/string_util.cc                                           \
-  util/sync_point.cc                                            \
-  util/sync_point_impl.cc                                       \
   util/thread_local.cc                                          \
   util/threadpool_imp.cc                                        \
   util/trace_replay.cc                                          \
-  util/transaction_test_util.cc                                 \
   util/xxhash.cc                                                \
   utilities/backupable/backupable_db.cc                         \
   utilities/blob_db/blob_compaction_filter.cc                   \
@@ -243,15 +243,15 @@ ANALYZER_LIB_SOURCES = \
 
 MOCK_LIB_SOURCES = \
   table/mock_table.cc \
-  util/fault_injection_test_env.cc
+  test_util/fault_injection_test_env.cc
 
 BENCH_LIB_SOURCES = \
   tools/db_bench_tool.cc                                        \
 
 TEST_LIB_SOURCES = \
   db/db_test_util.cc                                            \
-  util/testharness.cc                                           \
-  util/testutil.cc                                              \
+  test_util/testharness.cc                                           \
+  test_util/testutil.cc                                              \
   utilities/cassandra/test_utils.cc                             \
 
 MAIN_SOURCES =                                                          \
@@ -320,7 +320,6 @@ MAIN_SOURCES =                                                          \
   db/obsolete_files_test.cc						\
   db/options_settable_test.cc                                           \
   db/options_file_test.cc                                               \
-  db/partitioned_filter_block_test.cc                                   \
   db/perf_context_test.cc                                               \
   db/persistent_cache_test.cc                                           \
   db/plain_table_db_test.cc                                             \
@@ -341,6 +340,7 @@ MAIN_SOURCES =                                                          \
   env/env_basic_test.cc                                                 \
   env/env_test.cc                                                       \
   env/mock_env_test.cc                                                  \
+  memory/arena_test.cc                                                  \
   memtable/inlineskiplist_test.cc                                       \
   memtable/memtablerep_bench.cc                                         \
   memtable/skiplist_test.cc                                             \
@@ -349,13 +349,14 @@ MAIN_SOURCES =                                                          \
   monitoring/iostats_context_test.cc                                    \
   monitoring/statistics_test.cc                                         \
   options/options_test.cc                                               \
-  table/block_based_filter_block_test.cc                                \
-  table/block_test.cc                                                   \
+  table/block_based/block_based_filter_block_test.cc                     \
+  table/block_based/block_test.cc                                        \
+  table/block_based/data_block_hash_index_test.cc                        \
+  table/block_based/full_filter_block_test.cc                            \
+  table/block_based/partitioned_filter_block_test.cc                     \
   table/cleanable_test.cc                                               \
-  table/cuckoo_table_builder_test.cc                                    \
-  table/cuckoo_table_reader_test.cc                                     \
-  table/data_block_hash_index_test.cc                                   \
-  table/full_filter_block_test.cc                                       \
+  table/cuckoo/cuckoo_table_builder_test.cc                             \
+  table/cuckoo/cuckoo_table_reader_test.cc                              \
   table/merger_test.cc                                                  \
   table/sst_file_reader_test.cc                                         \
   table/table_reader_bench.cc                                           \
@@ -368,7 +369,6 @@ MAIN_SOURCES =                                                          \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \
   tools/trace_analyzer_test.cc						\
-  util/arena_test.cc                                                    \
   util/auto_roll_logger_test.cc                                         \
   util/autovector_test.cc                                               \
   util/bloom_test.cc                                                    \

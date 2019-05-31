@@ -9,14 +9,14 @@
 
 #include <atomic>
 
+#include "db/memtable.h"
+#include "memory/arena.h"
+#include "memtable/skiplist.h"
+#include "port/port.h"
 #include "rocksdb/memtablerep.h"
-#include "util/arena.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "port/port.h"
 #include "util/murmurhash.h"
-#include "db/memtable.h"
-#include "memtable/skiplist.h"
 
 namespace rocksdb {
 namespace {

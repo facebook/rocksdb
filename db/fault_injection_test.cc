@@ -15,18 +15,18 @@
 #include "db/log_format.h"
 #include "db/version_set.h"
 #include "env/mock_env.h"
+#include "file/filename.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
 #include "rocksdb/write_batch.h"
-#include "util/fault_injection_test_env.h"
-#include "util/filename.h"
+#include "test_util/fault_injection_test_env.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 

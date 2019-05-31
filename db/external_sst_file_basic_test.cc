@@ -9,7 +9,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
-#include "util/testutil.h"
+#include "test_util/testutil.h"
 
 namespace rocksdb {
 

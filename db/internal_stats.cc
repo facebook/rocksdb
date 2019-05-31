@@ -23,7 +23,7 @@
 
 #include "db/column_family.h"
 #include "db/db_impl.h"
-#include "table/block_based_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "util/string_util.h"
 
 namespace rocksdb {

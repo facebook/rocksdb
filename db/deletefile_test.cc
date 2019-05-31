@@ -16,14 +16,14 @@
 #include "db/db_impl.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
+#include "file/filename.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/transaction_log.h"
-#include "util/filename.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 

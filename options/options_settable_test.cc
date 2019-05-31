@@ -15,7 +15,7 @@
 
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;

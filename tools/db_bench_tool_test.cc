@@ -10,9 +10,9 @@
 #include "rocksdb/db_bench_tool.h"
 #include "options/options_parser.h"
 #include "rocksdb/utilities/options_util.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/random.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 #ifdef GFLAGS
 #include "util/gflags_compat.h"

@@ -11,8 +11,8 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
-#include "util/fault_injection_test_env.h"
-#include "util/sync_point.h"
+#include "test_util/fault_injection_test_env.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 class DBWALTest : public DBTestBase {

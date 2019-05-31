@@ -23,9 +23,9 @@
 #include "rocksdb/env.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/transaction_db.h"
-#include "util/fault_injection_test_env.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
+#include "test_util/fault_injection_test_env.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 class CheckpointTest : public testing::Test {

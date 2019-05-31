@@ -34,8 +34,8 @@ int main() { return 0; }
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "test_util/testharness.h"
 #include "util/gflags_compat.h"
-#include "util/testharness.h"
 
 const int MAX_SHARDS = 100000;
 

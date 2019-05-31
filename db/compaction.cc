@@ -18,8 +18,8 @@
 
 #include "db/column_family.h"
 #include "rocksdb/compaction_filter.h"
+#include "test_util/sync_point.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 
