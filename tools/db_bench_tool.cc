@@ -752,6 +752,19 @@ DEFINE_uint64(blob_db_bytes_per_sync, 0, "Bytes to sync blob file at.");
 DEFINE_uint64(blob_db_file_size, 256 * 1024 * 1024,
               "Target size of each blob file.");
 
+// Secondary DB instance Options
+DEFINE_bool(use_secondary_db, false,
+            "Open a RocksDB secondary instance. A primary instance can be "
+            "running in another db_bench process.");
+
+DEFINE_string(secondary_path, "",
+              "Path to a directory used by the secondary instance to store "
+              "private files, e.g. info log.");
+
+DEFINE_int32(secondary_update_interval, 5,
+             "Secondary instance attempts to catch up with the primary every "
+             "secondary_update_interval seconds.");
+
 #endif  // ROCKSDB_LITE
 
 DEFINE_bool(report_bg_io_stats, false,
@@ -2571,36 +2584,38 @@ class Benchmark {
     return base_name + ToString(id);
   }
 
-void VerifyDBFromDB(std::string& truth_db_name) {
-  DBWithColumnFamilies truth_db;
-  auto s = DB::OpenForReadOnly(open_options_, truth_db_name, &truth_db.db);
-  if (!s.ok()) {
-    fprintf(stderr, "open error: %s\n", s.ToString().c_str());
-    exit(1);
-  }
-  ReadOptions ro;
-  ro.total_order_seek = true;
-  std::unique_ptr<Iterator> truth_iter(truth_db.db->NewIterator(ro));
-  std::unique_ptr<Iterator> db_iter(db_.db->NewIterator(ro));
-  // Verify that all the key/values in truth_db are retrivable in db with ::Get
-  fprintf(stderr, "Verifying db >= truth_db with ::Get...\n");
-  for (truth_iter->SeekToFirst(); truth_iter->Valid(); truth_iter->Next()) {
+  void VerifyDBFromDB(std::string& truth_db_name) {
+    DBWithColumnFamilies truth_db;
+    auto s = DB::OpenForReadOnly(open_options_, truth_db_name, &truth_db.db);
+    if (!s.ok()) {
+      fprintf(stderr, "open error: %s\n", s.ToString().c_str());
+      exit(1);
+    }
+    ReadOptions ro;
+    ro.total_order_seek = true;
+    std::unique_ptr<Iterator> truth_iter(truth_db.db->NewIterator(ro));
+    std::unique_ptr<Iterator> db_iter(db_.db->NewIterator(ro));
+    // Verify that all the key/values in truth_db are retrivable in db with
+    // ::Get
+    fprintf(stderr, "Verifying db >= truth_db with ::Get...\n");
+    for (truth_iter->SeekToFirst(); truth_iter->Valid(); truth_iter->Next()) {
       std::string value;
       s = db_.db->Get(ro, truth_iter->key(), &value);
       assert(s.ok());
       // TODO(myabandeh): provide debugging hints
       assert(Slice(value) == truth_iter->value());
+    }
+    // Verify that the db iterator does not give any extra key/value
+    fprintf(stderr, "Verifying db == truth_db...\n");
+    for (db_iter->SeekToFirst(), truth_iter->SeekToFirst(); db_iter->Valid();
+         db_iter->Next(), truth_iter->Next()) {
+      assert(truth_iter->Valid());
+      assert(truth_iter->value() == db_iter->value());
+    }
+    // No more key should be left unchecked in truth_db
+    assert(!truth_iter->Valid());
+    fprintf(stderr, "...Verified\n");
   }
-  // Verify that the db iterator does not give any extra key/value
-  fprintf(stderr, "Verifying db == truth_db...\n");
-  for (db_iter->SeekToFirst(), truth_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next(), truth_iter->Next()) {
-    assert(truth_iter->Valid());
-    assert(truth_iter->value() == db_iter->value());
-  }
-  // No more key should be left unchecked in truth_db
-  assert(!truth_iter->Valid());
-  fprintf(stderr, "...Verified\n");
-}
 
   void Run() {
     if (!SanityCheck()) {
@@ -2934,6 +2949,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
     }
 
+    if (secondary_update_thread_) {
+      secondary_update_stopped_.store(1, std::memory_order_relaxed);
+      secondary_update_thread_->join();
+      secondary_update_thread_.reset();
+    }
+
 #ifndef ROCKSDB_LITE
     if (name != "replay" && FLAGS_trace_file != "") {
       Status s = db_.db->EndTrace();
@@ -2953,10 +2974,17 @@ void VerifyDBFromDB(std::string& truth_db_name) {
                   ->ToString()
                   .c_str());
     }
+    if (FLAGS_use_secondary_db) {
+      fprintf(stdout, "Secondary instance updated  %" PRIu64 " times.\n",
+              secondary_db_updates_);
+    }
   }
 
  private:
   std::shared_ptr<TimestampEmulator> timestamp_emulator_;
+  std::unique_ptr<port::Thread> secondary_update_thread_;
+  std::atomic<int> secondary_update_stopped_{0};
+  uint64_t secondary_db_updates_ = 0;
 
   struct ThreadArg {
     Benchmark* bm;
@@ -3618,6 +3646,11 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       fprintf(stderr, "Cannot use readonly flag with transaction_db\n");
       exit(1);
     }
+    if (FLAGS_use_secondary_db &&
+        (FLAGS_transaction_db || FLAGS_optimistic_transaction_db)) {
+      fprintf(stderr, "Cannot use use_secondary_db flag with transaction_db\n");
+      exit(1);
+    }
 #endif  // ROCKSDB_LITE
 
   }
@@ -3844,6 +3877,32 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       s = blob_db::BlobDB::Open(options, blob_db_options, db_name, &ptr);
       if (s.ok()) {
         db->db = ptr;
+      }
+    } else if (FLAGS_use_secondary_db) {
+      if (FLAGS_secondary_path.empty()) {
+        std::string default_secondary_path;
+        FLAGS_env->GetTestDirectory(&default_secondary_path);
+        default_secondary_path += "/dbbench_secondary";
+        FLAGS_secondary_path = default_secondary_path;
+      }
+      s = DB::OpenAsSecondary(options, db_name, FLAGS_secondary_path, &db->db);
+      if (s.ok() && FLAGS_secondary_update_interval > 0) {
+        secondary_update_thread_.reset(new port::Thread(
+            [this](int interval, DBWithColumnFamilies* _db) {
+              while (0 == secondary_update_stopped_.load(
+                              std::memory_order_relaxed)) {
+                Status secondary_update_status =
+                    _db->db->TryCatchUpWithPrimary();
+                if (!secondary_update_status.ok()) {
+                  fprintf(stderr, "Failed to catch up with primary: %s\n",
+                          secondary_update_status.ToString().c_str());
+                  break;
+                }
+                ++secondary_db_updates_;
+                FLAGS_env->SleepForMicroseconds(interval * 1000000);
+              }
+            },
+            FLAGS_secondary_update_interval, db));
       }
 #endif  // ROCKSDB_LITE
     } else {

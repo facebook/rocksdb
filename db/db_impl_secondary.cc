@@ -102,7 +102,7 @@ Status DBImplSecondary::FindNewLogNumbers(std::vector<uint64_t>* logs) {
   // numbers smaller than the smallest log in log_readers_, so there is no
   // need to pass these logs to RecoverLogFiles
   uint64_t log_number_min = 0;
-  if (log_readers_.size() > 0) {
+  if (!log_readers_.empty()) {
     log_number_min = log_readers_.begin()->first;
   }
   for (size_t i = 0; i < filenames.size(); i++) {
@@ -202,11 +202,19 @@ Status DBImplSecondary::RecoverLogFiles(
             record.size(), Status::Corruption("log record too small"));
         continue;
       }
+      SequenceNumber seq = versions_->LastSequence();
       WriteBatchInternal::SetContents(&batch, record);
+      SequenceNumber seq_of_batch = WriteBatchInternal::Sequence(&batch);
+      // If the write batch's sequence number is smaller than the last sequence
+      // number of the db, then we should skip this write batch because its
+      // data must reside in an SST that has already been added in the prior
+      // MANIFEST replay.
+      if (seq_of_batch < seq) {
+        continue;
+      }
       std::vector<uint32_t> column_family_ids;
       status = CollectColumnFamilyIdsFromWriteBatch(batch, &column_family_ids);
       if (status.ok()) {
-        SequenceNumber seq = versions_->LastSequence();
         for (const auto id : column_family_ids) {
           ColumnFamilyData* cfd =
               versions_->GetColumnFamilySet()->GetColumnFamily(id);
@@ -235,18 +243,6 @@ Status DBImplSecondary::RecoverLogFiles(
             cfd->SetMemtable(new_mem);
           }
         }
-      }
-      // do not check sequence number because user may toggle disableWAL
-      // between writes which breaks sequence number continuity guarantee
-
-      // If column family was not found, it might mean that the WAL write
-      // batch references to the column family that was dropped after the
-      // insert. We don't want to fail the whole write batch in that case --
-      // we just ignore the update.
-      // That's why we set ignore missing column families to true
-      // passing null flush_scheduler will disable memtable flushing which is
-      // needed for secondary instances
-      if (status.ok()) {
         bool has_valid_writes = false;
         status = WriteBatchInternal::InsertInto(
             &batch, column_family_memtables_.get(),
@@ -254,6 +250,13 @@ Status DBImplSecondary::RecoverLogFiles(
             false /* concurrent_memtable_writes */, next_sequence,
             &has_valid_writes, seq_per_batch_, batch_per_txn_);
       }
+      // If column family was not found, it might mean that the WAL write
+      // batch references to the column family that was dropped after the
+      // insert. We don't want to fail the whole write batch in that case --
+      // we just ignore the update.
+      // That's why we set ignore missing column families to true
+      // passing null flush_scheduler will disable memtable flushing which is
+      // needed for secondary instances
       if (status.ok()) {
         for (const auto id : column_family_ids) {
           ColumnFamilyData* cfd =
@@ -269,31 +272,28 @@ Status DBImplSecondary::RecoverLogFiles(
             iter->second = log_number;
           }
         }
+        auto last_sequence = *next_sequence - 1;
+        if ((*next_sequence != kMaxSequenceNumber) &&
+            (versions_->LastSequence() <= last_sequence)) {
+          versions_->SetLastAllocatedSequence(last_sequence);
+          versions_->SetLastPublishedSequence(last_sequence);
+          versions_->SetLastSequence(last_sequence);
+        }
       } else {
         // We are treating this as a failure while reading since we read valid
         // blocks that do not form coherent data
         reader->GetReporter()->Corruption(record.size(), status);
-        continue;
       }
     }
-
     if (!status.ok()) {
       return status;
-    }
-
-    auto last_sequence = *next_sequence - 1;
-    if ((*next_sequence != kMaxSequenceNumber) &&
-        (versions_->LastSequence() <= last_sequence)) {
-      versions_->SetLastAllocatedSequence(last_sequence);
-      versions_->SetLastPublishedSequence(last_sequence);
-      versions_->SetLastSequence(last_sequence);
     }
   }
   // remove logreaders from map after successfully recovering the WAL
   if (log_readers_.size() > 1) {
-    auto eraseIter = log_readers_.begin();
-    std::advance(eraseIter, log_readers_.size() - 1);
-    log_readers_.erase(log_readers_.begin(), eraseIter);
+    auto erase_iter = log_readers_.begin();
+    std::advance(erase_iter, log_readers_.size() - 1);
+    log_readers_.erase(log_readers_.begin(), erase_iter);
   }
   return status;
 }

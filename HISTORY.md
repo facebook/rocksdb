@@ -22,7 +22,7 @@
 * Added new status code kColumnFamilyDropped to distinguish between Column Family Dropped and DB Shutdown in progress.
 
 ### Bug Fixes
-
+* Fix a bug in WAL replay of secondary instance by skipping write batches with older sequence numbers than the current last sequence number.
 
 ## 6.2.0 (4/30/2019)
 ### New Features
