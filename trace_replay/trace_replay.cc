@@ -15,7 +15,6 @@
 #include "util/string_util.h"
 #include "util/threadpool_imp.h"
 
-
 namespace rocksdb {
 
 const std::string kTraceMagic = "feedcafedeadbeef";
@@ -322,8 +321,8 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
     ra->roptions = roptions;
 
     std::this_thread::sleep_until(
-        replay_epoch +
-        std::chrono::microseconds((ra->trace_entry.ts - header.ts) / fast_forward_));
+        replay_epoch + std::chrono::microseconds(
+                           (ra->trace_entry.ts - header.ts) / fast_forward_));
     if (ra->trace_entry.type == kTraceWrite) {
       thread_pool.Schedule(&Replayer::BGWorkWriteBatch, ra, nullptr, nullptr);
       ops++;
@@ -334,7 +333,8 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
       thread_pool.Schedule(&Replayer::BGWorkIterSeek, ra, nullptr, nullptr);
       ops++;
     } else if (ra->trace_entry.type == kTraceIteratorSeekForPrev) {
-      thread_pool.Schedule(&Replayer::BGWorkIterSeekForPrev, ra, nullptr, nullptr);
+      thread_pool.Schedule(&Replayer::BGWorkIterSeekForPrev, ra, nullptr,
+                           nullptr);
       ops++;
     } else if (ra->trace_entry.type == kTraceEnd) {
       // Do nothing for now.
@@ -398,7 +398,8 @@ Status Replayer::ReadTrace(Trace* trace) {
 void Replayer::BGWorkGet(void* arg) {
   ReplayerWorkerArg ra = *(reinterpret_cast<ReplayerWorkerArg*>(arg));
   delete reinterpret_cast<ReplayerWorkerArg*>(arg);
-  auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(ra.cf_map);
+  auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
+      ra.cf_map);
   uint32_t cf_id = 0;
   Slice key;
   DecodeCFAndKey(ra.trace_entry.payload, &cf_id, &key);
@@ -408,9 +409,10 @@ void Replayer::BGWorkGet(void* arg) {
 
   std::string value;
   if (cf_id == 0) {
-      reinterpret_cast<DB*>(ra.db)->Get(ra.roptions, key, &value);
+    reinterpret_cast<DB*>(ra.db)->Get(ra.roptions, key, &value);
   } else {
-      reinterpret_cast<DB*>(ra.db)->Get(ra.roptions, (*cf_map)[cf_id], key, &value);
+    reinterpret_cast<DB*>(ra.db)->Get(ra.roptions, (*cf_map)[cf_id], key,
+                                      &value);
   }
 
   return;
@@ -427,12 +429,13 @@ void Replayer::BGWorkWriteBatch(void* arg) {
 void Replayer::BGWorkIterSeek(void* arg) {
   ReplayerWorkerArg ra = *(reinterpret_cast<ReplayerWorkerArg*>(arg));
   delete reinterpret_cast<ReplayerWorkerArg*>(arg);
-  auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(ra.cf_map);
+  auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
+      ra.cf_map);
   uint32_t cf_id = 0;
   Slice key;
   DecodeCFAndKey(ra.trace_entry.payload, &cf_id, &key);
   if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
-      return;
+    return;
   }
 
   std::string value;
@@ -440,7 +443,8 @@ void Replayer::BGWorkIterSeek(void* arg) {
   if (cf_id == 0) {
     single_iter = reinterpret_cast<DB*>(ra.db)->NewIterator(ra.roptions);
   } else {
-    single_iter = reinterpret_cast<DB*>(ra.db)->NewIterator(ra.roptions, (*cf_map)[cf_id]);
+    single_iter = reinterpret_cast<DB*>(ra.db)->NewIterator(ra.roptions,
+                                                            (*cf_map)[cf_id]);
   }
   single_iter->Seek(key);
   delete single_iter;
@@ -450,12 +454,13 @@ void Replayer::BGWorkIterSeek(void* arg) {
 void Replayer::BGWorkIterSeekForPrev(void* arg) {
   ReplayerWorkerArg ra = *(reinterpret_cast<ReplayerWorkerArg*>(arg));
   delete reinterpret_cast<ReplayerWorkerArg*>(arg);
-  auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(ra.cf_map);
+  auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
+      ra.cf_map);
   uint32_t cf_id = 0;
   Slice key;
   DecodeCFAndKey(ra.trace_entry.payload, &cf_id, &key);
   if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
-      return;
+    return;
   }
 
   std::string value;
@@ -463,7 +468,8 @@ void Replayer::BGWorkIterSeekForPrev(void* arg) {
   if (cf_id == 0) {
     single_iter = reinterpret_cast<DB*>(ra.db)->NewIterator(ra.roptions);
   } else {
-    single_iter = reinterpret_cast<DB*>(ra.db)->NewIterator(ra.roptions, (*cf_map)[cf_id]);
+    single_iter = reinterpret_cast<DB*>(ra.db)->NewIterator(ra.roptions,
+                                                            (*cf_map)[cf_id]);
   }
   single_iter->SeekForPrev(key);
   delete single_iter;
