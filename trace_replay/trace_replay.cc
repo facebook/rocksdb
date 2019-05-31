@@ -13,6 +13,7 @@
 #include "rocksdb/write_batch.h"
 #include "util/coding.h"
 #include "util/string_util.h"
+#include "util/threadpool_imp.h"
 
 
 namespace rocksdb {
@@ -294,13 +295,15 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
   if (!s.ok()) {
     return s;
   }
-  int threads = env_->GetBackgroundThreads(Env::Priority::LOW);
-  printf("threads: %d\n", threads);
+
+  ThreadPoolImpl thread_pool;
+  thread_pool.SetHostEnv(env_);
+
   if (threads_num > 1) {
-    env_->SetBackgroundThreads(static_cast<int>(threads_num));
+    thread_pool.SetBackgroundThreads(static_cast<int>(threads_num));
+  } else {
+    thread_pool.SetBackgroundThreads(1);
   }
-  threads = env_->GetBackgroundThreads(Env::Priority::LOW);
-  printf("threads: %d\n", threads);
 
   std::chrono::system_clock::time_point replay_epoch =
       std::chrono::system_clock::now();
@@ -322,16 +325,16 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
         replay_epoch +
         std::chrono::microseconds((ra->trace_entry.ts - header.ts) / fast_forward_));
     if (ra->trace_entry.type == kTraceWrite) {
-      env_->Schedule(&Replayer::BGWorkWriteBatch, ra);
+      thread_pool.Schedule(&Replayer::BGWorkWriteBatch, ra, nullptr, nullptr);
       ops++;
     } else if (ra->trace_entry.type == kTraceGet) {
-      env_->Schedule(&Replayer::BGWorkGet, ra);
+      thread_pool.Schedule(&Replayer::BGWorkGet, ra, nullptr, nullptr);
       ops++;
     } else if (ra->trace_entry.type == kTraceIteratorSeek) {
-      env_->Schedule(&Replayer::BGWorkIterSeek, ra);
+      thread_pool.Schedule(&Replayer::BGWorkIterSeek, ra, nullptr, nullptr);
       ops++;
     } else if (ra->trace_entry.type == kTraceIteratorSeekForPrev) {
-      env_->Schedule(&Replayer::BGWorkIterSeekForPrev, ra);
+      thread_pool.Schedule(&Replayer::BGWorkIterSeekForPrev, ra, nullptr, nullptr);
       ops++;
     } else if (ra->trace_entry.type == kTraceEnd) {
       // Do nothing for now.
@@ -345,8 +348,10 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
     // Reaching eof returns Incomplete status at the moment.
     // Could happen when killing a process without calling EndTrace() API.
     // TODO: Add better error handling.
+    thread_pool.JoinAllThreads();
     return Status::OK();
   }
+  thread_pool.JoinAllThreads();
   return s;
 }
 

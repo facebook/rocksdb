@@ -798,7 +798,6 @@ DEFINE_string(trace_file, "", "Trace workload to a file. ");
 
 DEFINE_int32(trace_replay_fast_forward, 1,
              "Fast forward trace replay, must >= 1. ");
-
 DEFINE_int32(block_cache_trace_sampling_frequency, 1,
              "Block cache trace sampling frequency, termed s. It uses spatial "
              "downsampling and samples accesses to one out of s blocks.");
@@ -809,6 +808,7 @@ DEFINE_int64(
     "will not be logged if the trace file size exceeds this threshold. Default "
     "is 64 GB.");
 DEFINE_string(block_cache_trace_file, "", "Block cache trace file path.");
+DEFINE_uint32(trace_replay_threads, 1, "The number of threads to replay. ");
 
 static enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   assert(ctype);
@@ -6529,8 +6529,7 @@ class Benchmark {
                       std::move(trace_reader));
     replayer.SetFastForward(
         static_cast<uint32_t>(FLAGS_trace_replay_fast_forward));
-    //s = replayer.Replay();
-    s = replayer.MultiThreadReplay(15);
+    s = replayer.MultiThreadReplay(FLAGS_trace_replay_threads);
     if (s.ok()) {
       fprintf(stdout, "Replay started from trace_file: %s\n",
               FLAGS_trace_file.c_str());
