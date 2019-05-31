@@ -862,7 +862,7 @@ if(WITH_TESTS)
         cache/lru_cache_test.cc
         db/column_family_test.cc
         db/compact_files_test.cc
-        db/compaction_job_stats_test.cc
+        db/compaction/compaction_job_stats_test.cc
         db/compaction/compaction_job_test.cc
         db/compaction/compaction_iterator_test.cc
         db/compaction/compaction_picker_test.cc
