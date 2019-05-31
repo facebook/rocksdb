@@ -9,9 +9,12 @@
 
 #include "table/block_based/index_builder.h"
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include <assert.h>
 #include <inttypes.h>
-
 #include <list>
 #include <string>
 

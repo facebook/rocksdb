@@ -14,6 +14,11 @@
 // run for a while, tailing the logs of the primary. After process with primary
 // instance exits, this process will keep running until you hit 'CTRL+C'.
 
+
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 #include <chrono>
 #include <cstdio>

@@ -6,6 +6,10 @@
 #ifndef UTIL_CRC32C_ARM64_H
 #define UTIL_CRC32C_ARM64_H
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 
 #if defined(__aarch64__) || defined(__AARCH64__)

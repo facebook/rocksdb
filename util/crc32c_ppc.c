@@ -6,6 +6,11 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #define CRC_TABLE
+
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 #include <stdlib.h>
 #include <strings.h>

@@ -30,7 +30,7 @@ int main() {
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
-#endif  // __STDC_FORMAT_MACROS
+#endif
 
 #include <fcntl.h>
 #include <inttypes.h>

@@ -11,6 +11,10 @@
 
 #include "rocksdb/db.h"
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>

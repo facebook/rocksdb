@@ -16,6 +16,11 @@
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
+
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 
 // Can not use port/port.h macros as this is a c file
