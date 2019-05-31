@@ -81,6 +81,8 @@ const char* GetFlushReasonString (FlushReason flush_reason) {
       return "Manual Flush";
     case FlushReason::kErrorRecovery:
       return "Error Recovery";
+    case FlushReason::kReadTriggered:
+      return "Read Triggered";
     default:
       return "Invalid";
   }

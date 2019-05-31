@@ -339,7 +339,7 @@ class DBImpl : public DB {
       TablePropertiesCollection* props) override;
 
 #endif  // ROCKSDB_LITE
-  
+
   // ---- End of implementations of the DB interface ----
 
   // Function that Get and KeyMayExist call with no_io true or false
@@ -348,6 +348,10 @@ class DBImpl : public DB {
                  const Slice& key, PinnableSlice* value,
                  bool* value_found = nullptr, ReadCallback* callback = nullptr,
                  bool* is_blob_index = nullptr);
+
+  // Samples one read to the given memtable and triggers memtable flush if
+  // required due to the read.
+  void SampleMemTableReadAndMaybeFlush(ColumnFamilyData* cfd, MemTable* mem);
 
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
                                       ColumnFamilyData* cfd,
@@ -372,14 +376,14 @@ class DBImpl : public DB {
   // depends also on data written to the WAL but not to the memtable.
   SequenceNumber TEST_GetLastVisibleSequence() const;
 
-#ifndef ROCKSDB_LITE  
+#ifndef ROCKSDB_LITE
   // Similar to Write() but will call the callback once on the single write
   // thread to determine whether it is safe to perform the write.
   virtual Status WriteWithCallback(const WriteOptions& write_options,
                                    WriteBatch* my_batch,
                                    WriteCallback* callback);
 
-  
+
   // Returns the sequence number that is guaranteed to be smaller than or equal
   // to the sequence number of any key that could be inserted into the current
   // memtables. It can then be assumed that any write with a larger(or equal)
@@ -811,7 +815,7 @@ class DBImpl : public DB {
   size_t TEST_EstiamteStatsHistorySize() const;
 
 #endif  // NDEBUG
-  
+
  protected:
   Env* const env_;
   const std::string dbname_;
@@ -1147,6 +1151,11 @@ class DBImpl : public DB {
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
   void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds);
+
+  // Flushes the given column family.
+  Status FlushInternal(ColumnFamilyData* cfd,
+                       const FlushOptions& flush_options,
+                       FlushReason flush_reason);
 
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,

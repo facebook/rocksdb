@@ -1307,18 +1307,28 @@ int DBImpl::Level0StopWriteTrigger(ColumnFamilyHandle* column_family) {
       ->mutable_cf_options.level0_stop_writes_trigger;
 }
 
+Status DBImpl::FlushInternal(ColumnFamilyData* cfd,
+                             const FlushOptions& flush_options,
+                             FlushReason flush_reason) {
+  assert(cfd != nullptr);
+  if (immutable_db_options_.atomic_flush) {
+    return AtomicFlushMemTables({cfd}, flush_options, flush_reason);
+  } else {
+    return FlushMemTable(cfd, flush_options, flush_reason);
+  }
+}
+
 Status DBImpl::Flush(const FlushOptions& flush_options,
                      ColumnFamilyHandle* column_family) {
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  assert(cfh != nullptr);
+
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Manual flush start.",
                  cfh->GetName().c_str());
-  Status s;
-  if (immutable_db_options_.atomic_flush) {
-    s = AtomicFlushMemTables({cfh->cfd()}, flush_options,
-                             FlushReason::kManualFlush);
-  } else {
-    s = FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
-  }
+
+  Status s = FlushInternal(cfh->cfd(),
+                           flush_options,
+                           FlushReason::kManualFlush);
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "[%s] Manual flush finished, status: %s\n",

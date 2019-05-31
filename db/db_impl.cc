@@ -1429,6 +1429,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
                         has_unpersisted_data_.load(std::memory_order_relaxed));
   bool done = false;
   if (!skip_memtable) {
+    SampleMemTableReadAndMaybeFlush(cfd, sv->mem);
     if (sv->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
                      &max_covering_tombstone_seq, read_options, callback,
                      is_blob_index)) {
@@ -1611,6 +1612,7 @@ std::vector<Status> DBImpl::MultiGet(
          has_unpersisted_data_.load(std::memory_order_relaxed));
     bool done = false;
     if (!skip_memtable) {
+      SampleMemTableReadAndMaybeFlush(cfh->cfd(), super_version->mem);
       if (super_version->mem->Get(lkey, value, &s, &merge_context,
                                   &max_covering_tombstone_seq, read_options)) {
         done = true;
@@ -1790,6 +1792,7 @@ void DBImpl::MultiGetImpl(
            has_unpersisted_data_.load(std::memory_order_relaxed));
       bool done = false;
       if (!skip_memtable) {
+        SampleMemTableReadAndMaybeFlush(cfd, super_version->mem);
         if (super_version->mem->Get(*(mget_iter->lkey), value->GetSelf(), &s,
                                     &merge_context,
                                     &mget_iter->max_covering_tombstone_seq,
@@ -1841,6 +1844,23 @@ void DBImpl::MultiGetImpl(
   RecordInHistogram(stats_, BYTES_PER_MULTIGET, bytes_read);
   PERF_COUNTER_ADD(multiget_read_bytes, bytes_read);
   PERF_TIMER_STOP(get_post_process_time);
+}
+
+void DBImpl::SampleMemTableReadAndMaybeFlush(ColumnFamilyData* cfd, MemTable* mem) {
+  assert(cfd != nullptr);
+  assert(mem != nullptr);
+  if (!mem->ShouldFlushAfterSampledRead()) {
+    return;
+  }
+
+  // Set flush options to avoid blocking. TBD if allow_write_stall should be
+  // false instead.
+  // TODO: If there's a concern about taking DB mutex in the read path, we
+  // could schedule the flush to be triggered from a dedicated (new) thread.
+  FlushOptions fo;
+  fo.wait = false;
+  fo.allow_write_stall = true;
+  FlushInternal(cfd, fo, FlushReason::kReadTriggered);
 }
 
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
@@ -2150,6 +2170,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
 
 #else
     SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
+    SampleMemTableReadAndMaybeFlush(cfd, sv->mem);
     auto iter = new ForwardIterator(this, read_options, cfd, sv);
     result = NewDBIterator(
         env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
@@ -2176,6 +2197,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
                                             bool allow_blob,
                                             bool allow_refresh) {
   SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
+  SampleMemTableReadAndMaybeFlush(cfd, sv->mem);
 
   // Try to generate a DB iterator tree in continuous memory area to be
   // cache friendly. Here is an example of result:
@@ -2255,6 +2277,7 @@ Status DBImpl::NewIterators(
     for (auto cfh : column_families) {
       auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
       SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
+      SampleMemTableReadAndMaybeFlush(cfd, sv->mem);
       auto iter = new ForwardIterator(this, read_options, cfd, sv);
       iterators->push_back(NewDBIterator(
           env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
