@@ -22,10 +22,10 @@ int main() {
 #include "table/internal_iterator.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/table_builder.h"
-#include "util/file_reader_writer.h"
-#include "util/gflags_compat.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/file_reader_writer.h"
+#include "util/gflags_compat.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::SetUsageMessage;

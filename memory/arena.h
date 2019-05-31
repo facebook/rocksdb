@@ -15,12 +15,12 @@
 #ifndef OS_WIN
 #include <sys/mman.h>
 #endif
-#include <cstddef>
-#include <cerrno>
-#include <vector>
 #include <assert.h>
 #include <stdint.h>
-#include "util/allocator.h"
+#include <cerrno>
+#include <cstddef>
+#include <vector>
+#include "memory/allocator.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {

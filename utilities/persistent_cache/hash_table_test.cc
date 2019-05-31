@@ -9,9 +9,9 @@
 #include <string>
 
 #include "db/db_test_util.h"
-#include "util/arena.h"
-#include "util/random.h"
+#include "memory/arena.h"
 #include "test_util/testharness.h"
+#include "util/random.h"
 #include "utilities/persistent_cache/hash_table.h"
 #include "utilities/persistent_cache/hash_table_evictable.h"
 

@@ -17,9 +17,9 @@
 #include "rocksdb/db.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/options_util.h"
-#include "util/random.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;

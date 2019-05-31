@@ -19,10 +19,10 @@
 #include "db/wal_manager.h"
 #include "env/mock_env.h"
 #include "table/mock_table.h"
-#include "util/file_reader_writer.h"
-#include "util/string_util.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/file_reader_writer.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 

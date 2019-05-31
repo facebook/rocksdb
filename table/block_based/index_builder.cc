@@ -17,8 +17,8 @@
 
 #include "rocksdb/comparator.h"
 #include "rocksdb/flush_block_policy.h"
-#include "table/format.h"
 #include "table/block_based/partitioned_filter_block.h"
+#include "table/format.h"
 
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
 namespace rocksdb {

@@ -3,20 +3,19 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include <map>
 
 #include "rocksdb/filter_policy.h"
 
-#include "table/full_filter_bits_builder.h"
 #include "table/block_based/partitioned_filter_block.h"
+#include "table/full_filter_bits_builder.h"
 
 #include "index_builder.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/hash.h"
 #include "util/logging.h"
-#include "test_util/testharness.h"
-#include "test_util/testutil.h"
 
 namespace rocksdb {
 

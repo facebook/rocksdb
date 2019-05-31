@@ -84,6 +84,7 @@
 #include "table/multiget_context.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
+#include "test_util/sync_point.h"
 #include "tools/sst_dump_tool_imp.h"
 #include "util/auto_roll_logger.h"
 #include "util/autovector.h"
@@ -97,7 +98,6 @@
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-#include "test_util/sync_point.h"
 
 namespace rocksdb {
 const std::string kDefaultColumnFamilyName("default");

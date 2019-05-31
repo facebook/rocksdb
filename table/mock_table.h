@@ -12,16 +12,16 @@
 #include <string>
 #include <utility>
 
-#include "util/kv_map.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/table.h"
 #include "table/internal_iterator.h"
 #include "table/table_builder.h"
 #include "table/table_reader.h"
-#include "util/mutexlock.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/kv_map.h"
+#include "util/mutexlock.h"
 
 namespace rocksdb {
 namespace mock {

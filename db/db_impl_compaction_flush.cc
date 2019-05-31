@@ -21,8 +21,8 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_updater.h"
 #include "monitoring/thread_status_util.h"
-#include "util/concurrent_task_limiter_impl.h"
 #include "test_util/sync_point.h"
+#include "util/concurrent_task_limiter_impl.h"
 
 namespace rocksdb {
 

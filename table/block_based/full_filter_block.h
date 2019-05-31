@@ -11,12 +11,12 @@
 #include <string>
 #include <vector>
 
+#include "db/dbformat.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "db/dbformat.h"
-#include "util/hash.h"
 #include "table/block_based/filter_block.h"
+#include "util/hash.h"
 
 namespace rocksdb {
 

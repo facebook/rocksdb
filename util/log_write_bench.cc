@@ -13,10 +13,10 @@ int main() {
 
 #include "monitoring/histogram.h"
 #include "rocksdb/env.h"
-#include "util/file_reader_writer.h"
-#include "util/gflags_compat.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/file_reader_writer.h"
+#include "util/gflags_compat.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::SetUsageMessage;

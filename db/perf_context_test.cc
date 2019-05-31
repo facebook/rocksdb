@@ -17,9 +17,9 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
+#include "test_util/testharness.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-#include "test_util/testharness.h"
 #include "utilities/merge_operators.h"
 
 bool FLAGS_random_key = false;

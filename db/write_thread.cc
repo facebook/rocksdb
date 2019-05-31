@@ -9,8 +9,8 @@
 #include "db/column_family.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/port.h"
-#include "util/random.h"
 #include "test_util/sync_point.h"
+#include "util/random.h"
 
 namespace rocksdb {
 

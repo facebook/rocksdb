@@ -13,8 +13,8 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "test_util/fault_injection_test_env.h"
-#include "util/string_util.h"
 #include "test_util/sync_point.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 

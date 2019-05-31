@@ -45,13 +45,13 @@
 #include "table/merging_iterator.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
+#include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/event_logger.h"
 #include "util/log_buffer.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
-#include "test_util/sync_point.h"
 
 namespace rocksdb {
 

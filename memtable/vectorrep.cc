@@ -12,8 +12,8 @@
 #include <algorithm>
 #include <type_traits>
 
-#include "util/arena.h"
 #include "db/memtable.h"
+#include "memory/arena.h"
 #include "memtable/stl_wrappers.h"
 #include "port/port.h"
 #include "util/mutexlock.h"
