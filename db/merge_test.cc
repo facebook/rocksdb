@@ -7,8 +7,8 @@
 #include <memory>
 #include <iostream>
 
-#include "db/db_impl.h"
 #include "db/dbformat.h"
+#include "db/db_impl/db_impl.h"
 #include "db/write_batch_internal.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
