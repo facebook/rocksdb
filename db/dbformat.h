@@ -14,6 +14,7 @@
 #include <utility>
 #include "db/lookup_key.h"
 #include "db/merge_context.h"
+#include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
@@ -23,7 +24,6 @@
 #include "rocksdb/table.h"
 #include "rocksdb/types.h"
 #include "util/coding.h"
-#include "util/logging.h"
 #include "util/user_comparator_wrapper.h"
 
 namespace rocksdb {

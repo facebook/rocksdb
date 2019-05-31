@@ -7,14 +7,14 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include "util/event_logger.h"
+#include "logging/event_logger.h"
 
 #include <inttypes.h>
 #include <cassert>
 #include <sstream>
 #include <string>
 
-#include "util/logging.h"
+#include "logging/logging.h"
 #include "util/string_util.h"
 
 namespace rocksdb {

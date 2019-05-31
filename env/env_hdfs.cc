@@ -17,8 +17,8 @@
 #include <algorithm>
 #include <iostream>
 #include <sstream>
+#include "logging/logging.h"
 #include "rocksdb/status.h"
-#include "util/logging.h"
 #include "util/string_util.h"
 
 #define HDFS_EXISTS 0

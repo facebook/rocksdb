@@ -72,6 +72,9 @@ LIB_SOURCES =                                                   \
   file/file_util.cc                                             \
   file/filename.cc                                              \
   file/sst_file_manager_impl.cc                                 \
+  logging/auto_roll_logger.cc                                   \
+  logging/event_logger.cc                                       \
+  logging/log_buffer.cc                                         \
   memory/arena.cc                                               \
   memory/concurrent_arena.cc                                    \
   memory/jemalloc_nodump_allocator.cc                           \
@@ -139,7 +142,6 @@ LIB_SOURCES =                                                   \
   test_util/sync_point_impl.cc                                  \
   test_util/transaction_test_util.cc                            \
   tools/dump/db_dump_tool.cc                                    \
-  util/auto_roll_logger.cc                                      \
   util/bloom.cc                                                 \
   util/build_version.cc                                         \
   util/coding.cc                                                \
@@ -149,11 +151,9 @@ LIB_SOURCES =                                                   \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \
   util/dynamic_bloom.cc                                         \
-  util/event_logger.cc                                          \
   util/file_reader_writer.cc                                    \
   util/filter_policy.cc                                         \
   util/hash.cc                                                  \
-  util/log_buffer.cc                                            \
   util/murmurhash.cc                                            \
   util/random.cc                                                \
   util/rate_limiter.cc                                          \
@@ -340,6 +340,8 @@ MAIN_SOURCES =                                                          \
   env/env_basic_test.cc                                                 \
   env/env_test.cc                                                       \
   env/mock_env_test.cc                                                  \
+  logging/auto_roll_logger_test.cc                                      \
+  logging/event_logger_test.cc                                          \
   memory/arena_test.cc                                                  \
   memtable/inlineskiplist_test.cc                                       \
   memtable/memtablerep_bench.cc                                         \
@@ -369,13 +371,11 @@ MAIN_SOURCES =                                                          \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \
   tools/trace_analyzer_test.cc						\
-  util/auto_roll_logger_test.cc                                         \
   util/autovector_test.cc                                               \
   util/bloom_test.cc                                                    \
   util/coding_test.cc                                                   \
   util/crc32c_test.cc                                                   \
   util/dynamic_bloom_test.cc                                            \
-  util/event_logger_test.cc                                             \
   util/filelock_test.cc                                                 \
   util/log_write_bench.cc                                               \
   util/rate_limiter_test.cc                                             \

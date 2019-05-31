@@ -3,10 +3,11 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#include "util/auto_roll_logger.h"
+#include "logging/auto_roll_logger.h"
+
 #include <algorithm>
 #include "file/filename.h"
-#include "util/logging.h"
+#include "logging/logging.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {

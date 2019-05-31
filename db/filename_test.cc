@@ -10,9 +10,9 @@
 #include "file/filename.h"
 
 #include "db/dbformat.h"
+#include "logging/logging.h"
 #include "port/port.h"
 #include "test_util/testharness.h"
-#include "util/logging.h"
 
 namespace rocksdb {
 

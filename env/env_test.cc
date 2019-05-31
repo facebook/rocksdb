@@ -38,13 +38,13 @@
 #endif
 
 #include "env/env_chroot.h"
+#include "logging/log_buffer.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
-#include "util/log_buffer.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 

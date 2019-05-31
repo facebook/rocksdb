@@ -549,6 +549,9 @@ set(SOURCES
         file/file_util.cc
         file/filename.cc
         file/sst_file_manager_impl.cc
+        logging/auto_roll_logger.cc
+        logging/event_logger.cc
+        logging/log_buffer.cc
         memory/arena.cc
         memory/concurrent_arena.cc
         memory/jemalloc_nodump_allocator.cc
@@ -620,7 +623,6 @@ set(SOURCES
         tools/ldb_tool.cc
         tools/sst_dump_tool.cc
         tools/trace_analyzer_tool.cc
-        util/auto_roll_logger.cc
         util/bloom.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
@@ -629,11 +631,9 @@ set(SOURCES
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
         util/dynamic_bloom.cc
-        util/event_logger.cc
         util/file_reader_writer.cc
         util/filter_policy.cc
         util/hash.cc
-        util/log_buffer.cc
         util/murmurhash.cc
         util/random.cc
         util/rate_limiter.cc
@@ -939,6 +939,8 @@ if(WITH_TESTS)
         env/env_test.cc
         env/mock_env_test.cc
         file/delete_scheduler_test.cc
+        logging/auto_roll_logger_test.cc
+        logging/event_logger_test.cc
         memory/arena_test.cc
         memtable/inlineskiplist_test.cc
         memtable/skiplist_test.cc
@@ -963,13 +965,11 @@ if(WITH_TESTS)
         tools/reduce_levels_test.cc
         tools/sst_dump_test.cc
         tools/trace_analyzer_test.cc
-        util/auto_roll_logger_test.cc
         util/autovector_test.cc
         util/bloom_test.cc
         util/coding_test.cc
         util/crc32c_test.cc
         util/dynamic_bloom_test.cc
-        util/event_logger_test.cc
         util/file_reader_writer_test.cc
         util/filelock_test.cc
         util/hash_test.cc

@@ -148,6 +148,9 @@ cpp_library(
         "file/file_util.cc",
         "file/filename.cc",
         "file/sst_file_manager_impl.cc",
+        "logging/auto_roll_logger.cc",
+        "logging/event_logger.cc",
+        "logging/log_buffer.cc",
         "memory/arena.cc",
         "memory/concurrent_arena.cc",
         "memory/jemalloc_nodump_allocator.cc",
@@ -218,7 +221,6 @@ cpp_library(
         "tools/ldb_cmd.cc",
         "tools/ldb_tool.cc",
         "tools/sst_dump_tool.cc",
-        "util/auto_roll_logger.cc",
         "util/bloom.cc",
         "util/build_version.cc",
         "util/coding.cc",
@@ -228,11 +230,9 @@ cpp_library(
         "util/concurrent_task_limiter_impl.cc",
         "util/crc32c.cc",
         "util/dynamic_bloom.cc",
-        "util/event_logger.cc",
         "util/file_reader_writer.cc",
         "util/filter_policy.cc",
         "util/hash.cc",
-        "util/log_buffer.cc",
         "util/murmurhash.cc",
         "util/random.cc",
         "util/rate_limiter.cc",
@@ -359,7 +359,7 @@ ROCKS_TESTS = [
     ],
     [
         "auto_roll_logger_test",
-        "util/auto_roll_logger_test.cc",
+        "logging/auto_roll_logger_test.cc",
         "serial",
     ],
     [
@@ -699,7 +699,7 @@ ROCKS_TESTS = [
     ],
     [
         "event_logger_test",
-        "util/event_logger_test.cc",
+        "logging/event_logger_test.cc",
         "serial",
     ],
     [

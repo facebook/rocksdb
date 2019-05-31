@@ -11,6 +11,7 @@
 #include <vector>
 #include "db/range_tombstone_fragmenter.h"
 #include "db/table_properties_collector.h"
+#include "logging/event_logger.h"
 #include "options/cf_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -20,7 +21,6 @@
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
 #include "table/scoped_arena_iterator.h"
-#include "util/event_logger.h"
 
 namespace rocksdb {
 

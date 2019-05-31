@@ -16,8 +16,8 @@
 #include <vector>
 
 #include "db/compaction/compaction_picker_level.h"
+#include "logging/log_buffer.h"
 #include "test_util/sync_point.h"
-#include "util/log_buffer.h"
 
 namespace rocksdb {
 

@@ -16,10 +16,10 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <vector>
+#include "logging/logging.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
 #include "util/file_reader_writer.h"
-#include "util/logging.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 

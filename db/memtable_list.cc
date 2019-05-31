@@ -17,6 +17,7 @@
 #include "db/memtable.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/version_set.h"
+#include "logging/log_buffer.h"
 #include "monitoring/thread_status_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -24,7 +25,6 @@
 #include "table/merging_iterator.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
-#include "util/log_buffer.h"
 
 namespace rocksdb {
 
