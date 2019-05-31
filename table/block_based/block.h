@@ -22,16 +22,16 @@
 
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
-#include "table/format.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_prefix_index.h"
 #include "table/block_based/data_block_hash_index.h"
+#include "table/format.h"
 #include "table/internal_iterator.h"
-#include "util/random.h"
 #include "test_util/sync_point.h"
+#include "util/random.h"
 
 namespace rocksdb {
 

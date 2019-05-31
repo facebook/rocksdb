@@ -13,10 +13,10 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/mock_table.h"
-#include "util/file_reader_writer.h"
-#include "util/string_util.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/file_reader_writer.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 

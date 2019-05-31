@@ -19,9 +19,9 @@
 #include <vector>
 #include "port/port.h"
 #include "rocksdb/db.h"
-#include "util/logging.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
+#include "util/logging.h"
 
 namespace rocksdb {
 namespace {

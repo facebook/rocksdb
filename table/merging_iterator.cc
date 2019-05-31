@@ -12,6 +12,7 @@
 #include <vector>
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
+#include "memory/arena.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
@@ -19,11 +20,10 @@
 #include "table/internal_iterator.h"
 #include "table/iter_heap.h"
 #include "table/iterator_wrapper.h"
-#include "util/arena.h"
+#include "test_util/sync_point.h"
 #include "util/autovector.h"
 #include "util/heap.h"
 #include "util/stop_watch.h"
-#include "test_util/sync_point.h"
 
 namespace rocksdb {
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes

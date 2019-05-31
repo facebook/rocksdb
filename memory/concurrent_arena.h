@@ -11,9 +11,9 @@
 #include <atomic>
 #include <memory>
 #include <utility>
+#include "memory/allocator.h"
+#include "memory/arena.h"
 #include "port/likely.h"
-#include "util/allocator.h"
-#include "util/arena.h"
 #include "util/core_local.h"
 #include "util/mutexlock.h"
 #include "util/thread_local.h"

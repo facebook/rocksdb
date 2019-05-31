@@ -6,9 +6,9 @@
 #include "util/file_reader_writer.h"
 #include <algorithm>
 #include <vector>
-#include "util/random.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 
 namespace rocksdb {
 

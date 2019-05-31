@@ -13,8 +13,8 @@
 #include "file/filename.h"
 #include "port/port.h"
 #include "port/util_logger.h"
-#include "util/mutexlock.h"
 #include "test_util/sync_point.h"
+#include "util/mutexlock.h"
 
 namespace rocksdb {
 

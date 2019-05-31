@@ -27,11 +27,11 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/random.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
-#include "test_util/testharness.h"
-#include "test_util/testutil.h"
 #include "utilities/merge_operators/bytesxor.h"
 
 #ifndef GFLAGS

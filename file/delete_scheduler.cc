@@ -13,9 +13,9 @@
 #include "file/sst_file_manager_impl.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "test_util/sync_point.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
-#include "test_util/sync_point.h"
 
 namespace rocksdb {
 

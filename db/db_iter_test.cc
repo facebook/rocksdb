@@ -17,9 +17,9 @@
 #include "rocksdb/statistics.h"
 #include "table/iterator_wrapper.h"
 #include "table/merging_iterator.h"
-#include "util/string_util.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
+#include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {

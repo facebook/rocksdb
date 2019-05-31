@@ -23,9 +23,9 @@
 #include "table/block_based/block.h"
 #include "table/block_based/block_builder.h"
 #include "table/format.h"
-#include "util/random.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 
 namespace rocksdb {
 

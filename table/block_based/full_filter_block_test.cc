@@ -7,11 +7,11 @@
 
 #include "rocksdb/filter_policy.h"
 #include "table/full_filter_bits_builder.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/hash.h"
 #include "util/string_util.h"
-#include "test_util/testharness.h"
-#include "test_util/testutil.h"
 
 namespace rocksdb {
 

@@ -13,16 +13,16 @@
 #include "db/dbformat.h"
 #include "db/table_properties_collector.h"
 
-#include "table/meta_blocks.h"
 #include "options/cf_options.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_factory.h"
+#include "table/meta_blocks.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/table_builder.h"
-#include "util/coding.h"
-#include "util/file_reader_writer.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/coding.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 

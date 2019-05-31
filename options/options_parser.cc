@@ -16,10 +16,10 @@
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
+#include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/file_reader_writer.h"
 #include "util/string_util.h"
-#include "test_util/sync_point.h"
 
 #include "port/port.h"
 

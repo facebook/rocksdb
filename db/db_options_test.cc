@@ -19,9 +19,9 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/stats_history.h"
-#include "util/random.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 
 namespace rocksdb {
 

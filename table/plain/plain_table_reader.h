@@ -13,15 +13,15 @@
 #include <stdint.h>
 
 #include "db/dbformat.h"
+#include "memory/arena.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
-#include "table/table_reader.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/plain/plain_table_index.h"
-#include "util/arena.h"
+#include "table/table_reader.h"
 #include "util/dynamic_bloom.h"
 #include "util/file_reader_writer.h"
 

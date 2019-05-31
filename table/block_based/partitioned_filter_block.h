@@ -15,8 +15,8 @@
 #include "rocksdb/slice_transform.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_reader.h"
-#include "table/block_based/full_filter_block.h"
 #include "table/block_based/cachable_entry.h"
+#include "table/block_based/full_filter_block.h"
 #include "util/autovector.h"
 
 namespace rocksdb {

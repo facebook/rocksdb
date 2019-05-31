@@ -24,11 +24,11 @@
 #include <string>
 #include <vector>
 #include "db/dbformat.h"
-#include "table/format.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
+#include "table/format.h"
 #include "table/multiget_context.h"
 #include "util/hash.h"
 

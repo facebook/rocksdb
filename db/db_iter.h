@@ -13,10 +13,10 @@
 #include "db/db_impl.h"
 #include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
+#include "memory/arena.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
-#include "util/arena.h"
 #include "util/autovector.h"
 
 namespace rocksdb {

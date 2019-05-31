@@ -13,12 +13,12 @@
 
 #include "db/db_impl.h"
 #include "db/write_callback.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/write_batch.h"
-#include "port/port.h"
-#include "util/random.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
+#include "util/random.h"
 
 using std::string;
 

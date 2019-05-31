@@ -22,10 +22,10 @@
 #include "table/multiget_context.h"
 #include "table/table_builder.h"
 #include "table/table_reader.h"
+#include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
-#include "test_util/sync_point.h"
 
 namespace rocksdb {
 
