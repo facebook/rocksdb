@@ -589,11 +589,11 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   bool flushed = false;
   uint64_t corrupted_log_number = kMaxSequenceNumber;
   for (auto log_number : log_numbers) {
-    if (log_number < versions_->min_log_number_to_keep_2pc()) {
+    if (log_number < MinLogNumberToKeep()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Skipping log #%" PRIu64
                      " since it is older than min log to keep #%" PRIu64,
-                     log_number, versions_->min_log_number_to_keep_2pc());
+                     log_number, MinLogNumberToKeep());
       continue;
     }
     // The previous incarnation may not have written any MANIFEST

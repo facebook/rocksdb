@@ -110,6 +110,13 @@ Status DBImpl::SyncClosedLogs(JobContext* job_context) {
       if (!s.ok()) {
         break;
       }
+
+      if (immutable_db_options_.recycle_log_file_num > 0) {
+        s = log->Close();
+        if (!s.ok()) {
+          break;
+        }
+      }
     }
     if (s.ok()) {
       s = directories_.GetWalDir()->Fsync();
