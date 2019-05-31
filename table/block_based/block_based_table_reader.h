@@ -339,8 +339,6 @@ class BlockBasedTable : public TableReader {
   friend class TableCache;
   friend class BlockBasedTableBuilder;
 
-  // void ReadMeta(const Footer& footer);
-
   // Figure the index type, update it in rep_, and also return it.
   BlockBasedTableOptions::IndexType UpdateIndexType();
 
