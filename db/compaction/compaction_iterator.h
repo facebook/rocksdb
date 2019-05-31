@@ -10,8 +10,8 @@
 #include <unordered_set>
 #include <vector>
 
-#include "db/compaction/compaction_iteration_stats.h"
 #include "db/compaction/compaction.h"
+#include "db/compaction/compaction_iteration_stats.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/range_del_aggregator.h"

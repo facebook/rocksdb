@@ -23,8 +23,8 @@
 #include <utility>
 #include <vector>
 
-#include "db/compaction/compaction_job.h"
 #include "db/builder.h"
+#include "db/compaction/compaction_job.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
