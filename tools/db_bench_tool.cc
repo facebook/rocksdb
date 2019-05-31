@@ -2974,10 +2974,13 @@ class Benchmark {
                   ->ToString()
                   .c_str());
     }
+
+#ifndef ROCKSDB_LITE
     if (FLAGS_use_secondary_db) {
       fprintf(stdout, "Secondary instance updated  %" PRIu64 " times.\n",
               secondary_db_updates_);
     }
+#endif  // ROCKSDB_LITE
   }
 
  private:
