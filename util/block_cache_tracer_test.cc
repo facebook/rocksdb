@@ -114,7 +114,7 @@ class BlockCacheTracerTest : public testing::Test {
   std::string trace_file_path_;
 };
 
-TEST_F(BlockCacheTracerTest, Blocks) {
+TEST_F(BlockCacheTracerTest, MixedBlocks) {
   {
     // Generate a trace file containing a mix of blocks.
     TraceOptions trace_opt;
