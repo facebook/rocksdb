@@ -716,29 +716,4 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   int64_t num_file_reads_ = 0;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer_;
 };
-
-enum BlockType : char {
-  kIndexBlockType = 1,
-  kFilterBlockType = 2,
-  kDataBlockType = 3,
-  kCompressionDictBlockType = 4,
-  kRangeDeletionBlockType = 5
-};
-
-enum BlockCacheLookupCaller : char {
-  kUserGet = 1,
-  kUserMGet = 2,
-  kUserIterator = 3,
-  kPrefetch = 4,
-  kCompaction = 5
-};
-
-struct BlockCacheLookupContext {
-  BlockCacheLookupContext(BlockCacheLookupCaller _caller, BlockType _block_type)
-      : caller(_caller), block_type(_block_type) {}
-
-  const BlockCacheLookupCaller caller;
-  const BlockType block_type;
-};
-
 }  // namespace rocksdb
