@@ -13,8 +13,8 @@
 
 #include <inttypes.h>
 
-#include "db/db_impl/db_impl.h"
 #include "db/column_family.h"
+#include "db/db_impl/db_impl.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"

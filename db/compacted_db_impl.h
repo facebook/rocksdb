@@ -5,9 +5,9 @@
 
 #pragma once
 #ifndef ROCKSDB_LITE
-#include "db/db_impl/db_impl.h"
-#include <vector>
 #include <string>
+#include <vector>
+#include "db/db_impl/db_impl.h"
 
 namespace rocksdb {
 
