@@ -263,12 +263,12 @@ class BlockBasedTable : public TableReader {
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the
   // read options allow I/O).
-  static Status RetrieveBlock(
-      FilePrefetchBuffer* prefetch_buffer, const Rep* rep,
-      const ReadOptions& ro, const BlockHandle& handle,
-      const UncompressionDict& uncompression_dict,
-      CachableEntry<Block>* block_entry, bool is_index,
-      GetContext* get_context);
+  static Status RetrieveBlock(FilePrefetchBuffer* prefetch_buffer,
+                              const Rep* rep, const ReadOptions& ro,
+                              const BlockHandle& handle,
+                              const UncompressionDict& uncompression_dict,
+                              CachableEntry<Block>* block_entry, bool is_index,
+                              GetContext* get_context);
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file
@@ -310,8 +310,8 @@ class BlockBasedTable : public TableReader {
   static Status GetDataBlockFromCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed, const Rep* rep,
-      const ReadOptions& read_options,
-      CachableEntry<Block>* block, const UncompressionDict& uncompression_dict,
+      const ReadOptions& read_options, CachableEntry<Block>* block,
+      const UncompressionDict& uncompression_dict,
       size_t read_amp_bytes_per_bit, bool is_index = false,
       GetContext* get_context = nullptr);
 
@@ -351,10 +351,10 @@ class BlockBasedTable : public TableReader {
   // Optionally, user can pass a preloaded meta_index_iter for the index that
   // need to access extra meta blocks for index construction. This parameter
   // helps avoid re-reading meta index block if caller already created one.
-  Status CreateIndexReader(
-      FilePrefetchBuffer* prefetch_buffer,
-      InternalIterator* preloaded_meta_index_iter, bool use_cache,
-      bool prefetch, bool pin, IndexReader** index_reader);
+  Status CreateIndexReader(FilePrefetchBuffer* prefetch_buffer,
+                           InternalIterator* preloaded_meta_index_iter,
+                           bool use_cache, bool prefetch, bool pin,
+                           IndexReader** index_reader);
 
   bool FullFilterKeyMayMatch(
       const ReadOptions& read_options, FilterBlockReader* filter,
@@ -715,6 +715,30 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   size_t readahead_limit_ = 0;
   int64_t num_file_reads_ = 0;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer_;
+};
+
+enum BlockType : char {
+  kIndexBlockType = 1,
+  kFilterBlockType = 2,
+  kDataBlockType = 3,
+  kCompressionDictBlockType = 4,
+  kRangeDeletionBlockType = 5
+};
+
+enum BlockCacheLookupCaller : char {
+  kUserGet = 1,
+  kUserMGet = 2,
+  kUserIterator = 3,
+  kPrefetch = 4,
+  kCompaction = 5
+};
+
+struct BlockCacheLookupContext {
+  BlockCacheLookupContext(BlockCacheLookupCaller _caller, BlockType _block_type)
+      : caller(_caller), block_type(_block_type) {}
+
+  const BlockCacheLookupCaller caller;
+  const BlockType block_type;
 };
 
 }  // namespace rocksdb
