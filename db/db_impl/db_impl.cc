@@ -28,7 +28,7 @@
 #include <vector>
 
 #include "db/builder.h"
-#include "db/compaction_job.h"
+#include "db/compaction/compaction_job.h"
 #include "db/db_info_dumper.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"

@@ -20,7 +20,7 @@
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/compaction_job.h"
+#include "db/compaction/compaction_job.h"
 #include "db/dbformat.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"

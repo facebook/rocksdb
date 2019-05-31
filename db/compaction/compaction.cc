@@ -7,8 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "db/compaction.h"
-
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
@@ -17,6 +15,7 @@
 #include <vector>
 
 #include "db/column_family.h"
+#include "db/compaction/compaction.h"
 #include "rocksdb/compaction_filter.h"
 #include "test_util/sync_point.h"
 #include "util/string_util.h"

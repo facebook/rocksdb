@@ -480,13 +480,13 @@ set(SOURCES
         db/c.cc
         db/column_family.cc
         db/compacted_db_impl.cc
-        db/compaction.cc
-        db/compaction_iterator.cc
-        db/compaction_job.cc
-        db/compaction_picker.cc
-        db/compaction_picker_fifo.cc
+        db/compaction/compaction.cc
+        db/compaction/compaction_iterator.cc
+        db/compaction/compaction_picker.cc        
+        db/compaction/compaction_job.cc
+        db/compaction/compaction_picker_fifo.cc
         db/compaction_picker_level.cc
-        db/compaction_picker_universal.cc
+        db/compaction/compaction_picker_universal.cc
         db/convenience.cc
         db/db_filesnapshot.cc
         db/db_impl/db_impl.cc
@@ -862,10 +862,10 @@ if(WITH_TESTS)
         cache/lru_cache_test.cc
         db/column_family_test.cc
         db/compact_files_test.cc
-        db/compaction_iterator_test.cc
         db/compaction_job_stats_test.cc
-        db/compaction_job_test.cc
-        db/compaction_picker_test.cc
+        db/compaction/compaction_job_test.cc
+        db/compaction/compaction_iterator_test.cc
+        db/compaction/compaction_picker_test.cc
         db/comparator_db_test.cc
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc

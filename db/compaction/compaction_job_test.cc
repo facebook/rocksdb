@@ -17,7 +17,7 @@
 #include <tuple>
 
 #include "db/column_family.h"
-#include "db/compaction_job.h"
+#include "db/compaction/compaction_job.h"
 #include "db/error_handler.h"
 #include "db/version_set.h"
 #include "rocksdb/cache.h"

@@ -15,7 +15,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "db/compaction.h"
+#include "db/compaction/compaction.h"
 #include "db/version_set.h"
 #include "options/cf_options.h"
 #include "rocksdb/env.h"

@@ -29,8 +29,8 @@
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/compaction.h"
-#include "db/compaction_picker.h"
+#include "db/compaction/compaction.h"
+#include "db/compaction/compaction_picker.h"
 #include "db/dbformat.h"
 #include "db/file_indexer.h"
 #include "db/log_reader.h"
