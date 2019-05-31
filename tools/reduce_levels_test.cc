@@ -6,7 +6,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/ldb_cmd.h"

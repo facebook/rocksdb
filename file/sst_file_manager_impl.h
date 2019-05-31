@@ -11,7 +11,7 @@
 
 #include "port/port.h"
 
-#include "db/compaction.h"
+#include "db/compaction/compaction.h"
 #include "db/error_handler.h"
 #include "file/delete_scheduler.h"
 #include "rocksdb/sst_file_manager.h"

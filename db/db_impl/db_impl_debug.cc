@@ -9,7 +9,7 @@
 
 #ifndef NDEBUG
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "monitoring/thread_status_updater.h"
 

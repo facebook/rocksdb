@@ -10,7 +10,7 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include "db/compaction_picker.h"
+#include "db/compaction/compaction_picker.h"
 
 namespace rocksdb {
 class FIFOCompactionPicker : public CompactionPicker {

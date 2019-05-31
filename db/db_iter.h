@@ -10,10 +10,10 @@
 #pragma once
 #include <stdint.h>
 #include <string>
-#include "db/db_impl.h"
 #include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
 #include "memory/arena.h"
+#include "db/db_impl/db_impl.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"

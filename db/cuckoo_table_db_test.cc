@@ -5,7 +5,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "table/cuckoo/cuckoo_table_factory.h"

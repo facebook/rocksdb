@@ -42,13 +42,13 @@
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/db_impl.h"
 #include "db/dbformat.h"
 #include "db/flush_scheduler.h"
 #include "db/memtable.h"
 #include "db/merge_context.h"
 #include "db/snapshot_impl.h"
 #include "db/write_batch_internal.h"
+#include "db/db_impl/db_impl.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/merge_operator.h"

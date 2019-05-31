@@ -18,7 +18,7 @@
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/compaction_iterator.h"
+#include "db/compaction/compaction_iterator.h"
 #include "db/dbformat.h"
 #include "db/flush_scheduler.h"
 #include "db/internal_stats.h"

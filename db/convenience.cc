@@ -8,7 +8,7 @@
 
 #include "rocksdb/convenience.h"
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "util/cast_util.h"
 
 namespace rocksdb {

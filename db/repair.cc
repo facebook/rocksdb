@@ -66,7 +66,7 @@
 
 #include <inttypes.h>
 #include "db/builder.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"

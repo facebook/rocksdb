@@ -16,7 +16,7 @@
 #include <iostream>
 #include <thread>
 #include <utility>
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"

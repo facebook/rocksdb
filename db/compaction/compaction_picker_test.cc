@@ -3,15 +3,14 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "db/compaction_picker.h"
 
 #include <limits>
 #include <string>
 #include <utility>
-#include "db/compaction.h"
-#include "db/compaction_picker_fifo.h"
-#include "db/compaction_picker_level.h"
-#include "db/compaction_picker_universal.h"
+#include "db/compaction/compaction.h"
+#include "db/compaction/compaction_picker_fifo.h"
+#include "db/compaction/compaction_picker_level.h"
+#include "db/compaction/compaction_picker_universal.h"
 
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
