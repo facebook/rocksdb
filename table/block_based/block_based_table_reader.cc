@@ -203,19 +203,20 @@ bool PrefixExtractorChanged(const TableProperties* table_properties,
 // in the cache or not.
 class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
  public:
-  IndexReaderCommon(BlockBasedTable* t, CachableEntry<Block>&& index_block)
+  IndexReaderCommon(const BlockBasedTable* t,
+                    CachableEntry<Block>&& index_block)
       : table_(t), index_block_(std::move(index_block)) {
     assert(table_ != nullptr);
   }
 
  protected:
-  static Status ReadIndexBlock(BlockBasedTable* table,
+  static Status ReadIndexBlock(const BlockBasedTable* table,
                                FilePrefetchBuffer* prefetch_buffer,
                                const ReadOptions& read_options,
                                GetContext* get_context,
                                CachableEntry<Block>* index_block);
 
-  BlockBasedTable* table() const { return table_; }
+  const BlockBasedTable* table() const { return table_; }
 
   const InternalKeyComparator* internal_comparator() const {
     assert(table_ != nullptr);
@@ -256,12 +257,12 @@ class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
   }
 
  private:
-  BlockBasedTable* table_;
+  const BlockBasedTable* table_;
   CachableEntry<Block> index_block_;
 };
 
 Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
-    BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
+    const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
     const ReadOptions& read_options, GetContext* get_context,
     CachableEntry<Block>* index_block) {
   PERF_TIMER_GUARD(read_index_block_nanos);
@@ -304,7 +305,7 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
   // `PartitionIndexReader`.
   // On success, index_reader will be populated; otherwise it will remain
   // unmodified.
-  static Status Create(BlockBasedTable* table,
+  static Status Create(const BlockBasedTable* table,
                        FilePrefetchBuffer* prefetch_buffer, bool use_cache,
                        bool prefetch, bool pin, IndexReader** index_reader) {
     assert(table != nullptr);
@@ -473,7 +474,8 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
   }
 
  private:
-  PartitionIndexReader(BlockBasedTable* t, CachableEntry<Block>&& index_block)
+  PartitionIndexReader(const BlockBasedTable* t,
+                       CachableEntry<Block>&& index_block)
       : IndexReaderCommon(t, std::move(index_block)) {}
 
   std::unordered_map<uint64_t, CachableEntry<Block>> partition_map_;
@@ -488,7 +490,7 @@ class BinarySearchIndexReader : public BlockBasedTable::IndexReaderCommon {
   // `BinarySearchIndexReader`.
   // On success, index_reader will be populated; otherwise it will remain
   // unmodified.
-  static Status Create(BlockBasedTable* table,
+  static Status Create(const BlockBasedTable* table,
                        FilePrefetchBuffer* prefetch_buffer, bool use_cache,
                        bool prefetch, bool pin, IndexReader** index_reader) {
     assert(table != nullptr);
@@ -553,7 +555,7 @@ class BinarySearchIndexReader : public BlockBasedTable::IndexReaderCommon {
   }
 
  private:
-  BinarySearchIndexReader(BlockBasedTable* t,
+  BinarySearchIndexReader(const BlockBasedTable* t,
                           CachableEntry<Block>&& index_block)
       : IndexReaderCommon(t, std::move(index_block)) {}
 };
@@ -562,7 +564,7 @@ class BinarySearchIndexReader : public BlockBasedTable::IndexReaderCommon {
 // key.
 class HashIndexReader : public BlockBasedTable::IndexReaderCommon {
  public:
-  static Status Create(BlockBasedTable* table,
+  static Status Create(const BlockBasedTable* table,
                        FilePrefetchBuffer* prefetch_buffer,
                        InternalIterator* meta_index_iter, bool use_cache,
                        bool prefetch, bool pin, IndexReader** index_reader) {
@@ -699,7 +701,7 @@ class HashIndexReader : public BlockBasedTable::IndexReaderCommon {
   }
 
  private:
-  HashIndexReader(BlockBasedTable* t, CachableEntry<Block>&& index_block)
+  HashIndexReader(const BlockBasedTable* t, CachableEntry<Block>&& index_block)
       : IndexReaderCommon(t, std::move(index_block)) {}
 
   std::unique_ptr<BlockPrefixIndex> prefix_index_;
@@ -1188,7 +1190,7 @@ Status BlockBasedTable::ReadRangeDelBlock(
 }
 
 Status BlockBasedTable::ReadCompressionDictBlock(
-    Rep* rep, FilePrefetchBuffer* prefetch_buffer,
+    const Rep* rep, FilePrefetchBuffer* prefetch_buffer,
     std::unique_ptr<const BlockContents>* compression_dict_block) {
   assert(compression_dict_block != nullptr);
   Status s;
@@ -1842,7 +1844,7 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 }
 
 CachableEntry<UncompressionDict>
-BlockBasedTable::GetUncompressionDict(Rep* rep,
+BlockBasedTable::GetUncompressionDict(const Rep* rep,
                                       FilePrefetchBuffer* prefetch_buffer,
                                       bool no_io, GetContext* get_context) {
   if (!rep->table_options.cache_index_and_filter_blocks) {
@@ -1925,7 +1927,7 @@ BlockBasedTable::GetUncompressionDict(Rep* rep,
 // differs from the one in mutable_cf_options and index type is HashBasedIndex
 InternalIteratorBase<BlockHandle>* BlockBasedTable::NewIndexIterator(
     const ReadOptions& read_options, bool disable_prefix_seek,
-    IndexBlockIter* input_iter, GetContext* get_context) {
+    IndexBlockIter* input_iter, GetContext* get_context) const {
   assert(rep_ != nullptr);
   assert(rep_->index_reader != nullptr);
 
@@ -1941,7 +1943,7 @@ InternalIteratorBase<BlockHandle>* BlockBasedTable::NewIndexIterator(
 // If input_iter is not null, update this iter and return it
 template <typename TBlockIter>
 TBlockIter* BlockBasedTable::NewDataBlockIterator(
-    Rep* rep, const ReadOptions& ro, const BlockHandle& handle,
+    const Rep* rep, const ReadOptions& ro, const BlockHandle& handle,
     TBlockIter* input_iter, bool is_index, bool key_includes_seq,
     bool index_key_is_full, GetContext* get_context, Status s,
     FilePrefetchBuffer* prefetch_buffer) {
@@ -2164,7 +2166,7 @@ Status BlockBasedTable::RetrieveBlock(
 }
 
 BlockBasedTable::PartitionedIndexIteratorState::PartitionedIndexIteratorState(
-    BlockBasedTable* table,
+    const BlockBasedTable* table,
     std::unordered_map<uint64_t, CachableEntry<Block>>* block_map,
     bool index_key_includes_seq, bool index_key_is_full)
     : table_(table),
@@ -2214,7 +2216,7 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
 bool BlockBasedTable::PrefixMayMatch(
     const Slice& internal_key, const ReadOptions& read_options,
     const SliceTransform* options_prefix_extractor,
-    const bool need_upper_bound_check) {
+    const bool need_upper_bound_check) const {
   if (!rep_->filter_policy) {
     return true;
   }
