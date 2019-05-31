@@ -413,7 +413,7 @@ Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
   assert(parent_dir != nullptr);
   assert(info_log_list != nullptr);
   uint64_t number = 0;
-  FileType type;
+  FileType type = kLogFile;
 
   if (!db_log_dir.empty()) {
     *parent_dir = db_log_dir;
