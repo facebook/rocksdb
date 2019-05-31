@@ -12,8 +12,8 @@
 #include <string>
 #include <thread>
 
-#include "db/db_impl.h"
 #include "db/db_test_util.h"
+#include "db/db_impl/db_impl.h"
 #include "memtable/hash_skiplist_rep.h"
 #include "options/options_parser.h"
 #include "port/port.h"

@@ -7,8 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "db/compaction_picker_level.h"
-
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
@@ -17,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/compaction/compaction_picker_level.h"
 #include "test_util/sync_point.h"
 #include "util/log_buffer.h"
 

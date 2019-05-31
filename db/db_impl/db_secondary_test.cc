@@ -7,8 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "db/db_impl_secondary.h"
 #include "db/db_test_util.h"
+#include "db/db_impl/db_impl_secondary.h"
 #include "port/stack_trace.h"
 #include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"

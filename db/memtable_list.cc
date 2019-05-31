@@ -13,7 +13,7 @@
 #include <limits>
 #include <queue>
 #include <string>
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/memtable.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/version_set.h"

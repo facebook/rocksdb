@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "db/compaction_picker.h"
+#include "db/compaction/compaction_picker.h"
 
 namespace rocksdb {
 // Picking compactions for leveled compaction. See wiki page

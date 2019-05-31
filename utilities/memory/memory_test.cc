@@ -5,7 +5,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/memory_util.h"

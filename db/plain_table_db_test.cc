@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <set>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "file/filename.h"

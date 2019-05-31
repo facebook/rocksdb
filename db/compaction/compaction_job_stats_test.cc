@@ -21,7 +21,7 @@
 #include <unordered_set>
 #include <utility>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "db/job_context.h"
 #include "db/version_set.h"

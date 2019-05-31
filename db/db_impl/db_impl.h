@@ -20,7 +20,7 @@
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/compaction_job.h"
+#include "db/compaction/compaction_job.h"
 #include "db/dbformat.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
@@ -39,7 +39,7 @@
 #include "db/wal_manager.h"
 #include "db/write_controller.h"
 #include "db/write_thread.h"
-#include "memtable_list.h"
+#include "db/memtable_list.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "port/port.h"

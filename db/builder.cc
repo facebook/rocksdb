@@ -13,7 +13,7 @@
 #include <deque>
 #include <vector>
 
-#include "db/compaction_iterator.h"
+#include "db/compaction/compaction_iterator.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
 #include "db/internal_stats.h"

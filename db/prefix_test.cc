@@ -17,7 +17,7 @@ int main() {
 #include <iostream>
 #include <vector>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "monitoring/histogram.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"

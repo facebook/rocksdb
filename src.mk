@@ -7,24 +7,24 @@ LIB_SOURCES =                                                   \
   db/c.cc                                                       \
   db/column_family.cc                                           \
   db/compacted_db_impl.cc                                       \
-  db/compaction.cc                                              \
-  db/compaction_iterator.cc                                     \
-  db/compaction_job.cc                                          \
-  db/compaction_picker.cc                                       \
-  db/compaction_picker_fifo.cc                                  \
-  db/compaction_picker_level.cc                                 \
-  db/compaction_picker_universal.cc                             \
+  db/compaction/compaction.cc                                 	\
+  db/compaction/compaction_iterator.cc                          \
+  db/compaction/compaction_job.cc                               \
+  db/compaction/compaction_picker.cc                            \
+  db/compaction/compaction_picker_fifo.cc                       \
+  db/compaction/compaction_picker_level.cc                      \
+  db/compaction/compaction_picker_universal.cc                 	\
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
-  db/db_impl.cc                                                 \
-  db/db_impl_compaction_flush.cc                                \
-  db/db_impl_debug.cc                                           \
-  db/db_impl_experimental.cc                                    \
-  db/db_impl_files.cc                                           \
-  db/db_impl_open.cc                                            \
-  db/db_impl_readonly.cc                                        \
-  db/db_impl_secondary.cc                                       \
-  db/db_impl_write.cc                                           \
+  db/db_impl/db_impl.cc                                         \
+  db/db_impl/db_impl_compaction_flush.cc                        \
+  db/db_impl/db_impl_debug.cc                                   \
+  db/db_impl/db_impl_experimental.cc                            \
+  db/db_impl/db_impl_files.cc                                   \
+  db/db_impl/db_impl_open.cc                                    \
+  db/db_impl/db_impl_readonly.cc                                \
+  db/db_impl/db_impl_secondary.cc                               \
+  db/db_impl/db_impl_write.cc                                   \
   db/db_info_dumper.cc                                          \
   db/db_iter.cc                                                 \
   db/dbformat.cc                                                \
@@ -259,10 +259,10 @@ MAIN_SOURCES =                                                          \
   cache/cache_test.cc                                                   \
   db/column_family_test.cc                                              \
   db/compact_files_test.cc                                              \
-  db/compaction_iterator_test.cc                                        \
-  db/compaction_job_stats_test.cc                                       \
-  db/compaction_job_test.cc                                             \
-  db/compaction_picker_test.cc                                          \
+  db/compaction/compaction_iterator_test.cc                             \
+  db/compaction/compaction_job_test.cc                                  \
+  db/compaction/compaction_job_stats_test.cc                            \
+  db/compaction/compaction_picker_test.cc                               \
   db/comparator_db_test.cc                                              \
   db/corruption_test.cc                                                 \
   db/cuckoo_table_db_test.cc                                            \
@@ -286,7 +286,7 @@ MAIN_SOURCES =                                                          \
   db/db_options_test.cc                                                 \
   db/db_properties_test.cc                                              \
   db/db_range_del_test.cc                                               \
-  db/db_secondary_test.cc                                               \
+  db/db_impl/db_secondary_test.cc                                       \
   db/db_sst_test.cc                                                     \
   db/db_statistics_test.cc                                              \
   db/db_table_properties_test.cc                                        \

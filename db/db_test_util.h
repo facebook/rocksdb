@@ -25,7 +25,7 @@
 #include <utility>
 #include <vector>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "env/mock_env.h"
 #include "file/filename.h"

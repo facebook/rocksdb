@@ -16,7 +16,7 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/utility_db.h"
 #include "rocksdb/utilities/db_ttl.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 
 #ifdef _WIN32
 // Windows API macro interference
