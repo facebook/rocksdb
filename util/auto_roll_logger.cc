@@ -4,12 +4,53 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #include "util/auto_roll_logger.h"
+#include <algorithm>
+#include "file/filename.h"
+#include "util/logging.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {
 
 #ifndef ROCKSDB_LITE
 // -- AutoRollLogger
+
+AutoRollLogger::AutoRollLogger(Env* env, const std::string& dbname,
+                               const std::string& db_log_dir,
+                               size_t log_max_size,
+                               size_t log_file_time_to_roll,
+                               size_t keep_log_file_num,
+                               const InfoLogLevel log_level)
+    : Logger(log_level),
+      dbname_(dbname),
+      db_log_dir_(db_log_dir),
+      env_(env),
+      status_(Status::OK()),
+      kMaxLogFileSize(log_max_size),
+      kLogFileTimeToRoll(log_file_time_to_roll),
+      kKeepLogFileNum(keep_log_file_num),
+      cached_now(static_cast<uint64_t>(env_->NowMicros() * 1e-6)),
+      ctime_(cached_now),
+      cached_now_access_count(0),
+      call_NowMicros_every_N_records_(100),
+      mutex_() {
+  Status s = env->GetAbsolutePath(dbname, &db_absolute_path_);
+  if (s.IsNotSupported()) {
+    db_absolute_path_ = dbname;
+  } else {
+    status_ = s;
+  }
+  log_fname_ = InfoLogFileName(dbname_, db_absolute_path_, db_log_dir_);
+  if (env_->FileExists(log_fname_).ok()) {
+    RollLogFile();
+  }
+  GetExistingFiles();
+  ResetLogger();
+  s = TrimOldLogFiles();
+  if (!status_.ok()) {
+    status_ = s;
+  }
+}
+
 Status AutoRollLogger::ResetLogger() {
   TEST_SYNC_POINT("AutoRollLogger::ResetLogger:BeforeNewLogger");
   status_ = env_->NewLogger(log_fname_, &logger_);
@@ -44,6 +85,58 @@ void AutoRollLogger::RollLogFile() {
     now++;
   } while (env_->FileExists(old_fname).ok());
   env_->RenameFile(log_fname_, old_fname);
+  old_log_files_.push(old_fname);
+}
+
+void AutoRollLogger::GetExistingFiles() {
+  {
+    // Empty the queue to avoid duplicated entries in the queue.
+    std::queue<std::string> empty;
+    std::swap(old_log_files_, empty);
+  }
+
+  std::string parent_dir;
+  std::vector<std::string> info_log_files;
+  Status s =
+      GetInfoLogFiles(env_, db_log_dir_, dbname_, &parent_dir, &info_log_files);
+  if (status_.ok()) {
+    status_ = s;
+  }
+  // We need to sort the file before enqueing it so that when we
+  // delete file from the front, it is the oldest file.
+  std::sort(info_log_files.begin(), info_log_files.end());
+
+  for (const std::string& f : info_log_files) {
+    old_log_files_.push(parent_dir + "/" + f);
+  }
+}
+
+Status AutoRollLogger::TrimOldLogFiles() {
+  // Here we directly list info files and delete them through Env.
+  // The deletion isn't going through DB, so there are shortcomes:
+  // 1. the deletion is not rate limited by SstFileManager
+  // 2. there is a chance that an I/O will be issued here
+  // Since it's going to be complicated to pass DB object down to
+  // here, we take a simple approach to keep the code easier to
+  // maintain.
+
+  // old_log_files_.empty() is helpful for the corner case that
+  // kKeepLogFileNum == 0. We can instead check kKeepLogFileNum != 0 but
+  // it's essentially the same thing, and checking empty before accessing
+  // the queue feels safer.
+  while (!old_log_files_.empty() && old_log_files_.size() >= kKeepLogFileNum) {
+    Status s = env_->DeleteFile(old_log_files_.front());
+    // Remove the file from the tracking anyway. It's possible that
+    // DB cleaned up the old log file, or people cleaned it up manually.
+    old_log_files_.pop();
+    // To make the file really go away, we should sync parent directory.
+    // Since there isn't any consistency issue involved here, skipping
+    // this part to avoid one I/O here.
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  return Status::OK();
 }
 
 std::string AutoRollLogger::ValistToString(const char* format,
@@ -78,12 +171,19 @@ void AutoRollLogger::Logv(const char* format, va_list ap) {
         (kMaxLogFileSize > 0 && logger_->GetLogFileSize() >= kMaxLogFileSize)) {
       RollLogFile();
       Status s = ResetLogger();
+      Status s2 = TrimOldLogFiles();
+
       if (!s.ok()) {
         // can't really log the error if creating a new LOG file failed
         return;
       }
 
       WriteHeaderInfo();
+
+      if (!s2.ok()) {
+        ROCKS_LOG_WARN(logger.get(), "Fail to trim old info log file: %s",
+                       s2.ToString().c_str());
+      }
     }
 
     // pin down the current logger_ instance before releasing the mutex.
@@ -153,7 +253,8 @@ Status CreateLoggerFromOptions(const std::string& dbname,
   if (options.log_file_time_to_roll > 0 || options.max_log_file_size > 0) {
     AutoRollLogger* result = new AutoRollLogger(
         env, dbname, options.db_log_dir, options.max_log_file_size,
-        options.log_file_time_to_roll, options.info_log_level);
+        options.log_file_time_to_roll, options.keep_log_file_num,
+        options.info_log_level);
     Status s = result->GetStatus();
     if (!s.ok()) {
       delete result;
