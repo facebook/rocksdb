@@ -236,23 +236,6 @@ class CompactionPicker {
   const InternalKeyComparator* const icmp_;
 };
 
-// Picking compactions for leveled compaction. See wiki page
-// https://github.com/facebook/rocksdb/wiki/Leveled-Compaction
-// for description of Leveled compaction.
-class LevelCompactionPicker : public CompactionPicker {
- public:
-  LevelCompactionPicker(const ImmutableCFOptions& ioptions,
-                        const InternalKeyComparator* icmp)
-      : CompactionPicker(ioptions, icmp) {}
-  virtual Compaction* PickCompaction(const std::string& cf_name,
-                                     const MutableCFOptions& mutable_cf_options,
-                                     VersionStorageInfo* vstorage,
-                                     LogBuffer* log_buffer) override;
-
-  virtual bool NeedsCompaction(
-      const VersionStorageInfo* vstorage) const override;
-};
-
 #ifndef ROCKSDB_LITE
 // A dummy compaction that never triggers any automatic
 // compaction.
