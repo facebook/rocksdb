@@ -41,6 +41,21 @@ class NoSleepEnv : public EnvWrapper {
 };
 }  // namespace
 
+// In this test we only want to Log some simple log message with
+// no format. LogMessage() provides such a simple interface and
+// avoids the [format-security] warning which occurs when you
+// call ROCKS_LOG_INFO(logger, log_message) directly.
+namespace {
+void LogMessage(Logger* logger, const char* message) {
+  ROCKS_LOG_INFO(logger, "%s", message);
+}
+
+void LogMessage(const InfoLogLevel log_level, Logger* logger,
+                const char* message) {
+  Log(log_level, logger, "%s", message);
+}
+}  // namespace
+
 class AutoRollLoggerTest : public testing::Test {
  public:
   static void InitTestDb() {
@@ -62,6 +77,41 @@ class AutoRollLoggerTest : public testing::Test {
                              const std::string& log_message);
   void RollLogFileByTimeTest(Env*, AutoRollLogger* logger, size_t time,
                              const std::string& log_message);
+  // return list of files under kTestDir that contains "LOG"
+  std::vector<std::string> GetLogFiles() {
+    std::vector<std::string> ret;
+    std::vector<std::string> files;
+    Status s = default_env->GetChildren(kTestDir, &files);
+    // Should call ASSERT_OK() here but it doesn't compile. It's not
+    // worth the time figuring out why.
+    EXPECT_TRUE(s.ok());
+    for (const auto& f : files) {
+      if (f.find("LOG") != std::string::npos) {
+        ret.push_back(f);
+      }
+    }
+    return ret;
+  }
+
+  // Delete all log files under kTestDir
+  void CleanupLogFiles() {
+    for (const std::string& f : GetLogFiles()) {
+      ASSERT_OK(default_env->DeleteFile(kTestDir + "/" + f));
+    }
+  }
+
+  void RollNTimesBySize(Logger* auto_roll_logger, size_t file_num,
+                        size_t max_log_file_size) {
+    // Roll the log 4 times, and it will trim to 3 files.
+    std::string dummy_large_string;
+    dummy_large_string.assign(max_log_file_size, '=');
+    auto_roll_logger->SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
+    for (size_t i = 0; i < file_num + 1; i++) {
+      // Log enough bytes to trigger at least one roll.
+      LogMessage(auto_roll_logger, dummy_large_string.c_str());
+      LogMessage(auto_roll_logger, "");
+    }
+  }
 
   static const std::string kSampleMessage;
   static const std::string kTestDir;
@@ -76,21 +126,6 @@ const std::string AutoRollLoggerTest::kTestDir(
 const std::string AutoRollLoggerTest::kLogFile(
     test::PerThreadDBPath("db_log_test") + "/LOG");
 Env* AutoRollLoggerTest::default_env = Env::Default();
-
-// In this test we only want to Log some simple log message with
-// no format. LogMessage() provides such a simple interface and
-// avoids the [format-security] warning which occurs when you
-// call ROCKS_LOG_INFO(logger, log_message) directly.
-namespace {
-void LogMessage(Logger* logger, const char* message) {
-  ROCKS_LOG_INFO(logger, "%s", message);
-}
-
-void LogMessage(const InfoLogLevel log_level, Logger* logger,
-                const char* message) {
-  Log(log_level, logger, "%s", message);
-}
-}  // namespace
 
 void AutoRollLoggerTest::RollLogFileBySizeTest(AutoRollLogger* logger,
                                                size_t log_max_size,
@@ -159,8 +194,10 @@ void AutoRollLoggerTest::RollLogFileByTimeTest(Env* env, AutoRollLogger* logger,
 TEST_F(AutoRollLoggerTest, RollLogFileBySize) {
     InitTestDb();
     size_t log_max_size = 1024 * 5;
+    size_t keep_log_file_num = 10;
 
-    AutoRollLogger logger(Env::Default(), kTestDir, "", log_max_size, 0);
+    AutoRollLogger logger(Env::Default(), kTestDir, "", log_max_size, 0,
+                          keep_log_file_num);
 
     RollLogFileBySizeTest(&logger, log_max_size,
                           kSampleMessage + ":RollLogFileBySize");
@@ -171,11 +208,12 @@ TEST_F(AutoRollLoggerTest, RollLogFileByTime) {
 
   size_t time = 2;
   size_t log_size = 1024 * 5;
+  size_t keep_log_file_num = 10;
 
   InitTestDb();
   // -- Test the existence of file during the server restart.
   ASSERT_EQ(Status::NotFound(), default_env->FileExists(kLogFile));
-  AutoRollLogger logger(&nse, kTestDir, "", log_size, time);
+  AutoRollLogger logger(&nse, kTestDir, "", log_size, time, keep_log_file_num);
   ASSERT_OK(default_env->FileExists(kLogFile));
 
   RollLogFileByTimeTest(&nse, &logger, time,
@@ -192,28 +230,30 @@ TEST_F(AutoRollLoggerTest, OpenLogFilesMultipleTimesWithOptionLog_max_size) {
   // treated as "singed".
   size_t kZero = 0;
   size_t log_size = 1024;
+  size_t keep_log_file_num = 10;
 
-  AutoRollLogger* logger = new AutoRollLogger(
-    Env::Default(), kTestDir, "", log_size, 0);
+  AutoRollLogger* logger = new AutoRollLogger(Env::Default(), kTestDir, "",
+                                              log_size, 0, keep_log_file_num);
 
   LogMessage(logger, kSampleMessage.c_str());
   ASSERT_GT(logger->GetLogFileSize(), kZero);
   delete logger;
 
   // reopens the log file and an empty log file will be created.
-  logger = new AutoRollLogger(
-    Env::Default(), kTestDir, "", log_size, 0);
+  logger = new AutoRollLogger(Env::Default(), kTestDir, "", log_size, 0, 10);
   ASSERT_EQ(logger->GetLogFileSize(), kZero);
   delete logger;
 }
 
 TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
   size_t time = 2, log_max_size = 1024 * 5;
+  size_t keep_log_file_num = 10;
 
   InitTestDb();
 
   NoSleepEnv nse(Env::Default());
-  AutoRollLogger logger(&nse, kTestDir, "", log_max_size, time);
+  AutoRollLogger logger(&nse, kTestDir, "", log_max_size, time,
+                        keep_log_file_num);
 
   // Test the ability to roll by size
   RollLogFileBySizeTest(&logger, log_max_size,
@@ -269,6 +309,107 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
                         kSampleMessage + ":CreateLoggerFromOptions - both");
   RollLogFileByTimeTest(&nse, auto_roll_logger, options.log_file_time_to_roll,
                         kSampleMessage + ":CreateLoggerFromOptions - both");
+
+  // Set keep_log_file_num
+  {
+    const size_t kFileNum = 3;
+    InitTestDb();
+    options.max_log_file_size = 512;
+    options.log_file_time_to_roll = 2;
+    options.keep_log_file_num = kFileNum;
+    ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
+    auto_roll_logger = dynamic_cast<AutoRollLogger*>(logger.get());
+
+    // Roll the log 4 times, and it will trim to 3 files.
+    std::string dummy_large_string;
+    dummy_large_string.assign(options.max_log_file_size, '=');
+    auto_roll_logger->SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
+    for (size_t i = 0; i < kFileNum + 1; i++) {
+      // Log enough bytes to trigger at least one roll.
+      LogMessage(auto_roll_logger, dummy_large_string.c_str());
+      LogMessage(auto_roll_logger, "");
+    }
+
+    std::vector<std::string> files = GetLogFiles();
+    ASSERT_EQ(kFileNum, files.size());
+
+    CleanupLogFiles();
+  }
+
+  // Set keep_log_file_num and dbname is different from
+  // db_log_dir.
+  {
+    const size_t kFileNum = 3;
+    InitTestDb();
+    options.max_log_file_size = 512;
+    options.log_file_time_to_roll = 2;
+    options.keep_log_file_num = kFileNum;
+    options.db_log_dir = kTestDir;
+    ASSERT_OK(CreateLoggerFromOptions("/dummy/db/name", options, &logger));
+    auto_roll_logger = dynamic_cast<AutoRollLogger*>(logger.get());
+
+    // Roll the log 4 times, and it will trim to 3 files.
+    std::string dummy_large_string;
+    dummy_large_string.assign(options.max_log_file_size, '=');
+    auto_roll_logger->SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
+    for (size_t i = 0; i < kFileNum + 1; i++) {
+      // Log enough bytes to trigger at least one roll.
+      LogMessage(auto_roll_logger, dummy_large_string.c_str());
+      LogMessage(auto_roll_logger, "");
+    }
+
+    std::vector<std::string> files = GetLogFiles();
+    ASSERT_EQ(kFileNum, files.size());
+    for (const auto& f : files) {
+      ASSERT_TRUE(f.find("dummy") != std::string::npos);
+    }
+
+    // Cleaning up those files.
+    CleanupLogFiles();
+  }
+}
+
+TEST_F(AutoRollLoggerTest, AutoDeleting) {
+  for (int attempt = 0; attempt < 2; attempt++) {
+    // In the first attemp, db_log_dir is not set, while in the
+    // second it is set.
+    std::string dbname = (attempt == 0) ? kTestDir : "/test/dummy/dir";
+    std::string db_log_dir = (attempt == 0) ? "" : kTestDir;
+
+    InitTestDb();
+    const size_t kMaxFileSize = 512;
+    {
+      size_t log_num = 8;
+      AutoRollLogger logger(Env::Default(), dbname, db_log_dir, kMaxFileSize, 0,
+                            log_num);
+      RollNTimesBySize(&logger, log_num, kMaxFileSize);
+
+      ASSERT_EQ(log_num, GetLogFiles().size());
+    }
+    // Shrink number of files
+    {
+      size_t log_num = 5;
+      AutoRollLogger logger(Env::Default(), dbname, db_log_dir, kMaxFileSize, 0,
+                            log_num);
+      ASSERT_EQ(log_num, GetLogFiles().size());
+
+      RollNTimesBySize(&logger, 3, kMaxFileSize);
+      ASSERT_EQ(log_num, GetLogFiles().size());
+    }
+
+    // Increase number of files again.
+    {
+      size_t log_num = 7;
+      AutoRollLogger logger(Env::Default(), dbname, db_log_dir, kMaxFileSize, 0,
+                            log_num);
+      ASSERT_EQ(6, GetLogFiles().size());
+
+      RollNTimesBySize(&logger, 3, kMaxFileSize);
+      ASSERT_EQ(log_num, GetLogFiles().size());
+    }
+
+    CleanupLogFiles();
+  }
 }
 
 TEST_F(AutoRollLoggerTest, LogFlushWhileRolling) {
@@ -322,7 +463,7 @@ TEST_F(AutoRollLoggerTest, InfoLogLevel) {
   // an extra-scope to force the AutoRollLogger to flush the log file when it
   // becomes out of scope.
   {
-    AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, 0);
+    AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, 0, 10);
     for (int log_level = InfoLogLevel::HEADER_LEVEL;
          log_level >= InfoLogLevel::DEBUG_LEVEL; log_level--) {
       logger.SetInfoLogLevel((InfoLogLevel)log_level);
@@ -360,7 +501,7 @@ TEST_F(AutoRollLoggerTest, Close) {
 
   size_t log_size = 8192;
   size_t log_lines = 0;
-  AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, 0);
+  AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, 0, 10);
   for (int log_level = InfoLogLevel::HEADER_LEVEL;
        log_level >= InfoLogLevel::DEBUG_LEVEL; log_level--) {
     logger.SetInfoLogLevel((InfoLogLevel)log_level);
@@ -446,8 +587,9 @@ TEST_F(AutoRollLoggerTest, LogHeaderTest) {
 
     InitTestDb();
 
-    AutoRollLogger logger(Env::Default(), kTestDir, /*db_log_dir=*/ "",
-                          LOG_MAX_SIZE, /*log_file_time_to_roll=*/ 0);
+    AutoRollLogger logger(Env::Default(), kTestDir, /*db_log_dir=*/"",
+                          LOG_MAX_SIZE, /*log_file_time_to_roll=*/0,
+                          /*keep_log_file_num=*/10);
 
     if (test_num == 0) {
       // Log some headers explicitly using Header()
