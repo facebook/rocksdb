@@ -122,9 +122,9 @@ class Replayer {
   // between the traces into consideration.
   Status Replay();
 
-  // Replay the provide trace stream as Replay() with multi-threads. Queries
-  // are scheduled in the thread pool job queue. User can set the number of
-  // threads in the thread pool.
+  // Replay the provide trace stream, which is the same as Replay(), with
+  // multi-threads. Queries are scheduled in the thread pool job queue.
+  // User can set the number of threads in the thread pool.
   Status MultiThreadReplay(uint32_t threads_num);
 
   // Enables fast forwarding a replay by reducing the delay between the ingested
