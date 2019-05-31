@@ -22,13 +22,6 @@ enum BlockCacheLookupCaller : char {
 
 enum Boolean : char { kTrue = 1, kFalse = 2 };
 
-struct BlockCacheLookupContext {
-  BlockCacheLookupContext(BlockCacheLookupCaller _caller, TraceType _block_type)
-      : caller(_caller), block_type(_block_type) {}
-  const BlockCacheLookupCaller caller;
-  const TraceType block_type;
-};
-
 struct TraceRecord {
   uint64_t access_timestamp;
   std::string block_key;
