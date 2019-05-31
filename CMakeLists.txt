@@ -485,6 +485,7 @@ set(SOURCES
         db/compaction_job.cc
         db/compaction_picker.cc
         db/compaction_picker_fifo.cc
+        db/compaction_picker_level.cc
         db/compaction_picker_universal.cc
         db/convenience.cc
         db/db_filesnapshot.cc
@@ -945,7 +946,7 @@ if(WITH_TESTS)
         table/block_based/block_test.cc
         table/block_based/data_block_hash_index_test.cc
         table/block_based/full_filter_block_test.cc
-       	table/block_based/partitioned_filter_block_test.cc 	
+        table/block_based/partitioned_filter_block_test.cc
         table/cleanable_test.cc
         table/cuckoo/cuckoo_table_builder_test.cc
         table/cuckoo/cuckoo_table_reader_test.cc

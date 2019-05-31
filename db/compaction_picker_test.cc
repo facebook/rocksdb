@@ -10,6 +10,7 @@
 #include <utility>
 #include "db/compaction.h"
 #include "db/compaction_picker_fifo.h"
+#include "db/compaction_picker_level.h"
 #include "db/compaction_picker_universal.h"
 
 #include "test_util/testharness.h"
