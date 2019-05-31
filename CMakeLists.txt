@@ -636,6 +636,7 @@ set(SOURCES
         util/string_util.cc
         util/thread_local.cc
         util/threadpool_imp.cc
+        util/block_cache_tracer.cc
         util/trace_replay.cc
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
