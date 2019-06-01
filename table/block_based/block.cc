@@ -15,6 +15,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -23,7 +24,6 @@
 #include "table/block_based/data_block_footer.h"
 #include "table/format.h"
 #include "util/coding.h"
-#include "util/logging.h"
 
 namespace rocksdb {
 

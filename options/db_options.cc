@@ -11,12 +11,12 @@
 
 #include <inttypes.h>
 
+#include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/wal_filter.h"
-#include "util/logging.h"
 
 namespace rocksdb {
 

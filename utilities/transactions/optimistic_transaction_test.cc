@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 
+#include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
@@ -16,7 +17,6 @@
 #include "test_util/testharness.h"
 #include "test_util/transaction_test_util.h"
 #include "util/crc32c.h"
-#include "util/logging.h"
 #include "util/random.h"
 
 using std::string;

@@ -11,11 +11,11 @@
 #include "table/full_filter_bits_builder.h"
 
 #include "index_builder.h"
+#include "logging/logging.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/hash.h"
-#include "util/logging.h"
 
 namespace rocksdb {
 
