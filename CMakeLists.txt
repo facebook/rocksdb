@@ -488,7 +488,7 @@ set(SOURCES
         db/compacted_db_impl.cc
         db/compaction/compaction.cc
         db/compaction/compaction_iterator.cc
-        db/compaction/compaction_picker.cc        
+        db/compaction/compaction_picker.cc
         db/compaction/compaction_job.cc
         db/compaction/compaction_picker_fifo.cc
         db/compaction/compaction_picker_level.cc
@@ -622,6 +622,7 @@ set(SOURCES
         tools/trace_analyzer_tool.cc
         util/auto_roll_logger.cc
         util/bloom.cc
+        util/block_cache_tracer.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc

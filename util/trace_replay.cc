@@ -8,7 +8,6 @@
 #include <chrono>
 #include <sstream>
 #include <thread>
-
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/write_batch.h"
@@ -31,6 +30,30 @@ void DecodeCFAndKey(std::string& buffer, uint32_t* cf_id, Slice* key) {
   GetLengthPrefixedSlice(&buf, key);
 }
 }  // namespace
+
+void TracerHelper::EncodeTrace(const Trace& trace, std::string* encoded_trace) {
+  assert(encoded_trace);
+  PutFixed64(encoded_trace, trace.ts);
+  encoded_trace->push_back(trace.type);
+  PutFixed32(encoded_trace, static_cast<uint32_t>(trace.payload.size()));
+  encoded_trace->append(trace.payload);
+}
+
+Status TracerHelper::DecodeTrace(const std::string& encoded_trace,
+                                 Trace* trace) {
+  assert(trace != nullptr);
+  Slice enc_slice = Slice(encoded_trace);
+  if (!GetFixed64(&enc_slice, &trace->ts)) {
+    return Status::Incomplete("Decode trace string failed");
+  }
+  if (enc_slice.size() < kTraceTypeSize + kTracePayloadLengthSize) {
+    return Status::Incomplete("Decode trace string failed");
+  }
+  trace->type = static_cast<TraceType>(enc_slice[0]);
+  enc_slice.remove_prefix(kTraceTypeSize + kTracePayloadLengthSize);
+  trace->payload = enc_slice.ToString();
+  return Status::OK();
+}
 
 Tracer::Tracer(Env* env, const TraceOptions& trace_options,
                std::unique_ptr<TraceWriter>&& trace_writer)
@@ -139,10 +162,7 @@ Status Tracer::WriteFooter() {
 
 Status Tracer::WriteTrace(const Trace& trace) {
   std::string encoded_trace;
-  PutFixed64(&encoded_trace, trace.ts);
-  encoded_trace.push_back(trace.type);
-  PutFixed32(&encoded_trace, static_cast<uint32_t>(trace.payload.size()));
-  encoded_trace.append(trace.payload);
+  TracerHelper::EncodeTrace(trace, &encoded_trace);
   return trace_writer_->Write(Slice(encoded_trace));
 }
 
@@ -302,13 +322,7 @@ Status Replayer::ReadTrace(Trace* trace) {
   if (!s.ok()) {
     return s;
   }
-
-  Slice enc_slice = Slice(encoded_trace);
-  GetFixed64(&enc_slice, &trace->ts);
-  trace->type = static_cast<TraceType>(enc_slice[0]);
-  enc_slice.remove_prefix(kTraceTypeSize + kTracePayloadLengthSize);
-  trace->payload = enc_slice.ToString();
-  return s;
+  return TracerHelper::DecodeTrace(encoded_trace, trace);
 }
 
 }  // namespace rocksdb
