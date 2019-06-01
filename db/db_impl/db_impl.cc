@@ -8,9 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/db_impl/db_impl.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
 #include <stdint.h>
 #ifdef OS_SOLARIS
 #include <alloca.h>

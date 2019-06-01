@@ -5,13 +5,9 @@
 
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "utilities/transactions/write_prepared_txn_db.h"
 
-#include <inttypes.h>
+#include <cinttypes>
 #include <algorithm>
 #include <string>
 #include <unordered_set>

@@ -9,11 +9,7 @@
 
 #include "db/column_family.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <vector>
 #include <string>
 #include <algorithm>

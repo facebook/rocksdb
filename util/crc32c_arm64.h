@@ -6,7 +6,7 @@
 #ifndef UTIL_CRC32C_ARM64_H
 #define UTIL_CRC32C_ARM64_H
 
-#include <inttypes.h>
+#include <cinttypes>
 
 #if defined(__aarch64__) || defined(__AARCH64__)
 #ifdef __ARM_FEATURE_CRC32

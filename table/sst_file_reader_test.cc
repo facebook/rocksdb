@@ -5,7 +5,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <inttypes.h>
+#include <cinttypes>
 
 #include "rocksdb/db.h"
 #include "rocksdb/sst_file_reader.h"

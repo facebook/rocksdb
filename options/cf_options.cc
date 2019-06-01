@@ -5,11 +5,7 @@
 
 #include "options/cf_options.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <cassert>
 #include <limits>
 #include <string>
