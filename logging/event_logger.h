@@ -10,8 +10,8 @@
 #include <string>
 #include <chrono>
 
+#include "logging/log_buffer.h"
 #include "rocksdb/env.h"
-#include "util/log_buffer.h"
 
 namespace rocksdb {
 

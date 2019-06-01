@@ -16,6 +16,7 @@
 #include "db/version_set.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
+#include "logging/logging.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -25,7 +26,6 @@
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/logging.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {

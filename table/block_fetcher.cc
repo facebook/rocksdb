@@ -12,6 +12,7 @@
 #include <inttypes.h>
 #include <string>
 
+#include "logging/logging.h"
 #include "memory/memory_allocator.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
@@ -24,7 +25,6 @@
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
-#include "util/logging.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"

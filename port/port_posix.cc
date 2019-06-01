@@ -18,11 +18,11 @@
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/time.h>
 #include <sys/resource.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include <cstdlib>
-#include "util/logging.h"
+#include "logging/logging.h"
 
 namespace rocksdb {
 

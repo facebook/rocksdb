@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "util/log_buffer.h"
+#include "logging/log_buffer.h"
 
 #include "port/sys_time.h"
 #include "port/port.h"

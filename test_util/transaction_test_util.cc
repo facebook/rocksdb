@@ -24,7 +24,7 @@
 
 #include "db/dbformat.h"
 #include "db/snapshot_impl.h"
-#include "util/logging.h"
+#include "logging/logging.h"
 #include "util/random.h"
 #include "util/string_util.h"
 

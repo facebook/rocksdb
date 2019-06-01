@@ -6,7 +6,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "util/auto_roll_logger.h"
+#include "logging/auto_roll_logger.h"
 #include <errno.h>
 #include <sys/stat.h>
 #include <algorithm>
@@ -17,11 +17,11 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
-#include "util/logging.h"
 
 namespace rocksdb {
 namespace {

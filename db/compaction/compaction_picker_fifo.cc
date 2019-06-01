@@ -18,7 +18,7 @@
 #include <string>
 #include <vector>
 #include "db/column_family.h"
-#include "util/log_buffer.h"
+#include "logging/log_buffer.h"
 #include "util/string_util.h"
 
 namespace rocksdb {

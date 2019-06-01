@@ -17,13 +17,13 @@
 #include "db/memtable.h"
 #include "db/range_del_aggregator.h"
 #include "file/filename.h"
+#include "logging/log_buffer.h"
 #include "monitoring/instrumented_mutex.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
 #include "util/autovector.h"
-#include "util/log_buffer.h"
 
 namespace rocksdb {
 

@@ -12,9 +12,9 @@
 #include "db/compaction/compaction_picker_level.h"
 #include "db/compaction/compaction_picker_universal.h"
 
+#include "logging/logging.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/logging.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
