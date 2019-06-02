@@ -24,6 +24,7 @@
 #include "db/write_batch_internal.h"
 #include "file/file_util.h"
 #include "file/filename.h"
+#include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
@@ -32,7 +33,6 @@
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
-#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 

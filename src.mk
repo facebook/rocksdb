@@ -7,23 +7,24 @@ LIB_SOURCES =                                                   \
   db/c.cc                                                       \
   db/column_family.cc                                           \
   db/compacted_db_impl.cc                                       \
-  db/compaction.cc                                              \
-  db/compaction_iterator.cc                                     \
-  db/compaction_job.cc                                          \
-  db/compaction_picker.cc                                       \
-  db/compaction_picker_fifo.cc                                  \
-  db/compaction_picker_universal.cc                             \
+  db/compaction/compaction.cc                                 	\
+  db/compaction/compaction_iterator.cc                          \
+  db/compaction/compaction_job.cc                               \
+  db/compaction/compaction_picker.cc                            \
+  db/compaction/compaction_picker_fifo.cc                       \
+  db/compaction/compaction_picker_level.cc                      \
+  db/compaction/compaction_picker_universal.cc                 	\
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
-  db/db_impl.cc                                                 \
-  db/db_impl_compaction_flush.cc                                \
-  db/db_impl_debug.cc                                           \
-  db/db_impl_experimental.cc                                    \
-  db/db_impl_files.cc                                           \
-  db/db_impl_open.cc                                            \
-  db/db_impl_readonly.cc                                        \
-  db/db_impl_secondary.cc                                       \
-  db/db_impl_write.cc                                           \
+  db/db_impl/db_impl.cc                                         \
+  db/db_impl/db_impl_compaction_flush.cc                        \
+  db/db_impl/db_impl_debug.cc                                   \
+  db/db_impl/db_impl_experimental.cc                            \
+  db/db_impl/db_impl_files.cc                                   \
+  db/db_impl/db_impl_open.cc                                    \
+  db/db_impl/db_impl_readonly.cc                                \
+  db/db_impl/db_impl_secondary.cc                               \
+  db/db_impl/db_impl_write.cc                                   \
   db/db_info_dumper.cc                                          \
   db/db_iter.cc                                                 \
   db/dbformat.cc                                                \
@@ -71,6 +72,9 @@ LIB_SOURCES =                                                   \
   file/file_util.cc                                             \
   file/filename.cc                                              \
   file/sst_file_manager_impl.cc                                 \
+  logging/auto_roll_logger.cc                                   \
+  logging/event_logger.cc                                       \
+  logging/log_buffer.cc                                         \
   memory/arena.cc                                               \
   memory/concurrent_arena.cc                                    \
   memory/jemalloc_nodump_allocator.cc                           \
@@ -138,7 +142,6 @@ LIB_SOURCES =                                                   \
   test_util/sync_point_impl.cc                                  \
   test_util/transaction_test_util.cc                            \
   tools/dump/db_dump_tool.cc                                    \
-  util/auto_roll_logger.cc                                      \
   util/bloom.cc                                                 \
   util/build_version.cc                                         \
   util/coding.cc                                                \
@@ -148,11 +151,9 @@ LIB_SOURCES =                                                   \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \
   util/dynamic_bloom.cc                                         \
-  util/event_logger.cc                                          \
   util/file_reader_writer.cc                                    \
   util/filter_policy.cc                                         \
   util/hash.cc                                                  \
-  util/log_buffer.cc                                            \
   util/murmurhash.cc                                            \
   util/random.cc                                                \
   util/rate_limiter.cc                                          \
@@ -259,10 +260,10 @@ MAIN_SOURCES =                                                          \
   cache/cache_test.cc                                                   \
   db/column_family_test.cc                                              \
   db/compact_files_test.cc                                              \
-  db/compaction_iterator_test.cc                                        \
-  db/compaction_job_stats_test.cc                                       \
-  db/compaction_job_test.cc                                             \
-  db/compaction_picker_test.cc                                          \
+  db/compaction/compaction_iterator_test.cc                             \
+  db/compaction/compaction_job_test.cc                                  \
+  db/compaction/compaction_job_stats_test.cc                            \
+  db/compaction/compaction_picker_test.cc                               \
   db/comparator_db_test.cc                                              \
   db/corruption_test.cc                                                 \
   db/cuckoo_table_db_test.cc                                            \
@@ -286,7 +287,7 @@ MAIN_SOURCES =                                                          \
   db/db_options_test.cc                                                 \
   db/db_properties_test.cc                                              \
   db/db_range_del_test.cc                                               \
-  db/db_secondary_test.cc                                               \
+  db/db_impl/db_secondary_test.cc                                       \
   db/db_sst_test.cc                                                     \
   db/db_statistics_test.cc                                              \
   db/db_table_properties_test.cc                                        \
@@ -340,6 +341,8 @@ MAIN_SOURCES =                                                          \
   env/env_basic_test.cc                                                 \
   env/env_test.cc                                                       \
   env/mock_env_test.cc                                                  \
+  logging/auto_roll_logger_test.cc                                      \
+  logging/event_logger_test.cc                                          \
   memory/arena_test.cc                                                  \
   memtable/inlineskiplist_test.cc                                       \
   memtable/memtablerep_bench.cc                                         \
@@ -369,13 +372,11 @@ MAIN_SOURCES =                                                          \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \
   tools/trace_analyzer_test.cc						\
-  util/auto_roll_logger_test.cc                                         \
   util/autovector_test.cc                                               \
   util/bloom_test.cc                                                    \
   util/coding_test.cc                                                   \
   util/crc32c_test.cc                                                   \
   util/dynamic_bloom_test.cc                                            \
-  util/event_logger_test.cc                                             \
   util/filelock_test.cc                                                 \
   util/log_write_bench.cc                                               \
   util/rate_limiter_test.cc                                             \

@@ -1343,13 +1343,13 @@ write_batch_with_index_test: utilities/write_batch_with_index/write_batch_with_i
 flush_job_test: db/flush_job_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-compaction_iterator_test: db/compaction_iterator_test.o $(LIBOBJECTS) $(TESTHARNESS)
+compaction_iterator_test: db/compaction/compaction_iterator_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-compaction_job_test: db/compaction_job_test.o $(LIBOBJECTS) $(TESTHARNESS)
+compaction_job_test: db/compaction/compaction_job_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-compaction_job_stats_test: db/compaction_job_stats_test.o $(LIBOBJECTS) $(TESTHARNESS)
+compaction_job_stats_test: db/compaction/compaction_job_stats_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 compact_on_deletion_collector_test: utilities/table_properties_collectors/compact_on_deletion_collector_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1421,7 +1421,7 @@ version_edit_test: db/version_edit_test.o $(LIBOBJECTS) $(TESTHARNESS)
 version_set_test: db/version_set_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-compaction_picker_test: db/compaction_picker_test.o $(LIBOBJECTS) $(TESTHARNESS)
+compaction_picker_test: db/compaction/compaction_picker_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 version_builder_test: db/version_builder_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1502,7 +1502,7 @@ db_bench_tool_test: tools/db_bench_tool_test.o $(BENCHTOOLOBJECTS) $(TESTHARNESS
 trace_analyzer_test: tools/trace_analyzer_test.o $(LIBOBJECTS) $(ANALYZETOOLOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-event_logger_test: util/event_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
+event_logger_test: logging/event_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 timer_queue_test: util/timer_queue_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1523,7 +1523,7 @@ manual_compaction_test: db/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-auto_roll_logger_test: util/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
+auto_roll_logger_test: logging/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 memtable_list_test: db/memtable_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1589,7 +1589,7 @@ range_tombstone_fragmenter_test: db/range_tombstone_fragmenter_test.o db/db_test
 sst_file_reader_test: table/sst_file_reader_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_secondary_test: db/db_secondary_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_secondary_test: db/db_impl/db_secondary_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

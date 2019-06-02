@@ -6,9 +6,9 @@
 #include <string>
 #include "db/version_edit.h"
 #include "db/version_set.h"
+#include "logging/logging.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/logging.h"
 #include "util/string_util.h"
 
 namespace rocksdb {

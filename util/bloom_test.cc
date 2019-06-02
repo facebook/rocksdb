@@ -17,13 +17,13 @@ int main() {
 
 #include <vector>
 
+#include "logging/logging.h"
 #include "memory/arena.h"
 #include "rocksdb/filter_policy.h"
 #include "table/full_filter_bits_builder.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/gflags_compat.h"
-#include "util/logging.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 

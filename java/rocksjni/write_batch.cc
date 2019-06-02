@@ -11,6 +11,7 @@
 #include "db/write_batch_internal.h"
 #include "include/org_rocksdb_WriteBatch.h"
 #include "include/org_rocksdb_WriteBatch_Handler.h"
+#include "logging/logging.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
@@ -20,7 +21,6 @@
 #include "rocksjni/portal.h"
 #include "rocksjni/writebatchhandlerjnicallback.h"
 #include "table/scoped_arena_iterator.h"
-#include "util/logging.h"
 
 /*
  * Class:     org_rocksdb_WriteBatch

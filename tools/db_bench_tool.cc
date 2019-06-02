@@ -33,7 +33,7 @@
 #include <thread>
 #include <unordered_map>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
 #include "hdfs/env_hdfs.h"
@@ -2974,10 +2974,13 @@ class Benchmark {
                   ->ToString()
                   .c_str());
     }
+
+#ifndef ROCKSDB_LITE
     if (FLAGS_use_secondary_db) {
       fprintf(stdout, "Secondary instance updated  %" PRIu64 " times.\n",
               secondary_db_updates_);
     }
+#endif  // ROCKSDB_LITE
   }
 
  private:

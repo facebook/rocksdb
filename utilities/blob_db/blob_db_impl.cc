@@ -11,11 +11,12 @@
 #include <iomanip>
 #include <memory>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/write_batch_internal.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/sst_file_manager_impl.h"
+#include "logging/logging.h"
 #include "monitoring/instrumented_mutex.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/convenience.h"
@@ -31,7 +32,6 @@
 #include "util/cast_util.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
-#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/stop_watch.h"

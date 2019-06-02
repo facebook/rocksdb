@@ -11,7 +11,7 @@
 #include <utility>
 
 #include "db/column_family.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
 #include "db/job_context.h"

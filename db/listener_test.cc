@@ -3,12 +3,13 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
+#include "logging/logging.h"
 #include "memtable/hash_linklist_rep.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/cache.h"
@@ -28,7 +29,6 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/hash.h"
-#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
 #include "util/string_util.h"

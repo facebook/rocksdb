@@ -16,10 +16,10 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <vector>
+#include "logging/logging.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
 #include "util/file_reader_writer.h"
-#include "util/logging.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 
@@ -405,6 +405,38 @@ Status SyncManifest(Env* env, const ImmutableDBOptions* db_options,
   TEST_KILL_RANDOM("SyncManifest:0", rocksdb_kill_odds * REDUCE_ODDS2);
   StopWatch sw(env, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);
   return file->Sync(db_options->use_fsync);
+}
+
+Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
+                       const std::string& dbname, std::string* parent_dir,
+                       std::vector<std::string>* info_log_list) {
+  assert(parent_dir != nullptr);
+  assert(info_log_list != nullptr);
+  uint64_t number = 0;
+  FileType type = kLogFile;
+
+  if (!db_log_dir.empty()) {
+    *parent_dir = db_log_dir;
+  } else {
+    *parent_dir = dbname;
+  }
+
+  InfoLogPrefix info_log_prefix(!db_log_dir.empty(), dbname);
+
+  std::vector<std::string> file_names;
+  Status s = env->GetChildren(*parent_dir, &file_names);
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  for (auto& f : file_names) {
+    if (ParseFileName(f, &number, info_log_prefix.prefix, &type) &&
+        (type == kInfoLogFile)) {
+      info_log_list->push_back(f);
+    }
+  }
+  return Status::OK();
 }
 
 }  // namespace rocksdb

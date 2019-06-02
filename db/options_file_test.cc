@@ -6,7 +6,7 @@
 #ifndef ROCKSDB_LITE
 #include <string>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"

@@ -44,9 +44,10 @@ int main() {
 #include <queue>
 #include <thread>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
 #include "hdfs/env_hdfs.h"
+#include "logging/logging.h"
 #include "monitoring/histogram.h"
 #include "options/options_helper.h"
 #include "port/port.h"
@@ -66,7 +67,6 @@ int main() {
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/gflags_compat.h"
-#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/string_util.h"

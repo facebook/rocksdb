@@ -23,7 +23,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "db/compaction.h"
+#include "compaction/compaction.h"
 #include "db/internal_stats.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"

@@ -112,7 +112,7 @@ class BlockBasedTable : public TableReader {
   bool PrefixMayMatch(const Slice& internal_key,
                       const ReadOptions& read_options,
                       const SliceTransform* options_prefix_extractor,
-                      const bool need_upper_bound_check);
+                      const bool need_upper_bound_check) const;
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
@@ -215,18 +215,12 @@ class BlockBasedTable : public TableReader {
   struct Rep;
 
   Rep* get_rep() { return rep_; }
+  const Rep* get_rep() const { return rep_; }
 
   // input_iter: if it is not null, update this one and return it as Iterator
   template <typename TBlockIter>
   static TBlockIter* NewDataBlockIterator(
-      Rep* rep, const ReadOptions& ro, const Slice& index_value,
-      TBlockIter* input_iter = nullptr, bool is_index = false,
-      bool key_includes_seq = true, bool index_key_is_full = true,
-      GetContext* get_context = nullptr,
-      FilePrefetchBuffer* prefetch_buffer = nullptr);
-  template <typename TBlockIter>
-  static TBlockIter* NewDataBlockIterator(
-      Rep* rep, const ReadOptions& ro, const BlockHandle& block_hanlde,
+      const Rep* rep, const ReadOptions& ro, const BlockHandle& block_hanlde,
       TBlockIter* input_iter = nullptr, bool is_index = false,
       bool key_includes_seq = true, bool index_key_is_full = true,
       GetContext* get_context = nullptr, Status s = Status(),
@@ -283,7 +277,7 @@ class BlockBasedTable : public TableReader {
       const SliceTransform* prefix_extractor = nullptr) const;
 
   static CachableEntry<UncompressionDict> GetUncompressionDict(
-      Rep* rep, FilePrefetchBuffer* prefetch_buffer, bool no_io,
+      const Rep* rep, FilePrefetchBuffer* prefetch_buffer, bool no_io,
       GetContext* get_context);
 
   // Get the iterator from the index reader.
@@ -299,7 +293,7 @@ class BlockBasedTable : public TableReader {
   InternalIteratorBase<BlockHandle>* NewIndexIterator(
       const ReadOptions& read_options, bool need_upper_bound_check = false,
       IndexBlockIter* input_iter = nullptr,
-      GetContext* get_context = nullptr);
+      GetContext* get_context = nullptr) const;
 
   // Read block cache from block caches (if set): block_cache and
   // block_cache_compressed.
@@ -386,7 +380,7 @@ class BlockBasedTable : public TableReader {
       InternalIterator* meta_iter,
       const InternalKeyComparator& internal_comparator);
   static Status ReadCompressionDictBlock(
-      Rep* rep, FilePrefetchBuffer* prefetch_buffer,
+      const Rep* rep, FilePrefetchBuffer* prefetch_buffer,
       std::unique_ptr<const BlockContents>* compression_dict_block);
   static Status PrefetchIndexAndFilterBlocks(
       Rep* rep, FilePrefetchBuffer* prefetch_buffer,
@@ -430,7 +424,7 @@ class BlockBasedTable::PartitionedIndexIteratorState
     : public TwoLevelIteratorState {
  public:
   PartitionedIndexIteratorState(
-      BlockBasedTable* table,
+      const BlockBasedTable* table,
       std::unordered_map<uint64_t, CachableEntry<Block>>* block_map,
       const bool index_key_includes_seq, const bool index_key_is_full);
   InternalIteratorBase<BlockHandle>* NewSecondaryIterator(
@@ -438,7 +432,7 @@ class BlockBasedTable::PartitionedIndexIteratorState
 
  private:
   // Don't own table_
-  BlockBasedTable* table_;
+  const BlockBasedTable* table_;
   std::unordered_map<uint64_t, CachableEntry<Block>>* block_map_;
   bool index_key_includes_seq_;
   bool index_key_is_full_;
@@ -561,7 +555,7 @@ struct BlockBasedTable::Rep {
 template <class TBlockIter, typename TValue = Slice>
 class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
  public:
-  BlockBasedTableIterator(BlockBasedTable* table,
+  BlockBasedTableIterator(const BlockBasedTable* table,
                           const ReadOptions& read_options,
                           const InternalKeyComparator& icomp,
                           InternalIteratorBase<BlockHandle>* index_iter,
@@ -681,7 +675,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   void CheckOutOfBound();
 
  private:
-  BlockBasedTable* table_;
+  const BlockBasedTable* table_;
   const ReadOptions read_options_;
   const InternalKeyComparator& icomp_;
   UserComparatorWrapper user_comparator_;

@@ -169,4 +169,12 @@ extern Status SetIdentityFile(Env* env, const std::string& dbname);
 extern Status SyncManifest(Env* env, const ImmutableDBOptions* db_options,
                            WritableFileWriter* file);
 
+// Return list of file names of info logs in `file_names`.
+// The list only contains file name. The parent directory name is stored
+// in `parent_dir`.
+// `db_log_dir` should be the one as in options.db_log_dir
+extern Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
+                              const std::string& dbname,
+                              std::string* parent_dir,
+                              std::vector<std::string>* file_names);
 }  // namespace rocksdb
