@@ -69,7 +69,7 @@ class BlockCacheTracerTest : public testing::Test {
       record.is_cache_hit = Boolean::kFalse;
       // Provide these fields for all block types.
       // The writer should only write these fields for data blocks and the
-      // caller is either GET, MGET, or Iterator.
+      // caller is either GET or MGET.
       record.referenced_key = kRefKeyPrefix + std::to_string(key_id);
       record.is_referenced_key_exist_in_block = Boolean::kTrue;
       record.num_keys_in_block = kNumKeysInBlock;
@@ -95,8 +95,7 @@ class BlockCacheTracerTest : public testing::Test {
       ASSERT_EQ(Boolean::kFalse, record.is_cache_hit);
       if (block_type == TraceType::kBlockTraceDataBlock &&
           (record.caller == BlockCacheLookupCaller::kUserGet ||
-           record.caller == BlockCacheLookupCaller::kUserMGet ||
-           record.caller == BlockCacheLookupCaller::kUserIterator)) {
+           record.caller == BlockCacheLookupCaller::kUserMGet)) {
         ASSERT_EQ(kRefKeyPrefix + std::to_string(key_id),
                   record.referenced_key);
         ASSERT_EQ(Boolean::kTrue, record.is_referenced_key_exist_in_block);

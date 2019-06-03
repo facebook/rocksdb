@@ -34,7 +34,7 @@ struct TraceRecord {
   BlockCacheLookupCaller caller;
   Boolean is_cache_hit;
 
-  // For Data block and User Get/Multi-Get/Iterator only.
+  // For Data block and User Get/Multi-Get only.
   std::string referenced_key = "";
   uint64_t num_keys_in_block = 0;
   Boolean is_referenced_key_exist_in_block = Boolean::kFalse;

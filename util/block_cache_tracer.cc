@@ -17,8 +17,7 @@ const unsigned int kCharSize = 1;
 bool ShouldTraceReferencedKey(const TraceRecord& record) {
   return (record.block_type == TraceType::kBlockTraceDataBlock) &&
          (record.caller == BlockCacheLookupCaller::kUserGet ||
-          record.caller == BlockCacheLookupCaller::kUserMGet ||
-          record.caller == BlockCacheLookupCaller::kUserIterator);
+          record.caller == BlockCacheLookupCaller::kUserMGet);
 }
 }  // namespace
 
