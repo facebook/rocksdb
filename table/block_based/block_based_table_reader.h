@@ -368,7 +368,6 @@ class BlockBasedTable : public TableReader {
       TailPrefetchStats* tail_prefetch_stats, const bool prefetch_all,
       const bool preload_all,
       std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer);
-
   Status ReadMetaBlock(FilePrefetchBuffer* prefetch_buffer,
                        std::unique_ptr<Block>* meta_block,
                        std::unique_ptr<InternalIterator>* iter);
