@@ -414,12 +414,15 @@ void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max) {
   }
 }
 
-void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
+void WritePreparedTxnDB::AddPrepared(uint64_t seq, bool locked) {
   ROCKS_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Preparing with max %" PRIu64,
                     seq, max_evicted_seq_.load());
   TEST_SYNC_POINT("AddPrepared::begin:pause");
   TEST_SYNC_POINT("AddPrepared::begin:resume");
-  WriteLock wl(&prepared_mutex_);
+  if (!locked) {
+    prepared_mutex_.WriteLock();
+  }
+  prepared_mutex_.AssertHeld();
   prepared_txns_.push(seq);
   auto new_max = future_max_evicted_seq_.load();
   if (UNLIKELY(seq <= new_max)) {
@@ -430,6 +433,9 @@ void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
         " <= %" PRIu64,
         seq, new_max);
     CheckPreparedAgainstMax(new_max);
+  }
+  if (!locked) {
+    prepared_mutex_.WriteUnlock();
   }
   TEST_SYNC_POINT("AddPrepared::end");
 }

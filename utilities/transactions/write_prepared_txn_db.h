@@ -324,7 +324,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   // Add the transaction with prepare sequence seq to the prepared list.
   // Note: must be called serially with increasing seq on each call.
-  void AddPrepared(uint64_t seq);
+  // locked is true of prepared_mutex_ is already locked.
+  void AddPrepared(uint64_t seq, bool locked = false);
   // Check if any of the prepared txns are less than new max_evicted_seq_. Must
   // be called with prepared_mutex_ write locked.
   void CheckPreparedAgainstMax(SequenceNumber new_max);
@@ -461,6 +462,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       std::memory_order order = std::memory_order_relaxed);
 
  private:
+  friend class AddPreparedCallback;
   friend class PreparedHeap_BasicsTest_Test;
   friend class PreparedHeap_Concurrent_Test;
   friend class PreparedHeap_EmptyAtTheEnd_Test;
@@ -778,12 +780,24 @@ class AddPreparedCallback : public PreReleaseCallback {
   }
   virtual Status Callback(SequenceNumber prepare_seq,
                           bool is_mem_disabled __attribute__((__unused__)),
-                          uint64_t log_number, size_t /*index*/,
-                          size_t /*total*/) override {
+                          uint64_t log_number, size_t index,
+                          size_t total) override {
+    assert(index < total);
+    // To reduce lock intention with the conccurrent prepare requests, lock on
+    // the first callback and unlock on the last.
+    const bool do_lock = !two_write_queues_ || index == 0;
+    const bool do_unlock = !two_write_queues_ || index + 1 == total;
     // Always Prepare from the main queue
     assert(!two_write_queues_ || !is_mem_disabled);  // implies the 1st queue
+    if (do_lock) {
+      db_->prepared_mutex_.WriteLock();
+    }
+    const bool kLocked = true;
     for (size_t i = 0; i < sub_batch_cnt_; i++) {
-      db_->AddPrepared(prepare_seq + i);
+      db_->AddPrepared(prepare_seq + i, kLocked);
+    }
+    if (do_unlock) {
+      db_->prepared_mutex_.WriteUnlock();
     }
     if (first_prepare_batch_) {
       assert(log_number != 0);
