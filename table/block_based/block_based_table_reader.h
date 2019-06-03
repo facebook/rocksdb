@@ -219,12 +219,12 @@ class BlockBasedTable : public TableReader {
 
   // input_iter: if it is not null, update this one and return it as Iterator
   template <typename TBlockIter>
-  static TBlockIter* NewDataBlockIterator(
-      const Rep* rep, const ReadOptions& ro, const BlockHandle& block_hanlde,
+  TBlockIter* NewDataBlockIterator(
+      const ReadOptions& ro, const BlockHandle& block_hanlde,
       TBlockIter* input_iter = nullptr, bool is_index = false,
       bool key_includes_seq = true, bool index_key_is_full = true,
       GetContext* get_context = nullptr, Status s = Status(),
-      FilePrefetchBuffer* prefetch_buffer = nullptr);
+      FilePrefetchBuffer* prefetch_buffer = nullptr) const;
 
   class PartitionedIndexIteratorState;
 
@@ -238,6 +238,14 @@ class BlockBasedTable : public TableReader {
   friend class MockedBlockBasedTable;
   static std::atomic<uint64_t> next_cache_key_id_;
 
+  Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
+                                   Tickers block_cache_miss_ticker,
+                                   Tickers block_cache_hit_ticker,
+                                   uint64_t* block_cache_miss_stats,
+                                   uint64_t* block_cache_hit_stats,
+                                   Statistics* statistics,
+                                   GetContext* get_context) const;
+
   // If block cache enabled (compressed or uncompressed), looks for the block
   // identified by handle in (1) uncompressed cache, (2) compressed cache, and
   // then (3) file. If found, inserts into the cache(s) that were searched
@@ -247,22 +255,20 @@ class BlockBasedTable : public TableReader {
   // @param block_entry value is set to the uncompressed block if found. If
   //    in uncompressed block cache, also sets cache_handle to reference that
   //    block.
-  static Status MaybeReadBlockAndLoadToCache(
-      FilePrefetchBuffer* prefetch_buffer, const Rep* rep,
-      const ReadOptions& ro, const BlockHandle& handle,
-      const UncompressionDict& uncompression_dict,
+  Status MaybeReadBlockAndLoadToCache(
+      FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
+      const BlockHandle& handle, const UncompressionDict& uncompression_dict,
       CachableEntry<Block>* block_entry, bool is_index = false,
-      GetContext* get_context = nullptr);
+      GetContext* get_context = nullptr) const;
 
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the
   // read options allow I/O).
-  static Status RetrieveBlock(FilePrefetchBuffer* prefetch_buffer,
-                              const Rep* rep, const ReadOptions& ro,
-                              const BlockHandle& handle,
-                              const UncompressionDict& uncompression_dict,
-                              CachableEntry<Block>* block_entry, bool is_index,
-                              GetContext* get_context);
+  Status RetrieveBlock(FilePrefetchBuffer* prefetch_buffer,
+                       const ReadOptions& ro, const BlockHandle& handle,
+                       const UncompressionDict& uncompression_dict,
+                       CachableEntry<Block>* block_entry, bool is_index,
+                       GetContext* get_context) const;
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file
@@ -276,9 +282,9 @@ class BlockBasedTable : public TableReader {
       const bool is_a_filter_partition, bool no_io, GetContext* get_context,
       const SliceTransform* prefix_extractor = nullptr) const;
 
-  static CachableEntry<UncompressionDict> GetUncompressionDict(
-      const Rep* rep, FilePrefetchBuffer* prefetch_buffer, bool no_io,
-      GetContext* get_context);
+  CachableEntry<UncompressionDict> GetUncompressionDict(
+      FilePrefetchBuffer* prefetch_buffer, bool no_io,
+      GetContext* get_context) const;
 
   // Get the iterator from the index reader.
   // If input_iter is not set, return new Iterator
@@ -301,13 +307,12 @@ class BlockBasedTable : public TableReader {
   // pointer to the block as well as its block handle.
   // @param uncompression_dict Data for presetting the compression library's
   //    dictionary.
-  static Status GetDataBlockFromCache(
+  Status GetDataBlockFromCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
-      Cache* block_cache, Cache* block_cache_compressed, const Rep* rep,
+      Cache* block_cache, Cache* block_cache_compressed,
       const ReadOptions& read_options, CachableEntry<Block>* block,
-      const UncompressionDict& uncompression_dict,
-      size_t read_amp_bytes_per_bit, bool is_index = false,
-      GetContext* get_context = nullptr);
+      const UncompressionDict& uncompression_dict, bool is_index = false,
+      GetContext* get_context = nullptr) const;
 
   // Put a raw block (maybe compressed) to the corresponding block caches.
   // This method will perform decompression against raw_block if needed and then
@@ -319,24 +324,22 @@ class BlockBasedTable : public TableReader {
   // PutDataBlockToCache(). After the call, the object will be invalid.
   // @param uncompression_dict Data for presetting the compression library's
   //    dictionary.
-  static Status PutDataBlockToCache(
-      const Slice& block_cache_key, const Slice& compressed_block_cache_key,
-      Cache* block_cache, Cache* block_cache_compressed,
-      const ReadOptions& read_options, const ImmutableCFOptions& ioptions,
-      CachableEntry<Block>* block, BlockContents* raw_block_contents,
-      CompressionType raw_block_comp_type, uint32_t format_version,
-      const UncompressionDict& uncompression_dict, SequenceNumber seq_no,
-      size_t read_amp_bytes_per_bit, MemoryAllocator* memory_allocator,
-      bool is_index = false, Cache::Priority pri = Cache::Priority::LOW,
-      GetContext* get_context = nullptr);
+  Status PutDataBlockToCache(const Slice& block_cache_key,
+                             const Slice& compressed_block_cache_key,
+                             Cache* block_cache, Cache* block_cache_compressed,
+                             CachableEntry<Block>* cached_block,
+                             BlockContents* raw_block_contents,
+                             CompressionType raw_block_comp_type,
+                             const UncompressionDict& uncompression_dict,
+                             SequenceNumber seq_no,
+                             MemoryAllocator* memory_allocator, bool is_index,
+                             GetContext* get_context) const;
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
   // after a call to Seek(key), until handle_result returns false.
   // May not make such a call if filter policy says that key is not present.
   friend class TableCache;
   friend class BlockBasedTableBuilder;
-
-  void ReadMeta(const Footer& footer);
 
   // Figure the index type, update it in rep_, and also return it.
   BlockBasedTableOptions::IndexType UpdateIndexType();
@@ -365,28 +368,25 @@ class BlockBasedTable : public TableReader {
       TailPrefetchStats* tail_prefetch_stats, const bool prefetch_all,
       const bool preload_all,
       std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer);
-  static Status ReadMetaBlock(Rep* rep, FilePrefetchBuffer* prefetch_buffer,
-                              std::unique_ptr<Block>* meta_block,
-                              std::unique_ptr<InternalIterator>* iter);
-  static Status TryReadPropertiesWithGlobalSeqno(
-      Rep* rep, FilePrefetchBuffer* prefetch_buffer, const Slice& handle_value,
-      TableProperties** table_properties);
-  static Status ReadPropertiesBlock(Rep* rep,
-                                    FilePrefetchBuffer* prefetch_buffer,
-                                    InternalIterator* meta_iter,
-                                    const SequenceNumber largest_seqno);
-  static Status ReadRangeDelBlock(
-      Rep* rep, FilePrefetchBuffer* prefetch_buffer,
-      InternalIterator* meta_iter,
-      const InternalKeyComparator& internal_comparator);
-  static Status ReadCompressionDictBlock(
-      const Rep* rep, FilePrefetchBuffer* prefetch_buffer,
-      std::unique_ptr<const BlockContents>* compression_dict_block);
-  static Status PrefetchIndexAndFilterBlocks(
-      Rep* rep, FilePrefetchBuffer* prefetch_buffer,
-      InternalIterator* meta_iter, BlockBasedTable* new_table,
-      bool prefetch_all, const BlockBasedTableOptions& table_options,
-      const int level);
+  Status ReadMetaBlock(FilePrefetchBuffer* prefetch_buffer,
+                       std::unique_ptr<Block>* meta_block,
+                       std::unique_ptr<InternalIterator>* iter);
+  Status TryReadPropertiesWithGlobalSeqno(FilePrefetchBuffer* prefetch_buffer,
+                                          const Slice& handle_value,
+                                          TableProperties** table_properties);
+  Status ReadPropertiesBlock(FilePrefetchBuffer* prefetch_buffer,
+                             InternalIterator* meta_iter,
+                             const SequenceNumber largest_seqno);
+  Status ReadRangeDelBlock(FilePrefetchBuffer* prefetch_buffer,
+                           InternalIterator* meta_iter,
+                           const InternalKeyComparator& internal_comparator);
+  Status ReadCompressionDictBlock(
+      FilePrefetchBuffer* prefetch_buffer,
+      std::unique_ptr<const BlockContents>* compression_dict_block) const;
+  Status PrefetchIndexAndFilterBlocks(
+      FilePrefetchBuffer* prefetch_buffer, InternalIterator* meta_iter,
+      BlockBasedTable* new_table, bool prefetch_all,
+      const BlockBasedTableOptions& table_options, const int level);
 
   Status VerifyChecksumInMetaBlocks(InternalIteratorBase<Slice>* index_iter);
   Status VerifyChecksumInBlocks(InternalIteratorBase<BlockHandle>* index_iter);
