@@ -16,11 +16,13 @@
 #include <string>
 #include <vector>
 
+#include "block_fetcher.h"
 #include "cache/lru_cache.h"
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "memtable/stl_wrappers.h"
+#include "meta_blocks.h"
 #include "monitoring/statistics.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
@@ -32,26 +34,24 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/write_buffer_manager.h"
-#include "table/block.h"
-#include "table/block_based_table_builder.h"
-#include "table/block_based_table_factory.h"
-#include "table/block_based_table_reader.h"
-#include "table/block_builder.h"
-#include "table/block_fetcher.h"
-#include "table/flush_block_policy.h"
+#include "table/block_based/block.h"
+#include "table/block_based/block_based_table_builder.h"
+#include "table/block_based/block_based_table_factory.h"
+#include "table/block_based/block_based_table_reader.h"
+#include "table/block_based/block_builder.h"
+#include "table/block_based/flush_block_policy.h"
 #include "table/format.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
-#include "table/meta_blocks.h"
-#include "table/plain_table_factory.h"
+#include "table/plain/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/compression.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -1993,7 +1993,7 @@ TEST_P(BlockBasedTableTest, BlockCacheDisabledTest) {
   // preloading filter/index blocks is enabled.
   auto reader = dynamic_cast<BlockBasedTable*>(c.GetTableReader());
   ASSERT_TRUE(reader->TEST_filter_block_preloaded());
-  ASSERT_TRUE(reader->TEST_index_reader_preloaded());
+  ASSERT_FALSE(reader->TEST_IndexBlockInCache());
 
   {
     // nothing happens in the beginning
@@ -2040,7 +2040,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
   // preloading filter/index blocks is prohibited.
   auto* reader = dynamic_cast<BlockBasedTable*>(c.GetTableReader());
   ASSERT_TRUE(!reader->TEST_filter_block_preloaded());
-  ASSERT_TRUE(!reader->TEST_index_reader_preloaded());
+  ASSERT_TRUE(reader->TEST_IndexBlockInCache());
 
   // -- PART 1: Open with regular block cache.
   // Since block_cache is disabled, no cache activities will be involved.
@@ -2610,69 +2610,6 @@ TEST_P(BlockBasedTableTest, MemoryAllocator) {
             custom_memory_allocator->numDeallocations.load());
   // make sure that allocations actually happened through the cache allocator
   EXPECT_GT(custom_memory_allocator->numAllocations.load(), 0);
-}
-
-TEST_P(BlockBasedTableTest, NewIndexIteratorLeak) {
-  // A regression test to avoid data race described in
-  // https://github.com/facebook/rocksdb/issues/1267
-  TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
-  std::vector<std::string> keys;
-  stl_wrappers::KVMap kvmap;
-  c.Add("a1", "val1");
-  Options options;
-  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
-  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
-  table_options.index_type = BlockBasedTableOptions::kHashSearch;
-  table_options.cache_index_and_filter_blocks = true;
-  table_options.block_cache = NewLRUCache(0);
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  const ImmutableCFOptions ioptions(options);
-  const MutableCFOptions moptions(options);
-  c.Finish(options, ioptions, moptions, table_options,
-           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
-
-  rocksdb::SyncPoint::GetInstance()->LoadDependencyAndMarkers(
-      {
-          {"BlockBasedTable::NewIndexIterator::thread1:1",
-           "BlockBasedTable::NewIndexIterator::thread2:2"},
-          {"BlockBasedTable::NewIndexIterator::thread2:3",
-           "BlockBasedTable::NewIndexIterator::thread1:4"},
-      },
-      {
-          {"BlockBasedTableTest::NewIndexIteratorLeak:Thread1Marker",
-           "BlockBasedTable::NewIndexIterator::thread1:1"},
-          {"BlockBasedTableTest::NewIndexIteratorLeak:Thread1Marker",
-           "BlockBasedTable::NewIndexIterator::thread1:4"},
-          {"BlockBasedTableTest::NewIndexIteratorLeak:Thread2Marker",
-           "BlockBasedTable::NewIndexIterator::thread2:2"},
-          {"BlockBasedTableTest::NewIndexIteratorLeak:Thread2Marker",
-           "BlockBasedTable::NewIndexIterator::thread2:3"},
-      });
-
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-  ReadOptions ro;
-  auto* reader = c.GetTableReader();
-
-  std::function<void()> func1 = [&]() {
-    TEST_SYNC_POINT("BlockBasedTableTest::NewIndexIteratorLeak:Thread1Marker");
-    // TODO(Zhongyi): update test to use MutableCFOptions
-    std::unique_ptr<InternalIterator> iter(
-        reader->NewIterator(ro, moptions.prefix_extractor.get()));
-    iter->Seek(InternalKey("a1", 0, kTypeValue).Encode());
-  };
-
-  std::function<void()> func2 = [&]() {
-    TEST_SYNC_POINT("BlockBasedTableTest::NewIndexIteratorLeak:Thread2Marker");
-    std::unique_ptr<InternalIterator> iter(
-        reader->NewIterator(ro, moptions.prefix_extractor.get()));
-  };
-
-  auto thread1 = port::Thread(func1);
-  auto thread2 = port::Thread(func2);
-  thread1.join();
-  thread2.join();
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  c.ResetTableReader();
 }
 
 // Plain table is not supported in ROCKSDB_LITE

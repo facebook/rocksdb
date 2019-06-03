@@ -11,7 +11,7 @@
 #include <unordered_map>
 
 #include "db/column_family.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
@@ -19,9 +19,9 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/stats_history.h"
+#include "test_util/sync_point.h"
+#include "test_util/testutil.h"
 #include "util/random.h"
-#include "util/sync_point.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 
@@ -1007,6 +1007,53 @@ TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
   ASSERT_EQ(256, env_->compaction_readahead_size_);
   Close();
 }
+
+TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
+  Options options;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.write_buffer_size = 10 << 10;  // 10KB
+  options.create_if_missing = true;
+
+  ASSERT_OK(TryReopen(options));
+
+  Random rnd(301);
+  for (int i = 0; i < 10; i++) {
+    // Generate and flush a file about 10KB.
+    for (int j = 0; j < 10; j++) {
+      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+    }
+    Flush();
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+
+  // In release 6.0, ttl was promoted from a secondary level option under
+  // compaction_options_fifo to a top level option under ColumnFamilyOptions.
+  // We still need to handle old SetOptions calls but should ignore
+  // ttl under compaction_options_fifo.
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_fifo",
+        "{allow_compaction=true;max_table_files_size=1024;ttl=731;}"},
+       {"ttl", "60"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            true);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            1024);
+  ASSERT_EQ(dbfull()->GetOptions().ttl, 60);
+
+  // Put ttl as the first option inside compaction_options_fifo. That works as
+  // it doesn't overwrite any other option.
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_fifo",
+        "{ttl=985;allow_compaction=true;max_table_files_size=1024;}"},
+       {"ttl", "191"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            true);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            1024);
+  ASSERT_EQ(dbfull()->GetOptions().ttl, 191);
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

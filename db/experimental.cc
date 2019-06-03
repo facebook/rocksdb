@@ -5,7 +5,7 @@
 
 #include "rocksdb/experimental.h"
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 
 namespace rocksdb {
 namespace experimental {

@@ -11,14 +11,14 @@
 #include <utility>
 #include <vector>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/write_callback.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/write_batch.h"
-#include "port/port.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
 #include "util/random.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
 
 using std::string;
 

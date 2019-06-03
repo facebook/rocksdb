@@ -7,18 +7,18 @@
 #include <map>
 #include <string>
 
+#include "block_fetcher.h"
 #include "db/table_properties_collector.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
-#include "table/block.h"
-#include "table/block_fetcher.h"
+#include "table/block_based/block.h"
 #include "table/format.h"
 #include "table/internal_iterator.h"
 #include "table/persistent_cache_helper.h"
 #include "table/table_properties_internal.h"
+#include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 

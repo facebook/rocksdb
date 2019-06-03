@@ -8,7 +8,8 @@
 #include <chrono>
 #include <sstream>
 #include <thread>
-#include "db/db_impl.h"
+
+#include "db/db_impl/db_impl.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/write_batch.h"
 #include "util/coding.h"

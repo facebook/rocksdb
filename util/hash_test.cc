@@ -9,8 +9,8 @@
 
 #include <vector>
 
+#include "test_util/testharness.h"
 #include "util/hash.h"
-#include "util/testharness.h"
 
 // The hash algorithm is part of the file format, for example for the Bloom
 // filters. Test that the hash values are stable for a set of random strings of

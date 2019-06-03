@@ -15,8 +15,8 @@
 #include <algorithm>
 #include <vector>
 
+#include "file/filename.h"
 #include "rocksdb/env.h"
-#include "util/filename.h"
 
 namespace rocksdb {
 

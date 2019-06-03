@@ -14,8 +14,8 @@
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 #ifndef ROCKSDB_LITE
 

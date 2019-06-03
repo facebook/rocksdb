@@ -9,8 +9,8 @@
 #include "rocksdb/utilities/checkpoint.h"
 
 #include <string>
+#include "file/filename.h"
 #include "rocksdb/db.h"
-#include "util/filename.h"
 
 namespace rocksdb {
 

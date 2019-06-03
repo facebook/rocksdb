@@ -43,18 +43,18 @@
 #include <vector>
 
 #include "env/io_posix.h"
-#include "env/posix_logger.h"
+#include "logging/logging.h"
+#include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
 #include "port/port.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
-#include "util/logging.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
 #include "util/thread_local.h"
 #include "util/threadpool_imp.h"
 

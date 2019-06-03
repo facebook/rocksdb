@@ -16,20 +16,20 @@
 #include <inttypes.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/log_format.h"
 #include "db/version_set.h"
+#include "file/filename.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
 #include "rocksdb/write_batch.h"
-#include "table/block_based_table_builder.h"
+#include "table/block_based/block_based_table_builder.h"
 #include "table/meta_blocks.h"
-#include "util/filename.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 

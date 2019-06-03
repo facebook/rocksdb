@@ -22,19 +22,19 @@
 #include "db/log_writer.h"
 #include "db/transaction_log_impl.h"
 #include "db/write_batch_internal.h"
+#include "file/file_util.h"
+#include "file/filename.h"
+#include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/write_batch.h"
+#include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
-#include "util/file_util.h"
-#include "util/filename.h"
-#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 

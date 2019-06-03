@@ -20,11 +20,11 @@
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
 #include <string>
 
+#include "memory/memory_allocator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
-#include "util/memory_allocator.h"
 #include "util/string_util.h"
 
 #ifdef SNAPPY

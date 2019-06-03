@@ -27,13 +27,13 @@
 #include <sys/syscall.h>
 #include <sys/sysmacros.h>
 #endif
-#include "env/posix_logger.h"
+#include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
 #include "rocksdb/slice.h"
+#include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
 
 #if defined(OS_LINUX) && !defined(F_SET_RW_HINT)
 #define F_LINUX_SPECIFIC_BASE 1024

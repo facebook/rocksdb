@@ -13,16 +13,16 @@
 #include "rocksdb/write_buffer_manager.h"
 
 #include "db/column_family.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/log_writer.h"
 #include "db/version_set.h"
 #include "db/wal_manager.h"
 #include "env/mock_env.h"
 #include "table/mock_table.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/file_reader_writer.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 

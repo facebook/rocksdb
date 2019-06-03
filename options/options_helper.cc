@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <unordered_set>
 #include <vector>
+
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
@@ -20,8 +21,8 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/object_registry.h"
-#include "table/block_based_table_factory.h"
-#include "table/plain_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
+#include "table/plain/plain_table_factory.h"
 #include "util/cast_util.h"
 #include "util/string_util.h"
 
@@ -372,6 +373,11 @@ bool ParseSingleStructOption(
     return false;
   }
   const auto& opt_info = iter->second;
+  if (opt_info.verification == OptionVerificationType::kDeprecated) {
+    // Should also skip deprecated sub-options such as
+    // fifo_compaction_options_type_info.ttl
+    return true;
+  }
   return ParseOptionHelper(
       reinterpret_cast<char*>(options) + opt_info.mutable_offset, opt_info.type,
       value);

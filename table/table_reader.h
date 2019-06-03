@@ -26,9 +26,11 @@ struct TableProperties;
 class GetContext;
 class MultiGetContext;
 
-// A Table is a sorted map from strings to strings.  Tables are
-// immutable and persistent.  A Table may be safely accessed from
-// multiple threads without external synchronization.
+// A Table (also referred to as SST) is a sorted map from strings to strings.
+// Tables are immutable and persistent.  A Table may be safely accessed from
+// multiple threads without external synchronization. Table readers are used
+// for reading various types of table formats supported by rocksdb including
+// BlockBasedTable, PlainTable and CuckooTable format.
 class TableReader {
  public:
   virtual ~TableReader() {}

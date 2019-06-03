@@ -12,9 +12,11 @@
 #include <algorithm>
 #include <set>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
+#include "file/filename.h"
+#include "logging/logging.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
@@ -24,17 +26,15 @@
 #include "rocksdb/table.h"
 #include "table/bloom_block.h"
 #include "table/meta_blocks.h"
-#include "table/plain_table_factory.h"
-#include "table/plain_table_key_coding.h"
-#include "table/plain_table_reader.h"
+#include "table/plain/plain_table_factory.h"
+#include "table/plain/plain_table_key_coding.h"
+#include "table/plain/plain_table_reader.h"
 #include "table/table_builder.h"
-#include "util/filename.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/hash.h"
-#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 #include "utilities/merge_operators.h"
 
 using std::unique_ptr;

@@ -19,24 +19,25 @@
 #include <algorithm>
 #include <limits>
 
-#include "db/compaction_picker.h"
-#include "db/compaction_picker_fifo.h"
-#include "db/compaction_picker_universal.h"
-#include "db/db_impl.h"
+#include "db/compaction/compaction_picker.h"
+#include "db/compaction/compaction_picker_fifo.h"
+#include "db/compaction/compaction_picker_level.h"
+#include "db/compaction/compaction_picker_universal.h"
+#include "db/db_impl/db_impl.h"
 #include "db/internal_stats.h"
 #include "db/job_context.h"
 #include "db/range_del_aggregator.h"
 #include "db/table_properties_collector.h"
 #include "db/version_set.h"
 #include "db/write_controller.h"
+#include "file/sst_file_manager_impl.h"
 #include "memtable/hash_skiplist_rep.h"
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
-#include "table/block_based_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
 #include "util/compression.h"
-#include "util/sst_file_manager_impl.h"
 
 namespace rocksdb {
 

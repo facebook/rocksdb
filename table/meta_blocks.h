@@ -15,7 +15,7 @@
 #include "rocksdb/memory_allocator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
-#include "table/block_builder.h"
+#include "table/block_based/block_builder.h"
 #include "table/format.h"
 #include "util/kv_map.h"
 
