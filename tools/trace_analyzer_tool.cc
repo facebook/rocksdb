@@ -44,13 +44,13 @@
 #include "table/plain/plain_table_factory.h"
 #include "table/table_reader.h"
 #include "tools/trace_analyzer_tool.h"
+#include "trace_replay/trace_replay.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/file_reader_writer.h"
 #include "util/gflags_compat.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "util/trace_replay.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;

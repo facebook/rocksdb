@@ -142,6 +142,7 @@ LIB_SOURCES =                                                   \
   test_util/sync_point_impl.cc                                  \
   test_util/transaction_test_util.cc                            \
   tools/dump/db_dump_tool.cc                                    \
+  trace_replay/trace_replay.cc                                  \
   util/bloom.cc                                                 \
   util/build_version.cc                                         \
   util/coding.cc                                                \
@@ -162,7 +163,6 @@ LIB_SOURCES =                                                   \
   util/string_util.cc                                           \
   util/thread_local.cc                                          \
   util/threadpool_imp.cc                                        \
-  util/trace_replay.cc                                          \
   util/xxhash.cc                                                \
   utilities/backupable/backupable_db.cc                         \
   utilities/blob_db/blob_compaction_filter.cc                   \

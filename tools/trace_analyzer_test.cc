@@ -30,7 +30,7 @@ int main() {
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "tools/trace_analyzer_tool.h"
-#include "util/trace_replay.h"
+#include "trace_replay/trace_replay.h"
 
 namespace rocksdb {
 

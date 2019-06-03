@@ -26,9 +26,9 @@
 #include "rocksdb/options.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
+#include "trace_replay/trace_replay.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
-#include "util/trace_replay.h"
 #include "util/user_comparator_wrapper.h"
 
 namespace rocksdb {
