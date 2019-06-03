@@ -82,7 +82,7 @@ class TransactionUtil {
   // order. In this case `min_uncommitted` is a lower bound.
   //  seq < `min_uncommitted`: no conflict
   //  seq > `snap_seq`: applicable to conflict
-  //  `min_uncommitted` <= seq <= `snap_seq` : call `snap_checker` to determine.
+  //  `min_uncommitted` <= seq <= `snap_seq`: call `snap_checker` to determine.
   static Status CheckKey(DBImpl* db_impl, SuperVersion* sv,
                          SequenceNumber earliest_seq, SequenceNumber snap_seq,
                          const std::string& key, bool cache_only,

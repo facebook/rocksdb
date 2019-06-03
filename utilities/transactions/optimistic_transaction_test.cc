@@ -314,92 +314,6 @@ TEST_F(OptimisticTransactionTest, FlushTest2) {
 
 // Trigger the condition where some old memtables are skipped when doing
 // TransactionUtil::CheckKey(), and make sure the result is still correct.
-TEST_F(OptimisticTransactionTest, CheckKeySkipHistoryMemtable) {
-  options.max_write_buffer_number_to_maintain = 3;
-  Reopen();
-
-  WriteOptions write_options;
-  ReadOptions read_options;
-  ReadOptions snapshot_read_options;
-  ReadOptions snapshot_read_options2;
-  string value;
-  Status s;
-
-  txn_db->Put(write_options, Slice("foo"), Slice("bar"));
-  txn_db->Put(write_options, Slice("foo2"), Slice("bar"));
-
-  Transaction* txn = txn_db->BeginTransaction(write_options);
-  ASSERT_TRUE(txn);
-
-  Transaction* txn2 = txn_db->BeginTransaction(write_options);
-  ASSERT_TRUE(txn);
-
-  snapshot_read_options.snapshot = txn->GetSnapshot();
-  txn->GetForUpdate(snapshot_read_options, "foo", &value);
-  ASSERT_EQ(value, "bar");
-  txn->Put(Slice("foo"), Slice("bar2"));
-
-  snapshot_read_options2.snapshot = txn2->GetSnapshot();
-  txn2->GetForUpdate(snapshot_read_options2, "foo2", &value);
-  ASSERT_EQ(value, "bar");
-  txn2->Put(Slice("foo2"), Slice("bar2"));
-
-  // txn updates "foo" and tx2 updates "foo2", and now a write is
-  // issued for "foo", which conflicts with txn but not txn2
-  s = txn_db->Put(write_options, "foo", "bar");
-  ASSERT_OK(s);
-
-  // force a memtable flush. The memtable should still be kept
-  FlushOptions flush_ops;
-  txn_db->Flush(flush_ops);
-  uint64_t num_imm_mems;
-  ASSERT_TRUE(txn_db->GetIntProperty(DB::Properties::kNumImmutableMemTable,
-                                     &num_imm_mems));
-  ASSERT_EQ(0, num_imm_mems);
-
-  // Put something in active memtable
-  txn_db->Put(write_options, Slice("foo3"), Slice("bar"));
-
-  // Create txn3 after flushing, when this transaction is commited,
-  // only need to check the active memtable
-  Transaction* txn3 = txn_db->BeginTransaction(write_options);
-  ASSERT_TRUE(txn);
-
-  // Commit both of txn and txn2. txn will conflict but txn2 will
-  // pass. In both ways, both memtables are queries.
-  SetPerfLevel(PerfLevel::kEnableCount);
-
-  get_perf_context()->Reset();
-  s = txn->Commit();
-  // We should have checked two memtables
-  ASSERT_EQ(2, get_perf_context()->get_from_memtable_count);
-  // txn should fail because of conflict, even if the memtable
-  // has flushed, because it is still preserved in history.
-  ASSERT_TRUE(s.IsBusy());
-
-  get_perf_context()->Reset();
-  s = txn2->Commit();
-  // We should have checked two memtables
-  ASSERT_EQ(2, get_perf_context()->get_from_memtable_count);
-  ASSERT_TRUE(s.ok());
-
-  txn3->Put(Slice("foo2"), Slice("bar2"));
-  get_perf_context()->Reset();
-  s = txn3->Commit();
-  // txn3 is created after the active memtable is created, so that is the only
-  // memtable to check.
-  ASSERT_EQ(1, get_perf_context()->get_from_memtable_count);
-  ASSERT_TRUE(s.ok());
-
-  SetPerfLevel(PerfLevel::kDisable);
-
-  delete txn;
-  delete txn2;
-  delete txn3;
-}
-
-// Trigger the condition where some old memtables are skipped when doing
-// TransactionUtil::CheckKey(), and make sure the result is still correct.
 TEST_F(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
   const int kAttemptHistoryMemtable = 0;
   const int kAttemptImmMemTable = 1;
@@ -415,29 +329,28 @@ TEST_F(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
     string value;
     Status s;
 
-    txn_db->Put(write_options, Slice("foo"), Slice("bar"));
-    txn_db->Put(write_options, Slice("foo2"), Slice("bar"));
+    ASSERT_OK(txn_db->Put(write_options, Slice("foo"), Slice("bar")));
+    ASSERT_OK(txn_db->Put(write_options, Slice("foo2"), Slice("bar")));
 
     Transaction* txn = txn_db->BeginTransaction(write_options);
-    ASSERT_TRUE(txn);
+    ASSERT_TRUE(txn != nullptr);
 
     Transaction* txn2 = txn_db->BeginTransaction(write_options);
-    ASSERT_TRUE(txn);
+    ASSERT_TRUE(txn2 != nullptr);
 
     snapshot_read_options.snapshot = txn->GetSnapshot();
-    txn->GetForUpdate(snapshot_read_options, "foo", &value);
+    ASSERT_OK(txn->GetForUpdate(snapshot_read_options, "foo", &value));
     ASSERT_EQ(value, "bar");
-    txn->Put(Slice("foo"), Slice("bar2"));
+    ASSERT_OK(txn->Put(Slice("foo"), Slice("bar2")));
 
     snapshot_read_options2.snapshot = txn2->GetSnapshot();
-    txn2->GetForUpdate(snapshot_read_options2, "foo2", &value);
+    ASSERT_OK(txn2->GetForUpdate(snapshot_read_options2, "foo2", &value));
     ASSERT_EQ(value, "bar");
-    txn2->Put(Slice("foo2"), Slice("bar2"));
+    ASSERT_OK(txn2->Put(Slice("foo2"), Slice("bar2")));
 
     // txn updates "foo" and tx2 updates "foo2", and now a write is
     // issued for "foo", which conflicts with txn but not txn2
-    s = txn_db->Put(write_options, "foo", "bar");
-    ASSERT_OK(s);
+    ASSERT_OK(txn_db->Put(write_options, "foo", "bar"));
 
     if (attempt == kAttemptImmMemTable) {
       // For the second attempt, hold the flush from happening
@@ -450,7 +363,7 @@ TEST_F(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
     // force a memtable flush. The memtable should still be kept
     FlushOptions flush_ops;
     if (attempt == kAttemptHistoryMemtable) {
-      txn_db->Flush(flush_ops);
+      ASSERT_OK(txn_db->Flush(flush_ops));
     } else {
       assert(attempt == kAttemptImmMemTable);
       DBImpl* db_impl = static_cast<DBImpl*>(txn_db->GetRootDB());
@@ -467,12 +380,12 @@ TEST_F(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
     }
 
     // Put something in active memtable
-    txn_db->Put(write_options, Slice("foo3"), Slice("bar"));
+    ASSERT_OK(txn_db->Put(write_options, Slice("foo3"), Slice("bar")));
 
     // Create txn3 after flushing, when this transaction is commited,
     // only need to check the active memtable
     Transaction* txn3 = txn_db->BeginTransaction(write_options);
-    ASSERT_TRUE(txn);
+    ASSERT_TRUE(txn3 != nullptr);
 
     // Commit both of txn and txn2. txn will conflict but txn2 will
     // pass. In both ways, both memtables are queries.

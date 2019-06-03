@@ -57,9 +57,9 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
                                  ReadCallback* snap_checker,
                                  SequenceNumber min_uncommitted) {
   // When `min_uncommitted` is provided, keys are not always committed
-  // in sequence number order, and`snap_checker` is used to check whether
+  // in sequence number order, and `snap_checker` is used to check whether
   // specific sequence number is in the database is visible to the transaction.
-  // So `snapchecker` must be provided.
+  // So `snap_checker` must be provided.
   assert(min_uncommitted == kMaxSequenceNumber || snap_checker != nullptr);
 
   Status result;
@@ -89,7 +89,7 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
     need_to_read_sst = true;
 
     if (cache_only) {
-      // The age of this memtable is too new to use to check for recentOP
+      // The age of this memtable is too new to use to check for recent
       // writes.
       char msg[300];
       snprintf(msg, sizeof(msg),
@@ -114,10 +114,10 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
     // sequence number order, so only keys larger than `snap_seq` can cause
     // conflict.
     // When min_uncommitted != kMaxSequenceNumber, keys lower than
-    // min_uncommitted will not triggered conflicts, while keys between
-    // min_uncommitted and snap_seq might create conflicts, so we need
-    // to read them out from the DB, and call callback to snap_checker
-    // to determine. So only keys lower than min_uncommitted can be skipped.
+    // min_uncommitted will not triggered conflicts, while keys larger than
+    // min_uncommitted might create conflicts, so we need  to read them out
+    // from the DB, and call callback to snap_checker to determine. So only
+    // keys lower than min_uncommitted can be skipped.
     SequenceNumber lower_bound_seq =
         (min_uncommitted == kMaxSequenceNumber) ? snap_seq : min_uncommitted;
     Status s = db_impl->GetLatestSequenceForKey(sv, key, !need_to_read_sst,
