@@ -946,8 +946,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   if (!s.ok()) {
     return s;
   }
+  BlockCacheLookupContext lookup_context{BlockCacheLookupCaller::kPrefetch};
   s = new_table->ReadRangeDelBlock(prefetch_buffer.get(), meta_iter.get(),
-                                   internal_comparator);
+                                   internal_comparator, &lookup_context);
   if (!s.ok()) {
     return s;
   }
@@ -1156,7 +1157,8 @@ Status BlockBasedTable::ReadPropertiesBlock(
 
 Status BlockBasedTable::ReadRangeDelBlock(
     FilePrefetchBuffer* prefetch_buffer, InternalIterator* meta_iter,
-    const InternalKeyComparator& internal_comparator) {
+    const InternalKeyComparator& internal_comparator,
+    BlockCacheLookupContext* lookup_context) {
   Status s;
   bool found_range_del_block;
   BlockHandle range_del_handle;
@@ -1169,10 +1171,10 @@ Status BlockBasedTable::ReadRangeDelBlock(
   } else if (found_range_del_block && !range_del_handle.IsNull()) {
     ReadOptions read_options;
     std::unique_ptr<InternalIterator> iter(NewDataBlockIterator<DataBlockIter>(
-        read_options, range_del_handle, nullptr /* input_iter */,
-        false /* is_index */, true /* key_includes_seq */,
-        true /* index_key_is_full */, nullptr /* get_context */, Status(),
-        prefetch_buffer));
+        read_options, range_del_handle, lookup_context,
+        nullptr /* input_iter */, false /* is_index */,
+        true /* key_includes_seq */, true /* index_key_is_full */,
+        nullptr /* get_context */, Status(), prefetch_buffer));
     assert(iter != nullptr);
     s = iter->status();
     if (!s.ok()) {
@@ -1852,8 +1854,10 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 }
 
 CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
-    FilePrefetchBuffer* prefetch_buffer, bool no_io,
-    GetContext* get_context) const {
+    FilePrefetchBuffer* prefetch_buffer, bool no_io, GetContext* get_context,
+    BlockCacheLookupContext* lookup_context) const {
+  assert(lookup_context);
+  // TODO(haoyu): Trace the access on the uncompression dictionary here.
   if (!rep_->table_options.cache_index_and_filter_blocks) {
     // block cache is either disabled or not used for meta-blocks. In either
     // case, BlockBasedTableReader is the owner of the uncompression dictionary.
@@ -1950,7 +1954,8 @@ InternalIteratorBase<BlockHandle>* BlockBasedTable::NewIndexIterator(
 // If input_iter is not null, update this iter and return it
 template <typename TBlockIter>
 TBlockIter* BlockBasedTable::NewDataBlockIterator(
-    const ReadOptions& ro, const BlockHandle& handle, TBlockIter* input_iter,
+    const ReadOptions& ro, const BlockHandle& handle,
+    BlockCacheLookupContext* lookup_context, TBlockIter* input_iter,
     bool is_index, bool key_includes_seq, bool index_key_is_full,
     GetContext* get_context, Status s,
     FilePrefetchBuffer* prefetch_buffer) const {
@@ -1964,7 +1969,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
 
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   auto uncompression_dict_storage =
-      GetUncompressionDict(prefetch_buffer, no_io, get_context);
+      GetUncompressionDict(prefetch_buffer, no_io, get_context, lookup_context);
   const UncompressionDict& uncompression_dict =
       uncompression_dict_storage.GetValue() == nullptr
           ? UncompressionDict::GetEmptyDict()
@@ -2530,9 +2535,14 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
     }
 
     Status s;
+    BlockCacheLookupCaller caller = BlockCacheLookupCaller::kUserIterator;
+    if (for_compaction_) {
+      caller = BlockCacheLookupCaller::kCompaction;
+    }
+    BlockCacheLookupContext lookup_context{caller};
     table_->NewDataBlockIterator<TBlockIter>(
-        read_options_, data_block_handle, &block_iter_, is_index_,
-        key_includes_seq_, index_key_is_full_,
+        read_options_, data_block_handle, &lookup_context, &block_iter_,
+        is_index_, key_includes_seq_, index_key_is_full_,
         /* get_context */ nullptr, s, prefetch_buffer_.get());
     block_iter_points_to_real_block_ = true;
     if (read_options_.iterate_upper_bound != nullptr) {
@@ -2774,8 +2784,10 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         break;
       } else {
         DataBlockIter biter;
+        BlockCacheLookupContext lookup_context{
+            BlockCacheLookupCaller::kUserGet};
         NewDataBlockIterator<DataBlockIter>(
-            read_options, iiter->value(), &biter, false,
+            read_options, iiter->value(), &lookup_context, &biter, false,
             true /* key_includes_seq */, true /* index_key_is_full */,
             get_context);
 
@@ -2885,8 +2897,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       bool done = false;
       for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
         DataBlockIter biter;
+        BlockCacheLookupContext lookup_context{
+            BlockCacheLookupCaller::kUserMGet};
         NewDataBlockIterator<DataBlockIter>(
-            read_options, iiter->value(), &biter, false,
+            read_options, iiter->value(), &lookup_context, &biter, false,
             true /* key_includes_seq */, get_context);
 
         if (read_options.read_tier == kBlockCacheTier &&
@@ -2989,7 +3003,9 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
 
     // Load the block specified by the block_handle into the block cache
     DataBlockIter biter;
-    NewDataBlockIterator<DataBlockIter>(ReadOptions(), block_handle, &biter);
+    BlockCacheLookupContext lookup_context{BlockCacheLookupCaller::kPrefetch};
+    NewDataBlockIterator<DataBlockIter>(ReadOptions(), block_handle,
+                                        &lookup_context, &biter);
 
     if (!biter.status().ok()) {
       // there was an unexpected error while pre-fetching
@@ -3248,8 +3264,9 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
     }
 
     std::unique_ptr<InternalIterator> datablock_iter;
+    BlockCacheLookupContext lookup_context{BlockCacheLookupCaller::kUnknown};
     datablock_iter.reset(NewDataBlockIterator<DataBlockIter>(
-        ReadOptions(), blockhandles_iter->value()));
+        ReadOptions(), blockhandles_iter->value(), &lookup_context));
     s = datablock_iter->status();
 
     if (!s.ok()) {
@@ -3539,8 +3556,9 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
     out_file->Append("--------------------------------------\n");
 
     std::unique_ptr<InternalIterator> datablock_iter;
+    BlockCacheLookupContext lookup_context{BlockCacheLookupCaller::kUnknown};
     datablock_iter.reset(NewDataBlockIterator<DataBlockIter>(
-        ReadOptions(), blockhandles_iter->value()));
+        ReadOptions(), blockhandles_iter->value(), &lookup_context));
     s = datablock_iter->status();
 
     if (!s.ok()) {

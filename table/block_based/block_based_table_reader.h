@@ -59,6 +59,31 @@ class GetContext;
 
 typedef std::vector<std::pair<std::string, std::string>> KVPairBlock;
 
+enum BlockCacheLookupCaller : char {
+  kUnknown = 0,
+  kUserGet = 1,
+  kUserMGet = 2,
+  kUserIterator = 3,
+  kPrefetch = 4,
+  kCompaction = 5
+};
+
+enum BlockType : char {
+  kBlockTraceIndexBlock = 1,
+  kBlockTraceFilterBlock = 2,
+  kBlockTraceDataBlock = 3,
+  kBlockTraceUncompressionDictBlock = 4,
+  kBlockTraceRangeDeletionBlock = 5,
+};
+
+// Lookup context for tracing block cache accesses.
+struct BlockCacheLookupContext {
+  BlockCacheLookupContext(const BlockCacheLookupCaller& _caller)
+      : caller(_caller) {}
+  const BlockCacheLookupCaller caller;
+  BlockType block_type;
+};
+
 // Reader class for BlockBasedTable format.
 // For the format of BlockBasedTable refer to
 // https://github.com/facebook/rocksdb/wiki/Rocksdb-BlockBasedTable-Format.
@@ -221,10 +246,10 @@ class BlockBasedTable : public TableReader {
   template <typename TBlockIter>
   TBlockIter* NewDataBlockIterator(
       const ReadOptions& ro, const BlockHandle& block_hanlde,
-      TBlockIter* input_iter = nullptr, bool is_index = false,
-      bool key_includes_seq = true, bool index_key_is_full = true,
-      GetContext* get_context = nullptr, Status s = Status(),
-      FilePrefetchBuffer* prefetch_buffer = nullptr) const;
+      BlockCacheLookupContext* lookup_context, TBlockIter* input_iter = nullptr,
+      bool is_index = false, bool key_includes_seq = true,
+      bool index_key_is_full = true, GetContext* get_context = nullptr,
+      Status s = Status(), FilePrefetchBuffer* prefetch_buffer = nullptr) const;
 
   class PartitionedIndexIteratorState;
 
@@ -283,8 +308,8 @@ class BlockBasedTable : public TableReader {
       const SliceTransform* prefix_extractor = nullptr) const;
 
   CachableEntry<UncompressionDict> GetUncompressionDict(
-      FilePrefetchBuffer* prefetch_buffer, bool no_io,
-      GetContext* get_context) const;
+      FilePrefetchBuffer* prefetch_buffer, bool no_io, GetContext* get_context,
+      BlockCacheLookupContext* lookup_context) const;
 
   // Get the iterator from the index reader.
   // If input_iter is not set, return new Iterator
@@ -379,7 +404,8 @@ class BlockBasedTable : public TableReader {
                              const SequenceNumber largest_seqno);
   Status ReadRangeDelBlock(FilePrefetchBuffer* prefetch_buffer,
                            InternalIterator* meta_iter,
-                           const InternalKeyComparator& internal_comparator);
+                           const InternalKeyComparator& internal_comparator,
+                           BlockCacheLookupContext* lookup_context);
   Status ReadCompressionDictBlock(
       FilePrefetchBuffer* prefetch_buffer,
       std::unique_ptr<const BlockContents>* compression_dict_block) const;
