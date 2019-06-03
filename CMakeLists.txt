@@ -488,7 +488,7 @@ set(SOURCES
         db/compacted_db_impl.cc
         db/compaction/compaction.cc
         db/compaction/compaction_iterator.cc
-        db/compaction/compaction_picker.cc        
+        db/compaction/compaction_picker.cc
         db/compaction/compaction_job.cc
         db/compaction/compaction_picker_fifo.cc
         db/compaction/compaction_picker_level.cc
@@ -624,6 +624,7 @@ set(SOURCES
         tools/sst_dump_tool.cc
         tools/trace_analyzer_tool.cc
         trace_replay/trace_replay.cc
+        trace_replay/block_cache_tracer.cc
         util/bloom.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
