@@ -129,6 +129,14 @@ void ForceReleaseCachedEntry(void* arg, void* h) {
   cache->Release(handle, true /* force_erase */);
 }
 
+// Release the cached entry and decrement its ref count.
+// Do not force erase
+void ReleaseCachedEntry(void* arg, void* h) {
+  Cache* cache = reinterpret_cast<Cache*>(arg);
+  Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
+  cache->Release(handle, false /* force_erase */);
+}
+
 // For hash based index, return true if prefix_extractor and
 // prefix_extractor_block mismatch, false otherwise. This flag will be used
 // as total_order_seek via NewIndexIterator
@@ -2073,6 +2081,8 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
                               cache_handle);
       }
     }
+  } else {
+    iter->SetCacheHandle(block.GetCacheHandle());
   }
 
   block.TransferTo(iter);
@@ -2948,7 +2958,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           offset = iiter->value().offset();
           biter.Invalidate(Status::OK());
           NewDataBlockIterator<DataBlockIter>(
-              rep_, read_options, iiter->value(), &biter, false,
+              read_options, iiter->value(), &biter, false,
               true /* key_includes_seq */, get_context);
           reusing_block = false;
         }
