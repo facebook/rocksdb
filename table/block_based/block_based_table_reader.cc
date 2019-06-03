@@ -1855,8 +1855,7 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 
 CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
     FilePrefetchBuffer* prefetch_buffer, bool no_io, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context) const {
-  assert(lookup_context);
+    BlockCacheLookupContext* /*lookup_context*/) const {
   // TODO(haoyu): Trace the access on the uncompression dictionary here.
   if (!rep_->table_options.cache_index_and_filter_blocks) {
     // block cache is either disabled or not used for meta-blocks. In either
