@@ -623,6 +623,7 @@ set(SOURCES
         tools/ldb_tool.cc
         tools/sst_dump_tool.cc
         tools/trace_analyzer_tool.cc
+        trace_replay/trace_replay.cc
         util/bloom.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
@@ -642,7 +643,6 @@ set(SOURCES
         util/string_util.cc
         util/thread_local.cc
         util/threadpool_imp.cc
-        util/trace_replay.cc
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
         utilities/blob_db/blob_compaction_filter.cc

@@ -5,9 +5,9 @@
 
 #include "utilities/trace/file_trace_reader_writer.h"
 
+#include "trace_replay/trace_replay.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
-#include "util/trace_replay.h"
 
 namespace rocksdb {
 
