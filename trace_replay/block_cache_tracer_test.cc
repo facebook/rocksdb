@@ -122,7 +122,7 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
                                  &trace_writer));
     BlockCacheTraceWriter writer(env_, trace_opt, std::move(trace_writer));
     // Write blocks of different types.
-    WriteBlockAccess(&writer, 0, TraceType::kBlockTraceCompressionDictBlock,
+    WriteBlockAccess(&writer, 0, TraceType::kBlockTraceUncompressionDictBlock,
                      10);
     WriteBlockAccess(&writer, 10, TraceType::kBlockTraceDataBlock, 10);
     WriteBlockAccess(&writer, 20, TraceType::kBlockTraceFilterBlock, 10);
@@ -142,7 +142,7 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
     ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
     // Read blocks.
-    VerifyAccess(&reader, 0, TraceType::kBlockTraceCompressionDictBlock, 10);
+    VerifyAccess(&reader, 0, TraceType::kBlockTraceUncompressionDictBlock, 10);
     VerifyAccess(&reader, 10, TraceType::kBlockTraceDataBlock, 10);
     VerifyAccess(&reader, 20, TraceType::kBlockTraceFilterBlock, 10);
     VerifyAccess(&reader, 30, TraceType::kBlockTraceIndexBlock, 10);

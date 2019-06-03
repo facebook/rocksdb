@@ -44,7 +44,7 @@ enum TraceType : char {
   kBlockTraceIndexBlock = 7,
   kBlockTraceFilterBlock = 8,
   kBlockTraceDataBlock = 9,
-  kBlockTraceCompressionDictBlock = 10,
+  kBlockTraceUncompressionDictBlock = 10,
   kBlockTraceRangeDeletionBlock = 11,
   // All trace types should be added before kTraceMax
   kTraceMax,
