@@ -14,6 +14,30 @@
 #include "rocksdb/cleanable.h"
 
 namespace rocksdb {
+enum BlockCacheLookupCaller : char {
+  kUnknown = 0,
+  kUserGet = 1,
+  kUserMGet = 2,
+  kUserIterator = 3,
+  kPrefetch = 4,
+  kCompaction = 5
+};
+
+enum BlockType : char {
+  kBlockTraceIndexBlock = 1,
+  kBlockTraceFilterBlock = 2,
+  kBlockTraceDataBlock = 3,
+  kBlockTraceUncompressionDictBlock = 4,
+  kBlockTraceRangeDeletionBlock = 5,
+};
+
+// Lookup context for tracing block cache accesses.
+struct BlockCacheLookupContext {
+  BlockCacheLookupContext(const BlockCacheLookupCaller& _caller)
+      : caller(_caller) {}
+  const BlockCacheLookupCaller caller;
+  BlockType block_type;
+};
 
 // CachableEntry is a handle to an object that may or may not be in the block
 // cache. It is used in a variety of ways:

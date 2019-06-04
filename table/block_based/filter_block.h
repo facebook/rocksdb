@@ -30,6 +30,7 @@
 #include "rocksdb/table.h"
 #include "table/format.h"
 #include "table/multiget_context.h"
+#include "table/block_based/cachable_entry.h"
 #include "util/hash.h"
 
 namespace rocksdb {

@@ -59,31 +59,6 @@ class GetContext;
 
 typedef std::vector<std::pair<std::string, std::string>> KVPairBlock;
 
-enum BlockCacheLookupCaller : char {
-  kUnknown = 0,
-  kUserGet = 1,
-  kUserMGet = 2,
-  kUserIterator = 3,
-  kPrefetch = 4,
-  kCompaction = 5
-};
-
-enum BlockType : char {
-  kBlockTraceIndexBlock = 1,
-  kBlockTraceFilterBlock = 2,
-  kBlockTraceDataBlock = 3,
-  kBlockTraceUncompressionDictBlock = 4,
-  kBlockTraceRangeDeletionBlock = 5,
-};
-
-// Lookup context for tracing block cache accesses.
-struct BlockCacheLookupContext {
-  BlockCacheLookupContext(const BlockCacheLookupCaller& _caller)
-      : caller(_caller) {}
-  const BlockCacheLookupCaller caller;
-  BlockType block_type;
-};
-
 // Reader class for BlockBasedTable format.
 // For the format of BlockBasedTable refer to
 // https://github.com/facebook/rocksdb/wiki/Rocksdb-BlockBasedTable-Format.
@@ -218,6 +193,7 @@ class BlockBasedTable : public TableReader {
     // to a different object then iter, and the callee has the ownership of the
     // returned object.
     virtual InternalIteratorBase<BlockHandle>* NewIterator(
+        BlockCacheLookupContext *lookup_context,
         const ReadOptions& read_options, bool disable_prefix_seek,
         IndexBlockIter* iter, GetContext* get_context) = 0;
 
@@ -677,7 +653,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   bool CheckPrefixMayMatch(const Slice& ikey) {
     if (check_filter_ &&
         !table_->PrefixMayMatch(ikey, read_options_, prefix_extractor_,
-                                need_upper_bound_check_, lookup_context_)) {
+                                need_upper_bound_check_, &lookup_context_)) {
       // TODO remember the iterator is invalidated because of prefix
       // match. This can avoid the upper level file iterator to falsely
       // believe the position is the end of the SST file and move to

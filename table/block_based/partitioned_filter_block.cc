@@ -252,7 +252,8 @@ PartitionedFilterBlockReader::GetFilterPartition(
           nullptr /* cache_handle */, false /* own_value */};
       }
     }
-    return table_->GetFilter(/*prefetch_buffer*/ nullptr, fltr_blk_handle,
+    // TODO(haoyu).
+    return table_->GetFilter(nullptr, /*prefetch_buffer*/ nullptr, fltr_blk_handle,
                              is_a_filter_partition, no_io,
                              /* get_context */ nullptr, prefix_extractor);
   } else {
@@ -307,7 +308,8 @@ void PartitionedFilterBlockReader::CacheDependencies(
     handle = biter.value();
     const bool no_io = true;
     const bool is_a_filter_partition = true;
-    auto filter = table_->GetFilter(
+    // TODO(haoyu).
+    auto filter = table_->GetFilter(nullptr,
         prefetch_buffer.get(), handle, is_a_filter_partition, !no_io,
         /* get_context */ nullptr, prefix_extractor);
     if (LIKELY(filter.IsCached())) {

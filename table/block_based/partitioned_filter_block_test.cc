@@ -29,6 +29,7 @@ class MockedBlockBasedTable : public BlockBasedTable {
   }
 
   CachableEntry<FilterBlockReader> GetFilter(
+      BlockCacheLookupContext *,
       FilePrefetchBuffer*, const BlockHandle& filter_blk_handle,
       const bool /* unused */, bool /* unused */, GetContext* /* unused */,
       const SliceTransform* prefix_extractor) const override {
