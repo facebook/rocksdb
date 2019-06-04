@@ -5552,10 +5552,8 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
         "ReactiveVersionSet::ApplyOneVersionEditToBuilder:"
         "AfterLoadTableHandlers",
         &s);
-    if (!s.ok() && !s.IsPathNotFound()) {
-    } else if (s.IsPathNotFound()) {
-      s = Status::OK();
-    } else {  // s.ok() == true
+
+    if (s.ok()) {
       auto version = new Version(cfd, this, env_options_,
                                  *cfd->GetLatestMutableCFOptions(),
                                  current_version_number_++);
@@ -5566,7 +5564,10 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
       if (cfds_changed->count(cfd) == 0) {
         cfds_changed->insert(cfd);
       }
+    } else if (s.IsPathNotFound()) {
+      s = Status::OK();
     }
+    // Some other error has occurred during LoadTableHandlers.
   }
 
   if (have_next_file) {
