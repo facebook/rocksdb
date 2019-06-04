@@ -210,7 +210,7 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   WriteBatch empty_batch;
   write_options.disableWAL = true;
   write_options.sync = false;
-  const size_t ONE_BATCH = 1; // Just to inc the seq
+  const size_t ONE_BATCH = 1;  // Just to inc the seq
   s = db_impl_->WriteImpl(write_options, &empty_batch, nullptr, nullptr,
                           no_log_ref, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           &update_commit_map_with_prepare);

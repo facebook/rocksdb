@@ -1148,13 +1148,60 @@ void ColumnFamilyData::ResetThreadLocalSuperVersions() {
   }
 }
 
+Status ColumnFamilyData::ValidateOptions(
+    const DBOptions& db_options, const ColumnFamilyOptions& cf_options) {
+  Status s;
+  s = CheckCompressionSupported(cf_options);
+  if (s.ok() && db_options.allow_concurrent_memtable_write) {
+    s = CheckConcurrentWritesSupported(cf_options);
+  }
+  if (s.ok()) {
+    s = CheckCFPathsSupported(db_options, cf_options);
+  }
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (cf_options.ttl > 0) {
+    if (db_options.max_open_files != -1) {
+      return Status::NotSupported(
+          "TTL is only supported when files are always "
+          "kept open (set max_open_files = -1). ");
+    }
+    if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
+      return Status::NotSupported(
+          "TTL is only supported in Block-Based Table format. ");
+    }
+  }
+
+  if (cf_options.periodic_compaction_seconds > 0) {
+    if (db_options.max_open_files != -1) {
+      return Status::NotSupported(
+          "Periodic Compaction is only supported when files are always "
+          "kept open (set max_open_files = -1). ");
+    }
+    if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
+      return Status::NotSupported(
+          "Periodic Compaction is only supported in "
+          "Block-Based Table format. ");
+    }
+  }
+  return s;
+}
+
 #ifndef ROCKSDB_LITE
 Status ColumnFamilyData::SetOptions(
-      const std::unordered_map<std::string, std::string>& options_map) {
+    const DBOptions& db_options,
+    const std::unordered_map<std::string, std::string>& options_map) {
   MutableCFOptions new_mutable_cf_options;
   Status s =
       GetMutableOptionsFromStrings(mutable_cf_options_, options_map,
                                    ioptions_.info_log, &new_mutable_cf_options);
+  if (s.ok()) {
+    ColumnFamilyOptions cf_options =
+        BuildColumnFamilyOptions(initial_cf_options_, new_mutable_cf_options);
+    s = ValidateOptions(db_options, cf_options);
+  }
   if (s.ok()) {
     mutable_cf_options_ = new_mutable_cf_options;
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
