@@ -629,7 +629,7 @@ TEST_F(DBSecondaryTest, SwitchWALMultiColumnFamilies) {
       }
     }
   };
-  for (int k = 0; k != 3; ++k) {
+  for (int k = 0; k != 8; ++k) {
     ASSERT_OK(
         Put(0 /*cf*/, "key" + std::to_string(k), "value" + std::to_string(k)));
     ASSERT_OK(
