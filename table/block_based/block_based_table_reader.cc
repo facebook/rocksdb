@@ -2680,7 +2680,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
     //   Enabled after 2 sequential IOs when ReadOptions.readahead_size == 0.
     // Explicit user requested readahead:
     //   Enabled from the very first IO when ReadOptions.readahead_size is set.
-//    if (!for_compaction_) {
+    if (!for_compaction_) {
       if (read_options_.readahead_size == 0) {
         // Implicit auto readahead
         num_file_reads_++;
@@ -2716,7 +2716,12 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
             rep->file.get(), read_options_.readahead_size,
             read_options_.readahead_size));
       }
-//    }
+    }
+    else {
+    	size_t ki = rep->env_options.compaction_readahead_size;
+        prefetch_buffer_.reset(new FilePrefetchBuffer(
+            rep->file.get(), ki, ki));
+    }
 
     Status s;
     table_->NewDataBlockIterator<TBlockIter>(
