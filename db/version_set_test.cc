@@ -882,7 +882,11 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
     }
   }
 
-  void TearDown() override { log_writer_.reset(); }
+  void TearDown() override {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    log_writer_.reset();
+  }
 
  protected:
   std::vector<ColumnFamilyDescriptor> column_families_;
