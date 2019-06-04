@@ -4156,7 +4156,6 @@ Status VersionSet::ReadAndRecover(
           if (!s.ok()) {
             break;
           }
-
           recovered_edits++;
         }
         if (!s.ok()) {
@@ -4262,7 +4261,6 @@ Status VersionSet::Recover(
                        true /* checksum */, 0 /* log_number */);
     Slice record;
     std::string scratch;
-
     AtomicGroupReadBuffer read_buffer;
     s = ReadAndRecover(
         &reader, &read_buffer, cf_name_to_options, column_families_not_found,
