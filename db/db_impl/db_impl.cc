@@ -34,7 +34,6 @@
 #include "db/external_sst_file_ingestion_job.h"
 #include "db/flush_job.h"
 #include "db/forward_iterator.h"
-#include "db/in_memory_stats_history.h"
 #include "db/job_context.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -43,7 +42,6 @@
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
-#include "db/persistent_stats_history.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
@@ -59,8 +57,10 @@
 #include "logging/logging.h"
 #include "memtable/hash_linklist_rep.h"
 #include "memtable/hash_skiplist_rep.h"
+#include "monitoring/in_memory_stats_history.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
+#include "monitoring/persistent_stats_history.h"
 #include "monitoring/thread_status_updater.h"
 #include "monitoring/thread_status_util.h"
 #include "options/cf_options.h"
@@ -701,20 +701,11 @@ void DBImpl::PersistStats() {
     wo.low_pri = true;
     wo.no_slowdown = true;
     wo.sync = false;
-    wo.disableWAL = true;
     WriteBatch batch;
     if (stats_slice_initialized_) {
-      // write version key
-      char version_key[100];
-      int version_key_length = PersistentStatsHistoryIterator::EncodeVersionKey(
-          now_micros, 100, version_key);
-      batch.Put(persist_stats_cf_handle_,
-                Slice(version_key, std::min(100, version_key_length)),
-                ToString(kPersistentStatsVersion));
       for (const auto& stat : stats_map) {
         char key[100];
-        int length = PersistentStatsHistoryIterator::EncodeKey(
-            now_micros, stat.first, 100, key);
+        int length = EncodePersistentStatsKey(now_micros, stat.first, 100, key);
         // calculate the delta from last time
         if (stats_slice_.find(stat.first) != stats_slice_.end()) {
           uint64_t delta = stat.second - stats_slice_[stat.first];
@@ -726,11 +717,10 @@ void DBImpl::PersistStats() {
     stats_slice_initialized_ = true;
     std::swap(stats_slice_, stats_map);
     Status s = Write(wo, &batch);
-    // TODO(Zhongyi): add counters for failed writes
     if (!s.ok()) {
-      ROCKS_LOG_ERROR(immutable_db_options_.info_log,
-                      "Writing to persistent stats CF failed -- %s\n",
-                      s.ToString().c_str());
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "Writing to persistent stats CF failed -- %s\n",
+                     s.ToString().c_str());
     }
     // TODO(Zhongyi): add purging for persisted data
   } else {

@@ -6,8 +6,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "db/persistent_stats_history.h"
+#include "monitoring/persistent_stats_history.h"
 
+#include <cstring>
 #include <string>
 #include <utility>
 #include "db/db_impl/db_impl.h"
@@ -18,8 +19,64 @@ namespace rocksdb {
 // 10 digit seconds timestamp => [Sep 9, 2001 ~ Nov 20, 2286]
 const int kNowSecondsStringLength = 10;
 const int kMicrosInSecond = 1000 * 1000;
-const char* kVersionKeyString = "__persistent_stats_version__";
-const int kPersistentStatsVersion = 1;
+const char* kFormatVersionKeyString = "__persistent_stats_format_version__";
+const char* kReaderVersionKeyString = "__persistent_stats_reader_version__";
+const int kStatsCFCurrentFormatVersion = 1;
+const int kStatsCFMinimumFormatVersion = 1;
+const int kPersistentStatsReaderVersion = 1;
+
+void GetVersionKeyString(char* buf, StatsVersionKeyType type) {
+  switch (type) {
+    case StatsVersionKeyType::kFormatVersion:
+      strcpy(buf, kFormatVersionKeyString);
+      return;
+    case StatsVersionKeyType::kReaderVersion:
+      strcpy(buf, kReaderVersionKeyString);
+      return;
+    default:
+      return;
+  }
+}
+
+size_t EncodePersistentStatsVersionKey(char* buf, StatsVersionKeyType type) {
+  if (type >= StatsVersionKeyType::kKeyTypeMax) {
+    return -1;
+  }
+  GetVersionKeyString(buf, type);
+  return strlen(buf);
+}
+
+int DecodePersistentStatsVersionNumber(DBImpl* db,
+                                       StatsVersionKeyType type) {
+  if (type >= StatsVersionKeyType::kKeyTypeMax) {
+    return -1;
+  }
+  char key_string[100];
+  GetVersionKeyString(key_string, type);
+  ReadOptions options;
+  options.verify_checksums = true;
+  std::string result;
+  Status s = db->Get(options, db->PersistentStatsColumnFamily(),
+                     Slice(key_string), &result);
+  if (s.IsNotFound() || !s.ok()) {
+    return -1;
+  }
+
+  // read version_number but do nothing in current version
+  int version_number =
+      static_cast<int>(std::stoull(result));
+  return version_number;
+}
+
+int EncodePersistentStatsKey(uint64_t now_micros, const std::string& key,
+                             int size, char* buf) {
+  char timestamp[kNowSecondsStringLength + 1];
+  // make time stamp string equal in length to allow sorting by time
+  snprintf(timestamp, sizeof(timestamp), "%010d",
+           static_cast<int>(now_micros / kMicrosInSecond));
+  timestamp[kNowSecondsStringLength] = '\0';
+  return snprintf(buf, size, "%s#%s", timestamp, key.c_str());
+}
 
 PersistentStatsHistoryIterator::~PersistentStatsHistoryIterator() {}
 
@@ -39,45 +96,6 @@ PersistentStatsHistoryIterator::GetStatsMap() const {
   return stats_map_;
 }
 
-int PersistentStatsHistoryIterator::EncodeVersionKey(uint64_t now_micros,
-                                                     int size, char* buf) {
-  // make time stamp string equal in length to allow sorting by time
-  int length = snprintf(buf, size, "%010d#%s",
-                        static_cast<int>(now_micros / kMicrosInSecond),
-                        kVersionKeyString);
-  return length;
-}
-
-int PersistentStatsHistoryIterator::DecodeVersionNumber(
-    const char* timestamp_str, Iterator* iter) {
-  char version_key[100];
-  snprintf(version_key, 100, "%s#%s", timestamp_str, kVersionKeyString);
-  iter->Seek(version_key);
-  // cannot find version_number, could be a user-defined CF or internal error
-  // skip all with the same timestamp
-  if (!iter->Valid()) {
-    return -1;
-  } else {
-    // read version_number but do nothing in current version
-    int version_number =
-        static_cast<int>(std::stoull(iter->value().ToString()));
-    // reset iter to beginning
-    iter->Seek(timestamp_str);
-    return version_number;
-  }
-}
-
-int PersistentStatsHistoryIterator::EncodeKey(uint64_t now_micros,
-                                              const std::string& key, int size,
-                                              char* buf) {
-  char timestamp[kNowSecondsStringLength + 1];
-  // make time stamp string equal in length to allow sorting by time
-  snprintf(timestamp, sizeof(timestamp), "%010d",
-           static_cast<int>(now_micros / kMicrosInSecond));
-  timestamp[kNowSecondsStringLength] = '\0';
-  return snprintf(buf, size, "%s#%s", timestamp, key.c_str());
-}
-
 std::pair<uint64_t, std::string> parseKey(const Slice& key,
                                           uint64_t start_time) {
   std::pair<uint64_t, std::string> result;
@@ -85,19 +103,17 @@ std::pair<uint64_t, std::string> parseKey(const Slice& key,
   std::string::size_type pos = key_str.find("#");
   // TODO(Zhongyi): add counters to track parse failures?
   if (pos == std::string::npos) {
-    result.first = 0;
+    result.first = port::kMaxUint64;
     result.second = "";
   } else {
     uint64_t parsed_time = ParseUint64(key_str.substr(0, pos));
     // skip entries with timestamp smaller than start_time
     if (parsed_time < start_time) {
-      result.first = 0;
+      result.first = port::kMaxUint64;
       result.second = "";
     } else {
       result.first = parsed_time;
       std::string key_resize = key_str.substr(pos + 1);
-      auto it = std::find(key_resize.begin(), key_resize.end(), '\0');
-      assert(it == key_resize.end());
       result.second = key_resize;
     }
   }
@@ -113,6 +129,9 @@ void PersistentStatsHistoryIterator::AdvanceIteratorByTime(uint64_t start_time,
     ReadOptions ro;
     Iterator* iter =
         db_impl_->NewIterator(ro, db_impl_->PersistentStatsColumnFamily());
+    format_version_ = DecodePersistentStatsVersionNumber(db_impl_,
+        StatsVersionKeyType::kFormatVersion);
+
     char timestamp[kNowSecondsStringLength + 1];
     snprintf(timestamp, sizeof(timestamp), "%010d",
              static_cast<int>(std::max(time_, start_time)));
@@ -121,14 +140,14 @@ void PersistentStatsHistoryIterator::AdvanceIteratorByTime(uint64_t start_time,
     iter->Seek(timestamp);
     // no more entries with timestamp >= start_time is found or version key
     // is found to be incompatible
-    if (!iter->Valid() ||
-        (version_ = DecodeVersionNumber(timestamp, iter)) < 0) {
+    if (!iter->Valid()) {
       valid_ = false;
       delete iter;
       return;
     }
     time_ = parseKey(iter->key(), start_time).first;
     valid_ = true;
+    // check parsed time and invalid if it exceeds end_time
     if (time_ > end_time) {
       valid_ = false;
       delete iter;
@@ -136,12 +155,13 @@ void PersistentStatsHistoryIterator::AdvanceIteratorByTime(uint64_t start_time,
     }
     // find all entries with timestamp equal to time_
     std::map<std::string, uint64_t> new_stats_map;
-    std::pair<uint64_t, std::string> kv(time_, "");
-    for (; iter->Valid() && kv.first == time_; iter->Next()) {
+    std::pair<uint64_t, std::string> kv;
+    for (; iter->Valid(); iter->Next()) {
       kv = parseKey(iter->key(), start_time);
-      // skip version key and first dummpy entry
-      if (LIKELY(kv.second.compare(kVersionKeyString) == 0 ||
-                 kv.first != time_)) {
+      if (UNLIKELY(kv.first != time_)) {
+        break;
+      }
+      if (UNLIKELY(kv.second.compare(kFormatVersionKeyString) == 0)) {
         continue;
       }
       new_stats_map[kv.second] = std::stoull(iter->value().ToString());

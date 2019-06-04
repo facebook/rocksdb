@@ -14,8 +14,32 @@
 namespace rocksdb {
 
 extern const int kMicrosInSecond;
-extern const char* kVersionKeyString;
-extern const int kPersistentStatsVersion;
+extern const char* kFormatVersionKeyString;
+extern const char* kReaderVersionKeyString;
+extern const int kStatsCFMinimumFormatVersion;
+extern const int kStatsCFCurrentFormatVersion;
+extern const int kPersistentStatsReaderVersion;
+
+enum StatsVersionKeyType : uint32_t {
+  kFormatVersion = 1,
+  kReaderVersion = 2,
+  kKeyTypeMax = 3
+};
+
+// Encode format/reader version key to preallocated buf
+// Returns 0 if failed, otherwise returns number of bytes encoded
+size_t EncodePersistentStatsVersionKey(char* buf, StatsVersionKeyType type);
+
+// Read the version number from persitent stats cf depending on type provided
+// Retuns version number on success, or negative number on failure
+int DecodePersistentStatsVersionNumber(DBImpl* db,
+                                       StatsVersionKeyType type);
+
+// Encode timestamp and stats key into buf
+// Format: timestamp(10 digit) + '#' + key
+// Total length of encoded key will be capped at 100 bytes
+int EncodePersistentStatsKey(uint64_t timestamp, const std::string& key,
+                             int size, char* buf);
 
 class PersistentStatsHistoryIterator final : public StatsHistoryIterator {
  public:
@@ -25,7 +49,7 @@ class PersistentStatsHistoryIterator final : public StatsHistoryIterator {
         start_time_(start_time),
         end_time_(end_time),
         valid_(true),
-        version_(0),
+        format_version_(0),
         db_impl_(db_impl) {
     AdvanceIteratorByTime(start_time_, end_time_);
   }
@@ -35,24 +59,9 @@ class PersistentStatsHistoryIterator final : public StatsHistoryIterator {
 
   void Next() override;
   uint64_t GetStatsTime() const override;
-  int GetVersion() const override { return version_; }
+  int GetFormatVersion() const override { return format_version_; }
 
   const std::map<std::string, uint64_t>& GetStatsMap() const override;
-
-  // Encode timestamp and stats key into buf
-  // Format: timestamp(10 digit) + '#' + key
-  // Total length of encoded key will be capped at 100 bytes
-  static int EncodeKey(uint64_t timestamp, const std::string& key, int size,
-                       char* buf);
-
-  // Encode timestamp and version key into buf
-  // Format: timestamp(10 digit) + '#' + kVersionKeyString
-  // Total length of encoded key will be capped at 100 bytes
-  static int EncodeVersionKey(uint64_t timestamp, int size, char* buf);
-  // Seek to timestamp_str + '#' + kVersionKeyString and read the version
-  // number of the persitent stats
-  // If version number matches, reset iter to timestamp_str
-  static int DecodeVersionNumber(const char* timestamp_str, Iterator* iter);
 
  private:
   // advance the iterator to the next stats history record with timestamp
@@ -73,7 +82,7 @@ class PersistentStatsHistoryIterator final : public StatsHistoryIterator {
   std::map<std::string, uint64_t> stats_map_;
   Status status_;
   bool valid_;
-  int version_;
+  int format_version_;
   DBImpl* db_impl_;
 };
 

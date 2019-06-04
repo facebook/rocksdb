@@ -1019,6 +1019,7 @@ class DBImpl : public DB {
   friend class DBTest_MixedSlowdownOptionsStop_Test;
   friend class DBCompactionTest_CompactBottomLevelFilesWithDeletions_Test;
   friend class DBCompactionTest_CompactionDuringShutdown_Test;
+  friend class StatsHistoryTest_PersistentStatsCreateColumnFamilies_Test;
 #ifndef NDEBUG
   friend class DBTest2_ReadCallbackTest_Test;
   friend class WriteCallbackTest_WriteWithCallbackTest_Test;
@@ -1182,6 +1183,12 @@ class DBImpl : public DB {
   // Initialize the built-in column family for persistent stats.
   // Required: DB mutex held
   Status InitPersistStatsColumnFamily();
+
+  // Persistent Stats column family has a format version key which is used
+  // for compatibility check. Write format version if it's created for the
+  // first time, read format version and check compatibility if recovering
+  // from disk
+  Status PersistentStatsProcessFormatVersion();
 
   Status ResumeImpl();
 
@@ -1579,6 +1586,8 @@ class DBImpl : public DB {
   bool log_empty_;
 
   ColumnFamilyHandleImpl* persist_stats_cf_handle_;
+
+  bool persistent_stats_cfd_exists_ = true;
 
   // Without two_write_queues, read and writes to alive_log_files_ are
   // protected by mutex_. However since back() is never popped, and push_back()
