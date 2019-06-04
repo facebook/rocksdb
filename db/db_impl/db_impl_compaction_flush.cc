@@ -1049,7 +1049,7 @@ Status DBImpl::CompactFilesImpl(
 
   if (status.ok()) {
     // Done
-  } else if (status.IsColumnFamilyDropped()) {
+  } else if (status.IsColumnFamilyDropped() || status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
@@ -2680,6 +2680,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                             compaction_job_stats, job_context->job_id);
 
     mutex_.Unlock();
+    TEST_SYNC_POINT_CALLBACK(
+        "DBImpl::BackgroundCompaction:NonTrivial:BeforeRun", nullptr);
     compaction_job.Run();
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
     mutex_.Lock();
@@ -2713,7 +2715,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   if (status.ok() || status.IsCompactionTooLarge()) {
     // Done
-  } else if (status.IsColumnFamilyDropped()) {
+  } else if (status.IsColumnFamilyDropped() || status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log, "Compaction error: %s",
