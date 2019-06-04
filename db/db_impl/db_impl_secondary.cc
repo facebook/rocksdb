@@ -201,10 +201,6 @@ Status DBImplSecondary::RecoverLogFiles(
       }
       WriteBatchInternal::SetContents(&batch, record);
       SequenceNumber seq_of_batch = WriteBatchInternal::Sequence(&batch);
-      // If the write batch's sequence number is smaller than the last sequence
-      // number of the db, then we should skip this write batch because its
-      // data must reside in an SST that has already been added in the prior
-      // MANIFEST replay.
       std::vector<uint32_t> column_family_ids;
       status = CollectColumnFamilyIdsFromWriteBatch(batch, &column_family_ids);
       if (status.ok()) {
@@ -221,6 +217,10 @@ Status DBImplSecondary::RecoverLogFiles(
               cfd->current()->storage_info()->LevelFiles(0);
           SequenceNumber seq =
               l0_files.empty() ? 0 : l0_files.back()->fd.largest_seqno;
+          // If the write batch's sequence number is smaller than the last
+          // sequence number of the largest sequence persisted for this column
+          // family, then its data must reside in an SST that has already been
+          // added in the prior MANIFEST replay.
           if (seq_of_batch <= seq) {
             continue;
           }
