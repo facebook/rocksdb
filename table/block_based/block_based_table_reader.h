@@ -137,7 +137,9 @@ class BlockBasedTable : public TableReader {
   bool PrefixMayMatch(const Slice& internal_key,
                       const ReadOptions& read_options,
                       const SliceTransform* options_prefix_extractor,
-                      const bool need_upper_bound_check) const;
+                      const bool need_upper_bound_check,
+                      /*set the context value to nullptr by default as this is a public function */
+                      BlockCacheLookupContext *context) const;
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
@@ -245,8 +247,9 @@ class BlockBasedTable : public TableReader {
   // input_iter: if it is not null, update this one and return it as Iterator
   template <typename TBlockIter>
   TBlockIter* NewDataBlockIterator(
+      BlockCacheLookupContext* lookup_context,
       const ReadOptions& ro, const BlockHandle& block_hanlde,
-      BlockCacheLookupContext* lookup_context, TBlockIter* input_iter = nullptr,
+      TBlockIter* input_iter = nullptr,
       bool is_index = false, bool key_includes_seq = true,
       bool index_key_is_full = true, GetContext* get_context = nullptr,
       Status s = Status(), FilePrefetchBuffer* prefetch_buffer = nullptr) const;
@@ -281,6 +284,7 @@ class BlockBasedTable : public TableReader {
   //    in uncompressed block cache, also sets cache_handle to reference that
   //    block.
   Status MaybeReadBlockAndLoadToCache(
+      BlockCacheLookupContext *lookup_context,
       FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
       CachableEntry<Block>* block_entry, bool is_index = false,
@@ -289,7 +293,8 @@ class BlockBasedTable : public TableReader {
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the
   // read options allow I/O).
-  Status RetrieveBlock(FilePrefetchBuffer* prefetch_buffer,
+  Status RetrieveBlock(BlockCacheLookupContext* lookup_context,
+                        FilePrefetchBuffer* prefetch_buffer,
                        const ReadOptions& ro, const BlockHandle& handle,
                        const UncompressionDict& uncompression_dict,
                        CachableEntry<Block>* block_entry, bool is_index,
@@ -299,17 +304,19 @@ class BlockBasedTable : public TableReader {
   // if `no_io == true`, we will not try to read filter/index from sst file
   // were they not present in cache yet.
   CachableEntry<FilterBlockReader> GetFilter(
+      BlockCacheLookupContext* lookup_context,
       const SliceTransform* prefix_extractor = nullptr,
       FilePrefetchBuffer* prefetch_buffer = nullptr, bool no_io = false,
       GetContext* get_context = nullptr) const;
   virtual CachableEntry<FilterBlockReader> GetFilter(
+      BlockCacheLookupContext* lookup_context,
       FilePrefetchBuffer* prefetch_buffer, const BlockHandle& filter_blk_handle,
       const bool is_a_filter_partition, bool no_io, GetContext* get_context,
       const SliceTransform* prefix_extractor = nullptr) const;
 
   CachableEntry<UncompressionDict> GetUncompressionDict(
-      FilePrefetchBuffer* prefetch_buffer, bool no_io, GetContext* get_context,
-      BlockCacheLookupContext* lookup_context) const;
+      BlockCacheLookupContext* lookup_context, FilePrefetchBuffer* prefetch_buffer, bool no_io, GetContext* get_context
+      ) const;
 
   // Get the iterator from the index reader.
   // If input_iter is not set, return new Iterator
@@ -322,6 +329,7 @@ class BlockBasedTable : public TableReader {
   //  3. We disallowed any io to be performed, that is, read_options ==
   //     kBlockCacheTier
   InternalIteratorBase<BlockHandle>* NewIndexIterator(
+      BlockCacheLookupContext* lookup_context,
       const ReadOptions& read_options, bool need_upper_bound_check = false,
       IndexBlockIter* input_iter = nullptr,
       GetContext* get_context = nullptr) const;
@@ -373,7 +381,8 @@ class BlockBasedTable : public TableReader {
   // Optionally, user can pass a preloaded meta_index_iter for the index that
   // need to access extra meta blocks for index construction. This parameter
   // helps avoid re-reading meta index block if caller already created one.
-  Status CreateIndexReader(FilePrefetchBuffer* prefetch_buffer,
+  Status CreateIndexReader(BlockCacheLookupContext* lookup_context,
+                           FilePrefetchBuffer* prefetch_buffer,
                            InternalIterator* preloaded_meta_index_iter,
                            bool use_cache, bool prefetch, bool pin,
                            IndexReader** index_reader);
@@ -402,14 +411,16 @@ class BlockBasedTable : public TableReader {
   Status ReadPropertiesBlock(FilePrefetchBuffer* prefetch_buffer,
                              InternalIterator* meta_iter,
                              const SequenceNumber largest_seqno);
-  Status ReadRangeDelBlock(FilePrefetchBuffer* prefetch_buffer,
+  Status ReadRangeDelBlock(BlockCacheLookupContext* lookup_context,
+    FilePrefetchBuffer* prefetch_buffer,
                            InternalIterator* meta_iter,
-                           const InternalKeyComparator& internal_comparator,
-                           BlockCacheLookupContext* lookup_context);
+                           const InternalKeyComparator& internal_comparator
+                           );
   Status ReadCompressionDictBlock(
       FilePrefetchBuffer* prefetch_buffer,
       std::unique_ptr<const BlockContents>* compression_dict_block) const;
   Status PrefetchIndexAndFilterBlocks(
+      BlockCacheLookupContext *lookup_context,
       FilePrefetchBuffer* prefetch_buffer, InternalIterator* meta_iter,
       BlockBasedTable* new_table, bool prefetch_all,
       const BlockBasedTableOptions& table_options, const int level);
@@ -604,7 +615,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
         is_index_(is_index),
         key_includes_seq_(key_includes_seq),
         index_key_is_full_(index_key_is_full),
-        for_compaction_(for_compaction) {}
+        for_compaction_(for_compaction),
+        lookup_context_(for_compaction ? BlockCacheLookupCaller::kCompaction : BlockCacheLookupCaller::kUserIterator) {}
 
   ~BlockBasedTableIterator() { delete index_iter_; }
 
@@ -665,7 +677,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   bool CheckPrefixMayMatch(const Slice& ikey) {
     if (check_filter_ &&
         !table_->PrefixMayMatch(ikey, read_options_, prefix_extractor_,
-                                need_upper_bound_check_)) {
+                                need_upper_bound_check_, lookup_context_)) {
       // TODO remember the iterator is invalidated because of prefix
       // match. This can avoid the upper level file iterator to falsely
       // believe the position is the end of the SST file and move to
@@ -724,6 +736,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   // If this iterator is created for compaction
   bool for_compaction_;
   BlockHandle prev_index_value_;
+  BlockCacheLookupContext lookup_context_;
 
   // All the below fields control iterator readahead
   static const size_t kInitAutoReadaheadSize = 8 * 1024;
