@@ -19,16 +19,17 @@ enum BlockCacheLookupCaller : char {
   kUserGet = 1,
   kUserMGet = 2,
   kUserIterator = 3,
-  kPrefetch = 4,
-  kCompaction = 5
+  kUserApproximateSize = 4,
+  kPrefetch = 5,
+  kCompaction = 6,
 };
 
 enum BlockType : char {
-  kBlockTraceIndexBlock = 1,
-  kBlockTraceFilterBlock = 2,
-  kBlockTraceDataBlock = 3,
-  kBlockTraceUncompressionDictBlock = 4,
-  kBlockTraceRangeDeletionBlock = 5,
+  kIndexBlock = 1,
+  kFilterBlock = 2,
+  kDataBlock = 3,
+  kUncompressionDictBlock = 4,
+  kRangeDeletionBlock = 5,
 };
 
 // Lookup context for tracing block cache accesses.

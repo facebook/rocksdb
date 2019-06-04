@@ -99,31 +99,36 @@ class FullFilterBlockReader : public FilterBlockReader {
 
   virtual bool IsBlockBased() override { return false; }
 
-  virtual bool KeyMayMatch(
-      const Slice& key, const SliceTransform* prefix_extractor,
-      uint64_t block_offset = kNotValid, const bool no_io = false,
-      const Slice* const const_ikey_ptr = nullptr) override;
+  virtual bool KeyMayMatch(const Slice& key,
+                           const SliceTransform* prefix_extractor,
+                           uint64_t block_offset = kNotValid,
+                           const bool no_io = false,
+                           const Slice* const const_ikey_ptr = nullptr,
+                           BlockCacheLookupContext* context = nullptr) override;
 
   virtual bool PrefixMayMatch(
       const Slice& prefix, const SliceTransform* prefix_extractor,
       uint64_t block_offset = kNotValid, const bool no_io = false,
-      const Slice* const const_ikey_ptr = nullptr) override;
+      const Slice* const const_ikey_ptr = nullptr,
+      BlockCacheLookupContext* context = nullptr) override;
 
-  virtual void KeysMayMatch(MultiGetRange* range,
-                            const SliceTransform* prefix_extractor,
-                            uint64_t block_offset = kNotValid,
-                            const bool no_io = false) override;
+  virtual void KeysMayMatch(
+      MultiGetRange* range, const SliceTransform* prefix_extractor,
+      uint64_t block_offset = kNotValid, const bool no_io = false,
+      BlockCacheLookupContext* context = nullptr) override;
 
-  virtual void PrefixesMayMatch(MultiGetRange* range,
-                                const SliceTransform* prefix_extractor,
-                                uint64_t block_offset = kNotValid,
-                                const bool no_io = false) override;
+  virtual void PrefixesMayMatch(
+      MultiGetRange* range, const SliceTransform* prefix_extractor,
+      uint64_t block_offset = kNotValid, const bool no_io = false,
+      BlockCacheLookupContext* context = nullptr) override;
   virtual size_t ApproximateMemoryUsage() const override;
-  virtual bool RangeMayExist(const Slice* iterate_upper_bound, const Slice& user_key,
-                             const SliceTransform* prefix_extractor,
-                             const Comparator* comparator,
-                             const Slice* const const_ikey_ptr, bool* filter_checked,
-                             bool need_upper_bound_check) override;
+  virtual bool RangeMayExist(
+      const Slice* iterate_upper_bound, const Slice& user_key,
+      const SliceTransform* prefix_extractor, const Comparator* comparator,
+      const Slice* const const_ikey_ptr, bool* filter_checked,
+      bool need_upper_bound_check,
+      BlockCacheLookupContext* context = nullptr) override;
+
  private:
   const SliceTransform* prefix_extractor_;
   Slice contents_;
