@@ -373,7 +373,7 @@ TEST_F(DBSecondaryTest, MissingTableFile) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
-      "ReactiveVersionSet::ReadAndApply:AfterLoadTableHandlers",
+      "ReactiveVersionSet::ApplyOneVersionEditToBuilder:AfterLoadTableHandlers",
       [&](void* arg) {
         Status s = *reinterpret_cast<Status*>(arg);
         if (s.IsPathNotFound()) {
