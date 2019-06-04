@@ -48,6 +48,7 @@ Status BlockCacheTraceWriter::WriteBlockAccess(const TraceRecord& record) {
   PutFixed32(&trace.payload, record.sst_fd_number);
   trace.payload.push_back(record.caller);
   trace.payload.push_back(record.is_cache_hit);
+  trace.payload.push_back(record.no_insert);
   if (ShouldTraceReferencedKey(record)) {
     PutLengthPrefixedSlice(&trace.payload, record.referenced_key);
     PutFixed64(&trace.payload, record.num_keys_in_block);
@@ -159,6 +160,11 @@ Status BlockCacheTraceReader::ReadAccess(TraceRecord* record) {
     return incomplete_record;
   }
   record->is_cache_hit = static_cast<Boolean>(enc_slice[0]);
+  enc_slice.remove_prefix(kCharSize);
+  if (enc_slice.empty()) {
+    return incomplete_record;
+  }
+  record->no_insert = static_cast<Boolean>(enc_slice[0]);
   enc_slice.remove_prefix(kCharSize);
 
   if (ShouldTraceReferencedKey(*record)) {

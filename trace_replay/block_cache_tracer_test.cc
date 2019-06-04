@@ -67,6 +67,7 @@ class BlockCacheTracerTest : public testing::Test {
       record.level = kLevel;
       record.sst_fd_number = kSSTFDNumber + key_id;
       record.is_cache_hit = Boolean::kFalse;
+      record.no_insert = Boolean::kFalse;
       // Provide these fields for all block types.
       // The writer should only write these fields for data blocks and the
       // caller is either GET or MGET.
@@ -93,6 +94,7 @@ class BlockCacheTracerTest : public testing::Test {
       ASSERT_EQ(kLevel, record.level);
       ASSERT_EQ(kSSTFDNumber + key_id, record.sst_fd_number);
       ASSERT_EQ(Boolean::kFalse, record.is_cache_hit);
+      ASSERT_EQ(Boolean::kFalse, record.no_insert);
       if (block_type == TraceType::kBlockTraceDataBlock &&
           (record.caller == BlockCacheLookupCaller::kUserGet ||
            record.caller == BlockCacheLookupCaller::kUserMGet)) {

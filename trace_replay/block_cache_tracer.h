@@ -33,6 +33,7 @@ struct TraceRecord {
   uint32_t sst_fd_number;
   BlockCacheLookupCaller caller;
   Boolean is_cache_hit;
+  Boolean no_insert;
 
   // For Data block and User Get/Multi-Get only.
   std::string referenced_key = "";
