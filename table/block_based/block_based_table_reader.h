@@ -122,9 +122,11 @@ class BlockBasedTable : public TableReader {
   InternalIterator* NewIterator(
       const ReadOptions&, const SliceTransform* prefix_extractor,
       Arena* arena = nullptr, bool skip_filters = false,
-      /*TODO(haoyu) External SST ingestion also sets this for_compaction as
-        false. We treat external SST ingestion as a user is calling the iterator
-        for now. We should differentiate the caller. */
+      /*TODO(haoyu) 1. External SST ingestion sets for_compaction as false. 2.
+        Compaction also sets it to false when paranoid_file_checks is true,
+        i.e., it will populate the block cache with blocks in the new SST files.
+        We treat those as a user is calling iterator for now. We should
+        differentiate the caller. */
       bool for_compaction = false) override;
 
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
