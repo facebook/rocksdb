@@ -1,5 +1,7 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.2.1 (6/4/2019)
+### Bug Fixes
+* Fix flush's/compaction's merge processing logic which allowed `Put`s covered by range tombstones to reappear. Note `Put`s may exist even if the user only ever called `Merge()` due to an internal conversion during compaction to the bottommost level.
 
 ## 6.2.0 (4/30/2019)
 ### New Features
