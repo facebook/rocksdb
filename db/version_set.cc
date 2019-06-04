@@ -5551,7 +5551,9 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
         false /* is_initial_load */,
         cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
     TEST_SYNC_POINT_CALLBACK(
-        "ReactiveVersionSet::ReadAndApply:AfterLoadTableHandlers", &s);
+        "ReactiveVersionSet::ApplyOneVersionEditToBuilder:"
+        "AfterLoadTableHandlers",
+        &s);
     if (!s.ok() && !s.IsPathNotFound()) {
     } else if (s.IsPathNotFound()) {
       s = Status::OK();
