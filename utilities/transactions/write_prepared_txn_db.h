@@ -330,11 +330,12 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // be called with prepared_mutex_ write locked.
   void CheckPreparedAgainstMax(SequenceNumber new_max);
   // Remove the transaction with prepare sequence seq from the prepared list
-  void RemovePrepared(const uint64_t seq, const size_t batch_cnt = 1);
+  void RemovePrepared(const uint64_t seq, const size_t batch_cnt = 1, bool locked = false);
   // Add the transaction with prepare sequence prepare_seq and commit sequence
   // commit_seq to the commit map. loop_cnt is to detect infinite loops.
   // Note: must be called serially.
   void AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
+    const bool prepared_mutex_locked = false,
                     uint8_t loop_cnt = 0);
 
   struct CommitEntry {
@@ -589,7 +590,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // a serial invocation in which the last invocation is the one with the
   // largest new_max value.
   void AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
-                            const SequenceNumber& new_max);
+                            const SequenceNumber& new_max,
+    const bool prepared_mutex_locked
+                            );
 
   inline SequenceNumber SmallestUnCommittedSeq() {
     // Since we update the prepare_heap always from the main write queue via
@@ -841,8 +844,10 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
 
   virtual Status Callback(SequenceNumber commit_seq,
                           bool is_mem_disabled __attribute__((__unused__)),
-                          uint64_t, size_t /*index*/,
-                          size_t /*total*/) override {
+                          uint64_t, size_t index,
+                          size_t total) override {
+    const bool do_lock = index == 0;
+    const bool do_unlock = index + 1 == total;
     // Always commit from the 2nd queue
     assert(!db_impl_->immutable_db_options().two_write_queues ||
            is_mem_disabled);
@@ -852,14 +857,18 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
     const uint64_t last_commit_seq = LIKELY(data_batch_cnt_ <= 1)
                                          ? commit_seq
                                          : commit_seq + data_batch_cnt_ - 1;
+    if (do_lock) {
+      db_->prepared_mutex_.WriteLock();
+    }
+    const bool kLocked = true;
     if (prep_seq_ != kMaxSequenceNumber) {
       for (size_t i = 0; i < prep_batch_cnt_; i++) {
-        db_->AddCommitted(prep_seq_ + i, last_commit_seq);
+        db_->AddCommitted(prep_seq_ + i, last_commit_seq, kLocked);
       }
     }  // else there was no prepare phase
     if (includes_aux_batch_) {
       for (size_t i = 0; i < aux_batch_cnt_; i++) {
-        db_->AddCommitted(aux_seq_ + i, last_commit_seq);
+        db_->AddCommitted(aux_seq_ + i, last_commit_seq, kLocked);
       }
     }
     if (includes_data_) {
@@ -869,7 +878,7 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
         // For commit seq of each batch use the commit seq of the last batch.
         // This would make debugging easier by having all the batches having
         // the same sequence number.
-        db_->AddCommitted(commit_seq + i, last_commit_seq);
+        db_->AddCommitted(commit_seq + i, last_commit_seq, kLocked);
       }
     }
     if (db_impl_->immutable_db_options().two_write_queues) {
@@ -879,6 +888,14 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
       // publish sequence numbers will be in order, i.e., once a seq is
       // published all the seq prior to that are also publishable.
       db_impl_->SetLastPublishedSequence(last_commit_seq);
+    }
+    // Note RemovePrepared should be called after WriteImpl that publishsed the
+    // seq. Otherwise SmallestUnCommittedSeq optimization breaks.
+    if (prep_seq_ != kMaxSequenceNumber) {
+      db_->RemovePrepared(prep_seq_, prep_batch_cnt_, kLocked);
+    }  // else there was no prepare phase
+    if (do_unlock) {
+      db_->prepared_mutex_.WriteUnlock();
     }
     // else SequenceNumber that is updated as part of the write already does the
     // publishing

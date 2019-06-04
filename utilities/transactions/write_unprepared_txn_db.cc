@@ -291,7 +291,8 @@ Status WriteUnpreparedTxnDB::Initialize(
 
   SequenceNumber prev_max = max_evicted_seq_;
   SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber();
-  AdvanceMaxEvictedSeq(prev_max, last_seq);
+  const bool kPreparedMutexLocked = true;
+  AdvanceMaxEvictedSeq(prev_max, last_seq, !kPreparedMutexLocked);
   // Create a gap between max and the next snapshot. This simplifies the logic
   // in IsInSnapshot by not having to consider the special case of max ==
   // snapshot after recovery. This is tested in IsInSnapshotEmptyMapTest.

@@ -1110,7 +1110,8 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
   }
   // This updates the max value and also set old prepared
   SequenceNumber init_max = 100;
-  wp_db->AdvanceMaxEvictedSeq(zero_max, init_max);
+  const bool kPreparedMutexLocked = true;
+  wp_db->AdvanceMaxEvictedSeq(zero_max, init_max, !kPreparedMutexLocked);
   const std::vector<SequenceNumber> initial_snapshots = {20, 40};
   wp_db->SetDBSnapshots(initial_snapshots);
   // This will update the internal cache of snapshots from the DB
@@ -1120,7 +1121,7 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
   const std::vector<SequenceNumber> latest_snapshots = {20, 110, 220, 300};
   wp_db->SetDBSnapshots(latest_snapshots);
   SequenceNumber new_max = 200;
-  wp_db->AdvanceMaxEvictedSeq(init_max, new_max);
+  wp_db->AdvanceMaxEvictedSeq(init_max, new_max, !kPreparedMutexLocked);
 
   // 3. Verify that the state matches with AdvanceMaxEvictedSeq contract
   // a. max should be updated to new_max
@@ -1752,8 +1753,9 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
   ASSERT_TRUE(released);
 
   // This make the snapshot release to reflect in txn db structures
+  const bool kPreparedMutexLocked = true;
   wp_db->AdvanceMaxEvictedSeq(wp_db->max_evicted_seq_,
-                              wp_db->max_evicted_seq_ + 1);
+                              wp_db->max_evicted_seq_ + 1, !kPreparedMutexLocked);
 
   released = false;
   // Released snapshot lower than max
