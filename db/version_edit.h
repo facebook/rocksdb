@@ -316,6 +316,7 @@ class VersionEdit {
   friend class ReactiveVersionSet;
   friend class VersionSet;
   friend class Version;
+  friend class AtomicGroupReadBuffer;
 
   bool GetLevel(Slice* input, int* level, const char** msg);
 

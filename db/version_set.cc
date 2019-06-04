@@ -3313,6 +3313,51 @@ struct VersionSet::ManifestWriter {
         edit_list(e) {}
 };
 
+Status AtomicGroupReadBuffer::AddEdit(VersionEdit* edit) {
+  assert(edit);
+  if (edit->is_in_atomic_group_) {
+    TEST_SYNC_POINT("AtomicGroupReadBuffer::AddEdit:AtomicGroup");
+    if (replay_buffer_.empty()) {
+      replay_buffer_.resize(edit->remaining_entries_ + 1);
+      TEST_SYNC_POINT_CALLBACK(
+          "AtomicGroupReadBuffer::AddEdit:FirstInAtomicGroup", edit);
+    }
+    read_edits_in_atomic_group_++;
+    if (read_edits_in_atomic_group_ + edit->remaining_entries_ !=
+        static_cast<uint32_t>(replay_buffer_.size())) {
+      TEST_SYNC_POINT_CALLBACK(
+          "AtomicGroupReadBuffer::AddEdit:IncorrectAtomicGroupSize", edit);
+      return Status::Corruption("corrupted atomic group");
+    }
+    replay_buffer_[read_edits_in_atomic_group_ - 1] = std::move(*edit);
+    if (read_edits_in_atomic_group_ == replay_buffer_.size()) {
+      TEST_SYNC_POINT_CALLBACK(
+          "AtomicGroupReadBuffer::AddEdit:LastInAtomicGroup", edit);
+      return Status::OK();
+    }
+    return Status::OK();
+  }
+
+  // A normal edit.
+  if (!replay_buffer().empty()) {
+    TEST_SYNC_POINT_CALLBACK(
+        "AtomicGroupReadBuffer::AddEdit:AtomicGroupMixedWithNormalEdits", edit);
+    return Status::Corruption("corrupted atomic group");
+  }
+  return Status::OK();
+}
+
+bool AtomicGroupReadBuffer::IsFull() const {
+  return read_edits_in_atomic_group_ == replay_buffer_.size();
+}
+
+bool AtomicGroupReadBuffer::IsEmpty() const { return replay_buffer_.empty(); }
+
+void AtomicGroupReadBuffer::Clear() {
+  read_edits_in_atomic_group_ = 0;
+  replay_buffer_.clear();
+}
+
 VersionSet::VersionSet(const std::string& dbname,
                        const ImmutableDBOptions* _db_options,
                        const EnvOptions& storage_options, Cache* table_cache,
@@ -4071,6 +4116,74 @@ Status VersionSet::GetCurrentManifestPath(const std::string& dbname, Env* env,
   return Status::OK();
 }
 
+Status VersionSet::ReadAndRecover(
+    log::Reader* reader, AtomicGroupReadBuffer* read_buffer,
+    const std::unordered_map<std::string, ColumnFamilyOptions>& name_to_options,
+    std::unordered_map<int, std::string>& column_families_not_found,
+    std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>&
+        builders,
+    bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
+    uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
+    bool* have_last_sequence, SequenceNumber* last_sequence,
+    uint64_t* min_log_number_to_keep, uint32_t* max_column_family) {
+  assert(reader != nullptr);
+  assert(read_buffer != nullptr);
+  Status s;
+  Slice record;
+  std::string scratch;
+  size_t recovered_edits = 0;
+  while (reader->ReadRecord(&record, &scratch) && s.ok()) {
+    VersionEdit edit;
+    s = edit.DecodeFrom(record);
+    if (!s.ok()) {
+      break;
+    }
+    s = read_buffer->AddEdit(&edit);
+    if (!s.ok()) {
+      break;
+    }
+    if (edit.is_in_atomic_group_) {
+      if (read_buffer->IsFull()) {
+        // Apply edits in an atomic group when we have read all edits in the
+        // group.
+        for (auto& e : read_buffer->replay_buffer()) {
+          s = ApplyOneVersionEditToBuilder(
+              e, name_to_options, column_families_not_found, builders,
+              have_log_number, log_number, have_prev_log_number,
+              previous_log_number, have_next_file, next_file,
+              have_last_sequence, last_sequence, min_log_number_to_keep,
+              max_column_family);
+          if (!s.ok()) {
+            break;
+          }
+          recovered_edits++;
+        }
+        if (!s.ok()) {
+          break;
+        }
+        read_buffer->Clear();
+      }
+    } else {
+      // Apply a normal edit immediately.
+      s = ApplyOneVersionEditToBuilder(
+          edit, name_to_options, column_families_not_found, builders,
+          have_log_number, log_number, have_prev_log_number,
+          previous_log_number, have_next_file, next_file, have_last_sequence,
+          last_sequence, min_log_number_to_keep, max_column_family);
+      if (s.ok()) {
+        recovered_edits++;
+      }
+    }
+  }
+  if (!s.ok()) {
+    // Clear the buffer if we fail to decode/apply an edit.
+    read_buffer->Clear();
+  }
+  TEST_SYNC_POINT_CALLBACK("VersionSet::ReadAndRecover:RecoveredEdits",
+                           &recovered_edits);
+  return s;
+}
+
 Status VersionSet::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     bool read_only) {
@@ -4148,66 +4261,12 @@ Status VersionSet::Recover(
                        true /* checksum */, 0 /* log_number */);
     Slice record;
     std::string scratch;
-    std::vector<VersionEdit> replay_buffer;
-    size_t num_entries_decoded = 0;
-    while (reader.ReadRecord(&record, &scratch) && s.ok()) {
-      VersionEdit edit;
-      s = edit.DecodeFrom(record);
-      if (!s.ok()) {
-        break;
-      }
-
-      if (edit.is_in_atomic_group_) {
-        if (replay_buffer.empty()) {
-          replay_buffer.resize(edit.remaining_entries_ + 1);
-          TEST_SYNC_POINT_CALLBACK("VersionSet::Recover:FirstInAtomicGroup",
-                                   &edit);
-        }
-        ++num_entries_decoded;
-        if (num_entries_decoded + edit.remaining_entries_ !=
-            static_cast<uint32_t>(replay_buffer.size())) {
-          TEST_SYNC_POINT_CALLBACK(
-              "VersionSet::Recover:IncorrectAtomicGroupSize", &edit);
-          s = Status::Corruption("corrupted atomic group");
-          break;
-        }
-        replay_buffer[num_entries_decoded - 1] = std::move(edit);
-        if (num_entries_decoded == replay_buffer.size()) {
-          TEST_SYNC_POINT_CALLBACK("VersionSet::Recover:LastInAtomicGroup",
-                                   &edit);
-          for (auto& e : replay_buffer) {
-            s = ApplyOneVersionEditToBuilder(
-                e, cf_name_to_options, column_families_not_found, builders,
-                &have_log_number, &log_number, &have_prev_log_number,
-                &previous_log_number, &have_next_file, &next_file,
-                &have_last_sequence, &last_sequence, &min_log_number_to_keep,
-                &max_column_family);
-            if (!s.ok()) {
-              break;
-            }
-          }
-          replay_buffer.clear();
-          num_entries_decoded = 0;
-        }
-        TEST_SYNC_POINT("VersionSet::Recover:AtomicGroup");
-      } else {
-        if (!replay_buffer.empty()) {
-          TEST_SYNC_POINT_CALLBACK(
-              "VersionSet::Recover:AtomicGroupMixedWithNormalEdits", &edit);
-          s = Status::Corruption("corrupted atomic group");
-          break;
-        }
-        s = ApplyOneVersionEditToBuilder(
-            edit, cf_name_to_options, column_families_not_found, builders,
-            &have_log_number, &log_number, &have_prev_log_number,
-            &previous_log_number, &have_next_file, &next_file,
-            &have_last_sequence, &last_sequence, &min_log_number_to_keep,
-            &max_column_family);
-      }
-      if (!s.ok()) {
-        break;
-      }
-    }
+    AtomicGroupReadBuffer read_buffer;
+    s = ReadAndRecover(
+        &reader, &read_buffer, cf_name_to_options, column_families_not_found,
+        builders, &have_log_number, &log_number, &have_prev_log_number,
+        &previous_log_number, &have_next_file, &next_file, &have_last_sequence,
+        &last_sequence, &min_log_number_to_keep, &max_column_family);
   }
 
   if (s.ok()) {
@@ -5218,19 +5277,11 @@ Status ReactiveVersionSet::Recover(
     assert(reader != nullptr);
     Slice record;
     std::string scratch;
-    while (s.ok() && reader->ReadRecord(&record, &scratch)) {
-      VersionEdit edit;
-      s = edit.DecodeFrom(record);
-      if (!s.ok()) {
-        break;
-      }
-      s = ApplyOneVersionEditToBuilder(
-          edit, cf_name_to_options, column_families_not_found, builders,
-          &have_log_number, &log_number, &have_prev_log_number,
-          &previous_log_number, &have_next_file, &next_file,
-          &have_last_sequence, &last_sequence, &min_log_number_to_keep,
-          &max_column_family);
-    }
+    s = ReadAndRecover(
+        reader, &read_buffer_, cf_name_to_options, column_families_not_found,
+        builders, &have_log_number, &log_number, &have_prev_log_number,
+        &previous_log_number, &have_next_file, &next_file, &have_last_sequence,
+        &last_sequence, &min_log_number_to_keep, &max_column_family);
     if (s.ok()) {
       bool enough = have_next_file && have_log_number && have_last_sequence;
       if (enough) {
@@ -5350,7 +5401,7 @@ Status ReactiveVersionSet::ReadAndApply(
   uint64_t previous_log_number = 0;
   uint32_t max_column_family = 0;
   uint64_t min_log_number_to_keep = 0;
-
+  uint64_t applied_edits = 0;
   while (s.ok()) {
     Slice record;
     std::string scratch;
@@ -5362,73 +5413,46 @@ Status ReactiveVersionSet::ReadAndApply(
       if (!s.ok()) {
         break;
       }
-      ColumnFamilyData* cfd =
-          column_family_set_->GetColumnFamily(edit.column_family_);
-      // If we cannot find this column family in our column family set, then it
-      // may be a new column family created by the primary after the secondary
-      // starts. Ignore it for now.
-      if (nullptr == cfd) {
-        continue;
-      }
-      if (active_version_builders_.find(edit.column_family_) ==
-          active_version_builders_.end()) {
-        std::unique_ptr<BaseReferencedVersionBuilder> builder_guard(
-            new BaseReferencedVersionBuilder(cfd));
-        active_version_builders_.insert(
-            std::make_pair(edit.column_family_, std::move(builder_guard)));
-      }
-      s = ApplyOneVersionEditToBuilder(
-          edit, &have_log_number, &log_number, &have_prev_log_number,
-          &previous_log_number, &have_next_file, &next_file,
-          &have_last_sequence, &last_sequence, &min_log_number_to_keep,
-          &max_column_family);
+
+      s = read_buffer_.AddEdit(&edit);
       if (!s.ok()) {
         break;
       }
-      auto builder_iter = active_version_builders_.find(edit.column_family_);
-      assert(builder_iter != active_version_builders_.end());
-      auto builder = builder_iter->second->version_builder();
-      assert(builder != nullptr);
-      s = builder->LoadTableHandlers(
-          cfd->internal_stats(), db_options_->max_file_opening_threads,
-          false /* prefetch_index_and_filter_in_cache */,
-          false /* is_initial_load */,
-          cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
-      TEST_SYNC_POINT_CALLBACK(
-          "ReactiveVersionSet::ReadAndApply:AfterLoadTableHandlers", &s);
-      if (!s.ok() && !s.IsPathNotFound()) {
-        break;
-      } else if (s.IsPathNotFound()) {
-        s = Status::OK();
-      } else {  // s.ok() == true
-        auto version = new Version(cfd, this, env_options_,
-                                   *cfd->GetLatestMutableCFOptions(),
-                                   current_version_number_++);
-        builder->SaveTo(version->storage_info());
-        version->PrepareApply(*cfd->GetLatestMutableCFOptions(), true);
-        AppendVersion(cfd, version);
-        active_version_builders_.erase(builder_iter);
-        if (cfds_changed->count(cfd) == 0) {
-          cfds_changed->insert(cfd);
+      if (edit.is_in_atomic_group_) {
+        if (read_buffer_.IsFull()) {
+          // Apply edits in an atomic group when we have read all edits in the
+          // group.
+          for (auto& e : read_buffer_.replay_buffer()) {
+            s = ApplyOneVersionEditToBuilder(
+                e, cfds_changed, &have_log_number, &log_number,
+                &have_prev_log_number, &previous_log_number, &have_next_file,
+                &next_file, &have_last_sequence, &last_sequence,
+                &min_log_number_to_keep, &max_column_family);
+            if (!s.ok()) {
+              break;
+            }
+            applied_edits++;
+          }
+          if (!s.ok()) {
+            break;
+          }
+          read_buffer_.Clear();
+        }
+      } else {
+        // Apply a normal edit immediately.
+        s = ApplyOneVersionEditToBuilder(
+            edit, cfds_changed, &have_log_number, &log_number,
+            &have_prev_log_number, &previous_log_number, &have_next_file,
+            &next_file, &have_last_sequence, &last_sequence,
+            &min_log_number_to_keep, &max_column_family);
+        if (s.ok()) {
+          applied_edits++;
         }
       }
-      if (have_next_file) {
-        next_file_number_.store(next_file + 1);
-      }
-      if (have_last_sequence) {
-        last_allocated_sequence_ = last_sequence;
-        last_published_sequence_ = last_sequence;
-        last_sequence_ = last_sequence;
-      }
-      if (have_prev_log_number) {
-        prev_log_number_ = previous_log_number;
-        MarkFileNumberUsed(previous_log_number);
-      }
-      if (have_log_number) {
-        MarkFileNumberUsed(log_number);
-      }
-      column_family_set_->UpdateMaxColumnFamily(max_column_family);
-      MarkMinLogNumberToKeep2PC(min_log_number_to_keep);
+    }
+    if (!s.ok()) {
+      // Clear the buffer if we fail to decode/apply an edit.
+      read_buffer_.Clear();
     }
     // It's possible that:
     // 1) s.IsCorruption(), indicating the current MANIFEST is corrupted.
@@ -5457,52 +5481,113 @@ Status ReactiveVersionSet::ReadAndApply(
       }
     }
   }
+  TEST_SYNC_POINT_CALLBACK("ReactiveVersionSet::ReadAndApply:AppliedEdits",
+                           &applied_edits);
   return s;
 }
 
 Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
-    VersionEdit& edit, bool* have_log_number, uint64_t* log_number,
-    bool* have_prev_log_number, uint64_t* previous_log_number,
-    bool* have_next_file, uint64_t* next_file, bool* have_last_sequence,
-    SequenceNumber* last_sequence, uint64_t* min_log_number_to_keep,
-    uint32_t* max_column_family) {
-  ColumnFamilyData* cfd = nullptr;
-  Status status;
+    VersionEdit& edit, std::unordered_set<ColumnFamilyData*>* cfds_changed,
+    bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
+    uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
+    bool* have_last_sequence, SequenceNumber* last_sequence,
+    uint64_t* min_log_number_to_keep, uint32_t* max_column_family) {
+  ColumnFamilyData* cfd =
+      column_family_set_->GetColumnFamily(edit.column_family_);
+
+  // If we cannot find this column family in our column family set, then it
+  // may be a new column family created by the primary after the secondary
+  // starts. It is also possible that the secondary instance opens only a subset
+  // of column families. Ignore it for now.
+  if (nullptr == cfd) {
+    return Status::OK();
+  }
+  if (active_version_builders_.find(edit.column_family_) ==
+      active_version_builders_.end()) {
+    std::unique_ptr<BaseReferencedVersionBuilder> builder_guard(
+        new BaseReferencedVersionBuilder(cfd));
+    active_version_builders_.insert(
+        std::make_pair(edit.column_family_, std::move(builder_guard)));
+  }
+
+  auto builder_iter = active_version_builders_.find(edit.column_family_);
+  assert(builder_iter != active_version_builders_.end());
+  auto builder = builder_iter->second->version_builder();
+  assert(builder != nullptr);
+
   if (edit.is_column_family_add_) {
     // TODO (yanqin) for now the secondary ignores column families created
     // after Open. This also simplifies handling of switching to a new MANIFEST
     // and processing the snapshot of the system at the beginning of the
     // MANIFEST.
-    return Status::OK();
   } else if (edit.is_column_family_drop_) {
-    cfd = column_family_set_->GetColumnFamily(edit.column_family_);
-    // Drop a CF created by primary after secondary starts? Then ignore
-    if (cfd == nullptr) {
-      return Status::OK();
-    }
     // Drop the column family by setting it to be 'dropped' without destroying
     // the column family handle.
+    // TODO (haoyu) figure out how to handle column faimly drop for
+    // secondary instance. (Is it possible that the ref count for cfd is 0 but
+    // the ref count for its versions is higher than 0?)
     cfd->SetDropped();
     if (cfd->Unref()) {
       delete cfd;
       cfd = nullptr;
     }
   } else {
-    cfd = column_family_set_->GetColumnFamily(edit.column_family_);
-    // Operation on a CF created after Open? Then ignore
-    if (cfd == nullptr) {
-      return Status::OK();
-    }
-    auto builder_iter = active_version_builders_.find(edit.column_family_);
-    assert(builder_iter != active_version_builders_.end());
-    auto builder = builder_iter->second->version_builder();
-    assert(builder != nullptr);
     builder->Apply(&edit);
   }
-  return ExtractInfoFromVersionEdit(
+  Status s = ExtractInfoFromVersionEdit(
       cfd, edit, have_log_number, log_number, have_prev_log_number,
       previous_log_number, have_next_file, next_file, have_last_sequence,
       last_sequence, min_log_number_to_keep, max_column_family);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (cfd != nullptr) {
+    s = builder->LoadTableHandlers(
+        cfd->internal_stats(), db_options_->max_file_opening_threads,
+        false /* prefetch_index_and_filter_in_cache */,
+        false /* is_initial_load */,
+        cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
+    TEST_SYNC_POINT_CALLBACK(
+        "ReactiveVersionSet::ApplyOneVersionEditToBuilder:"
+        "AfterLoadTableHandlers",
+        &s);
+
+    if (s.ok()) {
+      auto version = new Version(cfd, this, env_options_,
+                                 *cfd->GetLatestMutableCFOptions(),
+                                 current_version_number_++);
+      builder->SaveTo(version->storage_info());
+      version->PrepareApply(*cfd->GetLatestMutableCFOptions(), true);
+      AppendVersion(cfd, version);
+      active_version_builders_.erase(builder_iter);
+      if (cfds_changed->count(cfd) == 0) {
+        cfds_changed->insert(cfd);
+      }
+    } else if (s.IsPathNotFound()) {
+      s = Status::OK();
+    }
+    // Some other error has occurred during LoadTableHandlers.
+  }
+
+  if (have_next_file) {
+    next_file_number_.store(*next_file + 1);
+  }
+  if (have_last_sequence) {
+    last_allocated_sequence_ = *last_sequence;
+    last_published_sequence_ = *last_sequence;
+    last_sequence_ = *last_sequence;
+  }
+  if (have_prev_log_number) {
+    prev_log_number_ = *previous_log_number;
+    MarkFileNumberUsed(*previous_log_number);
+  }
+  if (have_log_number) {
+    MarkFileNumberUsed(*log_number);
+  }
+  column_family_set_->UpdateMaxColumnFamily(*max_column_family);
+  MarkMinLogNumberToKeep2PC(*min_log_number_to_keep);
+  return s;
 }
 
 Status ReactiveVersionSet::MaybeSwitchManifest(

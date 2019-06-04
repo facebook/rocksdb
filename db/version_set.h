@@ -752,6 +752,23 @@ struct ObsoleteFileInfo {
 
 class BaseReferencedVersionBuilder;
 
+class AtomicGroupReadBuffer {
+ public:
+  Status AddEdit(VersionEdit* edit);
+  void Clear();
+  bool IsFull() const;
+  bool IsEmpty() const;
+
+  uint64_t TEST_read_edits_in_atomic_group() const {
+    return read_edits_in_atomic_group_;
+  }
+  std::vector<VersionEdit>& replay_buffer() { return replay_buffer_; }
+
+ private:
+  uint64_t read_edits_in_atomic_group_ = 0;
+  std::vector<VersionEdit> replay_buffer_;
+};
+
 // VersionSet is the collection of versions of all the column families of the
 // database. Each database owns one VersionSet. A VersionSet has access to all
 // column families via ColumnFamilySet, i.e. set of the column families.
@@ -1028,6 +1045,18 @@ class VersionSet {
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                        VersionEdit* edit);
 
+  Status ReadAndRecover(
+      log::Reader* reader, AtomicGroupReadBuffer* read_buffer,
+      const std::unordered_map<std::string, ColumnFamilyOptions>&
+          name_to_options,
+      std::unordered_map<int, std::string>& column_families_not_found,
+      std::unordered_map<
+          uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>& builders,
+      bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
+      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
+      bool* have_last_sequence, SequenceNumber* last_sequence,
+      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
+
   // REQUIRES db mutex
   Status ApplyOneVersionEditToBuilder(
       VersionEdit& edit,
@@ -1135,16 +1164,23 @@ class ReactiveVersionSet : public VersionSet {
                  std::unique_ptr<log::Reader::Reporter>* manifest_reporter,
                  std::unique_ptr<Status>* manifest_reader_status);
 
+  uint64_t TEST_read_edits_in_atomic_group() const {
+    return read_buffer_.TEST_read_edits_in_atomic_group();
+  }
+  std::vector<VersionEdit>& replay_buffer() {
+    return read_buffer_.replay_buffer();
+  }
+
  protected:
   using VersionSet::ApplyOneVersionEditToBuilder;
 
   // REQUIRES db mutex
   Status ApplyOneVersionEditToBuilder(
-      VersionEdit& edit, bool* have_log_number, uint64_t* log_number,
-      bool* have_prev_log_number, uint64_t* previous_log_number,
-      bool* have_next_file, uint64_t* next_file, bool* have_last_sequence,
-      SequenceNumber* last_sequence, uint64_t* min_log_number_to_keep,
-      uint32_t* max_column_family);
+      VersionEdit& edit, std::unordered_set<ColumnFamilyData*>* cfds_changed,
+      bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
+      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
+      bool* have_last_sequence, SequenceNumber* last_sequence,
+      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
 
   Status MaybeSwitchManifest(
       log::Reader::Reporter* reporter,
@@ -1153,6 +1189,7 @@ class ReactiveVersionSet : public VersionSet {
  private:
   std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
       active_version_builders_;
+  AtomicGroupReadBuffer read_buffer_;
 
   using VersionSet::LogAndApply;
   using VersionSet::Recover;
