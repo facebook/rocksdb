@@ -1501,6 +1501,13 @@ class DBImpl : public DB {
   Status CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
                    size_t preallocate_block_size, log::Writer** new_log);
 
+  // Validate self-consistency of DB options
+  static Status ValidateOptions(const DBOptions& db_options);
+  // Validate self-consistency of DB options and its consistency with cf options
+  static Status ValidateOptions(
+      const DBOptions& db_options,
+      const std::vector<ColumnFamilyDescriptor>& column_families);
+
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;
 

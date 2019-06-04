@@ -842,7 +842,7 @@ TEST_F(OptionsTest, OptionsComposeDecompose) {
 
   Random rnd(301);
   test::RandomInitDBOptions(&base_db_opts, &rnd);
-  test::RandomInitCFOptions(&base_cf_opts, &rnd);
+  test::RandomInitCFOptions(&base_cf_opts, base_db_opts, &rnd);
 
   Options base_opts(base_db_opts, base_cf_opts);
   DBOptions new_db_opts(base_opts);
@@ -854,11 +854,12 @@ TEST_F(OptionsTest, OptionsComposeDecompose) {
 }
 
 TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
+  Options options;
   ColumnFamilyOptions base_opt, new_opt;
   Random rnd(302);
   // Phase 1: randomly assign base_opt
   // custom type options
-  test::RandomInitCFOptions(&base_opt, &rnd);
+  test::RandomInitCFOptions(&base_opt, options, &rnd);
 
   // Phase 2: obtain a string from base_opt
   std::string base_options_file_content;
@@ -1521,7 +1522,7 @@ TEST_F(OptionsParserTest, DumpAndParse) {
   for (int c = 0; c < num_cf; ++c) {
     ColumnFamilyOptions cf_opt;
     Random cf_rnd(0xFB + c);
-    test::RandomInitCFOptions(&cf_opt, &cf_rnd);
+    test::RandomInitCFOptions(&cf_opt, base_db_opt, &cf_rnd);
     if (c < 4) {
       cf_opt.prefix_extractor.reset(test::RandomSliceTransform(&rnd, c));
     }

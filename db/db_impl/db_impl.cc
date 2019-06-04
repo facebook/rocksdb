@@ -848,8 +848,9 @@ Status DBImpl::SetOptions(
   Status persist_options_status;
   SuperVersionContext sv_context(/* create_superversion */ true);
   {
+    auto db_options = GetDBOptions();
     InstrumentedMutexLock l(&mutex_);
-    s = cfd->SetOptions(options_map);
+    s = cfd->SetOptions(db_options, options_map);
     if (s.ok()) {
       new_options = *cfd->GetLatestMutableCFOptions();
       // Append new version to recompute compaction score.
@@ -912,6 +913,25 @@ Status DBImpl::SetDBOptions(
     InstrumentedMutexLock l(&mutex_);
     s = GetMutableDBOptionsFromStrings(mutable_db_options_, options_map,
                                        &new_options);
+    if (new_options.bytes_per_sync == 0) {
+      new_options.bytes_per_sync = 1024 * 1024;
+    }
+    DBOptions new_db_options =
+        BuildDBOptions(immutable_db_options_, new_options);
+    if (s.ok()) {
+      s = ValidateOptions(new_db_options);
+    }
+    if (s.ok()) {
+      for (auto c : *versions_->GetColumnFamilySet()) {
+        if (!c->IsDropped()) {
+          auto cf_options = c->GetLatestCFOptions();
+          s = ColumnFamilyData::ValidateOptions(new_db_options, cf_options);
+          if (!s.ok()) {
+            break;
+          }
+        }
+      }
+    }
     if (s.ok()) {
       if (new_options.max_background_compactions >
           mutable_db_options_.max_background_compactions) {
@@ -956,15 +976,12 @@ Status DBImpl::SetDBOptions(
                                           : new_options.max_open_files - 10);
       wal_changed = mutable_db_options_.wal_bytes_per_sync !=
                     new_options.wal_bytes_per_sync;
-      if (new_options.bytes_per_sync == 0) {
-        new_options.bytes_per_sync = 1024 * 1024;
-      }
       mutable_db_options_ = new_options;
-      env_options_for_compaction_ = EnvOptions(
-          BuildDBOptions(immutable_db_options_, mutable_db_options_));
+      env_options_for_compaction_ = EnvOptions(new_db_options);
       env_options_for_compaction_ = env_->OptimizeForCompactionTableWrite(
           env_options_for_compaction_, immutable_db_options_);
       versions_->ChangeEnvOptions(mutable_db_options_);
+      //TODO(xiez): clarify why apply optimize for read to write options
       env_options_for_compaction_ = env_->OptimizeForCompactionTableRead(
           env_options_for_compaction_, immutable_db_options_);
       env_options_for_compaction_.compaction_readahead_size =

@@ -338,9 +338,13 @@ class ColumnFamilyData {
 
   bool is_delete_range_supported() { return is_delete_range_supported_; }
 
+  // Validate CF options against DB options
+  static Status ValidateOptions(const DBOptions& db_options,
+                                const ColumnFamilyOptions& cf_options);
 #ifndef ROCKSDB_LITE
   // REQUIRES: DB mutex held
   Status SetOptions(
+      const DBOptions& db_options,
       const std::unordered_map<std::string, std::string>& options_map);
 #endif  // ROCKSDB_LITE
 

@@ -657,7 +657,7 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd);
 // Randomly initialize the given ColumnFamilyOptions
 // Note that the caller is responsible for releasing non-null
 // cf_opt->compaction_filter.
-void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd);
+void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions&, Random* rnd);
 
 // A dummy merge operator which can change its name
 class ChanglingMergeOperator : public MergeOperator {

@@ -58,7 +58,7 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
     cf_names.push_back(i == 0 ? kDefaultColumnFamilyName
                               : test::RandomName(&rnd_, 10));
     cf_opts.emplace_back();
-    test::RandomInitCFOptions(&cf_opts.back(), &rnd_);
+    test::RandomInitCFOptions(&cf_opts.back(), db_opt, &rnd_);
   }
 
   const std::string kFileName = "OPTIONS-123456";
@@ -82,7 +82,7 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
           cf_opts[i].table_factory.get(),
           loaded_cf_descs[i].options.table_factory.get()));
     }
-    test::RandomInitCFOptions(&cf_opts[i], &rnd_);
+    test::RandomInitCFOptions(&cf_opts[i], db_opt, &rnd_);
     ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
         cf_opts[i], loaded_cf_descs[i].options));
   }

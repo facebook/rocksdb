@@ -162,7 +162,11 @@ std::string RandomName(Random* rnd, const size_t len) {
 }
 
 CompressionType RandomCompressionType(Random* rnd) {
-  return static_cast<CompressionType>(rnd->Uniform(6));
+  auto ret = static_cast<CompressionType>(rnd->Uniform(6));
+  while (!CompressionTypeSupported(ret)) {
+    ret = static_cast<CompressionType>((static_cast<int>(ret) + 1) % 6);
+  }
+  return ret;
 }
 
 void RandomCompressionTypeVector(const size_t count,
@@ -293,7 +297,8 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->stats_dump_period_sec = rnd->Uniform(100000);
 }
 
-void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
+void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
+                         Random* rnd) {
   cf_opt->compaction_style = (CompactionStyle)(rnd->Uniform(4));
 
   // boolean options
@@ -345,8 +350,10 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
 
   // uint64_t options
   static const uint64_t uint_max = static_cast<uint64_t>(UINT_MAX);
-  cf_opt->ttl = uint_max + rnd->Uniform(10000);
-  cf_opt->periodic_compaction_seconds = uint_max + rnd->Uniform(10000);
+  cf_opt->ttl =
+      db_options.max_open_files == -1 ? uint_max + rnd->Uniform(10000) : 0;
+  cf_opt->periodic_compaction_seconds =
+      db_options.max_open_files == -1 ? uint_max + rnd->Uniform(10000) : 0;
   cf_opt->max_sequential_skip_in_iterations = uint_max + rnd->Uniform(10000);
   cf_opt->target_file_size_base = uint_max + rnd->Uniform(10000);
   cf_opt->max_compaction_bytes =

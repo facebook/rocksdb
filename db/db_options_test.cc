@@ -66,10 +66,10 @@ class DBOptionsTest : public DBTestBase {
 
   std::unordered_map<std::string, std::string> GetRandomizedMutableCFOptionsMap(
       Random* rnd) {
-    Options options;
+    Options options = CurrentOptions();
     options.env = env_;
     ImmutableDBOptions db_options(options);
-    test::RandomInitCFOptions(&options, rnd);
+    test::RandomInitCFOptions(&options, options, rnd);
     auto sanitized_options = SanitizeOptions(db_options, options);
     auto opt_map = GetMutableCFOptionsMap(sanitized_options);
     delete options.compaction_filter;
