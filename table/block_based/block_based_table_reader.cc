@@ -2060,7 +2060,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
     BlockCacheLookupContext* /*lookup_context*/,
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
-    CachableEntry<Block>* block_entry, BlockType type,
+    CachableEntry<Block>* block_entry, const BlockType& type,
     GetContext* get_context) const {
   // TODO(haoyu): Trace data/index/range deletion block access here.
   assert(block_entry != nullptr);
@@ -2139,7 +2139,7 @@ Status BlockBasedTable::RetrieveBlock(
     BlockCacheLookupContext* lookup_context,
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
-    CachableEntry<Block>* block_entry, BlockType type,
+    CachableEntry<Block>* block_entry, const BlockType& type,
     GetContext* get_context) const {
   assert(block_entry);
   assert(block_entry->IsEmpty());
@@ -2240,9 +2240,10 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
 //
 // REQUIRES: this method shouldn't be called while the DB lock is held.
 bool BlockBasedTable::PrefixMayMatch(
-    const Slice& internal_key, const ReadOptions& read_options,
+    BlockCacheLookupContext* context, const Slice& internal_key,
+    const ReadOptions& read_options,
     const SliceTransform* options_prefix_extractor,
-    const bool need_upper_bound_check, BlockCacheLookupContext *context) const {
+    const bool need_upper_bound_check) const {
   if (!rep_->filter_policy) {
     return true;
   }
@@ -3035,8 +3036,8 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
 }
 
 Status BlockBasedTable::VerifyChecksum() {
-  // TODO(haoyu): This function is called from external sst ingestion and user's
-  // VerifyChecksum.
+  // TODO(haoyu): This function is called by external sst ingestion and user.
+  // We don't log its block cache accesses for now.
   Status s;
   // Check Meta blocks
   std::unique_ptr<Block> meta;

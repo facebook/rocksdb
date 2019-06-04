@@ -37,7 +37,6 @@ struct BlockCacheLookupContext {
   BlockCacheLookupContext(const BlockCacheLookupCaller& _caller)
       : caller(_caller) {}
   const BlockCacheLookupCaller caller;
-  BlockType block_type;
 };
 
 // CachableEntry is a handle to an object that may or may not be in the block

@@ -109,22 +109,23 @@ class BlockBasedTable : public TableReader {
                      const SequenceNumber largest_seqno = 0,
                      TailPrefetchStats* tail_prefetch_stats = nullptr);
 
-  bool PrefixMayMatch(const Slice& internal_key,
+  bool PrefixMayMatch(BlockCacheLookupContext* context,
+                      const Slice& internal_key,
                       const ReadOptions& read_options,
                       const SliceTransform* options_prefix_extractor,
-                      const bool need_upper_bound_check,
-                      /*set the context value to nullptr by default as this is a public function */
-                      BlockCacheLookupContext *context) const;
+                      const bool need_upper_bound_check) const;
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
   // @param skip_filters Disables loading/accessing the filter block
-  InternalIterator* NewIterator(const ReadOptions&,
-                                const SliceTransform* prefix_extractor,
-                                Arena* arena = nullptr,
-                                bool skip_filters = false,
-                                bool for_compaction = false) override;
+  InternalIterator* NewIterator(
+      const ReadOptions&, const SliceTransform* prefix_extractor,
+      Arena* arena = nullptr, bool skip_filters = false,
+      /*TODO(haoyu) External SST ingestion also sets this for_compaction as
+        false. We treat external SST ingestion as a user is calling the iterator
+        for now. We should differentiate the caller. */
+      bool for_compaction = false) override;
 
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
@@ -263,7 +264,7 @@ class BlockBasedTable : public TableReader {
       BlockCacheLookupContext* lookup_context,
       FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
-      CachableEntry<Block>* block_entry, BlockType type = BlockType::kDataBlock,
+      CachableEntry<Block>* block_entry, const BlockType& type,
       GetContext* get_context = nullptr) const;
 
   // Similar to the above, with one crucial difference: it will retrieve the
@@ -273,7 +274,7 @@ class BlockBasedTable : public TableReader {
                        FilePrefetchBuffer* prefetch_buffer,
                        const ReadOptions& ro, const BlockHandle& handle,
                        const UncompressionDict& uncompression_dict,
-                       CachableEntry<Block>* block_entry, BlockType type,
+                       CachableEntry<Block>* block_entry, const BlockType& type,
                        GetContext* get_context) const;
 
   // For the following two functions:
@@ -654,8 +655,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
 
   bool CheckPrefixMayMatch(const Slice& ikey) {
     if (check_filter_ &&
-        !table_->PrefixMayMatch(ikey, read_options_, prefix_extractor_,
-                                need_upper_bound_check_, &lookup_context_)) {
+        !table_->PrefixMayMatch(&lookup_context_, ikey, read_options_,
+                                prefix_extractor_, need_upper_bound_check_)) {
       // TODO remember the iterator is invalidated because of prefix
       // match. This can avoid the upper level file iterator to falsely
       // believe the position is the end of the SST file and move to
@@ -707,7 +708,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   bool need_upper_bound_check_;
   const SliceTransform* prefix_extractor_;
   // The block type over which we iterate on
-  BlockType type_;
+  const BlockType type_;
   // If the keys in the blocks over which we iterate include 8 byte sequence
   bool key_includes_seq_;
   bool index_key_is_full_;
