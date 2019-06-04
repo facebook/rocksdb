@@ -56,7 +56,7 @@ class BlockCacheTracerTest : public testing::Test {
     assert(writer);
     for (uint32_t i = 0; i < nblocks; i++) {
       uint32_t key_id = from_key_id + i;
-      TraceRecord record;
+      BlockCacheTraceRecord record;
       record.block_type = block_type;
       record.block_size = kBlockSize + key_id;
       record.block_key = kBlockKeyPrefix + std::to_string(key_id);
@@ -83,7 +83,7 @@ class BlockCacheTracerTest : public testing::Test {
     assert(reader);
     for (uint32_t i = 0; i < nblocks; i++) {
       uint32_t key_id = from_key_id + i;
-      TraceRecord record;
+      BlockCacheTraceRecord record;
       ASSERT_OK(reader->ReadAccess(&record));
       ASSERT_EQ(block_type, record.block_type);
       ASSERT_EQ(kBlockSize + key_id, record.block_size);
@@ -139,7 +139,7 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     ASSERT_OK(NewFileTraceReader(env_, env_options_, trace_file_path_,
                                  &trace_reader));
     BlockCacheTraceReader reader(std::move(trace_reader));
-    TraceHeader header;
+    BlockCacheTraceHeader header;
     ASSERT_OK(reader.ReadHeader(&header));
     ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
     ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
@@ -150,7 +150,7 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     VerifyAccess(&reader, 30, TraceType::kBlockTraceIndexBlock, 10);
     VerifyAccess(&reader, 40, TraceType::kBlockTraceRangeDeletionBlock, 10);
     // Read one more record should report an error.
-    TraceRecord record;
+    BlockCacheTraceRecord record;
     ASSERT_NOK(reader.ReadAccess(&record));
   }
 }

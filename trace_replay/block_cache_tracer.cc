@@ -14,7 +14,7 @@ namespace rocksdb {
 
 namespace {
 const unsigned int kCharSize = 1;
-bool ShouldTraceReferencedKey(const TraceRecord& record) {
+bool ShouldTraceReferencedKey(const BlockCacheTraceRecord& record) {
   return (record.block_type == TraceType::kBlockTraceDataBlock) &&
          (record.caller == BlockCacheLookupCaller::kUserGet ||
           record.caller == BlockCacheLookupCaller::kUserMGet);
@@ -30,9 +30,8 @@ BlockCacheTraceWriter::BlockCacheTraceWriter(
   WriteHeader();
 }
 
-BlockCacheTraceWriter::~BlockCacheTraceWriter() { trace_writer_.reset(); }
-
-Status BlockCacheTraceWriter::WriteBlockAccess(const TraceRecord& record) {
+Status BlockCacheTraceWriter::WriteBlockAccess(
+    const BlockCacheTraceRecord& record) {
   uint64_t trace_file_size = trace_writer_->GetFileSize();
   if (trace_file_size > trace_options_.max_trace_file_size) {
     return Status::OK();
@@ -75,9 +74,7 @@ BlockCacheTraceReader::BlockCacheTraceReader(
     std::unique_ptr<TraceReader>&& reader)
     : trace_reader_(std::move(reader)) {}
 
-BlockCacheTraceReader::~BlockCacheTraceReader() { trace_reader_.reset(); }
-
-Status BlockCacheTraceReader::ReadHeader(TraceHeader* header) {
+Status BlockCacheTraceReader::ReadHeader(BlockCacheTraceHeader* header) {
   assert(header != nullptr);
   std::string encoded_trace;
   Status s = trace_reader_->Read(&encoded_trace);
@@ -113,7 +110,7 @@ Status BlockCacheTraceReader::ReadHeader(TraceHeader* header) {
   return Status::OK();
 }
 
-Status BlockCacheTraceReader::ReadAccess(TraceRecord* record) {
+Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
   assert(record);
   std::string encoded_trace;
   Status s = trace_reader_->Read(&encoded_trace);

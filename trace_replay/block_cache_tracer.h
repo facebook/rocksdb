@@ -20,9 +20,9 @@ enum BlockCacheLookupCaller : char {
   kCompaction = 5
 };
 
-enum Boolean : char { kTrue = 1, kFalse = 2 };
+enum Boolean : char { kTrue = 1, kFalse = 0 };
 
-struct TraceRecord {
+struct BlockCacheTraceRecord {
   uint64_t access_timestamp;
   std::string block_key;
   TraceType block_type;
@@ -41,7 +41,7 @@ struct TraceRecord {
   Boolean is_referenced_key_exist_in_block = Boolean::kFalse;
 };
 
-struct TraceHeader {
+struct BlockCacheTraceHeader {
   uint64_t start_time;
   uint32_t rocksdb_major_version;
   uint32_t rocksdb_minor_version;
@@ -55,9 +55,8 @@ class BlockCacheTraceWriter {
  public:
   BlockCacheTraceWriter(Env* env, const TraceOptions& trace_options,
                         std::unique_ptr<TraceWriter>&& trace_writer);
-  ~BlockCacheTraceWriter();
 
-  Status WriteBlockAccess(const TraceRecord& record);
+  Status WriteBlockAccess(const BlockCacheTraceRecord& record);
 
   // Returns true if the trace is over the configured max trace file limit.
   // False otherwise.
@@ -78,11 +77,10 @@ class BlockCacheTraceWriter {
 class BlockCacheTraceReader {
  public:
   BlockCacheTraceReader(std::unique_ptr<TraceReader>&& reader);
-  ~BlockCacheTraceReader();
 
-  Status ReadHeader(TraceHeader* header);
+  Status ReadHeader(BlockCacheTraceHeader* header);
 
-  Status ReadAccess(TraceRecord* record);
+  Status ReadAccess(BlockCacheTraceRecord* record);
 
  private:
   std::unique_ptr<TraceReader> trace_reader_;
