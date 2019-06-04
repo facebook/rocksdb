@@ -463,9 +463,9 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
       continue;
     }
     VersionStorageInfo::LevelSummaryStorage tmp;
-    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Level summary: %s\n",
-                   cfd->GetName().c_str(),
-                   cfd->current()->storage_info()->LevelSummary(&tmp));
+    ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] Level summary: %s\n",
+                    cfd->GetName().c_str(),
+                    cfd->current()->storage_info()->LevelSummary(&tmp));
   }
 
   // list wal_dir to discover new WALs and apply new changes to the secondary
