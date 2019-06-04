@@ -7,8 +7,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors
 #include <dirent.h>
+#ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
+#include <dlfcn.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
+
 #if defined(OS_LINUX)
 #include <linux/fs.h>
 #endif
@@ -69,6 +73,17 @@
 #endif
 
 namespace rocksdb {
+#if defined(OS_WIN)
+static const std::string kSharedLibExt = ".dll";
+static const char kPathSeparator = ';';
+#else
+static const char kPathSeparator = ':';
+#if defined(OS_MACOSX)
+static const std::string kSharedLibExt = ".dylib";
+#else
+static const std::string kSharedLibExt = ".so";
+#endif
+#endif
 
 namespace {
 
@@ -114,6 +129,32 @@ int cloexec_flags(int flags, const EnvOptions* options) {
 #endif
   return flags;
 }
+
+#ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
+class PosixDynamicLibrary : public DynamicLibrary {
+ public:
+  PosixDynamicLibrary(const std::string& name, void* handle)
+      : name_(name), handle_(handle) {}
+  ~PosixDynamicLibrary() override { dlclose(handle_); }
+
+  Status LoadSymbol(const std::string& sym_name, FunctionPtr* func) override {
+    char* err = dlerror();  // Clear any old error
+    *func = (FunctionPtr)dlsym(handle_, sym_name.c_str());
+    if (*func != nullptr) {
+      return Status::OK();
+    } else {
+      err = dlerror();
+      return Status::NotFound("Error finding symbol: " + sym_name, err);
+    }
+  }
+
+  const char* Name() const override { return name_.c_str(); }
+
+ private:
+  std::string name_;
+  void* handle_;
+};
+#endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
 
 class PosixEnv : public Env {
  public:
@@ -728,6 +769,64 @@ class PosixEnv : public Env {
     mutex_lockedFiles.Unlock();
     return result;
   }
+
+#ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
+  /**
+   * Loads the named library into the result.
+   * If the input name is empty, the current executable is loaded
+   * On *nix systems, a "lib" prefix is added to the name if one is not supplied
+   * Comparably, the appropriate shared library extension is added to the name
+   * if not supplied. If search_path is not specified, the shared library will
+   * be loaded using the default path (LD_LIBRARY_PATH) If search_path is
+   * specified, the shared library will be searched for in the directories
+   * provided by the search path
+   */
+  Status LoadLibrary(const std::string& name, const std::string& path,
+                     std::shared_ptr<DynamicLibrary>* result) override {
+    Status status;
+    assert(result != nullptr);
+    if (name.empty()) {
+      void* hndl = dlopen(NULL, RTLD_NOW);
+      if (hndl != nullptr) {
+        result->reset(new PosixDynamicLibrary(name, hndl));
+        return Status::OK();
+      }
+    } else {
+      std::string library_name = name;
+      if (library_name.find(kSharedLibExt) == std::string::npos) {
+        library_name = library_name + kSharedLibExt;
+      }
+#if !defined(OS_WIN)
+      if (library_name.find('/') == std::string::npos &&
+          library_name.compare(0, 3, "lib") != 0) {
+        library_name = "lib" + library_name;
+      }
+#endif
+      if (path.empty()) {
+        void* hndl = dlopen(library_name.c_str(), RTLD_NOW);
+        if (hndl != nullptr) {
+          result->reset(new PosixDynamicLibrary(library_name, hndl));
+          return Status::OK();
+        }
+      } else {
+        std::string local_path;
+        std::stringstream ss(path);
+        while (getline(ss, local_path, kPathSeparator)) {
+          if (!path.empty()) {
+            std::string full_name = local_path + "/" + library_name;
+            void* hndl = dlopen(full_name.c_str(), RTLD_NOW);
+            if (hndl != nullptr) {
+              result->reset(new PosixDynamicLibrary(full_name, hndl));
+              return Status::OK();
+            }
+          }
+        }
+      }
+    }
+    return Status::IOError(
+        IOErrorMsg("Failed to open shared library: xs", name), dlerror());
+  }
+#endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
 
   void Schedule(void (*function)(void* arg1), void* arg, Priority pri = LOW,
                 void* tag = nullptr,

@@ -247,6 +247,52 @@ TEST_F(EnvPosixTest, MemoryMappedFileBuffer) {
   ASSERT_EQ(expected_data, actual_data);
 }
 
+#ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
+TEST_F(EnvPosixTest, LoadRocksDBLibrary) {
+  std::shared_ptr<DynamicLibrary> library;
+  std::function<void*(void*, const char*)> function;
+  Status status = env_->LoadLibrary("no-such-library", "", &library);
+  ASSERT_NOK(status);
+  ASSERT_EQ(nullptr, library.get());
+  status = env_->LoadLibrary("rocksdb", "", &library);
+  if (status.ok()) {  // If we have can find a rocksdb shared library
+    ASSERT_NE(nullptr, library.get());
+    ASSERT_OK(library->LoadFunction("rocksdb_create_default_env",
+                                    &function));  // from C definition
+    ASSERT_NE(nullptr, function);
+    ASSERT_NOK(library->LoadFunction("no-such-method", &function));
+    ASSERT_EQ(nullptr, function);
+    ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
+  } else {
+    ASSERT_EQ(nullptr, library.get());
+  }
+}
+#endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
+
+#if !defined(OS_WIN) && !defined(ROCKSDB_NO_DYNAMIC_EXTENSION)
+TEST_F(EnvPosixTest, LoadRocksDBLibraryWithSearchPath) {
+  std::shared_ptr<DynamicLibrary> library;
+  std::function<void*(void*, const char*)> function;
+  ASSERT_NOK(env_->LoadLibrary("no-such-library", "/tmp", &library));
+  ASSERT_EQ(nullptr, library.get());
+  ASSERT_NOK(env_->LoadLibrary("dl", "/tmp", &library));
+  ASSERT_EQ(nullptr, library.get());
+  Status status = env_->LoadLibrary("rocksdb", "/tmp:./", &library);
+  if (status.ok()) {
+    ASSERT_NE(nullptr, library.get());
+    ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
+  }
+  char buff[1024];
+  std::string cwd = getcwd(buff, sizeof(buff));
+
+  status = env_->LoadLibrary("rocksdb", "/tmp:" + cwd, &library);
+  if (status.ok()) {
+    ASSERT_NE(nullptr, library.get());
+    ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
+  }
+}
+#endif  // !OS_WIN && !ROCKSDB_NO_DYNAMIC_EXTENSION
+
 TEST_P(EnvPosixTestWithParam, UnSchedule) {
   std::atomic<bool> called(false);
   env_->SetBackgroundThreads(1, Env::LOW);
