@@ -23,7 +23,6 @@ enum BlockCacheLookupCaller : char {
   kUserApproximateSize = 4,
   /*When a BlockBasedTable is opend, it may prefetch range deletion, index, and
      filter blocks into the block cache.*/
-
   kPrefetch = 5,
   /*Compaction looks up blocks in the block cache but does not insert blocks
      upon cache misses. */
@@ -45,9 +44,9 @@ enum BlockType : char {
 // 3. BlockBasedTable::MaybeReadAndLoadToCache. (To trace access on data, index,
 // and range deletion block.)
 // 4. BlockBasedTable::Get. (To trace the referenced key and whether the
-// referenced key exists in the data block.)
+// referenced key exists in a fetched data block.)
 // 5. BlockBasedTable::MultiGet. (To trace the referenced key and whether the
-// referenced key exists in the data block.)
+// referenced key exists in a fetched data block.)
 // The context is created at:
 // 1. BlockBasedTable::Get. (kUserGet)
 // 2. BlockBasedTable::MultiGet. (kUserMGet)
