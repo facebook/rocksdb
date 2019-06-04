@@ -201,7 +201,15 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // want. Also if we're in compaction and it's a put, it would be nice to
       // run compaction filter on it.
       const Slice val = iter->value();
-      const Slice* val_ptr = (kTypeValue == ikey.type) ? &val : nullptr;
+      const Slice* val_ptr;
+      if (kTypeValue == ikey.type &&
+          (range_del_agg == nullptr ||
+           !range_del_agg->ShouldDelete(
+               ikey, RangeDelPositioningMode::kForwardTraversal))) {
+        val_ptr = &val;
+      } else {
+        val_ptr = nullptr;
+      }
       std::string merge_result;
       s = TimedFullMerge(user_merge_operator_, ikey.user_key, val_ptr,
                          merge_context_.GetOperands(), &merge_result, logger_,
