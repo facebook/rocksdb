@@ -1029,25 +1029,23 @@ class FileLock {
 
 class DynamicLibrary {
  public:
-  typedef void* (*FunctionPtr)();
   virtual ~DynamicLibrary() {}
 
-  /** Returns the name of the dynamic library */
+  // Returns the name of the dynamic library.
   virtual const char* Name() const = 0;
 
-  /**
-   * Loads the symbol for sym_name from the library and updates the input
-   * function. Returns the loaded symbol
-   */
+  // Loads the symbol for sym_name from the library and updates the input
+  // function. Returns the loaded symbol.
   template <typename T>
   Status LoadFunction(const std::string& sym_name, std::function<T>* function) {
-    FunctionPtr ptr;
+    assert(nullptr != function);
+    void* ptr = nullptr;
     Status s = LoadSymbol(sym_name, &ptr);
     *function = reinterpret_cast<T*>(ptr);
     return s;
   }
-  /** Loads and returns the symbol for sym_name from the library  */
-  virtual Status LoadSymbol(const std::string& sym_name, FunctionPtr* func) = 0;
+  // Loads and returns the symbol for sym_name from the library.
+  virtual Status LoadSymbol(const std::string& sym_name, void** func) = 0;
 };
 
 extern void LogFlush(const std::shared_ptr<Logger>& info_log);

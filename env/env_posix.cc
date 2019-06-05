@@ -137,13 +137,14 @@ class PosixDynamicLibrary : public DynamicLibrary {
       : name_(name), handle_(handle) {}
   ~PosixDynamicLibrary() override { dlclose(handle_); }
 
-  Status LoadSymbol(const std::string& sym_name, FunctionPtr* func) override {
-    char* err = dlerror();  // Clear any old error
-    *func = (FunctionPtr)dlsym(handle_, sym_name.c_str());
+  Status LoadSymbol(const std::string& sym_name, void** func) override {
+    assert(nullptr != func);
+    dlerror();  // Clear any old error
+    *func = dlsym(handle_, sym_name.c_str());
     if (*func != nullptr) {
       return Status::OK();
     } else {
-      err = dlerror();
+      char* err = dlerror();
       return Status::NotFound("Error finding symbol: " + sym_name, err);
     }
   }
@@ -771,16 +772,14 @@ class PosixEnv : public Env {
   }
 
 #ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
-  /**
-   * Loads the named library into the result.
-   * If the input name is empty, the current executable is loaded
-   * On *nix systems, a "lib" prefix is added to the name if one is not supplied
-   * Comparably, the appropriate shared library extension is added to the name
-   * if not supplied. If search_path is not specified, the shared library will
-   * be loaded using the default path (LD_LIBRARY_PATH) If search_path is
-   * specified, the shared library will be searched for in the directories
-   * provided by the search path
-   */
+  // Loads the named library into the result.
+  // If the input name is empty, the current executable is loaded
+  // On *nix systems, a "lib" prefix is added to the name if one is not supplied
+  // Comparably, the appropriate shared library extension is added to the name
+  // if not supplied. If search_path is not specified, the shared library will
+  // be loaded using the default path (LD_LIBRARY_PATH) If search_path is
+  // specified, the shared library will be searched for in the directories
+  // provided by the search path
   Status LoadLibrary(const std::string& name, const std::string& path,
                      std::shared_ptr<DynamicLibrary>* result) override {
     Status status;
