@@ -1328,7 +1328,7 @@ class DBBasicTestWithTimestampWithParam
       return cmp_without_ts_->Compare(k1, k2);
     }
 
-    int CompareTimestamp(Slice&& ts1, Slice&& ts2) const override {
+    int CompareTimestamp(const Slice& ts1, const Slice& ts2) const override {
       if (!ts1.data() && !ts2.data()) {
         return 0;
       } else if (ts1.data() && !ts2.data()) {
@@ -1341,8 +1341,10 @@ class DBBasicTestWithTimestampWithParam
       uint64_t low2 = 0;
       uint64_t high1 = 0;
       uint64_t high2 = 0;
-      if (!GetFixed64(&ts1, &low1) || !GetFixed64(&ts1, &high1) ||
-          !GetFixed64(&ts2, &low2) || !GetFixed64(&ts2, &high2)) {
+      auto* ptr1 = const_cast<Slice*>(&ts1);
+      auto* ptr2 = const_cast<Slice*>(&ts2);
+      if (!GetFixed64(ptr1, &low1) || !GetFixed64(ptr1, &high1) ||
+          !GetFixed64(ptr2, &low2) || !GetFixed64(ptr2, &high2)) {
         assert(false);
       }
       if (high1 < high2) {

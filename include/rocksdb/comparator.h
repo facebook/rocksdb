@@ -98,7 +98,8 @@ class Comparator {
     return Compare(a, b);
   }
 
-  virtual int CompareTimestamp(Slice&& /*ts1*/, Slice&& /*ts2*/) const {
+  virtual int CompareTimestamp(const Slice& /*ts1*/,
+                               const Slice& /*ts2*/) const {
     return 0;
   }
 
