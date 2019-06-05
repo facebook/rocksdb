@@ -230,15 +230,15 @@ InternalIterator* TableCache::NewIterator(
 //    if (s.ok()) {
 //      table_reader = table_reader_unique_ptr.release();
 //    }
-	  table_reader = fd.table_reader;
-	  if (table_reader == nullptr) {
+	  //table_reader = fd.table_reader;
+	  //if (table_reader == nullptr) {
 		  s = FindTable(env_options, icomparator, fd, &handle, prefix_extractor,
 	  		    		options.read_tier == kBlockCacheTier, !for_compaction /*false*/,
 	  					/*file_read_hist*/ nullptr, /*skip_filters*/ false, level, true);
 		  if (s.ok()) {
 			  table_reader = GetTableReaderFromHandle(handle);
 	  	  }
-	  }
+	  //}
   } else {
     table_reader = fd.table_reader;
     if (table_reader == nullptr) {
