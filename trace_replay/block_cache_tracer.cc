@@ -55,7 +55,10 @@ Status BlockCacheTraceWriter::WriteBlockAccess(
   }
   std::string encoded_trace;
   TracerHelper::EncodeTrace(trace, &encoded_trace);
-  return trace_writer_->Write(encoded_trace);
+  trace_writer_mutex_.Lock();
+  const Status s = trace_writer_->Write(encoded_trace);
+  trace_writer_mutex_.Unlock();
+  return s;
 }
 
 Status BlockCacheTraceWriter::WriteHeader() {
