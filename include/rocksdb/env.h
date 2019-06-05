@@ -583,6 +583,26 @@ class SequentialFile {
   // SequentialFileWrapper too.
 };
 
+// A read IO request structure for use in MultiRead
+struct ReadRequest {
+  // File offset in bytes
+  uint64_t offset;
+
+  // Length to read in bytes
+  size_t len;
+
+  // A buffer that MultiRead()  can optionally place data in. It can
+  // ignore this and allocate its own buffer
+  char* scratch;
+
+  // Output parameter set by MultiRead() to point to the data buffer, and
+  // the number of valid bytes
+  Slice result;
+
+  // Status of read
+  Status status;
+};
+
 // A file abstraction for randomly reading the contents of a file.
 class RandomAccessFile {
  public:
@@ -604,6 +624,22 @@ class RandomAccessFile {
 
   // Readahead the file starting from offset by n bytes for caching.
   virtual Status Prefetch(uint64_t /*offset*/, size_t /*n*/) {
+    return Status::OK();
+  }
+
+  // Read a bunch of blocks as described by reqs. The blocks can
+  // optionally be read in parallel. This is a synchronous call, i.e it
+  // should return after all reads have completed. The reads will be
+  // non-overlapping. If the function return Status is not ok, status of
+  // individual requests will be ignored and return status will be assumed
+  // for all read requests. The function return status is only meant for any
+  // any errors that occur before even processing specific read requests
+  virtual Status MultiRead(ReadRequest* reqs, size_t num_reqs) {
+    assert(reqs != nullptr);
+    for (size_t i = 0; i < num_reqs; ++i) {
+      ReadRequest& req = reqs[i];
+      req.status = Read(req.offset, req.len, &req.result, req.scratch);
+    }
     return Status::OK();
   }
 
@@ -1356,6 +1392,9 @@ class RandomAccessFileWrapper : public RandomAccessFile {
   Status Read(uint64_t offset, size_t n, Slice* result,
               char* scratch) const override {
     return target_->Read(offset, n, result, scratch);
+  }
+  Status MultiRead(ReadRequest* reqs, size_t num_reqs) override {
+    return target_->MultiRead(reqs, num_reqs);
   }
   Status Prefetch(uint64_t offset, size_t n) override {
     return target_->Prefetch(offset, n);
