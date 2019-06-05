@@ -332,6 +332,10 @@ if(DISABLE_STALL_NOTIF)
   add_definitions(-DROCKSDB_DISABLE_STALL_NOTIFICATION)
 endif()
 
+option(WITH_DYNAMIC_EXTENSION "build with dynamic extension support" OFF)
+if(NOT WITH_DYNAMIC_EXTENSION)
+  add_definitions(-DROCKSDB_NO_DYNAMIC_EXTENSION)
+endif()
 
 if(DEFINED USE_RTTI)
   if(USE_RTTI)
@@ -488,7 +492,7 @@ set(SOURCES
         db/compacted_db_impl.cc
         db/compaction/compaction.cc
         db/compaction/compaction_iterator.cc
-        db/compaction/compaction_picker.cc        
+        db/compaction/compaction_picker.cc
         db/compaction/compaction_job.cc
         db/compaction/compaction_picker_fifo.cc
         db/compaction/compaction_picker_level.cc
