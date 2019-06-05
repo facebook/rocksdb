@@ -1105,6 +1105,59 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDDeletes) {
   }
 }
 
+TEST_P(EnvPosixTestWithParam, MultiRead) {
+  EnvOptions soptions;
+  soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
+  std::string fname = test::PerThreadDBPath(env_, "testfile");
+
+  const size_t kSectorSize = 4096;
+  const size_t kNumSectors = 8;
+
+  // Create file.
+  {
+    std::unique_ptr<WritableFile> wfile;
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
+    if (soptions.use_direct_writes) {
+      soptions.use_direct_writes = false;
+    }
+#endif
+    ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
+    for (size_t i = 0; i < kNumSectors; ++i) {
+      auto data = NewAligned(kSectorSize * 8, static_cast<const char>(i + 1));
+      Slice slice(data.get(), kSectorSize);
+      ASSERT_OK(wfile->Append(slice));
+    }
+    ASSERT_OK(wfile->Close());
+  }
+
+  // Random Read
+  {
+    std::unique_ptr<RandomAccessFile> file;
+    std::vector<ReadRequest> reqs(3);
+    std::vector<std::unique_ptr<char, Deleter>> data;
+    uint64_t offset = 0;
+    for (size_t i = 0; i < reqs.size(); ++i) {
+      reqs[i].offset = offset;
+      offset += 2 * kSectorSize;
+      reqs[i].len = kSectorSize;
+      data.emplace_back(NewAligned(kSectorSize, 0));
+      reqs[i].scratch = data.back().get();
+    }
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
+    if (soptions.use_direct_reads) {
+      soptions.use_direct_reads = false;
+    }
+#endif
+    ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
+    ASSERT_OK(file->MultiRead(reqs.data(), reqs.size()));
+    for (size_t i = 0; i < reqs.size(); ++i) {
+      auto buf = NewAligned(kSectorSize * 8, static_cast<const char>(i*2 + 1));
+      ASSERT_OK(reqs[i].status);
+      ASSERT_EQ(memcmp(reqs[i].scratch, buf.get(), kSectorSize), 0);
+    }
+  }
+}
+
 // Only works in linux platforms
 #ifdef OS_WIN
 TEST_P(EnvPosixTestWithParam, DISABLED_InvalidateCache) {
