@@ -317,6 +317,10 @@ if(DISABLE_STALL_NOTIF)
   add_definitions(-DROCKSDB_DISABLE_STALL_NOTIFICATION)
 endif()
 
+option(WITH_DYNAMIC_EXTENSION "build with dynamic extension support" OFF)
+if(NOT WITH_DYNAMIC_EXTENSION)
+  add_definitions(-DROCKSDB_NO_DYNAMIC_EXTENSION)
+endif()
 
 if(DEFINED USE_RTTI)
   if(USE_RTTI)
