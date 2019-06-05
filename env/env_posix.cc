@@ -139,12 +139,12 @@ class PosixDynamicLibrary : public DynamicLibrary {
 
   Status LoadSymbol(const std::string& sym_name, void** func) override {
     assert(nullptr != func);
-    char* err = dlerror();  // Clear any old error
+    dlerror();  // Clear any old error
     *func = dlsym(handle_, sym_name.c_str());
     if (*func != nullptr) {
       return Status::OK();
     } else {
-      err = dlerror();
+      char* err = dlerror();
       return Status::NotFound("Error finding symbol: " + sym_name, err);
     }
   }
