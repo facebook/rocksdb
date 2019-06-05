@@ -18,7 +18,9 @@ enum BlockCacheLookupCaller : char {
   kUserMGet = 2,
   kUserIterator = 3,
   kPrefetch = 4,
-  kCompaction = 5
+  kCompaction = 5,
+  // All callers should be added before kMaxBlockCacheLookupCaller.
+  kMaxBlockCacheLookupCaller
 };
 
 enum Boolean : char { kTrue = 1, kFalse = 0 };
@@ -37,7 +39,7 @@ struct BlockCacheTraceRecord {
   Boolean no_insert;
 
   // For Data block and User Get/Multi-Get only.
-  std::string referenced_key = "";
+  std::string referenced_key;
   uint64_t num_keys_in_block = 0;
   Boolean is_referenced_key_exist_in_block = Boolean::kFalse;
 };
@@ -59,14 +61,12 @@ class BlockCacheTraceWriter {
 
   Status WriteBlockAccess(const BlockCacheTraceRecord& record);
 
-  // Returns true if the trace is over the configured max trace file limit.
-  // False otherwise.
-  bool IsTraceFileOverMax();
-
- private:
   // Write a trace header at the beginning, typically on initiating a trace,
   // with some metadata like a magic number and RocksDB version.
   Status WriteHeader();
+
+ private:
+  bool ShouldTrace(const BlockCacheTraceRecord& record);
 
   Env* env_;
   TraceOptions trace_options_;

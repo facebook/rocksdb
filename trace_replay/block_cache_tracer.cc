@@ -8,6 +8,7 @@
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/slice.h"
 #include "util/coding.h"
+#include "util/hash.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -26,14 +27,26 @@ BlockCacheTraceWriter::BlockCacheTraceWriter(
     std::unique_ptr<TraceWriter>&& trace_writer)
     : env_(env),
       trace_options_(trace_options),
-      trace_writer_(std::move(trace_writer)) {
-  WriteHeader();
+      trace_writer_(std::move(trace_writer)) {}
+
+bool BlockCacheTraceWriter::ShouldTrace(const BlockCacheTraceRecord& record) {
+  if (trace_options_.sampling_frequency == 0 ||
+      trace_options_.sampling_frequency == 1) {
+    return true;
+  }
+  // We use spatial downsampling so that we have a complete access history for a
+  // block.
+  const uint64_t hash = GetSliceNPHash64(Slice(record.block_key));
+  return hash % trace_options_.sampling_frequency == 0;
 }
 
 Status BlockCacheTraceWriter::WriteBlockAccess(
     const BlockCacheTraceRecord& record) {
   uint64_t trace_file_size = trace_writer_->GetFileSize();
   if (trace_file_size > trace_options_.max_trace_file_size) {
+    return Status::OK();
+  }
+  if (!ShouldTrace(record)) {
     return Status::OK();
   }
   Trace trace;
@@ -91,24 +104,30 @@ Status BlockCacheTraceReader::ReadHeader(BlockCacheTraceHeader* header) {
   }
   header->start_time = trace.ts;
   Slice enc_slice = Slice(trace.payload);
-  Status corrupt_status =
-      Status::Corruption("Corrupted header in the trace file.");
   Slice magnic_number;
   if (!GetLengthPrefixedSlice(&enc_slice, &magnic_number)) {
-    return corrupt_status;
+    return Status::Corruption(
+        "Corrupted header in the trace file: Failed to read the magic number.");
   }
   if (magnic_number.ToString() != kTraceMagic) {
-    return corrupt_status;
+    return Status::Corruption(
+        "Corrupted header in the trace file: Magic number does not match.");
   }
   if (!GetFixed32(&enc_slice, &header->rocksdb_major_version)) {
-    return corrupt_status;
+    return Status::Corruption(
+        "Corrupted header in the trace file: Failed to read rocksdb major "
+        "version number.");
   }
   if (!GetFixed32(&enc_slice, &header->rocksdb_minor_version)) {
-    return corrupt_status;
+    return Status::Corruption(
+        "Corrupted header in the trace file: Failed to read rocksdb minor "
+        "version number.");
   }
   // We should have retrieved all information in the header.
   if (!enc_slice.empty()) {
-    return corrupt_status;
+    return Status::Corruption(
+        "Corrupted header in the trace file: The length of header is too "
+        "long.");
   }
   return Status::OK();
 }
@@ -120,7 +139,6 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
   if (!s.ok()) {
     return s;
   }
-  Status incomplete_record = Status::Incomplete("Incomplete access record");
   Trace trace;
   s = TracerHelper::DecodeTrace(encoded_trace, &trace);
   if (!s.ok()) {
@@ -131,38 +149,47 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
   Slice enc_slice = Slice(trace.payload);
   Slice block_key;
   if (!GetLengthPrefixedSlice(&enc_slice, &block_key)) {
-    return incomplete_record;
+    return Status::Incomplete(
+        "Incomplete access record: Failed to read block key.");
   }
   record->block_key = block_key.ToString();
   if (!GetFixed64(&enc_slice, &record->block_size)) {
-    return incomplete_record;
+    return Status::Incomplete(
+        "Incomplete access record: Failed to read block size.");
   }
   if (!GetFixed32(&enc_slice, &record->cf_id)) {
-    return incomplete_record;
+    return Status::Incomplete(
+        "Incomplete access record: Failed to read column family ID.");
   }
   Slice cf_name;
   if (!GetLengthPrefixedSlice(&enc_slice, &cf_name)) {
-    return incomplete_record;
+    return Status::Incomplete(
+        "Incomplete access record: Failed to read column family name.");
   }
   record->cf_name = cf_name.ToString();
   if (!GetFixed32(&enc_slice, &record->level)) {
-    return incomplete_record;
+    return Status::Incomplete(
+        "Incomplete access record: Failed to read level.");
   }
   if (!GetFixed32(&enc_slice, &record->sst_fd_number)) {
-    return incomplete_record;
+    return Status::Incomplete(
+        "Incomplete access record: Failed to read SST file number.");
   }
   if (enc_slice.empty()) {
-    return incomplete_record;
+    return Status::Incomplete(
+        "Incomplete access record: Failed to read caller.");
   }
   record->caller = static_cast<BlockCacheLookupCaller>(enc_slice[0]);
   enc_slice.remove_prefix(kCharSize);
   if (enc_slice.empty()) {
-    return incomplete_record;
+    return Status::Incomplete(
+        "Incomplete access record: Failed to read is_cache_hit.");
   }
   record->is_cache_hit = static_cast<Boolean>(enc_slice[0]);
   enc_slice.remove_prefix(kCharSize);
   if (enc_slice.empty()) {
-    return incomplete_record;
+    return Status::Incomplete(
+        "Incomplete access record: Failed to read no_insert.");
   }
   record->no_insert = static_cast<Boolean>(enc_slice[0]);
   enc_slice.remove_prefix(kCharSize);
@@ -170,14 +197,19 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
   if (ShouldTraceReferencedKey(*record)) {
     Slice referenced_key;
     if (!GetLengthPrefixedSlice(&enc_slice, &referenced_key)) {
-      return incomplete_record;
+      return Status::Incomplete(
+          "Incomplete access record: Failed to read the referenced key.");
     }
     record->referenced_key = referenced_key.ToString();
     if (!GetFixed64(&enc_slice, &record->num_keys_in_block)) {
-      return incomplete_record;
+      return Status::Incomplete(
+          "Incomplete access record: Failed to read the number of keys in the "
+          "block.");
     }
     if (enc_slice.empty()) {
-      return incomplete_record;
+      return Status::Incomplete(
+          "Incomplete access record: Failed to read "
+          "is_referenced_key_exist_in_block.");
     }
     record->is_referenced_key_exist_in_block =
         static_cast<Boolean>(enc_slice[0]);

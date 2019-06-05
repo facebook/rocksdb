@@ -123,6 +123,7 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
     BlockCacheTraceWriter writer(env_, trace_opt, std::move(trace_writer));
+    ASSERT_OK(writer.WriteHeader());
     // Write blocks of different types.
     WriteBlockAccess(&writer, 0, TraceType::kBlockTraceUncompressionDictBlock,
                      10);
