@@ -17,10 +17,36 @@ enum BlockCacheLookupCaller : char {
   kUserGet = 1,
   kUserMGet = 2,
   kUserIterator = 3,
-  kPrefetch = 4,
-  kCompaction = 5,
+  kUserApproximateSize = 4,
+  kPrefetch = 5,
+  kCompaction = 6,
   // All callers should be added before kMaxBlockCacheLookupCaller.
   kMaxBlockCacheLookupCaller
+};
+
+// Lookup context for tracing block cache accesses.
+// We trace block accesses at five places:
+// 1. BlockBasedTable::GetFilter
+// 2. BlockBasedTable::GetUncompressedDict.
+// 3. BlockBasedTable::MaybeReadAndLoadToCache. (To trace access on data, index,
+// and range deletion block.)
+// 4. BlockBasedTable::Get. (To trace the referenced key and whether the
+// referenced key exists in a fetched data block.)
+// 5. BlockBasedTable::MultiGet. (To trace the referenced key and whether the
+// referenced key exists in a fetched data block.)
+// The context is created at:
+// 1. BlockBasedTable::Get. (kUserGet)
+// 2. BlockBasedTable::MultiGet. (kUserMGet)
+// 3. BlockBasedTable::NewIterator. (either kUserIterator, kCompaction, or
+// external SST ingestion calls this function.)
+// 4. BlockBasedTable::Open. (kPrefetch)
+// 5. Index/Filter::CacheDependencies. (kPrefetch)
+// 6. BlockBasedTable::ApproximateOffsetOf. (kCompaction or
+// kUserApproximateSize).
+struct BlockCacheLookupContext {
+  BlockCacheLookupContext(const BlockCacheLookupCaller& _caller)
+      : caller(_caller) {}
+  const BlockCacheLookupCaller caller;
 };
 
 enum Boolean : char { kTrue = 1, kFalse = 0 };
