@@ -15,12 +15,13 @@ namespace rocksdb {
 
 namespace {
 const unsigned int kCharSize = 1;
+}  // namespace
+
 bool ShouldTraceReferencedKey(const BlockCacheTraceRecord& record) {
   return (record.block_type == TraceType::kBlockTraceDataBlock) &&
          (record.caller == BlockCacheLookupCaller::kUserGet ||
           record.caller == BlockCacheLookupCaller::kUserMGet);
 }
-}  // namespace
 
 BlockCacheTraceWriter::BlockCacheTraceWriter(
     Env* env, const TraceOptions& trace_options,

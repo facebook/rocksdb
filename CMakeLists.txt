@@ -621,6 +621,7 @@ set(SOURCES
         test_util/sync_point_impl.cc
         test_util/testutil.cc
         test_util/transaction_test_util.cc
+        tools/block_cache_trace_analyzer.cc
         tools/db_bench_tool.cc
         tools/dump/db_dump_tool.cc
         tools/ldb_cmd.cc
