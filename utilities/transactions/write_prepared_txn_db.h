@@ -6,11 +6,7 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <mutex>
 #include <queue>
 #include <set>

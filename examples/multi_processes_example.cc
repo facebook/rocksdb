@@ -14,7 +14,7 @@
 // run for a while, tailing the logs of the primary. After process with primary
 // instance exits, this process will keep running until you hit 'CTRL+C'.
 
-#include <inttypes.h>
+#include <cinttypes>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>

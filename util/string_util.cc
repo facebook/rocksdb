@@ -5,12 +5,8 @@
 //
 #include "util/string_util.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include <errno.h>
-#include <inttypes.h>
+#include <cinttypes>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>

@@ -56,11 +56,7 @@ int main() {
 }
 #else
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif // __STDC_FORMAT_MACROS
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <atomic>
 #include <random>
 #include <set>

@@ -7,14 +7,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include <cctype>
 #include <cstring>
 #include <unordered_map>
-#include <inttypes.h>
+#include <cinttypes>
 
 #include "cache/lru_cache.h"
 #include "cache/sharded_cache.h"
