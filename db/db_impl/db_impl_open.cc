@@ -594,7 +594,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Skipping log #%" PRIu64
                      " since it is older than min log to keep #%" PRIu64,
-                     log_number, MinLogNumberToKeep());
+                     log_number, min_log_number);
       continue;
     }
     // The previous incarnation may not have written any MANIFEST
