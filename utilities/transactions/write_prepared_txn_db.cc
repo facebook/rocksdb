@@ -44,8 +44,7 @@ Status WritePreparedTxnDB::Initialize(
   }
   SequenceNumber prev_max = max_evicted_seq_;
   SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber();
-  const bool kPreparedMutexLocked = true;
-  AdvanceMaxEvictedSeq(prev_max, last_seq, !kPreparedMutexLocked);
+  AdvanceMaxEvictedSeq(prev_max, last_seq);
   // Create a gap between max and the next snapshot. This simplifies the logic
   // in IsInSnapshot by not having to consider the special case of max ==
   // snapshot after recovery. This is tested in IsInSnapshotEmptyMapTest.
@@ -387,8 +386,7 @@ void WritePreparedTxnDB::Init(const TransactionDBOptions& /* unused */) {
       new std::atomic<CommitEntry64b>[COMMIT_CACHE_SIZE] {});
 }
 
-void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max) {
-  prepared_mutex_.AssertHeld();
+void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max, bool locked) {
   // When max_evicted_seq_ advances, move older entries from prepared_txns_
   // to delayed_prepared_. This guarantees that if a seq is lower than max,
   // then it is not in prepared_txns_ and save an expensive, synchronized
@@ -400,6 +398,10 @@ void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max) {
       prepared_txns_.empty(),
       prepared_txns_.empty() ? 0 : prepared_txns_.top());
   while (!prepared_txns_.empty() && prepared_txns_.top() <= new_max) {
+    if (!locked) {
+      prepared_txns_.push_mutex().Lock();
+    }
+    WriteLock wl(&prepared_mutex_);
     auto to_be_popped = prepared_txns_.top();
     delayed_prepared_.insert(to_be_popped);
     ROCKS_LOG_WARN(info_log_,
@@ -407,8 +409,11 @@ void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max) {
                    " new_max=%" PRIu64,
                    static_cast<uint64_t>(delayed_prepared_.size()),
                    to_be_popped, new_max);
-    prepared_txns_.pop();
+    prepared_txns_.pop(true /*locked*/);
     delayed_prepared_empty_.store(false, std::memory_order_release);
+    if (!locked) {
+      prepared_txns_.push_mutex().Unlock();
+    }
   }
 }
 
@@ -418,9 +423,9 @@ void WritePreparedTxnDB::AddPrepared(uint64_t seq, bool locked) {
   TEST_SYNC_POINT("AddPrepared::begin:pause");
   TEST_SYNC_POINT("AddPrepared::begin:resume");
   if (!locked) {
-    prepared_mutex_.WriteLock();
+    prepared_txns_.push_mutex().Lock();
   }
-  prepared_mutex_.AssertHeld();
+  prepared_txns_.push_mutex().AssertHeld();
   prepared_txns_.push(seq);
   auto new_max = future_max_evicted_seq_.load();
   if (UNLIKELY(seq <= new_max)) {
@@ -430,16 +435,15 @@ void WritePreparedTxnDB::AddPrepared(uint64_t seq, bool locked) {
         "Added prepare_seq is not larger than max_evicted_seq_: %" PRIu64
         " <= %" PRIu64,
         seq, new_max);
-    CheckPreparedAgainstMax(new_max);
+    CheckPreparedAgainstMax(new_max, true /*locked*/);
   }
   if (!locked) {
-    prepared_mutex_.WriteUnlock();
+    prepared_txns_.push_mutex().Unlock();
   }
   TEST_SYNC_POINT("AddPrepared::end");
 }
 
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
-    const bool prepared_mutex_locked,
                                       uint8_t loop_cnt) {
   ROCKS_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Committing with %" PRIu64,
                     prepare_seq, commit_seq);
@@ -472,16 +476,13 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
                         " => %lu",
                         prepare_seq, evicted.prep_seq, evicted.commit_seq,
                         prev_max, max_evicted_seq);
-      AdvanceMaxEvictedSeq(prev_max, max_evicted_seq, prepared_mutex_locked);
+      AdvanceMaxEvictedSeq(prev_max, max_evicted_seq);
     }
     // After each eviction from commit cache, check if the commit entry should
     // be kept around because it overlaps with a live snapshot.
     CheckAgainstSnapshots(evicted);
     if (UNLIKELY(!delayed_prepared_empty_.load(std::memory_order_acquire))) {
-      if (!prepared_mutex_locked) {
-        prepared_mutex_.WriteLock();
-      }
-      prepared_mutex_.AssertHeld();
+      WriteLock wl(&prepared_mutex_);
       for (auto dp : delayed_prepared_) {
         if (dp == evicted.prep_seq) {
           // This is a rare case that txn is committed but prepared_txns_ is not
@@ -493,9 +494,6 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
                           evicted.prep_seq, evicted.commit_seq);
           break;
         }
-      }
-      if (!prepared_mutex_locked) {
-        prepared_mutex_.WriteUnlock();
       }
     }
   }
@@ -511,7 +509,7 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
     if (loop_cnt > 100) {
       throw std::runtime_error("Infinite loop in AddCommitted!");
     }
-    AddCommitted(prepare_seq, commit_seq, prepared_mutex_locked, ++loop_cnt);
+    AddCommitted(prepare_seq, commit_seq, ++loop_cnt);
     return;
   }
   TEST_SYNC_POINT("WritePreparedTxnDB::AddCommitted:end");
@@ -519,7 +517,7 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
 }
 
 void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
-                                        const size_t batch_cnt, bool locked) {
+                                        const size_t batch_cnt) {
   TEST_SYNC_POINT_CALLBACK(
       "RemovePrepared:Start",
       const_cast<void*>(reinterpret_cast<const void*>(&prepare_seq)));
@@ -528,9 +526,7 @@ void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
   ROCKS_LOG_DETAILS(info_log_,
                     "RemovePrepared %" PRIu64 " cnt: %" ROCKSDB_PRIszt,
                     prepare_seq, batch_cnt);
-  if (!locked) {
-    prepared_mutex_.WriteLock();
-  }
+  WriteLock wl(&prepared_mutex_);
   for (size_t i = 0; i < batch_cnt; i++) {
     prepared_txns_.erase(prepare_seq + i);
     bool was_empty = delayed_prepared_.empty();
@@ -547,9 +543,6 @@ void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
         delayed_prepared_empty_.store(is_empty, std::memory_order_release);
       }
     }
-  }
-  if (!locked) {
-    prepared_mutex_.WriteUnlock();
   }
 }
 
@@ -583,9 +576,7 @@ bool WritePreparedTxnDB::ExchangeCommitEntry(const uint64_t indexed_seq,
 }
 
 void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
-                                              const SequenceNumber& new_max,
-    const bool prepared_mutex_locked
-                                              ) {
+                                              const SequenceNumber& new_max) {
   ROCKS_LOG_DETAILS(info_log_,
                     "AdvanceMaxEvictedSeq overhead %" PRIu64 " => %" PRIu64,
                     prev_max, new_max);
@@ -600,16 +591,7 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
              std::memory_order_relaxed)) {
   };
 
-  {
-    if (!prepared_mutex_locked) {
-      prepared_mutex_.WriteLock();
-    }
-    prepared_mutex_.AssertHeld();
-    CheckPreparedAgainstMax(new_max);
-    if (!prepared_mutex_locked) {
-      prepared_mutex_.WriteUnlock();
-    }
-  }
+  CheckPreparedAgainstMax(new_max, false /*locked*/);
 
   // With each change to max_evicted_seq_ fetch the live snapshots behind it.
   // We use max as the version of snapshots to identify how fresh are the
@@ -665,6 +647,7 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
   // than the smallest uncommitted seq when the snapshot was taken.
   auto min_uncommitted = WritePreparedTxnDB::SmallestUnCommittedSeq();
   SnapshotImpl* snap_impl = db_impl_->GetSnapshotImpl(for_ww_conflict_check);
+  TEST_SYNC_POINT("WritePreparedTxnDB::GetSnapshotInternal:first");
   assert(snap_impl);
   SequenceNumber snap_seq = snap_impl->GetSequenceNumber();
   // Note: Check against future_max_evicted_seq_ (in contrast with
@@ -703,6 +686,7 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
       db_impl_->immutable_db_options().info_log,
       "GetSnapshot %" PRIu64 " ww:%" PRIi32 " min_uncommitted: %" PRIu64,
       snap_impl->GetSequenceNumber(), for_ww_conflict_check, min_uncommitted);
+  TEST_SYNC_POINT("WritePreparedTxnDB::GetSnapshotInternal:end");
   return snap_impl;
 }
 

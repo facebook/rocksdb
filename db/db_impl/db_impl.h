@@ -365,6 +365,10 @@ class DBImpl : public DB {
     }
   }
 
+  void SetLastSequence(SequenceNumber seq) const {
+    versions_->SetLastSequence(seq);
+  }
+
   // REQUIRES: joined the main write queue if two_write_queues is disabled, and
   // the second write queue otherwise.
   virtual void SetLastPublishedSequence(SequenceNumber seq);

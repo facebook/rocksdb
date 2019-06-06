@@ -328,14 +328,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   void AddPrepared(uint64_t seq, bool locked = false);
   // Check if any of the prepared txns are less than new max_evicted_seq_. Must
   // be called with prepared_mutex_ write locked.
-  void CheckPreparedAgainstMax(SequenceNumber new_max);
+  void CheckPreparedAgainstMax(SequenceNumber new_max, bool locked);
   // Remove the transaction with prepare sequence seq from the prepared list
-  void RemovePrepared(const uint64_t seq, const size_t batch_cnt = 1, bool locked = false);
+  void RemovePrepared(const uint64_t seq, const size_t batch_cnt = 1);
   // Add the transaction with prepare sequence prepare_seq and commit sequence
   // commit_seq to the commit map. loop_cnt is to detect infinite loops.
   // Note: must be called serially.
   void AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
-    const bool prepared_mutex_locked = false,
                     uint8_t loop_cnt = 0);
 
   struct CommitEntry {
@@ -509,10 +508,11 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // A heap with the amortized O(1) complexity for erase. It uses one extra heap
   // to keep track of erased entries that are not yet on top of the main heap.
   class PreparedHeap {
-    std::priority_queue<uint64_t, std::vector<uint64_t>, std::greater<uint64_t>>
-        heap_;
+    port::Mutex heap_mutex_;
+    std::priority_queue<uint64_t, std::vector<uint64_t>, std::greater<uint64_t>> heap_;
     std::priority_queue<uint64_t, std::vector<uint64_t>, std::greater<uint64_t>>
         erased_heap_;
+    std::atomic<uint64_t> heap_top_ = {kMaxSequenceNumber};
     // True when testing crash recovery
     bool TEST_CRASH_ = false;
     friend class WritePreparedTxnDB;
@@ -524,10 +524,20 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         assert(erased_heap_.empty());
       }
     }
-    bool empty() { return heap_.empty(); }
-    uint64_t top() { return heap_.top(); }
-    void push(uint64_t v) { heap_.push(v); }
-    void pop() {
+    port::Mutex& push_mutex() { return heap_mutex_; }
+
+    bool empty(){return heap_top_.load(std::memory_order_relaxed) == kMaxSequenceNumber;}
+    uint64_t top() {
+      return heap_top_.load(std::memory_order_relaxed);
+    }
+    void push(uint64_t v) { 
+      heap_.push(v); 
+      heap_top_.store(heap_.top(), std::memory_order_relaxed);
+    }
+    void pop(bool locked = false) {
+      if (!locked) {
+        push_mutex().Lock();
+      }
       heap_.pop();
       while (!heap_.empty() && !erased_heap_.empty() &&
              // heap_.top() > erased_heap_.top() could happen if we have erased
@@ -546,15 +556,20 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       while (heap_.empty() && !erased_heap_.empty()) {
         erased_heap_.pop();
       }
+      heap_top_.store(!heap_.empty() ? heap_.top() : kMaxSequenceNumber, std::memory_order_relaxed);
+      if (!locked) {
+        push_mutex().Unlock();
+      }
     }
     void erase(uint64_t seq) {
       if (!heap_.empty()) {
-        if (seq < heap_.top()) {
+        auto top_seq = top();
+        if (seq < top_seq) {
           // Already popped, ignore it.
-        } else if (heap_.top() == seq) {
+        } else if (top_seq == seq) {
           pop();
           assert(heap_.empty() || heap_.top() != seq);
-        } else {  // (heap_.top() > seq)
+        } else {  // top() > seq
           // Down the heap, remember to pop it later
           erased_heap_.push(seq);
         }
@@ -590,9 +605,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // a serial invocation in which the last invocation is the one with the
   // largest new_max value.
   void AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
-                            const SequenceNumber& new_max,
-    const bool prepared_mutex_locked
-                            );
+                            const SequenceNumber& new_max);
 
   inline SequenceNumber SmallestUnCommittedSeq() {
     // Since we update the prepare_heap always from the main write queue via
@@ -601,20 +614,23 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     // written in two steps, we also update prepared_txns_ at the first step
     // (via the same mechanism) so that their uncommitted data is reflected in
     // SmallestUnCommittedSeq.
-    ReadLock rl(&prepared_mutex_);
-    // Since we are holding the mutex, and GetLatestSequenceNumber is updated
-    // after prepared_txns_ are, the value of GetLatestSequenceNumber would
-    // reflect any uncommitted data that is not added to prepared_txns_ yet.
-    // Otherwise, if there is no concurrent txn, this value simply reflects that
-    // latest value in the memtable.
-    if (!delayed_prepared_.empty()) {
-      assert(!delayed_prepared_empty_.load());
-      return *delayed_prepared_.begin();
+    if (!delayed_prepared_empty_.load()) {
+      ReadLock rl(&prepared_mutex_);
+      if (!delayed_prepared_.empty()) {
+        return *delayed_prepared_.begin();
+      }
     }
-    if (prepared_txns_.empty()) {
+    auto min_prep = prepared_txns_.top();
+    bool empty = min_prep == kMaxSequenceNumber;
+    if (empty) {
+      // Since we are holding the mutex, and GetLatestSequenceNumber is updated
+      // after prepared_txns_ are, the value of GetLatestSequenceNumber would
+      // reflect any uncommitted data that is not added to prepared_txns_ yet.
+      // Otherwise, if there is no concurrent txn, this value simply reflects
+      // that latest value in the memtable.
       return db_impl_->GetLatestSequenceNumber() + 1;
     } else {
-      return std::min(prepared_txns_.top(),
+      return std::min(min_prep,
                       db_impl_->GetLatestSequenceNumber() + 1);
     }
   }
@@ -792,16 +808,19 @@ class AddPreparedCallback : public PreReleaseCallback {
     const bool do_unlock = !two_write_queues_ || index + 1 == total;
     // Always Prepare from the main queue
     assert(!two_write_queues_ || !is_mem_disabled);  // implies the 1st queue
+    TEST_SYNC_POINT("AddPreparedCallback::AddPrepared::begin:pause");
+    TEST_SYNC_POINT("AddPreparedCallback::AddPrepared::begin:resume");
     if (do_lock) {
-      db_->prepared_mutex_.WriteLock();
+      db_->prepared_txns_.push_mutex().Lock();
     }
     const bool kLocked = true;
     for (size_t i = 0; i < sub_batch_cnt_; i++) {
       db_->AddPrepared(prepare_seq + i, kLocked);
     }
     if (do_unlock) {
-      db_->prepared_mutex_.WriteUnlock();
+      db_->prepared_txns_.push_mutex().Unlock();
     }
+    TEST_SYNC_POINT("AddPreparedCallback::AddPrepared::end");
     if (first_prepare_batch_) {
       assert(log_number != 0);
       db_impl_->logs_with_prep_tracker()->MarkLogAsContainingPrepSection(
@@ -844,10 +863,8 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
 
   virtual Status Callback(SequenceNumber commit_seq,
                           bool is_mem_disabled __attribute__((__unused__)),
-                          uint64_t, size_t index,
-                          size_t total) override {
-    const bool do_lock = index == 0;
-    const bool do_unlock = index + 1 == total;
+                          uint64_t, size_t /*index*/,
+                          size_t /*total*/) override {
     // Always commit from the 2nd queue
     assert(!db_impl_->immutable_db_options().two_write_queues ||
            is_mem_disabled);
@@ -857,18 +874,14 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
     const uint64_t last_commit_seq = LIKELY(data_batch_cnt_ <= 1)
                                          ? commit_seq
                                          : commit_seq + data_batch_cnt_ - 1;
-    if (do_lock) {
-      db_->prepared_mutex_.WriteLock();
-    }
-    const bool kLocked = true;
     if (prep_seq_ != kMaxSequenceNumber) {
       for (size_t i = 0; i < prep_batch_cnt_; i++) {
-        db_->AddCommitted(prep_seq_ + i, last_commit_seq, kLocked);
+        db_->AddCommitted(prep_seq_ + i, last_commit_seq);
       }
     }  // else there was no prepare phase
     if (includes_aux_batch_) {
       for (size_t i = 0; i < aux_batch_cnt_; i++) {
-        db_->AddCommitted(aux_seq_ + i, last_commit_seq, kLocked);
+        db_->AddCommitted(aux_seq_ + i, last_commit_seq);
       }
     }
     if (includes_data_) {
@@ -878,7 +891,7 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
         // For commit seq of each batch use the commit seq of the last batch.
         // This would make debugging easier by having all the batches having
         // the same sequence number.
-        db_->AddCommitted(commit_seq + i, last_commit_seq, kLocked);
+        db_->AddCommitted(commit_seq + i, last_commit_seq);
       }
     }
     if (db_impl_->immutable_db_options().two_write_queues) {
@@ -888,14 +901,14 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
       // publish sequence numbers will be in order, i.e., once a seq is
       // published all the seq prior to that are also publishable.
       db_impl_->SetLastPublishedSequence(last_commit_seq);
-    }
-    // Note RemovePrepared should be called after WriteImpl that publishsed the
-    // seq. Otherwise SmallestUnCommittedSeq optimization breaks.
-    if (prep_seq_ != kMaxSequenceNumber) {
-      db_->RemovePrepared(prep_seq_, prep_batch_cnt_, kLocked);
-    }  // else there was no prepare phase
-    if (do_unlock) {
-      db_->prepared_mutex_.WriteUnlock();
+      // Note RemovePrepared should be called after WriteImpl that publishsed
+      // the seq. Otherwise SmallestUnCommittedSeq optimization breaks.
+      if (prep_seq_ != kMaxSequenceNumber) {
+        db_->RemovePrepared(prep_seq_, prep_batch_cnt_);
+      }  // else there was no prepare phase
+      if (includes_aux_batch_) {
+        db_->RemovePrepared(aux_seq_, aux_batch_cnt_);
+      }
     }
     // else SequenceNumber that is updated as part of the write already does the
     // publishing
