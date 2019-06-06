@@ -32,6 +32,7 @@
 #include "file/filename.h"
 #include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
+#include "monitoring/persistent_stats_history.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -3973,9 +3974,9 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
     } else {
       // recover persistent_stats CF from a DB that already contains it
       if (is_persistent_stats_column_family) {
-        ColumnFamilyOptions co;
-        co.OptimizeForPersistentStats();
-        cfd = CreateColumnFamily(co, &edit);
+        ColumnFamilyOptions cfo;
+        OptimizeForPersistentStats(&cfo);
+        cfd = CreateColumnFamily(cfo, &edit);
       } else {
         cfd = CreateColumnFamily(cf_options->second, &edit);
       }

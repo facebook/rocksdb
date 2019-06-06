@@ -319,6 +319,7 @@ TEST_F(StatsHistoryTest, GetStatsHistoryFromDisk) {
   CreateColumnFamilies({"pikachu"}, options);
   ASSERT_OK(Put("foo", "bar"));
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  ASSERT_EQ(Get("foo"), "bar");
 
   // Wait for stats persist to finish
   dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
@@ -364,8 +365,6 @@ TEST_F(StatsHistoryTest, GetStatsHistoryFromDisk) {
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   db_->GetStatsHistory(0, 16 * kMicrosInSec, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
-  // verify version value is restored correctly
-  ASSERT_EQ(stats_iter->GetFormatVersion(), kStatsCFCurrentFormatVersion);
   size_t stats_count_reopen = 0;
   int slice_count_reopen = 0;
   int non_zero_count_recover = 0;
@@ -402,6 +401,7 @@ TEST_F(StatsHistoryTest, PersitentStatsVerifyValue) {
   CreateColumnFamilies({"pikachu"}, options);
   ASSERT_OK(Put("foo", "bar"));
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  ASSERT_EQ(Get("foo"), "bar");
 
   // Wait for stats persist to finish
   dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
@@ -475,18 +475,34 @@ TEST_F(StatsHistoryTest, PersistentStatsCreateColumnFamilies) {
   options.env = mock_env.get();
   ASSERT_OK(TryReopen(options));
   CreateColumnFamilies({"one", "two", "three"}, options);
-  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put(1, "foo", "bar"));
   ReopenWithColumnFamilies({"default", "one", "two", "three"}, options);
-  ASSERT_EQ(Get("foo"), "bar");
+  ASSERT_EQ(Get(2, "foo"), "bar");
   CreateColumnFamilies({"four"}, options);
   ReopenWithColumnFamilies({"default", "one", "two", "three", "four"}, options);
-  ASSERT_EQ(Get("foo"), "bar");
+  ASSERT_EQ(Get(2, "foo"), "bar");
   dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
   auto iter =
       db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
   int key_count = countkeys(iter);
   delete iter;
   ASSERT_GE(key_count, 0);
+  uint64_t num_write_wal = 0;
+  std::string sample = "rocksdb.write.wal";
+  std::unique_ptr<StatsHistoryIterator> stats_iter;
+  db_->GetStatsHistory(0, 5 * kMicrosInSec, &stats_iter);
+  ASSERT_TRUE(stats_iter != nullptr);
+  for (; stats_iter->Valid(); stats_iter->Next()) {
+    auto stats_map = stats_iter->GetStatsMap();
+    for (const auto& stat : stats_map) {
+      if (sample.compare(stat.first) == 0) {
+        num_write_wal += stat.second;
+      }
+    }
+  }
+  stats_iter.reset();
+  ASSERT_EQ(num_write_wal, 2);
+
   options.persist_stats_to_disk = false;
   ReopenWithColumnFamilies({"default", "one", "two", "three", "four"}, options);
   int cf_count = 0;
@@ -497,7 +513,32 @@ TEST_F(StatsHistoryTest, PersistentStatsCreateColumnFamilies) {
   // persistent stats cf will be implicitly opened even if
   // persist_stats_to_disk is false
   ASSERT_EQ(cf_count, 6);
-  ASSERT_EQ(Get("foo"), "bar");
+  ASSERT_EQ(Get(2, "foo"), "bar");
+
+  // attempt to create column family using same name, should fail
+  ColumnFamilyOptions cf_opts(options);
+  ColumnFamilyHandle* handle;
+  ASSERT_NOK(db_->CreateColumnFamily(cf_opts, kPersistentStatsColumnFamilyName,
+                                     &handle));
+
+  options.persist_stats_to_disk = true;
+  ReopenWithColumnFamilies({"default", "one", "two", "three", "four"}, options);
+  ASSERT_NOK(db_->CreateColumnFamily(cf_opts, kPersistentStatsColumnFamilyName,
+                                     &handle));
+  // verify stats is not affected by prior failed CF creation
+  db_->GetStatsHistory(0, 5 * kMicrosInSec, &stats_iter);
+  ASSERT_TRUE(stats_iter != nullptr);
+  num_write_wal = 0;
+  for (; stats_iter->Valid(); stats_iter->Next()) {
+    auto stats_map = stats_iter->GetStatsMap();
+    for (const auto& stat : stats_map) {
+      if (sample.compare(stat.first) == 0) {
+        num_write_wal += stat.second;
+      }
+    }
+  }
+  ASSERT_EQ(num_write_wal, 2);
+
   Close();
   Destroy(options);
 }

@@ -507,23 +507,23 @@ Status DBImpl::Recover(
 Status DBImpl::PersistentStatsProcessFormatVersion() {
   Status s;
   mutex_.Unlock();
+  // persist version when stats CF doesn't exist
+  bool should_persist_version = !persistent_stats_cfd_exists_;
   if (persistent_stats_cfd_exists_) {
     // Check persistent stats format version compatibility. Drop and recreate
     // persistent stats CF if format version is incompatible
-    int sst_format_version = DecodePersistentStatsVersionNumber(
+    int format_version_recovered = DecodePersistentStatsVersionNumber(
         this, StatsVersionKeyType::kFormatVersion);
-    int sst_reader_version = DecodePersistentStatsVersionNumber(
+    int reader_version_recovered = DecodePersistentStatsVersionNumber(
         this, StatsVersionKeyType::kReaderVersion);
     // abort reading from existing stats CF if any of following is true:
     // 1. failed to read format version or reader version from disk
-    // 2. sst's format version is below the current minimum supported version
-    // 3. sst's format version is greater than current format version, meaning
+    // 2. sst's format version is greater than current format version, meaning
     // this sst is encoded with a newer RocksDB release, and current reader
     // version is below the sst's reader version
-    if (sst_format_version == -1 || sst_reader_version == -1 ||
-        sst_format_version < kStatsCFMinimumFormatVersion ||
-        (kStatsCFCurrentFormatVersion < sst_format_version &&
-         kPersistentStatsReaderVersion < sst_reader_version)) {
+    if (format_version_recovered == -1 || reader_version_recovered == -1 ||
+        (kStatsCFCurrentFormatVersion < format_version_recovered &&
+         kPersistentStatsReaderVersion < reader_version_recovered)) {
       ROCKS_LOG_INFO(
           immutable_db_options_.info_log,
           "Disable persistent stats due to corrupted or incompatible format "
@@ -531,49 +531,32 @@ Status DBImpl::PersistentStatsProcessFormatVersion() {
       DropColumnFamily(persist_stats_cf_handle_);
       DestroyColumnFamilyHandle(persist_stats_cf_handle_);
       ColumnFamilyHandle* handle = nullptr;
-      ColumnFamilyOptions co;
-      co.OptimizeForPersistentStats();
-      s = CreateColumnFamily(co, kPersistentStatsColumnFamilyName, &handle);
+      ColumnFamilyOptions cfo;
+      OptimizeForPersistentStats(&cfo);
+      s = CreateColumnFamily(cfo, kPersistentStatsColumnFamilyName, &handle);
       persist_stats_cf_handle_ = static_cast<ColumnFamilyHandleImpl*>(handle);
+      // should also persist version here because old stats CF is discarded
+      should_persist_version = true;
     }
-  } else {
+  }
+  if (should_persist_version) {
     // Persistent stats CF being created for the first time, need to write
     // format version key
-    char format_version_key[100];
-    char reader_version_key[100];
-    size_t format_version_key_length = EncodePersistentStatsVersionKey(
-        format_version_key, StatsVersionKeyType::kFormatVersion);
-    size_t reader_version_key_length = EncodePersistentStatsVersionKey(
-        reader_version_key, StatsVersionKeyType::kReaderVersion);
-    if (format_version_key_length == 0 || reader_version_key_length == 0) {
-      ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                     "Failed to encode persistent stats format version\n");
-      s = Status::IOError("Encoding format version failed");
-      return s;
-    }
+    WriteBatch batch;
+    batch.Put(persist_stats_cf_handle_, kFormatVersionKeyString,
+              ToString(kStatsCFCurrentFormatVersion));
+    batch.Put(persist_stats_cf_handle_, kReaderVersionKeyString,
+              ToString(kPersistentStatsReaderVersion));
     WriteOptions wo;
     wo.low_pri = true;
     wo.no_slowdown = true;
     wo.sync = false;
-    WriteBatch batch;
-    batch.Put(persist_stats_cf_handle_,
-              Slice(format_version_key,
-                    std::min<size_t>(format_version_key_length, 100UL)),
-              ToString(kStatsCFCurrentFormatVersion));
-    batch.Put(persist_stats_cf_handle_,
-              Slice(reader_version_key,
-                    std::min<size_t>(reader_version_key_length, 100UL)),
-              ToString(kPersistentStatsReaderVersion));
     s = Write(wo, &batch);
   }
   mutex_.Lock();
   return s;
 }
 
-// Initialize the built-in column family for persistent stats. Depending on
-// whether on-disk persistent stats have been enabled before, it may either
-// create a new column family and column family handle or just a column family
-// handle.
 Status DBImpl::InitPersistStatsColumnFamily() {
   assert(!persist_stats_cf_handle_);
   persistent_stats_cfd_exists_ =
@@ -592,9 +575,9 @@ Status DBImpl::InitPersistStatsColumnFamily() {
   } else {
     mutex_.Unlock();
     ColumnFamilyHandle* handle = nullptr;
-    ColumnFamilyOptions co;
-    co.OptimizeForPersistentStats();
-    s = CreateColumnFamily(co, kPersistentStatsColumnFamilyName, &handle);
+    ColumnFamilyOptions cfo;
+    OptimizeForPersistentStats(&cfo);
+    s = CreateColumnFamily(cfo, kPersistentStatsColumnFamilyName, &handle);
     persist_stats_cf_handle_ = static_cast<ColumnFamilyHandleImpl*>(handle);
     mutex_.Lock();
   }

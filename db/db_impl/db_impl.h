@@ -1180,11 +1180,14 @@ class DBImpl : public DB {
     PrepickedCompaction* prepicked_compaction;
   };
 
-  // Initialize the built-in column family for persistent stats.
+  // Initialize the built-in column family for persistent stats. Depending on
+  // whether on-disk persistent stats have been enabled before, it may either
+  // create a new column family and column family handle or just a column family
+  // handle.
   // Required: DB mutex held
   Status InitPersistStatsColumnFamily();
 
-  // Persistent Stats column family has a format version key which is used
+  // Persistent Stats column family has two format version key which are used
   // for compatibility check. Write format version if it's created for the
   // first time, read format version and check compatibility if recovering
   // from disk

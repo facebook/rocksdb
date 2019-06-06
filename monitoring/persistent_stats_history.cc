@@ -19,52 +19,39 @@ namespace rocksdb {
 // 10 digit seconds timestamp => [Sep 9, 2001 ~ Nov 20, 2286]
 const int kNowSecondsStringLength = 10;
 const int kMicrosInSecond = 1000 * 1000;
-const char* kFormatVersionKeyString = "__persistent_stats_format_version__";
-const char* kReaderVersionKeyString = "__persistent_stats_reader_version__";
+const std::string kFormatVersionKeyString =
+    "__persistent_stats_format_version__";
+const std::string kReaderVersionKeyString =
+    "__persistent_stats_reader_version__";
 const int kStatsCFCurrentFormatVersion = 1;
-const int kStatsCFMinimumFormatVersion = 1;
 const int kPersistentStatsReaderVersion = 1;
 
-void GetVersionKeyString(char* buf, StatsVersionKeyType type) {
+std::string GetVersionKeyString(StatsVersionKeyType type) {
   switch (type) {
     case StatsVersionKeyType::kFormatVersion:
-      strcpy(buf, kFormatVersionKeyString);
-      return;
+      return kFormatVersionKeyString;
     case StatsVersionKeyType::kReaderVersion:
-      strcpy(buf, kReaderVersionKeyString);
-      return;
+      return kReaderVersionKeyString;
     default:
-      return;
+      return "";
   }
 }
 
-size_t EncodePersistentStatsVersionKey(char* buf, StatsVersionKeyType type) {
+int DecodePersistentStatsVersionNumber(DBImpl* db, StatsVersionKeyType type) {
   if (type >= StatsVersionKeyType::kKeyTypeMax) {
     return -1;
   }
-  GetVersionKeyString(buf, type);
-  return strlen(buf);
-}
-
-int DecodePersistentStatsVersionNumber(DBImpl* db,
-                                       StatsVersionKeyType type) {
-  if (type >= StatsVersionKeyType::kKeyTypeMax) {
-    return -1;
-  }
-  char key_string[100];
-  GetVersionKeyString(key_string, type);
+  std::string key = GetVersionKeyString(type);
   ReadOptions options;
   options.verify_checksums = true;
   std::string result;
-  Status s = db->Get(options, db->PersistentStatsColumnFamily(),
-                     Slice(key_string), &result);
-  if (s.IsNotFound() || !s.ok()) {
+  Status s = db->Get(options, db->PersistentStatsColumnFamily(), key, &result);
+  if (!s.ok() || result.length() == 0) {
     return -1;
   }
 
   // read version_number but do nothing in current version
-  int version_number =
-      static_cast<int>(std::stoull(result));
+  int version_number = static_cast<int>(ParseUint64(result));
   return version_number;
 }
 
@@ -76,6 +63,16 @@ int EncodePersistentStatsKey(uint64_t now_micros, const std::string& key,
            static_cast<int>(now_micros / kMicrosInSecond));
   timestamp[kNowSecondsStringLength] = '\0';
   return snprintf(buf, size, "%s#%s", timestamp, key.c_str());
+}
+
+void OptimizeForPersistentStats(ColumnFamilyOptions* cfo) {
+  cfo->write_buffer_size = 2 << 20;
+  cfo->target_file_size_base = 2 * 1048576;
+  cfo->max_bytes_for_level_base = 10 * 1048576;
+  cfo->snap_refresh_nanos = 0;
+  cfo->soft_pending_compaction_bytes_limit = 256 * 1048576;
+  cfo->hard_pending_compaction_bytes_limit = 1073741824ul;
+  cfo->compression = kNoCompression;
 }
 
 PersistentStatsHistoryIterator::~PersistentStatsHistoryIterator() {}
@@ -129,8 +126,6 @@ void PersistentStatsHistoryIterator::AdvanceIteratorByTime(uint64_t start_time,
     ReadOptions ro;
     Iterator* iter =
         db_impl_->NewIterator(ro, db_impl_->PersistentStatsColumnFamily());
-    format_version_ = DecodePersistentStatsVersionNumber(db_impl_,
-        StatsVersionKeyType::kFormatVersion);
 
     char timestamp[kNowSecondsStringLength + 1];
     snprintf(timestamp, sizeof(timestamp), "%010d",

@@ -100,7 +100,7 @@
 namespace rocksdb {
 const std::string kDefaultColumnFamilyName("default");
 const std::string kPersistentStatsColumnFamilyName(
-    "___rocksdb_reserved_stats_history");
+    "___rocksdb_stats_history___");
 void DumpRocksDBBuildVersion(Logger* log);
 
 CompressionType GetCompressionFlush(
@@ -697,10 +697,6 @@ void DBImpl::PersistStats() {
   }
 
   if (immutable_db_options_.persist_stats_to_disk) {
-    WriteOptions wo;
-    wo.low_pri = true;
-    wo.no_slowdown = true;
-    wo.sync = false;
     WriteBatch batch;
     if (stats_slice_initialized_) {
       for (const auto& stat : stats_map) {
@@ -716,6 +712,10 @@ void DBImpl::PersistStats() {
     }
     stats_slice_initialized_ = true;
     std::swap(stats_slice_, stats_map);
+    WriteOptions wo;
+    wo.low_pri = true;
+    wo.no_slowdown = true;
+    wo.sync = false;
     Status s = Write(wo, &batch);
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
