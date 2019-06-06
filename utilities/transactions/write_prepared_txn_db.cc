@@ -7,8 +7,8 @@
 
 #include "utilities/transactions/write_prepared_txn_db.h"
 
-#include <cinttypes>
 #include <algorithm>
+#include <cinttypes>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -387,7 +387,8 @@ void WritePreparedTxnDB::Init(const TransactionDBOptions& /* unused */) {
       new std::atomic<CommitEntry64b>[COMMIT_CACHE_SIZE] {});
 }
 
-void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max, bool locked) {
+void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max,
+                                                 bool locked) {
   // When max_evicted_seq_ advances, move older entries from prepared_txns_
   // to delayed_prepared_. This guarantees that if a seq is lower than max,
   // then it is not in prepared_txns_ and save an expensive, synchronized

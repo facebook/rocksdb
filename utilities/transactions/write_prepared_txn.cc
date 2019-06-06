@@ -169,11 +169,12 @@ Status WritePreparedTxn::CommitInternal() {
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   const SequenceNumber commit_batch_seq = seq_used;
   if (LIKELY(do_one_write || !s.ok())) {
-    if (UNLIKELY(!db_impl_->immutable_db_options().two_write_queues && s.ok())) {
+    if (UNLIKELY(!db_impl_->immutable_db_options().two_write_queues &&
+                 s.ok())) {
       // Note: RemovePrepared should be called after WriteImpl that publishsed
       // the seq. Otherwise SmallestUnCommittedSeq optimization breaks.
       wpt_db_->RemovePrepared(prepare_seq, prepare_batch_cnt_);
-    } // else RemovePrepared is called from within PreReleaseCallback
+    }  // else RemovePrepared is called from within PreReleaseCallback
     if (UNLIKELY(!do_one_write)) {
       assert(!s.ok());
       // Cleanup the prepared entry we added with add_prepared_callback
@@ -382,7 +383,8 @@ Status WritePreparedTxn::RollbackInternal() {
   if (s.ok()) {
     wpt_db_->RemovePrepared(GetId(), prepare_batch_cnt_);
   }
-  // Note: RemovePrepared for prepared batch is called from within PreReleaseCallback
+  // Note: RemovePrepared for prepared batch is called from within
+  // PreReleaseCallback
   wpt_db_->RemovePrepared(rollback_seq, ONE_BATCH);
 
   return s;

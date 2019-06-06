@@ -530,13 +530,11 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     }
     port::Mutex* push_pop_mutex() { return &push_pop_mutex_; }
 
-    inline bool empty(){return top() == kMaxSequenceNumber;}
+    inline bool empty() { return top() == kMaxSequenceNumber; }
     // Returns kMaxSequenceNumber if empty() and the smallest otherwise.
-    inline uint64_t top() {
-      return heap_top_.load(std::memory_order_acquire);
-    }
-    inline void push(uint64_t v) { 
-      heap_.push(v); 
+    inline uint64_t top() { return heap_top_.load(std::memory_order_acquire); }
+    inline void push(uint64_t v) {
+      heap_.push(v);
       heap_top_.store(heap_.top(), std::memory_order_release);
     }
     void pop(bool locked = false) {
@@ -561,7 +559,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       while (heap_.empty() && !erased_heap_.empty()) {
         erased_heap_.pop();
       }
-      heap_top_.store(!heap_.empty() ? heap_.top() : kMaxSequenceNumber, std::memory_order_release);
+      heap_top_.store(!heap_.empty() ? heap_.top() : kMaxSequenceNumber,
+                      std::memory_order_release);
       if (!locked) {
         push_pop_mutex()->Unlock();
       }
@@ -637,8 +636,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       // that latest value in the memtable.
       return db_impl_->GetLatestSequenceNumber() + 1;
     } else {
-      return std::min(min_prep,
-                      db_impl_->GetLatestSequenceNumber() + 1);
+      return std::min(min_prep, db_impl_->GetLatestSequenceNumber() + 1);
     }
   }
   // Enhance the snapshot object by recording in it the smallest uncommitted seq

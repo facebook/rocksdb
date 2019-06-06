@@ -7,9 +7,9 @@
 
 #include "utilities/transactions/transaction_test.h"
 
-#include <cinttypes>
 #include <algorithm>
 #include <atomic>
+#include <cinttypes>
 #include <functional>
 #include <string>
 #include <thread>
@@ -2997,9 +2997,12 @@ TEST_P(WritePreparedTransactionTest, AddPreparedBeforeMax) {
   // evicted sec and finish checking the existing prepared entries, t1)
   // AddPrepared, t2) update max_evicted_seq_
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
-      {"AddPreparedCallback::AddPrepared::begin:pause", "AddPreparedBeforeMax::read_thread:start"},
-      {"AdvanceMaxEvictedSeq::update_max:pause", "AddPreparedCallback::AddPrepared::begin:resume"},
-      {"AddPreparedCallback::AddPrepared::end", "AdvanceMaxEvictedSeq::update_max:resume"},
+      {"AddPreparedCallback::AddPrepared::begin:pause",
+       "AddPreparedBeforeMax::read_thread:start"},
+      {"AdvanceMaxEvictedSeq::update_max:pause",
+       "AddPreparedCallback::AddPrepared::begin:resume"},
+      {"AddPreparedCallback::AddPrepared::end",
+       "AdvanceMaxEvictedSeq::update_max:resume"},
   });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3058,14 +3061,13 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
       PinnableSlice value;
       // Take a snapshot after publish and before RemovePrepared:Start
       auto snap_callback = [&]() {
-            ASSERT_EQ(nullptr, snap.load());
-            snap.store(db->GetSnapshot());
-            ReadOptions roptions;
-            roptions.snapshot = snap.load();
-            auto s =
-                db->Get(roptions, db->DefaultColumnFamily(), "key", &value);
-            ASSERT_OK(s);
-            snapshot_taken.store(true);
+        ASSERT_EQ(nullptr, snap.load());
+        snap.store(db->GetSnapshot());
+        ReadOptions roptions;
+        roptions.snapshot = snap.load();
+        auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &value);
+        ASSERT_OK(s);
+        snapshot_taken.store(true);
       };
       auto callback = [&](void* param) {
         SequenceNumber prep_seq = *((SequenceNumber*)param);
