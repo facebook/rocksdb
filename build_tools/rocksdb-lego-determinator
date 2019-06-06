@@ -109,13 +109,6 @@ else
   TASK_CREATION_TOOL="false"
 fi
 
-ARTIFACTS=" 'artifacts': [
-    {
-        'name':'database',
-        'paths':[ '/dev/shm/rocksdb' ],
-    }
-]"
-
 #
 # A mechanism to disable tests temporarily
 #
@@ -395,7 +388,6 @@ STRESS_CRASH_TEST_COMMANDS="[
                 $PARSER
             }
         ],
-        $ARTIFACTS,
         $REPORT
     }
 ]"
@@ -424,7 +416,6 @@ STRESS_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
                 $PARSER
             }
         ],
-        $ARTIFACTS,
         $REPORT
     }
 ]"
