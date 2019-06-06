@@ -151,6 +151,9 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     // Read blocks.
     BlockCacheTraceAnalyzer analyzer(trace_file_path_);
     ASSERT_OK(analyzer.Analyze());
+    analyzer.PrintStatsSummary();
+    analyzer.PrintBlockSizeStats();
+    analyzer.PrintAccessCountStats();
 
     const uint64_t expected_num_cfs = 1;
     std::vector<uint64_t> expected_fds{kSSTStoringOddKeys, kSSTStoringEvenKeys};
