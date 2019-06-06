@@ -2672,8 +2672,11 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
   const Slice* const const_ikey_ptr = &internal_key;
   bool may_match = true;
   if (filter->whole_key_filtering()) {
-    may_match = filter->KeyMayMatch(user_key, prefix_extractor, kNotValid,
-                                    no_io, const_ikey_ptr);
+    size_t ts_sz =
+        rep_->internal_comparator.user_comparator()->timestamp_size();
+    Slice user_key_without_ts = StripTimestampFromUserKey(user_key, ts_sz);
+    may_match = filter->KeyMayMatch(user_key_without_ts, prefix_extractor,
+                                    kNotValid, no_io, const_ikey_ptr);
   } else if (!read_options.total_order_seek && prefix_extractor &&
              rep_->table_properties->prefix_extractor_name.compare(
                  prefix_extractor->Name()) == 0 &&
@@ -2755,6 +2758,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       iiter_unique_ptr.reset(iiter);
     }
 
+    size_t ts_sz =
+        rep_->internal_comparator.user_comparator()->timestamp_size();
     bool matched = false;  // if such user key mathced a key in SST
     bool done = false;
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
@@ -2762,8 +2767,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
 
       bool not_exist_in_filter =
           filter != nullptr && filter->IsBlockBased() == true &&
-          !filter->KeyMayMatch(ExtractUserKey(key), prefix_extractor,
-                               handle.offset(), no_io);
+          !filter->KeyMayMatch(ExtractUserKeyAndStripTimestamp(key, ts_sz),
+                               prefix_extractor, handle.offset(), no_io);
 
       if (not_exist_in_filter) {
         // Not found
@@ -2793,7 +2798,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         }
 
         bool may_exist = biter.SeekForGet(key);
-        if (!may_exist) {
+        // If user-specified timestamp is supported, we cannot end the search
+        // just because hash index lookup indicates the key+ts does not exist.
+        if (!may_exist && ts_sz == 0) {
           // HashSeek cannot find the key this block and the the iter is not
           // the end of the block, i.e. cannot be in the following blocks
           // either. In this case, the seek_key cannot be found, so we break

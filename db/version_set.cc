@@ -93,7 +93,8 @@ Status OverlapWithIterator(const Comparator* ucmp,
       return Status::Corruption("DB have corrupted keys");
     }
 
-    if (ucmp->Compare(seek_result.user_key, largest_user_key) <= 0) {
+    if (ucmp->CompareWithoutTimestamp(seek_result.user_key, largest_user_key) <=
+        0) {
       *overlap = true;
     }
   }
@@ -171,17 +172,16 @@ class FilePicker {
           // Check if key is within a file's range. If search left bound and
           // right bound point to the same find, we are sure key falls in
           // range.
-          assert(
-              curr_level_ == 0 ||
-              curr_index_in_curr_level_ == start_index_in_curr_level_ ||
-              user_comparator_->Compare(user_key_,
-                ExtractUserKey(f->smallest_key)) <= 0);
+          assert(curr_level_ == 0 ||
+                 curr_index_in_curr_level_ == start_index_in_curr_level_ ||
+                 user_comparator_->CompareWithoutTimestamp(
+                     user_key_, ExtractUserKey(f->smallest_key)) <= 0);
 
-          int cmp_smallest = user_comparator_->Compare(user_key_,
-              ExtractUserKey(f->smallest_key));
+          int cmp_smallest = user_comparator_->CompareWithoutTimestamp(
+              user_key_, ExtractUserKey(f->smallest_key));
           if (cmp_smallest >= 0) {
-            cmp_largest = user_comparator_->Compare(user_key_,
-                ExtractUserKey(f->largest_key));
+            cmp_largest = user_comparator_->CompareWithoutTimestamp(
+                user_key_, ExtractUserKey(f->largest_key));
           }
 
           // Setup file search bound for the next level based on the
@@ -799,14 +799,16 @@ static bool AfterFile(const Comparator* ucmp,
                       const Slice* user_key, const FdWithKeyRange* f) {
   // nullptr user_key occurs before all keys and is therefore never after *f
   return (user_key != nullptr &&
-          ucmp->Compare(*user_key, ExtractUserKey(f->largest_key)) > 0);
+          ucmp->CompareWithoutTimestamp(*user_key,
+                                        ExtractUserKey(f->largest_key)) > 0);
 }
 
 static bool BeforeFile(const Comparator* ucmp,
                        const Slice* user_key, const FdWithKeyRange* f) {
   // nullptr user_key occurs after all keys and is therefore never before *f
   return (user_key != nullptr &&
-          ucmp->Compare(*user_key, ExtractUserKey(f->smallest_key)) < 0);
+          ucmp->CompareWithoutTimestamp(*user_key,
+                                        ExtractUserKey(f->smallest_key)) < 0);
 }
 
 bool SomeFileOverlapsRange(
@@ -952,8 +954,9 @@ class LevelIterator final : public InternalIterator {
 
   bool KeyReachedUpperBound(const Slice& internal_key) {
     return read_options_.iterate_upper_bound != nullptr &&
-           user_comparator_.Compare(ExtractUserKey(internal_key),
-                                    *read_options_.iterate_upper_bound) >= 0;
+           user_comparator_.CompareWithoutTimestamp(
+               ExtractUserKey(internal_key),
+               *read_options_.iterate_upper_bound) >= 0;
   }
 
   InternalIterator* NewFileIterator() {
@@ -2774,11 +2777,12 @@ void VersionStorageInfo::GetOverlappingInputs(
       FdWithKeyRange* f = &(level_files_brief_[level].files[*iter]);
       const Slice file_start = ExtractUserKey(f->smallest_key);
       const Slice file_limit = ExtractUserKey(f->largest_key);
-      if (begin != nullptr && user_cmp->Compare(file_limit, user_begin) < 0) {
+      if (begin != nullptr &&
+          user_cmp->CompareWithoutTimestamp(file_limit, user_begin) < 0) {
         // "f" is completely before specified range; skip it
         iter++;
       } else if (end != nullptr &&
-                 user_cmp->Compare(file_start, user_end) > 0) {
+                 user_cmp->CompareWithoutTimestamp(file_start, user_end) > 0) {
         // "f" is completely after specified range; skip it
         iter++;
       } else {
@@ -2793,10 +2797,11 @@ void VersionStorageInfo::GetOverlappingInputs(
         iter = index.erase(iter);
         if (expand_range) {
           if (begin != nullptr &&
-              user_cmp->Compare(file_start, user_begin) < 0) {
+              user_cmp->CompareWithoutTimestamp(file_start, user_begin) < 0) {
             user_begin = file_start;
           }
-          if (end != nullptr && user_cmp->Compare(file_limit, user_end) > 0) {
+          if (end != nullptr &&
+              user_cmp->CompareWithoutTimestamp(file_limit, user_end) > 0) {
             user_end = file_limit;
           }
         }
