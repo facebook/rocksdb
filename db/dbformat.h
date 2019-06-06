@@ -151,6 +151,17 @@ inline Slice ExtractUserKey(const Slice& internal_key) {
   return Slice(internal_key.data(), internal_key.size() - 8);
 }
 
+inline Slice ExtractUserKeyAndStripTimestamp(const Slice& internal_key,
+                                             size_t ts_sz) {
+  assert(internal_key.size() >= 8 + ts_sz);
+  return Slice(internal_key.data(), internal_key.size() - 8 - ts_sz);
+}
+
+inline Slice StripTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
+  assert(user_key.size() >= ts_sz);
+  return Slice(user_key.data(), user_key.size() - ts_sz);
+}
+
 inline uint64_t ExtractInternalKeyFooter(const Slice& internal_key) {
   assert(internal_key.size() >= 8);
   const size_t n = internal_key.size();
@@ -657,5 +668,21 @@ struct ParsedInternalKeyComparator {
 
   const InternalKeyComparator* cmp;
 };
+
+// TODO (yanqin): this causes extra memory allocation and copy. Should be
+// addressed in the future.
+inline Status AppendTimestamp(const Slice& key, const Slice& timestamp,
+                              Slice* ret_key, std::string* ret_buf) {
+  assert(ret_key != nullptr);
+  assert(ret_buf != nullptr);
+  if (key.data() + key.size() == timestamp.data()) {
+    *ret_key = Slice(key.data(), key.size() + timestamp.size());
+  } else {
+    ret_buf->assign(key.data(), key.size());
+    ret_buf->append(timestamp.data(), timestamp.size());
+    *ret_key = Slice(*ret_buf);
+  }
+  return Status::OK();
+}
 
 }  // namespace rocksdb

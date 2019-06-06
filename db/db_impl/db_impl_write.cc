@@ -1677,11 +1677,25 @@ size_t DBImpl::GetWalPreallocateBlockSize(uint64_t write_buffer_size) const {
 // can call if they wish
 Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                const Slice& key, const Slice& value) {
-  // Pre-allocate size of write batch conservatively.
-  // 8 bytes are taken by header, 4 bytes for count, 1 byte for type,
-  // and we allocate 11 extra bytes for key length, as well as value length.
-  WriteBatch batch(key.size() + value.size() + 24);
-  Status s = batch.Put(column_family, key, value);
+  if (nullptr == opt.timestamp) {
+    // Pre-allocate size of write batch conservatively.
+    // 8 bytes are taken by header, 4 bytes for count, 1 byte for type,
+    // and we allocate 11 extra bytes for key length, as well as value length.
+    WriteBatch batch(key.size() + value.size() + 24);
+    Status s = batch.Put(column_family, key, value);
+    if (!s.ok()) {
+      return s;
+    }
+    return Write(opt, &batch);
+  }
+  Slice akey;
+  std::string buf;
+  Status s = AppendTimestamp(key, *(opt.timestamp), &akey, &buf);
+  if (!s.ok()) {
+    return s;
+  }
+  WriteBatch batch(akey.size() + value.size() + 24);
+  s = batch.Put(column_family, akey, value);
   if (!s.ok()) {
     return s;
   }
