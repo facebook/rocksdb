@@ -73,7 +73,7 @@ class BlockCacheTraceWriter {
   Status WriteHeader();
 
  private:
-  bool ShouldTrace(const BlockCacheTraceRecord& record);
+  bool ShouldTrace(const BlockCacheTraceRecord& record) const;
 
   Env* env_;
   TraceOptions trace_options_;

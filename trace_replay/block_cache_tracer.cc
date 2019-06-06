@@ -29,7 +29,8 @@ BlockCacheTraceWriter::BlockCacheTraceWriter(
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)) {}
 
-bool BlockCacheTraceWriter::ShouldTrace(const BlockCacheTraceRecord& record) {
+bool BlockCacheTraceWriter::ShouldTrace(
+    const BlockCacheTraceRecord& record) const {
   if (trace_options_.sampling_frequency == 0 ||
       trace_options_.sampling_frequency == 1) {
     return true;
