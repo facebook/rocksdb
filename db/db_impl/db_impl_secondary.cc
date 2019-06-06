@@ -518,7 +518,9 @@ Status DB::OpenAsSecondary(
     if (tmp_opts.log_file_time_to_roll > 0 || tmp_opts.max_log_file_size > 0) {
       AutoRollLogger* result = new AutoRollLogger(
           env, secondary_path, tmp_opts.db_log_dir, tmp_opts.max_log_file_size,
-          tmp_opts.log_file_time_to_roll, tmp_opts.info_log_level);
+          tmp_opts.log_file_time_to_roll, tmp_opts.keep_log_file_num,
+          tmp_opts.keep_large_log_file_num, tmp_opts.large_info_log_size,
+          tmp_opts.info_log_level);
       Status s = result->GetStatus();
       if (!s.ok()) {
         delete result;

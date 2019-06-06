@@ -38,6 +38,8 @@ struct ImmutableDBOptions {
   size_t max_log_file_size;
   size_t log_file_time_to_roll;
   size_t keep_log_file_num;
+  size_t keep_large_log_file_num;
+  size_t large_info_log_size;
   size_t recycle_log_file_num;
   uint64_t max_manifest_file_size;
   int table_cache_numshardbits;

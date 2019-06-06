@@ -840,6 +840,60 @@ void Java_org_rocksdb_Options_setKeepLogFileNum(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    keepLogFileNum
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_keepLargeLogFileNum(JNIEnv*, jobject,
+                                                   jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->keep_large_log_file_num;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setKeepLogFileNum
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setKeepLargeLogFileNum(
+    JNIEnv* env, jobject, jlong jhandle, jlong keep_large_log_file_num) {
+  auto s =
+      rocksdb::JniUtil::check_if_jlong_fits_size_t(keep_large_log_file_num);
+  if (s.ok()) {
+    reinterpret_cast<rocksdb::Options*>(jhandle)->keep_large_log_file_num =
+        keep_large_log_file_num;
+  } else {
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    keepLogFileNum
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_largeInfoLogSize(JNIEnv*, jobject,
+                                                jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->large_info_log_size;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setKeepLogFileNum
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setLargeInfoLogSize(JNIEnv* env, jobject,
+                                                  jlong jhandle,
+                                                  jlong large_info_log_size) {
+  auto s = rocksdb::JniUtil::check_if_jlong_fits_size_t(large_info_log_size);
+  if (s.ok()) {
+    reinterpret_cast<rocksdb::Options*>(jhandle)->large_info_log_size =
+        large_info_log_size;
+  } else {
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    recycleLogFileNum
  * Signature: (J)J
  */

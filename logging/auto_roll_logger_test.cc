@@ -195,9 +195,12 @@ TEST_F(AutoRollLoggerTest, RollLogFileBySize) {
     InitTestDb();
     size_t log_max_size = 1024 * 5;
     size_t keep_log_file_num = 10;
+    size_t keep_large_log_file_num = 0;
+    size_t large_info_log_size = 0;
 
     AutoRollLogger logger(Env::Default(), kTestDir, "", log_max_size, 0,
-                          keep_log_file_num);
+                          keep_log_file_num, keep_large_log_file_num,
+                          large_info_log_size);
 
     RollLogFileBySizeTest(&logger, log_max_size,
                           kSampleMessage + ":RollLogFileBySize");
@@ -209,11 +212,14 @@ TEST_F(AutoRollLoggerTest, RollLogFileByTime) {
   size_t time = 2;
   size_t log_size = 1024 * 5;
   size_t keep_log_file_num = 10;
+  size_t keep_large_log_file_num = 0;
+  size_t large_info_log_size = 0;
 
   InitTestDb();
   // -- Test the existence of file during the server restart.
   ASSERT_EQ(Status::NotFound(), default_env->FileExists(kLogFile));
-  AutoRollLogger logger(&nse, kTestDir, "", log_size, time, keep_log_file_num);
+  AutoRollLogger logger(&nse, kTestDir, "", log_size, time, keep_log_file_num,
+                        keep_large_log_file_num, large_info_log_size);
   ASSERT_OK(default_env->FileExists(kLogFile));
 
   RollLogFileByTimeTest(&nse, &logger, time,
@@ -231,16 +237,20 @@ TEST_F(AutoRollLoggerTest, OpenLogFilesMultipleTimesWithOptionLog_max_size) {
   size_t kZero = 0;
   size_t log_size = 1024;
   size_t keep_log_file_num = 10;
+  size_t keep_large_log_file_num = 0;
+  size_t large_info_log_size = 0;
 
-  AutoRollLogger* logger = new AutoRollLogger(Env::Default(), kTestDir, "",
-                                              log_size, 0, keep_log_file_num);
+  AutoRollLogger* logger = new AutoRollLogger(
+      Env::Default(), kTestDir, "", log_size, 0, keep_log_file_num,
+      keep_large_log_file_num, large_info_log_size);
 
   LogMessage(logger, kSampleMessage.c_str());
   ASSERT_GT(logger->GetLogFileSize(), kZero);
   delete logger;
 
   // reopens the log file and an empty log file will be created.
-  logger = new AutoRollLogger(Env::Default(), kTestDir, "", log_size, 0, 10);
+  logger = new AutoRollLogger(Env::Default(), kTestDir, "", log_size, 0, 10,
+                              keep_large_log_file_num, large_info_log_size);
   ASSERT_EQ(logger->GetLogFileSize(), kZero);
   delete logger;
 }
@@ -248,12 +258,15 @@ TEST_F(AutoRollLoggerTest, OpenLogFilesMultipleTimesWithOptionLog_max_size) {
 TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
   size_t time = 2, log_max_size = 1024 * 5;
   size_t keep_log_file_num = 10;
+  size_t keep_large_log_file_num = 0;
+  size_t large_info_log_size = 0;
 
   InitTestDb();
 
   NoSleepEnv nse(Env::Default());
   AutoRollLogger logger(&nse, kTestDir, "", log_max_size, time,
-                        keep_log_file_num);
+                        keep_log_file_num, keep_large_log_file_num,
+                        large_info_log_size);
 
   // Test the ability to roll by size
   RollLogFileBySizeTest(&logger, log_max_size,
@@ -381,7 +394,7 @@ TEST_F(AutoRollLoggerTest, AutoDeleting) {
     {
       size_t log_num = 8;
       AutoRollLogger logger(Env::Default(), dbname, db_log_dir, kMaxFileSize, 0,
-                            log_num);
+                            log_num, 0, 0);
       RollNTimesBySize(&logger, log_num, kMaxFileSize);
 
       ASSERT_EQ(log_num, GetLogFiles().size());
@@ -390,7 +403,7 @@ TEST_F(AutoRollLoggerTest, AutoDeleting) {
     {
       size_t log_num = 5;
       AutoRollLogger logger(Env::Default(), dbname, db_log_dir, kMaxFileSize, 0,
-                            log_num);
+                            log_num, 0, 0);
       ASSERT_EQ(log_num, GetLogFiles().size());
 
       RollNTimesBySize(&logger, 3, kMaxFileSize);
@@ -401,7 +414,7 @@ TEST_F(AutoRollLoggerTest, AutoDeleting) {
     {
       size_t log_num = 7;
       AutoRollLogger logger(Env::Default(), dbname, db_log_dir, kMaxFileSize, 0,
-                            log_num);
+                            log_num, 0, 0);
       ASSERT_EQ(6, GetLogFiles().size());
 
       RollNTimesBySize(&logger, 3, kMaxFileSize);
@@ -463,7 +476,7 @@ TEST_F(AutoRollLoggerTest, InfoLogLevel) {
   // an extra-scope to force the AutoRollLogger to flush the log file when it
   // becomes out of scope.
   {
-    AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, 0, 10);
+    AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, 0, 10, 0, 0);
     for (int log_level = InfoLogLevel::HEADER_LEVEL;
          log_level >= InfoLogLevel::DEBUG_LEVEL; log_level--) {
       logger.SetInfoLogLevel((InfoLogLevel)log_level);
@@ -501,7 +514,7 @@ TEST_F(AutoRollLoggerTest, Close) {
 
   size_t log_size = 8192;
   size_t log_lines = 0;
-  AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, 0, 10);
+  AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, 0, 10, 0, 0);
   for (int log_level = InfoLogLevel::HEADER_LEVEL;
        log_level >= InfoLogLevel::DEBUG_LEVEL; log_level--) {
     logger.SetInfoLogLevel((InfoLogLevel)log_level);
@@ -589,7 +602,9 @@ TEST_F(AutoRollLoggerTest, LogHeaderTest) {
 
     AutoRollLogger logger(Env::Default(), kTestDir, /*db_log_dir=*/"",
                           LOG_MAX_SIZE, /*log_file_time_to_roll=*/0,
-                          /*keep_log_file_num=*/10);
+                          /*keep_log_file_num=*/10,
+                          /*keep_large_log_file_num=*/0,
+                          /*large_info_log_size=*/0);
 
     if (test_num == 0) {
       // Log some headers explicitly using Header()

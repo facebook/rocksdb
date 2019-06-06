@@ -248,6 +248,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "compaction_readahead_size=0;"
                              "new_table_reader_for_compaction_inputs=false;"
                              "keep_log_file_num=4890;"
+                             "keep_large_log_file_num=12;"
+                             "large_info_log_size=3232441;"
                              "skip_stats_update_on_db_open=false;"
                              "max_manifest_file_size=4295009941;"
                              "db_log_dir=path/to/db_log_dir;"

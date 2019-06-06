@@ -26,6 +26,7 @@ class AutoRollLogger : public Logger {
   AutoRollLogger(Env* env, const std::string& dbname,
                  const std::string& db_log_dir, size_t log_max_size,
                  size_t log_file_time_to_roll, size_t keep_log_file_num,
+                 size_t keep_large_log_file_num, size_t large_info_log_size,
                  const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL);
 
   using Logger::Logv;
@@ -116,6 +117,8 @@ class AutoRollLogger : public Logger {
   const size_t kMaxLogFileSize;
   const size_t kLogFileTimeToRoll;
   const size_t kKeepLogFileNum;
+  const size_t kKeepLargeLogFileNum;
+  const size_t kLargeInfoLogSize;
   // header information
   std::list<std::string> headers_;
   // List of all existing info log files. Used for enforcing number of
@@ -123,6 +126,7 @@ class AutoRollLogger : public Logger {
   // Full path is stored here. It consumes signifianctly more memory
   // than only storing file name. Can optimize if it causes a problem.
   std::queue<std::string> old_log_files_;
+  std::queue<std::string> old_large_log_files_;
   // to avoid frequent env->NowMicros() calls, we cached the current time
   uint64_t cached_now;
   uint64_t ctime_;

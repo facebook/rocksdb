@@ -119,6 +119,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"max_log_file_size", "37"},
       {"log_file_time_to_roll", "38"},
       {"keep_log_file_num", "39"},
+      {"keep_large_log_file_num", "11"},
+      {"large_info_log_size", "1293021"},
       {"recycle_log_file_num", "5"},
       {"max_manifest_file_size", "40"},
       {"table_cache_numshardbits", "41"},
@@ -257,6 +259,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.max_log_file_size, 37U);
   ASSERT_EQ(new_db_opt.log_file_time_to_roll, 38U);
   ASSERT_EQ(new_db_opt.keep_log_file_num, 39U);
+  ASSERT_EQ(new_db_opt.keep_large_log_file_num, 11U);
+  ASSERT_EQ(new_db_opt.large_info_log_size, 1293021U);
   ASSERT_EQ(new_db_opt.recycle_log_file_num, 5U);
   ASSERT_EQ(new_db_opt.max_manifest_file_size, static_cast<uint64_t>(40));
   ASSERT_EQ(new_db_opt.table_cache_numshardbits, 41);

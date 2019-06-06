@@ -778,6 +778,22 @@ DEFINE_string(trace_file, "", "Trace workload to a file. ");
 DEFINE_int32(trace_replay_fast_forward, 1,
              "Fast forward trace replay, must >= 1. ");
 
+DEFINE_uint64(max_log_file_size, rocksdb::Options().max_log_file_size,
+              "Maximum file size for info log.");
+
+DEFINE_uint64(log_file_time_to_roll, rocksdb::Options().log_file_time_to_roll,
+              "Time for info log file to roll.");
+
+DEFINE_uint64(keep_log_file_num, rocksdb::Options().keep_log_file_num,
+              "Number of info log files to keep.");
+
+DEFINE_uint64(keep_large_log_file_num,
+              rocksdb::Options().keep_large_log_file_num,
+              "Number of additional large info log files to keep.");
+
+DEFINE_uint64(large_info_log_size, rocksdb::Options().large_info_log_size,
+              "Size threshold for large info log.");
+
 static enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   assert(ctype);
 
@@ -3729,6 +3745,13 @@ class Benchmark {
     }
 
     options.listeners.emplace_back(listener_);
+
+    options.max_log_file_size = FLAGS_max_log_file_size;
+    options.log_file_time_to_roll = FLAGS_log_file_time_to_roll;
+    options.keep_log_file_num = FLAGS_keep_log_file_num;
+    options.keep_large_log_file_num = FLAGS_keep_large_log_file_num;
+    options.large_info_log_size = FLAGS_large_info_log_size;
+
     if (FLAGS_num_multi_db <= 1) {
       OpenDb(options, FLAGS_db, &db_);
     } else {
@@ -3770,6 +3793,7 @@ class Benchmark {
     }
 
     InitializeOptionsGeneral(opts);
+    abort();
   }
 
   void OpenDb(Options options, const std::string& db_name,

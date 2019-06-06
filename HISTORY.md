@@ -5,6 +5,7 @@
 * Partitions of partitioned indexes no longer affect the read amplification statistics.
 * Due to a refactoring, block cache eviction statistics for indexes are temporarily broken. We plan to reintroduce them in a later phase.
 * options.keep_log_file_num will be enforced strictly all the time. File names of all log files will be tracked, which may take significantly amount of memory if options.keep_log_file_num is large and either of options.max_log_file_size or options.log_file_time_to_roll is set.
+* Add keep_large_log_file_num and large_info_log_size options to keep large enough info logs in addition to keep_log_file_num. The new options prevent info logs get purged if application fall in crash loop.
 
 ### New Features
 * Add an option `snap_refresh_nanos` (default to 0.1s) to periodically refresh the snapshot list in compaction jobs. Assign to 0 to disable the feature.
