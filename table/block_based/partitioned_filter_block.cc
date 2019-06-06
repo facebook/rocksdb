@@ -162,8 +162,8 @@ PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
 
 bool PartitionedFilterBlockReader::KeyMayMatch(
     const Slice& key, const SliceTransform* prefix_extractor,
-    uint64_t block_offset, const bool no_io,
-    const Slice* const const_ikey_ptr) {
+    uint64_t block_offset, const bool no_io, const Slice* const const_ikey_ptr,
+    BlockCacheLookupContext* context) {
   assert(const_ikey_ptr != nullptr);
   assert(block_offset == kNotValid);
   if (!whole_key_filtering_) {
@@ -177,8 +177,8 @@ bool PartitionedFilterBlockReader::KeyMayMatch(
     return false;
   }
   auto filter_partition =
-      GetFilterPartition(nullptr /* prefetch_buffer */, filter_handle, no_io,
-                         prefix_extractor);
+      GetFilterPartition(context, nullptr /* prefetch_buffer */, filter_handle,
+                         no_io, prefix_extractor);
   if (UNLIKELY(!filter_partition.GetValue())) {
     return true;
   }
@@ -188,8 +188,8 @@ bool PartitionedFilterBlockReader::KeyMayMatch(
 
 bool PartitionedFilterBlockReader::PrefixMayMatch(
     const Slice& prefix, const SliceTransform* prefix_extractor,
-    uint64_t block_offset, const bool no_io,
-    const Slice* const const_ikey_ptr) {
+    uint64_t block_offset, const bool no_io, const Slice* const const_ikey_ptr,
+    BlockCacheLookupContext* context) {
 #ifdef NDEBUG
   (void)block_offset;
 #endif
@@ -206,8 +206,8 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
     return false;
   }
   auto filter_partition =
-      GetFilterPartition(nullptr /* prefetch_buffer */, filter_handle, no_io,
-                         prefix_extractor);
+      GetFilterPartition(context, nullptr /* prefetch_buffer */, filter_handle,
+                         no_io, prefix_extractor);
   if (UNLIKELY(!filter_partition.GetValue())) {
     return true;
   }
@@ -233,8 +233,9 @@ BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
 
 CachableEntry<FilterBlockReader>
 PartitionedFilterBlockReader::GetFilterPartition(
-    FilePrefetchBuffer* prefetch_buffer, BlockHandle& fltr_blk_handle,
-    const bool no_io, const SliceTransform* prefix_extractor) {
+    BlockCacheLookupContext* context, FilePrefetchBuffer* prefetch_buffer,
+    BlockHandle& fltr_blk_handle, const bool no_io,
+    const SliceTransform* prefix_extractor) {
   const bool is_a_filter_partition = true;
   auto block_cache = table_->rep_->table_options.block_cache.get();
   if (LIKELY(block_cache != nullptr)) {
@@ -247,8 +248,8 @@ PartitionedFilterBlockReader::GetFilterPartition(
           nullptr /* cache_handle */, false /* own_value */};
       }
     }
-    return table_->GetFilter(/*prefetch_buffer*/ nullptr, fltr_blk_handle,
-                             is_a_filter_partition, no_io,
+    return table_->GetFilter(context, /*prefetch_buffer*/ nullptr,
+                             fltr_blk_handle, is_a_filter_partition, no_io,
                              /* get_context */ nullptr, prefix_extractor);
   } else {
     auto filter = table_->ReadFilter(prefetch_buffer, fltr_blk_handle,
@@ -273,6 +274,7 @@ size_t PartitionedFilterBlockReader::ApproximateMemoryUsage() const {
 void PartitionedFilterBlockReader::CacheDependencies(
     bool pin, const SliceTransform* prefix_extractor) {
   // Before read partitions, prefetch them to avoid lots of IOs
+  BlockCacheLookupContext lookup_context{BlockCacheLookupCaller::kPrefetch};
   IndexBlockIter biter;
   Statistics* kNullStats = nullptr;
   idx_on_fltr_blk_->NewIterator<IndexBlockIter>(
@@ -302,9 +304,10 @@ void PartitionedFilterBlockReader::CacheDependencies(
     handle = biter.value();
     const bool no_io = true;
     const bool is_a_filter_partition = true;
-    auto filter = table_->GetFilter(
-        prefetch_buffer.get(), handle, is_a_filter_partition, !no_io,
-        /* get_context */ nullptr, prefix_extractor);
+    auto filter =
+        table_->GetFilter(&lookup_context, prefetch_buffer.get(), handle,
+                          is_a_filter_partition, !no_io,
+                          /* get_context */ nullptr, prefix_extractor);
     if (LIKELY(filter.IsCached())) {
       if (pin) {
         filter_map_[handle.offset()] = std::move(filter);

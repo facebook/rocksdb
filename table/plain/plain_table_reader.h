@@ -89,7 +89,8 @@ class PlainTableReader: public TableReader {
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
-  uint64_t ApproximateOffsetOf(const Slice& key) override;
+  uint64_t ApproximateOffsetOf(const Slice& key,
+                               bool for_compaction = false) override;
 
   uint32_t GetIndexSize() const { return index_.GetIndexSize(); }
   void SetupForCompaction() override;

@@ -4831,7 +4831,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
 // maintain state of where they first appear in the files.
 uint64_t VersionSet::ApproximateSize(Version* v, const Slice& start,
                                      const Slice& end, int start_level,
-                                     int end_level) {
+                                     int end_level, bool for_compaction) {
   // pre-condition
   assert(v->cfd_->internal_comparator().Compare(start, end) <= 0);
 
@@ -4852,7 +4852,7 @@ uint64_t VersionSet::ApproximateSize(Version* v, const Slice& start,
 
     if (!level) {
       // level 0 data is sorted order, handle the use case explicitly
-      size += ApproximateSizeLevel0(v, files_brief, start, end);
+      size += ApproximateSizeLevel0(v, files_brief, start, end, for_compaction);
       continue;
     }
 
@@ -4869,7 +4869,7 @@ uint64_t VersionSet::ApproximateSize(Version* v, const Slice& start,
     // inferred from the sorted order
     for (uint64_t i = idx_start; i < files_brief.num_files; i++) {
       uint64_t val;
-      val = ApproximateSize(v, files_brief.files[i], end);
+      val = ApproximateSize(v, files_brief.files[i], end, for_compaction);
       if (!val) {
         // the files after this will not have the range
         break;
@@ -4880,7 +4880,7 @@ uint64_t VersionSet::ApproximateSize(Version* v, const Slice& start,
       if (i == idx_start) {
         // subtract the bytes needed to be scanned to get to the starting
         // key
-        val = ApproximateSize(v, files_brief.files[i], start);
+        val = ApproximateSize(v, files_brief.files[i], start, for_compaction);
         assert(size >= val);
         size -= val;
       }
@@ -4893,13 +4893,16 @@ uint64_t VersionSet::ApproximateSize(Version* v, const Slice& start,
 uint64_t VersionSet::ApproximateSizeLevel0(Version* v,
                                            const LevelFilesBrief& files_brief,
                                            const Slice& key_start,
-                                           const Slice& key_end) {
+                                           const Slice& key_end,
+                                           bool for_compaction) {
   // level 0 files are not in sorted order, we need to iterate through
   // the list to compute the total bytes that require scanning
   uint64_t size = 0;
   for (size_t i = 0; i < files_brief.num_files; i++) {
-    const uint64_t start = ApproximateSize(v, files_brief.files[i], key_start);
-    const uint64_t end = ApproximateSize(v, files_brief.files[i], key_end);
+    const uint64_t start =
+        ApproximateSize(v, files_brief.files[i], key_start, for_compaction);
+    const uint64_t end =
+        ApproximateSize(v, files_brief.files[i], key_end, for_compaction);
     assert(end >= start);
     size += end - start;
   }
@@ -4907,7 +4910,7 @@ uint64_t VersionSet::ApproximateSizeLevel0(Version* v,
 }
 
 uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
-                                     const Slice& key) {
+                                     const Slice& key, bool for_compaction) {
   // pre-condition
   assert(v);
 
@@ -4927,7 +4930,7 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
         *f.file_metadata, nullptr /* range_del_agg */,
         v->GetMutableCFOptions().prefix_extractor.get(), &table_reader_ptr);
     if (table_reader_ptr != nullptr) {
-      result = table_reader_ptr->ApproximateOffsetOf(key);
+      result = table_reader_ptr->ApproximateOffsetOf(key, for_compaction);
     }
     delete iter;
   }

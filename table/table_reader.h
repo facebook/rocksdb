@@ -61,7 +61,8 @@ class TableReader {
   // bytes, and so includes effects like compression of the underlying data.
   // E.g., the approximate offset of the last key in the table will
   // be close to the file length.
-  virtual uint64_t ApproximateOffsetOf(const Slice& key) = 0;
+  virtual uint64_t ApproximateOffsetOf(const Slice& key,
+                                       bool for_compaction = false) = 0;
 
   // Set up the table for Compaction. Might change some parameters with
   // posix_fadvise

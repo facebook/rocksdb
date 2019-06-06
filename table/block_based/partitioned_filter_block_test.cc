@@ -29,8 +29,9 @@ class MockedBlockBasedTable : public BlockBasedTable {
   }
 
   CachableEntry<FilterBlockReader> GetFilter(
-      FilePrefetchBuffer*, const BlockHandle& filter_blk_handle,
-      const bool /* unused */, bool /* unused */, GetContext* /* unused */,
+      BlockCacheLookupContext* /*context*/, FilePrefetchBuffer*,
+      const BlockHandle& filter_blk_handle, const bool /* unused */,
+      bool /* unused */, GetContext* /* unused */,
       const SliceTransform* prefix_extractor) const override {
     Slice slice = slices[filter_blk_handle.offset()];
     auto obj = new FullFilterBlockReader(
