@@ -561,6 +561,7 @@ TESTS = \
 	range_del_aggregator_test \
 	sst_file_reader_test \
 	db_secondary_test \
+	block_cache_tracer_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -1586,6 +1587,9 @@ sst_file_reader_test: table/sst_file_reader_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_secondary_test: db/db_impl/db_secondary_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+block_cache_tracer_test: trace_replay/block_cache_tracer_test.o trace_replay/block_cache_tracer.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------
