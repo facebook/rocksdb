@@ -25,14 +25,16 @@ const uint64_t kNumKeysInBlock = 1024;
 class BlockCacheTracerTest : public testing::Test {
  public:
   BlockCacheTracerTest() {
-    const std::string test_path_ =
-        test::PerThreadDBPath("block_cache_tracer_test");
+    test_path_ = test::PerThreadDBPath("block_cache_tracer_test");
     env_ = rocksdb::Env::Default();
-    env_->CreateDir(test_path_);
+    EXPECT_OK(env_->CreateDir(test_path_));
     trace_file_path_ = test_path_ + "/block_cache_trace";
   }
 
-  ~BlockCacheTracerTest() override {}
+  ~BlockCacheTracerTest() override {
+    EXPECT_OK(env_->DeleteFile(trace_file_path_));
+    EXPECT_OK(env_->DeleteDir(test_path_));
+  }
 
   BlockCacheLookupCaller GetCaller(uint32_t key_id) {
     uint32_t n = key_id % 5;
@@ -113,6 +115,7 @@ class BlockCacheTracerTest : public testing::Test {
   Env* env_;
   EnvOptions env_options_;
   std::string trace_file_path_;
+  std::string test_path_;
 };
 
 TEST_F(BlockCacheTracerTest, MixedBlocks) {

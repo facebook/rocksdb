@@ -26,6 +26,7 @@ enum BlockCacheLookupCaller : char {
 enum Boolean : char { kTrue = 1, kFalse = 0 };
 
 struct BlockCacheTraceRecord {
+  // Required fields for all accesses.
   uint64_t access_timestamp;
   std::string block_key;
   TraceType block_type;
@@ -38,7 +39,7 @@ struct BlockCacheTraceRecord {
   Boolean is_cache_hit;
   Boolean no_insert;
 
-  // For Data block and User Get/Multi-Get only.
+  // Required fields for data block and user Get/Multi-Get only.
   std::string referenced_key;
   uint64_t num_keys_in_block = 0;
   Boolean is_referenced_key_exist_in_block = Boolean::kFalse;
@@ -58,6 +59,12 @@ class BlockCacheTraceWriter {
  public:
   BlockCacheTraceWriter(Env* env, const TraceOptions& trace_options,
                         std::unique_ptr<TraceWriter>&& trace_writer);
+  ~BlockCacheTraceWriter() = default;
+  // No copy and move.
+  BlockCacheTraceWriter(const BlockCacheTraceWriter&) = delete;
+  BlockCacheTraceWriter& operator=(const BlockCacheTraceWriter&) = delete;
+  BlockCacheTraceWriter(BlockCacheTraceWriter&&) = delete;
+  BlockCacheTraceWriter& operator=(BlockCacheTraceWriter&&) = delete;
 
   Status WriteBlockAccess(const BlockCacheTraceRecord& record);
 
@@ -80,6 +87,12 @@ class BlockCacheTraceWriter {
 class BlockCacheTraceReader {
  public:
   BlockCacheTraceReader(std::unique_ptr<TraceReader>&& reader);
+  ~BlockCacheTraceReader() = default;
+  // No copy and move.
+  BlockCacheTraceReader(const BlockCacheTraceReader&) = delete;
+  BlockCacheTraceReader& operator=(const BlockCacheTraceReader&) = delete;
+  BlockCacheTraceReader(BlockCacheTraceReader&&) = delete;
+  BlockCacheTraceReader& operator=(BlockCacheTraceReader&&) = delete;
 
   Status ReadHeader(BlockCacheTraceHeader* header);
 

@@ -43,10 +43,8 @@ bool BlockCacheTraceWriter::ShouldTrace(const BlockCacheTraceRecord& record) {
 Status BlockCacheTraceWriter::WriteBlockAccess(
     const BlockCacheTraceRecord& record) {
   uint64_t trace_file_size = trace_writer_->GetFileSize();
-  if (trace_file_size > trace_options_.max_trace_file_size) {
-    return Status::OK();
-  }
-  if (!ShouldTrace(record)) {
+  if (trace_file_size > trace_options_.max_trace_file_size ||
+      !ShouldTrace(record)) {
     return Status::OK();
   }
   Trace trace;
@@ -68,10 +66,8 @@ Status BlockCacheTraceWriter::WriteBlockAccess(
   }
   std::string encoded_trace;
   TracerHelper::EncodeTrace(trace, &encoded_trace);
-  trace_writer_mutex_.Lock();
-  const Status s = trace_writer_->Write(encoded_trace);
-  trace_writer_mutex_.Unlock();
-  return s;
+  InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
+  return trace_writer_->Write(encoded_trace);
 }
 
 Status BlockCacheTraceWriter::WriteHeader() {
@@ -83,10 +79,8 @@ Status BlockCacheTraceWriter::WriteHeader() {
   PutFixed32(&trace.payload, kMinorVersion);
   std::string encoded_trace;
   TracerHelper::EncodeTrace(trace, &encoded_trace);
-  trace_writer_mutex_.Lock();
-  const Status s = trace_writer_->Write(encoded_trace);
-  trace_writer_mutex_.Unlock();
-  return s;
+  InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
+  return trace_writer_->Write(encoded_trace);
 }
 
 BlockCacheTraceReader::BlockCacheTraceReader(

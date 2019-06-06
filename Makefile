@@ -1590,7 +1590,7 @@ db_secondary_test: db/db_impl/db_secondary_test.o db/db_test_util.o $(LIBOBJECTS
 	$(AM_LINK)
 
 block_cache_tracer_test: trace_replay/block_cache_tracer_test.o trace_replay/block_cache_tracer.o $(LIBOBJECTS) $(TESTHARNESS)
-				$(AM_LINK)
+	$(AM_LINK)
 
 #-------------------------------------------------
 # make install related stuff
