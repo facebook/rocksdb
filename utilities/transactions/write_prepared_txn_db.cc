@@ -211,6 +211,7 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
                           no_log_ref, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           &update_commit_map_with_prepare);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
+  // Note: RemovePrepared is called from within PreReleaseCallback
   return s;
 }
 
@@ -399,7 +400,8 @@ void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max, bool lo
       prepared_txns_.empty() ? 0 : prepared_txns_.top());
   while (!prepared_txns_.empty() && prepared_txns_.top() <= new_max) {
     if (!locked) {
-      prepared_txns_.push_mutex().Lock();
+      // Needed for pop(). Do it always before prepared_mutex_ to avoid deadlock
+      prepared_txns_.push_pop_mutex()->Lock();
     }
     WriteLock wl(&prepared_mutex_);
     auto to_be_popped = prepared_txns_.top();
@@ -412,7 +414,7 @@ void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max, bool lo
     prepared_txns_.pop(true /*locked*/);
     delayed_prepared_empty_.store(false, std::memory_order_release);
     if (!locked) {
-      prepared_txns_.push_mutex().Unlock();
+      prepared_txns_.push_pop_mutex()->Unlock();
     }
   }
 }
@@ -423,9 +425,9 @@ void WritePreparedTxnDB::AddPrepared(uint64_t seq, bool locked) {
   TEST_SYNC_POINT("AddPrepared::begin:pause");
   TEST_SYNC_POINT("AddPrepared::begin:resume");
   if (!locked) {
-    prepared_txns_.push_mutex().Lock();
+    prepared_txns_.push_pop_mutex()->Lock();
   }
-  prepared_txns_.push_mutex().AssertHeld();
+  prepared_txns_.push_pop_mutex()->AssertHeld();
   prepared_txns_.push(seq);
   auto new_max = future_max_evicted_seq_.load();
   if (UNLIKELY(seq <= new_max)) {
@@ -438,7 +440,7 @@ void WritePreparedTxnDB::AddPrepared(uint64_t seq, bool locked) {
     CheckPreparedAgainstMax(new_max, true /*locked*/);
   }
   if (!locked) {
-    prepared_txns_.push_mutex().Unlock();
+    prepared_txns_.push_pop_mutex()->Unlock();
   }
   TEST_SYNC_POINT("AddPrepared::end");
 }

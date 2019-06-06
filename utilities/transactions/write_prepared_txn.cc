@@ -170,13 +170,13 @@ Status WritePreparedTxn::CommitInternal() {
   const SequenceNumber commit_batch_seq = seq_used;
   if (LIKELY(do_one_write || !s.ok())) {
     if (UNLIKELY(!db_impl_->immutable_db_options().two_write_queues && s.ok())) {
-      // Note RemovePrepared should be called after WriteImpl that publishsed
+      // Note: RemovePrepared should be called after WriteImpl that publishsed
       // the seq. Otherwise SmallestUnCommittedSeq optimization breaks.
       wpt_db_->RemovePrepared(prepare_seq, prepare_batch_cnt_);
-    }
+    } // else RemovePrepared is called from within PreReleaseCallback
     if (UNLIKELY(!do_one_write)) {
       assert(!s.ok());
-      // TODO(myabandeh): AddPrepared for this seems to be missing
+      // Cleanup the prepared entry we added with add_prepared_callback
       wpt_db_->RemovePrepared(commit_batch_seq, commit_batch_cnt);
     }
     return s;
@@ -201,13 +201,14 @@ Status WritePreparedTxn::CommitInternal() {
                           NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           &update_commit_map_with_aux_batch);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
-  if (UNLIKELY(!db_impl_->immutable_db_options().two_write_queues && s.ok())) {
-    // Note RemovePrepared should be called after WriteImpl that publishsed the
-    // seq. Otherwise SmallestUnCommittedSeq optimization breaks.
-    wpt_db_->RemovePrepared(prepare_seq, prepare_batch_cnt_);
-    // TODO(myabandeh): AddPrepared for this seems to be missing
+  if (UNLIKELY(!db_impl_->immutable_db_options().two_write_queues)) {
+    if (s.ok()) {
+      // Note: RemovePrepared should be called after WriteImpl that publishsed
+      // the seq. Otherwise SmallestUnCommittedSeq optimization breaks.
+      wpt_db_->RemovePrepared(prepare_seq, prepare_batch_cnt_);
+    }
     wpt_db_->RemovePrepared(commit_batch_seq, commit_batch_cnt);
-  }
+  }  // else RemovePrepared is called from within PreReleaseCallback
   return s;
 }
 
@@ -376,10 +377,12 @@ Status WritePreparedTxn::RollbackInternal() {
   ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
                     "RollbackInternal (status=%s) commit: %" PRIu64,
                     s.ToString().c_str(), GetId());
+  // TODO(lth): For WriteUnPrepared that rollback is called frequently,
+  // RemovePrepared could be moved to the callback to reduce lock contention.
   if (s.ok()) {
     wpt_db_->RemovePrepared(GetId(), prepare_batch_cnt_);
   }
-  // TODO(myabandeh): AddPrepared for this seems to be missing
+  // Note: RemovePrepared for prepared batch is called from within PreReleaseCallback
   wpt_db_->RemovePrepared(rollback_seq, ONE_BATCH);
 
   return s;

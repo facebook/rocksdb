@@ -3053,7 +3053,7 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
       ReOpen();
       std::atomic<const Snapshot*> snap = {nullptr};
       std::atomic<SequenceNumber> exp_prepare = {0};
-      std::atomic<bool> finished = {false};
+      std::atomic<bool> snapshot_taken = {false};
       // Value is synchronized via snap
       PinnableSlice value;
       // Take a snapshot after publish and before RemovePrepared:Start
@@ -3065,16 +3065,22 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
             auto s =
                 db->Get(roptions, db->DefaultColumnFamily(), "key", &value);
             ASSERT_OK(s);
-            finished.store(true);
+            snapshot_taken.store(true);
       };
       auto callback = [&](void* param) {
         SequenceNumber prep_seq = *((SequenceNumber*)param);
         if (prep_seq == exp_prepare.load()) {  // only for write_thread
+          // We need to spawn a thread to avoid deadlock since getting a
+          // snpashot might end up calling AdvanceSeqByOne which needs joining
+          // the write queue.
           auto t = rocksdb::port::Thread(snap_callback);
           t.detach();
           TEST_SYNC_POINT("callback:end");
         }
       };
+      // Wait for the first snapshot be taken in GetSnapshotInternal. Although
+      // it might be updated before GetSnapshotInternal finishes but this should
+      // cover most of the cases.
       rocksdb::SyncPoint::GetInstance()->LoadDependency({
           {"WritePreparedTxnDB::GetSnapshotInternal:first", "callback:end"},
       });
@@ -3101,12 +3107,13 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
           // Let an eviction to kick in
           std::this_thread::yield();
 
-          finished.store(false);
+          snapshot_taken.store(false);
           exp_prepare.store(txn->GetId());
           ASSERT_OK(txn->Commit());
           delete txn;
-          TEST_SYNC_POINT("writh_thread:commit:after");
-          while (!finished) {
+          // Wait for the snapshot taking that is triggered by
+          // RemovePrepared:Start callback
+          while (!snapshot_taken) {
             std::this_thread::yield();
           }
 
