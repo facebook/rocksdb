@@ -771,26 +771,26 @@ void BlockBasedTable::UpdateCacheMissMetrics(BlockType block_type,
 
 void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
                                                   GetContext* get_context,
-                                                  size_t charge) const {
+                                                  size_t usage) const {
   Statistics* const statistics = rep_->ioptions.statistics;
 
   // TODO: introduce perf counters for block cache insertions
   if (get_context) {
     ++get_context->get_context_stats_.num_cache_add;
-    get_context->get_context_stats_.num_cache_bytes_write += charge;
+    get_context->get_context_stats_.num_cache_bytes_write += usage;
   } else {
     RecordTick(statistics, BLOCK_CACHE_ADD);
-    RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, charge);
+    RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, usage);
   }
 
   switch (block_type) {
     case BlockType::kFilter:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_filter_add;
-        get_context->get_context_stats_.num_cache_filter_bytes_insert += charge;
+        get_context->get_context_stats_.num_cache_filter_bytes_insert += usage;
       } else {
         RecordTick(statistics, BLOCK_CACHE_FILTER_ADD);
-        RecordTick(statistics, BLOCK_CACHE_FILTER_BYTES_INSERT, charge);
+        RecordTick(statistics, BLOCK_CACHE_FILTER_BYTES_INSERT, usage);
       }
       break;
 
@@ -798,21 +798,21 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_compression_dict_add;
         get_context->get_context_stats_
-            .num_cache_compression_dict_bytes_insert += charge;
+            .num_cache_compression_dict_bytes_insert += usage;
       } else {
         RecordTick(statistics, BLOCK_CACHE_COMPRESSION_DICT_ADD);
         RecordTick(statistics, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT,
-                   charge);
+                   usage);
       }
       break;
 
     case BlockType::kIndex:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_index_add;
-        get_context->get_context_stats_.num_cache_index_bytes_insert += charge;
+        get_context->get_context_stats_.num_cache_index_bytes_insert += usage;
       } else {
         RecordTick(statistics, BLOCK_CACHE_INDEX_ADD);
-        RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT, charge);
+        RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT, usage);
       }
       break;
 
@@ -821,10 +821,10 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
       // for range tombstones
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_data_add;
-        get_context->get_context_stats_.num_cache_data_bytes_insert += charge;
+        get_context->get_context_stats_.num_cache_data_bytes_insert += usage;
       } else {
         RecordTick(statistics, BLOCK_CACHE_DATA_ADD);
-        RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT, charge);
+        RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT, usage);
       }
       break;
   }
