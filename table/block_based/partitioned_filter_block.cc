@@ -243,11 +243,6 @@ PartitionedFilterBlockReader::GetFilterPartition(
       // This is a possible scenario since block cache might not have had space
       // for the partition
       if (iter != filter_map_.end()) {
-        PERF_COUNTER_ADD(block_cache_hit_count, 1);
-        RecordTick(statistics(), BLOCK_CACHE_FILTER_HIT);
-        RecordTick(statistics(), BLOCK_CACHE_HIT);
-        RecordTick(statistics(), BLOCK_CACHE_BYTES_READ,
-                   block_cache->GetUsage(iter->second.GetCacheHandle()));
         return {iter->second.GetValue(), nullptr /* cache */,
           nullptr /* cache_handle */, false /* own_value */};
       }
