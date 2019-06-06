@@ -124,6 +124,10 @@ class BytewiseComparatorImpl : public Comparator {
   bool CanKeysWithDifferentByteContentsBeEqual() const override {
     return false;
   }
+
+  int CompareWithoutTimestamp(const Slice& a, const Slice& b) const override {
+    return a.compare(b);
+  }
 };
 
 class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
@@ -191,6 +195,10 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
 
   bool CanKeysWithDifferentByteContentsBeEqual() const override {
     return false;
+  }
+
+  int CompareWithoutTimestamp(const Slice& a, const Slice& b) const override {
+    return -a.compare(b);
   }
 };
 }// namespace

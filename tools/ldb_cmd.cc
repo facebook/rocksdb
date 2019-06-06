@@ -7,11 +7,7 @@
 #ifndef ROCKSDB_LITE
 #include "rocksdb/utilities/ldb_cmd.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"

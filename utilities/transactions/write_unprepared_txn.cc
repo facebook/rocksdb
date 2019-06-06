@@ -10,10 +10,6 @@
 #include "util/cast_util.h"
 #include "utilities/transactions/write_unprepared_txn_db.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 namespace rocksdb {
 
 bool WriteUnpreparedTxnReadCallback::IsVisibleFullCheck(SequenceNumber seq) {

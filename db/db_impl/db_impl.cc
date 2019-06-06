@@ -8,9 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/db_impl/db_impl.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
 #include <stdint.h>
 #ifdef OS_SOLARIS
 #include <alloca.h>
@@ -1376,7 +1373,16 @@ ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value) {
-  return GetImpl(read_options, column_family, key, value);
+  if (nullptr == read_options.timestamp) {
+    return GetImpl(read_options, column_family, key, value);
+  }
+  Slice akey;
+  std::string buf;
+  Status s = AppendTimestamp(key, *(read_options.timestamp), &akey, &buf);
+  if (s.ok()) {
+    s = GetImpl(read_options, column_family, akey, value);
+  }
+  return s;
 }
 
 Status DBImpl::GetImpl(const ReadOptions& read_options,

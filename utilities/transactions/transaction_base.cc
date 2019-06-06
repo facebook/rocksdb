@@ -7,11 +7,7 @@
 
 #include "utilities/transactions/transaction_base.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"

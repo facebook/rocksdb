@@ -9,7 +9,7 @@
 
 #include "table/format.h"
 
-#include <inttypes.h>
+#include <cinttypes>
 #include <string>
 
 #include "block_fetcher.h"

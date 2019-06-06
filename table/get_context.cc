@@ -182,7 +182,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
   assert(matched);
   assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||
          merge_context_ != nullptr);
-  if (ucmp_->Equal(parsed_key.user_key, user_key_)) {
+  if (ucmp_->CompareWithoutTimestamp(parsed_key.user_key, user_key_) == 0) {
     *matched = true;
     // If the value is not in the snapshot, skip it
     if (!CheckCallback(parsed_key.sequence)) {
