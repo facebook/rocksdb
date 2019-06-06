@@ -1947,13 +1947,14 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
     if (s.ok()) {
       assert(compression_dict_block != nullptr);
       // TODO(ajkr): find a way to avoid the `compression_dict_block` data copy
-      dict = new UncompressionDict(compression_dict_block->data.ToString(),
-                                   rep_->blocks_definitely_zstd_compressed,
-                                   rep_->ioptions.statistics);
-      const size_t usage = dict->ApproximateMemoryUsage();
+      std::unique_ptr<UncompressionDict> uncompression_dict(
+          new UncompressionDict(compression_dict_block->data.ToString(),
+                                rep_->blocks_definitely_zstd_compressed,
+                                rep_->ioptions.statistics));
+      const size_t usage = uncompression_dict->ApproximateMemoryUsage();
       s = rep_->table_options.block_cache->Insert(
-          cache_key, dict, usage, &DeleteCachedUncompressionDictEntry,
-          &cache_handle,
+          cache_key, uncompression_dict.get(), usage,
+          &DeleteCachedUncompressionDictEntry, &cache_handle,
           rep_->table_options.cache_index_and_filter_blocks_with_high_priority
               ? Cache::Priority::HIGH
               : Cache::Priority::LOW);
@@ -1962,10 +1963,10 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
         PERF_COUNTER_ADD(compression_dict_block_read_count, 1);
         UpdateCacheInsertionMetrics(BlockType::kCompressionDictionary,
                                     get_context, usage);
+        dict = uncompression_dict.release();
       } else {
         RecordTick(rep_->ioptions.statistics, BLOCK_CACHE_ADD_FAILURES);
-        delete dict;
-        dict = nullptr;
+        assert(dict == nullptr);
         assert(cache_handle == nullptr);
       }
     }
