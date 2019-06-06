@@ -8,11 +8,7 @@
 
 #include "tools/sst_dump_tool_imp.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <iostream>
 #include <map>
 #include <memory>

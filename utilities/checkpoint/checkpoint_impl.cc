@@ -11,11 +11,7 @@
 
 #include "utilities/checkpoint/checkpoint_impl.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <algorithm>
 #include <string>
 #include <vector>

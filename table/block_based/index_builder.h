@@ -10,7 +10,7 @@
 #pragma once
 
 #include <assert.h>
-#include <inttypes.h>
+#include <cinttypes>
 
 #include <list>
 #include <string>

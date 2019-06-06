@@ -4,13 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "test_util/transaction_test_util.h"
 
-#include <inttypes.h>
+#include <cinttypes>
 #include <algorithm>
 #include <numeric>
 #include <random>

@@ -9,7 +9,7 @@
 
 #include "table/block_fetcher.h"
 
-#include <inttypes.h>
+#include <cinttypes>
 #include <string>
 
 #include "logging/logging.h"

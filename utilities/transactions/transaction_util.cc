@@ -5,13 +5,9 @@
 
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "utilities/transactions/transaction_util.h"
 
-#include <inttypes.h>
+#include <cinttypes>
 #include <string>
 #include <vector>
 
