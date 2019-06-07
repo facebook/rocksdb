@@ -626,23 +626,31 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         return *delayed_prepared_.begin();
       }
     }
-    auto min_prep = prepared_txns_.top();
-    bool empty = min_prep == kMaxSequenceNumber;
+    // This must be called before calling ::top. This is because the concurrent
+    // thread would call ::RemovePrepared before updating
+    // GetLatestSequenceNumber(). Reading then in opposite order here guarantees
+    // that the ::top that we read would be lower the ::top if we had otherwise
+    // update/read them atomically.
+    auto next_prepare = db_impl_->GetLatestSequenceNumber() + 1;
+    auto min_prepare = prepared_txns_.top();
+    bool empty = min_prepare == kMaxSequenceNumber;
     if (empty) {
       // Since GetLatestSequenceNumber is updated
       // after prepared_txns_ are, the value of GetLatestSequenceNumber would
       // reflect any uncommitted data that is not added to prepared_txns_ yet.
       // Otherwise, if there is no concurrent txn, this value simply reflects
       // that latest value in the memtable.
-      return db_impl_->GetLatestSequenceNumber() + 1;
+      return next_prepare;
     } else {
-      return std::min(min_prep, db_impl_->GetLatestSequenceNumber() + 1);
+      return std::min(min_prepare, next_prepare);
     }
   }
+
   // Enhance the snapshot object by recording in it the smallest uncommitted seq
   inline void EnhanceSnapshot(SnapshotImpl* snapshot,
                               SequenceNumber min_uncommitted) {
     assert(snapshot);
+    assert(min_uncommitted <= snapshot->number_ + 1);
     snapshot->min_uncommitted_ = min_uncommitted;
   }
 

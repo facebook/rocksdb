@@ -400,9 +400,9 @@ void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max,
       prepared_txns_.empty(),
       prepared_txns_.empty() ? 0 : prepared_txns_.top());
   while (!prepared_txns_.empty() && prepared_txns_.top() <= new_max) {
-    if (!locked) {
-      // Needed for pop(). Do it always before prepared_mutex_ to avoid deadlock
-      prepared_txns_.push_pop_mutex()->Lock();
+    if (locked) {
+      // Needed to avoid double locking in pop().
+      prepared_txns_.push_pop_mutex()->Unlock();
     }
     WriteLock wl(&prepared_mutex_);
     auto to_be_popped = prepared_txns_.top();
@@ -412,10 +412,10 @@ void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max,
                    " new_max=%" PRIu64,
                    static_cast<uint64_t>(delayed_prepared_.size()),
                    to_be_popped, new_max);
-    prepared_txns_.pop(true /*locked*/);
+    prepared_txns_.pop();
     delayed_prepared_empty_.store(false, std::memory_order_release);
-    if (!locked) {
-      prepared_txns_.push_pop_mutex()->Unlock();
+    if (locked) {
+      prepared_txns_.push_pop_mutex()->Lock();
     }
   }
 }
