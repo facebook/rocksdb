@@ -178,6 +178,8 @@ struct JobContext {
   // Snapshot taken before flush/compaction job.
   std::unique_ptr<ManagedSnapshot> job_snapshot;
 
+  ErrorContext error_context;
+
   explicit JobContext(int _job_id, bool create_superversion = false) {
     job_id = _job_id;
     manifest_file_number = 0;

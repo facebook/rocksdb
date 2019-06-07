@@ -756,9 +756,10 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
         ++count;
       });
   SyncPoint::GetInstance()->EnableProcessing();
+  ErrorContext err_context;
   mutex_.Lock();
-  Status s =
-      versions_->LogAndApply(cfds, all_mutable_cf_options, edit_lists, &mutex_);
+  Status s = versions_->LogAndApply(cfds, all_mutable_cf_options, edit_lists,
+                                    &mutex_, &err_context);
   mutex_.Unlock();
   EXPECT_OK(s);
   EXPECT_EQ(kGroupSize - 1, count);
@@ -1198,10 +1199,11 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   // prevent it from being deleted.
   cfd_to_drop->Ref();
   drop_cf_edit.SetColumnFamily(cfd_to_drop->GetID());
+  ErrorContext err_context;
   mutex_.Lock();
   s = versions_->LogAndApply(cfd_to_drop,
                              *cfd_to_drop->GetLatestMutableCFOptions(),
-                             &drop_cf_edit, &mutex_);
+                             &drop_cf_edit, &mutex_, &err_context);
   mutex_.Unlock();
   ASSERT_OK(s);
 
@@ -1249,9 +1251,10 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
         ++called;
       });
   SyncPoint::GetInstance()->EnableProcessing();
+  ErrorContext err_context;
   mutex_.Lock();
-  s = versions_->LogAndApply(cfds, mutable_cf_options_list, edit_lists,
-                             &mutex_);
+  s = versions_->LogAndApply(cfds, mutable_cf_options_list, edit_lists, &mutex_,
+                             &err_context);
   mutex_.Unlock();
   ASSERT_OK(s);
   ASSERT_EQ(1, called);

@@ -125,7 +125,8 @@ Status DBImpl::SyncClosedLogs(JobContext* job_context) {
     // "number < current_log_number".
     MarkLogsSynced(current_log_number - 1, true, s);
     if (!s.ok()) {
-      error_handler_.SetBGError(s, BackgroundErrorReason::kFlush);
+      job_context->error_context.reason = BackgroundErrorReason::kFlush;
+      error_handler_.SetBGError(s, job_context->error_context);
       TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Failed");
       return s;
     }
@@ -207,7 +208,8 @@ Status DBImpl::FlushMemTableToOutputFile(
 
   if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
     Status new_bg_error = s;
-    error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
+    job_context->error_context.reason = BackgroundErrorReason::kFlush;
+    error_handler_.SetBGError(new_bg_error, job_context->error_context);
   }
   if (s.ok()) {
 #ifndef ROCKSDB_LITE
@@ -227,7 +229,8 @@ Status DBImpl::FlushMemTableToOutputFile(
         TEST_SYNC_POINT_CALLBACK(
             "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached",
             &new_bg_error);
-        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
+        job_context->error_context.reason = BackgroundErrorReason::kFlush;
+        error_handler_.SetBGError(new_bg_error, job_context->error_context);
       }
     }
 #endif  // ROCKSDB_LITE
@@ -514,8 +517,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
             error_handler_.GetBGError().ok()) {
           Status new_bg_error =
               Status::SpaceLimit("Max allowed space was reached");
-          error_handler_.SetBGError(new_bg_error,
-                                    BackgroundErrorReason::kFlush);
+          job_context->error_context.reason = BackgroundErrorReason::kFlush;
+          error_handler_.SetBGError(new_bg_error, job_context->error_context);
         }
       }
     }
@@ -540,7 +543,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       }
     }
     Status new_bg_error = s;
-    error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
+    job_context->error_context.reason = BackgroundErrorReason::kFlush;
+    error_handler_.SetBGError(new_bg_error, job_context->error_context);
   }
 
   return s;
@@ -1060,7 +1064,8 @@ Status DBImpl::CompactFilesImpl(
                    "[%s] [JOB %d] Compaction error: %s",
                    c->column_family_data()->GetName().c_str(),
                    job_context->job_id, status.ToString().c_str());
-    error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
+    job_context->error_context.reason = BackgroundErrorReason::kCompaction;
+    error_handler_.SetBGError(status, job_context->error_context);
   }
 
   if (output_file_names != nullptr) {
@@ -2724,7 +2729,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log, "Compaction error: %s",
                    status.ToString().c_str());
-    error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
+    job_context->error_context.reason = BackgroundErrorReason::kCompaction;
+    error_handler_.SetBGError(status, job_context->error_context);
     if (c != nullptr && !is_manual && !error_handler_.IsBGWorkStopped()) {
       // Put this cfd back in the compaction queue so we can retry after some
       // time

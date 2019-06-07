@@ -20,6 +20,7 @@
 #include <unordered_map>
 #include <vector>
 #include "compaction/compaction.h"
+#include "db/error_handler.h"
 #include "db/internal_stats.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -3283,15 +3284,18 @@ struct VersionSet::ManifestWriter {
   ColumnFamilyData* cfd;
   const MutableCFOptions mutable_cf_options;
   const autovector<VersionEdit*>& edit_list;
+  ErrorContext* error_context;
 
   explicit ManifestWriter(InstrumentedMutex* mu, ColumnFamilyData* _cfd,
                           const MutableCFOptions& cf_options,
-                          const autovector<VersionEdit*>& e)
+                          const autovector<VersionEdit*>& e,
+                          ErrorContext* err_context)
       : done(false),
         cv(mu),
         cfd(_cfd),
         mutable_cf_options(cf_options),
-        edit_list(e) {}
+        edit_list(e),
+        error_context(err_context) {}
 };
 
 Status AtomicGroupReadBuffer::AddEdit(VersionEdit* edit) {
@@ -3792,6 +3796,10 @@ Status VersionSet::ProcessManifestWrites(
       }
     }
     ready->status = s;
+    if (!s.ok() && !new_descriptor_log && nullptr != ready->error_context) {
+      ready->error_context->file_name =
+          DescriptorFileName(dbname_, manifest_file_number_);
+    }
     ready->done = true;
     if (need_signal) {
       ready->cv.Signal();
@@ -3812,8 +3820,8 @@ Status VersionSet::LogAndApply(
     const autovector<ColumnFamilyData*>& column_family_datas,
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,
     const autovector<autovector<VersionEdit*>>& edit_lists,
-    InstrumentedMutex* mu, Directory* db_directory, bool new_descriptor_log,
-    const ColumnFamilyOptions* new_cf_options) {
+    InstrumentedMutex* mu, ErrorContext* err_context, Directory* db_directory,
+    bool new_descriptor_log, const ColumnFamilyOptions* new_cf_options) {
   mu->AssertHeld();
   int num_edits = 0;
   for (const auto& elist : edit_lists) {
@@ -3844,7 +3852,8 @@ Status VersionSet::LogAndApply(
   }
   for (int i = 0; i < num_cfds; ++i) {
     writers.emplace_back(mu, column_family_datas[i],
-                         *mutable_cf_options_list[i], edit_lists[i]);
+                         *mutable_cf_options_list[i], edit_lists[i],
+                         0 == i ? err_context : nullptr);
     manifest_writers_.push_back(&writers[i]);
   }
   assert(!writers.empty());
@@ -4527,9 +4536,9 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   VersionEdit ve;
   InstrumentedMutex dummy_mutex;
   InstrumentedMutexLock l(&dummy_mutex);
-  return versions.LogAndApply(
-      versions.GetColumnFamilySet()->GetDefault(),
-      mutable_cf_options, &ve, &dummy_mutex, nullptr, true);
+  return versions.LogAndApply(versions.GetColumnFamilySet()->GetDefault(),
+                              mutable_cf_options, &ve, &dummy_mutex,
+                              nullptr /*err_context*/, nullptr, true);
 }
 
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,

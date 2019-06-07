@@ -55,6 +55,7 @@ class Writer;
 }
 
 class Compaction;
+class ErrorContext;
 class LogBuffer;
 class LookupKey;
 class MemTable;
@@ -791,8 +792,8 @@ class VersionSet {
   Status LogAndApply(
       ColumnFamilyData* column_family_data,
       const MutableCFOptions& mutable_cf_options, VersionEdit* edit,
-      InstrumentedMutex* mu, Directory* db_directory = nullptr,
-      bool new_descriptor_log = false,
+      InstrumentedMutex* mu, ErrorContext* err_context,
+      Directory* db_directory = nullptr, bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr) {
     autovector<ColumnFamilyData*> cfds;
     cfds.emplace_back(column_family_data);
@@ -803,7 +804,8 @@ class VersionSet {
     edit_list.emplace_back(edit);
     edit_lists.emplace_back(edit_list);
     return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-                       db_directory, new_descriptor_log, column_family_options);
+                       err_context, db_directory, new_descriptor_log,
+                       column_family_options);
   }
   // The batch version. If edit_list.size() > 1, caller must ensure that
   // no edit in the list column family add or drop
@@ -811,7 +813,8 @@ class VersionSet {
       ColumnFamilyData* column_family_data,
       const MutableCFOptions& mutable_cf_options,
       const autovector<VersionEdit*>& edit_list, InstrumentedMutex* mu,
-      Directory* db_directory = nullptr, bool new_descriptor_log = false,
+      ErrorContext* err_context, Directory* db_directory = nullptr,
+      bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr) {
     autovector<ColumnFamilyData*> cfds;
     cfds.emplace_back(column_family_data);
@@ -820,7 +823,8 @@ class VersionSet {
     autovector<autovector<VersionEdit*>> edit_lists;
     edit_lists.emplace_back(edit_list);
     return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-                       db_directory, new_descriptor_log, column_family_options);
+                       err_context, db_directory, new_descriptor_log,
+                       column_family_options);
   }
 
   // The across-multi-cf batch version. If edit_lists contain more than
@@ -830,8 +834,8 @@ class VersionSet {
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const MutableCFOptions*>& mutable_cf_options_list,
       const autovector<autovector<VersionEdit*>>& edit_lists,
-      InstrumentedMutex* mu, Directory* db_directory = nullptr,
-      bool new_descriptor_log = false,
+      InstrumentedMutex* mu, ErrorContext* err_context,
+      Directory* db_directory = nullptr, bool new_descriptor_log = false,
       const ColumnFamilyOptions* new_cf_options = nullptr);
 
   static Status GetCurrentManifestPath(const std::string& dbname, Env* env,
@@ -1206,8 +1210,8 @@ class ReactiveVersionSet : public VersionSet {
       const autovector<ColumnFamilyData*>& /*cfds*/,
       const autovector<const MutableCFOptions*>& /*mutable_cf_options_list*/,
       const autovector<autovector<VersionEdit*>>& /*edit_lists*/,
-      InstrumentedMutex* /*mu*/, Directory* /*db_directory*/,
-      bool /*new_descriptor_log*/,
+      InstrumentedMutex* /*mu*/, ErrorContext* /*err_context*/,
+      Directory* /*db_directory*/, bool /*new_descriptor_log*/,
       const ColumnFamilyOptions* /*new_cf_option*/) override {
     return Status::NotSupported("not supported in reactive mode");
   }
