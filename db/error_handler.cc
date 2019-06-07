@@ -159,7 +159,9 @@ void ErrorHandler::CancelErrorRecovery() {
 // This can also get called as part of a recovery operation. In that case, we
 // also track the error separately in recovery_error_ so we can tell in the
 // end whether recovery succeeded or not
-Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reason) {
+Status ErrorHandler::SetBGError(const Status& bg_err,
+                                ErrorContext& err_context) {
+  BackgroundErrorReason reason = err_context.reason();
   db_mutex_->AssertHeld();
 
   if (bg_err.ok()) {

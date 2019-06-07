@@ -13,6 +13,13 @@ namespace rocksdb {
 
 class DBImpl;
 
+struct ErrorContext {
+  ErrorContext(BackgroundErrorReason r) : reason_(r) {}
+
+  BackgroundErrorReason reason_;
+  std::string file_name_;
+};
+
 class ErrorHandler {
   public:
    ErrorHandler(DBImpl* db, const ImmutableDBOptions& db_options,
@@ -32,7 +39,7 @@ class ErrorHandler {
                                      Status::Code code,
                                      Status::SubCode subcode);
 
-   Status SetBGError(const Status& bg_err, BackgroundErrorReason reason);
+   Status SetBGError(const Status& bg_err, const ErrorContext& err_context);
 
    Status GetBGError() { return bg_error_; }
 
