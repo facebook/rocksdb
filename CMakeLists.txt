@@ -672,6 +672,7 @@ set(SOURCES
         utilities/debug.cc
         utilities/env_mirror.cc
         utilities/env_timed.cc
+        utilities/object_registry.cc
         utilities/leveldb_options/leveldb_options.cc
         utilities/memory/memory_util.cc
         utilities/merge_operators/bytesxor.cc

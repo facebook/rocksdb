@@ -480,7 +480,7 @@ enum StatsLevel : uint8_t {
 class Statistics {
  public:
   virtual ~Statistics() {}
-
+  static const char* Type() { return "Statistics"; }
   virtual uint64_t getTickerCount(uint32_t tickerType) const = 0;
   virtual void histogramData(uint32_t type,
                              HistogramData* const data) const = 0;
