@@ -2597,9 +2597,15 @@ void BlockBasedTableIterator<TBlockIter, TValue>::FindBlockForward() {
       return;
     }
     // Whether next data block is out of upper bound, if there is one.
-    bool next_block_is_out_of_bound =
+    // TODO: we should be able to use !data_block_within_upper_bound_ here
+    // instead of performing the comparison; however, the flag can apparently
+    // be out of sync with the comparison in some cases. This should be
+    // investigated.
+    const bool next_block_is_out_of_bound =
         read_options_.iterate_upper_bound != nullptr &&
-        block_iter_points_to_real_block_ && !data_block_within_upper_bound_;
+        block_iter_points_to_real_block_ &&
+        (user_comparator_.Compare(*read_options_.iterate_upper_bound,
+                                  index_iter_->user_key()) <= 0);
     ResetDataIter();
     index_iter_->Next();
     if (next_block_is_out_of_bound) {
