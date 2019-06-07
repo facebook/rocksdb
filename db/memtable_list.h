@@ -28,7 +28,7 @@
 namespace rocksdb {
 
 class ColumnFamilyData;
-class ErrorContext;
+struct ErrorContext;
 class InternalKeyComparator;
 class InstrumentedMutex;
 class MergeIteratorBuilder;

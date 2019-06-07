@@ -55,7 +55,7 @@ class Writer;
 }
 
 class Compaction;
-class ErrorContext;
+struct ErrorContext;
 class LogBuffer;
 class LookupKey;
 class MemTable;
