@@ -3797,8 +3797,10 @@ Status VersionSet::ProcessManifestWrites(
     }
     ready->status = s;
     if (!s.ok() && !new_descriptor_log && nullptr != ready->error_context) {
-      ready->error_context->file_name =
-          DescriptorFileName(dbname_, manifest_file_number_);
+      char buf[100] = {0};
+      snprintf(buf, sizeof(buf), "MANIFEST-%06llu",
+               static_cast<unsigned long long>(manifest_file_number_));
+      ready->error_context->file_name.assign(buf);
     }
     ready->done = true;
     if (need_signal) {

@@ -281,6 +281,7 @@ class DBImpl : public DB {
   using DB::ResetStats;
   virtual Status ResetStats() override;
   virtual Status DisableFileDeletions() override;
+  Status DisableFileDeletionsWithLock();
   virtual Status EnableFileDeletions(bool force) override;
   virtual int IsFileDeletionsEnabled() const;
   // All the returned filenames start with "/"

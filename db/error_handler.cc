@@ -204,6 +204,15 @@ Status ErrorHandler::SetBGError(const Status& bg_err,
     }
   }
 
+  uint64_t num = 0;
+  FileType type;
+  if (ParseFileName(err_context.file_name, &num, &type) &&
+      kDescriptorFile == type &&
+      (BackgroundErrorReason::kFlush == reason ||
+       BackgroundErrorReason::kCompaction == reason)) {
+    HandleManifestWriteOrSyncFailure();
+  }
+
   new_bg_err = Status(bg_err, sev);
 
   bool auto_recovery = auto_recovery_;
@@ -287,6 +296,16 @@ void ErrorHandler::RecoverFromNoSpace() {
   if (sfm) {
     sfm->StartErrorRecovery(this, bg_error_);
   }
+#endif
+}
+
+void ErrorHandler::HandleManifestWriteOrSyncFailure() {
+  db_mutex_->AssertHeld();
+  Status s = db_->DisableFileDeletionsWithLock();
+#ifndef NDEBUG
+  assert(s.ok());
+#else
+  (void)s;
 #endif
 }
 

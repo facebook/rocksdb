@@ -71,6 +71,7 @@ class ErrorHandler {
 
     Status OverrideNoSpaceError(Status bg_error, bool* auto_recovery);
     void RecoverFromNoSpace();
+    void HandleManifestWriteOrSyncFailure();
 };
 
 }

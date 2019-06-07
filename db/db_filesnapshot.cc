@@ -25,6 +25,11 @@ namespace rocksdb {
 
 Status DBImpl::DisableFileDeletions() {
   InstrumentedMutexLock l(&mutex_);
+  return DisableFileDeletionsWithLock();
+}
+
+Status DBImpl::DisableFileDeletionsWithLock() {
+  mutex_.AssertHeld();
   ++disable_delete_obsolete_files_;
   if (disable_delete_obsolete_files_ == 1) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "File Deletions Disabled");
