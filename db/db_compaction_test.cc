@@ -4342,12 +4342,6 @@ TEST_P(DBCompactionDirectIOTest, DirectIO) {
   Reopen(options);
   bool readahead = false;
   SyncPoint::GetInstance()->SetCallBack(
-      "TableCache::NewIterator:for_compaction", [&](void* arg) {
-        bool* use_direct_reads = static_cast<bool*>(arg);
-        ASSERT_EQ(*use_direct_reads,
-                  options.use_direct_reads);
-      });
-  SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::OpenCompactionOutputFile", [&](void* arg) {
         bool* use_direct_writes = static_cast<bool*>(arg);
         ASSERT_EQ(*use_direct_writes,

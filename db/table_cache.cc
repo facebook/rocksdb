@@ -45,13 +45,6 @@ static void UnrefEntry(void* arg1, void* arg2) {
   cache->Release(h);
 }
 
-//static void DeleteTableReader(void* arg1, void* arg2) {
-//  TableReader* table_reader = reinterpret_cast<TableReader*>(arg1);
-//  Statistics* stats = reinterpret_cast<Statistics*>(arg2);
-//  RecordTick(stats, NO_FILE_CLOSES);
-//  delete table_reader;
-//}
-
 static Slice GetSliceForFileNumber(const uint64_t* file_number) {
   return Slice(reinterpret_cast<const char*>(file_number),
                sizeof(*file_number));
@@ -109,13 +102,6 @@ Status TableCache::GetTableReader(
 
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   if (s.ok()) {
-    if (readahead > 0 && !env_options.use_mmap_reads) {
-      // Not compatible with mmap files since ReadaheadRandomAccessFile requires
-      // its wrapped file's Read() to copy data into the provided scratch
-      // buffer, which mmap files don't use.
-      // TODO(ajkr): try madvise for mmap files in place of buffered readahead.
-//      file = NewReadaheadRandomAccessFile(std::move(file), readahead);
-    }
     if (!sequential_mode && ioptions_.advise_random_on_open) {
       file->Hint(RandomAccessFile::RANDOM);
     }
@@ -204,43 +190,8 @@ InternalIterator* TableCache::NewIterator(
   if (table_reader_ptr != nullptr) {
     *table_reader_ptr = nullptr;
   }
-//  size_t readahead = 0;
-  if (for_compaction) {
-#ifndef NDEBUG
-    bool use_direct_reads_for_compaction = env_options.use_direct_reads;
-    TEST_SYNC_POINT_CALLBACK("TableCache::NewIterator:for_compaction",
-                             &use_direct_reads_for_compaction);
-#endif  // !NDEBUG
-    if (ioptions_.new_table_reader_for_compaction_inputs) {
-      // get compaction_readahead_size from env_options allows us to set the
-      // value dynamically
-//      readahead = env_options.compaction_readahead_size;
-      create_new_table_reader = true;
-    }
-  }
 
   auto& fd = file_meta.fd;
-//  if (create_new_table_reader) {
-//    s = FindTable(
-//        env_options, icomparator, fd, &handle, prefix_extractor,
-//        options.read_tier == kBlockCacheTier, !for_compaction /*false*/,
-//        /*file_read_hist*/ nullptr, /*skip_filters*/ false, level, true);
-//    if (s.ok()) {
-//      table_reader = GetTableReaderFromHandle(handle);
-//	  	  }
-//                  //}
-//  } else {
-//    table_reader = fd.table_reader;
-//    if (table_reader == nullptr) {
-//      s = FindTable(env_options, icomparator, fd, &handle, prefix_extractor,
-//                    options.read_tier == kBlockCacheTier /* no_io */,
-//                    !for_compaction /* record read_stats */, file_read_hist,
-//                    skip_filters, level);
-//      if (s.ok()) {
-//        table_reader = GetTableReaderFromHandle(handle);
-//      }
-//    }
-//  }
   table_reader = fd.table_reader;
   if (table_reader == nullptr) {
     s = FindTable(env_options, icomparator, fd, &handle, prefix_extractor,
@@ -261,11 +212,7 @@ InternalIterator* TableCache::NewIterator(
                                          skip_filters, for_compaction,
                                          env_options.compaction_readahead_size);
     }
-    if (create_new_table_reader) {
-//      assert(handle == nullptr);
-//      result->RegisterCleanup(&DeleteTableReader, table_reader,
-//                              ioptions_.statistics);
-    } else if (handle != nullptr) {
+    if (handle != nullptr) {
       result->RegisterCleanup(&UnrefEntry, cache_, handle);
       handle = nullptr;  // prevent from releasing below
     }
