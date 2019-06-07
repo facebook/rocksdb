@@ -760,6 +760,8 @@ struct DBOptions {
   // for this mode if using block-based table.
   //
   // Default: false
+  // This flag has no affect on the behavior of compaction and plan to delete
+  // in the future.
   bool new_table_reader_for_compaction_inputs = false;
 
   // If non-zero, we perform bigger reads when doing compaction. If you're

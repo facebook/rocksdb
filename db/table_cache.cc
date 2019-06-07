@@ -91,8 +91,8 @@ void TableCache::ReleaseHandle(Cache::Handle* handle) {
 Status TableCache::GetTableReader(
     const EnvOptions& env_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
-    bool sequential_mode, size_t readahead, bool record_read_stats,
-    HistogramImpl* file_read_hist, std::unique_ptr<TableReader>* table_reader,
+    bool sequential_mode, bool record_read_stats, HistogramImpl* file_read_hist,
+    std::unique_ptr<TableReader>* table_reader,
     const SliceTransform* prefix_extractor, bool skip_filters, int level,
     bool prefetch_index_and_filter_in_cache, bool for_compaction) {
   std::string fname =
@@ -152,10 +152,9 @@ Status TableCache::FindTable(const EnvOptions& env_options,
     }
     std::unique_ptr<TableReader> table_reader;
     s = GetTableReader(env_options, internal_comparator, fd,
-                       false /* sequential mode */, 0 /* readahead */,
-                       record_read_stats, file_read_hist, &table_reader,
-                       prefix_extractor, skip_filters, level,
-                       prefetch_index_and_filter_in_cache);
+                       false /* sequential mode */, record_read_stats,
+                       file_read_hist, &table_reader, prefix_extractor,
+                       skip_filters, level, prefetch_index_and_filter_in_cache);
     if (!s.ok()) {
       assert(table_reader == nullptr);
       RecordTick(ioptions_.statistics, NO_FILE_ERRORS);
@@ -184,7 +183,6 @@ InternalIterator* TableCache::NewIterator(
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   Status s;
-  bool create_new_table_reader = false;
   TableReader* table_reader = nullptr;
   Cache::Handle* handle = nullptr;
   if (table_reader_ptr != nullptr) {
