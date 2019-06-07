@@ -5,11 +5,7 @@
 
 #include "tools/block_cache_trace_analyzer.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <set>
 #include "monitoring/histogram.h"
 
