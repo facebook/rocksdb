@@ -52,6 +52,14 @@ struct FileDescriptor {
         smallest_seqno(_smallest_seqno),
         largest_seqno(_largest_seqno) {}
 
+  FileDescriptor(const FileDescriptor& fd) {
+    table_reader = fd.table_reader;
+    packed_number_and_path_id = fd.packed_number_and_path_id;
+    file_size = fd.file_size;
+    smallest_seqno = fd.smallest_seqno;
+    largest_seqno = fd.largest_seqno;
+  }
+
   FileDescriptor& operator=(const FileDescriptor& fd) {
     table_reader = fd.table_reader;
     packed_number_and_path_id = fd.packed_number_and_path_id;
