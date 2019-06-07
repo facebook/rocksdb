@@ -1285,7 +1285,7 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
   }
 }
 
-TEST_F(DBBasicTest, TruncateManifestAfterSyncFailure) {
+TEST_F(DBBasicTest, DisableFileDeletionAfterManifestWriteOrSyncFailure) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.disable_auto_compactions = true;

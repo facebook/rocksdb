@@ -300,13 +300,15 @@ void ErrorHandler::RecoverFromNoSpace() {
 }
 
 void ErrorHandler::HandleManifestWriteOrSyncFailure() {
+#ifndef ROCKSDB_LITE
   db_mutex_->AssertHeld();
   Status s = db_->DisableFileDeletionsWithLock();
 #ifndef NDEBUG
   assert(s.ok());
 #else
   (void)s;
-#endif
+#endif  // NDEBUG
+#endif  // !ROCKSDB_LITE
 }
 
 Status ErrorHandler::ClearBGError() {
