@@ -154,7 +154,8 @@ Status DBImpl::FlushMemTableToOutputFile(
       GetDataDir(cfd, 0U),
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats,
-      true /* sync_output_directory */, true /* write_manifest */, thread_pri);
+      true /* sync_output_directory */, true /* write_manifest */, thread_pri,
+      &job_context->error_context);
 
   FileMetaData file_meta;
 
@@ -340,7 +341,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         data_dir, GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
         stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
         false /* sync_output_directory */, false /* write_manifest */,
-        thread_pri);
+        thread_pri, nullptr /*err_context*/);
     jobs.back().PickMemTable();
   }
 
@@ -479,7 +480,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     s = InstallMemtableAtomicFlushResults(
         nullptr /* imm_lists */, tmp_cfds, mutable_cf_options_list, mems_list,
         versions_.get(), &mutex_, tmp_file_meta,
-        &job_context->memtables_to_free, directories_.GetDbDir(), log_buffer);
+        &job_context->memtables_to_free, directories_.GetDbDir(), log_buffer,
+        &job_context->error_context);
   }
 
   if (s.ok()) {
@@ -1012,8 +1014,8 @@ Status DBImpl::CompactFilesImpl(
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       &compaction_job_stats, Env::Priority::USER,
-      immutable_db_options_.max_subcompactions <= 1 ? &fetch_callback
-                                                    : nullptr);
+      immutable_db_options_.max_subcompactions <= 1 ? &fetch_callback : nullptr,
+      &job_context->error_context);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -1280,6 +1282,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
                     edit.DebugString().data());
 
     status = versions_->LogAndApply(cfd, mutable_cf_options, &edit, &mutex_,
+                                    nullptr /*err_context*/,
                                     directories_.GetDbDir());
     InstallSuperVersionAndScheduleWork(cfd, &sv_context, mutable_cf_options);
 
@@ -2550,9 +2553,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     for (const auto& f : *c->inputs(0)) {
       c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
     }
-    status = versions_->LogAndApply(c->column_family_data(),
-                                    *c->mutable_cf_options(), c->edit(),
-                                    &mutex_, directories_.GetDbDir());
+    status = versions_->LogAndApply(
+        c->column_family_data(), *c->mutable_cf_options(), c->edit(), &mutex_,
+        &job_context->error_context, directories_.GetDbDir());
     InstallSuperVersionAndScheduleWork(c->column_family_data(),
                                        &job_context->superversion_contexts[0],
                                        *c->mutable_cf_options());
@@ -2603,9 +2606,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       }
     }
 
-    status = versions_->LogAndApply(c->column_family_data(),
-                                    *c->mutable_cf_options(), c->edit(),
-                                    &mutex_, directories_.GetDbDir());
+    status = versions_->LogAndApply(
+        c->column_family_data(), *c->mutable_cf_options(), c->edit(), &mutex_,
+        &job_context->error_context, directories_.GetDbDir());
     // Use latest MutableCFOptions
     InstallSuperVersionAndScheduleWork(c->column_family_data(),
                                        &job_context->superversion_contexts[0],
@@ -2682,7 +2685,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
         &compaction_job_stats, thread_pri,
         immutable_db_options_.max_subcompactions <= 1 ? &fetch_callback
-                                                      : nullptr);
+                                                      : nullptr,
+        &job_context->error_context);
     compaction_job.Prepare();
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,

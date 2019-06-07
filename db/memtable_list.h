@@ -28,6 +28,7 @@
 namespace rocksdb {
 
 class ColumnFamilyData;
+class ErrorContext;
 class InternalKeyComparator;
 class InstrumentedMutex;
 class MergeIteratorBuilder;
@@ -125,7 +126,7 @@ class MemTableListVersion {
       VersionSet* vset, InstrumentedMutex* mu,
       const autovector<FileMetaData*>& file_meta,
       autovector<MemTable*>* to_delete, Directory* db_directory,
-      LogBuffer* log_buffer);
+      LogBuffer* log_buffer, ErrorContext* err_context);
 
   // REQUIRE: m is an immutable memtable
   void Add(MemTable* m, autovector<MemTable*>* to_delete);
@@ -227,7 +228,7 @@ class MemTableList {
       const autovector<MemTable*>& m, LogsWithPrepTracker* prep_tracker,
       VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,
       autovector<MemTable*>* to_delete, Directory* db_directory,
-      LogBuffer* log_buffer);
+      LogBuffer* log_buffer, ErrorContext* err_context);
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().
@@ -310,7 +311,7 @@ class MemTableList {
       VersionSet* vset, InstrumentedMutex* mu,
       const autovector<FileMetaData*>& file_meta,
       autovector<MemTable*>* to_delete, Directory* db_directory,
-      LogBuffer* log_buffer);
+      LogBuffer* log_buffer, ErrorContext* err_context);
 
   // DB mutex held
   void InstallNewVersion();
@@ -346,5 +347,5 @@ extern Status InstallMemtableAtomicFlushResults(
     const autovector<const autovector<MemTable*>*>& mems_list, VersionSet* vset,
     InstrumentedMutex* mu, const autovector<FileMetaData*>& file_meta,
     autovector<MemTable*>* to_delete, Directory* db_directory,
-    LogBuffer* log_buffer);
+    LogBuffer* log_buffer, ErrorContext* err_context);
 }  // namespace rocksdb

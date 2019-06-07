@@ -14,6 +14,7 @@
 
 #include "db/column_family.h"
 #include "db/compaction/compaction_job.h"
+#include "db/error_context.h"
 #include "db/error_handler.h"
 #include "db/version_set.h"
 #include "rocksdb/cache.h"
@@ -141,9 +142,10 @@ class CompactionJobTest : public testing::Test {
     edit.AddFile(level, file_number, 0, 10, smallest_key, largest_key,
         smallest_seqno, largest_seqno, false);
 
+    ErrorContext err_context;
     mutex_.Lock();
     versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                           mutable_cf_options_, &edit, &mutex_);
+                           mutable_cf_options_, &edit, &mutex_, &err_context);
     mutex_.Unlock();
   }
 
@@ -266,6 +268,7 @@ class CompactionJobTest : public testing::Test {
                           cfd->ioptions()->compression_opts, 0, {}, true);
     compaction.SetInputVersion(cfd->current());
 
+    ErrorContext err_context;
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
     mutex_.Lock();
     EventLogger event_logger(db_options_.info_log.get());
@@ -277,7 +280,7 @@ class CompactionJobTest : public testing::Test {
         nullptr, nullptr, &mutex_, &error_handler_, snapshots,
         earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
         &event_logger, false, false, dbname_, &compaction_job_stats_,
-        Env::Priority::USER, snapshot_fetcher);
+        Env::Priority::USER, snapshot_fetcher, &err_context);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
     compaction_job.Prepare();

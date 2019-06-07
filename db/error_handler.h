@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
+#include "db/error_context.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "rocksdb/listener.h"
@@ -12,13 +13,6 @@
 namespace rocksdb {
 
 class DBImpl;
-
-struct ErrorContext {
-  ErrorContext(BackgroundErrorReason r) : reason_(r) {}
-
-  BackgroundErrorReason reason_;
-  std::string file_name_;
-};
 
 class ErrorHandler {
   public:

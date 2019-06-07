@@ -75,7 +75,8 @@ class CompactionJob {
       std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
       bool paranoid_file_checks, bool measure_io_stats,
       const std::string& dbname, CompactionJobStats* compaction_job_stats,
-      Env::Priority thread_pri, SnapshotListFetchCallback* snap_list_callback);
+      Env::Priority thread_pri, SnapshotListFetchCallback* snap_list_callback,
+      ErrorContext* err_context);
 
   ~CompactionJob();
 
@@ -189,6 +190,7 @@ class CompactionJob {
   std::vector<uint64_t> sizes_;
   Env::WriteLifeTimeHint write_hint_;
   Env::Priority thread_pri_;
+  ErrorContext* error_context_;
 };
 
 }  // namespace rocksdb

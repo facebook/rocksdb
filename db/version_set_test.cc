@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/version_set.h"
+#include "db/error_context.h"
 #include "db/log_writer.h"
 #include "logging/logging.h"
 #include "table/mock_table.h"
@@ -1251,7 +1252,6 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
         ++called;
       });
   SyncPoint::GetInstance()->EnableProcessing();
-  ErrorContext err_context;
   mutex_.Lock();
   s = versions_->LogAndApply(cfds, mutable_cf_options_list, edit_lists, &mutex_,
                              &err_context);

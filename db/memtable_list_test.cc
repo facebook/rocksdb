@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+#include "db/error_context.h"
 #include "db/merge_context.h"
 #include "db/version_set.h"
 #include "db/write_controller.h"
@@ -114,12 +115,13 @@ class MemTableListTest : public testing::Test {
     auto cfd = column_family_set->GetDefault();
     EXPECT_TRUE(nullptr != cfd);
     uint64_t file_num = file_number.fetch_add(1);
+    ErrorContext err_context;
     // Create dummy mutex.
     InstrumentedMutex mutex;
     InstrumentedMutexLock l(&mutex);
     return list->TryInstallMemtableFlushResults(
         cfd, mutable_cf_options, m, &dummy_prep_tracker, &versions, &mutex,
-        file_num, to_delete, nullptr, &log_buffer);
+        file_num, to_delete, nullptr, &log_buffer, &err_context);
   }
 
   // Calls MemTableList::InstallMemtableFlushResults() and sets up all
@@ -173,11 +175,12 @@ class MemTableListTest : public testing::Test {
     for (auto& meta : file_metas) {
       file_meta_ptrs.push_back(&meta);
     }
+    ErrorContext err_context;
     InstrumentedMutex mutex;
     InstrumentedMutexLock l(&mutex);
     return InstallMemtableAtomicFlushResults(
         &lists, cfds, mutable_cf_options_list, mems_list, &versions, &mutex,
-        file_meta_ptrs, to_delete, nullptr, &log_buffer);
+        file_meta_ptrs, to_delete, nullptr, &log_buffer, &err_context);
   }
 };
 
