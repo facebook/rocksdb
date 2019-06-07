@@ -61,6 +61,12 @@ struct ColumnFamilyStats {
 class BlockCacheTraceAnalyzer {
  public:
   BlockCacheTraceAnalyzer(const std::string& trace_file_path);
+  ~BlockCacheTraceAnalyzer() = default;
+  // No copy and move.
+  BlockCacheTraceAnalyzer(const BlockCacheTraceAnalyzer&) = delete;
+  BlockCacheTraceAnalyzer& operator=(const BlockCacheTraceAnalyzer&) = delete;
+  BlockCacheTraceAnalyzer(BlockCacheTraceAnalyzer&&) = delete;
+  BlockCacheTraceAnalyzer& operator=(BlockCacheTraceAnalyzer&&) = delete;
 
   // It reads all access records in the given trace_file, maintains the stats of
   // a block, and aggregates the information by block type, sst file, and column
@@ -93,7 +99,7 @@ class BlockCacheTraceAnalyzer {
   // Print access count distribution.
   void PrintAccessCountStats();
 
-  std::map<std::string, ColumnFamilyStats>& Test_cf_stats_map() {
+  const std::map<std::string, ColumnFamilyStats>& Test_cf_stats_map() {
     return cf_stats_map_;
   }
 

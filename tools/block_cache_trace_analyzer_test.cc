@@ -156,10 +156,6 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     // Read blocks.
     BlockCacheTraceAnalyzer analyzer(trace_file_path_);
     ASSERT_OK(analyzer.Analyze());
-    analyzer.PrintStatsSummary();
-    analyzer.PrintBlockSizeStats();
-    analyzer.PrintAccessCountStats();
-
     const uint64_t expected_num_cfs = 1;
     std::vector<uint64_t> expected_fds{kSSTStoringOddKeys, kSSTStoringEvenKeys};
     const std::vector<TraceType> expected_types{
@@ -177,15 +173,16 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     for (auto fd_id : expected_fds) {
       ASSERT_TRUE(cf_stats.fd_stats_map.find(fd_id) !=
                   cf_stats.fd_stats_map.end());
-      ASSERT_EQ(kLevel, cf_stats.fd_stats_map[fd_id].level);
+      ASSERT_EQ(kLevel, cf_stats.fd_stats_map.find(fd_id)->second.level);
       auto& block_type_stats_map =
-          cf_stats.fd_stats_map[fd_id].block_type_stats_map;
+          cf_stats.fd_stats_map.find(fd_id)->second.block_type_stats_map;
       ASSERT_EQ(expected_types.size(), block_type_stats_map.size());
       uint32_t key_id = 0;
       for (auto type : expected_types) {
         ASSERT_TRUE(block_type_stats_map.find(type) !=
                     block_type_stats_map.end());
-        auto& block_stats_map = block_type_stats_map[type].block_stats_map;
+        auto& block_stats_map =
+            block_type_stats_map.find(type)->second.block_stats_map;
         // Each block type has 5 blocks.
         ASSERT_EQ(expected_num_keys_per_type, block_stats_map.size());
         for (uint32_t i = 0; i < 10; i++) {
