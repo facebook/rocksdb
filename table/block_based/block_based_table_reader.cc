@@ -1869,7 +1869,6 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
 }
 
 CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
-
     const SliceTransform* prefix_extractor, FilePrefetchBuffer* prefetch_buffer,
     bool no_io, GetContext* get_context,
     BlockCacheLookupContext* lookup_context) const {
@@ -1880,7 +1879,6 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 }
 
 CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
-
     FilePrefetchBuffer* prefetch_buffer, const BlockHandle& filter_blk_handle,
     const bool is_a_filter_partition, bool no_io, GetContext* get_context,
     BlockCacheLookupContext* /*lookup_context*/,
@@ -2197,7 +2195,6 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
 }
 
 Status BlockBasedTable::RetrieveBlock(
-
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
     CachableEntry<Block>* block_entry, BlockType block_type,
@@ -3296,7 +3293,6 @@ BlockBasedTableOptions::IndexType BlockBasedTable::UpdateIndexType() {
 //  4. internal_comparator
 //  5. index_type
 Status BlockBasedTable::CreateIndexReader(
-
     FilePrefetchBuffer* prefetch_buffer,
     InternalIterator* preloaded_meta_index_iter, bool use_cache, bool prefetch,
     bool pin, IndexReader** index_reader,
