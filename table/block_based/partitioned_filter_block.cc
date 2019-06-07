@@ -207,7 +207,7 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
     return false;
   }
   auto filter_partition =
-      GetFilterPartition(nullptr /* prefetch_buffer */, filter_handle, no_io,
+      GetFilterPartition(/*prefetch_buffer=*/nullptr, filter_handle, no_io,
                          prefix_extractor, context);
   if (UNLIKELY(!filter_partition.GetValue())) {
     return true;
@@ -250,9 +250,9 @@ PartitionedFilterBlockReader::GetFilterPartition(
           nullptr /* cache_handle */, false /* own_value */};
       }
     }
-    return table_->GetFilter(/*prefetch_buffer*/ nullptr, fltr_blk_handle,
+    return table_->GetFilter(/*prefetch_buffer=*/nullptr, fltr_blk_handle,
                              is_a_filter_partition, no_io,
-                             /* get_context */ nullptr, context,
+                             /*get_context=*/nullptr, context,
                              prefix_extractor);
   } else {
     auto filter = table_->ReadFilter(prefetch_buffer, fltr_blk_handle,

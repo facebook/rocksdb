@@ -260,7 +260,7 @@ Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
     return Status::OK();
   }
 
-  return ReadIndexBlock(table_, nullptr /* prefetch_buffer */, read_options,
+  return ReadIndexBlock(table_, /*prefetch_buffer=*/nullptr, read_options,
                         get_context, lookup_context, index_block);
 }
 
@@ -282,9 +282,9 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
 
     CachableEntry<Block> index_block;
     if (prefetch || !use_cache) {
-      const Status s = ReadIndexBlock(table, prefetch_buffer, ReadOptions(),
-                                      nullptr /* get_context */, lookup_context,
-                                      &index_block);
+      const Status s =
+          ReadIndexBlock(table, prefetch_buffer, ReadOptions(),
+                         /*get_context=*/nullptr, lookup_context, &index_block);
       if (!s.ok()) {
         return s;
       }
@@ -416,8 +416,7 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
       // filter blocks
       s = table()->MaybeReadBlockAndLoadToCache(
           prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
-          &block, BlockType::kIndex, nullptr /* get_context */,
-          &lookup_context);
+          &block, BlockType::kIndex, /*get_context=*/nullptr, &lookup_context);
 
       assert(s.ok() || block.GetValue() == nullptr);
       if (s.ok() && block.GetValue() != nullptr) {
@@ -2396,7 +2395,7 @@ bool BlockBasedTable::PrefixMayMatch(
         BlockHandle handle = iiter->value();
         may_match = filter->PrefixMayMatch(
             prefix, prefix_extractor, handle.offset(), /*no_io=*/false,
-            /*const_key_ptr*/ nullptr, lookup_context);
+            /*const_key_ptr=*/nullptr, lookup_context);
       }
     }
   }
@@ -2880,7 +2879,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           filter != nullptr && filter->IsBlockBased() == true &&
           !filter->KeyMayMatch(ExtractUserKeyAndStripTimestamp(key, ts_sz),
                                prefix_extractor, handle.offset(), no_io,
-                               nullptr, &lookup_context);
+                               /*const_ikey_ptr=*/nullptr, &lookup_context);
 
       if (not_exist_in_filter) {
         // Not found
