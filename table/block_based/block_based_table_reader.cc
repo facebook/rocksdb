@@ -2342,7 +2342,7 @@ Status BlockBasedTable::RetrieveBlock(
         block_type == BlockType::kData
             ? rep_->table_options.read_amp_bytes_per_bit
             : 0,
-        GetMemoryAllocator(rep_->table_options));
+        GetMemoryAllocator(rep_->table_options), for_compaction);
   }
 
   if (!s.ok()) {
