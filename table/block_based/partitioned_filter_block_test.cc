@@ -169,14 +169,15 @@ class PartitionedFilterBlockTest
       auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
       ASSERT_TRUE(reader->KeyMayMatch(key, prefix_extractor, kNotValid, !no_io,
-                                      &ikey_slice, nullptr));
+                                      &ikey_slice, /*context=*/nullptr));
     }
     {
       // querying a key twice
       auto ikey = InternalKey(keys[0], 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
       ASSERT_TRUE(reader->KeyMayMatch(keys[0], prefix_extractor, kNotValid,
-                                      !no_io, &ikey_slice, nullptr));
+                                      !no_io, &ikey_slice,
+                                      /*context=*/nullptr));
     }
     // querying missing keys
     for (auto key : missing_keys) {
@@ -184,11 +185,13 @@ class PartitionedFilterBlockTest
       const Slice ikey_slice = Slice(*ikey.rep());
       if (empty) {
         ASSERT_TRUE(reader->KeyMayMatch(key, prefix_extractor, kNotValid,
-                                        !no_io, &ikey_slice, nullptr));
+                                        !no_io, &ikey_slice,
+                                        /*context=*/nullptr));
       } else {
         // assuming a good hash function
         ASSERT_FALSE(reader->KeyMayMatch(key, prefix_extractor, kNotValid,
-                                         !no_io, &ikey_slice, nullptr));
+                                         !no_io, &ikey_slice,
+                                         /*context=*/nullptr));
       }
     }
   }
@@ -336,9 +339,9 @@ TEST_P(PartitionedFilterBlockTest, SamePrefixInMultipleBlocks) {
   for (auto key : pkeys) {
     auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
     const Slice ikey_slice = Slice(*ikey.rep());
-    ASSERT_TRUE(reader->PrefixMayMatch(prefix_extractor->Transform(key),
-                                       prefix_extractor.get(), kNotValid,
-                                       false /*no_io*/, &ikey_slice, nullptr));
+    ASSERT_TRUE(reader->PrefixMayMatch(
+        prefix_extractor->Transform(key), prefix_extractor.get(), kNotValid,
+        /*no_io=*/false, &ikey_slice, /*context=*/nullptr));
   }
 }
 
