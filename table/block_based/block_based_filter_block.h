@@ -86,15 +86,14 @@ class BlockBasedFilterBlockReader : public FilterBlockReader {
 
   virtual bool KeyMayMatch(const Slice& key,
                            const SliceTransform* prefix_extractor,
-                           uint64_t block_offset = kNotValid,
-                           const bool no_io = false,
-                           const Slice* const const_ikey_ptr = nullptr,
-                           BlockCacheLookupContext* context = nullptr) override;
-  virtual bool PrefixMayMatch(
-      const Slice& prefix, const SliceTransform* prefix_extractor,
-      uint64_t block_offset = kNotValid, const bool no_io = false,
-      const Slice* const const_ikey_ptr = nullptr,
-      BlockCacheLookupContext* context = nullptr) override;
+                           uint64_t block_offset, const bool no_io,
+                           const Slice* const const_ikey_ptr,
+                           BlockCacheLookupContext* context) override;
+  virtual bool PrefixMayMatch(const Slice& prefix,
+                              const SliceTransform* prefix_extractor,
+                              uint64_t block_offset, const bool no_io,
+                              const Slice* const const_ikey_ptr,
+                              BlockCacheLookupContext* context) override;
   virtual size_t ApproximateMemoryUsage() const override;
 
   // convert this object to a human readable form

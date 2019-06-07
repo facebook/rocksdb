@@ -177,13 +177,14 @@ bool PartitionedFilterBlockReader::KeyMayMatch(
     return false;
   }
   auto filter_partition =
-      GetFilterPartition(context, nullptr /* prefetch_buffer */, filter_handle,
-                         no_io, prefix_extractor);
+      GetFilterPartition(/*prefetch_buffer=*/nullptr, filter_handle, no_io,
+                         prefix_extractor, context);
   if (UNLIKELY(!filter_partition.GetValue())) {
     return true;
   }
-  return filter_partition.GetValue()->KeyMayMatch(key, prefix_extractor,
-                                                  block_offset, no_io);
+  return filter_partition.GetValue()->KeyMayMatch(
+      key, prefix_extractor, block_offset, no_io, /*const_ikey_ptr=*/nullptr,
+      context);
 }
 
 bool PartitionedFilterBlockReader::PrefixMayMatch(
@@ -206,13 +207,14 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
     return false;
   }
   auto filter_partition =
-      GetFilterPartition(context, nullptr /* prefetch_buffer */, filter_handle,
-                         no_io, prefix_extractor);
+      GetFilterPartition(nullptr /* prefetch_buffer */, filter_handle, no_io,
+                         prefix_extractor, context);
   if (UNLIKELY(!filter_partition.GetValue())) {
     return true;
   }
-  return filter_partition.GetValue()->PrefixMayMatch(prefix, prefix_extractor,
-                                                     kNotValid, no_io);
+  return filter_partition.GetValue()->PrefixMayMatch(
+      prefix, prefix_extractor, kNotValid, no_io, /*const_ikey_ptr=*/nullptr,
+      context);
 }
 
 BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
@@ -233,9 +235,9 @@ BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
 
 CachableEntry<FilterBlockReader>
 PartitionedFilterBlockReader::GetFilterPartition(
-    BlockCacheLookupContext* context, FilePrefetchBuffer* prefetch_buffer,
-    BlockHandle& fltr_blk_handle, const bool no_io,
-    const SliceTransform* prefix_extractor) {
+    FilePrefetchBuffer* prefetch_buffer, BlockHandle& fltr_blk_handle,
+    const bool no_io, const SliceTransform* prefix_extractor,
+    BlockCacheLookupContext* context) {
   const bool is_a_filter_partition = true;
   auto block_cache = table_->rep_->table_options.block_cache.get();
   if (LIKELY(block_cache != nullptr)) {
@@ -248,9 +250,10 @@ PartitionedFilterBlockReader::GetFilterPartition(
           nullptr /* cache_handle */, false /* own_value */};
       }
     }
-    return table_->GetFilter(context, /*prefetch_buffer*/ nullptr,
-                             fltr_blk_handle, is_a_filter_partition, no_io,
-                             /* get_context */ nullptr, prefix_extractor);
+    return table_->GetFilter(/*prefetch_buffer*/ nullptr, fltr_blk_handle,
+                             is_a_filter_partition, no_io,
+                             /* get_context */ nullptr, context,
+                             prefix_extractor);
   } else {
     auto filter = table_->ReadFilter(prefetch_buffer, fltr_blk_handle,
                                      is_a_filter_partition, prefix_extractor);
@@ -304,10 +307,9 @@ void PartitionedFilterBlockReader::CacheDependencies(
     handle = biter.value();
     const bool no_io = true;
     const bool is_a_filter_partition = true;
-    auto filter =
-        table_->GetFilter(&lookup_context, prefetch_buffer.get(), handle,
-                          is_a_filter_partition, !no_io,
-                          /* get_context */ nullptr, prefix_extractor);
+    auto filter = table_->GetFilter(
+        prefetch_buffer.get(), handle, is_a_filter_partition, !no_io,
+        /*get_context=*/nullptr, &lookup_context, prefix_extractor);
     if (LIKELY(filter.IsCached())) {
       if (pin) {
         filter_map_[handle.offset()] = std::move(filter);

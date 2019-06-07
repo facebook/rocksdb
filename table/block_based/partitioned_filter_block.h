@@ -82,23 +82,22 @@ class PartitionedFilterBlockReader : public FilterBlockReader {
   virtual bool IsBlockBased() override { return false; }
   virtual bool KeyMayMatch(const Slice& key,
                            const SliceTransform* prefix_extractor,
-                           uint64_t block_offset = kNotValid,
-                           const bool no_io = false,
-                           const Slice* const const_ikey_ptr = nullptr,
-                           BlockCacheLookupContext* context = nullptr) override;
-  virtual bool PrefixMayMatch(
-      const Slice& prefix, const SliceTransform* prefix_extractor,
-      uint64_t block_offset = kNotValid, const bool no_io = false,
-      const Slice* const const_ikey_ptr = nullptr,
-      BlockCacheLookupContext* context = nullptr) override;
+                           uint64_t block_offset, const bool no_io,
+                           const Slice* const const_ikey_ptr,
+                           BlockCacheLookupContext* context) override;
+  virtual bool PrefixMayMatch(const Slice& prefix,
+                              const SliceTransform* prefix_extractor,
+                              uint64_t block_offset, const bool no_io,
+                              const Slice* const const_ikey_ptr,
+                              BlockCacheLookupContext* context) override;
   virtual size_t ApproximateMemoryUsage() const override;
 
  private:
   BlockHandle GetFilterPartitionHandle(const Slice& entry);
   CachableEntry<FilterBlockReader> GetFilterPartition(
-      BlockCacheLookupContext* context, FilePrefetchBuffer* prefetch_buffer,
-      BlockHandle& handle, const bool no_io,
-      const SliceTransform* prefix_extractor = nullptr);
+      FilePrefetchBuffer* prefetch_buffer, BlockHandle& handle,
+      const bool no_io, const SliceTransform* prefix_extractor,
+      BlockCacheLookupContext* context);
   virtual void CacheDependencies(
       bool bin, const SliceTransform* prefix_extractor) override;
 
