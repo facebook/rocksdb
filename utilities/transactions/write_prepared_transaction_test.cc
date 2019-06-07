@@ -139,30 +139,37 @@ TEST(PreparedHeap, EmptyAtTheEnd) {
 // successfully emptied at the end.
 TEST(PreparedHeap, Concurrent) {
   const size_t t_cnt = 10;
-  rocksdb::port::Thread t[t_cnt];
-  Random rnd(1103);
+  rocksdb::port::Thread t[t_cnt + 1];
   WritePreparedTxnDB::PreparedHeap heap;
   port::RWMutex prepared_mutex;
+  std::atomic<size_t> last;
 
   for (size_t n = 0; n < 100; n++) {
-    for (size_t i = 0; i < t_cnt; i++) {
-      // This is not recommended usage but we should be resilient against it.
-      bool skip_push = rnd.OneIn(5);
-      t[i] = rocksdb::port::Thread([&heap, &prepared_mutex, skip_push, i]() {
-        auto seq = i;
-        std::this_thread::yield();
+    last = 0;
+    t[0] = rocksdb::port::Thread([&heap, &prepared_mutex, &last]() {
+      Random rnd(1103);
+      for (size_t seq = 1; seq <= t_cnt; seq++) {
+        // This is not recommended usage but we should be resilient against it.
+        bool skip_push = rnd.OneIn(5);
         if (!skip_push) {
-          WriteLock wl(&prepared_mutex);
+          MutexLock ml(heap.push_pop_mutex());
+          std::this_thread::yield();
           heap.push(seq);
+          last.store(seq);
         }
-        std::this_thread::yield();
-        {
-          WriteLock wl(&prepared_mutex);
-          heap.erase(seq);
-        }
+      }
+    });
+    for (size_t i = 1; i <= t_cnt; i++) {
+      t[i] = rocksdb::port::Thread([&heap, &prepared_mutex, &last, i]() {
+        auto seq = i;
+        do {
+          std::this_thread::yield();
+        } while (last.load() < seq);
+        WriteLock wl(&prepared_mutex);
+        heap.erase(seq);
       });
     }
-    for (size_t i = 0; i < t_cnt; i++) {
+    for (size_t i = 0; i <= t_cnt; i++) {
       t[i].join();
     }
     ASSERT_TRUE(heap.empty());

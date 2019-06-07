@@ -32,12 +32,19 @@ Status WritePreparedTxnDB::Initialize(
   auto dbimpl = reinterpret_cast<DBImpl*>(GetRootDB());
   assert(dbimpl != nullptr);
   auto rtxns = dbimpl->recovered_transactions();
+  std::map<SequenceNumber, SequenceNumber> ordered_seq_cnt;
   for (auto rtxn : rtxns) {
     // There should only one batch for WritePrepared policy.
     assert(rtxn.second->batches_.size() == 1);
     const auto& seq = rtxn.second->batches_.begin()->first;
     const auto& batch_info = rtxn.second->batches_.begin()->second;
     auto cnt = batch_info.batch_cnt_ ? batch_info.batch_cnt_ : 1;
+    ordered_seq_cnt[seq] = cnt;
+  }
+  // AddPrepared must be called in order
+  for (auto seq_cnt: ordered_seq_cnt) {
+    auto seq = seq_cnt.first;
+    auto cnt = seq_cnt.second;
     for (size_t i = 0; i < cnt; i++) {
       AddPrepared(seq + i);
     }
