@@ -220,35 +220,35 @@ InternalIterator* TableCache::NewIterator(
   }
 
   auto& fd = file_meta.fd;
-  if (create_new_table_reader) {
-//    std::unique_ptr<TableReader> table_reader_unique_ptr;
-//    s = GetTableReader(
-//        env_options, icomparator, fd, true /* sequential_mode */, readahead,
-//        !for_compaction /* record stats */, nullptr, &table_reader_unique_ptr,
-//        prefix_extractor, false /* skip_filters */, level,
-//        true /* prefetch_index_and_filter_in_cache */, for_compaction);
+//  if (create_new_table_reader) {
+//    s = FindTable(
+//        env_options, icomparator, fd, &handle, prefix_extractor,
+//        options.read_tier == kBlockCacheTier, !for_compaction /*false*/,
+//        /*file_read_hist*/ nullptr, /*skip_filters*/ false, level, true);
 //    if (s.ok()) {
-//      table_reader = table_reader_unique_ptr.release();
+//      table_reader = GetTableReaderFromHandle(handle);
+//	  	  }
+//                  //}
+//  } else {
+//    table_reader = fd.table_reader;
+//    if (table_reader == nullptr) {
+//      s = FindTable(env_options, icomparator, fd, &handle, prefix_extractor,
+//                    options.read_tier == kBlockCacheTier /* no_io */,
+//                    !for_compaction /* record read_stats */, file_read_hist,
+//                    skip_filters, level);
+//      if (s.ok()) {
+//        table_reader = GetTableReaderFromHandle(handle);
+//      }
 //    }
-	  //table_reader = fd.table_reader;
-	  //if (table_reader == nullptr) {
-		  s = FindTable(env_options, icomparator, fd, &handle, prefix_extractor,
-	  		    		options.read_tier == kBlockCacheTier, !for_compaction /*false*/,
-	  					/*file_read_hist*/ nullptr, /*skip_filters*/ false, level, true);
-		  if (s.ok()) {
-			  table_reader = GetTableReaderFromHandle(handle);
-	  	  }
-	  //}
-  } else {
-    table_reader = fd.table_reader;
-    if (table_reader == nullptr) {
-      s = FindTable(env_options, icomparator, fd, &handle, prefix_extractor,
-                    options.read_tier == kBlockCacheTier /* no_io */,
-                    !for_compaction /* record read_stats */, file_read_hist,
-                    skip_filters, level);
-      if (s.ok()) {
-        table_reader = GetTableReaderFromHandle(handle);
-      }
+//  }
+  table_reader = fd.table_reader;
+  if (table_reader == nullptr) {
+    s = FindTable(env_options, icomparator, fd, &handle, prefix_extractor,
+                  options.read_tier == kBlockCacheTier /* no_io */,
+                  !for_compaction /* record read_stats */, file_read_hist,
+                  skip_filters, level);
+    if (s.ok()) {
+      table_reader = GetTableReaderFromHandle(handle);
     }
   }
   InternalIterator* result = nullptr;
@@ -258,7 +258,8 @@ InternalIterator* TableCache::NewIterator(
       result = NewEmptyInternalIterator<Slice>(arena);
     } else {
       result = table_reader->NewIterator(options, prefix_extractor, arena,
-                                         skip_filters, for_compaction);
+                                         skip_filters, for_compaction,
+                                         env_options.compaction_readahead_size);
     }
     if (create_new_table_reader) {
 //      assert(handle == nullptr);

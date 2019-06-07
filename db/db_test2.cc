@@ -2339,6 +2339,7 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
   options.num_levels = 2;
   options.IncreaseParallelism(20);
   options.disable_auto_compactions = true;
+  options.new_table_reader_for_compaction_inputs = true;
   DestroyAndReopen(options);
 
   ASSERT_OK(Put(Key(0), "a"));

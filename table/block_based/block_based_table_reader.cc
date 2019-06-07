@@ -2718,9 +2718,9 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
       }
     }
     else {
-    	size_t ki = rep->env_options.compaction_readahead_size;
-        prefetch_buffer_.reset(new FilePrefetchBuffer(
-            rep->file.get(), ki, ki));
+      prefetch_buffer_.reset(
+          new FilePrefetchBuffer(rep->file.get(), compaction_readahead_size_,
+                                 compaction_readahead_size_));
     }
 
     Status s;
@@ -2813,7 +2813,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::CheckOutOfBound() {
 
 InternalIterator* BlockBasedTable::NewIterator(
     const ReadOptions& read_options, const SliceTransform* prefix_extractor,
-    Arena* arena, bool skip_filters, bool for_compaction) {
+    Arena* arena, bool skip_filters, bool for_compaction, size_t compaction_readahead_size) {
   BlockCacheLookupContext lookup_context{
       for_compaction ? BlockCacheLookupCaller::kCompaction
                      : BlockCacheLookupCaller::kUserIterator};
@@ -2830,7 +2830,8 @@ InternalIterator* BlockBasedTable::NewIterator(
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, BlockType::kData,
-        true /*key_includes_seq*/, true /*index_key_is_full*/, for_compaction);
+        true /*key_includes_seq*/, true /*index_key_is_full*/, for_compaction,
+        compaction_readahead_size);
   } else {
     auto* mem =
         arena->AllocateAligned(sizeof(BlockBasedTableIterator<DataBlockIter>));
@@ -2842,7 +2843,8 @@ InternalIterator* BlockBasedTable::NewIterator(
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, BlockType::kData,
-        true /*key_includes_seq*/, true /*index_key_is_full*/, for_compaction);
+        true /*key_includes_seq*/, true /*index_key_is_full*/, for_compaction,
+        compaction_readahead_size);
   }
 }
 
