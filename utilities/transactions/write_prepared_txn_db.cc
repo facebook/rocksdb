@@ -399,21 +399,27 @@ void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max,
       "CheckPreparedAgainstMax prepared_txns_.empty() %d top: %" PRIu64,
       prepared_txns_.empty(),
       prepared_txns_.empty() ? 0 : prepared_txns_.top());
-  while (!prepared_txns_.empty() && prepared_txns_.top() <= new_max) {
+  const SequenceNumber prepared_top = prepared_txns_.top();
+  const bool empty = prepared_top == kMaxSequenceNumber;
+  // Preliminary check to avoid the synchronization cost
+  if (!empty && prepared_top <= new_max) {
     if (locked) {
       // Needed to avoid double locking in pop().
       prepared_txns_.push_pop_mutex()->Unlock();
     }
     WriteLock wl(&prepared_mutex_);
-    auto to_be_popped = prepared_txns_.top();
-    delayed_prepared_.insert(to_be_popped);
-    ROCKS_LOG_WARN(info_log_,
-                   "prepared_mutex_ overhead %" PRIu64 " (prep=%" PRIu64
-                   " new_max=%" PRIu64,
-                   static_cast<uint64_t>(delayed_prepared_.size()),
-                   to_be_popped, new_max);
-    prepared_txns_.pop();
-    delayed_prepared_empty_.store(false, std::memory_order_release);
+    // Need to fetch feresh values of ::top after mutex is acquired
+    while (!prepared_txns_.empty() && prepared_txns_.top() <= new_max) {
+      auto to_be_popped = prepared_txns_.top();
+      delayed_prepared_.insert(to_be_popped);
+      ROCKS_LOG_WARN(info_log_,
+                     "prepared_mutex_ overhead %" PRIu64 " (prep=%" PRIu64
+                     " new_max=%" PRIu64,
+                     static_cast<uint64_t>(delayed_prepared_.size()),
+                     to_be_popped, new_max);
+      prepared_txns_.pop();
+      delayed_prepared_empty_.store(false, std::memory_order_release);
+    }
     if (locked) {
       prepared_txns_.push_pop_mutex()->Lock();
     }
