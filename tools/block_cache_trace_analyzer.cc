@@ -1,5 +1,6 @@
 #include "tools/block_cache_trace_analyzer.h"
 
+#include <inttypes.h>
 #include <set>
 #include "monitoring/histogram.h"
 
@@ -239,12 +240,12 @@ void BlockCacheTraceAnalyzer::PrintStatsSummary() {
         stdout,
         "***************************************************************\n");
     fprintf(stdout, "Statistics for column family %s:\n", cf_name.c_str());
-    fprintf(
-        stdout,
-        "Number of files: %lu Number of blocks: %lu Number of accesses: %lu\n",
-        cf_num_files, cf_num_blocks, cf_num_accesses);
+    fprintf(stdout,
+            "Number of files:%" PRIu64 "Number of blocks: %" PRIu64
+            "Number of accesses: %" PRIu64 "\n",
+            cf_num_files, cf_num_blocks, cf_num_accesses);
     for (auto block_type : cf_bt_blocks) {
-      fprintf(stdout, "Number of %s blocks: %lu\n",
+      fprintf(stdout, "Number of %s blocks: %" PRIu64 "\n",
               block_type_to_string(block_type.first).c_str(),
               block_type.second);
     }
@@ -252,26 +253,28 @@ void BlockCacheTraceAnalyzer::PrintStatsSummary() {
       fprintf(
           stdout,
           "***************************************************************\n");
-      fprintf(stdout, "Caller %s: Number of accesses %lu\n",
+      fprintf(stdout, "Caller %s: Number of accesses %" PRIu64 "\n",
               caller_to_string(caller.first).c_str(), caller.second);
       fprintf(stdout, "Caller %s: Number of accesses per level break down\n",
               caller_to_string(caller.first).c_str());
       for (auto naccess_level :
            cf_caller_level_num_accesses_map[caller.first]) {
-        fprintf(stdout, "\t Level %lu: Number of accesses: %lu\n",
+        fprintf(stdout,
+                "\t Level %" PRIu64 ": Number of accesses: %" PRIu64 "\n",
                 naccess_level.first, naccess_level.second);
       }
       fprintf(stdout, "Caller %s: Number of accesses per file break down\n",
               caller_to_string(caller.first).c_str());
       for (auto naccess_file : cf_caller_file_num_accesses_map[caller.first]) {
-        fprintf(stdout, "\t File %lu: Number of accesses: %lu\n",
+        fprintf(stdout,
+                "\t File %" PRIu64 ": Number of accesses: %" PRIu64 "\n",
                 naccess_file.first, naccess_file.second);
       }
       fprintf(stdout,
               "Caller %s: Number of accesses per block type break down\n",
               caller_to_string(caller.first).c_str());
       for (auto naccess_type : cf_caller_bt_num_accesses_map[caller.first]) {
-        fprintf(stdout, "\t Block Type %s: Number of accesses: %lu\n",
+        fprintf(stdout, "\t Block Type %s: Number of accesses: %" PRIu64 "\n",
                 block_type_to_string(naccess_type.first).c_str(),
                 naccess_type.second);
       }
@@ -284,30 +287,30 @@ void BlockCacheTraceAnalyzer::PrintStatsSummary() {
   fprintf(stdout,
           "***************************************************************\n");
   fprintf(stdout, "Overall statistics:\n");
-  fprintf(
-      stdout,
-      "Number of files: %lu Number of blocks: %lu Number of accesses: %lu\n",
-      total_num_files, total_num_blocks, total_num_accesses);
+  fprintf(stdout,
+          "Number of files: %" PRIu64 " Number of blocks: %" PRIu64
+          " Number of accesses: %" PRIu64 "\n",
+          total_num_files, total_num_blocks, total_num_accesses);
   for (auto block_type : bt_num_blocks_map) {
-    fprintf(stdout, "Number of %s blocks: %lu\n",
+    fprintf(stdout, "Number of %s blocks: %" PRIu64 "\n",
             block_type_to_string(block_type.first).c_str(), block_type.second);
   }
   for (auto caller : caller_num_access_map) {
     fprintf(
         stdout,
         "***************************************************************\n");
-    fprintf(stdout, "Caller %s: Number of accesses %lu\n",
+    fprintf(stdout, "Caller %s: Number of accesses %" PRIu64 "\n",
             caller_to_string(caller.first).c_str(), caller.second);
     fprintf(stdout, "Caller %s: Number of accesses per level break down\n",
             caller_to_string(caller.first).c_str());
     for (auto naccess_level : caller_level_num_access_map[caller.first]) {
-      fprintf(stdout, "\t Level %d: Number of accesses: %lu\n",
+      fprintf(stdout, "\t Level %d: Number of accesses: %" PRIu64 "\n",
               naccess_level.first, naccess_level.second);
     }
     fprintf(stdout, "Caller %s: Number of accesses per block type break down\n",
             caller_to_string(caller.first).c_str());
     for (auto naccess_type : caller_bt_num_access_map[caller.first]) {
-      fprintf(stdout, "\t Block Type %s: Number of accesses: %lu\n",
+      fprintf(stdout, "\t Block Type %s: Number of accesses: %" PRIu64 "\n",
               block_type_to_string(naccess_type.first).c_str(),
               naccess_type.second);
     }
