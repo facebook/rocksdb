@@ -369,7 +369,7 @@ REPORT_LITE_BINARY_SIZE_COMMANDS="[
 #
 STRESS_CRASH_TEST_COMMANDS="[
     {
-        'name':'Rocksdb Stress/Crash Test',
+        'name':'Rocksdb Stress and Crash Test',
         'oncall':'$ONCALL',
         'timeout': 86400,
         'steps': [
@@ -397,7 +397,7 @@ STRESS_CRASH_TEST_COMMANDS="[
 #
 STRESS_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
     {
-        'name':'Rocksdb Stress/Crash Test (atomic flush)',
+        'name':'Rocksdb Stress and Crash Test with atomic flush',
         'oncall':'$ONCALL',
         'timeout': 86400,
         'steps': [
@@ -489,7 +489,7 @@ ASAN_CRASH_TEST_COMMANDS="[
 #
 ASAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
     {
-        'name':'Rocksdb crash test (atomic flush) under ASAN',
+        'name':'Rocksdb crash test with atomic flush under ASAN',
         'oncall':'$ONCALL',
         'timeout': 86400,
         'steps': [
@@ -553,7 +553,7 @@ UBSAN_CRASH_TEST_COMMANDS="[
 #
 UBSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
     {
-        'name':'Rocksdb crash test (atomic flush) under UBSAN',
+        'name':'Rocksdb crash test with atomic flush under UBSAN',
         'oncall':'$ONCALL',
         'timeout': 86400,
         'steps': [
