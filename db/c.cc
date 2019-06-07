@@ -2512,6 +2512,15 @@ void rocksdb_options_set_keep_log_file_num(rocksdb_options_t* opt, size_t v) {
   opt->rep.keep_log_file_num = v;
 }
 
+void rocksdb_options_set_keep_large_log_file_num(rocksdb_options_t* opt,
+                                                 size_t v) {
+  opt->rep.keep_large_log_file_num = v;
+}
+
+void rocksdb_options_set_large_info_log_size(rocksdb_options_t* opt, size_t v) {
+  opt->rep.large_info_log_size = v;
+}
+
 void rocksdb_options_set_recycle_log_file_num(rocksdb_options_t* opt,
                                               size_t v) {
   opt->rep.recycle_log_file_num = v;

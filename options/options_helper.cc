@@ -66,6 +66,9 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.max_log_file_size = immutable_db_options.max_log_file_size;
   options.log_file_time_to_roll = immutable_db_options.log_file_time_to_roll;
   options.keep_log_file_num = immutable_db_options.keep_log_file_num;
+  options.keep_large_log_file_num =
+      immutable_db_options.keep_large_log_file_num;
+  options.large_info_log_size = immutable_db_options.large_info_log_size;
   options.recycle_log_file_num = immutable_db_options.recycle_log_file_num;
   options.max_manifest_file_size = immutable_db_options.max_manifest_file_size;
   options.table_cache_numshardbits =
@@ -1516,6 +1519,12 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionVerificationType::kNormal, false, 0}},
         {"keep_log_file_num",
          {offsetof(struct DBOptions, keep_log_file_num), OptionType::kSizeT,
+          OptionVerificationType::kNormal, false, 0}},
+        {"keep_large_log_file_num",
+         {offsetof(struct DBOptions, keep_large_log_file_num),
+          OptionType::kSizeT, OptionVerificationType::kNormal, false, 0}},
+        {"large_info_log_size",
+         {offsetof(struct DBOptions, large_info_log_size), OptionType::kSizeT,
           OptionVerificationType::kNormal, false, 0}},
         {"recycle_log_file_num",
          {offsetof(struct DBOptions, recycle_log_file_num), OptionType::kSizeT,

@@ -604,7 +604,20 @@ struct DBOptions {
   // Default: 1000
   size_t keep_log_file_num = 1000;
 
-  // Recycle log files.
+  // In addition to keep_log_file_num, application can choose to keep most
+  // recent info log files no smaller than large_info_log_size. Without
+  // keeping large info logs, in case application fall in crash loop,
+  // RocksDB can generate small info log files on restart, purging useful
+  // logs prior to crash loop.
+  // Default: 0
+  size_t keep_large_log_file_num = 0;
+
+  // Size threshold for large info logs. See keep_large_log_file_num for more
+  // details.
+  // Default: 1MB
+  size_t large_info_log_size = 1024 * 1024;
+
+  // Recycle WAL files.
   // If non-zero, we will reuse previously written log files for new
   // logs, overwriting the old data.  The value indicates how many
   // such files we will keep around at any point in time for later

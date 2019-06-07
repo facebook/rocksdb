@@ -11,10 +11,12 @@
 #include <cinttypes>
 #include <set>
 #include <unordered_set>
+
 #include "db/event_helpers.h"
 #include "db/memtable_list.h"
 #include "file/file_util.h"
 #include "file/sst_file_manager_impl.h"
+#include "util/autovector.h"
 
 namespace rocksdb {
 
@@ -507,18 +509,50 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
 
   // Delete old info log files.
   size_t old_info_log_file_count = old_info_log_files.size();
+  size_t keep_log_file_num = immutable_db_options_.keep_log_file_num;
+  size_t keep_large_log_file_num =
+      immutable_db_options_.keep_large_log_file_num;
   if (old_info_log_file_count != 0 &&
-      old_info_log_file_count >= immutable_db_options_.keep_log_file_num) {
+      old_info_log_file_count >= keep_log_file_num) {
     std::sort(old_info_log_files.begin(), old_info_log_files.end());
     size_t end =
         old_info_log_file_count - immutable_db_options_.keep_log_file_num;
+
+    std::string db_log_dir = (immutable_db_options_.db_log_dir.empty())
+                                 ? dbname_
+                                 : immutable_db_options_.db_log_dir;
+    auto info_log_full_path = [&](const std::string& file_name) {
+      return db_log_dir + "/" + file_name;
+    };
+
+    std::vector<bool> keep_info_log(old_info_log_files.size(), false);
+    size_t pos = end + 1;
+    while (keep_large_log_file_num > 0 && pos > 0) {
+      pos--;
+      std::string full_path = info_log_full_path(old_info_log_files[pos]);
+      uint64_t file_size = 0;
+      Status s = env_->GetFileSize(full_path, &file_size);
+      if (s.ok()) {
+        if (file_size >= immutable_db_options_.large_info_log_size) {
+          keep_info_log[pos] = true;
+          keep_large_log_file_num--;
+        }
+      } else {
+        ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                       "[JOB %d] Failed to get info log %s size, ignoring "
+                       "keep_large_info_log_file_num -- %s\n",
+                       state.job_id, old_info_log_files[pos].c_str(),
+                       s.ToString().c_str());
+        break;
+      }
+    }
+
     for (unsigned int i = 0; i <= end; i++) {
+      if (keep_info_log[i]) {
+        continue;
+      }
       std::string& to_delete = old_info_log_files.at(i);
-      std::string full_path_to_delete =
-          (immutable_db_options_.db_log_dir.empty()
-               ? dbname_
-               : immutable_db_options_.db_log_dir) +
-          "/" + to_delete;
+      std::string full_path_to_delete = info_log_full_path(to_delete);
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "[JOB %d] Delete info log file %s\n", state.job_id,
                      full_path_to_delete.c_str());

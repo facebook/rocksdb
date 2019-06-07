@@ -39,6 +39,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       max_log_file_size(options.max_log_file_size),
       log_file_time_to_roll(options.log_file_time_to_roll),
       keep_log_file_num(options.keep_log_file_num),
+      keep_large_log_file_num(options.keep_large_log_file_num),
+      large_info_log_size(options.large_info_log_size),
       recycle_log_file_num(options.recycle_log_file_num),
       max_manifest_file_size(options.max_manifest_file_size),
       table_cache_numshardbits(options.table_cache_numshardbits),
@@ -116,6 +118,12 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(
       log, "                      Options.keep_log_file_num: %" ROCKSDB_PRIszt,
       keep_log_file_num);
+  ROCKS_LOG_HEADER(
+      log, "                Options.keep_large_log_file_num: %" ROCKSDB_PRIszt,
+      keep_large_log_file_num);
+  ROCKS_LOG_HEADER(
+      log, "                    Options.large_info_log_size: %" ROCKSDB_PRIszt,
+      large_info_log_size);
   ROCKS_LOG_HEADER(
       log, "                   Options.recycle_log_file_num: %" ROCKSDB_PRIszt,
       recycle_log_file_num);

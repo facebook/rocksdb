@@ -15,12 +15,11 @@ namespace rocksdb {
 #ifndef ROCKSDB_LITE
 // -- AutoRollLogger
 
-AutoRollLogger::AutoRollLogger(Env* env, const std::string& dbname,
-                               const std::string& db_log_dir,
-                               size_t log_max_size,
-                               size_t log_file_time_to_roll,
-                               size_t keep_log_file_num,
-                               const InfoLogLevel log_level)
+AutoRollLogger::AutoRollLogger(
+    Env* env, const std::string& dbname, const std::string& db_log_dir,
+    size_t log_max_size, size_t log_file_time_to_roll, size_t keep_log_file_num,
+    size_t keep_large_log_file_num, size_t large_info_log_size,
+    const InfoLogLevel log_level)
     : Logger(log_level),
       dbname_(dbname),
       db_log_dir_(db_log_dir),
@@ -29,6 +28,8 @@ AutoRollLogger::AutoRollLogger(Env* env, const std::string& dbname,
       kMaxLogFileSize(log_max_size),
       kLogFileTimeToRoll(log_file_time_to_roll),
       kKeepLogFileNum(keep_log_file_num),
+      kKeepLargeLogFileNum(keep_large_log_file_num),
+      kLargeInfoLogSize(large_info_log_size),
       cached_now(static_cast<uint64_t>(env_->NowMicros() * 1e-6)),
       ctime_(cached_now),
       cached_now_access_count(0),
@@ -125,8 +126,22 @@ Status AutoRollLogger::TrimOldLogFiles() {
   // kKeepLogFileNum == 0. We can instead check kKeepLogFileNum != 0 but
   // it's essentially the same thing, and checking empty before accessing
   // the queue feels safer.
+  Status s;
   while (!old_log_files_.empty() && old_log_files_.size() >= kKeepLogFileNum) {
-    Status s = env_->DeleteFile(old_log_files_.front());
+    std::string& old_log = old_log_files_.front();
+    bool keep_log = false;
+    if (kKeepLargeLogFileNum > 0) {
+      uint64_t file_size = 0;
+      Status get_size_status = env_->GetFileSize(old_log, &file_size);
+      // Ignore keep_large_log_file_num if fail to get file size.
+      if (get_size_status.ok() && file_size >= kLargeInfoLogSize) {
+        keep_log = true;
+        old_large_log_files_.push(old_log);
+      }
+    }
+    if (!keep_log) {
+      s = env_->DeleteFile(old_log);
+    }
     // Remove the file from the tracking anyway. It's possible that
     // DB cleaned up the old log file, or people cleaned it up manually.
     old_log_files_.pop();
@@ -137,7 +152,19 @@ Status AutoRollLogger::TrimOldLogFiles() {
       return s;
     }
   }
-  return Status::OK();
+  while (old_large_log_files_.size() > kKeepLargeLogFileNum) {
+    s = env_->DeleteFile(old_large_log_files_.front());
+    // Remove the file from the tracking anyway. It's possible that
+    // DB cleaned up the old log file, or people cleaned it up manually.
+    old_large_log_files_.pop();
+    // To make the file really go away, we should sync parent directory.
+    // Since there isn't any consistency issue involved here, skipping
+    // this part to avoid one I/O here.
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  return s;
 }
 
 std::string AutoRollLogger::ValistToString(const char* format,
@@ -255,6 +282,7 @@ Status CreateLoggerFromOptions(const std::string& dbname,
     AutoRollLogger* result = new AutoRollLogger(
         env, dbname, options.db_log_dir, options.max_log_file_size,
         options.log_file_time_to_roll, options.keep_log_file_num,
+        options.keep_large_log_file_num, options.large_info_log_size,
         options.info_log_level);
     Status s = result->GetStatus();
     if (!s.ok()) {
