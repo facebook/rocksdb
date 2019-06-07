@@ -55,7 +55,7 @@ class MockTableReader : public TableReader {
     return 0;
   }
 
-  virtual size_t ApproximateMemoryUsage() const override { return 0; }
+  size_t ApproximateMemoryUsage() const override { return 0; }
 
   void SetupForCompaction() override {}
 
