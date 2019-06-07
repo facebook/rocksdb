@@ -30,14 +30,16 @@ const uint64_t kNumKeysInBlock = 1024;
 class BlockCacheTracerTest : public testing::Test {
  public:
   BlockCacheTracerTest() {
-    const std::string test_path_ =
-        test::PerThreadDBPath("block_cache_tracer_test");
+    test_path_ = test::PerThreadDBPath("block_cache_tracer_test");
     env_ = rocksdb::Env::Default();
-    env_->CreateDir(test_path_);
+    EXPECT_OK(env_->CreateDir(test_path_));
     trace_file_path_ = test_path_ + "/block_cache_trace";
   }
 
-  ~BlockCacheTracerTest() override {}
+  ~BlockCacheTracerTest() override {
+    EXPECT_OK(env_->DeleteFile(trace_file_path_));
+    EXPECT_OK(env_->DeleteDir(test_path_));
+  }
 
   BlockCacheLookupCaller GetCaller(uint32_t key_id) {
     uint32_t n = key_id % 5;
@@ -75,7 +77,6 @@ class BlockCacheTracerTest : public testing::Test {
       } else {
         record.sst_fd_number = kSSTStoringOddKeys;
       }
-
       record.is_cache_hit = Boolean::kFalse;
       record.no_insert = Boolean::kFalse;
       // Provide these fields for all block types.
@@ -117,11 +118,15 @@ class BlockCacheTracerTest : public testing::Test {
   Env* env_;
   EnvOptions env_options_;
   std::string trace_file_path_;
+  std::string test_path_;
 };
 
 TEST_F(BlockCacheTracerTest, MixedBlocks) {
   {
     // Generate a trace file containing a mix of blocks.
+    // It contains two SST files with 25 blocks of odd numbered block_key in
+    // kSSTStoringOddKeys and 25 blocks of even numbered blocks_key in
+    // kSSTStoringEvenKeys.
     TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
@@ -181,9 +186,11 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
         ASSERT_TRUE(block_type_stats_map.find(type) !=
                     block_type_stats_map.end());
         auto& block_stats_map = block_type_stats_map[type].block_stats_map;
-        // Each type has 5 keys.
+        // Each block type has 5 blocks.
         ASSERT_EQ(expected_num_keys_per_type, block_stats_map.size());
         for (uint32_t i = 0; i < 10; i++) {
+          // Verify that odd numbered blocks are stored in kSSTStoringOddKeys
+          // and even numbered blocks are stored in kSSTStoringEvenKeys.
           auto key_id_str = kBlockKeyPrefix + std::to_string(key_id);
           if (fd_id == kSSTStoringOddKeys) {
             if (key_id % 2 == 1) {
