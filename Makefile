@@ -503,6 +503,7 @@ TESTS = \
 	skiplist_test \
 	write_buffer_manager_test \
 	stringappend_test \
+	bytesappend_test \
 	cassandra_format_test \
 	cassandra_functional_test \
 	cassandra_row_merge_test \
@@ -1162,6 +1163,9 @@ option_change_migration_test: utilities/option_change_migration/option_change_mi
 	$(AM_LINK)
 
 stringappend_test: utilities/merge_operators/string_append/stringappend_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+bytesappend_test: utilities/merge_operators/bytesappend_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 cassandra_format_test: utilities/cassandra/cassandra_format_test.o utilities/cassandra/test_utils.o $(LIBOBJECTS) $(TESTHARNESS)

@@ -78,6 +78,25 @@ public class MergeTest {
   }
 
   @Test
+  public void BytesOption()
+          throws InterruptedException, RocksDBException {
+    try (final Options opt = new Options()
+            .setCreateIfMissing(true)
+            .setMergeOperatorName("bytesappend");
+         final RocksDB db = RocksDB.open(opt,
+                 dbFolder.getRoot().getAbsolutePath())) {
+      // writing aa under key
+      db.put("key".getBytes(), "aa".getBytes());
+      // merge bb under key
+      db.merge("key".getBytes(), "bb".getBytes());
+
+      final byte[] value = db.get("key".getBytes());
+      final String strValue = new String(value);
+      assertThat(strValue).isEqualTo("aabb");
+    }
+  }
+
+  @Test
   public void cFStringOption()
       throws InterruptedException, RocksDBException {
 
@@ -110,6 +129,48 @@ public class MergeTest {
               "cfkey".getBytes());
           String strValue = new String(value);
           assertThat(strValue).isEqualTo("aa,bb");
+        } finally {
+          for (final ColumnFamilyHandle handle : columnFamilyHandleList) {
+            handle.close();
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  public void cFBytesOption()
+          throws InterruptedException, RocksDBException {
+
+    try (final ColumnFamilyOptions cfOpt1 = new ColumnFamilyOptions()
+            .setMergeOperatorName("bytesappend");
+         final ColumnFamilyOptions cfOpt2 = new ColumnFamilyOptions()
+                 .setMergeOperatorName("bytesappend")
+    ) {
+      final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(
+              new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt1),
+              new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt2)
+      );
+
+      final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
+      try (final DBOptions opt = new DBOptions()
+              .setCreateIfMissing(true)
+              .setCreateMissingColumnFamilies(true);
+           final RocksDB db = RocksDB.open(opt,
+                   dbFolder.getRoot().getAbsolutePath(), cfDescriptors,
+                   columnFamilyHandleList)) {
+        try {
+          // writing aa under key
+          db.put(columnFamilyHandleList.get(1),
+                  "cfkey".getBytes(), "aa".getBytes());
+          // merge bb under key
+          db.merge(columnFamilyHandleList.get(1),
+                  "cfkey".getBytes(), "bb".getBytes());
+
+          byte[] value = db.get(columnFamilyHandleList.get(1),
+                  "cfkey".getBytes());
+          String strValue = new String(value);
+          assertThat(strValue).isEqualTo("aabb");
         } finally {
           for (final ColumnFamilyHandle handle : columnFamilyHandleList) {
             handle.close();
@@ -180,6 +241,28 @@ public class MergeTest {
       final String strValue = new String(value);
 
       assertThat(strValue).isEqualTo("aa,bb");
+    }
+  }
+
+  @Test
+  public void bytesAppendOperatorOption()
+          throws InterruptedException, RocksDBException {
+    try (final BytesAppendOperator bytesAppendOperator = new BytesAppendOperator();
+         final Options opt = new Options()
+                 .setCreateIfMissing(true)
+                 .setMergeOperator(bytesAppendOperator);
+         final RocksDB db = RocksDB.open(opt,
+                 dbFolder.getRoot().getAbsolutePath())) {
+      // Writing aa under key
+      db.put("key".getBytes(), "aa".getBytes());
+
+      // Writing bb under key
+      db.merge("key".getBytes(), "bb".getBytes());
+
+      final byte[] value = db.get("key".getBytes());
+      final String strValue = new String(value);
+
+      assertThat(strValue).isEqualTo("aabb");
     }
   }
 
@@ -266,6 +349,70 @@ public class MergeTest {
       }
     }
   }
+
+
+  @Test
+  public void cFBytesAppendOperatorOption()
+          throws InterruptedException, RocksDBException {
+    try (final BytesAppendOperator bytesAppendOperator = new BytesAppendOperator();
+         final ColumnFamilyOptions cfOpt1 = new ColumnFamilyOptions()
+                 .setMergeOperator(bytesAppendOperator);
+         final ColumnFamilyOptions cfOpt2 = new ColumnFamilyOptions()
+                 .setMergeOperator(bytesAppendOperator)
+    ) {
+      final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(
+              new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt1),
+              new ColumnFamilyDescriptor("new_cf".getBytes(), cfOpt2)
+      );
+      final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
+      try (final DBOptions opt = new DBOptions()
+              .setCreateIfMissing(true)
+              .setCreateMissingColumnFamilies(true);
+           final RocksDB db = RocksDB.open(opt,
+                   dbFolder.getRoot().getAbsolutePath(), cfDescriptors,
+                   columnFamilyHandleList)
+      ) {
+        try {
+          // writing aa under key
+          db.put(columnFamilyHandleList.get(1),
+                  "cfkey".getBytes(), "aa".getBytes());
+          // merge bb under key
+          db.merge(columnFamilyHandleList.get(1),
+                  "cfkey".getBytes(), "bb".getBytes());
+          byte[] value = db.get(columnFamilyHandleList.get(1),
+                  "cfkey".getBytes());
+          String strValue = new String(value);
+
+          // Test also with createColumnFamily
+          try (final ColumnFamilyOptions cfHandleOpts =
+                       new ColumnFamilyOptions()
+                               .setMergeOperator(bytesAppendOperator);
+               final ColumnFamilyHandle cfHandle =
+                       db.createColumnFamily(
+                               new ColumnFamilyDescriptor("new_cf2".getBytes(),
+                                       cfHandleOpts))
+          ) {
+            // writing xx under cfkey2
+            db.put(cfHandle, "cfkey2".getBytes(), "xx".getBytes());
+            // merge yy under cfkey2
+            db.merge(cfHandle, new WriteOptions(), "cfkey2".getBytes(),
+                    "yy".getBytes());
+            value = db.get(cfHandle, "cfkey2".getBytes());
+            String strValueTmpCf = new String(value);
+
+            assertThat(strValue).isEqualTo("aabb");
+            assertThat(strValueTmpCf).isEqualTo("xxyy");
+          }
+        } finally {
+          for (final ColumnFamilyHandle columnFamilyHandle :
+                  columnFamilyHandleList) {
+            columnFamilyHandle.close();
+          }
+        }
+      }
+    }
+  }
+
 
   @Test
   public void cFUInt64AddOperatorOption()
@@ -370,6 +517,49 @@ public class MergeTest {
       }
     }
   }
+
+  @Test
+  public void bytesAppendOperatorGcBehaviour()
+          throws RocksDBException {
+    try (final BytesAppendOperator bytesAppendOperator = new BytesAppendOperator()) {
+      try (final Options opt = new Options()
+              .setCreateIfMissing(true)
+              .setMergeOperator(bytesAppendOperator);
+           final RocksDB db = RocksDB.open(opt,
+                   dbFolder.getRoot().getAbsolutePath())) {
+        //no-op
+      }
+
+      // test reuse
+      try (final Options opt = new Options()
+              .setMergeOperator(bytesAppendOperator);
+           final RocksDB db = RocksDB.open(opt,
+                   dbFolder.getRoot().getAbsolutePath())) {
+        //no-op
+      }
+
+      // test param init
+      try (final BytesAppendOperator bytesAppendOperator2 = new BytesAppendOperator();
+           final Options opt = new Options()
+                   .setMergeOperator(bytesAppendOperator2);
+           final RocksDB db = RocksDB.open(opt,
+                   dbFolder.getRoot().getAbsolutePath())) {
+        //no-op
+      }
+
+      // test replace one with another merge operator instance
+      try (final Options opt = new Options()
+              .setMergeOperator(bytesAppendOperator);
+           final BytesAppendOperator newBytesAppendOperator = new BytesAppendOperator()) {
+        opt.setMergeOperator(newBytesAppendOperator);
+        try (final RocksDB db = RocksDB.open(opt,
+                dbFolder.getRoot().getAbsolutePath())) {
+          //no-op
+        }
+      }
+    }
+  }
+
 
   @Test
   public void uint64AddOperatorGcBehaviour()

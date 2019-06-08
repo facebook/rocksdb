@@ -73,6 +73,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.Snapshot\
 	org.rocksdb.StringAppendOperator\
 	org.rocksdb.UInt64AddOperator\
+	org.rocksdb.BytesAppendOperator\
 	org.rocksdb.WriteBatch\
 	org.rocksdb.WriteBatch.Handler\
 	org.rocksdb.WriteOptions\
