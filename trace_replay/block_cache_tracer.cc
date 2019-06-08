@@ -67,7 +67,6 @@ Status BlockCacheTraceWriter::WriteBlockAccess(
   }
   std::string encoded_trace;
   TracerHelper::EncodeTrace(trace, &encoded_trace);
-  InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
   return trace_writer_->Write(encoded_trace);
 }
 
@@ -80,7 +79,6 @@ Status BlockCacheTraceWriter::WriteHeader() {
   PutFixed32(&trace.payload, kMinorVersion);
   std::string encoded_trace;
   TracerHelper::EncodeTrace(trace, &encoded_trace);
-  InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
   return trace_writer_->Write(encoded_trace);
 }
 
@@ -213,6 +211,46 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
         static_cast<Boolean>(enc_slice[0]);
   }
   return Status::OK();
+}
+
+AtomicBlockCacheTraceWriter::AtomicBlockCacheTraceWriter() {
+  writer_.store(nullptr);
+}
+
+AtomicBlockCacheTraceWriter::~AtomicBlockCacheTraceWriter() { EndTrace(); }
+
+Status AtomicBlockCacheTraceWriter::StartTrace(
+    Env* env, const TraceOptions& trace_options,
+    std::unique_ptr<TraceWriter>&& trace_writer) {
+  if (writer_.load()) {
+    return Status::OK();
+  }
+
+  InstrumentedMutexLock lock_guard(&writer_mutext_);
+  writer_.store(
+      new BlockCacheTraceWriter(env, trace_options, std::move(trace_writer)));
+  return writer_.load()->WriteHeader();
+}
+
+void AtomicBlockCacheTraceWriter::EndTrace() {
+  if (!writer_.load()) {
+    return;
+  }
+  InstrumentedMutexLock lock_guard(&writer_mutext_);
+  delete writer_.load();
+  writer_.store(nullptr);
+}
+
+Status AtomicBlockCacheTraceWriter::WriteBlockAccess(
+    const BlockCacheTraceRecord& record) {
+  if (!writer_.load()) {
+    return Status::OK();
+  }
+  InstrumentedMutexLock lock_guard(&writer_mutext_);
+  if (!writer_.load()) {
+    return Status::OK();
+  }
+  return writer_.load()->WriteBlockAccess(record);
 }
 
 }  // namespace rocksdb

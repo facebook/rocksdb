@@ -80,6 +80,29 @@ class BlockCacheTracerTest : public testing::Test {
     }
   }
 
+  BlockCacheTraceRecord GenerateAccessRecord() {
+    uint32_t key_id = 0;
+    BlockCacheTraceRecord record;
+    record.block_type = TraceType::kBlockTraceDataBlock;
+    record.block_size = kBlockSize;
+    record.block_key = kBlockKeyPrefix + std::to_string(key_id);
+    record.access_timestamp = env_->NowMicros();
+    record.cf_id = kCFId;
+    record.cf_name = kDefaultColumnFamilyName;
+    record.caller = GetCaller(key_id);
+    record.level = kLevel;
+    record.sst_fd_number = kSSTFDNumber + key_id;
+    record.is_cache_hit = Boolean::kFalse;
+    record.no_insert = Boolean::kFalse;
+    // Provide these fields for all block types.
+    // The writer should only write these fields for data blocks and the
+    // caller is either GET or MGET.
+    record.referenced_key = kRefKeyPrefix + std::to_string(key_id);
+    record.is_referenced_key_exist_in_block = Boolean::kTrue;
+    record.num_keys_in_block = kNumKeysInBlock;
+    return record;
+  }
+
   void VerifyAccess(BlockCacheTraceReader* reader, uint32_t from_key_id,
                     TraceType block_type, uint32_t nblocks) {
     assert(reader);
@@ -117,6 +140,92 @@ class BlockCacheTracerTest : public testing::Test {
   std::string trace_file_path_;
   std::string test_path_;
 };
+
+TEST_F(BlockCacheTracerTest, AtomicWriteBeforeStartTrace) {
+  BlockCacheTraceRecord record = GenerateAccessRecord();
+  {
+    TraceOptions trace_opt;
+    std::unique_ptr<TraceWriter> trace_writer;
+    ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
+                                 &trace_writer));
+    AtomicBlockCacheTraceWriter writer;
+    // The record should be written to the trace_file since StartTrace is not
+    // called.
+    ASSERT_OK(writer.WriteBlockAccess(record));
+    ASSERT_OK(env_->FileExists(trace_file_path_));
+  }
+  {
+    // Verify trace file is generated correctly.
+    std::unique_ptr<TraceReader> trace_reader;
+    ASSERT_OK(NewFileTraceReader(env_, env_options_, trace_file_path_,
+                                 &trace_reader));
+    BlockCacheTraceReader reader(std::move(trace_reader));
+    BlockCacheTraceHeader header;
+    ASSERT_NOK(reader.ReadHeader(&header));
+  }
+}
+
+TEST_F(BlockCacheTracerTest, AtomicWrite) {
+  BlockCacheTraceRecord record = GenerateAccessRecord();
+  {
+    TraceOptions trace_opt;
+    std::unique_ptr<TraceWriter> trace_writer;
+    ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
+                                 &trace_writer));
+    AtomicBlockCacheTraceWriter writer;
+    ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
+    ASSERT_OK(writer.WriteBlockAccess(record));
+    ASSERT_OK(env_->FileExists(trace_file_path_));
+  }
+  {
+    // Verify trace file is generated correctly.
+    std::unique_ptr<TraceReader> trace_reader;
+    ASSERT_OK(NewFileTraceReader(env_, env_options_, trace_file_path_,
+                                 &trace_reader));
+    BlockCacheTraceReader reader(std::move(trace_reader));
+    BlockCacheTraceHeader header;
+    ASSERT_OK(reader.ReadHeader(&header));
+    ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
+    ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
+    // Read blocks.
+    VerifyAccess(&reader, 0, TraceType::kBlockTraceDataBlock, 1);
+    // Read one more record should report an error.
+    ASSERT_NOK(reader.ReadAccess(&record));
+  }
+}
+
+TEST_F(BlockCacheTracerTest, AtomicNoWriteAfterEndTrace) {
+  BlockCacheTraceRecord record = GenerateAccessRecord();
+  {
+    TraceOptions trace_opt;
+    std::unique_ptr<TraceWriter> trace_writer;
+    ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
+                                 &trace_writer));
+    AtomicBlockCacheTraceWriter writer;
+    ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
+    ASSERT_OK(writer.WriteBlockAccess(record));
+    writer.EndTrace();
+    // Write the record again. This time the record should not be written since
+    // EndTrace is called.
+    ASSERT_OK(writer.WriteBlockAccess(record));
+    ASSERT_OK(env_->FileExists(trace_file_path_));
+  }
+  {
+    // Verify trace file is generated correctly.
+    std::unique_ptr<TraceReader> trace_reader;
+    ASSERT_OK(NewFileTraceReader(env_, env_options_, trace_file_path_,
+                                 &trace_reader));
+    BlockCacheTraceReader reader(std::move(trace_reader));
+    BlockCacheTraceHeader header;
+    ASSERT_OK(reader.ReadHeader(&header));
+    ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
+    ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
+    // Read blocks.
+    VerifyAccess(&reader, 0, TraceType::kBlockTraceDataBlock, 1);
+    // Read one more record should report an error.
+    ASSERT_NOK(reader.ReadAccess(&record));
+  }
+}
 
 TEST_F(BlockCacheTracerTest, MixedBlocks) {
   {
