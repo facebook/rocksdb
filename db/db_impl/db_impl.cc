@@ -3421,7 +3421,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
 
   SequenceNumber min_seq_in_mem = sv->mem->GetEarliestSequenceNumber();
   if (min_seq_in_mem != kMaxSequenceNumber &&
-      min_seq_in_mem <= lower_bound_seq) {
+      min_seq_in_mem < lower_bound_seq) {
     *found_record_for_key = false;
     return Status::OK();
   }
@@ -3447,7 +3447,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
 
   SequenceNumber min_seq_in_imm = sv->imm->GetEarliestSequenceNumber();
   if (min_seq_in_imm != kMaxSequenceNumber &&
-      min_seq_in_imm <= lower_bound_seq) {
+      min_seq_in_imm < lower_bound_seq) {
     *found_record_for_key = false;
     return Status::OK();
   }

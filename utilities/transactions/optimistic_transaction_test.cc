@@ -348,12 +348,14 @@ TEST_F(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
     ASSERT_EQ(value, "bar");
     ASSERT_OK(txn2->Put(Slice("foo2"), Slice("bar2")));
 
-    // txn updates "foo" and tx2 updates "foo2", and now a write is
+    // txn updates "foo" and tnx2 updates "foo2", and now a write is
     // issued for "foo", which conflicts with txn but not txn2
     ASSERT_OK(txn_db->Put(write_options, "foo", "bar"));
 
     if (attempt == kAttemptImmMemTable) {
-      // For the second attempt, hold the flush from happening
+      // For the second attempt, hold flush from beginning. The memtable
+      // will be switched to immutable after calling TEST_SwitchMemtable()
+      // while CheckKey() is called.
       rocksdb::SyncPoint::GetInstance()->LoadDependency(
           {{"OptimisticTransactionTest.CheckKeySkipOldMemtable",
             "FlushJob::Start"}});
@@ -388,7 +390,7 @@ TEST_F(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
     ASSERT_TRUE(txn3 != nullptr);
 
     // Commit both of txn and txn2. txn will conflict but txn2 will
-    // pass. In both ways, both memtables are queries.
+    // pass. In both ways, both memtables are queried.
     SetPerfLevel(PerfLevel::kEnableCount);
 
     get_perf_context()->Reset();
