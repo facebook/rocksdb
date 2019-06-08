@@ -698,8 +698,8 @@ struct DBOptions {
   // family name: ___rocksdb_stats_history___) every
   // stats_persist_period_sec seconds; otherwise, write to an in-memory
   // struct. User can query through `GetStatsHistory` API.
-  // If user attempt to create a column family with the same name on a DB which
-  // have previously set persist_stats_to_disk to true, the column family
+  // If user attempts to create a column family with the same name on a DB
+  // which have previously set persist_stats_to_disk to true, the column family
   // creation will fail, but the hidden column family will survive, as well as
   // the previously persisted statistics.
   // When peristing stats to disk, the stat name will be limited at 100 bytes.

@@ -512,22 +512,33 @@ Status DBImpl::PersistentStatsProcessFormatVersion() {
   if (persistent_stats_cfd_exists_) {
     // Check persistent stats format version compatibility. Drop and recreate
     // persistent stats CF if format version is incompatible
-    int format_version_recovered = DecodePersistentStatsVersionNumber(
-        this, StatsVersionKeyType::kFormatVersion);
-    int reader_version_recovered = DecodePersistentStatsVersionNumber(
-        this, StatsVersionKeyType::kReaderVersion);
+    uint64_t format_version_recovered = 0;
+    Status s_format = DecodePersistentStatsVersionNumber(
+        this, StatsVersionKeyType::kFormatVersion, &format_version_recovered);
+    uint64_t compatible_version_recovered = 0;
+    Status s_compatible = DecodePersistentStatsVersionNumber(
+        this, StatsVersionKeyType::kCompatibleVersion,
+        &compatible_version_recovered);
     // abort reading from existing stats CF if any of following is true:
-    // 1. failed to read format version or reader version from disk
+    // 1. failed to read format version or compatible version from disk
     // 2. sst's format version is greater than current format version, meaning
-    // this sst is encoded with a newer RocksDB release, and current reader
-    // version is below the sst's reader version
-    if (format_version_recovered == -1 || reader_version_recovered == -1 ||
+    // this sst is encoded with a newer RocksDB release, and current compatible
+    // version is below the sst's compatible version
+    if (!s_format.ok() || !s_compatible.ok() ||
         (kStatsCFCurrentFormatVersion < format_version_recovered &&
-         kPersistentStatsReaderVersion < reader_version_recovered)) {
-      ROCKS_LOG_INFO(
-          immutable_db_options_.info_log,
-          "Disable persistent stats due to corrupted or incompatible format "
-          "version\n");
+         kStatsCFCompatibleFormatVersion < compatible_version_recovered)) {
+      if (!s_format.ok() || !s_compatible.ok()) {
+        ROCKS_LOG_INFO(
+            immutable_db_options_.info_log,
+            "Reading persistent stats version key failed. Format key: %s, "
+            "compatible key: %s",
+            s_format.ToString().c_str(), s_compatible.ToString().c_str());
+      } else {
+        ROCKS_LOG_INFO(
+            immutable_db_options_.info_log,
+            "Disable persistent stats due to corrupted or incompatible format "
+            "version\n");
+      }
       DropColumnFamily(persist_stats_cf_handle_);
       DestroyColumnFamilyHandle(persist_stats_cf_handle_);
       ColumnFamilyHandle* handle = nullptr;
@@ -545,8 +556,8 @@ Status DBImpl::PersistentStatsProcessFormatVersion() {
     WriteBatch batch;
     batch.Put(persist_stats_cf_handle_, kFormatVersionKeyString,
               ToString(kStatsCFCurrentFormatVersion));
-    batch.Put(persist_stats_cf_handle_, kReaderVersionKeyString,
-              ToString(kPersistentStatsReaderVersion));
+    batch.Put(persist_stats_cf_handle_, kCompatibleVersionKeyString,
+              ToString(kStatsCFCompatibleFormatVersion));
     WriteOptions wo;
     wo.low_pri = true;
     wo.no_slowdown = true;

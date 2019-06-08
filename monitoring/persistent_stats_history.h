@@ -15,19 +15,21 @@ namespace rocksdb {
 
 extern const int kMicrosInSecond;
 extern const std::string kFormatVersionKeyString;
-extern const std::string kReaderVersionKeyString;
-extern const int kStatsCFCurrentFormatVersion;
-extern const int kPersistentStatsReaderVersion;
+extern const std::string kCompatibleVersionKeyString;
+extern const uint64_t kStatsCFCurrentFormatVersion;
+extern const uint64_t kStatsCFCompatibleFormatVersion;
 
 enum StatsVersionKeyType : uint32_t {
   kFormatVersion = 1,
-  kReaderVersion = 2,
+  kCompatibleVersion = 2,
   kKeyTypeMax = 3
 };
 
 // Read the version number from persitent stats cf depending on type provided
-// Retuns version number on success, or negative number on failure
-int DecodePersistentStatsVersionNumber(DBImpl* db, StatsVersionKeyType type);
+// stores the version number in `*version_number`
+// returns Status::OK() on success, or other status code on failure
+Status DecodePersistentStatsVersionNumber(DBImpl* db, StatsVersionKeyType type,
+                                          uint64_t* version_number);
 
 // Encode timestamp and stats key into buf
 // Format: timestamp(10 digit) + '#' + key

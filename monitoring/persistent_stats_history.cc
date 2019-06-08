@@ -21,38 +21,39 @@ const int kNowSecondsStringLength = 10;
 const int kMicrosInSecond = 1000 * 1000;
 const std::string kFormatVersionKeyString =
     "__persistent_stats_format_version__";
-const std::string kReaderVersionKeyString =
-    "__persistent_stats_reader_version__";
-const int kStatsCFCurrentFormatVersion = 1;
-const int kPersistentStatsReaderVersion = 1;
+const std::string kCompatibleVersionKeyString =
+    "__persistent_stats_compatible_version__";
+// Every release maintains two versions numbers for persistents stats: Current
+// format version and compatible format version. Current format version
+// designates what type of encoding will be used when writing to stats CF;
+// compatible format version designates the minimum format version that
+// can decode the stats CF encoded using the current format version.
+const uint64_t kStatsCFCurrentFormatVersion = 1;
+const uint64_t kStatsCFCompatibleFormatVersion = 1;
 
-std::string GetVersionKeyString(StatsVersionKeyType type) {
-  switch (type) {
-    case StatsVersionKeyType::kFormatVersion:
-      return kFormatVersionKeyString;
-    case StatsVersionKeyType::kReaderVersion:
-      return kReaderVersionKeyString;
-    default:
-      return "";
-  }
-}
-
-int DecodePersistentStatsVersionNumber(DBImpl* db, StatsVersionKeyType type) {
+Status DecodePersistentStatsVersionNumber(DBImpl* db, StatsVersionKeyType type,
+                                          uint64_t* version_number) {
   if (type >= StatsVersionKeyType::kKeyTypeMax) {
-    return -1;
+    return Status::InvalidArgument("Invalid stats version key type provided");
   }
-  std::string key = GetVersionKeyString(type);
+  std::string key;
+  if (type == StatsVersionKeyType::kFormatVersion) {
+    key = kFormatVersionKeyString;
+  } else if (type == StatsVersionKeyType::kCompatibleVersion) {
+    key = kCompatibleVersionKeyString;
+  }
   ReadOptions options;
   options.verify_checksums = true;
   std::string result;
   Status s = db->Get(options, db->PersistentStatsColumnFamily(), key, &result);
   if (!s.ok() || result.length() == 0) {
-    return -1;
+    return Status::NotFound("Persistent stats version key " + key +
+                            " not found.");
   }
 
   // read version_number but do nothing in current version
-  int version_number = static_cast<int>(ParseUint64(result));
-  return version_number;
+  *version_number = ParseUint64(result);
+  return Status::OK();
 }
 
 int EncodePersistentStatsKey(uint64_t now_micros, const std::string& key,
@@ -153,13 +154,13 @@ void PersistentStatsHistoryIterator::AdvanceIteratorByTime(uint64_t start_time,
     std::pair<uint64_t, std::string> kv;
     for (; iter->Valid(); iter->Next()) {
       kv = parseKey(iter->key(), start_time);
-      if (UNLIKELY(kv.first != time_)) {
+      if (kv.first != time_) {
         break;
       }
-      if (UNLIKELY(kv.second.compare(kFormatVersionKeyString) == 0)) {
+      if (kv.second.compare(kFormatVersionKeyString) == 0) {
         continue;
       }
-      new_stats_map[kv.second] = std::stoull(iter->value().ToString());
+      new_stats_map[kv.second] = ParseUint64(iter->value().ToString());
     }
     stats_map_.swap(new_stats_map);
     delete iter;
