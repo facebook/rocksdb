@@ -94,9 +94,6 @@ class BlockCacheTracerTest : public testing::Test {
     record.sst_fd_number = kSSTFDNumber + key_id;
     record.is_cache_hit = Boolean::kFalse;
     record.no_insert = Boolean::kFalse;
-    // Provide these fields for all block types.
-    // The writer should only write these fields for data blocks and the
-    // caller is either GET or MGET.
     record.referenced_key = kRefKeyPrefix + std::to_string(key_id);
     record.is_referenced_key_exist_in_block = Boolean::kTrue;
     record.num_keys_in_block = kNumKeysInBlock;
@@ -155,7 +152,7 @@ TEST_F(BlockCacheTracerTest, AtomicWriteBeforeStartTrace) {
     ASSERT_OK(env_->FileExists(trace_file_path_));
   }
   {
-    // Verify trace file is generated correctly.
+    // Verify trace file contains nothing.
     std::unique_ptr<TraceReader> trace_reader;
     ASSERT_OK(NewFileTraceReader(env_, env_options_, trace_file_path_,
                                  &trace_reader));
@@ -178,7 +175,7 @@ TEST_F(BlockCacheTracerTest, AtomicWrite) {
     ASSERT_OK(env_->FileExists(trace_file_path_));
   }
   {
-    // Verify trace file is generated correctly.
+    // Verify trace file contains one record.
     std::unique_ptr<TraceReader> trace_reader;
     ASSERT_OK(NewFileTraceReader(env_, env_options_, trace_file_path_,
                                  &trace_reader));
@@ -187,9 +184,7 @@ TEST_F(BlockCacheTracerTest, AtomicWrite) {
     ASSERT_OK(reader.ReadHeader(&header));
     ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
     ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
-    // Read blocks.
     VerifyAccess(&reader, 0, TraceType::kBlockTraceDataBlock, 1);
-    // Read one more record should report an error.
     ASSERT_NOK(reader.ReadAccess(&record));
   }
 }
@@ -211,7 +206,7 @@ TEST_F(BlockCacheTracerTest, AtomicNoWriteAfterEndTrace) {
     ASSERT_OK(env_->FileExists(trace_file_path_));
   }
   {
-    // Verify trace file is generated correctly.
+    // Verify trace file contains one record.
     std::unique_ptr<TraceReader> trace_reader;
     ASSERT_OK(NewFileTraceReader(env_, env_options_, trace_file_path_,
                                  &trace_reader));
@@ -220,9 +215,7 @@ TEST_F(BlockCacheTracerTest, AtomicNoWriteAfterEndTrace) {
     ASSERT_OK(reader.ReadHeader(&header));
     ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
     ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
-    // Read blocks.
     VerifyAccess(&reader, 0, TraceType::kBlockTraceDataBlock, 1);
-    // Read one more record should report an error.
     ASSERT_NOK(reader.ReadAccess(&record));
   }
 }

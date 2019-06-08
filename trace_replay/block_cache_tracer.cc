@@ -223,21 +223,20 @@ AtomicBlockCacheTraceWriter::~AtomicBlockCacheTraceWriter() { EndTrace(); }
 Status AtomicBlockCacheTraceWriter::StartTrace(
     Env* env, const TraceOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer) {
+  InstrumentedMutexLock lock_guard(&writer_mutext_);
   if (writer_.load()) {
     return Status::OK();
   }
-
-  InstrumentedMutexLock lock_guard(&writer_mutext_);
   writer_.store(
       new BlockCacheTraceWriter(env, trace_options, std::move(trace_writer)));
   return writer_.load()->WriteHeader();
 }
 
 void AtomicBlockCacheTraceWriter::EndTrace() {
+  InstrumentedMutexLock lock_guard(&writer_mutext_);
   if (!writer_.load()) {
     return;
   }
-  InstrumentedMutexLock lock_guard(&writer_mutext_);
   delete writer_.load();
   writer_.store(nullptr);
 }
