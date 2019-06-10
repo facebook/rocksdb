@@ -48,20 +48,20 @@ struct BlockStats {
   }
 };
 
-// A set of blocks of a block type.
-struct BlockTypeStats {
+// Aggregates stats of a block given a block type.
+struct BlockTypeAggregate {
   std::map<std::string, BlockStats> block_stats_map;
 };
 
-// A set of blocks in a SST file.
-struct SSTFileStats {
+// Aggregates BlockTypeAggregate given a SST file.
+struct SSTFileAggregate {
   uint32_t level;
-  std::map<TraceType, BlockTypeStats> block_type_stats_map;
+  std::map<TraceType, BlockTypeAggregate> block_type_aggregates_map;
 };
 
-// A set of SST files in a column family.
-struct ColumnFamilyStats {
-  std::map<uint64_t, SSTFileStats> fd_stats_map;
+// Aggregates SSTFileAggregate given a column family.
+struct ColumnFamilyAggregate {
+  std::map<uint64_t, SSTFileAggregate> fd_aggregates_map;
 };
 
 class BlockCacheTraceAnalyzer {
@@ -74,7 +74,7 @@ class BlockCacheTraceAnalyzer {
   BlockCacheTraceAnalyzer(BlockCacheTraceAnalyzer&&) = delete;
   BlockCacheTraceAnalyzer& operator=(BlockCacheTraceAnalyzer&&) = delete;
 
-  // It reads all access records in the given trace_file, maintains the stats of
+  // Read all access records in the given trace_file, maintains the stats of
   // a block, and aggregates the information by block type, sst file, and column
   // family. Subsequently, the caller may call Print* functions to print
   // statistics.
@@ -97,25 +97,26 @@ class BlockCacheTraceAnalyzer {
   //          Block Type Data: Number of accesses: 2
   //          Block Type UncompressionDict: Number of accesses: 2
   //          Block Type RangeDeletion: Number of accesses: 2
-  void PrintStatsSummary();
+  void PrintStatsSummary() const;
 
   // Print block size distribution and the distribution break down by block type
   // and column family.
-  void PrintBlockSizeStats();
+  void PrintBlockSizeStats() const;
 
   // Print access count distribution and the distribution break down by block
   // type and column family.
-  void PrintAccessCountStats();
+  void PrintAccessCountStats() const;
 
   // Print data block accesses by user Get and Multi-Get.
   // It prints out 1) A histogram on the percentage of keys accessed in a data
   // block break down by if a referenced key exists in the data block andthe
   // histogram break down by column family. 2) A histogram on the percentage of
   // accesses on keys exist in a data block and its break down by column family.
-  void PrintDataBlockAccessStats();
+  void PrintDataBlockAccessStats() const;
 
-  const std::map<std::string, ColumnFamilyStats>& Test_cf_stats_map() {
-    return cf_stats_map_;
+  const std::map<std::string, ColumnFamilyAggregate>& TEST_cf_aggregates_map()
+      const {
+    return cf_aggregates_map_;
   }
 
  private:
@@ -124,7 +125,7 @@ class BlockCacheTraceAnalyzer {
   rocksdb::Env* env_;
   std::string trace_file_path_;
   BlockCacheTraceHeader header_;
-  std::map<std::string, ColumnFamilyStats> cf_stats_map_;
+  std::map<std::string, ColumnFamilyAggregate> cf_aggregates_map_;
 };
 
 }  // namespace rocksdb

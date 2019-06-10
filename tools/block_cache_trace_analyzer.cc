@@ -27,8 +27,7 @@ std::string block_type_to_string(TraceType type) {
       break;
   }
   // This cannot happen.
-  assert(false);
-  return "";
+  return "InvalidType";
 }
 
 std::string caller_to_string(BlockCacheLookupCaller caller) {
@@ -47,8 +46,7 @@ std::string caller_to_string(BlockCacheLookupCaller caller) {
       break;
   }
   // This cannot happen.
-  assert(false);
-  return "";
+  return "InvalidCaller";
 }
 }  // namespace
 
@@ -60,12 +58,12 @@ BlockCacheTraceAnalyzer::BlockCacheTraceAnalyzer(
 
 void BlockCacheTraceAnalyzer::RecordAccess(
     const BlockCacheTraceRecord& access) {
-  ColumnFamilyStats& cf_stats = cf_stats_map_[access.cf_name];
-  SSTFileStats& file_stats = cf_stats.fd_stats_map[access.sst_fd_number];
-  file_stats.level = access.level;
-  BlockTypeStats& block_type_stats =
-      file_stats.block_type_stats_map[access.block_type];
-  BlockStats& block_stats = block_type_stats.block_stats_map[access.block_key];
+  ColumnFamilyAggregate& cf_aggr = cf_aggregates_map_[access.cf_name];
+  SSTFileAggregate& file_aggr = cf_aggr.fd_aggregates_map[access.sst_fd_number];
+  file_aggr.level = access.level;
+  BlockTypeAggregate& block_type_aggr =
+      file_aggr.block_type_aggregates_map[access.block_type];
+  BlockStats& block_stats = block_type_aggr.block_stats_map[access.block_key];
   block_stats.AddAccess(access);
 }
 
@@ -85,28 +83,28 @@ Status BlockCacheTraceAnalyzer::Analyze() {
     BlockCacheTraceRecord access;
     s = reader.ReadAccess(&access);
     if (!s.ok()) {
-      break;
+      return s;
     }
     RecordAccess(access);
   }
   return Status::OK();
 }
 
-void BlockCacheTraceAnalyzer::PrintBlockSizeStats() {
+void BlockCacheTraceAnalyzer::PrintBlockSizeStats() const {
   HistogramStat bs_stats;
   std::map<TraceType, HistogramStat> bt_stats_map;
   std::map<std::string, std::map<TraceType, HistogramStat>> cf_bt_stats_map;
-  for (auto const& cf_stats : cf_stats_map_) {
+  for (auto const& cf_aggregates : cf_aggregates_map_) {
     // Stats per column family.
-    const std::string& cf_name = cf_stats.first;
-    for (auto const& file_stats : cf_stats.second.fd_stats_map) {
+    const std::string& cf_name = cf_aggregates.first;
+    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
       // Stats per SST file.
-      for (auto const& block_type_stats :
-           file_stats.second.block_type_stats_map) {
+      for (auto const& block_type_aggregates :
+           file_aggregates.second.block_type_aggregates_map) {
         // Stats per block type.
-        const TraceType type = block_type_stats.first;
+        const TraceType type = block_type_aggregates.first;
         for (auto const& block_stats :
-             block_type_stats.second.block_stats_map) {
+             block_type_aggregates.second.block_stats_map) {
           // Stats per block.
           bs_stats.Add(block_stats.second.block_size);
           bt_stats_map[type].Add(block_stats.second.block_size);
@@ -132,21 +130,21 @@ void BlockCacheTraceAnalyzer::PrintBlockSizeStats() {
   }
 }
 
-void BlockCacheTraceAnalyzer::PrintAccessCountStats() {
+void BlockCacheTraceAnalyzer::PrintAccessCountStats() const {
   HistogramStat access_stats;
   std::map<TraceType, HistogramStat> bt_stats_map;
   std::map<std::string, std::map<TraceType, HistogramStat>> cf_bt_stats_map;
-  for (auto const& cf_stats : cf_stats_map_) {
+  for (auto const& cf_aggregates : cf_aggregates_map_) {
     // Stats per column family.
-    const std::string& cf_name = cf_stats.first;
-    for (auto const& file_stats : cf_stats.second.fd_stats_map) {
+    const std::string& cf_name = cf_aggregates.first;
+    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
       // Stats per SST file.
-      for (auto const& block_type_stats :
-           file_stats.second.block_type_stats_map) {
+      for (auto const& block_type_aggregates :
+           file_aggregates.second.block_type_aggregates_map) {
         // Stats per block type.
-        const TraceType type = block_type_stats.first;
+        const TraceType type = block_type_aggregates.first;
         for (auto const& block_stats :
-             block_type_stats.second.block_stats_map) {
+             block_type_aggregates.second.block_stats_map) {
           // Stats per block.
           access_stats.Add(block_stats.second.num_accesses);
           bt_stats_map[type].Add(block_stats.second.num_accesses);
@@ -174,7 +172,7 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats() {
   }
 }
 
-void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() {
+void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() const {
   HistogramStat existing_keys_stats;
   std::map<std::string, HistogramStat> cf_existing_keys_stats_map;
   HistogramStat non_existing_keys_stats;
@@ -182,33 +180,33 @@ void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() {
   HistogramStat block_access_stats;
   std::map<std::string, HistogramStat> cf_block_stats;
 
-  for (auto const& cf_stats : cf_stats_map_) {
+  for (auto const& cf_aggregates : cf_aggregates_map_) {
     // Stats per column family.
-    const std::string& cf_name = cf_stats.first;
-    for (auto const& file_stats : cf_stats.second.fd_stats_map) {
+    const std::string& cf_name = cf_aggregates.first;
+    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
       // Stats per SST file.
-      for (auto const& block_type_stats :
-           file_stats.second.block_type_stats_map) {
+      for (auto const& block_type_aggregates :
+           file_aggregates.second.block_type_aggregates_map) {
         // Stats per block type.
         for (auto const& block_stats :
-             block_type_stats.second.block_stats_map) {
+             block_type_aggregates.second.block_stats_map) {
           // Stats per block.
           if (block_stats.second.num_keys == 0) {
             continue;
           }
-          // Use four decimal point.
+          // Use four decimal points.
           uint64_t percent_referenced_for_existing_keys =
-              ((double)block_stats.second.key_num_access_map.size() /
+              (uint64_t)(((double)block_stats.second.key_num_access_map.size() /
+                          (double)block_stats.second.num_keys) *
+                         10000.0);
+          uint64_t percent_referenced_for_non_existing_keys = (uint64_t)(
+              ((double)block_stats.second.non_exist_key_num_access_map.size() /
                (double)block_stats.second.num_keys) *
-              10000;
-          uint64_t percent_referenced_for_non_existing_keys =
-              ((double)block_stats.second.key_num_access_map.size() /
-               (double)block_stats.second.num_keys) *
-              10000;
-          uint64_t percent_accesses_for_existing_keys =
+              10000.0);
+          uint64_t percent_accesses_for_existing_keys = (uint64_t)(
               ((double)block_stats.second.num_referenced_key_exist_in_block /
                (double)block_stats.second.num_accesses) *
-              10000;
+              10000.0);
           existing_keys_stats.Add(percent_referenced_for_existing_keys);
           cf_existing_keys_stats_map[cf_name].Add(
               percent_referenced_for_existing_keys);
@@ -248,7 +246,7 @@ void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() {
   }
 }
 
-void BlockCacheTraceAnalyzer::PrintStatsSummary() {
+void BlockCacheTraceAnalyzer::PrintStatsSummary() const {
   uint64_t total_num_files = 0;
   uint64_t total_num_blocks = 0;
   uint64_t total_num_accesses = 0;
@@ -258,9 +256,9 @@ void BlockCacheTraceAnalyzer::PrintStatsSummary() {
       caller_bt_num_access_map;
   std::map<BlockCacheLookupCaller, std::map<uint32_t, uint64_t>>
       caller_level_num_access_map;
-  for (auto const& cf_stats : cf_stats_map_) {
+  for (auto const& cf_aggregates : cf_aggregates_map_) {
     // Stats per column family.
-    const std::string& cf_name = cf_stats.first;
+    const std::string& cf_name = cf_aggregates.first;
     uint64_t cf_num_files = 0;
     uint64_t cf_num_blocks = 0;
     std::map<TraceType, uint64_t> cf_bt_blocks;
@@ -272,22 +270,23 @@ void BlockCacheTraceAnalyzer::PrintStatsSummary() {
         cf_caller_file_num_accesses_map;
     std::map<BlockCacheLookupCaller, std::map<TraceType, uint64_t>>
         cf_caller_bt_num_accesses_map;
-    total_num_files += cf_stats.second.fd_stats_map.size();
-    for (auto const& file_stats : cf_stats.second.fd_stats_map) {
+    total_num_files += cf_aggregates.second.fd_aggregates_map.size();
+    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
       // Stats per SST file.
-      const uint64_t fd = file_stats.first;
-      const uint32_t level = file_stats.second.level;
+      const uint64_t fd = file_aggregates.first;
+      const uint32_t level = file_aggregates.second.level;
       cf_num_files++;
-      for (auto const& block_type_stats :
-           file_stats.second.block_type_stats_map) {
+      for (auto const& block_type_aggregates :
+           file_aggregates.second.block_type_aggregates_map) {
         // Stats per block type.
-        const TraceType type = block_type_stats.first;
-        cf_bt_blocks[type] += block_type_stats.second.block_stats_map.size();
-        total_num_blocks += block_type_stats.second.block_stats_map.size();
+        const TraceType type = block_type_aggregates.first;
+        cf_bt_blocks[type] +=
+            block_type_aggregates.second.block_stats_map.size();
+        total_num_blocks += block_type_aggregates.second.block_stats_map.size();
         bt_num_blocks_map[type] +=
-            block_type_stats.second.block_stats_map.size();
+            block_type_aggregates.second.block_stats_map.size();
         for (auto const& block_stats :
-             block_type_stats.second.block_stats_map) {
+             block_type_aggregates.second.block_stats_map) {
           // Stats per block.
           cf_num_blocks++;
           for (auto const& stats : block_stats.second.caller_num_access_map) {

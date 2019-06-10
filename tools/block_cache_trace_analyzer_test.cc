@@ -156,7 +156,8 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
     // Read blocks.
     BlockCacheTraceAnalyzer analyzer(trace_file_path_);
-    ASSERT_OK(analyzer.Analyze());
+    // The analyzer ends when it detects an incomplete access record.
+    ASSERT_EQ(Status::Incomplete(""), analyzer.Analyze());
     const uint64_t expected_num_cfs = 1;
     std::vector<uint64_t> expected_fds{kSSTStoringOddKeys, kSSTStoringEvenKeys};
     const std::vector<TraceType> expected_types{
@@ -166,24 +167,24 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
         TraceType::kBlockTraceRangeDeletionBlock};
     const uint64_t expected_num_keys_per_type = 5;
 
-    auto& stats = analyzer.Test_cf_stats_map();
+    auto& stats = analyzer.TEST_cf_aggregates_map();
     ASSERT_EQ(expected_num_cfs, stats.size());
     ASSERT_TRUE(stats.find(kDefaultColumnFamilyName) != stats.end());
     auto& cf_stats = stats.find(kDefaultColumnFamilyName)->second;
-    ASSERT_EQ(expected_fds.size(), cf_stats.fd_stats_map.size());
+    ASSERT_EQ(expected_fds.size(), cf_stats.fd_aggregates_map.size());
     for (auto fd_id : expected_fds) {
-      ASSERT_TRUE(cf_stats.fd_stats_map.find(fd_id) !=
-                  cf_stats.fd_stats_map.end());
-      ASSERT_EQ(kLevel, cf_stats.fd_stats_map.find(fd_id)->second.level);
-      auto& block_type_stats_map =
-          cf_stats.fd_stats_map.find(fd_id)->second.block_type_stats_map;
-      ASSERT_EQ(expected_types.size(), block_type_stats_map.size());
+      ASSERT_TRUE(cf_stats.fd_aggregates_map.find(fd_id) !=
+                  cf_stats.fd_aggregates_map.end());
+      ASSERT_EQ(kLevel, cf_stats.fd_aggregates_map.find(fd_id)->second.level);
+      auto& block_type_aggregates_map = cf_stats.fd_aggregates_map.find(fd_id)
+                                            ->second.block_type_aggregates_map;
+      ASSERT_EQ(expected_types.size(), block_type_aggregates_map.size());
       uint32_t key_id = 0;
       for (auto type : expected_types) {
-        ASSERT_TRUE(block_type_stats_map.find(type) !=
-                    block_type_stats_map.end());
+        ASSERT_TRUE(block_type_aggregates_map.find(type) !=
+                    block_type_aggregates_map.end());
         auto& block_stats_map =
-            block_type_stats_map.find(type)->second.block_stats_map;
+            block_type_aggregates_map.find(type)->second.block_stats_map;
         // Each block type has 5 blocks.
         ASSERT_EQ(expected_num_keys_per_type, block_stats_map.size());
         for (uint32_t i = 0; i < 10; i++) {
