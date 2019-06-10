@@ -31,6 +31,7 @@ class MockedBlockBasedTable : public BlockBasedTable {
   CachableEntry<FilterBlockReader> GetFilter(
       FilePrefetchBuffer*, const BlockHandle& filter_blk_handle,
       const bool /* unused */, bool /* unused */, GetContext* /* unused */,
+      BlockCacheLookupContext* /*context*/,
       const SliceTransform* prefix_extractor) const override {
     Slice slice = slices[filter_blk_handle.offset()];
     auto obj = new FullFilterBlockReader(
@@ -168,14 +169,15 @@ class PartitionedFilterBlockTest
       auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
       ASSERT_TRUE(reader->KeyMayMatch(key, prefix_extractor, kNotValid, !no_io,
-                                      &ikey_slice));
+                                      &ikey_slice, /*context=*/nullptr));
     }
     {
       // querying a key twice
       auto ikey = InternalKey(keys[0], 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
       ASSERT_TRUE(reader->KeyMayMatch(keys[0], prefix_extractor, kNotValid,
-                                      !no_io, &ikey_slice));
+                                      !no_io, &ikey_slice,
+                                      /*context=*/nullptr));
     }
     // querying missing keys
     for (auto key : missing_keys) {
@@ -183,11 +185,13 @@ class PartitionedFilterBlockTest
       const Slice ikey_slice = Slice(*ikey.rep());
       if (empty) {
         ASSERT_TRUE(reader->KeyMayMatch(key, prefix_extractor, kNotValid,
-                                        !no_io, &ikey_slice));
+                                        !no_io, &ikey_slice,
+                                        /*context=*/nullptr));
       } else {
         // assuming a good hash function
         ASSERT_FALSE(reader->KeyMayMatch(key, prefix_extractor, kNotValid,
-                                         !no_io, &ikey_slice));
+                                         !no_io, &ikey_slice,
+                                         /*context=*/nullptr));
       }
     }
   }
@@ -335,9 +339,9 @@ TEST_P(PartitionedFilterBlockTest, SamePrefixInMultipleBlocks) {
   for (auto key : pkeys) {
     auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
     const Slice ikey_slice = Slice(*ikey.rep());
-    ASSERT_TRUE(reader->PrefixMayMatch(prefix_extractor->Transform(key),
-                                       prefix_extractor.get(), kNotValid,
-                                       false /*no_io*/, &ikey_slice));
+    ASSERT_TRUE(reader->PrefixMayMatch(
+        prefix_extractor->Transform(key), prefix_extractor.get(), kNotValid,
+        /*no_io=*/false, &ikey_slice, /*context=*/nullptr));
   }
 }
 
