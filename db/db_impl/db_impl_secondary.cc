@@ -458,8 +458,10 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "Last sequence is %" PRIu64,
                  static_cast<uint64_t>(versions_->LastSequence()));
-  for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+  for (ColumnFamilyData* cfd : cfds_changed) {
     if (cfd->IsDropped()) {
+      ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] is dropped\n",
+                      cfd->GetName().c_str());
       continue;
     }
     VersionStorageInfo::LevelSummaryStorage tmp;
