@@ -263,6 +263,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     size_t total_count = 0;
     size_t valid_batches = 0;
     size_t total_byte_size = 0;
+    size_t pre_release_callback_cnt = 0;
     for (auto* writer : write_group) {
       if (writer->CheckCallback(this)) {
         valid_batches += writer->batch_cnt;
@@ -270,9 +271,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           total_count += WriteBatchInternal::Count(writer->batch);
           parallel = parallel && !writer->batch->HasMerge();
         }
-
         total_byte_size = WriteBatchInternal::AppendedByteSize(
             total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
+        if (writer->pre_release_callback) {
+          pre_release_callback_cnt++;
+        }
       }
     }
     // Note about seq_per_batch_: either disableWAL is set for the entire write
@@ -336,6 +339,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // PreReleaseCallback is called after WAL write and before memtable write
     if (status.ok()) {
       SequenceNumber next_sequence = current_sequence;
+      size_t index = 0;
       // Note: the logic for advancing seq here must be consistent with the
       // logic in WriteBatchInternal::InsertInto(write_group...) as well as
       // with WriteBatchInternal::InsertInto(write_batch...) that is called on
@@ -347,7 +351,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         writer->sequence = next_sequence;
         if (writer->pre_release_callback) {
           Status ws = writer->pre_release_callback->Callback(
-              writer->sequence, disable_memtable, writer->log_used);
+              writer->sequence, disable_memtable, writer->log_used, index++,
+              pre_release_callback_cnt);
           if (!ws.ok()) {
             status = ws;
             break;
@@ -675,11 +680,15 @@ Status DBImpl::WriteImplWALOnly(
   // Note: no need to update last_batch_group_size_ here since the batch writes
   // to WAL only
 
+  size_t pre_release_callback_cnt = 0;
   size_t total_byte_size = 0;
   for (auto* writer : write_group) {
     if (writer->CheckCallback(this)) {
       total_byte_size = WriteBatchInternal::AppendedByteSize(
           total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
+      if (writer->pre_release_callback) {
+        pre_release_callback_cnt++;
+      }
     }
   }
 
@@ -758,11 +767,13 @@ Status DBImpl::WriteImplWALOnly(
     WriteStatusCheck(status);
   }
   if (status.ok()) {
+    size_t index = 0;
     for (auto* writer : write_group) {
       if (!writer->CallbackFailed() && writer->pre_release_callback) {
         assert(writer->sequence != kMaxSequenceNumber);
         Status ws = writer->pre_release_callback->Callback(
-            writer->sequence, disable_memtable, writer->log_used);
+            writer->sequence, disable_memtable, writer->log_used, index++,
+            pre_release_callback_cnt);
         if (!ws.ok()) {
           status = ws;
           break;
@@ -1121,7 +1132,7 @@ Status DBImpl::WriteRecoverableState() {
         // AddCommitted -> AdvanceMaxEvictedSeq -> GetSnapshotListFromDB
         mutex_.Unlock();
         status = recoverable_state_pre_release_callback_->Callback(
-            sub_batch_seq, !DISABLE_MEMTABLE, no_log_num);
+            sub_batch_seq, !DISABLE_MEMTABLE, no_log_num, 0, 1);
         mutex_.Lock();
       }
     }
