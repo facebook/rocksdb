@@ -1376,7 +1376,6 @@ Status BlockBasedTable::ReadCompressionDictBlock(
 }
 
 Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
-
     FilePrefetchBuffer* prefetch_buffer, InternalIterator* meta_iter,
     BlockBasedTable* new_table, bool prefetch_all,
     const BlockBasedTableOptions& table_options, const int level,
@@ -1666,8 +1665,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
       size_t charge = block_holder->ApproximateMemoryUsage();
       Cache::Handle* cache_handle = nullptr;
       s = block_cache->Insert(block_cache_key, block_holder.get(), charge,
-                              &DeleteCachedEntry<Block>,
-                              &cache_handle);
+                              &DeleteCachedEntry<Block>, &cache_handle);
 #ifndef NDEBUG
       block_cache->TEST_mark_as_data_block(block_cache_key, charge);
 #endif  // NDEBUG
@@ -1771,8 +1769,7 @@ Status BlockBasedTable::PutDataBlockToCache(
     size_t charge = block_holder->ApproximateMemoryUsage();
     Cache::Handle* cache_handle = nullptr;
     s = block_cache->Insert(block_cache_key, block_holder.get(), charge,
-                            &DeleteCachedEntry<Block>,
-                            &cache_handle, priority);
+                            &DeleteCachedEntry<Block>, &cache_handle, priority);
 #ifndef NDEBUG
     block_cache->TEST_mark_as_data_block(block_cache_key, charge);
 #endif  // NDEBUG
@@ -1882,8 +1879,8 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   // most probably fail again.
   if (!is_a_filter_partition &&
       !rep_->table_options.cache_index_and_filter_blocks) {
-    return {rep_->filter.get(), nullptr /* cache */,
-      nullptr /* cache_handle */, false /* own_value */};
+    return {rep_->filter.get(), /*cache=*/nullptr, /*cache_handle=*/nullptr,
+            /*own_value=*/false};
   }
 
   Cache* block_cache = rep_->table_options.block_cache.get();
@@ -1893,8 +1890,8 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   }
 
   if (!is_a_filter_partition && rep_->filter_entry.IsCached()) {
-    return {rep_->filter_entry.GetValue(), nullptr /* cache */,
-      nullptr /* cache_handle */, false /* own_value */};
+    return {rep_->filter_entry.GetValue(), /*cache=*/nullptr,
+    /*cache_handle=*/nullptr, /*own_value=*/false};
   }
 
   PERF_TIMER_GUARD(read_filter_block_nanos);
@@ -1936,7 +1933,7 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   }
 
   return {filter, cache_handle ? block_cache : nullptr, cache_handle,
-    false /* own_value */};
+          /*own_value=*/false};
 }
 
 CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
@@ -3110,8 +3107,8 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
 }
 
 Status BlockBasedTable::VerifyChecksum() {
-  // TODO(haoyu): This function is called by external sst ingestion and user.
-  // We don't log its block cache accesses for now.
+  // TODO(haoyu): This function is called by external sst ingestion and the verify checksum
+  // public API. We don't log its block cache accesses for now.
   Status s;
   // Check Meta blocks
   std::unique_ptr<Block> meta;
