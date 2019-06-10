@@ -99,10 +99,12 @@ class BlockCacheTraceAnalyzer {
   //          Block Type RangeDeletion: Number of accesses: 2
   void PrintStatsSummary();
 
-  // Print block size distribution.
+  // Print block size distribution and the distribution break down by block type
+  // and column family.
   void PrintBlockSizeStats();
 
-  // Print access count distribution.
+  // Print access count distribution and the distribution break down by block
+  // type and column family.
   void PrintAccessCountStats();
 
   // Print data block accesses by user Get and Multi-Get.

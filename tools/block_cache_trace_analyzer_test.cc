@@ -111,7 +111,8 @@ class BlockCacheTracerTest : public testing::Test {
         type == TraceType::kBlockTraceDataBlock) {
       ASSERT_EQ(kNumKeysInBlock, block_stats.num_keys);
       ASSERT_EQ(1, block_stats.key_num_access_map.size());
-      ASSERT_EQ(0, block_stats.num_referenced_key_not_exist);
+      ASSERT_EQ(0, block_stats.non_exist_key_num_access_map.size());
+      ASSERT_EQ(1, block_stats.num_referenced_key_exist_in_block);
     }
   }
 

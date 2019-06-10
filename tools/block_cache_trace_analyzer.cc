@@ -155,9 +155,10 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats() {
       }
     }
   }
-  fprintf(stdout, "Block size stats: \n%s", access_stats.ToString().c_str());
+  fprintf(stdout, "Block access count stats: \n%s",
+          access_stats.ToString().c_str());
   for (auto const& bt_stats : bt_stats_map) {
-    fprintf(stdout, "Block size stats for block type %s: \n%s",
+    fprintf(stdout, "Block access count stats for block type %s: \n%s",
             block_type_to_string(bt_stats.first).c_str(),
             bt_stats.second.ToString().c_str());
   }
@@ -165,7 +166,8 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats() {
     const std::string& cf_name = cf_bt_stats.first;
     for (auto const& bt_stats : cf_bt_stats.second) {
       fprintf(stdout,
-              "Block size stats for column family %s and block type %s: \n%s",
+              "Block access count stats for column family %s and block type "
+              "%s: \n%s",
               cf_name.c_str(), block_type_to_string(bt_stats.first).c_str(),
               bt_stats.second.ToString().c_str());
     }
@@ -188,7 +190,6 @@ void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() {
       for (auto const& block_type_stats :
            file_stats.second.block_type_stats_map) {
         // Stats per block type.
-        const TraceType type = block_type_stats.first;
         for (auto const& block_stats :
              block_type_stats.second.block_stats_map) {
           // Stats per block.
@@ -211,11 +212,11 @@ void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() {
           existing_keys_stats.Add(percent_referenced_for_existing_keys);
           cf_existing_keys_stats_map[cf_name].Add(
               percent_referenced_for_existing_keys);
-          non_existing_keys_stats.Add(percent_referenced_for_existing_keys);
+          non_existing_keys_stats.Add(percent_referenced_for_non_existing_keys);
           cf_non_existing_keys_stats_map[cf_name].Add(
-              percent_referenced_for_existing_keys);
-          block_access_stats.Add(percent_referenced_for_existing_keys);
-          cf_block_stats[cf_name].Add(percent_referenced_for_existing_keys);
+              percent_referenced_for_non_existing_keys);
+          block_access_stats.Add(percent_accesses_for_existing_keys);
+          cf_block_stats[cf_name].Add(percent_accesses_for_existing_keys);
         }
       }
     }
