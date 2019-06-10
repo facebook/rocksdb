@@ -57,7 +57,8 @@ class WriteUnpreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
 
   virtual Status Callback(SequenceNumber commit_seq,
                           bool is_mem_disabled __attribute__((__unused__)),
-                          uint64_t) override {
+                          uint64_t, size_t /*index*/,
+                          size_t /*total*/) override {
     const uint64_t last_commit_seq = LIKELY(data_batch_cnt_ <= 1)
                                          ? commit_seq
                                          : commit_seq + data_batch_cnt_ - 1;
@@ -121,7 +122,8 @@ class WriteUnpreparedRollbackPreReleaseCallback : public PreReleaseCallback {
 
   virtual Status Callback(SequenceNumber commit_seq,
                           bool is_mem_disabled __attribute__((__unused__)),
-                          uint64_t) override {
+                          uint64_t, size_t /*index*/,
+                          size_t /*total*/) override {
     assert(is_mem_disabled);  // implies the 2nd queue
     const uint64_t last_commit_seq = commit_seq;
     db_->AddCommitted(rollback_seq_, last_commit_seq);

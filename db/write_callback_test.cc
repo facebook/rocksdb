@@ -304,7 +304,8 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                     PublishSeqCallback(DBImpl* db_impl_in)
                         : db_impl_(db_impl_in) {}
                     Status Callback(SequenceNumber last_seq, bool /*not used*/,
-                                    uint64_t) override {
+                                    uint64_t, size_t /*index*/,
+                                    size_t /*total*/) override {
                       db_impl_->SetLastPublishedSequence(last_seq);
                       return Status::OK();
                     }

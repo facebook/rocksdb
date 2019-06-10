@@ -324,10 +324,11 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   // Add the transaction with prepare sequence seq to the prepared list.
   // Note: must be called serially with increasing seq on each call.
-  void AddPrepared(uint64_t seq);
+  // locked is true if prepared_mutex_ is already locked.
+  void AddPrepared(uint64_t seq, bool locked = false);
   // Check if any of the prepared txns are less than new max_evicted_seq_. Must
   // be called with prepared_mutex_ write locked.
-  void CheckPreparedAgainstMax(SequenceNumber new_max);
+  void CheckPreparedAgainstMax(SequenceNumber new_max, bool locked);
   // Remove the transaction with prepare sequence seq from the prepared list
   void RemovePrepared(const uint64_t seq, const size_t batch_cnt = 1);
   // Add the transaction with prepare sequence prepare_seq and commit sequence
@@ -461,6 +462,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       std::memory_order order = std::memory_order_relaxed);
 
  private:
+  friend class AddPreparedCallback;
   friend class PreparedHeap_BasicsTest_Test;
   friend class PreparedHeap_Concurrent_Test;
   friend class PreparedHeap_EmptyAtTheEnd_Test;
@@ -506,10 +508,15 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // A heap with the amortized O(1) complexity for erase. It uses one extra heap
   // to keep track of erased entries that are not yet on top of the main heap.
   class PreparedHeap {
+    // The mutex is required for push and pop from PreparedHeap. ::erase will
+    // use external synchronization via prepared_mutex_.
+    port::Mutex push_pop_mutex_;
+    // TODO(myabandeh): replace it with deque
     std::priority_queue<uint64_t, std::vector<uint64_t>, std::greater<uint64_t>>
         heap_;
     std::priority_queue<uint64_t, std::vector<uint64_t>, std::greater<uint64_t>>
         erased_heap_;
+    std::atomic<uint64_t> heap_top_ = {kMaxSequenceNumber};
     // True when testing crash recovery
     bool TEST_CRASH_ = false;
     friend class WritePreparedTxnDB;
@@ -521,10 +528,19 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         assert(erased_heap_.empty());
       }
     }
-    bool empty() { return heap_.empty(); }
-    uint64_t top() { return heap_.top(); }
-    void push(uint64_t v) { heap_.push(v); }
-    void pop() {
+    port::Mutex* push_pop_mutex() { return &push_pop_mutex_; }
+
+    inline bool empty() { return top() == kMaxSequenceNumber; }
+    // Returns kMaxSequenceNumber if empty() and the smallest otherwise.
+    inline uint64_t top() { return heap_top_.load(std::memory_order_acquire); }
+    inline void push(uint64_t v) {
+      heap_.push(v);
+      heap_top_.store(heap_.top(), std::memory_order_release);
+    }
+    void pop(bool locked = false) {
+      if (!locked) {
+        push_pop_mutex()->Lock();
+      }
       heap_.pop();
       while (!heap_.empty() && !erased_heap_.empty() &&
              // heap_.top() > erased_heap_.top() could happen if we have erased
@@ -543,15 +559,23 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       while (heap_.empty() && !erased_heap_.empty()) {
         erased_heap_.pop();
       }
+      heap_top_.store(!heap_.empty() ? heap_.top() : kMaxSequenceNumber,
+                      std::memory_order_release);
+      if (!locked) {
+        push_pop_mutex()->Unlock();
+      }
     }
+    // Concurrrent calls needs external synchronization. It is safe to be called
+    // concurrent to push and pop though.
     void erase(uint64_t seq) {
       if (!heap_.empty()) {
-        if (seq < heap_.top()) {
+        auto top_seq = top();
+        if (seq < top_seq) {
           // Already popped, ignore it.
-        } else if (heap_.top() == seq) {
+        } else if (top_seq == seq) {
           pop();
           assert(heap_.empty() || heap_.top() != seq);
-        } else {  // (heap_.top() > seq)
+        } else {  // top() > seq
           // Down the heap, remember to pop it later
           erased_heap_.push(seq);
         }
@@ -596,27 +620,37 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     // written in two steps, we also update prepared_txns_ at the first step
     // (via the same mechanism) so that their uncommitted data is reflected in
     // SmallestUnCommittedSeq.
-    ReadLock rl(&prepared_mutex_);
-    // Since we are holding the mutex, and GetLatestSequenceNumber is updated
-    // after prepared_txns_ are, the value of GetLatestSequenceNumber would
-    // reflect any uncommitted data that is not added to prepared_txns_ yet.
-    // Otherwise, if there is no concurrent txn, this value simply reflects that
-    // latest value in the memtable.
-    if (!delayed_prepared_.empty()) {
-      assert(!delayed_prepared_empty_.load());
-      return *delayed_prepared_.begin();
+    if (!delayed_prepared_empty_.load()) {
+      ReadLock rl(&prepared_mutex_);
+      if (!delayed_prepared_.empty()) {
+        return *delayed_prepared_.begin();
+      }
     }
-    if (prepared_txns_.empty()) {
-      return db_impl_->GetLatestSequenceNumber() + 1;
+    // This must be called before calling ::top. This is because the concurrent
+    // thread would call ::RemovePrepared before updating
+    // GetLatestSequenceNumber(). Reading then in opposite order here guarantees
+    // that the ::top that we read would be lower the ::top if we had otherwise
+    // update/read them atomically.
+    auto next_prepare = db_impl_->GetLatestSequenceNumber() + 1;
+    auto min_prepare = prepared_txns_.top();
+    bool empty = min_prepare == kMaxSequenceNumber;
+    if (empty) {
+      // Since GetLatestSequenceNumber is updated
+      // after prepared_txns_ are, the value of GetLatestSequenceNumber would
+      // reflect any uncommitted data that is not added to prepared_txns_ yet.
+      // Otherwise, if there is no concurrent txn, this value simply reflects
+      // that latest value in the memtable.
+      return next_prepare;
     } else {
-      return std::min(prepared_txns_.top(),
-                      db_impl_->GetLatestSequenceNumber() + 1);
+      return std::min(min_prepare, next_prepare);
     }
   }
+
   // Enhance the snapshot object by recording in it the smallest uncommitted seq
   inline void EnhanceSnapshot(SnapshotImpl* snapshot,
                               SequenceNumber min_uncommitted) {
     assert(snapshot);
+    assert(min_uncommitted <= snapshot->number_ + 1);
     snapshot->min_uncommitted_ = min_uncommitted;
   }
 
@@ -778,12 +812,28 @@ class AddPreparedCallback : public PreReleaseCallback {
   }
   virtual Status Callback(SequenceNumber prepare_seq,
                           bool is_mem_disabled __attribute__((__unused__)),
-                          uint64_t log_number) override {
+                          uint64_t log_number, size_t index,
+                          size_t total) override {
+    assert(index < total);
+    // To reduce the cost of lock acquisition competing with the concurrent
+    // prepare requests, lock on the first callback and unlock on the last.
+    const bool do_lock = !two_write_queues_ || index == 0;
+    const bool do_unlock = !two_write_queues_ || index + 1 == total;
     // Always Prepare from the main queue
     assert(!two_write_queues_ || !is_mem_disabled);  // implies the 1st queue
-    for (size_t i = 0; i < sub_batch_cnt_; i++) {
-      db_->AddPrepared(prepare_seq + i);
+    TEST_SYNC_POINT("AddPreparedCallback::AddPrepared::begin:pause");
+    TEST_SYNC_POINT("AddPreparedCallback::AddPrepared::begin:resume");
+    if (do_lock) {
+      db_->prepared_txns_.push_pop_mutex()->Lock();
     }
+    const bool kLocked = true;
+    for (size_t i = 0; i < sub_batch_cnt_; i++) {
+      db_->AddPrepared(prepare_seq + i, kLocked);
+    }
+    if (do_unlock) {
+      db_->prepared_txns_.push_pop_mutex()->Unlock();
+    }
+    TEST_SYNC_POINT("AddPreparedCallback::AddPrepared::end");
     if (first_prepare_batch_) {
       assert(log_number != 0);
       db_impl_->logs_with_prep_tracker()->MarkLogAsContainingPrepSection(
@@ -826,7 +876,8 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
 
   virtual Status Callback(SequenceNumber commit_seq,
                           bool is_mem_disabled __attribute__((__unused__)),
-                          uint64_t) override {
+                          uint64_t, size_t /*index*/,
+                          size_t /*total*/) override {
     // Always commit from the 2nd queue
     assert(!db_impl_->immutable_db_options().two_write_queues ||
            is_mem_disabled);
@@ -863,6 +914,14 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
       // publish sequence numbers will be in order, i.e., once a seq is
       // published all the seq prior to that are also publishable.
       db_impl_->SetLastPublishedSequence(last_commit_seq);
+      // Note RemovePrepared should be called after publishing the seq.
+      // Otherwise SmallestUnCommittedSeq optimization breaks.
+      if (prep_seq_ != kMaxSequenceNumber) {
+        db_->RemovePrepared(prep_seq_, prep_batch_cnt_);
+      }  // else there was no prepare phase
+      if (includes_aux_batch_) {
+        db_->RemovePrepared(aux_seq_, aux_batch_cnt_);
+      }
     }
     // else SequenceNumber that is updated as part of the write already does the
     // publishing
@@ -907,8 +966,8 @@ class WritePreparedRollbackPreReleaseCallback : public PreReleaseCallback {
     assert(prep_batch_cnt_ > 0);
   }
 
-  Status Callback(SequenceNumber commit_seq, bool is_mem_disabled,
-                  uint64_t) override {
+  Status Callback(SequenceNumber commit_seq, bool is_mem_disabled, uint64_t,
+                  size_t /*index*/, size_t /*total*/) override {
     // Always commit from the 2nd queue
     assert(is_mem_disabled);  // implies the 2nd queue
     assert(db_impl_->immutable_db_options().two_write_queues);
