@@ -31,9 +31,26 @@ enum TxnDBWritePolicy {
 
 const uint32_t kInitialMaxDeadlocks = 5;
 
+class BaseLockMgr;
+
+// A lock manager handle
+// The workflow is as follows:
+//  * Use a factory method (like NewRangeLockManager()) to create a lock
+//    manager and get its handle.
+//  * A Handle for a particular kind of lock manager will have extra
+//    methods and parameters to control the lock manager
+//  * Pass the handle to RocksDB in TransactionDBOptions::lock_mgr_handle. It
+//    will be used to perform locking.
+class LockManagerHandle {
+ public:
+   // Get the underlying LockManager. To be used by RocksDB Internals
+   virtual BaseLockMgr* GetManager()=0;
+   virtual ~LockManagerHandle(){};
+};
+
 // A handle to control RangeLockMgr (Range-based lock manager) from outside
 // RocksDB
-class RangeLockMgrHandle {
+class RangeLockMgrHandle : public LockManagerHandle {
  public:
   virtual int set_max_lock_memory(size_t max_lock_memory) = 0;
   virtual uint64_t get_escalation_count() = 0;
@@ -42,7 +59,7 @@ class RangeLockMgrHandle {
 
 // A factory function to create a Range Lock Manager. The created object should
 // be:
-//  1. Passed in TransactionDBOptions::range_lock_mgr to open the database in
+//  1. Passed in TransactionDBOptions::lock_mgr_handle to open the database in
 //     range-locking mode
 //  2. Used to control the lock manager when the DB is already open.
 RangeLockMgrHandle* NewRangeLockManager(
@@ -110,8 +127,9 @@ struct TransactionDBOptions {
   // for the special way that myrocks uses this operands.
   bool rollback_merge_operands = false;
 
-  // If non-null, range locking should be used, and the lock manager is passed.
-  std::shared_ptr<RangeLockMgrHandle> range_lock_mgr;
+  // nullptr means use default lock manager.
+  // Other value means the user provides a custom lock manager.
+  std::shared_ptr<LockManagerHandle> lock_mgr_handle;
 
   // If true, the TransactionDB implementation might skip concurrency control
   // unless it is overridden by TransactionOptions or

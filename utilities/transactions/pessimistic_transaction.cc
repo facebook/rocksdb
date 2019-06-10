@@ -585,8 +585,6 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   // an upgrade.
   if (!previously_locked || lock_upgrade) {
     s = txn_db_impl_->TryLock(this, cfh_id, key_str, exclusive);
-    if (!s.ok())
-      return s;
   }
 
   SetSnapshotIfNeeded();
@@ -621,7 +619,7 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
     // since the snapshot.  This must be done after we locked the key.
     // If we already have validated an earilier snapshot it must has been
     // reflected in tracked_at_seq and ValidateSnapshot will return OK.
-    if (s.ok()) {  //psergey-todo: this check seems to be meaningless, s.ok()==true always
+    if (s.ok()) {
       s = ValidateSnapshot(column_family, key, &tracked_at_seq);
 
       if (!s.ok()) {
