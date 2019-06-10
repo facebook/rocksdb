@@ -2958,7 +2958,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           offset = iiter->value().offset();
           biter.Invalidate(Status::OK());
           NewDataBlockIterator<DataBlockIter>(
-              read_options, iiter->value(), &biter, false,
+              read_options, iiter->value(), &biter, BlockType::kData, false,
               true /* key_includes_seq */, get_context);
           reusing_block = false;
         }
