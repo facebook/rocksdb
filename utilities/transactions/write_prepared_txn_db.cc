@@ -408,7 +408,7 @@ void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max,
       prepared_txns_.push_pop_mutex()->Unlock();
     }
     WriteLock wl(&prepared_mutex_);
-    // Need to fetch feresh values of ::top after mutex is acquired
+    // Need to fetch fresh values of ::top after mutex is acquired
     while (!prepared_txns_.empty() && prepared_txns_.top() <= new_max) {
       auto to_be_popped = prepared_txns_.top();
       delayed_prepared_.insert(to_be_popped);

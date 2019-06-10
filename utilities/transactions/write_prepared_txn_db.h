@@ -815,8 +815,8 @@ class AddPreparedCallback : public PreReleaseCallback {
                           uint64_t log_number, size_t index,
                           size_t total) override {
     assert(index < total);
-    // To reduce lock intention with the concurrent prepare requests, lock on
-    // the first callback and unlock on the last.
+    // To reduce the cost of lock acquisition competing with the concurrent
+    // prepare requests, lock on the first callback and unlock on the last.
     const bool do_lock = !two_write_queues_ || index == 0;
     const bool do_unlock = !two_write_queues_ || index + 1 == total;
     // Always Prepare from the main queue
