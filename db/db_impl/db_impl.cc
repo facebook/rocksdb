@@ -2717,7 +2717,9 @@ void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
     InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
     sizes[i] = 0;
     if (include_flags & DB::SizeApproximationFlags::INCLUDE_FILES) {
-      sizes[i] += versions_->ApproximateSize(v, k1.Encode(), k2.Encode());
+      sizes[i] += versions_->ApproximateSize(
+          v, k1.Encode(), k2.Encode(), /*start_level=*/0, /*end_level=*/-1,
+          /*for_compaction=*/false);
     }
     if (include_flags & DB::SizeApproximationFlags::INCLUDE_MEMTABLES) {
       sizes[i] += sv->mem->ApproximateStats(k1.Encode(), k2.Encode()).size;

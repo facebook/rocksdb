@@ -50,9 +50,12 @@ class MockTableReader : public TableReader {
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
-  uint64_t ApproximateOffsetOf(const Slice& /*key*/) override { return 0; }
+  uint64_t ApproximateOffsetOf(const Slice& /*key*/,
+                               bool /*for_compaction*/ = false) override {
+    return 0;
+  }
 
-  virtual size_t ApproximateMemoryUsage() const override { return 0; }
+  size_t ApproximateMemoryUsage() const override { return 0; }
 
   void SetupForCompaction() override {}
 

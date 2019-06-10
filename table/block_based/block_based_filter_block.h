@@ -82,17 +82,18 @@ class BlockBasedFilterBlockReader : public FilterBlockReader {
                               const BlockBasedTableOptions& table_opt,
                               bool whole_key_filtering,
                               BlockContents&& contents, Statistics* statistics);
-  virtual bool IsBlockBased() override { return true; }
+  bool IsBlockBased() override { return true; }
 
-  virtual bool KeyMayMatch(
-      const Slice& key, const SliceTransform* prefix_extractor,
-      uint64_t block_offset = kNotValid, const bool no_io = false,
-      const Slice* const const_ikey_ptr = nullptr) override;
-  virtual bool PrefixMayMatch(
-      const Slice& prefix, const SliceTransform* prefix_extractor,
-      uint64_t block_offset = kNotValid, const bool no_io = false,
-      const Slice* const const_ikey_ptr = nullptr) override;
-  virtual size_t ApproximateMemoryUsage() const override;
+  bool KeyMayMatch(const Slice& key, const SliceTransform* prefix_extractor,
+                   uint64_t block_offset, const bool no_io,
+                   const Slice* const const_ikey_ptr,
+                   BlockCacheLookupContext* context) override;
+  bool PrefixMayMatch(const Slice& prefix,
+                      const SliceTransform* prefix_extractor,
+                      uint64_t block_offset, const bool no_io,
+                      const Slice* const const_ikey_ptr,
+                      BlockCacheLookupContext* context) override;
+  size_t ApproximateMemoryUsage() const override;
 
   // convert this object to a human readable form
   std::string ToString() const override;

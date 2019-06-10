@@ -187,7 +187,8 @@ BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
 bool BlockBasedFilterBlockReader::KeyMayMatch(
     const Slice& key, const SliceTransform* /* prefix_extractor */,
     uint64_t block_offset, const bool /*no_io*/,
-    const Slice* const /*const_ikey_ptr*/) {
+    const Slice* const /*const_ikey_ptr*/,
+    BlockCacheLookupContext* /*context*/) {
   assert(block_offset != kNotValid);
   if (!whole_key_filtering_) {
     return true;
@@ -198,7 +199,8 @@ bool BlockBasedFilterBlockReader::KeyMayMatch(
 bool BlockBasedFilterBlockReader::PrefixMayMatch(
     const Slice& prefix, const SliceTransform* /* prefix_extractor */,
     uint64_t block_offset, const bool /*no_io*/,
-    const Slice* const /*const_ikey_ptr*/) {
+    const Slice* const /*const_ikey_ptr*/,
+    BlockCacheLookupContext* /*context*/) {
   assert(block_offset != kNotValid);
   return MayMatch(prefix, block_offset);
 }
