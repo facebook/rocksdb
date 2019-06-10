@@ -100,7 +100,7 @@ Status ExternalSstFileIngestionJob::Prepare(
       status = env_->LinkFile(path_outside_db, path_inside_db);
       if (status.ok()) {
         // It is unsafe to assume application had sync the file and file
-        // directory before ingest the file. For integraty of RocksDB we need
+        // directory before ingest the file. For integrity of RocksDB we need
         // to sync the file.
         std::unique_ptr<WritableFile> file_to_sync;
         status = env_->ReopenWritableFile(path_inside_db, &file_to_sync,
