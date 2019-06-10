@@ -199,16 +199,8 @@ Status DBImplSecondary::RecoverLogFiles(
             record.size(), Status::Corruption("log record too small"));
         continue;
       }
-      SequenceNumber seq = versions_->LastSequence();
       WriteBatchInternal::SetContents(&batch, record);
       SequenceNumber seq_of_batch = WriteBatchInternal::Sequence(&batch);
-      // If the write batch's sequence number is smaller than the last sequence
-      // number of the db, then we should skip this write batch because its
-      // data must reside in an SST that has already been added in the prior
-      // MANIFEST replay.
-      if (seq_of_batch < seq) {
-        continue;
-      }
       std::vector<uint32_t> column_family_ids;
       status = CollectColumnFamilyIdsFromWriteBatch(batch, &column_family_ids);
       if (status.ok()) {
@@ -220,6 +212,17 @@ Status DBImplSecondary::RecoverLogFiles(
           }
           if (cfds_changed->count(cfd) == 0) {
             cfds_changed->insert(cfd);
+          }
+          const std::vector<FileMetaData*>& l0_files =
+              cfd->current()->storage_info()->LevelFiles(0);
+          SequenceNumber seq =
+              l0_files.empty() ? 0 : l0_files.back()->fd.largest_seqno;
+          // If the write batch's sequence number is smaller than the last
+          // sequence number of the largest sequence persisted for this column
+          // family, then its data must reside in an SST that has already been
+          // added in the prior MANIFEST replay.
+          if (seq_of_batch <= seq) {
+            continue;
           }
           auto curr_log_num = port::kMaxUint64;
           if (cfd_to_current_log_.count(cfd) > 0) {
@@ -233,7 +236,7 @@ Status DBImplSecondary::RecoverLogFiles(
             const MutableCFOptions mutable_cf_options =
                 *cfd->GetLatestMutableCFOptions();
             MemTable* new_mem =
-                cfd->ConstructNewMemtable(mutable_cf_options, seq);
+                cfd->ConstructNewMemtable(mutable_cf_options, seq_of_batch);
             cfd->mem()->SetNextLogNumber(log_number);
             cfd->imm()->Add(cfd->mem(), &job_context->memtables_to_free);
             new_mem->Ref();
@@ -452,6 +455,21 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   InstrumentedMutexLock lock_guard(&mutex_);
   s = static_cast<ReactiveVersionSet*>(versions_.get())
           ->ReadAndApply(&mutex_, &manifest_reader_, &cfds_changed);
+
+  ROCKS_LOG_INFO(immutable_db_options_.info_log, "Last sequence is %" PRIu64,
+                 static_cast<uint64_t>(versions_->LastSequence()));
+  for (ColumnFamilyData* cfd : cfds_changed) {
+    if (cfd->IsDropped()) {
+      ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] is dropped\n",
+                      cfd->GetName().c_str());
+      continue;
+    }
+    VersionStorageInfo::LevelSummaryStorage tmp;
+    ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] Level summary: %s\n",
+                    cfd->GetName().c_str(),
+                    cfd->current()->storage_info()->LevelSummary(&tmp));
+  }
+
   // list wal_dir to discover new WALs and apply new changes to the secondary
   // instance
   if (s.ok()) {
