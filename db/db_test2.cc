@@ -2682,14 +2682,20 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
         options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW);
     // Include the explicit prefetch of the footer in direct I/O case.
     size_t direct_io_extra = use_direct_io ? 512 * 1024 : 0;
-    ASSERT_GE(
-        rate_limited_bytes,
-        static_cast<size_t>(kNumKeysPerFile * kBytesPerKey * kNumL0Files));
-    ASSERT_LT(
-        rate_limited_bytes,
-        static_cast<size_t>(2 * kNumKeysPerFile * kBytesPerKey * kNumL0Files +
-                            direct_io_extra));
-
+    ASSERT_LT(10, options.rate_limiter->GetTotalRequests(Env::IO_LOW));
+    if (!use_direct_io) {
+      ASSERT_GE(
+          rate_limited_bytes,
+          static_cast<size_t>(kNumKeysPerFile * kBytesPerKey * kNumL0Files));
+      ASSERT_LT(
+          rate_limited_bytes,
+          static_cast<size_t>(2 * kNumKeysPerFile * kBytesPerKey * kNumL0Files +
+                              direct_io_extra));
+    } else {
+      ASSERT_GE(
+          rate_limited_bytes,
+          static_cast<size_t>(kNumKeysPerFile * kBytesPerKey * kNumL0Files));
+    }
     Iterator* iter = db_->NewIterator(ReadOptions());
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_EQ(iter->value().ToString(), DummyString(kBytesPerKey));
