@@ -521,38 +521,13 @@ Status DB::OpenAsSecondary(
   }
 
   DBOptions tmp_opts(db_options);
+  Status s;
   if (nullptr == tmp_opts.info_log) {
-    Env* env = tmp_opts.env;
-    assert(env != nullptr);
-    std::string secondary_abs_path;
-    env->GetAbsolutePath(secondary_path, &secondary_abs_path);
-    std::string fname = InfoLogFileName(secondary_path, secondary_abs_path,
-                                        tmp_opts.db_log_dir);
-
-    env->CreateDirIfMissing(secondary_path);
-    if (tmp_opts.log_file_time_to_roll > 0 || tmp_opts.max_log_file_size > 0) {
-      AutoRollLogger* result = new AutoRollLogger(
-          env, secondary_path, tmp_opts.db_log_dir, tmp_opts.max_log_file_size,
-          tmp_opts.log_file_time_to_roll, tmp_opts.info_log_level);
-      Status s = result->GetStatus();
-      if (!s.ok()) {
-        delete result;
-      } else {
-        tmp_opts.info_log.reset(result);
-      }
-    }
-    if (nullptr == tmp_opts.info_log) {
-      env->RenameFile(
-          fname, OldInfoLogFileName(secondary_path, env->NowMicros(),
-                                    secondary_abs_path, tmp_opts.db_log_dir));
-      Status s = env->NewLogger(fname, &(tmp_opts.info_log));
-      if (tmp_opts.info_log != nullptr) {
-        tmp_opts.info_log->SetInfoLogLevel(tmp_opts.info_log_level);
-      }
+    s = CreateLoggerFromOptions(secondary_path, tmp_opts, &tmp_opts.info_log);
+    if (!s.ok()) {
+      tmp_opts.info_log = nullptr;
     }
   }
-
-  assert(tmp_opts.info_log != nullptr);
 
   handles->clear();
   DBImplSecondary* impl = new DBImplSecondary(tmp_opts, dbname);
@@ -563,7 +538,7 @@ Status DB::OpenAsSecondary(
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
   impl->mutex_.Lock();
-  Status s = impl->Recover(column_families, true, false, false);
+  s = impl->Recover(column_families, true, false, false);
   if (s.ok()) {
     for (auto cf : column_families) {
       auto cfd =
