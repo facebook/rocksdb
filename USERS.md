@@ -51,7 +51,7 @@ Check out their blog post: http://blog.cloudera.com/blog/2015/08/inside-santande
 Airbnb is using RocksDB as a storage engine for their personalized search service. You can learn more about it here: https://www.youtube.com/watch?v=ASQ6XMtogMs
 
 ## Alluxio
-[Alluxio](https://www.alluxio.io) uses RocksDB to serve and scale file system metadata to 1 Billion files. The detailed design and implementation is described in this engineering blog:
+[Alluxio](https://www.alluxio.io) uses RocksDB to serve and scale file system metadata to beyond 1 Billion files. The detailed design and implementation is described in this engineering blog:
 https://www.alluxio.io/blog/scalable-metadata-service-in-alluxio-storing-billions-of-files/
 
 ## Pinterest
