@@ -1887,8 +1887,8 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   // most probably fail again.
   if (!is_a_filter_partition &&
       !rep_->table_options.cache_index_and_filter_blocks) {
-    return {rep_->filter.get(), /*cache=*/nullptr,
-            /*cache_handle=*/nullptr, /*own_value=*/false};
+    return {rep_->filter.get(), /*cache=*/nullptr, /*cache_handle=*/nullptr,
+            /*own_value=*/false};
   }
 
   Cache* block_cache = rep_->table_options.block_cache.get();
@@ -1899,7 +1899,7 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 
   if (!is_a_filter_partition && rep_->filter_entry.IsCached()) {
     return {rep_->filter_entry.GetValue(), /*cache=*/nullptr,
-            /*cache_handle=*/nullptr, /*own_value=*/false};
+    /*cache_handle=*/nullptr, /*own_value=*/false};
   }
 
   PERF_TIMER_GUARD(read_filter_block_nanos);
@@ -2873,7 +2873,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           filter != nullptr && filter->IsBlockBased() == true &&
           !filter->KeyMayMatch(ExtractUserKeyAndStripTimestamp(key, ts_sz),
                                prefix_extractor, handle.offset(), no_io,
-                               nullptr, &lookup_context);
+                               /*const_ikey_ptr=*/nullptr, &lookup_context);
 
       if (not_exist_in_filter) {
         // Not found
