@@ -75,8 +75,6 @@ class BlockCacheTraceWriter {
   Status WriteHeader();
 
  private:
-  bool ShouldTrace(const BlockCacheTraceRecord& record) const;
-
   Env* env_;
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
@@ -102,7 +100,9 @@ class BlockCacheTraceReader {
   std::unique_ptr<TraceReader> trace_reader_;
 };
 
-// An atomic block cache trace writer.
+// An atomic block cache trace writer. It downsamples the accesses according to
+// trace_options and uses BlockCacheTraceWriter to write the access record to
+// the trace file.
 class AtomicBlockCacheTraceWriter {
  public:
   AtomicBlockCacheTraceWriter();
@@ -125,6 +125,7 @@ class AtomicBlockCacheTraceWriter {
   Status WriteBlockAccess(const BlockCacheTraceRecord& record);
 
  private:
+  TraceOptions trace_options_;
   // A mutex protect the writer_.
   InstrumentedMutex writer_mutext_;
   std::atomic<BlockCacheTraceWriter*> writer_;
