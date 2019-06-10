@@ -129,6 +129,14 @@ void ForceReleaseCachedEntry(void* arg, void* h) {
   cache->Release(handle, true /* force_erase */);
 }
 
+// Release the cached entry and decrement its ref count.
+// Do not force erase
+void ReleaseCachedEntry(void* arg, void* h) {
+  Cache* cache = reinterpret_cast<Cache*>(arg);
+  Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
+  cache->Release(handle, false /* force_erase */);
+}
+
 // For hash based index, return true if prefix_extractor and
 // prefix_extractor_block mismatch, false otherwise. This flag will be used
 // as total_order_seek via NewIndexIterator
@@ -2073,6 +2081,8 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
                               cache_handle);
       }
     }
+  } else {
+    iter->SetCacheHandle(block.GetCacheHandle());
   }
 
   block.TransferTo(iter);
@@ -2933,6 +2943,8 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       iiter_unique_ptr.reset(iiter);
     }
 
+    DataBlockIter biter;
+    uint64_t offset = std::numeric_limits<uint64_t>::max();
     for (auto miter = sst_file_range.begin(); miter != sst_file_range.end();
          ++miter) {
       Status s;
@@ -2941,10 +2953,15 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       bool matched = false;  // if such user key matched a key in SST
       bool done = false;
       for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
-        DataBlockIter biter;
-        NewDataBlockIterator<DataBlockIter>(
-            read_options, iiter->value(), &biter, BlockType::kData,
-            true /* key_includes_seq */, get_context);
+        bool reusing_block = true;
+        if (iiter->value().offset() != offset) {
+          offset = iiter->value().offset();
+          biter.Invalidate(Status::OK());
+          NewDataBlockIterator<DataBlockIter>(
+              read_options, iiter->value(), &biter, BlockType::kData, false,
+              true /* key_includes_seq */, get_context);
+          reusing_block = false;
+        }
 
         if (read_options.read_tier == kBlockCacheTier &&
             biter.status().IsIncomplete()) {
@@ -2971,13 +2988,27 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         // Call the *saver function on each entry/block until it returns false
         for (; biter.Valid(); biter.Next()) {
           ParsedInternalKey parsed_key;
+          Cleanable dummy;
+          Cleanable* value_pinner = nullptr;
+
           if (!ParseInternalKey(biter.key(), &parsed_key)) {
             s = Status::Corruption(Slice());
           }
+          if (biter.IsValuePinned()) {
+            if (reusing_block) {
+              Cache* block_cache = rep_->table_options.block_cache.get();
+              assert(biter.cache_handle() != nullptr);
+              block_cache->Ref(biter.cache_handle());
+              dummy.RegisterCleanup(&ReleaseCachedEntry, block_cache,
+                                    biter.cache_handle());
+              value_pinner = &dummy;
+            } else {
+              value_pinner = &biter;
+            }
+          }
 
           if (!get_context->SaveValue(
-                  parsed_key, biter.value(), &matched,
-                  biter.IsValuePinned() ? &biter : nullptr)) {
+                  parsed_key, biter.value(), &matched, value_pinner)) {
             done = true;
             break;
           }
