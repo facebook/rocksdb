@@ -23,6 +23,18 @@ bool ShouldTraceReferencedKey(const BlockCacheTraceRecord& record) {
           record.caller == BlockCacheLookupCaller::kUserMGet);
 }
 
+bool ShouldTrace(const BlockCacheTraceRecord& record,
+                 const TraceOptions& trace_options) {
+  if (trace_options.sampling_frequency == 0 ||
+      trace_options.sampling_frequency == 1) {
+    return true;
+  }
+  // We use spatial downsampling so that we have a complete access history for a
+  // block.
+  const uint64_t hash = GetSliceNPHash64(Slice(record.block_key));
+  return hash % trace_options.sampling_frequency == 0;
+}
+
 BlockCacheTraceWriter::BlockCacheTraceWriter(
     Env* env, const TraceOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer)
@@ -30,23 +42,10 @@ BlockCacheTraceWriter::BlockCacheTraceWriter(
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)) {}
 
-bool BlockCacheTraceWriter::ShouldTrace(
-    const BlockCacheTraceRecord& record) const {
-  if (trace_options_.sampling_frequency == 0 ||
-      trace_options_.sampling_frequency == 1) {
-    return true;
-  }
-  // We use spatial downsampling so that we have a complete access history for a
-  // block.
-  const uint64_t hash = GetSliceNPHash64(Slice(record.block_key));
-  return hash % trace_options_.sampling_frequency == 0;
-}
-
 Status BlockCacheTraceWriter::WriteBlockAccess(
     const BlockCacheTraceRecord& record) {
   uint64_t trace_file_size = trace_writer_->GetFileSize();
-  if (trace_file_size > trace_options_.max_trace_file_size ||
-      !ShouldTrace(record)) {
+  if (trace_file_size > trace_options_.max_trace_file_size) {
     return Status::OK();
   }
   Trace trace;
@@ -227,6 +226,7 @@ Status AtomicBlockCacheTraceWriter::StartTrace(
   if (writer_.load()) {
     return Status::OK();
   }
+  trace_options_ = trace_options;
   writer_.store(
       new BlockCacheTraceWriter(env, trace_options, std::move(trace_writer)));
   return writer_.load()->WriteHeader();
@@ -244,6 +244,9 @@ void AtomicBlockCacheTraceWriter::EndTrace() {
 Status AtomicBlockCacheTraceWriter::WriteBlockAccess(
     const BlockCacheTraceRecord& record) {
   if (!writer_.load()) {
+    return Status::OK();
+  }
+  if (!ShouldTrace(record, trace_options_)) {
     return Status::OK();
   }
   InstrumentedMutexLock lock_guard(&writer_mutext_);
