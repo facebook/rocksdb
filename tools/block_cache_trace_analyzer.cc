@@ -172,6 +172,81 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats() {
   }
 }
 
+void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() {
+  HistogramStat existing_keys_stats;
+  std::map<std::string, HistogramStat> cf_existing_keys_stats_map;
+  HistogramStat non_existing_keys_stats;
+  std::map<std::string, HistogramStat> cf_non_existing_keys_stats_map;
+  HistogramStat block_access_stats;
+  std::map<std::string, HistogramStat> cf_block_stats;
+
+  for (auto const& cf_stats : cf_stats_map_) {
+    // Stats per column family.
+    const std::string& cf_name = cf_stats.first;
+    for (auto const& file_stats : cf_stats.second.fd_stats_map) {
+      // Stats per SST file.
+      for (auto const& block_type_stats :
+           file_stats.second.block_type_stats_map) {
+        // Stats per block type.
+        const TraceType type = block_type_stats.first;
+        for (auto const& block_stats :
+             block_type_stats.second.block_stats_map) {
+          // Stats per block.
+          if (block_stats.second.num_keys == 0) {
+            continue;
+          }
+          // Use four decimal point.
+          uint64_t percent_referenced_for_existing_keys =
+              ((double)block_stats.second.key_num_access_map.size() /
+               (double)block_stats.second.num_keys) *
+              10000;
+          uint64_t percent_referenced_for_non_existing_keys =
+              ((double)block_stats.second.key_num_access_map.size() /
+               (double)block_stats.second.num_keys) *
+              10000;
+          uint64_t percent_accesses_for_existing_keys =
+              ((double)block_stats.second.num_referenced_key_exist_in_block /
+               (double)block_stats.second.num_accesses) *
+              10000;
+          existing_keys_stats.Add(percent_referenced_for_existing_keys);
+          cf_existing_keys_stats_map[cf_name].Add(
+              percent_referenced_for_existing_keys);
+          non_existing_keys_stats.Add(percent_referenced_for_existing_keys);
+          cf_non_existing_keys_stats_map[cf_name].Add(
+              percent_referenced_for_existing_keys);
+          block_access_stats.Add(percent_referenced_for_existing_keys);
+          cf_block_stats[cf_name].Add(percent_referenced_for_existing_keys);
+        }
+      }
+    }
+  }
+  fprintf(stdout,
+          "Histogram on percentage of referenced keys existing in a block over "
+          "the total number of keys in a block: \n%s",
+          existing_keys_stats.ToString().c_str());
+  for (auto const& cf_stats : cf_existing_keys_stats_map) {
+    fprintf(stdout, "Break down by column family %s: \n%s",
+            cf_stats.first.c_str(), cf_stats.second.ToString().c_str());
+  }
+  fprintf(
+      stdout,
+      "Histogram on percentage of referenced keys DO NOT exist in a block over "
+      "the total number of keys in a block: \n%s",
+      non_existing_keys_stats.ToString().c_str());
+  for (auto const& cf_stats : cf_non_existing_keys_stats_map) {
+    fprintf(stdout, "Break down by column family %s: \n%s",
+            cf_stats.first.c_str(), cf_stats.second.ToString().c_str());
+  }
+  fprintf(stdout,
+          "Histogram on percentage of accesses on keys exist in a block over "
+          "the total number of accesses in a block: \n%s",
+          block_access_stats.ToString().c_str());
+  for (auto const& cf_stats : cf_block_stats) {
+    fprintf(stdout, "Break down by column family %s: \n%s",
+            cf_stats.first.c_str(), cf_stats.second.ToString().c_str());
+  }
+}
+
 void BlockCacheTraceAnalyzer::PrintStatsSummary() {
   uint64_t total_num_files = 0;
   uint64_t total_num_blocks = 0;

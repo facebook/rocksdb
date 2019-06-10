@@ -20,8 +20,11 @@ struct BlockStats {
   uint64_t first_access_time = 0;
   uint64_t last_access_time = 0;
   uint64_t num_keys = 0;
-  std::map<std::string, uint64_t> key_num_access_map;
-  uint64_t num_referenced_key_not_exist = 0;
+  std::map<std::string, uint64_t>
+      key_num_access_map;  // for keys exist in this block.
+  std::map<std::string, uint64_t>
+      non_exist_key_num_access_map;  // for keys do not exist in this block.
+  uint64_t num_referenced_key_exist_in_block = 0;
   std::map<BlockCacheLookupCaller, uint64_t> caller_num_access_map;
 
   void AddAccess(const BlockCacheTraceRecord& access) {
@@ -34,9 +37,12 @@ struct BlockStats {
     num_accesses++;
     if (ShouldTraceReferencedKey(access)) {
       num_keys = access.num_keys_in_block;
-      key_num_access_map[access.referenced_key]++;
-      if (access.is_referenced_key_exist_in_block == Boolean::kFalse) {
-        num_referenced_key_not_exist++;
+
+      if (access.is_referenced_key_exist_in_block == Boolean::kTrue) {
+        key_num_access_map[access.referenced_key]++;
+        num_referenced_key_exist_in_block++;
+      } else {
+        non_exist_key_num_access_map[access.referenced_key]++;
       }
     }
   }
@@ -98,6 +104,13 @@ class BlockCacheTraceAnalyzer {
 
   // Print access count distribution.
   void PrintAccessCountStats();
+
+  // Print data block accesses by user Get and Multi-Get.
+  // It prints out 1) A histogram on the percentage of keys accessed in a data
+  // block break down by if a referenced key exists in the data block andthe
+  // histogram break down by column family. 2) A histogram on the percentage of
+  // accesses on keys exist in a data block and its break down by column family.
+  void PrintDataBlockAccessStats();
 
   const std::map<std::string, ColumnFamilyStats>& Test_cf_stats_map() {
     return cf_stats_map_;
