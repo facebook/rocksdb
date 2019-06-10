@@ -1887,8 +1887,8 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   // most probably fail again.
   if (!is_a_filter_partition &&
       !rep_->table_options.cache_index_and_filter_blocks) {
-    return {rep_->filter.get(), /*cache=*/nullptr, /*cache_handle=*/nullptr,
-            /*own_value=*/false};
+    return {rep_->filter.get(), /*cache=*/nullptr,
+            /*cache_handle=*/nullptr, /*own_value=*/false};
   }
 
   Cache* block_cache = rep_->table_options.block_cache.get();
@@ -1899,7 +1899,7 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 
   if (!is_a_filter_partition && rep_->filter_entry.IsCached()) {
     return {rep_->filter_entry.GetValue(), /*cache=*/nullptr,
-    /*cache_handle=*/nullptr, /*own_value=*/false};
+            /*cache_handle=*/nullptr, /*own_value=*/false};
   }
 
   PERF_TIMER_GUARD(read_filter_block_nanos);
@@ -2873,7 +2873,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           filter != nullptr && filter->IsBlockBased() == true &&
           !filter->KeyMayMatch(ExtractUserKeyAndStripTimestamp(key, ts_sz),
                                prefix_extractor, handle.offset(), no_io,
-                               /*const_ikey_ptr=*/nullptr, &lookup_context);
+                               nullptr, &lookup_context);
 
       if (not_exist_in_filter) {
         // Not found
@@ -3005,9 +3005,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           offset = iiter->value().offset();
           biter.Invalidate(Status::OK());
           NewDataBlockIterator<DataBlockIter>(
-              read_options, iiter->value(), &biter, BlockType::kData, false,
-              /*key_includes_seq=*/true, get_context, &lookup_context, Status(),
-              nullptr);
+              read_options, iiter->value(), &biter, BlockType::kData,
+              /*key_includes_seq=*/false,
+              /*index_key_is_full=*/true, get_context, &lookup_context,
+              Status(), nullptr);
           reusing_block = false;
         }
         if (read_options.read_tier == kBlockCacheTier &&
@@ -3143,8 +3144,8 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
 }
 
 Status BlockBasedTable::VerifyChecksum() {
-  // TODO(haoyu): This function is called by external sst ingestion and the verify checksum
-  // public API. We don't log its block cache accesses for now.
+  // TODO(haoyu): This function is called by external sst ingestion and the
+  // verify checksum public API. We don't log its block cache accesses for now.
   Status s;
   // Check Meta blocks
   std::unique_ptr<Block> meta;
