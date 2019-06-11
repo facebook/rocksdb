@@ -57,6 +57,23 @@ struct BlockCacheLookupContext {
   // BlockBasedTable::MultiGet.
   std::string block_key;
   uint64_t num_keys_in_block;
+
+  void FillLookupContext(bool _is_cache_hit, bool _no_insert,
+                         TraceType _block_type, uint64_t _block_size) {
+    is_cache_hit = _is_cache_hit;
+    no_insert = _no_insert;
+    block_type = _block_type;
+    block_size = _block_size;
+  }
+
+  void FillLookupContext(bool _is_cache_hit, bool _no_insert,
+                         TraceType _block_type, uint64_t _block_size,
+                         const std::string& _block_key,
+                         uint64_t _num_keys_in_block) {
+    FillLookupContext(_is_cache_hit, _no_insert, _block_type, _block_size);
+    block_key = _block_key;
+    num_keys_in_block = _num_keys_in_block;
+  }
 };
 
 enum Boolean : char { kTrue = 1, kFalse = 0 };
