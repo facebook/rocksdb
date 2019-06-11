@@ -49,6 +49,7 @@ struct BlockCacheLookupContext {
   BlockCacheLookupContext(const BlockCacheLookupCaller& _caller)
       : caller(_caller) {}
   const BlockCacheLookupCaller caller;
+  // Information related to the lookup.
   Slice block_key;
   bool is_cache_hit;
   bool no_insert;
