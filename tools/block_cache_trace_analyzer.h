@@ -90,7 +90,7 @@ class BlockCacheTraceAnalyzer {
   // ***************************************************************
   // Caller Get: Number of accesses 10
   // Caller Get: Number of accesses per level break down
-  //          Level 1: Number of accesses: 10
+  //          Level 0: Number of accesses: 10
   // Caller Get: Number of accesses per block type break down
   //          Block Type Index: Number of accesses: 2
   //          Block Type Filter: Number of accesses: 2
