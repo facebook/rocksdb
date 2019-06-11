@@ -20,6 +20,7 @@ const uint32_t kLevel = 1;
 const uint64_t kSSTFDNumber = 100;
 const std::string kRefKeyPrefix = "test-get-";
 const uint64_t kNumKeysInBlock = 1024;
+const uint64_t kReferencedDataSize = 10;
 }  // namespace
 
 class BlockCacheTracerTest : public testing::Test {
@@ -61,7 +62,7 @@ class BlockCacheTracerTest : public testing::Test {
       BlockCacheTraceRecord record;
       record.block_type = block_type;
       record.block_size = kBlockSize + key_id;
-      record.block_key = kBlockKeyPrefix + std::to_string(key_id);
+      record.block_key = (kBlockKeyPrefix + std::to_string(key_id));
       record.access_timestamp = env_->NowMicros();
       record.cf_id = kCFId;
       record.cf_name = kDefaultColumnFamilyName;
@@ -73,10 +74,12 @@ class BlockCacheTracerTest : public testing::Test {
       // Provide these fields for all block types.
       // The writer should only write these fields for data blocks and the
       // caller is either GET or MGET.
-      record.referenced_key = kRefKeyPrefix + std::to_string(key_id);
+      record.referenced_key = (kRefKeyPrefix + std::to_string(key_id));
       record.is_referenced_key_exist_in_block = Boolean::kTrue;
       record.num_keys_in_block = kNumKeysInBlock;
-      ASSERT_OK(writer->WriteBlockAccess(record));
+      record.referenced_data_size = kReferencedDataSize + key_id;
+      ASSERT_OK(writer->WriteBlockAccess(
+          record, record.block_key, record.cf_name, record.referenced_key));
     }
   }
 
@@ -124,11 +127,13 @@ class BlockCacheTracerTest : public testing::Test {
                   record.referenced_key);
         ASSERT_EQ(Boolean::kTrue, record.is_referenced_key_exist_in_block);
         ASSERT_EQ(kNumKeysInBlock, record.num_keys_in_block);
+        ASSERT_EQ(kReferencedDataSize + key_id, record.referenced_data_size);
         continue;
       }
       ASSERT_EQ("", record.referenced_key);
       ASSERT_EQ(Boolean::kFalse, record.is_referenced_key_exist_in_block);
       ASSERT_EQ(0, record.num_keys_in_block);
+      ASSERT_EQ(0, record.referenced_data_size);
     }
   }
 

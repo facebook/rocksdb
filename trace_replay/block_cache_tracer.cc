@@ -17,11 +17,12 @@ namespace {
 const unsigned int kCharSize = 1;
 }  // namespace
 
-bool ShouldTraceReferencedKey(const BlockCacheTraceRecord& record) {
-  return (record.block_type == TraceType::kBlockTraceDataBlock) &&
-         (record.caller == BlockCacheLookupCaller::kUserGet ||
-          record.caller == BlockCacheLookupCaller::kUserMGet);
-}
+BlockCacheTraceWriter::BlockCacheTraceWriter(
+    Env* env, const TraceOptions& trace_options,
+    std::unique_ptr<TraceWriter>&& trace_writer)
+    : env_(env),
+      trace_options_(trace_options),
+      trace_writer_(std::move(trace_writer)) {}
 
 bool ShouldTrace(const BlockCacheTraceRecord& record,
                  const TraceOptions& trace_options) {
@@ -35,15 +36,17 @@ bool ShouldTrace(const BlockCacheTraceRecord& record,
   return hash % trace_options.sampling_frequency == 0;
 }
 
-BlockCacheTraceWriter::BlockCacheTraceWriter(
-    Env* env, const TraceOptions& trace_options,
-    std::unique_ptr<TraceWriter>&& trace_writer)
-    : env_(env),
-      trace_options_(trace_options),
-      trace_writer_(std::move(trace_writer)) {}
+
+bool BlockCacheTraceWriter::ShouldTraceReferencedKey(
+    TraceType block_type, BlockCacheLookupCaller caller) {
+  return (block_type == TraceType::kBlockTraceDataBlock) &&
+         (caller == BlockCacheLookupCaller::kUserGet ||
+          caller == BlockCacheLookupCaller::kUserMGet);
+}
 
 Status BlockCacheTraceWriter::WriteBlockAccess(
-    const BlockCacheTraceRecord& record) {
+    const BlockCacheTraceRecord& record, const Slice& block_key,
+    const Slice& cf_name, const Slice& referenced_key) {
   uint64_t trace_file_size = trace_writer_->GetFileSize();
   if (trace_file_size > trace_options_.max_trace_file_size) {
     return Status::OK();
@@ -51,17 +54,18 @@ Status BlockCacheTraceWriter::WriteBlockAccess(
   Trace trace;
   trace.ts = record.access_timestamp;
   trace.type = record.block_type;
-  PutLengthPrefixedSlice(&trace.payload, record.block_key);
+  PutLengthPrefixedSlice(&trace.payload, block_key);
   PutFixed64(&trace.payload, record.block_size);
-  PutFixed32(&trace.payload, record.cf_id);
-  PutLengthPrefixedSlice(&trace.payload, record.cf_name);
+  PutFixed64(&trace.payload, record.cf_id);
+  PutLengthPrefixedSlice(&trace.payload, cf_name);
   PutFixed32(&trace.payload, record.level);
-  PutFixed32(&trace.payload, record.sst_fd_number);
+  PutFixed64(&trace.payload, record.sst_fd_number);
   trace.payload.push_back(record.caller);
   trace.payload.push_back(record.is_cache_hit);
   trace.payload.push_back(record.no_insert);
-  if (ShouldTraceReferencedKey(record)) {
-    PutLengthPrefixedSlice(&trace.payload, record.referenced_key);
+  if (ShouldTraceReferencedKey(record.block_type, record.caller)) {
+    PutLengthPrefixedSlice(&trace.payload, referenced_key);
+    PutFixed64(&trace.payload, record.referenced_data_size);
     PutFixed64(&trace.payload, record.num_keys_in_block);
     trace.payload.push_back(record.is_referenced_key_exist_in_block);
   }
@@ -143,6 +147,7 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
   record->access_timestamp = trace.ts;
   record->block_type = trace.type;
   Slice enc_slice = Slice(trace.payload);
+
   Slice block_key;
   if (!GetLengthPrefixedSlice(&enc_slice, &block_key)) {
     return Status::Incomplete(
@@ -153,7 +158,7 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
     return Status::Incomplete(
         "Incomplete access record: Failed to read block size.");
   }
-  if (!GetFixed32(&enc_slice, &record->cf_id)) {
+  if (!GetFixed64(&enc_slice, &record->cf_id)) {
     return Status::Incomplete(
         "Incomplete access record: Failed to read column family ID.");
   }
@@ -167,7 +172,7 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
     return Status::Incomplete(
         "Incomplete access record: Failed to read level.");
   }
-  if (!GetFixed32(&enc_slice, &record->sst_fd_number)) {
+  if (!GetFixed64(&enc_slice, &record->sst_fd_number)) {
     return Status::Incomplete(
         "Incomplete access record: Failed to read SST file number.");
   }
@@ -190,13 +195,18 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
   record->no_insert = static_cast<Boolean>(enc_slice[0]);
   enc_slice.remove_prefix(kCharSize);
 
-  if (ShouldTraceReferencedKey(*record)) {
+  if (BlockCacheTraceWriter::ShouldTraceReferencedKey(record->block_type,
+                                                      record->caller)) {
     Slice referenced_key;
     if (!GetLengthPrefixedSlice(&enc_slice, &referenced_key)) {
       return Status::Incomplete(
           "Incomplete access record: Failed to read the referenced key.");
     }
     record->referenced_key = referenced_key.ToString();
+    if (!GetFixed64(&enc_slice, &record->referenced_data_size)) {
+      return Status::Incomplete(
+          "Incomplete access record: Failed to read the referenced data size.");
+    }
     if (!GetFixed64(&enc_slice, &record->num_keys_in_block)) {
       return Status::Incomplete(
           "Incomplete access record: Failed to read the number of keys in the "

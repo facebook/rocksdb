@@ -249,6 +249,13 @@ class BlockBasedTable : public TableReader {
   static std::atomic<uint64_t> next_cache_key_id_;
   BlockCacheTracer* const block_cache_tracer_;
 
+  void FillBlockCacheAccessRecord(
+      BlockCacheTraceRecord* record,
+      const BlockCacheLookupContext& lookup_context) const;
+  void FillBlockCacheAccessRecord(BlockCacheTraceRecord* record,
+                                  const BlockCacheLookupContext& lookup_context,
+                                  bool is_referenced_key_exist, uint64_t referenced_data_size) const;
+
   void UpdateCacheHitMetrics(BlockType block_type, GetContext* get_context,
                              size_t usage) const;
   void UpdateCacheMissMetrics(BlockType block_type,
