@@ -2221,11 +2221,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
                               get_context);
     if (block_entry->GetValue()) {
       cache_hit = true;
-      nkeys = rep_->table_options.block_restart_interval *
-              block_entry->GetValue()->NumRestarts();
-      usage = block_entry->GetValue()->ApproximateMemoryUsage();
     }
-    cache_hit = block_entry->GetValue();
     // Can't find the block from the cache. If I/O is allowed, read from the
     // file.
     if (block_entry->GetValue() == nullptr && !no_io && ro.fill_cache) {
@@ -2257,17 +2253,18 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
                                 raw_block_comp_type, uncompression_dict, seq_no,
                                 GetMemoryAllocator(rep_->table_options),
                                 block_type, get_context);
-        if (block_entry->GetValue()) {
-          nkeys = rep_->table_options.block_restart_interval *
-                  block_entry->GetValue()->NumRestarts();
-          usage = block_entry->GetValue()->ApproximateMemoryUsage();
-        }
       }
     }
   }
 
   if (block_cache_tracer_ && lookup_context) {
     // Fill lookup_context.
+    if (block_entry->GetValue()) {
+      // Approximate the number of keys in the block using restarts.
+      nkeys = rep_->table_options.block_restart_interval *
+              block_entry->GetValue()->NumRestarts();
+      usage = block_entry->GetValue()->ApproximateMemoryUsage();
+    }
     switch (block_type) {
       case BlockType::kIndex:
         lookup_context->block_type = TraceType::kBlockTraceIndexBlock;
@@ -2280,7 +2277,6 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         break;
       default:
         // This cannot happen.
-        assert(false);
         break;
     }
     lookup_context->block_key = key;
@@ -2288,6 +2284,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
     lookup_context->is_cache_hit = cache_hit;
     lookup_context->num_keys_in_block = nkeys;
     lookup_context->block_size = usage;
+    // May defer logging the access to Get() and MultiGet() to trace additional information, e.g., the referenced key, is_referenced_key_exist_in_block.
     if (!BlockCacheTraceWriter::ShouldTraceReferencedKey(
             lookup_context->block_type, lookup_context->caller)) {
       BlockCacheTraceRecord access_record;
@@ -3049,9 +3046,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           }
           BlockCacheTraceRecord access_record;
           FillBlockCacheAccessRecord(&access_record, lookup_data_block_context,
-                                     done, referenced_data_size);
+                                     /*is_referenced_key_exist=*/done, referenced_data_size);
           block_cache_tracer_->WriteBlockAccess(
-              access_record, key, rep_->table_properties->column_family_name,
+              access_record, lookup_data_block_context.block_key, rep_->table_properties->column_family_name,
               key);
         }
       }
@@ -3198,9 +3195,9 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           }
           BlockCacheTraceRecord access_record;
           FillBlockCacheAccessRecord(&access_record, lookup_data_block_context,
-                                     done, referenced_data_size);
+                                     /*is_referenced_key_exist=*/done, referenced_data_size);
           block_cache_tracer_->WriteBlockAccess(
-              access_record, key, rep_->table_properties->column_family_name,
+              access_record, lookup_data_block_context.block_key, rep_->table_properties->column_family_name,
               key);
         }
 
