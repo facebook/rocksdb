@@ -2260,11 +2260,6 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
                                 raw_block_comp_type, uncompression_dict, seq_no,
                                 GetMemoryAllocator(rep_->table_options),
                                 block_type, get_context);
-        if (block_entry->GetValue()) {
-          nkeys = rep_->table_options.block_restart_interval *
-                  block_entry->GetValue()->NumRestarts();
-          usage = block_entry->GetValue()->ApproximateMemoryUsage();
-        }
       }
     }
   }
@@ -2277,6 +2272,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
               block_entry->GetValue()->NumRestarts();
       usage = block_entry->GetValue()->ApproximateMemoryUsage();
     }
+
     TraceType trace_block_type = TraceType::kTraceMax;
     switch (block_type) {
       case BlockType::kIndex:
@@ -2290,7 +2286,6 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         break;
       default:
         // This cannot happen.
-        assert(false);
         break;
     }
     if (BlockCacheTraceWriter::ShouldTraceReferencedKey(
