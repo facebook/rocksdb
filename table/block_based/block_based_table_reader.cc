@@ -1995,7 +1995,6 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   if (return_empty_reader) {
     return CachableEntry<FilterBlockReader>();
   }
-
   return {filter, cache_handle ? block_cache : nullptr, cache_handle,
           /*own_value=*/false};
 }
@@ -2261,6 +2260,11 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
                                 raw_block_comp_type, uncompression_dict, seq_no,
                                 GetMemoryAllocator(rep_->table_options),
                                 block_type, get_context);
+        if (block_entry->GetValue()) {
+          nkeys = rep_->table_options.block_restart_interval *
+                  block_entry->GetValue()->NumRestarts();
+          usage = block_entry->GetValue()->ApproximateMemoryUsage();
+        }
       }
     }
   }

@@ -47,6 +47,13 @@ bool BlockCacheTraceWriter::ShouldTraceReferencedKey(
           caller == BlockCacheLookupCaller::kUserMGet);
 }
 
+bool BlockCacheTraceWriter::ShouldTraceReferencedKey(
+    TraceType block_type, BlockCacheLookupCaller caller) {
+  return (block_type == TraceType::kBlockTraceDataBlock) &&
+         (caller == BlockCacheLookupCaller::kUserGet ||
+          caller == BlockCacheLookupCaller::kUserMGet);
+}
+
 Status BlockCacheTraceWriter::WriteBlockAccess(
     const BlockCacheTraceRecord& record, const Slice& block_key,
     const Slice& cf_name, const Slice& referenced_key) {

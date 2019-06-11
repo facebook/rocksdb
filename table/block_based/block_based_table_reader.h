@@ -247,7 +247,6 @@ class BlockBasedTable : public TableReader {
  private:
   friend class MockedBlockBasedTable;
   static std::atomic<uint64_t> next_cache_key_id_;
-<<<<<<< HEAD
   BlockCacheTracer* const block_cache_tracer_;
 
   void FillBlockCacheAccessRecord(
@@ -257,10 +256,13 @@ class BlockBasedTable : public TableReader {
                                   const BlockCacheLookupContext& lookup_context,
                                   bool is_referenced_key_exist,
                                   uint64_t referenced_data_size) const;
-=======
-  // TODO(haoyu): Pass block_cache_tracer reference from db_impl to here.
-  BlockCacheTraceWriter* const block_cache_tracer_ = nullptr;
->>>>>>> Write block cache accesses
+
+  void FillBlockCacheAccessRecord(
+      BlockCacheTraceRecord* record,
+      const BlockCacheLookupContext& lookup_context) const;
+  void FillBlockCacheAccessRecord(BlockCacheTraceRecord* record,
+                                  const BlockCacheLookupContext& lookup_context,
+                                  bool is_referenced_key_exist, uint64_t referenced_data_size) const;
 
   void UpdateCacheHitMetrics(BlockType block_type, GetContext* get_context,
                              size_t usage) const;
