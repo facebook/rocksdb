@@ -77,6 +77,8 @@ struct BlockCacheTraceHeader {
   uint32_t rocksdb_minor_version;
 };
 
+bool ShouldTraceReferencedKey(const BlockCacheTraceRecord& record);
+
 // BlockCacheTraceWriter captures all RocksDB block cache accesses using a
 // user-provided TraceWriter. Every RocksDB operation is written as a single
 // trace. Each trace will have a timestamp and type, followed by the trace

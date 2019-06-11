@@ -562,6 +562,7 @@ TESTS = \
 	sst_file_reader_test \
 	db_secondary_test \
 	block_cache_tracer_test \
+	block_cache_trace_analyzer_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -1590,6 +1591,9 @@ db_secondary_test: db/db_impl/db_secondary_test.o db/db_test_util.o $(LIBOBJECTS
 	$(AM_LINK)
 
 block_cache_tracer_test: trace_replay/block_cache_tracer_test.o trace_replay/block_cache_tracer.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+block_cache_trace_analyzer_test: tools/block_cache_trace_analyzer_test.o tools/block_cache_trace_analyzer.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

@@ -621,6 +621,7 @@ set(SOURCES
         test_util/sync_point_impl.cc
         test_util/testutil.cc
         test_util/transaction_test_util.cc
+        tools/block_cache_trace_analyzer.cc
         tools/db_bench_tool.cc
         tools/dump/db_dump_tool.cc
         tools/ldb_cmd.cc
@@ -966,6 +967,7 @@ if(WITH_TESTS)
         table/merger_test.cc
         table/sst_file_reader_test.cc
         table/table_test.cc
+        tools/block_cache_trace_analyzer_test.cc
         tools/ldb_cmd_test.cc
         tools/reduce_levels_test.cc
         tools/sst_dump_test.cc
