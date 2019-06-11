@@ -81,11 +81,14 @@ TEST(PreparedHeap, BasicsTest) {
   ASSERT_EQ(64l, heap.top());
   heap.erase(84l);
   ASSERT_EQ(64l, heap.top());
-  heap.push(85l);
-  heap.push(86l);
-  heap.push(87l);
-  heap.push(88l);
-  heap.push(89l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(85l);
+    heap.push(86l);
+    heap.push(87l);
+    heap.push(88l);
+    heap.push(89l);
+  }
   heap.erase(87l);
   heap.erase(85l);
   heap.erase(89l);
@@ -106,13 +109,19 @@ TEST(PreparedHeap, BasicsTest) {
 // not resurface again.
 TEST(PreparedHeap, EmptyAtTheEnd) {
   WritePreparedTxnDB::PreparedHeap heap;
-  heap.push(40l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(40l);
+  }
   ASSERT_EQ(40l, heap.top());
   // Although not a recommended scenario, we must be resilient against erase
   // without a prior push.
   heap.erase(50l);
   ASSERT_EQ(40l, heap.top());
-  heap.push(60l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(60l);
+  }
   ASSERT_EQ(40l, heap.top());
 
   heap.erase(60l);
@@ -120,11 +129,17 @@ TEST(PreparedHeap, EmptyAtTheEnd) {
   heap.erase(40l);
   ASSERT_TRUE(heap.empty());
 
-  heap.push(40l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(40l);
+  }
   ASSERT_EQ(40l, heap.top());
   heap.erase(50l);
   ASSERT_EQ(40l, heap.top());
-  heap.push(60l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(60l);
+  }
   ASSERT_EQ(40l, heap.top());
 
   heap.erase(40l);

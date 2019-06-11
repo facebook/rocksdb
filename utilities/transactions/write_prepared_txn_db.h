@@ -532,6 +532,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     // Returns kMaxSequenceNumber if empty() and the smallest otherwise.
     inline uint64_t top() { return heap_top_.load(std::memory_order_acquire); }
     inline void push(uint64_t v) {
+      push_pop_mutex_.AssertHeld();
       if (heap_.empty()) {
         heap_top_.store(v, std::memory_order_release);
       } else {
@@ -543,6 +544,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       if (!locked) {
         push_pop_mutex()->Lock();
       }
+      push_pop_mutex_.AssertHeld();
       heap_.pop_front();
       while (!heap_.empty() && !erased_heap_.empty() &&
              // heap_.top() > erased_heap_.top() could happen if we have erased
