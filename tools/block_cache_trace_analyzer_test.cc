@@ -37,6 +37,10 @@ class BlockCacheTracerTest : public testing::Test {
   }
 
   ~BlockCacheTracerTest() override {
+    if (getenv("KEEP_DB")) {
+      printf("The trace file is still at %s\n", trace_file_path_.c_str());
+      return;
+    }
     EXPECT_OK(env_->DeleteFile(trace_file_path_));
     EXPECT_OK(env_->DeleteDir(test_path_));
   }
@@ -55,7 +59,9 @@ class BlockCacheTracerTest : public testing::Test {
       case 4:
         return BlockCacheLookupCaller::kUserIterator;
     }
+    // This cannot happend.
     assert(false);
+    return BlockCacheLookupCaller::kUserGet;
   }
 
   void WriteBlockAccess(BlockCacheTraceWriter* writer, uint32_t from_key_id,
