@@ -16,6 +16,7 @@
 
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/statistics.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
@@ -26,8 +27,6 @@
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
-#include "test_util/sync_point.h"
-#include "table/block_based/block_based_table_reader.h"
 
 namespace rocksdb {
 

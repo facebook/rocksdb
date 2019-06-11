@@ -170,7 +170,6 @@ class RandomAccessFileReader {
   std::string file_name() const { return file_name_; }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
-
 };
 
 // WritableFileWriter is a wrapper on top of Env::WritableFile. It provides
@@ -347,7 +346,7 @@ class FilePrefetchBuffer {
   // n      : the number of bytes to read.
   // for_compaction : if prefetch is done for compaction read.
   Status Prefetch(RandomAccessFileReader* reader, uint64_t offset, size_t n,
-		  	  	  bool for_compaction = false);
+                  bool for_compaction = false);
 
   // Tries returning the data for a file raed from this buffer, if that data is
   // in the buffer.
@@ -360,7 +359,7 @@ class FilePrefetchBuffer {
   // result : output buffer to put the data into.
   // for_compaction : if cache read is done for compaction read.
   bool TryReadFromCache(uint64_t offset, size_t n, Slice* result,
-		  	  	  	  	bool for_compaction = false);
+                        bool for_compaction = false);
 
   // The minimum `offset` ever passed to TryReadFromCache(). This will nly be
   // tracked if track_min_offset = true.

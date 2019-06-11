@@ -1907,7 +1907,7 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 
   if (!is_a_filter_partition && rep_->filter_entry.IsCached()) {
     return {rep_->filter_entry.GetValue(), /*cache=*/nullptr,
-    /*cache_handle=*/nullptr, /*own_value=*/false};
+            /*cache_handle=*/nullptr, /*own_value=*/false};
   }
 
   PERF_TIMER_GUARD(read_filter_block_nanos);
@@ -2299,7 +2299,8 @@ Status BlockBasedTable::RetrieveBlock(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
     CachableEntry<Block>* block_entry, BlockType block_type,
-    GetContext* get_context, BlockCacheLookupContext* lookup_context, bool for_compaction) const {
+    GetContext* get_context, BlockCacheLookupContext* lookup_context,
+    bool for_compaction) const {
   assert(block_entry);
   assert(block_entry->IsEmpty());
 
@@ -2726,7 +2727,8 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
     table_->NewDataBlockIterator<TBlockIter>(
         read_options_, data_block_handle, &block_iter_, block_type_,
         key_includes_seq_, index_key_is_full_,
-        /*get_context=*/nullptr, &lookup_context_, s, prefetch_buffer_.get(), for_compaction_);
+        /*get_context=*/nullptr, &lookup_context_, s, prefetch_buffer_.get(),
+        for_compaction_);
     block_iter_points_to_real_block_ = true;
   }
 }
@@ -2812,7 +2814,8 @@ void BlockBasedTableIterator<TBlockIter, TValue>::CheckOutOfBound() {
 
 InternalIterator* BlockBasedTable::NewIterator(
     const ReadOptions& read_options, const SliceTransform* prefix_extractor,
-    Arena* arena, bool skip_filters, bool for_compaction, size_t compaction_readahead_size) {
+    Arena* arena, bool skip_filters, bool for_compaction,
+    size_t compaction_readahead_size) {
   BlockCacheLookupContext lookup_context{
       for_compaction ? BlockCacheLookupCaller::kCompaction
                      : BlockCacheLookupCaller::kUserIterator};

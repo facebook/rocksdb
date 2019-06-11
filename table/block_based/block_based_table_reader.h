@@ -131,7 +131,8 @@ class BlockBasedTable : public TableReader {
       // i.e., it will populate the block cache with blocks in the new SST
       // files. We treat those as a user is calling iterator for now. We should
       // differentiate the callers.
-      bool for_compaction = false, size_t compaction_readahead_size = 0) override;
+      bool for_compaction = false,
+      size_t compaction_readahead_size = 0) override;
 
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
@@ -284,7 +285,7 @@ class BlockBasedTable : public TableReader {
                        CachableEntry<Block>* block_entry, BlockType block_type,
                        GetContext* get_context,
                        BlockCacheLookupContext* lookup_context,
-					   bool for_compaction = false) const;
+                       bool for_compaction = false) const;
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file
@@ -623,7 +624,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
         key_includes_seq_(key_includes_seq),
         index_key_is_full_(index_key_is_full),
         for_compaction_(for_compaction),
-		compaction_readahead_size_(compaction_readahead_size),
+        compaction_readahead_size_(compaction_readahead_size),
         lookup_context_(for_compaction
                             ? BlockCacheLookupCaller::kCompaction
                             : BlockCacheLookupCaller::kUserIterator) {}
