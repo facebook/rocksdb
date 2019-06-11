@@ -572,13 +572,16 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     // Concurrrent calls needs external synchronization. It is safe to be called
     // concurrent to push and pop though.
     void erase(uint64_t seq) {
-      if (!heap_.empty()) {
+      if (!empty()) {
         auto top_seq = top();
         if (seq < top_seq) {
           // Already popped, ignore it.
         } else if (top_seq == seq) {
           pop();
+#ifndef NDEBUG
+          MutexLock ml(push_pop_mutex());
           assert(heap_.empty() || heap_.front() != seq);
+#endif
         } else {  // top() > seq
           // Down the heap, remember to pop it later
           erased_heap_.push(seq);
