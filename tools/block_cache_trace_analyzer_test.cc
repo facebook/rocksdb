@@ -91,7 +91,8 @@ class BlockCacheTracerTest : public testing::Test {
       record.referenced_key = kRefKeyPrefix + std::to_string(key_id);
       record.is_referenced_key_exist_in_block = Boolean::kTrue;
       record.num_keys_in_block = kNumKeysInBlock;
-      ASSERT_OK(writer->WriteBlockAccess(record));
+      ASSERT_OK(writer->WriteBlockAccess(
+          record, record.block_key, record.cf_name, record.referenced_key));
     }
   }
 
