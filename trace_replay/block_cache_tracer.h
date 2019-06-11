@@ -112,6 +112,8 @@ class BlockCacheTraceWriter {
   static bool ShouldTraceReferencedKey(TraceType block_type,
                                        BlockCacheLookupCaller caller);
 
+  static const std::string kUnknownColumnFamilyName;
+
  private:
   bool ShouldTrace(const BlockCacheTraceRecord& record) const;
 
