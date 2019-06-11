@@ -761,6 +761,147 @@ TEST_P(WritePreparedTransactionTest, MaybeUpdateOldCommitMap) {
   MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
 }
 
+// Trigger the condition where some old memtables are skipped when doing
+// TransactionUtil::CheckKey(), and make sure the result is still correct.
+TEST_P(WritePreparedTransactionTest, CheckKeySkipOldMemtable) {
+  const int kAttemptHistoryMemtable = 0;
+  const int kAttemptImmMemTable = 1;
+  for (int attempt = kAttemptHistoryMemtable; attempt <= kAttemptImmMemTable;
+       attempt++) {
+    options.max_write_buffer_number_to_maintain = 3;
+    ReOpen();
+
+    WriteOptions write_options;
+    ReadOptions read_options;
+    TransactionOptions txn_options;
+    txn_options.set_snapshot = true;
+    string value;
+    Status s;
+
+    ASSERT_OK(db->Put(write_options, Slice("foo"), Slice("bar")));
+    ASSERT_OK(db->Put(write_options, Slice("foo2"), Slice("bar")));
+
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    ASSERT_TRUE(txn != nullptr);
+    ASSERT_OK(txn->SetName("txn"));
+
+    Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+    ASSERT_TRUE(txn2 != nullptr);
+    ASSERT_OK(txn2->SetName("txn2"));
+
+    // This transaction is created to cause potential conflict.
+    Transaction* txn_x = db->BeginTransaction(write_options);
+    ASSERT_OK(txn_x->SetName("txn_x"));
+    ASSERT_OK(txn_x->Put(Slice("foo"), Slice("bar3")));
+    ASSERT_OK(txn_x->Prepare());
+
+    // Create snapshots after the prepare, but there should still
+    // be a conflict when trying to read "foo".
+
+    if (attempt == kAttemptImmMemTable) {
+      // For the second attempt, hold flush from beginning. The memtable
+      // will be switched to immutable after calling TEST_SwitchMemtable()
+      // while CheckKey() is called.
+      rocksdb::SyncPoint::GetInstance()->LoadDependency(
+          {{"WritePreparedTransactionTest.CheckKeySkipOldMemtable",
+            "FlushJob::Start"}});
+      rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    }
+
+    // force a memtable flush. The memtable should still be kept
+    FlushOptions flush_ops;
+    if (attempt == kAttemptHistoryMemtable) {
+      ASSERT_OK(db->Flush(flush_ops));
+    } else {
+      assert(attempt == kAttemptImmMemTable);
+      DBImpl* db_impl = static_cast<DBImpl*>(db->GetRootDB());
+      db_impl->TEST_SwitchMemtable();
+    }
+    uint64_t num_imm_mems;
+    ASSERT_TRUE(db->GetIntProperty(DB::Properties::kNumImmutableMemTable,
+                                   &num_imm_mems));
+    if (attempt == kAttemptHistoryMemtable) {
+      ASSERT_EQ(0, num_imm_mems);
+    } else {
+      assert(attempt == kAttemptImmMemTable);
+      ASSERT_EQ(1, num_imm_mems);
+    }
+
+    // Put something in active memtable
+    ASSERT_OK(db->Put(write_options, Slice("foo3"), Slice("bar")));
+
+    // Create txn3 after flushing, but this transaction also needs to
+    // check all memtables because of they contains uncommitted data.
+    Transaction* txn3 = db->BeginTransaction(write_options, txn_options);
+    ASSERT_TRUE(txn3 != nullptr);
+    ASSERT_OK(txn3->SetName("txn3"));
+
+    // Commit the pending write
+    ASSERT_OK(txn_x->Commit());
+
+    // Commit txn, txn2 and tx3. txn and tx3 will conflict but txn2 will
+    // pass. In all cases, both memtables are queried.
+    SetPerfLevel(PerfLevel::kEnableCount);
+    get_perf_context()->Reset();
+    ASSERT_TRUE(txn3->GetForUpdate(read_options, "foo", &value).IsBusy());
+    // We should have checked two memtables, active and either immutable
+    // or history memtable, depending on the test case.
+    ASSERT_EQ(2, get_perf_context()->get_from_memtable_count);
+
+    get_perf_context()->Reset();
+    ASSERT_TRUE(txn->GetForUpdate(read_options, "foo", &value).IsBusy());
+    // We should have checked two memtables, active and either immutable
+    // or history memtable, depending on the test case.
+    ASSERT_EQ(2, get_perf_context()->get_from_memtable_count);
+
+    get_perf_context()->Reset();
+    ASSERT_OK(txn2->GetForUpdate(read_options, "foo2", &value));
+    ASSERT_EQ(value, "bar");
+    // We should have checked two memtables, and since there is no
+    // conflict, another Get() will be made and fetch the data from
+    // DB. If it is in immutable memtable, two extra memtable reads
+    // will be issued. If it is not (in history), only one will
+    // be made, which is to the active memtable.
+    if (attempt == kAttemptHistoryMemtable) {
+      ASSERT_EQ(3, get_perf_context()->get_from_memtable_count);
+    } else {
+      assert(attempt == kAttemptImmMemTable);
+      ASSERT_EQ(4, get_perf_context()->get_from_memtable_count);
+    }
+
+    Transaction* txn4 = db->BeginTransaction(write_options, txn_options);
+    ASSERT_TRUE(txn4 != nullptr);
+    ASSERT_OK(txn4->SetName("txn4"));
+    get_perf_context()->Reset();
+    ASSERT_OK(txn4->GetForUpdate(read_options, "foo", &value));
+    if (attempt == kAttemptHistoryMemtable) {
+      // Active memtable will be checked in snapshot validation and when
+      // getting the value.
+      ASSERT_EQ(2, get_perf_context()->get_from_memtable_count);
+    } else {
+      // Only active memtable will be checked in snapshot validation but
+      // both of active and immutable snapshot will be queried when
+      // getting the value.
+      assert(attempt == kAttemptImmMemTable);
+      ASSERT_EQ(3, get_perf_context()->get_from_memtable_count);
+    }
+
+    ASSERT_OK(txn2->Commit());
+    ASSERT_OK(txn4->Commit());
+
+    TEST_SYNC_POINT("WritePreparedTransactionTest.CheckKeySkipOldMemtable");
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+    SetPerfLevel(PerfLevel::kDisable);
+
+    delete txn;
+    delete txn2;
+    delete txn3;
+    delete txn4;
+    delete txn_x;
+  }
+}
+
 // Reproduce the bug with two snapshots with the same seuqence number and test
 // that the release of the first snapshot will not affect the reads by the other
 // snapshot

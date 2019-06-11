@@ -3412,7 +3412,9 @@ SequenceNumber DBImpl::GetEarliestMemTableSequenceNumber(SuperVersion* sv,
 
 #ifndef ROCKSDB_LITE
 Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
-                                       bool cache_only, SequenceNumber* seq,
+                                       bool cache_only,
+                                       SequenceNumber lower_bound_seq,
+                                       SequenceNumber* seq,
                                        bool* found_record_for_key,
                                        bool* is_blob_index) {
   Status s;
@@ -3445,6 +3447,13 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
     return Status::OK();
   }
 
+  SequenceNumber lower_bound_in_mem = sv->mem->GetEarliestSequenceNumber();
+  if (lower_bound_in_mem != kMaxSequenceNumber &&
+      lower_bound_in_mem < lower_bound_seq) {
+    *found_record_for_key = false;
+    return Status::OK();
+  }
+
   // Check if there is a record for this key in the immutable memtables
   sv->imm->Get(lkey, nullptr, &s, &merge_context, &max_covering_tombstone_seq,
                seq, read_options, nullptr /*read_callback*/, is_blob_index);
@@ -3461,6 +3470,13 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   if (*seq != kMaxSequenceNumber) {
     // Found a sequence number, no need to check memtable history
     *found_record_for_key = true;
+    return Status::OK();
+  }
+
+  SequenceNumber lower_bound_in_imm = sv->imm->GetEarliestSequenceNumber();
+  if (lower_bound_in_imm != kMaxSequenceNumber &&
+      lower_bound_in_imm < lower_bound_seq) {
+    *found_record_for_key = false;
     return Status::OK();
   }
 
@@ -3484,6 +3500,10 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
     *found_record_for_key = true;
     return Status::OK();
   }
+
+  // We could do a sv->imm->GetEarliestSequenceNumber(/*include_history*/ true)
+  // check here to skip the history if possible. But currently the caller
+  // already does that. Maybe we should move the logic here later.
 
   // TODO(agiardullo): possible optimization: consider checking cached
   // SST files if cache_only=true?

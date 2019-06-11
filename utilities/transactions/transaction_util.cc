@@ -52,6 +52,12 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
                                  const std::string& key, bool cache_only,
                                  ReadCallback* snap_checker,
                                  SequenceNumber min_uncommitted) {
+  // When `min_uncommitted` is provided, keys are not always committed
+  // in sequence number order, and `snap_checker` is used to check whether
+  // specific sequence number is in the database is visible to the transaction.
+  // So `snap_checker` must be provided.
+  assert(min_uncommitted == kMaxSequenceNumber || snap_checker != nullptr);
+
   Status result;
   bool need_to_read_sst = false;
 
@@ -100,8 +106,19 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
     SequenceNumber seq = kMaxSequenceNumber;
     bool found_record_for_key = false;
 
+    // When min_uncommitted == kMaxSequenceNumber, writes are committed in
+    // sequence number order, so only keys larger than `snap_seq` can cause
+    // conflict.
+    // When min_uncommitted != kMaxSequenceNumber, keys lower than
+    // min_uncommitted will not triggered conflicts, while keys larger than
+    // min_uncommitted might create conflicts, so we need  to read them out
+    // from the DB, and call callback to snap_checker to determine. So only
+    // keys lower than min_uncommitted can be skipped.
+    SequenceNumber lower_bound_seq =
+        (min_uncommitted == kMaxSequenceNumber) ? snap_seq : min_uncommitted;
     Status s = db_impl->GetLatestSequenceForKey(sv, key, !need_to_read_sst,
-                                                &seq, &found_record_for_key);
+                                                lower_bound_seq, &seq,
+                                                &found_record_for_key);
 
     if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
       result = s;
