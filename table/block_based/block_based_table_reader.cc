@@ -2272,7 +2272,6 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
               block_entry->GetValue()->NumRestarts();
       usage = block_entry->GetValue()->ApproximateMemoryUsage();
     }
-
     TraceType trace_block_type = TraceType::kTraceMax;
     switch (block_type) {
       case BlockType::kIndex:
@@ -2286,6 +2285,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         break;
       default:
         // This cannot happen.
+        assert(false);
         break;
     }
     if (BlockCacheTraceWriter::ShouldTraceReferencedKey(
