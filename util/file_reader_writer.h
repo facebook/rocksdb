@@ -345,6 +345,7 @@ class FilePrefetchBuffer {
   // reader : the file reader.
   // offset : the file offset to start reading from.
   // n      : the number of bytes to read.
+  // for_compaction : if prefetch is done for compaction read.
   Status Prefetch(RandomAccessFileReader* reader, uint64_t offset, size_t n,
 		  	  	  bool for_compaction = false);
 
@@ -357,6 +358,7 @@ class FilePrefetchBuffer {
   // offset : the file offset.
   // n      : the number of bytes.
   // result : output buffer to put the data into.
+  // for_compaction : if cache read is done for compaction read.
   bool TryReadFromCache(uint64_t offset, size_t n, Slice* result,
 		  	  	  	  	bool for_compaction = false);
 

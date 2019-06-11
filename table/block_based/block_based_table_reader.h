@@ -737,7 +737,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   bool index_key_is_full_;
   // If this iterator is created for compaction
   bool for_compaction_;
-
+  // Readahead size used in compaction
   size_t compaction_readahead_size_;
   BlockHandle prev_index_value_;
   BlockCacheLookupContext lookup_context_;
