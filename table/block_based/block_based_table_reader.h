@@ -35,6 +35,7 @@
 #include "table/table_properties_internal.h"
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
+#include "trace_replay/block_cache_tracer.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/user_comparator_wrapper.h"
@@ -244,6 +245,8 @@ class BlockBasedTable : public TableReader {
  private:
   friend class MockedBlockBasedTable;
   static std::atomic<uint64_t> next_cache_key_id_;
+  // TODO(haoyu): Pass block_cache_tracer reference from db_impl to here.
+  BlockCacheTraceWriter* const block_cache_tracer_ = nullptr;
 
   void UpdateCacheHitMetrics(BlockType block_type, GetContext* get_context,
                              size_t usage) const;
