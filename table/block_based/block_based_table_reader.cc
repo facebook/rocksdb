@@ -1995,6 +1995,7 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   if (return_empty_reader) {
     return CachableEntry<FilterBlockReader>();
   }
+
   return {filter, cache_handle ? block_cache : nullptr, cache_handle,
           /*own_value=*/false};
 }
