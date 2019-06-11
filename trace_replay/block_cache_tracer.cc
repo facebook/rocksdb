@@ -17,6 +17,9 @@ namespace {
 const unsigned int kCharSize = 1;
 }  // namespace
 
+const std::string BlockCacheTraceWriter::kUnknownColumnFamilyName =
+    "UnknownColumnFamily";
+
 BlockCacheTraceWriter::BlockCacheTraceWriter(
     Env* env, const TraceOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer)
