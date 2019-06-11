@@ -1884,7 +1884,11 @@ void BlockBasedTable::FillBlockCacheAccessRecord(
   record->block_type = lookup_context.block_type;
   record->block_size = lookup_context.block_size;
   record->cf_id = rep_->table_properties->column_family_id;
-  record->level = rep_->level;
+  if (rep_->level < 0) {
+    record->level = UINT32_MAX;
+  } else {
+    record->level = rep_->level;
+  }
   record->sst_fd_number = TableFileNameToNumber(rep_->file->file_name());
   record->caller = lookup_context.caller;
   record->is_cache_hit =
@@ -2283,7 +2287,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
     lookup_context->is_cache_hit = cache_hit;
     lookup_context->num_keys_in_block = nkeys;
     lookup_context->block_size = usage;
-    // May defer logging the access to Get() and MultiGet() to trace additional information, e.g., the referenced key, is_referenced_key_exist_in_block.
+    // May defer logging the access to Get() and MultiGet() to trace additional
+    // information, e.g., the referenced key, is_referenced_key_exist_in_block.
     if (!BlockCacheTraceWriter::ShouldTraceReferencedKey(
             lookup_context->block_type, lookup_context->caller)) {
       BlockCacheTraceRecord access_record;
@@ -3037,10 +3042,11 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           }
           BlockCacheTraceRecord access_record;
           FillBlockCacheAccessRecord(&access_record, lookup_data_block_context,
-                                     /*is_referenced_key_exist=*/done, referenced_data_size);
+                                     /*is_referenced_key_exist=*/done,
+                                     referenced_data_size);
           block_cache_tracer_->WriteBlockAccess(
-              access_record, lookup_data_block_context.block_key, rep_->table_properties->column_family_name,
-              key);
+              access_record, lookup_data_block_context.block_key,
+              rep_->table_properties->column_family_name, key);
         }
       }
 
@@ -3186,10 +3192,11 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           }
           BlockCacheTraceRecord access_record;
           FillBlockCacheAccessRecord(&access_record, lookup_data_block_context,
-                                     /*is_referenced_key_exist=*/done, referenced_data_size);
+                                     /*is_referenced_key_exist=*/done,
+                                     referenced_data_size);
           block_cache_tracer_->WriteBlockAccess(
-              access_record, lookup_data_block_context.block_key, rep_->table_properties->column_family_name,
-              key);
+              access_record, lookup_data_block_context.block_key,
+              rep_->table_properties->column_family_name, key);
         }
 
         if (done) {
