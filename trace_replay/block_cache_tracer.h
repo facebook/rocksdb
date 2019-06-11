@@ -47,12 +47,15 @@ struct BlockCacheLookupContext {
   BlockCacheLookupContext(const BlockCacheLookupCaller& _caller)
       : caller(_caller) {}
   const BlockCacheLookupCaller caller;
-  // Information related to the lookup.
-  Slice block_key;
+  // Required information related to the lookup.
   bool is_cache_hit;
   bool no_insert;
   TraceType block_type;
   uint64_t block_size;
+
+  // Required information only for tracing at BlockBasedTable::GET and
+  // BlockBasedTable::MultiGet.
+  std::string block_key;
   uint64_t num_keys_in_block;
 };
 
@@ -102,7 +105,7 @@ class BlockCacheTraceWriter {
   BlockCacheTraceWriter(BlockCacheTraceWriter&&) = delete;
   BlockCacheTraceWriter& operator=(BlockCacheTraceWriter&&) = delete;
 
-  // Pass Slice reference to avoid copy.
+  // Pass Slice references to avoid copy.
   Status WriteBlockAccess(const BlockCacheTraceRecord& record,
                           const Slice& block_key, const Slice& cf_name,
                           const Slice& referenced_key);

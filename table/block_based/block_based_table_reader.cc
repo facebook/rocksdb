@@ -1981,7 +1981,6 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 
   if (block_cache_tracer_ && lookup_context) {
     BlockCacheTraceRecord access_record;
-    lookup_context->block_key = key;
     lookup_context->no_insert = no_io;
     lookup_context->is_cache_hit = cache_hit;
     lookup_context->block_size = usage;
@@ -2064,7 +2063,6 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
   }
   if (block_cache_tracer_ && lookup_context) {
     BlockCacheTraceRecord access_record;
-    lookup_context->block_key = cache_key;
     lookup_context->no_insert = no_io;
     lookup_context->is_cache_hit = is_cache_hit;
     lookup_context->block_size = usage;
@@ -2290,15 +2288,19 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         // This cannot happen.
         break;
     }
-    lookup_context->block_key = key;
     lookup_context->no_insert = no_insert;
     lookup_context->is_cache_hit = is_cache_hit;
-    lookup_context->num_keys_in_block = nkeys;
     lookup_context->block_size = usage;
-    // May defer logging the access to Get() and MultiGet() to trace additional
-    // information, e.g., the referenced key, is_referenced_key_exist_in_block.
-    if (!BlockCacheTraceWriter::ShouldTraceReferencedKey(
+    if (BlockCacheTraceWriter::ShouldTraceReferencedKey(
             lookup_context->block_type, lookup_context->caller)) {
+      // Defer logging the access to Get() and MultiGet() to trace additional
+      // information, e.g., the referenced key,
+      // is_referenced_key_exist_in_block.
+
+      // Make a copy of the block key here since it will be logged later.
+      lookup_context->block_key = key.ToString();
+      lookup_context->num_keys_in_block = nkeys;
+    } else {
       BlockCacheTraceRecord access_record;
       FillBlockCacheAccessRecord(&access_record, *lookup_context);
       block_cache_tracer_->WriteBlockAccess(
