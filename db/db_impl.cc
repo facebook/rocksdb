@@ -1026,10 +1026,13 @@ int DBImpl::FindMinimumEmptyLevelFitting(
 
 Status DBImpl::FlushWAL(bool sync) {
   if (manual_wal_flush_) {
-    // We need to lock log_write_mutex_ since logs_ might change concurrently
-    InstrumentedMutexLock wl(&log_write_mutex_);
-    log::Writer* cur_log_writer = logs_.back().writer;
-    auto s = cur_log_writer->WriteBuffer();
+    Status s;
+    {
+      // We need to lock log_write_mutex_ since logs_ might change concurrently
+      InstrumentedMutexLock wl(&log_write_mutex_);
+      log::Writer* cur_log_writer = logs_.back().writer;
+      s = cur_log_writer->WriteBuffer();
+    }
     if (!s.ok()) {
       ROCKS_LOG_ERROR(immutable_db_options_.info_log, "WAL flush error %s",
                       s.ToString().c_str());
