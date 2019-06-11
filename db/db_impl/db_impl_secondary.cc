@@ -60,6 +60,12 @@ Status DBImplSecondary::Recover(
     s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
   }
 
+  if (s.IsPathNotFound()) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Secondary tries to read WAL, but WAL file(s) have already "
+                   "been purged by primary.");
+    s = Status::OK();
+  }
   // TODO: update options_file_number_ needed?
 
   job_context.Clean();
@@ -474,6 +480,12 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   // instance
   if (s.ok()) {
     s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
+  }
+  if (s.IsPathNotFound()) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Secondary tries to read WAL, but WAL file(s) have already "
+                   "been purged by primary.");
+    s = Status::OK();
   }
   if (s.ok()) {
     for (auto cfd : cfds_changed) {
