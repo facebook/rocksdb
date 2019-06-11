@@ -1947,13 +1947,13 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 
   FilterBlockReader* filter = nullptr;
   size_t usage = 0;
-  bool cache_hit = false;
+  bool is_cache_hit = false;
   bool return_empty_reader = false;
   if (cache_handle != nullptr) {
     filter =
         reinterpret_cast<FilterBlockReader*>(block_cache->Value(cache_handle));
     usage = filter->ApproximateMemoryUsage();
-    cache_hit = true;
+    is_cache_hit = true;
   } else if (no_io) {
     // Do not invoke any io.
     return_empty_reader = true;
@@ -1980,10 +1980,9 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 
   if (block_cache_tracer_ && lookup_context) {
     BlockCacheTraceRecord access_record;
-    lookup_context->no_insert = no_io;
-    lookup_context->is_cache_hit = cache_hit;
-    lookup_context->block_size = usage;
-    lookup_context->block_type = TraceType::kBlockTraceFilterBlock;
+    lookup_context->FillLookupContext(is_cache_hit, /*no_insert=*/no_io,
+                                      TraceType::kBlockTraceFilterBlock,
+                                      /*block_size=*/usage);
     FillBlockCacheAccessRecord(&access_record, *lookup_context);
     block_cache_tracer_->WriteBlockAccess(
         access_record, key,
@@ -2062,10 +2061,10 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
   }
   if (block_cache_tracer_ && lookup_context) {
     BlockCacheTraceRecord access_record;
-    lookup_context->no_insert = no_io;
-    lookup_context->is_cache_hit = is_cache_hit;
-    lookup_context->block_size = usage;
-    lookup_context->block_type = TraceType::kBlockTraceUncompressionDictBlock;
+    lookup_context->FillLookupContext(
+        is_cache_hit, /*no_insert=*/no_io,
+        TraceType::kBlockTraceUncompressionDictBlock,
+        /*block_size=*/usage);
     FillBlockCacheAccessRecord(&access_record, *lookup_context);
     block_cache_tracer_->WriteBlockAccess(
         access_record, cache_key,
@@ -2273,34 +2272,37 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
               block_entry->GetValue()->NumRestarts();
       usage = block_entry->GetValue()->ApproximateMemoryUsage();
     }
+    TraceType trace_block_type = TraceType::kTraceMax;
     switch (block_type) {
       case BlockType::kIndex:
-        lookup_context->block_type = TraceType::kBlockTraceIndexBlock;
+        trace_block_type = TraceType::kBlockTraceIndexBlock;
         break;
       case BlockType::kData:
-        lookup_context->block_type = TraceType::kBlockTraceDataBlock;
+        trace_block_type = TraceType::kBlockTraceDataBlock;
         break;
       case BlockType::kRangeDeletion:
-        lookup_context->block_type = TraceType::kBlockTraceRangeDeletionBlock;
+        trace_block_type = TraceType::kBlockTraceRangeDeletionBlock;
         break;
       default:
         // This cannot happen.
+        assert(false);
         break;
     }
-    lookup_context->no_insert = no_insert;
-    lookup_context->is_cache_hit = is_cache_hit;
-    lookup_context->block_size = usage;
     if (BlockCacheTraceWriter::ShouldTraceReferencedKey(
-            lookup_context->block_type, lookup_context->caller)) {
+            trace_block_type, lookup_context->caller)) {
       // Defer logging the access to Get() and MultiGet() to trace additional
       // information, e.g., the referenced key,
       // is_referenced_key_exist_in_block.
 
       // Make a copy of the block key here since it will be logged later.
-      lookup_context->block_key = key.ToString();
-      lookup_context->num_keys_in_block = nkeys;
+      lookup_context->FillLookupContext(
+          is_cache_hit, no_insert, trace_block_type,
+          /*block_size=*/usage, /*block_key=*/key.ToString(), nkeys);
     } else {
       BlockCacheTraceRecord access_record;
+      lookup_context->FillLookupContext(is_cache_hit, no_insert,
+                                        trace_block_type,
+                                        /*block_size=*/usage);
       FillBlockCacheAccessRecord(&access_record, *lookup_context);
       block_cache_tracer_->WriteBlockAccess(
           access_record, key,
