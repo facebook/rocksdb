@@ -14,7 +14,7 @@
 namespace rocksdb {
 
 // Statistics of a block.
-struct BlockStats {
+struct BlockAccessInfo {
   uint64_t num_accesses = 0;
   uint64_t block_size = 0;
   uint64_t first_access_time = 0;
@@ -49,19 +49,19 @@ struct BlockStats {
 };
 
 // Aggregates stats of a block given a block type.
-struct BlockTypeAggregate {
-  std::map<std::string, BlockStats> block_stats_map;
+struct BlockTypeAccessInfoAggregate {
+  std::map<std::string, BlockAccessInfo> block_access_info_map;
 };
 
 // Aggregates BlockTypeAggregate given a SST file.
-struct SSTFileAggregate {
+struct SSTFileAccessInfoAggregate {
   uint32_t level;
-  std::map<TraceType, BlockTypeAggregate> block_type_aggregates_map;
+  std::map<TraceType, BlockTypeAccessInfoAggregate> block_type_aggregates_map;
 };
 
 // Aggregates SSTFileAggregate given a column family.
-struct ColumnFamilyAggregate {
-  std::map<uint64_t, SSTFileAggregate> fd_aggregates_map;
+struct ColumnFamilyAccessInfoAggregate {
+  std::map<uint64_t, SSTFileAccessInfoAggregate> fd_aggregates_map;
 };
 
 class BlockCacheTraceAnalyzer {
@@ -114,8 +114,8 @@ class BlockCacheTraceAnalyzer {
   // accesses on keys exist in a data block and its break down by column family.
   void PrintDataBlockAccessStats() const;
 
-  const std::map<std::string, ColumnFamilyAggregate>& TEST_cf_aggregates_map()
-      const {
+  const std::map<std::string, ColumnFamilyAccessInfoAggregate>&
+  TEST_cf_aggregates_map() const {
     return cf_aggregates_map_;
   }
 
@@ -125,7 +125,7 @@ class BlockCacheTraceAnalyzer {
   rocksdb::Env* env_;
   std::string trace_file_path_;
   BlockCacheTraceHeader header_;
-  std::map<std::string, ColumnFamilyAggregate> cf_aggregates_map_;
+  std::map<std::string, ColumnFamilyAccessInfoAggregate> cf_aggregates_map_;
 };
 
 }  // namespace rocksdb

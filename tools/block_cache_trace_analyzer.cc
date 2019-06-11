@@ -58,13 +58,15 @@ BlockCacheTraceAnalyzer::BlockCacheTraceAnalyzer(
 
 void BlockCacheTraceAnalyzer::RecordAccess(
     const BlockCacheTraceRecord& access) {
-  ColumnFamilyAggregate& cf_aggr = cf_aggregates_map_[access.cf_name];
-  SSTFileAggregate& file_aggr = cf_aggr.fd_aggregates_map[access.sst_fd_number];
+  ColumnFamilyAccessInfoAggregate& cf_aggr = cf_aggregates_map_[access.cf_name];
+  SSTFileAccessInfoAggregate& file_aggr =
+      cf_aggr.fd_aggregates_map[access.sst_fd_number];
   file_aggr.level = access.level;
-  BlockTypeAggregate& block_type_aggr =
+  BlockTypeAccessInfoAggregate& block_type_aggr =
       file_aggr.block_type_aggregates_map[access.block_type];
-  BlockStats& block_stats = block_type_aggr.block_stats_map[access.block_key];
-  block_stats.AddAccess(access);
+  BlockAccessInfo& block_access_info =
+      block_type_aggr.block_access_info_map[access.block_key];
+  block_access_info.AddAccess(access);
 }
 
 Status BlockCacheTraceAnalyzer::Analyze() {
@@ -103,12 +105,13 @@ void BlockCacheTraceAnalyzer::PrintBlockSizeStats() const {
            file_aggregates.second.block_type_aggregates_map) {
         // Stats per block type.
         const TraceType type = block_type_aggregates.first;
-        for (auto const& block_stats :
-             block_type_aggregates.second.block_stats_map) {
+        for (auto const& block_access_info :
+             block_type_aggregates.second.block_access_info_map) {
           // Stats per block.
-          bs_stats.Add(block_stats.second.block_size);
-          bt_stats_map[type].Add(block_stats.second.block_size);
-          cf_bt_stats_map[cf_name][type].Add(block_stats.second.block_size);
+          bs_stats.Add(block_access_info.second.block_size);
+          bt_stats_map[type].Add(block_access_info.second.block_size);
+          cf_bt_stats_map[cf_name][type].Add(
+              block_access_info.second.block_size);
         }
       }
     }
@@ -143,12 +146,13 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats() const {
            file_aggregates.second.block_type_aggregates_map) {
         // Stats per block type.
         const TraceType type = block_type_aggregates.first;
-        for (auto const& block_stats :
-             block_type_aggregates.second.block_stats_map) {
+        for (auto const& block_access_info :
+             block_type_aggregates.second.block_access_info_map) {
           // Stats per block.
-          access_stats.Add(block_stats.second.num_accesses);
-          bt_stats_map[type].Add(block_stats.second.num_accesses);
-          cf_bt_stats_map[cf_name][type].Add(block_stats.second.num_accesses);
+          access_stats.Add(block_access_info.second.num_accesses);
+          bt_stats_map[type].Add(block_access_info.second.num_accesses);
+          cf_bt_stats_map[cf_name][type].Add(
+              block_access_info.second.num_accesses);
         }
       }
     }
@@ -178,7 +182,7 @@ void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() const {
   HistogramStat non_existing_keys_stats;
   std::map<std::string, HistogramStat> cf_non_existing_keys_stats_map;
   HistogramStat block_access_stats;
-  std::map<std::string, HistogramStat> cf_block_stats;
+  std::map<std::string, HistogramStat> cf_block_access_info;
 
   for (auto const& cf_aggregates : cf_aggregates_map_) {
     // Stats per column family.
@@ -188,24 +192,26 @@ void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() const {
       for (auto const& block_type_aggregates :
            file_aggregates.second.block_type_aggregates_map) {
         // Stats per block type.
-        for (auto const& block_stats :
-             block_type_aggregates.second.block_stats_map) {
+        for (auto const& block_access_info :
+             block_type_aggregates.second.block_access_info_map) {
           // Stats per block.
-          if (block_stats.second.num_keys == 0) {
+          if (block_access_info.second.num_keys == 0) {
             continue;
           }
           // Use four decimal points.
-          uint64_t percent_referenced_for_existing_keys =
-              (uint64_t)(((double)block_stats.second.key_num_access_map.size() /
-                          (double)block_stats.second.num_keys) *
-                         10000.0);
-          uint64_t percent_referenced_for_non_existing_keys = (uint64_t)(
-              ((double)block_stats.second.non_exist_key_num_access_map.size() /
-               (double)block_stats.second.num_keys) *
+          uint64_t percent_referenced_for_existing_keys = (uint64_t)(
+              ((double)block_access_info.second.key_num_access_map.size() /
+               (double)block_access_info.second.num_keys) *
               10000.0);
+          uint64_t percent_referenced_for_non_existing_keys =
+              (uint64_t)(((double)block_access_info.second
+                              .non_exist_key_num_access_map.size() /
+                          (double)block_access_info.second.num_keys) *
+                         10000.0);
           uint64_t percent_accesses_for_existing_keys = (uint64_t)(
-              ((double)block_stats.second.num_referenced_key_exist_in_block /
-               (double)block_stats.second.num_accesses) *
+              ((double)
+                   block_access_info.second.num_referenced_key_exist_in_block /
+               (double)block_access_info.second.num_accesses) *
               10000.0);
           existing_keys_stats.Add(percent_referenced_for_existing_keys);
           cf_existing_keys_stats_map[cf_name].Add(
@@ -214,7 +220,7 @@ void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() const {
           cf_non_existing_keys_stats_map[cf_name].Add(
               percent_referenced_for_non_existing_keys);
           block_access_stats.Add(percent_accesses_for_existing_keys);
-          cf_block_stats[cf_name].Add(percent_accesses_for_existing_keys);
+          cf_block_access_info[cf_name].Add(percent_accesses_for_existing_keys);
         }
       }
     }
@@ -240,7 +246,7 @@ void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() const {
           "Histogram on percentage of accesses on keys exist in a block over "
           "the total number of accesses in a block: \n%s",
           block_access_stats.ToString().c_str());
-  for (auto const& cf_stats : cf_block_stats) {
+  for (auto const& cf_stats : cf_block_access_info) {
     fprintf(stdout, "Break down by column family %s: \n%s",
             cf_stats.first.c_str(), cf_stats.second.ToString().c_str());
   }
@@ -281,15 +287,17 @@ void BlockCacheTraceAnalyzer::PrintStatsSummary() const {
         // Stats per block type.
         const TraceType type = block_type_aggregates.first;
         cf_bt_blocks[type] +=
-            block_type_aggregates.second.block_stats_map.size();
-        total_num_blocks += block_type_aggregates.second.block_stats_map.size();
+            block_type_aggregates.second.block_access_info_map.size();
+        total_num_blocks +=
+            block_type_aggregates.second.block_access_info_map.size();
         bt_num_blocks_map[type] +=
-            block_type_aggregates.second.block_stats_map.size();
-        for (auto const& block_stats :
-             block_type_aggregates.second.block_stats_map) {
+            block_type_aggregates.second.block_access_info_map.size();
+        for (auto const& block_access_info :
+             block_type_aggregates.second.block_access_info_map) {
           // Stats per block.
           cf_num_blocks++;
-          for (auto const& stats : block_stats.second.caller_num_access_map) {
+          for (auto const& stats :
+               block_access_info.second.caller_num_access_map) {
             // Stats per caller.
             const BlockCacheLookupCaller caller = stats.first;
             const uint64_t num_accesses = stats.second;

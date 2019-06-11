@@ -95,30 +95,32 @@ class BlockCacheTracerTest : public testing::Test {
     }
   }
 
-  void AssertBlockStats(
+  void AssertBlockAccessInfo(
       uint32_t key_id, TraceType type,
-      const std::map<std::string, BlockStats>& block_stats_map) {
+      const std::map<std::string, BlockAccessInfo>& block_access_info_map) {
     auto key_id_str = kBlockKeyPrefix + std::to_string(key_id);
-    ASSERT_TRUE(block_stats_map.find(key_id_str) != block_stats_map.end());
-    auto& block_stats = block_stats_map.find(key_id_str)->second;
-    ASSERT_EQ(1, block_stats.num_accesses);
-    ASSERT_EQ(kBlockSize + key_id, block_stats.block_size);
-    ASSERT_GT(block_stats.first_access_time, 0);
-    ASSERT_GT(block_stats.last_access_time, 0);
-    ASSERT_EQ(1, block_stats.caller_num_access_map.size());
+    ASSERT_TRUE(block_access_info_map.find(key_id_str) !=
+                block_access_info_map.end());
+    auto& block_access_info = block_access_info_map.find(key_id_str)->second;
+    ASSERT_EQ(1, block_access_info.num_accesses);
+    ASSERT_EQ(kBlockSize + key_id, block_access_info.block_size);
+    ASSERT_GT(block_access_info.first_access_time, 0);
+    ASSERT_GT(block_access_info.last_access_time, 0);
+    ASSERT_EQ(1, block_access_info.caller_num_access_map.size());
     BlockCacheLookupCaller expected_caller = GetCaller(key_id);
-    ASSERT_TRUE(block_stats.caller_num_access_map.find(expected_caller) !=
-                block_stats.caller_num_access_map.end());
-    ASSERT_EQ(1,
-              block_stats.caller_num_access_map.find(expected_caller)->second);
+    ASSERT_TRUE(block_access_info.caller_num_access_map.find(expected_caller) !=
+                block_access_info.caller_num_access_map.end());
+    ASSERT_EQ(
+        1,
+        block_access_info.caller_num_access_map.find(expected_caller)->second);
 
     if ((expected_caller == BlockCacheLookupCaller::kUserGet ||
          expected_caller == BlockCacheLookupCaller::kUserMGet) &&
         type == TraceType::kBlockTraceDataBlock) {
-      ASSERT_EQ(kNumKeysInBlock, block_stats.num_keys);
-      ASSERT_EQ(1, block_stats.key_num_access_map.size());
-      ASSERT_EQ(0, block_stats.non_exist_key_num_access_map.size());
-      ASSERT_EQ(1, block_stats.num_referenced_key_exist_in_block);
+      ASSERT_EQ(kNumKeysInBlock, block_access_info.num_keys);
+      ASSERT_EQ(1, block_access_info.key_num_access_map.size());
+      ASSERT_EQ(0, block_access_info.non_exist_key_num_access_map.size());
+      ASSERT_EQ(1, block_access_info.num_referenced_key_exist_in_block);
     }
   }
 
@@ -189,27 +191,27 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
       for (auto type : expected_types) {
         ASSERT_TRUE(block_type_aggregates_map.find(type) !=
                     block_type_aggregates_map.end());
-        auto& block_stats_map =
-            block_type_aggregates_map.find(type)->second.block_stats_map;
+        auto& block_access_info_map =
+            block_type_aggregates_map.find(type)->second.block_access_info_map;
         // Each block type has 5 blocks.
-        ASSERT_EQ(expected_num_keys_per_type, block_stats_map.size());
+        ASSERT_EQ(expected_num_keys_per_type, block_access_info_map.size());
         for (uint32_t i = 0; i < 10; i++) {
           // Verify that odd numbered blocks are stored in kSSTStoringOddKeys
           // and even numbered blocks are stored in kSSTStoringEvenKeys.
           auto key_id_str = kBlockKeyPrefix + std::to_string(key_id);
           if (fd_id == kSSTStoringOddKeys) {
             if (key_id % 2 == 1) {
-              AssertBlockStats(key_id, type, block_stats_map);
+              AssertBlockAccessInfo(key_id, type, block_access_info_map);
             } else {
-              ASSERT_TRUE(block_stats_map.find(key_id_str) ==
-                          block_stats_map.end());
+              ASSERT_TRUE(block_access_info_map.find(key_id_str) ==
+                          block_access_info_map.end());
             }
           } else {
             if (key_id % 2 == 1) {
-              ASSERT_TRUE(block_stats_map.find(key_id_str) ==
-                          block_stats_map.end());
+              ASSERT_TRUE(block_access_info_map.find(key_id_str) ==
+                          block_access_info_map.end());
             } else {
-              AssertBlockStats(key_id, type, block_stats_map);
+              AssertBlockAccessInfo(key_id, type, block_access_info_map);
             }
           }
           key_id++;
