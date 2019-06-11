@@ -520,7 +520,8 @@ void CompactionJob::GenSubcompactionBoundaries() {
     // to the index block and may incur I/O cost in the process. Unlock db
     // mutex to reduce contention
     db_mutex_->Unlock();
-    uint64_t size = versions_->ApproximateSize(v, a, b, start_lvl, out_lvl + 1);
+    uint64_t size = versions_->ApproximateSize(v, a, b, start_lvl, out_lvl + 1,
+                                               /*for_compaction*/ true);
     db_mutex_->Lock();
     ranges.emplace_back(a, b, size);
     sum += size;

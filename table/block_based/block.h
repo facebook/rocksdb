@@ -236,6 +236,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
     restart_index_ = num_restarts_;
     global_seqno_ = global_seqno;
     block_contents_pinned_ = block_contents_pinned;
+    cache_handle_ = nullptr;
   }
 
   // Makes Valid() return false, status() return `s`, and Seek()/Prev()/etc do
@@ -285,6 +286,10 @@ class BlockIter : public InternalIteratorBase<TValue> {
     return static_cast<uint32_t>(value_.data() - data_);
   }
 
+  void SetCacheHandle(Cache::Handle* handle) { cache_handle_ = handle; }
+
+  Cache::Handle* cache_handle() { return cache_handle_; }
+
  protected:
   // Note: The type could be changed to InternalKeyComparator but we see a weird
   // performance drop by that.
@@ -306,6 +311,14 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // e.g. PinnableSlice, the pointer to the bytes will still be valid.
   bool block_contents_pinned_;
   SequenceNumber global_seqno_;
+
+ private:
+  // Store the cache handle, if the block is cached. We need this since the
+  // only other place the handle is stored is as an argument to the Cleanable
+  // function callback, which is hard to retrieve. When multiple value
+  // PinnableSlices reference the block, they need the cache handle in order
+  // to bump up the ref count
+  Cache::Handle* cache_handle_;
 
  public:
   // Return the offset in data_ just past the end of the current entry.

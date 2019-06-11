@@ -1046,10 +1046,13 @@ int DBImpl::FindMinimumEmptyLevelFitting(
 
 Status DBImpl::FlushWAL(bool sync) {
   if (manual_wal_flush_) {
-    // We need to lock log_write_mutex_ since logs_ might change concurrently
-    InstrumentedMutexLock wl(&log_write_mutex_);
-    log::Writer* cur_log_writer = logs_.back().writer;
-    auto s = cur_log_writer->WriteBuffer();
+    Status s;
+    {
+      // We need to lock log_write_mutex_ since logs_ might change concurrently
+      InstrumentedMutexLock wl(&log_write_mutex_);
+      log::Writer* cur_log_writer = logs_.back().writer;
+      s = cur_log_writer->WriteBuffer();
+    }
     if (!s.ok()) {
       ROCKS_LOG_ERROR(immutable_db_options_.info_log, "WAL flush error %s",
                       s.ToString().c_str());
@@ -2717,7 +2720,9 @@ void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
     InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
     sizes[i] = 0;
     if (include_flags & DB::SizeApproximationFlags::INCLUDE_FILES) {
-      sizes[i] += versions_->ApproximateSize(v, k1.Encode(), k2.Encode());
+      sizes[i] += versions_->ApproximateSize(
+          v, k1.Encode(), k2.Encode(), /*start_level=*/0, /*end_level=*/-1,
+          /*for_compaction=*/false);
     }
     if (include_flags & DB::SizeApproximationFlags::INCLUDE_MEMTABLES) {
       sizes[i] += sv->mem->ApproximateStats(k1.Encode(), k2.Encode()).size;
