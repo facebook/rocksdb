@@ -107,6 +107,11 @@ Status ExternalSstFileIngestionJob::Prepare(
                                           env_options_);
         if (status.ok()) {
           status = SyncIngestedFile(file_to_sync.get());
+          if (!status.ok()) {
+            ROCKS_LOG_WARN(db_options_.info_log,
+                           "Failed to sync ingested file %s: %s",
+                           path_inside_db.c_str(), status.ToString().c_str());
+          }
         }
       } else if (status.IsNotSupported() &&
                  ingestion_options_.failed_move_fall_back_to_copy) {
@@ -136,6 +141,10 @@ Status ExternalSstFileIngestionJob::Prepare(
     for (auto path_id : ingestion_path_ids) {
       status = directories_->GetDataDir(path_id)->Fsync();
       if (!status.ok()) {
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "Failed to sync directory %" ROCKSDB_PRIszt
+                       " while ingest file: %s",
+                       path_id, status.ToString().c_str());
         break;
       }
     }
@@ -583,6 +592,13 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
       status = rwfile->Write(file_to_ingest->global_seqno_offset, seqno_val);
       if (status.ok()) {
         status = SyncIngestedFile(rwfile.get());
+        if (!status.ok()) {
+          ROCKS_LOG_WARN(db_options_.info_log,
+                         "Failed to sync ingested file %s after writing global "
+                         "sequence number: %s",
+                         file_to_ingest->internal_file_path.c_str(),
+                         status.ToString().c_str());
+        }
       }
       if (!status.ok()) {
         return status;
