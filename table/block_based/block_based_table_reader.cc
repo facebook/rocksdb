@@ -2535,12 +2535,11 @@ void BlockBasedTableIterator<TBlockIter, TValue>::Next() {
 
 template <class TBlockIter, typename TValue>
 bool BlockBasedTableIterator<TBlockIter, TValue>::NextAndGetResult(
-    IterateResult* result) {
+    Slice* ret_key) {
   Next();
   bool is_valid = Valid();
   if (is_valid) {
-    result->key = key();
-    result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
+    *ret_key = key();
   }
   return is_valid;
 }
@@ -2621,11 +2620,6 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
         key_includes_seq_, index_key_is_full_,
         /*get_context=*/nullptr, &lookup_context_, s, prefetch_buffer_.get());
     block_iter_points_to_real_block_ = true;
-    if (read_options_.iterate_upper_bound != nullptr) {
-      data_block_within_upper_bound_ =
-          (user_comparator_.Compare(*read_options_.iterate_upper_bound,
-                                    index_iter_->user_key()) > 0);
-    }
   }
 }
 
@@ -2638,15 +2632,13 @@ void BlockBasedTableIterator<TBlockIter, TValue>::FindBlockForward() {
       return;
     }
     // Whether next data block is out of upper bound, if there is one.
-    // TODO: we should be able to use !data_block_within_upper_bound_ here
-    // instead of performing the comparison; however, the flag can apparently
-    // be out of sync with the comparison in some cases. This should be
-    // investigated.
-    const bool next_block_is_out_of_bound =
-        read_options_.iterate_upper_bound != nullptr &&
-        block_iter_points_to_real_block_ &&
-        (user_comparator_.Compare(*read_options_.iterate_upper_bound,
-                                  index_iter_->user_key()) <= 0);
+    bool next_block_is_out_of_bound = false;
+    if (read_options_.iterate_upper_bound != nullptr &&
+        block_iter_points_to_real_block_) {
+      next_block_is_out_of_bound =
+          (user_comparator_.Compare(*read_options_.iterate_upper_bound,
+                                    index_iter_->user_key()) <= 0);
+    }
     ResetDataIter();
     index_iter_->Next();
     if (next_block_is_out_of_bound) {
