@@ -47,6 +47,12 @@ struct BlockCacheLookupContext {
   BlockCacheLookupContext(const BlockCacheLookupCaller& _caller)
       : caller(_caller) {}
   const BlockCacheLookupCaller caller;
+  Slice block_key;
+  bool is_cache_hit;
+  bool no_insert;
+  TraceType block_type;
+  uint64_t block_size;
+  uint64_t num_keys_in_block;
 };
 
 enum Boolean : char { kTrue = 1, kFalse = 0 };
@@ -54,19 +60,20 @@ enum Boolean : char { kTrue = 1, kFalse = 0 };
 struct BlockCacheTraceRecord {
   // Required fields for all accesses.
   uint64_t access_timestamp;
-  Slice block_key;
+  std::string block_key;
   TraceType block_type;
   uint64_t block_size;
-  uint32_t cf_id;
-  Slice cf_name;
+  uint64_t cf_id;
+  std::string cf_name;
   uint32_t level;
-  uint32_t sst_fd_number;
+  uint64_t sst_fd_number;
   BlockCacheLookupCaller caller;
   Boolean is_cache_hit;
   Boolean no_insert;
 
   // Required fields for data block and user Get/Multi-Get only.
   std::string referenced_key;
+  uint64_t referenced_data_size = 0;
   uint64_t num_keys_in_block = 0;
   Boolean is_referenced_key_exist_in_block = Boolean::kFalse;
 };
@@ -94,11 +101,17 @@ class BlockCacheTraceWriter {
   BlockCacheTraceWriter(BlockCacheTraceWriter&&) = delete;
   BlockCacheTraceWriter& operator=(BlockCacheTraceWriter&&) = delete;
 
-  Status WriteBlockAccess(const BlockCacheTraceRecord& record);
+  // Pass Slice reference to avoid copy.
+  Status WriteBlockAccess(const BlockCacheTraceRecord& record,
+                          const Slice& block_key, const Slice& cf_name,
+                          const Slice& referenced_key);
 
   // Write a trace header at the beginning, typically on initiating a trace,
   // with some metadata like a magic number and RocksDB version.
   Status WriteHeader();
+
+  static bool ShouldTraceReferencedKey(TraceType block_type,
+                                       BlockCacheLookupCaller caller);
 
  private:
   bool ShouldTrace(const BlockCacheTraceRecord& record) const;
