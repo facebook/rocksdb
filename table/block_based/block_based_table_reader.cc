@@ -18,6 +18,8 @@
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 
+#include "file/filename.h"
+
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -1877,7 +1879,7 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     FilePrefetchBuffer* prefetch_buffer, const BlockHandle& filter_blk_handle,
     const bool is_a_filter_partition, bool no_io, GetContext* get_context,
-    BlockCacheLookupContext* /*lookup_context*/,
+    BlockCacheLookupContext* lookup_context,
     const SliceTransform* prefix_extractor) const {
   // TODO(haoyu): Trace filter block access here.
   // If cache_index_and_filter_blocks is false, filter should be pre-populated.
@@ -1912,9 +1914,13 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
       GetEntryFromCache(block_cache, key, BlockType::kFilter, get_context);
 
   FilterBlockReader* filter = nullptr;
+  size_t usage = 0;
+  bool cache_hit = false;
   if (cache_handle != nullptr) {
     filter =
         reinterpret_cast<FilterBlockReader*>(block_cache->Value(cache_handle));
+    usage = filter->ApproximateMemoryUsage();
+    cache_hit = true;
   } else if (no_io) {
     // Do not invoke any io.
     return CachableEntry<FilterBlockReader>();
@@ -1922,7 +1928,7 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     filter = ReadFilter(prefetch_buffer, filter_blk_handle,
                         is_a_filter_partition, prefix_extractor);
     if (filter != nullptr) {
-      size_t usage = filter->ApproximateMemoryUsage();
+      usage = filter->ApproximateMemoryUsage();
       Status s = block_cache->Insert(
           key, filter, usage, &DeleteCachedFilterEntry, &cache_handle,
           rep_->table_options.cache_index_and_filter_blocks_with_high_priority
@@ -1937,6 +1943,22 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
         return CachableEntry<FilterBlockReader>();
       }
     }
+  }
+
+  if (block_cache_tracer_ && lookup_context) {
+    BlockCacheTraceRecord access_record;
+    access_record.access_timestamp = rep_->ioptions.env->NowMicros();
+    access_record.block_key = key;
+    access_record.block_type = TraceType::kBlockTraceFilterBlock;
+    access_record.block_size = usage;
+    access_record.cf_id = rep_->table_properties->column_family_id;
+    access_record.cf_name = rep_->table_properties->column_family_name;
+    access_record.level = rep_->level;
+    access_record.sst_fd_number = TableFileNameToNumber(rep_->file->file_name());
+    access_record.caller = lookup_context->caller;
+    access_record.is_cache_hit = cache_hit ? Boolean::kTrue : Boolean::kFalse;
+    access_record.no_insert = no_io ? Boolean::kTrue : Boolean::kFalse;
+    block_cache_tracer_->WriteBlockAccess(access_record);
   }
 
   return {filter, cache_handle ? block_cache : nullptr, cache_handle,

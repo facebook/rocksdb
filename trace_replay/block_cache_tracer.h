@@ -56,11 +56,11 @@ enum Boolean : char { kTrue = 1, kFalse = 0 };
 struct BlockCacheTraceRecord {
   // Required fields for all accesses.
   uint64_t access_timestamp;
-  std::string block_key;
+  Slice block_key;
   TraceType block_type;
   uint64_t block_size;
   uint32_t cf_id;
-  std::string cf_name;
+  Slice cf_name;
   uint32_t level;
   uint32_t sst_fd_number;
   BlockCacheLookupCaller caller;
