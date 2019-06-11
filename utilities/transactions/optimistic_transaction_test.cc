@@ -348,7 +348,7 @@ TEST_F(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
     ASSERT_EQ(value, "bar");
     ASSERT_OK(txn2->Put(Slice("foo2"), Slice("bar2")));
 
-    // txn updates "foo" and tnx2 updates "foo2", and now a write is
+    // txn updates "foo" and txn2 updates "foo2", and now a write is
     // issued for "foo", which conflicts with txn but not txn2
     ASSERT_OK(txn_db->Put(write_options, "foo", "bar"));
 

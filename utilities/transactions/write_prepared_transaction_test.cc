@@ -785,17 +785,19 @@ TEST_P(WritePreparedTransactionTest, CheckKeySkipOldMemtable) {
 
     WriteOptions write_options;
     ReadOptions read_options;
+    TransactionOptions txn_options;
+    txn_options.set_snapshot = true;
     string value;
     Status s;
 
     ASSERT_OK(db->Put(write_options, Slice("foo"), Slice("bar")));
     ASSERT_OK(db->Put(write_options, Slice("foo2"), Slice("bar")));
 
-    Transaction* txn = db->BeginTransaction(write_options);
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
     ASSERT_TRUE(txn != nullptr);
     ASSERT_OK(txn->SetName("txn"));
 
-    Transaction* txn2 = db->BeginTransaction(write_options);
+    Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
     ASSERT_TRUE(txn2 != nullptr);
     ASSERT_OK(txn2->SetName("txn2"));
 
@@ -804,15 +806,9 @@ TEST_P(WritePreparedTransactionTest, CheckKeySkipOldMemtable) {
     ASSERT_OK(txn_x->SetName("txn_x"));
     ASSERT_OK(txn_x->Put(Slice("foo"), Slice("bar3")));
     ASSERT_OK(txn_x->Prepare());
-    
+
     // Create snapshots after the prepare, but there should still
     // be a conflict when trying to read "foo".
-
-    // Write to the transaction just to ankor a snapshot.
-    txn->SetSnapshotOnNextOperation();
-    ASSERT_OK(txn->Put("foofoo1", "bar")); 
-    txn2->SetSnapshotOnNextOperation();
-    ASSERT_OK(txn2->Put("foofoo2", "bar"));
 
     if (attempt == kAttemptImmMemTable) {
       // For the second attempt, hold flush from beginning. The memtable
@@ -835,50 +831,49 @@ TEST_P(WritePreparedTransactionTest, CheckKeySkipOldMemtable) {
     }
     uint64_t num_imm_mems;
     ASSERT_TRUE(db->GetIntProperty(DB::Properties::kNumImmutableMemTable,
-                                       &num_imm_mems));
+                                   &num_imm_mems));
     if (attempt == kAttemptHistoryMemtable) {
       ASSERT_EQ(0, num_imm_mems);
     } else {
       assert(attempt == kAttemptImmMemTable);
       ASSERT_EQ(1, num_imm_mems);
     }
-    
+
     // Put something in active memtable
     ASSERT_OK(db->Put(write_options, Slice("foo3"), Slice("bar")));
 
     // Create txn3 after flushing, but this transaction also needs to
     // check all memtables because of they contains uncommitted data.
-    Transaction* txn3 = db->BeginTransaction(write_options);
+    Transaction* txn3 = db->BeginTransaction(write_options, txn_options);
     ASSERT_TRUE(txn3 != nullptr);
     ASSERT_OK(txn3->SetName("txn3"));
-    // Write to the transaction just to ankor a snapshot.
-    txn3->SetSnapshotOnNextOperation();
-    ASSERT_OK(txn3->Put("foofoo3", "bar"));
 
     // Commit the pending write
-    ASSERT_OK(txn_x->Commit());    
+    ASSERT_OK(txn_x->Commit());
 
     // Commit txn, txn2 and tx3. txn and tx3 will conflict but txn2 will
     // pass. In all cases, both memtables are queried.
     SetPerfLevel(PerfLevel::kEnableCount);
     get_perf_context()->Reset();
     ASSERT_TRUE(txn3->GetForUpdate(read_options, "foo", &value).IsBusy());
-    // We should have checked two memtables
+    // We should have checked two memtables, active and either immutable
+    // or history memtable, depending on the test case.
     ASSERT_EQ(2, get_perf_context()->get_from_memtable_count);
-    
+
     get_perf_context()->Reset();
     ASSERT_TRUE(txn->GetForUpdate(read_options, "foo", &value).IsBusy());
-    // We should have checked two memtables
+    // We should have checked two memtables, active and either immutable
+    // or history memtable, depending on the test case.
     ASSERT_EQ(2, get_perf_context()->get_from_memtable_count);
 
     get_perf_context()->Reset();
     ASSERT_OK(txn2->GetForUpdate(read_options, "foo2", &value));
-    ASSERT_EQ(value, "bar"); 
-    // We should have checked two memtables, and since there is not
+    ASSERT_EQ(value, "bar");
+    // We should have checked two memtables, and since there is no
     // conflict, another Get() will be made and fetch the data from
     // DB. If it is in immutable memtable, two extra memtable reads
     // will be issued. If it is not (in history), only one will
-    // be made.
+    // be made, which is to the active memtable.
     if (attempt == kAttemptHistoryMemtable) {
       ASSERT_EQ(3, get_perf_context()->get_from_memtable_count);
     } else {
@@ -886,26 +881,24 @@ TEST_P(WritePreparedTransactionTest, CheckKeySkipOldMemtable) {
       ASSERT_EQ(4, get_perf_context()->get_from_memtable_count);
     }
 
-    Transaction* txn4 = db->BeginTransaction(write_options);
+    Transaction* txn4 = db->BeginTransaction(write_options, txn_options);
     ASSERT_TRUE(txn4 != nullptr);
-    txn4->SetSnapshotOnNextOperation();
     ASSERT_OK(txn4->SetName("txn4"));
-    // Write to the transaction just to ankor a snapshot.
-    ASSERT_OK(txn4->Put("foofoo4", "bar"));
     get_perf_context()->Reset();
     ASSERT_OK(txn4->GetForUpdate(read_options, "foo", &value));
-    // Only active memtable should be checked, and extra read(s)
-    // will be made to fetch the value.
     if (attempt == kAttemptHistoryMemtable) {
+      // Active memtable will be checked in snapshot validation and when
+      // getting the value.
       ASSERT_EQ(2, get_perf_context()->get_from_memtable_count);
     } else {
+      // Only active memtable will be checked in snapshot validation but
+      // both of active and immutable snapshot will be queried when
+      // getting the value.
       assert(attempt == kAttemptImmMemTable);
       ASSERT_EQ(3, get_perf_context()->get_from_memtable_count);
     }
-    
-    ASSERT_OK(txn2->Prepare());
+
     ASSERT_OK(txn2->Commit());
-    ASSERT_OK(txn4->Prepare());
     ASSERT_OK(txn4->Commit());
 
     TEST_SYNC_POINT("WritePreparedTransactionTest.CheckKeySkipOldMemtable");
