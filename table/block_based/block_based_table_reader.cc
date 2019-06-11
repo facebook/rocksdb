@@ -2716,8 +2716,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
             rep->file.get(), read_options_.readahead_size,
             read_options_.readahead_size));
       }
-    }
-    else {
+    } else if (!prefetch_buffer_) {
       prefetch_buffer_.reset(
           new FilePrefetchBuffer(rep->file.get(), compaction_readahead_size_,
                                  compaction_readahead_size_));
