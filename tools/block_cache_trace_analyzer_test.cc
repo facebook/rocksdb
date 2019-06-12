@@ -3,6 +3,16 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#ifndef ROCKSDB_LITE
+#ifndef GFLAGS
+#include <cstdio>
+int main() {
+  fprintf(stderr,
+          "Please install gflags to run block_cache_trace_analyzer_test\n");
+  return 1;
+}
+#else
+
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -316,3 +326,12 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+#endif  // GFLAG
+#else
+#include <stdio.h>
+int main(int /*argc*/, char** /*argv*/) {
+  fprintf(stderr,
+          "block_cache_trace_analyzer_test is not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+#endif  // ROCKSDB_LITE
