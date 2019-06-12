@@ -162,9 +162,7 @@ class CollectionMergeOperator : public MergeOperator {
   void fm_trace_end(MergeOperationOutput* merge_out) const;
 
   /* PartialMergeMulti implementation */
-  void pm_clear(Operations& operations,
-      OperationsIndex& operations_index,
-      Logger* logger, const bool debug) const;
+  void pm_clear(Operations& operations) const;
   bool pm_add(Operations& operations,
       OperationsIndex& operations_index,
       const char * const records_ptr, const size_t records_len,

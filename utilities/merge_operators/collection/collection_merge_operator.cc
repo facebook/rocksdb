@@ -197,7 +197,7 @@ bool CollectionMergeOperator::PartialMergeMulti(const Slice& key,
       /* this kClear will be the last kClear in the operand_list
           any operands before that can be ignored, so we prepend
           it to the new_value and stop processing */
-      pm_clear(operations, operations_index, logger, debug);
+      pm_clear(operations);
       break;  // NOTE: we can stop processing, don't need to examine anything before this kClear
 
     } else if(collection_op == CollectionOperation::kAdd) {
@@ -297,10 +297,7 @@ void CollectionMergeOperator::pm_serialize(Operations& operations, std::string* 
   }
 }
 
-void CollectionMergeOperator::pm_clear(Operations& operations,
-      OperationsIndex& operations_index,
-      Logger* logger, const bool debug) const {
-
+void CollectionMergeOperator::pm_clear(Operations& operations) const {
   operations.push_back(Operation(CollectionOperation::kClear, {}));
 }
 
