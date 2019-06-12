@@ -3078,7 +3078,7 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
       ReOpen();
       std::atomic<const Snapshot*> snap = {nullptr};
       std::atomic<SequenceNumber> exp_prepare = {0};
-      std::atomic<bool> snapshot_taken = {false};
+      rocksdb::port::Thread callback_thread;
       // Value is synchronized via snap
       PinnableSlice value;
       // Take a snapshot after publish and before RemovePrepared:Start
@@ -3089,7 +3089,6 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
         roptions.snapshot = snap.load();
         auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &value);
         ASSERT_OK(s);
-        snapshot_taken.store(true);
       };
       auto callback = [&](void* param) {
         SequenceNumber prep_seq = *((SequenceNumber*)param);
@@ -3097,8 +3096,7 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
           // We need to spawn a thread to avoid deadlock since getting a
           // snpashot might end up calling AdvanceSeqByOne which needs joining
           // the write queue.
-          auto t = rocksdb::port::Thread(snap_callback);
-          t.detach();
+          callback_thread = rocksdb::port::Thread(snap_callback);
           TEST_SYNC_POINT("callback:end");
         }
       };
@@ -3131,15 +3129,12 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
           // Let an eviction to kick in
           std::this_thread::yield();
 
-          snapshot_taken.store(false);
           exp_prepare.store(txn->GetId());
           ASSERT_OK(txn->Commit());
           delete txn;
           // Wait for the snapshot taking that is triggered by
           // RemovePrepared:Start callback
-          while (!snapshot_taken) {
-            std::this_thread::yield();
-          }
+          callback_thread.join();
 
           // Read with the snapshot taken before delayed_prepared_ cleanup
           ReadOptions roptions;
@@ -3159,9 +3154,9 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
       });
       write_thread.join();
       eviction_thread.join();
+      rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+      rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
     }
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
   }
 }
 
