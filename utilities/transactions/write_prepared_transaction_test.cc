@@ -48,18 +48,21 @@ using CommitEntry64bFormat = WritePreparedTxnDB::CommitEntry64bFormat;
 
 TEST(PreparedHeap, BasicsTest) {
   WritePreparedTxnDB::PreparedHeap heap;
-  heap.push(14l);
-  // Test with one element
-  ASSERT_EQ(14l, heap.top());
-  heap.push(24l);
-  heap.push(34l);
-  // Test that old min is still on top
-  ASSERT_EQ(14l, heap.top());
-  heap.push(44l);
-  heap.push(54l);
-  heap.push(64l);
-  heap.push(74l);
-  heap.push(84l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(14l);
+    // Test with one element
+    ASSERT_EQ(14l, heap.top());
+    heap.push(24l);
+    heap.push(34l);
+    // Test that old min is still on top
+    ASSERT_EQ(14l, heap.top());
+    heap.push(44l);
+    heap.push(54l);
+    heap.push(64l);
+    heap.push(74l);
+    heap.push(84l);
+  }
   // Test that old min is still on top
   ASSERT_EQ(14l, heap.top());
   heap.erase(24l);
@@ -81,11 +84,14 @@ TEST(PreparedHeap, BasicsTest) {
   ASSERT_EQ(64l, heap.top());
   heap.erase(84l);
   ASSERT_EQ(64l, heap.top());
-  heap.push(85l);
-  heap.push(86l);
-  heap.push(87l);
-  heap.push(88l);
-  heap.push(89l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(85l);
+    heap.push(86l);
+    heap.push(87l);
+    heap.push(88l);
+    heap.push(89l);
+  }
   heap.erase(87l);
   heap.erase(85l);
   heap.erase(89l);
@@ -106,13 +112,19 @@ TEST(PreparedHeap, BasicsTest) {
 // not resurface again.
 TEST(PreparedHeap, EmptyAtTheEnd) {
   WritePreparedTxnDB::PreparedHeap heap;
-  heap.push(40l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(40l);
+  }
   ASSERT_EQ(40l, heap.top());
   // Although not a recommended scenario, we must be resilient against erase
   // without a prior push.
   heap.erase(50l);
   ASSERT_EQ(40l, heap.top());
-  heap.push(60l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(60l);
+  }
   ASSERT_EQ(40l, heap.top());
 
   heap.erase(60l);
@@ -120,11 +132,17 @@ TEST(PreparedHeap, EmptyAtTheEnd) {
   heap.erase(40l);
   ASSERT_TRUE(heap.empty());
 
-  heap.push(40l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(40l);
+  }
   ASSERT_EQ(40l, heap.top());
   heap.erase(50l);
   ASSERT_EQ(40l, heap.top());
-  heap.push(60l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(60l);
+  }
   ASSERT_EQ(40l, heap.top());
 
   heap.erase(40l);
@@ -139,30 +157,37 @@ TEST(PreparedHeap, EmptyAtTheEnd) {
 // successfully emptied at the end.
 TEST(PreparedHeap, Concurrent) {
   const size_t t_cnt = 10;
-  rocksdb::port::Thread t[t_cnt];
-  Random rnd(1103);
+  rocksdb::port::Thread t[t_cnt + 1];
   WritePreparedTxnDB::PreparedHeap heap;
   port::RWMutex prepared_mutex;
+  std::atomic<size_t> last;
 
   for (size_t n = 0; n < 100; n++) {
-    for (size_t i = 0; i < t_cnt; i++) {
-      // This is not recommended usage but we should be resilient against it.
-      bool skip_push = rnd.OneIn(5);
-      t[i] = rocksdb::port::Thread([&heap, &prepared_mutex, skip_push, i]() {
-        auto seq = i;
-        std::this_thread::yield();
+    last = 0;
+    t[0] = rocksdb::port::Thread([&heap, t_cnt, &last]() {
+      Random rnd(1103);
+      for (size_t seq = 1; seq <= t_cnt; seq++) {
+        // This is not recommended usage but we should be resilient against it.
+        bool skip_push = rnd.OneIn(5);
         if (!skip_push) {
-          WriteLock wl(&prepared_mutex);
+          MutexLock ml(heap.push_pop_mutex());
+          std::this_thread::yield();
           heap.push(seq);
+          last.store(seq);
         }
-        std::this_thread::yield();
-        {
-          WriteLock wl(&prepared_mutex);
-          heap.erase(seq);
-        }
+      }
+    });
+    for (size_t i = 1; i <= t_cnt; i++) {
+      t[i] = rocksdb::port::Thread([&heap, &prepared_mutex, &last, i]() {
+        auto seq = i;
+        do {
+          std::this_thread::yield();
+        } while (last.load() < seq);
+        WriteLock wl(&prepared_mutex);
+        heap.erase(seq);
       });
     }
-    for (size_t i = 0; i < t_cnt; i++) {
+    for (size_t i = 0; i <= t_cnt; i++) {
       t[i].join();
     }
     ASSERT_TRUE(heap.empty());
@@ -3197,7 +3222,7 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
       ReOpen();
       std::atomic<const Snapshot*> snap = {nullptr};
       std::atomic<SequenceNumber> exp_prepare = {0};
-      std::atomic<bool> snapshot_taken = {false};
+      rocksdb::port::Thread callback_thread;
       // Value is synchronized via snap
       PinnableSlice value;
       // Take a snapshot after publish and before RemovePrepared:Start
@@ -3208,7 +3233,6 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
         roptions.snapshot = snap.load();
         auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &value);
         ASSERT_OK(s);
-        snapshot_taken.store(true);
       };
       auto callback = [&](void* param) {
         SequenceNumber prep_seq = *((SequenceNumber*)param);
@@ -3216,8 +3240,7 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
           // We need to spawn a thread to avoid deadlock since getting a
           // snpashot might end up calling AdvanceSeqByOne which needs joining
           // the write queue.
-          auto t = rocksdb::port::Thread(snap_callback);
-          t.detach();
+          callback_thread = rocksdb::port::Thread(snap_callback);
           TEST_SYNC_POINT("callback:end");
         }
       };
@@ -3250,15 +3273,12 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
           // Let an eviction to kick in
           std::this_thread::yield();
 
-          snapshot_taken.store(false);
           exp_prepare.store(txn->GetId());
           ASSERT_OK(txn->Commit());
           delete txn;
           // Wait for the snapshot taking that is triggered by
           // RemovePrepared:Start callback
-          while (!snapshot_taken) {
-            std::this_thread::yield();
-          }
+          callback_thread.join();
 
           // Read with the snapshot taken before delayed_prepared_ cleanup
           ReadOptions roptions;
@@ -3278,9 +3298,9 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
       });
       write_thread.join();
       eviction_thread.join();
+      rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+      rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
     }
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
   }
 }
 
