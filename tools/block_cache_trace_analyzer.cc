@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#ifndef ROCKSDB_LITE
+#ifdef GFLAGS
 #include "tools/block_cache_trace_analyzer.h"
 
 #include <cinttypes>
@@ -647,3 +649,6 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
 }
 
 }  // namespace rocksdb
+
+#endif  // GFLAGS
+#endif  // ROCKSDB_LITE
