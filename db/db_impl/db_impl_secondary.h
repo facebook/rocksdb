@@ -197,6 +197,8 @@ class DBImplSecondary : public DBImpl {
   Status MaybeInitLogReader(uint64_t log_number,
                             log::FragmentBufferedReader** log_reader);
 
+  Status CheckConsistency() override;
+
  protected:
   // ColumnFamilyCollector is a write batch handler which does nothing
   // except recording unique column family IDs
