@@ -178,7 +178,7 @@ TEST(PreparedHeap, Concurrent) {
       }
     });
     for (size_t i = 1; i <= t_cnt; i++) {
-      t[i] = rocksdb::port::Thread([&]() {
+      t[i] = rocksdb::port::Thread([&heap, &prepared_mutex, &last, i]() {
         auto seq = i;
         do {
           std::this_thread::yield();
