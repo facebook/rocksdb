@@ -413,11 +413,17 @@ class DBImpl : public DB {
   // snapshot, we know that no key could have existing after this snapshot
   // (since we do not compact keys that have an earlier snapshot).
   //
+  // Only records newer than or at `lower_bound_seq` are guaranteed to be
+  // returned. Memtables and files may not be checked if it only contains data
+  // older than `lower_bound_seq`.
+  //
   // Returns OK or NotFound on success,
   // other status on unexpected error.
   // TODO(andrewkr): this API need to be aware of range deletion operations
   Status GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
-                                 bool cache_only, SequenceNumber* seq,
+                                 bool cache_only,
+                                 SequenceNumber lower_bound_seq,
+                                 SequenceNumber* seq,
                                  bool* found_record_for_key,
                                  bool* is_blob_index = nullptr);
 

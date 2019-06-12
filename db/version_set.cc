@@ -885,7 +885,7 @@ class LevelIterator final : public InternalIterator {
   void SeekToFirst() override;
   void SeekToLast() override;
   void Next() final override;
-  bool NextAndGetResult(IterateResult* result) override;
+  bool NextAndGetResult(Slice* ret_key) override;
   void Prev() override;
 
   bool Valid() const override { return file_iter_.Valid(); }
@@ -893,38 +893,23 @@ class LevelIterator final : public InternalIterator {
     assert(Valid());
     return file_iter_.key();
   }
-
   Slice value() const override {
     assert(Valid());
     return file_iter_.value();
   }
-
   Status status() const override {
     return file_iter_.iter() ? file_iter_.status() : Status::OK();
   }
-
-  inline bool MayBeOutOfLowerBound() override {
-    assert(Valid());
-    return may_be_out_of_lower_bound_ && file_iter_.MayBeOutOfLowerBound();
-  }
-
-  inline bool MayBeOutOfUpperBound() override {
-    assert(Valid());
-    return file_iter_.MayBeOutOfUpperBound();
-  }
-
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     pinned_iters_mgr_ = pinned_iters_mgr;
     if (file_iter_.iter()) {
       file_iter_.SetPinnedItersMgr(pinned_iters_mgr);
     }
   }
-
   bool IsKeyPinned() const override {
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
            file_iter_.iter() && file_iter_.IsKeyPinned();
   }
-
   bool IsValuePinned() const override {
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
            file_iter_.iter() && file_iter_.IsValuePinned();
@@ -968,16 +953,12 @@ class LevelIterator final : public InternalIterator {
       smallest_compaction_key = (*compaction_boundaries_)[file_index_].smallest;
       largest_compaction_key = (*compaction_boundaries_)[file_index_].largest;
     }
-    may_be_out_of_lower_bound_ =
-        read_options_.iterate_lower_bound != nullptr &&
-        user_comparator_.Compare(ExtractUserKey(file_smallest_key(file_index_)),
-                                 *read_options_.iterate_lower_bound) < 0;
     return table_cache_->NewIterator(
         read_options_, env_options_, icomparator_, *file_meta.file_metadata,
         range_del_agg_, prefix_extractor_,
-        nullptr /* don't need reference to table */, file_read_hist_,
-        for_compaction_, nullptr /* arena */, skip_filters_, level_,
-        smallest_compaction_key, largest_compaction_key);
+        nullptr /* don't need reference to table */,
+        file_read_hist_, for_compaction_, nullptr /* arena */, skip_filters_,
+        level_, smallest_compaction_key, largest_compaction_key);
   }
 
   TableCache* table_cache_;
@@ -993,7 +974,6 @@ class LevelIterator final : public InternalIterator {
   bool should_sample_;
   bool for_compaction_;
   bool skip_filters_;
-  bool may_be_out_of_lower_bound_ = true;
   size_t file_index_;
   int level_;
   RangeDelAggregator* range_del_agg_;
@@ -1062,12 +1042,11 @@ void LevelIterator::SeekToLast() {
 
 void LevelIterator::Next() { NextImpl(); }
 
-bool LevelIterator::NextAndGetResult(IterateResult* result) {
+bool LevelIterator::NextAndGetResult(Slice* ret_key) {
   NextImpl();
   bool is_valid = Valid();
   if (is_valid) {
-    result->key = key();
-    result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
+    *ret_key = key();
   }
   return is_valid;
 }
@@ -4363,9 +4342,10 @@ Status VersionSet::Recover(
         ", last_sequence is %" PRIu64 ", log_number is %" PRIu64
         ",prev_log_number is %" PRIu64 ",max_column_family is %" PRIu32
         ",min_log_number_to_keep is %" PRIu64 "\n",
-        manifest_path.c_str(), manifest_file_number_, next_file_number_.load(),
-        last_sequence_.load(), log_number, prev_log_number_,
-        column_family_set_->GetMaxColumnFamily(), min_log_number_to_keep_2pc());
+        manifest_path.c_str(), manifest_file_number_,
+        next_file_number_.load(), last_sequence_.load(), log_number,
+        prev_log_number_, column_family_set_->GetMaxColumnFamily(),
+        min_log_number_to_keep_2pc());
 
     for (auto cfd : *column_family_set_) {
       if (cfd->IsDropped()) {

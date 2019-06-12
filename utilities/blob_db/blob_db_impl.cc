@@ -1426,8 +1426,8 @@ class BlobDBImpl::GarbageCollectionWriteCallback : public WriteCallback {
     bool found_record_for_key = false;
     bool is_blob_index = false;
     Status s = db_impl->GetLatestSequenceForKey(
-        sv, key_, false /*cache_only*/, &latest_seq, &found_record_for_key,
-        &is_blob_index);
+        sv, key_, false /*cache_only*/, 0 /*lower_bound_seq*/, &latest_seq,
+        &found_record_for_key, &is_blob_index);
     db_impl->ReturnAndCleanupSuperVersion(cfd_, sv);
     if (!s.ok() && !s.IsNotFound()) {
       // Error.
