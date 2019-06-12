@@ -164,7 +164,7 @@ TEST(PreparedHeap, Concurrent) {
 
   for (size_t n = 0; n < 100; n++) {
     last = 0;
-    t[0] = rocksdb::port::Thread([&heap, &last]() {
+    t[0] = rocksdb::port::Thread([&]() {
       Random rnd(1103);
       for (size_t seq = 1; seq <= t_cnt; seq++) {
         // This is not recommended usage but we should be resilient against it.
@@ -178,7 +178,7 @@ TEST(PreparedHeap, Concurrent) {
       }
     });
     for (size_t i = 1; i <= t_cnt; i++) {
-      t[i] = rocksdb::port::Thread([&heap, &prepared_mutex, &last, i]() {
+      t[i] = rocksdb::port::Thread([&]() {
         auto seq = i;
         do {
           std::this_thread::yield();
