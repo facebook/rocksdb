@@ -2883,12 +2883,12 @@ class StressTest {
                             static_cast<size_t>(FLAGS_column_families));
 
       if (FLAGS_enable_secondary) {
+#ifndef ROCKSDB_LITE
         secondaries_.resize(FLAGS_threads);
         std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
         secondary_cfh_lists_.clear();
         secondary_cfh_lists_.resize(FLAGS_threads);
         Options tmp_opts;
-        tmp_opts.create_if_missing = true;
         tmp_opts.max_open_files = FLAGS_open_files;
         for (size_t i = 0; i != static_cast<size_t>(FLAGS_threads); ++i) {
           const std::string secondary_path =
@@ -2900,12 +2900,31 @@ class StressTest {
             break;
           }
         }
+#else
+        fprintf(stderr, "Secondary is not supported in RocksDBLite\n");
+        exit(1);
+#endif
       }
     } else {
 #ifndef ROCKSDB_LITE
       DBWithTTL* db_with_ttl;
       s = DBWithTTL::Open(options_, FLAGS_db, &db_with_ttl, FLAGS_ttl);
       db_ = db_with_ttl;
+      if (FLAGS_enable_secondary) {
+        secondaries_.resize(FLAGS_threads);
+        std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
+        Options tmp_opts;
+        tmp_opts.max_open_files = FLAGS_open_files;
+        for (size_t i = 0; i != static_cast<size_t>(FLAGS_threads); ++i) {
+          const std::string secondary_path =
+              FLAGS_secondaries_base + "/" + std::to_string(i);
+          s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
+                                  &secondaries_[i]);
+          if (!s.ok()) {
+            break;
+          }
+        }
+      }
 #else
       fprintf(stderr, "TTL is not supported in RocksDBLite\n");
       exit(1);
