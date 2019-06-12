@@ -92,7 +92,7 @@ BlockCacheTraceSimulator::BlockCacheTraceSimulator(
     for (auto cache_capacity : config.cache_capacities) {
       sim_caches_.push_back(
           NewSimCache(NewLRUCache(cache_capacity, config.num_shard_bits),
-                      nullptr, config.num_shard_bits));
+                      /*real_cache=*/nullptr, config.num_shard_bits));
     }
   }
 }
@@ -101,7 +101,7 @@ void BlockCacheTraceSimulator::Access(const BlockCacheTraceRecord& access) {
   if (trace_start_time_ == 0) {
     trace_start_time_ = access.access_timestamp;
   }
-  // access.access_timestamp is in micro seconds.
+  // access.access_timestamp is in microseconds.
   if (!warmup_complete_ && trace_start_time_ + warmup_seconds_ * 1000000 <=
                                access.access_timestamp) {
     for (auto& sim_cache : sim_caches_) {
@@ -112,7 +112,8 @@ void BlockCacheTraceSimulator::Access(const BlockCacheTraceRecord& access) {
   for (auto& sim_cache : sim_caches_) {
     auto handle = sim_cache->Lookup(access.block_key);
     if (handle == nullptr && !access.no_insert) {
-      sim_cache->Insert(access.block_key, nullptr, access.block_size, nullptr);
+      sim_cache->Insert(access.block_key, /*value=*/nullptr, access.block_size,
+                        /*deleter=*/nullptr);
     }
   }
 }
@@ -517,6 +518,9 @@ void BlockCacheTraceAnalyzer::PrintStatsSummary() const {
 }
 
 uint64_t parse_cache_capacity(const std::string& cache_capacity_str) {
+  if (cache_capacity_str.empty()) {
+    return 0;
+  }
   uint64_t unit = 0;
   char unit_c = cache_capacity_str[cache_capacity_str.size() - 1];
   switch (unit_c) {

@@ -194,7 +194,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
     uint32_t config_index = 0;
     std::string line;
     // Read header.
-    getline(infile, line);
+    ASSERT_TRUE(getline(infile, line));
     while (getline(infile, line)) {
       std::stringstream ss(line);
       std::vector<std::string> result_strs;
