@@ -48,18 +48,21 @@ using CommitEntry64bFormat = WritePreparedTxnDB::CommitEntry64bFormat;
 
 TEST(PreparedHeap, BasicsTest) {
   WritePreparedTxnDB::PreparedHeap heap;
-  heap.push(14l);
-  // Test with one element
-  ASSERT_EQ(14l, heap.top());
-  heap.push(24l);
-  heap.push(34l);
-  // Test that old min is still on top
-  ASSERT_EQ(14l, heap.top());
-  heap.push(44l);
-  heap.push(54l);
-  heap.push(64l);
-  heap.push(74l);
-  heap.push(84l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(14l);
+    // Test with one element
+    ASSERT_EQ(14l, heap.top());
+    heap.push(24l);
+    heap.push(34l);
+    // Test that old min is still on top
+    ASSERT_EQ(14l, heap.top());
+    heap.push(44l);
+    heap.push(54l);
+    heap.push(64l);
+    heap.push(74l);
+    heap.push(84l);
+  }
   // Test that old min is still on top
   ASSERT_EQ(14l, heap.top());
   heap.erase(24l);
