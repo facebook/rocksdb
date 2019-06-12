@@ -225,6 +225,7 @@ Status WriteUnpreparedTxnDB::Initialize(
 
   // create 'real' transactions from recovered shell transactions
   auto rtxns = dbimpl->recovered_transactions();
+  std::map<SequenceNumber, SequenceNumber> ordered_seq_cnt;
   for (auto rtxn : rtxns) {
     auto recovered_trx = rtxn.second;
     assert(recovered_trx);
@@ -266,9 +267,7 @@ Status WriteUnpreparedTxnDB::Initialize(
       auto cnt = batch_info.batch_cnt_ ? batch_info.batch_cnt_ : 1;
       assert(batch_info.log_number_);
 
-      for (size_t i = 0; i < cnt; i++) {
-        AddPrepared(seq + i);
-      }
+      ordered_seq_cnt[seq] = cnt;
       assert(wupt->unprep_seqs_.count(seq) == 0);
       wupt->unprep_seqs_[seq] = cnt;
       KeySetBuilder keyset_handler(wupt,
@@ -286,6 +285,14 @@ Status WriteUnpreparedTxnDB::Initialize(
     real_trx->SetState(Transaction::PREPARED);
     if (!s.ok()) {
       break;
+    }
+  }
+  // AddPrepared must be called in order
+  for (auto seq_cnt: ordered_seq_cnt) {
+    auto seq = seq_cnt.first;
+    auto cnt = seq_cnt.second;
+    for (size_t i = 0; i < cnt; i++) {
+      AddPrepared(seq + i);
     }
   }
 

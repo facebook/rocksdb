@@ -511,9 +511,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     // The mutex is required for push and pop from PreparedHeap. ::erase will
     // use external synchronization via prepared_mutex_.
     port::Mutex push_pop_mutex_;
-    // TODO(myabandeh): replace it with deque
-    std::priority_queue<uint64_t, std::vector<uint64_t>, std::greater<uint64_t>>
-        heap_;
+    std::deque<uint64_t> heap_;
     std::priority_queue<uint64_t, std::vector<uint64_t>, std::greater<uint64_t>>
         erased_heap_;
     std::atomic<uint64_t> heap_top_ = {kMaxSequenceNumber};
@@ -534,21 +532,27 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     // Returns kMaxSequenceNumber if empty() and the smallest otherwise.
     inline uint64_t top() { return heap_top_.load(std::memory_order_acquire); }
     inline void push(uint64_t v) {
-      heap_.push(v);
-      heap_top_.store(heap_.top(), std::memory_order_release);
+      push_pop_mutex_.AssertHeld();
+      if (heap_.empty()) {
+        heap_top_.store(v, std::memory_order_release);
+      } else {
+        assert(heap_top_.load() < v);
+      }
+      heap_.push_back(v); 
     }
     void pop(bool locked = false) {
       if (!locked) {
         push_pop_mutex()->Lock();
       }
-      heap_.pop();
+      push_pop_mutex_.AssertHeld();
+      heap_.pop_front();
       while (!heap_.empty() && !erased_heap_.empty() &&
              // heap_.top() > erased_heap_.top() could happen if we have erased
              // a non-existent entry. Ideally the user should not do that but we
              // should be resilient against it.
-             heap_.top() >= erased_heap_.top()) {
-        if (heap_.top() == erased_heap_.top()) {
-          heap_.pop();
+             heap_.front() >= erased_heap_.top()) {
+        if (heap_.front() == erased_heap_.top()) {
+          heap_.pop_front();
         }
         uint64_t erased __attribute__((__unused__));
         erased = erased_heap_.top();
@@ -559,7 +563,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       while (heap_.empty() && !erased_heap_.empty()) {
         erased_heap_.pop();
       }
-      heap_top_.store(!heap_.empty() ? heap_.top() : kMaxSequenceNumber,
+      heap_top_.store(!heap_.empty() ? heap_.front() : kMaxSequenceNumber,
                       std::memory_order_release);
       if (!locked) {
         push_pop_mutex()->Unlock();
@@ -568,13 +572,16 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     // Concurrrent calls needs external synchronization. It is safe to be called
     // concurrent to push and pop though.
     void erase(uint64_t seq) {
-      if (!heap_.empty()) {
+      if (!empty()) {
         auto top_seq = top();
         if (seq < top_seq) {
           // Already popped, ignore it.
         } else if (top_seq == seq) {
           pop();
-          assert(heap_.empty() || heap_.top() != seq);
+#ifndef NDEBUG
+          MutexLock ml(push_pop_mutex());
+          assert(heap_.empty() || heap_.front() != seq);
+#endif
         } else {  // top() > seq
           // Down the heap, remember to pop it later
           erased_heap_.push(seq);
