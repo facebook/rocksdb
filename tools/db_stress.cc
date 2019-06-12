@@ -333,6 +333,11 @@ DEFINE_bool(use_block_based_filter, false, "use block based filter"
 
 DEFINE_string(db, "", "Use the db with the following name.");
 
+DEFINE_string(secondaries_base, "",
+              "Use this path as the base path for secondary instances.");
+
+DEFINE_bool(enable_secondary, false, "Enable secondary instance.");
+
 DEFINE_string(
     expected_values_path, "",
     "File where the array of expected uint32_t values will be stored. If "
@@ -359,6 +364,7 @@ DEFINE_bool(use_direct_io_for_flush_and_compaction,
 
 // Database statistics
 static std::shared_ptr<rocksdb::Statistics> dbstats;
+static std::shared_ptr<rocksdb::Statistics> dbstats_secondaries;
 DEFINE_bool(statistics, false, "Create database statistics");
 
 DEFINE_bool(sync, false, "Sync all writes to disk");
@@ -1423,6 +1429,17 @@ class StressTest {
     }
     column_families_.clear();
     delete db_;
+
+    assert(secondaries_.size() == secondary_cfh_lists_.size());
+    size_t n = secondaries_.size();
+    for (size_t i = 0; i != n; ++i) {
+      for (auto* cf : secondary_cfh_lists_[i]) {
+        delete cf;
+      }
+      secondary_cfh_lists_[i].clear();
+      delete secondaries_[i];
+    }
+    secondaries_.clear();
   }
 
   std::shared_ptr<Cache> NewCache(size_t capacity) {
@@ -2864,6 +2881,26 @@ class StressTest {
       }
       assert(!s.ok() || column_families_.size() ==
                             static_cast<size_t>(FLAGS_column_families));
+
+      if (FLAGS_enable_secondary) {
+        secondaries_.resize(FLAGS_threads);
+        std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
+        secondary_cfh_lists_.clear();
+        secondary_cfh_lists_.resize(FLAGS_threads);
+        Options tmp_opts;
+        tmp_opts.create_if_missing = true;
+        tmp_opts.max_open_files = FLAGS_open_files;
+        for (size_t i = 0; i != static_cast<size_t>(FLAGS_threads); ++i) {
+          const std::string secondary_path =
+              FLAGS_secondaries_base + "/" + std::to_string(i);
+          s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
+                                  cf_descriptors, &secondary_cfh_lists_[i],
+                                  &secondaries_[i]);
+          if (!s.ok()) {
+            break;
+          }
+        }
+      }
     } else {
 #ifndef ROCKSDB_LITE
       DBWithTTL* db_with_ttl;
@@ -2890,6 +2927,17 @@ class StressTest {
 #ifndef ROCKSDB_LITE
     txn_db_ = nullptr;
 #endif
+
+    assert(secondaries_.size() == secondary_cfh_lists_.size());
+    size_t n = secondaries_.size();
+    for (size_t i = 0; i != n; ++i) {
+      for (auto* cf : secondary_cfh_lists_[i]) {
+        delete cf;
+      }
+      secondary_cfh_lists_[i].clear();
+      delete secondaries_[i];
+    }
+    secondaries_.clear();
 
     num_times_reopened_++;
     auto now = FLAGS_env->NowMicros();
@@ -2920,6 +2968,10 @@ class StressTest {
   std::unordered_map<std::string, std::vector<std::string>> options_table_;
   std::vector<std::string> options_index_;
   std::atomic<bool> db_preload_finished_;
+
+  // Fields used for stress-testing secondary instance in the same process
+  std::vector<DB*> secondaries_;
+  std::vector<std::vector<ColumnFamilyHandle*> > secondary_cfh_lists_;
 };
 
 class NonBatchedOpsStressTest : public StressTest {
@@ -4259,6 +4311,19 @@ int main(int argc, char** argv) {
       rocksdb::Env::Default()->GetTestDirectory(&default_db_path);
       default_db_path += "/dbstress";
       FLAGS_db = default_db_path;
+  }
+
+  if (FLAGS_enable_secondary && FLAGS_secondaries_base.empty()) {
+    std::string default_secondaries_path;
+    FLAGS_env->GetTestDirectory(&default_secondaries_path);
+    default_secondaries_path += "/dbstress_secondaries";
+    rocksdb::Status s = FLAGS_env->CreateDirIfMissing(default_secondaries_path);
+    if (!s.ok()) {
+      fprintf(stderr, "Failed to create directory %s: %s\n",
+              default_secondaries_path.c_str(), s.ToString().c_str());
+      exit(1);
+    }
+    FLAGS_secondaries_base = default_secondaries_path;
   }
 
   rocksdb_kill_odds = FLAGS_kill_random_test;
