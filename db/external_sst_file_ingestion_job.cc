@@ -642,6 +642,7 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
 
 template <typename TWritableFile>
 Status ExternalSstFileIngestionJob::SyncIngestedFile(TWritableFile* file) {
+  assert(file != nullptr);
   if (db_options_.use_fsync) {
     return file->Fsync();
   } else {
