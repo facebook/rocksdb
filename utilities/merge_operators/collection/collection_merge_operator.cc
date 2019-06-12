@@ -4,6 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //  @author Adam Retter
 
+#define __STDC_FORMAT_MACROS 1
+#include <inttypes.h>
+
 #include "collection_merge_operator.h"
 #include "multi_operand_list.h"
 
@@ -158,7 +161,7 @@ bool CollectionMergeOperator::PartialMergeMulti(const Slice& key,
   if (debug) {
       Log(InfoLogLevel::DEBUG_LEVEL, logger, "Starting CollectionMergeOperator::PartialMergeMulti");
       Log(InfoLogLevel::DEBUG_LEVEL, logger, "key=[%s]", key.ToString(true).c_str());
-      Log(InfoLogLevel::DEBUG_LEVEL, logger, "operand_list.size()=[%d]", operand_list.size());
+      Log(InfoLogLevel::DEBUG_LEVEL, logger, "operand_list.size()=[%zu]", operand_list.size());
   }
 
   if (operand_list.empty()) {
@@ -358,7 +361,7 @@ bool CollectionMergeOperator::pm_add(Operations& operations,
         remove_operation_record(operations, operations_index, operation_idx, it_operation_record_offsets, it_prev_operation);
         
       } else {
-        Log(InfoLogLevel::ERROR_LEVEL, logger, "Processing of kAdd before op=%s is not implemented. (value=%s)", it_prev_operation->operation_);
+        Log(InfoLogLevel::ERROR_LEVEL, logger, "Processing of kAdd before op=%" PRIu8 " is not implemented.", it_prev_operation->operation_);
         return false;
       }
     }
@@ -545,13 +548,13 @@ bool CollectionMergeOperator::fm_add(const char* value, const size_t value_len, 
 
   // check we have a whole number of records in the new value
   if (value_len % fixed_record_len_ > 0) {
-    Log(InfoLogLevel::ERROR_LEVEL, logger, "add encountered incomplete records in the new value (value_len=%zu, fixed_record_len_=%zu)", value_len, fixed_record_len_);
+    Log(InfoLogLevel::ERROR_LEVEL, logger, "add encountered incomplete records in the new value (value_len=%zu, fixed_record_len_=%" PRIu16 ")", value_len, fixed_record_len_);
     return false;
   }
 
   // check we have a whole number of records in the existing Collection
   if (existing.size() % fixed_record_len_ > 0) {
-    Log(InfoLogLevel::ERROR_LEVEL, logger, "add encountered incomplete records in the existing Collection (existing.size=%zu, fixed_record_len_=%zu)", existing.size(), fixed_record_len_);
+    Log(InfoLogLevel::ERROR_LEVEL, logger, "add encountered incomplete records in the existing Collection (existing.size=%zu, fixed_record_len_=%" PRIu16 ")", existing.size(), fixed_record_len_);
     return false;
   }
 
@@ -711,13 +714,13 @@ bool CollectionMergeOperator::fm_remove(const char* value, const size_t value_le
 
   // check we have a whole number of records in the new value
   if (value_len % fixed_record_len_ > 0) {
-    Log(InfoLogLevel::ERROR_LEVEL, logger, "remove encountered incomplete records in the new value (value_len=%zu, fixed_record_len_=%zu)", value_len, fixed_record_len_);
+    Log(InfoLogLevel::ERROR_LEVEL, logger, "remove encountered incomplete records in the new value (value_len=%zu, fixed_record_len_=%" PRIu16 ")", value_len, fixed_record_len_);
     return false;
   }
 
   // check we have a whole number of records in the existing Collection
   if (existing.size() % fixed_record_len_ > 0) {
-    Log(InfoLogLevel::ERROR_LEVEL, logger, "remove encountered incomplete records in the existing Collection (existing.size=%zu, fixed_record_len_=%zu)", existing.size(), fixed_record_len_);
+    Log(InfoLogLevel::ERROR_LEVEL, logger, "remove encountered incomplete records in the existing Collection (existing.size=%zu, fixed_record_len_=%" PRIu16 ")", existing.size(), fixed_record_len_);
     return false;
   }
 
