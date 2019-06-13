@@ -364,7 +364,6 @@ DEFINE_bool(use_direct_io_for_flush_and_compaction,
 
 // Database statistics
 static std::shared_ptr<rocksdb::Statistics> dbstats;
-static std::shared_ptr<rocksdb::Statistics> dbstats_secondaries;
 DEFINE_bool(statistics, false, "Create database statistics");
 
 DEFINE_bool(sync, false, "Sync all writes to disk");
@@ -609,6 +608,8 @@ DEFINE_int32(secondary_catch_up_one_in, 0,
              "If non-zero, the secondaries attemp to catch up with the primary "
              "once for every N operations on average. 0 indicates the "
              "secondaries do not try to catch up after open.");
+
+static std::shared_ptr<rocksdb::Statistics> dbstats_secondaries;
 
 enum RepFactory {
   kSkipList,
@@ -1642,7 +1643,13 @@ class StressTest {
       }
     }
 
-    fprintf(stdout, "Start to verify secondaries against primary\n");
+#ifndef ROCKSDB_LITE
+    if (FLAGS_enable_secondary) {
+      now = FLAGS_env->NowMicros();
+      fprintf(stdout, "%s Start to verify secondaries against primary\n",
+              FLAGS_env->TimeToString(static_cast<uint64_t>(now) / 1000000)
+                  .c_str());
+    }
     for (size_t k = 0; k != secondaries_.size(); ++k) {
       Status s = secondaries_[k]->TryCatchUpWithPrimary();
       if (!s.ok()) {
@@ -1669,7 +1676,13 @@ class StressTest {
         return false;
       }
     }
-    fprintf(stdout, "Verification of secondaries succeeded\n");
+    if (FLAGS_enable_secondary) {
+      now = FLAGS_env->NowMicros();
+      fprintf(stdout, "%s Verification of secondaries succeeded\n",
+              FLAGS_env->TimeToString(static_cast<uint64_t>(now) / 1000000)
+                  .c_str());
+    }
+#endif  // ROCKSDB_LITE
 
     if (shared.HasVerificationFailedYet()) {
       printf("Verification failed :(\n");
@@ -2936,6 +2949,8 @@ class StressTest {
         secondary_cfh_lists_.resize(FLAGS_threads);
         Options tmp_opts;
         tmp_opts.max_open_files = FLAGS_open_files;
+        tmp_opts.statistics = dbstats_secondaries;
+        tmp_opts.env = FLAGS_env;
         for (size_t i = 0; i != static_cast<size_t>(FLAGS_threads); ++i) {
           const std::string secondary_path =
               FLAGS_secondaries_base + "/" + std::to_string(i);
@@ -3015,6 +3030,10 @@ class StressTest {
   void PrintStatistics() {
     if (dbstats) {
       fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
+    }
+    if (dbstats_secondaries) {
+      fprintf(stdout, "Secondary instances STATISTICS:\n%s\n",
+              dbstats_secondaries->ToString().c_str());
     }
   }
 
@@ -4270,6 +4289,9 @@ int main(int argc, char** argv) {
 
   if (FLAGS_statistics) {
     dbstats = rocksdb::CreateDBStatistics();
+    if (FLAGS_enable_secondary) {
+      dbstats_secondaries = rocksdb::CreateDBStatistics();
+    }
   }
   FLAGS_compression_type_e =
     StringToCompressionType(FLAGS_compression_type.c_str());
