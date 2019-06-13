@@ -68,6 +68,24 @@ class CollectionMergeOperator : public MergeOperator {
  public:
 
   /**
+   * Produces a hex string representation of a byte string.
+   *
+   * @param s the byte string
+   * @param len the length of the byte string to read
+   *
+   * @return the hex string
+   */
+  static std::string toHex(const char* s, const size_t len) {
+    std::string result;
+    char buf[10];
+    for (size_t i = 0; i < len; i++) {
+      snprintf(buf, 10, "%02X", (unsigned char)s[i]);
+      result += buf;
+    }
+    return result;
+  }
+
+  /**
    * Creates a Collection Merge Operator.
    * 
    * @param fixed_record_len the fixed size of each record.
@@ -91,7 +109,7 @@ class CollectionMergeOperator : public MergeOperator {
   virtual bool PartialMergeMulti(const Slice& key,
       const std::deque<Slice>& operand_list, std::string* new_value,
       Logger* logger) const override;
- 
+
  private:
   const uint16_t fixed_record_len_;
   const Comparator* const comparator_;
@@ -191,24 +209,6 @@ class CollectionMergeOperator : public MergeOperator {
   void pm_trace_end_records(std::string* new_value, size_t& i,
       std::ofstream& trace_file) const;
   void trace_exit(const char* const msg, const bool success) const;
-
-/**
- * Produces a hex string representation of a byte string.
- * 
- * @param s the byte string
- * @param len the length of the byte string to read
- * 
- * @return the hex string
- */
-static std::string toHex(const char* s, const size_t len) {
-  std::string result;
-  char buf[10];
-  for (size_t i = 0; i < len; i++) {
-    snprintf(buf, 10, "%02X", (unsigned char)s[i]);
-    result += buf;
-  }
-  return result;
-}
 
 };
 }  // end rocksdb namespace
