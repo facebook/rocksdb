@@ -234,6 +234,8 @@ class SimCacheImpl : public SimCache {
 
   size_t GetPinnedUsage() const override { return cache_->GetPinnedUsage(); }
 
+  size_t GetCharge(Handle* handle) const override { return cache_->GetCharge(handle); }
+
   void DisownData() override {
     cache_->DisownData();
     key_only_cache_->DisownData();

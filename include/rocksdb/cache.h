@@ -226,6 +226,9 @@ class Cache {
   // returns the memory size for the entries in use by the system
   virtual size_t GetPinnedUsage() const = 0;
 
+  // returns the charge for the specific entry in the cache.
+  virtual size_t GetCharge(Handle* handle) const = 0;
+
   // Call this on shutdown if you want to speed it up. Cache will disown
   // any underlying data and will not free it on delete. This call will leak
   // memory - call this only if you're shutting down the process.
