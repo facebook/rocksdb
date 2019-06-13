@@ -2297,7 +2297,8 @@ class StressTest {
       thread->stats.FinishedSingleOp();
 #ifndef ROCKSDB_LITE
       uint32_t tid = thread->tid;
-      assert(static_cast<size_t>(tid) < secondaries_.size());
+      assert(secondaries_.empty() ||
+             static_cast<size_t>(tid) < secondaries_.size());
       if (FLAGS_secondary_catch_up_one_in > 0 &&
           thread->rand.Uniform(FLAGS_secondary_catch_up_one_in) == 0) {
         Status s = secondaries_[tid]->TryCatchUpWithPrimary();
