@@ -2290,6 +2290,7 @@ class StressTest {
         Status s = secondaries_[tid]->TryCatchUpWithPrimary();
         if (!s.ok()) {
           VerificationAbort(shared, "Secondary instance failed to catch up", s);
+          break;
         }
       }
 #endif
