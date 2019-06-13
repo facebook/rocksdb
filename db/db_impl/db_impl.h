@@ -40,7 +40,6 @@
 #include "db/wal_manager.h"
 #include "db/write_controller.h"
 #include "db/write_thread.h"
-#include "db/memtable_list.h"
 #include "logging/event_logger.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
@@ -53,6 +52,7 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
+#include "trace_replay/block_cache_tracer.h"
 #include "trace_replay/trace_replay.h"
 #include "util/autovector.h"
 #include "util/hash.h"
@@ -330,6 +330,14 @@ class DBImpl : public DB {
 
   using DB::EndTrace;
   virtual Status EndTrace() override;
+
+  using DB::StartBlockCacheTrace;
+  Status StartBlockCacheTrace(
+      const TraceOptions& options,
+      std::unique_ptr<TraceWriter>&& trace_writer) override;
+
+  using DB::EndBlockCacheTrace;
+  Status EndBlockCacheTrace() override;
 
   using DB::GetPropertiesOfAllTables;
   virtual Status GetPropertiesOfAllTables(
@@ -832,6 +840,7 @@ class DBImpl : public DB {
       recovered_transactions_;
   std::unique_ptr<Tracer> tracer_;
   InstrumentedMutex trace_mutex_;
+  BlockCacheTracer block_cache_tracer_;
 
   // State below is protected by mutex_
   // With two_write_queues enabled, some of the variables that accessed during

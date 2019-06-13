@@ -1020,19 +1020,17 @@ Slice BlockBasedTable::GetCacheKey(const char* cache_key_prefix,
   return Slice(cache_key, static_cast<size_t>(end - cache_key));
 }
 
-Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
-                             const EnvOptions& env_options,
-                             const BlockBasedTableOptions& table_options,
-                             const InternalKeyComparator& internal_comparator,
-                             std::unique_ptr<RandomAccessFileReader>&& file,
-                             uint64_t file_size,
-                             std::unique_ptr<TableReader>* table_reader,
-                             const SliceTransform* prefix_extractor,
-                             const bool prefetch_index_and_filter_in_cache,
-                             const bool skip_filters, const int level,
-                             const bool immortal_table,
-                             const SequenceNumber largest_seqno,
-                             TailPrefetchStats* tail_prefetch_stats) {
+Status BlockBasedTable::Open(
+    const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
+    const BlockBasedTableOptions& table_options,
+    const InternalKeyComparator& internal_comparator,
+    std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+    std::unique_ptr<TableReader>* table_reader,
+    const SliceTransform* prefix_extractor,
+    const bool prefetch_index_and_filter_in_cache, const bool skip_filters,
+    const int level, const bool immortal_table,
+    const SequenceNumber largest_seqno, TailPrefetchStats* tail_prefetch_stats,
+    BlockCacheTracer* const block_cache_tracer) {
   table_reader->reset();
 
   Status s;
@@ -1082,7 +1080,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   rep->internal_prefix_transform.reset(
       new InternalKeySliceTransform(prefix_extractor));
   SetupCacheKeyPrefix(rep);
-  std::unique_ptr<BlockBasedTable> new_table(new BlockBasedTable(rep));
+  std::unique_ptr<BlockBasedTable> new_table(
+      new BlockBasedTable(rep, block_cache_tracer));
 
   // page cache options
   rep->persistent_cache_options =
