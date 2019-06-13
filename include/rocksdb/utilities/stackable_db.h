@@ -316,16 +316,14 @@ class StackableDB : public DB {
   }
 
   using DB::StartBlockCacheTrace;
-  virtual Status StartBlockCacheTrace(
+  Status StartBlockCacheTrace(
       const TraceOptions& options,
       std::unique_ptr<TraceWriter>&& trace_writer) override {
     return db_->StartBlockCacheTrace(options, std::move(trace_writer));
   }
 
   using DB::EndBlockCacheTrace;
-  virtual Status EndBlockCacheTrace() override {
-    return db_->EndBlockCacheTrace();
-  }
+  Status EndBlockCacheTrace() override { return db_->EndBlockCacheTrace(); }
 
 #endif  // ROCKSDB_LITE
 
