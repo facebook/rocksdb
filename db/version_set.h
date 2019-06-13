@@ -779,7 +779,7 @@ class VersionSet {
              const EnvOptions& env_options, Cache* table_cache,
              WriteBufferManager* write_buffer_manager,
              WriteController* write_controller,
-             AtomicBlockCacheTraceWriter* const block_cache_tracer = nullptr);
+             BlockCacheTracer* const block_cache_tracer);
   virtual ~VersionSet();
 
   // Apply *edit to the current version to form a new descriptor that
@@ -1126,7 +1126,7 @@ class VersionSet {
   // env options for all reads and writes except compactions
   EnvOptions env_options_;
 
-  AtomicBlockCacheTraceWriter* const block_cache_tracer_;
+  BlockCacheTracer* const block_cache_tracer_;
 
  private:
   // No copying allowed

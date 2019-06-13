@@ -97,18 +97,20 @@ class BlockBasedTable : public TableReader {
   // @param skip_filters Disables loading/accessing the filter block. Overrides
   //    prefetch_index_and_filter_in_cache, so filter will be skipped if both
   //    are set.
-  static Status Open(
-      const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
-      const BlockBasedTableOptions& table_options,
-      const InternalKeyComparator& internal_key_comparator,
-      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-      std::unique_ptr<TableReader>* table_reader,
-      const SliceTransform* prefix_extractor = nullptr,
-      bool prefetch_index_and_filter_in_cache = true, bool skip_filters = false,
-      int level = -1, const bool immortal_table = false,
-      const SequenceNumber largest_seqno = 0,
-      TailPrefetchStats* tail_prefetch_stats = nullptr,
-      AtomicBlockCacheTraceWriter* const block_cache_tracer = nullptr);
+  static Status Open(const ImmutableCFOptions& ioptions,
+                     const EnvOptions& env_options,
+                     const BlockBasedTableOptions& table_options,
+                     const InternalKeyComparator& internal_key_comparator,
+                     std::unique_ptr<RandomAccessFileReader>&& file,
+                     uint64_t file_size,
+                     std::unique_ptr<TableReader>* table_reader,
+                     const SliceTransform* prefix_extractor = nullptr,
+                     bool prefetch_index_and_filter_in_cache = true,
+                     bool skip_filters = false, int level = -1,
+                     const bool immortal_table = false,
+                     const SequenceNumber largest_seqno = 0,
+                     TailPrefetchStats* tail_prefetch_stats = nullptr,
+                     BlockCacheTracer* const block_cache_tracer = nullptr);
 
   bool PrefixMayMatch(const Slice& internal_key,
                       const ReadOptions& read_options,
@@ -233,14 +235,13 @@ class BlockBasedTable : public TableReader {
 
  protected:
   Rep* rep_;
-  explicit BlockBasedTable(
-      Rep* rep, AtomicBlockCacheTraceWriter* const block_cache_tracer = nullptr)
+  explicit BlockBasedTable(Rep* rep, BlockCacheTracer* const block_cache_tracer)
       : rep_(rep), block_cache_tracer_(block_cache_tracer) {}
 
  private:
   friend class MockedBlockBasedTable;
   static std::atomic<uint64_t> next_cache_key_id_;
-  AtomicBlockCacheTraceWriter* const block_cache_tracer_;
+  BlockCacheTracer* const block_cache_tracer_;
 
   void UpdateCacheHitMetrics(BlockType block_type, GetContext* get_context,
                              size_t usage) const;

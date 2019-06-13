@@ -114,7 +114,8 @@ class Repairer {
         wb_(db_options_.db_write_buffer_size),
         wc_(db_options_.delayed_write_rate),
         vset_(dbname_, &immutable_db_options_, env_options_,
-              raw_table_cache_.get(), &wb_, &wc_),
+              raw_table_cache_.get(), &wb_, &wc_,
+              /*block_cache_tracer=*/nullptr),
         next_file_number_(1),
         db_lock_(nullptr) {
     for (const auto& cfd : column_families) {

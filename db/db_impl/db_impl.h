@@ -834,7 +834,7 @@ class DBImpl : public DB {
       recovered_transactions_;
   std::unique_ptr<Tracer> tracer_;
   InstrumentedMutex trace_mutex_;
-  AtomicBlockCacheTraceWriter atomic_block_cache_trace_writer_;
+  BlockCacheTracer block_cache_tracer_;
 
   // State below is protected by mutex_
   // With two_write_queues enabled, some of the variables that accessed during

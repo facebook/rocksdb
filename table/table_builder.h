@@ -28,12 +28,13 @@ class Status;
 
 struct TableReaderOptions {
   // @param skip_filters Disables loading/accessing the filter block
-  TableReaderOptions(
-      const ImmutableCFOptions& _ioptions,
-      const SliceTransform* _prefix_extractor, const EnvOptions& _env_options,
-      const InternalKeyComparator& _internal_comparator,
-      bool _skip_filters = false, bool _immortal = false, int _level = -1,
-      AtomicBlockCacheTraceWriter* const _block_cache_tracer = nullptr)
+  TableReaderOptions(const ImmutableCFOptions& _ioptions,
+                     const SliceTransform* _prefix_extractor,
+                     const EnvOptions& _env_options,
+                     const InternalKeyComparator& _internal_comparator,
+                     bool _skip_filters = false, bool _immortal = false,
+                     int _level = -1,
+                     BlockCacheTracer* const _block_cache_tracer = nullptr)
       : TableReaderOptions(_ioptions, _prefix_extractor, _env_options,
                            _internal_comparator, _skip_filters, _immortal,
                            _level, 0 /* _largest_seqno */,
@@ -46,7 +47,7 @@ struct TableReaderOptions {
                      const InternalKeyComparator& _internal_comparator,
                      bool _skip_filters, bool _immortal, int _level,
                      SequenceNumber _largest_seqno,
-                     AtomicBlockCacheTraceWriter* const _block_cache_tracer)
+                     BlockCacheTracer* const _block_cache_tracer)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
@@ -69,7 +70,7 @@ struct TableReaderOptions {
   int level;
   // largest seqno in the table
   SequenceNumber largest_seqno;
-  AtomicBlockCacheTraceWriter* const block_cache_tracer;
+  BlockCacheTracer* const block_cache_tracer;
 };
 
 struct TableBuilderOptions {

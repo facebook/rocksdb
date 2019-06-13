@@ -506,7 +506,7 @@ class ColumnFamilyData {
                    const ImmutableDBOptions& db_options,
                    const EnvOptions& env_options,
                    ColumnFamilySet* column_family_set,
-                   AtomicBlockCacheTraceWriter* const block_cache_tracer);
+                   BlockCacheTracer* const block_cache_tracer);
 
   uint32_t id_;
   const std::string name_;
@@ -635,7 +635,7 @@ class ColumnFamilySet {
                   const EnvOptions& env_options, Cache* table_cache,
                   WriteBufferManager* write_buffer_manager,
                   WriteController* write_controller,
-                  AtomicBlockCacheTraceWriter* const block_cache_tracer);
+                  BlockCacheTracer* const block_cache_tracer);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -694,7 +694,7 @@ class ColumnFamilySet {
   Cache* table_cache_;
   WriteBufferManager* write_buffer_manager_;
   WriteController* write_controller_;
-  AtomicBlockCacheTraceWriter* const block_cache_tracer_;
+  BlockCacheTracer* const block_cache_tracer_;
 };
 
 // We use ColumnFamilyMemTablesImpl to provide WriteBatch a way to access

@@ -50,7 +50,7 @@ class TableCache {
  public:
   TableCache(const ImmutableCFOptions& ioptions,
              const EnvOptions& storage_options, Cache* cache,
-             AtomicBlockCacheTraceWriter* const block_cache_tracer);
+             BlockCacheTracer* const block_cache_tracer);
   ~TableCache();
 
   // Return an iterator for the specified file number (the corresponding
@@ -190,7 +190,7 @@ class TableCache {
   Cache* const cache_;
   std::string row_cache_id_;
   bool immortal_tables_;
-  AtomicBlockCacheTraceWriter* const block_cache_tracer_;
+  BlockCacheTracer* const block_cache_tracer_;
 };
 
 }  // namespace rocksdb

@@ -237,8 +237,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
 
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, env_options_,
                                  table_cache_.get(), write_buffer_manager_,
-                                 &write_controller_,
-                                 &atomic_block_cache_trace_writer_));
+                                 &write_controller_, &block_cache_tracer_));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -3903,12 +3902,12 @@ Status DBImpl::EndTrace() {
 Status DBImpl::StartBlockCacheTrace(
     const TraceOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer) {
-  return atomic_block_cache_trace_writer_.StartTrace(env_, trace_options,
-                                                     std::move(trace_writer));
+  return block_cache_tracer_.StartTrace(env_, trace_options,
+                                        std::move(trace_writer));
 }
 
 Status DBImpl::EndBlockCacheTrace() {
-  atomic_block_cache_trace_writer_.EndTrace();
+  block_cache_tracer_.EndTrace();
   return Status::OK();
 }
 
