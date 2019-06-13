@@ -23,6 +23,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "table/table_reader.h"
+#include "trace_replay/block_cache_tracer.h"
 
 namespace rocksdb {
 
@@ -48,7 +49,8 @@ class HistogramImpl;
 class TableCache {
  public:
   TableCache(const ImmutableCFOptions& ioptions,
-             const EnvOptions& storage_options, Cache* cache);
+             const EnvOptions& storage_options, Cache* cache,
+             BlockCacheTracer* const block_cache_tracer);
   ~TableCache();
 
   // Return an iterator for the specified file number (the corresponding
@@ -188,6 +190,7 @@ class TableCache {
   Cache* const cache_;
   std::string row_cache_id_;
   bool immortal_tables_;
+  BlockCacheTracer* const block_cache_tracer_;
 };
 
 }  // namespace rocksdb

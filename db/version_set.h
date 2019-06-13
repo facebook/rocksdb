@@ -46,6 +46,7 @@
 #include "rocksdb/env.h"
 #include "table/get_context.h"
 #include "table/multiget_context.h"
+#include "trace_replay/block_cache_tracer.h"
 
 namespace rocksdb {
 
@@ -777,7 +778,8 @@ class VersionSet {
   VersionSet(const std::string& dbname, const ImmutableDBOptions* db_options,
              const EnvOptions& env_options, Cache* table_cache,
              WriteBufferManager* write_buffer_manager,
-             WriteController* write_controller);
+             WriteController* write_controller,
+             BlockCacheTracer* const block_cache_tracer);
   virtual ~VersionSet();
 
   // Apply *edit to the current version to form a new descriptor that
@@ -1124,6 +1126,8 @@ class VersionSet {
 
   // env options for all reads and writes except compactions
   EnvOptions env_options_;
+
+  BlockCacheTracer* const block_cache_tracer_;
 
  private:
   // No copying allowed

@@ -838,7 +838,8 @@ class RecoveryTestHelper {
 
     versions.reset(new VersionSet(test->dbname_, &db_options, env_options,
                                   table_cache.get(), &write_buffer_manager,
-                                  &write_controller));
+                                  &write_controller,
+                                  /*block_cache_tracer=*/nullptr));
 
     wal_manager.reset(new WalManager(db_options, env_options));
 

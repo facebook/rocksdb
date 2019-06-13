@@ -237,7 +237,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
 
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, env_options_,
                                  table_cache_.get(), write_buffer_manager_,
-                                 &write_controller_));
+                                 &write_controller_, &block_cache_tracer_));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -3922,6 +3922,18 @@ Status DBImpl::EndTrace() {
     return Status::IOError("No trace file to close");
   }
   return s;
+}
+
+Status DBImpl::StartBlockCacheTrace(
+    const TraceOptions& trace_options,
+    std::unique_ptr<TraceWriter>&& trace_writer) {
+  return block_cache_tracer_.StartTrace(env_, trace_options,
+                                        std::move(trace_writer));
+}
+
+Status DBImpl::EndBlockCacheTrace() {
+  block_cache_tracer_.EndTrace();
+  return Status::OK();
 }
 
 Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key) {

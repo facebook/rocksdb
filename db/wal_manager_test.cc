@@ -50,7 +50,8 @@ class WalManagerTest : public testing::Test {
 
     versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
                                    table_cache_.get(), &write_buffer_manager_,
-                                   &write_controller_));
+                                   &write_controller_,
+                                   /*block_cache_tracer=*/nullptr));
 
     wal_manager_.reset(new WalManager(db_options_, env_options_));
   }
