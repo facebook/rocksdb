@@ -125,7 +125,7 @@ class BlockCacheTracer {
  private:
   TraceOptions trace_options_;
   // A mutex protects the writer_.
-  InstrumentedMutex writer_mutex_;
+  InstrumentedMutex trace_writer_mutex_;
   std::atomic<BlockCacheTraceWriter*> writer_;
 };
 
