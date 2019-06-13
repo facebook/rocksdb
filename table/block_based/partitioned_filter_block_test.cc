@@ -23,7 +23,8 @@ std::map<uint64_t, Slice> slices;
 
 class MockedBlockBasedTable : public BlockBasedTable {
  public:
-  explicit MockedBlockBasedTable(Rep* rep) : BlockBasedTable(rep) {
+  explicit MockedBlockBasedTable(Rep* rep)
+      : BlockBasedTable(rep, /*block_cache_tracer=*/nullptr) {
     // Initialize what Open normally does as much as necessary for the test
     rep->cache_key_prefix_size = 10;
   }

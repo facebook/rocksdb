@@ -35,7 +35,8 @@ class FlushJobTest : public testing::Test {
         write_buffer_manager_(db_options_.db_write_buffer_size),
         versions_(new VersionSet(dbname_, &db_options_, env_options_,
                                  table_cache_.get(), &write_buffer_manager_,
-                                 &write_controller_)),
+                                 &write_controller_,
+                                 /*block_cache_tracer=*/nullptr)),
         shutting_down_(false),
         mock_table_factory_(new mock::MockTableFactory()) {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));

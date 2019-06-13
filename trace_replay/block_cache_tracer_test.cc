@@ -145,7 +145,7 @@ TEST_F(BlockCacheTracerTest, AtomicWriteBeforeStartTrace) {
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
-    AtomicBlockCacheTraceWriter writer;
+    BlockCacheTracer writer;
     // The record should be written to the trace_file since StartTrace is not
     // called.
     ASSERT_OK(writer.WriteBlockAccess(record));
@@ -169,7 +169,7 @@ TEST_F(BlockCacheTracerTest, AtomicWrite) {
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
-    AtomicBlockCacheTraceWriter writer;
+    BlockCacheTracer writer;
     ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
     ASSERT_OK(writer.WriteBlockAccess(record));
     ASSERT_OK(env_->FileExists(trace_file_path_));
@@ -196,7 +196,7 @@ TEST_F(BlockCacheTracerTest, AtomicNoWriteAfterEndTrace) {
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
-    AtomicBlockCacheTraceWriter writer;
+    BlockCacheTracer writer;
     ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
     ASSERT_OK(writer.WriteBlockAccess(record));
     writer.EndTrace();

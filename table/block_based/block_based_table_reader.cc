@@ -1030,7 +1030,7 @@ Status BlockBasedTable::Open(
     const bool prefetch_index_and_filter_in_cache, const bool skip_filters,
     const int level, const bool immortal_table,
     const SequenceNumber largest_seqno, TailPrefetchStats* tail_prefetch_stats,
-    AtomicBlockCacheTraceWriter* const block_cache_tracer) {
+    BlockCacheTracer* const block_cache_tracer) {
   table_reader->reset();
 
   Status s;

@@ -213,16 +213,14 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
   return Status::OK();
 }
 
-AtomicBlockCacheTraceWriter::AtomicBlockCacheTraceWriter() {
-  writer_.store(nullptr);
-}
+BlockCacheTracer::BlockCacheTracer() { writer_.store(nullptr); }
 
-AtomicBlockCacheTraceWriter::~AtomicBlockCacheTraceWriter() { EndTrace(); }
+BlockCacheTracer::~BlockCacheTracer() { EndTrace(); }
 
-Status AtomicBlockCacheTraceWriter::StartTrace(
+Status BlockCacheTracer::StartTrace(
     Env* env, const TraceOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer) {
-  InstrumentedMutexLock lock_guard(&writer_mutext_);
+  InstrumentedMutexLock lock_guard(&writer_mutex_);
   if (writer_.load()) {
     return Status::OK();
   }
@@ -232,8 +230,8 @@ Status AtomicBlockCacheTraceWriter::StartTrace(
   return writer_.load()->WriteHeader();
 }
 
-void AtomicBlockCacheTraceWriter::EndTrace() {
-  InstrumentedMutexLock lock_guard(&writer_mutext_);
+void BlockCacheTracer::EndTrace() {
+  InstrumentedMutexLock lock_guard(&writer_mutex_);
   if (!writer_.load()) {
     return;
   }
@@ -241,15 +239,14 @@ void AtomicBlockCacheTraceWriter::EndTrace() {
   writer_.store(nullptr);
 }
 
-Status AtomicBlockCacheTraceWriter::WriteBlockAccess(
-    const BlockCacheTraceRecord& record) {
+Status BlockCacheTracer::WriteBlockAccess(const BlockCacheTraceRecord& record) {
   if (!writer_.load()) {
     return Status::OK();
   }
   if (!ShouldTrace(record, trace_options_)) {
     return Status::OK();
   }
-  InstrumentedMutexLock lock_guard(&writer_mutext_);
+  InstrumentedMutexLock lock_guard(&writer_mutex_);
   if (!writer_.load()) {
     return Status::OK();
   }

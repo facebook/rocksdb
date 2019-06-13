@@ -69,7 +69,7 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 
 TableCache::TableCache(const ImmutableCFOptions& ioptions,
                        const EnvOptions& env_options, Cache* const cache,
-                       AtomicBlockCacheTraceWriter* const block_cache_tracer)
+                       BlockCacheTracer* const block_cache_tracer)
     : ioptions_(ioptions),
       env_options_(env_options),
       cache_(cache),

@@ -3343,7 +3343,7 @@ VersionSet::VersionSet(const std::string& dbname,
                        const EnvOptions& storage_options, Cache* table_cache,
                        WriteBufferManager* write_buffer_manager,
                        WriteController* write_controller,
-                       AtomicBlockCacheTraceWriter* const block_cache_tracer)
+                       BlockCacheTracer* const block_cache_tracer)
     : column_family_set_(new ColumnFamilySet(
           dbname, _db_options, storage_options, table_cache,
           write_buffer_manager, write_controller, block_cache_tracer)),
@@ -4447,7 +4447,8 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
                                         options->table_cache_numshardbits));
   WriteController wc(options->delayed_write_rate);
   WriteBufferManager wb(options->db_write_buffer_size);
-  VersionSet versions(dbname, &db_options, env_options, tc.get(), &wb, &wc);
+  VersionSet versions(dbname, &db_options, env_options, tc.get(), &wb, &wc,
+                      /*block_cache_tracer=*/nullptr);
   Status status;
 
   std::vector<ColumnFamilyDescriptor> dummy;
@@ -5202,7 +5203,8 @@ ReactiveVersionSet::ReactiveVersionSet(const std::string& dbname,
                                        WriteBufferManager* write_buffer_manager,
                                        WriteController* write_controller)
     : VersionSet(dbname, _db_options, _env_options, table_cache,
-                 write_buffer_manager, write_controller) {}
+                 write_buffer_manager, write_controller,
+                 /*block_cache_tracer=*/nullptr) {}
 
 ReactiveVersionSet::~ReactiveVersionSet() {}
 

@@ -406,7 +406,7 @@ ColumnFamilyData::ColumnFamilyData(
     Cache* _table_cache, WriteBufferManager* write_buffer_manager,
     const ColumnFamilyOptions& cf_options, const ImmutableDBOptions& db_options,
     const EnvOptions& env_options, ColumnFamilySet* column_family_set,
-    AtomicBlockCacheTraceWriter* const block_cache_tracer)
+    BlockCacheTracer* const block_cache_tracer)
     : id_(id),
       name_(name),
       dummy_versions_(_dummy_versions),
@@ -1251,11 +1251,13 @@ Directory* ColumnFamilyData::GetDataDir(size_t path_id) const {
   return data_dirs_[path_id].get();
 }
 
-ColumnFamilySet::ColumnFamilySet(
-    const std::string& dbname, const ImmutableDBOptions* db_options,
-    const EnvOptions& env_options, Cache* table_cache,
-    WriteBufferManager* write_buffer_manager, WriteController* write_controller,
-    AtomicBlockCacheTraceWriter* const block_cache_tracer)
+ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
+                                 const ImmutableDBOptions* db_options,
+                                 const EnvOptions& env_options,
+                                 Cache* table_cache,
+                                 WriteBufferManager* write_buffer_manager,
+                                 WriteController* write_controller,
+                                 BlockCacheTracer* const block_cache_tracer)
     : max_column_family_(0),
       dummy_cfd_(new ColumnFamilyData(
           0, "", nullptr, nullptr, nullptr, ColumnFamilyOptions(), *db_options,
