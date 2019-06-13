@@ -159,14 +159,16 @@ Status SanitizeOptionsByTable(
 Status DBImpl::ValidateOptions(
     const DBOptions& db_options,
     const std::vector<ColumnFamilyDescriptor>& column_families) {
-  Status s;
+  Status s = ValidateOptions(db_options);
+  if (!s.ok()) {
+    return s;
+  }
   for (auto& cfd : column_families) {
     s = ColumnFamilyData::ValidateOptions(db_options, cfd.options);
     if (!s.ok()) {
       return s;
     }
   }
-  s = ValidateOptions(db_options);
   return s;
 }
 
