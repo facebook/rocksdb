@@ -605,6 +605,11 @@ DEFINE_uint64(max_manifest_file_size, 16384, "Maximum size of a MANIFEST file");
 
 DEFINE_bool(in_place_update, false, "On true, does inplace update in memtable");
 
+DEFINE_int32(secondary_catch_up_one_in, 0,
+             "If non-zero, the secondaries attemp to catch up with the primary "
+             "once for every N operations on average. 0 indicates the "
+             "secondaries do not try to catch up after open.");
+
 enum RepFactory {
   kSkipList,
   kHashSkipList,
@@ -1637,6 +1642,35 @@ class StressTest {
       }
     }
 
+    fprintf(stdout, "Start to verify secondaries against primary\n");
+    for (size_t k = 0; k != secondaries_.size(); ++k) {
+      Status s = secondaries_[k]->TryCatchUpWithPrimary();
+      if (!s.ok()) {
+        fprintf(stderr, "Secondary failed to catch up with primary\n");
+        return false;
+      }
+      ReadOptions ropts;
+      ropts.total_order_seek = true;
+      // Verify only the default column family since the primary may have
+      // dropped other column families after most recent reopen.
+      std::unique_ptr<Iterator> iter1(db_->NewIterator(ropts));
+      std::unique_ptr<Iterator> iter2(secondaries_[k]->NewIterator(ropts));
+      for (iter1->SeekToFirst(), iter2->SeekToFirst();
+           iter1->Valid() && iter2->Valid(); iter1->Next(), iter2->Next()) {
+        if (iter1->key().compare(iter2->key()) != 0 ||
+            iter1->value().compare(iter2->value())) {
+          fprintf(stderr, "Secondary contains different data\n");
+          return false;
+        }
+      }
+      if ((iter1->Valid() && !iter2->Valid()) ||
+          (!iter1->Valid() && iter2->Valid())) {
+        fprintf(stderr, "Secondary record count is different from primary\n");
+        return false;
+      }
+    }
+    fprintf(stdout, "Verification of secondaries succeeded\n");
+
     if (shared.HasVerificationFailedYet()) {
       printf("Verification failed :(\n");
       return false;
@@ -2248,6 +2282,17 @@ class StressTest {
         TestIterate(thread, read_opts, rand_column_families, rand_keys);
       }
       thread->stats.FinishedSingleOp();
+#ifndef ROCKSDB_LITE
+      uint32_t tid = thread->tid;
+      assert(static_cast<size_t>(tid) < secondaries_.size());
+      if (FLAGS_secondary_catch_up_one_in > 0 &&
+          thread->rand.Uniform(FLAGS_secondary_catch_up_one_in) == 0) {
+        Status s = secondaries_[tid]->TryCatchUpWithPrimary();
+        if (!s.ok()) {
+          VerificationAbort(shared, "Secondary instance failed to catch up", s);
+        }
+      }
+#endif
     }
 
     thread->stats.Stop();
@@ -4343,6 +4388,11 @@ int main(int argc, char** argv) {
       exit(1);
     }
     FLAGS_secondaries_base = default_secondaries_path;
+  }
+
+  if (!FLAGS_enable_secondary && FLAGS_secondary_catch_up_one_in > 0) {
+    fprintf(stderr, "Secondary instance is disabled.\n");
+    exit(1);
   }
 
   rocksdb_kill_odds = FLAGS_kill_random_test;
