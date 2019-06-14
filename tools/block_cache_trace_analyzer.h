@@ -35,7 +35,7 @@ struct BlockAccessInfo {
     block_size = access.block_size;
     caller_num_access_map[access.caller]++;
     num_accesses++;
-    if (BlockCacheTraceWriter::ShouldTraceReferencedKey(access.block_type,
+    if (BlockCacheTraceHelper::ShouldTraceReferencedKey(access.block_type,
                                                         access.caller)) {
       num_keys = access.num_keys_in_block;
 

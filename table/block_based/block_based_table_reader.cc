@@ -2259,7 +2259,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         assert(false);
         break;
     }
-    if (BlockCacheTraceWriter::ShouldTraceReferencedKey(
+    if (BlockCacheTraceHelper::ShouldTraceReferencedKey(
             trace_block_type, lookup_context->caller)) {
       // Defer logging the access to Get() and MultiGet() to trace additional
       // information, e.g., the referenced key,
