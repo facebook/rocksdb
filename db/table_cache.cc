@@ -176,7 +176,7 @@ InternalIterator* TableCache::NewIterator(
     const InternalKeyComparator& icomparator, const FileMetaData& file_meta,
     RangeDelAggregator* range_del_agg, const SliceTransform* prefix_extractor,
     TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
-    bool for_compaction, Arena* arena, bool skip_filters, int level,
+    TableReaderCaller caller, Arena* arena, bool skip_filters, int level,
     const InternalKey* smallest_compaction_key,
     const InternalKey* largest_compaction_key) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
@@ -187,7 +187,7 @@ InternalIterator* TableCache::NewIterator(
   if (table_reader_ptr != nullptr) {
     *table_reader_ptr = nullptr;
   }
-
+  bool for_compaction = caller == TableReaderCaller::kCompaction;
   auto& fd = file_meta.fd;
   table_reader = fd.table_reader;
   if (table_reader == nullptr) {
@@ -206,7 +206,7 @@ InternalIterator* TableCache::NewIterator(
       result = NewEmptyInternalIterator<Slice>(arena);
     } else {
       result = table_reader->NewIterator(options, prefix_extractor, arena,
-                                         skip_filters, for_compaction,
+                                         skip_filters, caller,
                                          env_options.compaction_readahead_size);
     }
     if (handle != nullptr) {

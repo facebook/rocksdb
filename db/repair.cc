@@ -520,7 +520,11 @@ class Repairer {
       InternalIterator* iter = table_cache_->NewIterator(
           ropts, env_options_, cfd->internal_comparator(), t->meta,
           nullptr /* range_del_agg */,
-          cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
+          cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
+          /*table_reader_ptr=*/nullptr, /*file_read_hist=*/nullptr,
+          TableReaderCaller::kRepair, /*arena=*/nullptr, /*skip_filters=*/false,
+          /*level=*/-1, /*smallest_compaction_key=*/nullptr,
+          /*largest_compaction_key=*/nullptr);
       bool empty = true;
       ParsedInternalKey parsed;
       t->min_sequence = 0;

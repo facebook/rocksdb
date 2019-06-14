@@ -67,7 +67,7 @@ std::string block_type_to_string(TraceType type) {
   return "InvalidType";
 }
 
-std::string caller_to_string(BlockCacheLookupCaller caller) {
+std::string caller_to_string(TableReaderCaller caller) {
   switch (caller) {
     case kUserGet:
       return "Get";
@@ -450,10 +450,10 @@ void BlockCacheTraceAnalyzer::PrintStatsSummary() const {
   uint64_t total_num_blocks = 0;
   uint64_t total_num_accesses = 0;
   std::map<TraceType, uint64_t> bt_num_blocks_map;
-  std::map<BlockCacheLookupCaller, uint64_t> caller_num_access_map;
-  std::map<BlockCacheLookupCaller, std::map<TraceType, uint64_t>>
+  std::map<TableReaderCaller, uint64_t> caller_num_access_map;
+  std::map<TableReaderCaller, std::map<TraceType, uint64_t>>
       caller_bt_num_access_map;
-  std::map<BlockCacheLookupCaller, std::map<uint32_t, uint64_t>>
+  std::map<TableReaderCaller, std::map<uint32_t, uint64_t>>
       caller_level_num_access_map;
   for (auto const& cf_aggregates : cf_aggregates_map_) {
     // Stats per column family.
@@ -462,12 +462,12 @@ void BlockCacheTraceAnalyzer::PrintStatsSummary() const {
     uint64_t cf_num_blocks = 0;
     std::map<TraceType, uint64_t> cf_bt_blocks;
     uint64_t cf_num_accesses = 0;
-    std::map<BlockCacheLookupCaller, uint64_t> cf_caller_num_accesses_map;
-    std::map<BlockCacheLookupCaller, std::map<uint64_t, uint64_t>>
+    std::map<TableReaderCaller, uint64_t> cf_caller_num_accesses_map;
+    std::map<TableReaderCaller, std::map<uint64_t, uint64_t>>
         cf_caller_level_num_accesses_map;
-    std::map<BlockCacheLookupCaller, std::map<uint64_t, uint64_t>>
+    std::map<TableReaderCaller, std::map<uint64_t, uint64_t>>
         cf_caller_file_num_accesses_map;
-    std::map<BlockCacheLookupCaller, std::map<TraceType, uint64_t>>
+    std::map<TableReaderCaller, std::map<TraceType, uint64_t>>
         cf_caller_bt_num_accesses_map;
     total_num_files += cf_aggregates.second.fd_aggregates_map.size();
     for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
@@ -492,7 +492,7 @@ void BlockCacheTraceAnalyzer::PrintStatsSummary() const {
           for (auto const& stats :
                block_access_info.second.caller_num_access_map) {
             // Stats per caller.
-            const BlockCacheLookupCaller caller = stats.first;
+            const TableReaderCaller caller = stats.first;
             const uint64_t num_accesses = stats.second;
             // Overall stats.
             total_num_accesses += num_accesses;

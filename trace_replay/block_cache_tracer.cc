@@ -15,6 +15,16 @@ namespace rocksdb {
 
 namespace {
 const unsigned int kCharSize = 1;
+<<<<<<< HEAD
+=======
+}  // namespace
+
+bool ShouldTraceReferencedKey(const BlockCacheTraceRecord& record) {
+  return (record.block_type == TraceType::kBlockTraceDataBlock) &&
+         (record.caller == TableReaderCaller::kUserGet ||
+          record.caller == TableReaderCaller::kUserMGet);
+}
+>>>>>>> Add more table reader callers
 
 bool ShouldTrace(const Slice& block_key, const TraceOptions& trace_options) {
   if (trace_options.sampling_frequency == 0 ||
@@ -182,7 +192,7 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
     return Status::Incomplete(
         "Incomplete access record: Failed to read caller.");
   }
-  record->caller = static_cast<BlockCacheLookupCaller>(enc_slice[0]);
+  record->caller = static_cast<TableReaderCaller>(enc_slice[0]);
   enc_slice.remove_prefix(kCharSize);
   if (enc_slice.empty()) {
     return Status::Incomplete(

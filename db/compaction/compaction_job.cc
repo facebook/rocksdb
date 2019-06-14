@@ -646,12 +646,14 @@ Status CompactionJob::Run() {
         // to cache it here for further user reads
         InternalIterator* iter = cfd->table_cache()->NewIterator(
             ReadOptions(), env_options_, cfd->internal_comparator(),
-            *files_meta[file_idx], nullptr /* range_del_agg */,
-            prefix_extractor, nullptr,
+            *files_meta[file_idx], /*range_del_agg=*/nullptr, prefix_extractor,
+            /*table_reader_ptr=*/nullptr,
             cfd->internal_stats()->GetFileReadHist(
                 compact_->compaction->output_level()),
-            false, nullptr /* arena */, false /* skip_filters */,
-            compact_->compaction->output_level());
+            TableReaderCaller::kCompactionRefill, /*arena=*/nullptr,
+            /*skip_filters=*/false, compact_->compaction->output_level(),
+            /*smallest_compaction_key=*/nullptr,
+            /*largest_compaction_key=*/nullptr);
         auto s = iter->status();
 
         if (s.ok() && paranoid_file_checks_) {
