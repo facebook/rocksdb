@@ -1914,6 +1914,7 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   size_t usage = 0;
   bool is_cache_hit = false;
   bool return_empty_reader = false;
+  bool no_insert = true;
   if (cache_handle != nullptr) {
     filter =
         reinterpret_cast<FilterBlockReader*>(block_cache->Value(cache_handle));
@@ -1933,6 +1934,7 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
               ? Cache::Priority::HIGH
               : Cache::Priority::LOW);
       if (s.ok()) {
+        no_insert = false;
         PERF_COUNTER_ADD(filter_block_read_count, 1);
         UpdateCacheInsertionMetrics(BlockType::kFilter, get_context, usage);
       } else {
@@ -1952,7 +1954,7 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
         /*block_size=*/usage, rep_->cf_id_for_tracing(),
         /*cf_name=*/"", rep_->level_for_tracing(),
         rep_->sst_number_for_tracing(), lookup_context->caller, is_cache_hit,
-        /*no_insert=*/no_io);
+        no_insert);
     block_cache_tracer_->WriteBlockAccess(access_record, key,
                                           rep_->cf_name_for_tracing(),
                                           /*referenced_key=*/nullptr);
@@ -1987,6 +1989,7 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
   UncompressionDict* dict = nullptr;
   bool is_cache_hit = false;
   size_t usage = 0;
+  bool no_insert = true;
   if (cache_handle != nullptr) {
     dict = reinterpret_cast<UncompressionDict*>(
         rep_->table_options.block_cache->Value(cache_handle));
@@ -2014,6 +2017,7 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
               : Cache::Priority::LOW);
 
       if (s.ok()) {
+        no_insert = false;
         PERF_COUNTER_ADD(compression_dict_block_read_count, 1);
         UpdateCacheInsertionMetrics(BlockType::kCompressionDictionary,
                                     get_context, usage);
@@ -2034,7 +2038,7 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
         /*block_size=*/usage, rep_->cf_id_for_tracing(),
         /*cf_name=*/"", rep_->level_for_tracing(),
         rep_->sst_number_for_tracing(), lookup_context->caller, is_cache_hit,
-        /*no_insert=*/no_io);
+        no_insert);
     block_cache_tracer_->WriteBlockAccess(access_record, cache_key,
                                           rep_->cf_name_for_tracing(),
                                           /*referenced_key=*/nullptr);
@@ -2198,7 +2202,6 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
     // Can't find the block from the cache. If I/O is allowed, read from the
     // file.
     if (block_entry->GetValue() == nullptr && !no_io && ro.fill_cache) {
-      no_insert = false;
       Statistics* statistics = rep_->ioptions.statistics;
       bool do_decompress =
           block_cache_compressed == nullptr && rep_->blocks_maybe_compressed;
@@ -2226,6 +2229,9 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
                                 raw_block_comp_type, uncompression_dict, seq_no,
                                 GetMemoryAllocator(rep_->table_options),
                                 block_type, get_context);
+        if (s.ok()) {
+          no_insert = false;
+        }
       }
     }
   }
@@ -2275,7 +2281,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
           /*block_size=*/usage, rep_->cf_id_for_tracing(),
           /*cf_name=*/"", rep_->level_for_tracing(),
           rep_->sst_number_for_tracing(), lookup_context->caller, is_cache_hit,
-          /*no_insert=*/no_io);
+          no_insert);
       block_cache_tracer_->WriteBlockAccess(access_record, key,
                                             rep_->cf_name_for_tracing(),
                                             /*referenced_key=*/nullptr);
