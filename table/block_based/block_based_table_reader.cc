@@ -1877,11 +1877,11 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 }
 
 void BlockBasedTable::FillBlockCacheAccessRecord(
-    BlockCacheTraceRecord* record,
-    const BlockCacheLookupContext& lookup_context) const {
+    const BlockCacheLookupContext& lookup_context,
+    BlockCacheTraceRecord* record) const {
   assert(record);
-  record->access_timestamp =
-      rep_->ioptions.env ? rep_->ioptions.env->NowMicros() : 0;
+  assert(rep_->ioptions.env);
+  record->access_timestamp = rep_->ioptions.env->NowMicros();
   record->block_type = lookup_context.block_type;
   record->block_size = lookup_context.block_size;
   record->cf_id = rep_->table_properties
@@ -1899,10 +1899,9 @@ void BlockBasedTable::FillBlockCacheAccessRecord(
 }
 
 void BlockBasedTable::FillBlockCacheAccessRecord(
-    BlockCacheTraceRecord* record,
-    const BlockCacheLookupContext& lookup_context,
-    bool is_referenced_key_exist, uint64_t referenced_data_size) const {
-  FillBlockCacheAccessRecord(record, lookup_context);
+    const BlockCacheLookupContext& lookup_context, bool is_referenced_key_exist,
+    uint64_t referenced_data_size, BlockCacheTraceRecord* record) const {
+  FillBlockCacheAccessRecord(lookup_context, record);
   record->is_referenced_key_exist_in_block =
       is_referenced_key_exist ? Boolean::kTrue : Boolean::kFalse;
   record->num_keys_in_block = lookup_context.num_keys_in_block;
@@ -1983,7 +1982,7 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     lookup_context->FillLookupContext(is_cache_hit, /*no_insert=*/no_io,
                                       TraceType::kBlockTraceFilterBlock,
                                       /*block_size=*/usage);
-    FillBlockCacheAccessRecord(&access_record, *lookup_context);
+    FillBlockCacheAccessRecord(*lookup_context, &access_record);
     block_cache_tracer_->WriteBlockAccess(
         access_record, key,
         rep_->table_properties
@@ -2065,7 +2064,7 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
         is_cache_hit, /*no_insert=*/no_io,
         TraceType::kBlockTraceUncompressionDictBlock,
         /*block_size=*/usage);
-    FillBlockCacheAccessRecord(&access_record, *lookup_context);
+    FillBlockCacheAccessRecord(*lookup_context, &access_record);
     block_cache_tracer_->WriteBlockAccess(
         access_record, cache_key,
         rep_->table_properties
@@ -2303,7 +2302,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
       lookup_context->FillLookupContext(is_cache_hit, no_insert,
                                         trace_block_type,
                                         /*block_size=*/usage);
-      FillBlockCacheAccessRecord(&access_record, *lookup_context);
+      FillBlockCacheAccessRecord(*lookup_context, &access_record);
       block_cache_tracer_->WriteBlockAccess(
           access_record, key,
           rep_->table_properties
@@ -3058,9 +3057,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         // Write the block cache access record.
         if (block_cache_tracer_) {
           BlockCacheTraceRecord access_record;
-          FillBlockCacheAccessRecord(&access_record, lookup_data_block_context,
+          FillBlockCacheAccessRecord(lookup_data_block_context,
                                      is_referenced_key_exist,
-                                     referenced_data_size);
+                                     referenced_data_size, &access_record);
           block_cache_tracer_->WriteBlockAccess(
               access_record, lookup_data_block_context.block_key,
               rep_->table_properties
@@ -3213,9 +3212,9 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         // Write the block cache access.
         if (block_cache_tracer_) {
           BlockCacheTraceRecord access_record;
-          FillBlockCacheAccessRecord(&access_record, lookup_data_block_context,
+          FillBlockCacheAccessRecord(lookup_data_block_context,
                                      is_referenced_key_exist,
-                                     referenced_data_size);
+                                     referenced_data_size, &access_record);
           block_cache_tracer_->WriteBlockAccess(
               access_record, lookup_data_block_context.block_key,
               rep_->table_properties
