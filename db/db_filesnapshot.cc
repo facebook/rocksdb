@@ -57,7 +57,9 @@ Status DBImpl::EnableFileDeletions(bool force) {
   }
   if (file_deletion_enabled) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "File Deletions Enabled");
-    PurgeObsoleteFiles(job_context);
+    if (job_context.HaveSomethingToDelete()) {
+      PurgeObsoleteFiles(job_context);
+    }
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "File Deletions Enable, but not really enabled. Counter: %d",

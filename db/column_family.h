@@ -24,6 +24,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
+#include "trace_replay/block_cache_tracer.h"
 #include "util/thread_local.h"
 
 namespace rocksdb {
@@ -46,7 +47,7 @@ struct SuperVersionContext;
 
 extern const double kIncSlowdownRatio;
 // This file contains a list of data structures for managing column family
-// level metadata. 
+// level metadata.
 //
 // The basic relationships among classes declared here are illustrated as
 // following:
@@ -94,7 +95,7 @@ extern const double kIncSlowdownRatio;
 //         |             |    |   1.a    |  |   1.b    |  |   1.c    |
 //         +-------------+    |          |  |          |  |          |
 //                            +----------+  +----------+  +----------+
-// 
+//
 // DBImpl keeps a ColumnFamilySet, which references to all column families by
 // pointing to respective ColumnFamilyData object of each column family.
 // This is how DBImpl can list and operate on all the column families.
@@ -151,7 +152,7 @@ extern const double kIncSlowdownRatio;
 // contains Version B, memtable a and memtable b; SuperVersion1 contains
 // Version B and memtable b (mutable). As a result, Version B and memtable b
 // are prevented from being destroyed or deleted.
-  
+
 // ColumnFamilyHandleImpl is the class that clients use to access different
 // column families. It has non-trivial destructor, which gets called when client
 // is done using the column family
@@ -504,7 +505,8 @@ class ColumnFamilyData {
                    const ColumnFamilyOptions& options,
                    const ImmutableDBOptions& db_options,
                    const EnvOptions& env_options,
-                   ColumnFamilySet* column_family_set);
+                   ColumnFamilySet* column_family_set,
+                   BlockCacheTracer* const block_cache_tracer);
 
   uint32_t id_;
   const std::string name_;
@@ -632,7 +634,8 @@ class ColumnFamilySet {
                   const ImmutableDBOptions* db_options,
                   const EnvOptions& env_options, Cache* table_cache,
                   WriteBufferManager* write_buffer_manager,
-                  WriteController* write_controller);
+                  WriteController* write_controller,
+                  BlockCacheTracer* const block_cache_tracer);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -691,6 +694,7 @@ class ColumnFamilySet {
   Cache* table_cache_;
   WriteBufferManager* write_buffer_manager_;
   WriteController* write_controller_;
+  BlockCacheTracer* const block_cache_tracer_;
 };
 
 // We use ColumnFamilyMemTablesImpl to provide WriteBatch a way to access
