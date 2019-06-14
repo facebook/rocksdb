@@ -39,7 +39,7 @@ struct BlockAccessInfo {
                                                         access.caller)) {
       num_keys = access.num_keys_in_block;
 
-      if (access.does_referenced_key_exist_in_block == Boolean::kTrue) {
+      if (access.referenced_key_exist_in_block == Boolean::kTrue) {
         key_num_access_map[access.referenced_key]++;
         num_referenced_key_exist_in_block++;
       } else {

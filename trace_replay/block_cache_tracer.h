@@ -93,7 +93,7 @@ struct BlockCacheTraceRecord {
   std::string referenced_key;
   uint64_t referenced_data_size = 0;
   uint64_t num_keys_in_block = 0;
-  Boolean does_referenced_key_exist_in_block = Boolean::kFalse;
+  Boolean referenced_key_exist_in_block = Boolean::kFalse;
 
   BlockCacheTraceRecord() {}
 
@@ -105,7 +105,7 @@ struct BlockCacheTraceRecord {
                         std::string _referenced_key = "",
                         uint64_t _referenced_data_size = 0,
                         uint64_t _num_keys_in_block = 0,
-                        bool _does_referenced_key_exist_in_block = false)
+                        bool _referenced_key_exist_in_block = false)
       : access_timestamp(_access_timestamp),
         block_key(_block_key),
         block_type(_block_type),
@@ -120,9 +120,9 @@ struct BlockCacheTraceRecord {
         referenced_key(_referenced_key),
         referenced_data_size(_referenced_data_size),
         num_keys_in_block(_num_keys_in_block),
-        does_referenced_key_exist_in_block(_does_referenced_key_exist_in_block
-                                               ? Boolean::kTrue
-                                               : Boolean::kFalse) {}
+        referenced_key_exist_in_block(
+            _referenced_key_exist_in_block ? Boolean::kTrue : Boolean::kFalse) {
+  }
 };
 
 struct BlockCacheTraceHeader {
