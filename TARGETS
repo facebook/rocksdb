@@ -222,6 +222,7 @@ cpp_library(
         "tools/ldb_cmd.cc",
         "tools/ldb_tool.cc",
         "tools/sst_dump_tool.cc",
+        "trace_replay/block_cache_tracer.cc",
         "trace_replay/trace_replay.cc",
         "util/bloom.cc",
         "util/build_version.cc",
@@ -314,6 +315,7 @@ cpp_library(
         "test_util/fault_injection_test_env.cc",
         "test_util/testharness.cc",
         "test_util/testutil.cc",
+        "tools/block_cache_trace_analyzer.cc",
         "tools/trace_analyzer_tool.cc",
         "utilities/cassandra/test_utils.cc",
     ],
@@ -329,6 +331,7 @@ cpp_library(
     name = "rocksdb_tools_lib",
     srcs = [
         "test_util/testutil.cc",
+        "tools/block_cache_trace_analyzer.cc",
         "tools/db_bench_tool.cc",
         "tools/trace_analyzer_tool.cc",
     ],
@@ -381,6 +384,16 @@ ROCKS_TESTS = [
     [
         "block_based_filter_block_test",
         "table/block_based/block_based_filter_block_test.cc",
+        "serial",
+    ],
+    [
+        "block_cache_trace_analyzer_test",
+        "tools/block_cache_trace_analyzer_test.cc",
+        "serial",
+    ],
+    [
+        "block_cache_tracer_test",
+        "trace_replay/block_cache_tracer_test.cc",
         "serial",
     ],
     [

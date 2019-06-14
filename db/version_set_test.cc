@@ -618,7 +618,8 @@ class VersionSetTestBase {
         write_buffer_manager_(db_options_.db_write_buffer_size),
         versions_(new VersionSet(dbname_, &db_options_, env_options_,
                                  table_cache_.get(), &write_buffer_manager_,
-                                 &write_controller_)),
+                                 &write_controller_,
+                                 /*block_cache_tracer=*/nullptr)),
         reactive_versions_(std::make_shared<ReactiveVersionSet>(
             dbname_, &db_options_, env_options_, table_cache_.get(),
             &write_buffer_manager_, &write_controller_)),
