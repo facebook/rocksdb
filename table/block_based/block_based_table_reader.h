@@ -248,13 +248,12 @@ class BlockBasedTable : public TableReader {
   // TODO(haoyu): Pass block_cache_tracer reference from db_impl to here.
   BlockCacheTraceWriter* const block_cache_tracer_ = nullptr;
 
-  void FillBlockCacheAccessRecord(
-      BlockCacheTraceRecord* record,
-      const BlockCacheLookupContext& lookup_context) const;
-  void FillBlockCacheAccessRecord(BlockCacheTraceRecord* record,
-                                  const BlockCacheLookupContext& lookup_context,
+  void FillBlockCacheAccessRecord(const BlockCacheLookupContext& lookup_context,
+                                  BlockCacheTraceRecord* record) const;
+  void FillBlockCacheAccessRecord(const BlockCacheLookupContext& lookup_context,
                                   bool is_referenced_key_exist,
-                                  uint64_t referenced_data_size) const;
+                                  uint64_t referenced_data_size,
+                                  BlockCacheTraceRecord* record) const;
 
   void UpdateCacheHitMetrics(BlockType block_type, GetContext* get_context,
                              size_t usage) const;
