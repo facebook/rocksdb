@@ -98,6 +98,7 @@ Status ExternalSstFileIngestionJob::Prepare(
                       f.fd.GetPathId());
     if (ingestion_options_.move_files) {
       status = env_->LinkFile(path_outside_db, path_inside_db);
+      printf("linked file %s\n", path_inside_db.c_str());
       if (status.ok()) {
         // It is unsafe to assume application had sync the file and file
         // directory before ingest the file. For integrity of RocksDB we need
@@ -106,7 +107,10 @@ Status ExternalSstFileIngestionJob::Prepare(
         status = env_->ReopenWritableFile(path_inside_db, &file_to_sync,
                                           env_options_);
         if (status.ok()) {
+          TEST_SYNC_POINT(
+              "ExternalSstFileIngestionJob::BeforeSyncIngestedFile");
           status = SyncIngestedFile(file_to_sync.get());
+          TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncIngestedFile");
           if (!status.ok()) {
             ROCKS_LOG_WARN(db_options_.info_log,
                            "Failed to sync ingested file %s: %s",
@@ -137,6 +141,7 @@ Status ExternalSstFileIngestionJob::Prepare(
     ingestion_path_ids.insert(f.fd.GetPathId());
   }
 
+  TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncDir");
   if (status.ok()) {
     for (auto path_id : ingestion_path_ids) {
       status = directories_->GetDataDir(path_id)->Fsync();
@@ -149,7 +154,9 @@ Status ExternalSstFileIngestionJob::Prepare(
       }
     }
   }
+  TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncDir");
 
+  // TODO: The following is duplicated with Cleanup().
   if (!status.ok()) {
     // We failed, remove all files that we copied into the db
     for (IngestedFileInfo& f : files_to_ingest_) {
@@ -568,6 +575,7 @@ Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
 
 Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     IngestedFileInfo* file_to_ingest, SequenceNumber seqno) {
+  printf("assign seqno %lu -> %lu\n", file_to_ingest->original_seqno, seqno);
   if (file_to_ingest->original_seqno == seqno) {
     // This file already have the correct global seqno
     return Status::OK();
@@ -591,7 +599,9 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
       PutFixed64(&seqno_val, seqno);
       status = rwfile->Write(file_to_ingest->global_seqno_offset, seqno_val);
       if (status.ok()) {
+        TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncGlobalSeqno");
         status = SyncIngestedFile(rwfile.get());
+        TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncGlobalSeqno");
         if (!status.ok()) {
           ROCKS_LOG_WARN(db_options_.info_log,
                          "Failed to sync ingested file %s after writing global "
