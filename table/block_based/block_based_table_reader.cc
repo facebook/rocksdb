@@ -18,8 +18,6 @@
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 
-#include "file/filename.h"
-
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -1877,38 +1875,6 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
                    no_io, get_context, lookup_context, prefix_extractor);
 }
 
-void BlockBasedTable::FillBlockCacheAccessRecord(
-    const BlockCacheLookupContext& lookup_context,
-    BlockCacheTraceRecord* record) const {
-  assert(record);
-  assert(rep_->ioptions.env);
-  record->access_timestamp = rep_->ioptions.env->NowMicros();
-  record->block_type = lookup_context.block_type;
-  record->block_size = lookup_context.block_size;
-  record->cf_id = rep_->table_properties
-                      ? rep_->table_properties->column_family_id
-                      : rocksdb::TablePropertiesCollectorFactory::Context::
-                            kUnknownColumnFamily;
-  record->level = rep_->level >= 0 ? rep_->level : UINT32_MAX;
-  record->sst_fd_number =
-      rep_->file ? TableFileNameToNumber(rep_->file->file_name()) : UINT64_MAX;
-  record->caller = lookup_context.caller;
-  record->is_cache_hit =
-      lookup_context.is_cache_hit ? Boolean::kTrue : Boolean::kFalse;
-  record->no_insert =
-      lookup_context.no_insert ? Boolean::kTrue : Boolean::kFalse;
-}
-
-void BlockBasedTable::FillBlockCacheAccessRecord(
-    const BlockCacheLookupContext& lookup_context, bool is_referenced_key_exist,
-    uint64_t referenced_data_size, BlockCacheTraceRecord* record) const {
-  FillBlockCacheAccessRecord(lookup_context, record);
-  record->is_referenced_key_exist_in_block =
-      is_referenced_key_exist ? Boolean::kTrue : Boolean::kFalse;
-  record->num_keys_in_block = lookup_context.num_keys_in_block;
-  record->referenced_data_size = referenced_data_size;
-}
-
 CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     FilePrefetchBuffer* prefetch_buffer, const BlockHandle& filter_blk_handle,
     const bool is_a_filter_partition, bool no_io, GetContext* get_context,
@@ -1979,17 +1945,19 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   }
 
   if (block_cache_tracer_ && lookup_context) {
-    BlockCacheTraceRecord access_record;
-    lookup_context->FillLookupContext(is_cache_hit, /*no_insert=*/no_io,
-                                      TraceType::kBlockTraceFilterBlock,
-                                      /*block_size=*/usage);
-    FillBlockCacheAccessRecord(*lookup_context, &access_record);
-    block_cache_tracer_->WriteBlockAccess(
-        access_record, key,
-        rep_->table_properties
-            ? rep_->table_properties->column_family_name
-            : BlockCacheTraceWriter::kUnknownColumnFamilyName,
-        /*referenced_key=*/nullptr);
+    // Avoid making copy of block_key and cf_name when constructing the access
+    // record.
+    BlockCacheTraceRecord access_record(
+        rep_->ioptions.env->NowMicros(),
+        /*block_key=*/"", TraceType::kBlockTraceFilterBlock,
+        /*block_size=*/usage, rep_->get_cf_id_for_tracing(),
+        /*cf_name=*/"", rep_->get_level_for_tracing(),
+        rep_->get_sst_number_for_tracing(), lookup_context->caller,
+        is_cache_hit,
+        /*no_insert=*/no_io);
+    block_cache_tracer_->WriteBlockAccess(access_record, key,
+                                          rep_->get_cf_name_for_tracing(),
+                                          /*referenced_key=*/nullptr);
   }
 
   if (return_empty_reader) {
@@ -2060,18 +2028,19 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
     }
   }
   if (block_cache_tracer_ && lookup_context) {
-    BlockCacheTraceRecord access_record;
-    lookup_context->FillLookupContext(
-        is_cache_hit, /*no_insert=*/no_io,
-        TraceType::kBlockTraceUncompressionDictBlock,
-        /*block_size=*/usage);
-    FillBlockCacheAccessRecord(*lookup_context, &access_record);
-    block_cache_tracer_->WriteBlockAccess(
-        access_record, cache_key,
-        rep_->table_properties
-            ? rep_->table_properties->column_family_name
-            : BlockCacheTraceWriter::kUnknownColumnFamilyName,
-        /*referenced_key=*/nullptr);
+    // Avoid making copy of block_key and cf_name when constructing the access
+    // record.
+    BlockCacheTraceRecord access_record(
+        rep_->ioptions.env->NowMicros(),
+        /*block_key=*/"", TraceType::kBlockTraceUncompressionDictBlock,
+        /*block_size=*/usage, rep_->get_cf_id_for_tracing(),
+        /*cf_name=*/"", rep_->get_level_for_tracing(),
+        rep_->get_sst_number_for_tracing(), lookup_context->caller,
+        is_cache_hit,
+        /*no_insert=*/no_io);
+    block_cache_tracer_->WriteBlockAccess(access_record, cache_key,
+                                          rep_->get_cf_name_for_tracing(),
+                                          /*referenced_key=*/nullptr);
   }
   return {dict, cache_handle ? rep_->table_options.block_cache.get() : nullptr,
           cache_handle, false /* own_value */};
@@ -2208,8 +2177,6 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
   Slice ckey /* key to the compressed block cache */;
   bool is_cache_hit = false;
   bool no_insert = true;
-  size_t usage = 0;
-  uint64_t nkeys = 0;
   if (block_cache != nullptr || block_cache_compressed != nullptr) {
     // create key for block cache
     if (block_cache != nullptr) {
@@ -2227,6 +2194,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
                               ro, block_entry, uncompression_dict, block_type,
                               get_context);
     if (block_entry->GetValue()) {
+      // TODO(haoyu): Differentiate cache hit on uncompressed block cache and
+      // compressed block cache.
       is_cache_hit = true;
     }
     // Can't find the block from the cache. If I/O is allowed, read from the
@@ -2266,6 +2235,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
 
   if (block_cache_tracer_ && lookup_context) {
     // Fill lookup_context.
+    size_t usage = 0;
+    uint64_t nkeys = 0;
     if (block_entry->GetValue()) {
       // Approximate the number of keys in the block using restarts.
       nkeys = rep_->table_options.block_restart_interval *
@@ -2292,24 +2263,26 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
             trace_block_type, lookup_context->caller)) {
       // Defer logging the access to Get() and MultiGet() to trace additional
       // information, e.g., the referenced key,
-      // is_referenced_key_exist_in_block.
+      // does_referenced_key_exist_in_block.
 
       // Make a copy of the block key here since it will be logged later.
       lookup_context->FillLookupContext(
           is_cache_hit, no_insert, trace_block_type,
           /*block_size=*/usage, /*block_key=*/key.ToString(), nkeys);
     } else {
-      BlockCacheTraceRecord access_record;
-      lookup_context->FillLookupContext(is_cache_hit, no_insert,
-                                        trace_block_type,
-                                        /*block_size=*/usage);
-      FillBlockCacheAccessRecord(*lookup_context, &access_record);
-      block_cache_tracer_->WriteBlockAccess(
-          access_record, key,
-          rep_->table_properties
-              ? rep_->table_properties->column_family_name
-              : BlockCacheTraceWriter::kUnknownColumnFamilyName,
-          /*referenced_key=*/nullptr);
+      // Avoid making copy of block_key and cf_name when constructing the access
+      // record.
+      BlockCacheTraceRecord access_record(
+          rep_->ioptions.env->NowMicros(),
+          /*block_key=*/"", trace_block_type,
+          /*block_size=*/usage, rep_->get_cf_id_for_tracing(),
+          /*cf_name=*/"", rep_->get_level_for_tracing(),
+          rep_->get_sst_number_for_tracing(), lookup_context->caller,
+          is_cache_hit,
+          /*no_insert=*/no_io);
+      block_cache_tracer_->WriteBlockAccess(access_record, key,
+                                            rep_->get_cf_name_for_tracing(),
+                                            /*referenced_key=*/nullptr);
     }
   }
 
@@ -2992,7 +2965,6 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         rep_->internal_comparator.user_comparator()->timestamp_size();
     bool matched = false;  // if such user key mathced a key in SST
     bool done = false;
-    bool is_referenced_key_exist = false;
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
       BlockHandle handle = iiter->value();
 
@@ -3012,6 +2984,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       } else {
         BlockCacheLookupContext lookup_data_block_context{
             BlockCacheLookupCaller::kUserGet};
+        bool does_referenced_key_exist = false;
         DataBlockIter biter;
         uint64_t referenced_data_size = 0;
         NewDataBlockIterator<DataBlockIter>(
@@ -3053,28 +3026,36 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
             if (!get_context->SaveValue(
                     parsed_key, biter.value(), &matched,
                     biter.IsValuePinned() ? &biter : nullptr)) {
-              is_referenced_key_exist = true;
+              does_referenced_key_exist = true;
               done = true;
               break;
             }
           }
           s = biter.status();
-          if (s.ok() && done) {
+          if (s.ok() && done && block_cache_tracer_) {
             referenced_data_size = biter.key().size() + biter.value().size();
           }
         }
         // Write the block cache access record.
         if (block_cache_tracer_) {
-          BlockCacheTraceRecord access_record;
-          FillBlockCacheAccessRecord(lookup_data_block_context,
-                                     is_referenced_key_exist,
-                                     referenced_data_size, &access_record);
+          // Avoid making copy of block_key, cf_name and referenced_key when
+          // constructing the access record.
+          BlockCacheTraceRecord access_record(
+              rep_->ioptions.env->NowMicros(),
+              /*block_key=*/"", lookup_data_block_context.block_type,
+              lookup_data_block_context.block_size,
+              rep_->get_cf_id_for_tracing(),
+              /*cf_name=*/"", rep_->get_level_for_tracing(),
+              rep_->get_sst_number_for_tracing(),
+              lookup_data_block_context.caller,
+              lookup_data_block_context.is_cache_hit,
+              lookup_data_block_context.no_insert,
+              /*referenced_key=*/"", referenced_data_size,
+              lookup_data_block_context.num_keys_in_block,
+              does_referenced_key_exist);
           block_cache_tracer_->WriteBlockAccess(
               access_record, lookup_data_block_context.block_key,
-              rep_->table_properties
-                  ? rep_->table_properties->column_family_name
-                  : BlockCacheTraceWriter::kUnknownColumnFamilyName,
-              key);
+              rep_->get_cf_name_for_tracing(), key);
         }
       }
 
@@ -3147,10 +3128,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       const Slice& key = miter->ikey;
       bool matched = false;  // if such user key matched a key in SST
       bool done = false;
-      bool is_referenced_key_exist = false;
       for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
         bool reusing_block = true;
         uint64_t referenced_data_size = 0;
+        bool does_referenced_key_exist = false;
         BlockCacheLookupContext lookup_data_block_context(
             BlockCacheLookupCaller::kUserMGet);
         if (iiter->value().offset() != offset) {
@@ -3208,28 +3189,36 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
 
             if (!get_context->SaveValue(parsed_key, biter.value(), &matched,
                                         value_pinner)) {
-              is_referenced_key_exist = true;
+              does_referenced_key_exist = true;
               done = true;
               break;
             }
           }
           s = biter.status();
-          if (s.ok() && done) {
+          if (s.ok() && done && block_cache_tracer_) {
             referenced_data_size = biter.key().size() + biter.value().size();
           }
         }
         // Write the block cache access.
         if (block_cache_tracer_) {
-          BlockCacheTraceRecord access_record;
-          FillBlockCacheAccessRecord(lookup_data_block_context,
-                                     is_referenced_key_exist,
-                                     referenced_data_size, &access_record);
+          // Avoid making copy of block_key, cf_name, and referenced_key when
+          // constructing the access record.
+          BlockCacheTraceRecord access_record(
+              rep_->ioptions.env->NowMicros(),
+              /*block_key=*/"", lookup_data_block_context.block_type,
+              lookup_data_block_context.block_size,
+              rep_->get_cf_id_for_tracing(),
+              /*cf_name=*/"", rep_->get_level_for_tracing(),
+              rep_->get_sst_number_for_tracing(),
+              lookup_data_block_context.caller,
+              lookup_data_block_context.is_cache_hit,
+              lookup_data_block_context.no_insert,
+              /*referenced_key=*/"", referenced_data_size,
+              lookup_data_block_context.num_keys_in_block,
+              does_referenced_key_exist);
           block_cache_tracer_->WriteBlockAccess(
               access_record, lookup_data_block_context.block_key,
-              rep_->table_properties
-                  ? rep_->table_properties->column_family_name
-                  : BlockCacheTraceWriter::kUnknownColumnFamilyName,
-              key);
+              rep_->get_cf_name_for_tracing(), key);
         }
 
         if (done) {
