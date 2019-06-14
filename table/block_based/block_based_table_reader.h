@@ -589,7 +589,7 @@ struct BlockBasedTable::Rep {
 
   Slice get_cf_name_for_tracing() const {
     return table_properties ? table_properties->column_family_name
-                            : BlockCacheTraceWriter::kUnknownColumnFamilyName;
+                            : BlockCacheTraceHelper::kUnknownColumnFamilyName;
   }
 
   uint32_t get_level_for_tracing() const {

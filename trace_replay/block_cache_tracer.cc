@@ -17,8 +17,15 @@ namespace {
 const unsigned int kCharSize = 1;
 }  // namespace
 
-const std::string BlockCacheTraceWriter::kUnknownColumnFamilyName =
+const std::string BlockCacheTraceHelper::kUnknownColumnFamilyName =
     "UnknownColumnFamily";
+
+bool BlockCacheTraceHelper::ShouldTraceReferencedKey(
+    TraceType block_type, BlockCacheLookupCaller caller) {
+  return (block_type == TraceType::kBlockTraceDataBlock) &&
+         (caller == BlockCacheLookupCaller::kUserGet ||
+          caller == BlockCacheLookupCaller::kUserMGet);
+}
 
 BlockCacheTraceWriter::BlockCacheTraceWriter(
     Env* env, const TraceOptions& trace_options,
@@ -47,13 +54,6 @@ bool BlockCacheTraceWriter::ShouldTraceReferencedKey(
           caller == BlockCacheLookupCaller::kUserMGet);
 }
 
-bool BlockCacheTraceWriter::ShouldTraceReferencedKey(
-    TraceType block_type, BlockCacheLookupCaller caller) {
-  return (block_type == TraceType::kBlockTraceDataBlock) &&
-         (caller == BlockCacheLookupCaller::kUserGet ||
-          caller == BlockCacheLookupCaller::kUserMGet);
-}
-
 Status BlockCacheTraceWriter::WriteBlockAccess(
     const BlockCacheTraceRecord& record, const Slice& block_key,
     const Slice& cf_name, const Slice& referenced_key) {
@@ -73,7 +73,8 @@ Status BlockCacheTraceWriter::WriteBlockAccess(
   trace.payload.push_back(record.caller);
   trace.payload.push_back(record.is_cache_hit);
   trace.payload.push_back(record.no_insert);
-  if (ShouldTraceReferencedKey(record.block_type, record.caller)) {
+  if (BlockCacheTraceHelper::ShouldTraceReferencedKey(record.block_type,
+                                                      record.caller)) {
     PutLengthPrefixedSlice(&trace.payload, referenced_key);
     PutFixed64(&trace.payload, record.referenced_data_size);
     PutFixed64(&trace.payload, record.num_keys_in_block);
@@ -205,7 +206,7 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
   record->no_insert = static_cast<Boolean>(enc_slice[0]);
   enc_slice.remove_prefix(kCharSize);
 
-  if (BlockCacheTraceWriter::ShouldTraceReferencedKey(record->block_type,
+  if (BlockCacheTraceHelper::ShouldTraceReferencedKey(record->block_type,
                                                       record->caller)) {
     Slice referenced_key;
     if (!GetLengthPrefixedSlice(&enc_slice, &referenced_key)) {
