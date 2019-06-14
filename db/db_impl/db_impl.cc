@@ -2771,7 +2771,7 @@ void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
     if (include_flags & DB::SizeApproximationFlags::INCLUDE_FILES) {
       sizes[i] += versions_->ApproximateSize(
           v, k1.Encode(), k2.Encode(), /*start_level=*/0, /*end_level=*/-1,
-          /*for_compaction=*/false);
+          TableReaderCaller::kUserApproximateSize);
     }
     if (include_flags & DB::SizeApproximationFlags::INCLUDE_MEMTABLES) {
       sizes[i] += sv->mem->ApproximateStats(k1.Encode(), k2.Encode()).size;

@@ -521,7 +521,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
     // mutex to reduce contention
     db_mutex_->Unlock();
     uint64_t size = versions_->ApproximateSize(v, a, b, start_lvl, out_lvl + 1,
-                                               /*for_compaction*/ true);
+                                               TableReaderCaller::kCompaction);
     db_mutex_->Lock();
     ranges.emplace_back(a, b, size);
     sum += size;

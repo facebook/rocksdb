@@ -984,7 +984,8 @@ class VersionSet {
   // in levels [start_level, end_level). If end_level == 0 it will search
   // through all non-empty levels
   uint64_t ApproximateSize(Version* v, const Slice& start, const Slice& end,
-                           int start_level, int end_level, bool for_compaction);
+                           int start_level, int end_level,
+                           TableReaderCaller caller);
 
   // Return the size of the current manifest file
   uint64_t manifest_file_size() const { return manifest_file_size_; }
@@ -1035,10 +1036,10 @@ class VersionSet {
   // ApproximateSize helper
   uint64_t ApproximateSizeLevel0(Version* v, const LevelFilesBrief& files_brief,
                                  const Slice& start, const Slice& end,
-                                 bool for_compaction);
+                                 TableReaderCaller caller);
 
   uint64_t ApproximateSize(Version* v, const FdWithKeyRange& f,
-                           const Slice& key, bool for_compaction);
+                           const Slice& key, TableReaderCaller caller);
 
   // Save current contents to *log
   Status WriteSnapshot(log::Writer* log);

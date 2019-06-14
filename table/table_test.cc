@@ -384,9 +384,9 @@ class TableConstructor: public Constructor {
     if (convert_to_internal_key_) {
       InternalKey ikey(key, kMaxSequenceNumber, kTypeValue);
       const Slice skey = ikey.Encode();
-      return table_reader_->ApproximateOffsetOf(skey);
+      return table_reader_->ApproximateOffsetOf(skey, TableReaderCaller::kTest);
     }
-    return table_reader_->ApproximateOffsetOf(key);
+    return table_reader_->ApproximateOffsetOf(key, TableReaderCaller::kTest);
   }
 
   virtual Status Reopen(const ImmutableCFOptions& ioptions,

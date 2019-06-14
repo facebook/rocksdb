@@ -51,7 +51,7 @@ class MockTableReader : public TableReader {
              bool skip_filters = false) override;
 
   uint64_t ApproximateOffsetOf(const Slice& /*key*/,
-                               bool /*for_compaction*/ = false) override {
+                               TableReaderCaller /*caller*/) override {
     return 0;
   }
 

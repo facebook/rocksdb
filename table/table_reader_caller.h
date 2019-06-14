@@ -20,8 +20,8 @@ enum TableReaderCaller : char {
 
   kPrefetch = 9,
   kCompaction = 10,
-  // A compaction job may refill the block cache with new SST files if
-  // paranoid_file_checks is true.
+  // A compaction job may refill the block cache with blocks in the new SST
+  // files if paranoid_file_checks is true.
   kCompactionRefill = 11,
 
   // Table reader benchmark.

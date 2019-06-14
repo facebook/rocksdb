@@ -3298,8 +3298,6 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
 }
 
 Status BlockBasedTable::VerifyChecksum(TableReaderCaller caller) {
-  // TODO(haoyu): This function is called by external sst ingestion and the
-  // verify checksum public API. We don't log its block cache accesses for now.
   Status s;
   // Check Meta blocks
   std::unique_ptr<Block> meta;
@@ -3535,10 +3533,8 @@ Status BlockBasedTable::CreateIndexReader(
 }
 
 uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key,
-                                              bool for_compaction) {
-  BlockCacheLookupContext context(
-      for_compaction ? TableReaderCaller::kCompaction
-                     : TableReaderCaller::kUserApproximateSize);
+                                              TableReaderCaller caller) {
+  BlockCacheLookupContext context(caller);
   std::unique_ptr<InternalIteratorBase<BlockHandle>> index_iter(
       NewIndexIterator(ReadOptions(), /*need_upper_bound_check=*/false,
                        /*input_iter=*/nullptr, /*get_context=*/nullptr,
