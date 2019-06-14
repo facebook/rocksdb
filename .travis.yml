@@ -8,7 +8,7 @@ compiler:
   - gcc
 osx_image: xcode8.3
 jdk:
-  - oraclejdk7
+  - openjdk7
 cache:
   - ccache
   - apt
