@@ -2261,7 +2261,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
             trace_block_type, lookup_context->caller)) {
       // Defer logging the access to Get() and MultiGet() to trace additional
       // information, e.g., the referenced key,
-      // does_referenced_key_exist_in_block.
+      // referenced_key_exist_in_block.
 
       // Make a copy of the block key here since it will be logged later.
       lookup_context->FillLookupContext(

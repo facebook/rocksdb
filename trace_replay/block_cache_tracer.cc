@@ -71,7 +71,7 @@ Status BlockCacheTraceWriter::WriteBlockAccess(
     PutLengthPrefixedSlice(&trace.payload, referenced_key);
     PutFixed64(&trace.payload, record.referenced_data_size);
     PutFixed64(&trace.payload, record.num_keys_in_block);
-    trace.payload.push_back(record.does_referenced_key_exist_in_block);
+    trace.payload.push_back(record.referenced_key_exist_in_block);
   }
   std::string encoded_trace;
   TracerHelper::EncodeTrace(trace, &encoded_trace);
@@ -221,10 +221,9 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
     if (enc_slice.empty()) {
       return Status::Incomplete(
           "Incomplete access record: Failed to read "
-          "does_referenced_key_exist_in_block.");
+          "referenced_key_exist_in_block.");
     }
-    record->does_referenced_key_exist_in_block =
-        static_cast<Boolean>(enc_slice[0]);
+    record->referenced_key_exist_in_block = static_cast<Boolean>(enc_slice[0]);
   }
   return Status::OK();
 }
