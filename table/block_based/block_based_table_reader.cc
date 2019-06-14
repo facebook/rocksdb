@@ -3024,14 +3024,12 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
                     parsed_key, biter.value(), &matched,
                     biter.IsValuePinned() ? &biter : nullptr)) {
               does_referenced_key_exist = true;
+              referenced_data_size = biter.key().size() + biter.value().size();
               done = true;
               break;
             }
           }
           s = biter.status();
-          if (s.ok() && done && block_cache_tracer_) {
-            referenced_data_size = biter.key().size() + biter.value().size();
-          }
         }
         // Write the block cache access record.
         if (block_cache_tracer_) {
@@ -3185,14 +3183,12 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
             if (!get_context->SaveValue(parsed_key, biter.value(), &matched,
                                         value_pinner)) {
               does_referenced_key_exist = true;
+              referenced_data_size = biter.key().size() + biter.value().size();
               done = true;
               break;
             }
           }
           s = biter.status();
-          if (s.ok() && done && block_cache_tracer_) {
-            referenced_data_size = biter.key().size() + biter.value().size();
-          }
         }
         // Write the block cache access.
         if (block_cache_tracer_) {
