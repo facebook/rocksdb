@@ -3200,7 +3200,6 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
               access_record, lookup_data_block_context.block_key,
               rep_->cf_name_for_tracing(), key);
         }
-
         if (done) {
           // Avoid the extra Next which is expensive in two-level indexes
           break;

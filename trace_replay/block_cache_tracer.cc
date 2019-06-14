@@ -15,6 +15,18 @@ namespace rocksdb {
 
 namespace {
 const unsigned int kCharSize = 1;
+
+bool ShouldTrace(const BlockCacheTraceRecord& record,
+                 const TraceOptions& trace_options) {
+  if (trace_options.sampling_frequency == 0 ||
+      trace_options.sampling_frequency == 1) {
+    return true;
+  }
+  // We use spatial downsampling so that we have a complete access history for a
+  // block.
+  const uint64_t hash = GetSliceNPHash64(Slice(record.block_key));
+  return hash % trace_options.sampling_frequency == 0;
+}
 }  // namespace
 
 const std::string BlockCacheTraceHelper::kUnknownColumnFamilyName =
@@ -33,26 +45,6 @@ BlockCacheTraceWriter::BlockCacheTraceWriter(
     : env_(env),
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)) {}
-
-bool ShouldTrace(const BlockCacheTraceRecord& record,
-                 const TraceOptions& trace_options) {
-  if (trace_options.sampling_frequency == 0 ||
-      trace_options.sampling_frequency == 1) {
-    return true;
-  }
-  // We use spatial downsampling so that we have a complete access history for a
-  // block.
-  const uint64_t hash = GetSliceNPHash64(Slice(record.block_key));
-  return hash % trace_options.sampling_frequency == 0;
-}
-
-
-bool BlockCacheTraceWriter::ShouldTraceReferencedKey(
-    TraceType block_type, BlockCacheLookupCaller caller) {
-  return (block_type == TraceType::kBlockTraceDataBlock) &&
-         (caller == BlockCacheLookupCaller::kUserGet ||
-          caller == BlockCacheLookupCaller::kUserMGet);
-}
 
 Status BlockCacheTraceWriter::WriteBlockAccess(
     const BlockCacheTraceRecord& record, const Slice& block_key,
@@ -259,7 +251,10 @@ void BlockCacheTracer::EndTrace() {
   writer_.store(nullptr);
 }
 
-Status BlockCacheTracer::WriteBlockAccess(const BlockCacheTraceRecord& record) {
+Status BlockCacheTracer::WriteBlockAccess(const BlockCacheTraceRecord& record,
+                                          const Slice& block_key,
+                                          const Slice& cf_name,
+                                          const Slice& referenced_key) {
   if (!writer_.load() || !ShouldTrace(record, trace_options_)) {
     return Status::OK();
   }
@@ -267,7 +262,8 @@ Status BlockCacheTracer::WriteBlockAccess(const BlockCacheTraceRecord& record) {
   if (!writer_.load()) {
     return Status::OK();
   }
-  return writer_.load()->WriteBlockAccess(record);
+  return writer_.load()->WriteBlockAccess(record, block_key, cf_name,
+                                          referenced_key);
 }
 
 }  // namespace rocksdb

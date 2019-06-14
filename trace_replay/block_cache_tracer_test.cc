@@ -98,7 +98,7 @@ class BlockCacheTracerTest : public testing::Test {
     record.is_cache_hit = Boolean::kFalse;
     record.no_insert = Boolean::kFalse;
     record.referenced_key = kRefKeyPrefix + std::to_string(key_id);
-    record.is_referenced_key_exist_in_block = Boolean::kTrue;
+    record.referenced_key_exist_in_block = Boolean::kTrue;
     record.num_keys_in_block = kNumKeysInBlock;
     return record;
   }
@@ -152,7 +152,8 @@ TEST_F(BlockCacheTracerTest, AtomicWriteBeforeStartTrace) {
     BlockCacheTracer writer;
     // The record should be written to the trace_file since StartTrace is not
     // called.
-    ASSERT_OK(writer.WriteBlockAccess(record));
+    ASSERT_OK(writer.WriteBlockAccess(record, record.block_key, record.cf_name,
+                                      record.referenced_key));
     ASSERT_OK(env_->FileExists(trace_file_path_));
   }
   {
@@ -175,7 +176,8 @@ TEST_F(BlockCacheTracerTest, AtomicWrite) {
                                  &trace_writer));
     BlockCacheTracer writer;
     ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
-    ASSERT_OK(writer.WriteBlockAccess(record));
+    ASSERT_OK(writer.WriteBlockAccess(record, record.block_key, record.cf_name,
+                                      record.referenced_key));
     ASSERT_OK(env_->FileExists(trace_file_path_));
   }
   {
@@ -202,11 +204,13 @@ TEST_F(BlockCacheTracerTest, AtomicNoWriteAfterEndTrace) {
                                  &trace_writer));
     BlockCacheTracer writer;
     ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
-    ASSERT_OK(writer.WriteBlockAccess(record));
+    ASSERT_OK(writer.WriteBlockAccess(record, record.block_key, record.cf_name,
+                                      record.referenced_key));
     writer.EndTrace();
     // Write the record again. This time the record should not be written since
     // EndTrace is called.
-    ASSERT_OK(writer.WriteBlockAccess(record));
+    ASSERT_OK(writer.WriteBlockAccess(record, record.block_key, record.cf_name,
+                                      record.referenced_key));
     ASSERT_OK(env_->FileExists(trace_file_path_));
   }
   {
