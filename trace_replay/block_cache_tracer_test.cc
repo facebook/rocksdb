@@ -141,7 +141,6 @@ class BlockCacheTracerTest : public testing::Test {
 TEST_F(BlockCacheTracerTest, AtomicWriteBeforeStartTrace) {
   BlockCacheTraceRecord record = GenerateAccessRecord();
   {
-    TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
