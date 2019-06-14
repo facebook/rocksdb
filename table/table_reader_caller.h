@@ -17,13 +17,11 @@ enum TableReaderCaller : char {
   kSSTDumpTool = 6,
   kExternalSSTIngestion = 7,
   kRepair = 8,
-
   kPrefetch = 9,
   kCompaction = 10,
   // A compaction job may refill the block cache with blocks in the new SST
   // files if paranoid_file_checks is true.
   kCompactionRefill = 11,
-
   // Table reader benchmark.
   kTableReaderBench = 12,
   // Unit tests that call a table reader.

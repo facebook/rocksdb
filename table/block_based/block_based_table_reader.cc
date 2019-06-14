@@ -2831,7 +2831,7 @@ InternalIterator* BlockBasedTable::NewIterator(
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, BlockType::kData,
-        true /*key_includes_seq*/, true /*index_key_is_full*/, caller,
+        /*key_includes_seq=*/true, /*index_key_is_full=*/true, caller,
         compaction_readahead_size);
   } else {
     auto* mem =
@@ -2844,7 +2844,7 @@ InternalIterator* BlockBasedTable::NewIterator(
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, BlockType::kData,
-        true /*key_includes_seq*/, true /*index_key_is_full*/, caller, compaction_readahead_size);
+        /*key_includes_seq=*/true, /*index_key_is_full=*/true, caller, compaction_readahead_size);
   }
 }
 
