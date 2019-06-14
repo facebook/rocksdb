@@ -75,7 +75,7 @@ class BlockCacheTracerTest : public testing::Test {
       // The writer should only write these fields for data blocks and the
       // caller is either GET or MGET.
       record.referenced_key = (kRefKeyPrefix + std::to_string(key_id));
-      record.is_referenced_key_exist_in_block = Boolean::kTrue;
+      record.does_referenced_key_exist_in_block = Boolean::kTrue;
       record.num_keys_in_block = kNumKeysInBlock;
       record.referenced_data_size = kReferencedDataSize + key_id;
       ASSERT_OK(writer->WriteBlockAccess(
@@ -125,13 +125,13 @@ class BlockCacheTracerTest : public testing::Test {
            record.caller == BlockCacheLookupCaller::kUserMGet)) {
         ASSERT_EQ(kRefKeyPrefix + std::to_string(key_id),
                   record.referenced_key);
-        ASSERT_EQ(Boolean::kTrue, record.is_referenced_key_exist_in_block);
+        ASSERT_EQ(Boolean::kTrue, record.does_referenced_key_exist_in_block);
         ASSERT_EQ(kNumKeysInBlock, record.num_keys_in_block);
         ASSERT_EQ(kReferencedDataSize + key_id, record.referenced_data_size);
         continue;
       }
       ASSERT_EQ("", record.referenced_key);
-      ASSERT_EQ(Boolean::kFalse, record.is_referenced_key_exist_in_block);
+      ASSERT_EQ(Boolean::kFalse, record.does_referenced_key_exist_in_block);
       ASSERT_EQ(0, record.num_keys_in_block);
       ASSERT_EQ(0, record.referenced_data_size);
     }

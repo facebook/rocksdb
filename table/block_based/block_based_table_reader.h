@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "db/range_tombstone_fragmenter.h"
+#include "file/filename.h"
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/persistent_cache.h"
@@ -256,13 +257,6 @@ class BlockBasedTable : public TableReader {
                                   const BlockCacheLookupContext& lookup_context,
                                   bool is_referenced_key_exist,
                                   uint64_t referenced_data_size) const;
-
-  void FillBlockCacheAccessRecord(const BlockCacheLookupContext& lookup_context,
-                                  BlockCacheTraceRecord* record) const;
-  void FillBlockCacheAccessRecord(const BlockCacheLookupContext& lookup_context,
-                                  bool is_referenced_key_exist,
-                                  uint64_t referenced_data_size,
-                                  BlockCacheTraceRecord* record) const;
 
   void UpdateCacheHitMetrics(BlockType block_type, GetContext* get_context,
                              size_t usage) const;
@@ -585,6 +579,25 @@ struct BlockBasedTable::Rep {
             block_type == BlockType::kCompressionDictionary)
                ? kDisableGlobalSequenceNumber
                : global_seqno;
+  }
+
+  uint64_t get_cf_id_for_tracing() const {
+    return table_properties ? table_properties->column_family_id
+                            : rocksdb::TablePropertiesCollectorFactory::
+                                  Context::kUnknownColumnFamily;
+  }
+
+  Slice get_cf_name_for_tracing() const {
+    return table_properties ? table_properties->column_family_name
+                            : BlockCacheTraceWriter::kUnknownColumnFamilyName;
+  }
+
+  uint32_t get_level_for_tracing() const {
+    return level >= 0 ? level : UINT32_MAX;
+  }
+
+  uint64_t get_sst_number_for_tracing() const {
+    return file ? TableFileNameToNumber(file->file_name()) : UINT64_MAX;
   }
 };
 
