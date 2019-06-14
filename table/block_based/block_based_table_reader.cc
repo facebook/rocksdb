@@ -1950,13 +1950,12 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     BlockCacheTraceRecord access_record(
         rep_->ioptions.env->NowMicros(),
         /*block_key=*/"", TraceType::kBlockTraceFilterBlock,
-        /*block_size=*/usage, rep_->get_cf_id_for_tracing(),
-        /*cf_name=*/"", rep_->get_level_for_tracing(),
-        rep_->get_sst_number_for_tracing(), lookup_context->caller,
-        is_cache_hit,
+        /*block_size=*/usage, rep_->cf_id_for_tracing(),
+        /*cf_name=*/"", rep_->level_for_tracing(),
+        rep_->sst_number_for_tracing(), lookup_context->caller, is_cache_hit,
         /*no_insert=*/no_io);
     block_cache_tracer_->WriteBlockAccess(access_record, key,
-                                          rep_->get_cf_name_for_tracing(),
+                                          rep_->cf_name_for_tracing(),
                                           /*referenced_key=*/nullptr);
   }
 
@@ -2033,13 +2032,12 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
     BlockCacheTraceRecord access_record(
         rep_->ioptions.env->NowMicros(),
         /*block_key=*/"", TraceType::kBlockTraceUncompressionDictBlock,
-        /*block_size=*/usage, rep_->get_cf_id_for_tracing(),
-        /*cf_name=*/"", rep_->get_level_for_tracing(),
-        rep_->get_sst_number_for_tracing(), lookup_context->caller,
-        is_cache_hit,
+        /*block_size=*/usage, rep_->cf_id_for_tracing(),
+        /*cf_name=*/"", rep_->level_for_tracing(),
+        rep_->sst_number_for_tracing(), lookup_context->caller, is_cache_hit,
         /*no_insert=*/no_io);
     block_cache_tracer_->WriteBlockAccess(access_record, cache_key,
-                                          rep_->get_cf_name_for_tracing(),
+                                          rep_->cf_name_for_tracing(),
                                           /*referenced_key=*/nullptr);
   }
   return {dict, cache_handle ? rep_->table_options.block_cache.get() : nullptr,
@@ -2233,8 +2231,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
     }
   }
 
+  // Fill lookup_context.
   if (block_cache_tracer_ && lookup_context) {
-    // Fill lookup_context.
     size_t usage = 0;
     uint64_t nkeys = 0;
     if (block_entry->GetValue()) {
@@ -2275,13 +2273,12 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
       BlockCacheTraceRecord access_record(
           rep_->ioptions.env->NowMicros(),
           /*block_key=*/"", trace_block_type,
-          /*block_size=*/usage, rep_->get_cf_id_for_tracing(),
-          /*cf_name=*/"", rep_->get_level_for_tracing(),
-          rep_->get_sst_number_for_tracing(), lookup_context->caller,
-          is_cache_hit,
+          /*block_size=*/usage, rep_->cf_id_for_tracing(),
+          /*cf_name=*/"", rep_->level_for_tracing(),
+          rep_->sst_number_for_tracing(), lookup_context->caller, is_cache_hit,
           /*no_insert=*/no_io);
       block_cache_tracer_->WriteBlockAccess(access_record, key,
-                                            rep_->get_cf_name_for_tracing(),
+                                            rep_->cf_name_for_tracing(),
                                             /*referenced_key=*/nullptr);
     }
   }
@@ -3038,16 +3035,14 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         }
         // Write the block cache access record.
         if (block_cache_tracer_) {
-          // Avoid making copy of block_key, cf_name and referenced_key when
+          // Avoid making copy of block_key, cf_name, and referenced_key when
           // constructing the access record.
           BlockCacheTraceRecord access_record(
               rep_->ioptions.env->NowMicros(),
               /*block_key=*/"", lookup_data_block_context.block_type,
-              lookup_data_block_context.block_size,
-              rep_->get_cf_id_for_tracing(),
-              /*cf_name=*/"", rep_->get_level_for_tracing(),
-              rep_->get_sst_number_for_tracing(),
-              lookup_data_block_context.caller,
+              lookup_data_block_context.block_size, rep_->cf_id_for_tracing(),
+              /*cf_name=*/"", rep_->level_for_tracing(),
+              rep_->sst_number_for_tracing(), lookup_data_block_context.caller,
               lookup_data_block_context.is_cache_hit,
               lookup_data_block_context.no_insert,
               /*referenced_key=*/"", referenced_data_size,
@@ -3055,7 +3050,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
               does_referenced_key_exist);
           block_cache_tracer_->WriteBlockAccess(
               access_record, lookup_data_block_context.block_key,
-              rep_->get_cf_name_for_tracing(), key);
+              rep_->cf_name_for_tracing(), key);
         }
       }
 
@@ -3206,11 +3201,9 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           BlockCacheTraceRecord access_record(
               rep_->ioptions.env->NowMicros(),
               /*block_key=*/"", lookup_data_block_context.block_type,
-              lookup_data_block_context.block_size,
-              rep_->get_cf_id_for_tracing(),
-              /*cf_name=*/"", rep_->get_level_for_tracing(),
-              rep_->get_sst_number_for_tracing(),
-              lookup_data_block_context.caller,
+              lookup_data_block_context.block_size, rep_->cf_id_for_tracing(),
+              /*cf_name=*/"", rep_->level_for_tracing(),
+              rep_->sst_number_for_tracing(), lookup_data_block_context.caller,
               lookup_data_block_context.is_cache_hit,
               lookup_data_block_context.no_insert,
               /*referenced_key=*/"", referenced_data_size,
@@ -3218,7 +3211,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
               does_referenced_key_exist);
           block_cache_tracer_->WriteBlockAccess(
               access_record, lookup_data_block_context.block_key,
-              rep_->get_cf_name_for_tracing(), key);
+              rep_->cf_name_for_tracing(), key);
         }
 
         if (done) {

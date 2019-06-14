@@ -572,22 +572,20 @@ struct BlockBasedTable::Rep {
                : global_seqno;
   }
 
-  uint64_t get_cf_id_for_tracing() const {
+  uint64_t cf_id_for_tracing() const {
     return table_properties ? table_properties->column_family_id
                             : rocksdb::TablePropertiesCollectorFactory::
                                   Context::kUnknownColumnFamily;
   }
 
-  Slice get_cf_name_for_tracing() const {
+  Slice cf_name_for_tracing() const {
     return table_properties ? table_properties->column_family_name
                             : BlockCacheTraceHelper::kUnknownColumnFamilyName;
   }
 
-  uint32_t get_level_for_tracing() const {
-    return level >= 0 ? level : UINT32_MAX;
-  }
+  uint32_t level_for_tracing() const { return level >= 0 ? level : UINT32_MAX; }
 
-  uint64_t get_sst_number_for_tracing() const {
+  uint64_t sst_number_for_tracing() const {
     return file ? TableFileNameToNumber(file->file_name()) : UINT64_MAX;
   }
 };
