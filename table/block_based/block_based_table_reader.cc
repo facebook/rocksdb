@@ -1877,9 +1877,8 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     FilePrefetchBuffer* prefetch_buffer, const BlockHandle& filter_blk_handle,
     const bool is_a_filter_partition, bool no_io, GetContext* get_context,
-    BlockCacheLookupContext* /*lookup_context*/,
+    BlockCacheLookupContext* lookup_context,
     const SliceTransform* prefix_extractor) const {
-  // TODO(haoyu): Trace filter block access here.
   // If cache_index_and_filter_blocks is false, filter should be pre-populated.
   // We will return rep_->filter anyway. rep_->filter can be nullptr if filter
   // read fails at Open() time. We don't want to reload again since it will
@@ -1912,17 +1911,22 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
       GetEntryFromCache(block_cache, key, BlockType::kFilter, get_context);
 
   FilterBlockReader* filter = nullptr;
+  size_t usage = 0;
+  bool is_cache_hit = false;
+  bool return_empty_reader = false;
   if (cache_handle != nullptr) {
     filter =
         reinterpret_cast<FilterBlockReader*>(block_cache->Value(cache_handle));
+    usage = filter->ApproximateMemoryUsage();
+    is_cache_hit = true;
   } else if (no_io) {
     // Do not invoke any io.
-    return CachableEntry<FilterBlockReader>();
+    return_empty_reader = true;
   } else {
     filter = ReadFilter(prefetch_buffer, filter_blk_handle,
                         is_a_filter_partition, prefix_extractor);
     if (filter != nullptr) {
-      size_t usage = filter->ApproximateMemoryUsage();
+      usage = filter->ApproximateMemoryUsage();
       Status s = block_cache->Insert(
           key, filter, usage, &DeleteCachedFilterEntry, &cache_handle,
           rep_->table_options.cache_index_and_filter_blocks_with_high_priority
@@ -1934,19 +1938,36 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
       } else {
         RecordTick(rep_->ioptions.statistics, BLOCK_CACHE_ADD_FAILURES);
         delete filter;
-        return CachableEntry<FilterBlockReader>();
+        return_empty_reader = true;
       }
     }
   }
 
+  if (block_cache_tracer_ && lookup_context) {
+    // Avoid making copy of block_key and cf_name when constructing the access
+    // record.
+    BlockCacheTraceRecord access_record(
+        rep_->ioptions.env->NowMicros(),
+        /*block_key=*/"", TraceType::kBlockTraceFilterBlock,
+        /*block_size=*/usage, rep_->cf_id_for_tracing(),
+        /*cf_name=*/"", rep_->level_for_tracing(),
+        rep_->sst_number_for_tracing(), lookup_context->caller, is_cache_hit,
+        /*no_insert=*/no_io);
+    block_cache_tracer_->WriteBlockAccess(access_record, key,
+                                          rep_->cf_name_for_tracing(),
+                                          /*referenced_key=*/nullptr);
+  }
+
+  if (return_empty_reader) {
+    return CachableEntry<FilterBlockReader>();
+  }
   return {filter, cache_handle ? block_cache : nullptr, cache_handle,
           /*own_value=*/false};
 }
 
 CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
     FilePrefetchBuffer* prefetch_buffer, bool no_io, GetContext* get_context,
-    BlockCacheLookupContext* /*lookup_context*/) const {
-  // TODO(haoyu): Trace the access on the uncompression dictionary here.
+    BlockCacheLookupContext* lookup_context) const {
   if (!rep_->table_options.cache_index_and_filter_blocks) {
     // block cache is either disabled or not used for meta-blocks. In either
     // case, BlockBasedTableReader is the owner of the uncompression dictionary.
@@ -1964,9 +1985,13 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
       GetEntryFromCache(rep_->table_options.block_cache.get(), cache_key,
                         BlockType::kCompressionDictionary, get_context);
   UncompressionDict* dict = nullptr;
+  bool is_cache_hit = false;
+  size_t usage = 0;
   if (cache_handle != nullptr) {
     dict = reinterpret_cast<UncompressionDict*>(
         rep_->table_options.block_cache->Value(cache_handle));
+    is_cache_hit = true;
+    usage = dict->ApproximateMemoryUsage();
   } else if (no_io) {
     // Do not invoke any io.
   } else {
@@ -1980,7 +2005,7 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
           new UncompressionDict(compression_dict_block->data.ToString(),
                                 rep_->blocks_definitely_zstd_compressed,
                                 rep_->ioptions.statistics));
-      const size_t usage = uncompression_dict->ApproximateMemoryUsage();
+      usage = uncompression_dict->ApproximateMemoryUsage();
       s = rep_->table_options.block_cache->Insert(
           cache_key, uncompression_dict.get(), usage,
           &DeleteCachedUncompressionDictEntry, &cache_handle,
@@ -1999,6 +2024,20 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
         assert(cache_handle == nullptr);
       }
     }
+  }
+  if (block_cache_tracer_ && lookup_context) {
+    // Avoid making copy of block_key and cf_name when constructing the access
+    // record.
+    BlockCacheTraceRecord access_record(
+        rep_->ioptions.env->NowMicros(),
+        /*block_key=*/"", TraceType::kBlockTraceUncompressionDictBlock,
+        /*block_size=*/usage, rep_->cf_id_for_tracing(),
+        /*cf_name=*/"", rep_->level_for_tracing(),
+        rep_->sst_number_for_tracing(), lookup_context->caller, is_cache_hit,
+        /*no_insert=*/no_io);
+    block_cache_tracer_->WriteBlockAccess(access_record, cache_key,
+                                          rep_->cf_name_for_tracing(),
+                                          /*referenced_key=*/nullptr);
   }
   return {dict, cache_handle ? rep_->table_options.block_cache.get() : nullptr,
           cache_handle, false /* own_value */};
@@ -2116,13 +2155,10 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
     CachableEntry<Block>* block_entry, BlockType block_type,
-    GetContext* get_context,
-    BlockCacheLookupContext* /*lookup_context*/) const {
-  // TODO(haoyu): Trace data/index/range deletion block access here.
+    GetContext* get_context, BlockCacheLookupContext* lookup_context) const {
   assert(block_entry != nullptr);
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   Cache* block_cache = rep_->table_options.block_cache.get();
-
   // No point to cache compressed blocks if it never goes away
   Cache* block_cache_compressed =
       rep_->immortal_table ? nullptr
@@ -2136,6 +2172,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
   char compressed_cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
   Slice key /* key to the block cache */;
   Slice ckey /* key to the compressed block cache */;
+  bool is_cache_hit = false;
+  bool no_insert = true;
   if (block_cache != nullptr || block_cache_compressed != nullptr) {
     // create key for block cache
     if (block_cache != nullptr) {
@@ -2152,10 +2190,15 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
     s = GetDataBlockFromCache(key, ckey, block_cache, block_cache_compressed,
                               ro, block_entry, uncompression_dict, block_type,
                               get_context);
-
+    if (block_entry->GetValue()) {
+      // TODO(haoyu): Differentiate cache hit on uncompressed block cache and
+      // compressed block cache.
+      is_cache_hit = true;
+    }
     // Can't find the block from the cache. If I/O is allowed, read from the
     // file.
     if (block_entry->GetValue() == nullptr && !no_io && ro.fill_cache) {
+      no_insert = false;
       Statistics* statistics = rep_->ioptions.statistics;
       bool do_decompress =
           block_cache_compressed == nullptr && rep_->blocks_maybe_compressed;
@@ -2186,6 +2229,59 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
       }
     }
   }
+
+  // Fill lookup_context.
+  if (block_cache_tracer_ && lookup_context) {
+    size_t usage = 0;
+    uint64_t nkeys = 0;
+    if (block_entry->GetValue()) {
+      // Approximate the number of keys in the block using restarts.
+      nkeys = rep_->table_options.block_restart_interval *
+              block_entry->GetValue()->NumRestarts();
+      usage = block_entry->GetValue()->ApproximateMemoryUsage();
+    }
+    TraceType trace_block_type = TraceType::kTraceMax;
+    switch (block_type) {
+      case BlockType::kIndex:
+        trace_block_type = TraceType::kBlockTraceIndexBlock;
+        break;
+      case BlockType::kData:
+        trace_block_type = TraceType::kBlockTraceDataBlock;
+        break;
+      case BlockType::kRangeDeletion:
+        trace_block_type = TraceType::kBlockTraceRangeDeletionBlock;
+        break;
+      default:
+        // This cannot happen.
+        assert(false);
+        break;
+    }
+    if (BlockCacheTraceHelper::ShouldTraceReferencedKey(
+            trace_block_type, lookup_context->caller)) {
+      // Defer logging the access to Get() and MultiGet() to trace additional
+      // information, e.g., the referenced key,
+      // referenced_key_exist_in_block.
+
+      // Make a copy of the block key here since it will be logged later.
+      lookup_context->FillLookupContext(
+          is_cache_hit, no_insert, trace_block_type,
+          /*block_size=*/usage, /*block_key=*/key.ToString(), nkeys);
+    } else {
+      // Avoid making copy of block_key and cf_name when constructing the access
+      // record.
+      BlockCacheTraceRecord access_record(
+          rep_->ioptions.env->NowMicros(),
+          /*block_key=*/"", trace_block_type,
+          /*block_size=*/usage, rep_->cf_id_for_tracing(),
+          /*cf_name=*/"", rep_->level_for_tracing(),
+          rep_->sst_number_for_tracing(), lookup_context->caller, is_cache_hit,
+          no_insert);
+      block_cache_tracer_->WriteBlockAccess(access_record, key,
+                                            rep_->cf_name_for_tracing(),
+                                            /*referenced_key=*/nullptr);
+    }
+  }
+
   assert(s.ok() || block_entry->GetValue() == nullptr);
   return s;
 }
@@ -2874,11 +2970,15 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, rep_->level);
         break;
       } else {
+        BlockCacheLookupContext lookup_data_block_context{
+            BlockCacheLookupCaller::kUserGet};
+        bool does_referenced_key_exist = false;
         DataBlockIter biter;
+        uint64_t referenced_data_size = 0;
         NewDataBlockIterator<DataBlockIter>(
             read_options, iiter->value(), &biter, BlockType::kData,
             /*key_includes_seq=*/true,
-            /*index_key_is_full=*/true, get_context, &lookup_context,
+            /*index_key_is_full=*/true, get_context, &lookup_data_block_context,
             /*s=*/Status(), /*prefetch_buffer*/ nullptr);
 
         if (read_options.read_tier == kBlockCacheTier &&
@@ -2902,25 +3002,47 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           // the end of the block, i.e. cannot be in the following blocks
           // either. In this case, the seek_key cannot be found, so we break
           // from the top level for-loop.
-          break;
-        }
+          done = true;
+        } else {
+          // Call the *saver function on each entry/block until it returns false
+          for (; biter.Valid(); biter.Next()) {
+            ParsedInternalKey parsed_key;
+            if (!ParseInternalKey(biter.key(), &parsed_key)) {
+              s = Status::Corruption(Slice());
+            }
 
-        // Call the *saver function on each entry/block until it returns false
-        for (; biter.Valid(); biter.Next()) {
-          ParsedInternalKey parsed_key;
-          if (!ParseInternalKey(biter.key(), &parsed_key)) {
-            s = Status::Corruption(Slice());
+            if (!get_context->SaveValue(
+                    parsed_key, biter.value(), &matched,
+                    biter.IsValuePinned() ? &biter : nullptr)) {
+              does_referenced_key_exist = true;
+              referenced_data_size = biter.key().size() + biter.value().size();
+              done = true;
+              break;
+            }
           }
-
-          if (!get_context->SaveValue(
-                  parsed_key, biter.value(), &matched,
-                  biter.IsValuePinned() ? &biter : nullptr)) {
-            done = true;
-            break;
-          }
+          s = biter.status();
         }
-        s = biter.status();
+        // Write the block cache access record.
+        if (block_cache_tracer_) {
+          // Avoid making copy of block_key, cf_name, and referenced_key when
+          // constructing the access record.
+          BlockCacheTraceRecord access_record(
+              rep_->ioptions.env->NowMicros(),
+              /*block_key=*/"", lookup_data_block_context.block_type,
+              lookup_data_block_context.block_size, rep_->cf_id_for_tracing(),
+              /*cf_name=*/"", rep_->level_for_tracing(),
+              rep_->sst_number_for_tracing(), lookup_data_block_context.caller,
+              lookup_data_block_context.is_cache_hit,
+              lookup_data_block_context.no_insert,
+              /*referenced_key=*/"", referenced_data_size,
+              lookup_data_block_context.num_keys_in_block,
+              does_referenced_key_exist);
+          block_cache_tracer_->WriteBlockAccess(
+              access_record, lookup_data_block_context.block_key,
+              rep_->cf_name_for_tracing(), key);
+        }
       }
+
       if (done) {
         // Avoid the extra Next which is expensive in two-level indexes
         break;
@@ -2992,14 +3114,18 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       bool done = false;
       for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
         bool reusing_block = true;
+        uint64_t referenced_data_size = 0;
+        bool does_referenced_key_exist = false;
+        BlockCacheLookupContext lookup_data_block_context(
+            BlockCacheLookupCaller::kUserMGet);
         if (iiter->value().offset() != offset) {
           offset = iiter->value().offset();
           biter.Invalidate(Status::OK());
           NewDataBlockIterator<DataBlockIter>(
               read_options, iiter->value(), &biter, BlockType::kData,
               /*key_includes_seq=*/false,
-              /*index_key_is_full=*/true, get_context, &lookup_context,
-              Status(), nullptr);
+              /*index_key_is_full=*/true, get_context,
+              &lookup_data_block_context, Status(), nullptr);
           reusing_block = false;
         }
         if (read_options.read_tier == kBlockCacheTier &&
@@ -3021,38 +3147,59 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           // the end of the block, i.e. cannot be in the following blocks
           // either. In this case, the seek_key cannot be found, so we break
           // from the top level for-loop.
-          break;
-        }
+          done = true;
+        } else {
+          // Call the *saver function on each entry/block until it returns false
+          for (; biter.Valid(); biter.Next()) {
+            ParsedInternalKey parsed_key;
+            Cleanable dummy;
+            Cleanable* value_pinner = nullptr;
 
-        // Call the *saver function on each entry/block until it returns false
-        for (; biter.Valid(); biter.Next()) {
-          ParsedInternalKey parsed_key;
-          Cleanable dummy;
-          Cleanable* value_pinner = nullptr;
+            if (!ParseInternalKey(biter.key(), &parsed_key)) {
+              s = Status::Corruption(Slice());
+            }
+            if (biter.IsValuePinned()) {
+              if (reusing_block) {
+                Cache* block_cache = rep_->table_options.block_cache.get();
+                assert(biter.cache_handle() != nullptr);
+                block_cache->Ref(biter.cache_handle());
+                dummy.RegisterCleanup(&ReleaseCachedEntry, block_cache,
+                                      biter.cache_handle());
+                value_pinner = &dummy;
+              } else {
+                value_pinner = &biter;
+              }
+            }
 
-          if (!ParseInternalKey(biter.key(), &parsed_key)) {
-            s = Status::Corruption(Slice());
-          }
-          if (biter.IsValuePinned()) {
-            if (reusing_block) {
-              Cache* block_cache = rep_->table_options.block_cache.get();
-              assert(biter.cache_handle() != nullptr);
-              block_cache->Ref(biter.cache_handle());
-              dummy.RegisterCleanup(&ReleaseCachedEntry, block_cache,
-                                    biter.cache_handle());
-              value_pinner = &dummy;
-            } else {
-              value_pinner = &biter;
+            if (!get_context->SaveValue(parsed_key, biter.value(), &matched,
+                                        value_pinner)) {
+              does_referenced_key_exist = true;
+              referenced_data_size = biter.key().size() + biter.value().size();
+              done = true;
+              break;
             }
           }
-
-          if (!get_context->SaveValue(
-                  parsed_key, biter.value(), &matched, value_pinner)) {
-            done = true;
-            break;
-          }
+          s = biter.status();
         }
-        s = biter.status();
+        // Write the block cache access.
+        if (block_cache_tracer_) {
+          // Avoid making copy of block_key, cf_name, and referenced_key when
+          // constructing the access record.
+          BlockCacheTraceRecord access_record(
+              rep_->ioptions.env->NowMicros(),
+              /*block_key=*/"", lookup_data_block_context.block_type,
+              lookup_data_block_context.block_size, rep_->cf_id_for_tracing(),
+              /*cf_name=*/"", rep_->level_for_tracing(),
+              rep_->sst_number_for_tracing(), lookup_data_block_context.caller,
+              lookup_data_block_context.is_cache_hit,
+              lookup_data_block_context.no_insert,
+              /*referenced_key=*/"", referenced_data_size,
+              lookup_data_block_context.num_keys_in_block,
+              does_referenced_key_exist);
+          block_cache_tracer_->WriteBlockAccess(
+              access_record, lookup_data_block_context.block_key,
+              rep_->cf_name_for_tracing(), key);
+        }
         if (done) {
           // Avoid the extra Next which is expensive in two-level indexes
           break;
