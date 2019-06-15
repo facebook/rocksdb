@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "db/range_tombstone_fragmenter.h"
+#include "file/filename.h"
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/persistent_cache.h"
@@ -570,6 +571,23 @@ struct BlockBasedTable::Rep {
             block_type == BlockType::kCompressionDictionary)
                ? kDisableGlobalSequenceNumber
                : global_seqno;
+  }
+
+  uint64_t cf_id_for_tracing() const {
+    return table_properties ? table_properties->column_family_id
+                            : rocksdb::TablePropertiesCollectorFactory::
+                                  Context::kUnknownColumnFamily;
+  }
+
+  Slice cf_name_for_tracing() const {
+    return table_properties ? table_properties->column_family_name
+                            : BlockCacheTraceHelper::kUnknownColumnFamilyName;
+  }
+
+  uint32_t level_for_tracing() const { return level >= 0 ? level : UINT32_MAX; }
+
+  uint64_t sst_number_for_tracing() const {
+    return file ? TableFileNameToNumber(file->file_name()) : UINT64_MAX;
   }
 };
 

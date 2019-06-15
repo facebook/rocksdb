@@ -49,28 +49,80 @@ struct BlockCacheLookupContext {
   BlockCacheLookupContext(const BlockCacheLookupCaller& _caller)
       : caller(_caller) {}
   const BlockCacheLookupCaller caller;
+  // These are populated when we perform lookup/insert on block cache. The block
+  // cache tracer uses these inforation when logging the block access at
+  // BlockBasedTable::GET and BlockBasedTable::MultiGet.
+  bool is_cache_hit = false;
+  bool no_insert = false;
+  TraceType block_type = TraceType::kTraceMax;
+  uint64_t block_size = 0;
+  std::string block_key;
+  uint64_t num_keys_in_block = 0;
+
+  void FillLookupContext(bool _is_cache_hit, bool _no_insert,
+                         TraceType _block_type, uint64_t _block_size,
+                         const std::string& _block_key,
+                         uint64_t _num_keys_in_block) {
+    is_cache_hit = _is_cache_hit;
+    no_insert = _no_insert;
+    block_type = _block_type;
+    block_size = _block_size;
+    block_key = _block_key;
+    num_keys_in_block = _num_keys_in_block;
+  }
 };
 
 enum Boolean : char { kTrue = 1, kFalse = 0 };
 
 struct BlockCacheTraceRecord {
   // Required fields for all accesses.
-  uint64_t access_timestamp;
+  uint64_t access_timestamp = 0;
   std::string block_key;
-  TraceType block_type;
-  uint64_t block_size;
-  uint32_t cf_id;
+  TraceType block_type = TraceType::kTraceMax;
+  uint64_t block_size = 0;
+  uint64_t cf_id = 0;
   std::string cf_name;
-  uint32_t level;
-  uint32_t sst_fd_number;
-  BlockCacheLookupCaller caller;
-  Boolean is_cache_hit;
-  Boolean no_insert;
+  uint32_t level = 0;
+  uint64_t sst_fd_number = 0;
+  BlockCacheLookupCaller caller =
+      BlockCacheLookupCaller::kMaxBlockCacheLookupCaller;
+  Boolean is_cache_hit = Boolean::kFalse;
+  Boolean no_insert = Boolean::kFalse;
 
   // Required fields for data block and user Get/Multi-Get only.
   std::string referenced_key;
+  uint64_t referenced_data_size = 0;
   uint64_t num_keys_in_block = 0;
-  Boolean is_referenced_key_exist_in_block = Boolean::kFalse;
+  Boolean referenced_key_exist_in_block = Boolean::kFalse;
+
+  BlockCacheTraceRecord() {}
+
+  BlockCacheTraceRecord(uint64_t _access_timestamp, std::string _block_key,
+                        TraceType _block_type, uint64_t _block_size,
+                        uint64_t _cf_id, std::string _cf_name, uint32_t _level,
+                        uint64_t _sst_fd_number, BlockCacheLookupCaller _caller,
+                        bool _is_cache_hit, bool _no_insert,
+                        std::string _referenced_key = "",
+                        uint64_t _referenced_data_size = 0,
+                        uint64_t _num_keys_in_block = 0,
+                        bool _referenced_key_exist_in_block = false)
+      : access_timestamp(_access_timestamp),
+        block_key(_block_key),
+        block_type(_block_type),
+        block_size(_block_size),
+        cf_id(_cf_id),
+        cf_name(_cf_name),
+        level(_level),
+        sst_fd_number(_sst_fd_number),
+        caller(_caller),
+        is_cache_hit(_is_cache_hit ? Boolean::kTrue : Boolean::kFalse),
+        no_insert(_no_insert ? Boolean::kTrue : Boolean::kFalse),
+        referenced_key(_referenced_key),
+        referenced_data_size(_referenced_data_size),
+        num_keys_in_block(_num_keys_in_block),
+        referenced_key_exist_in_block(
+            _referenced_key_exist_in_block ? Boolean::kTrue : Boolean::kFalse) {
+  }
 };
 
 struct BlockCacheTraceHeader {
@@ -79,7 +131,13 @@ struct BlockCacheTraceHeader {
   uint32_t rocksdb_minor_version;
 };
 
-bool ShouldTraceReferencedKey(const BlockCacheTraceRecord& record);
+class BlockCacheTraceHelper {
+ public:
+  static bool ShouldTraceReferencedKey(TraceType block_type,
+                                       BlockCacheLookupCaller caller);
+
+  static const std::string kUnknownColumnFamilyName;
+};
 
 // BlockCacheTraceWriter captures all RocksDB block cache accesses using a
 // user-provided TraceWriter. Every RocksDB operation is written as a single
@@ -96,7 +154,10 @@ class BlockCacheTraceWriter {
   BlockCacheTraceWriter(BlockCacheTraceWriter&&) = delete;
   BlockCacheTraceWriter& operator=(BlockCacheTraceWriter&&) = delete;
 
-  Status WriteBlockAccess(const BlockCacheTraceRecord& record);
+  // Pass Slice references to avoid copy.
+  Status WriteBlockAccess(const BlockCacheTraceRecord& record,
+                          const Slice& block_key, const Slice& cf_name,
+                          const Slice& referenced_key);
 
   // Write a trace header at the beginning, typically on initiating a trace,
   // with some metadata like a magic number and RocksDB version.
@@ -148,7 +209,9 @@ class BlockCacheTracer {
   // Stop writing block cache accesses to the trace_writer.
   void EndTrace();
 
-  Status WriteBlockAccess(const BlockCacheTraceRecord& record);
+  Status WriteBlockAccess(const BlockCacheTraceRecord& record,
+                          const Slice& block_key, const Slice& cf_name,
+                          const Slice& referenced_key);
 
  private:
   TraceOptions trace_options_;
