@@ -457,6 +457,8 @@ Status DBImplSecondary::CheckConsistency() {
   if (s.ok()) {
     return s;
   }
+  TEST_SYNC_POINT_CALLBACK(
+      "DBImplSecondary::CheckConsistency:AfterFirstAttempt", &s);
   std::vector<LiveFileMetaData> metadata;
   versions_->GetLiveFilesMetaData(&metadata);
 
