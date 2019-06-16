@@ -525,6 +525,31 @@ TEST_F(DBSecondaryTest, SwitchManifest) {
   range_scan_db();
 }
 
+TEST_F(DBSecondaryTest, ClearVersionStorageAfterSwitchManifest) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondary(options1);
+
+  ASSERT_OK(Put("0", "value0"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  std::string value;
+  ReadOptions ropts;
+  ropts.verify_checksums = true;
+  ASSERT_OK(db_secondary_->Get(ropts, "0", &value));
+  ASSERT_EQ("value0", value);
+
+  Reopen(options);
+  ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+}
+
 TEST_F(DBSecondaryTest, SwitchWAL) {
   const int kNumKeysPerMemtable = 1;
   Options options;
