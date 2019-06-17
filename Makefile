@@ -608,6 +608,7 @@ TOOLS = \
 	rocksdb_undump \
 	blob_dump \
 	trace_analyzer \
+	block_cache_trace_analyzer \
 
 TEST_LIBS = \
 	librocksdb_env_basic_test.a
@@ -1107,6 +1108,9 @@ db_bench: tools/db_bench.o $(BENCHTOOLOBJECTS)
 	$(AM_LINK)
 
 trace_analyzer: tools/trace_analyzer.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
+	$(AM_LINK)
+
+block_cache_trace_analyzer: tools/block_cache_trace_analyzer_tool.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
 	$(AM_LINK)
 
 cache_bench: cache/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
