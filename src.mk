@@ -369,6 +369,7 @@ MAIN_SOURCES =                                                          \
   table/table_test.cc                                                   \
   third-party/gtest-1.7.0/fused-src/gtest/gtest-all.cc                  \
   tools/block_cache_trace_analyzer_test.cc                              \
+  tools/block_cache_trace_analyzer_tool.cc                              \
   tools/db_bench.cc                                                     \
   tools/db_bench_tool_test.cc                                           \
   tools/db_sanity_test.cc                                               \
