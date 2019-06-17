@@ -237,7 +237,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
 
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, env_options_,
                                  table_cache_.get(), write_buffer_manager_,
-                                 &write_controller_));
+                                 &write_controller_, &block_cache_tracer_));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -1944,13 +1944,9 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
   Status persist_options_status;
   *handle = nullptr;
 
-  s = CheckCompressionSupported(cf_options);
-  if (s.ok() && immutable_db_options_.allow_concurrent_memtable_write) {
-    s = CheckConcurrentWritesSupported(cf_options);
-  }
-  if (s.ok()) {
-    s = CheckCFPathsSupported(initial_db_options_, cf_options);
-  }
+  DBOptions db_options =
+      BuildDBOptions(immutable_db_options_, mutable_db_options_);
+  s = ColumnFamilyData::ValidateOptions(db_options, cf_options);
   if (s.ok()) {
     for (auto& cf_path : cf_options.cf_paths) {
       s = env_->CreateDirIfMissing(cf_path.path);
@@ -3922,6 +3918,18 @@ Status DBImpl::EndTrace() {
     return Status::IOError("No trace file to close");
   }
   return s;
+}
+
+Status DBImpl::StartBlockCacheTrace(
+    const TraceOptions& trace_options,
+    std::unique_ptr<TraceWriter>&& trace_writer) {
+  return block_cache_tracer_.StartTrace(env_, trace_options,
+                                        std::move(trace_writer));
+}
+
+Status DBImpl::EndBlockCacheTrace() {
+  block_cache_tracer_.EndTrace();
+  return Status::OK();
 }
 
 Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key) {

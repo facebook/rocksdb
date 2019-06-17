@@ -15,12 +15,28 @@ namespace rocksdb {
 
 namespace {
 const unsigned int kCharSize = 1;
+
+bool ShouldTrace(const BlockCacheTraceRecord& record,
+                 const TraceOptions& trace_options) {
+  if (trace_options.sampling_frequency == 0 ||
+      trace_options.sampling_frequency == 1) {
+    return true;
+  }
+  // We use spatial downsampling so that we have a complete access history for a
+  // block.
+  const uint64_t hash = GetSliceNPHash64(Slice(record.block_key));
+  return hash % trace_options.sampling_frequency == 0;
+}
 }  // namespace
 
-bool ShouldTraceReferencedKey(const BlockCacheTraceRecord& record) {
-  return (record.block_type == TraceType::kBlockTraceDataBlock) &&
-         (record.caller == BlockCacheLookupCaller::kUserGet ||
-          record.caller == BlockCacheLookupCaller::kUserMGet);
+const std::string BlockCacheTraceHelper::kUnknownColumnFamilyName =
+    "UnknownColumnFamily";
+
+bool BlockCacheTraceHelper::ShouldTraceReferencedKey(
+    TraceType block_type, BlockCacheLookupCaller caller) {
+  return (block_type == TraceType::kBlockTraceDataBlock) &&
+         (caller == BlockCacheLookupCaller::kUserGet ||
+          caller == BlockCacheLookupCaller::kUserMGet);
 }
 
 BlockCacheTraceWriter::BlockCacheTraceWriter(
@@ -30,45 +46,34 @@ BlockCacheTraceWriter::BlockCacheTraceWriter(
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)) {}
 
-bool BlockCacheTraceWriter::ShouldTrace(
-    const BlockCacheTraceRecord& record) const {
-  if (trace_options_.sampling_frequency == 0 ||
-      trace_options_.sampling_frequency == 1) {
-    return true;
-  }
-  // We use spatial downsampling so that we have a complete access history for a
-  // block.
-  const uint64_t hash = GetSliceNPHash64(Slice(record.block_key));
-  return hash % trace_options_.sampling_frequency == 0;
-}
-
 Status BlockCacheTraceWriter::WriteBlockAccess(
-    const BlockCacheTraceRecord& record) {
+    const BlockCacheTraceRecord& record, const Slice& block_key,
+    const Slice& cf_name, const Slice& referenced_key) {
   uint64_t trace_file_size = trace_writer_->GetFileSize();
-  if (trace_file_size > trace_options_.max_trace_file_size ||
-      !ShouldTrace(record)) {
+  if (trace_file_size > trace_options_.max_trace_file_size) {
     return Status::OK();
   }
   Trace trace;
   trace.ts = record.access_timestamp;
   trace.type = record.block_type;
-  PutLengthPrefixedSlice(&trace.payload, record.block_key);
+  PutLengthPrefixedSlice(&trace.payload, block_key);
   PutFixed64(&trace.payload, record.block_size);
-  PutFixed32(&trace.payload, record.cf_id);
-  PutLengthPrefixedSlice(&trace.payload, record.cf_name);
+  PutFixed64(&trace.payload, record.cf_id);
+  PutLengthPrefixedSlice(&trace.payload, cf_name);
   PutFixed32(&trace.payload, record.level);
-  PutFixed32(&trace.payload, record.sst_fd_number);
+  PutFixed64(&trace.payload, record.sst_fd_number);
   trace.payload.push_back(record.caller);
   trace.payload.push_back(record.is_cache_hit);
   trace.payload.push_back(record.no_insert);
-  if (ShouldTraceReferencedKey(record)) {
-    PutLengthPrefixedSlice(&trace.payload, record.referenced_key);
+  if (BlockCacheTraceHelper::ShouldTraceReferencedKey(record.block_type,
+                                                      record.caller)) {
+    PutLengthPrefixedSlice(&trace.payload, referenced_key);
+    PutFixed64(&trace.payload, record.referenced_data_size);
     PutFixed64(&trace.payload, record.num_keys_in_block);
-    trace.payload.push_back(record.is_referenced_key_exist_in_block);
+    trace.payload.push_back(record.referenced_key_exist_in_block);
   }
   std::string encoded_trace;
   TracerHelper::EncodeTrace(trace, &encoded_trace);
-  InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
   return trace_writer_->Write(encoded_trace);
 }
 
@@ -81,7 +86,6 @@ Status BlockCacheTraceWriter::WriteHeader() {
   PutFixed32(&trace.payload, kMinorVersion);
   std::string encoded_trace;
   TracerHelper::EncodeTrace(trace, &encoded_trace);
-  InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
   return trace_writer_->Write(encoded_trace);
 }
 
@@ -146,6 +150,7 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
   record->access_timestamp = trace.ts;
   record->block_type = trace.type;
   Slice enc_slice = Slice(trace.payload);
+
   Slice block_key;
   if (!GetLengthPrefixedSlice(&enc_slice, &block_key)) {
     return Status::Incomplete(
@@ -156,7 +161,7 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
     return Status::Incomplete(
         "Incomplete access record: Failed to read block size.");
   }
-  if (!GetFixed32(&enc_slice, &record->cf_id)) {
+  if (!GetFixed64(&enc_slice, &record->cf_id)) {
     return Status::Incomplete(
         "Incomplete access record: Failed to read column family ID.");
   }
@@ -170,7 +175,7 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
     return Status::Incomplete(
         "Incomplete access record: Failed to read level.");
   }
-  if (!GetFixed32(&enc_slice, &record->sst_fd_number)) {
+  if (!GetFixed64(&enc_slice, &record->sst_fd_number)) {
     return Status::Incomplete(
         "Incomplete access record: Failed to read SST file number.");
   }
@@ -193,13 +198,18 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
   record->no_insert = static_cast<Boolean>(enc_slice[0]);
   enc_slice.remove_prefix(kCharSize);
 
-  if (ShouldTraceReferencedKey(*record)) {
+  if (BlockCacheTraceHelper::ShouldTraceReferencedKey(record->block_type,
+                                                      record->caller)) {
     Slice referenced_key;
     if (!GetLengthPrefixedSlice(&enc_slice, &referenced_key)) {
       return Status::Incomplete(
           "Incomplete access record: Failed to read the referenced key.");
     }
     record->referenced_key = referenced_key.ToString();
+    if (!GetFixed64(&enc_slice, &record->referenced_data_size)) {
+      return Status::Incomplete(
+          "Incomplete access record: Failed to read the referenced data size.");
+    }
     if (!GetFixed64(&enc_slice, &record->num_keys_in_block)) {
       return Status::Incomplete(
           "Incomplete access record: Failed to read the number of keys in the "
@@ -208,12 +218,52 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
     if (enc_slice.empty()) {
       return Status::Incomplete(
           "Incomplete access record: Failed to read "
-          "is_referenced_key_exist_in_block.");
+          "referenced_key_exist_in_block.");
     }
-    record->is_referenced_key_exist_in_block =
-        static_cast<Boolean>(enc_slice[0]);
+    record->referenced_key_exist_in_block = static_cast<Boolean>(enc_slice[0]);
   }
   return Status::OK();
+}
+
+BlockCacheTracer::BlockCacheTracer() { writer_.store(nullptr); }
+
+BlockCacheTracer::~BlockCacheTracer() { EndTrace(); }
+
+Status BlockCacheTracer::StartTrace(
+    Env* env, const TraceOptions& trace_options,
+    std::unique_ptr<TraceWriter>&& trace_writer) {
+  InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
+  if (writer_.load()) {
+    return Status::OK();
+  }
+  trace_options_ = trace_options;
+  writer_.store(
+      new BlockCacheTraceWriter(env, trace_options, std::move(trace_writer)));
+  return writer_.load()->WriteHeader();
+}
+
+void BlockCacheTracer::EndTrace() {
+  InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
+  if (!writer_.load()) {
+    return;
+  }
+  delete writer_.load();
+  writer_.store(nullptr);
+}
+
+Status BlockCacheTracer::WriteBlockAccess(const BlockCacheTraceRecord& record,
+                                          const Slice& block_key,
+                                          const Slice& cf_name,
+                                          const Slice& referenced_key) {
+  if (!writer_.load() || !ShouldTrace(record, trace_options_)) {
+    return Status::OK();
+  }
+  InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
+  if (!writer_.load()) {
+    return Status::OK();
+  }
+  return writer_.load()->WriteBlockAccess(record, block_key, cf_name,
+                                          referenced_key);
 }
 
 }  // namespace rocksdb

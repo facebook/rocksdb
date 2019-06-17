@@ -1317,6 +1317,17 @@ class DB {
   virtual Status EndTrace() {
     return Status::NotSupported("EndTrace() is not implemented.");
   }
+
+  // Trace block cache accesses. Use EndBlockCacheTrace() to stop tracing.
+  virtual Status StartBlockCacheTrace(
+      const TraceOptions& /*options*/,
+      std::unique_ptr<TraceWriter>&& /*trace_writer*/) {
+    return Status::NotSupported("StartBlockCacheTrace() is not implemented.");
+  }
+
+  virtual Status EndBlockCacheTrace() {
+    return Status::NotSupported("EndBlockCacheTrace() is not implemented.");
+  }
 #endif  // ROCKSDB_LITE
 
   // Needed for StackableDB

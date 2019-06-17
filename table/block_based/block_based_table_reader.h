@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "db/range_tombstone_fragmenter.h"
+#include "file/filename.h"
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/persistent_cache.h"
@@ -35,6 +36,7 @@
 #include "table/table_properties_internal.h"
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
+#include "trace_replay/block_cache_tracer.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/user_comparator_wrapper.h"
@@ -108,7 +110,8 @@ class BlockBasedTable : public TableReader {
                      bool skip_filters = false, int level = -1,
                      const bool immortal_table = false,
                      const SequenceNumber largest_seqno = 0,
-                     TailPrefetchStats* tail_prefetch_stats = nullptr);
+                     TailPrefetchStats* tail_prefetch_stats = nullptr,
+                     BlockCacheTracer* const block_cache_tracer = nullptr);
 
   bool PrefixMayMatch(const Slice& internal_key,
                       const ReadOptions& read_options,
@@ -239,11 +242,13 @@ class BlockBasedTable : public TableReader {
 
  protected:
   Rep* rep_;
-  explicit BlockBasedTable(Rep* rep) : rep_(rep) {}
+  explicit BlockBasedTable(Rep* rep, BlockCacheTracer* const block_cache_tracer)
+      : rep_(rep), block_cache_tracer_(block_cache_tracer) {}
 
  private:
   friend class MockedBlockBasedTable;
   static std::atomic<uint64_t> next_cache_key_id_;
+  BlockCacheTracer* const block_cache_tracer_;
 
   void UpdateCacheHitMetrics(BlockType block_type, GetContext* get_context,
                              size_t usage) const;
@@ -566,6 +571,23 @@ struct BlockBasedTable::Rep {
             block_type == BlockType::kCompressionDictionary)
                ? kDisableGlobalSequenceNumber
                : global_seqno;
+  }
+
+  uint64_t cf_id_for_tracing() const {
+    return table_properties ? table_properties->column_family_id
+                            : rocksdb::TablePropertiesCollectorFactory::
+                                  Context::kUnknownColumnFamily;
+  }
+
+  Slice cf_name_for_tracing() const {
+    return table_properties ? table_properties->column_family_name
+                            : BlockCacheTraceHelper::kUnknownColumnFamilyName;
+  }
+
+  uint32_t level_for_tracing() const { return level >= 0 ? level : UINT32_MAX; }
+
+  uint64_t sst_number_for_tracing() const {
+    return file ? TableFileNameToNumber(file->file_name()) : UINT64_MAX;
   }
 };
 

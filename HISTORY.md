@@ -22,6 +22,7 @@
 
 ### General Improvements
 * Added new status code kColumnFamilyDropped to distinguish between Column Family Dropped and DB Shutdown in progress.
+* Improve ColumnFamilyOptions validation when creating a new column family.
 
 ### Bug Fixes
 * Fix a bug in WAL replay of secondary instance by skipping write batches with older sequence numbers than the current last sequence number.

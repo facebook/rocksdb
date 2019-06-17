@@ -186,28 +186,34 @@ size_t GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
 #define ZFS_SUPER_MAGIC 0x2fc12fc1
 #endif
 
-bool IsSyncFileRangeSupported(int __attribute__((__unused__)) fd) {
-  // `fstatfs` is only available on Linux, but so is `sync_file_range`, so
-  // `defined(ROCKSDB_RANGESYNC_PRESENT)` should imply `defined(OS_LINUX)`.
+bool IsSyncFileRangeSupported(int fd) {
+  // The approach taken in this function is to build a blacklist of cases where
+  // we know `sync_file_range` definitely will not work properly despite passing
+  // the compile-time check (`ROCKSDB_RANGESYNC_PRESENT`). If we are unsure, or
+  // if any of the checks fail in unexpected ways, we allow `sync_file_range` to
+  // be used. This way should minimize risk of impacting existing use cases.
   struct statfs buf;
   int ret = fstatfs(fd, &buf);
   assert(ret == 0);
-  if (ret != 0) {
-    // We don't know whether the filesystem properly supports `sync_file_range`.
-    // Even if it doesn't, we don't know of any safety issue with trying to call
-    // it anyways. So, to preserve the same behavior as before this `fstatfs`
-    // check was introduced, we assume `sync_file_range` is usable.
-    return true;
-  }
-  if (buf.f_type == ZFS_SUPER_MAGIC) {
+  if (ret == 0 && buf.f_type == ZFS_SUPER_MAGIC) {
     // Testing on ZFS showed the writeback did not happen asynchronously when
     // `sync_file_range` was called, even though it returned success. Avoid it
     // and use `fdatasync` instead to preserve the contract of `bytes_per_sync`,
     // even though this'll incur extra I/O for metadata.
     return false;
   }
-  // No known problems with other filesystems' implementations of
-  // `sync_file_range`, so allow them to use it.
+
+  ret = sync_file_range(fd, 0 /* offset */, 0 /* nbytes */, 0 /* flags */);
+  assert(!(ret == -1 && errno != ENOSYS));
+  if (ret == -1 && errno == ENOSYS) {
+    // `sync_file_range` is not implemented on all platforms even if
+    // compile-time checks pass and a supported filesystem is in-use. For
+    // example, using ext4 on WSL (Windows Subsystem for Linux),
+    // `sync_file_range()` returns `ENOSYS`
+    // ("Function not implemented").
+    return false;
+  }
+  // None of the cases on the blacklist matched, so allow `sync_file_range` use.
   return true;
 }
 
