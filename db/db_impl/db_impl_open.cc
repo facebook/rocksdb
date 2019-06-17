@@ -505,10 +505,11 @@ Status DBImpl::Recover(
 }
 
 Status DBImpl::PersistentStatsProcessFormatVersion() {
+  mutex_.AssertHeld();
   Status s;
   mutex_.Unlock();
   // persist version when stats CF doesn't exist
-  bool should_persist_version = !persistent_stats_cfd_exists_;
+  bool should_persist_format_version = !persistent_stats_cfd_exists_;
   if (persistent_stats_cfd_exists_) {
     // Check persistent stats format version compatibility. Drop and recreate
     // persistent stats CF if format version is incompatible
@@ -547,10 +548,10 @@ Status DBImpl::PersistentStatsProcessFormatVersion() {
       s = CreateColumnFamily(cfo, kPersistentStatsColumnFamilyName, &handle);
       persist_stats_cf_handle_ = static_cast<ColumnFamilyHandleImpl*>(handle);
       // should also persist version here because old stats CF is discarded
-      should_persist_version = true;
+      should_persist_format_version = true;
     }
   }
-  if (should_persist_version) {
+  if (s.ok() && should_persist_format_version) {
     // Persistent stats CF being created for the first time, need to write
     // format version key
     WriteBatch batch;
@@ -569,20 +570,20 @@ Status DBImpl::PersistentStatsProcessFormatVersion() {
 }
 
 Status DBImpl::InitPersistStatsColumnFamily() {
+  mutex_.AssertHeld();
   assert(!persist_stats_cf_handle_);
-  persistent_stats_cfd_exists_ =
+  ColumnFamilyData* persistent_stats_cfd =
       versions_->GetColumnFamilySet()->GetColumnFamily(
-          kPersistentStatsColumnFamilyName) != nullptr;
+          kPersistentStatsColumnFamilyName);
+  persistent_stats_cfd_exists_ = persistent_stats_cfd != nullptr;
 
   Status s;
-  if (persistent_stats_cfd_exists_) {
+  if (persistent_stats_cfd != nullptr) {
     // We are recovering from a DB which already contains persistent stats CF,
     // the CF is already created in VersionSet::ApplyOneVersionEdit, but
     // column family handle was not. Need to explicitly create handle here.
-    persist_stats_cf_handle_ = new ColumnFamilyHandleImpl(
-        versions_->GetColumnFamilySet()->GetColumnFamily(
-            kPersistentStatsColumnFamilyName),
-        this, &mutex_);
+    persist_stats_cf_handle_ =
+        new ColumnFamilyHandleImpl(persistent_stats_cfd, this, &mutex_);
   } else {
     mutex_.Unlock();
     ColumnFamilyHandle* handle = nullptr;

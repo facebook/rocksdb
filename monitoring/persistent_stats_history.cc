@@ -18,7 +18,6 @@
 namespace rocksdb {
 // 10 digit seconds timestamp => [Sep 9, 2001 ~ Nov 20, 2286]
 const int kNowSecondsStringLength = 10;
-const int kMicrosInSecond = 1000 * 1000;
 const std::string kFormatVersionKeyString =
     "__persistent_stats_format_version__";
 const std::string kCompatibleVersionKeyString =
@@ -46,7 +45,7 @@ Status DecodePersistentStatsVersionNumber(DBImpl* db, StatsVersionKeyType type,
   options.verify_checksums = true;
   std::string result;
   Status s = db->Get(options, db->PersistentStatsColumnFamily(), key, &result);
-  if (!s.ok() || result.length() == 0) {
+  if (!s.ok() || result.empty()) {
     return Status::NotFound("Persistent stats version key " + key +
                             " not found.");
   }
@@ -56,12 +55,12 @@ Status DecodePersistentStatsVersionNumber(DBImpl* db, StatsVersionKeyType type,
   return Status::OK();
 }
 
-int EncodePersistentStatsKey(uint64_t now_micros, const std::string& key,
+int EncodePersistentStatsKey(uint64_t now_seconds, const std::string& key,
                              int size, char* buf) {
   char timestamp[kNowSecondsStringLength + 1];
   // make time stamp string equal in length to allow sorting by time
   snprintf(timestamp, sizeof(timestamp), "%010d",
-           static_cast<int>(now_micros / kMicrosInSecond));
+           static_cast<int>(now_seconds));
   timestamp[kNowSecondsStringLength] = '\0';
   return snprintf(buf, size, "%s#%s", timestamp, key.c_str());
 }
@@ -102,7 +101,7 @@ std::pair<uint64_t, std::string> parseKey(const Slice& key,
   // TODO(Zhongyi): add counters to track parse failures?
   if (pos == std::string::npos) {
     result.first = port::kMaxUint64;
-    result.second = "";
+    result.second.clear();
   } else {
     uint64_t parsed_time = ParseUint64(key_str.substr(0, pos));
     // skip entries with timestamp smaller than start_time

@@ -26,8 +26,6 @@
 
 namespace rocksdb {
 
-const int kMicrosInSec = 1000000;
-
 class StatsHistoryTest : public DBTestBase {
  public:
   StatsHistoryTest() : DBTestBase("/stats_history_test") {}
@@ -170,13 +168,14 @@ TEST_F(StatsHistoryTest, GetStatsHistoryInMemory) {
   // Wait for stats persist to finish
   dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
   std::unique_ptr<StatsHistoryIterator> stats_iter;
-  db_->GetStatsHistory(0, 6 * kMicrosInSec, &stats_iter);
+  db_->GetStatsHistory(0 /*start_time*/, 6 /*end_time*/, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   // disabled stats snapshots
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "0"}}));
   size_t stats_count = 0;
   for (; stats_iter->Valid(); stats_iter->Next()) {
     auto stats_map = stats_iter->GetStatsMap();
+    ASSERT_EQ(stats_iter->GetStatsTime(), 5);
     stats_count += stats_map.size();
   }
   ASSERT_GT(stats_count, 0);
@@ -185,7 +184,7 @@ TEST_F(StatsHistoryTest, GetStatsHistoryInMemory) {
     dbfull()->TEST_WaitForPersistStatsRun(
         [&] { mock_env->set_current_time(mock_time); });
   }
-  db_->GetStatsHistory(0, 20 * kMicrosInSec, &stats_iter);
+  db_->GetStatsHistory(0 /*start_time*/, 20 /*end_time*/, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count_new = 0;
   for (; stats_iter->Valid(); stats_iter->Next()) {
@@ -259,7 +258,7 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
         [&] { mock_env->set_current_time(mock_time); });
   }
   std::unique_ptr<StatsHistoryIterator> stats_iter;
-  db_->GetStatsHistory(0, 10 * kMicrosInSec, &stats_iter);
+  db_->GetStatsHistory(0 /*start_time*/, 10 /*end_time*/, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count = 0;
   int slice_count = 0;
@@ -279,7 +278,7 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
     dbfull()->TEST_WaitForPersistStatsRun(
         [&] { mock_env->set_current_time(mock_time); });
   }
-  db_->GetStatsHistory(0, 20 * kMicrosInSec, &stats_iter);
+  db_->GetStatsHistory(0 /*start_time*/, 20 /*end_time*/, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count_reopen = 0;
   slice_count = 0;
@@ -296,6 +295,8 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
               stats_history_size_reopen > 0);
   ASSERT_TRUE(stats_count_reopen < stats_count && stats_count_reopen > 0);
   Close();
+  // TODO: may also want to verify stats timestamp to make sure we are purging
+  // the correct stats snapshot
 }
 
 int countkeys(Iterator* iter) {
@@ -343,14 +344,15 @@ TEST_F(StatsHistoryTest, GetStatsHistoryFromDisk) {
   ASSERT_GE(key_count3, key_count2);
   ASSERT_EQ(key_count3 - key_count2, key_count2 - key_count1);
   std::unique_ptr<StatsHistoryIterator> stats_iter;
-  db_->GetStatsHistory(0, 16 * kMicrosInSec, &stats_iter);
+  db_->GetStatsHistory(0 /*start_time*/, 16 /*end_time*/, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count = 0;
   int slice_count = 0;
   int non_zero_count = 0;
-  for (; stats_iter->Valid(); stats_iter->Next()) {
+  for (int i = 1; stats_iter->Valid(); stats_iter->Next(), i++) {
     slice_count++;
     auto stats_map = stats_iter->GetStatsMap();
+    ASSERT_EQ(stats_iter->GetStatsTime(), 5 * i);
     for (auto& stat : stats_map) {
       if (stat.second != 0) {
         non_zero_count++;
@@ -363,7 +365,7 @@ TEST_F(StatsHistoryTest, GetStatsHistoryFromDisk) {
   ASSERT_EQ(stats_count, key_count3 - 2);
   // verify reopen will not cause data loss
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
-  db_->GetStatsHistory(0, 16 * kMicrosInSec, &stats_iter);
+  db_->GetStatsHistory(0 /*start_time*/, 16 /*end_time*/, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count_reopen = 0;
   int slice_count_reopen = 0;
@@ -427,12 +429,13 @@ TEST_F(StatsHistoryTest, PersitentStatsVerifyValue) {
   std::map<std::string, uint64_t> stats_map_after;
   ASSERT_TRUE(options.statistics->getTickerMap(&stats_map_after));
   std::unique_ptr<StatsHistoryIterator> stats_iter;
-  db_->GetStatsHistory(0, 21 * kMicrosInSec, &stats_iter);
+  db_->GetStatsHistory(0 /*start_time*/, 21 /*end_time*/, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   std::string sample = "rocksdb.num.iterator.deleted";
   uint64_t recovered_value = 0;
-  for (; stats_iter->Valid(); stats_iter->Next()) {
+  for (int i = 1; stats_iter->Valid(); stats_iter->Next(), ++i) {
     auto stats_map = stats_iter->GetStatsMap();
+    ASSERT_EQ(stats_iter->GetStatsTime(), 5 * i);
     for (const auto& stat : stats_map) {
       if (sample.compare(stat.first) == 0) {
         recovered_value += stat.second;
@@ -443,11 +446,12 @@ TEST_F(StatsHistoryTest, PersitentStatsVerifyValue) {
 
   // test stats value retains after recovery
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
-  db_->GetStatsHistory(0, 21 * kMicrosInSec, &stats_iter);
+  db_->GetStatsHistory(0 /*start_time*/, 21 /*end_time*/, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   uint64_t new_recovered_value = 0;
-  for (; stats_iter->Valid(); stats_iter->Next()) {
+  for (int i = 1; stats_iter->Valid(); stats_iter->Next(), i++) {
     auto stats_map = stats_iter->GetStatsMap();
+    ASSERT_EQ(stats_iter->GetStatsTime(), 5 * i);
     for (const auto& stat : stats_map) {
       if (sample.compare(stat.first) == 0) {
         new_recovered_value += stat.second;
@@ -490,7 +494,7 @@ TEST_F(StatsHistoryTest, PersistentStatsCreateColumnFamilies) {
   uint64_t num_write_wal = 0;
   std::string sample = "rocksdb.write.wal";
   std::unique_ptr<StatsHistoryIterator> stats_iter;
-  db_->GetStatsHistory(0, 5 * kMicrosInSec, &stats_iter);
+  db_->GetStatsHistory(0 /*start_time*/, 5 /*end_time*/, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   for (; stats_iter->Valid(); stats_iter->Next()) {
     auto stats_map = stats_iter->GetStatsMap();
@@ -526,7 +530,7 @@ TEST_F(StatsHistoryTest, PersistentStatsCreateColumnFamilies) {
   ASSERT_NOK(db_->CreateColumnFamily(cf_opts, kPersistentStatsColumnFamilyName,
                                      &handle));
   // verify stats is not affected by prior failed CF creation
-  db_->GetStatsHistory(0, 5 * kMicrosInSec, &stats_iter);
+  db_->GetStatsHistory(0 /*start_time*/, 5 /*end_time*/, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   num_write_wal = 0;
   for (; stats_iter->Valid(); stats_iter->Next()) {

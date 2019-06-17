@@ -101,6 +101,7 @@ namespace rocksdb {
 const std::string kDefaultColumnFamilyName("default");
 const std::string kPersistentStatsColumnFamilyName(
     "___rocksdb_stats_history___");
+const int kMicrosInSecond = 1000 * 1000;
 void DumpRocksDBBuildVersion(Logger* log);
 
 CompressionType GetCompressionFlush(
@@ -491,9 +492,11 @@ Status DBImpl::CloseHelper() {
     mutex_.Unlock();
     if (default_cf_handle_) {
       delete default_cf_handle_;
+      default_cf_handle_ = nullptr;
     }
     if (persist_stats_cf_handle_) {
       delete persist_stats_cf_handle_;
+      persist_stats_cf_handle_ = nullptr;
     }
     mutex_.Lock();
   }
@@ -643,7 +646,8 @@ void DBImpl::StartTimedTasks() {
       if (!thread_dump_stats_) {
         thread_dump_stats_.reset(new rocksdb::RepeatableThread(
             [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
-            stats_dump_period_sec * kMicrosInSecond));
+            static_cast<uint64_t>(stats_dump_period_sec) *
+                static_cast<uint64_t>(kMicrosInSecond)));
       }
     }
     stats_persist_period_sec = mutable_db_options_.stats_persist_period_sec;
@@ -651,7 +655,8 @@ void DBImpl::StartTimedTasks() {
       if (!thread_persist_stats_) {
         thread_persist_stats_.reset(new rocksdb::RepeatableThread(
             [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
-            stats_persist_period_sec * kMicrosInSecond));
+            static_cast<uint64_t>(stats_persist_period_sec) *
+                static_cast<uint64_t>(kMicrosInSecond)));
       }
     }
   }
@@ -680,7 +685,7 @@ void DBImpl::PersistStats() {
   if (shutdown_initiated_) {
     return;
   }
-  uint64_t now_micros = env_->NowMicros();
+  uint64_t now_seconds = env_->NowMicros() / kMicrosInSecond;
   Statistics* statistics = immutable_db_options_.statistics.get();
   if (!statistics) {
     return;
@@ -701,7 +706,8 @@ void DBImpl::PersistStats() {
     if (stats_slice_initialized_) {
       for (const auto& stat : stats_map) {
         char key[100];
-        int length = EncodePersistentStatsKey(now_micros, stat.first, 100, key);
+        int length =
+            EncodePersistentStatsKey(now_seconds, stat.first, 100, key);
         // calculate the delta from last time
         if (stats_slice_.find(stat.first) != stats_slice_.end()) {
           uint64_t delta = stat.second - stats_slice_[stat.first];
@@ -733,7 +739,7 @@ void DBImpl::PersistStats() {
           stats_delta[stat.first] = stat.second - stats_slice_[stat.first];
         }
       }
-      stats_history_[now_micros] = stats_delta;
+      stats_history_[now_seconds] = stats_delta;
     }
     stats_slice_initialized_ = true;
     std::swap(stats_slice_, stats_map);
@@ -989,7 +995,8 @@ Status DBImpl::SetDBOptions(
         if (new_options.stats_dump_period_sec > 0) {
           thread_dump_stats_.reset(new rocksdb::RepeatableThread(
               [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
-              new_options.stats_dump_period_sec * kMicrosInSecond));
+              static_cast<uint64_t>(new_options.stats_dump_period_sec) *
+                  static_cast<uint64_t>(kMicrosInSecond)));
         } else {
           thread_dump_stats_.reset();
         }
@@ -1004,7 +1011,8 @@ Status DBImpl::SetDBOptions(
         if (new_options.stats_persist_period_sec > 0) {
           thread_persist_stats_.reset(new rocksdb::RepeatableThread(
               [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
-              new_options.stats_persist_period_sec * kMicrosInSecond));
+              static_cast<uint64_t>(new_options.stats_persist_period_sec) *
+                  static_cast<uint64_t>(kMicrosInSecond)));
         } else {
           thread_persist_stats_.reset();
         }

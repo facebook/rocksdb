@@ -13,7 +13,6 @@
 
 namespace rocksdb {
 
-extern const int kMicrosInSecond;
 extern const std::string kFormatVersionKeyString;
 extern const std::string kCompatibleVersionKeyString;
 extern const uint64_t kStatsCFCurrentFormatVersion;
