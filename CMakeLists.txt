@@ -521,7 +521,6 @@ set(SOURCES
         db/flush_scheduler.cc
         db/forward_iterator.cc
         db/internal_stats.cc
-        db/in_memory_stats_history.cc
         db/logs_with_prep_tracker.cc
         db/log_reader.cc
         db/log_writer.cc
@@ -568,10 +567,12 @@ set(SOURCES
         memtable/write_buffer_manager.cc
         monitoring/histogram.cc
         monitoring/histogram_windowing.cc
+        monitoring/in_memory_stats_history.cc
         monitoring/instrumented_mutex.cc
         monitoring/iostats_context.cc
         monitoring/perf_context.cc
         monitoring/perf_level.cc
+        monitoring/persistent_stats_history.cc
         monitoring/statistics.cc
         monitoring/thread_status_impl.cc
         monitoring/thread_status_updater.cc
@@ -955,6 +956,7 @@ if(WITH_TESTS)
         monitoring/histogram_test.cc
         monitoring/iostats_context_test.cc
         monitoring/statistics_test.cc
+        monitoring/stats_history_test.cc
         options/options_settable_test.cc
         options/options_test.cc
         table/block_based/block_based_filter_block_test.cc

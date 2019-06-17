@@ -9,10 +9,10 @@
 
 #include "db/version_set.h"
 
-#include <cinttypes>
 #include <stdio.h>
 #include <algorithm>
 #include <array>
+#include <cinttypes>
 #include <list>
 #include <map>
 #include <set>
@@ -32,6 +32,7 @@
 #include "file/filename.h"
 #include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
+#include "monitoring/persistent_stats_history.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -3962,11 +3963,23 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
           edit.column_family_name_);
     }
     auto cf_options = name_to_options.find(edit.column_family_name_);
-    if (cf_options == name_to_options.end()) {
+    // implicitly add persistent_stats column family without requiring user
+    // to specify
+    bool is_persistent_stats_column_family =
+        edit.column_family_name_.compare(kPersistentStatsColumnFamilyName) == 0;
+    if (cf_options == name_to_options.end() &&
+        !is_persistent_stats_column_family) {
       column_families_not_found.insert(
           {edit.column_family_, edit.column_family_name_});
     } else {
-      cfd = CreateColumnFamily(cf_options->second, &edit);
+      // recover persistent_stats CF from a DB that already contains it
+      if (is_persistent_stats_column_family) {
+        ColumnFamilyOptions cfo;
+        OptimizeForPersistentStats(&cfo);
+        cfd = CreateColumnFamily(cfo, &edit);
+      } else {
+        cfd = CreateColumnFamily(cf_options->second, &edit);
+      }
       cfd->set_initialized();
       builders.insert(std::make_pair(
           edit.column_family_, std::unique_ptr<BaseReferencedVersionBuilder>(

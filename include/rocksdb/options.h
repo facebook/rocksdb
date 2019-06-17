@@ -694,6 +694,18 @@ struct DBOptions {
   // Default: 600
   unsigned int stats_persist_period_sec = 600;
 
+  // If true, automatically persist stats to a hidden column family (column
+  // family name: ___rocksdb_stats_history___) every
+  // stats_persist_period_sec seconds; otherwise, write to an in-memory
+  // struct. User can query through `GetStatsHistory` API.
+  // If user attempts to create a column family with the same name on a DB
+  // which have previously set persist_stats_to_disk to true, the column family
+  // creation will fail, but the hidden column family will survive, as well as
+  // the previously persisted statistics.
+  // When peristing stats to disk, the stat name will be limited at 100 bytes.
+  // Default: false
+  bool persist_stats_to_disk = false;
+
   // if not zero, periodically take stats snapshots and store in memory, the
   // memory size for stats snapshots is capped at stats_history_buffer_size
   // Default: 1MB
