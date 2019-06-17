@@ -10,13 +10,13 @@ int main() {
   fprintf(stderr, "Please install gflags to run rocksdb tools\n");
   return 1;
 }
-#else
+#else  // GFLAGS
 #include "tools/block_cache_trace_analyzer.h"
 int main(int argc, char** argv) {
   return rocksdb::block_cache_trace_analyzer_tool(argc, argv);
 }
-#endif
-#else
+#endif  // GFLAGS
+#else   // ROCKSDB_LITE
 #include <stdio.h>
 int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "Not supported in lite mode.\n");

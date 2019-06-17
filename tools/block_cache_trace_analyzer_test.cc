@@ -57,8 +57,6 @@ class BlockCacheTracerTest : public testing::Test {
       printf("The trace file is still at %s\n", trace_file_path_.c_str());
       return;
     }
-    env_->DeleteFile(output_miss_ratio_curve_path_);
-    env_->DeleteFile(block_cache_sim_config_path_);
     EXPECT_OK(env_->DeleteFile(trace_file_path_));
     EXPECT_OK(env_->DeleteDir(test_path_));
   }
@@ -224,7 +222,10 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
       config_index++;
     }
     ASSERT_EQ(expected_capacities.size(), config_index);
+    infile.close();
   }
+  ASSERT_OK(env_->DeleteFile(output_miss_ratio_curve_path_));
+  ASSERT_OK(env_->DeleteFile(block_cache_sim_config_path_));
 }
 
 TEST_F(BlockCacheTracerTest, MixedBlocks) {

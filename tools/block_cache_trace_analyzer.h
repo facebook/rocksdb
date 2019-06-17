@@ -8,8 +8,8 @@
 #include <map>
 #include <vector>
 
-#include "include/rocksdb/utilities/sim_cache.h"
 #include "rocksdb/env.h"
+#include "rocksdb/utilities/sim_cache.h"
 #include "trace_replay/block_cache_tracer.h"
 
 namespace rocksdb {
@@ -42,8 +42,15 @@ class BlockCacheTraceSimulator {
 
   void Access(const BlockCacheTraceRecord& access);
 
+  const std::vector<std::shared_ptr<SimCache>>& sim_caches() const {
+    return sim_caches_;
+  }
+
+  const std::vector<CacheConfiguration>& cache_configurations() const {
+    return cache_configurations_;
+  }
+
  private:
-  friend class BlockCacheTraceAnalyzer;
   const uint64_t warmup_seconds_;
   const std::vector<CacheConfiguration> cache_configurations_;
 

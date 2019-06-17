@@ -15,6 +15,7 @@
 #include <sstream>
 #include "monitoring/histogram.h"
 #include "util/gflags_compat.h"
+#include "util/string_util.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
@@ -83,6 +84,13 @@ std::string caller_to_string(BlockCacheLookupCaller caller) {
 
 const char kBreakLine[] =
     "***************************************************************\n";
+
+void print_break_lines(uint32_t num_break_lines) {
+  for (uint32_t i = 0; i < num_break_lines; i++) {
+    fprintf(stdout, kBreakLine);
+  }
+}
+
 }  // namespace
 
 BlockCacheTraceSimulator::BlockCacheTraceSimulator(
@@ -136,14 +144,14 @@ void BlockCacheTraceAnalyzer::PrintMissRatioCurves() const {
       "cache_name,num_shard_bits,capacity,miss_ratio,total_accesses";
   out << header << std::endl;
   uint64_t sim_cache_index = 0;
-  for (auto const& config : cache_simulator_->cache_configurations_) {
+  for (auto const& config : cache_simulator_->cache_configurations()) {
     for (auto cache_capacity : config.cache_capacities) {
       uint64_t hits =
-          cache_simulator_->sim_caches_[sim_cache_index]->get_hit_counter();
+          cache_simulator_->sim_caches()[sim_cache_index]->get_hit_counter();
       uint64_t misses =
-          cache_simulator_->sim_caches_[sim_cache_index]->get_miss_counter();
+          cache_simulator_->sim_caches()[sim_cache_index]->get_miss_counter();
       uint64_t total_accesses = hits + misses;
-      double miss_ratio = (double)misses * 100.0 / (double)total_accesses;
+      double miss_ratio = static_cast<double>(misses * 100.0 / total_accesses);
       // Write the body.
       out << config.cache_name;
       out << ",";
@@ -236,7 +244,7 @@ void BlockCacheTraceAnalyzer::PrintBlockSizeStats() const {
   }
   fprintf(stdout, "Block size stats: \n%s", bs_stats.ToString().c_str());
   for (auto const& bt_stats : bt_stats_map) {
-    fprintf(stdout, kBreakLine);
+    print_break_lines(/*num_break_lines=*/1);
     fprintf(stdout, "Block size stats for block type %s: \n%s",
             block_type_to_string(bt_stats.first).c_str(),
             bt_stats.second.ToString().c_str());
@@ -244,7 +252,7 @@ void BlockCacheTraceAnalyzer::PrintBlockSizeStats() const {
   for (auto const& cf_bt_stats : cf_bt_stats_map) {
     const std::string& cf_name = cf_bt_stats.first;
     for (auto const& bt_stats : cf_bt_stats.second) {
-      fprintf(stdout, kBreakLine);
+      print_break_lines(/*num_break_lines=*/1);
       fprintf(stdout,
               "Block size stats for column family %s and block type %s: \n%s",
               cf_name.c_str(), block_type_to_string(bt_stats.first).c_str(),
@@ -280,7 +288,7 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats() const {
   fprintf(stdout, "Block access count stats: \n%s",
           access_stats.ToString().c_str());
   for (auto const& bt_stats : bt_stats_map) {
-    fprintf(stdout, kBreakLine);
+    print_break_lines(/*num_break_lines=*/1);
     fprintf(stdout, "Block access count stats for block type %s: \n%s",
             block_type_to_string(bt_stats.first).c_str(),
             bt_stats.second.ToString().c_str());
@@ -288,7 +296,7 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats() const {
   for (auto const& cf_bt_stats : cf_bt_stats_map) {
     const std::string& cf_name = cf_bt_stats.first;
     for (auto const& bt_stats : cf_bt_stats.second) {
-      fprintf(stdout, kBreakLine);
+      print_break_lines(/*num_break_lines=*/1);
       fprintf(stdout,
               "Block access count stats for column family %s and block type "
               "%s: \n%s",
@@ -352,28 +360,28 @@ void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() const {
           "the total number of keys in a block: \n%s",
           existing_keys_stats.ToString().c_str());
   for (auto const& cf_stats : cf_existing_keys_stats_map) {
-    fprintf(stdout, kBreakLine);
+    print_break_lines(/*num_break_lines=*/1);
     fprintf(stdout, "Break down by column family %s: \n%s",
             cf_stats.first.c_str(), cf_stats.second.ToString().c_str());
   }
-  fprintf(stdout, kBreakLine);
+  print_break_lines(/*num_break_lines=*/1);
   fprintf(
       stdout,
       "Histogram on percentage of referenced keys DO NOT exist in a block over "
       "the total number of keys in a block: \n%s",
       non_existing_keys_stats.ToString().c_str());
   for (auto const& cf_stats : cf_non_existing_keys_stats_map) {
-    fprintf(stdout, kBreakLine);
+    print_break_lines(/*num_break_lines=*/1);
     fprintf(stdout, "Break down by column family %s: \n%s",
             cf_stats.first.c_str(), cf_stats.second.ToString().c_str());
   }
-  fprintf(stdout, kBreakLine);
+  print_break_lines(/*num_break_lines=*/1);
   fprintf(stdout,
           "Histogram on percentage of accesses on keys exist in a block over "
           "the total number of accesses in a block: \n%s",
           block_access_stats.ToString().c_str());
   for (auto const& cf_stats : cf_block_access_info) {
-    fprintf(stdout, kBreakLine);
+    print_break_lines(/*num_break_lines=*/1);
     fprintf(stdout, "Break down by column family %s: \n%s",
             cf_stats.first.c_str(), cf_stats.second.ToString().c_str());
   }
@@ -445,9 +453,7 @@ void BlockCacheTraceAnalyzer::PrintStatsSummary() const {
     }
 
     // Print stats.
-    fprintf(stdout, kBreakLine);
-    fprintf(stdout, kBreakLine);
-    fprintf(stdout, kBreakLine);
+    print_break_lines(/*num_break_lines=*/3);
     fprintf(stdout, "Statistics for column family %s:\n", cf_name.c_str());
     fprintf(stdout,
             "Number of files:%" PRIu64 "Number of blocks: %" PRIu64
@@ -459,7 +465,7 @@ void BlockCacheTraceAnalyzer::PrintStatsSummary() const {
               block_type.second);
     }
     for (auto caller : cf_caller_num_accesses_map) {
-      fprintf(stdout, kBreakLine);
+      print_break_lines(/*num_break_lines=*/1);
       fprintf(stdout, "Caller %s: Number of accesses %" PRIu64 "\n",
               caller_to_string(caller.first).c_str(), caller.second);
       fprintf(stdout, "Caller %s: Number of accesses per level break down\n",
@@ -487,9 +493,7 @@ void BlockCacheTraceAnalyzer::PrintStatsSummary() const {
       }
     }
   }
-  fprintf(stdout, kBreakLine);
-  fprintf(stdout, kBreakLine);
-  fprintf(stdout, kBreakLine);
+  print_break_lines(/*num_break_lines=*/3);
   fprintf(stdout, "Overall statistics:\n");
   fprintf(stdout,
           "Number of files: %" PRIu64 " Number of blocks: %" PRIu64
@@ -500,7 +504,7 @@ void BlockCacheTraceAnalyzer::PrintStatsSummary() const {
             block_type_to_string(block_type.first).c_str(), block_type.second);
   }
   for (auto caller : caller_num_access_map) {
-    fprintf(stdout, kBreakLine);
+    print_break_lines(/*num_break_lines=*/1);
     fprintf(stdout, "Caller %s: Number of accesses %" PRIu64 "\n",
             caller_to_string(caller.first).c_str(), caller.second);
     fprintf(stdout, "Caller %s: Number of accesses per level break down\n",
@@ -517,34 +521,6 @@ void BlockCacheTraceAnalyzer::PrintStatsSummary() const {
               naccess_type.second);
     }
   }
-}
-
-uint64_t parse_cache_capacity(const std::string& cache_capacity_str) {
-  if (cache_capacity_str.empty()) {
-    return 0;
-  }
-  uint64_t unit = 0;
-  char unit_c = cache_capacity_str[cache_capacity_str.size() - 1];
-  switch (unit_c) {
-    case 'K':
-      unit = 1024;
-      break;
-    case 'M':
-      unit = 1024 * 1024;
-      break;
-    case 'G':
-      unit = 1024 * 1024 * 1024;
-      break;
-    default:
-      return 0;
-  }
-  uint64_t cache_capacity = 0;
-  try {
-    cache_capacity = std::stoull(cache_capacity_str);
-  } catch (std::exception const& e) {
-    return 0;
-  }
-  return cache_capacity * unit;
 }
 
 std::vector<CacheConfiguration> parse_cache_config_file(
@@ -575,14 +551,9 @@ std::vector<CacheConfiguration> parse_cache_config_file(
       exit(1);
     }
     cache_config.cache_name = config_strs[0];
-    try {
-      cache_config.num_shard_bits = std::stoul(config_strs[1]);
-    } catch (std::exception const& e) {
-      fprintf(stderr, "Invalid number of shard bits %s\n", line.c_str());
-      exit(1);
-    }
+    cache_config.num_shard_bits = ParseUint32(config_strs[1]);
     for (uint32_t i = 2; i < config_strs.size(); i++) {
-      uint64_t capacity = parse_cache_capacity(config_strs[i]);
+      uint64_t capacity = ParseUint64(config_strs[i]);
       if (capacity == 0) {
         fprintf(stderr, "Invalid cache capacity %s, %s\n",
                 config_strs[i].c_str(), line.c_str());
@@ -598,7 +569,6 @@ std::vector<CacheConfiguration> parse_cache_config_file(
 
 int block_cache_trace_analyzer_tool(int argc, char** argv) {
   ParseCommandLineFlags(&argc, &argv, true);
-
   if (FLAGS_block_cache_trace_path.empty()) {
     fprintf(stderr, "block cache trace path is empty\n");
     exit(1);
@@ -608,7 +578,7 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
   std::vector<CacheConfiguration> cache_configs =
       parse_cache_config_file(FLAGS_block_cache_sim_config_path);
   std::unique_ptr<BlockCacheTraceSimulator> cache_simulator;
-  if (cache_configs.size() > 0) {
+  if (!cache_configs.empty()) {
     cache_simulator.reset(
         new BlockCacheTraceSimulator(warmup_seconds, cache_configs));
   }
@@ -624,26 +594,18 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
 
   analyzer.PrintStatsSummary();
   if (FLAGS_print_access_count_stats) {
-    fprintf(stdout, kBreakLine);
-    fprintf(stdout, kBreakLine);
-    fprintf(stdout, kBreakLine);
+    print_break_lines(/*num_break_lines=*/3);
     analyzer.PrintAccessCountStats();
   }
   if (FLAGS_print_block_size_stats) {
-    fprintf(stdout, kBreakLine);
-    fprintf(stdout, kBreakLine);
-    fprintf(stdout, kBreakLine);
+    print_break_lines(/*num_break_lines=*/3);
     analyzer.PrintBlockSizeStats();
   }
   if (FLAGS_print_data_block_access_count_stats) {
-    fprintf(stdout, kBreakLine);
-    fprintf(stdout, kBreakLine);
-    fprintf(stdout, kBreakLine);
+    print_break_lines(/*num_break_lines=*/3);
     analyzer.PrintDataBlockAccessStats();
   }
-  fprintf(stdout, kBreakLine);
-  fprintf(stdout, kBreakLine);
-  fprintf(stdout, kBreakLine);
+  print_break_lines(/*num_break_lines=*/3);
   analyzer.PrintMissRatioCurves();
   return 0;
 }
