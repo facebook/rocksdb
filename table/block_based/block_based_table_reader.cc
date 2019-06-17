@@ -2547,7 +2547,9 @@ void BlockBasedTable::MaybeLoadBlocksToCache(
         raw_block_contents = BlockContents(Slice(req.scratch,
                                  handle.size()));
       }
+#ifndef NDEBUG
       raw_block_contents.is_raw_block = true;
+#endif
       s = CheckBlockChecksum(options, req.result, rep_->file.get(),
                              handle, footer);
     }
