@@ -569,6 +569,56 @@ TEST_F(StatsHistoryTest, PersistentStatsReadOnly) {
 }
 #endif  // !ROCKSDB_LITE
 
+TEST_F(StatsHistoryTest, ForceManualFlushStatsCF) {
+  Options options;
+  options.create_if_missing = true;
+  options.write_buffer_size = 1024 * 1024 * 10;  // 10 Mb
+  options.max_background_jobs = 0;
+  options.stats_persist_period_sec = 5;
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.persist_stats_to_disk = true;
+  std::unique_ptr<rocksdb::MockTimeEnv> mock_env;
+  mock_env.reset(new rocksdb::MockTimeEnv(env_));
+  mock_env->set_current_time(0);  // in seconds
+  options.env = mock_env.get();
+  ASSERT_OK(TryReopen(options));
+  ASSERT_OK(Put("foo", "v0"));
+  ASSERT_OK(Put("bar", "v0"));
+  ASSERT_EQ("v0", Get("bar"));
+  ASSERT_EQ("v0", Get("foo"));
+  ASSERT_OK(Flush());
+  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
+  ColumnFamilyData* cfd_default =
+      static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily())
+          ->cfd();
+  ColumnFamilyData* cfd_stats = static_cast<ColumnFamilyHandleImpl*>(
+                                    dbfull()->PersistentStatsColumnFamily())
+                                    ->cfd();
+  ASSERT_EQ(cfd_default->GetLogNumber(), cfd_stats->GetLogNumber());
+  uint64_t log_number = cfd_default->GetLogNumber();
+
+  ASSERT_OK(Put("foo1", "v1"));
+  ASSERT_OK(Put("bar1", "v1"));
+  ASSERT_EQ("v1", Get("bar1"));
+  ASSERT_EQ("v1", Get("foo1"));
+  // calling manual flush without new stats
+  ASSERT_OK(Flush());
+  ASSERT_EQ(cfd_default->GetLogNumber(), cfd_stats->GetLogNumber());
+  ASSERT_LT(log_number, cfd_default->GetLogNumber());
+  log_number = cfd_default->GetLogNumber();
+
+  dbfull()->TEST_WaitForPersistStatsRun(
+      [&] { mock_env->set_current_time(10); });
+  ASSERT_OK(Put("foo2", "v2"));
+  ASSERT_OK(Put("bar2", "v2"));
+  ASSERT_EQ("v2", Get("bar2"));
+  ASSERT_EQ("v2", Get("foo2"));
+  // calling manual flush with new stats
+  ASSERT_OK(Flush());
+  ASSERT_EQ(cfd_default->GetLogNumber(), cfd_stats->GetLogNumber());
+  ASSERT_LT(log_number, cfd_default->GetLogNumber());
+  Close();
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

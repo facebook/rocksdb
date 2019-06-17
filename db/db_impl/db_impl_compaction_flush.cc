@@ -1551,12 +1551,21 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) {
       s = SwitchMemtable(cfd, &context);
     }
-
     if (s.ok()) {
       if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
           !cached_recoverable_state_empty_.load()) {
         flush_memtable_id = cfd->imm()->GetLatestMemTableID();
         flush_req.emplace_back(cfd, flush_memtable_id);
+      }
+      if (immutable_db_options_.persist_stats_to_disk) {
+        ColumnFamilyData* cfd_stats =
+            versions_->GetColumnFamilySet()->GetColumnFamily(
+                kPersistentStatsColumnFamilyName);
+        if (cfd_stats != cfd && cfd_stats != nullptr) {
+          s = SwitchMemtable(cfd_stats, &context);
+          flush_memtable_id = cfd_stats->imm()->GetLatestMemTableID();
+          flush_req.emplace_back(cfd_stats, flush_memtable_id);
+        }
       }
     }
 

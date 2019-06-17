@@ -1450,6 +1450,18 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
     while ((tmp_cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
       cfds.push_back(tmp_cfd);
     }
+    if (!cfds.empty() && immutable_db_options_.persist_stats_to_disk) {
+      bool contains_stats_cf = false;
+      for (auto cfd : cfds) {
+        if (cfd->GetName().compare(kPersistentStatsColumnFamilyName) == 0) {
+          contains_stats_cf = true;
+        }
+      }
+      if (!contains_stats_cf) {
+        cfds.push_back(versions_->GetColumnFamilySet()->GetColumnFamily(
+            kPersistentStatsColumnFamilyName));
+      }
+    }
   }
   Status status;
   for (auto& cfd : cfds) {
