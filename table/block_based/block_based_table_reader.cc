@@ -3518,8 +3518,8 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
     autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE> block_handles;
     autovector<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE> results;
     autovector<Status, MultiGetContext::MAX_BATCH_SIZE> statuses;
-    static size_t kStackBufSize = 8192;
-    char stack_buf[kStackBufSize];
+#define MULTIGET_READ_STACK_BUF_SIZE  8192
+    char stack_buf[MULTIGET_READ_STACK_BUF_SIZE];
     std::unique_ptr<char[]> block_buf;
     {
       MultiGetRange data_block_range(sst_file_range, sst_file_range.begin(),
@@ -3568,8 +3568,8 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         Status s = PrefetchDataBlock(ro, handle, uncompression_dict,
               &(results.back()), BlockType::kData, miter->get_context);
         if (s.ok() && !results.back().IsEmpty()) {
-          // Found it in the cache
-          data_block_range.SkipKey(miter);
+          // Found it in the cache. Add NULL handle to indicate there is
+          // nothing to read from disk
           block_handles.emplace_back(BlockHandle::NullBlockHandle());
         } else {
           block_handles.emplace_back(handle);
@@ -3590,7 +3590,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         //    stack buf
         if (rep_->table_options.block_cache_compressed == nullptr &&
             rep_->blocks_maybe_compressed) {
-          if (total_len <= kStackBufSize) {
+          if (total_len <= MULTIGET_READ_STACK_BUF_SIZE) {
             scratch = stack_buf;
           } else {
             scratch = new char[total_len];
