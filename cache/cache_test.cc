@@ -690,7 +690,7 @@ TEST_P(CacheTest, GetCharge) {
   Insert(1, 2);
   Cache::Handle* h1 = cache_->Lookup(EncodeKey(1));
   ASSERT_EQ(2, DecodeValue(cache_->Value(h1)));
-  ASSERT_GT(cache_->GetCharge(h1), 0);
+  ASSERT_EQ(cache_->GetCharge(h1), 1);
 }
 
 #ifdef SUPPORT_CLOCK_CACHE
