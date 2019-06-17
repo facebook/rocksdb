@@ -5421,7 +5421,7 @@ Status ReactiveVersionSet::ReadAndApply(
       if (number_of_edits_to_skip > 0) {
         ColumnFamilyData* cfd =
             column_family_set_->GetColumnFamily(edit.column_family_);
-        if (cfd != nullptr) {
+        if (cfd != nullptr && !cfd->IsDropped()) {
           --number_of_edits_to_skip;
         }
         continue;
@@ -5494,9 +5494,8 @@ Status ReactiveVersionSet::ReadAndApply(
         for (auto* cfd : *column_family_set_) {
           if (cfd->IsDropped()) {
             continue;
-          } else {
-            number_of_edits_to_skip += 2;
           }
+          number_of_edits_to_skip += 2;
         }
       }
     }
