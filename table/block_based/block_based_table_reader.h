@@ -237,9 +237,8 @@ class BlockBasedTable : public TableReader {
   template <typename TBlockIter>
   TBlockIter* NewDataBlockIterator(
       const ReadOptions& ro, CachableEntry<Block>& block,
-      TBlockIter* input_iter = nullptr,
-      bool key_includes_seq = true, bool index_key_is_full = true,
-      Status s = Status()) const;
+      TBlockIter* input_iter, bool key_includes_seq, bool index_key_is_full,
+      Status s) const;
 
   class PartitionedIndexIteratorState;
 
@@ -285,7 +284,7 @@ class BlockBasedTable : public TableReader {
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
       CachableEntry<Block>* block_entry, BlockType block_type,
       GetContext* get_context, BlockCacheLookupContext* lookup_context,
-      BlockContents* contents = nullptr) const;
+      BlockContents* contents) const;
 
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the

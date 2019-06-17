@@ -428,7 +428,8 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
       // filter blocks
       s = table()->MaybeReadBlockAndLoadToCache(
           prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
-          &block, BlockType::kIndex, /*get_context=*/nullptr, &lookup_context);
+          &block, BlockType::kIndex, /*get_context=*/nullptr, &lookup_context,
+          nullptr);
 
       assert(s.ok() || block.GetValue() == nullptr);
       if (s.ok() && block.GetValue() != nullptr) {
@@ -2613,7 +2614,8 @@ Status BlockBasedTable::RetrieveBlock(
        block_type != BlockType::kIndex)) {
     s = MaybeReadBlockAndLoadToCache(prefetch_buffer, ro, handle,
                                      uncompression_dict, block_entry,
-                                     block_type, get_context, lookup_context);
+                                     block_type, get_context, lookup_context,
+                                     nullptr);
 
     if (!s.ok()) {
       return s;
@@ -3633,6 +3635,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           biter = &first_biter;
           idx_in_batch++;
         } else {
+          next_biter.Invalidate(Status::OK());
           NewDataBlockIterator<DataBlockIter>(
               read_options, iiter->value().handle, &next_biter,
               BlockType::kData, get_context, &lookup_data_block_context,
