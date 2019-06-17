@@ -26,6 +26,7 @@
 #include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 namespace rocksdb {
 class CheckpointTest : public testing::Test {
@@ -44,6 +45,8 @@ class CheckpointTest : public testing::Test {
   Options last_options_;
   std::vector<ColumnFamilyHandle*> handles_;
   std::string snapshot_name_;
+  std::string export_path_;
+  ColumnFamilyHandle* cfh_reverse_comp_;
 
   CheckpointTest() : env_(Env::Default()) {
     env_->SetBackgroundThreads(1, Env::LOW);
@@ -64,12 +67,19 @@ class CheckpointTest : public testing::Test {
     EXPECT_OK(DestroyDB(snapshot_tmp_name, options));
     env_->DeleteDir(snapshot_tmp_name);
     Reopen(options);
+    export_path_ = test::TmpDir(env_) + "/export";
+    test::DestroyDir(env_, export_path_);
+    cfh_reverse_comp_ = nullptr;
   }
 
   ~CheckpointTest() override {
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
     rocksdb::SyncPoint::GetInstance()->LoadDependency({});
     rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+    if (cfh_reverse_comp_) {
+      EXPECT_OK(db_->DestroyColumnFamilyHandle(cfh_reverse_comp_));
+      cfh_reverse_comp_ = nullptr;
+    }
     Close();
     Options options;
     options.db_paths.emplace_back(dbname_, 0);
@@ -78,6 +88,7 @@ class CheckpointTest : public testing::Test {
     options.db_paths.emplace_back(dbname_ + "_4", 0);
     EXPECT_OK(DestroyDB(dbname_, options));
     EXPECT_OK(DestroyDB(snapshot_name_, options));
+    test::DestroyDir(env_, export_path_);
   }
 
   // Return the current option configuration.
@@ -138,6 +149,12 @@ class CheckpointTest : public testing::Test {
 
   void Reopen(const Options& options) {
     ASSERT_OK(TryReopen(options));
+  }
+
+  void CompactAll() {
+    for (auto h : handles_) {
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), h, nullptr, nullptr));
+    }
   }
 
   void Close() {
@@ -287,6 +304,107 @@ TEST_F(CheckpointTest, GetSnapshotLink) {
     // Restore DB name
     dbname_ = test::PerThreadDBPath(env_, "db_test");
   }
+}
+
+TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
+    // Create a database
+    Status s;
+    auto options = CurrentOptions();
+    options.create_if_missing = true;
+    CreateAndReopenWithCF({}, options);
+
+    // Helper to verify the number of files in metadata and export dir
+    auto verify_files_exported = [&](const ExportImportFilesMetaData& metadata,
+                                     int num_files_expected) {
+      ASSERT_EQ(metadata.files.size(), num_files_expected);
+      std::vector<std::string> subchildren;
+      env_->GetChildren(export_path_, &subchildren);
+      int num_children = 0;
+      for (const auto& child : subchildren) {
+        if (child != "." && child != "..") {
+          ++num_children;
+        }
+      }
+      ASSERT_EQ(num_children, num_files_expected);
+    };
+
+    // Test DefaultColumnFamily
+    {
+      const auto key = std::string("foo");
+      ASSERT_OK(Put(key, "v1"));
+
+      Checkpoint* checkpoint;
+      ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+
+      // Export the Tables and verify
+      ExportImportFilesMetaData* metadata = nullptr;
+      ASSERT_OK(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
+                                               export_path_, &metadata));
+      verify_files_exported(*metadata, 1);
+      ASSERT_EQ(metadata->db_comparator_name, options.comparator->Name());
+      test::DestroyDir(env_, export_path_);
+
+      // Check again after compaction
+      CompactAll();
+      ASSERT_OK(Put(key, "v2"));
+      delete metadata;
+      metadata = nullptr;
+      ASSERT_OK(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
+                                               export_path_, &metadata));
+      verify_files_exported(*metadata, 2);
+      ASSERT_EQ(metadata->db_comparator_name, BytewiseComparator()->Name());
+      test::DestroyDir(env_, export_path_);
+    }
+
+    // Test non default column family with non default comparator
+    {
+      auto cf_options = CurrentOptions();
+      cf_options.comparator = ReverseBytewiseComparator();
+      ASSERT_OK(
+          db_->CreateColumnFamily(cf_options, "yoyo", &cfh_reverse_comp_));
+
+      const auto key = std::string("foo");
+      ASSERT_OK(db_->Put(WriteOptions(), cfh_reverse_comp_, key, "v1"));
+
+      Checkpoint* checkpoint;
+      ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+
+      // Export the Tables and verify
+      ExportImportFilesMetaData* metadata = nullptr;
+      ASSERT_OK(checkpoint->ExportColumnFamily(cfh_reverse_comp_, export_path_,
+                                               &metadata));
+      verify_files_exported(*metadata, 1);
+      ASSERT_EQ(metadata->db_comparator_name,
+                ReverseBytewiseComparator()->Name());
+    }
+}
+
+TEST_F(CheckpointTest, ExportColumnFamilyNegativeTest) {
+    // Create a database
+    Status s;
+    auto options = CurrentOptions();
+    options.create_if_missing = true;
+    CreateAndReopenWithCF({}, options);
+
+    const auto key = std::string("foo");
+    ASSERT_OK(Put(key, "v1"));
+
+    Checkpoint* checkpoint;
+    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+
+    // Export onto existing directory
+    env_->CreateDirIfMissing(export_path_);
+    ExportImportFilesMetaData* metadata = nullptr;
+    ASSERT_EQ(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
+                                             export_path_, &metadata),
+              Status::InvalidArgument("Specified export_dir exists"));
+    test::DestroyDir(env_, export_path_);
+
+    // Export with invalid directory specification
+    export_path_ = "";
+    ASSERT_EQ(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
+                                             export_path_, &metadata),
+              Status::InvalidArgument("Specified export_dir invalid"));
 }
 
 TEST_F(CheckpointTest, CheckpointCF) {
