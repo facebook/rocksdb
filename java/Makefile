@@ -229,12 +229,20 @@ javalib: java java_test javadocs
 
 java:
 	$(AM_V_GEN)mkdir -p $(MAIN_CLASSES)
+ifeq ($(shell java -version 2>&1 | grep 1.7.0 > /dev/null; printf $$?), 0)
 	$(AM_V_at)javac $(JAVAC_ARGS) -d $(MAIN_CLASSES)\
 		$(MAIN_SRC)/org/rocksdb/util/*.java\
 		$(MAIN_SRC)/org/rocksdb/*.java
+else
+	$(AM_V_at)javac $(JAVAC_ARGS) -h $(NATIVE_INCLUDE) -d $(MAIN_CLASSES)\
+		$(MAIN_SRC)/org/rocksdb/util/*.java\
+		$(MAIN_SRC)/org/rocksdb/*.java
+endif
 	$(AM_V_at)@cp ../HISTORY.md ./HISTORY-CPP.md
 	$(AM_V_at)@rm -f ./HISTORY-CPP.md
+ifeq ($(shell java -version 2>&1 | grep 1.7.0 > /dev/null; printf $$?), 0)
 	$(AM_V_at)javah -cp $(MAIN_CLASSES) -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_CLASSES)
+endif
 
 sample: java
 	$(AM_V_GEN)mkdir -p $(SAMPLES_MAIN_CLASSES)
@@ -276,11 +284,18 @@ resolve_test_deps:
 
 java_test: java resolve_test_deps
 	$(AM_V_GEN)mkdir -p $(TEST_CLASSES)
+ifeq ($(shell java -version 2>&1|grep 1.7.0 >/dev/null; printf $$?),0)
 	$(AM_V_at)javac $(JAVAC_ARGS) -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -d $(TEST_CLASSES)\
 		$(TEST_SRC)/org/rocksdb/test/*.java\
 		$(TEST_SRC)/org/rocksdb/util/*.java\
 		$(TEST_SRC)/org/rocksdb/*.java
 	$(AM_V_at)javah -cp $(MAIN_CLASSES):$(TEST_CLASSES) -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_TEST_CLASSES)
+else
+	$(AM_V_at)javac $(JAVAC_ARGS) -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -h $(NATIVE_INCLUDE) -d $(TEST_CLASSES)\
+		$(TEST_SRC)/org/rocksdb/test/*.java\
+		$(TEST_SRC)/org/rocksdb/util/*.java\
+		$(TEST_SRC)/org/rocksdb/*.java
+endif
 
 test: java java_test run_test
 
