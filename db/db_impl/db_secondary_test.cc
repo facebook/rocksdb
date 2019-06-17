@@ -735,10 +735,10 @@ TEST_F(DBSecondaryTest, CheckConsistencyWhenOpen) {
   ASSERT_OK(Put("d", "value1"));
   ASSERT_OK(Flush());
   port::Thread thread([this]() {
-    Options opt1;
-    opt1.env = env_;
-    opt1.max_open_files = -1;
-    OpenSecondary(opt1);
+    Options opts;
+    opts.env = env_;
+    opts.max_open_files = -1;
+    OpenSecondary(opts);
   });
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
