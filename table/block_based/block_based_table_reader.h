@@ -717,6 +717,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   void FindKeyBackward();
   void CheckOutOfBound();
 
+  // Check if data block is fully within iterate_upper_bound.
+  //
+  // Note MyRocks may update iterate bounds between seek. To workaround it,
+  // we need to check and update data_block_within_upper_bound_ accordingly.
+  void CheckDataBlockWithinUpperBound();
+
  private:
   const BlockBasedTable* table_;
   const ReadOptions read_options_;
