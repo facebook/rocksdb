@@ -5527,7 +5527,7 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
     return Status::OK();
   }
   if (active_version_builders_.find(edit.column_family_) ==
-      active_version_builders_.end()) {
+      active_version_builders_.end() && !cfd->IsDropped()) {
     std::unique_ptr<BaseReferencedVersionBuilder> builder_guard(
         new BaseReferencedVersionBuilder(cfd));
     active_version_builders_.insert(
@@ -5555,6 +5555,7 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
       delete cfd;
       cfd = nullptr;
     }
+    active_version_builders_.erase(builder_iter);
   } else {
     builder->Apply(&edit);
   }
@@ -5566,7 +5567,7 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
     return s;
   }
 
-  if (cfd != nullptr) {
+  if (cfd != nullptr && !cfd->IsDropped()) {
     s = builder->LoadTableHandlers(
         cfd->internal_stats(), db_options_->max_file_opening_threads,
         false /* prefetch_index_and_filter_in_cache */,
