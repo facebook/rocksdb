@@ -1944,13 +1944,9 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
   Status persist_options_status;
   *handle = nullptr;
 
-  s = CheckCompressionSupported(cf_options);
-  if (s.ok() && immutable_db_options_.allow_concurrent_memtable_write) {
-    s = CheckConcurrentWritesSupported(cf_options);
-  }
-  if (s.ok()) {
-    s = CheckCFPathsSupported(initial_db_options_, cf_options);
-  }
+  DBOptions db_options =
+      BuildDBOptions(immutable_db_options_, mutable_db_options_);
+  s = ColumnFamilyData::ValidateOptions(db_options, cf_options);
   if (s.ok()) {
     for (auto& cf_path : cf_options.cf_paths) {
       s = env_->CreateDirIfMissing(cf_path.path);
