@@ -71,13 +71,13 @@ class BlockCacheTracerTest : public testing::Test {
       case 2:
         return TableReaderCaller::kUserGet;
       case 3:
-        return TableReaderCaller::kUserMGet;
+        return TableReaderCaller::kUserMultiGet;
       case 4:
         return TableReaderCaller::kUserIterator;
     }
     // This cannot happend.
     assert(false);
-    return TableReaderCaller::kUserGet;
+    return TableReaderCaller::kMaxBlockCacheLookupCaller;
   }
 
   void WriteBlockAccess(BlockCacheTraceWriter* writer, uint32_t from_key_id,
@@ -132,7 +132,7 @@ class BlockCacheTracerTest : public testing::Test {
         block_access_info.caller_num_access_map.find(expected_caller)->second);
 
     if ((expected_caller == TableReaderCaller::kUserGet ||
-         expected_caller == TableReaderCaller::kUserMGet) &&
+         expected_caller == TableReaderCaller::kUserMultiGet) &&
         type == TraceType::kBlockTraceDataBlock) {
       ASSERT_EQ(kNumKeysInBlock, block_access_info.num_keys);
       ASSERT_EQ(1, block_access_info.key_num_access_map.size());

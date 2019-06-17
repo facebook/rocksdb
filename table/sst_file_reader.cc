@@ -67,7 +67,7 @@ Iterator* SstFileReader::NewIterator(const ReadOptions& options) {
                       : kMaxSequenceNumber;
   auto internal_iter = r->table_reader->NewIterator(
       options, r->moptions.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kUnknown);
+      /*skip_filters=*/false, TableReaderCaller::kSSTFileReader);
   return NewDBIterator(r->options.env, options, r->ioptions, r->moptions,
                        r->ioptions.user_comparator, internal_iter, sequence,
                        r->moptions.max_sequential_skip_in_iterations,
@@ -80,7 +80,7 @@ std::shared_ptr<const TableProperties> SstFileReader::GetTableProperties()
 }
 
 Status SstFileReader::VerifyChecksum() {
-  return rep_->table_reader->VerifyChecksum(TableReaderCaller::kUnknown);
+  return rep_->table_reader->VerifyChecksum(TableReaderCaller::kSSTFileReader);
 }
 
 }  // namespace rocksdb

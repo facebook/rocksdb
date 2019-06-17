@@ -71,14 +71,32 @@ std::string caller_to_string(TableReaderCaller caller) {
   switch (caller) {
     case kUserGet:
       return "Get";
-    case kUserMGet:
+    case kUserMultiGet:
       return "MultiGet";
     case kUserIterator:
       return "Iterator";
+    case kUserApproximateSize:
+      return "ApproximateSize";
+    case kUserVerifyChecksum:
+      return "VerifyChecksum";
+    case kSSTDumpTool:
+      return "SSTDumpTool";
+    case kExternalSSTIngestion:
+      return "ExternalSSTIngestion";
+    case kRepair:
+      return "Repair";
     case kPrefetch:
       return "Prefetch";
     case kCompaction:
       return "Compaction";
+    case kCompactionRefill:
+      return "CompactionRefill";
+    case kFlush:
+      return "Flush";
+    case kSSTFileReader:
+      return "SSTFileReader";
+    case kUncategorized:
+      return "Uncategorized";
     default:
       break;
   }

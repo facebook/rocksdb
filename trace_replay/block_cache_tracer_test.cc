@@ -47,7 +47,7 @@ class BlockCacheTracerTest : public testing::Test {
       case 2:
         return TableReaderCaller::kUserGet;
       case 3:
-        return TableReaderCaller::kUserMGet;
+        return TableReaderCaller::kUserMultiGet;
       case 4:
         return TableReaderCaller::kUserIterator;
     }
@@ -122,7 +122,7 @@ class BlockCacheTracerTest : public testing::Test {
       ASSERT_EQ(Boolean::kFalse, record.no_insert);
       if (block_type == TraceType::kBlockTraceDataBlock &&
           (record.caller == TableReaderCaller::kUserGet ||
-           record.caller == TableReaderCaller::kUserMGet)) {
+           record.caller == TableReaderCaller::kUserMultiGet)) {
         ASSERT_EQ(kRefKeyPrefix + std::to_string(key_id),
                   record.referenced_key);
         ASSERT_EQ(Boolean::kTrue, record.referenced_key_exist_in_block);

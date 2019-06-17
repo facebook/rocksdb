@@ -351,7 +351,7 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
           false, true, /* prefix_extractor */ nullptr, BlockType::kIndex,
           index_key_includes_seq(), index_value_is_full(),
           lookup_context ? lookup_context->caller
-                         : TableReaderCaller::kUnknown);
+                         : TableReaderCaller::kUncategorized);
     }
 
     assert(it != nullptr);
@@ -3082,7 +3082,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
                                const MultiGetRange* mget_range,
                                const SliceTransform* prefix_extractor,
                                bool skip_filters) {
-  BlockCacheLookupContext lookup_context{TableReaderCaller::kUserMGet};
+  BlockCacheLookupContext lookup_context{TableReaderCaller::kUserMultiGet};
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   CachableEntry<FilterBlockReader> filter_entry;
   FilterBlockReader* filter = nullptr;

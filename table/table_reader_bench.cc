@@ -200,7 +200,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           if (!through_db) {
             iiter = table_reader->NewIterator(
                 read_options, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
-                /*skip_filters=*/false, TableReaderCaller::kTableReaderBench);
+                /*skip_filters=*/false, TableReaderCaller::kUncategorized);
           } else {
             iter = db->NewIterator(read_options);
           }

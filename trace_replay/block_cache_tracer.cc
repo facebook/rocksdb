@@ -22,7 +22,7 @@ const unsigned int kCharSize = 1;
 bool ShouldTraceReferencedKey(const BlockCacheTraceRecord& record) {
   return (record.block_type == TraceType::kBlockTraceDataBlock) &&
          (record.caller == TableReaderCaller::kUserGet ||
-          record.caller == TableReaderCaller::kUserMGet);
+          record.caller == TableReaderCaller::kUserMultiGet);
 }
 >>>>>>> Add more table reader callers
 

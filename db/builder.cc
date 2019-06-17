@@ -221,7 +221,7 @@ Status BuildTable(
           mutable_cf_options.prefix_extractor.get(), nullptr,
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
-          TableReaderCaller::kBuildTable, /*arena=*/nullptr,
+          TableReaderCaller::kFlush, /*arena=*/nullptr,
           /*skip_filter=*/false, level, /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key*/ nullptr));
       s = it->status();
