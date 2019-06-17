@@ -3017,6 +3017,7 @@ Status DBImpl::CheckConsistency() {
   mutex_.AssertHeld();
   std::vector<LiveFileMetaData> metadata;
   versions_->GetLiveFilesMetaData(&metadata);
+  TEST_SYNC_POINT("DBImpl::CheckConsistency:AfterGetLiveFilesMetaData");
 
   std::string corruption_messages;
   for (const auto& md : metadata) {
@@ -3024,6 +3025,7 @@ Status DBImpl::CheckConsistency() {
     std::string file_path = md.db_path + md.name;
 
     uint64_t fsize = 0;
+    TEST_SYNC_POINT("DBImpl::CheckConsistency:BeforeGetFileSize");
     Status s = env_->GetFileSize(file_path, &fsize);
     if (!s.ok() &&
         env_->GetFileSize(Rocks2LevelTableFileName(file_path), &fsize).ok()) {
