@@ -262,8 +262,8 @@ bool DBImpl::TEST_IsPersistentStatsEnabled() const {
   return thread_persist_stats_ && thread_persist_stats_->IsRunning();
 }
 
-size_t DBImpl::TEST_EstiamteStatsHistorySize() const {
-  return EstiamteStatsHistorySize();
+size_t DBImpl::TEST_EstimateInMemoryStatsHistorySize() const {
+  return EstimateInMemoryStatsHistorySize();
 }
 }  // namespace rocksdb
 #endif  // NDEBUG

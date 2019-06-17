@@ -548,6 +548,7 @@ TESTS = \
 	ldb_cmd_test \
 	persistent_cache_test \
 	statistics_test \
+	stats_history_test \
 	lru_cache_test \
 	object_registry_test \
 	repair_test \
@@ -1564,6 +1565,9 @@ persistent_cache_test: utilities/persistent_cache/persistent_cache_test.o  db/db
 	$(AM_LINK)
 
 statistics_test: monitoring/statistics_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+stats_history_test: monitoring/stats_history_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 lru_cache_test: cache/lru_cache_test.o $(LIBOBJECTS) $(TESTHARNESS)

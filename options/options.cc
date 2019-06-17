@@ -502,7 +502,6 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForSmallDb(
       BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
   table_factory.reset(new BlockBasedTableFactory(table_options));
 
-
   return this;
 }
 

@@ -113,7 +113,6 @@ cpp_library(
         "db/flush_job.cc",
         "db/flush_scheduler.cc",
         "db/forward_iterator.cc",
-        "db/in_memory_stats_history.cc",
         "db/internal_stats.cc",
         "db/log_reader.cc",
         "db/log_writer.cc",
@@ -163,10 +162,12 @@ cpp_library(
         "memtable/write_buffer_manager.cc",
         "monitoring/histogram.cc",
         "monitoring/histogram_windowing.cc",
+        "monitoring/in_memory_stats_history.cc",
         "monitoring/instrumented_mutex.cc",
         "monitoring/iostats_context.cc",
         "monitoring/perf_context.cc",
         "monitoring/perf_level.cc",
+        "monitoring/persistent_stats_history.cc",
         "monitoring/statistics.cc",
         "monitoring/thread_status_impl.cc",
         "monitoring/thread_status_updater.cc",
@@ -969,6 +970,11 @@ ROCKS_TESTS = [
     [
         "statistics_test",
         "monitoring/statistics_test.cc",
+        "serial",
+    ],
+    [
+        "stats_history_test",
+        "monitoring/stats_history_test.cc",
         "serial",
     ],
     [
