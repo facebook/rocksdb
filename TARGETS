@@ -539,7 +539,7 @@ ROCKS_TESTS = [
     [
         "db_bloom_filter_test",
         "db/db_bloom_filter_test.cc",
-        "serial",
+        "parallel",
     ],
     [
         "db_compaction_filter_test",
