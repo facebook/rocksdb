@@ -454,9 +454,15 @@ Status DBImplSecondary::NewIterators(
 Status DBImplSecondary::CheckConsistency() {
   mutex_.AssertHeld();
   Status s = DBImpl::CheckConsistency();
+  // If DBImpl::CheckConsistency() which is stricter returns success, then we
+  // do not need to give a second chance.
   if (s.ok()) {
     return s;
   }
+  // It's possible that DBImpl::CheckConssitency() can fail because the primary
+  // may have removed certain files, causing the GetFileSize(name) call to
+  // fail and returning a PathNotFound. In this case, we take a best-effort
+  // approach and just proceed.
   TEST_SYNC_POINT_CALLBACK(
       "DBImplSecondary::CheckConsistency:AfterFirstAttempt", &s);
   std::vector<LiveFileMetaData> metadata;
