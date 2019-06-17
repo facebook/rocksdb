@@ -646,8 +646,7 @@ void DBImpl::StartTimedTasks() {
       if (!thread_dump_stats_) {
         thread_dump_stats_.reset(new rocksdb::RepeatableThread(
             [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
-            static_cast<uint64_t>(stats_dump_period_sec) *
-                static_cast<uint64_t>(kMicrosInSecond)));
+            static_cast<uint64_t>(stats_dump_period_sec) * kMicrosInSecond));
       }
     }
     stats_persist_period_sec = mutable_db_options_.stats_persist_period_sec;
@@ -655,8 +654,7 @@ void DBImpl::StartTimedTasks() {
       if (!thread_persist_stats_) {
         thread_persist_stats_.reset(new rocksdb::RepeatableThread(
             [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
-            static_cast<uint64_t>(stats_persist_period_sec) *
-                static_cast<uint64_t>(kMicrosInSecond)));
+            static_cast<uint64_t>(stats_persist_period_sec) * kMicrosInSecond));
       }
     }
   }
@@ -996,7 +994,7 @@ Status DBImpl::SetDBOptions(
           thread_dump_stats_.reset(new rocksdb::RepeatableThread(
               [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
               static_cast<uint64_t>(new_options.stats_dump_period_sec) *
-                  static_cast<uint64_t>(kMicrosInSecond)));
+                  kMicrosInSecond));
         } else {
           thread_dump_stats_.reset();
         }
@@ -1012,7 +1010,7 @@ Status DBImpl::SetDBOptions(
           thread_persist_stats_.reset(new rocksdb::RepeatableThread(
               [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
               static_cast<uint64_t>(new_options.stats_persist_period_sec) *
-                  static_cast<uint64_t>(kMicrosInSecond)));
+                  kMicrosInSecond));
         } else {
           thread_persist_stats_.reset();
         }

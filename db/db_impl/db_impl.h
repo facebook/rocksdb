@@ -1190,7 +1190,9 @@ class DBImpl : public DB {
   // Persistent Stats column family has two format version key which are used
   // for compatibility check. Write format version if it's created for the
   // first time, read format version and check compatibility if recovering
-  // from disk
+  // from disk. This function requires DB mutex held at entrance but may
+  // release and re-acquire DB mutex in the process.
+  // Required: DB mutex held
   Status PersistentStatsProcessFormatVersion();
 
   Status ResumeImpl();

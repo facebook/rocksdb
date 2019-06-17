@@ -507,9 +507,9 @@ Status DBImpl::Recover(
 Status DBImpl::PersistentStatsProcessFormatVersion() {
   mutex_.AssertHeld();
   Status s;
-  mutex_.Unlock();
   // persist version when stats CF doesn't exist
   bool should_persist_format_version = !persistent_stats_cfd_exists_;
+  mutex_.Unlock();
   if (persistent_stats_cfd_exists_) {
     // Check persistent stats format version compatibility. Drop and recreate
     // persistent stats CF if format version is incompatible
