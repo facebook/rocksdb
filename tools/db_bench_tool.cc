@@ -2930,7 +2930,7 @@ class Benchmark {
                   FLAGS_trace_file.c_str());
         }
         // Start block cache tracing.
-        if (FLAGS_block_cache_trace_file != "") {
+        if (!FLAGS_block_cache_trace_file.empty()) {
           // Sanity checks.
           if (FLAGS_block_cache_trace_sampling_frequency <= 0) {
             fprintf(stderr,
@@ -3012,7 +3012,7 @@ class Benchmark {
                 s.ToString().c_str());
       }
     }
-    if (FLAGS_block_cache_trace_file != "") {
+    if (!FLAGS_block_cache_trace_file.empty()) {
       Status s = db_.db->EndBlockCacheTrace();
       if (!s.ok()) {
         fprintf(stderr,
