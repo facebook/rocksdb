@@ -2268,6 +2268,8 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       if (index_and_filter_in_cache) {
         // data, index and filter block
         ASSERT_EQ(get_perf_context()->block_read_count, 3);
+        ASSERT_EQ(get_perf_context()->index_block_read_count, 1);
+        ASSERT_EQ(get_perf_context()->filter_block_read_count, 1);
       } else {
         // just the data block
         ASSERT_EQ(get_perf_context()->block_read_count, 1);
@@ -2293,9 +2295,12 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
         if (bloom_filter_type == 0) {
           // with block-based, we read index and then the filter
           ASSERT_EQ(get_perf_context()->block_read_count, 2);
+          ASSERT_EQ(get_perf_context()->index_block_read_count, 1);
+          ASSERT_EQ(get_perf_context()->filter_block_read_count, 1);
         } else {
           // with full-filter, we read filter first and then we stop
           ASSERT_EQ(get_perf_context()->block_read_count, 1);
+          ASSERT_EQ(get_perf_context()->filter_block_read_count, 1);
         }
       } else {
         // filter is already in memory and it figures out that the key doesn't
@@ -3565,7 +3570,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     ASSERT_OK(ReadFooterFromFile(file, nullptr /* prefetch_buffer */, file_size,
                                  &footer, kBlockBasedTableMagicNumber));
 
-    auto BlockFetchHelper = [&](const BlockHandle& handle,
+    auto BlockFetchHelper = [&](const BlockHandle& handle, BlockType block_type,
                                 BlockContents* contents) {
       ReadOptions read_options;
       read_options.verify_checksums = false;
@@ -3574,8 +3579,8 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
       BlockFetcher block_fetcher(
           file, nullptr /* prefetch_buffer */, footer, read_options, handle,
           contents, ioptions, false /* decompress */,
-          false /*maybe_compressed*/, UncompressionDict::GetEmptyDict(),
-          cache_options);
+          false /*maybe_compressed*/, block_type,
+          UncompressionDict::GetEmptyDict(), cache_options);
 
       ASSERT_OK(block_fetcher.ReadBlockContents());
     };
@@ -3584,7 +3589,8 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     auto metaindex_handle = footer.metaindex_handle();
     BlockContents metaindex_contents;
 
-    BlockFetchHelper(metaindex_handle, &metaindex_contents);
+    BlockFetchHelper(metaindex_handle, BlockType::kMetaIndex,
+        &metaindex_contents);
     Block metaindex_block(std::move(metaindex_contents),
                           kDisableGlobalSequenceNumber);
 
@@ -3601,7 +3607,8 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     ASSERT_OK(properties_handle.DecodeFrom(&v));
     BlockContents properties_contents;
 
-    BlockFetchHelper(properties_handle, &properties_contents);
+    BlockFetchHelper(properties_handle, BlockType::kProperties,
+        &properties_contents);
     Block properties_block(std::move(properties_contents),
                            kDisableGlobalSequenceNumber);
 
@@ -3660,8 +3667,9 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
   BlockFetcher block_fetcher(
       table_reader.get(), nullptr /* prefetch_buffer */, footer, ReadOptions(),
       metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
-      false /*maybe_compressed*/, UncompressionDict::GetEmptyDict(),
-      pcache_opts, nullptr /*memory_allocator*/);
+      false /*maybe_compressed*/, BlockType::kMetaIndex,
+      UncompressionDict::GetEmptyDict(), pcache_opts,
+      nullptr /*memory_allocator*/);
   ASSERT_OK(block_fetcher.ReadBlockContents());
   Block metaindex_block(std::move(metaindex_contents),
                         kDisableGlobalSequenceNumber);

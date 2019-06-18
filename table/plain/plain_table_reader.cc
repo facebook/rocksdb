@@ -299,7 +299,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   Status s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
                            file_size_, kPlainTableMagicNumber, ioptions_,
                            PlainTableIndexBuilder::kPlainTableIndexBlock,
-                           &index_block_contents,
+                           BlockType::kIndex, &index_block_contents,
                            true /* compression_type_missing */);
 
   bool index_in_file = s.ok();
@@ -310,7 +310,8 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   if (index_in_file) {
     s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
                       file_size_, kPlainTableMagicNumber, ioptions_,
-                      BloomBlockBuilder::kBloomBlock, &bloom_block_contents,
+                      BloomBlockBuilder::kBloomBlock, BlockType::kFilter,
+                      &bloom_block_contents,
                       true /* compression_type_missing */);
     bloom_in_file = s.ok() && bloom_block_contents.data.size() > 0;
   }
