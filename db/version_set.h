@@ -163,6 +163,8 @@ class VersionStorageInfo {
   // REQUIRES: DB mutex held
   void ComputeBottommostFilesMarkedForCompaction();
 
+  void ComputeFilesMarkedForReadTriggeredCompaction();
+
   // Generate level_files_brief_ from files_
   void GenerateLevelFilesBrief();
   // Sort all files for this version based on their file size and
@@ -310,6 +312,23 @@ class VersionStorageInfo {
     return bottommost_files_marked_for_compaction_;
   }
 
+  const autovector<std::pair<int, FileMetaData*>>&
+  FilesMarkedForReadTriggeredCompaction() {
+    assert(finalized_);
+
+    // If version storage has been marked to require read-triggered compaction
+    // but corresponding files have not been computed yet, we should do that
+    // now. This will only happen once after compaction based on reads has been
+    // triggered, afterwards read_triggered_compaction_required_ is kept in
+    // sync with the file list until read-based compactions are done.
+    if (read_triggered_compaction_required_ &&
+        files_marked_for_read_triggered_compaction_.empty()) {
+      ComputeFilesMarkedForReadTriggeredCompaction();
+    }
+
+    return files_marked_for_read_triggered_compaction_;
+  }
+
   int base_level() const { return base_level_; }
   double level_multiplier() const { return level_multiplier_; }
 
@@ -418,6 +437,55 @@ class VersionStorageInfo {
                                      const Slice& largest_user_key,
                                      int last_level, int last_l0_idx);
 
+  // @return  Whether compaction due to reads should be triggered. This should
+  //          be called if a file with enough reads was found in the read path,
+  //          according to ReadThresholdReachedForFile(). If it returns true,
+  //          the caller should call SetReadTriggeredCompactionRequired() and
+  //          trigger compaction. It ensures this will be the case for only one
+  //          caller.
+  bool ShouldTriggerReadCompaction() {
+    if (read_compaction_triggered_.load(std::memory_order_relaxed)) {
+      // In the common case we only need a load(), not exchange().
+      return false;
+    }
+    return read_compaction_triggered_.exchange(
+               true, std::memory_order_relaxed) == false;
+  }
+
+  // Marks this version storage as requiring read triggered compaction. Should
+  // be called if ShouldTriggerReadCompaction() returned true.
+  //
+  // REQUIRES: DB mutex held.
+  void SetReadTriggeredCompactionRequired() {
+    read_triggered_compaction_required_ = true;
+  }
+
+  // @returns whether read triggered compaction is required.
+  //
+  // REQUIRES: DB mutex held.
+  bool ReadTriggeredCompactionRequired() const {
+    return read_triggered_compaction_required_;
+  }
+
+  // Samples a read to the given file and checks whether the threshold for
+  // read-triggered compaction has been reached after the sample.
+  //
+  // @param file_meta                        file metadata, cannot be nullptr
+  // @param [out] file_above_read_threshold  if != nullptr and read threshold
+  //                                         has been reached, will be set to
+  //                                         true
+  void SampleFileReadAndCheckThreshold(FileMetaData* file_meta,
+                                       bool* file_above_read_threshold);
+
+  // Returns whether threshold for read-triggered compaction has been reached
+  // for the given file.
+  //
+  // @param file_meta   file metadata, cannot be nullptr
+  //
+  // @return            whether threshold for read-triggered compaction has
+  //                    been reached
+  bool ReadThresholdReachedForFile(FileMetaData* file_meta) const;
+
  private:
   const InternalKeyComparator* internal_comparator_;
   const Comparator* user_comparator_;
@@ -483,6 +551,29 @@ class VersionStorageInfo {
   autovector<std::pair<int, FileMetaData*>> bottommost_files_;
   autovector<std::pair<int, FileMetaData*>>
       bottommost_files_marked_for_compaction_;
+
+  // Whether compaction due to number of reads was triggered. This is used to
+  // prevent compaction from getting triggered multiple times due to reads, see
+  // ShouldTriggerReadCompaction().
+  std::atomic<bool> read_compaction_triggered_{false};
+
+  // Whether read-triggered compaction is required. Protected by DB mutex and
+  // set via SetReadTriggeredCompactionRequired(). This is also kept in sync
+  // whenever ComputeFilesMarkedForReadTriggeredCompaction() is called, i.e. it
+  // is true iff files_marked_for_read_triggered_compaction_ is non-empty,
+  // except for right after read-based compaction is triggered (time between
+  // call to SetReadTriggeredCompactionRequired() and subsequent call to
+  // FilesMarkedForReadTriggeredCompaction).
+  bool read_triggered_compaction_required_{false};
+
+  // Contains files that have reached the threshold for read triggered
+  // compaction, see ReadThresholdReachedForFile(). It is protected by DB mutex
+  // and refreshed in the following cases:
+  //  - Every time ComputeCompactionScore() is called.
+  //  - FilesMarkedForReadTriggeredCompaction() is called after
+  //    SetReadTriggeredCompactionRequired() and this file list is still empty.
+  autovector<std::pair<int, FileMetaData*>>
+      files_marked_for_read_triggered_compaction_;
 
   // Threshold for needing to mark another bottommost file. Maintain it so we
   // can quickly check when releasing a snapshot whether more bottommost files
@@ -582,10 +673,11 @@ class Version {
            SequenceNumber* max_covering_tombstone_seq,
            bool* value_found = nullptr, bool* key_exists = nullptr,
            SequenceNumber* seq = nullptr, ReadCallback* callback = nullptr,
-           bool* is_blob = nullptr);
+           bool* is_blob = nullptr, bool* file_above_read_threshold = nullptr);
 
   void MultiGet(const ReadOptions&, MultiGetRange* range,
-                ReadCallback* callback = nullptr, bool* is_blob = nullptr);
+                ReadCallback* callback = nullptr, bool* is_blob = nullptr,
+                bool* file_above_read_threshold = nullptr);
 
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.

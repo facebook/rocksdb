@@ -1607,7 +1607,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   MergeContext* merge_context,
                   SequenceNumber* max_covering_tombstone_seq, bool* value_found,
                   bool* key_exists, SequenceNumber* seq, ReadCallback* callback,
-                  bool* is_blob) {
+                  bool* is_blob, bool* file_above_read_threshold) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
 
@@ -1643,7 +1643,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       break;
     }
     if (get_context.sample()) {
-      sample_file_read_inc(f->file_metadata);
+      storage_info_.SampleFileReadAndCheckThreshold(
+          f->file_metadata, file_above_read_threshold);
     }
 
     bool timer_enabled =
@@ -1734,7 +1735,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
 }
 
 void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
-                       ReadCallback* callback, bool* is_blob) {
+                       ReadCallback* callback, bool* is_blob,
+                       bool* file_above_read_threshold) {
   PinnedIteratorsManager pinned_iters_mgr;
 
   // Pin blocks that we read to hold merge operands
@@ -1800,7 +1802,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       Status* status = iter->s;
 
       if (get_context.sample()) {
-        sample_file_read_inc(f->file_metadata);
+        storage_info_.SampleFileReadAndCheckThreshold(
+            f->file_metadata, file_above_read_threshold);
       }
       batch_size++;
       // report the counters before returning
@@ -2285,6 +2288,7 @@ void VersionStorageInfo::ComputeCompactionScore(
     ComputeFilesMarkedForPeriodicCompaction(
         immutable_cf_options, mutable_cf_options.periodic_compaction_seconds);
   }
+  ComputeFilesMarkedForReadTriggeredCompaction();
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
 
@@ -2388,6 +2392,31 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
         }
       }
     }
+  }
+}
+
+void VersionStorageInfo::ComputeFilesMarkedForReadTriggeredCompaction() {
+  files_marked_for_read_triggered_compaction_.clear();
+
+  bool any_files_being_compacted = false;
+  for (int level = 0; level < num_levels(); level++) {
+    for (auto f : files_[level]) {
+      if (f->being_compacted) {
+        any_files_being_compacted = true;
+        continue;
+      }
+      if (ReadThresholdReachedForFile(f)) {
+        files_marked_for_read_triggered_compaction_.emplace_back(level, f);
+      }
+    }
+  }
+  read_triggered_compaction_required_ =
+      !files_marked_for_read_triggered_compaction_.empty();
+  if (!any_files_being_compacted && !read_triggered_compaction_required_) {
+    // If no compaction is going on and no files for read-triggered compaction
+    // were found, we should reset read_compaction_triggered_ in order for
+    // subsequent reads to be able to trigger new compactions.
+    read_compaction_triggered_.store(false, std::memory_order_relaxed);
   }
 }
 
@@ -3221,6 +3250,27 @@ bool VersionStorageInfo::RangeMightExistAfterSortedRun(
     }
   }
   return false;
+}
+
+void VersionStorageInfo::SampleFileReadAndCheckThreshold(
+    FileMetaData* file_meta, bool* file_above_read_threshold) {
+  assert(file_meta != nullptr);
+  sample_file_read_inc(file_meta);
+  if (file_above_read_threshold != nullptr &&
+      ReadThresholdReachedForFile(file_meta)) {
+    *file_above_read_threshold = true;
+  }
+}
+
+bool VersionStorageInfo::ReadThresholdReachedForFile(
+    FileMetaData* file_meta) const {
+  // TODO: Come up with proper threshold/condition for read-triggered
+  //       compaction (possibly taking into account file size as well?),
+  //       current one is a placeholder.
+  static const uint64_t kFileReadCompactionThreshold = 1024 * 1024;
+  assert(file_meta != nullptr);
+  return file_meta->stats.num_reads_sampled.load(std::memory_order_relaxed) >=
+             kFileReadCompactionThreshold;
 }
 
 void Version::AddLiveFiles(std::vector<FileDescriptor>* live) {

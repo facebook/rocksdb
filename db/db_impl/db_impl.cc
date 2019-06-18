@@ -1529,9 +1529,13 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   }
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
+    bool file_above_read_threshold = false;
     sv->current->Get(read_options, lkey, pinnable_val, &s, &merge_context,
                      &max_covering_tombstone_seq, value_found, nullptr, nullptr,
-                     callback, is_blob_index);
+                     callback, is_blob_index, &file_above_read_threshold);
+    if (file_above_read_threshold) {
+      TriggerReadCompactionIfRequired(cfd, sv->current->storage_info());
+    }
     RecordTick(stats_, MEMTABLE_MISS);
   }
 
@@ -1704,8 +1708,17 @@ std::vector<Status> DBImpl::MultiGet(
     if (!done) {
       PinnableSlice pinnable_val;
       PERF_TIMER_GUARD(get_from_output_files_time);
+      bool file_above_read_threshold = false;
       super_version->current->Get(read_options, lkey, &pinnable_val, &s,
-                                  &merge_context, &max_covering_tombstone_seq);
+                                  &merge_context, &max_covering_tombstone_seq,
+                                  nullptr /*value_found*/,
+                                  nullptr /*key_exists*/, nullptr /*seq*/,
+                                  nullptr /*callback*/, nullptr /*is_blob*/,
+                                  &file_above_read_threshold);
+      if (file_above_read_threshold) {
+        TriggerReadCompactionIfRequired(
+            cfh->cfd(), super_version->current->storage_info());
+      }
       value->assign(pinnable_val.data(), pinnable_val.size());
       RecordTick(stats_, MEMTABLE_MISS);
     }
@@ -1895,8 +1908,14 @@ void DBImpl::MultiGetImpl(
 
     if (lookup_current) {
       PERF_TIMER_GUARD(get_from_output_files_time);
+      bool file_above_read_threshold = false;
       super_version->current->MultiGet(read_options, &range, callback,
-                                       is_blob_index);
+                                       is_blob_index,
+                                       &file_above_read_threshold);
+      if (file_above_read_threshold) {
+        TriggerReadCompactionIfRequired(
+            cfd, super_version->current->storage_info());
+      }
     }
   }
 
@@ -1920,6 +1939,19 @@ void DBImpl::MultiGetImpl(
   RecordInHistogram(stats_, BYTES_PER_MULTIGET, bytes_read);
   PERF_COUNTER_ADD(multiget_read_bytes, bytes_read);
   PERF_TIMER_STOP(get_post_process_time);
+}
+
+void DBImpl::TriggerReadCompactionIfRequired(
+    ColumnFamilyData* cfd,
+    VersionStorageInfo* storage_info) {
+  assert(cfd != nullptr);
+  assert(storage_info != nullptr);
+  if (storage_info->ShouldTriggerReadCompaction()) {
+    InstrumentedMutexLock l(&mutex_);
+    storage_info->SetReadTriggeredCompactionRequired();
+    SchedulePendingCompaction(cfd);
+    MaybeScheduleFlushOrCompaction();
+  }
 }
 
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
