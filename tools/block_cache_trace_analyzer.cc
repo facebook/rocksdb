@@ -28,7 +28,8 @@ DEFINE_string(
     "cache_name is lru. cache_capacity can be xK, xM or xG "
     "where x is a positive number.");
 DEFINE_int32(block_cache_trace_downsample_ratio, 1,
-             "The downsample ratio. We scale down the simulated cache size by "
+             "The downsample ratio used when collecting the trace. We scale "
+             "down the simulated cache size by "
              "this ratio.");
 DEFINE_bool(print_block_size_stats, false,
             "Print block size distribution and the distribution break down by "
@@ -111,7 +112,7 @@ BlockCacheTraceSimulator::BlockCacheTraceSimulator(
       cache_configurations_(cache_configurations) {
   for (auto const& config : cache_configurations_) {
     for (auto cache_capacity : config.cache_capacities) {
-      // Scale down the cache capacity since we only captures accesses
+      // Scale down the cache capacity since the trace contains accesses on
       // 1/'downsample_ratio' blocks.
       cache_capacity = cache_capacity / downsample_ratio_;
       sim_caches_.push_back(
@@ -330,10 +331,10 @@ void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() const {
   std::map<std::string, HistogramStat> cf_block_access_info;
   HistogramStat percent_referenced_bytes;
   std::map<std::string, HistogramStat> cf_percent_referenced_bytes;
-  // total number of accesses in a data block / number of keys in a data block.
+  // Total number of accesses in a data block / number of keys in a data block.
   HistogramStat avg_naccesses_per_key_in_a_data_block;
   std::map<std::string, HistogramStat> cf_avg_naccesses_per_key_in_a_data_block;
-  // the standard deviation on the number of accesses of a key in a data block.
+  // The standard deviation on the number of accesses of a key in a data block.
   HistogramStat stdev_naccesses_per_key_in_a_data_block;
   std::map<std::string, HistogramStat>
       cf_stdev_naccesses_per_key_in_a_data_block;
