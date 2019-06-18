@@ -442,7 +442,7 @@ void BlockCacheTraceAnalyzer::PrintStatsSummary() const {
             caller_bt_num_access_map[caller][type] += num_accesses;
             caller_level_num_access_map[caller][level] += num_accesses;
             // Column Family stats.
-            cf_num_accesses++;
+            cf_num_accesses += num_accesses;
             cf_caller_num_accesses_map[caller] += num_accesses;
             cf_caller_level_num_accesses_map[caller][level] += num_accesses;
             cf_caller_file_num_accesses_map[caller][fd] += num_accesses;
