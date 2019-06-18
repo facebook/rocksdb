@@ -210,8 +210,7 @@ class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
     return properties == nullptr || !properties->index_value_is_delta_encoded;
   }
 
-  Status GetOrReadIndexBlock(const ReadOptions& read_options,
-                             GetContext* get_context,
+  Status GetOrReadIndexBlock(bool no_io, GetContext* get_context,
                              BlockCacheLookupContext* lookup_context,
                              CachableEntry<Block>* index_block) const;
 
@@ -250,7 +249,7 @@ Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
 }
 
 Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
-    const ReadOptions& read_options, GetContext* get_context,
+    bool no_io, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
     CachableEntry<Block>* index_block) const {
   assert(index_block != nullptr);
@@ -258,6 +257,11 @@ Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
   if (!index_block_.IsEmpty()) {
     index_block->SetUnownedValue(index_block_.GetValue());
     return Status::OK();
+  }
+
+  ReadOptions read_options;
+  if (no_io) {
+    read_options.read_tier = kBlockCacheTier;
   }
 
   return ReadIndexBlock(table_, /*prefetch_buffer=*/nullptr, read_options,
@@ -304,9 +308,10 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
       const ReadOptions& read_options, bool /* disable_prefix_seek */,
       IndexBlockIter* iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) override {
+    const bool no_io = (read_options.read_tier == kBlockCacheTier);
     CachableEntry<Block> index_block;
-    const Status s = GetOrReadIndexBlock(read_options, get_context,
-                                         lookup_context, &index_block);
+    const Status s =
+        GetOrReadIndexBlock(no_io, get_context, lookup_context, &index_block);
     if (!s.ok()) {
       if (iter != nullptr) {
         iter->Invalidate(s);
@@ -366,7 +371,7 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
     Statistics* kNullStats = nullptr;
 
     CachableEntry<Block> index_block;
-    Status s = GetOrReadIndexBlock(ReadOptions(), nullptr /* get_context */,
+    Status s = GetOrReadIndexBlock(false /* no_io */, nullptr /* get_context */,
                                    &lookup_context, &index_block);
     if (!s.ok()) {
       ROCKS_LOG_WARN(rep->ioptions.info_log,
@@ -489,9 +494,10 @@ class BinarySearchIndexReader : public BlockBasedTable::IndexReaderCommon {
       const ReadOptions& read_options, bool /* disable_prefix_seek */,
       IndexBlockIter* iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) override {
+    const bool no_io = (read_options.read_tier == kBlockCacheTier);
     CachableEntry<Block> index_block;
-    const Status s = GetOrReadIndexBlock(read_options, get_context,
-                                         lookup_context, &index_block);
+    const Status s =
+        GetOrReadIndexBlock(no_io, get_context, lookup_context, &index_block);
     if (!s.ok()) {
       if (iter != nullptr) {
         iter->Invalidate(s);
@@ -631,9 +637,10 @@ class HashIndexReader : public BlockBasedTable::IndexReaderCommon {
       const ReadOptions& read_options, bool disable_prefix_seek,
       IndexBlockIter* iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) override {
+    const bool no_io = (read_options.read_tier == kBlockCacheTier);
     CachableEntry<Block> index_block;
-    const Status s = GetOrReadIndexBlock(read_options, get_context,
-                                         lookup_context, &index_block);
+    const Status s =
+        GetOrReadIndexBlock(no_io, get_context, lookup_context, &index_block);
     if (!s.ok()) {
       if (iter != nullptr) {
         iter->Invalidate(s);
