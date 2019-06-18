@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+
+## 6.3.0 (6/18/2019)
 ### Public API Change
 * Now DB::Close() will return Aborted() error when there is unreleased snapshot. Users can retry after all snapshots are released.
 * Partitions of partitioned indexes no longer affect the read amplification statistics.
