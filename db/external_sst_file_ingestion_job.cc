@@ -98,7 +98,6 @@ Status ExternalSstFileIngestionJob::Prepare(
                       f.fd.GetPathId());
     if (ingestion_options_.move_files) {
       status = env_->LinkFile(path_outside_db, path_inside_db);
-      printf("linked file %s\n", path_inside_db.c_str());
       if (status.ok()) {
         // It is unsafe to assume application had sync the file and file
         // directory before ingest the file. For integrity of RocksDB we need
@@ -575,7 +574,6 @@ Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
 
 Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     IngestedFileInfo* file_to_ingest, SequenceNumber seqno) {
-  printf("assign seqno %lu -> %lu\n", file_to_ingest->original_seqno, seqno);
   if (file_to_ingest->original_seqno == seqno) {
     // This file already have the correct global seqno
     return Status::OK();
