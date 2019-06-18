@@ -113,10 +113,11 @@ BlockCacheTraceSimulator::BlockCacheTraceSimulator(
     for (auto cache_capacity : config.cache_capacities) {
       // Scale down the cache capacity since the trace contains accesses on
       // 1/'downsample_ratio' blocks.
-      cache_capacity = cache_capacity / downsample_ratio_;
-      sim_caches_.push_back(
-          NewSimCache(NewLRUCache(cache_capacity, config.num_shard_bits),
-                      /*real_cache=*/nullptr, config.num_shard_bits));
+      uint64_t simulate_cache_capacity =
+          cache_capacity / downsample_ratio_;
+      sim_caches_.push_back(NewSimCache(
+          NewLRUCache(simulate_cache_capacity, config.num_shard_bits),
+          /*real_cache=*/nullptr, config.num_shard_bits));
     }
   }
 }
