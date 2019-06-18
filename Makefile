@@ -548,6 +548,7 @@ TESTS = \
 	ldb_cmd_test \
 	persistent_cache_test \
 	statistics_test \
+	stats_history_test \
 	lru_cache_test \
 	object_registry_test \
 	repair_test \
@@ -607,6 +608,7 @@ TOOLS = \
 	rocksdb_undump \
 	blob_dump \
 	trace_analyzer \
+	block_cache_trace_analyzer \
 
 TEST_LIBS = \
 	librocksdb_env_basic_test.a
@@ -1108,6 +1110,9 @@ db_bench: tools/db_bench.o $(BENCHTOOLOBJECTS)
 trace_analyzer: tools/trace_analyzer.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
 	$(AM_LINK)
 
+block_cache_trace_analyzer: tools/block_cache_trace_analyzer_tool.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
+	$(AM_LINK)
+
 cache_bench: cache/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
@@ -1564,6 +1569,9 @@ persistent_cache_test: utilities/persistent_cache/persistent_cache_test.o  db/db
 	$(AM_LINK)
 
 statistics_test: monitoring/statistics_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+stats_history_test: monitoring/stats_history_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 lru_cache_test: cache/lru_cache_test.o $(LIBOBJECTS) $(TESTHARNESS)

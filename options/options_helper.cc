@@ -84,6 +84,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.stats_dump_period_sec = mutable_db_options.stats_dump_period_sec;
   options.stats_persist_period_sec =
       mutable_db_options.stats_persist_period_sec;
+  options.persist_stats_to_disk = immutable_db_options.persist_stats_to_disk;
   options.stats_history_buffer_size =
       mutable_db_options.stats_history_buffer_size;
   options.advise_random_on_open = immutable_db_options.advise_random_on_open;
@@ -1580,6 +1581,10 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct DBOptions, stats_persist_period_sec),
           OptionType::kUInt, OptionVerificationType::kNormal, true,
           offsetof(struct MutableDBOptions, stats_persist_period_sec)}},
+        {"persist_stats_to_disk",
+         {offsetof(struct DBOptions, persist_stats_to_disk),
+          OptionType::kBoolean, OptionVerificationType::kNormal, false,
+          offsetof(struct ImmutableDBOptions, persist_stats_to_disk)}},
         {"stats_history_buffer_size",
          {offsetof(struct DBOptions, stats_history_buffer_size),
           OptionType::kSizeT, OptionVerificationType::kNormal, true,

@@ -9,9 +9,55 @@
 #include <vector>
 
 #include "rocksdb/env.h"
+#include "rocksdb/utilities/sim_cache.h"
 #include "trace_replay/block_cache_tracer.h"
 
 namespace rocksdb {
+
+class BlockCacheTraceAnalyzer;
+
+// A cache configuration provided by user.
+struct CacheConfiguration {
+  std::string cache_name;  // LRU.
+  uint32_t num_shard_bits;
+  std::vector<uint64_t>
+      cache_capacities;  // simulate cache capacities in bytes.
+};
+
+// A block cache simulator that reports miss ratio curves given a set of cache
+// configurations.
+class BlockCacheTraceSimulator {
+ public:
+  // warmup_seconds: The number of seconds to warmup simulated caches. The
+  // hit/miss counters are reset after the warmup completes.
+  BlockCacheTraceSimulator(
+      uint64_t warmup_seconds,
+      const std::vector<CacheConfiguration>& cache_configurations);
+  ~BlockCacheTraceSimulator() = default;
+  // No copy and move.
+  BlockCacheTraceSimulator(const BlockCacheTraceSimulator&) = delete;
+  BlockCacheTraceSimulator& operator=(const BlockCacheTraceSimulator&) = delete;
+  BlockCacheTraceSimulator(BlockCacheTraceSimulator&&) = delete;
+  BlockCacheTraceSimulator& operator=(BlockCacheTraceSimulator&&) = delete;
+
+  void Access(const BlockCacheTraceRecord& access);
+
+  const std::vector<std::shared_ptr<SimCache>>& sim_caches() const {
+    return sim_caches_;
+  }
+
+  const std::vector<CacheConfiguration>& cache_configurations() const {
+    return cache_configurations_;
+  }
+
+ private:
+  const uint64_t warmup_seconds_;
+  const std::vector<CacheConfiguration> cache_configurations_;
+
+  bool warmup_complete_ = false;
+  std::vector<std::shared_ptr<SimCache>> sim_caches_;
+  uint64_t trace_start_time_ = 0;
+};
 
 // Statistics of a block.
 struct BlockAccessInfo {
@@ -67,7 +113,10 @@ struct ColumnFamilyAccessInfoAggregate {
 
 class BlockCacheTraceAnalyzer {
  public:
-  BlockCacheTraceAnalyzer(const std::string& trace_file_path);
+  BlockCacheTraceAnalyzer(
+      const std::string& trace_file_path,
+      const std::string& output_miss_ratio_curve_path,
+      std::unique_ptr<BlockCacheTraceSimulator>&& cache_simulator);
   ~BlockCacheTraceAnalyzer() = default;
   // No copy and move.
   BlockCacheTraceAnalyzer(const BlockCacheTraceAnalyzer&) = delete;
@@ -115,6 +164,8 @@ class BlockCacheTraceAnalyzer {
   // accesses on keys exist in a data block and its break down by column family.
   void PrintDataBlockAccessStats() const;
 
+  void PrintMissRatioCurves() const;
+
   const std::map<std::string, ColumnFamilyAccessInfoAggregate>&
   TEST_cf_aggregates_map() const {
     return cf_aggregates_map_;
@@ -124,9 +175,14 @@ class BlockCacheTraceAnalyzer {
   void RecordAccess(const BlockCacheTraceRecord& access);
 
   rocksdb::Env* env_;
-  std::string trace_file_path_;
+  const std::string trace_file_path_;
+  const std::string output_miss_ratio_curve_path_;
+
   BlockCacheTraceHeader header_;
+  std::unique_ptr<BlockCacheTraceSimulator> cache_simulator_;
   std::map<std::string, ColumnFamilyAccessInfoAggregate> cf_aggregates_map_;
 };
+
+int block_cache_trace_analyzer_tool(int argc, char** argv);
 
 }  // namespace rocksdb

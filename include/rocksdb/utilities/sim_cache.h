@@ -36,6 +36,10 @@ extern std::shared_ptr<SimCache> NewSimCache(std::shared_ptr<Cache> cache,
                                              size_t sim_capacity,
                                              int num_shard_bits);
 
+extern std::shared_ptr<SimCache> NewSimCache(std::shared_ptr<Cache> sim_cache,
+                                             std::shared_ptr<Cache> cache,
+                                             int num_shard_bits);
+
 class SimCache : public Cache {
  public:
   SimCache() {}

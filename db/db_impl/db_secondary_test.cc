@@ -705,6 +705,46 @@ TEST_F(DBSecondaryTest, CatchUpAfterFlush) {
   iter3->Seek("key1");
   ASSERT_FALSE(iter3->Valid());
 }
+
+TEST_F(DBSecondaryTest, CheckConsistencyWhenOpen) {
+  bool called = false;
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::CheckConsistency:AfterFirstAttempt", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        called = true;
+        auto* s = reinterpret_cast<Status*>(arg);
+        ASSERT_NOK(*s);
+      });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::CheckConsistency:AfterGetLiveFilesMetaData",
+        "BackgroundCallCompaction:0"},
+       {"DBImpl::BackgroundCallCompaction:PurgedObsoleteFiles",
+        "DBImpl::CheckConsistency:BeforeGetFileSize"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("a", "value0"));
+  ASSERT_OK(Put("c", "value0"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("b", "value1"));
+  ASSERT_OK(Put("d", "value1"));
+  ASSERT_OK(Flush());
+  port::Thread thread([this]() {
+    Options opts;
+    opts.env = env_;
+    opts.max_open_files = -1;
+    OpenSecondary(opts);
+  });
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  thread.join();
+  ASSERT_TRUE(called);
+}
 #endif  //! ROCKSDB_LITE
 
 }  // namespace rocksdb

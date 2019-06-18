@@ -66,6 +66,7 @@ class Arena;
 class ArenaWrappedDBIter;
 class InMemoryStatsHistoryIterator;
 class MemTable;
+class PersistentStatsHistoryIterator;
 class TableCache;
 class TaskLimiterToken;
 class Version;
@@ -267,6 +268,8 @@ class DBImpl : public DB {
   virtual Status GetDbIdentity(std::string& identity) const override;
 
   ColumnFamilyHandle* DefaultColumnFamily() const override;
+
+  ColumnFamilyHandle* PersistentStatsColumnFamily() const;
 
   virtual Status Close() override;
 
@@ -822,7 +825,7 @@ class DBImpl : public DB {
   void TEST_WaitForDumpStatsRun(std::function<void()> callback) const;
   void TEST_WaitForPersistStatsRun(std::function<void()> callback) const;
   bool TEST_IsPersistentStatsEnabled() const;
-  size_t TEST_EstiamteStatsHistorySize() const;
+  size_t TEST_EstimateInMemoryStatsHistorySize() const;
 
 #endif  // NDEBUG
 
@@ -1016,6 +1019,7 @@ class DBImpl : public DB {
   friend class DBTest_MixedSlowdownOptionsStop_Test;
   friend class DBCompactionTest_CompactBottomLevelFilesWithDeletions_Test;
   friend class DBCompactionTest_CompactionDuringShutdown_Test;
+  friend class StatsHistoryTest_PersistentStatsCreateColumnFamilies_Test;
 #ifndef NDEBUG
   friend class DBTest2_ReadCallbackTest_Test;
   friend class WriteCallbackTest_WriteWithCallbackTest_Test;
@@ -1175,6 +1179,21 @@ class DBImpl : public DB {
     // background compaction takes ownership of `prepicked_compaction`.
     PrepickedCompaction* prepicked_compaction;
   };
+
+  // Initialize the built-in column family for persistent stats. Depending on
+  // whether on-disk persistent stats have been enabled before, it may either
+  // create a new column family and column family handle or just a column family
+  // handle.
+  // Required: DB mutex held
+  Status InitPersistStatsColumnFamily();
+
+  // Persistent Stats column family has two format version key which are used
+  // for compatibility check. Write format version if it's created for the
+  // first time, read format version and check compatibility if recovering
+  // from disk. This function requires DB mutex held at entrance but may
+  // release and re-acquire DB mutex in the process.
+  // Required: DB mutex held
+  Status PersistentStatsProcessFormatVersion();
 
   Status ResumeImpl();
 
@@ -1424,7 +1443,7 @@ class DBImpl : public DB {
 
   void PrintStatistics();
 
-  size_t EstiamteStatsHistorySize() const;
+  size_t EstimateInMemoryStatsHistorySize() const;
 
   // persist stats to column family "_persistent_stats"
   void PersistStats();
@@ -1571,6 +1590,9 @@ class DBImpl : public DB {
   // expesnive mutex_ lock during WAL write, which update log_empty_.
   bool log_empty_;
 
+  ColumnFamilyHandleImpl* persist_stats_cf_handle_;
+
+  bool persistent_stats_cfd_exists_ = true;
 
   // Without two_write_queues, read and writes to alive_log_files_ are
   // protected by mutex_. However since back() is never popped, and push_back()
