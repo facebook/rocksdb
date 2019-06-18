@@ -54,7 +54,8 @@ class ShardedCache : public Cache {
   virtual CacheShard* GetShard(int shard) = 0;
   virtual const CacheShard* GetShard(int shard) const = 0;
   virtual void* Value(Handle* handle) override = 0;
-  virtual size_t GetCharge(Handle* handle) const = 0;
+  virtual size_t GetCharge(Handle* handle) const override = 0;
+
   virtual uint32_t GetHash(Handle* handle) const = 0;
   virtual void DisownData() override = 0;
 
