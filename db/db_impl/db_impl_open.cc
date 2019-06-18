@@ -92,7 +92,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
   }
 
-  const bool separate_wal_dir = true;
+  bool separate_wal_dir = true;
   if (result.wal_dir.empty()) {
     // Use dbname as default
     result.wal_dir = dbname;
