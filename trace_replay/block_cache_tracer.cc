@@ -16,15 +16,14 @@ namespace rocksdb {
 namespace {
 const unsigned int kCharSize = 1;
 
-bool ShouldTrace(const BlockCacheTraceRecord& record,
-                 const TraceOptions& trace_options) {
+bool ShouldTrace(const Slice& block_key, const TraceOptions& trace_options) {
   if (trace_options.sampling_frequency == 0 ||
       trace_options.sampling_frequency == 1) {
     return true;
   }
   // We use spatial downsampling so that we have a complete access history for a
   // block.
-  const uint64_t hash = GetSliceNPHash64(Slice(record.block_key));
+  const uint64_t hash = GetSliceNPHash64(block_key);
   return hash % trace_options.sampling_frequency == 0;
 }
 }  // namespace
@@ -255,7 +254,7 @@ Status BlockCacheTracer::WriteBlockAccess(const BlockCacheTraceRecord& record,
                                           const Slice& block_key,
                                           const Slice& cf_name,
                                           const Slice& referenced_key) {
-  if (!writer_.load() || !ShouldTrace(record, trace_options_)) {
+  if (!writer_.load() || !ShouldTrace(block_key, trace_options_)) {
     return Status::OK();
   }
   InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
