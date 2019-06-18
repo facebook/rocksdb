@@ -2285,6 +2285,7 @@ class MultiThreadedDBTest
 };
 
 TEST_P(MultiThreadedDBTest, MultiThreaded) {
+  if (option_config_ == kPipelinedWrite) return;
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
   Options options = CurrentOptions(options_override);
@@ -4884,14 +4885,15 @@ TEST_F(DBTest, DynamicMiscOptions) {
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[0],
                                                      &mutable_cf_options));
   ASSERT_EQ(CompressionType::kNoCompression, mutable_cf_options.compression);
-  // Appveyor fails with: Compression type Snappy is not linked with the binary
-#ifndef OS_WIN
-  ASSERT_OK(dbfull()->SetOptions({{"compression", "kSnappyCompression"}}));
-  ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[0],
-                                                     &mutable_cf_options));
-  ASSERT_EQ(CompressionType::kSnappyCompression,
-            mutable_cf_options.compression);
-#endif
+
+  if (Snappy_Supported()) {
+    ASSERT_OK(dbfull()->SetOptions({{"compression", "kSnappyCompression"}}));
+    ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[0],
+                                                       &mutable_cf_options));
+    ASSERT_EQ(CompressionType::kSnappyCompression,
+              mutable_cf_options.compression);
+  }
+
   // Test paranoid_file_checks already done in db_block_cache_test
   ASSERT_OK(
       dbfull()->SetOptions(handles_[1], {{"paranoid_file_checks", "true"}}));
@@ -5974,6 +5976,19 @@ TEST_F(DBTest, FailWhenCompressionNotSupportedTest) {
       ASSERT_TRUE(!db_->CreateColumnFamily(cf_options, "name", &handle).ok());
     }
   }
+}
+
+TEST_F(DBTest, CreateColumnFamilyShouldFailOnIncompatibleOptions) {
+  Options options = CurrentOptions();
+  options.max_open_files = 100;
+  Reopen(options);
+
+  ColumnFamilyOptions cf_options(options);
+  // ttl is only supported when max_open_files is -1.
+  cf_options.ttl = 3600;
+  ColumnFamilyHandle* handle;
+  ASSERT_NOK(db_->CreateColumnFamily(cf_options, "pikachu", &handle));
+  delete handle;
 }
 
 #ifndef ROCKSDB_LITE

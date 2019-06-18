@@ -613,7 +613,8 @@ Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
   return Status::OK();
 }
 
-uint64_t PlainTableReader::ApproximateOffsetOf(const Slice& /*key*/) {
+uint64_t PlainTableReader::ApproximateOffsetOf(const Slice& /*key*/,
+                                               bool /*for_compaction*/) {
   return 0;
 }
 

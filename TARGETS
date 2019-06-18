@@ -113,7 +113,6 @@ cpp_library(
         "db/flush_job.cc",
         "db/flush_scheduler.cc",
         "db/forward_iterator.cc",
-        "db/in_memory_stats_history.cc",
         "db/internal_stats.cc",
         "db/log_reader.cc",
         "db/log_writer.cc",
@@ -163,10 +162,12 @@ cpp_library(
         "memtable/write_buffer_manager.cc",
         "monitoring/histogram.cc",
         "monitoring/histogram_windowing.cc",
+        "monitoring/in_memory_stats_history.cc",
         "monitoring/instrumented_mutex.cc",
         "monitoring/iostats_context.cc",
         "monitoring/perf_context.cc",
         "monitoring/perf_level.cc",
+        "monitoring/persistent_stats_history.cc",
         "monitoring/statistics.cc",
         "monitoring/thread_status_impl.cc",
         "monitoring/thread_status_updater.cc",
@@ -222,6 +223,7 @@ cpp_library(
         "tools/ldb_cmd.cc",
         "tools/ldb_tool.cc",
         "tools/sst_dump_tool.cc",
+        "trace_replay/block_cache_tracer.cc",
         "trace_replay/trace_replay.cc",
         "util/bloom.cc",
         "util/build_version.cc",
@@ -314,6 +316,7 @@ cpp_library(
         "test_util/fault_injection_test_env.cc",
         "test_util/testharness.cc",
         "test_util/testutil.cc",
+        "tools/block_cache_trace_analyzer.cc",
         "tools/trace_analyzer_tool.cc",
         "utilities/cassandra/test_utils.cc",
     ],
@@ -329,6 +332,7 @@ cpp_library(
     name = "rocksdb_tools_lib",
     srcs = [
         "test_util/testutil.cc",
+        "tools/block_cache_trace_analyzer.cc",
         "tools/db_bench_tool.cc",
         "tools/trace_analyzer_tool.cc",
     ],
@@ -381,6 +385,16 @@ ROCKS_TESTS = [
     [
         "block_based_filter_block_test",
         "table/block_based/block_based_filter_block_test.cc",
+        "serial",
+    ],
+    [
+        "block_cache_trace_analyzer_test",
+        "tools/block_cache_trace_analyzer_test.cc",
+        "serial",
+    ],
+    [
+        "block_cache_tracer_test",
+        "trace_replay/block_cache_tracer_test.cc",
         "serial",
     ],
     [
@@ -526,7 +540,7 @@ ROCKS_TESTS = [
     [
         "db_bloom_filter_test",
         "db/db_bloom_filter_test.cc",
-        "serial",
+        "parallel",
     ],
     [
         "db_compaction_filter_test",
@@ -956,6 +970,11 @@ ROCKS_TESTS = [
     [
         "statistics_test",
         "monitoring/statistics_test.cc",
+        "serial",
+    ],
+    [
+        "stats_history_test",
+        "monitoring/stats_history_test.cc",
         "serial",
     ],
     [

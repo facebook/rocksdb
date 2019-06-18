@@ -40,7 +40,6 @@
 #include "db/wal_manager.h"
 #include "db/write_controller.h"
 #include "db/write_thread.h"
-#include "db/memtable_list.h"
 #include "logging/event_logger.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
@@ -53,6 +52,7 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
+#include "trace_replay/block_cache_tracer.h"
 #include "trace_replay/trace_replay.h"
 #include "util/autovector.h"
 #include "util/hash.h"
@@ -66,6 +66,7 @@ class Arena;
 class ArenaWrappedDBIter;
 class InMemoryStatsHistoryIterator;
 class MemTable;
+class PersistentStatsHistoryIterator;
 class TableCache;
 class TaskLimiterToken;
 class Version;
@@ -300,6 +301,8 @@ class DBImpl : public DB {
 
   ColumnFamilyHandle* DefaultColumnFamily() const override;
 
+  ColumnFamilyHandle* PersistentStatsColumnFamily() const;
+
   virtual Status Close() override;
 
   Status GetStatsHistory(
@@ -362,6 +365,14 @@ class DBImpl : public DB {
 
   using DB::EndTrace;
   virtual Status EndTrace() override;
+
+  using DB::StartBlockCacheTrace;
+  Status StartBlockCacheTrace(
+      const TraceOptions& options,
+      std::unique_ptr<TraceWriter>&& trace_writer) override;
+
+  using DB::EndBlockCacheTrace;
+  Status EndBlockCacheTrace() override;
 
   using DB::GetPropertiesOfAllTables;
   virtual Status GetPropertiesOfAllTables(
@@ -445,11 +456,17 @@ class DBImpl : public DB {
   // snapshot, we know that no key could have existing after this snapshot
   // (since we do not compact keys that have an earlier snapshot).
   //
+  // Only records newer than or at `lower_bound_seq` are guaranteed to be
+  // returned. Memtables and files may not be checked if it only contains data
+  // older than `lower_bound_seq`.
+  //
   // Returns OK or NotFound on success,
   // other status on unexpected error.
   // TODO(andrewkr): this API need to be aware of range deletion operations
   Status GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
-                                 bool cache_only, SequenceNumber* seq,
+                                 bool cache_only,
+                                 SequenceNumber lower_bound_seq,
+                                 SequenceNumber* seq,
                                  bool* found_record_for_key,
                                  bool* is_blob_index = nullptr);
 
@@ -840,7 +857,7 @@ class DBImpl : public DB {
   void TEST_WaitForDumpStatsRun(std::function<void()> callback) const;
   void TEST_WaitForPersistStatsRun(std::function<void()> callback) const;
   bool TEST_IsPersistentStatsEnabled() const;
-  size_t TEST_EstiamteStatsHistorySize() const;
+  size_t TEST_EstimateInMemoryStatsHistorySize() const;
 
 #endif  // NDEBUG
 
@@ -858,6 +875,7 @@ class DBImpl : public DB {
       recovered_transactions_;
   std::unique_ptr<Tracer> tracer_;
   InstrumentedMutex trace_mutex_;
+  BlockCacheTracer block_cache_tracer_;
 
   // State below is protected by mutex_
   // With two_write_queues enabled, some of the variables that accessed during
@@ -1033,6 +1051,7 @@ class DBImpl : public DB {
   friend class DBTest_MixedSlowdownOptionsStop_Test;
   friend class DBCompactionTest_CompactBottomLevelFilesWithDeletions_Test;
   friend class DBCompactionTest_CompactionDuringShutdown_Test;
+  friend class StatsHistoryTest_PersistentStatsCreateColumnFamilies_Test;
 #ifndef NDEBUG
   friend class DBTest2_ReadCallbackTest_Test;
   friend class WriteCallbackTest_WriteWithCallbackTest_Test;
@@ -1168,6 +1187,21 @@ class DBImpl : public DB {
     // background compaction takes ownership of `prepicked_compaction`.
     PrepickedCompaction* prepicked_compaction;
   };
+
+  // Initialize the built-in column family for persistent stats. Depending on
+  // whether on-disk persistent stats have been enabled before, it may either
+  // create a new column family and column family handle or just a column family
+  // handle.
+  // Required: DB mutex held
+  Status InitPersistStatsColumnFamily();
+
+  // Persistent Stats column family has two format version key which are used
+  // for compatibility check. Write format version if it's created for the
+  // first time, read format version and check compatibility if recovering
+  // from disk. This function requires DB mutex held at entrance but may
+  // release and re-acquire DB mutex in the process.
+  // Required: DB mutex held
+  Status PersistentStatsProcessFormatVersion();
 
   Status ResumeImpl();
 
@@ -1417,7 +1451,7 @@ class DBImpl : public DB {
 
   void PrintStatistics();
 
-  size_t EstiamteStatsHistorySize() const;
+  size_t EstimateInMemoryStatsHistorySize() const;
 
   // persist stats to column family "_persistent_stats"
   void PersistStats();
@@ -1529,6 +1563,8 @@ class DBImpl : public DB {
   // logfile_number_. With two_write_queues it also protects alive_log_files_,
   // and log_empty_. Refer to the definition of each variable below for more
   // details.
+  // Note: to avoid dealock, if needed to acquire both log_write_mutex_ and
+  // mutex_, the order should be first mutex_ and then log_write_mutex_.
   InstrumentedMutex log_write_mutex_;
 
   std::atomic<bool> shutting_down_;
@@ -1562,6 +1598,9 @@ class DBImpl : public DB {
   // expesnive mutex_ lock during WAL write, which update log_empty_.
   bool log_empty_;
 
+  ColumnFamilyHandleImpl* persist_stats_cf_handle_;
+
+  bool persistent_stats_cfd_exists_ = true;
 
   // Without two_write_queues, read and writes to alive_log_files_ are
   // protected by mutex_. However since back() is never popped, and push_back()

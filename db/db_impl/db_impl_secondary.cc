@@ -60,6 +60,12 @@ Status DBImplSecondary::Recover(
     s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
   }
 
+  if (s.IsPathNotFound()) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Secondary tries to read WAL, but WAL file(s) have already "
+                   "been purged by primary.");
+    s = Status::OK();
+  }
   // TODO: update options_file_number_ needed?
 
   job_context.Clean();
@@ -445,6 +451,44 @@ Status DBImplSecondary::NewIterators(
   return Status::OK();
 }
 
+Status DBImplSecondary::CheckConsistency() {
+  mutex_.AssertHeld();
+  Status s = DBImpl::CheckConsistency();
+  // If DBImpl::CheckConsistency() which is stricter returns success, then we
+  // do not need to give a second chance.
+  if (s.ok()) {
+    return s;
+  }
+  // It's possible that DBImpl::CheckConssitency() can fail because the primary
+  // may have removed certain files, causing the GetFileSize(name) call to
+  // fail and returning a PathNotFound. In this case, we take a best-effort
+  // approach and just proceed.
+  TEST_SYNC_POINT_CALLBACK(
+      "DBImplSecondary::CheckConsistency:AfterFirstAttempt", &s);
+  std::vector<LiveFileMetaData> metadata;
+  versions_->GetLiveFilesMetaData(&metadata);
+
+  std::string corruption_messages;
+  for (const auto& md : metadata) {
+    // md.name has a leading "/".
+    std::string file_path = md.db_path + md.name;
+
+    uint64_t fsize = 0;
+    s = env_->GetFileSize(file_path, &fsize);
+    if (!s.ok() &&
+        (env_->GetFileSize(Rocks2LevelTableFileName(file_path), &fsize).ok() ||
+         s.IsPathNotFound())) {
+      s = Status::OK();
+    }
+    if (!s.ok()) {
+      corruption_messages +=
+          "Can't access " + md.name + ": " + s.ToString() + "\n";
+    }
+  }
+  return corruption_messages.empty() ? Status::OK()
+                                     : Status::Corruption(corruption_messages);
+}
+
 Status DBImplSecondary::TryCatchUpWithPrimary() {
   assert(versions_.get() != nullptr);
   assert(manifest_reader_.get() != nullptr);
@@ -474,6 +518,12 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   // instance
   if (s.ok()) {
     s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
+  }
+  if (s.IsPathNotFound()) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Secondary tries to read WAL, but WAL file(s) have already "
+                   "been purged by primary.");
+    s = Status::OK();
   }
   if (s.ok()) {
     for (auto cfd : cfds_changed) {
@@ -521,38 +571,13 @@ Status DB::OpenAsSecondary(
   }
 
   DBOptions tmp_opts(db_options);
+  Status s;
   if (nullptr == tmp_opts.info_log) {
-    Env* env = tmp_opts.env;
-    assert(env != nullptr);
-    std::string secondary_abs_path;
-    env->GetAbsolutePath(secondary_path, &secondary_abs_path);
-    std::string fname = InfoLogFileName(secondary_path, secondary_abs_path,
-                                        tmp_opts.db_log_dir);
-
-    env->CreateDirIfMissing(secondary_path);
-    if (tmp_opts.log_file_time_to_roll > 0 || tmp_opts.max_log_file_size > 0) {
-      AutoRollLogger* result = new AutoRollLogger(
-          env, secondary_path, tmp_opts.db_log_dir, tmp_opts.max_log_file_size,
-          tmp_opts.log_file_time_to_roll, tmp_opts.info_log_level);
-      Status s = result->GetStatus();
-      if (!s.ok()) {
-        delete result;
-      } else {
-        tmp_opts.info_log.reset(result);
-      }
-    }
-    if (nullptr == tmp_opts.info_log) {
-      env->RenameFile(
-          fname, OldInfoLogFileName(secondary_path, env->NowMicros(),
-                                    secondary_abs_path, tmp_opts.db_log_dir));
-      Status s = env->NewLogger(fname, &(tmp_opts.info_log));
-      if (tmp_opts.info_log != nullptr) {
-        tmp_opts.info_log->SetInfoLogLevel(tmp_opts.info_log_level);
-      }
+    s = CreateLoggerFromOptions(secondary_path, tmp_opts, &tmp_opts.info_log);
+    if (!s.ok()) {
+      tmp_opts.info_log = nullptr;
     }
   }
-
-  assert(tmp_opts.info_log != nullptr);
 
   handles->clear();
   DBImplSecondary* impl = new DBImplSecondary(tmp_opts, dbname);
@@ -563,7 +588,7 @@ Status DB::OpenAsSecondary(
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
   impl->mutex_.Lock();
-  Status s = impl->Recover(column_families, true, false, false);
+  s = impl->Recover(column_families, true, false, false);
   if (s.ok()) {
     for (auto cf : column_families) {
       auto cfd =

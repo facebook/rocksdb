@@ -46,6 +46,7 @@
 #include "rocksdb/env.h"
 #include "table/get_context.h"
 #include "table/multiget_context.h"
+#include "trace_replay/block_cache_tracer.h"
 
 namespace rocksdb {
 
@@ -777,7 +778,8 @@ class VersionSet {
   VersionSet(const std::string& dbname, const ImmutableDBOptions* db_options,
              const EnvOptions& env_options, Cache* table_cache,
              WriteBufferManager* write_buffer_manager,
-             WriteController* write_controller);
+             WriteController* write_controller,
+             BlockCacheTracer* const block_cache_tracer);
   virtual ~VersionSet();
 
   // Apply *edit to the current version to form a new descriptor that
@@ -982,7 +984,7 @@ class VersionSet {
   // in levels [start_level, end_level). If end_level == 0 it will search
   // through all non-empty levels
   uint64_t ApproximateSize(Version* v, const Slice& start, const Slice& end,
-                           int start_level = 0, int end_level = -1);
+                           int start_level, int end_level, bool for_compaction);
 
   // Return the size of the current manifest file
   uint64_t manifest_file_size() const { return manifest_file_size_; }
@@ -1032,10 +1034,11 @@ class VersionSet {
 
   // ApproximateSize helper
   uint64_t ApproximateSizeLevel0(Version* v, const LevelFilesBrief& files_brief,
-                                 const Slice& start, const Slice& end);
+                                 const Slice& start, const Slice& end,
+                                 bool for_compaction);
 
   uint64_t ApproximateSize(Version* v, const FdWithKeyRange& f,
-                           const Slice& key);
+                           const Slice& key, bool for_compaction);
 
   // Save current contents to *log
   Status WriteSnapshot(log::Writer* log);
@@ -1124,6 +1127,8 @@ class VersionSet {
   // env options for all reads and writes except compactions
   EnvOptions env_options_;
 
+  BlockCacheTracer* const block_cache_tracer_;
+
  private:
   // No copying allowed
   VersionSet(const VersionSet&);
@@ -1190,6 +1195,9 @@ class ReactiveVersionSet : public VersionSet {
   std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
       active_version_builders_;
   AtomicGroupReadBuffer read_buffer_;
+  // Number of version edits to skip by ReadAndApply at the beginning of a new
+  // MANIFEST created by primary.
+  int number_of_edits_to_skip_;
 
   using VersionSet::LogAndApply;
   using VersionSet::Recover;
