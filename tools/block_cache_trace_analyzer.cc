@@ -29,8 +29,7 @@ DEFINE_string(
     "where x is a positive number.");
 DEFINE_int32(block_cache_trace_downsample_ratio, 1,
              "The downsample ratio used when collecting the trace. We scale "
-             "down the simulated cache size by "
-             "this ratio.");
+             "down the simulated cache size by this ratio.");
 DEFINE_bool(print_block_size_stats, false,
             "Print block size distribution and the distribution break down by "
             "block type and column family.");
