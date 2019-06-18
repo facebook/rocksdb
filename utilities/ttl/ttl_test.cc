@@ -87,8 +87,11 @@ class TtlTest : public testing::Test {
   }
 
   void CloseTtl() {
-    delete db_ttl_;
-    db_ttl_ = nullptr;
+    if (db_ttl_ != nullptr) {
+      db_ttl_->Close();
+      delete db_ttl_;
+      db_ttl_ = nullptr;
+    }
   }
 
   // Populates and returns a kv-map
