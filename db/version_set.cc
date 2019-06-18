@@ -5495,6 +5495,10 @@ Status ReactiveVersionSet::ReadAndApply(
           if (cfd->IsDropped()) {
             continue;
           }
+          // Increase number_of_edits_to_skip by 2 because WriteSnapshot()
+          // writes 2 version edits for each column family at the beginning of
+          // the newly-generated MANIFEST.
+          // TODO(yanqin) remove hard-coded value.
           number_of_edits_to_skip_ += 2;
         }
       }
