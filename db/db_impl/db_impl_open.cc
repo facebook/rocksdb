@@ -129,7 +129,10 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   for (size_t i = 0; i < result.db_paths.size(); i++) {
     DeleteScheduler::CleanupDirectory(result.env, sfm, result.db_paths[i].path);
   }
-  DeleteScheduler::CleanupDirectory(result.env, sfm, std::string(result.wal_dir));
+  if (!result.wal_dir.empty()) {
+    DeleteScheduler::CleanupDirectory(result.env, sfm,
+                                      std::string(result.wal_dir));
+  }
 
   // Create a default SstFileManager for purposes of tracking compaction size
   // and facilitating recovery from out of space errors.
