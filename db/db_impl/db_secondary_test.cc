@@ -525,7 +525,10 @@ TEST_F(DBSecondaryTest, SwitchManifest) {
   range_scan_db();
 }
 
-TEST_F(DBSecondaryTest, ClearVersionStorageAfterSwitchManifest) {
+// Here, "Snapshot" refers to the version edits written by
+// VersionSet::WriteSnapshot() at the beginning of the new MANIFEST after
+// switching from the old one.
+TEST_F(DBSecondaryTest, SkipSnapshotAfterManifestSwitch) {
   Options options;
   options.env = env_;
   options.disable_auto_compactions = true;
