@@ -30,6 +30,7 @@ class StatsHistoryTest : public DBTestBase {
  public:
   StatsHistoryTest() : DBTestBase("/stats_history_test") {}
 };
+#ifndef ROCKSDB_LITE
 
 TEST_F(StatsHistoryTest, RunStatsDumpPeriodSec) {
   Options options;
@@ -566,6 +567,7 @@ TEST_F(StatsHistoryTest, PersistentStatsReadOnly) {
   // Now check keys in read only mode.
   ASSERT_OK(ReadOnlyReopen(options));
 }
+#endif  // !ROCKSDB_LITE
 
 }  // namespace rocksdb
 

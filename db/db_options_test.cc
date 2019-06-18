@@ -25,8 +25,6 @@
 
 namespace rocksdb {
 
-const int kMicrosInSec = 1000000;
-
 class DBOptionsTest : public DBTestBase {
  public:
   DBOptionsTest() : DBTestBase("/db_options_test") {}
