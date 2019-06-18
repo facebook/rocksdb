@@ -301,16 +301,16 @@ TEST_F(WalManagerTest, TransactionLogIteratorNewFileWhileScanning) {
   CreateArchiveLogs(1, 100);
   int i = 0;
   for (; iter->Valid(); iter->Next()) {
-    ASSERT_TRUE(iter->Valid());
     i++;
   }
   ASSERT_EQ(i, 200);
+  // A new log file was added after the iterator was created.
+  // TryAgain indicates a new iterator is needed to fetch the new data
   ASSERT_TRUE(iter->status().IsTryAgain());
   
   iter = OpenTransactionLogIter(0);
   i = 0;
   for (; iter->Valid(); iter->Next()) {
-    ASSERT_TRUE(iter->Valid());
     i++;
   }
   ASSERT_EQ(i, 300);
