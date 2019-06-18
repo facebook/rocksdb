@@ -1195,6 +1195,9 @@ class ReactiveVersionSet : public VersionSet {
   std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
       active_version_builders_;
   AtomicGroupReadBuffer read_buffer_;
+  // Number of version edits to skip by ReadAndApply at the beginning of a new
+  // MANIFEST created by primary.
+  int number_of_edits_to_skip_;
 
   using VersionSet::LogAndApply;
   using VersionSet::Recover;

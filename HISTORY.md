@@ -28,6 +28,7 @@
 * Fix a bug in WAL replay of secondary instance by skipping write batches with older sequence numbers than the current last sequence number.
 * Fix flush's/compaction's merge processing logic which allowed `Put`s covered by range tombstones to reappear. Note `Put`s may exist even if the user only ever called `Merge()` due to an internal conversion during compaction to the bottommost level.
 * Fix/improve memtable earliest sequence assignment and WAL replay so that WAL entries of unflushed column families will not be skipped after replaying the MANIFEST and increasing db sequence due to another flushed/compacted column family.
+* Fix a bug caused by secondary not skipping the beginning of new MANIFEST.
 
 ## 6.2.0 (4/30/2019)
 ### New Features
