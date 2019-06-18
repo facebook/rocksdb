@@ -92,9 +92,11 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
   }
 
+  const separate_wal_dir = true;
   if (result.wal_dir.empty()) {
     // Use dbname as default
     result.wal_dir = dbname;
+    separate_wal_dir = false;
   }
   if (result.wal_dir.back() == '/') {
     result.wal_dir = result.wal_dir.substr(0, result.wal_dir.size() - 1);
@@ -129,7 +131,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   for (size_t i = 0; i < result.db_paths.size(); i++) {
     DeleteScheduler::CleanupDirectory(result.env, sfm, result.db_paths[i].path);
   }
-  if (!result.wal_dir.empty()) {
+  if (separate_wal_dir) {
     DeleteScheduler::CleanupDirectory(result.env, sfm,
                                       std::string(result.wal_dir));
   }
