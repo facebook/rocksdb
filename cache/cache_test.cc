@@ -691,6 +691,7 @@ TEST_P(CacheTest, GetCharge) {
   Cache::Handle* h1 = cache_->Lookup(EncodeKey(1));
   ASSERT_EQ(2, DecodeValue(cache_->Value(h1)));
   ASSERT_EQ(1, cache_->GetCharge(h1));
+  cache_->Release(h1);
 }
 
 #ifdef SUPPORT_CLOCK_CACHE
