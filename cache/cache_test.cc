@@ -686,6 +686,14 @@ TEST_P(CacheTest, DefaultShardBits) {
   ASSERT_EQ(6, sc->GetNumShardBits());
 }
 
+TEST_P(CacheTest, GetCharge) {
+  Insert(1, 2);
+  Cache::Handle* h1 = cache_->Lookup(EncodeKey(1));
+  ASSERT_EQ(2, DecodeValue(cache_->Value(h1)));
+  ASSERT_EQ(1, cache_->GetCharge(h1));
+  cache_->Release(h1);
+}
+
 #ifdef SUPPORT_CLOCK_CACHE
 std::shared_ptr<Cache> (*new_clock_cache_func)(size_t, int,
                                                bool) = NewClockCache;
