@@ -27,7 +27,6 @@
 #include <sys/syscall.h>
 #include <sys/sysmacros.h>
 #endif
-#include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
 #include "rocksdb/slice.h"

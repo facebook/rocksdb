@@ -47,8 +47,8 @@
 #include <vector>
 
 #include "env/io_posix.h"
+#include "logging/env_logger.h"
 #include "logging/logging.h"
-#include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
 #include "port/port.h"
@@ -884,29 +884,16 @@ class PosixEnv : public Env {
 
   Status NewLogger(const std::string& fname,
                    std::shared_ptr<Logger>* result) override {
-    FILE* f;
-    {
-      IOSTATS_TIMER_GUARD(open_nanos);
-      f = fopen(fname.c_str(), "w"
-#ifdef __GLIBC_PREREQ
-#if __GLIBC_PREREQ(2, 7)
-          "e" // glibc extension to enable O_CLOEXEC
-#endif
-#endif
-          );
+    std::unique_ptr<WritableFile> posix_file;
+    EnvOptions options;
+    auto status = NewWritableFile(fname, &posix_file, options);
+    if (!status.ok()) {
+      return status;
     }
-    if (f == nullptr) {
-      result->reset();
-      return IOError("when fopen a file for new logger", fname, errno);
-    } else {
-      int fd = fileno(f);
-#ifdef ROCKSDB_FALLOCATE_PRESENT
-      fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 4 * 1024);
-#endif
-      SetFD_CLOEXEC(fd, nullptr);
-      result->reset(new PosixLogger(f, &PosixEnv::gettid, this));
-      return Status::OK();
-    }
+    auto file = std::unique_ptr<WritableFileWriter>(
+        new WritableFileWriter(std::move(posix_file), fname, options, this));
+    result->reset(new EnvLogger(std::move(file), &PosixEnv::gettid, this));
+    return Status::OK();
   }
 
   uint64_t NowMicros() override {

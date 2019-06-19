@@ -265,7 +265,7 @@ TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
 }
 
 #ifndef OS_WIN
-// TODO: does not build for Windows because of PosixLogger use below. Need to
+// TODO: does not build for Windows because of EnvLogger use below. Need to
 // port
 TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   DBOptions options;
@@ -274,7 +274,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
 
   // Normal logger
   ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
-  ASSERT_TRUE(dynamic_cast<PosixLogger*>(logger.get()));
+  ASSERT_TRUE(dynamic_cast<EnvLogger*>(logger.get()));
 
   // Only roll by size
   InitTestDb();
@@ -428,23 +428,23 @@ TEST_F(AutoRollLoggerTest, LogFlushWhileRolling) {
   // (1) Need to pin the old logger before beginning the roll, as rolling grabs
   //     the mutex, which would prevent us from accessing the old logger. This
   //     also marks flush_thread with AutoRollLogger::Flush:PinnedLogger.
-  // (2) Need to reset logger during PosixLogger::Flush() to exercise a race
+  // (2) Need to reset logger during EnvLogger::Flush() to exercise a race
   //     condition case, which is executing the flush with the pinned (old)
   //     logger after auto-roll logger has cut over to a new logger.
-  // (3) PosixLogger::Flush() happens in both threads but its SyncPoints only
+  // (3) EnvLogger::Flush() happens in both threads but its SyncPoints only
   //     are enabled in flush_thread (the one pinning the old logger).
   rocksdb::SyncPoint::GetInstance()->LoadDependencyAndMarkers(
       {{"AutoRollLogger::Flush:PinnedLogger",
         "AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit"},
-       {"PosixLogger::Flush:Begin1",
+       {"EnvLogger::Flush:Begin1",
         "AutoRollLogger::ResetLogger:BeforeNewLogger"},
        {"AutoRollLogger::ResetLogger:AfterNewLogger",
-        "PosixLogger::Flush:Begin2"}},
-      {{"AutoRollLogger::Flush:PinnedLogger", "PosixLogger::Flush:Begin1"},
-       {"AutoRollLogger::Flush:PinnedLogger", "PosixLogger::Flush:Begin2"}});
+        "EnvLogger::Flush:Begin2"}},
+      {{"AutoRollLogger::Flush:PinnedLogger", "EnvLogger::Flush:Begin1"},
+       {"AutoRollLogger::Flush:PinnedLogger", "EnvLogger::Flush:Begin2"}});
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  flush_thread = port::Thread ([&]() { auto_roll_logger->Flush(); });
+  flush_thread = port::Thread([&]() { auto_roll_logger->Flush(); });
   TEST_SYNC_POINT(
       "AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit");
   RollLogFileBySizeTest(auto_roll_logger, options.max_log_file_size,
