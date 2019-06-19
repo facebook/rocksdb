@@ -60,6 +60,7 @@ struct SavePoint {
 class WriteBatch : public WriteBatchBase {
  public:
   explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0);
+  explicit WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz);
   ~WriteBatch() override;
 
   using WriteBatchBase::Put;
@@ -361,6 +362,7 @@ class WriteBatch : public WriteBatchBase {
 
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_
+  const size_t timestamp_size_;
 
   // Intentionally copyable
 };

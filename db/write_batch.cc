@@ -142,7 +142,15 @@ struct SavePoints {
 };
 
 WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes)
-    : content_flags_(0), max_bytes_(max_bytes), rep_() {
+    : content_flags_(0), max_bytes_(max_bytes), rep_(), timestamp_size_(0) {
+  rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader)
+                   ? reserved_bytes
+                   : WriteBatchInternal::kHeader);
+  rep_.resize(WriteBatchInternal::kHeader);
+}
+
+WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz)
+    : content_flags_(0), max_bytes_(max_bytes), rep_(), timestamp_size_(ts_sz) {
   rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader) ?
     reserved_bytes : WriteBatchInternal::kHeader);
   rep_.resize(WriteBatchInternal::kHeader);
@@ -151,18 +159,21 @@ WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes)
 WriteBatch::WriteBatch(const std::string& rep)
     : content_flags_(ContentFlags::DEFERRED),
       max_bytes_(0),
-      rep_(rep) {}
+      rep_(rep),
+      timestamp_size_(0) {}
 
 WriteBatch::WriteBatch(std::string&& rep)
     : content_flags_(ContentFlags::DEFERRED),
       max_bytes_(0),
-      rep_(std::move(rep)) {}
+      rep_(std::move(rep)),
+      timestamp_size_(0) {}
 
 WriteBatch::WriteBatch(const WriteBatch& src)
     : wal_term_point_(src.wal_term_point_),
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
-      rep_(src.rep_) {
+      rep_(src.rep_),
+      timestamp_size_(src.timestamp_size_) {
   if (src.save_points_ != nullptr) {
     save_points_.reset(new SavePoints());
     save_points_->stack = src.save_points_->stack;
@@ -174,7 +185,8 @@ WriteBatch::WriteBatch(WriteBatch&& src) noexcept
       wal_term_point_(std::move(src.wal_term_point_)),
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
-      rep_(std::move(src.rep_)) {}
+      rep_(std::move(src.rep_)),
+      timestamp_size_(src.timestamp_size_) {}
 
 WriteBatch& WriteBatch::operator=(const WriteBatch& src) {
   if (&src != this) {
@@ -643,7 +655,14 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyValue));
     PutVarint32(&b->rep_, column_family_id);
   }
-  PutLengthPrefixedSlice(&b->rep_, key);
+  if (0 == b->timestamp_size_) {
+    PutLengthPrefixedSlice(&b->rep_, key);
+  } else {
+    PutVarint32(&b->rep_,
+                static_cast<uint32_t>(key.size() + b->timestamp_size_));
+    b->rep_.append(key.data(), key.size());
+    b->rep_.append('\0', b->timestamp_size_);
+  }
   PutLengthPrefixedSlice(&b->rep_, value);
   b->content_flags_.store(
       b->content_flags_.load(std::memory_order_relaxed) | ContentFlags::HAS_PUT,
@@ -692,7 +711,11 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyValue));
     PutVarint32(&b->rep_, column_family_id);
   }
-  PutLengthPrefixedSliceParts(&b->rep_, key);
+  if (0 == b->timestamp_size_) {
+    PutLengthPrefixedSliceParts(&b->rep_, key);
+  } else {
+    PutLengthPrefixedSlicePartsWithPadding(&b->rep_, key, b->timestamp_size_);
+  }
   PutLengthPrefixedSliceParts(&b->rep_, value);
   b->content_flags_.store(
       b->content_flags_.load(std::memory_order_relaxed) | ContentFlags::HAS_PUT,
