@@ -297,7 +297,7 @@ class BlockBasedTable : public TableReader {
                        BlockCacheLookupContext* lookup_context,
                        bool for_compaction = false) const;
 
-  Status PrefetchDataBlock(
+  Status GetDataBlockFromCache(
       const ReadOptions& ro, const BlockHandle& handle,
       const UncompressionDict& uncompression_dict,
       CachableEntry<Block>* block_entry, BlockType block_type,

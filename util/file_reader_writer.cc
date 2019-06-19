@@ -210,7 +210,7 @@ Status RandomAccessFileReader::MultiRead(ReadRequest* read_reqs,
       if (ShouldNotifyListeners()) {
         start_ts = std::chrono::system_clock::now();
       }
-#endif
+#endif // ROCKSDB_LITE
       {
         IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
         s = file_->MultiRead(read_reqs, num_reqs);
@@ -223,7 +223,7 @@ Status RandomAccessFileReader::MultiRead(ReadRequest* read_reqs,
                 read_reqs[i].result.size(), start_ts, finish_ts,
                 read_reqs[i].status);
         }
-#endif
+#endif // ROCKSDB_LITE
         IOSTATS_ADD_IF_POSITIVE(bytes_read, read_reqs[i].result.size());
       }
     SetPerfLevel(prev_perf_level);

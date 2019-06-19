@@ -429,7 +429,7 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
       s = table()->MaybeReadBlockAndLoadToCache(
           prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
           &block, BlockType::kIndex, /*get_context=*/nullptr, &lookup_context,
-          nullptr);
+          /*contents=*/nullptr);
 
       assert(s.ok() || block.GetValue() == nullptr);
       if (s.ok() && block.GetValue() != nullptr) {
@@ -2273,7 +2273,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
 // Lookup the cache for the given data block referenced by an index iterator
 // value (i.e BlockHandle). If it exists in the cache, initialize block to
 // the contents of the data block.
-Status BlockBasedTable::PrefetchDataBlock(
+Status BlockBasedTable::GetDataBlockFromCache(
     const ReadOptions& ro, const BlockHandle& handle,
     const UncompressionDict& uncompression_dict,
     CachableEntry<Block>* block, BlockType block_type,
@@ -2282,7 +2282,7 @@ Status BlockBasedTable::PrefetchDataBlock(
       TableReaderCaller::kUserMultiGet);
   Status s = RetrieveBlock(nullptr, ro, handle, uncompression_dict, block,
                     block_type, get_context, &lookup_data_block_context);
-  if (s == Status::Incomplete()) {
+  if (s.IsIncomplete()) {
     s = Status::OK();
   }
 
@@ -2439,7 +2439,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
 
 // This function reads multiple data blocks from disk using Env::MultiRead()
 // and optionally inserts them into the block cache. It uses the scratch
-// buffer provided by the caller, which is contiguoug. If scratch is a nullptr
+// buffer provided by the caller, which is contiguous. If scratch is a nullptr
 // it allocates a separate buffer for each block. Typically, if the blocks
 // need to be uncompressed and there is no compressed block cache, callers
 // can allocate a temporary scratch buffer in order to minimize memory
@@ -2615,7 +2615,7 @@ Status BlockBasedTable::RetrieveBlock(
     s = MaybeReadBlockAndLoadToCache(prefetch_buffer, ro, handle,
                                      uncompression_dict, block_entry,
                                      block_type, get_context, lookup_context,
-                                     nullptr);
+                                     /*contents=*/nullptr);
 
     if (!s.ok()) {
       return s;
@@ -3520,8 +3520,8 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
     autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE> block_handles;
     autovector<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE> results;
     autovector<Status, MultiGetContext::MAX_BATCH_SIZE> statuses;
-#define MULTIGET_READ_STACK_BUF_SIZE  8192
-    char stack_buf[MULTIGET_READ_STACK_BUF_SIZE];
+    static const size_t kMultiGetReadStackBufSize = 8192;
+    char stack_buf[kMultiGetReadStackBufSize];
     std::unique_ptr<char[]> block_buf;
     {
       MultiGetRange data_block_range(sst_file_range, sst_file_range.begin(),
@@ -3567,7 +3567,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         }
         offset = v.handle.offset();
         BlockHandle handle = v.handle;
-        Status s = PrefetchDataBlock(ro, handle, uncompression_dict,
+        Status s = GetDataBlockFromCache(ro, handle, uncompression_dict,
               &(results.back()), BlockType::kData, miter->get_context);
         if (s.ok() && !results.back().IsEmpty()) {
           // Found it in the cache. Add NULL handle to indicate there is
@@ -3592,7 +3592,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         //    stack buf
         if (rep_->table_options.block_cache_compressed == nullptr &&
             rep_->blocks_maybe_compressed) {
-          if (total_len <= MULTIGET_READ_STACK_BUF_SIZE) {
+          if (total_len <= kMultiGetReadStackBufSize) {
             scratch = stack_buf;
           } else {
             scratch = new char[total_len];
