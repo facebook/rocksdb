@@ -220,6 +220,26 @@ Status BlockFetcher::ReadBlockContents() {
                             &slice_, used_buf_);
     }
     PERF_COUNTER_ADD(block_read_count, 1);
+
+    // TODO: introduce dedicated perf counter for range tombstones
+    switch (block_type_) {
+      case BlockType::kFilter:
+        PERF_COUNTER_ADD(filter_block_read_count, 1);
+        break;
+
+      case BlockType::kCompressionDictionary:
+        PERF_COUNTER_ADD(compression_dict_block_read_count, 1);
+        break;
+
+      case BlockType::kIndex:
+        PERF_COUNTER_ADD(index_block_read_count, 1);
+        break;
+
+      // Nothing to do here as we don't have counters for the other types.
+      default:
+        break;
+    }
+
     PERF_COUNTER_ADD(block_read_byte, block_size_ + kBlockTrailerSize);
     if (!status_.ok()) {
       return status_;
