@@ -1470,6 +1470,10 @@ class DBBasicTestWithParallelIO
       return target_->GetPinnedUsage();
     }
 
+    virtual size_t GetCharge(Handle* /*handle*/) const {
+      return 0;
+    }
+
     virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                                         bool thread_safe) {
       return target_->ApplyToAllCacheEntries(callback, thread_safe);
@@ -1554,6 +1558,11 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
 
 INSTANTIATE_TEST_CASE_P(
     ParallelIO, DBBasicTestWithParallelIO,
+    // Params are as follows -
+    // Param 0 - Compressed cache enabled
+    // Param 1 - Uncompressed cache enabled
+    // Param 2 - Data compression enabled
+    // Param 3 - ReadOptions::fill_cache
     ::testing::Values(std::make_tuple(false, true, true, true),
                       std::make_tuple(true, true, true, true),
                       std::make_tuple(false, true, false, true),
