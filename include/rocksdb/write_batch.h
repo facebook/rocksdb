@@ -28,6 +28,7 @@
 #include <atomic>
 #include <memory>
 #include <string>
+#include <vector>
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch_base.h"
 
@@ -311,6 +312,12 @@ class WriteBatch : public WriteBatchBase {
 
   // Returns trie if MarkRollback will be called during Iterate
   bool HasRollback() const;
+
+  // Assign timestamp to write batch
+  Status AssignTimestamp(const Slice& ts);
+
+  // Assign timestamps to write batch
+  Status AssignTimestamps(const std::vector<Slice>& ts_list);
 
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }

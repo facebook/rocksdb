@@ -135,6 +135,98 @@ struct BatchContentClassifier : public WriteBatch::Handler {
   }
 };
 
+class TimestampAssigner : public WriteBatch::Handler {
+ public:
+  explicit TimestampAssigner(const Slice& ts) : timestamp_(ts), idx_(0) {}
+  explicit TimestampAssigner(const std::vector<Slice>& ts_list)
+      : timestamps_(ts_list), idx_(0) {
+    assert(!timestamps_.empty());
+#ifndef NDEBUG
+    const size_t ts_sz = timestamps_[0].size();
+    for (size_t i = 1; i != timestamps_.size(); ++i) {
+      assert(ts_sz == timestamps_[i].size());
+    }
+#endif  // !NDEBUG
+  }
+  ~TimestampAssigner() override {}
+
+  Status PutCF(uint32_t, const Slice& key, const Slice&) override {
+    AssignTimestamp(key);
+    ++idx_;
+    return Status::OK();
+  }
+
+  Status DeleteCF(uint32_t, const Slice& key) override {
+    AssignTimestamp(key);
+    ++idx_;
+    return Status::OK();
+  }
+
+  Status SingleDeleteCF(uint32_t, const Slice& key) override {
+    AssignTimestamp(key);
+    ++idx_;
+    return Status::OK();
+  }
+
+  Status DeleteRangeCF(uint32_t, const Slice& begin_key,
+                       const Slice& end_key) override {
+    AssignTimestamp(begin_key);
+    AssignTimestamp(end_key);
+    ++idx_;
+    return Status::OK();
+  }
+
+  Status MergeCF(uint32_t, const Slice& key, const Slice&) override {
+    AssignTimestamp(key);
+    ++idx_;
+    return Status::OK();
+  }
+
+  Status PutBlobIndexCF(uint32_t, const Slice&, const Slice&) override {
+    // TODO (yanqin): support blob db in the future.
+    return Status::OK();
+  }
+
+  Status MarkBeginPrepare(bool) override {
+    // TODO (yanqin): support in the future.
+    return Status::OK();
+  }
+
+  Status MarkEndPrepare(const Slice&) override {
+    // TODO (yanqin): support in the future.
+    return Status::OK();
+  }
+
+  Status MarkCommit(const Slice&) override {
+    // TODO (yanqin): support in the future.
+    return Status::OK();
+  }
+
+  Status MarkRollback(const Slice&) override {
+    // TODO (yanqin): support in the future.
+    return Status::OK();
+  }
+
+ private:
+  void AssignTimestamp(const Slice& key) {
+    assert(timestamps_.empty() || idx_ < timestamps_.size());
+    const Slice& ts = timestamps_.empty() ? timestamp_ : timestamps_[idx_];
+    size_t ts_sz = ts.size();
+    char* ptr = const_cast<char*>(key.data() + key.size() - ts_sz);
+    memcpy(ptr, ts.data(), ts_sz);
+  }
+
+  Slice timestamp_;
+  std::vector<Slice> timestamps_;
+  size_t idx_;
+
+  // No copy or move.
+  TimestampAssigner(const TimestampAssigner&) = delete;
+  TimestampAssigner(TimestampAssigner&&) = delete;
+  TimestampAssigner& operator=(const TimestampAssigner&) = delete;
+  TimestampAssigner&& operator=(TimestampAssigner&&) = delete;
+};
+
 }  // anon namespace
 
 struct SavePoints {
@@ -1059,6 +1151,16 @@ Status WriteBatch::PopSavePoint() {
   save_points_->stack.pop();
 
   return Status::OK();
+}
+
+Status WriteBatch::AssignTimestamp(const Slice& ts) {
+  TimestampAssigner ts_assigner(ts);
+  return Iterate(&ts_assigner);
+}
+
+Status WriteBatch::AssignTimestamps(const std::vector<Slice>& ts_list) {
+  TimestampAssigner ts_assigner(ts_list);
+  return Iterate(&ts_assigner);
 }
 
 class MemTableInserter : public WriteBatch::Handler {
