@@ -204,6 +204,8 @@ class EncryptedWritableFile : public WritableFileWrapper {
       // Encrypt in cloned buffer
       buf.Alignment(GetRequiredBufferAlignment());
       buf.AllocateNewBuffer(data.size());
+      // TODO (sagar0): Modify AlignedBuffer.Append to allow doing a memmove
+      // so that the next two lines can be replaced with buf.Append().
       memmove(buf.BufferStart(), data.data(), data.size());
       buf.Size(data.size());
       status = stream_->Encrypt(offset, buf.BufferStart(), buf.CurrentSize());
