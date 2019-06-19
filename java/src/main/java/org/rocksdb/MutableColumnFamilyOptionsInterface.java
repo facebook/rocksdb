@@ -6,7 +6,7 @@
 package org.rocksdb;
 
 public interface MutableColumnFamilyOptionsInterface
-    <T extends MutableColumnFamilyOptionsInterface>
+    <T extends MutableColumnFamilyOptionsInterface<T>>
         extends AdvancedMutableColumnFamilyOptionsInterface<T> {
 
   /**
