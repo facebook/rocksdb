@@ -28,7 +28,8 @@ DEFINE_string(
     "cache_name is lru. cache_capacity can be xK, xM or xG "
     "where x is a positive number.");
 DEFINE_int32(block_cache_trace_downsample_ratio, 1,
-             "The downsample ratio used when collecting the trace. We scale "
+             "The trace collected accesses on one in every "
+             "block_cache_trace_downsample_ratio blocks. We scale "
              "down the simulated cache size by this ratio.");
 DEFINE_bool(print_block_size_stats, false,
             "Print block size distribution and the distribution break down by "
