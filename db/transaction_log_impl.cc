@@ -199,7 +199,8 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
       if (current_last_seq_ == versions_->LastSequence()) {
         current_status_ = Status::OK();
       } else {
-        current_status_ = Status::Corruption("NO MORE DATA LEFT");
+        const char* msg = "Create a new iterator to fetch the new tail.";
+        current_status_ = Status::TryAgain(msg);
       }
       return;
     }

@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.4)
 
+if(${CMAKE_VERSION} VERSION_LESS "3.11.4")
+    message("Please consider switching to CMake 3.11.4 or newer")
+endif()
+
 set(JNI_NATIVE_SOURCES
         rocksjni/backupablejni.cc
         rocksjni/backupenginejni.cc
@@ -11,9 +15,9 @@ set(JNI_NATIVE_SOURCES
         rocksjni/compaction_filter.cc
         rocksjni/compaction_filter_factory.cc
         rocksjni/compaction_filter_factory_jnicallback.cc
-	rocksjni/compaction_job_info.cc
-	rocksjni/compaction_job_stats.cc
-	rocksjni/compaction_options.cc
+        rocksjni/compaction_job_info.cc
+        rocksjni/compaction_job_stats.cc
+        rocksjni/compaction_options.cc
         rocksjni/compaction_options_fifo.cc
         rocksjni/compaction_options_universal.cc
         rocksjni/compact_range_options.cc
@@ -72,125 +76,9 @@ set(JNI_NATIVE_SOURCES
         rocksjni/write_buffer_manager.cc
 )
 
-set(NATIVE_JAVA_CLASSES
-        org.rocksdb.AbstractCompactionFilter
-        org.rocksdb.AbstractCompactionFilterFactory
-        org.rocksdb.AbstractComparator
-        org.rocksdb.AbstractImmutableNativeReference
-        org.rocksdb.AbstractNativeReference
-        org.rocksdb.AbstractRocksIterator
-        org.rocksdb.AbstractSlice
-        org.rocksdb.AbstractTableFilter
-        org.rocksdb.AbstractTraceWriter
-        org.rocksdb.AbstractTransactionNotifier
-        org.rocksdb.AbstractWalFilter
-        org.rocksdb.BackupableDBOptions
-        org.rocksdb.BackupEngine
-        org.rocksdb.BlockBasedTableConfig
-        org.rocksdb.BloomFilter
-        org.rocksdb.CassandraCompactionFilter
-        org.rocksdb.CassandraValueMergeOperator
-        org.rocksdb.Checkpoint
-        org.rocksdb.ClockCache
-        org.rocksdb.ColumnFamilyHandle
-        org.rocksdb.ColumnFamilyOptions
-        org.rocksdb.CompactionJobInfo
-        org.rocksdb.CompactionJobStats
-        org.rocksdb.CompactionOptions
-        org.rocksdb.CompactionOptionsFIFO
-        org.rocksdb.CompactionOptionsUniversal
-        org.rocksdb.CompactRangeOptions
-        org.rocksdb.Comparator
-        org.rocksdb.ComparatorOptions
-        org.rocksdb.CompressionOptions
-        org.rocksdb.DBOptions
-        org.rocksdb.DirectComparator
-        org.rocksdb.DirectSlice
-        org.rocksdb.Env
-        org.rocksdb.EnvOptions
-        org.rocksdb.Filter
-        org.rocksdb.FlushOptions
-        org.rocksdb.HashLinkedListMemTableConfig
-        org.rocksdb.HashSkipListMemTableConfig
-        org.rocksdb.HdfsEnv
-        org.rocksdb.IngestExternalFileOptions
-        org.rocksdb.Logger
-        org.rocksdb.LRUCache
-        org.rocksdb.MemoryUtil
-        org.rocksdb.MemTableConfig
-        org.rocksdb.NativeComparatorWrapper
-        org.rocksdb.NativeLibraryLoader
-        org.rocksdb.OptimisticTransactionDB
-        org.rocksdb.OptimisticTransactionOptions
-        org.rocksdb.Options
-        org.rocksdb.OptionsUtil
-        org.rocksdb.PersistentCache
-        org.rocksdb.PlainTableConfig
-        org.rocksdb.RateLimiter
-        org.rocksdb.ReadOptions
-        org.rocksdb.RemoveEmptyValueCompactionFilter
-        org.rocksdb.RestoreOptions
-        org.rocksdb.RocksCallbackObject
-        org.rocksdb.RocksDB
-        org.rocksdb.RocksEnv
-        org.rocksdb.RocksIterator
-        org.rocksdb.RocksIteratorInterface
-        org.rocksdb.RocksMemEnv
-        org.rocksdb.RocksMutableObject
-        org.rocksdb.RocksObject
-        org.rocksdb.SkipListMemTableConfig
-        org.rocksdb.Slice
-        org.rocksdb.Snapshot
-        org.rocksdb.SstFileManager
-        org.rocksdb.SstFileWriter
-        org.rocksdb.Statistics
-        org.rocksdb.StringAppendOperator
-        org.rocksdb.TableFormatConfig
-        org.rocksdb.ThreadStatus
-        org.rocksdb.TimedEnv
-        org.rocksdb.Transaction
-        org.rocksdb.TransactionDB
-        org.rocksdb.TransactionDBOptions
-        org.rocksdb.TransactionLogIterator
-        org.rocksdb.TransactionOptions
-        org.rocksdb.TtlDB
-        org.rocksdb.UInt64AddOperator
-        org.rocksdb.VectorMemTableConfig
-        org.rocksdb.WBWIRocksIterator
-        org.rocksdb.WriteBatch
-        org.rocksdb.WriteBatch.Handler
-        org.rocksdb.WriteBatchInterface
-        org.rocksdb.WriteBatchWithIndex
-        org.rocksdb.WriteOptions
-        org.rocksdb.NativeComparatorWrapperTest
-        org.rocksdb.RocksDBExceptionTest
-        org.rocksdb.SnapshotTest
-        org.rocksdb.WriteBatchTest
-        org.rocksdb.WriteBatchTestInternalHelper
-        org.rocksdb.WriteBufferManager
-)
-
-include(FindJava)
-include(UseJava)
-include(FindJNI)
-
-include_directories(${JNI_INCLUDE_DIRS})
-include_directories(${PROJECT_SOURCE_DIR}/java)
-
-set(JAVA_TEST_LIBDIR ${PROJECT_SOURCE_DIR}/java/test-libs)
-set(JAVA_TMP_JAR ${JAVA_TEST_LIBDIR}/tmp.jar)
-set(JAVA_JUNIT_JAR ${JAVA_TEST_LIBDIR}/junit-4.12.jar)
-set(JAVA_HAMCR_JAR ${JAVA_TEST_LIBDIR}/hamcrest-core-1.3.jar)
-set(JAVA_MOCKITO_JAR ${JAVA_TEST_LIBDIR}/mockito-all-1.10.19.jar)
-set(JAVA_CGLIB_JAR ${JAVA_TEST_LIBDIR}/cglib-2.2.2.jar)
-set(JAVA_ASSERTJ_JAR ${JAVA_TEST_LIBDIR}/assertj-core-1.7.1.jar)
-set(JAVA_TESTCLASSPATH ${JAVA_JUNIT_JAR} ${JAVA_HAMCR_JAR} ${JAVA_MOCKITO_JAR} ${JAVA_CGLIB_JAR} ${JAVA_ASSERTJ_JAR})
-
-add_jar(
-  rocksdbjni_classes
-  SOURCES
-  src/main/java/org/rocksdb/AbstractCompactionFilterFactory.java
+set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/AbstractCompactionFilter.java
+  src/main/java/org/rocksdb/AbstractCompactionFilterFactory.java
   src/main/java/org/rocksdb/AbstractComparator.java
   src/main/java/org/rocksdb/AbstractImmutableNativeReference.java
   src/main/java/org/rocksdb/AbstractMutableOptions.java
@@ -338,8 +226,8 @@ add_jar(
   src/main/java/org/rocksdb/WalProcessingOption.java
   src/main/java/org/rocksdb/WALRecoveryMode.java
   src/main/java/org/rocksdb/WBWIRocksIterator.java
-  src/main/java/org/rocksdb/WriteBatchInterface.java
   src/main/java/org/rocksdb/WriteBatch.java
+  src/main/java/org/rocksdb/WriteBatchInterface.java
   src/main/java/org/rocksdb/WriteBatchWithIndex.java
   src/main/java/org/rocksdb/WriteOptions.java
   src/main/java/org/rocksdb/WriteBufferManager.java
@@ -348,6 +236,10 @@ add_jar(
   src/main/java/org/rocksdb/util/Environment.java
   src/main/java/org/rocksdb/util/ReverseBytewiseComparator.java
   src/main/java/org/rocksdb/util/SizeUnit.java
+  src/main/java/org/rocksdb/UInt64AddOperator.java
+)
+
+set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/BackupEngineTest.java
   src/test/java/org/rocksdb/IngestExternalFileOptionsTest.java
   src/test/java/org/rocksdb/NativeComparatorWrapperTest.java
@@ -355,12 +247,58 @@ add_jar(
   src/test/java/org/rocksdb/RocksDBExceptionTest.java
   src/test/java/org/rocksdb/RocksMemoryResource.java
   src/test/java/org/rocksdb/SnapshotTest.java
-  src/main/java/org/rocksdb/UInt64AddOperator.java
   src/test/java/org/rocksdb/WriteBatchTest.java
   src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
   src/test/java/org/rocksdb/util/WriteBatchGetter.java
-  INCLUDE_JARS ${JAVA_TESTCLASSPATH}
 )
+
+include(FindJava)
+include(UseJava)
+find_package(JNI)
+
+include_directories(${JNI_INCLUDE_DIRS})
+include_directories(${PROJECT_SOURCE_DIR}/java)
+
+set(JAVA_TEST_LIBDIR ${PROJECT_SOURCE_DIR}/java/test-libs)
+set(JAVA_TMP_JAR ${JAVA_TEST_LIBDIR}/tmp.jar)
+set(JAVA_JUNIT_JAR ${JAVA_TEST_LIBDIR}/junit-4.12.jar)
+set(JAVA_HAMCR_JAR ${JAVA_TEST_LIBDIR}/hamcrest-core-1.3.jar)
+set(JAVA_MOCKITO_JAR ${JAVA_TEST_LIBDIR}/mockito-all-1.10.19.jar)
+set(JAVA_CGLIB_JAR ${JAVA_TEST_LIBDIR}/cglib-2.2.2.jar)
+set(JAVA_ASSERTJ_JAR ${JAVA_TEST_LIBDIR}/assertj-core-1.7.1.jar)
+set(JAVA_TESTCLASSPATH ${JAVA_JUNIT_JAR} ${JAVA_HAMCR_JAR} ${JAVA_MOCKITO_JAR} ${JAVA_CGLIB_JAR} ${JAVA_ASSERTJ_JAR})
+
+set(JNI_OUTPUT_DIR ${PROJECT_SOURCE_DIR}/java/include)
+file(MAKE_DIRECTORY ${JNI_OUTPUT_DIR})
+
+if(${Java_VERSION_MAJOR} VERSION_GREATER_EQUAL "10" AND ${CMAKE_VERSION} VERSION_LESS "3.11.4")
+  # Java 10 and newer don't have javah, but the alternative GENERATE_NATIVE_HEADERS requires CMake 3.11.4 or newer
+  message(FATAL_ERROR "Detected Java 10 or newer (${Java_VERSION_STRING}), to build with CMake please upgrade CMake to 3.11.4 or newer")
+
+elseif(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7" AND ${Java_VERSION_MAJOR} STREQUAL "1"))
+  # Old CMake or Java 1.7 prepare the JAR...
+  message("Preparing Jar for Java 7")
+  add_jar(
+      rocksdbjni_classes
+      SOURCES
+      ${JAVA_MAIN_CLASSES}
+      ${JAVA_TEST_CLASSES}
+      INCLUDE_JARS ${JAVA_TESTCLASSPATH}
+  )
+
+else ()
+  # Java 1.8 or newer prepare the JAR...
+  message("Preparing Jar for JDK ${Java_VERSION_STRING}")
+  add_jar(
+      rocksdbjni_classes
+      SOURCES
+      ${JAVA_MAIN_CLASSES}
+      ${JAVA_TEST_CLASSES}
+      INCLUDE_JARS ${JAVA_TESTCLASSPATH}
+      GENERATE_NATIVE_HEADERS rocksdbjni_headers DESTINATION ${JNI_OUTPUT_DIR}
+  )
+
+endif()
 
 if(NOT EXISTS ${PROJECT_SOURCE_DIR}/java/classes)
   file(MAKE_DIRECTORY ${PROJECT_SOURCE_DIR}/java/classes)
@@ -424,15 +362,114 @@ if(NOT EXISTS ${JAVA_ASSERTJ_JAR})
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_ASSERTJ_JAR})
 endif()
 
-set(JNI_OUTPUT_DIR ${PROJECT_SOURCE_DIR}/java/include)
+if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7" AND ${Java_VERSION_MAJOR} STREQUAL "1"))
+  # Old CMake or Java 1.7 ONLY generate JNI headers, Java 1.8+ JNI is handled in add_jar step above
+  message("Preparing JNI headers for Java 7")
+  set(NATIVE_JAVA_CLASSES
+          org.rocksdb.AbstractCompactionFilter
+          org.rocksdb.AbstractCompactionFilterFactory
+          org.rocksdb.AbstractComparator
+          org.rocksdb.AbstractImmutableNativeReference
+          org.rocksdb.AbstractNativeReference
+          org.rocksdb.AbstractRocksIterator
+          org.rocksdb.AbstractSlice
+          org.rocksdb.AbstractTableFilter
+          org.rocksdb.AbstractTraceWriter
+          org.rocksdb.AbstractTransactionNotifier
+          org.rocksdb.AbstractWalFilter
+          org.rocksdb.BackupableDBOptions
+          org.rocksdb.BackupEngine
+          org.rocksdb.BlockBasedTableConfig
+          org.rocksdb.BloomFilter
+          org.rocksdb.CassandraCompactionFilter
+          org.rocksdb.CassandraValueMergeOperator
+          org.rocksdb.Checkpoint
+          org.rocksdb.ClockCache
+          org.rocksdb.ColumnFamilyHandle
+          org.rocksdb.ColumnFamilyOptions
+          org.rocksdb.CompactionJobInfo
+          org.rocksdb.CompactionJobStats
+          org.rocksdb.CompactionOptions
+          org.rocksdb.CompactionOptionsFIFO
+          org.rocksdb.CompactionOptionsUniversal
+          org.rocksdb.CompactRangeOptions
+          org.rocksdb.Comparator
+          org.rocksdb.ComparatorOptions
+          org.rocksdb.CompressionOptions
+          org.rocksdb.DBOptions
+          org.rocksdb.DirectComparator
+          org.rocksdb.DirectSlice
+          org.rocksdb.Env
+          org.rocksdb.EnvOptions
+          org.rocksdb.Filter
+          org.rocksdb.FlushOptions
+          org.rocksdb.HashLinkedListMemTableConfig
+          org.rocksdb.HashSkipListMemTableConfig
+          org.rocksdb.HdfsEnv
+          org.rocksdb.IngestExternalFileOptions
+          org.rocksdb.Logger
+          org.rocksdb.LRUCache
+          org.rocksdb.MemoryUtil
+          org.rocksdb.MemTableConfig
+          org.rocksdb.NativeComparatorWrapper
+          org.rocksdb.NativeLibraryLoader
+          org.rocksdb.OptimisticTransactionDB
+          org.rocksdb.OptimisticTransactionOptions
+          org.rocksdb.Options
+          org.rocksdb.OptionsUtil
+          org.rocksdb.PersistentCache
+          org.rocksdb.PlainTableConfig
+          org.rocksdb.RateLimiter
+          org.rocksdb.ReadOptions
+          org.rocksdb.RemoveEmptyValueCompactionFilter
+          org.rocksdb.RestoreOptions
+          org.rocksdb.RocksCallbackObject
+          org.rocksdb.RocksDB
+          org.rocksdb.RocksEnv
+          org.rocksdb.RocksIterator
+          org.rocksdb.RocksIteratorInterface
+          org.rocksdb.RocksMemEnv
+          org.rocksdb.RocksMutableObject
+          org.rocksdb.RocksObject
+          org.rocksdb.SkipListMemTableConfig
+          org.rocksdb.Slice
+          org.rocksdb.Snapshot
+          org.rocksdb.SstFileManager
+          org.rocksdb.SstFileWriter
+          org.rocksdb.Statistics
+          org.rocksdb.StringAppendOperator
+          org.rocksdb.TableFormatConfig
+          org.rocksdb.ThreadStatus
+          org.rocksdb.TimedEnv
+          org.rocksdb.Transaction
+          org.rocksdb.TransactionDB
+          org.rocksdb.TransactionDBOptions
+          org.rocksdb.TransactionLogIterator
+          org.rocksdb.TransactionOptions
+          org.rocksdb.TtlDB
+          org.rocksdb.UInt64AddOperator
+          org.rocksdb.VectorMemTableConfig
+          org.rocksdb.WBWIRocksIterator
+          org.rocksdb.WriteBatch
+          org.rocksdb.WriteBatch.Handler
+          org.rocksdb.WriteBatchInterface
+          org.rocksdb.WriteBatchWithIndex
+          org.rocksdb.WriteOptions
+          org.rocksdb.NativeComparatorWrapperTest
+          org.rocksdb.RocksDBExceptionTest
+          org.rocksdb.SnapshotTest
+          org.rocksdb.WriteBatchTest
+          org.rocksdb.WriteBatchTestInternalHelper
+          org.rocksdb.WriteBufferManager
+  )
 
-file(MAKE_DIRECTORY ${JNI_OUTPUT_DIR})
-create_javah(
-  TARGET rocksdbjni_headers
-  CLASSES ${NATIVE_JAVA_CLASSES}
-  CLASSPATH rocksdbjni_classes ${JAVA_TESTCLASSPATH}
-  OUTPUT_DIR ${JNI_OUTPUT_DIR}
-)
+  create_javah(
+    TARGET rocksdbjni_headers
+    CLASSES ${NATIVE_JAVA_CLASSES}
+    CLASSPATH rocksdbjni_classes ${JAVA_TESTCLASSPATH}
+    OUTPUT_DIR ${JNI_OUTPUT_DIR}
+  )
+endif()
 
 if(NOT MSVC)
   set_property(TARGET ${ROCKSDB_STATIC_LIB} PROPERTY POSITION_INDEPENDENT_CODE ON)

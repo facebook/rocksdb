@@ -525,6 +525,34 @@ TEST_F(DBSecondaryTest, SwitchManifest) {
   range_scan_db();
 }
 
+// Here, "Snapshot" refers to the version edits written by
+// VersionSet::WriteSnapshot() at the beginning of the new MANIFEST after
+// switching from the old one.
+TEST_F(DBSecondaryTest, SkipSnapshotAfterManifestSwitch) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondary(options1);
+
+  ASSERT_OK(Put("0", "value0"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  std::string value;
+  ReadOptions ropts;
+  ropts.verify_checksums = true;
+  ASSERT_OK(db_secondary_->Get(ropts, "0", &value));
+  ASSERT_EQ("value0", value);
+
+  Reopen(options);
+  ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+}
+
 TEST_F(DBSecondaryTest, SwitchWAL) {
   const int kNumKeysPerMemtable = 1;
   Options options;
@@ -704,6 +732,46 @@ TEST_F(DBSecondaryTest, CatchUpAfterFlush) {
   ASSERT_EQ("new_value0", iter3->value());
   iter3->Seek("key1");
   ASSERT_FALSE(iter3->Valid());
+}
+
+TEST_F(DBSecondaryTest, CheckConsistencyWhenOpen) {
+  bool called = false;
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::CheckConsistency:AfterFirstAttempt", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        called = true;
+        auto* s = reinterpret_cast<Status*>(arg);
+        ASSERT_NOK(*s);
+      });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::CheckConsistency:AfterGetLiveFilesMetaData",
+        "BackgroundCallCompaction:0"},
+       {"DBImpl::BackgroundCallCompaction:PurgedObsoleteFiles",
+        "DBImpl::CheckConsistency:BeforeGetFileSize"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("a", "value0"));
+  ASSERT_OK(Put("c", "value0"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("b", "value1"));
+  ASSERT_OK(Put("d", "value1"));
+  ASSERT_OK(Flush());
+  port::Thread thread([this]() {
+    Options opts;
+    opts.env = env_;
+    opts.max_open_files = -1;
+    OpenSecondary(opts);
+  });
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  thread.join();
+  ASSERT_TRUE(called);
 }
 #endif  //! ROCKSDB_LITE
 
