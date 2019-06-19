@@ -143,6 +143,8 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
         NewSstFileManager(result.env, result.info_log));
     result.sst_file_manager = sst_file_manager;
   }
+#else
+  (void) separate_wal_dir;
 #endif
   return result;
 }
