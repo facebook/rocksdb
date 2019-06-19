@@ -73,6 +73,10 @@ struct BlockAccessInfo {
       non_exist_key_num_access_map;  // for keys do not exist in this block.
   uint64_t num_referenced_key_exist_in_block = 0;
   std::map<TableReaderCaller, uint64_t> caller_num_access_map;
+  // caller:timestamp:number_of_accesses. The granularity of the timestamp is
+  // seconds.
+  std::map<TableReaderCaller, std::map<uint64_t, uint64_t>>
+      caller_num_accesses_timeline;
 
   void AddAccess(const BlockCacheTraceRecord& access) {
     if (first_access_time == 0) {
@@ -82,10 +86,12 @@ struct BlockAccessInfo {
     block_size = access.block_size;
     caller_num_access_map[access.caller]++;
     num_accesses++;
+    // access.access_timestamp is in microsecond.
+    const uint64_t timestamp_in_seconds = access.access_timestamp / 1000000;
+    caller_num_accesses_timeline[access.caller][timestamp_in_seconds] += 1;
     if (BlockCacheTraceHelper::ShouldTraceReferencedKey(access.block_type,
                                                         access.caller)) {
       num_keys = access.num_keys_in_block;
-
       if (access.referenced_key_exist_in_block == Boolean::kTrue) {
         key_num_access_map[access.referenced_key]++;
         num_referenced_key_exist_in_block++;
@@ -115,8 +121,7 @@ struct ColumnFamilyAccessInfoAggregate {
 class BlockCacheTraceAnalyzer {
  public:
   BlockCacheTraceAnalyzer(
-      const std::string& trace_file_path,
-      const std::string& output_miss_ratio_curve_path,
+      const std::string& trace_file_path, const std::string& output_dir,
       std::unique_ptr<BlockCacheTraceSimulator>&& cache_simulator);
   ~BlockCacheTraceAnalyzer() = default;
   // No copy and move.
@@ -165,7 +170,13 @@ class BlockCacheTraceAnalyzer {
   // accesses on keys exist in a data block and its break down by column family.
   void PrintDataBlockAccessStats() const;
 
-  void PrintMissRatioCurves() const;
+  // Write miss ratio curves of simulated cache configurations into its output
+  // file in csv format saved in 'output_dir'.
+  void WriteMissRatioCurves() const;
+
+  // Write the access timeline into its output file in csv format saved in
+  // 'output_dir'.
+  void WriteAccessTimeline(const std::string& label) const;
 
   const std::map<std::string, ColumnFamilyAccessInfoAggregate>&
   TEST_cf_aggregates_map() const {
@@ -177,7 +188,7 @@ class BlockCacheTraceAnalyzer {
 
   rocksdb::Env* env_;
   const std::string trace_file_path_;
-  const std::string output_miss_ratio_curve_path_;
+  const std::string output_dir_;
 
   BlockCacheTraceHeader header_;
   std::unique_ptr<BlockCacheTraceSimulator> cache_simulator_;

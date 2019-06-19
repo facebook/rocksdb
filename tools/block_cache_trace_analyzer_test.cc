@@ -49,7 +49,8 @@ class BlockCacheTracerTest : public testing::Test {
     EXPECT_OK(env_->CreateDir(test_path_));
     trace_file_path_ = test_path_ + "/block_cache_trace";
     block_cache_sim_config_path_ = test_path_ + "/block_cache_sim_config";
-    output_miss_ratio_curve_path_ = test_path_ + "/out_miss_ratio_curve";
+    timeline_labels_ =
+        "block,all,cf,sst,level,bt,caller,cf_sst,cf_level,cf_bt,cf_caller";
   }
 
   ~BlockCacheTracerTest() override {
@@ -85,11 +86,12 @@ class BlockCacheTracerTest : public testing::Test {
     assert(writer);
     for (uint32_t i = 0; i < nblocks; i++) {
       uint32_t key_id = from_key_id + i;
+      uint32_t timestamp = (key_id + 1) * 1000000;
       BlockCacheTraceRecord record;
       record.block_type = block_type;
       record.block_size = kBlockSize + key_id;
       record.block_key = kBlockKeyPrefix + std::to_string(key_id);
-      record.access_timestamp = env_->NowMicros();
+      record.access_timestamp = timestamp;
       record.cf_id = kCFId;
       record.cf_name = kDefaultColumnFamilyName;
       record.caller = GetCaller(key_id);
@@ -146,11 +148,12 @@ class BlockCacheTracerTest : public testing::Test {
         "./block_cache_trace_analyzer",
         "-block_cache_trace_path=" + trace_file_path_,
         "-block_cache_sim_config_path=" + block_cache_sim_config_path_,
-        "-output_miss_ratio_curve_path=" + output_miss_ratio_curve_path_,
+        "-block_cache_analysis_result_dir=" + test_path_,
         "-print_block_size_stats",
         "-print_access_count_stats",
         "-print_data_block_access_count_stats",
-        "-cache_sim_warmup_seconds=0"};
+        "-cache_sim_warmup_seconds=0",
+        "-timeline_labels=" + timeline_labels_};
     char arg_buffer[kArgBufferSize];
     char* argv[kMaxArgCount];
     int argc = 0;
@@ -168,10 +171,10 @@ class BlockCacheTracerTest : public testing::Test {
 
   Env* env_;
   EnvOptions env_options_;
-  std::string output_miss_ratio_curve_path_;
   std::string block_cache_sim_config_path_;
   std::string trace_file_path_;
   std::string test_path_;
+  std::string timeline_labels_;
 };
 
 TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
@@ -199,7 +202,8 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
     // Validate the cache miss ratios.
     const std::vector<uint64_t> expected_capacities{1024, 1024 * 1024,
                                                     1024 * 1024 * 1024};
-    std::ifstream infile(output_miss_ratio_curve_path_);
+    const std::string mrc_path = test_path_ + "/mrc";
+    std::ifstream infile(mrc_path);
     uint32_t config_index = 0;
     std::string line;
     // Read header.
@@ -224,8 +228,44 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
     }
     ASSERT_EQ(expected_capacities.size(), config_index);
     infile.close();
+    ASSERT_OK(env_->DeleteFile(mrc_path));
   }
-  ASSERT_OK(env_->DeleteFile(output_miss_ratio_curve_path_));
+  {
+    // Validate the timeline csv files.
+    const uint32_t expected_num_lines = 50;
+    std::stringstream ss(timeline_labels_);
+    while (ss.good()) {
+      std::string l;
+      ASSERT_TRUE(getline(ss, l, ','));
+      const std::string timeline_file =
+          test_path_ + "/" + l + "_access_timeline";
+      std::ifstream infile(timeline_file);
+      std::string line;
+      uint32_t nlines = 0;
+      ASSERT_TRUE(getline(infile, line));
+      uint64_t expected_time = 1;
+      while (getline(infile, line)) {
+        std::stringstream ss_naccess(line);
+        std::vector<std::string> result_strs;
+        uint32_t naccesses = 0;
+        std::string substr;
+        std::vector<uint64_t> row_ints;
+        while (ss_naccess.good()) {
+          ASSERT_TRUE(getline(ss_naccess, substr, ','));
+          row_ints.push_back(std::stoul(substr));
+        }
+        for (uint32_t i = 1; i < row_ints.size(); i++) {
+          naccesses += row_ints[i];
+        }
+        nlines++;
+        ASSERT_EQ(1, naccesses);
+        ASSERT_EQ(expected_time, row_ints[0]);
+        expected_time += 1;
+      }
+      ASSERT_EQ(expected_num_lines, nlines);
+      ASSERT_OK(env_->DeleteFile(timeline_file));
+    }
+  }
   ASSERT_OK(env_->DeleteFile(block_cache_sim_config_path_));
 }
 

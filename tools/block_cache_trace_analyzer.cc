@@ -42,12 +42,41 @@ DEFINE_bool(print_data_block_access_count_stats, false,
 DEFINE_int32(cache_sim_warmup_seconds, 0,
              "The number of seconds to warmup simulated caches. The hit/miss "
              "counters are reset after the warmup completes.");
-DEFINE_string(output_miss_ratio_curve_path, "",
-              "The output file to save the computed miss ratios. File format: "
-              "cache_name,num_shard_bits,capacity,miss_ratio,total_accesses");
+DEFINE_string(
+    block_cache_analysis_result_dir, "",
+    "The directory that saves block cache analysis results. It contains 1) a "
+    "mrc file that saves the computed miss ratios for simulated caches. Its "
+    "format is "
+    "cache_name,num_shard_bits,capacity,miss_ratio,total_accesses. 2) Several "
+    "\"label_access_timeline\" files that contains number of accesses per "
+    "second grouped by the label. File format: "
+    "time,label_1_access_per_second,label_2,...,label_N_access_per_second "
+    "where N is the number of unique labels found in the trace.");
+
+DEFINE_string(
+    timeline_labels, "",
+    "Group the number of accesses per block per second using these labels. "
+    "Possible labels are a combination of the following: cf (column family), "
+    "sst, level, bt (block type), caller, block. For example, label \"cf_bt\" "
+    "means the number of acccess per second is grouped by unique pairs of "
+    "\"cf_bt\". A label \"all\" contains the aggregated number of accesses per "
+    "second across all possible labels.");
 
 namespace rocksdb {
 namespace {
+
+const std::string kMissRatioCurveFileName = "mrc";
+const std::string kGroupbyBlock = "block";
+const std::string kGroupbyColumnFamily = "cf";
+const std::string kGroupbySSTFile = "sst";
+const std::string kGroupbyBlockType = "bt";
+const std::string kGroupbyCaller = "caller";
+const std::string kGroupbyLevel = "level";
+const std::string kGroupbyAll = "all";
+const std::set<std::string> kGroupbyLabels{
+    kGroupbyBlock,     kGroupbyColumnFamily, kGroupbySSTFile, kGroupbyLevel,
+    kGroupbyBlockType, kGroupbyCaller,       kGroupbyAll};
+
 std::string block_type_to_string(TraceType type) {
   switch (type) {
     case kBlockTraceFilterBlock:
@@ -162,14 +191,16 @@ void BlockCacheTraceSimulator::Access(const BlockCacheTraceRecord& access) {
   }
 }
 
-void BlockCacheTraceAnalyzer::PrintMissRatioCurves() const {
+void BlockCacheTraceAnalyzer::WriteMissRatioCurves() const {
   if (!cache_simulator_) {
     return;
   }
-  if (output_miss_ratio_curve_path_.empty()) {
+  if (output_dir_.empty()) {
     return;
   }
-  std::ofstream out(output_miss_ratio_curve_path_);
+  const std::string output_miss_ratio_curve_path =
+      output_dir_ + "/" + kMissRatioCurveFileName;
+  std::ofstream out(output_miss_ratio_curve_path);
   if (!out.is_open()) {
     return;
   }
@@ -203,15 +234,109 @@ void BlockCacheTraceAnalyzer::PrintMissRatioCurves() const {
   out.close();
 }
 
-BlockCacheTraceAnalyzer::BlockCacheTraceAnalyzer(
-    const std::string& trace_file_path,
-    const std::string& output_miss_ratio_curve_path,
-    std::unique_ptr<BlockCacheTraceSimulator>&& cache_simulator)
-    : trace_file_path_(trace_file_path),
-      output_miss_ratio_curve_path_(output_miss_ratio_curve_path),
-      cache_simulator_(std::move(cache_simulator)) {
-  env_ = rocksdb::Env::Default();
+void BlockCacheTraceAnalyzer::WriteAccessTimeline(
+    const std::string& label_str) const {
+  std::vector<std::string> groupby_conditions;
+  std::stringstream ss(label_str);
+  std::set<std::string> labels;
+  // label_str is in the form of "label1_label2_label3", e.g., cf_bt.
+  while (ss.good()) {
+    std::string label_name;
+    getline(ss, label_name, '_');
+    if (kGroupbyLabels.find(label_name) == kGroupbyLabels.end()) {
+      // Unknown label name.
+      fprintf(stderr, "Unknown label name %s, label string %s\n",
+              label_name.c_str(), label_str.c_str());
+      return;
+    }
+    labels.insert(label_name);
+  }
+  uint64_t start_time = UINT64_MAX;
+  uint64_t end_time = 0;
+  std::map<std::string, std::map<uint64_t, uint64_t>> label_access_timeline;
+  for (auto const& cf_aggregates : cf_aggregates_map_) {
+    // Stats per column family.
+    const std::string& cf_name = cf_aggregates.first;
+    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
+      // Stats per SST file.
+      const uint64_t fd = file_aggregates.first;
+      const uint32_t level = file_aggregates.second.level;
+      for (auto const& block_type_aggregates :
+           file_aggregates.second.block_type_aggregates_map) {
+        // Stats per block type.
+        const TraceType type = block_type_aggregates.first;
+        for (auto const& block_access_info :
+             block_type_aggregates.second.block_access_info_map) {
+          // Stats per block.
+          for (auto const& timeline :
+               block_access_info.second.caller_num_accesses_timeline) {
+            const BlockCacheLookupCaller caller = timeline.first;
+            const std::string& block_key = block_access_info.first;
+            std::map<std::string, std::string> condition_value_map;
+            condition_value_map[kGroupbyAll] = kGroupbyAll;
+            condition_value_map[kGroupbyLevel] = std::to_string(level);
+            condition_value_map[kGroupbyCaller] = caller_to_string(caller);
+            condition_value_map[kGroupbySSTFile] = std::to_string(fd);
+            condition_value_map[kGroupbyBlockType] = block_type_to_string(type);
+            condition_value_map[kGroupbyColumnFamily] = cf_name;
+            condition_value_map[kGroupbyBlock] = block_key;
+            // Concatenate the actual labels.
+            std::string label;
+            for (auto const& l : labels) {
+              label += condition_value_map[l];
+              label += "-";
+            }
+            label.pop_back();
+            for (auto const& naccess : timeline.second) {
+              const uint64_t timestamp = naccess.first;
+              const uint64_t num = naccess.second;
+              label_access_timeline[label][timestamp] += num;
+              start_time = std::min(start_time, timestamp);
+              end_time = std::max(end_time, timestamp);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // We have label_access_timeline now. Write them into a file.
+  const std::string output_path =
+      output_dir_ + "/" + label_str + "_access_timeline";
+  std::ofstream out(output_path);
+  if (!out.is_open()) {
+    return;
+  }
+  std::string header("time");
+  for (auto const& label : label_access_timeline) {
+    header += ",";
+    header += label.first;
+  }
+  out << header << std::endl;
+  std::string row;
+  for (uint64_t now = start_time; now <= end_time; now++) {
+    row = std::to_string(now);
+    for (auto const& label : label_access_timeline) {
+      auto it = label.second.find(now);
+      row += ",";
+      if (it != label.second.end()) {
+        row += std::to_string(it->second);
+      } else {
+        row += "0";
+      }
+    }
+    out << row << std::endl;
+  }
+  out.close();
 }
+
+BlockCacheTraceAnalyzer::BlockCacheTraceAnalyzer(
+    const std::string& trace_file_path, const std::string& output_dir,
+    std::unique_ptr<BlockCacheTraceSimulator>&& cache_simulator)
+    : env_(rocksdb::Env::Default()),
+      trace_file_path_(trace_file_path),
+      output_dir_(output_dir),
+      cache_simulator_(std::move(cache_simulator)) {}
 
 void BlockCacheTraceAnalyzer::RecordAccess(
     const BlockCacheTraceRecord& access) {
@@ -678,7 +803,7 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
         warmup_seconds, downsample_ratio, cache_configs));
   }
   BlockCacheTraceAnalyzer analyzer(FLAGS_block_cache_trace_path,
-                                   FLAGS_output_miss_ratio_curve_path,
+                                   FLAGS_block_cache_analysis_result_dir,
                                    std::move(cache_simulator));
   Status s = analyzer.Analyze();
   if (!s.IsIncomplete()) {
@@ -701,7 +826,16 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
     analyzer.PrintDataBlockAccessStats();
   }
   print_break_lines(/*num_break_lines=*/3);
-  analyzer.PrintMissRatioCurves();
+  analyzer.WriteMissRatioCurves();
+
+  if (!FLAGS_timeline_labels.empty()) {
+    std::stringstream ss(FLAGS_timeline_labels);
+    while (ss.good()) {
+      std::string label;
+      getline(ss, label, ',');
+      analyzer.WriteAccessTimeline(label);
+    }
+  }
   return 0;
 }
 
