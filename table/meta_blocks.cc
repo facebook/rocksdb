@@ -487,12 +487,11 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
   read_options.verify_checksums = false;
   PersistentCacheOptions cache_options;
 
-  BlockFetcher block_fetcher(file, prefetch_buffer, footer, read_options,
-                             metaindex_handle, &metaindex_contents, ioptions,
-                             false /* decompress */, false /*maybe_compressed*/,
-                             BlockType::kMetaIndex,
-                             UncompressionDict::GetEmptyDict(), cache_options,
-                             memory_allocator);
+  BlockFetcher block_fetcher(
+      file, prefetch_buffer, footer, read_options, metaindex_handle,
+      &metaindex_contents, ioptions, false /* decompress */,
+      false /*maybe_compressed*/, BlockType::kMetaIndex,
+      UncompressionDict::GetEmptyDict(), cache_options, memory_allocator);
   status = block_fetcher.ReadBlockContents();
   if (!status.ok()) {
     return status;

@@ -88,8 +88,8 @@ Status ReadBlockFromFile(
   BlockContents contents;
   BlockFetcher block_fetcher(
       file, prefetch_buffer, footer, options, handle, &contents, ioptions,
-      do_uncompress, maybe_compressed, uncompression_dict, cache_options,
-      memory_allocator, nullptr, for_compaction);
+      do_uncompress, maybe_compressed, block_type, uncompression_dict,
+      cache_options, memory_allocator, nullptr, for_compaction);
   Status s = block_fetcher.ReadBlockContents();
   if (s.ok()) {
     result->reset(new Block(std::move(contents), global_seqno,

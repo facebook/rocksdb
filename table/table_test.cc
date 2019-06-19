@@ -3590,7 +3590,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     BlockContents metaindex_contents;
 
     BlockFetchHelper(metaindex_handle, BlockType::kMetaIndex,
-        &metaindex_contents);
+                     &metaindex_contents);
     Block metaindex_block(std::move(metaindex_contents),
                           kDisableGlobalSequenceNumber);
 
@@ -3608,7 +3608,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     BlockContents properties_contents;
 
     BlockFetchHelper(properties_handle, BlockType::kProperties,
-        &properties_contents);
+                     &properties_contents);
     Block properties_block(std::move(properties_contents),
                            kDisableGlobalSequenceNumber);
 
