@@ -46,9 +46,9 @@ Status DBWithTTLImpl::Close() {
   Status ret = Status::OK();
   if (!closed_) {
     Options default_options = GetOptions();
-    ret = db_->Close();
     // Need to stop background compaction before getting rid of the filter
     CancelAllBackgroundWork(db_, /* wait = */ true);
+    ret = db_->Close();
     delete default_options.compaction_filter;
     closed_ = true;
   }
