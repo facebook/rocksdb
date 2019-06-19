@@ -93,6 +93,10 @@ class CloudEnvImpl : public CloudEnv {
   void TEST_InitEmptyCloudManifest();
   void TEST_DisableCloudManifest() { test_disable_cloud_manifest_ = true; }
 
+  Status GetThreadList(std::vector<ThreadStatus>* thread_list) override {
+    return base_env_->GetThreadList(thread_list);
+  }
+
  protected:
   // The type of cloud service e.g. AWS, Azure, Google,  etc.
   const CloudType cloud_type_;
