@@ -236,7 +236,6 @@ void BlockCacheTraceAnalyzer::WriteMissRatioCurves() const {
 
 void BlockCacheTraceAnalyzer::WriteAccessTimeline(
     const std::string& label_str) const {
-  std::vector<std::string> groupby_conditions;
   std::stringstream ss(label_str);
   std::set<std::string> labels;
   // label_str is in the form of "label1_label2_label3", e.g., cf_bt.
@@ -272,18 +271,18 @@ void BlockCacheTraceAnalyzer::WriteAccessTimeline(
                block_access_info.second.caller_num_accesses_timeline) {
             const BlockCacheLookupCaller caller = timeline.first;
             const std::string& block_key = block_access_info.first;
-            std::map<std::string, std::string> condition_value_map;
-            condition_value_map[kGroupbyAll] = kGroupbyAll;
-            condition_value_map[kGroupbyLevel] = std::to_string(level);
-            condition_value_map[kGroupbyCaller] = caller_to_string(caller);
-            condition_value_map[kGroupbySSTFile] = std::to_string(fd);
-            condition_value_map[kGroupbyBlockType] = block_type_to_string(type);
-            condition_value_map[kGroupbyColumnFamily] = cf_name;
-            condition_value_map[kGroupbyBlock] = block_key;
-            // Concatenate the actual labels.
+            std::map<std::string, std::string> label_value_map;
+            label_value_map[kGroupbyAll] = kGroupbyAll;
+            label_value_map[kGroupbyLevel] = std::to_string(level);
+            label_value_map[kGroupbyCaller] = caller_to_string(caller);
+            label_value_map[kGroupbySSTFile] = std::to_string(fd);
+            label_value_map[kGroupbyBlockType] = block_type_to_string(type);
+            label_value_map[kGroupbyColumnFamily] = cf_name;
+            label_value_map[kGroupbyBlock] = block_key;
+            // Concatenate the label values.
             std::string label;
             for (auto const& l : labels) {
-              label += condition_value_map[l];
+              label += label_value_map[l];
               label += "-";
             }
             label.pop_back();
