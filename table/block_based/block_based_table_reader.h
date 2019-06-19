@@ -407,6 +407,8 @@ class BlockBasedTable : public TableReader {
       const BlockBasedTableOptions& table_options, const int level,
       BlockCacheLookupContext* lookup_context);
 
+  static BlockType GetBlockTypeForMetaBlockByName(const Slice& meta_block_name);
+
   Status VerifyChecksumInMetaBlocks(InternalIteratorBase<Slice>* index_iter);
   Status VerifyChecksumInBlocks(InternalIteratorBase<BlockHandle>* index_iter);
 
