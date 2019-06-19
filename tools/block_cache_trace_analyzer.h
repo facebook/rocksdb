@@ -31,7 +31,7 @@ class BlockCacheTraceSimulator {
   // warmup_seconds: The number of seconds to warmup simulated caches. The
   // hit/miss counters are reset after the warmup completes.
   BlockCacheTraceSimulator(
-      uint64_t warmup_seconds,
+      uint64_t warmup_seconds, uint32_t downsample_ratio,
       const std::vector<CacheConfiguration>& cache_configurations);
   ~BlockCacheTraceSimulator() = default;
   // No copy and move.
@@ -52,6 +52,7 @@ class BlockCacheTraceSimulator {
 
  private:
   const uint64_t warmup_seconds_;
+  const uint32_t downsample_ratio_;
   const std::vector<CacheConfiguration> cache_configurations_;
 
   bool warmup_complete_ = false;
