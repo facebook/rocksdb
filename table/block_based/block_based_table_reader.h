@@ -123,6 +123,8 @@ class BlockBasedTable : public TableReader {
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
   // @param skip_filters Disables loading/accessing the filter block
+  // compaction_readahead_size: its value will only be used if for_compaction =
+  // true
   InternalIterator* NewIterator(
       const ReadOptions&, const SliceTransform* prefix_extractor,
       Arena* arena = nullptr, bool skip_filters = false,
@@ -131,7 +133,8 @@ class BlockBasedTable : public TableReader {
       // i.e., it will populate the block cache with blocks in the new SST
       // files. We treat those as a user is calling iterator for now. We should
       // differentiate the callers.
-      bool for_compaction = false) override;
+      bool for_compaction = false,
+      size_t compaction_readahead_size = 0) override;
 
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
@@ -234,7 +237,7 @@ class BlockBasedTable : public TableReader {
       TBlockIter* input_iter, BlockType block_type, bool key_includes_seq,
       bool index_key_is_full, GetContext* get_context,
       BlockCacheLookupContext* lookup_context, Status s,
-      FilePrefetchBuffer* prefetch_buffer) const;
+      FilePrefetchBuffer* prefetch_buffer, bool for_compaction = false) const;
 
   class PartitionedIndexIteratorState;
 
@@ -283,7 +286,8 @@ class BlockBasedTable : public TableReader {
                        const UncompressionDict& uncompression_dict,
                        CachableEntry<Block>* block_entry, BlockType block_type,
                        GetContext* get_context,
-                       BlockCacheLookupContext* lookup_context) const;
+                       BlockCacheLookupContext* lookup_context,
+                       bool for_compaction = false) const;
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file
@@ -596,6 +600,8 @@ struct BlockBasedTable::Rep {
 // Iterates over the contents of BlockBasedTable.
 template <class TBlockIter, typename TValue = Slice>
 class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
+  // compaction_readahead_size: its value will only be used if for_compaction =
+  // true
  public:
   BlockBasedTableIterator(const BlockBasedTable* table,
                           const ReadOptions& read_options,
@@ -605,7 +611,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
                           const SliceTransform* prefix_extractor,
                           BlockType block_type, bool key_includes_seq = true,
                           bool index_key_is_full = true,
-                          bool for_compaction = false)
+                          bool for_compaction = false,
+                          size_t compaction_readahead_size = 0)
       : InternalIteratorBase<TValue>(false),
         table_(table),
         read_options_(read_options),
@@ -621,6 +628,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
         key_includes_seq_(key_includes_seq),
         index_key_is_full_(index_key_is_full),
         for_compaction_(for_compaction),
+        compaction_readahead_size_(compaction_readahead_size),
         lookup_context_(for_compaction
                             ? BlockCacheLookupCaller::kCompaction
                             : BlockCacheLookupCaller::kUserIterator) {}
@@ -734,6 +742,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   bool index_key_is_full_;
   // If this iterator is created for compaction
   bool for_compaction_;
+  // Readahead size used in compaction, its value is used only if
+  // for_compaction_ = true
+  size_t compaction_readahead_size_;
   BlockHandle prev_index_value_;
   BlockCacheLookupContext lookup_context_;
 
