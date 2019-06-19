@@ -498,8 +498,7 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   // Create new iterator for:
   // (1) 1 for verifying flush results
   // (2) 1 for verifying compaction results.
-  // (3) Compaction will not create new iterators anymore
-  //     if there is one already.
+  // (3) New TableReaders will not be created for compaction inputs
   ASSERT_EQ(num_new_table_reader, 2);
 
   num_table_cache_lookup = 0;

@@ -77,6 +77,9 @@ class PlainTableReader: public TableReader {
                      bool full_scan_mode, const bool immortal_table = false,
                      const SliceTransform* prefix_extractor = nullptr);
 
+  // Returns new iterator over table contents
+  // compaction_readahead_size: its value will only be used if for_compaction =
+  // true
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena = nullptr,

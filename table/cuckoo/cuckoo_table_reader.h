@@ -45,6 +45,9 @@ class CuckooTableReader: public TableReader {
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
+  // Returns a new iterator over table contents
+  // compaction_readahead_size: its value will only be used if for_compaction =
+  // true
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena = nullptr,

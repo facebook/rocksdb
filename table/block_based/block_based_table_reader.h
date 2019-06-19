@@ -123,6 +123,8 @@ class BlockBasedTable : public TableReader {
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
   // @param skip_filters Disables loading/accessing the filter block
+  // compaction_readahead_size: its value will only be used if for_compaction =
+  // true
   InternalIterator* NewIterator(
       const ReadOptions&, const SliceTransform* prefix_extractor,
       Arena* arena = nullptr, bool skip_filters = false,
@@ -598,6 +600,8 @@ struct BlockBasedTable::Rep {
 // Iterates over the contents of BlockBasedTable.
 template <class TBlockIter, typename TValue = Slice>
 class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
+  // compaction_readahead_size: its value will only be used if for_compaction =
+  // true
  public:
   BlockBasedTableIterator(const BlockBasedTable* table,
                           const ReadOptions& read_options,
@@ -738,7 +742,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   bool index_key_is_full_;
   // If this iterator is created for compaction
   bool for_compaction_;
-  // Readahead size used in compaction
+  // Readahead size used in compaction, its value is used only if
+  // for_compaction_ = true
   size_t compaction_readahead_size_;
   BlockHandle prev_index_value_;
   BlockCacheLookupContext lookup_context_;
