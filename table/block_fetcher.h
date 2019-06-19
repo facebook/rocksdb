@@ -44,7 +44,8 @@ class BlockFetcher {
                const UncompressionDict& uncompression_dict,
                const PersistentCacheOptions& cache_options,
                MemoryAllocator* memory_allocator = nullptr,
-               MemoryAllocator* memory_allocator_compressed = nullptr)
+               MemoryAllocator* memory_allocator_compressed = nullptr,
+               bool for_compaction = false)
       : file_(file),
         prefetch_buffer_(prefetch_buffer),
         footer_(footer),
@@ -58,7 +59,9 @@ class BlockFetcher {
         uncompression_dict_(uncompression_dict),
         cache_options_(cache_options),
         memory_allocator_(memory_allocator),
-        memory_allocator_compressed_(memory_allocator_compressed) {}
+        memory_allocator_compressed_(memory_allocator_compressed),
+        for_compaction_(for_compaction) {}
+
   Status ReadBlockContents();
   CompressionType get_compression_type() const { return compression_type_; }
 
@@ -88,6 +91,7 @@ class BlockFetcher {
   char stack_buf_[kDefaultStackBufferSize];
   bool got_from_prefetch_buffer_ = false;
   rocksdb::CompressionType compression_type_;
+  bool for_compaction_ = false;
 
   // return true if found
   bool TryGetUncompressBlockFromPersistentCache();

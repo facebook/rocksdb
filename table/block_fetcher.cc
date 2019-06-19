@@ -93,7 +93,8 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
   if (prefetch_buffer_ != nullptr &&
       prefetch_buffer_->TryReadFromCache(
           handle_.offset(),
-          static_cast<size_t>(handle_.size()) + kBlockTrailerSize, &slice_)) {
+          static_cast<size_t>(handle_.size()) + kBlockTrailerSize, &slice_,
+          for_compaction_)) {
     block_size_ = static_cast<size_t>(handle_.size());
     CheckBlockChecksum();
     if (!status_.ok()) {
@@ -217,7 +218,7 @@ Status BlockFetcher::ReadBlockContents() {
       PERF_TIMER_GUARD(block_read_time);
       // Actual file read
       status_ = file_->Read(handle_.offset(), block_size_ + kBlockTrailerSize,
-                            &slice_, used_buf_);
+                            &slice_, used_buf_, for_compaction_);
     }
     PERF_COUNTER_ADD(block_read_count, 1);
 
