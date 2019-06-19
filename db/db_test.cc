@@ -6156,6 +6156,17 @@ TEST_F(DBTest, ThreadLocalPtrDeadlock) {
   fprintf(stderr, "Done. Flushed %d times, destroyed %d threads\n",
           flushes_done.load(), threads_destroyed.load());
 }
+
+TEST_F(DBTest, LargeBlockSizeTest) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put(0, "foo", "bar"));
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 8LL*1024*1024*1024LL;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
