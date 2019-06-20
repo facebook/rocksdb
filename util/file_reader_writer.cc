@@ -70,7 +70,7 @@ Status SequentialFileReader::Skip(uint64_t n) {
 }
 
 Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
-                                    char* scratch) const {
+                                    char* scratch, bool for_compaction) const {
   Status s;
   uint64_t elapsed = 0;
   {
@@ -90,7 +90,7 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
       buf.AllocateNewBuffer(read_size);
       while (buf.CurrentSize() < read_size) {
         size_t allowed;
-        if (for_compaction_ && rate_limiter_ != nullptr) {
+        if (for_compaction && rate_limiter_ != nullptr) {
           allowed = rate_limiter_->RequestToken(
               buf.Capacity() - buf.CurrentSize(), buf.Alignment(),
               Env::IOPriority::IO_LOW, stats_, RateLimiter::OpType::kRead);
@@ -134,7 +134,7 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
       const char* res_scratch = nullptr;
       while (pos < n) {
         size_t allowed;
-        if (for_compaction_ && rate_limiter_ != nullptr) {
+        if (for_compaction && rate_limiter_ != nullptr) {
           if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
             sw.DelayStart();
           }
@@ -711,7 +711,8 @@ private:
 }  // namespace
 
 Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
-                                    uint64_t offset, size_t n) {
+                                    uint64_t offset, size_t n,
+                                    bool for_compaction) {
   size_t alignment = reader->file()->GetRequiredBufferAlignment();
   size_t offset_ = static_cast<size_t>(offset);
   uint64_t rounddown_offset = Rounddown(offset_, alignment);
@@ -771,7 +772,7 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
   Slice result;
   s = reader->Read(rounddown_offset + chunk_len,
                    static_cast<size_t>(roundup_len - chunk_len), &result,
-                   buffer_.BufferStart() + chunk_len);
+                   buffer_.BufferStart() + chunk_len, for_compaction);
   if (s.ok()) {
     buffer_offset_ = rounddown_offset;
     buffer_.Size(static_cast<size_t>(chunk_len) + result.size());
@@ -780,7 +781,7 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
 }
 
 bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
-                                          Slice* result) {
+                                          Slice* result, bool for_compaction) {
   if (track_min_offset_ && offset < min_offset_read_) {
     min_offset_read_ = static_cast<size_t>(offset);
   }
@@ -797,7 +798,8 @@ bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
       assert(file_reader_ != nullptr);
       assert(max_readahead_size_ >= readahead_size_);
 
-      Status s = Prefetch(file_reader_, offset, n + readahead_size_);
+      Status s =
+          Prefetch(file_reader_, offset, n + readahead_size_, for_compaction);
       if (!s.ok()) {
         return false;
       }

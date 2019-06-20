@@ -31,7 +31,7 @@ class BlockCacheTraceSimulator {
   // warmup_seconds: The number of seconds to warmup simulated caches. The
   // hit/miss counters are reset after the warmup completes.
   BlockCacheTraceSimulator(
-      uint64_t warmup_seconds,
+      uint64_t warmup_seconds, uint32_t downsample_ratio,
       const std::vector<CacheConfiguration>& cache_configurations);
   ~BlockCacheTraceSimulator() = default;
   // No copy and move.
@@ -52,6 +52,7 @@ class BlockCacheTraceSimulator {
 
  private:
   const uint64_t warmup_seconds_;
+  const uint32_t downsample_ratio_;
   const std::vector<CacheConfiguration> cache_configurations_;
 
   bool warmup_complete_ = false;
@@ -71,7 +72,7 @@ struct BlockAccessInfo {
   std::map<std::string, uint64_t>
       non_exist_key_num_access_map;  // for keys do not exist in this block.
   uint64_t num_referenced_key_exist_in_block = 0;
-  std::map<BlockCacheLookupCaller, uint64_t> caller_num_access_map;
+  std::map<TableReaderCaller, uint64_t> caller_num_access_map;
 
   void AddAccess(const BlockCacheTraceRecord& access) {
     if (first_access_time == 0) {

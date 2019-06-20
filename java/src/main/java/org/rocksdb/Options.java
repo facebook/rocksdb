@@ -16,7 +16,7 @@ import java.util.List;
  * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
  *
  * If {@link #dispose()} function is not called, then it will be GC'd
- * automaticallyand native resources will be released as part of the process.
+ * automatically and native resources will be released as part of the process.
  */
 public class Options extends RocksObject
     implements DBOptionsInterface<Options>,
