@@ -20,6 +20,8 @@
 
 namespace rocksdb {
 
+class Directories;
+
 struct IngestedFileInfo {
   // External file path
   std::string external_file_path;
@@ -77,7 +79,8 @@ class ExternalSstFileIngestionJob {
       Env* env, VersionSet* versions, ColumnFamilyData* cfd,
       const ImmutableDBOptions& db_options, const EnvOptions& env_options,
       SnapshotList* db_snapshots,
-      const IngestExternalFileOptions& ingestion_options)
+      const IngestExternalFileOptions& ingestion_options,
+      Directories* directories)
       : env_(env),
         versions_(versions),
         cfd_(cfd),
@@ -85,7 +88,10 @@ class ExternalSstFileIngestionJob {
         env_options_(env_options),
         db_snapshots_(db_snapshots),
         ingestion_options_(ingestion_options),
-        job_start_time_(env_->NowMicros()) {}
+        directories_(directories),
+        job_start_time_(env_->NowMicros()) {
+    assert(directories != nullptr);
+  }
 
   // Prepare the job by copying external files into the DB.
   Status Prepare(const std::vector<std::string>& external_files_paths,
@@ -149,6 +155,10 @@ class ExternalSstFileIngestionJob {
   bool IngestedFileFitInLevel(const IngestedFileInfo* file_to_ingest,
                               int level);
 
+  // Helper method to sync given file.
+  template <typename TWritableFile>
+  Status SyncIngestedFile(TWritableFile* file);
+
   Env* env_;
   VersionSet* versions_;
   ColumnFamilyData* cfd_;
@@ -157,6 +167,7 @@ class ExternalSstFileIngestionJob {
   SnapshotList* db_snapshots_;
   autovector<IngestedFileInfo> files_to_ingest_;
   const IngestExternalFileOptions& ingestion_options_;
+  Directories* directories_;
   VersionEdit edit_;
   uint64_t job_start_time_;
 };

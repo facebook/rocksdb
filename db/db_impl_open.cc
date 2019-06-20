@@ -270,9 +270,9 @@ Status DBImpl::CreateAndNewDirectory(Env* env, const std::string& dirname,
   return env->NewDirectory(dirname, directory);
 }
 
-Status DBImpl::Directories::SetDirectories(
-    Env* env, const std::string& dbname, const std::string& wal_dir,
-    const std::vector<DbPath>& data_paths) {
+Status Directories::SetDirectories(Env* env, const std::string& dbname,
+                                   const std::string& wal_dir,
+                                   const std::vector<DbPath>& data_paths) {
   Status s = DBImpl::CreateAndNewDirectory(env, dbname, &db_dir_);
   if (!s.ok()) {
     return s;
