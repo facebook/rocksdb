@@ -40,7 +40,7 @@ class SpecialTimeEnv : public EnvWrapper {
   int64_t current_time_ = 0;
 };
 
-class TtlTest : public testing::TestWithParam<bool> {
+class TtlTest : public testing::Test {
  public:
   TtlTest() {
     env_.reset(new SpecialTimeEnv(Env::Default()));
@@ -86,8 +86,14 @@ class TtlTest : public testing::TestWithParam<bool> {
     ASSERT_OK(DBWithTTL::Open(options_, dbname_, &db_ttl_, ttl, true));
   }
 
+  // Call db_ttl_->Close() before delete db_ttl_
   void CloseTtl() {
-    CloseTtlHelper(GetParam());
+    CloseTtlHelper(true);
+  }
+
+  // No db_ttl_->Close() before delete db_ttl_
+  void CloseTtlNoDBClose() {
+    CloseTtlHelper(false);
   }
 
   void CloseTtlHelper(bool close_db) {
@@ -389,7 +395,7 @@ class TtlTest : public testing::TestWithParam<bool> {
 // This test opens the db 3 times with such default behavior and inserts a
 // bunch of kvs each time. All kvs should accumulate in the db till the end
 // Partitions the sample-size provided into 3 sets over boundary1 and boundary2
-TEST_P(TtlTest, NoEffect) {
+TEST_F(TtlTest, NoEffect) {
   MakeKVMap(kSampleSize_);
   int64_t boundary1 = kSampleSize_ / 3;
   int64_t boundary2 = 2 * boundary1;
@@ -410,8 +416,32 @@ TEST_P(TtlTest, NoEffect) {
   CloseTtl();
 }
 
+
+// Rerun the NoEffect test with a different version of CloseTtl
+// function, where db is directly deleted without close.
+TEST_F(TtlTest, DestructWithoutClose) {
+  MakeKVMap(kSampleSize_);
+  int64_t boundary1 = kSampleSize_ / 3;
+  int64_t boundary2 = 2 * boundary1;
+
+  OpenTtl();
+  PutValues(0, boundary1);                       //T=0: Set1 never deleted
+  SleepCompactCheck(1, 0, boundary1);            //T=1: Set1 still there
+  CloseTtlNoDBClose();
+
+  OpenTtl(0);
+  PutValues(boundary1, boundary2 - boundary1);   //T=1: Set2 never deleted
+  SleepCompactCheck(1, 0, boundary2);            //T=2: Sets1 & 2 still there
+  CloseTtlNoDBClose();
+
+  OpenTtl(-1);
+  PutValues(boundary2, kSampleSize_ - boundary2); //T=3: Set3 never deleted
+  SleepCompactCheck(1, 0, kSampleSize_, true);    //T=4: Sets 1,2,3 still there
+  CloseTtlNoDBClose();
+}
+
 // Puts a set of values and checks its presence using Get during ttl
-TEST_P(TtlTest, PresentDuringTTL) {
+TEST_F(TtlTest, PresentDuringTTL) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(2);                                 // T=0:Open the db with ttl = 2
@@ -421,7 +451,7 @@ TEST_P(TtlTest, PresentDuringTTL) {
 }
 
 // Puts a set of values and checks its absence using Get after ttl
-TEST_P(TtlTest, AbsentAfterTTL) {
+TEST_F(TtlTest, AbsentAfterTTL) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(1);                                  // T=0:Open the db with ttl = 2
@@ -432,7 +462,7 @@ TEST_P(TtlTest, AbsentAfterTTL) {
 
 // Resets the timestamp of a set of kvs by updating them and checks that they
 // are not deleted according to the old timestamp
-TEST_P(TtlTest, ResetTimestamp) {
+TEST_F(TtlTest, ResetTimestamp) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(3);
@@ -444,7 +474,7 @@ TEST_P(TtlTest, ResetTimestamp) {
 }
 
 // Similar to PresentDuringTTL but uses Iterator
-TEST_P(TtlTest, IterPresentDuringTTL) {
+TEST_F(TtlTest, IterPresentDuringTTL) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(2);
@@ -454,7 +484,7 @@ TEST_P(TtlTest, IterPresentDuringTTL) {
 }
 
 // Similar to AbsentAfterTTL but uses Iterator
-TEST_P(TtlTest, IterAbsentAfterTTL) {
+TEST_F(TtlTest, IterAbsentAfterTTL) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(1);
@@ -465,7 +495,7 @@ TEST_P(TtlTest, IterAbsentAfterTTL) {
 
 // Checks presence while opening the same db more than once with the same ttl
 // Note: The second open will open the same db
-TEST_P(TtlTest, MultiOpenSamePresent) {
+TEST_F(TtlTest, MultiOpenSamePresent) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(2);
@@ -479,7 +509,7 @@ TEST_P(TtlTest, MultiOpenSamePresent) {
 
 // Checks absence while opening the same db more than once with the same ttl
 // Note: The second open will open the same db
-TEST_P(TtlTest, MultiOpenSameAbsent) {
+TEST_F(TtlTest, MultiOpenSameAbsent) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(1);
@@ -492,7 +522,7 @@ TEST_P(TtlTest, MultiOpenSameAbsent) {
 }
 
 // Checks presence while opening the same db more than once with bigger ttl
-TEST_P(TtlTest, MultiOpenDifferent) {
+TEST_F(TtlTest, MultiOpenDifferent) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(1);
@@ -505,7 +535,7 @@ TEST_P(TtlTest, MultiOpenDifferent) {
 }
 
 // Checks presence during ttl in read_only mode
-TEST_P(TtlTest, ReadOnlyPresentForever) {
+TEST_F(TtlTest, ReadOnlyPresentForever) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(1);                                 // T=0:Open the db normally
@@ -519,7 +549,7 @@ TEST_P(TtlTest, ReadOnlyPresentForever) {
 
 // Checks whether WriteBatch works well with TTL
 // Puts all kvs in kvmap_ in a batch and writes first, then deletes first half
-TEST_P(TtlTest, WriteBatchTest) {
+TEST_F(TtlTest, WriteBatchTest) {
   MakeKVMap(kSampleSize_);
   BatchOperation batch_ops[kSampleSize_];
   for (int i = 0; i < kSampleSize_; i++) {
@@ -538,7 +568,7 @@ TEST_P(TtlTest, WriteBatchTest) {
 }
 
 // Checks user's compaction filter for correctness with TTL logic
-TEST_P(TtlTest, CompactionFilter) {
+TEST_F(TtlTest, CompactionFilter) {
   MakeKVMap(kSampleSize_);
 
   OpenTtlWithTestCompaction(1);
@@ -558,7 +588,7 @@ TEST_P(TtlTest, CompactionFilter) {
 
 // Insert some key-values which KeyMayExist should be able to get and check that
 // values returned are fine
-TEST_P(TtlTest, KeyMayExist) {
+TEST_F(TtlTest, KeyMayExist) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl();
@@ -569,7 +599,7 @@ TEST_P(TtlTest, KeyMayExist) {
   CloseTtl();
 }
 
-TEST_P(TtlTest, MultiGetTest) {
+TEST_F(TtlTest, MultiGetTest) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl();
@@ -580,7 +610,7 @@ TEST_P(TtlTest, MultiGetTest) {
   CloseTtl();
 }
 
-TEST_P(TtlTest, ColumnFamiliesTest) {
+TEST_F(TtlTest, ColumnFamiliesTest) {
   DB* db;
   Options options;
   options.create_if_missing = true;
@@ -638,7 +668,7 @@ TEST_P(TtlTest, ColumnFamiliesTest) {
 }
 
 // Puts a set of values and checks its absence using Get after ttl
-TEST_P(TtlTest, ChangeTtlOnOpenDb) {
+TEST_F(TtlTest, ChangeTtlOnOpenDb) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(1);                                  // T=0:Open the db with ttl = 2
@@ -648,8 +678,6 @@ TEST_P(TtlTest, ChangeTtlOnOpenDb) {
   SleepCompactCheck(2, 0, kSampleSize_, true); // T=2:Set1 should be there
   CloseTtl();
 }
-
-INSTANTIATE_TEST_CASE_P(TTLTEST, TtlTest, testing::Bool());
 
 } //  namespace rocksdb
 
