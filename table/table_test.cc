@@ -384,9 +384,11 @@ class TableConstructor: public Constructor {
     if (convert_to_internal_key_) {
       InternalKey ikey(key, kMaxSequenceNumber, kTypeValue);
       const Slice skey = ikey.Encode();
-      return table_reader_->ApproximateOffsetOf(skey, TableReaderCaller::kUncategorized);
+      return table_reader_->ApproximateOffsetOf(
+          skey, TableReaderCaller::kUncategorized);
     }
-    return table_reader_->ApproximateOffsetOf(key, TableReaderCaller::kUncategorized);
+    return table_reader_->ApproximateOffsetOf(
+        key, TableReaderCaller::kUncategorized);
   }
 
   virtual Status Reopen(const ImmutableCFOptions& ioptions,
@@ -1825,9 +1827,9 @@ TEST_P(BlockBasedTableTest, IndexSeekOptimizationIncomplete) {
   auto reader = c.GetTableReader();
   ReadOptions ropt;
   ropt.read_tier = ReadTier::kBlockCacheTier;
-  std::unique_ptr<InternalIterator> iter(
-      reader->NewIterator(ropt, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
-                          /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+  std::unique_ptr<InternalIterator> iter(reader->NewIterator(
+      ropt, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
   auto ikey = [](Slice user_key) {
     return InternalKey(user_key, 0, kTypeValue).Encode().ToString();

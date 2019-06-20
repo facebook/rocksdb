@@ -2730,7 +2730,8 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
         read_options_, data_block_handle, &block_iter_, block_type_,
         key_includes_seq_, index_key_is_full_,
         /*get_context=*/nullptr, &lookup_context_, s, prefetch_buffer_.get(),
-        for_compaction_);
+        /*for_compaction=*/lookup_context_.caller ==
+            TableReaderCaller::kCompaction);
     block_iter_points_to_real_block_ = true;
   }
 }
@@ -2987,7 +2988,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         break;
       } else {
         BlockCacheLookupContext lookup_data_block_context{
-            BlockCacheLookupCaller::kUserGet};
+            TableReaderCaller::kUserGet};
         bool does_referenced_key_exist = false;
         DataBlockIter biter;
         uint64_t referenced_data_size = 0;
@@ -3133,7 +3134,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         uint64_t referenced_data_size = 0;
         bool does_referenced_key_exist = false;
         BlockCacheLookupContext lookup_data_block_context(
-            BlockCacheLookupCaller::kUserMGet);
+            TableReaderCaller::kUserMultiGet);
         if (iiter->value().offset() != offset) {
           offset = iiter->value().offset();
           biter.Invalidate(Status::OK());

@@ -605,15 +605,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
                           InternalIteratorBase<BlockHandle>* index_iter,
                           bool check_filter, bool need_upper_bound_check,
                           const SliceTransform* prefix_extractor,
-<<<<<<< HEAD
-                          BlockType block_type, bool key_includes_seq = true,
-                          bool index_key_is_full = true,
-                          bool for_compaction = false,
-                          size_t compaction_readahead_size = 0)
-=======
                           BlockType block_type, bool key_includes_seq,
-                          bool index_key_is_full, TableReaderCaller caller)
->>>>>>> Add more table reader callers
+                          bool index_key_is_full, TableReaderCaller caller,
+                          size_t compaction_readahead_size = 0)
       : InternalIteratorBase<TValue>(false),
         table_(table),
         read_options_(read_options),
@@ -628,15 +622,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
         block_type_(block_type),
         key_includes_seq_(key_includes_seq),
         index_key_is_full_(index_key_is_full),
-<<<<<<< HEAD
-        for_compaction_(for_compaction),
-        compaction_readahead_size_(compaction_readahead_size),
-        lookup_context_(for_compaction
-                            ? BlockCacheLookupCaller::kCompaction
-                            : BlockCacheLookupCaller::kUserIterator) {}
-=======
-        lookup_context_(caller) {}
->>>>>>> Add more table reader callers
+        lookup_context_(caller),
+        compaction_readahead_size_(compaction_readahead_size) {}
 
   ~BlockBasedTableIterator() { delete index_iter_; }
 
@@ -745,16 +732,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   // If the keys in the blocks over which we iterate include 8 byte sequence
   bool key_includes_seq_;
   bool index_key_is_full_;
-<<<<<<< HEAD
-  // If this iterator is created for compaction
-  bool for_compaction_;
-  // Readahead size used in compaction, its value is used only if
-  // for_compaction_ = true
-  size_t compaction_readahead_size_;
-=======
->>>>>>> Add more table reader callers
   BlockHandle prev_index_value_;
   BlockCacheLookupContext lookup_context_;
+  // Readahead size used in compaction, its value is used only if
+  // lookup_context_.caller = kCompaction.
+  size_t compaction_readahead_size_;
 
   // All the below fields control iterator readahead
   static const size_t kInitAutoReadaheadSize = 8 * 1024;

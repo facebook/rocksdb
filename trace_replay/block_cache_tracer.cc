@@ -15,16 +15,6 @@ namespace rocksdb {
 
 namespace {
 const unsigned int kCharSize = 1;
-<<<<<<< HEAD
-=======
-}  // namespace
-
-bool ShouldTraceReferencedKey(const BlockCacheTraceRecord& record) {
-  return (record.block_type == TraceType::kBlockTraceDataBlock) &&
-         (record.caller == TableReaderCaller::kUserGet ||
-          record.caller == TableReaderCaller::kUserMultiGet);
-}
->>>>>>> Add more table reader callers
 
 bool ShouldTrace(const Slice& block_key, const TraceOptions& trace_options) {
   if (trace_options.sampling_frequency == 0 ||
@@ -41,11 +31,11 @@ bool ShouldTrace(const Slice& block_key, const TraceOptions& trace_options) {
 const std::string BlockCacheTraceHelper::kUnknownColumnFamilyName =
     "UnknownColumnFamily";
 
-bool BlockCacheTraceHelper::ShouldTraceReferencedKey(
-    TraceType block_type, BlockCacheLookupCaller caller) {
+bool BlockCacheTraceHelper::ShouldTraceReferencedKey(TraceType block_type,
+                                                     TableReaderCaller caller) {
   return (block_type == TraceType::kBlockTraceDataBlock) &&
-         (caller == BlockCacheLookupCaller::kUserGet ||
-          caller == BlockCacheLookupCaller::kUserMGet);
+         (caller == TableReaderCaller::kUserGet ||
+          caller == TableReaderCaller::kUserMultiGet);
 }
 
 BlockCacheTraceWriter::BlockCacheTraceWriter(
