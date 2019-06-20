@@ -40,7 +40,7 @@ class SpecialTimeEnv : public EnvWrapper {
   int64_t current_time_ = 0;
 };
 
-class TtlTest : public testing::Test {
+class TtlTest : public testing::TestWithParam<bool> {
  public:
   TtlTest() {
     env_.reset(new SpecialTimeEnv(Env::Default()));
@@ -87,8 +87,14 @@ class TtlTest : public testing::Test {
   }
 
   void CloseTtl() {
+    CloseTtlHelper(GetParam());
+  }
+
+  void CloseTtlHelper(bool close_db) {
     if (db_ttl_ != nullptr) {
-      db_ttl_->Close();
+      if (close_db) {
+        db_ttl_->Close();
+      }
       delete db_ttl_;
       db_ttl_ = nullptr;
     }
@@ -383,7 +389,7 @@ class TtlTest : public testing::Test {
 // This test opens the db 3 times with such default behavior and inserts a
 // bunch of kvs each time. All kvs should accumulate in the db till the end
 // Partitions the sample-size provided into 3 sets over boundary1 and boundary2
-TEST_F(TtlTest, NoEffect) {
+TEST_P(TtlTest, NoEffect) {
   MakeKVMap(kSampleSize_);
   int64_t boundary1 = kSampleSize_ / 3;
   int64_t boundary2 = 2 * boundary1;
@@ -405,7 +411,7 @@ TEST_F(TtlTest, NoEffect) {
 }
 
 // Puts a set of values and checks its presence using Get during ttl
-TEST_F(TtlTest, PresentDuringTTL) {
+TEST_P(TtlTest, PresentDuringTTL) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(2);                                 // T=0:Open the db with ttl = 2
@@ -415,7 +421,7 @@ TEST_F(TtlTest, PresentDuringTTL) {
 }
 
 // Puts a set of values and checks its absence using Get after ttl
-TEST_F(TtlTest, AbsentAfterTTL) {
+TEST_P(TtlTest, AbsentAfterTTL) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(1);                                  // T=0:Open the db with ttl = 2
@@ -426,7 +432,7 @@ TEST_F(TtlTest, AbsentAfterTTL) {
 
 // Resets the timestamp of a set of kvs by updating them and checks that they
 // are not deleted according to the old timestamp
-TEST_F(TtlTest, ResetTimestamp) {
+TEST_P(TtlTest, ResetTimestamp) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(3);
@@ -438,7 +444,7 @@ TEST_F(TtlTest, ResetTimestamp) {
 }
 
 // Similar to PresentDuringTTL but uses Iterator
-TEST_F(TtlTest, IterPresentDuringTTL) {
+TEST_P(TtlTest, IterPresentDuringTTL) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(2);
@@ -448,7 +454,7 @@ TEST_F(TtlTest, IterPresentDuringTTL) {
 }
 
 // Similar to AbsentAfterTTL but uses Iterator
-TEST_F(TtlTest, IterAbsentAfterTTL) {
+TEST_P(TtlTest, IterAbsentAfterTTL) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(1);
@@ -459,7 +465,7 @@ TEST_F(TtlTest, IterAbsentAfterTTL) {
 
 // Checks presence while opening the same db more than once with the same ttl
 // Note: The second open will open the same db
-TEST_F(TtlTest, MultiOpenSamePresent) {
+TEST_P(TtlTest, MultiOpenSamePresent) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(2);
@@ -473,7 +479,7 @@ TEST_F(TtlTest, MultiOpenSamePresent) {
 
 // Checks absence while opening the same db more than once with the same ttl
 // Note: The second open will open the same db
-TEST_F(TtlTest, MultiOpenSameAbsent) {
+TEST_P(TtlTest, MultiOpenSameAbsent) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(1);
@@ -486,7 +492,7 @@ TEST_F(TtlTest, MultiOpenSameAbsent) {
 }
 
 // Checks presence while opening the same db more than once with bigger ttl
-TEST_F(TtlTest, MultiOpenDifferent) {
+TEST_P(TtlTest, MultiOpenDifferent) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(1);
@@ -499,7 +505,7 @@ TEST_F(TtlTest, MultiOpenDifferent) {
 }
 
 // Checks presence during ttl in read_only mode
-TEST_F(TtlTest, ReadOnlyPresentForever) {
+TEST_P(TtlTest, ReadOnlyPresentForever) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(1);                                 // T=0:Open the db normally
@@ -513,7 +519,7 @@ TEST_F(TtlTest, ReadOnlyPresentForever) {
 
 // Checks whether WriteBatch works well with TTL
 // Puts all kvs in kvmap_ in a batch and writes first, then deletes first half
-TEST_F(TtlTest, WriteBatchTest) {
+TEST_P(TtlTest, WriteBatchTest) {
   MakeKVMap(kSampleSize_);
   BatchOperation batch_ops[kSampleSize_];
   for (int i = 0; i < kSampleSize_; i++) {
@@ -532,7 +538,7 @@ TEST_F(TtlTest, WriteBatchTest) {
 }
 
 // Checks user's compaction filter for correctness with TTL logic
-TEST_F(TtlTest, CompactionFilter) {
+TEST_P(TtlTest, CompactionFilter) {
   MakeKVMap(kSampleSize_);
 
   OpenTtlWithTestCompaction(1);
@@ -552,7 +558,7 @@ TEST_F(TtlTest, CompactionFilter) {
 
 // Insert some key-values which KeyMayExist should be able to get and check that
 // values returned are fine
-TEST_F(TtlTest, KeyMayExist) {
+TEST_P(TtlTest, KeyMayExist) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl();
@@ -563,7 +569,7 @@ TEST_F(TtlTest, KeyMayExist) {
   CloseTtl();
 }
 
-TEST_F(TtlTest, MultiGetTest) {
+TEST_P(TtlTest, MultiGetTest) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl();
@@ -574,7 +580,7 @@ TEST_F(TtlTest, MultiGetTest) {
   CloseTtl();
 }
 
-TEST_F(TtlTest, ColumnFamiliesTest) {
+TEST_P(TtlTest, ColumnFamiliesTest) {
   DB* db;
   Options options;
   options.create_if_missing = true;
@@ -632,7 +638,7 @@ TEST_F(TtlTest, ColumnFamiliesTest) {
 }
 
 // Puts a set of values and checks its absence using Get after ttl
-TEST_F(TtlTest, ChangeTtlOnOpenDb) {
+TEST_P(TtlTest, ChangeTtlOnOpenDb) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(1);                                  // T=0:Open the db with ttl = 2
@@ -642,6 +648,8 @@ TEST_F(TtlTest, ChangeTtlOnOpenDb) {
   SleepCompactCheck(2, 0, kSampleSize_, true); // T=2:Set1 should be there
   CloseTtl();
 }
+
+INSTANTIATE_TEST_CASE_P(TTLTEST, TtlTest, testing::Bool());
 
 } //  namespace rocksdb
 
