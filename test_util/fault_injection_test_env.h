@@ -96,7 +96,7 @@ class TestRandomRWFile : public RandomRWFile {
   Status Close() override;
   Status Flush() override;
   Status Sync() override;
-  size_t GetRequiredBufferAlignment() const {
+  size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
   }
   bool use_direct_io() const override { return target_->use_direct_io(); };
