@@ -67,7 +67,7 @@ DEFINE_string(
 DEFINE_string(reuse_distance_labels, "",
               "Group the reuse distance of a block using these labels. Reuse "
               "distance is defined as the cumulated size of unique blocks read "
-              "between two consective accesses on the same block.");
+              "between two consecutive accesses on the same block.");
 DEFINE_string(
     reuse_distance_buckets, "",
     "Group blocks by their reuse distances given these buckets. For "
@@ -76,10 +76,11 @@ DEFINE_string(
     "blocks with reuse distance less than 1KB, between 1K and 1M, between 1M "
     "and 1G, respectively. The last bucket contains the number of blocks with "
     "reuse distance larger than 1G. ");
-DEFINE_string(reuse_interval_labels, "",
-              "Group the reuse interval of a block using these labels. Reuse "
-              "interval is defined as the time between two consective accesses "
-              "on the same block.");
+DEFINE_string(
+    reuse_interval_labels, "",
+    "Group the reuse interval of a block using these labels. Reuse "
+    "interval is defined as the time between two consecutive accesses "
+    "on the same block.");
 DEFINE_string(
     reuse_interval_buckets, "",
     "Group blocks by their reuse interval given these buckets. For "

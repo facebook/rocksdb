@@ -175,21 +175,22 @@ class BlockCacheTraceAnalyzer {
   // accesses on keys exist in a data block and its break down by column family.
   void PrintDataBlockAccessStats() const;
 
-  // Write miss ratio curves of simulated cache configurations into its output
-  // file in csv format saved in 'output_dir'.
+  // Write miss ratio curves of simulated cache configurations into a csv file
+  // saved in 'output_dir'.
   void WriteMissRatioCurves() const;
 
-  // Write the access timeline into its output file in csv format saved in
-  // 'output_dir'.
+  // Write the access timeline into a csv file saved in 'output_dir'.
   void WriteAccessTimeline(const std::string& label) const;
 
-  // Write the reuse distance into its output file in csv format saved in
-  // 'output_dir'. Reuse distance is defined as the cumulated size of unique
-  // blocks read between two consective accesses on the same block.
+  // Write the reuse distance into a csv file saved in 'output_dir'. Reuse
+  // distance is defined as the cumulated size of unique blocks read between two
+  // consective accesses on the same block.
   void WriteReuseDistance(const std::string& label_str,
                           const std::set<uint64_t>& distance_buckets) const;
 
-  //
+  // Write the reuse interval into a csv file saved in 'output_dir'. Reuse
+  // interval is defined as the time between two consecutive accesses on the
+  // same block..
   void WriteReuseInterval(const std::string& label_str,
                           const std::set<uint64_t>& time_buckets) const;
 
