@@ -196,7 +196,7 @@ void PlainTableReader::SetupForCompaction() {
 
 InternalIterator* PlainTableReader::NewIterator(
     const ReadOptions& options, const SliceTransform* /* prefix_extractor */,
-    Arena* arena, bool /*skip_filters*/, bool /*for_compaction*/,
+    Arena* arena, bool /*skip_filters*/, TableReaderCaller /*caller*/,
     size_t /*compaction_readahead_size*/) {
   bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek;
   if (arena == nullptr) {
@@ -616,7 +616,7 @@ Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
 }
 
 uint64_t PlainTableReader::ApproximateOffsetOf(const Slice& /*key*/,
-                                               bool /*for_compaction*/) {
+                                               TableReaderCaller /*caller*/) {
   return 0;
 }
 

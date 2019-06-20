@@ -11,20 +11,10 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/trace_reader_writer.h"
+#include "table/table_reader_caller.h"
 #include "trace_replay/trace_replay.h"
 
 namespace rocksdb {
-
-enum BlockCacheLookupCaller : char {
-  kUserGet = 1,
-  kUserMGet = 2,
-  kUserIterator = 3,
-  kUserApproximateSize = 4,
-  kPrefetch = 5,
-  kCompaction = 6,
-  // All callers should be added before kMaxBlockCacheLookupCaller.
-  kMaxBlockCacheLookupCaller
-};
 
 // Lookup context for tracing block cache accesses.
 // We trace block accesses at five places:
@@ -46,9 +36,8 @@ enum BlockCacheLookupCaller : char {
 // 6. BlockBasedTable::ApproximateOffsetOf. (kCompaction or
 // kUserApproximateSize).
 struct BlockCacheLookupContext {
-  BlockCacheLookupContext(const BlockCacheLookupCaller& _caller)
-      : caller(_caller) {}
-  const BlockCacheLookupCaller caller;
+BlockCacheLookupContext(const TableReaderCaller& _caller) : caller(_caller) {}
+const TableReaderCaller caller;
   // These are populated when we perform lookup/insert on block cache. The block
   // cache tracer uses these inforation when logging the block access at
   // BlockBasedTable::GET and BlockBasedTable::MultiGet.
@@ -84,8 +73,7 @@ struct BlockCacheTraceRecord {
   std::string cf_name;
   uint32_t level = 0;
   uint64_t sst_fd_number = 0;
-  BlockCacheLookupCaller caller =
-      BlockCacheLookupCaller::kMaxBlockCacheLookupCaller;
+  TableReaderCaller caller = TableReaderCaller::kMaxBlockCacheLookupCaller;
   Boolean is_cache_hit = Boolean::kFalse;
   Boolean no_insert = Boolean::kFalse;
 
@@ -100,7 +88,7 @@ struct BlockCacheTraceRecord {
   BlockCacheTraceRecord(uint64_t _access_timestamp, std::string _block_key,
                         TraceType _block_type, uint64_t _block_size,
                         uint64_t _cf_id, std::string _cf_name, uint32_t _level,
-                        uint64_t _sst_fd_number, BlockCacheLookupCaller _caller,
+                        uint64_t _sst_fd_number, TableReaderCaller _caller,
                         bool _is_cache_hit, bool _no_insert,
                         std::string _referenced_key = "",
                         uint64_t _referenced_data_size = 0,
@@ -134,7 +122,7 @@ struct BlockCacheTraceHeader {
 class BlockCacheTraceHelper {
  public:
   static bool ShouldTraceReferencedKey(TraceType block_type,
-                                       BlockCacheLookupCaller caller);
+                                       TableReaderCaller caller);
 
   static const std::string kUnknownColumnFamilyName;
 };

@@ -31,11 +31,11 @@ bool ShouldTrace(const Slice& block_key, const TraceOptions& trace_options) {
 const std::string BlockCacheTraceHelper::kUnknownColumnFamilyName =
     "UnknownColumnFamily";
 
-bool BlockCacheTraceHelper::ShouldTraceReferencedKey(
-    TraceType block_type, BlockCacheLookupCaller caller) {
+bool BlockCacheTraceHelper::ShouldTraceReferencedKey(TraceType block_type,
+                                                     TableReaderCaller caller) {
   return (block_type == TraceType::kBlockTraceDataBlock) &&
-         (caller == BlockCacheLookupCaller::kUserGet ||
-          caller == BlockCacheLookupCaller::kUserMGet);
+         (caller == TableReaderCaller::kUserGet ||
+          caller == TableReaderCaller::kUserMultiGet);
 }
 
 BlockCacheTraceWriter::BlockCacheTraceWriter(
@@ -182,7 +182,7 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
     return Status::Incomplete(
         "Incomplete access record: Failed to read caller.");
   }
-  record->caller = static_cast<BlockCacheLookupCaller>(enc_slice[0]);
+  record->caller = static_cast<TableReaderCaller>(enc_slice[0]);
   enc_slice.remove_prefix(kCharSize);
   if (enc_slice.empty()) {
     return Status::Incomplete(

@@ -277,7 +277,7 @@ size_t PartitionedFilterBlockReader::ApproximateMemoryUsage() const {
 void PartitionedFilterBlockReader::CacheDependencies(
     bool pin, const SliceTransform* prefix_extractor) {
   // Before read partitions, prefetch them to avoid lots of IOs
-  BlockCacheLookupContext lookup_context{BlockCacheLookupCaller::kPrefetch};
+  BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
   IndexBlockIter biter;
   Statistics* kNullStats = nullptr;
   idx_on_fltr_blk_->NewIterator<IndexBlockIter>(

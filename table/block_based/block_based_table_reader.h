@@ -123,18 +123,13 @@ class BlockBasedTable : public TableReader {
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
   // @param skip_filters Disables loading/accessing the filter block
-  // compaction_readahead_size: its value will only be used if for_compaction =
-  // true
-  InternalIterator* NewIterator(
-      const ReadOptions&, const SliceTransform* prefix_extractor,
-      Arena* arena = nullptr, bool skip_filters = false,
-      // TODO(haoyu) 1. External SST ingestion sets for_compaction as false. 2.
-      // Compaction also sets it to false when paranoid_file_checks is true,
-      // i.e., it will populate the block cache with blocks in the new SST
-      // files. We treat those as a user is calling iterator for now. We should
-      // differentiate the callers.
-      bool for_compaction = false,
-      size_t compaction_readahead_size = 0) override;
+  // compaction_readahead_size: its value will only be used if caller =
+  // kCompaction.
+  InternalIterator* NewIterator(const ReadOptions&,
+                                const SliceTransform* prefix_extractor,
+                                Arena* arena, bool skip_filters,
+                                TableReaderCaller caller,
+                                size_t compaction_readahead_size = 0) override;
 
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
@@ -160,7 +155,8 @@ class BlockBasedTable : public TableReader {
   // bytes, and so includes effects like compression of the underlying data.
   // E.g., the approximate offset of the last key in the table will
   // be close to the file length.
-  uint64_t ApproximateOffsetOf(const Slice& key, bool for_compaction) override;
+  uint64_t ApproximateOffsetOf(const Slice& key,
+                               TableReaderCaller caller) override;
 
   bool TEST_BlockInCache(const BlockHandle& handle) const;
 
@@ -180,7 +176,7 @@ class BlockBasedTable : public TableReader {
   Status DumpTable(WritableFile* out_file,
                    const SliceTransform* prefix_extractor = nullptr) override;
 
-  Status VerifyChecksum() override;
+  Status VerifyChecksum(TableReaderCaller caller) override;
 
   void Close() override;
 
@@ -609,9 +605,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
                           InternalIteratorBase<BlockHandle>* index_iter,
                           bool check_filter, bool need_upper_bound_check,
                           const SliceTransform* prefix_extractor,
-                          BlockType block_type, bool key_includes_seq = true,
-                          bool index_key_is_full = true,
-                          bool for_compaction = false,
+                          BlockType block_type, bool key_includes_seq,
+                          bool index_key_is_full, TableReaderCaller caller,
                           size_t compaction_readahead_size = 0)
       : InternalIteratorBase<TValue>(false),
         table_(table),
@@ -627,11 +622,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
         block_type_(block_type),
         key_includes_seq_(key_includes_seq),
         index_key_is_full_(index_key_is_full),
-        for_compaction_(for_compaction),
-        compaction_readahead_size_(compaction_readahead_size),
-        lookup_context_(for_compaction
-                            ? BlockCacheLookupCaller::kCompaction
-                            : BlockCacheLookupCaller::kUserIterator) {}
+        lookup_context_(caller),
+        compaction_readahead_size_(compaction_readahead_size) {}
 
   ~BlockBasedTableIterator() { delete index_iter_; }
 
@@ -740,13 +732,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   // If the keys in the blocks over which we iterate include 8 byte sequence
   bool key_includes_seq_;
   bool index_key_is_full_;
-  // If this iterator is created for compaction
-  bool for_compaction_;
-  // Readahead size used in compaction, its value is used only if
-  // for_compaction_ = true
-  size_t compaction_readahead_size_;
   BlockHandle prev_index_value_;
   BlockCacheLookupContext lookup_context_;
+  // Readahead size used in compaction, its value is used only if
+  // lookup_context_.caller = kCompaction.
+  size_t compaction_readahead_size_;
 
   // All the below fields control iterator readahead
   static const size_t kInitAutoReadaheadSize = 8 * 1024;
