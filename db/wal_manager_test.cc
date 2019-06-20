@@ -293,6 +293,29 @@ TEST_F(WalManagerTest, TransactionLogIteratorJustEmptyFile) {
   // Check that an empty iterator is returned
   ASSERT_TRUE(!iter->Valid());
 }
+  
+TEST_F(WalManagerTest, TransactionLogIteratorNewFileWhileScanning) {
+  Init();
+  CreateArchiveLogs(2, 100);
+  auto iter = OpenTransactionLogIter(0);
+  CreateArchiveLogs(1, 100);
+  int i = 0;
+  for (; iter->Valid(); iter->Next()) {
+    i++;
+  }
+  ASSERT_EQ(i, 200);
+  // A new log file was added after the iterator was created.
+  // TryAgain indicates a new iterator is needed to fetch the new data
+  ASSERT_TRUE(iter->status().IsTryAgain());
+  
+  iter = OpenTransactionLogIter(0);
+  i = 0;
+  for (; iter->Valid(); iter->Next()) {
+    i++;
+  }
+  ASSERT_EQ(i, 300);
+  ASSERT_TRUE(iter->status().ok());
+}
 
 }  // namespace rocksdb
 
