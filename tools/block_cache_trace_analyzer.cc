@@ -11,7 +11,6 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <set>
 #include <sstream>
 #include "monitoring/histogram.h"
 #include "util/gflags_compat.h"
@@ -48,11 +47,15 @@ DEFINE_string(
     "mrc file that saves the computed miss ratios for simulated caches. Its "
     "format is "
     "cache_name,num_shard_bits,capacity,miss_ratio,total_accesses. 2) Several "
-    "\"label_access_timeline\" files that contains number of accesses per "
+    "\"label_access_timeline\" files that contain number of accesses per "
     "second grouped by the label. File format: "
     "time,label_1_access_per_second,label_2,...,label_N_access_per_second "
-    "where N is the number of unique labels found in the trace.");
-
+    "where N is the number of unique labels found in the trace. 3) Several "
+    "\"label_reuse_distance\" and \"label_reuse_interval\" csv files that "
+    "contain the reuse distance/interval grouped by label. File format: "
+    "label,bucket_1,bucket_2,...,bucket_N,bucket_1,bucket_2,...,bucket_N. The "
+    "first N buckets have absolute values. The second N buckets have "
+    "percentage values.");
 DEFINE_string(
     timeline_labels, "",
     "Group the number of accesses per block per second using these labels. "
@@ -61,6 +64,31 @@ DEFINE_string(
     "means the number of acccess per second is grouped by unique pairs of "
     "\"cf_bt\". A label \"all\" contains the aggregated number of accesses per "
     "second across all possible labels.");
+DEFINE_string(reuse_distance_labels, "",
+              "Group the reuse distance of a block using these labels. Reuse "
+              "distance is defined as the cumulated size of unique blocks read "
+              "between two consective accesses on the same block.");
+DEFINE_string(
+    reuse_distance_buckets, "",
+    "Group blocks by their reuse distances given these buckets. For "
+    "example, if 'reuse_distance_buckets' is '1K,1M,1G', we will "
+    "create four buckets. The first three buckets contain the number of "
+    "blocks with reuse distance less than 1KB, between 1K and 1M, between 1M "
+    "and 1G, respectively. The last bucket contains the number of blocks with "
+    "reuse distance larger than 1G. ");
+DEFINE_string(reuse_interval_labels, "",
+              "Group the reuse interval of a block using these labels. Reuse "
+              "interval is defined as the time between two consective accesses "
+              "on the same block.");
+DEFINE_string(
+    reuse_interval_buckets, "",
+    "Group blocks by their reuse interval given these buckets. For "
+    "example, if 'reuse_distance_buckets' is '1,10,100', we will "
+    "create four buckets. The first three buckets contain the number of "
+    "blocks with reuse interval less than 1 second, between 1 second and 10 "
+    "seconds, between 10 seconds and 100 seconds, respectively. The last "
+    "bucket contains the number of blocks with reuse interval longer than 100 "
+    "seconds.");
 
 namespace rocksdb {
 namespace {
@@ -234,7 +262,7 @@ void BlockCacheTraceAnalyzer::WriteMissRatioCurves() const {
   out.close();
 }
 
-void BlockCacheTraceAnalyzer::WriteAccessTimeline(
+std::set<std::string> BlockCacheTraceAnalyzer::ParseLabelStr(
     const std::string& label_str) const {
   std::stringstream ss(label_str);
   std::set<std::string> labels;
@@ -246,10 +274,38 @@ void BlockCacheTraceAnalyzer::WriteAccessTimeline(
       // Unknown label name.
       fprintf(stderr, "Unknown label name %s, label string %s\n",
               label_name.c_str(), label_str.c_str());
-      return;
+      return {};
     }
     labels.insert(label_name);
   }
+  return labels;
+}
+
+std::string BlockCacheTraceAnalyzer::BuildLabel(
+    const std::set<std::string>& labels, const std::string& cf_name,
+    uint64_t fd, uint32_t level, TraceType type, BlockCacheLookupCaller caller,
+    const std::string& block_key) const {
+  std::map<std::string, std::string> label_value_map;
+  label_value_map[kGroupbyAll] = kGroupbyAll;
+  label_value_map[kGroupbyLevel] = std::to_string(level);
+  label_value_map[kGroupbyCaller] = caller_to_string(caller);
+  label_value_map[kGroupbySSTFile] = std::to_string(fd);
+  label_value_map[kGroupbyBlockType] = block_type_to_string(type);
+  label_value_map[kGroupbyColumnFamily] = cf_name;
+  label_value_map[kGroupbyBlock] = block_key;
+  // Concatenate the label values.
+  std::string label;
+  for (auto const& l : labels) {
+    label += label_value_map[l];
+    label += "-";
+  }
+  label.pop_back();
+  return label;
+}
+
+void BlockCacheTraceAnalyzer::WriteAccessTimeline(
+    const std::string& label_str) const {
+  std::set<std::string> labels = ParseLabelStr(label_str);
   uint64_t start_time = UINT64_MAX;
   uint64_t end_time = 0;
   std::map<std::string, std::map<uint64_t, uint64_t>> label_access_timeline;
@@ -271,21 +327,8 @@ void BlockCacheTraceAnalyzer::WriteAccessTimeline(
                block_access_info.second.caller_num_accesses_timeline) {
             const BlockCacheLookupCaller caller = timeline.first;
             const std::string& block_key = block_access_info.first;
-            std::map<std::string, std::string> label_value_map;
-            label_value_map[kGroupbyAll] = kGroupbyAll;
-            label_value_map[kGroupbyLevel] = std::to_string(level);
-            label_value_map[kGroupbyCaller] = caller_to_string(caller);
-            label_value_map[kGroupbySSTFile] = std::to_string(fd);
-            label_value_map[kGroupbyBlockType] = block_type_to_string(type);
-            label_value_map[kGroupbyColumnFamily] = cf_name;
-            label_value_map[kGroupbyBlock] = block_key;
-            // Concatenate the label values.
-            std::string label;
-            for (auto const& l : labels) {
-              label += label_value_map[l];
-              label += "-";
-            }
-            label.pop_back();
+            const std::string label =
+                BuildLabel(labels, cf_name, fd, level, type, caller, block_key);
             for (auto const& naccess : timeline.second) {
               const uint64_t timestamp = naccess.first;
               const uint64_t num = naccess.second;
@@ -329,6 +372,203 @@ void BlockCacheTraceAnalyzer::WriteAccessTimeline(
   out.close();
 }
 
+void BlockCacheTraceAnalyzer::WriteReuseDistance(
+    const std::string& label_str,
+    const std::set<uint64_t>& distance_buckets) const {
+  std::set<std::string> labels = ParseLabelStr(label_str);
+  std::map<std::string, std::map<uint64_t, uint64_t>> label_distance_num_reuses;
+  uint64_t total_num_reuses = 0;
+  for (auto const& cf_aggregates : cf_aggregates_map_) {
+    // Stats per column family.
+    const std::string& cf_name = cf_aggregates.first;
+    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
+      // Stats per SST file.
+      const uint64_t fd = file_aggregates.first;
+      const uint32_t level = file_aggregates.second.level;
+      for (auto const& block_type_aggregates :
+           file_aggregates.second.block_type_aggregates_map) {
+        // Stats per block type.
+        const TraceType type = block_type_aggregates.first;
+        for (auto const& block_access_info :
+             block_type_aggregates.second.block_access_info_map) {
+          // Stats per block.
+          const std::string& block_key = block_access_info.first;
+          const std::string label = BuildLabel(
+              labels, cf_name, fd, level, type,
+              BlockCacheLookupCaller::kMaxBlockCacheLookupCaller, block_key);
+          if (label_distance_num_reuses.find(label) ==
+              label_distance_num_reuses.end()) {
+            // The first time we encounter this label.
+            for (auto const& distance_bucket : distance_buckets) {
+              label_distance_num_reuses[label][distance_bucket] = 0;
+            }
+          }
+          for (auto const& reuse_distance :
+               block_access_info.second.reuse_distance_count) {
+            label_distance_num_reuses[label]
+                .upper_bound(reuse_distance.first)
+                ->second += reuse_distance.second;
+            total_num_reuses += reuse_distance.second;
+          }
+        }
+      }
+    }
+  }
+
+  // We have label_naccesses and label_distance_num_reuses now. Write them into
+  // a file.
+  const std::string output_path =
+      output_dir_ + "/" + label_str + "_reuse_distance";
+  std::ofstream out(output_path);
+  if (!out.is_open()) {
+    return;
+  }
+  std::string header("label");
+  // Absolute values.
+  for (auto const& bucket : distance_buckets) {
+    header += ",";
+    header += std::to_string(bucket);
+  }
+  // Percentage values.
+  for (auto const& bucket : distance_buckets) {
+    header += ",";
+    header += std::to_string(bucket);
+  }
+  out << header << std::endl;
+  for (auto const& label_it : label_distance_num_reuses) {
+    const std::string& label = label_it.first;
+    std::string row(label);
+    for (auto const& naccesses_it : label_distance_num_reuses[label]) {
+      row += ",";
+      row += std::to_string(naccesses_it.second);
+    }
+    for (auto const& naccesses_it : label_distance_num_reuses[label]) {
+      row += ",";
+      row += std::to_string(percent(naccesses_it.second, total_num_reuses));
+    }
+    out << row << std::endl;
+  }
+  out.close();
+}
+
+void BlockCacheTraceAnalyzer::UpdateReuseIntervalStats(
+    const std::string& label, const std::set<uint64_t>& time_buckets,
+    const std::map<uint64_t, uint64_t> timeline,
+    std::map<std::string, std::map<uint64_t, uint64_t>>* label_time_num_reuses,
+    uint64_t* total_num_reuses) const {
+  assert(label_time_num_reuses);
+  assert(total_num_reuses);
+  if (label_time_num_reuses->find(label) == label_time_num_reuses->end()) {
+    // The first time we encounter this label.
+    for (auto const& time_bucket : time_buckets) {
+      (*label_time_num_reuses)[label][time_bucket] = 0;
+    }
+  }
+  auto it = timeline.begin();
+  const uint64_t prev_timestamp = it->first;
+  const uint64_t prev_num = it->second;
+  it++;
+  // Reused within one second.
+  if (prev_num > 1) {
+    (*label_time_num_reuses)[label].upper_bound(1)->second += prev_num - 1;
+    *total_num_reuses += prev_num - 1;
+  }
+  while (it != timeline.end()) {
+    const uint64_t timestamp = it->first;
+    const uint64_t num = it->second;
+    const uint64_t reuse_interval = timestamp - prev_timestamp;
+    (*label_time_num_reuses)[label].upper_bound(reuse_interval)->second += num;
+    *total_num_reuses += num;
+  }
+}
+
+void BlockCacheTraceAnalyzer::WriteReuseInterval(
+    const std::string& label_str,
+    const std::set<uint64_t>& time_buckets) const {
+  std::set<std::string> labels = ParseLabelStr(label_str);
+  std::map<std::string, std::map<uint64_t, uint64_t>> label_time_num_reuses;
+  uint64_t total_num_reuses = 0;
+  for (auto const& cf_aggregates : cf_aggregates_map_) {
+    // Stats per column family.
+    const std::string& cf_name = cf_aggregates.first;
+    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
+      // Stats per SST file.
+      const uint64_t fd = file_aggregates.first;
+      const uint32_t level = file_aggregates.second.level;
+      for (auto const& block_type_aggregates :
+           file_aggregates.second.block_type_aggregates_map) {
+        // Stats per block type.
+        const TraceType type = block_type_aggregates.first;
+        for (auto const& block_access_info :
+             block_type_aggregates.second.block_access_info_map) {
+          // Stats per block.
+          const std::string& block_key = block_access_info.first;
+          if (labels.find(kGroupbyCaller) != labels.end()) {
+            for (auto const& timeline :
+                 block_access_info.second.caller_num_accesses_timeline) {
+              const BlockCacheLookupCaller caller = timeline.first;
+              const std::string label = BuildLabel(labels, cf_name, fd, level,
+                                                   type, caller, block_key);
+              UpdateReuseIntervalStats(label, time_buckets, timeline.second,
+                                       &label_time_num_reuses,
+                                       &total_num_reuses);
+            }
+            continue;
+          }
+          // Does not group by caller so we need to flatten the access timeline.
+          const std::string label = BuildLabel(
+              labels, cf_name, fd, level, type,
+              BlockCacheLookupCaller::kMaxBlockCacheLookupCaller, block_key);
+          std::map<uint64_t, uint64_t> timeline;
+          for (auto const& caller_timeline :
+               block_access_info.second.caller_num_accesses_timeline) {
+            for (auto const& time_naccess : caller_timeline.second) {
+              timeline[time_naccess.first] += time_naccess.second;
+            }
+          }
+          UpdateReuseIntervalStats(label, time_buckets, timeline,
+                                   &label_time_num_reuses, &total_num_reuses);
+        }
+      }
+    }
+  }
+
+  // We have label_naccesses and label_interval_num_reuses now. Write them into
+  // a file.
+  const std::string output_path =
+      output_dir_ + "/" + label_str + "_reuse_interval";
+  std::ofstream out(output_path);
+  if (!out.is_open()) {
+    return;
+  }
+  std::string header("label");
+  // Absolute values.
+  for (auto const& bucket : time_buckets) {
+    header += ",";
+    header += std::to_string(bucket);
+  }
+  // Percentage values.
+  for (auto const& bucket : time_buckets) {
+    header += ",";
+    header += std::to_string(bucket);
+  }
+  out << header << std::endl;
+  for (auto const& label_it : label_time_num_reuses) {
+    const std::string& label = label_it.first;
+    std::string row(label);
+    for (auto const& naccesses_it : label_time_num_reuses[label]) {
+      row += ",";
+      row += std::to_string(naccesses_it.second);
+    }
+    for (auto const& naccesses_it : label_time_num_reuses[label]) {
+      row += ",";
+      row += std::to_string(percent(naccesses_it.second, total_num_reuses));
+    }
+    out << row << std::endl;
+  }
+  out.close();
+}
+
 BlockCacheTraceAnalyzer::BlockCacheTraceAnalyzer(
     const std::string& trace_file_path, const std::string& output_dir,
     std::unique_ptr<BlockCacheTraceSimulator>&& cache_simulator)
@@ -336,6 +576,24 @@ BlockCacheTraceAnalyzer::BlockCacheTraceAnalyzer(
       trace_file_path_(trace_file_path),
       output_dir_(output_dir),
       cache_simulator_(std::move(cache_simulator)) {}
+
+void BlockCacheTraceAnalyzer::ComputeReuseDistance(
+    BlockAccessInfo* info) const {
+  assert(info);
+  if (info->num_accesses == 0) {
+    return;
+  }
+  uint64_t reuse_distance = 0;
+  for (auto const& block_key : info->unique_blocks_since_last_access) {
+    auto const& it = block_info_map_.find(block_key);
+    // This block must exist.
+    assert(it != block_info_map_.end());
+    reuse_distance += it->second->block_size;
+  }
+  info->reuse_distance_count[reuse_distance] += 1;
+  // We clear this hash set since this is the second access on this block.
+  info->unique_blocks_since_last_access.clear();
+}
 
 void BlockCacheTraceAnalyzer::RecordAccess(
     const BlockCacheTraceRecord& access) {
@@ -347,7 +605,23 @@ void BlockCacheTraceAnalyzer::RecordAccess(
       file_aggr.block_type_aggregates_map[access.block_type];
   BlockAccessInfo& block_access_info =
       block_type_aggr.block_access_info_map[access.block_key];
+  ComputeReuseDistance(&block_access_info);
   block_access_info.AddAccess(access);
+  block_info_map_[access.block_key] = &block_access_info;
+
+  // Add this block to all existing blocks.
+  for (auto& cf_aggregates : cf_aggregates_map_) {
+    for (auto& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
+      for (auto& block_type_aggregates :
+           file_aggregates.second.block_type_aggregates_map) {
+        for (auto& existing_block :
+             block_type_aggregates.second.block_access_info_map) {
+          existing_block.second.unique_blocks_since_last_access.insert(
+              access.block_key);
+        }
+      }
+    }
+  }
 }
 
 Status BlockCacheTraceAnalyzer::Analyze() {
@@ -783,6 +1057,18 @@ std::vector<CacheConfiguration> parse_cache_config_file(
   return configs;
 }
 
+std::set<uint64_t> parse_buckets(const std::string& bucket_str) {
+  std::set<uint64_t> buckets;
+  std::stringstream ss(bucket_str);
+  while (ss.good()) {
+    std::string bucket;
+    getline(ss, bucket, ',');
+    buckets.insert(ParseUint64(bucket));
+  }
+  buckets.insert(UINT64_MAX);
+  return buckets;
+}
+
 int block_cache_trace_analyzer_tool(int argc, char** argv) {
   ParseCommandLineFlags(&argc, &argv, true);
   if (FLAGS_block_cache_trace_path.empty()) {
@@ -833,6 +1119,28 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
       std::string label;
       getline(ss, label, ',');
       analyzer.WriteAccessTimeline(label);
+    }
+  }
+
+  if (!FLAGS_reuse_distance_labels.empty() &&
+      !FLAGS_reuse_distance_buckets.empty()) {
+    std::set<uint64_t> buckets = parse_buckets(FLAGS_reuse_distance_buckets);
+    std::stringstream ss(FLAGS_reuse_distance_labels);
+    while (ss.good()) {
+      std::string label;
+      getline(ss, label, ',');
+      analyzer.WriteReuseDistance(label, buckets);
+    }
+  }
+
+  if (!FLAGS_reuse_interval_labels.empty() &&
+      !FLAGS_reuse_interval_buckets.empty()) {
+    std::set<uint64_t> buckets = parse_buckets(FLAGS_reuse_interval_buckets);
+    std::stringstream ss(FLAGS_reuse_interval_labels);
+    while (ss.good()) {
+      std::string label;
+      getline(ss, label, ',');
+      analyzer.WriteReuseInterval(label, buckets);
     }
   }
   return 0;

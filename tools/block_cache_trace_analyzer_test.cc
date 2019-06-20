@@ -51,6 +51,11 @@ class BlockCacheTracerTest : public testing::Test {
     block_cache_sim_config_path_ = test_path_ + "/block_cache_sim_config";
     timeline_labels_ =
         "block,all,cf,sst,level,bt,caller,cf_sst,cf_level,cf_bt,cf_caller";
+    reuse_distance_labels_ =
+        "block,all,cf,sst,level,bt,caller,cf_sst,cf_level,cf_bt,cf_caller";
+    reuse_distance_buckets_ = "1,1K,1M,1G";
+    reuse_interval_labels_ = "block,all,cf,sst,level,bt,cf_sst,cf_level,cf_bt";
+    reuse_interval_buckets_ = "1,10,100,1000";
   }
 
   ~BlockCacheTracerTest() override {
@@ -153,7 +158,12 @@ class BlockCacheTracerTest : public testing::Test {
         "-print_access_count_stats",
         "-print_data_block_access_count_stats",
         "-cache_sim_warmup_seconds=0",
-        "-timeline_labels=" + timeline_labels_};
+        "-timeline_labels=" + timeline_labels_,
+        "-reuse_distance_labels=" + reuse_distance_labels_,
+        "-reuse_distance_buckets=" + reuse_distance_buckets_,
+        "-reuse_interval_labels=" + reuse_interval_labels_,
+        "-reuse_interval_buckets=" + reuse_interval_buckets_,
+    };
     char arg_buffer[kArgBufferSize];
     char* argv[kMaxArgCount];
     int argc = 0;
@@ -175,6 +185,10 @@ class BlockCacheTracerTest : public testing::Test {
   std::string trace_file_path_;
   std::string test_path_;
   std::string timeline_labels_;
+  std::string reuse_distance_labels_;
+  std::string reuse_distance_buckets_;
+  std::string reuse_interval_labels_;
+  std::string reuse_interval_buckets_;
 };
 
 TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
@@ -246,24 +260,71 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
       uint64_t expected_time = 1;
       while (getline(infile, line)) {
         std::stringstream ss_naccess(line);
-        std::vector<std::string> result_strs;
         uint32_t naccesses = 0;
         std::string substr;
-        std::vector<uint64_t> row_ints;
+        uint32_t time = 0;
         while (ss_naccess.good()) {
           ASSERT_TRUE(getline(ss_naccess, substr, ','));
-          row_ints.push_back(std::stoul(substr));
-        }
-        for (uint32_t i = 1; i < row_ints.size(); i++) {
-          naccesses += row_ints[i];
+          if (time == 0) {
+            time = ParseUint32(substr);
+            continue;
+          }
+          naccesses += ParseUint32(substr);
         }
         nlines++;
         ASSERT_EQ(1, naccesses);
-        ASSERT_EQ(expected_time, row_ints[0]);
+        ASSERT_EQ(expected_time, time);
         expected_time += 1;
       }
       ASSERT_EQ(expected_num_lines, nlines);
       ASSERT_OK(env_->DeleteFile(timeline_file));
+    }
+  }
+  {
+    // Validate the reuse_interval and reuse_distance csv files.
+    std::map<std::string, std::string> test_reuse_csv_files;
+    test_reuse_csv_files["_reuse_interval"] = reuse_interval_labels_;
+    test_reuse_csv_files["_reuse_distance"] = reuse_distance_labels_;
+    for (auto const& test : test_reuse_csv_files) {
+      const std::string& file_suffix = test.first;
+      const std::string& labels = test.second;
+      const uint32_t expected_num_columns = 11;
+      const uint32_t expected_num_columns_absolute_values = 5;
+      const uint32_t expected_reused_blocks = 0;
+      std::stringstream ss(labels);
+      while (ss.good()) {
+        std::string l;
+        ASSERT_TRUE(getline(ss, l, ','));
+        const std::string reuse_csv_file = test_path_ + "/" + l + file_suffix;
+        std::ifstream infile(reuse_csv_file);
+        std::string line;
+        ASSERT_TRUE(getline(infile, line));
+        uint32_t nblocks = 0;
+        double npercentage = 0;
+        while (getline(infile, line)) {
+          std::stringstream ss_naccess(line);
+          bool label_read = false;
+          uint32_t ncolumns = 0;
+          while (ss_naccess.good()) {
+            std::string substr;
+            ASSERT_TRUE(getline(ss_naccess, substr, ','));
+            ncolumns++;
+            if (!label_read) {
+              label_read = true;
+              continue;
+            }
+            if (ncolumns < expected_num_columns_absolute_values + 1) {
+              nblocks += ParseUint32(substr);
+            } else {
+              npercentage += ParseDouble(substr);
+            }
+          }
+          ASSERT_EQ(expected_num_columns, ncolumns);
+        }
+        ASSERT_EQ(expected_reused_blocks, nblocks);
+        ASSERT_LT(npercentage, 0);
+        ASSERT_OK(env_->DeleteFile(reuse_csv_file));
+      }
     }
   }
   ASSERT_OK(env_->DeleteFile(block_cache_sim_config_path_));

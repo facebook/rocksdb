@@ -6,6 +6,7 @@
 #pragma once
 
 #include <map>
+#include <set>
 #include <vector>
 
 #include "rocksdb/env.h"
@@ -77,6 +78,10 @@ struct BlockAccessInfo {
   // seconds.
   std::map<TableReaderCaller, std::map<uint64_t, uint64_t>>
       caller_num_accesses_timeline;
+  // Unique blocks since the last access.
+  std::set<std::string> unique_blocks_since_last_access;
+  // Number of reuses grouped by reuse distance.
+  std::map<uint64_t, uint64_t> reuse_distance_count;
 
   void AddAccess(const BlockCacheTraceRecord& access) {
     if (first_access_time == 0) {
@@ -178,13 +183,40 @@ class BlockCacheTraceAnalyzer {
   // 'output_dir'.
   void WriteAccessTimeline(const std::string& label) const;
 
+  // Write the reuse distance into its output file in csv format saved in
+  // 'output_dir'. Reuse distance is defined as the cumulated size of unique
+  // blocks read between two consective accesses on the same block.
+  void WriteReuseDistance(const std::string& label_str,
+                          const std::set<uint64_t>& distance_buckets) const;
+
+  //
+  void WriteReuseInterval(const std::string& label_str,
+                          const std::set<uint64_t>& time_buckets) const;
+
   const std::map<std::string, ColumnFamilyAccessInfoAggregate>&
   TEST_cf_aggregates_map() const {
     return cf_aggregates_map_;
   }
 
  private:
+  std::set<std::string> ParseLabelStr(const std::string& label_str) const;
+
+  std::string BuildLabel(const std::set<std::string>& labels,
+                         const std::string& cf_name, uint64_t fd,
+                         uint32_t level, TraceType type,
+                         BlockCacheLookupCaller caller,
+                         const std::string& block_key) const;
+
+  void ComputeReuseDistance(BlockAccessInfo* info) const;
+
   void RecordAccess(const BlockCacheTraceRecord& access);
+
+  void UpdateReuseIntervalStats(
+      const std::string& label, const std::set<uint64_t>& time_buckets,
+      const std::map<uint64_t, uint64_t> timeline,
+      std::map<std::string, std::map<uint64_t, uint64_t>>*
+          label_time_num_reuses,
+      uint64_t* total_num_reuses) const;
 
   rocksdb::Env* env_;
   const std::string trace_file_path_;
@@ -193,6 +225,7 @@ class BlockCacheTraceAnalyzer {
   BlockCacheTraceHeader header_;
   std::unique_ptr<BlockCacheTraceSimulator> cache_simulator_;
   std::map<std::string, ColumnFamilyAccessInfoAggregate> cf_aggregates_map_;
+  std::map<std::string, BlockAccessInfo*> block_info_map_;
 };
 
 int block_cache_trace_analyzer_tool(int argc, char** argv);
