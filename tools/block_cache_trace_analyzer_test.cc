@@ -61,23 +61,23 @@ class BlockCacheTracerTest : public testing::Test {
     EXPECT_OK(env_->DeleteDir(test_path_));
   }
 
-  BlockCacheLookupCaller GetCaller(uint32_t key_id) {
+  TableReaderCaller GetCaller(uint32_t key_id) {
     uint32_t n = key_id % 5;
     switch (n) {
       case 0:
-        return BlockCacheLookupCaller::kPrefetch;
+        return TableReaderCaller::kPrefetch;
       case 1:
-        return BlockCacheLookupCaller::kCompaction;
+        return TableReaderCaller::kCompaction;
       case 2:
-        return BlockCacheLookupCaller::kUserGet;
+        return TableReaderCaller::kUserGet;
       case 3:
-        return BlockCacheLookupCaller::kUserMGet;
+        return TableReaderCaller::kUserMultiGet;
       case 4:
-        return BlockCacheLookupCaller::kUserIterator;
+        return TableReaderCaller::kUserIterator;
     }
     // This cannot happend.
     assert(false);
-    return BlockCacheLookupCaller::kUserGet;
+    return TableReaderCaller::kMaxBlockCacheLookupCaller;
   }
 
   void WriteBlockAccess(BlockCacheTraceWriter* writer, uint32_t from_key_id,
@@ -124,15 +124,15 @@ class BlockCacheTracerTest : public testing::Test {
     ASSERT_GT(block_access_info.first_access_time, 0);
     ASSERT_GT(block_access_info.last_access_time, 0);
     ASSERT_EQ(1, block_access_info.caller_num_access_map.size());
-    BlockCacheLookupCaller expected_caller = GetCaller(key_id);
+    TableReaderCaller expected_caller = GetCaller(key_id);
     ASSERT_TRUE(block_access_info.caller_num_access_map.find(expected_caller) !=
                 block_access_info.caller_num_access_map.end());
     ASSERT_EQ(
         1,
         block_access_info.caller_num_access_map.find(expected_caller)->second);
 
-    if ((expected_caller == BlockCacheLookupCaller::kUserGet ||
-         expected_caller == BlockCacheLookupCaller::kUserMGet) &&
+    if ((expected_caller == TableReaderCaller::kUserGet ||
+         expected_caller == TableReaderCaller::kUserMultiGet) &&
         type == TraceType::kBlockTraceDataBlock) {
       ASSERT_EQ(kNumKeysInBlock, block_access_info.num_keys);
       ASSERT_EQ(1, block_access_info.key_num_access_map.size());

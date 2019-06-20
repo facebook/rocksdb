@@ -349,7 +349,9 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
               nullptr, kNullStats, true, index_key_includes_seq(),
               index_value_is_full()),
           false, true, /* prefix_extractor */ nullptr, BlockType::kIndex,
-          index_key_includes_seq(), index_value_is_full());
+          index_key_includes_seq(), index_value_is_full(),
+          lookup_context ? lookup_context->caller
+                         : TableReaderCaller::kUncategorized);
     }
 
     assert(it != nullptr);
@@ -365,7 +367,7 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
 
   void CacheDependencies(bool pin) override {
     // Before read partitions, prefetch them to avoid lots of IOs
-    BlockCacheLookupContext lookup_context{BlockCacheLookupCaller::kPrefetch};
+    BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
     auto rep = table()->rep_;
     IndexBlockIter biter;
     BlockHandle handle;
@@ -1075,7 +1077,7 @@ Status BlockBasedTable::Open(
   // Better not mutate rep_ after the creation. eg. internal_prefix_transform
   // raw pointer will be used to create HashIndexReader, whose reset may
   // access a dangling pointer.
-  BlockCacheLookupContext lookup_context{BlockCacheLookupCaller::kPrefetch};
+  BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
   Rep* rep = new BlockBasedTable::Rep(ioptions, env_options, table_options,
                                       internal_comparator, skip_filters, level,
                                       immortal_table);
@@ -2681,7 +2683,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
     //   Enabled after 2 sequential IOs when ReadOptions.readahead_size == 0.
     // Explicit user requested readahead:
     //   Enabled from the very first IO when ReadOptions.readahead_size is set.
-    if (!for_compaction_) {
+    if (lookup_context_.caller != TableReaderCaller::kCompaction) {
       if (read_options_.readahead_size == 0) {
         // Implicit auto readahead
         num_file_reads_++;
@@ -2728,7 +2730,8 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
         read_options_, data_block_handle, &block_iter_, block_type_,
         key_includes_seq_, index_key_is_full_,
         /*get_context=*/nullptr, &lookup_context_, s, prefetch_buffer_.get(),
-        for_compaction_);
+        /*for_compaction=*/lookup_context_.caller ==
+            TableReaderCaller::kCompaction);
     block_iter_points_to_real_block_ = true;
   }
 }
@@ -2814,11 +2817,8 @@ void BlockBasedTableIterator<TBlockIter, TValue>::CheckOutOfBound() {
 
 InternalIterator* BlockBasedTable::NewIterator(
     const ReadOptions& read_options, const SliceTransform* prefix_extractor,
-    Arena* arena, bool skip_filters, bool for_compaction,
-    size_t compaction_readahead_size) {
-  BlockCacheLookupContext lookup_context{
-      for_compaction ? BlockCacheLookupCaller::kCompaction
-                     : BlockCacheLookupCaller::kUserIterator};
+    Arena* arena, bool skip_filters, TableReaderCaller caller, size_t compaction_readahead_size) {
+  BlockCacheLookupContext lookup_context{caller};
   bool need_upper_bound_check =
       PrefixExtractorChanged(rep_->table_properties.get(), prefix_extractor);
   if (arena == nullptr) {
@@ -2832,7 +2832,7 @@ InternalIterator* BlockBasedTable::NewIterator(
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, BlockType::kData,
-        true /*key_includes_seq*/, true /*index_key_is_full*/, for_compaction,
+        /*key_includes_seq=*/true, /*index_key_is_full=*/true, caller,
         compaction_readahead_size);
   } else {
     auto* mem =
@@ -2845,8 +2845,7 @@ InternalIterator* BlockBasedTable::NewIterator(
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, BlockType::kData,
-        true /*key_includes_seq*/, true /*index_key_is_full*/, for_compaction,
-        compaction_readahead_size);
+        /*key_includes_seq=*/true, /*index_key_is_full=*/true, caller, compaction_readahead_size);
   }
 }
 
@@ -2933,7 +2932,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   CachableEntry<FilterBlockReader> filter_entry;
   bool may_match;
   FilterBlockReader* filter = nullptr;
-  BlockCacheLookupContext lookup_context{BlockCacheLookupCaller::kUserGet};
+  BlockCacheLookupContext lookup_context{TableReaderCaller::kUserGet};
   {
     if (!skip_filters) {
       filter_entry = GetFilter(prefix_extractor, /*prefetch_buffer=*/nullptr,
@@ -2989,7 +2988,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         break;
       } else {
         BlockCacheLookupContext lookup_data_block_context{
-            BlockCacheLookupCaller::kUserGet};
+            TableReaderCaller::kUserGet};
         bool does_referenced_key_exist = false;
         DataBlockIter biter;
         uint64_t referenced_data_size = 0;
@@ -3084,7 +3083,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
                                const MultiGetRange* mget_range,
                                const SliceTransform* prefix_extractor,
                                bool skip_filters) {
-  BlockCacheLookupContext lookup_context{BlockCacheLookupCaller::kUserMGet};
+  BlockCacheLookupContext lookup_context{TableReaderCaller::kUserMultiGet};
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   CachableEntry<FilterBlockReader> filter_entry;
   FilterBlockReader* filter = nullptr;
@@ -3135,7 +3134,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         uint64_t referenced_data_size = 0;
         bool does_referenced_key_exist = false;
         BlockCacheLookupContext lookup_data_block_context(
-            BlockCacheLookupCaller::kUserMGet);
+            TableReaderCaller::kUserMultiGet);
         if (iiter->value().offset() != offset) {
           offset = iiter->value().offset();
           biter.Invalidate(Status::OK());
@@ -3244,7 +3243,7 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
   if (begin && end && comparator.Compare(*begin, *end) > 0) {
     return Status::InvalidArgument(*begin, *end);
   }
-  BlockCacheLookupContext lookup_context{BlockCacheLookupCaller::kPrefetch};
+  BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
   IndexBlockIter iiter_on_stack;
   auto iiter = NewIndexIterator(ReadOptions(), /*need_upper_bound_check=*/false,
                                 &iiter_on_stack, /*get_context=*/nullptr,
@@ -3299,9 +3298,7 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
   return Status::OK();
 }
 
-Status BlockBasedTable::VerifyChecksum() {
-  // TODO(haoyu): This function is called by external sst ingestion and the
-  // verify checksum public API. We don't log its block cache accesses for now.
+Status BlockBasedTable::VerifyChecksum(TableReaderCaller caller) {
   Status s;
   // Check Meta blocks
   std::unique_ptr<Block> meta;
@@ -3317,9 +3314,10 @@ Status BlockBasedTable::VerifyChecksum() {
   }
   // Check Data blocks
   IndexBlockIter iiter_on_stack;
+  BlockCacheLookupContext context{caller};
   InternalIteratorBase<BlockHandle>* iiter = NewIndexIterator(
       ReadOptions(), /*need_upper_bound_check=*/false, &iiter_on_stack,
-      /*get_context=*/nullptr, /*lookup_contex=*/nullptr);
+      /*get_context=*/nullptr, &context);
   std::unique_ptr<InternalIteratorBase<BlockHandle>> iiter_unique_ptr;
   if (iiter != &iiter_on_stack) {
     iiter_unique_ptr =
@@ -3536,10 +3534,8 @@ Status BlockBasedTable::CreateIndexReader(
 }
 
 uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key,
-                                              bool for_compaction) {
-  BlockCacheLookupContext context(
-      for_compaction ? BlockCacheLookupCaller::kCompaction
-                     : BlockCacheLookupCaller::kUserApproximateSize);
+                                              TableReaderCaller caller) {
+  BlockCacheLookupContext context(caller);
   std::unique_ptr<InternalIteratorBase<BlockHandle>> index_iter(
       NewIndexIterator(ReadOptions(), /*need_upper_bound_check=*/false,
                        /*input_iter=*/nullptr, /*get_context=*/nullptr,

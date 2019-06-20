@@ -42,17 +42,16 @@ class MockTableReader : public TableReader {
 
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
-                                Arena* arena = nullptr,
-                                bool skip_filters = false,
-                                bool for_compaction = false,
-                                size_t compaction_readahead_size = 0) override;
+                                Arena* arena, bool skip_filters,
+                                TableReaderCaller caller,
+                              size_t compaction_readahead_size = 0) override;
 
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
   uint64_t ApproximateOffsetOf(const Slice& /*key*/,
-                               bool /*for_compaction*/ = false) override {
+                               TableReaderCaller /*caller*/) override {
     return 0;
   }
 

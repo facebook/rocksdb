@@ -72,7 +72,7 @@ struct BlockAccessInfo {
   std::map<std::string, uint64_t>
       non_exist_key_num_access_map;  // for keys do not exist in this block.
   uint64_t num_referenced_key_exist_in_block = 0;
-  std::map<BlockCacheLookupCaller, uint64_t> caller_num_access_map;
+  std::map<TableReaderCaller, uint64_t> caller_num_access_map;
 
   void AddAccess(const BlockCacheTraceRecord& access) {
     if (first_access_time == 0) {

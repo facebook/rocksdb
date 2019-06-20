@@ -308,7 +308,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   }
 
   if (ingestion_options_.verify_checksums_before_ingest) {
-    status = table_reader->VerifyChecksum();
+    status =
+        table_reader->VerifyChecksum(TableReaderCaller::kExternalSSTIngestion);
   }
   if (!status.ok()) {
     return status;
@@ -368,7 +369,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   // updating the block cache.
   ro.fill_cache = false;
   std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
-      ro, sv->mutable_cf_options.prefix_extractor.get()));
+      ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
   std::unique_ptr<InternalIterator> range_del_iter(
       table_reader->NewRangeTombstoneIterator(ro));
 
