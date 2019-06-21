@@ -98,6 +98,9 @@ Status FileState::DropRandomUnsyncedData(Env* env, Random* rand) const {
 }
 
 Status TestDirectory::Fsync() {
+  if (!env_->IsFilesystemActive()) {
+    return env_->GetError();
+  }
   env_->SyncDir(dirname_);
   return dir_->Fsync();
 }
@@ -156,6 +159,53 @@ Status TestWritableFile::Sync() {
   state_.pos_at_last_sync_ = state_.pos_;
   env_->WritableFileSynced(state_);
   return Status::OK();
+}
+
+TestRandomRWFile::TestRandomRWFile(const std::string& /*fname*/,
+                                   std::unique_ptr<RandomRWFile>&& f,
+                                   FaultInjectionTestEnv* env)
+    : target_(std::move(f)), file_opened_(true), env_(env) {
+  assert(target_ != nullptr);
+}
+
+TestRandomRWFile::~TestRandomRWFile() {
+  if (file_opened_) {
+    Close();
+  }
+}
+
+Status TestRandomRWFile::Write(uint64_t offset, const Slice& data) {
+  if (!env_->IsFilesystemActive()) {
+    return env_->GetError();
+  }
+  return target_->Write(offset, data);
+}
+
+Status TestRandomRWFile::Read(uint64_t offset, size_t n, Slice* result,
+                              char* scratch) const {
+  if (!env_->IsFilesystemActive()) {
+    return env_->GetError();
+  }
+  return target_->Read(offset, n, result, scratch);
+}
+
+Status TestRandomRWFile::Close() {
+  file_opened_ = false;
+  return target_->Close();
+}
+
+Status TestRandomRWFile::Flush() {
+  if (!env_->IsFilesystemActive()) {
+    return env_->GetError();
+  }
+  return target_->Flush();
+}
+
+Status TestRandomRWFile::Sync() {
+  if (!env_->IsFilesystemActive()) {
+    return env_->GetError();
+  }
+  return target_->Sync();
 }
 
 Status FaultInjectionTestEnv::NewDirectory(const std::string& name,
@@ -220,6 +270,27 @@ Status FaultInjectionTestEnv::ReopenWritableFile(
   return s;
 }
 
+Status FaultInjectionTestEnv::NewRandomRWFile(
+    const std::string& fname, std::unique_ptr<RandomRWFile>* result,
+    const EnvOptions& soptions) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+  Status s = target()->NewRandomRWFile(fname, result, soptions);
+  if (s.ok()) {
+    result->reset(new TestRandomRWFile(fname, std::move(*result), this));
+    // WritableFileWriter* file is opened
+    // again then it will be truncated - so forget our saved state.
+    UntrackFile(fname);
+    MutexLock l(&mutex_);
+    open_files_.insert(fname);
+    auto dir_and_name = GetDirAndName(fname);
+    auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
+    list.insert(dir_and_name.second);
+  }
+  return s;
+}
+
 Status FaultInjectionTestEnv::NewRandomAccessFile(
     const std::string& fname, std::unique_ptr<RandomAccessFile>* result,
     const EnvOptions& soptions) {
@@ -238,7 +309,6 @@ Status FaultInjectionTestEnv::DeleteFile(const std::string& f) {
     fprintf(stderr, "Cannot delete file %s: %s\n", f.c_str(),
             s.ToString().c_str());
   }
-  assert(s.ok());
   if (s.ok()) {
     UntrackFile(f);
   }

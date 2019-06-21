@@ -7,11 +7,13 @@
 
 #include "db/external_sst_file_ingestion_job.h"
 
-#include <cinttypes>
 #include <algorithm>
+#include <cinttypes>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
+#include "db/db_impl/db_impl.h"
 #include "db/version_edit.h"
 #include "file/file_util.h"
 #include "table/merging_iterator.h"
@@ -86,6 +88,7 @@ Status ExternalSstFileIngestionJob::Prepare(
   }
 
   // Copy/Move external files into DB
+  std::unordered_set<size_t> ingestion_path_ids;
   for (IngestedFileInfo& f : files_to_ingest_) {
     f.fd = FileDescriptor(next_file_number++, 0, f.file_size);
     f.copy_file = false;
@@ -95,8 +98,26 @@ Status ExternalSstFileIngestionJob::Prepare(
                       f.fd.GetPathId());
     if (ingestion_options_.move_files) {
       status = env_->LinkFile(path_outside_db, path_inside_db);
-      if (status.IsNotSupported() &&
-          ingestion_options_.failed_move_fall_back_to_copy) {
+      if (status.ok()) {
+        // It is unsafe to assume application had sync the file and file
+        // directory before ingest the file. For integrity of RocksDB we need
+        // to sync the file.
+        std::unique_ptr<WritableFile> file_to_sync;
+        status = env_->ReopenWritableFile(path_inside_db, &file_to_sync,
+                                          env_options_);
+        if (status.ok()) {
+          TEST_SYNC_POINT(
+              "ExternalSstFileIngestionJob::BeforeSyncIngestedFile");
+          status = SyncIngestedFile(file_to_sync.get());
+          TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncIngestedFile");
+          if (!status.ok()) {
+            ROCKS_LOG_WARN(db_options_.info_log,
+                           "Failed to sync ingested file %s: %s",
+                           path_inside_db.c_str(), status.ToString().c_str());
+          }
+        }
+      } else if (status.IsNotSupported() &&
+                 ingestion_options_.failed_move_fall_back_to_copy) {
         // Original file is on a different FS, use copy instead of hard linking.
         f.copy_file = true;
       }
@@ -107,6 +128,7 @@ Status ExternalSstFileIngestionJob::Prepare(
     if (f.copy_file) {
       TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:CopyFile",
                                nullptr);
+      // CopyFile also sync the new file.
       status = CopyFile(env_, path_outside_db, path_inside_db, 0,
                         db_options_.use_fsync);
     }
@@ -115,8 +137,25 @@ Status ExternalSstFileIngestionJob::Prepare(
       break;
     }
     f.internal_file_path = path_inside_db;
+    ingestion_path_ids.insert(f.fd.GetPathId());
   }
 
+  TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncDir");
+  if (status.ok()) {
+    for (auto path_id : ingestion_path_ids) {
+      status = directories_->GetDataDir(path_id)->Fsync();
+      if (!status.ok()) {
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "Failed to sync directory %" ROCKSDB_PRIszt
+                       " while ingest file: %s",
+                       path_id, status.ToString().c_str());
+        break;
+      }
+    }
+  }
+  TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncDir");
+
+  // TODO: The following is duplicated with Cleanup().
   if (!status.ok()) {
     // We failed, remove all files that we copied into the db
     for (IngestedFileInfo& f : files_to_ingest_) {
@@ -559,6 +598,18 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
       std::string seqno_val;
       PutFixed64(&seqno_val, seqno);
       status = rwfile->Write(file_to_ingest->global_seqno_offset, seqno_val);
+      if (status.ok()) {
+        TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncGlobalSeqno");
+        status = SyncIngestedFile(rwfile.get());
+        TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncGlobalSeqno");
+        if (!status.ok()) {
+          ROCKS_LOG_WARN(db_options_.info_log,
+                         "Failed to sync ingested file %s after writing global "
+                         "sequence number: %s",
+                         file_to_ingest->internal_file_path.c_str(),
+                         status.ToString().c_str());
+        }
+      }
       if (!status.ok()) {
         return status;
       }
@@ -597,6 +648,16 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
 
   // File did not overlap with level files, our compaction output
   return true;
+}
+
+template <typename TWritableFile>
+Status ExternalSstFileIngestionJob::SyncIngestedFile(TWritableFile* file) {
+  assert(file != nullptr);
+  if (db_options_.use_fsync) {
+    return file->Fsync();
+  } else {
+    return file->Sync();
+  }
 }
 
 }  // namespace rocksdb
