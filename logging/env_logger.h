@@ -27,25 +27,25 @@ namespace rocksdb {
 
 class EnvLogger : public Logger {
  public:
-  EnvLogger(std::unique_ptr<WritableFileWriter>&& file, uint64_t(gettid)(),
-            Env* env, InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL)
+  EnvLogger(std::unique_ptr<WritableFileWriter>&& file, Env* env,
+            InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL)
       : Logger(log_level),
         file_(std::move(file)),
-        gettid_(gettid),
+
         last_flush_micros_(0),
         env_(env),
         flush_pending_(false) {}
 
-  EnvLogger(const std::string& fname, const EnvOptions& options,
-            uint64_t(gettid)(), Env* env,
+  EnvLogger(const std::string& fname, const EnvOptions& options, Env* env,
             InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL)
       : Logger(log_level),
-        gettid_(gettid),
+
         last_flush_micros_(0),
         env_(env),
         flush_pending_(false) {
     std::unique_ptr<WritableFile> writable_file;
-    env_->NewWritableFile(fname, &writable_file, options);
+    assert(env_->NewWritableFile(fname, &writable_file, options).ok());
+    assert(writable_file);
     file_ = std::unique_ptr<WritableFileWriter>(
         new WritableFileWriter(std::move(writable_file), fname, options, env));
   }
@@ -95,7 +95,7 @@ class EnvLogger : public Logger {
   void Logv(const char* format, va_list ap) override {
     IOSTATS_TIMER_GUARD(logger_nanos);
 
-    const uint64_t thread_id = (*gettid_)();
+    const uint64_t thread_id = env_->GetThreadID();
 
     // We try twice: the first time with a fixed-size stack allocated buffer,
     // and the second time with a much larger dynamically allocated buffer.
@@ -147,8 +147,8 @@ class EnvLogger : public Logger {
 
       assert(p <= limit);
       mutex_.Lock();
-      const auto status = file_->Append(Slice(base, p - base));
-      assert(status.ok());
+      // We will ignore any error returned by Append().
+      file_->Append(Slice(base, p - base));
       flush_pending_ = true;
       const uint64_t now_micros = env_->NowMicros();
       if (now_micros - last_flush_micros_ >= flush_every_seconds_ * 1000000) {
@@ -166,7 +166,6 @@ class EnvLogger : public Logger {
 
  private:
   std::unique_ptr<WritableFileWriter> file_;
-  uint64_t (*gettid_)();       // Return the thread id for the current thread
   mutable port::Mutex mutex_;  // Mutex to protect the shared variables below.
   const static uint64_t flush_every_seconds_ = 5;
   std::atomic_uint_fast64_t last_flush_micros_;

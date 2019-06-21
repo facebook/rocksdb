@@ -10,6 +10,7 @@
 #include "rocksdb/env.h"
 
 #include <thread>
+#include "logging/env_logger.h"
 #include "memory/arena.h"
 #include "options/db_options.h"
 #include "port/port.h"
@@ -20,6 +21,12 @@
 namespace rocksdb {
 
 Env::~Env() {
+}
+
+Status Env::NewLogger(const std::string& fname,
+                      std::shared_ptr<Logger>* result) {
+  *result = std::make_shared<EnvLogger>(fname, EnvOptions(), this);
+  return Status::OK();
 }
 
 std::string Env::PriorityToString(Env::Priority priority) {
