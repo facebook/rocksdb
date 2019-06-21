@@ -288,8 +288,8 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
     for (auto const& test : test_reuse_csv_files) {
       const std::string& file_suffix = test.first;
       const std::string& labels = test.second;
-      const uint32_t expected_num_columns = 11;
-      const uint32_t expected_num_columns_absolute_values = 5;
+      const uint32_t expected_num_rows = 10;
+      const uint32_t expected_num_rows_absolute_values = 5;
       const uint32_t expected_reused_blocks = 0;
       std::stringstream ss(labels);
       while (ss.good()) {
@@ -301,26 +301,26 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
         ASSERT_TRUE(getline(infile, line));
         uint32_t nblocks = 0;
         double npercentage = 0;
+        uint32_t nrows = 0;
         while (getline(infile, line)) {
           std::stringstream ss_naccess(line);
           bool label_read = false;
-          uint32_t ncolumns = 0;
+          nrows++;
           while (ss_naccess.good()) {
             std::string substr;
             ASSERT_TRUE(getline(ss_naccess, substr, ','));
-            ncolumns++;
             if (!label_read) {
               label_read = true;
               continue;
             }
-            if (ncolumns < expected_num_columns_absolute_values + 1) {
+            if (nrows < expected_num_rows_absolute_values) {
               nblocks += ParseUint32(substr);
             } else {
               npercentage += ParseDouble(substr);
             }
           }
-          ASSERT_EQ(expected_num_columns, ncolumns);
         }
+        ASSERT_EQ(expected_num_rows, nrows);
         ASSERT_EQ(expected_reused_blocks, nblocks);
         ASSERT_LT(npercentage, 0);
         ASSERT_OK(env_->DeleteFile(reuse_csv_file));
