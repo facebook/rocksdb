@@ -37,19 +37,19 @@ class BlockCacheTracerTest : public testing::Test {
     EXPECT_OK(env_->DeleteDir(test_path_));
   }
 
-  BlockCacheLookupCaller GetCaller(uint32_t key_id) {
+  TableReaderCaller GetCaller(uint32_t key_id) {
     uint32_t n = key_id % 5;
     switch (n) {
       case 0:
-        return BlockCacheLookupCaller::kPrefetch;
+        return TableReaderCaller::kPrefetch;
       case 1:
-        return BlockCacheLookupCaller::kCompaction;
+        return TableReaderCaller::kCompaction;
       case 2:
-        return BlockCacheLookupCaller::kUserGet;
+        return TableReaderCaller::kUserGet;
       case 3:
-        return BlockCacheLookupCaller::kUserMGet;
+        return TableReaderCaller::kUserMultiGet;
       case 4:
-        return BlockCacheLookupCaller::kUserIterator;
+        return TableReaderCaller::kUserIterator;
     }
     assert(false);
   }
@@ -121,8 +121,8 @@ class BlockCacheTracerTest : public testing::Test {
       ASSERT_EQ(Boolean::kFalse, record.is_cache_hit);
       ASSERT_EQ(Boolean::kFalse, record.no_insert);
       if (block_type == TraceType::kBlockTraceDataBlock &&
-          (record.caller == BlockCacheLookupCaller::kUserGet ||
-           record.caller == BlockCacheLookupCaller::kUserMGet)) {
+          (record.caller == TableReaderCaller::kUserGet ||
+           record.caller == TableReaderCaller::kUserMultiGet)) {
         ASSERT_EQ(kRefKeyPrefix + std::to_string(key_id),
                   record.referenced_key);
         ASSERT_EQ(Boolean::kTrue, record.referenced_key_exist_in_block);

@@ -82,10 +82,8 @@ class PlainTableReader: public TableReader {
   // true
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
-                                Arena* arena = nullptr,
-                                bool skip_filters = false,
-                                bool for_compaction = false,
-                                size_t compaction_readahead_size = 0) override;
+                                Arena* arena, bool skip_filters,
+                                TableReaderCaller caller, size_t compaction_readahead_size = 0) override;
 
   void Prepare(const Slice& target) override;
 
@@ -94,7 +92,7 @@ class PlainTableReader: public TableReader {
              bool skip_filters = false) override;
 
   uint64_t ApproximateOffsetOf(const Slice& key,
-                               bool for_compaction = false) override;
+                               TableReaderCaller caller) override;
 
   uint32_t GetIndexSize() const { return index_.GetIndexSize(); }
   void SetupForCompaction() override;
