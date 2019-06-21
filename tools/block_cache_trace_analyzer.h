@@ -205,7 +205,7 @@ class BlockCacheTraceAnalyzer {
   std::string BuildLabel(const std::set<std::string>& labels,
                          const std::string& cf_name, uint64_t fd,
                          uint32_t level, TraceType type,
-                         BlockCacheLookupCaller caller,
+                         TableReaderCaller caller,
                          const std::string& block_key) const;
 
   void ComputeReuseDistance(BlockAccessInfo* info) const;

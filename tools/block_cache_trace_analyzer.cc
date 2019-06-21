@@ -283,7 +283,7 @@ std::set<std::string> BlockCacheTraceAnalyzer::ParseLabelStr(
 
 std::string BlockCacheTraceAnalyzer::BuildLabel(
     const std::set<std::string>& labels, const std::string& cf_name,
-    uint64_t fd, uint32_t level, TraceType type, BlockCacheLookupCaller caller,
+    uint64_t fd, uint32_t level, TraceType type, TableReaderCaller caller,
     const std::string& block_key) const {
   std::map<std::string, std::string> label_value_map;
   label_value_map[kGroupbyAll] = kGroupbyAll;
@@ -325,7 +325,7 @@ void BlockCacheTraceAnalyzer::WriteAccessTimeline(
           // Stats per block.
           for (auto const& timeline :
                block_access_info.second.caller_num_accesses_timeline) {
-            const BlockCacheLookupCaller caller = timeline.first;
+            const TableReaderCaller caller = timeline.first;
             const std::string& block_key = block_access_info.first;
             const std::string label =
                 BuildLabel(labels, cf_name, fd, level, type, caller, block_key);
@@ -395,7 +395,7 @@ void BlockCacheTraceAnalyzer::WriteReuseDistance(
           const std::string& block_key = block_access_info.first;
           const std::string label = BuildLabel(
               labels, cf_name, fd, level, type,
-              BlockCacheLookupCaller::kMaxBlockCacheLookupCaller, block_key);
+              TableReaderCaller::kMaxBlockCacheLookupCaller, block_key);
           if (label_distance_num_reuses.find(label) ==
               label_distance_num_reuses.end()) {
             // The first time we encounter this label.
@@ -509,7 +509,7 @@ void BlockCacheTraceAnalyzer::WriteReuseInterval(
           if (labels.find(kGroupbyCaller) != labels.end()) {
             for (auto const& timeline :
                  block_access_info.second.caller_num_accesses_timeline) {
-              const BlockCacheLookupCaller caller = timeline.first;
+              const TableReaderCaller caller = timeline.first;
               const std::string label = BuildLabel(labels, cf_name, fd, level,
                                                    type, caller, block_key);
               UpdateReuseIntervalStats(label, time_buckets, timeline.second,
@@ -521,7 +521,7 @@ void BlockCacheTraceAnalyzer::WriteReuseInterval(
           // Does not group by caller so we need to flatten the access timeline.
           const std::string label = BuildLabel(
               labels, cf_name, fd, level, type,
-              BlockCacheLookupCaller::kMaxBlockCacheLookupCaller, block_key);
+              TableReaderCaller::kMaxBlockCacheLookupCaller, block_key);
           std::map<uint64_t, uint64_t> timeline;
           for (auto const& caller_timeline :
                block_access_info.second.caller_num_accesses_timeline) {
