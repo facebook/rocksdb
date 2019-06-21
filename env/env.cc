@@ -25,7 +25,15 @@ Env::~Env() {
 
 Status Env::NewLogger(const std::string& fname,
                       std::shared_ptr<Logger>* result) {
-  *result = std::make_shared<EnvLogger>(fname, EnvOptions(), this);
+  EnvOptions options;
+  std::unique_ptr<WritableFile> writable_file;
+  const auto status = NewWritableFile(fname, &writable_file, options);
+  if (!status.ok()) {
+    return status;
+  }
+
+  *result = std::make_shared<EnvLogger>(std::move(writable_file), fname,
+                                        options, this);
   return Status::OK();
 }
 

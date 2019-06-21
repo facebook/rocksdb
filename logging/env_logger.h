@@ -27,28 +27,14 @@ namespace rocksdb {
 
 class EnvLogger : public Logger {
  public:
-  EnvLogger(std::unique_ptr<WritableFileWriter>&& file, Env* env,
+  EnvLogger(std::unique_ptr<WritableFile>&& writable_file,
+            const std::string& fname, const EnvOptions& options, Env* env,
             InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL)
       : Logger(log_level),
-        file_(std::move(file)),
-
+        file_(std::move(writable_file), fname, options, env),
         last_flush_micros_(0),
         env_(env),
         flush_pending_(false) {}
-
-  EnvLogger(const std::string& fname, const EnvOptions& options, Env* env,
-            InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL)
-      : Logger(log_level),
-
-        last_flush_micros_(0),
-        env_(env),
-        flush_pending_(false) {
-    std::unique_ptr<WritableFile> writable_file;
-    assert(env_->NewWritableFile(fname, &writable_file, options).ok());
-    assert(writable_file);
-    file_ = std::unique_ptr<WritableFileWriter>(
-        new WritableFileWriter(std::move(writable_file), fname, options, env));
-  }
 
   ~EnvLogger() {
     if (!closed_) {
@@ -62,7 +48,7 @@ class EnvLogger : public Logger {
     mutex_.AssertHeld();
     if (flush_pending_) {
       flush_pending_ = false;
-      file_->Flush();
+      file_.Flush();
     }
     last_flush_micros_ = env_->NowMicros();
   }
@@ -71,16 +57,16 @@ class EnvLogger : public Logger {
     TEST_SYNC_POINT("EnvLogger::Flush:Begin1");
     TEST_SYNC_POINT("EnvLogger::Flush:Begin2");
 
-    MutexLock l(&mutex_);
+    WriteLock l(&mutex_);
     FlushLocked();
   }
 
   Status CloseImpl() override { return CloseHelper(); }
 
   Status CloseHelper() {
-    mutex_.Lock();
-    const auto close_status = file_->Close();
-    mutex_.Unlock();
+    mutex_.WriteLock();
+    const auto close_status = file_.Close();
+    mutex_.WriteUnlock();
 
     if (close_status.ok()) {
       return close_status;
@@ -146,15 +132,15 @@ class EnvLogger : public Logger {
       }
 
       assert(p <= limit);
-      mutex_.Lock();
+      mutex_.WriteLock();
       // We will ignore any error returned by Append().
-      file_->Append(Slice(base, p - base));
+      file_.Append(Slice(base, p - base));
       flush_pending_ = true;
       const uint64_t now_micros = env_->NowMicros();
       if (now_micros - last_flush_micros_ >= flush_every_seconds_ * 1000000) {
         FlushLocked();
       }
-      mutex_.Unlock();
+      mutex_.WriteUnlock();
       if (base != buffer) {
         delete[] base;
       }
@@ -162,11 +148,14 @@ class EnvLogger : public Logger {
     }
   }
 
-  size_t GetLogFileSize() const override { return file_->GetFileSize(); }
+  size_t GetLogFileSize() const override {
+    ReadLock l(&mutex_);
+    return file_.GetFileSize();
+  }
 
  private:
-  std::unique_ptr<WritableFileWriter> file_;
-  mutable port::Mutex mutex_;  // Mutex to protect the shared variables below.
+  WritableFileWriter file_;
+  mutable port::RWMutex mutex_;  // Mutex to protect the shared variables below.
   const static uint64_t flush_every_seconds_ = 5;
   std::atomic_uint_fast64_t last_flush_micros_;
   Env* env_;

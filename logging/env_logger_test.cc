@@ -37,8 +37,12 @@ class EnvLoggerTest : public testing::Test {
   ~EnvLoggerTest() = default;
 
   std::shared_ptr<Logger> CreateLogger() {
-    return std::make_shared<EnvLogger>(kLogFile, EnvOptions(), env_,
-                                       InfoLogLevel::INFO_LEVEL);
+    EnvOptions options;
+    std::unique_ptr<WritableFile> writable_file;
+    assert(env_->NewWritableFile(kLogFile, &writable_file, options).ok());
+
+    return std::make_shared<EnvLogger>(std::move(writable_file), kLogFile,
+                                       options, env_, InfoLogLevel::INFO_LEVEL);
   }
 
   void DeleteLogFile() {
