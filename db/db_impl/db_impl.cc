@@ -861,16 +861,6 @@ Directory* DBImpl::GetDataDir(ColumnFamilyData* cfd, size_t path_id) const {
   return ret_dir;
 }
 
-Directory* DBImpl::Directories::GetDataDir(size_t path_id) const {
-  assert(path_id < data_dirs_.size());
-  Directory* ret_dir = data_dirs_[path_id].get();
-  if (ret_dir == nullptr) {
-    // Should use db_dir_
-    return db_dir_.get();
-  }
-  return ret_dir;
-}
-
 Status DBImpl::SetOptions(
     ColumnFamilyHandle* column_family,
     const std::unordered_map<std::string, std::string>& options_map) {
@@ -3644,7 +3634,7 @@ Status DBImpl::IngestExternalFiles(
     auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
     ingestion_jobs.emplace_back(env_, versions_.get(), cfd,
                                 immutable_db_options_, env_options_,
-                                &snapshots_, arg.options);
+                                &snapshots_, arg.options, &directories_);
   }
   std::vector<std::pair<bool, Status>> exec_results;
   for (size_t i = 0; i != num_cfs; ++i) {
