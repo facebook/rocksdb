@@ -179,6 +179,24 @@ LookupKey::LookupKey(const Slice& _user_key, SequenceNumber s) {
   end_ = dst;
 }
 
+LookupKey::LookupKey(const Slice& _user_key, const Slice& ts,
+                     SequenceNumber s) {
+  size_t usize = _user_key.size();
+  size_t ts_sz = ts.size();
+  size_t needed = usize + ts_sz + 13;
+  char* dst = (needed <= sizeof(space_)) ? space_ : (new char[needed]);
+  start_ = dst;
+  dst = EncodeVarint32(dst, static_cast<uint32_t>(usize + ts_sz + 8));
+  kstart_ = dst;
+  memcpy(dst, _user_key.data(), usize);
+  dst += usize;
+  memcpy(dst, ts.data(), ts_sz);
+  dst += ts_sz;
+  EncodeFixed64(dst, PackSequenceAndType(s, kValueTypeForSeek));
+  dst += 8;
+  end_ = dst;
+}
+
 void IterKey::EnlargeBuffer(size_t key_size) {
   // If size is smaller than buffer size, continue using current buffer,
   // or the static allocated one, as default

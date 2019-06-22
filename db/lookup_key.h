@@ -23,6 +23,8 @@ class LookupKey {
   // the specified sequence number.
   LookupKey(const Slice& _user_key, SequenceNumber sequence);
 
+  LookupKey(const Slice& _user_key, const Slice& ts, SequenceNumber sequence);
+
   ~LookupKey();
 
   // Return a key suitable for lookup in a MemTable.
