@@ -330,7 +330,7 @@ inline void PutLengthPrefixedSlicePartsWithPadding(
   for (int i = 0; i < slice_parts.num_parts; ++i) {
     dst->append(slice_parts.parts[i].data(), slice_parts.parts[i].size());
   }
-  dst->append('\0', pad_sz);
+  dst->append(pad_sz, '\0');
 }
 
 inline int VarintLength(uint64_t v) {

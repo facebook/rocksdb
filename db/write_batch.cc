@@ -753,7 +753,7 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     PutVarint32(&b->rep_,
                 static_cast<uint32_t>(key.size() + b->timestamp_size_));
     b->rep_.append(key.data(), key.size());
-    b->rep_.append('\0', b->timestamp_size_);
+    b->rep_.append(b->timestamp_size_, '\0');
   }
   PutLengthPrefixedSlice(&b->rep_, value);
   b->content_flags_.store(

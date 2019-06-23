@@ -1734,14 +1734,16 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
     }
     return Write(opt, &batch);
   }
-  Slice akey;
-  std::string buf;
-  Status s = AppendTimestamp(key, *(opt.timestamp), &akey, &buf);
+  const Slice* ts = opt.timestamp;
+  assert(nullptr != ts);
+  size_t ts_sz = ts->size();
+  WriteBatch batch(key.size() + ts_sz + value.size() + 24, /*max_bytes=*/0,
+                   ts_sz);
+  Status s = batch.Put(column_family, key, value);
   if (!s.ok()) {
     return s;
   }
-  WriteBatch batch(akey.size() + value.size() + 24);
-  s = batch.Put(column_family, akey, value);
+  s = batch.AssignTimestamp(*ts);
   if (!s.ok()) {
     return s;
   }
