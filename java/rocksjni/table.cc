@@ -85,7 +85,7 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
       std::shared_ptr<rocksdb::Cache> *pCache =
           reinterpret_cast<std::shared_ptr<rocksdb::Cache> *>(jblock_cache_handle);
       options.block_cache = *pCache;
-    } else if (jblock_cache_size > 0) {
+    } else if (jblock_cache_size >= 0) {
       if (jblock_cache_num_shard_bits > 0) {
         options.block_cache = rocksdb::NewLRUCache(
             static_cast<size_t>(jblock_cache_size),
@@ -94,6 +94,9 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
         options.block_cache = rocksdb::NewLRUCache(
             static_cast<size_t>(jblock_cache_size));
       }
+    } else {
+      options.no_block_cache = true;
+      options.block_cache = nullptr;
     }
   }
   if (jpersistent_cache_handle > 0) {
