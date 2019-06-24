@@ -9,6 +9,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
+#include "test_util/fault_injection_test_env.h"
 #include "test_util/testutil.h"
 
 namespace rocksdb {
@@ -20,6 +21,7 @@ class ExternalSSTFileBasicTest
  public:
   ExternalSSTFileBasicTest() : DBTestBase("/external_sst_file_basic_test") {
     sst_files_dir_ = dbname_ + "/sst_files/";
+    fault_injection_test_env_.reset(new FaultInjectionTestEnv(Env::Default()));
     DestroyAndRecreateExternalSSTFilesDir();
   }
 
@@ -140,6 +142,7 @@ class ExternalSSTFileBasicTest
 
  protected:
   std::string sst_files_dir_;
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_test_env_;
 };
 
 TEST_F(ExternalSSTFileBasicTest, Basic) {
@@ -687,6 +690,59 @@ TEST_F(ExternalSSTFileBasicTest, FadviseTrigger) {
   ASSERT_GT(total_fadvised_bytes, 0);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
+  Options options;
+  options.create_if_missing = true;
+  options.env = fault_injection_test_env_.get();
+
+  std::vector<std::pair<std::string, std::string>> test_cases = {
+      {"ExternalSstFileIngestionJob::BeforeSyncIngestedFile",
+       "ExternalSstFileIngestionJob::AfterSyncIngestedFile"},
+      {"ExternalSstFileIngestionJob::BeforeSyncDir",
+       "ExternalSstFileIngestionJob::AfterSyncDir"},
+      {"ExternalSstFileIngestionJob::BeforeSyncGlobalSeqno",
+       "ExternalSstFileIngestionJob::AfterSyncGlobalSeqno"}};
+
+  for (size_t i = 0; i < test_cases.size(); i++) {
+    SyncPoint::GetInstance()->SetCallBack(test_cases[i].first, [&](void*) {
+      fault_injection_test_env_->SetFilesystemActive(false);
+    });
+    SyncPoint::GetInstance()->SetCallBack(test_cases[i].second, [&](void*) {
+      fault_injection_test_env_->SetFilesystemActive(true);
+    });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    DestroyAndReopen(options);
+    if (i == 2) {
+      ASSERT_OK(Put("foo", "v1"));
+    }
+
+    Options sst_file_writer_options;
+    std::unique_ptr<SstFileWriter> sst_file_writer(
+        new SstFileWriter(EnvOptions(), sst_file_writer_options));
+    std::string file_name =
+        sst_files_dir_ + "sync_failure_test_" + ToString(i) + ".sst";
+    ASSERT_OK(sst_file_writer->Open(file_name));
+    ASSERT_OK(sst_file_writer->Put("bar", "v2"));
+    ASSERT_OK(sst_file_writer->Finish());
+
+    IngestExternalFileOptions ingest_opt;
+    if (i == 0) {
+      ingest_opt.move_files = true;
+    }
+    const Snapshot* snapshot = db_->GetSnapshot();
+    if (i == 2) {
+      ingest_opt.write_global_seqno = true;
+    }
+    ASSERT_FALSE(db_->IngestExternalFile({file_name}, ingest_opt).ok());
+    db_->ReleaseSnapshot(snapshot);
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    Destroy(options);
+  }
 }
 
 TEST_P(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {

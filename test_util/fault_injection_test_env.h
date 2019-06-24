@@ -82,6 +82,31 @@ class TestWritableFile : public WritableFile {
   FaultInjectionTestEnv* env_;
 };
 
+// A wrapper around WritableFileWriter* file
+// is written to or sync'ed.
+class TestRandomRWFile : public RandomRWFile {
+ public:
+  explicit TestRandomRWFile(const std::string& fname,
+                            std::unique_ptr<RandomRWFile>&& f,
+                            FaultInjectionTestEnv* env);
+  virtual ~TestRandomRWFile();
+  Status Write(uint64_t offset, const Slice& data) override;
+  Status Read(uint64_t offset, size_t n, Slice* result,
+              char* scratch) const override;
+  Status Close() override;
+  Status Flush() override;
+  Status Sync() override;
+  size_t GetRequiredBufferAlignment() const override {
+    return target_->GetRequiredBufferAlignment();
+  }
+  bool use_direct_io() const override { return target_->use_direct_io(); };
+
+ private:
+  std::unique_ptr<RandomRWFile> target_;
+  bool file_opened_;
+  FaultInjectionTestEnv* env_;
+};
+
 class TestDirectory : public Directory {
  public:
   explicit TestDirectory(FaultInjectionTestEnv* env, std::string dirname,
@@ -113,6 +138,10 @@ class FaultInjectionTestEnv : public EnvWrapper {
   Status ReopenWritableFile(const std::string& fname,
                             std::unique_ptr<WritableFile>* result,
                             const EnvOptions& soptions) override;
+
+  Status NewRandomRWFile(const std::string& fname,
+                         std::unique_ptr<RandomRWFile>* result,
+                         const EnvOptions& soptions) override;
 
   Status NewRandomAccessFile(const std::string& fname,
                              std::unique_ptr<RandomAccessFile>* result,
