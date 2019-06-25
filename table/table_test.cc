@@ -236,7 +236,7 @@ class BlockConstructor: public Constructor {
   }
   InternalIterator* NewIterator(
       const SliceTransform* /*prefix_extractor*/) const override {
-    return block_->NewIterator<DataBlockIter>(comparator_, comparator_);
+    return block_->NewDataIterator(comparator_, comparator_);
   }
 
  private:
@@ -308,8 +308,9 @@ class TableConstructor: public Constructor {
  public:
   explicit TableConstructor(const Comparator* cmp,
                             bool convert_to_internal_key = false,
-                            int level = -1)
+                            int level = -1, SequenceNumber largest_seqno = 0)
       : Constructor(cmp),
+        largest_seqno_(largest_seqno),
         convert_to_internal_key_(convert_to_internal_key),
         level_(level) {}
   ~TableConstructor() override { Reset(); }
@@ -326,6 +327,14 @@ class TableConstructor: public Constructor {
     std::unique_ptr<TableBuilder> builder;
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
         int_tbl_prop_collector_factories;
+
+    if (largest_seqno_ != 0) {
+      // Pretend that it's an external file written by SstFileWriter.
+      int_tbl_prop_collector_factories.emplace_back(
+          new SstFileWriterPropertiesCollectorFactory(2 /* version */,
+                                                      0 /* global_seqno*/));
+    }
+
     std::string column_family_name;
     builder.reset(ioptions.table_factory->NewTableBuilder(
         TableBuilderOptions(ioptions, moptions, internal_comparator,
@@ -362,7 +371,7 @@ class TableConstructor: public Constructor {
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
                            internal_comparator, !kSkipFilters, !kImmortal,
-                           level_),
+                           level_, largest_seqno_, nullptr),
         std::move(file_reader_), TEST_GetSink()->contents().size(),
         &table_reader_);
   }
@@ -428,6 +437,7 @@ class TableConstructor: public Constructor {
   std::unique_ptr<WritableFileWriter> file_writer_;
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   std::unique_ptr<TableReader> table_reader_;
+  SequenceNumber largest_seqno_;
   bool convert_to_internal_key_;
   int level_;
 
@@ -1484,7 +1494,7 @@ TEST_P(BlockBasedTableTest, PrefetchTest) {
 
 TEST_P(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i <= 5; ++i) {
     Options options;
     // Make each key/value an individual block
     table_options.block_size = 64;
@@ -1515,9 +1525,14 @@ TEST_P(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
       options.prefix_extractor.reset(NewFixedPrefixTransform(4));
       break;
     case 4:
-    default:
-      // Binary search index
+      // Two-level index
       table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+      options.table_factory.reset(new BlockBasedTableFactory(table_options));
+      break;
+    case 5:
+      // Binary search with first key
+      table_options.index_type =
+          BlockBasedTableOptions::kBinarySearchWithFirstKey;
       options.table_factory.reset(new BlockBasedTableFactory(table_options));
       break;
     }
@@ -1663,10 +1678,10 @@ static std::string RandomString(Random* rnd, int len) {
 }
 
 void AddInternalKey(TableConstructor* c, const std::string& prefix,
-                    int /*suffix_len*/ = 800) {
+                    std::string value = "v", int /*suffix_len*/ = 800) {
   static Random rnd(1023);
   InternalKey k(prefix + RandomString(&rnd, 800), 0, kTypeValue);
-  c->Add(k.Encode().ToString(), "v");
+  c->Add(k.Encode().ToString(), value);
 }
 
 void TableTest::IndexTest(BlockBasedTableOptions table_options) {
@@ -1843,6 +1858,286 @@ TEST_P(BlockBasedTableTest, IndexSeekOptimizationIncomplete) {
   iter->Seek(ikey("pika"));
   ASSERT_FALSE(iter->Valid());
   ASSERT_TRUE(iter->status().IsIncomplete());
+}
+
+TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKey1) {
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  table_options.index_type = BlockBasedTableOptions::kBinarySearchWithFirstKey;
+  IndexTest(table_options);
+}
+
+class CustomFlushBlockPolicy : public FlushBlockPolicyFactory,
+                               public FlushBlockPolicy {
+ public:
+  explicit CustomFlushBlockPolicy(std::vector<int> keys_per_block)
+      : keys_per_block_(keys_per_block) {}
+
+  const char* Name() const override { return "table_test"; }
+  FlushBlockPolicy* NewFlushBlockPolicy(const BlockBasedTableOptions&,
+                                        const BlockBuilder&) const override {
+    return new CustomFlushBlockPolicy(keys_per_block_);
+  }
+
+  bool Update(const Slice&, const Slice&) override {
+    if (keys_in_current_block_ >= keys_per_block_.at(current_block_idx_)) {
+      ++current_block_idx_;
+      keys_in_current_block_ = 1;
+      return true;
+    }
+
+    ++keys_in_current_block_;
+    return false;
+  }
+
+  std::vector<int> keys_per_block_;
+
+  int current_block_idx_ = 0;
+  int keys_in_current_block_ = 0;
+};
+
+TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKey2) {
+  for (int use_first_key = 0; use_first_key < 2; ++use_first_key) {
+    SCOPED_TRACE("use_first_key = " + std::to_string(use_first_key));
+    BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+    table_options.index_type =
+        use_first_key ? BlockBasedTableOptions::kBinarySearchWithFirstKey
+                      : BlockBasedTableOptions::kBinarySearch;
+    table_options.block_cache = NewLRUCache(10000);  // fits all blocks
+    table_options.index_shortening =
+        BlockBasedTableOptions::IndexShorteningMode::kNoShortening;
+    table_options.flush_block_policy_factory =
+        std::make_shared<CustomFlushBlockPolicy>(std::vector<int>{2, 1, 3, 2});
+    Options options;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    options.statistics = CreateDBStatistics();
+    Statistics* stats = options.statistics.get();
+    std::unique_ptr<InternalKeyComparator> comparator(
+        new InternalKeyComparator(BytewiseComparator()));
+    const ImmutableCFOptions ioptions(options);
+    const MutableCFOptions moptions(options);
+
+    TableConstructor c(BytewiseComparator());
+
+    // Block 0.
+    AddInternalKey(&c, "aaaa", "v0");
+    AddInternalKey(&c, "aaac", "v1");
+
+    // Block 1.
+    AddInternalKey(&c, "aaca", "v2");
+
+    // Block 2.
+    AddInternalKey(&c, "caaa", "v3");
+    AddInternalKey(&c, "caac", "v4");
+    AddInternalKey(&c, "caae", "v5");
+
+    // Block 3.
+    AddInternalKey(&c, "ccaa", "v6");
+    AddInternalKey(&c, "ccac", "v7");
+
+    // Write the file.
+    std::vector<std::string> keys;
+    stl_wrappers::KVMap kvmap;
+    c.Finish(options, ioptions, moptions, table_options, *comparator, &keys,
+             &kvmap);
+    ASSERT_EQ(8, keys.size());
+
+    auto reader = c.GetTableReader();
+    auto props = reader->GetTableProperties();
+    ASSERT_EQ(4u, props->num_data_blocks);
+    std::unique_ptr<InternalIterator> iter(reader->NewIterator(
+        ReadOptions(), /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+    // Shouldn't have read data blocks before iterator is seeked.
+    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    auto ikey = [](Slice user_key) {
+      return InternalKey(user_key, 0, kTypeValue).Encode().ToString();
+    };
+
+    // Seek to a key between blocks. If index contains first key, we shouldn't
+    // read any data blocks until value is requested.
+    iter->Seek(ikey("aaba"));
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ(keys[2], iter->key().ToString());
+    EXPECT_EQ(use_first_key ? 0 : 1,
+              stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ("v2", iter->value().ToString());
+    EXPECT_EQ(1, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    // Seek to the middle of a block. The block should be read right away.
+    iter->Seek(ikey("caab"));
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ(keys[4], iter->key().ToString());
+    EXPECT_EQ(2, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ("v4", iter->value().ToString());
+    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    // Seek to just before the same block and don't access value.
+    // The iterator should keep pinning the block contents.
+    iter->Seek(ikey("baaa"));
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ(keys[3], iter->key().ToString());
+    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    // Seek to the same block again to check that the block is still pinned.
+    iter->Seek(ikey("caae"));
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ(keys[5], iter->key().ToString());
+    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ("v5", iter->value().ToString());
+    EXPECT_EQ(2, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    // Step forward and fall through to the next block. Don't access value.
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ(keys[6], iter->key().ToString());
+    EXPECT_EQ(use_first_key ? 2 : 3,
+              stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    // Step forward again. Block should be read.
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ(keys[7], iter->key().ToString());
+    EXPECT_EQ(3, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ("v7", iter->value().ToString());
+    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    // Step forward and reach the end.
+    iter->Next();
+    EXPECT_FALSE(iter->Valid());
+    EXPECT_EQ(3, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    // Seek to a single-key block and step forward without accessing value.
+    iter->Seek(ikey("aaca"));
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ(keys[2], iter->key().ToString());
+    EXPECT_EQ(use_first_key ? 0 : 1,
+              stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ(keys[3], iter->key().ToString());
+    EXPECT_EQ(use_first_key ? 1 : 2,
+              stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ("v3", iter->value().ToString());
+    EXPECT_EQ(2, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ(3, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+
+    // Seek between blocks and step back without accessing value.
+    iter->Seek(ikey("aaca"));
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ(keys[2], iter->key().ToString());
+    EXPECT_EQ(use_first_key ? 2 : 3,
+              stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ(3, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ(keys[1], iter->key().ToString());
+    EXPECT_EQ(use_first_key ? 2 : 3,
+              stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    // All blocks are in cache now, there'll be no more misses ever.
+    EXPECT_EQ(4, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ("v1", iter->value().ToString());
+
+    // Next into the next block again.
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ(keys[2], iter->key().ToString());
+    EXPECT_EQ(use_first_key ? 2 : 4,
+              stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    // Seek to first and step back without accessing value.
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ(keys[0], iter->key().ToString());
+    EXPECT_EQ(use_first_key ? 2 : 5,
+              stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    iter->Prev();
+    EXPECT_FALSE(iter->Valid());
+    EXPECT_EQ(use_first_key ? 2 : 5,
+              stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    // Do some SeekForPrev() and SeekToLast() just to cover all methods.
+    iter->SeekForPrev(ikey("caad"));
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ(keys[4], iter->key().ToString());
+    EXPECT_EQ(use_first_key ? 3 : 6,
+              stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ("v4", iter->value().ToString());
+    EXPECT_EQ(use_first_key ? 3 : 6,
+              stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ(keys[7], iter->key().ToString());
+    EXPECT_EQ(use_first_key ? 4 : 7,
+              stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ("v7", iter->value().ToString());
+    EXPECT_EQ(use_first_key ? 4 : 7,
+              stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    EXPECT_EQ(4, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+
+    c.ResetTableReader();
+  }
+}
+
+TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKeyGlobalSeqno) {
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  table_options.index_type = BlockBasedTableOptions::kBinarySearchWithFirstKey;
+  table_options.block_cache = NewLRUCache(10000);
+  Options options;
+  options.statistics = CreateDBStatistics();
+  Statistics* stats = options.statistics.get();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  std::unique_ptr<InternalKeyComparator> comparator(
+      new InternalKeyComparator(BytewiseComparator()));
+  const ImmutableCFOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+
+  TableConstructor c(BytewiseComparator(), /* convert_to_internal_key */ false,
+                     /* level */ -1, /* largest_seqno */ 42);
+
+  c.Add(InternalKey("b", 0, kTypeValue).Encode().ToString(), "x");
+  c.Add(InternalKey("c", 0, kTypeValue).Encode().ToString(), "y");
+
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  c.Finish(options, ioptions, moptions, table_options, *comparator, &keys,
+           &kvmap);
+  ASSERT_EQ(2, keys.size());
+
+  auto reader = c.GetTableReader();
+  auto props = reader->GetTableProperties();
+  ASSERT_EQ(1u, props->num_data_blocks);
+  std::unique_ptr<InternalIterator> iter(reader->NewIterator(
+      ReadOptions(), /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  iter->Seek(InternalKey("a", 0, kTypeValue).Encode().ToString());
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(InternalKey("b", 42, kTypeValue).Encode().ToString(),
+            iter->key().ToString());
+  EXPECT_NE(keys[0], iter->key().ToString());
+  // Key should have been served from index, without reading data blocks.
+  EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+
+  EXPECT_EQ("x", iter->value().ToString());
+  EXPECT_EQ(1, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+  EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+  EXPECT_EQ(InternalKey("b", 42, kTypeValue).Encode().ToString(),
+            iter->key().ToString());
+
+  c.ResetTableReader();
 }
 
 // It's very hard to figure out the index block size of a block accurately.
@@ -3606,9 +3901,8 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     Block metaindex_block(std::move(metaindex_contents),
                           kDisableGlobalSequenceNumber);
 
-    std::unique_ptr<InternalIterator> meta_iter(
-        metaindex_block.NewIterator<DataBlockIter>(BytewiseComparator(),
-                                                   BytewiseComparator()));
+    std::unique_ptr<InternalIterator> meta_iter(metaindex_block.NewDataIterator(
+        BytewiseComparator(), BytewiseComparator()));
     bool found_properties_block = true;
     ASSERT_OK(SeekToPropertiesBlock(meta_iter.get(), &found_properties_block));
     ASSERT_TRUE(found_properties_block);
@@ -3688,8 +3982,7 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
 
   // verify properties block comes last
   std::unique_ptr<InternalIterator> metaindex_iter{
-      metaindex_block.NewIterator<DataBlockIter>(options.comparator,
-                                                 options.comparator)};
+      metaindex_block.NewDataIterator(options.comparator, options.comparator)};
   uint64_t max_offset = 0;
   std::string key_at_max_offset;
   for (metaindex_iter->SeekToFirst(); metaindex_iter->Valid();
