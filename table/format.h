@@ -76,6 +76,35 @@ class BlockHandle {
   static const BlockHandle kNullBlockHandle;
 };
 
+// Value in block-based table file index.
+//
+// The index entry for block n is: y -> h, [x],
+// where: y is some key between the last key of block n (inclusive) and the
+// first key of block n+1 (exclusive); h is BlockHandle pointing to block n;
+// x, if present, is the first key of block n (unshortened).
+// This struct represents the "h, [x]" part.
+struct IndexValue {
+  BlockHandle handle;
+  // Empty means unknown.
+  Slice first_internal_key;
+
+  IndexValue() = default;
+  IndexValue(BlockHandle _handle, Slice _first_internal_key)
+      : handle(_handle), first_internal_key(_first_internal_key) {}
+
+  // have_first_key indicates whether the `first_internal_key` is used.
+  // If previous_handle is not null, delta encoding is used;
+  // in this case, the two handles must point to consecutive blocks:
+  // handle.offset() ==
+  //     previous_handle->offset() + previous_handle->size() + kBlockTrailerSize
+  void EncodeTo(std::string* dst, bool have_first_key,
+                const BlockHandle* previous_handle) const;
+  Status DecodeFrom(Slice* input, bool have_first_key,
+                    const BlockHandle* previous_handle);
+
+  std::string ToString(bool hex, bool have_first_key) const;
+};
+
 inline uint32_t GetCompressFormatForVersion(CompressionType compression_type,
                                             uint32_t version) {
 #ifdef NDEBUG
