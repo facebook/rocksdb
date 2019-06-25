@@ -49,12 +49,12 @@ DEFINE_string(
     "cache_name,num_shard_bits,capacity,miss_ratio,total_accesses. 2) Several "
     "\"label_access_timeline\" files that contain number of accesses per "
     "second grouped by the label. File format: "
-    "time,label_1_access_per_second,label_2,...,label_N_access_per_second "
-    "where N is the number of unique labels found in the trace. 3) Several "
-    "\"label_reuse_distance\" and \"label_reuse_interval\" csv files that "
-    "contain the reuse distance/interval grouped by label. File format: "
-    "bucket,label_1,label_2,...,label_N. The first N buckets are absolute "
-    "values. The second N buckets are percentage values.");
+    "time,label_1_access_per_second,label_2_access_per_second,...,label_N_"
+    "access_per_second where N is the number of unique labels found in the "
+    "trace. 3) Several \"label_reuse_distance\" and \"label_reuse_interval\" "
+    "csv files that contain the reuse distance/interval grouped by label. File "
+    "format: bucket,label_1,label_2,...,label_N. The first N buckets are "
+    "absolute values. The second N buckets are percentage values.");
 DEFINE_string(
     timeline_labels, "",
     "Group the number of accesses per block per second using these labels. "
@@ -203,8 +203,9 @@ void BlockCacheTraceSimulator::Access(const BlockCacheTraceRecord& access) {
     trace_start_time_ = access.access_timestamp;
   }
   // access.access_timestamp is in microseconds.
-  if (!warmup_complete_ && trace_start_time_ + warmup_seconds_ * 1000000 <=
-                               access.access_timestamp) {
+  if (!warmup_complete_ &&
+      trace_start_time_ + warmup_seconds_ * kMicrosInSecond <=
+          access.access_timestamp) {
     for (auto& sim_cache : sim_caches_) {
       sim_cache->reset_counter();
     }
@@ -299,14 +300,16 @@ std::string BlockCacheTraceAnalyzer::BuildLabel(
     label += label_value_map[l];
     label += "-";
   }
-  label.pop_back();
+  if (!label.empty()) {
+    label.pop_back();
+  }
   return label;
 }
 
 void BlockCacheTraceAnalyzer::WriteAccessTimeline(
     const std::string& label_str) const {
   std::set<std::string> labels = ParseLabelStr(label_str);
-  uint64_t start_time = UINT64_MAX;
+  uint64_t start_time = port::kMaxUint64;
   uint64_t end_time = 0;
   std::map<std::string, std::map<uint64_t, uint64_t>> label_access_timeline;
   for (auto const& cf_aggregates : cf_aggregates_map_) {
@@ -1071,7 +1074,7 @@ std::set<uint64_t> parse_buckets(const std::string& bucket_str) {
     getline(ss, bucket, ',');
     buckets.insert(ParseUint64(bucket));
   }
-  buckets.insert(UINT64_MAX);
+  buckets.insert(port::kMaxUint64);
   return buckets;
 }
 

@@ -15,6 +15,8 @@
 
 namespace rocksdb {
 
+const uint64_t kMicrosInSecond = 1000000;
+
 class BlockCacheTraceAnalyzer;
 
 // A cache configuration provided by user.
@@ -92,7 +94,8 @@ struct BlockAccessInfo {
     caller_num_access_map[access.caller]++;
     num_accesses++;
     // access.access_timestamp is in microsecond.
-    const uint64_t timestamp_in_seconds = access.access_timestamp / 1000000;
+    const uint64_t timestamp_in_seconds =
+        access.access_timestamp / kMicrosInSecond;
     caller_num_accesses_timeline[access.caller][timestamp_in_seconds] += 1;
     if (BlockCacheTraceHelper::ShouldTraceReferencedKey(access.block_type,
                                                         access.caller)) {
