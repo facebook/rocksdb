@@ -91,6 +91,58 @@ std::string BlockHandle::ToString(bool hex) const {
 
 const BlockHandle BlockHandle::kNullBlockHandle(0, 0);
 
+void IndexValue::EncodeTo(std::string* dst, bool have_first_key,
+                          const BlockHandle* previous_handle) const {
+  if (previous_handle) {
+    assert(handle.offset() == previous_handle->offset() +
+                                  previous_handle->size() + kBlockTrailerSize);
+    PutVarsignedint64(dst, handle.size() - previous_handle->size());
+  } else {
+    handle.EncodeTo(dst);
+  }
+  assert(dst->size() != 0);
+
+  if (have_first_key) {
+    PutLengthPrefixedSlice(dst, first_internal_key);
+  }
+}
+
+Status IndexValue::DecodeFrom(Slice* input, bool have_first_key,
+                              const BlockHandle* previous_handle) {
+  if (previous_handle) {
+    int64_t delta;
+    if (!GetVarsignedint64(input, &delta)) {
+      return Status::Corruption("bad delta-encoded index value");
+    }
+    handle = BlockHandle(
+        previous_handle->offset() + previous_handle->size() + kBlockTrailerSize,
+        previous_handle->size() + delta);
+  } else {
+    Status s = handle.DecodeFrom(input);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (!have_first_key) {
+    first_internal_key = Slice();
+  } else if (!GetLengthPrefixedSlice(input, &first_internal_key)) {
+    return Status::Corruption("bad first key in block info");
+  }
+
+  return Status::OK();
+}
+
+std::string IndexValue::ToString(bool hex, bool have_first_key) const {
+  std::string s;
+  EncodeTo(&s, have_first_key, nullptr);
+  if (hex) {
+    return Slice(s).ToString(true);
+  } else {
+    return s;
+  }
+}
+
 namespace {
 inline bool IsLegacyFooterFormat(uint64_t magic_number) {
   return magic_number == kLegacyBlockBasedTableMagicNumber ||

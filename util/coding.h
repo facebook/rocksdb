@@ -58,6 +58,7 @@ extern bool GetFixed32(Slice* input, uint32_t* value);
 extern bool GetFixed16(Slice* input, uint16_t* value);
 extern bool GetVarint32(Slice* input, uint32_t* value);
 extern bool GetVarint64(Slice* input, uint64_t* value);
+extern bool GetVarsignedint64(Slice* input, int64_t* value);
 extern bool GetLengthPrefixedSlice(Slice* input, Slice* result);
 // This function assumes data is well-formed.
 extern Slice GetLengthPrefixedSlice(const char* data);
@@ -369,6 +370,18 @@ inline bool GetVarint64(Slice* input, uint64_t* value) {
   const char* p = input->data();
   const char* limit = p + input->size();
   const char* q = GetVarint64Ptr(p, limit, value);
+  if (q == nullptr) {
+    return false;
+  } else {
+    *input = Slice(q, static_cast<size_t>(limit - q));
+    return true;
+  }
+}
+
+inline bool GetVarsignedint64(Slice* input, int64_t* value) {
+  const char* p = input->data();
+  const char* limit = p + input->size();
+  const char* q = GetVarsignedint64Ptr(p, limit, value);
   if (q == nullptr) {
     return false;
   } else {

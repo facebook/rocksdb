@@ -6,6 +6,7 @@
 #pragma once
 
 #include <map>
+#include <set>
 #include <vector>
 
 #include "rocksdb/env.h"
@@ -13,6 +14,8 @@
 #include "trace_replay/block_cache_tracer.h"
 
 namespace rocksdb {
+
+const uint64_t kMicrosInSecond = 1000000;
 
 class BlockCacheTraceAnalyzer;
 
@@ -73,6 +76,14 @@ struct BlockAccessInfo {
       non_exist_key_num_access_map;  // for keys do not exist in this block.
   uint64_t num_referenced_key_exist_in_block = 0;
   std::map<TableReaderCaller, uint64_t> caller_num_access_map;
+  // caller:timestamp:number_of_accesses. The granularity of the timestamp is
+  // seconds.
+  std::map<TableReaderCaller, std::map<uint64_t, uint64_t>>
+      caller_num_accesses_timeline;
+  // Unique blocks since the last access.
+  std::set<std::string> unique_blocks_since_last_access;
+  // Number of reuses grouped by reuse distance.
+  std::map<uint64_t, uint64_t> reuse_distance_count;
 
   void AddAccess(const BlockCacheTraceRecord& access) {
     if (first_access_time == 0) {
@@ -82,10 +93,13 @@ struct BlockAccessInfo {
     block_size = access.block_size;
     caller_num_access_map[access.caller]++;
     num_accesses++;
+    // access.access_timestamp is in microsecond.
+    const uint64_t timestamp_in_seconds =
+        access.access_timestamp / kMicrosInSecond;
+    caller_num_accesses_timeline[access.caller][timestamp_in_seconds] += 1;
     if (BlockCacheTraceHelper::ShouldTraceReferencedKey(access.block_type,
                                                         access.caller)) {
       num_keys = access.num_keys_in_block;
-
       if (access.referenced_key_exist_in_block == Boolean::kTrue) {
         key_num_access_map[access.referenced_key]++;
         num_referenced_key_exist_in_block++;
@@ -115,8 +129,7 @@ struct ColumnFamilyAccessInfoAggregate {
 class BlockCacheTraceAnalyzer {
  public:
   BlockCacheTraceAnalyzer(
-      const std::string& trace_file_path,
-      const std::string& output_miss_ratio_curve_path,
+      const std::string& trace_file_path, const std::string& output_dir,
       std::unique_ptr<BlockCacheTraceSimulator>&& cache_simulator);
   ~BlockCacheTraceAnalyzer() = default;
   // No copy and move.
@@ -165,7 +178,24 @@ class BlockCacheTraceAnalyzer {
   // accesses on keys exist in a data block and its break down by column family.
   void PrintDataBlockAccessStats() const;
 
-  void PrintMissRatioCurves() const;
+  // Write miss ratio curves of simulated cache configurations into a csv file
+  // saved in 'output_dir'.
+  void WriteMissRatioCurves() const;
+
+  // Write the access timeline into a csv file saved in 'output_dir'.
+  void WriteAccessTimeline(const std::string& label) const;
+
+  // Write the reuse distance into a csv file saved in 'output_dir'. Reuse
+  // distance is defined as the cumulated size of unique blocks read between two
+  // consective accesses on the same block.
+  void WriteReuseDistance(const std::string& label_str,
+                          const std::set<uint64_t>& distance_buckets) const;
+
+  // Write the reuse interval into a csv file saved in 'output_dir'. Reuse
+  // interval is defined as the time between two consecutive accesses on the
+  // same block..
+  void WriteReuseInterval(const std::string& label_str,
+                          const std::set<uint64_t>& time_buckets) const;
 
   const std::map<std::string, ColumnFamilyAccessInfoAggregate>&
   TEST_cf_aggregates_map() const {
@@ -173,15 +203,33 @@ class BlockCacheTraceAnalyzer {
   }
 
  private:
+  std::set<std::string> ParseLabelStr(const std::string& label_str) const;
+
+  std::string BuildLabel(const std::set<std::string>& labels,
+                         const std::string& cf_name, uint64_t fd,
+                         uint32_t level, TraceType type,
+                         TableReaderCaller caller,
+                         const std::string& block_key) const;
+
+  void ComputeReuseDistance(BlockAccessInfo* info) const;
+
   void RecordAccess(const BlockCacheTraceRecord& access);
+
+  void UpdateReuseIntervalStats(
+      const std::string& label, const std::set<uint64_t>& time_buckets,
+      const std::map<uint64_t, uint64_t> timeline,
+      std::map<std::string, std::map<uint64_t, uint64_t>>*
+          label_time_num_reuses,
+      uint64_t* total_num_reuses) const;
 
   rocksdb::Env* env_;
   const std::string trace_file_path_;
-  const std::string output_miss_ratio_curve_path_;
+  const std::string output_dir_;
 
   BlockCacheTraceHeader header_;
   std::unique_ptr<BlockCacheTraceSimulator> cache_simulator_;
   std::map<std::string, ColumnFamilyAccessInfoAggregate> cf_aggregates_map_;
+  std::map<std::string, BlockAccessInfo*> block_info_map_;
 };
 
 int block_cache_trace_analyzer_tool(int argc, char** argv);

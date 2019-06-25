@@ -165,17 +165,7 @@ class Block {
   // If iter is null, return new Iterator
   // If iter is not null, update this one and return it as Iterator*
   //
-  // key_includes_seq, default true, means that the keys are in internal key
-  // format.
-  // value_is_full, default true, means that no delta encoding is
-  // applied to values.
-  //
-  // NewIterator<DataBlockIter>
-  // Same as above but also updates read_amp_bitmap_ if it is not nullptr.
-  //
-  // NewIterator<IndexBlockIter>
-  // If `prefix_index` is not nullptr this block will do hash lookup for the key
-  // prefix. If total_order_seek is true, prefix_index_ is ignored.
+  // Updates read_amp_bitmap_ if it is not nullptr.
   //
   // If `block_contents_pinned` is true, the caller will guarantee that when
   // the cleanup functions are transferred from the iterator to other
@@ -188,13 +178,32 @@ class Block {
   // NOTE: for the hash based lookup, if a key prefix doesn't match any key,
   // the iterator will simply be set as "invalid", rather than returning
   // the key that is just pass the target key.
-  template <typename TBlockIter>
-  TBlockIter* NewIterator(
-      const Comparator* comparator, const Comparator* user_comparator,
-      TBlockIter* iter = nullptr, Statistics* stats = nullptr,
-      bool total_order_seek = true, bool key_includes_seq = true,
-      bool value_is_full = true, bool block_contents_pinned = false,
-      BlockPrefixIndex* prefix_index = nullptr);
+
+  DataBlockIter* NewDataIterator(const Comparator* comparator,
+                                 const Comparator* user_comparator,
+                                 DataBlockIter* iter = nullptr,
+                                 Statistics* stats = nullptr,
+                                 bool block_contents_pinned = false);
+
+  // key_includes_seq, default true, means that the keys are in internal key
+  // format.
+  // value_is_full, default true, means that no delta encoding is
+  // applied to values.
+  //
+  // If `prefix_index` is not nullptr this block will do hash lookup for the key
+  // prefix. If total_order_seek is true, prefix_index_ is ignored.
+  //
+  // `have_first_key` controls whether IndexValue will contain
+  // first_internal_key. It affects data serialization format, so the same value
+  // have_first_key must be used when writing and reading index.
+  // It is determined by IndexType property of the table.
+  IndexBlockIter* NewIndexIterator(const Comparator* comparator,
+                                   const Comparator* user_comparator,
+                                   IndexBlockIter* iter, Statistics* stats,
+                                   bool total_order_seek, bool have_first_key,
+                                   bool key_includes_seq, bool value_is_full,
+                                   bool block_contents_pinned = false,
+                                   BlockPrefixIndex* prefix_index = nullptr);
 
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const;
@@ -471,7 +480,7 @@ class DataBlockIter final : public BlockIter<Slice> {
   bool SeekForGetImpl(const Slice& target);
 };
 
-class IndexBlockIter final : public BlockIter<BlockHandle> {
+class IndexBlockIter final : public BlockIter<IndexValue> {
  public:
   IndexBlockIter() : BlockIter(), prefix_index_(nullptr) {}
 
@@ -483,23 +492,12 @@ class IndexBlockIter final : public BlockIter<BlockHandle> {
   // format.
   // value_is_full, default true, means that no delta encoding is
   // applied to values.
-  IndexBlockIter(const Comparator* comparator,
-                 const Comparator* user_comparator, const char* data,
-                 uint32_t restarts, uint32_t num_restarts,
-                 BlockPrefixIndex* prefix_index, bool key_includes_seq,
-                 bool value_is_full, bool block_contents_pinned)
-      : IndexBlockIter() {
-    Initialize(comparator, user_comparator, data, restarts, num_restarts,
-               prefix_index, key_includes_seq, block_contents_pinned,
-               value_is_full, nullptr /* data_block_hash_index */);
-  }
-
   void Initialize(const Comparator* comparator,
                   const Comparator* user_comparator, const char* data,
                   uint32_t restarts, uint32_t num_restarts,
-                  BlockPrefixIndex* prefix_index, bool key_includes_seq,
-                  bool value_is_full, bool block_contents_pinned,
-                  DataBlockHashIndex* /*data_block_hash_index*/) {
+                  SequenceNumber global_seqno, BlockPrefixIndex* prefix_index,
+                  bool have_first_key, bool key_includes_seq,
+                  bool value_is_full, bool block_contents_pinned) {
     InitializeBase(key_includes_seq ? comparator : user_comparator, data,
                    restarts, num_restarts, kDisableGlobalSequenceNumber,
                    block_contents_pinned);
@@ -507,6 +505,12 @@ class IndexBlockIter final : public BlockIter<BlockHandle> {
     key_.SetIsUserKey(!key_includes_seq_);
     prefix_index_ = prefix_index;
     value_delta_encoded_ = !value_is_full;
+    have_first_key_ = have_first_key;
+    if (have_first_key_ && global_seqno != kDisableGlobalSequenceNumber) {
+      global_seqno_state_.reset(new GlobalSeqnoState(global_seqno));
+    } else {
+      global_seqno_state_.reset();
+    }
   }
 
   Slice user_key() const override {
@@ -516,16 +520,17 @@ class IndexBlockIter final : public BlockIter<BlockHandle> {
     return key();
   }
 
-  virtual BlockHandle value() const override {
+  virtual IndexValue value() const override {
     assert(Valid());
-    if (value_delta_encoded_) {
+    if (value_delta_encoded_ || global_seqno_state_ != nullptr) {
       return decoded_value_;
     } else {
-      BlockHandle handle;
+      IndexValue entry;
       Slice v = value_;
-      Status decode_s __attribute__((__unused__)) = handle.DecodeFrom(&v);
+      Status decode_s __attribute__((__unused__)) =
+          entry.DecodeFrom(&v, have_first_key_, nullptr);
       assert(decode_s.ok());
-      return handle;
+      return entry;
     }
   }
 
@@ -552,10 +557,15 @@ class IndexBlockIter final : public BlockIter<BlockHandle> {
 
   void Invalidate(Status s) { InvalidateBase(s); }
 
+  bool IsValuePinned() const override {
+    return global_seqno_state_ != nullptr ? false : BlockIter::IsValuePinned();
+  }
+
  private:
   // Key is in InternalKey format
   bool key_includes_seq_;
   bool value_delta_encoded_;
+  bool have_first_key_;  // value includes first_internal_key
   BlockPrefixIndex* prefix_index_;
   // Whether the value is delta encoded. In that case the value is assumed to be
   // BlockHandle. The first value in each restart interval is the full encoded
@@ -563,7 +573,22 @@ class IndexBlockIter final : public BlockIter<BlockHandle> {
   // offset of delta encoded BlockHandles is computed by adding the size of
   // previous delta encoded values in the same restart interval to the offset of
   // the first value in that restart interval.
-  BlockHandle decoded_value_;
+  IndexValue decoded_value_;
+
+  // When sequence number overwriting is enabled, this struct contains the seqno
+  // to overwrite with, and current first_internal_key with overwritten seqno.
+  // This is rarely used, so we put it behind a pointer and only allocate when
+  // needed.
+  struct GlobalSeqnoState {
+    // First internal key according to current index entry, but with sequence
+    // number overwritten to global_seqno.
+    IterKey first_internal_key;
+    SequenceNumber global_seqno;
+
+    explicit GlobalSeqnoState(SequenceNumber seqno) : global_seqno(seqno) {}
+  };
+
+  std::unique_ptr<GlobalSeqnoState> global_seqno_state_;
 
   bool PrefixSeek(const Slice& target, uint32_t* index);
   bool BinaryBlockIndexSeek(const Slice& target, uint32_t* block_ids,

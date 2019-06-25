@@ -608,8 +608,7 @@ bool IndexBlockIter::ParseNextIndexKey() {
   }
   // else we are in the middle of a restart interval and the restart_index_
   // thus has not changed
-  if (value_delta_encoded_) {
-    assert(value_length == 0);
+  if (value_delta_encoded_ || global_seqno_state_ != nullptr) {
     DecodeCurrentValue(shared);
   }
   return true;
@@ -627,24 +626,32 @@ bool IndexBlockIter::ParseNextIndexKey() {
 // Otherwise the format is delta-size = block handle size - size of last block
 // handle.
 void IndexBlockIter::DecodeCurrentValue(uint32_t shared) {
-  assert(value_delta_encoded_);
-  const char* limit = data_ + restarts_;
-  if (shared == 0) {
-    uint64_t o, s;
-    const char* newp = GetVarint64Ptr(value_.data(), limit, &o);
-    assert(newp);
-    newp = GetVarint64Ptr(newp, limit, &s);
-    assert(newp);
-    decoded_value_ = BlockHandle(o, s);
-    value_ = Slice(value_.data(), newp - value_.data());
-  } else {
-    uint64_t next_value_base =
-        decoded_value_.offset() + decoded_value_.size() + kBlockTrailerSize;
-    int64_t delta;
-    const char* newp = GetVarsignedint64Ptr(value_.data(), limit, &delta);
-    decoded_value_ =
-        BlockHandle(next_value_base, decoded_value_.size() + delta);
-    value_ = Slice(value_.data(), newp - value_.data());
+  Slice v(value_.data(), data_ + restarts_ - value_.data());
+  // Delta encoding is used if `shared` != 0.
+  Status decode_s __attribute__((__unused__)) = decoded_value_.DecodeFrom(
+      &v, have_first_key_,
+      (value_delta_encoded_ && shared) ? &decoded_value_.handle : nullptr);
+  assert(decode_s.ok());
+  value_ = Slice(value_.data(), v.data() - value_.data());
+
+  if (global_seqno_state_ != nullptr) {
+    // Overwrite sequence number the same way as in DataBlockIter.
+
+    IterKey& first_internal_key = global_seqno_state_->first_internal_key;
+    first_internal_key.SetInternalKey(decoded_value_.first_internal_key,
+                                      /* copy */ true);
+
+    assert(GetInternalKeySeqno(first_internal_key.GetInternalKey()) == 0);
+
+    ValueType value_type = ExtractValueType(first_internal_key.GetKey());
+    assert(value_type == ValueType::kTypeValue ||
+           value_type == ValueType::kTypeMerge ||
+           value_type == ValueType::kTypeDeletion ||
+           value_type == ValueType::kTypeRangeDeletion);
+
+    first_internal_key.UpdateInternalKey(global_seqno_state_->global_seqno,
+                                         value_type);
+    decoded_value_.first_internal_key = first_internal_key.GetKey();
   }
 }
 
@@ -875,14 +882,10 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
   }
 }
 
-template <>
-DataBlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
-                                  DataBlockIter* iter, Statistics* stats,
-                                  bool /*total_order_seek*/,
-                                  bool /*key_includes_seq*/,
-                                  bool /*value_is_full*/,
-                                  bool block_contents_pinned,
-                                  BlockPrefixIndex* /*prefix_index*/) {
+DataBlockIter* Block::NewDataIterator(const Comparator* cmp,
+                                      const Comparator* ucmp,
+                                      DataBlockIter* iter, Statistics* stats,
+                                      bool block_contents_pinned) {
   DataBlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
@@ -913,13 +916,11 @@ DataBlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
   return ret_iter;
 }
 
-template <>
-IndexBlockIter* Block::NewIterator(const Comparator* cmp,
-                                   const Comparator* ucmp, IndexBlockIter* iter,
-                                   Statistics* /*stats*/, bool total_order_seek,
-                                   bool key_includes_seq, bool value_is_full,
-                                   bool block_contents_pinned,
-                                   BlockPrefixIndex* prefix_index) {
+IndexBlockIter* Block::NewIndexIterator(
+    const Comparator* cmp, const Comparator* ucmp, IndexBlockIter* iter,
+    Statistics* /*stats*/, bool total_order_seek, bool have_first_key,
+    bool key_includes_seq, bool value_is_full, bool block_contents_pinned,
+    BlockPrefixIndex* prefix_index) {
   IndexBlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
@@ -938,9 +939,9 @@ IndexBlockIter* Block::NewIterator(const Comparator* cmp,
     BlockPrefixIndex* prefix_index_ptr =
         total_order_seek ? nullptr : prefix_index;
     ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
-                         prefix_index_ptr, key_includes_seq, value_is_full,
-                         block_contents_pinned,
-                         nullptr /* data_block_hash_index */);
+                         global_seqno_, prefix_index_ptr, have_first_key,
+                         key_includes_seq, value_is_full,
+                         block_contents_pinned);
   }
 
   return ret_iter;
