@@ -37,12 +37,11 @@ class EnvLoggerTest : public testing::Test {
   ~EnvLoggerTest() = default;
 
   std::shared_ptr<Logger> CreateLogger() {
-    EnvOptions options;
-    std::unique_ptr<WritableFile> writable_file;
-    assert(env_->NewWritableFile(kLogFile, &writable_file, options).ok());
-
-    return std::make_shared<EnvLogger>(std::move(writable_file), kLogFile,
-                                       options, env_, InfoLogLevel::INFO_LEVEL);
+    std::shared_ptr<Logger> result;
+    assert(env_->NewEnvLogger(kLogFile, &result).ok());
+    assert(result);
+    result->SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
+    return result;
   }
 
   void DeleteLogFile() {
@@ -78,11 +77,10 @@ TEST_F(EnvLoggerTest, LogMultipleLines) {
 
   // Flush the logs.
   logger->Flush();
+  ASSERT_EQ(logger->Close(), Status::OK());
 
   // Validate whether the log file has 'kNumIter' number of lines.
   ASSERT_EQ(test::GetLinesCount(kLogFile, kSampleMessage), kNumIter);
-
-  ASSERT_EQ(logger->Close(), Status::OK());
   DeleteLogFile();
 }
 
@@ -95,6 +93,9 @@ TEST_F(EnvLoggerTest, Overwrite) {
     WriteLogs(logger, kSampleMessage, kNumIter);
 
     ASSERT_EQ(logger->Close(), Status::OK());
+
+    // Validate whether the log file has 'kNumIter' number of lines.
+    ASSERT_EQ(test::GetLinesCount(kLogFile, kSampleMessage), kNumIter);
   }
 
   // Now reopen the file again.

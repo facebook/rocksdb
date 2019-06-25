@@ -57,16 +57,16 @@ class EnvLogger : public Logger {
     TEST_SYNC_POINT("EnvLogger::Flush:Begin1");
     TEST_SYNC_POINT("EnvLogger::Flush:Begin2");
 
-    WriteLock l(&mutex_);
+    MutexLock l(&mutex_);
     FlushLocked();
   }
 
   Status CloseImpl() override { return CloseHelper(); }
 
   Status CloseHelper() {
-    mutex_.WriteLock();
+    mutex_.Lock();
     const auto close_status = file_.Close();
-    mutex_.WriteUnlock();
+    mutex_.Unlock();
 
     if (close_status.ok()) {
       return close_status;
@@ -132,7 +132,7 @@ class EnvLogger : public Logger {
       }
 
       assert(p <= limit);
-      mutex_.WriteLock();
+      mutex_.Lock();
       // We will ignore any error returned by Append().
       file_.Append(Slice(base, p - base));
       flush_pending_ = true;
@@ -140,7 +140,7 @@ class EnvLogger : public Logger {
       if (now_micros - last_flush_micros_ >= flush_every_seconds_ * 1000000) {
         FlushLocked();
       }
-      mutex_.WriteUnlock();
+      mutex_.Unlock();
       if (base != buffer) {
         delete[] base;
       }
@@ -149,13 +149,13 @@ class EnvLogger : public Logger {
   }
 
   size_t GetLogFileSize() const override {
-    ReadLock l(&mutex_);
+    MutexLock l(&mutex_);
     return file_.GetFileSize();
   }
 
  private:
   WritableFileWriter file_;
-  mutable port::RWMutex mutex_;  // Mutex to protect the shared variables below.
+  mutable port::Mutex mutex_;  // Mutex to protect the shared variables below.
   const static uint64_t flush_every_seconds_ = 5;
   std::atomic_uint_fast64_t last_flush_micros_;
   Env* env_;
