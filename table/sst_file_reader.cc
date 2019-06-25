@@ -66,7 +66,8 @@ Iterator* SstFileReader::NewIterator(const ReadOptions& options) {
                       ? options.snapshot->GetSequenceNumber()
                       : kMaxSequenceNumber;
   auto internal_iter = r->table_reader->NewIterator(
-      options, r->moptions.prefix_extractor.get(), /*arena=*/nullptr,
+      options, r->moptions.prefix_extractor.get(), /*range_del_agg=*/nullptr,
+      /*file_meta=*/nullptr, /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kSSTFileReader);
   return NewDBIterator(r->options.env, options, r->ioptions, r->moptions,
                        r->ioptions.user_comparator, internal_iter, sequence,

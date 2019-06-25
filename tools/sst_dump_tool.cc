@@ -173,7 +173,8 @@ uint64_t SstFileDumper::CalculateCompressedTableSize(
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       dest_writer.get()));
   std::unique_ptr<InternalIterator> iter(table_reader_->NewIterator(
-      ReadOptions(), moptions_.prefix_extractor.get(), /*arena=*/nullptr,
+      ReadOptions(), moptions_.prefix_extractor.get(),
+      /*range_del_agg=*/nullptr, /*file_meta=*/nullptr, /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kSSTDumpTool));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     if (!iter->status().ok()) {
@@ -301,6 +302,7 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
 
   InternalIterator* iter = table_reader_->NewIterator(
       ReadOptions(verify_checksum_, false), moptions_.prefix_extractor.get(),
+      /*range_del_agg=*/nullptr, /*file_meta=*/nullptr,
       /*arena=*/nullptr, /*skip_filters=*/false,
       TableReaderCaller::kSSTDumpTool);
   uint64_t i = 0;

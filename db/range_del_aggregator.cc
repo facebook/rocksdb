@@ -161,7 +161,7 @@ ForwardRangeDelIterator::ForwardRangeDelIterator(
       active_iters_(EndKeyMinComparator(icmp)),
       inactive_iters_(StartKeyMinComparator(icmp)) {}
 
-bool ForwardRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
+void ForwardRangeDelIterator::AdvanceTo(const ParsedInternalKey& parsed) {
   // Move active iterators that end before parsed.
   while (!active_iters_.empty() &&
          icmp_->Compare((*active_iters_.top())->end_key(), parsed) <= 0) {
@@ -183,10 +183,35 @@ bool ForwardRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
     PushIter(iter, parsed);
     assert(active_iters_.size() == active_seqnums_.size());
   }
+}
 
+bool ForwardRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
+  AdvanceTo(parsed);
   return active_seqnums_.empty()
              ? false
              : (*active_seqnums_.begin())->seq() > parsed.sequence;
+}
+
+PartialRangeTombstoneEndpoint ForwardRangeDelIterator::GetEndpoint(
+    const ParsedInternalKey& parsed, SequenceNumber seqno) {
+  AdvanceTo(parsed);
+  if (active_iters_.empty()) {
+    if (inactive_iters_.empty()) {
+      // We are after the range tombstones.
+      return PartialRangeTombstoneEndpoint(
+          nullptr, RangeDelPositioningMode::kForwardTraversal, 0);
+    }
+    // We are between or before the range tombstones. Set endpoint where the
+    // next real tombstone starts.
+    ParsedInternalKey start_parsed = inactive_iters_.top()->start_key();
+    return PartialRangeTombstoneEndpoint(
+        &start_parsed, RangeDelPositioningMode::kForwardTraversal, 0);
+  }
+  SequenceNumber tombstone_seqno = (*active_seqnums_.begin())->seq();
+  ParsedInternalKey end_parsed = (*active_seqnums_.begin())->end_key();
+  return PartialRangeTombstoneEndpoint(
+      &end_parsed, RangeDelPositioningMode::kForwardTraversal,
+      seqno < tombstone_seqno ? tombstone_seqno : 0);
 }
 
 void ForwardRangeDelIterator::Invalidate() {
@@ -204,7 +229,7 @@ ReverseRangeDelIterator::ReverseRangeDelIterator(
       active_iters_(StartKeyMaxComparator(icmp)),
       inactive_iters_(EndKeyMaxComparator(icmp)) {}
 
-bool ReverseRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
+void ReverseRangeDelIterator::AdvanceTo(const ParsedInternalKey& parsed) {
   // Move active iterators that start after parsed.
   while (!active_iters_.empty() &&
          icmp_->Compare(parsed, (*active_iters_.top())->start_key()) < 0) {
@@ -226,10 +251,35 @@ bool ReverseRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
     PushIter(iter, parsed);
     assert(active_iters_.size() == active_seqnums_.size());
   }
+}
 
+bool ReverseRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
+  AdvanceTo(parsed);
   return active_seqnums_.empty()
              ? false
              : (*active_seqnums_.begin())->seq() > parsed.sequence;
+}
+
+PartialRangeTombstoneEndpoint ReverseRangeDelIterator::GetEndpoint(
+    const ParsedInternalKey& parsed, SequenceNumber seqno) {
+  AdvanceTo(parsed);
+  if (active_iters_.empty()) {
+    if (inactive_iters_.empty()) {
+      // We are before the range tombstones.
+      return PartialRangeTombstoneEndpoint(
+          nullptr, RangeDelPositioningMode::kBackwardTraversal, 0);
+    }
+    // We are between or after the range tombstones. Set endpoint where the
+    // prev real tombstone ends.
+    ParsedInternalKey end_parsed = inactive_iters_.top()->end_key();
+    return PartialRangeTombstoneEndpoint(
+        &end_parsed, RangeDelPositioningMode::kBackwardTraversal, 0);
+  }
+  SequenceNumber tombstone_seqno = (*active_seqnums_.begin())->seq();
+  ParsedInternalKey start_parsed = (*active_seqnums_.begin())->start_key();
+  return PartialRangeTombstoneEndpoint(
+      &start_parsed, RangeDelPositioningMode::kBackwardTraversal,
+      seqno < tombstone_seqno ? tombstone_seqno : 0);
 }
 
 void ReverseRangeDelIterator::Invalidate() {
@@ -270,6 +320,44 @@ bool RangeDelAggregator::StripeRep::ShouldDelete(
     default:
       assert(false);
       return false;
+  }
+}
+
+PartialRangeTombstoneEndpoint RangeDelAggregator::StripeRep::GetEndpoint(
+    const Slice& key, SequenceNumber seqno, RangeDelPositioningMode mode) {
+  ParsedInternalKey parsed_key;
+  if (!ParseInternalKey(key, &parsed_key)) {
+    assert(false);
+    return PartialRangeTombstoneEndpoint(
+        nullptr, static_cast<RangeDelPositioningMode>(0), 0);
+  }
+  switch (mode) {
+    case RangeDelPositioningMode::kForwardTraversal:
+      InvalidateReverseIter();
+
+      // Pick up previously unseen iterators.
+      for (auto it = std::next(iters_.begin(), forward_iter_.UnusedIdx());
+           it != iters_.end(); ++it, forward_iter_.IncUnusedIdx()) {
+        auto& iter = *it;
+        forward_iter_.AddNewIter(iter.get(), parsed_key);
+      }
+
+      return forward_iter_.GetEndpoint(parsed_key, seqno);
+    case RangeDelPositioningMode::kBackwardTraversal:
+      InvalidateForwardIter();
+
+      // Pick up previously unseen iterators.
+      for (auto it = std::next(iters_.begin(), reverse_iter_.UnusedIdx());
+           it != iters_.end(); ++it, reverse_iter_.IncUnusedIdx()) {
+        auto& iter = *it;
+        reverse_iter_.AddNewIter(iter.get(), parsed_key);
+      }
+
+      return reverse_iter_.GetEndpoint(parsed_key, seqno);
+    default:
+      assert(false);
+      return PartialRangeTombstoneEndpoint(
+          nullptr, static_cast<RangeDelPositioningMode>(0), 0);
   }
 }
 
@@ -327,6 +415,11 @@ bool ReadRangeDelAggregator::ShouldDeleteImpl(const ParsedInternalKey& parsed,
   return rep_.ShouldDelete(parsed, mode);
 }
 
+PartialRangeTombstoneEndpoint ReadRangeDelAggregator::GetEndpoint(
+    const Slice& key, SequenceNumber seqno, RangeDelPositioningMode mode) {
+  return rep_.GetEndpoint(key, seqno, mode);
+}
+
 bool ReadRangeDelAggregator::IsRangeOverlapped(const Slice& start,
                                                const Slice& end) {
   InvalidateRangeDelMapPositions();
@@ -367,6 +460,15 @@ bool CompactionRangeDelAggregator::ShouldDelete(const ParsedInternalKey& parsed,
     return false;
   }
   return it->second.ShouldDelete(parsed, mode);
+}
+
+PartialRangeTombstoneEndpoint CompactionRangeDelAggregator::GetEndpoint(
+    const Slice& /* key */, SequenceNumber /* seqno */,
+    RangeDelPositioningMode /* mode */) {
+  // This is a bit tricky to preserve snapshot correctness. For now, leave the
+  // optimization unimplemented for compaction.
+  return PartialRangeTombstoneEndpoint(
+      nullptr, static_cast<RangeDelPositioningMode>(0), 0);
 }
 
 namespace {

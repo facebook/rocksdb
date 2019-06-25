@@ -6,11 +6,12 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <queue>
 #include <string>
 #include <vector>
-#include <queue>
 
 #include "db/dbformat.h"
+#include "db/range_del_aggregator.h"
 #include "memory/arena.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
@@ -121,6 +122,7 @@ class ForwardIterator : public InternalIterator {
   const SliceTransform* const prefix_extractor_;
   const Comparator* user_comparator_;
   MinIterHeap immutable_min_heap_;
+  ReadRangeDelAggregator range_del_agg_;
 
   SuperVersion* sv_;
   InternalIterator* mutable_iter_;

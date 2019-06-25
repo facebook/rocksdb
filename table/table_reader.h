@@ -26,6 +26,8 @@ struct ReadOptions;
 struct TableProperties;
 class GetContext;
 class MultiGetContext;
+struct FileMetaData;
+class RangeDelAggregator;
 
 // A Table (also referred to as SST) is a sorted map from strings to strings.
 // Tables are immutable and persistent.  A Table may be safely accessed from
@@ -45,11 +47,13 @@ class TableReader {
   //        all the states but those allocated in arena.
   // skip_filters: disables checking the bloom filters even if they exist. This
   //               option is effective only for block-based table format.
-  // compaction_readahead_size: its value will only be used if caller = kCompaction
-  virtual InternalIterator* NewIterator(const ReadOptions&,
-                                        const SliceTransform* prefix_extractor,
-                                        Arena* arena, bool skip_filters,
-                                        TableReaderCaller caller, size_t compaction_readahead_size = 0) = 0;
+  // compaction_readahead_size: its value will only be used if caller =
+  // kCompaction
+  virtual InternalIterator* NewIterator(
+      const ReadOptions&, const SliceTransform* prefix_extractor,
+      RangeDelAggregator* range_del_agg, const FileMetaData* file_meta,
+      Arena* arena, bool skip_filters, TableReaderCaller caller,
+      size_t compaction_readahead_size = 0) = 0;
 
   virtual FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& /*read_options*/) {

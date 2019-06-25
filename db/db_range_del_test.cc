@@ -831,6 +831,203 @@ TEST_F(DBRangeDelTest, IteratorIgnoresRangeDeletions) {
   db_->ReleaseSnapshot(snapshot);
 }
 
+TEST_F(DBRangeDelTest, IteratorRangeTombstoneOverlapsSstable) {
+  struct TestCase {
+    const Comparator* comparator;
+    std::vector<std::string> table_keys;
+    std::vector<Range> range_del;
+    std::vector<std::string> expected_keys;
+  };
+
+  std::vector<TestCase> test_cases = {
+      // Range tombstone covers the sstable.
+      {
+          BytewiseComparator(),
+          {"a", "b", "c"},
+          {{"a", "d"}},
+          {},
+      },
+      // Range tombstone overlaps the start of the sstable.
+      {
+          BytewiseComparator(),
+          {"a", "b", "c"},
+          {{"", "b"}},
+          {"b", "c"},
+      },
+      // Empty range tombstone start key and empty key.
+      {
+          BytewiseComparator(),
+          {"", "b", "c"},
+          {{"", "b"}},
+          {"b", "c"},
+      },
+      // Range tombstone overlaps the end of the sstable.
+      {
+          BytewiseComparator(),
+          {"a", "b", "c"},
+          {{"c", "d"}},
+          {"a", "b"},
+      },
+      // Range tombstones overlap both the start and the end of the
+      // sstable.
+      {
+          BytewiseComparator(),
+          {"a", "b", "c"},
+          {{"", "b"}, {"c", "d"}},
+          {"b"},
+      },
+      // Range tombstone overlaps the middle of the sstable.
+      {
+          BytewiseComparator(),
+          {"a", "b", "c"},
+          {{"b", "c"}},
+          {"a", "c"},
+      },
+      // Multiple range tombstones overlapping the sstable.
+      {
+          BytewiseComparator(),
+          {"a", "b", "c", "d", "e"},
+          {{"b", "c"}, {"d", "e"}},
+          {"a", "c", "e"},
+      },
+      // Reverse comparator with empty range tombstone end key.
+      {
+          ReverseBytewiseComparator(),
+          {"b", "a", ""},
+          {{"a", ""}, {"b", "a"}},
+          {""},
+      },
+  };
+  for (auto tc : test_cases) {
+    Options options = CurrentOptions();
+    options.comparator = tc.comparator;
+    DestroyAndReopen(options);
+
+    for (auto key : tc.table_keys) {
+      db_->Put(WriteOptions(), key, "");
+    }
+
+    ASSERT_OK(db_->Flush(FlushOptions()));
+    db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+    for (auto d : tc.range_del) {
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), d.start,
+                       d.limit);
+    }
+
+    {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+      std::vector<std::string> keys;
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        keys.emplace_back(iter->key().ToString());
+      }
+      ASSERT_EQ(tc.expected_keys, keys);
+    }
+
+    {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+      std::vector<std::string> keys;
+      for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        keys.emplace_back(iter->key().ToString());
+      }
+      std::reverse(keys.begin(), keys.end());
+      ASSERT_EQ(tc.expected_keys, keys);
+    }
+
+    {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+      for (auto key : tc.expected_keys) {
+        iter->Seek(key);
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(key, iter->key());
+        iter->SeekForPrev(key);
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(key, iter->key());
+      }
+    }
+  }
+}
+
+TEST_F(DBRangeDelTest, IteratorRangeTombstoneMultipleBlocks) {
+  // Verify that BlockBasedTableIterator repopulates its data block cache after
+  // skipping over a range tombstone that spans into a different data block.
+  // This test exposes a bug that was both introduced and fixed during the
+  // development of the range tombstone skipping optimization.
+  Options options = CurrentOptions();
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 1024;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+
+  // Create one SST with blocks [a, b] and [c, d].
+  db_->Put(WriteOptions(), "a", std::string(512, 'x'));
+  db_->Put(WriteOptions(), "b", std::string(512, 'x'));
+  db_->Put(WriteOptions(), "c", std::string(512, 'x'));
+  db_->Put(WriteOptions(), "d", std::string(512, 'x'));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  // The goal is to force BlockBasedTableIterator::FindKeyForward and
+  // BlockBasedTableIterator::FindKeyBackward to seek between data blocks, which
+  // occurs when Next or Prev advances to a key covered by a range tombstone.
+
+  // Add a range tombstone over [b, d). To reproduce the bug during reverse
+  // iteration, it is required that the tombstone's end key is not the first key
+  // in a block.
+  db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "b", "d");
+
+  // Test the forward case.
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  // First, seek to d to put the [c, d] block in the cache.
+  iter->Seek("d");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("d", iter->key());
+  // Then, seek to a. This puts the [a, b] block in the cache.
+  iter->Seek("a");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("a", iter->key());
+  // Advance to b. Since this key is covered by the [b, d) tombstone,
+  // FindKeyForward will need to seek to the next data block to find the next
+  // non-deleted key (d). With the bug present, the iterator would forget that
+  // it had put the [a, b] block in the cache, instead thinking that [c, d] was
+  // still in the cache. It would thus look for d in the [a, b] block and
+  // incorrectly declare that the key did not exist.
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("d", iter->key());
+
+  // Test the reverse case. Beware: this is not quite analogous to the forward
+  // case.
+  iter.reset(db_->NewIterator(ReadOptions()));
+  // First, seek to a to put the [a, b] block in the cache. To be perfectly
+  // analogous, we'd use SeekForPrev, but DBIter performs a Prev after every
+  // SeekForPrev. So SeekForPrev(a) winds up invalidating the internal
+  // BlockBasedTableIterator instead of warming its cache.
+  iter->Seek("a");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("a", iter->key());
+  // Seek to d. This first puts the [c, d] block in the cache. As mentioned
+  // above, DBIter performs a Prev internally, so this also advances backwards
+  // over the [b, d) tombstone and puts [a, b] in the cache. (The result of this
+  // internal Prev is stashed away and not visible until the next user call to
+  // Prev.) As in the forward case, with the bug present, the iterator would
+  // forget that it had put the [a, b] block in the cache, instead thinking that
+  // [c, d] was still in the cache. It would thus look for a in the [c, d] block
+  // and incorrectly declare that the key did not exist.
+  //
+  // Note that if the tombstone were instead over [b, c), the bug would not
+  // occur. Advancing backwards over this tombstone would invalidate the cached
+  // data block's iterator, thus triggering a code path that correctly reloaded
+  // the [c,d] block into the cache.
+  iter->SeekForPrev("d");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("d", iter->key());
+  // Observe the result of the internal Prev by advancing backwards to a.
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("a", iter->key());
+}
+
 #ifndef ROCKSDB_UBSAN_RUN
 TEST_F(DBRangeDelTest, TailingIteratorRangeTombstoneUnsupported) {
   db_->Put(WriteOptions(), "key", "val");

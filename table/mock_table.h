@@ -42,9 +42,10 @@ class MockTableReader : public TableReader {
 
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
-                                Arena* arena, bool skip_filters,
-                                TableReaderCaller caller,
-                              size_t compaction_readahead_size = 0) override;
+                                RangeDelAggregator* range_del_agg,
+                                const FileMetaData* file_meta, Arena* arena,
+                                bool skip_filters, TableReaderCaller caller,
+                                size_t compaction_readahead_size = 0) override;
 
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, const SliceTransform* prefix_extractor,

@@ -340,7 +340,8 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
       // We don't return pinned data from index blocks, so no need
       // to set `block_contents_pinned`.
       it = new BlockBasedTableIterator<IndexBlockIter, IndexValue>(
-          table(), ro, *internal_comparator(),
+          table(), ro, *internal_comparator(), nullptr /* range_del_agg */,
+          nullptr /* file_meta */,
           index_block.GetValue()->NewIndexIterator(
               internal_comparator(), internal_comparator()->user_comparator(),
               nullptr, kNullStats, true, index_has_first_key(),
@@ -2551,12 +2552,30 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekToFirst() {
 template <class TBlockIter, typename TValue>
 void BlockBasedTableIterator<TBlockIter, TValue>::SeekImpl(
     const Slice* target) {
+  range_tombstone_endpoint_.Invalidate();
   is_out_of_bound_ = false;
   is_at_first_key_from_index_ = false;
   if (target && !CheckPrefixMayMatch(*target)) {
     ResetDataIter();
     return;
   }
+
+  if (target) {
+    // Before we seek the iterator, find the endpoint of the range tombstone
+    // overlapping the seek target that's newer than the file, if there is one.
+    // We can use it to seek a bit farther forward.
+    InitRangeTombstone(*target, RangeDelPositioningMode::kForwardTraversal);
+  }
+  std::string end_key_alloc;
+  Slice end_key;
+  if (file_meta_ != nullptr && range_tombstone_endpoint_.is_valid() &&
+      range_tombstone_endpoint_.seq() > file_meta_->fd.largest_seqno) {
+    end_key_alloc = tombstone_internal_end_key();
+    end_key = end_key_alloc;
+    target = &end_key;
+  }
+
+  SavePrevIndexValue();
 
   bool need_seek_index = true;
   if (block_iter_points_to_real_block_ && block_iter_.Valid()) {
@@ -2634,12 +2653,25 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekImpl(
 
 template <class TBlockIter, typename TValue>
 void BlockBasedTableIterator<TBlockIter, TValue>::SeekForPrev(
-    const Slice& target) {
+    const Slice& const_target) {
+  Slice target(const_target);
+  range_tombstone_endpoint_.Invalidate();
   is_out_of_bound_ = false;
   is_at_first_key_from_index_ = false;
   if (!CheckPrefixMayMatch(target)) {
     ResetDataIter();
     return;
+  }
+
+  // Before we seek the iterator, find the endpoint of the range tombstone
+  // overlapping the seek target that's newer than the file, if there is one.
+  // We can use it to seek a bit farther backward.
+  InitRangeTombstone(target, RangeDelPositioningMode::kBackwardTraversal);
+  std::string start_key_alloc;
+  if (file_meta_ != nullptr && range_tombstone_endpoint_.is_valid() &&
+      range_tombstone_endpoint_.seq() > file_meta_->fd.largest_seqno) {
+    start_key_alloc = tombstone_internal_start_key();
+    target = start_key_alloc;
   }
 
   SavePrevIndexValue();
@@ -2683,6 +2715,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekForPrev(
 
 template <class TBlockIter, typename TValue>
 void BlockBasedTableIterator<TBlockIter, TValue>::SeekToLast() {
+  range_tombstone_endpoint_.Invalidate();
   is_out_of_bound_ = false;
   is_at_first_key_from_index_ = false;
   SavePrevIndexValue();
@@ -2702,7 +2735,38 @@ void BlockBasedTableIterator<TBlockIter, TValue>::Next() {
     return;
   }
   assert(block_iter_points_to_real_block_);
-  block_iter_.Next();
+
+  if (!range_tombstone_endpoint_.is_valid() ||
+      range_tombstone_endpoint_.dir() !=
+          RangeDelPositioningMode::kForwardTraversal) {
+    InitRangeTombstone(key(), RangeDelPositioningMode::kForwardTraversal);
+  } else if (range_tombstone_endpoint_.endpoint() != nullptr) {
+    ParsedInternalKey parsed;
+    if (!ParseInternalKey(key(), &parsed)) {
+      assert(false);
+    } else if (icomp_.Compare(*range_tombstone_endpoint_.endpoint(), parsed) <=
+               0) {
+      InitRangeTombstone(key(), RangeDelPositioningMode::kForwardTraversal);
+    }
+  }
+
+  if (file_meta_ != nullptr && range_tombstone_endpoint_.is_valid() &&
+      range_tombstone_endpoint_.seq() > file_meta_->fd.largest_seqno) {
+    auto end_key = tombstone_internal_end_key();
+    assert(icomp_.Compare(key(), end_key) < 0);
+    // We know a range tombstone covers the swath of keys between the current
+    // key and `end_key`. We can skip over all the keys in between.
+    SavePrevIndexValue();
+    index_iter_->Seek(end_key);
+    if (!index_iter_->Valid()) {
+      ResetDataIter();
+      return;
+    }
+    InitDataBlock();
+    block_iter_.Seek(end_key);
+  } else {
+    block_iter_.Next();
+  }
   FindKeyForward();
   CheckOutOfBound();
 }
@@ -2732,9 +2796,49 @@ void BlockBasedTableIterator<TBlockIter, TValue>::Prev() {
     block_iter_.SeekToLast();
   } else {
     assert(block_iter_points_to_real_block_);
-    block_iter_.Prev();
-  }
+    if (!range_tombstone_endpoint_.is_valid() ||
+        range_tombstone_endpoint_.dir() !=
+            RangeDelPositioningMode::kBackwardTraversal) {
+      InitRangeTombstone(key(), RangeDelPositioningMode::kBackwardTraversal);
+    } else if (range_tombstone_endpoint_.endpoint() != nullptr) {
+      ParsedInternalKey parsed;
+      if (!ParseInternalKey(key(), &parsed)) {
+        assert(false);
+      } else if (icomp_.Compare(parsed, *range_tombstone_endpoint_.endpoint()) <
+                 0) {
+        InitRangeTombstone(key(), RangeDelPositioningMode::kBackwardTraversal);
+      }
+    }
 
+    if (file_meta_ != nullptr && range_tombstone_endpoint_.is_valid() &&
+        range_tombstone_endpoint_.seq() > file_meta_->fd.largest_seqno) {
+      auto start_key = tombstone_internal_start_key();
+      assert(range_tombstone_endpoint_.endpoint() == nullptr ||
+             user_comparator_.Compare(
+                 range_tombstone_endpoint_.endpoint()->user_key, user_key()) <=
+                 0);
+      // We know a range tombstone covers the swath of keys between the current
+      // key and `start_key`. We can skip over all the keys in between. This
+      // seeks before `start_key` because `tombstone_internal_start_key()`
+      // assigns its result the range tombstone seqnum, which is greater than
+      // any seqnum in this file.
+      SavePrevIndexValue();
+      // See comment in `BlockBasedTableIterator::SeekForPrev` for details on
+      // how this works.
+      index_iter_->Seek(start_key);
+      if (!index_iter_->Valid()) {
+        index_iter_->SeekToLast();
+        if (!index_iter_->Valid()) {
+          ResetDataIter();
+          return;
+        }
+      }
+      InitDataBlock();
+      block_iter_.SeekForPrev(start_key);
+    } else {
+      block_iter_.Prev();
+    }
+  }
   FindKeyBackward();
 }
 
@@ -2928,6 +3032,43 @@ void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyBackward() {
 }
 
 template <class TBlockIter, typename TValue>
+void BlockBasedTableIterator<TBlockIter, TValue>::InitRangeTombstone(
+    const Slice& target, RangeDelPositioningMode mode) {
+  if (range_del_agg_ == nullptr || file_meta_ == nullptr) {
+    return;
+  }
+
+  range_tombstone_endpoint_ =
+      range_del_agg_->GetEndpoint(target, file_meta_->fd.largest_seqno, mode);
+
+  if (range_tombstone_endpoint_.endpoint() != nullptr) {
+    // Clear the start key if it is less than the smallest key in the
+    // sstable. This allows us to avoid comparisons during Prev() in the common
+    // case.
+    if (mode == RangeDelPositioningMode::kBackwardTraversal) {
+      ParsedInternalKey smallest;
+      if (!ParseInternalKey(file_meta_->smallest.Encode(), &smallest) ||
+          (icomp_.Compare(*range_tombstone_endpoint_.endpoint(), smallest) <
+           0)) {
+        range_tombstone_endpoint_.SetEndpoint(nullptr, mode);
+      }
+    }
+    // Clear the end key if it is larger than the largest key in the
+    // sstable. This allows us to avoid comparisons during Next() in the common
+    // case.
+    if (mode == RangeDelPositioningMode::kForwardTraversal) {
+      ParsedInternalKey largest;
+      if (!ParseInternalKey(file_meta_->largest.Encode(), &largest) ||
+          (icomp_.Compare(*range_tombstone_endpoint_.endpoint(), largest) >
+           0)) {
+        range_tombstone_endpoint_.SetEndpoint(nullptr, mode);
+      }
+    }
+  }
+  assert(range_tombstone_endpoint_.dir() == mode);
+}
+
+template <class TBlockIter, typename TValue>
 void BlockBasedTableIterator<TBlockIter, TValue>::CheckOutOfBound() {
   if (read_options_.iterate_upper_bound != nullptr && Valid()) {
     is_out_of_bound_ = user_comparator_.Compare(
@@ -2935,15 +3076,62 @@ void BlockBasedTableIterator<TBlockIter, TValue>::CheckOutOfBound() {
   }
 }
 
+template <class TBlockIter, typename TValue>
+std::string BlockBasedTableIterator<
+    TBlockIter, TValue>::tombstone_internal_start_key() const {
+  assert(range_tombstone_endpoint_.is_valid() &&
+         range_tombstone_endpoint_.dir() ==
+             RangeDelPositioningMode::kBackwardTraversal);
+  std::string internal_key;
+  if (range_tombstone_endpoint_.endpoint() == nullptr) {
+    // Make sure the key is before the file as nullptr indicates the range
+    // tombstone covers everything to the left.
+    AppendInternalKey(&internal_key, {file_meta_->smallest.user_key(),
+                                      kMaxSequenceNumber, kTypeValue});
+  } else {
+    AppendInternalKey(&internal_key,
+                      {range_tombstone_endpoint_.endpoint()->user_key,
+                       range_tombstone_endpoint_.seq(), kTypeValue});
+  }
+  return internal_key;
+}
+
+template <class TBlockIter, typename TValue>
+std::string BlockBasedTableIterator<
+    TBlockIter, TValue>::tombstone_internal_end_key() const {
+  assert(range_tombstone_endpoint_.is_valid() &&
+         range_tombstone_endpoint_.dir() ==
+             RangeDelPositioningMode::kForwardTraversal);
+  std::string internal_key;
+  if (range_tombstone_endpoint_.endpoint() == nullptr) {
+    // Make sure the key is after the file as nullptr indicates the range
+    // tombstone covers everything to the right.
+    AppendInternalKey(&internal_key,
+                      {file_meta_->largest.user_key(), 0, kTypeDeletion});
+  } else {
+    // We specify kMaxSequenceNumber instead of the tombstone's sequence number
+    // because internal keys are ordered by descending sequence number. Using
+    // kMaxSequenceNumber ensures we'll seek to a version of the key that is
+    // more recent than the tombstone. Note that the tombstone end-key is
+    // exclusive, so the tombstone doesn't apply to the end-key in any case.
+    AppendInternalKey(&internal_key,
+                      {range_tombstone_endpoint_.endpoint()->user_key,
+                       kMaxSequenceNumber, kTypeValue});
+  }
+  return internal_key;
+}
+
 InternalIterator* BlockBasedTable::NewIterator(
     const ReadOptions& read_options, const SliceTransform* prefix_extractor,
-    Arena* arena, bool skip_filters, TableReaderCaller caller, size_t compaction_readahead_size) {
+    RangeDelAggregator* range_del_agg, const FileMetaData* file_meta,
+    Arena* arena, bool skip_filters, TableReaderCaller caller,
+    size_t compaction_readahead_size) {
   BlockCacheLookupContext lookup_context{caller};
   bool need_upper_bound_check =
       PrefixExtractorChanged(rep_->table_properties.get(), prefix_extractor);
   if (arena == nullptr) {
     return new BlockBasedTableIterator<DataBlockIter>(
-        this, read_options, rep_->internal_comparator,
+        this, read_options, rep_->internal_comparator, range_del_agg, file_meta,
         NewIndexIterator(
             read_options,
             need_upper_bound_check &&
@@ -2951,20 +3139,20 @@ InternalIterator* BlockBasedTable::NewIterator(
             /*input_iter=*/nullptr, /*get_context=*/nullptr, &lookup_context),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        need_upper_bound_check, prefix_extractor, BlockType::kData,
-        caller, compaction_readahead_size);
+        need_upper_bound_check, prefix_extractor, BlockType::kData, caller,
+        compaction_readahead_size);
   } else {
     auto* mem =
         arena->AllocateAligned(sizeof(BlockBasedTableIterator<DataBlockIter>));
     return new (mem) BlockBasedTableIterator<DataBlockIter>(
-        this, read_options, rep_->internal_comparator,
+        this, read_options, rep_->internal_comparator, range_del_agg, file_meta,
         NewIndexIterator(read_options, need_upper_bound_check,
                          /*input_iter=*/nullptr, /*get_context=*/nullptr,
                          &lookup_context),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        need_upper_bound_check, prefix_extractor, BlockType::kData,
-        caller, compaction_readahead_size);
+        need_upper_bound_check, prefix_extractor, BlockType::kData, caller,
+        compaction_readahead_size);
   }
 }
 

@@ -34,7 +34,10 @@ stl_wrappers::KVMap MakeMockFile(
 
 InternalIterator* MockTableReader::NewIterator(
     const ReadOptions&, const SliceTransform* /* prefix_extractor */,
-    Arena* /*arena*/, bool /*skip_filters*/, TableReaderCaller /*caller*/, size_t /*compaction_readahead_size*/) {
+    RangeDelAggregator* /* range_del_agg */,
+    const FileMetaData* /* file_meta */, Arena* /*arena*/,
+    bool /*skip_filters*/, TableReaderCaller /*caller*/,
+    size_t /*compaction_readahead_size*/) {
   return new MockTableIterator(table_);
 }
 

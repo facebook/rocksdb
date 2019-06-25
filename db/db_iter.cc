@@ -1307,8 +1307,8 @@ void DBIter::Seek(const Slice& target) {
 
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
-    iter_.Seek(saved_key_.GetInternalKey());
     range_del_agg_.InvalidateRangeDelMapPositions();
+    iter_.Seek(saved_key_.GetInternalKey());
   }
   RecordTick(statistics_, NUMBER_DB_SEEK);
   if (iter_.Valid()) {
@@ -1360,8 +1360,8 @@ void DBIter::SeekForPrev(const Slice& target) {
 
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
-    iter_.SeekForPrev(saved_key_.GetInternalKey());
     range_del_agg_.InvalidateRangeDelMapPositions();
+    iter_.SeekForPrev(saved_key_.GetInternalKey());
   }
 
 #ifndef ROCKSDB_LITE
@@ -1417,8 +1417,8 @@ void DBIter::SeekToFirst() {
 
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
-    iter_.SeekToFirst();
     range_del_agg_.InvalidateRangeDelMapPositions();
+    iter_.SeekToFirst();
   }
 
   RecordTick(statistics_, NUMBER_DB_SEEK);
@@ -1470,8 +1470,8 @@ void DBIter::SeekToLast() {
 
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
-    iter_.SeekToLast();
     range_del_agg_.InvalidateRangeDelMapPositions();
+    iter_.SeekToLast();
   }
   PrevInternal();
   if (statistics_ != nullptr) {

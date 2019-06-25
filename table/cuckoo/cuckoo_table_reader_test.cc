@@ -147,7 +147,8 @@ class CuckooReaderTest : public testing::Test {
                              GetSliceHash);
     ASSERT_OK(reader.status());
     InternalIterator* it = reader.NewIterator(
-        ReadOptions(), /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+        ReadOptions(), /*range_del_agg=*/nullptr, /*file_meta=*/nullptr,
+        /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kUncategorized);
     ASSERT_OK(it->status());
     ASSERT_TRUE(!it->Valid());
@@ -187,15 +188,16 @@ class CuckooReaderTest : public testing::Test {
     delete it;
 
     Arena arena;
-    it = reader.NewIterator(ReadOptions(), /*prefix_extractor=*/nullptr, &arena,
-                            /*skip_filters=*/false,
-                            TableReaderCaller::kUncategorized);
+    it = reader.NewIterator(
+        ReadOptions(), /*range_del_agg=*/nullptr, /*file_meta=*/nullptr,
+        /*prefix_extractor=*/nullptr, &arena, /*skip_filters=*/false,
+        TableReaderCaller::kUncategorized);
     ASSERT_OK(it->status());
     ASSERT_TRUE(!it->Valid());
-    it->Seek(keys[num_items/2]);
+    it->Seek(keys[num_items / 2]);
     ASSERT_TRUE(it->Valid());
     ASSERT_OK(it->status());
-    ASSERT_TRUE(keys[num_items/2] == it->key());
+    ASSERT_TRUE(keys[num_items / 2] == it->key());
     ASSERT_TRUE(values[num_items/2] == it->value());
     ASSERT_OK(it->status());
     it->~InternalIterator();

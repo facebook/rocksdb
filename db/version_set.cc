@@ -1022,8 +1022,8 @@ void LevelIterator::SeekForPrev(const Slice& target) {
   InitFileIterator(new_file_index);
   if (file_iter_.iter() != nullptr) {
     file_iter_.SeekForPrev(target);
-    SkipEmptyFileBackward();
   }
+  SkipEmptyFileBackward();
 }
 
 void LevelIterator::SeekToFirst() {

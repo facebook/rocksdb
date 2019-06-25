@@ -408,7 +408,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   // updating the block cache.
   ro.fill_cache = false;
   std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
-      ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
+      ro, sv->mutable_cf_options.prefix_extractor.get(),
+      /*range_del_agg=*/nullptr, /*file_meta=*/nullptr, /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
   std::unique_ptr<InternalIterator> range_del_iter(
       table_reader->NewRangeTombstoneIterator(ro));

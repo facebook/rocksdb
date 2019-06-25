@@ -205,9 +205,9 @@ InternalIterator* TableCache::NewIterator(
         !options.table_filter(*table_reader->GetTableProperties())) {
       result = NewEmptyInternalIterator<Slice>(arena);
     } else {
-      result = table_reader->NewIterator(options, prefix_extractor, arena,
-                                         skip_filters, caller,
-                                         env_options.compaction_readahead_size);
+      result = table_reader->NewIterator(
+          options, prefix_extractor, range_del_agg, &file_meta, arena,
+          skip_filters, caller, env_options.compaction_readahead_size);
     }
     if (handle != nullptr) {
       result->RegisterCleanup(&UnrefEntry, cache_, handle);

@@ -199,7 +199,9 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           InternalIterator* iiter = nullptr;
           if (!through_db) {
             iiter = table_reader->NewIterator(
-                read_options, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+                read_options, /*prefix_extractor=*/nullptr,
+                /*range_del_agg=*/nullptr, /*file_meta=*/nullptr,
+                /*arena=*/nullptr,
                 /*skip_filters=*/false, TableReaderCaller::kUncategorized);
           } else {
             iter = db->NewIterator(read_options);
