@@ -1967,8 +1967,8 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     }
   }
 
-  if (block_cache_tracer_ && lookup_context &&
-      block_cache_tracer_->is_tracing_enabled()) {
+  if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled() &&
+      lookup_context) {
     // Avoid making copy of block_key and cf_name when constructing the access
     // record.
     BlockCacheTraceRecord access_record(
@@ -2049,8 +2049,8 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
       }
     }
   }
-  if (block_cache_tracer_ && lookup_context &&
-      block_cache_tracer_->is_tracing_enabled()) {
+  if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled() &&
+      lookup_context) {
     // Avoid making copy of block_key and cf_name when constructing the access
     // record.
     BlockCacheTraceRecord access_record(
@@ -2275,8 +2275,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
   }
 
   // Fill lookup_context.
-  if (block_cache_tracer_ && lookup_context &&
-      block_cache_tracer_->is_tracing_enabled()) {
+  if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled() &&
+      lookup_context) {
     size_t usage = 0;
     uint64_t nkeys = 0;
     if (block_entry->GetValue()) {
