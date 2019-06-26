@@ -99,6 +99,21 @@ DEFINE_string(
     "bucket contains the number of blocks with reuse interval longer than 100 "
     "seconds.");
 DEFINE_string(
+    reuse_lifetime_labels, "",
+    "Group the reuse lifetime of a block using these labels. Reuse "
+    "lifetime is defined as the time interval between the first access on a "
+    "block and the last access on the same block. For blocks that are only "
+    "accessed once, its lifetime is set to kMaxUint64.");
+DEFINE_string(
+    reuse_lifetime_buckets, "",
+    "Group blocks by their reuse lifetime given these buckets. For "
+    "example, if 'reuse_lifetime_buckets' is '1,10,100', we will "
+    "create four buckets. The first three buckets contain the number of "
+    "blocks with reuse lifetime less than 1 second, between 1 second and 10 "
+    "seconds, between 10 seconds and 100 seconds, respectively. The last "
+    "bucket contains the number of blocks with reuse lifetime longer than 100 "
+    "seconds.");
+DEFINE_string(
     analyze_callers, "",
     "The list of callers to perform a detailed analysis on. If speicfied, the "
     "analyzer will output a detailed percentage of accesses for each caller "
@@ -515,7 +530,9 @@ void BlockCacheTraceAnalyzer::WriteReuseInterval(
     const std::vector<uint64_t>& time_buckets) const {
   std::set<std::string> labels = ParseLabelStr(label_str);
   std::map<std::string, std::map<uint64_t, uint64_t>> label_time_num_reuses;
+  std::map<std::string, std::map<uint64_t, uint64_t>> label_avg_reuse_nblocks;
   uint64_t total_num_reuses = 0;
+  uint64_t total_nblocks = 0;
   for (auto const& cf_aggregates : cf_aggregates_map_) {
     // Stats per column family.
     const std::string& cf_name = cf_aggregates.first;
@@ -530,6 +547,17 @@ void BlockCacheTraceAnalyzer::WriteReuseInterval(
         for (auto const& block_access_info :
              block_type_aggregates.second.block_access_info_map) {
           // Stats per block.
+          total_nblocks++;
+          uint64_t avg_reuse_interval = 0;
+          if (block_access_info.second.num_accesses > 1) {
+            avg_reuse_interval = ((block_access_info.second.last_access_time -
+                                   block_access_info.second.first_access_time) /
+                                  kMicrosInSecond) /
+                                 block_access_info.second.num_accesses;
+          } else {
+            avg_reuse_interval = port::kMaxUint64 - 1;
+          }
+
           const std::string& block_key = block_access_info.first;
           if (labels.find(kGroupbyCaller) != labels.end()) {
             for (auto const& timeline :
@@ -556,6 +584,117 @@ void BlockCacheTraceAnalyzer::WriteReuseInterval(
           }
           UpdateReuseIntervalStats(label, time_buckets, timeline,
                                    &label_time_num_reuses, &total_num_reuses);
+          if (label_avg_reuse_nblocks.find(label) ==
+              label_avg_reuse_nblocks.end()) {
+                for (auto const& time_bucket : time_buckets) {
+                  label_avg_reuse_nblocks[label][time_bucket] = 0;
+                }
+          }
+          label_avg_reuse_nblocks[label]
+              .upper_bound(avg_reuse_interval)
+              ->second += 1;
+        }
+      }
+    }
+  }
+
+  // We have label_naccesses and label_interval_num_reuses now. Write them into
+  // a file.
+  {
+    const std::string output_path =
+        output_dir_ + "/" + label_str + "_reuse_interval";
+    std::ofstream out(output_path);
+    if (!out.is_open()) {
+      return;
+    }
+    std::string header("bucket");
+    for (auto const& label_it : label_time_num_reuses) {
+      header += ",";
+      header += label_it.first;
+    }
+    out << header << std::endl;
+    for (auto const& bucket : time_buckets) {
+      std::string row(std::to_string(bucket));
+      for (auto const& label_it : label_time_num_reuses) {
+        auto const& it = label_it.second.find(bucket);
+        assert(it != label_it.second.end());
+        row += ",";
+        row += std::to_string(percent(it->second, total_num_reuses));
+      }
+      out << row << std::endl;
+    }
+    out.close();
+  }
+
+  {
+    const std::string output_path =
+        output_dir_ + "/" + label_str + "_avg_reuse_interval";
+    std::ofstream out(output_path);
+    if (!out.is_open()) {
+      return;
+    }
+    std::string header("bucket");
+    for (auto const& label_it : label_avg_reuse_nblocks) {
+      header += ",";
+      header += label_it.first;
+    }
+    out << header << std::endl;
+    for (auto const& bucket : time_buckets) {
+      std::string row(std::to_string(bucket));
+      for (auto const& label_it : label_avg_reuse_nblocks) {
+        auto const& it = label_it.second.find(bucket);
+        assert(it != label_it.second.end());
+        row += ",";
+        row += std::to_string(percent(it->second, total_nblocks));
+      }
+      out << row << std::endl;
+    }
+    out.close();
+  }
+}
+
+void BlockCacheTraceAnalyzer::WriteReuseLifetime(
+    const std::string& label_str,
+    const std::vector<uint64_t>& time_buckets) const {
+  std::set<std::string> labels = ParseLabelStr(label_str);
+  std::map<std::string, std::map<uint64_t, uint64_t>> label_lifetime_nblocks;
+  uint64_t total_nblocks = 0;
+  for (auto const& cf_aggregates : cf_aggregates_map_) {
+    // Stats per column family.
+    const std::string& cf_name = cf_aggregates.first;
+    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
+      // Stats per SST file.
+      const uint64_t fd = file_aggregates.first;
+      const uint32_t level = file_aggregates.second.level;
+      for (auto const& block_type_aggregates :
+           file_aggregates.second.block_type_aggregates_map) {
+        // Stats per block type.
+        const TraceType type = block_type_aggregates.first;
+        for (auto const& block_access_info :
+             block_type_aggregates.second.block_access_info_map) {
+          // Stats per block.
+          const std::string& block_key = block_access_info.first;
+          uint64_t lifetime = 0;
+          if (block_access_info.second.num_accesses > 1) {
+            lifetime = (block_access_info.second.last_access_time -
+                        block_access_info.second.first_access_time) /
+                       kMicrosInSecond;
+          } else {
+            lifetime = port::kMaxUint64 - 1;
+          }
+          const std::string label = BuildLabel(
+              labels, cf_name, fd, level, type,
+              TableReaderCaller::kMaxBlockCacheLookupCaller, block_key);
+
+          if (label_lifetime_nblocks.find(label) ==
+              label_lifetime_nblocks.end()) {
+            // The first time we encounter this label.
+            for (auto const& time_bucket : time_buckets) {
+              label_lifetime_nblocks[label][time_bucket] = 0;
+            }
+          }
+          label_lifetime_nblocks[label].upper_bound(lifetime)->second += 1;
+          total_nblocks += 1;
         }
       }
     }
@@ -564,24 +703,24 @@ void BlockCacheTraceAnalyzer::WriteReuseInterval(
   // We have label_naccesses and label_interval_num_reuses now. Write them into
   // a file.
   const std::string output_path =
-      output_dir_ + "/" + label_str + "_reuse_interval";
+      output_dir_ + "/" + label_str + "_reuse_lifetime";
   std::ofstream out(output_path);
   if (!out.is_open()) {
     return;
   }
   std::string header("bucket");
-  for (auto const& label_it : label_time_num_reuses) {
+  for (auto const& label_it : label_lifetime_nblocks) {
     header += ",";
     header += label_it.first;
   }
   out << header << std::endl;
   for (auto const& bucket : time_buckets) {
     std::string row(std::to_string(bucket));
-    for (auto const& label_it : label_time_num_reuses) {
+    for (auto const& label_it : label_lifetime_nblocks) {
       auto const& it = label_it.second.find(bucket);
       assert(it != label_it.second.end());
       row += ",";
-      row += std::to_string(percent(it->second, total_num_reuses));
+      row += std::to_string(percent(it->second, total_nblocks));
     }
     out << row << std::endl;
   }
@@ -997,15 +1136,15 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
              block_type_aggregates.second.block_access_info_map) {
           // Stats per block.
           uint64_t naccesses = 0;
-          if (user_access_only) {
-            for (auto const& caller_access :
-                 block_access_info.second.caller_num_access_map) {
-              if (is_user_access(caller_access.first)) {
-                naccesses += caller_access.second;
-              }
+          for (auto const& caller_access :
+               block_access_info.second.caller_num_access_map) {
+            if (!user_access_only ||
+                (user_access_only && is_user_access(caller_access.first))) {
+              naccesses += caller_access.second;
             }
-          } else {
-            naccesses = block_access_info.second.num_accesses;
+          }
+          if (naccesses == 0) {
+            continue;
           }
           if (type == TraceType::kBlockTraceDataBlock) {
             access_count_blocks[naccesses].push_back(block_access_info.first);
@@ -1033,8 +1172,11 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
     for (auto const& block_id : naccess_it->second) {
       BlockAccessInfo* block = block_info_map_.find(block_id)->second;
       for (auto const& caller_access : block->caller_num_access_map) {
-        caller_naccesses[caller_access.first] += caller_access.second;
-        naccesses += caller_access.second;
+        if (!user_access_only ||
+            (user_access_only && is_user_access(caller_access.first))) {
+          caller_naccesses[caller_access.first] += caller_access.second;
+          naccesses += caller_access.second;
+        }
       }
     }
     std::string statistics("Caller:");
@@ -1062,15 +1204,28 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
     for (auto const& block_id : naccess_it->second) {
       BlockAccessInfo* block = block_info_map_.find(block_id)->second;
       std::string statistics("Caller:");
+      uint64_t naccesses = 0;
       for (auto const& caller_access : block->caller_num_access_map) {
-        statistics += ",";
-        statistics += caller_to_string(caller_access.first);
-        statistics += ":";
-        statistics +=
-            std::to_string(percent(caller_access.second, block->num_accesses));
+        if (!user_access_only ||
+            (user_access_only && is_user_access(caller_access.first))) {
+          naccesses += caller_access.second;
+        }
+      }
+      assert(naccesses > 0);
+      for (auto const& caller_access : block->caller_num_access_map) {
+        if (!user_access_only ||
+            (user_access_only && is_user_access(caller_access.first))) {
+          statistics += ",";
+          statistics += caller_to_string(caller_access.first);
+          statistics += ":";
+          statistics +=
+              std::to_string(percent(caller_access.second, naccesses));
+        }
       }
       statistics += ",num_ref_keys=";
       statistics += std::to_string(block->key_num_access_map.size());
+      statistics += ",block_size=";
+      statistics += std::to_string(block->block_size);
       fprintf(stdout,
               "Top %" PRIu32 " access count blocks access_count=%" PRIu64
               " %s\n",
@@ -1530,6 +1685,17 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
       std::string label;
       getline(ss, label, ',');
       analyzer.WriteReuseInterval(label, buckets);
+    }
+  }
+
+  if (!FLAGS_reuse_lifetime_labels.empty() &&
+      !FLAGS_reuse_lifetime_buckets.empty()) {
+    std::vector<uint64_t> buckets = parse_buckets(FLAGS_reuse_lifetime_buckets);
+    std::stringstream ss(FLAGS_reuse_lifetime_labels);
+    while (ss.good()) {
+      std::string label;
+      getline(ss, label, ',');
+      analyzer.WriteReuseLifetime(label, buckets);
     }
   }
   return 0;

@@ -166,6 +166,12 @@ class BlockCacheTraceAnalyzer {
   void WriteReuseInterval(const std::string& label_str,
                           const std::vector<uint64_t>& time_buckets) const;
 
+  // Write the reuse lifetime into a csv file saved in 'output_dir'. Reuse
+  // lifetime is defined as the time interval between the first access of a
+  // block and its last access.
+  void WriteReuseLifetime(const std::string& label_str,
+                          const std::vector<uint64_t>& time_buckets) const;
+
   const std::map<std::string, ColumnFamilyAccessInfoAggregate>&
   TEST_cf_aggregates_map() const {
     return cf_aggregates_map_;

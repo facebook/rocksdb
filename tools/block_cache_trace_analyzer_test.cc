@@ -56,6 +56,8 @@ class BlockCacheTracerTest : public testing::Test {
     reuse_distance_buckets_ = "1,1K,1M,1G";
     reuse_interval_labels_ = "block,all,cf,sst,level,bt,cf_sst,cf_level,cf_bt";
     reuse_interval_buckets_ = "1,10,100,1000";
+    reuse_lifetime_labels_ = "block,all,cf,sst,level,bt,cf_sst,cf_level,cf_bt";
+    reuse_lifetime_buckets_ = "1,10,100,1000";
     analyzing_callers_ = "Get,Iterator";
     access_count_buckets_ = "2,3,4,5,10";
   }
@@ -167,6 +169,8 @@ class BlockCacheTracerTest : public testing::Test {
         "-reuse_distance_buckets=" + reuse_distance_buckets_,
         "-reuse_interval_labels=" + reuse_interval_labels_,
         "-reuse_interval_buckets=" + reuse_interval_buckets_,
+        "-reuse_lifetime_labels=" + reuse_lifetime_labels_,
+        "-reuse_lifetime_buckets=" + reuse_lifetime_buckets_,
         "-analyze_callers=" + analyzing_callers_,
         "-access_count_buckets=" + access_count_buckets_};
     char arg_buffer[kArgBufferSize];
@@ -194,6 +198,8 @@ class BlockCacheTracerTest : public testing::Test {
   std::string reuse_distance_buckets_;
   std::string reuse_interval_labels_;
   std::string reuse_interval_buckets_;
+  std::string reuse_lifetime_labels_;
+  std::string reuse_lifetime_buckets_;
   std::string analyzing_callers_;
   std::string access_count_buckets_;
 };
@@ -293,6 +299,8 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
     std::map<std::string, std::string> test_reuse_csv_files;
     test_reuse_csv_files["_reuse_interval"] = reuse_interval_labels_;
     test_reuse_csv_files["_reuse_distance"] = reuse_distance_labels_;
+    test_reuse_csv_files["_reuse_lifetime"] = reuse_lifetime_labels_;
+    test_reuse_csv_files["_avg_reuse_interval"] = reuse_interval_labels_;
     for (auto const& test : test_reuse_csv_files) {
       const std::string& file_suffix = test.first;
       const std::string& labels = test.second;
@@ -322,7 +330,12 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
           }
         }
         ASSERT_EQ(expected_num_rows, nrows);
-        ASSERT_LT(npercentage, 0);
+        if ("_reuse_lifetime" == test.first ||
+            "_avg_reuse_interval" == test.first) {
+          ASSERT_EQ(100, npercentage) << reuse_csv_file;
+        } else {
+          ASSERT_LT(npercentage, 0);
+        }
         ASSERT_OK(env_->DeleteFile(reuse_csv_file));
       }
     }
