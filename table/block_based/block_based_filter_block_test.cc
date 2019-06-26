@@ -45,10 +45,7 @@ class TestHashFilter : public FilterPolicy {
 class MockBlockBasedTable : public BlockBasedTable {
  public:
   explicit MockBlockBasedTable(Rep* rep)
-      : BlockBasedTable(rep, nullptr /* block_cache_tracer */) {
-    // Initialize what Open normally does as much as necessary for the test
-    rep->cache_key_prefix_size = 10;
-  }
+      : BlockBasedTable(rep, nullptr /* block_cache_tracer */) {}
 };
 
 class FilterBlockTest : public testing::Test {
@@ -64,7 +61,6 @@ class FilterBlockTest : public testing::Test {
       : ioptions_(options_),
         env_options_(options_),
         icomp_(options_.comparator) {
-    table_options_.no_block_cache = true;
     table_options_.filter_policy.reset(new TestHashFilter);
 
     constexpr bool skip_filters = false;
@@ -271,7 +267,6 @@ class BlockBasedFilterBlockTest : public testing::Test {
       : ioptions_(options_),
         env_options_(options_),
         icomp_(options_.comparator) {
-    table_options_.no_block_cache = true;
     table_options_.filter_policy.reset(NewBloomFilterPolicy(10));
 
     constexpr bool skip_filters = false;

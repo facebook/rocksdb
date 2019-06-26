@@ -27,7 +27,6 @@ class MockedBlockBasedTable : public BlockBasedTable {
   MockedBlockBasedTable(Rep* rep, PartitionedIndexBuilder* pib)
       : BlockBasedTable(rep, /*block_cache_tracer=*/nullptr) {
     // Initialize what Open normally does as much as necessary for the test
-    rep->cache_key_prefix_size = 10;
     rep->index_key_includes_seq = pib->seperator_is_key_plus_seq();
     rep->index_value_is_full = !pib->get_use_value_delta_encoding();
   }
@@ -67,9 +66,6 @@ class PartitionedFilterBlockTest
         env_options_(options_),
         icomp_(options_.comparator) {
     table_options_.filter_policy.reset(NewBloomFilterPolicy(10, false));
-    table_options_.no_block_cache = true;  // Otherwise BlockBasedTable::Close
-                                           // will access variable that are not
-                                           // initialized in our mocked version
     table_options_.format_version = GetParam();
     table_options_.index_block_restart_interval = 3;
   }
