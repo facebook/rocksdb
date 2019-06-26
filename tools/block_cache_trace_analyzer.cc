@@ -46,10 +46,10 @@ DEFINE_int32(cache_sim_warmup_seconds, 0,
              "counters are reset after the warmup completes.");
 DEFINE_int32(analyze_bottom_k_access_count_blocks, 0,
              "Print out detailed access information for blocks with their "
-             "number of accesses is the bottom k among all blocks.");
+             "number of accesses are the bottom k among all blocks.");
 DEFINE_int32(analyze_top_k_access_count_blocks, 0,
              "Print out detailed access information for blocks with their "
-             "number of accesses is the top k among all blocks.");
+             "number of accesses are the top k among all blocks.");
 DEFINE_string(
     block_cache_analysis_result_dir, "",
     "The directory that saves block cache analysis results. It contains 1) a "
@@ -99,7 +99,7 @@ DEFINE_string(
     "bucket contains the number of blocks with reuse interval longer than 100 "
     "seconds.");
 DEFINE_string(
-    analyzing_callers, "",
+    analyze_callers, "",
     "The list of callers to perform a detailed analysis on. If speicfied, the "
     "analyzer will output a detailed percentage of accesses for each caller "
     "break down by column family, level, and block type. A list of available "
@@ -612,6 +612,23 @@ void BlockCacheTraceAnalyzer::WriteReuseInterval(
   out.close();
 }
 
+std::string BlockCacheTraceAnalyzer::OutputPercentAccessStats(
+    uint64_t total_accesses,
+    const std::map<std::string, uint64_t>& cf_access_count) const {
+  std::string row;
+  for (auto const& cf_aggregates : cf_aggregates_map_) {
+    const std::string& cf_name = cf_aggregates.first;
+    const auto& naccess = cf_access_count.find(cf_name);
+    row += ",";
+    if (naccess != cf_access_count.end()) {
+      row += std::to_string(percent(naccess->second, total_accesses));
+    } else {
+      row += "0";
+    }
+  }
+  return row;
+}
+
 void BlockCacheTraceAnalyzer::WritePercentAccessSummaryStats() const {
   std::map<TableReaderCaller, std::map<std::string, uint64_t>>
       caller_cf_accesses;
@@ -651,16 +668,7 @@ void BlockCacheTraceAnalyzer::WritePercentAccessSummaryStats() const {
     const TableReaderCaller caller = cf_naccess_it.first;
     std::string row;
     row += caller_to_string(caller);
-    for (auto const& cf_aggregates : cf_aggregates_map_) {
-      const std::string& cf_name = cf_aggregates.first;
-      const auto& naccess = cf_naccess_it.second.find(cf_name);
-      row += ",";
-      if (naccess != cf_naccess_it.second.end()) {
-        row += std::to_string(percent(naccess->second, total_accesses));
-      } else {
-        row += "0";
-      }
-    }
+    row += OutputPercentAccessStats(total_accesses, cf_naccess_it.second);
     out << row << std::endl;
   }
   out.close();
@@ -713,16 +721,7 @@ void BlockCacheTraceAnalyzer::WriteDetailedPercentAccessSummaryStats(
       const uint32_t level = level_naccess_it.first;
       std::string row;
       row += std::to_string(level);
-      for (auto const& cf_aggregates : cf_aggregates_map_) {
-        const std::string& cf_name = cf_aggregates.first;
-        const auto& naccess = level_naccess_it.second.find(cf_name);
-        row += ",";
-        if (naccess != level_naccess_it.second.end()) {
-          row += std::to_string(percent(naccess->second, total_accesses));
-        } else {
-          row += "0";
-        }
-      }
+      row += OutputPercentAccessStats(total_accesses, level_naccess_it.second);
       out << row << std::endl;
     }
     out.close();
@@ -745,16 +744,7 @@ void BlockCacheTraceAnalyzer::WriteDetailedPercentAccessSummaryStats(
       const TraceType bt = bt_naccess_it.first;
       std::string row;
       row += block_type_to_string(bt);
-      for (auto const& cf_aggregates : cf_aggregates_map_) {
-        const std::string& cf_name = cf_aggregates.first;
-        const auto& naccess = bt_naccess_it.second.find(cf_name);
-        row += ",";
-        if (naccess != bt_naccess_it.second.end()) {
-          row += std::to_string(percent(naccess->second, total_accesses));
-        } else {
-          row += "0";
-        }
-      }
+      row += OutputPercentAccessStats(total_accesses, bt_naccess_it.second);
       out << row << std::endl;
     }
     out.close();
@@ -843,7 +833,6 @@ void BlockCacheTraceAnalyzer::WriteAccessCountSummaryStats(
     }
     out.close();
   }
-
   {
     const std::string output_path =
         output_dir_ + "/" + user_access_prefix + "bt_access_count_summary";
@@ -1018,9 +1007,6 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
   HistogramStat access_stats;
   std::map<TraceType, HistogramStat> bt_stats_map;
   std::map<std::string, std::map<TraceType, HistogramStat>> cf_bt_stats_map;
-  // For blocks that are only accessed a few times, it is interesting to see who
-  // accesses these blocks.
-
   std::map<uint64_t, std::vector<std::string>> access_count_blocks;
   for (auto const& cf_aggregates : cf_aggregates_map_) {
     // Stats per column family.
@@ -1116,24 +1102,23 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
     }
   }
 
-  //
-  // for (auto const& bt_stats : bt_stats_map) {
-  //   print_break_lines(/*num_break_lines=*/1);
-  //   fprintf(stdout, "Break down by block type %s: \n%s",
-  //           block_type_to_string(bt_stats.first).c_str(),
-  //           bt_stats.second.ToString().c_str());
-  // }
-  // for (auto const& cf_bt_stats : cf_bt_stats_map) {
-  //   const std::string& cf_name = cf_bt_stats.first;
-  //   for (auto const& bt_stats : cf_bt_stats.second) {
-  //     print_break_lines(/*num_break_lines=*/1);
-  //     fprintf(stdout,
-  //             "Break down by column family %s and block type "
-  //             "%s: \n%s",
-  //             cf_name.c_str(), block_type_to_string(bt_stats.first).c_str(),
-  //             bt_stats.second.ToString().c_str());
-  //   }
-  // }
+  for (auto const& bt_stats : bt_stats_map) {
+    print_break_lines(/*num_break_lines=*/1);
+    fprintf(stdout, "Break down by block type %s: \n%s",
+            block_type_to_string(bt_stats.first).c_str(),
+            bt_stats.second.ToString().c_str());
+  }
+  for (auto const& cf_bt_stats : cf_bt_stats_map) {
+    const std::string& cf_name = cf_bt_stats.first;
+    for (auto const& bt_stats : cf_bt_stats.second) {
+      print_break_lines(/*num_break_lines=*/1);
+      fprintf(stdout,
+              "Break down by column family %s and block type "
+              "%s: \n%s",
+              cf_name.c_str(), block_type_to_string(bt_stats.first).c_str(),
+              bt_stats.second.ToString().c_str());
+    }
+  }
 }
 
 void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() const {
@@ -1534,9 +1519,9 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
     }
   }
 
-  if (!FLAGS_analyzing_callers.empty()) {
+  if (!FLAGS_analyze_callers.empty()) {
     analyzer.WritePercentAccessSummaryStats();
-    std::stringstream ss(FLAGS_analyzing_callers);
+    std::stringstream ss(FLAGS_analyze_callers);
     while (ss.good()) {
       std::string caller;
       getline(ss, caller, ',');

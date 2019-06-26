@@ -160,12 +160,14 @@ class BlockCacheTracerTest : public testing::Test {
         "-print_access_count_stats",
         "-print_data_block_access_count_stats",
         "-cache_sim_warmup_seconds=0",
+        "-analyze_bottom_k_access_count_blocks=5",
+        "-analyze_top_k_access_count_blocks=5",
         "-timeline_labels=" + timeline_labels_,
         "-reuse_distance_labels=" + reuse_distance_labels_,
         "-reuse_distance_buckets=" + reuse_distance_buckets_,
         "-reuse_interval_labels=" + reuse_interval_labels_,
         "-reuse_interval_buckets=" + reuse_interval_buckets_,
-        "-analyzing_callers=" + analyzing_callers_,
+        "-analyze_callers=" + analyzing_callers_,
         "-access_count_buckets=" + access_count_buckets_};
     char arg_buffer[kArgBufferSize];
     char* argv[kMaxArgCount];

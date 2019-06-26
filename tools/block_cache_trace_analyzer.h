@@ -133,10 +133,16 @@ class BlockCacheTraceAnalyzer {
   // accesses on keys exist in a data block and its break down by column family.
   void PrintDataBlockAccessStats() const;
 
+  // Write the percentage of accesses break down by column family into a csv
+  // file saved in 'output_dir'.
   void WritePercentAccessSummaryStats() const;
 
+  // Write the percentage of accesses for the given caller break down by column
+  // family, level, and block type into a csv file saved in 'output_dir'.
   void WriteDetailedPercentAccessSummaryStats(TableReaderCaller caller) const;
 
+  // Write the access count summary into a csv file saved in 'output_dir'.
+  // It groups blocks by their access count.
   void WriteAccessCountSummaryStats(
       const std::vector<uint64_t>& access_count_buckets,
       bool user_access_only) const;
@@ -184,6 +190,10 @@ class BlockCacheTraceAnalyzer {
       std::map<std::string, std::map<uint64_t, uint64_t>>*
           label_time_num_reuses,
       uint64_t* total_num_reuses) const;
+
+  std::string OutputPercentAccessStats(
+      uint64_t total_accesses,
+      const std::map<std::string, uint64_t>& cf_access_count) const;
 
   rocksdb::Env* env_;
   const std::string trace_file_path_;
