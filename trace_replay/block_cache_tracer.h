@@ -197,6 +197,8 @@ class BlockCacheTracer {
   // Stop writing block cache accesses to the trace_writer.
   void EndTrace();
 
+  bool is_tracing_enabled() const { return writer_.load(); }
+
   Status WriteBlockAccess(const BlockCacheTraceRecord& record,
                           const Slice& block_key, const Slice& cf_name,
                           const Slice& referenced_key);
