@@ -56,6 +56,8 @@ class BlockCacheTracerTest : public testing::Test {
     reuse_distance_buckets_ = "1,1K,1M,1G";
     reuse_interval_labels_ = "block,all,cf,sst,level,bt,cf_sst,cf_level,cf_bt";
     reuse_interval_buckets_ = "1,10,100,1000";
+    analyzing_callers_ = "Get,Iterator";
+    access_count_buckets_ = "2,3,4,5,10";
   }
 
   ~BlockCacheTracerTest() override {
@@ -163,7 +165,8 @@ class BlockCacheTracerTest : public testing::Test {
         "-reuse_distance_buckets=" + reuse_distance_buckets_,
         "-reuse_interval_labels=" + reuse_interval_labels_,
         "-reuse_interval_buckets=" + reuse_interval_buckets_,
-    };
+        "-analyzing_callers=" + analyzing_callers_,
+        "-access_count_buckets=" + access_count_buckets_};
     char arg_buffer[kArgBufferSize];
     char* argv[kMaxArgCount];
     int argc = 0;
@@ -189,6 +192,8 @@ class BlockCacheTracerTest : public testing::Test {
   std::string reuse_distance_buckets_;
   std::string reuse_interval_labels_;
   std::string reuse_interval_buckets_;
+  std::string analyzing_callers_;
+  std::string access_count_buckets_;
 };
 
 TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
@@ -328,6 +333,108 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
       }
     }
   }
+
+  {
+    // Validate the percentage of accesses summary.
+    const std::string percent_access_summary_file =
+        test_path_ + "/percentage_of_accesses_summary";
+    std::ifstream infile(percent_access_summary_file);
+    std::string line;
+    ASSERT_TRUE(getline(infile, line));
+    std::set<std::string> callers;
+    std::set<std::string> expected_callers{"Get", "MultiGet", "Iterator",
+                                           "Prefetch", "Compaction"};
+    while (getline(infile, line)) {
+      std::stringstream caller_percent(line);
+      std::string caller;
+      ASSERT_TRUE(getline(caller_percent, caller, ','));
+      std::string percent;
+      ASSERT_TRUE(getline(caller_percent, percent, ','));
+      ASSERT_FALSE(caller_percent.good());
+      callers.insert(caller);
+      ASSERT_EQ(20, ParseDouble(percent));
+    }
+    ASSERT_EQ(expected_callers.size(), callers.size());
+    for (auto caller : callers) {
+      ASSERT_TRUE(expected_callers.find(caller) != expected_callers.end());
+    }
+    ASSERT_OK(env_->DeleteFile(percent_access_summary_file));
+  }
+  {
+    // Validate the percentage of accesses summary by analyzing callers.
+    std::stringstream analyzing_callers(analyzing_callers_);
+    while (analyzing_callers.good()) {
+      std::string caller;
+      ASSERT_TRUE(getline(analyzing_callers, caller, ','));
+      std::vector<std::string> breakdowns{"level", "bt"};
+      for (auto breakdown : breakdowns) {
+        const std::string file_name = test_path_ + "/" + caller + "_" +
+                                      breakdown +
+                                      "_percentage_of_accesses_summary";
+        std::ifstream infile(file_name);
+        std::string line;
+        ASSERT_TRUE(getline(infile, line));
+        double sum = 0;
+        while (getline(infile, line)) {
+          std::stringstream label_percent(line);
+          std::string label;
+          ASSERT_TRUE(getline(label_percent, label, ','));
+          std::string percent;
+          ASSERT_TRUE(getline(label_percent, percent, ','));
+          ASSERT_FALSE(label_percent.good());
+          sum += ParseDouble(percent);
+        }
+        ASSERT_EQ(100, sum);
+        ASSERT_OK(env_->DeleteFile(file_name));
+      }
+    }
+  }
+  const std::vector<std::string> access_types{"user_access_only_",
+                                              "all_access_"};
+  for (auto const& access_type : access_types) {
+    {
+      // Validate bt access count summary.
+      const std::string bt_access_count_summary =
+          test_path_ + "/" + access_type + "bt_access_count_summary";
+      std::ifstream infile(bt_access_count_summary);
+      std::string line;
+      ASSERT_TRUE(getline(infile, line));
+      uint64_t nbts = 0;
+      while (getline(infile, line)) {
+        std::stringstream bt_percent(line);
+        std::string bt;
+        ASSERT_TRUE(getline(bt_percent, bt, ','));
+        std::string percent;
+        ASSERT_TRUE(getline(bt_percent, percent, ','));
+        ASSERT_EQ("Data", bt);
+        ASSERT_EQ(100, ParseDouble(percent));
+        nbts++;
+      }
+      ASSERT_EQ(1, nbts);
+      ASSERT_OK(env_->DeleteFile(bt_access_count_summary));
+    }
+    {
+      // Validate bt access count summary.
+      const std::string cf_access_count_summary =
+          test_path_ + "/" + access_type + "cf_access_count_summary";
+      std::ifstream infile(cf_access_count_summary);
+      std::string line;
+      ASSERT_TRUE(getline(infile, line));
+      uint64_t ncfs = 0;
+      while (getline(infile, line)) {
+        std::stringstream cf_percent(line);
+        std::string cf;
+        ASSERT_TRUE(getline(cf_percent, cf, ','));
+        std::string percent;
+        ASSERT_TRUE(getline(cf_percent, percent, ','));
+        ASSERT_EQ("default", cf);
+        ASSERT_EQ(100, ParseDouble(percent));
+        ncfs++;
+      }
+      ASSERT_EQ(1, ncfs);
+      ASSERT_OK(env_->DeleteFile(cf_access_count_summary));
+    }
+  }
   ASSERT_OK(env_->DeleteFile(block_cache_sim_config_path_));
 }
 
@@ -366,6 +473,7 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     // Read blocks.
     BlockCacheTraceAnalyzer analyzer(trace_file_path_,
                                      /*output_miss_ratio_curve_path=*/"",
+                                     /*compute_reuse_distance=*/true,
                                      /*simulator=*/nullptr);
     // The analyzer ends when it detects an incomplete access record.
     ASSERT_EQ(Status::Incomplete(""), analyzer.Analyze());

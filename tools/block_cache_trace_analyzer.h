@@ -83,6 +83,7 @@ class BlockCacheTraceAnalyzer {
  public:
   BlockCacheTraceAnalyzer(
       const std::string& trace_file_path, const std::string& output_dir,
+      bool compute_reuse_distance,
       std::unique_ptr<BlockCacheTraceSimulator>&& cache_simulator);
   ~BlockCacheTraceAnalyzer() = default;
   // No copy and move.
@@ -122,7 +123,8 @@ class BlockCacheTraceAnalyzer {
 
   // Print access count distribution and the distribution break down by block
   // type and column family.
-  void PrintAccessCountStats() const;
+  void PrintAccessCountStats(bool user_access_only, uint32_t bottom_k,
+                             uint32_t top_k) const;
 
   // Print data block accesses by user Get and Multi-Get.
   // It prints out 1) A histogram on the percentage of keys accessed in a data
@@ -130,6 +132,14 @@ class BlockCacheTraceAnalyzer {
   // histogram break down by column family. 2) A histogram on the percentage of
   // accesses on keys exist in a data block and its break down by column family.
   void PrintDataBlockAccessStats() const;
+
+  void WritePercentAccessSummaryStats() const;
+
+  void WriteDetailedPercentAccessSummaryStats(TableReaderCaller caller) const;
+
+  void WriteAccessCountSummaryStats(
+      const std::vector<uint64_t>& access_count_buckets,
+      bool user_access_only) const;
 
   // Write miss ratio curves of simulated cache configurations into a csv file
   // saved in 'output_dir'.
@@ -142,13 +152,13 @@ class BlockCacheTraceAnalyzer {
   // distance is defined as the cumulated size of unique blocks read between two
   // consective accesses on the same block.
   void WriteReuseDistance(const std::string& label_str,
-                          const std::set<uint64_t>& distance_buckets) const;
+                          const std::vector<uint64_t>& distance_buckets) const;
 
   // Write the reuse interval into a csv file saved in 'output_dir'. Reuse
   // interval is defined as the time between two consecutive accesses on the
   // same block..
   void WriteReuseInterval(const std::string& label_str,
-                          const std::set<uint64_t>& time_buckets) const;
+                          const std::vector<uint64_t>& time_buckets) const;
 
   const std::map<std::string, ColumnFamilyAccessInfoAggregate>&
   TEST_cf_aggregates_map() const {
@@ -169,7 +179,7 @@ class BlockCacheTraceAnalyzer {
   void RecordAccess(const BlockCacheTraceRecord& access);
 
   void UpdateReuseIntervalStats(
-      const std::string& label, const std::set<uint64_t>& time_buckets,
+      const std::string& label, const std::vector<uint64_t>& time_buckets,
       const std::map<uint64_t, uint64_t> timeline,
       std::map<std::string, std::map<uint64_t, uint64_t>>*
           label_time_num_reuses,
@@ -178,6 +188,7 @@ class BlockCacheTraceAnalyzer {
   rocksdb::Env* env_;
   const std::string trace_file_path_;
   const std::string output_dir_;
+  const bool compute_reuse_distance_;
 
   BlockCacheTraceHeader header_;
   std::unique_ptr<BlockCacheTraceSimulator> cache_simulator_;
