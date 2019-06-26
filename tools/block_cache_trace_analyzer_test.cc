@@ -296,9 +296,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
     for (auto const& test : test_reuse_csv_files) {
       const std::string& file_suffix = test.first;
       const std::string& labels = test.second;
-      const uint32_t expected_num_rows = 10;
-      const uint32_t expected_num_rows_absolute_values = 5;
-      const uint32_t expected_reused_blocks = 0;
+      const uint32_t expected_num_rows = 5;
       std::stringstream ss(labels);
       while (ss.good()) {
         std::string l;
@@ -307,7 +305,6 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
         std::ifstream infile(reuse_csv_file);
         std::string line;
         ASSERT_TRUE(getline(infile, line));
-        uint32_t nblocks = 0;
         double npercentage = 0;
         uint32_t nrows = 0;
         while (getline(infile, line)) {
@@ -321,15 +318,10 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
               label_read = true;
               continue;
             }
-            if (nrows < expected_num_rows_absolute_values) {
-              nblocks += ParseUint32(substr);
-            } else {
-              npercentage += ParseDouble(substr);
-            }
+            npercentage += ParseDouble(substr);
           }
         }
         ASSERT_EQ(expected_num_rows, nrows);
-        ASSERT_EQ(expected_reused_blocks, nblocks);
         ASSERT_LT(npercentage, 0);
         ASSERT_OK(env_->DeleteFile(reuse_csv_file));
       }

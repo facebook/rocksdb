@@ -461,18 +461,6 @@ void BlockCacheTraceAnalyzer::WriteReuseDistance(
     header += label_it.first;
   }
   out << header << std::endl;
-  // Absolute values.
-  for (auto const& bucket : distance_buckets) {
-    std::string row(std::to_string(bucket));
-    for (auto const& label_it : label_distance_num_reuses) {
-      auto const& it = label_it.second.find(bucket);
-      assert(it != label_it.second.end());
-      row += ",";
-      row += std::to_string(it->second);
-    }
-    out << row << std::endl;
-  }
-  // Percentage values.
   for (auto const& bucket : distance_buckets) {
     std::string row(std::to_string(bucket));
     for (auto const& label_it : label_distance_num_reuses) {
@@ -587,18 +575,6 @@ void BlockCacheTraceAnalyzer::WriteReuseInterval(
     header += label_it.first;
   }
   out << header << std::endl;
-  // Absolute values.
-  for (auto const& bucket : time_buckets) {
-    std::string row(std::to_string(bucket));
-    for (auto const& label_it : label_time_num_reuses) {
-      auto const& it = label_it.second.find(bucket);
-      assert(it != label_it.second.end());
-      row += ",";
-      row += std::to_string(it->second);
-    }
-    out << row << std::endl;
-  }
-  // Percentage values.
   for (auto const& bucket : time_buckets) {
     std::string row(std::to_string(bucket));
     for (auto const& label_it : label_time_num_reuses) {
