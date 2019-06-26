@@ -45,6 +45,7 @@ static char sstfilename[200];
 static char dbbackupname[200];
 static char dbcheckpointname[200];
 static char dbpathname[200];
+static char secondary_path[200];
 
 static void StartPhase(const char* name) {
   fprintf(stderr, "=== Test %s\n", name);
@@ -1720,6 +1721,59 @@ int main(int argc, char** argv) {
     rocksdb_options_set_hash_skip_list_rep(options, 5000, 4, 4);
     db = rocksdb_open(options, dbname, &err);
     CheckNoError(err);
+  }
+
+  // Check that secondary instance works.
+  StartPhase("open_as_secondary");
+  {
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+
+    rocksdb_options_t* db_options = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(db_options, 1);
+    db = rocksdb_open(db_options, dbname, &err);
+    CheckNoError(err);
+    rocksdb_t* db1;
+    rocksdb_options_t* opts = rocksdb_options_create();
+    rocksdb_options_set_max_open_files(opts, -1);
+    rocksdb_options_set_create_if_missing(opts, 1);
+    snprintf(secondary_path, sizeof(secondary_path),
+             "%s/rocksdb_c_test_secondary-%d", GetTempDir(), ((int)geteuid()));
+    db1 = rocksdb_open_as_secondary(opts, dbname, secondary_path, &err);
+    CheckNoError(err);
+
+    rocksdb_writeoptions_set_sync(woptions, 0);
+    rocksdb_writeoptions_disable_WAL(woptions, 1);
+    rocksdb_put(db, woptions, "key0", 4, "value0", 6, &err);
+    CheckNoError(err);
+    rocksdb_flushoptions_t* flush_opts = rocksdb_flushoptions_create();
+    rocksdb_flushoptions_set_wait(flush_opts, 1);
+    rocksdb_flush(db, flush_opts, &err);
+    CheckNoError(err);
+    rocksdb_try_catch_up_with_primary(db1, &err);
+    CheckNoError(err);
+    rocksdb_readoptions_t* ropts = rocksdb_readoptions_create();
+    rocksdb_readoptions_set_verify_checksums(ropts, 1);
+    rocksdb_readoptions_set_snapshot(ropts, NULL);
+    CheckGet(db, ropts, "key0", "value0");
+    CheckGet(db1, ropts, "key0", "value0");
+
+    rocksdb_writeoptions_disable_WAL(woptions, 0);
+    rocksdb_put(db, woptions, "key1", 4, "value1", 6, &err);
+    CheckNoError(err);
+    rocksdb_try_catch_up_with_primary(db1, &err);
+    CheckNoError(err);
+    CheckGet(db1, ropts, "key0", "value0");
+    CheckGet(db1, ropts, "key1", "value1");
+
+    rocksdb_close(db1);
+    rocksdb_destroy_db(opts, secondary_path, &err);
+    CheckNoError(err);
+
+    rocksdb_options_destroy(db_options);
+    rocksdb_options_destroy(opts);
+    rocksdb_readoptions_destroy(ropts);
+    rocksdb_flushoptions_destroy(flush_opts);
   }
 
   // Simple sanity check that options setting db_paths work.
