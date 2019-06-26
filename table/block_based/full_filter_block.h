@@ -127,6 +127,10 @@ class FullFilterBlockReader : public FilterBlockReaderCommon<BlockContents> {
                 BlockCacheLookupContext* lookup_context) const;
   bool IsFilterCompatible(const Slice* iterate_upper_bound, const Slice& prefix,
                           const Comparator* comparator) const;
+
+ private:
+  bool full_length_enabled_;
+  size_t prefix_extractor_full_length_;
 };
 
 }  // namespace rocksdb

@@ -100,7 +100,13 @@ Slice FullFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
 
 FullFilterBlockReader::FullFilterBlockReader(
     const BlockBasedTable* t, CachableEntry<BlockContents>&& filter_block)
-    : FilterBlockReaderCommon(t, std::move(filter_block)) {}
+    : FilterBlockReaderCommon(t, std::move(filter_block)) {
+  const SliceTransform* const prefix_extractor = table_prefix_extractor();
+  if (prefix_extractor) {
+    full_length_enabled_ =
+        prefix_extractor->FullLengthEnabled(&prefix_extractor_full_length_);
+  }
+}
 
 bool FullFilterBlockReader::KeyMayMatch(
     const Slice& key, const SliceTransform* /*prefix_extractor*/,
@@ -311,12 +317,8 @@ bool FullFilterBlockReader::IsFilterCompatible(
       // keys in the range [user_key, upper_bound) share the same prefix.
       // Also need to make sure upper_bound are full length to ensure
       // correctness
-      size_t prefix_extractor_full_length = 0;
-      const bool full_length_enabled =
-          prefix_extractor->FullLengthEnabled(&prefix_extractor_full_length);
-
-      if (!full_length_enabled ||
-          iterate_upper_bound->size() != prefix_extractor_full_length ||
+      if (!full_length_enabled_ ||
+          iterate_upper_bound->size() != prefix_extractor_full_length_ ||
           !comparator->IsSameLengthImmediateSuccessor(prefix,
                                                       *iterate_upper_bound)) {
         return false;
