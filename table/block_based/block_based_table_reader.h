@@ -755,7 +755,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   bool need_upper_bound_check_;
   const SliceTransform* prefix_extractor_;
   BlockType block_type_;
-  uint64_t prev_block_offset_;
+  uint64_t prev_block_offset_ = std::numeric_limits<uint64_t>::max();
   BlockCacheLookupContext lookup_context_;
   // Readahead size used in compaction, its value is used only if
   // lookup_context_.caller = kCompaction.
