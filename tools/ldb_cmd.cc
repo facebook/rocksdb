@@ -223,6 +223,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
     return new CreateColumnFamilyCommand(parsed_params.cmd_params,
                                          parsed_params.option_map,
                                          parsed_params.flags);
+  } else if (parsed_params.cmd == DropColumnFamilyCommand::Name()) {
+    return new DropColumnFamilyCommand(parsed_params.cmd_params,
+                                         parsed_params.option_map,
+                                         parsed_params.flags);
   } else if (parsed_params.cmd == DBFileDumperCommand::Name()) {
     return new DBFileDumperCommand(parsed_params.cmd_params,
                                    parsed_params.option_map,
@@ -1122,6 +1126,44 @@ void CreateColumnFamilyCommand::DoCommand() {
         "Fail to create new column family: " + st.ToString());
   }
   delete new_cf_handle;
+  CloseDB();
+}
+
+void DropColumnFamilyCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(DropColumnFamilyCommand::Name());
+  ret.append(" --db=<db_path> <column_family_name_to_drop>");
+  ret.append("\n");
+}
+
+DropColumnFamilyCommand::DropColumnFamilyCommand(
+    const std::vector<std::string>& params,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+  : LDBCommand(options, flags, true, {ARG_DB}) {
+  if (params.size() != 1) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "The name of column family to drop must be specified");
+  } else {
+    cf_name_to_drop_ = params[0];
+  }
+}
+
+void DropColumnFamilyCommand::DoCommand() {
+  auto iter = cf_handles_.find(cf_name_to_drop_);
+  if (iter == cf_handles_.end()) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "Column family: " + cf_name_to_drop_ + " doesn't exist in db.");
+    return;
+  }
+  ColumnFamilyHandle* cf_handle_to_drop = iter->second;
+  Status st = db_->DropColumnFamily(cf_handle_to_drop);
+  if (st.ok()) {
+    fprintf(stdout, "OK\n");
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "Fail to drop column family: " + st.ToString());
+  }
   CloseDB();
 }
 
