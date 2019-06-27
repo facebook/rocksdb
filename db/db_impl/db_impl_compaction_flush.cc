@@ -1604,11 +1604,18 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     autovector<ColumnFamilyData*> cfds;
     autovector<const uint64_t*> flush_memtable_ids;
     for (auto& iter : flush_req) {
-      cfds.push_back(iter.first);
+      ColumnFamilyData* tmp_cfd = iter.first;
+      tmp_cfd->Ref();
+      cfds.push_back(tmp_cfd);
       flush_memtable_ids.push_back(&(iter.second));
     }
     s = WaitForFlushMemTables(cfds, flush_memtable_ids,
                               (flush_reason == FlushReason::kErrorRecovery));
+    for (auto* tmp_cfd : cfds) {
+      if (tmp_cfd->Unref()) {
+        delete tmp_cfd;
+      }
+    }
   }
   TEST_SYNC_POINT("FlushMemTableFinished");
   return s;
@@ -1688,8 +1695,16 @@ Status DBImpl::AtomicFlushMemTables(
     for (auto& iter : flush_req) {
       flush_memtable_ids.push_back(&(iter.second));
     }
+    for (auto* cfd : cfds) {
+      cfd->Ref();
+    }
     s = WaitForFlushMemTables(cfds, flush_memtable_ids,
                               (flush_reason == FlushReason::kErrorRecovery));
+    for (auto* cfd : cfds) {
+      if (cfd->Unref()) {
+        delete cfd;
+      }
+    }
   }
   return s;
 }
