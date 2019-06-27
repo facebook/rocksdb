@@ -517,6 +517,21 @@ rocksdb_t* rocksdb_open_for_read_only(
   return result;
 }
 
+rocksdb_t* rocksdb_open_as_secondary(const rocksdb_options_t* options,
+                                     const char* name,
+                                     const char* secondary_path,
+                                     char** errptr) {
+  DB* db;
+  if (SaveError(errptr,
+                DB::OpenAsSecondary(options->rep, std::string(name),
+                                    std::string(secondary_path), &db))) {
+    return nullptr;
+  }
+  rocksdb_t* result = new rocksdb_t;
+  result->rep = db;
+  return result;
+}
+
 rocksdb_backup_engine_t* rocksdb_backup_engine_open(
     const rocksdb_options_t* options, const char* path, char** errptr) {
   BackupEngine* be;
@@ -709,6 +724,37 @@ rocksdb_t* rocksdb_open_for_read_only_column_families(
 
   for (size_t i = 0; i < handles.size(); i++) {
     rocksdb_column_family_handle_t* c_handle = new rocksdb_column_family_handle_t;
+    c_handle->rep = handles[i];
+    column_family_handles[i] = c_handle;
+  }
+  rocksdb_t* result = new rocksdb_t;
+  result->rep = db;
+  return result;
+}
+
+rocksdb_t* rocksdb_open_as_secondary_column_families(
+    const rocksdb_options_t* db_options, const char* name,
+    const char* secondary_path, int num_column_families,
+    const char** column_family_names,
+    const rocksdb_options_t** column_family_options,
+    rocksdb_column_family_handle_t** column_family_handles, char** errptr) {
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (int i = 0; i != num_column_families; ++i) {
+    column_families.emplace_back(
+        std::string(column_family_names[i]),
+        ColumnFamilyOptions(column_family_options[i]->rep));
+  }
+  DB* db;
+  std::vector<ColumnFamilyHandle*> handles;
+  if (SaveError(errptr, DB::OpenAsSecondary(DBOptions(db_options->rep),
+                                            std::string(name),
+                                            std::string(secondary_path),
+                                            column_families, &handles, &db))) {
+    return nullptr;
+  }
+  for (size_t i = 0; i != handles.size(); ++i) {
+    rocksdb_column_family_handle_t* c_handle =
+        new rocksdb_column_family_handle_t;
     c_handle->rep = handles[i];
     column_family_handles[i] = c_handle;
   }
@@ -3421,6 +3467,10 @@ void rocksdb_ingest_external_file_cf(
     files[i] = std::string(file_list[i]);
   }
   SaveError(errptr, db->rep->IngestExternalFile(handle->rep, files, opt->rep));
+}
+
+void rocksdb_try_catch_up_with_primary(rocksdb_t* db, char** errptr) {
+  SaveError(errptr, db->rep->TryCatchUpWithPrimary());
 }
 
 rocksdb_slicetransform_t* rocksdb_slicetransform_create(
