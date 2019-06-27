@@ -2563,23 +2563,25 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
                GetPlainInternalComparator(options.comparator), &keys, &kvmap);
       auto reader = c.GetTableReader();
       PinnableSlice value;
-      GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
-                             GetContext::kNotFound, user_key, &value, nullptr,
-                             nullptr, nullptr, nullptr);
-      get_perf_context()->Reset();
-      ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
-                            moptions.prefix_extractor.get()));
-      if (index_and_filter_in_cache) {
-        // data, index and filter block
-        ASSERT_EQ(get_perf_context()->block_read_count, 3);
-        ASSERT_EQ(get_perf_context()->index_block_read_count, 1);
-        ASSERT_EQ(get_perf_context()->filter_block_read_count, 1);
-      } else {
-        // just the data block
-        ASSERT_EQ(get_perf_context()->block_read_count, 1);
+      {
+        GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                               GetContext::kNotFound, user_key, &value, nullptr,
+                               nullptr, nullptr, nullptr);
+        get_perf_context()->Reset();
+        ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
+                              moptions.prefix_extractor.get()));
+        if (index_and_filter_in_cache) {
+          // data, index and filter block
+          ASSERT_EQ(get_perf_context()->block_read_count, 3);
+          ASSERT_EQ(get_perf_context()->index_block_read_count, 1);
+          ASSERT_EQ(get_perf_context()->filter_block_read_count, 1);
+        } else {
+          // just the data block
+          ASSERT_EQ(get_perf_context()->block_read_count, 1);
+        }
+        ASSERT_EQ(get_context.State(), GetContext::kFound);
+        ASSERT_STREQ(value.data(), "hello");
       }
-      ASSERT_EQ(get_context.State(), GetContext::kFound);
-      ASSERT_STREQ(value.data(), "hello");
 
       // Get non-existing key
       user_key = "does-not-exist";
@@ -2587,13 +2589,15 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       encoded_key = internal_key.Encode().ToString();
 
       value.Reset();
-      get_context = GetContext(options.comparator, nullptr, nullptr, nullptr,
+      {
+        GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
                                nullptr, nullptr, nullptr);
-      get_perf_context()->Reset();
-      ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
-                            moptions.prefix_extractor.get()));
-      ASSERT_EQ(get_context.State(), GetContext::kNotFound);
+        get_perf_context()->Reset();
+        ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
+                              moptions.prefix_extractor.get()));
+        ASSERT_EQ(get_context.State(), GetContext::kNotFound);
+      }
 
       if (index_and_filter_in_cache) {
         if (bloom_filter_type == 0) {

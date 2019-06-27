@@ -71,6 +71,9 @@ class BlockCacheTracerTest : public testing::Test {
       record.sst_fd_number = kSSTFDNumber + key_id;
       record.is_cache_hit = Boolean::kFalse;
       record.no_insert = Boolean::kFalse;
+      // Provide get_id for all callers. The writer should only write get_id
+      // when the caller is either GET or MGET.
+      record.get_id = key_id + 1;
       // Provide these fields for all block types.
       // The writer should only write these fields for data blocks and the
       // caller is either GET or MGET.
@@ -120,6 +123,12 @@ class BlockCacheTracerTest : public testing::Test {
       ASSERT_EQ(kSSTFDNumber + key_id, record.sst_fd_number);
       ASSERT_EQ(Boolean::kFalse, record.is_cache_hit);
       ASSERT_EQ(Boolean::kFalse, record.no_insert);
+      if (record.caller == TableReaderCaller::kUserGet ||
+          record.caller == TableReaderCaller::kUserMultiGet) {
+        ASSERT_EQ(key_id + 1, record.get_id);
+      } else {
+        ASSERT_EQ(BlockCacheTraceHelper::kReservedGetId, record.get_id);
+      }
       if (block_type == TraceType::kBlockTraceDataBlock &&
           (record.caller == TableReaderCaller::kUserGet ||
            record.caller == TableReaderCaller::kUserMultiGet)) {
