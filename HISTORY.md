@@ -8,6 +8,7 @@
 * Add initial support for Get/Put with user timestamps. Users can specify timestamps via ReadOptions and WriteOptions when calling DB::Get and DB::Put.
 * Accessing a partition of a partitioned filter or index through a pinned reference is no longer considered a cache hit.
 * The semantics of the per-block-type block read counts in the performance context now match those of the generic block_read_count.
+* Add C bindings for secondary instance, i.e. DBImplSecondary.
 
 ### New Features
 * Add an option `snap_refresh_nanos` (default to 0.1s) to periodically refresh the snapshot list in compaction jobs. Assign to 0 to disable the feature.
