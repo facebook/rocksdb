@@ -752,7 +752,9 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
                   timestamp - trace_start_timestamp_in_seconds_;
               if (!user_access_only ||
                   (user_access_only && is_user_access(caller))) {
-                block_accessed[block_key][elapsed_time / reuse_window] = true;
+                uint64_t index = std::min(elapsed_time / reuse_window,
+                                          reuse_vector_size - 1);
+                block_accessed[block_key][index] = true;
               }
             }
           }
