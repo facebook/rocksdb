@@ -164,6 +164,7 @@ class BlockCacheTracerTest : public testing::Test {
         "-cache_sim_warmup_seconds=0",
         "-analyze_bottom_k_access_count_blocks=5",
         "-analyze_top_k_access_count_blocks=5",
+        "-analyze_blocks_reuse_k_reuse_window=5",
         "-timeline_labels=" + timeline_labels_,
         "-reuse_distance_labels=" + reuse_distance_labels_,
         "-reuse_distance_buckets=" + reuse_distance_buckets_,
@@ -440,6 +441,30 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
       }
       ASSERT_EQ(1, ncfs);
       ASSERT_OK(env_->DeleteFile(cf_access_count_summary));
+    }
+    {
+      // Validate reuse block timeline.
+      const std::string reuse_blocks_timeline =
+          test_path_ + "/" + access_type + "5_reuse_blocks_timeline";
+      std::ifstream infile(reuse_blocks_timeline);
+      std::string line;
+      ASSERT_TRUE(getline(infile, line));
+      while (getline(infile, line)) {
+        std::stringstream timeline(line);
+        bool start_time = false;
+        double sum = 0;
+        while (timeline.good()) {
+          std::string value;
+          ASSERT_TRUE(getline(timeline, value, ','));
+          if (!start_time) {
+            start_time = true;
+            continue;
+          }
+          sum += ParseDouble(value);
+        }
+        ASSERT_EQ(100.0, sum);
+      }
+      ASSERT_OK(env_->DeleteFile(reuse_blocks_timeline));
     }
   }
   ASSERT_OK(env_->DeleteFile(block_cache_sim_config_path_));

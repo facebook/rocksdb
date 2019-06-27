@@ -50,20 +50,8 @@ DEFINE_int32(analyze_bottom_k_access_count_blocks, 0,
 DEFINE_int32(analyze_top_k_access_count_blocks, 0,
              "Print out detailed access information for blocks with their "
              "number of accesses are the top k among all blocks.");
-DEFINE_string(
-    block_cache_analysis_result_dir, "",
-    "The directory that saves block cache analysis results. It contains 1) a "
-    "mrc file that saves the computed miss ratios for simulated caches. Its "
-    "format is "
-    "cache_name,num_shard_bits,capacity,miss_ratio,total_accesses. 2) Several "
-    "\"label_access_timeline\" files that contain number of accesses per "
-    "second grouped by the label. File format: "
-    "time,label_1_access_per_second,label_2_access_per_second,...,label_N_"
-    "access_per_second where N is the number of unique labels found in the "
-    "trace. 3) Several \"label_reuse_distance\" and \"label_reuse_interval\" "
-    "csv files that contain the reuse distance/interval grouped by label. File "
-    "format: bucket,label_1,label_2,...,label_N. The first N buckets are "
-    "absolute values. The second N buckets are percentage values.");
+DEFINE_string(block_cache_analysis_result_dir, "",
+              "The directory that saves block cache analysis results.");
 DEFINE_string(
     timeline_labels, "",
     "Group the number of accesses per block per second using these labels. "
@@ -126,6 +114,10 @@ DEFINE_string(access_count_buckets, "",
               "buckets. If specified, the analyzer will output a detailed "
               "analysis on the number of blocks grouped by their access count "
               "break down by block type and column family.");
+DEFINE_int32(analyze_blocks_reuse_k_reuse_window, 0,
+             "Analyze the percentage of blocks that are accessed in the "
+             "[k, 2*k] seconds are accessed again in the next [2*k, 3*k], "
+             "[3*k, 4*k],...,[k*(n-1), k*n] seconds. ");
 
 namespace rocksdb {
 namespace {
@@ -586,9 +578,9 @@ void BlockCacheTraceAnalyzer::WriteReuseInterval(
                                    &label_time_num_reuses, &total_num_reuses);
           if (label_avg_reuse_nblocks.find(label) ==
               label_avg_reuse_nblocks.end()) {
-                for (auto const& time_bucket : time_buckets) {
-                  label_avg_reuse_nblocks[label][time_bucket] = 0;
-                }
+            for (auto const& time_bucket : time_buckets) {
+              label_avg_reuse_nblocks[label][time_bucket] = 0;
+            }
           }
           label_avg_reuse_nblocks[label]
               .upper_bound(avg_reuse_interval)
@@ -721,6 +713,97 @@ void BlockCacheTraceAnalyzer::WriteReuseLifetime(
       assert(it != label_it.second.end());
       row += ",";
       row += std::to_string(percent(it->second, total_nblocks));
+    }
+    out << row << std::endl;
+  }
+  out.close();
+}
+
+void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
+    uint64_t reuse_window, bool user_access_only) const {
+  std::map<std::string, std::vector<bool>> block_accessed;
+  const uint64_t trace_duration =
+      trace_end_timestamp_in_seconds_ - trace_start_timestamp_in_seconds_;
+  const uint64_t reuse_vector_size = (trace_duration / reuse_window);
+  if (reuse_vector_size < 2) {
+    // The reuse window is less than 2. We cannot calculate the reused
+    // percentage of blocks.
+    return;
+  }
+  for (auto const& cf_aggregates : cf_aggregates_map_) {
+    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
+      for (auto const& block_type_aggregates :
+           file_aggregates.second.block_type_aggregates_map) {
+        for (auto const& block_access_info :
+             block_type_aggregates.second.block_access_info_map) {
+          const std::string& block_key = block_access_info.first;
+          if (block_accessed.find(block_key) == block_accessed.end()) {
+            block_accessed[block_key].resize(reuse_vector_size);
+            for (uint64_t i = 0; i < reuse_vector_size; i++) {
+              block_accessed[block_key][i] = false;
+            }
+          }
+          for (auto const& caller_num :
+               block_access_info.second.caller_num_accesses_timeline) {
+            const TableReaderCaller caller = caller_num.first;
+            for (auto const& timeline : caller_num.second) {
+              const uint64_t timestamp = timeline.first;
+              const uint64_t elapsed_time =
+                  timestamp - trace_start_timestamp_in_seconds_;
+              if (!user_access_only ||
+                  (user_access_only && is_user_access(caller))) {
+                block_accessed[block_key][elapsed_time / reuse_window] = true;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  // A cell is the number of blocks accessed in a reuse window.
+  uint64_t reuse_table[reuse_vector_size][reuse_vector_size];
+  for (uint64_t start_time = 0; start_time < reuse_vector_size; start_time++) {
+    // Initialize the reuse_table.
+    for (uint64_t i = 0; i < reuse_vector_size; i++) {
+      reuse_table[start_time][i] = 0;
+    }
+    // Examine all blocks.
+    for (auto const& block : block_accessed) {
+      for (uint64_t i = start_time; i < reuse_vector_size; i++) {
+        if (block.second[start_time] && block.second[i]) {
+          // This block is accessed at start time and at the current time. We
+          // increment reuse_table[start_time][i] since it is reused at the ith
+          // window.
+          reuse_table[start_time][i]++;
+        }
+      }
+    }
+  }
+  const std::string user_access_prefix =
+      user_access_only ? "user_access_only_" : "all_access_";
+  const std::string output_path = output_dir_ + "/" + user_access_prefix +
+                                  std::to_string(reuse_window) +
+                                  "_reuse_blocks_timeline";
+  std::ofstream out(output_path);
+  if (!out.is_open()) {
+    return;
+  }
+  std::string header("start_time");
+  for (uint64_t start_time = 0; start_time < reuse_vector_size; start_time++) {
+    header += ",";
+    header += std::to_string(start_time);
+  }
+  out << header << std::endl;
+  for (uint64_t start_time = 0; start_time < reuse_vector_size; start_time++) {
+    std::string row(std::to_string(start_time * reuse_window));
+    for (uint64_t j = 0; j < reuse_vector_size; j++) {
+      row += ",";
+      if (j < start_time) {
+        row += "0.0";
+      } else {
+        row += std::to_string(percent(reuse_table[start_time][j],
+                                      reuse_table[start_time][start_time]));
+      }
     }
     out << row << std::endl;
   }
@@ -1023,6 +1106,11 @@ void BlockCacheTraceAnalyzer::RecordAccess(
   }
   block_access_info.AddAccess(access);
   block_info_map_[access.block_key] = &block_access_info;
+  if (trace_start_timestamp_in_seconds_ == 0) {
+    trace_start_timestamp_in_seconds_ =
+        access.access_timestamp / kMicrosInSecond;
+  }
+  trace_end_timestamp_in_seconds_ = access.access_timestamp / kMicrosInSecond;
 
   if (compute_reuse_distance_) {
     // Add this block to all existing blocks.
@@ -1697,6 +1785,13 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
       getline(ss, label, ',');
       analyzer.WriteReuseLifetime(label, buckets);
     }
+  }
+
+  if (FLAGS_analyze_blocks_reuse_k_reuse_window != 0) {
+    analyzer.WriteBlockReuseTimeline(FLAGS_analyze_blocks_reuse_k_reuse_window,
+                                     /*user_access_only=*/true);
+    analyzer.WriteBlockReuseTimeline(FLAGS_analyze_blocks_reuse_k_reuse_window,
+                                     /*user_access_only=*/false);
   }
   return 0;
 }
