@@ -126,6 +126,10 @@ std::unique_ptr<FilterBlockReader> PartitionedFilterBlockReader::Create(
     const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
     bool use_cache, bool prefetch, bool pin,
     BlockCacheLookupContext* lookup_context) {
+  assert(table);
+  assert(table->get_rep());
+  assert(!pin || prefetch);
+
   CachableEntry<Block> filter_block;
   if (prefetch || !use_cache) {
     const Status s = ReadFilterBlock(table, prefetch_buffer, ReadOptions(),
