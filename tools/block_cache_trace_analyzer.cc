@@ -1312,10 +1312,38 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
               std::to_string(percent(caller_access.second, naccesses));
         }
       }
+      uint64_t ref_keys_accesses = 0;
+      uint64_t ref_keys_does_not_exist_accesses = 0;
+      for (auto const& ref_key_caller_access : block->key_num_access_map) {
+        for (auto const& caller_access : ref_key_caller_access.second) {
+          if (!user_access_only ||
+              (user_access_only && is_user_access(caller_access.first))) {
+            ref_keys_accesses += caller_access.second;
+          }
+        }
+      }
+      for (auto const& ref_key_caller_access :
+           block->non_exist_key_num_access_map) {
+        for (auto const& caller_access : ref_key_caller_access.second) {
+          if (!user_access_only ||
+              (user_access_only && is_user_access(caller_access.first))) {
+            ref_keys_does_not_exist_accesses += caller_access.second;
+          }
+        }
+      }
       statistics += ",num_ref_keys=";
       statistics += std::to_string(block->key_num_access_map.size());
+      statistics += ",percent_access_ref_keys=";
+      statistics += std::to_string(percent(ref_keys_accesses, naccesses));
       statistics += ",block_size=";
       statistics += std::to_string(block->block_size);
+      statistics += ",num_ref_keys_does_not_exist=";
+      statistics += std::to_string(block->non_exist_key_num_access_map.size());
+      statistics += ",percent_access_ref_keys_does_not_exist=";
+      statistics +=
+          std::to_string(percent(ref_keys_does_not_exist_accesses, naccesses));
+      statistics += ",ref_data_size=";
+      statistics += std::to_string(block->referenced_data_size);
       fprintf(stdout,
               "Top %" PRIu32 " access count blocks access_count=%" PRIu64
               " %s\n",
@@ -1392,7 +1420,9 @@ void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() const {
           HistogramStat hist_naccess_per_key;
           for (auto const& key_access :
                block_access_info.second.key_num_access_map) {
-            hist_naccess_per_key.Add(key_access.second);
+            for (auto const& caller_access : key_access.second) {
+              hist_naccess_per_key.Add(caller_access.second);
+            }
           }
           uint64_t avg_accesses = hist_naccess_per_key.Average();
           uint64_t stdev_accesses = hist_naccess_per_key.StandardDeviation();

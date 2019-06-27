@@ -23,11 +23,12 @@ struct BlockAccessInfo {
   uint64_t first_access_time = 0;
   uint64_t last_access_time = 0;
   uint64_t num_keys = 0;
-  std::map<std::string, uint64_t>
+  std::map<std::string, std::map<TableReaderCaller, uint64_t>>
       key_num_access_map;  // for keys exist in this block.
-  std::map<std::string, uint64_t>
+  std::map<std::string, std::map<TableReaderCaller, uint64_t>>
       non_exist_key_num_access_map;  // for keys do not exist in this block.
   uint64_t num_referenced_key_exist_in_block = 0;
+  uint64_t referenced_data_size = 0;
   std::map<TableReaderCaller, uint64_t> caller_num_access_map;
   // caller:timestamp:number_of_accesses. The granularity of the timestamp is
   // seconds.
@@ -54,10 +55,14 @@ struct BlockAccessInfo {
                                                         access.caller)) {
       num_keys = access.num_keys_in_block;
       if (access.referenced_key_exist_in_block == Boolean::kTrue) {
-        key_num_access_map[access.referenced_key]++;
+        if (key_num_access_map.find(access.referenced_key) ==
+            key_num_access_map.end()) {
+          referenced_data_size += access.referenced_data_size;
+        }
+        key_num_access_map[access.referenced_key][access.caller]++;
         num_referenced_key_exist_in_block++;
       } else {
-        non_exist_key_num_access_map[access.referenced_key]++;
+        non_exist_key_num_access_map[access.referenced_key][access.caller]++;
       }
     }
   }
