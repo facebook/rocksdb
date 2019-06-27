@@ -162,7 +162,7 @@ class GetContext {
   bool sample_;
   bool* is_blob_index_;
   // Used for block cache tracing only. A tracing get id uniquely identifies a
-  // Get and a MultiGet.
+  // Get or a MultiGet.
   const uint64_t tracing_get_id_;
 };
 
