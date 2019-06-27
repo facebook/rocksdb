@@ -309,49 +309,6 @@ extern Status ReadBlockContents(
     bool do_uncompress = true, const Slice& compression_dict = Slice(),
     const PersistentCacheOptions& cache_options = PersistentCacheOptions());
 
-inline Status CheckBlockChecksum(const ReadOptions& ro, const Slice& block,
-    RandomAccessFileReader* file, const BlockHandle& handle,
-    const Footer& footer) {
-  Status status;
-  // Check the crc of the type and the block contents
-  if (ro.verify_checksums) {
-    const char* data = block.data();  // Pointer to where Read put the data
-    size_t block_size = handle.size();
-    PERF_TIMER_GUARD(block_checksum_time);
-    uint32_t value = DecodeFixed32(data + block_size + 1);
-    uint32_t actual = 0;
-    switch (footer.checksum()) {
-      case kNoChecksum:
-        break;
-      case kCRC32c:
-        value = crc32c::Unmask(value);
-        actual = crc32c::Value(data, block_size + 1);
-        break;
-      case kxxHash:
-        actual = XXH32(data, static_cast<int>(block_size) + 1, 0);
-        break;
-      case kxxHash64:
-        actual = static_cast<uint32_t>(
-            XXH64(data, static_cast<int>(block_size) + 1, 0) &
-            uint64_t{0xffffffff});
-        break;
-      default:
-        status = Status::Corruption(
-            "unknown checksum type " + ToString(footer.checksum()) + " in " +
-            file->file_name() + " offset " + ToString(handle.offset()) +
-            " size " + ToString(block_size));
-    }
-    if (status.ok() && actual != value) {
-      status = Status::Corruption(
-          "block checksum mismatch: expected " + ToString(actual) + ", got " +
-          ToString(value) + "  in " + file->file_name() + " offset " +
-          ToString(handle.offset()) + " size " + ToString(block_size));
-    }
-  }
-
-  return status;
-}
-
 // The 'data' points to the raw block contents read in from file.
 // This method allocates a new heap buffer and the raw block
 // contents are uncompresed into this buffer. This buffer is

@@ -1470,9 +1470,7 @@ class DBBasicTestWithParallelIO
       return target_->GetPinnedUsage();
     }
 
-    virtual size_t GetCharge(Handle* /*handle*/) const {
-      return 0;
-    }
+    virtual size_t GetCharge(Handle* /*handle*/) const { return 0; }
 
     virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                                         bool thread_safe) {
@@ -1569,7 +1567,6 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, true, true, false),
                       std::make_tuple(true, true, true, false),
                       std::make_tuple(false, true, false, false)));
-
 
 class DBBasicTestWithTimestampWithParam
     : public DBTestBase,

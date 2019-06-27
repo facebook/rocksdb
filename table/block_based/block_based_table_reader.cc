@@ -2551,8 +2551,13 @@ void BlockBasedTable::MaybeLoadBlocksToCache(
 #ifndef NDEBUG
       raw_block_contents.is_raw_block = true;
 #endif
-      s = CheckBlockChecksum(options, req.result, rep_->file.get(),
-                             handle, footer);
+      if (options.verify_checksums) {
+        PERF_TIMER_GUARD(block_checksum_time);
+        const char* data = req.result.data();
+        uint32_t expected = DecodeFixed32(data + handle.size() + 1);
+        s = rocksdb::VerifyChecksum(footer.checksum(), req.result.data(),
+                                    handle.size() + 1, expected);
+      }
     }
     if (s.ok()) {
       if (options.fill_cache) {
