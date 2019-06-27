@@ -2626,12 +2626,11 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekImpl(
   CheckOutOfBound();
 
   if (target) {
-    assert(
-        !Valid() ||
-        ((block_type_ == BlockType::kIndex &&
-          !table_->get_rep()->index_key_includes_seq)
-             ? (user_comparator_.Compare(ExtractUserKey(*target), key()) <= 0)
-             : (icomp_.Compare(*target, key()) <= 0)));
+    assert(!Valid() || ((block_type_ == BlockType::kIndex &&
+                         !table_->get_rep()->index_key_includes_seq)
+                            ? (user_comparator_.Compare(ExtractUserKey(*target),
+                                                        key()) <= 0)
+                            : (icomp_.Compare(*target, key()) <= 0)));
   }
 }
 
@@ -2954,8 +2953,8 @@ InternalIterator* BlockBasedTable::NewIterator(
             /*input_iter=*/nullptr, /*get_context=*/nullptr, &lookup_context),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        need_upper_bound_check, prefix_extractor, BlockType::kData,
-        caller, compaction_readahead_size);
+        need_upper_bound_check, prefix_extractor, BlockType::kData, caller,
+        compaction_readahead_size);
   } else {
     auto* mem =
         arena->AllocateAligned(sizeof(BlockBasedTableIterator<DataBlockIter>));
@@ -2966,8 +2965,8 @@ InternalIterator* BlockBasedTable::NewIterator(
                          &lookup_context),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        need_upper_bound_check, prefix_extractor, BlockType::kData,
-        caller, compaction_readahead_size);
+        need_upper_bound_check, prefix_extractor, BlockType::kData, caller,
+        compaction_readahead_size);
   }
 }
 
@@ -3125,8 +3124,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       DataBlockIter biter;
       uint64_t referenced_data_size = 0;
       NewDataBlockIterator<DataBlockIter>(
-          read_options, v.handle, &biter, BlockType::kData,
-          get_context, &lookup_data_block_context,
+          read_options, v.handle, &biter, BlockType::kData, get_context,
+          &lookup_data_block_context,
           /*s=*/Status(), /*prefetch_buffer*/ nullptr);
 
       if (no_io && biter.status().IsIncomplete()) {
@@ -3278,8 +3277,8 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           offset = iiter->value().handle.offset();
           biter.Invalidate(Status::OK());
           NewDataBlockIterator<DataBlockIter>(
-              read_options, v.handle, &biter, BlockType::kData,
-              get_context, &lookup_data_block_context, Status(), nullptr);
+              read_options, v.handle, &biter, BlockType::kData, get_context,
+              &lookup_data_block_context, Status(), nullptr);
           reusing_block = false;
         }
 

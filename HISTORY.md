@@ -1,5 +1,9 @@
 # Rocksdb Change Log
 ## Unreleased
+### Default Option Change
+* LRUCacheOptions.high_pri_pool_ratio is set to 0.5 (previously 0.0) by default, which means that by default midpoint insertion is enabled. The same change is made for the default value of high_pri_pool_ratio argument in NewLRUCache(). When block cache is not explictly created, the small block cache created by BlockBasedTable will still has this option to be 0.0.
+* Change BlockBasedTableOptions.cache_index_and_filter_blocks_with_high_priority's default value from false to true.
+
 ### Public API Change
 * Now DB::Close() will return Aborted() error when there is unreleased snapshot. Users can retry after all snapshots are released.
 * Partitions of partitioned indexes no longer affect the read amplification statistics.
