@@ -1967,7 +1967,8 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     }
   }
 
-  if (block_cache_tracer_ && lookup_context) {
+  if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled() &&
+      lookup_context) {
     // Avoid making copy of block_key and cf_name when constructing the access
     // record.
     BlockCacheTraceRecord access_record(
@@ -2048,7 +2049,8 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
       }
     }
   }
-  if (block_cache_tracer_ && lookup_context) {
+  if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled() &&
+      lookup_context) {
     // Avoid making copy of block_key and cf_name when constructing the access
     // record.
     BlockCacheTraceRecord access_record(
@@ -2273,7 +2275,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
   }
 
   // Fill lookup_context.
-  if (block_cache_tracer_ && lookup_context) {
+  if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled() &&
+      lookup_context) {
     size_t usage = 0;
     uint64_t nkeys = 0;
     if (block_entry->GetValue()) {
@@ -3167,7 +3170,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         s = biter.status();
       }
       // Write the block cache access record.
-      if (block_cache_tracer_) {
+      if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {
         // Avoid making copy of block_key, cf_name, and referenced_key when
         // constructing the access record.
         BlockCacheTraceRecord access_record(
@@ -3334,7 +3337,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           s = biter.status();
         }
         // Write the block cache access.
-        if (block_cache_tracer_) {
+        if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {
           // Avoid making copy of block_key, cf_name, and referenced_key when
           // constructing the access record.
           BlockCacheTraceRecord access_record(
