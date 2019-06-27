@@ -1561,10 +1561,26 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         ColumnFamilyData* cfd_stats =
             versions_->GetColumnFamilySet()->GetColumnFamily(
                 kPersistentStatsColumnFamilyName);
-        if (cfd_stats != cfd && cfd_stats != nullptr) {
-          s = SwitchMemtable(cfd_stats, &context);
-          flush_memtable_id = cfd_stats->imm()->GetLatestMemTableID();
-          flush_req.emplace_back(cfd_stats, flush_memtable_id);
+        if (cfd_stats != nullptr && cfd_stats != cfd &&
+            !cfd_stats->mem()->IsEmpty()) {
+          // only force flush stats CF when it will be the only CF lagging
+          // behind after the current flush
+          bool stats_cf_flush_needed = true;
+          for (auto* loop_cfd : *versions_->GetColumnFamilySet()) {
+            if (loop_cfd == cfd_stats || loop_cfd == cfd) {
+              continue;
+            }
+            if (loop_cfd->GetLogNumber() <= cfd_stats->GetLogNumber()) {
+              stats_cf_flush_needed = false;
+            }
+          }
+          if (stats_cf_flush_needed) {
+            ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                           "Force flushing stats CF to avoid holding old logs");
+            s = SwitchMemtable(cfd_stats, &context);
+            flush_memtable_id = cfd_stats->imm()->GetLatestMemTableID();
+            flush_req.emplace_back(cfd_stats, flush_memtable_id);
+          }
         }
       }
     }

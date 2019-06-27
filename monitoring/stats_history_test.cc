@@ -561,7 +561,7 @@ TEST_F(StatsHistoryTest, PersistentStatsReadOnly) {
   Close();
 
   // Reopen and flush memtable.
-  Reopen(options);
+  ASSERT_OK(TryReopen(options));
   Flush();
   Close();
   // Now check keys in read only mode.
@@ -581,44 +581,70 @@ TEST_F(StatsHistoryTest, ForceManualFlushStatsCF) {
   mock_env.reset(new rocksdb::MockTimeEnv(env_));
   mock_env->set_current_time(0);  // in seconds
   options.env = mock_env.get();
-  ASSERT_OK(TryReopen(options));
-  ASSERT_OK(Put("foo", "v0"));
-  ASSERT_OK(Put("bar", "v0"));
-  ASSERT_EQ("v0", Get("bar"));
-  ASSERT_EQ("v0", Get("foo"));
-  ASSERT_OK(Flush());
-  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
+  CreateColumnFamilies({"pikachu"}, options);
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
   ColumnFamilyData* cfd_default =
       static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily())
           ->cfd();
   ColumnFamilyData* cfd_stats = static_cast<ColumnFamilyHandleImpl*>(
                                     dbfull()->PersistentStatsColumnFamily())
                                     ->cfd();
-  ASSERT_EQ(cfd_default->GetLogNumber(), cfd_stats->GetLogNumber());
-  uint64_t log_number = cfd_default->GetLogNumber();
+  ColumnFamilyData* cfd_test =
+      static_cast<ColumnFamilyHandleImpl*>(handles_[1])->cfd();
+
+  ASSERT_OK(Put("foo", "v0"));
+  ASSERT_OK(Put("bar", "v0"));
+  ASSERT_EQ("v0", Get("bar"));
+  ASSERT_EQ("v0", Get("foo"));
+  ASSERT_OK(Put(1, "Eevee", "v0"));
+  ASSERT_EQ("v0", Get(1, "Eevee"));
+  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
+  // writing to all three cf, flush default cf
+  // LogNumbers: default: 14, stats: 4, pikachu: 4
+  ASSERT_OK(Flush());
+  ASSERT_EQ(cfd_stats->GetLogNumber(), cfd_test->GetLogNumber());
+  ASSERT_LT(cfd_stats->GetLogNumber(), cfd_default->GetLogNumber());
 
   ASSERT_OK(Put("foo1", "v1"));
   ASSERT_OK(Put("bar1", "v1"));
   ASSERT_EQ("v1", Get("bar1"));
   ASSERT_EQ("v1", Get("foo1"));
-  // calling manual flush without new stats
-  ASSERT_OK(Flush());
-  ASSERT_EQ(cfd_default->GetLogNumber(), cfd_stats->GetLogNumber());
-  ASSERT_LT(log_number, cfd_default->GetLogNumber());
-  log_number = cfd_default->GetLogNumber();
+  ASSERT_OK(Put(1, "Vaporeon", "v1"));
+  ASSERT_EQ("v1", Get(1, "Vaporeon"));
+  // writing to default and test cf, flush test cf
+  // LogNumbers: default: 14, stats: 16, pikachu: 16
+  ASSERT_OK(Flush(1));
+  ASSERT_EQ(cfd_stats->GetLogNumber(), cfd_test->GetLogNumber());
+  ASSERT_GT(cfd_stats->GetLogNumber(), cfd_default->GetLogNumber());
 
-  dbfull()->TEST_WaitForPersistStatsRun(
-      [&] { mock_env->set_current_time(10); });
   ASSERT_OK(Put("foo2", "v2"));
   ASSERT_OK(Put("bar2", "v2"));
   ASSERT_EQ("v2", Get("bar2"));
   ASSERT_EQ("v2", Get("foo2"));
-  // calling manual flush with new stats
+  dbfull()->TEST_WaitForPersistStatsRun(
+      [&] { mock_env->set_current_time(10); });
+  // writing to default and stats cf, flushing default cf
+  // LogNumbers: default: 19, stats: 19, pikachu: 19
   ASSERT_OK(Flush());
-  ASSERT_EQ(cfd_default->GetLogNumber(), cfd_stats->GetLogNumber());
-  ASSERT_LT(log_number, cfd_default->GetLogNumber());
+  ASSERT_EQ(cfd_stats->GetLogNumber(), cfd_test->GetLogNumber());
+  ASSERT_EQ(cfd_stats->GetLogNumber(), cfd_default->GetLogNumber());
+
+  ASSERT_OK(Put("foo3", "v3"));
+  ASSERT_OK(Put("bar3", "v3"));
+  ASSERT_EQ("v3", Get("bar3"));
+  ASSERT_EQ("v3", Get("foo3"));
+  ASSERT_OK(Put(1, "Jolteon", "v3"));
+  ASSERT_EQ("v3", Get(1, "Jolteon"));
+  dbfull()->TEST_WaitForPersistStatsRun(
+      [&] { mock_env->set_current_time(15); });
+  // writing to all three cf, flushing test cf
+  // LogNumbers: default: 19, stats: 19, pikachu: 22
+  ASSERT_OK(Flush(1));
+  ASSERT_LT(cfd_stats->GetLogNumber(), cfd_test->GetLogNumber());
+  ASSERT_EQ(cfd_stats->GetLogNumber(), cfd_default->GetLogNumber());
   Close();
 }
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
