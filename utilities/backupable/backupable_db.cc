@@ -23,11 +23,7 @@
 #include "util/string_util.h"
 #include "utilities/checkpoint/checkpoint_impl.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif  // __STDC_FORMAT_MACROS
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <stdlib.h>
 #include <algorithm>
 #include <atomic>

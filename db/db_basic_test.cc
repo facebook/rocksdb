@@ -1284,6 +1284,157 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
     }
   }
 }
+
+class DBBasicTestWithTimestampWithParam
+    : public DBTestBase,
+      public testing::WithParamInterface<bool> {
+ public:
+  DBBasicTestWithTimestampWithParam()
+      : DBTestBase("/db_basic_test_with_timestamp") {}
+
+ protected:
+  class TestComparator : public Comparator {
+   private:
+    const Comparator* cmp_without_ts_;
+
+   public:
+    explicit TestComparator(size_t ts_sz)
+        : Comparator(ts_sz), cmp_without_ts_(nullptr) {
+      cmp_without_ts_ = BytewiseComparator();
+    }
+
+    const char* Name() const override { return "TestComparator"; }
+
+    void FindShortSuccessor(std::string*) const override {}
+
+    void FindShortestSeparator(std::string*, const Slice&) const override {}
+
+    int Compare(const Slice& a, const Slice& b) const override {
+      int r = CompareWithoutTimestamp(a, b);
+      if (r != 0 || 0 == timestamp_size()) {
+        return r;
+      }
+      return CompareTimestamp(
+          Slice(a.data() + a.size() - timestamp_size(), timestamp_size()),
+          Slice(b.data() + b.size() - timestamp_size(), timestamp_size()));
+    }
+
+    int CompareWithoutTimestamp(const Slice& a, const Slice& b) const override {
+      assert(a.size() >= timestamp_size());
+      assert(b.size() >= timestamp_size());
+      Slice k1 = StripTimestampFromUserKey(a, timestamp_size());
+      Slice k2 = StripTimestampFromUserKey(b, timestamp_size());
+
+      return cmp_without_ts_->Compare(k1, k2);
+    }
+
+    int CompareTimestamp(const Slice& ts1, const Slice& ts2) const override {
+      if (!ts1.data() && !ts2.data()) {
+        return 0;
+      } else if (ts1.data() && !ts2.data()) {
+        return 1;
+      } else if (!ts1.data() && ts2.data()) {
+        return -1;
+      }
+      assert(ts1.size() == ts2.size());
+      uint64_t low1 = 0;
+      uint64_t low2 = 0;
+      uint64_t high1 = 0;
+      uint64_t high2 = 0;
+      auto* ptr1 = const_cast<Slice*>(&ts1);
+      auto* ptr2 = const_cast<Slice*>(&ts2);
+      if (!GetFixed64(ptr1, &low1) || !GetFixed64(ptr1, &high1) ||
+          !GetFixed64(ptr2, &low2) || !GetFixed64(ptr2, &high2)) {
+        assert(false);
+      }
+      if (high1 < high2) {
+        return 1;
+      } else if (high1 > high2) {
+        return -1;
+      }
+      if (low1 < low2) {
+        return 1;
+      } else if (low1 > low2) {
+        return -1;
+      }
+      return 0;
+    }
+  };
+
+  Slice EncodeTimestamp(uint64_t low, uint64_t high, std::string* ts) {
+    assert(nullptr != ts);
+    ts->clear();
+    PutFixed64(ts, low);
+    PutFixed64(ts, high);
+    assert(ts->size() == sizeof(low) + sizeof(high));
+    return Slice(*ts);
+  }
+};
+
+TEST_P(DBBasicTestWithTimestampWithParam, PutAndGet) {
+  const int kNumKeysPerFile = 8192;
+  const size_t kNumTimestamps = 6;
+  bool memtable_only = GetParam();
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.env = env_;
+  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  std::string tmp;
+  size_t ts_sz = EncodeTimestamp(0, 0, &tmp).size();
+  TestComparator test_cmp(ts_sz);
+  options.comparator = &test_cmp;
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(
+      10 /*bits_per_key*/, false /*use_block_based_builder*/));
+  bbto.whole_key_filtering = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(2, num_cfs);
+  std::vector<std::string> write_ts_strs(kNumTimestamps);
+  std::vector<std::string> read_ts_strs(kNumTimestamps);
+  std::vector<Slice> write_ts_list;
+  std::vector<Slice> read_ts_list;
+
+  for (size_t i = 0; i != kNumTimestamps; ++i) {
+    write_ts_list.emplace_back(EncodeTimestamp(i * 2, 0, &write_ts_strs[i]));
+    read_ts_list.emplace_back(EncodeTimestamp(1 + i * 2, 0, &read_ts_strs[i]));
+    const Slice& write_ts = write_ts_list.back();
+    WriteOptions wopts;
+    wopts.timestamp = &write_ts;
+    for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
+      for (size_t j = 0; j != (kNumKeysPerFile - 1) / kNumTimestamps; ++j) {
+        ASSERT_OK(Put(cf, "key" + std::to_string(j),
+                      "value_" + std::to_string(j) + "_" + std::to_string(i),
+                      wopts));
+      }
+      if (!memtable_only) {
+        ASSERT_OK(Flush(cf));
+      }
+    }
+  }
+  const auto& verify_db_func = [&]() {
+    for (size_t i = 0; i != kNumTimestamps; ++i) {
+      ReadOptions ropts;
+      ropts.timestamp = &read_ts_list[i];
+      for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
+        ColumnFamilyHandle* cfh = handles_[cf];
+        for (size_t j = 0; j != (kNumKeysPerFile - 1) / kNumTimestamps; ++j) {
+          std::string value;
+          ASSERT_OK(db_->Get(ropts, cfh, "key" + std::to_string(j), &value));
+          ASSERT_EQ("value_" + std::to_string(j) + "_" + std::to_string(i),
+                    value);
+        }
+      }
+    }
+  };
+  verify_db_func();
+}
+
+INSTANTIATE_TEST_CASE_P(Timestamp, DBBasicTestWithTimestampWithParam,
+                        ::testing::Bool());
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

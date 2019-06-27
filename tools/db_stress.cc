@@ -28,12 +28,8 @@ int main() {
 }
 #else
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif  // __STDC_FORMAT_MACROS
-
 #include <fcntl.h>
-#include <inttypes.h>
+#include <cinttypes>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -4058,6 +4054,9 @@ class AtomicFlushStressTest : public StressTest {
     assert(num == iters.size());
     std::vector<Status> statuses(num, Status::OK());
     do {
+      if (shared->HasVerificationFailedYet()) {
+        break;
+      }
       size_t valid_cnt = 0;
       size_t idx = 0;
       for (auto& iter : iters) {

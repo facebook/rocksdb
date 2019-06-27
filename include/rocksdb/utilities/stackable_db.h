@@ -315,6 +315,16 @@ class StackableDB : public DB {
     db_->GetColumnFamilyMetaData(column_family, cf_meta);
   }
 
+  using DB::StartBlockCacheTrace;
+  Status StartBlockCacheTrace(
+      const TraceOptions& options,
+      std::unique_ptr<TraceWriter>&& trace_writer) override {
+    return db_->StartBlockCacheTrace(options, std::move(trace_writer));
+  }
+
+  using DB::EndBlockCacheTrace;
+  Status EndBlockCacheTrace() override { return db_->EndBlockCacheTrace(); }
+
 #endif  // ROCKSDB_LITE
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,

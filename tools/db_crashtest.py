@@ -37,7 +37,8 @@ default_params = {
     "delpercent": 4,
     "delrangepercent": 1,
     "destroy_db_initially": 0,
-    "enable_pipelined_write": lambda: random.randint(0, 1),
+    # Temporarily disable it until its concurrency issue are fixed
+    "enable_pipelined_write": 0,
     "expected_values_path": expected_values_file.name,
     "flush_one_in": 1000000,
     "max_background_compactions": 20,

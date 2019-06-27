@@ -6,7 +6,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #define CRC_TABLE
-#include <inttypes.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <strings.h>
 #include "util/crc32c_ppc_constants.h"

@@ -124,7 +124,8 @@ FullFilterBlockReader::FullFilterBlockReader(
 bool FullFilterBlockReader::KeyMayMatch(
     const Slice& key, const SliceTransform* /*prefix_extractor*/,
     uint64_t block_offset, const bool /*no_io*/,
-    const Slice* const /*const_ikey_ptr*/) {
+    const Slice* const /*const_ikey_ptr*/,
+    BlockCacheLookupContext* /*context*/) {
 #ifdef NDEBUG
   (void)block_offset;
 #endif
@@ -138,7 +139,8 @@ bool FullFilterBlockReader::KeyMayMatch(
 bool FullFilterBlockReader::PrefixMayMatch(
     const Slice& prefix, const SliceTransform* /* prefix_extractor */,
     uint64_t block_offset, const bool /*no_io*/,
-    const Slice* const /*const_ikey_ptr*/) {
+    const Slice* const /*const_ikey_ptr*/,
+    BlockCacheLookupContext* /*context*/) {
 #ifdef NDEBUG
   (void)block_offset;
 #endif
@@ -161,7 +163,8 @@ bool FullFilterBlockReader::MayMatch(const Slice& entry) {
 
 void FullFilterBlockReader::KeysMayMatch(
     MultiGetRange* range, const SliceTransform* /*prefix_extractor*/,
-    uint64_t block_offset, const bool /*no_io*/) {
+    uint64_t block_offset, const bool /*no_io*/,
+    BlockCacheLookupContext* /*context*/) {
 #ifdef NDEBUG
   (void)range;
   (void)block_offset;
@@ -177,7 +180,8 @@ void FullFilterBlockReader::KeysMayMatch(
 
 void FullFilterBlockReader::PrefixesMayMatch(
     MultiGetRange* range, const SliceTransform* /* prefix_extractor */,
-    uint64_t block_offset, const bool /*no_io*/) {
+    uint64_t block_offset, const bool /*no_io*/,
+    BlockCacheLookupContext* /*context*/) {
 #ifdef NDEBUG
   (void)range;
   (void)block_offset;
@@ -224,10 +228,11 @@ size_t FullFilterBlockReader::ApproximateMemoryUsage() const {
   return usage;
 }
 
-bool FullFilterBlockReader::RangeMayExist(const Slice* iterate_upper_bound,
-    const Slice& user_key, const SliceTransform* prefix_extractor,
-    const Comparator* comparator, const Slice* const const_ikey_ptr,
-    bool* filter_checked, bool need_upper_bound_check) {
+bool FullFilterBlockReader::RangeMayExist(
+    const Slice* iterate_upper_bound, const Slice& user_key,
+    const SliceTransform* prefix_extractor, const Comparator* comparator,
+    const Slice* const const_ikey_ptr, bool* filter_checked,
+    bool need_upper_bound_check, BlockCacheLookupContext* context) {
   if (!prefix_extractor || !prefix_extractor->InDomain(user_key)) {
     *filter_checked = false;
     return true;
@@ -240,7 +245,7 @@ bool FullFilterBlockReader::RangeMayExist(const Slice* iterate_upper_bound,
   } else {
     *filter_checked = true;
     return PrefixMayMatch(prefix, prefix_extractor, kNotValid, false,
-                          const_ikey_ptr);
+                          const_ikey_ptr, context);
   }
 }
 

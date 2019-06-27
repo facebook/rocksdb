@@ -493,6 +493,8 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
+  size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
+
   if (!allow_concurrent) {
     // Extract prefix for insert with hint.
     if (insert_with_hint_prefix_extractor_ != nullptr &&
@@ -525,7 +527,7 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
       bloom_filter_->Add(prefix_extractor_->Transform(key));
     }
     if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
-      bloom_filter_->Add(key);
+      bloom_filter_->Add(StripTimestampFromUserKey(key, ts_sz));
     }
 
     // The first sequence number inserted into the memtable
@@ -559,7 +561,7 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
       bloom_filter_->AddConcurrently(prefix_extractor_->Transform(key));
     }
     if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
-      bloom_filter_->AddConcurrently(key);
+      bloom_filter_->AddConcurrently(StripTimestampFromUserKey(key, ts_sz));
     }
 
     // atomically update first_seqno_ and earliest_seqno_.
@@ -632,8 +634,10 @@ static bool SaveValue(void* arg, const char* entry) {
   // all entries with overly large sequence numbers.
   uint32_t key_length;
   const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
-  if (s->mem->GetInternalKeyComparator().user_comparator()->Equal(
-          Slice(key_ptr, key_length - 8), s->key->user_key())) {
+  Slice user_key_slice = Slice(key_ptr, key_length - 8);
+  if (s->mem->GetInternalKeyComparator()
+          .user_comparator()
+          ->CompareWithoutTimestamp(user_key_slice, s->key->user_key()) == 0) {
     // Correct user key
     const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
     ValueType type;
@@ -767,11 +771,13 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   bool found_final_value = false;
   bool merge_in_progress = s->IsMergeInProgress();
   bool may_contain = true;
+  size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
   if (bloom_filter_) {
     // when both memtable_whole_key_filtering and prefix_extractor_ are set,
     // only do whole key filtering for Get() to save CPU
     if (moptions_.memtable_whole_key_filtering) {
-      may_contain = bloom_filter_->MayContain(user_key);
+      may_contain =
+          bloom_filter_->MayContain(StripTimestampFromUserKey(user_key, ts_sz));
     } else {
       assert(prefix_extractor_);
       may_contain =

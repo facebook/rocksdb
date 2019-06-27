@@ -59,6 +59,7 @@ class CompactionJobInfo;
 #endif
 
 extern const std::string kDefaultColumnFamilyName;
+extern const std::string kPersistentStatsColumnFamilyName;
 struct ColumnFamilyDescriptor {
   std::string name;
   ColumnFamilyOptions options;
@@ -1317,6 +1318,17 @@ class DB {
   virtual Status EndTrace() {
     return Status::NotSupported("EndTrace() is not implemented.");
   }
+
+  // Trace block cache accesses. Use EndBlockCacheTrace() to stop tracing.
+  virtual Status StartBlockCacheTrace(
+      const TraceOptions& /*options*/,
+      std::unique_ptr<TraceWriter>&& /*trace_writer*/) {
+    return Status::NotSupported("StartBlockCacheTrace() is not implemented.");
+  }
+
+  virtual Status EndBlockCacheTrace() {
+    return Status::NotSupported("EndBlockCacheTrace() is not implemented.");
+  }
 #endif  // ROCKSDB_LITE
 
   // Needed for StackableDB
@@ -1324,7 +1336,7 @@ class DB {
 
   // Given a window [start_time, end_time), setup a StatsHistoryIterator
   // to access stats history. Note the start_time and end_time are epoch
-  // time measured in microsecond, and end_time is an exclusive bound.
+  // time measured in seconds, and end_time is an exclusive bound.
   virtual Status GetStatsHistory(
       uint64_t /*start_time*/, uint64_t /*end_time*/,
       std::unique_ptr<StatsHistoryIterator>* /*stats_iterator*/) {

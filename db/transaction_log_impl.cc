@@ -4,12 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
 
 #include "db/transaction_log_impl.h"
-#include <inttypes.h>
+#include <cinttypes>
 #include "db/write_batch_internal.h"
 #include "util/file_reader_writer.h"
 
@@ -202,7 +199,8 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
       if (current_last_seq_ == versions_->LastSequence()) {
         current_status_ = Status::OK();
       } else {
-        current_status_ = Status::Corruption("NO MORE DATA LEFT");
+        const char* msg = "Create a new iterator to fetch the new tail.";
+        current_status_ = Status::TryAgain(msg);
       }
       return;
     }

@@ -112,7 +112,9 @@ TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
       nullptr, true, block,
       table_options_.filter_policy->GetFilterBitsReader(block), nullptr);
   // Remain same symantic with blockbased filter
-  ASSERT_TRUE(reader.KeyMayMatch("foo", nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch(
+      "foo", /*prefix_extractor=*/nullptr, /*block_offset=*/kNotValid,
+      /*no_io=*/false, /*const_ikey_ptr=*/nullptr, /*context=*/nullptr));
 }
 
 TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
@@ -127,13 +129,27 @@ TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
   FullFilterBlockReader reader(
       nullptr, true, block,
       table_options_.filter_policy->GetFilterBitsReader(block), nullptr);
-  ASSERT_TRUE(reader.KeyMayMatch("foo", nullptr));
-  ASSERT_TRUE(reader.KeyMayMatch("bar", nullptr));
-  ASSERT_TRUE(reader.KeyMayMatch("box", nullptr));
-  ASSERT_TRUE(reader.KeyMayMatch("hello", nullptr));
-  ASSERT_TRUE(reader.KeyMayMatch("foo", nullptr));
-  ASSERT_TRUE(!reader.KeyMayMatch("missing", nullptr));
-  ASSERT_TRUE(!reader.KeyMayMatch("other", nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch(
+      "foo", /*prefix_extractor=*/nullptr, /*block_offset=*/kNotValid,
+      /*no_io=*/false, /*const_ikey_ptr=*/nullptr, /*context=*/nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch(
+      "bar", /*prefix_extractor=*/nullptr, /*block_offset=*/kNotValid,
+      /*no_io=*/false, /*const_ikey_ptr=*/nullptr, /*context=*/nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch(
+      "box", /*prefix_extractor=*/nullptr, /*block_offset=*/kNotValid,
+      /*no_io=*/false, /*const_ikey_ptr=*/nullptr, /*context=*/nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch(
+      "hello", /*prefix_extractor=*/nullptr, /*block_offset=*/kNotValid,
+      /*no_io=*/false, /*const_ikey_ptr=*/nullptr, /*context=*/nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch(
+      "foo", /*prefix_extractor=*/nullptr, /*block_offset=*/kNotValid,
+      /*no_io=*/false, /*const_ikey_ptr=*/nullptr, /*context=*/nullptr));
+  ASSERT_TRUE(!reader.KeyMayMatch(
+      "missing", /*prefix_extractor=*/nullptr, /*block_offset=*/kNotValid,
+      /*no_io=*/false, /*const_ikey_ptr=*/nullptr, /*context=*/nullptr));
+  ASSERT_TRUE(!reader.KeyMayMatch(
+      "other", /*prefix_extractor=*/nullptr, /*block_offset=*/kNotValid,
+      /*no_io=*/false, /*const_ikey_ptr=*/nullptr, /*context=*/nullptr));
 }
 
 class FullFilterBlockTest : public testing::Test {
@@ -157,7 +173,9 @@ TEST_F(FullFilterBlockTest, EmptyBuilder) {
       nullptr, true, block,
       table_options_.filter_policy->GetFilterBitsReader(block), nullptr);
   // Remain same symantic with blockbased filter
-  ASSERT_TRUE(reader.KeyMayMatch("foo", nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch(
+      "foo", /*prefix_extractor=*/nullptr, /*block_offset=*/kNotValid,
+      /*no_io=*/false, /*const_ikey_ptr=*/nullptr, /*context=*/nullptr));
 }
 
 TEST_F(FullFilterBlockTest, DuplicateEntries) {
@@ -207,13 +225,27 @@ TEST_F(FullFilterBlockTest, SingleChunk) {
   FullFilterBlockReader reader(
       nullptr, true, block,
       table_options_.filter_policy->GetFilterBitsReader(block), nullptr);
-  ASSERT_TRUE(reader.KeyMayMatch("foo", nullptr));
-  ASSERT_TRUE(reader.KeyMayMatch("bar", nullptr));
-  ASSERT_TRUE(reader.KeyMayMatch("box", nullptr));
-  ASSERT_TRUE(reader.KeyMayMatch("hello", nullptr));
-  ASSERT_TRUE(reader.KeyMayMatch("foo", nullptr));
-  ASSERT_TRUE(!reader.KeyMayMatch("missing", nullptr));
-  ASSERT_TRUE(!reader.KeyMayMatch("other", nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch(
+      "foo", /*prefix_extractor=*/nullptr, /*block_offset=*/kNotValid,
+      /*no_io=*/false, /*const_ikey_ptr=*/nullptr, /*context=*/nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch(
+      "bar", /*prefix_extractor=*/nullptr, /*block_offset=*/kNotValid,
+      /*no_io=*/false, /*const_ikey_ptr=*/nullptr, /*context=*/nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch(
+      "box", /*prefix_extractor=*/nullptr, /*block_offset=*/kNotValid,
+      /*no_io=*/false, /*const_ikey_ptr=*/nullptr, /*context=*/nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch(
+      "hello", /*prefix_extractor=*/nullptr, /*block_offset=*/kNotValid,
+      /*no_io=*/false, /*const_ikey_ptr=*/nullptr, /*context=*/nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch(
+      "foo", /*prefix_extractor=*/nullptr, /*block_offset=*/kNotValid,
+      /*no_io=*/false, /*const_ikey_ptr=*/nullptr, /*context=*/nullptr));
+  ASSERT_TRUE(!reader.KeyMayMatch(
+      "missing", /*prefix_extractor=*/nullptr, /*block_offset=*/kNotValid,
+      /*no_io=*/false, /*const_ikey_ptr=*/nullptr, /*context=*/nullptr));
+  ASSERT_TRUE(!reader.KeyMayMatch(
+      "other", /*prefix_extractor=*/nullptr, /*block_offset=*/kNotValid,
+      /*no_io=*/false, /*const_ikey_ptr=*/nullptr, /*context=*/nullptr));
 }
 
 }  // namespace rocksdb

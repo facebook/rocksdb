@@ -9,11 +9,7 @@
 
 #include "db/version_builder.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <algorithm>
 #include <atomic>
 #include <functional>

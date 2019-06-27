@@ -7,12 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <stdint.h>
 
 #include <memory>
@@ -203,7 +198,8 @@ Status BlockBasedTableFactory::NewTableReader(
       file_size, table_reader, table_reader_options.prefix_extractor,
       prefetch_index_and_filter_in_cache, table_reader_options.skip_filters,
       table_reader_options.level, table_reader_options.immortal,
-      table_reader_options.largest_seqno, &tail_prefetch_stats_);
+      table_reader_options.largest_seqno, &tail_prefetch_stats_,
+      table_reader_options.block_cache_tracer);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
@@ -260,6 +256,10 @@ Status BlockBasedTableFactory::SanitizeOptions(
       (table_options_.block_size & (table_options_.block_size - 1))) {
     return Status::InvalidArgument(
         "Block alignment requested but block size is not a power of 2");
+  }
+  if (table_options_.block_size > port::kMaxUint32) {
+    return Status::InvalidArgument(
+        "block size exceeds maximum number (4GiB) allowed");
   }
   if (table_options_.data_block_index_type ==
           BlockBasedTableOptions::kDataBlockBinaryAndHash &&

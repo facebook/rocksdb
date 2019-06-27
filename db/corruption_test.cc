@@ -13,7 +13,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <inttypes.h>
+#include <cinttypes>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include "db/db_impl/db_impl.h"

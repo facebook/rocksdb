@@ -491,6 +491,30 @@ TEST_F(DBRangeDelTest, CompactionRemovesCoveredMergeOperands) {
   ASSERT_EQ(expected, actual);
 }
 
+TEST_F(DBRangeDelTest, PutDeleteRangeMergeFlush) {
+  // Test the sequence of operations: (1) Put, (2) DeleteRange, (3) Merge, (4)
+  // Flush. The `CompactionIterator` previously had a bug where we forgot to
+  // check for covering range tombstones when processing the (1) Put, causing
+  // it to reappear after the flush.
+  Options opts = CurrentOptions();
+  opts.merge_operator = MergeOperators::CreateUInt64AddOperator();
+  Reopen(opts);
+
+  std::string val;
+  PutFixed64(&val, 1);
+  ASSERT_OK(db_->Put(WriteOptions(), "key", val));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             "key", "key_"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", val));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  ReadOptions read_opts;
+  std::string expected, actual;
+  ASSERT_OK(db_->Get(read_opts, "key", &actual));
+  PutFixed64(&expected, 1);
+  ASSERT_EQ(expected, actual);
+}
+
 // NumTableFilesAtLevel() is not supported in ROCKSDB_LITE
 #ifndef ROCKSDB_LITE
 TEST_F(DBRangeDelTest, ObsoleteTombstoneCleanup) {

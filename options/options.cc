@@ -9,11 +9,7 @@
 
 #include "rocksdb/options.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <limits>
 
 #include "monitoring/statistics.h"
@@ -506,7 +502,6 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForSmallDb(
       BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
   table_factory.reset(new BlockBasedTableFactory(table_options));
 
-
   return this;
 }
 
@@ -600,7 +595,8 @@ ReadOptions::ReadOptions()
       pin_data(false),
       background_purge_on_iterator_cleanup(false),
       ignore_range_deletions(false),
-      iter_start_seqnum(0) {}
+      iter_start_seqnum(0),
+      timestamp(nullptr) {}
 
 ReadOptions::ReadOptions(bool cksum, bool cache)
     : snapshot(nullptr),
@@ -618,6 +614,7 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       pin_data(false),
       background_purge_on_iterator_cleanup(false),
       ignore_range_deletions(false),
-      iter_start_seqnum(0) {}
+      iter_start_seqnum(0),
+      timestamp(nullptr) {}
 
 }  // namespace rocksdb

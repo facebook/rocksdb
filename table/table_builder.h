@@ -18,6 +18,7 @@
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
+#include "trace_replay/block_cache_tracer.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {
@@ -32,10 +33,12 @@ struct TableReaderOptions {
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
                      bool _skip_filters = false, bool _immortal = false,
-                     int _level = -1)
+                     int _level = -1,
+                     BlockCacheTracer* const _block_cache_tracer = nullptr)
       : TableReaderOptions(_ioptions, _prefix_extractor, _env_options,
                            _internal_comparator, _skip_filters, _immortal,
-                           _level, 0 /* _largest_seqno */) {}
+                           _level, 0 /* _largest_seqno */,
+                           _block_cache_tracer) {}
 
   // @param skip_filters Disables loading/accessing the filter block
   TableReaderOptions(const ImmutableCFOptions& _ioptions,
@@ -43,7 +46,8 @@ struct TableReaderOptions {
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
                      bool _skip_filters, bool _immortal, int _level,
-                     SequenceNumber _largest_seqno)
+                     SequenceNumber _largest_seqno,
+                     BlockCacheTracer* const _block_cache_tracer)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
@@ -51,7 +55,8 @@ struct TableReaderOptions {
         skip_filters(_skip_filters),
         immortal(_immortal),
         level(_level),
-        largest_seqno(_largest_seqno) {}
+        largest_seqno(_largest_seqno),
+        block_cache_tracer(_block_cache_tracer) {}
 
   const ImmutableCFOptions& ioptions;
   const SliceTransform* prefix_extractor;
@@ -65,6 +70,7 @@ struct TableReaderOptions {
   int level;
   // largest seqno in the table
   SequenceNumber largest_seqno;
+  BlockCacheTracer* const block_cache_tracer;
 };
 
 struct TableBuilderOptions {

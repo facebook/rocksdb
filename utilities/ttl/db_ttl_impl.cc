@@ -34,12 +34,25 @@ void DBWithTTLImpl::SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
 }
 
 // Open the db inside DBWithTTLImpl because options needs pointer to its ttl
-DBWithTTLImpl::DBWithTTLImpl(DB* db) : DBWithTTL(db) {}
+DBWithTTLImpl::DBWithTTLImpl(DB* db) : DBWithTTL(db), closed_(false) {}
 
 DBWithTTLImpl::~DBWithTTLImpl() {
-  // Need to stop background compaction before getting rid of the filter
-  CancelAllBackgroundWork(db_, /* wait = */ true);
-  delete GetOptions().compaction_filter;
+  if (!closed_) {
+    Close();
+  }
+}
+
+Status DBWithTTLImpl::Close() {
+  Status ret = Status::OK();
+  if (!closed_) {
+    Options default_options = GetOptions();
+    // Need to stop background compaction before getting rid of the filter
+    CancelAllBackgroundWork(db_, /* wait = */ true);
+    ret = db_->Close();
+    delete default_options.compaction_filter;
+    closed_ = true;
+  }
+  return ret;
 }
 
 Status UtilityDB::OpenTtlDB(const Options& options, const std::string& dbname,

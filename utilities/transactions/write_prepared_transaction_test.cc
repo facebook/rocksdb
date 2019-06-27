@@ -5,15 +5,11 @@
 
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "utilities/transactions/transaction_test.h"
 
-#include <inttypes.h>
 #include <algorithm>
 #include <atomic>
+#include <cinttypes>
 #include <functional>
 #include <string>
 #include <thread>
@@ -52,32 +48,27 @@ using CommitEntry64bFormat = WritePreparedTxnDB::CommitEntry64bFormat;
 
 TEST(PreparedHeap, BasicsTest) {
   WritePreparedTxnDB::PreparedHeap heap;
-  heap.push(14l);
-  // Test with one element
-  ASSERT_EQ(14l, heap.top());
-  heap.push(24l);
-  heap.push(34l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(14l);
+    // Test with one element
+    ASSERT_EQ(14l, heap.top());
+    heap.push(24l);
+    heap.push(34l);
+    // Test that old min is still on top
+    ASSERT_EQ(14l, heap.top());
+    heap.push(44l);
+    heap.push(54l);
+    heap.push(64l);
+    heap.push(74l);
+    heap.push(84l);
+  }
   // Test that old min is still on top
   ASSERT_EQ(14l, heap.top());
-  heap.push(13l);
-  // Test that the new min will be on top
-  ASSERT_EQ(13l, heap.top());
-  // Test that it is persistent
-  ASSERT_EQ(13l, heap.top());
-  heap.push(44l);
-  heap.push(54l);
-  heap.push(64l);
-  heap.push(74l);
-  heap.push(84l);
-  // Test that old min is still on top
-  ASSERT_EQ(13l, heap.top());
   heap.erase(24l);
   // Test that old min is still on top
-  ASSERT_EQ(13l, heap.top());
+  ASSERT_EQ(14l, heap.top());
   heap.erase(14l);
-  // Test that old min is still on top
-  ASSERT_EQ(13l, heap.top());
-  heap.erase(13l);
   // Test that the new comes to the top after multiple erase
   ASSERT_EQ(34l, heap.top());
   heap.erase(34l);
@@ -93,11 +84,14 @@ TEST(PreparedHeap, BasicsTest) {
   ASSERT_EQ(64l, heap.top());
   heap.erase(84l);
   ASSERT_EQ(64l, heap.top());
-  heap.push(85l);
-  heap.push(86l);
-  heap.push(87l);
-  heap.push(88l);
-  heap.push(89l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(85l);
+    heap.push(86l);
+    heap.push(87l);
+    heap.push(88l);
+    heap.push(89l);
+  }
   heap.erase(87l);
   heap.erase(85l);
   heap.erase(89l);
@@ -118,13 +112,19 @@ TEST(PreparedHeap, BasicsTest) {
 // not resurface again.
 TEST(PreparedHeap, EmptyAtTheEnd) {
   WritePreparedTxnDB::PreparedHeap heap;
-  heap.push(40l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(40l);
+  }
   ASSERT_EQ(40l, heap.top());
   // Although not a recommended scenario, we must be resilient against erase
   // without a prior push.
   heap.erase(50l);
   ASSERT_EQ(40l, heap.top());
-  heap.push(60l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(60l);
+  }
   ASSERT_EQ(40l, heap.top());
 
   heap.erase(60l);
@@ -132,11 +132,17 @@ TEST(PreparedHeap, EmptyAtTheEnd) {
   heap.erase(40l);
   ASSERT_TRUE(heap.empty());
 
-  heap.push(40l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(40l);
+  }
   ASSERT_EQ(40l, heap.top());
   heap.erase(50l);
   ASSERT_EQ(40l, heap.top());
-  heap.push(60l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(60l);
+  }
   ASSERT_EQ(40l, heap.top());
 
   heap.erase(40l);
@@ -151,30 +157,37 @@ TEST(PreparedHeap, EmptyAtTheEnd) {
 // successfully emptied at the end.
 TEST(PreparedHeap, Concurrent) {
   const size_t t_cnt = 10;
-  rocksdb::port::Thread t[t_cnt];
-  Random rnd(1103);
+  rocksdb::port::Thread t[t_cnt + 1];
   WritePreparedTxnDB::PreparedHeap heap;
   port::RWMutex prepared_mutex;
+  std::atomic<size_t> last;
 
   for (size_t n = 0; n < 100; n++) {
-    for (size_t i = 0; i < t_cnt; i++) {
-      // This is not recommended usage but we should be resilient against it.
-      bool skip_push = rnd.OneIn(5);
-      t[i] = rocksdb::port::Thread([&heap, &prepared_mutex, skip_push, i]() {
-        auto seq = i;
-        std::this_thread::yield();
+    last = 0;
+    t[0] = rocksdb::port::Thread([&]() {
+      Random rnd(1103);
+      for (size_t seq = 1; seq <= t_cnt; seq++) {
+        // This is not recommended usage but we should be resilient against it.
+        bool skip_push = rnd.OneIn(5);
         if (!skip_push) {
-          WriteLock wl(&prepared_mutex);
+          MutexLock ml(heap.push_pop_mutex());
+          std::this_thread::yield();
           heap.push(seq);
+          last.store(seq);
         }
-        std::this_thread::yield();
-        {
-          WriteLock wl(&prepared_mutex);
-          heap.erase(seq);
-        }
+      }
+    });
+    for (size_t i = 1; i <= t_cnt; i++) {
+      t[i] = rocksdb::port::Thread([&heap, &prepared_mutex, &last, i]() {
+        auto seq = i;
+        do {
+          std::this_thread::yield();
+        } while (last.load() < seq);
+        WriteLock wl(&prepared_mutex);
+        heap.erase(seq);
       });
     }
-    for (size_t i = 0; i < t_cnt; i++) {
+    for (size_t i = 0; i <= t_cnt; i++) {
       t[i].join();
     }
     ASSERT_TRUE(heap.empty());
@@ -771,6 +784,147 @@ TEST_P(WritePreparedTransactionTest, MaybeUpdateOldCommitMap) {
   MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
   p = 21l, c = 25l, s = 20l, ns = 19l;
   MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
+}
+
+// Trigger the condition where some old memtables are skipped when doing
+// TransactionUtil::CheckKey(), and make sure the result is still correct.
+TEST_P(WritePreparedTransactionTest, CheckKeySkipOldMemtable) {
+  const int kAttemptHistoryMemtable = 0;
+  const int kAttemptImmMemTable = 1;
+  for (int attempt = kAttemptHistoryMemtable; attempt <= kAttemptImmMemTable;
+       attempt++) {
+    options.max_write_buffer_number_to_maintain = 3;
+    ReOpen();
+
+    WriteOptions write_options;
+    ReadOptions read_options;
+    TransactionOptions txn_options;
+    txn_options.set_snapshot = true;
+    string value;
+    Status s;
+
+    ASSERT_OK(db->Put(write_options, Slice("foo"), Slice("bar")));
+    ASSERT_OK(db->Put(write_options, Slice("foo2"), Slice("bar")));
+
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    ASSERT_TRUE(txn != nullptr);
+    ASSERT_OK(txn->SetName("txn"));
+
+    Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+    ASSERT_TRUE(txn2 != nullptr);
+    ASSERT_OK(txn2->SetName("txn2"));
+
+    // This transaction is created to cause potential conflict.
+    Transaction* txn_x = db->BeginTransaction(write_options);
+    ASSERT_OK(txn_x->SetName("txn_x"));
+    ASSERT_OK(txn_x->Put(Slice("foo"), Slice("bar3")));
+    ASSERT_OK(txn_x->Prepare());
+
+    // Create snapshots after the prepare, but there should still
+    // be a conflict when trying to read "foo".
+
+    if (attempt == kAttemptImmMemTable) {
+      // For the second attempt, hold flush from beginning. The memtable
+      // will be switched to immutable after calling TEST_SwitchMemtable()
+      // while CheckKey() is called.
+      rocksdb::SyncPoint::GetInstance()->LoadDependency(
+          {{"WritePreparedTransactionTest.CheckKeySkipOldMemtable",
+            "FlushJob::Start"}});
+      rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    }
+
+    // force a memtable flush. The memtable should still be kept
+    FlushOptions flush_ops;
+    if (attempt == kAttemptHistoryMemtable) {
+      ASSERT_OK(db->Flush(flush_ops));
+    } else {
+      assert(attempt == kAttemptImmMemTable);
+      DBImpl* db_impl = static_cast<DBImpl*>(db->GetRootDB());
+      db_impl->TEST_SwitchMemtable();
+    }
+    uint64_t num_imm_mems;
+    ASSERT_TRUE(db->GetIntProperty(DB::Properties::kNumImmutableMemTable,
+                                   &num_imm_mems));
+    if (attempt == kAttemptHistoryMemtable) {
+      ASSERT_EQ(0, num_imm_mems);
+    } else {
+      assert(attempt == kAttemptImmMemTable);
+      ASSERT_EQ(1, num_imm_mems);
+    }
+
+    // Put something in active memtable
+    ASSERT_OK(db->Put(write_options, Slice("foo3"), Slice("bar")));
+
+    // Create txn3 after flushing, but this transaction also needs to
+    // check all memtables because of they contains uncommitted data.
+    Transaction* txn3 = db->BeginTransaction(write_options, txn_options);
+    ASSERT_TRUE(txn3 != nullptr);
+    ASSERT_OK(txn3->SetName("txn3"));
+
+    // Commit the pending write
+    ASSERT_OK(txn_x->Commit());
+
+    // Commit txn, txn2 and tx3. txn and tx3 will conflict but txn2 will
+    // pass. In all cases, both memtables are queried.
+    SetPerfLevel(PerfLevel::kEnableCount);
+    get_perf_context()->Reset();
+    ASSERT_TRUE(txn3->GetForUpdate(read_options, "foo", &value).IsBusy());
+    // We should have checked two memtables, active and either immutable
+    // or history memtable, depending on the test case.
+    ASSERT_EQ(2, get_perf_context()->get_from_memtable_count);
+
+    get_perf_context()->Reset();
+    ASSERT_TRUE(txn->GetForUpdate(read_options, "foo", &value).IsBusy());
+    // We should have checked two memtables, active and either immutable
+    // or history memtable, depending on the test case.
+    ASSERT_EQ(2, get_perf_context()->get_from_memtable_count);
+
+    get_perf_context()->Reset();
+    ASSERT_OK(txn2->GetForUpdate(read_options, "foo2", &value));
+    ASSERT_EQ(value, "bar");
+    // We should have checked two memtables, and since there is no
+    // conflict, another Get() will be made and fetch the data from
+    // DB. If it is in immutable memtable, two extra memtable reads
+    // will be issued. If it is not (in history), only one will
+    // be made, which is to the active memtable.
+    if (attempt == kAttemptHistoryMemtable) {
+      ASSERT_EQ(3, get_perf_context()->get_from_memtable_count);
+    } else {
+      assert(attempt == kAttemptImmMemTable);
+      ASSERT_EQ(4, get_perf_context()->get_from_memtable_count);
+    }
+
+    Transaction* txn4 = db->BeginTransaction(write_options, txn_options);
+    ASSERT_TRUE(txn4 != nullptr);
+    ASSERT_OK(txn4->SetName("txn4"));
+    get_perf_context()->Reset();
+    ASSERT_OK(txn4->GetForUpdate(read_options, "foo", &value));
+    if (attempt == kAttemptHistoryMemtable) {
+      // Active memtable will be checked in snapshot validation and when
+      // getting the value.
+      ASSERT_EQ(2, get_perf_context()->get_from_memtable_count);
+    } else {
+      // Only active memtable will be checked in snapshot validation but
+      // both of active and immutable snapshot will be queried when
+      // getting the value.
+      assert(attempt == kAttemptImmMemTable);
+      ASSERT_EQ(3, get_perf_context()->get_from_memtable_count);
+    }
+
+    ASSERT_OK(txn2->Commit());
+    ASSERT_OK(txn4->Commit());
+
+    TEST_SYNC_POINT("WritePreparedTransactionTest.CheckKeySkipOldMemtable");
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+    SetPerfLevel(PerfLevel::kDisable);
+
+    delete txn;
+    delete txn2;
+    delete txn3;
+    delete txn4;
+    delete txn_x;
+  }
 }
 
 // Reproduce the bug with two snapshots with the same seuqence number and test
@@ -3005,13 +3159,16 @@ TEST_P(WritePreparedTransactionTest, AddPreparedBeforeMax) {
   ASSERT_OK(txn->Put(Slice("key0"), uncommitted_value));
   port::Mutex txn_mutex_;
 
-  // t1) Insert prepared entry, t2) commit other entires to advance max
-  // evicted sec and finish checking the existing prepared entires, t1)
+  // t1) Insert prepared entry, t2) commit other entries to advance max
+  // evicted sec and finish checking the existing prepared entries, t1)
   // AddPrepared, t2) update max_evicted_seq_
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
-      {"AddPrepared::begin:pause", "AddPreparedBeforeMax::read_thread:start"},
-      {"AdvanceMaxEvictedSeq::update_max:pause", "AddPrepared::begin:resume"},
-      {"AddPrepared::end", "AdvanceMaxEvictedSeq::update_max:resume"},
+      {"AddPreparedCallback::AddPrepared::begin:pause",
+       "AddPreparedBeforeMax::read_thread:start"},
+      {"AdvanceMaxEvictedSeq::update_max:pause",
+       "AddPreparedCallback::AddPrepared::begin:resume"},
+      {"AddPreparedCallback::AddPrepared::end",
+       "AdvanceMaxEvictedSeq::update_max:resume"},
   });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3065,20 +3222,34 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
       ReOpen();
       std::atomic<const Snapshot*> snap = {nullptr};
       std::atomic<SequenceNumber> exp_prepare = {0};
+      rocksdb::port::Thread callback_thread;
       // Value is synchronized via snap
       PinnableSlice value;
       // Take a snapshot after publish and before RemovePrepared:Start
+      auto snap_callback = [&]() {
+        ASSERT_EQ(nullptr, snap.load());
+        snap.store(db->GetSnapshot());
+        ReadOptions roptions;
+        roptions.snapshot = snap.load();
+        auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &value);
+        ASSERT_OK(s);
+      };
       auto callback = [&](void* param) {
         SequenceNumber prep_seq = *((SequenceNumber*)param);
         if (prep_seq == exp_prepare.load()) {  // only for write_thread
-          ASSERT_EQ(nullptr, snap.load());
-          snap.store(db->GetSnapshot());
-          ReadOptions roptions;
-          roptions.snapshot = snap.load();
-          auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &value);
-          ASSERT_OK(s);
+          // We need to spawn a thread to avoid deadlock since getting a
+          // snpashot might end up calling AdvanceSeqByOne which needs joining
+          // the write queue.
+          callback_thread = rocksdb::port::Thread(snap_callback);
+          TEST_SYNC_POINT("callback:end");
         }
       };
+      // Wait for the first snapshot be taken in GetSnapshotInternal. Although
+      // it might be updated before GetSnapshotInternal finishes but this should
+      // cover most of the cases.
+      rocksdb::SyncPoint::GetInstance()->LoadDependency({
+          {"WritePreparedTxnDB::GetSnapshotInternal:first", "callback:end"},
+      });
       SyncPoint::GetInstance()->SetCallBack("RemovePrepared:Start", callback);
       SyncPoint::GetInstance()->EnableProcessing();
       // Thread to cause frequent evictions
@@ -3105,6 +3276,9 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
           exp_prepare.store(txn->GetId());
           ASSERT_OK(txn->Commit());
           delete txn;
+          // Wait for the snapshot taking that is triggered by
+          // RemovePrepared:Start callback
+          callback_thread.join();
 
           // Read with the snapshot taken before delayed_prepared_ cleanup
           ReadOptions roptions;
@@ -3124,9 +3298,9 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
       });
       write_thread.join();
       eviction_thread.join();
+      rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+      rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
     }
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
   }
 }
 

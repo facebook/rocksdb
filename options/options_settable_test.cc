@@ -7,10 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include <cstring>
 
 #include "options/options_helper.h"
@@ -269,6 +265,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "allow_mmap_writes=false;"
                              "stats_dump_period_sec=70127;"
                              "stats_persist_period_sec=54321;"
+                             "persist_stats_to_disk=true;"
                              "stats_history_buffer_size=14159;"
                              "allow_fallocate=true;"
                              "allow_mmap_reads=false;"

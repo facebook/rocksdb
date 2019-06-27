@@ -8,10 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/db_impl/db_impl.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-#include <inttypes.h>
+#include <cinttypes>
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "monitoring/perf_context_imp.h"
@@ -266,6 +263,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     size_t total_count = 0;
     size_t valid_batches = 0;
     size_t total_byte_size = 0;
+    size_t pre_release_callback_cnt = 0;
     for (auto* writer : write_group) {
       if (writer->CheckCallback(this)) {
         valid_batches += writer->batch_cnt;
@@ -273,9 +271,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           total_count += WriteBatchInternal::Count(writer->batch);
           parallel = parallel && !writer->batch->HasMerge();
         }
-
         total_byte_size = WriteBatchInternal::AppendedByteSize(
             total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
+        if (writer->pre_release_callback) {
+          pre_release_callback_cnt++;
+        }
       }
     }
     // Note about seq_per_batch_: either disableWAL is set for the entire write
@@ -339,6 +339,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // PreReleaseCallback is called after WAL write and before memtable write
     if (status.ok()) {
       SequenceNumber next_sequence = current_sequence;
+      size_t index = 0;
       // Note: the logic for advancing seq here must be consistent with the
       // logic in WriteBatchInternal::InsertInto(write_group...) as well as
       // with WriteBatchInternal::InsertInto(write_batch...) that is called on
@@ -350,7 +351,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         writer->sequence = next_sequence;
         if (writer->pre_release_callback) {
           Status ws = writer->pre_release_callback->Callback(
-              writer->sequence, disable_memtable, writer->log_used);
+              writer->sequence, disable_memtable, writer->log_used, index++,
+              pre_release_callback_cnt);
           if (!ws.ok()) {
             status = ws;
             break;
@@ -678,11 +680,15 @@ Status DBImpl::WriteImplWALOnly(
   // Note: no need to update last_batch_group_size_ here since the batch writes
   // to WAL only
 
+  size_t pre_release_callback_cnt = 0;
   size_t total_byte_size = 0;
   for (auto* writer : write_group) {
     if (writer->CheckCallback(this)) {
       total_byte_size = WriteBatchInternal::AppendedByteSize(
           total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
+      if (writer->pre_release_callback) {
+        pre_release_callback_cnt++;
+      }
     }
   }
 
@@ -761,11 +767,13 @@ Status DBImpl::WriteImplWALOnly(
     WriteStatusCheck(status);
   }
   if (status.ok()) {
+    size_t index = 0;
     for (auto* writer : write_group) {
       if (!writer->CallbackFailed() && writer->pre_release_callback) {
         assert(writer->sequence != kMaxSequenceNumber);
         Status ws = writer->pre_release_callback->Callback(
-            writer->sequence, disable_memtable, writer->log_used);
+            writer->sequence, disable_memtable, writer->log_used, index++,
+            pre_release_callback_cnt);
         if (!ws.ok()) {
           status = ws;
           break;
@@ -1124,7 +1132,7 @@ Status DBImpl::WriteRecoverableState() {
         // AddCommitted -> AdvanceMaxEvictedSeq -> GetSnapshotListFromDB
         mutex_.Unlock();
         status = recoverable_state_pre_release_callback_->Callback(
-            sub_batch_seq, !DISABLE_MEMTABLE, no_log_num);
+            sub_batch_seq, !DISABLE_MEMTABLE, no_log_num, 0, 1);
         mutex_.Lock();
       }
     }
@@ -1677,11 +1685,25 @@ size_t DBImpl::GetWalPreallocateBlockSize(uint64_t write_buffer_size) const {
 // can call if they wish
 Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                const Slice& key, const Slice& value) {
-  // Pre-allocate size of write batch conservatively.
-  // 8 bytes are taken by header, 4 bytes for count, 1 byte for type,
-  // and we allocate 11 extra bytes for key length, as well as value length.
-  WriteBatch batch(key.size() + value.size() + 24);
-  Status s = batch.Put(column_family, key, value);
+  if (nullptr == opt.timestamp) {
+    // Pre-allocate size of write batch conservatively.
+    // 8 bytes are taken by header, 4 bytes for count, 1 byte for type,
+    // and we allocate 11 extra bytes for key length, as well as value length.
+    WriteBatch batch(key.size() + value.size() + 24);
+    Status s = batch.Put(column_family, key, value);
+    if (!s.ok()) {
+      return s;
+    }
+    return Write(opt, &batch);
+  }
+  Slice akey;
+  std::string buf;
+  Status s = AppendTimestamp(key, *(opt.timestamp), &akey, &buf);
+  if (!s.ok()) {
+    return s;
+  }
+  WriteBatch batch(akey.size() + value.size() + 24);
+  s = batch.Put(column_family, akey, value);
   if (!s.ok()) {
     return s;
   }

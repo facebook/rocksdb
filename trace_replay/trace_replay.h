@@ -40,6 +40,12 @@ enum TraceType : char {
   kTraceGet = 4,
   kTraceIteratorSeek = 5,
   kTraceIteratorSeekForPrev = 6,
+  // Block cache related types.
+  kBlockTraceIndexBlock = 7,
+  kBlockTraceFilterBlock = 8,
+  kBlockTraceDataBlock = 9,
+  kBlockTraceUncompressionDictBlock = 10,
+  kBlockTraceRangeDeletionBlock = 11,
   // All trace types should be added before kTraceMax
   kTraceMax,
 };
@@ -58,6 +64,15 @@ struct Trace {
     type = kTraceMax;
     payload.clear();
   }
+};
+
+class TracerHelper {
+ public:
+  // Encode a trace object into the given string.
+  static void EncodeTrace(const Trace& trace, std::string* encoded_trace);
+
+  // Decode a string into the given trace object.
+  static Status DecodeTrace(const std::string& encoded_trace, Trace* trace);
 };
 
 // Tracer captures all RocksDB operations using a user-provided TraceWriter.
