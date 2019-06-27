@@ -721,6 +721,8 @@ void BlockCacheTraceAnalyzer::WriteReuseLifetime(
 
 void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
     uint64_t reuse_window, bool user_access_only) const {
+  // A map from block key to an array of bools that states whether a block is
+  // accessed in a time window.
   std::map<std::string, std::vector<bool>> block_accessed;
   const uint64_t trace_duration =
       trace_end_timestamp_in_seconds_ - trace_start_timestamp_in_seconds_;
@@ -801,7 +803,7 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
     for (uint64_t j = 0; j < reuse_vector_size; j++) {
       row += ",";
       if (j < start_time) {
-        row += "0.0";
+        row += "100.0";
       } else {
         row += std::to_string(percent(reuse_table[start_time][j],
                                       reuse_table[start_time][start_time]));
