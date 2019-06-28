@@ -524,7 +524,7 @@ if [ "${USE_AWS}XXX" = "1XXX" ]; then
   AWS_SDK=/usr/local
   AWI=${AWS_SDK}/include/
   S3_CCFLAGS="$S3_CCFLAGS -I$AWI -DUSE_AWS"
-  S3_LDFLAGS="$S3_LDFLAGS -laws-cpp-sdk-s3 -laws-cpp-sdk-kinesis -laws-cpp-sdk-core"
+  S3_LDFLAGS="$S3_LDFLAGS -laws-cpp-sdk-s3 -laws-cpp-sdk-kinesis -laws-cpp-sdk-core -laws-cpp-sdk-transfer"
   COMMON_FLAGS="$COMMON_FLAGS $S3_CCFLAGS"
   PLATFORM_LDFLAGS="$S3_LDFLAGS $PLATFORM_LDFLAGS"
 fi

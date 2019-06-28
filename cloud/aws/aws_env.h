@@ -17,6 +17,7 @@
 #include <aws/kinesis/KinesisClient.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/BucketLocationConstraint.h>
+#include <aws/transfer/TransferManager.h>
 
 #include <chrono>
 #include <list>
@@ -30,7 +31,7 @@ class S3ReadableFile;
 class AwsS3ClientWrapper {
  public:
   AwsS3ClientWrapper(
-      std::unique_ptr<Aws::S3::S3Client> client,
+      std::shared_ptr<Aws::S3::S3Client> client,
       std::shared_ptr<CloudRequestCallback> cloud_request_callback);
 
   Aws::S3::Model::ListObjectsOutcome ListObjects(
@@ -57,11 +58,13 @@ class AwsS3ClientWrapper {
   Aws::S3::Model::HeadObjectOutcome HeadObject(
       const Aws::S3::Model::HeadObjectRequest& request);
 
- private:
-  std::unique_ptr<Aws::S3::S3Client> client_;
-  std::shared_ptr<CloudRequestCallback> cloud_request_callback_;
+  const std::shared_ptr<Aws::S3::S3Client>& GetClient() const {
+    return client_;
+  }
 
-  class Timer;
+ private:
+  std::shared_ptr<Aws::S3::S3Client> client_;
+  std::shared_ptr<CloudRequestCallback> cloud_request_callback_;
 };
 
 namespace detail {
@@ -267,6 +270,9 @@ class AwsEnv : public CloudEnvImpl {
   // The S3 client
   std::shared_ptr<AwsS3ClientWrapper> s3client_;
 
+  // AWS's utility to help out with uploading and downloading S3 file
+  std::shared_ptr<Aws::Transfer::TransferManager> awsTransferManager_;
+
   // Configurations for this cloud environent
   const CloudEnvOptions cloud_env_options;
 
@@ -334,6 +340,33 @@ class AwsEnv : public CloudEnvImpl {
                   const CloudEnvOptions& cloud_options,
                   std::shared_ptr<Logger> info_log = nullptr);
 
+  struct GetObjectResult {
+    bool success{false};
+    Aws::Client::AWSError<Aws::S3::S3Errors> error;  // if success == false
+    size_t objectSize{0};
+  };
+
+  GetObjectResult DoGetObject(const Aws::String& bucket, const Aws::String& key,
+                              const std::string& destination);
+  GetObjectResult DoGetObjectWithTransferManager(
+      const Aws::String& bucket, const Aws::String& key,
+      const std::string& destination);
+
+
+  struct PutObjectResult {
+    bool success{false};
+    Aws::Client::AWSError<Aws::S3::S3Errors> error;  // if success == false
+  };
+
+  PutObjectResult DoPutObject(const std::string& filename,
+                              const Aws::String& bucket, const Aws::String& key,
+                              uint64_t sizeHint);
+
+  PutObjectResult DoPutObjectWithTransferManager(const std::string& filename,
+                                                 const Aws::String& bucket,
+                                                 const Aws::String& key,
+                                                 uint64_t sizeHint);
+
   // The pathname that contains a list of all db's inside a bucket.
   static constexpr const char* dbid_registry_ = "/.rockset/dbid/";
 
@@ -369,9 +402,6 @@ class AwsEnv : public CloudEnvImpl {
   bool dest_equal_src_;
 
   Status status();
-
-  void SetEncryptionParameters(
-      Aws::S3::Model::PutObjectRequest& put_request) const;
 
   // Delete the specified path from S3
   Status DeletePathInS3(const std::string& bucket_prefix,

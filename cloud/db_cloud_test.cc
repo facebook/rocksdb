@@ -556,38 +556,43 @@ TEST_F(CloudTest, KeepLocalFiles) {
 TEST_F(CloudTest, CopyToFromS3) {
   std::string fname = dbname_ + "/100000.sst";
 
-  // Create aws env
-  cloud_env_options_.keep_local_sst_files = true;
-  CreateAwsEnv();
-  ((CloudEnvImpl*)aenv_.get())->TEST_InitEmptyCloudManifest();
-  char buffer[1 * 1024 * 1024];
+  // iter 0 -- not using transfer manager
+  // iter 1 -- using transfer manager
+  for (int iter = 0; iter < 2; ++iter) {
+    // Create aws env
+    cloud_env_options_.keep_local_sst_files = true;
+    cloud_env_options_.use_aws_transfer_manager = iter == 1;
+    CreateAwsEnv();
+    ((CloudEnvImpl*)aenv_.get())->TEST_InitEmptyCloudManifest();
+    char buffer[1 * 1024 * 1024];
 
-  // create a 10 MB file and upload it to cloud
-  {
-    unique_ptr<WritableFile> writer;
-    ASSERT_OK(aenv_->NewWritableFile(fname, &writer, EnvOptions()));
+    // create a 10 MB file and upload it to cloud
+    {
+      unique_ptr<WritableFile> writer;
+      ASSERT_OK(aenv_->NewWritableFile(fname, &writer, EnvOptions()));
 
-    for (int i = 0; i < 10; i++) {
-      ASSERT_OK(writer->Append(Slice(buffer, sizeof(buffer))));
+      for (int i = 0; i < 10; i++) {
+        ASSERT_OK(writer->Append(Slice(buffer, sizeof(buffer))));
+      }
+      // sync and close file
     }
-    // sync and close file
-  }
 
-  // delete the file manually.
-  ASSERT_OK(base_env_->DeleteFile(fname));
+    // delete the file manually.
+    ASSERT_OK(base_env_->DeleteFile(fname));
 
-  // reopen file for reading. It should be refetched from cloud storage.
-  {
-    unique_ptr<RandomAccessFile> reader;
-    ASSERT_OK(aenv_->NewRandomAccessFile(fname, &reader, EnvOptions()));
+    // reopen file for reading. It should be refetched from cloud storage.
+    {
+      unique_ptr<RandomAccessFile> reader;
+      ASSERT_OK(aenv_->NewRandomAccessFile(fname, &reader, EnvOptions()));
 
-    uint64_t offset = 0;
-    for (int i = 0; i < 10; i++) {
-      Slice result;
-      char* scratch = &buffer[0];
-      ASSERT_OK(reader->Read(offset, sizeof(buffer), &result, scratch));
-      ASSERT_EQ(result.size(), sizeof(buffer));
-      offset += sizeof(buffer);
+      uint64_t offset = 0;
+      for (int i = 0; i < 10; i++) {
+        Slice result;
+        char* scratch = &buffer[0];
+        ASSERT_OK(reader->Read(offset, sizeof(buffer), &result, scratch));
+        ASSERT_EQ(result.size(), sizeof(buffer));
+        offset += sizeof(buffer);
+      }
     }
   }
 }
