@@ -290,6 +290,38 @@ TEST_F(DBFlushTest, ManualFlushFailsInReadOnlyMode) {
   Close();
 }
 
+TEST_F(DBFlushTest, CFDropRaceWithWaitForFlushMemTables) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::FlushMemTable:AfterScheduleFlush",
+        "DBFlushTest::CFDropRaceWithWaitForFlushMemTables:BeforeDrop"},
+       {"DBFlushTest::CFDropRaceWithWaitForFlushMemTables:AfterFree",
+        "DBImpl::BackgroundFlush:BeforeFlush"},
+       {"DBImpl::BackgroundCallFlush:start",
+        "DBImpl::FlushMemTable:BeforeWaitForBgFlush"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_EQ(2, handles_.size());
+  ASSERT_OK(Put(1, "key", "value"));
+  auto* cfd = static_cast<ColumnFamilyHandleImpl*>(handles_[1])->cfd();
+  port::Thread drop_cf_thr([&]() {
+    TEST_SYNC_POINT(
+        "DBFlushTest::CFDropRaceWithWaitForFlushMemTables:BeforeDrop");
+    ASSERT_OK(dbfull()->DropColumnFamily(handles_[1]));
+    ASSERT_OK(dbfull()->DestroyColumnFamilyHandle(handles_[1]));
+    handles_.resize(1);
+    TEST_SYNC_POINT(
+        "DBFlushTest::CFDropRaceWithWaitForFlushMemTables:AfterFree");
+  });
+  FlushOptions flush_opts;
+  flush_opts.allow_write_stall = true;
+  ASSERT_NOK(dbfull()->TEST_FlushMemTable(cfd, flush_opts));
+  drop_cf_thr.join();
+  Close();
+}
+
 TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
   Options options = CurrentOptions();
   options.create_if_missing = true;

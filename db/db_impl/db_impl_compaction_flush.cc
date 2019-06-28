@@ -1599,7 +1599,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       write_thread_.ExitUnbatched(&w);
     }
   }
-
+  TEST_SYNC_POINT("DBImpl::FlushMemTable:AfterScheduleFlush");
+  TEST_SYNC_POINT("DBImpl::FlushMemTable:BeforeWaitForBgFlush");
   if (s.ok() && flush_options.wait) {
     autovector<ColumnFamilyData*> cfds;
     autovector<const uint64_t*> flush_memtable_ids;
@@ -1703,7 +1704,7 @@ Status DBImpl::AtomicFlushMemTables(
     s = WaitForFlushMemTables(cfds, flush_memtable_ids,
                               (flush_reason == FlushReason::kErrorRecovery));
     for (auto* cfd : cfds) {
-      if(cfd->Unref()) {
+      if (cfd->Unref()) {
         // Only one thread can reach here.
         InstrumentedMutexLock lock_guard(&mutex_);
         delete cfd;
