@@ -988,7 +988,6 @@ void BlockCacheTraceAnalyzer::WriteAccessCountSummaryStats(
 
         for (auto const& block_access_info :
              block_type_aggregates.second.block_access_info_map) {
-          total_nblocks += 1;
           uint64_t naccesses = 0;
           for (auto const& caller_access :
                block_access_info.second.caller_num_access_map) {
@@ -997,6 +996,10 @@ void BlockCacheTraceAnalyzer::WriteAccessCountSummaryStats(
               naccesses += caller_access.second;
             }
           }
+          if (naccesses == 0) {
+            continue;
+          }
+          total_nblocks += 1;
           bt_access_nblocks[block_type].upper_bound(naccesses)->second += 1;
           cf_access_nblocks[cf_name].upper_bound(naccesses)->second += 1;
         }
