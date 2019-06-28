@@ -13,8 +13,6 @@
 
 #ifdef USE_AWS
 
-#include <aws/core/utils/threading/Executor.h>
-
 #include "cloud/aws/aws_file.h"
 #include "cloud/aws/aws_kafka.h"
 #include "cloud/aws/aws_kinesis.h"
@@ -127,42 +125,16 @@ detail::JobExecutor* GetJobExecutor() {
   return &executor;
 }
 
-Aws::Utils::Threading::Executor* GetAwsTransferManagerExecutor() {
-  static Aws::Utils::Threading::PooledThreadExecutor executor(8);
-  return &executor;
-}
-
-Aws::String ToAwsString(const std::string& s) {
-  return Aws::String(s.data(), s.size());
-}
-
-template <typename T>
-void SetEncryptionParameters(const CloudEnvOptions& cloud_env_options,
-                             T& put_request) {
-  if (cloud_env_options.server_side_encryption) {
-    if (cloud_env_options.encryption_key_id.empty()) {
-      put_request.SetServerSideEncryption(
-          Aws::S3::Model::ServerSideEncryption::AES256);
-    } else {
-      put_request.SetServerSideEncryption(
-          Aws::S3::Model::ServerSideEncryption::aws_kms);
-      put_request.SetSSEKMSKeyId(cloud_env_options.encryption_key_id.c_str());
-    }
-  }
-}
-
-class CloudRequestCallbackGuard {
+class AwsS3ClientWrapper::Timer {
  public:
-  CloudRequestCallbackGuard(CloudRequestCallback* callback,
-                            CloudRequestOpType type, uint64_t size = 0)
+  Timer(CloudRequestCallback* callback, CloudRequestOpType type,
+        uint64_t size = 0)
       : callback_(callback), type_(type), size_(size), start_(now()) {}
-
-  ~CloudRequestCallbackGuard() {
+  ~Timer() {
     if (callback_) {
       (*callback_)(type_, size_, now() - start_, success_);
     }
   }
-
   void SetSize(uint64_t size) { size_ = size; }
   void SetSuccess(bool success) { success_ = success; }
 
@@ -181,15 +153,14 @@ class CloudRequestCallbackGuard {
 };
 
 AwsS3ClientWrapper::AwsS3ClientWrapper(
-    std::shared_ptr<Aws::S3::S3Client> client,
+    std::unique_ptr<Aws::S3::S3Client> client,
     std::shared_ptr<CloudRequestCallback> cloud_request_callback)
     : client_(std::move(client)),
       cloud_request_callback_(std::move(cloud_request_callback)) {}
 
 Aws::S3::Model::ListObjectsOutcome AwsS3ClientWrapper::ListObjects(
     const Aws::S3::Model::ListObjectsRequest& request) {
-  CloudRequestCallbackGuard t(cloud_request_callback_.get(),
-                              CloudRequestOpType::kListOp);
+  Timer t(cloud_request_callback_.get(), CloudRequestOpType::kListOp);
   auto outcome = client_->ListObjects(request);
   t.SetSuccess(outcome.IsSuccess());
   return outcome;
@@ -197,8 +168,7 @@ Aws::S3::Model::ListObjectsOutcome AwsS3ClientWrapper::ListObjects(
 
 Aws::S3::Model::CreateBucketOutcome AwsS3ClientWrapper::CreateBucket(
     const Aws::S3::Model::CreateBucketRequest& request) {
-  CloudRequestCallbackGuard t(cloud_request_callback_.get(),
-                              CloudRequestOpType::kCreateOp);
+  Timer t(cloud_request_callback_.get(), CloudRequestOpType::kCreateOp);
   return client_->CreateBucket(request);
 }
 
@@ -209,8 +179,7 @@ Aws::S3::Model::HeadBucketOutcome AwsS3ClientWrapper::HeadBucket(
 
 Aws::S3::Model::DeleteObjectOutcome AwsS3ClientWrapper::DeleteObject(
     const Aws::S3::Model::DeleteObjectRequest& request) {
-  CloudRequestCallbackGuard t(cloud_request_callback_.get(),
-                              CloudRequestOpType::kDeleteOp);
+  Timer t(cloud_request_callback_.get(), CloudRequestOpType::kDeleteOp);
   auto outcome = client_->DeleteObject(request);
   t.SetSuccess(outcome.IsSuccess());
   return outcome;
@@ -218,8 +187,7 @@ Aws::S3::Model::DeleteObjectOutcome AwsS3ClientWrapper::DeleteObject(
 
 Aws::S3::Model::CopyObjectOutcome AwsS3ClientWrapper::CopyObject(
     const Aws::S3::Model::CopyObjectRequest& request) {
-  CloudRequestCallbackGuard t(cloud_request_callback_.get(),
-                              CloudRequestOpType::kCopyOp);
+  Timer t(cloud_request_callback_.get(), CloudRequestOpType::kCopyOp);
   auto outcome = client_->CopyObject(request);
   t.SetSuccess(outcome.IsSuccess());
   return outcome;
@@ -227,8 +195,7 @@ Aws::S3::Model::CopyObjectOutcome AwsS3ClientWrapper::CopyObject(
 
 Aws::S3::Model::GetObjectOutcome AwsS3ClientWrapper::GetObject(
     const Aws::S3::Model::GetObjectRequest& request) {
-  CloudRequestCallbackGuard t(cloud_request_callback_.get(),
-                              CloudRequestOpType::kReadOp);
+  Timer t(cloud_request_callback_.get(), CloudRequestOpType::kReadOp);
   auto outcome = client_->GetObject(request);
   if (outcome.IsSuccess()) {
     t.SetSize(outcome.GetResult().GetContentLength());
@@ -239,8 +206,8 @@ Aws::S3::Model::GetObjectOutcome AwsS3ClientWrapper::GetObject(
 
 Aws::S3::Model::PutObjectOutcome AwsS3ClientWrapper::PutObject(
     const Aws::S3::Model::PutObjectRequest& request, uint64_t size_hint) {
-  CloudRequestCallbackGuard t(cloud_request_callback_.get(),
-                              CloudRequestOpType::kWriteOp, size_hint);
+  Timer t(cloud_request_callback_.get(), CloudRequestOpType::kWriteOp,
+          size_hint);
   auto outcome = client_->PutObject(request);
   t.SetSuccess(outcome.IsSuccess());
   return outcome;
@@ -248,8 +215,7 @@ Aws::S3::Model::PutObjectOutcome AwsS3ClientWrapper::PutObject(
 
 Aws::S3::Model::HeadObjectOutcome AwsS3ClientWrapper::HeadObject(
     const Aws::S3::Model::HeadObjectRequest& request) {
-  CloudRequestCallbackGuard t(cloud_request_callback_.get(),
-                              CloudRequestOpType::kInfoOp);
+  Timer t(cloud_request_callback_.get(), CloudRequestOpType::kInfoOp);
   auto outcome = client_->HeadObject(request);
   t.SetSuccess(outcome.IsSuccess());
   return outcome;
@@ -366,23 +332,12 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
       GetBucketLocationConstraintForName(config.region);
 
   {
-    auto s3client = creds ? std::make_shared<Aws::S3::S3Client>(*creds, config)
-                          : std::make_shared<Aws::S3::S3Client>(config);
+    unique_ptr<Aws::S3::S3Client> s3client(
+        creds ? new Aws::S3::S3Client(*creds, config)
+              : new Aws::S3::S3Client(config));
 
     s3client_ = std::make_shared<AwsS3ClientWrapper>(
         std::move(s3client), cloud_env_options.cloud_request_callback);
-  }
-
-  {
-    Aws::Transfer::TransferManagerConfiguration transferManagerConfig(
-        GetAwsTransferManagerExecutor());
-    transferManagerConfig.s3Client = s3client_->GetClient();
-    SetEncryptionParameters(cloud_env_options,
-                            transferManagerConfig.putObjectTemplate);
-    SetEncryptionParameters(
-        cloud_env_options, transferManagerConfig.createMultipartUploadTemplate);
-    awsTransferManager_ =
-        Aws::Transfer::TransferManager::Create(transferManagerConfig);
   }
 
   // create dest bucket if specified
@@ -1505,7 +1460,7 @@ Status AwsEnv::SaveDbid(const std::string& dbid, const std::string& dirname) {
   put_request.SetBucket(bucket);
   put_request.SetKey(key);
   put_request.SetMetadata(metadata);
-  SetEncryptionParameters(cloud_env_options, put_request);
+  SetEncryptionParameters(put_request);
 
   Aws::S3::Model::PutObjectOutcome put_outcome =
       s3client_->PutObject(put_request);
@@ -1689,19 +1644,20 @@ Status AwsEnv::GetObject(const std::string& bucket_name_prefix,
   std::string tmp_destination = local_destination + ".tmp";
   auto s3_bucket = GetAwsBucket(bucket_name_prefix);
 
-  CloudRequestCallbackGuard guard(
-      cloud_env_options.cloud_request_callback.get(),
-      CloudRequestOpType::kReadOp);
+  Aws::S3::Model::GetObjectRequest getObjectRequest;
+  getObjectRequest.SetBucket(s3_bucket);
+  getObjectRequest.SetKey(
+      Aws::String(bucket_object_path.data(), bucket_object_path.size()));
+  getObjectRequest.SetResponseStreamFactory([tmp_destination]() {
+    return Aws::New<Aws::FStream>(Aws::Utils::ARRAY_ALLOCATION_TAG,
+                                  tmp_destination, std::ios_base::out);
+  });
+  auto get_outcome = s3client_->GetObject(getObjectRequest);
 
-  auto transferHandle = awsTransferManager_->DownloadFile(
-          s3_bucket, ToAwsString(bucket_object_path),
-          ToAwsString(tmp_destination));
-
-  transferHandle->WaitUntilFinished();
-
-  if (transferHandle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED) {
+  bool isSuccess = get_outcome.IsSuccess();
+  if (!isSuccess) {
     localenv->DeleteFile(tmp_destination);
-    const auto& error = transferHandle->GetLastError();
+    const auto& error = get_outcome.GetError();
     std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
         "[s3] GetObject %s/%s error %s.", s3_bucket.c_str(),
@@ -1715,23 +1671,21 @@ Status AwsEnv::GetObject(const std::string& bucket_name_prefix,
     return Status::IOError(std::move(errmsg));
   }
 
-  guard.SetSize(transferHandle->GetBytesTotalSize());
-  guard.SetSuccess(true);
-
   // Check if our local file is the same as S3 promised
   uint64_t file_size{0};
   auto s = localenv->GetFileSize(tmp_destination, &file_size);
   if (!s.ok()) {
       return s;
   }
-  if (file_size != transferHandle->GetBytesTotalSize()) {
+  if (static_cast<int64_t>(file_size) !=
+      get_outcome.GetResult().GetContentLength()) {
     localenv->DeleteFile(tmp_destination);
     s = Status::IOError("Partial download of a file " + local_destination);
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
         "[s3] GetObject %s/%s local size %ld != cloud size "
         "%ld. %s",
         s3_bucket.c_str(), bucket_object_path.c_str(), file_size,
-        transferHandle->GetBytesTotalSize(), s.ToString().c_str());
+        get_outcome.GetResult().GetContentLength(), s.ToString().c_str());
   }
 
   if (s.ok()) {
@@ -1761,31 +1715,49 @@ Status AwsEnv::PutObject(const std::string& local_file,
     return Status::IOError(local_file + " Zero size.");
   }
 
-  auto s3_bucket = GetAwsBucket(bucket_name_prefix);
+  auto input_data = Aws::MakeShared<Aws::FStream>(
+      bucket_object_path.c_str(), local_file.c_str(),
+      std::ios_base::in | std::ios_base::out);
 
-  CloudRequestCallbackGuard guard(
-      cloud_env_options.cloud_request_callback.get(),
-      CloudRequestOpType::kWriteOp, fsize);
+  // Copy entire file into S3.
+  // Writes to an S3 object are atomic.
+  Aws::S3::Model::PutObjectRequest put_request;
+  put_request.SetBucket(GetAwsBucket(bucket_name_prefix));
+  put_request.SetKey(
+      Aws::String(bucket_object_path.data(), bucket_object_path.size()));
+  put_request.SetBody(input_data);
+  SetEncryptionParameters(put_request);
 
-  auto transferHandle = awsTransferManager_->UploadFile(
-      ToAwsString(local_file), s3_bucket, ToAwsString(bucket_object_path),
-      Aws::DEFAULT_CONTENT_TYPE, Aws::Map<Aws::String, Aws::String>());
-
-  transferHandle->WaitUntilFinished();
-
-  if (transferHandle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED) {
-    auto error = transferHandle->GetLastError();
+  Aws::S3::Model::PutObjectOutcome put_outcome =
+      s3client_->PutObject(put_request, fsize);
+  bool isSuccess = put_outcome.IsSuccess();
+  if (!isSuccess) {
+    const Aws::Client::AWSError<Aws::S3::S3Errors>& error =
+        put_outcome.GetError();
     std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
     st = Status::IOError(local_file, errmsg);
   }
 
-  guard.SetSuccess(st.ok());
-
   Log(InfoLogLevel::INFO_LEVEL, info_log_,
-      "[s3] PutObject %s/%s, size %zu, status %s", s3_bucket.c_str(),
-      bucket_object_path.c_str(), fsize, st.ToString().c_str());
+      "[s3] PutObject %s/%s, size %zu, status %s",
+      put_request.GetBucket().c_str(), bucket_object_path.c_str(), fsize,
+      st.ToString().c_str());
 
   return st;
+}
+
+void AwsEnv::SetEncryptionParameters(
+    Aws::S3::Model::PutObjectRequest& put_request) const {
+  if (cloud_env_options.server_side_encryption) {
+    if (cloud_env_options.encryption_key_id.empty()) {
+      put_request.SetServerSideEncryption(
+          Aws::S3::Model::ServerSideEncryption::AES256);
+    } else {
+      put_request.SetServerSideEncryption(
+          Aws::S3::Model::ServerSideEncryption::aws_kms);
+      put_request.SetSSEKMSKeyId(cloud_env_options.encryption_key_id.c_str());
+    }
+  }
 }
 
 //

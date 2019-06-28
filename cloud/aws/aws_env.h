@@ -17,7 +17,6 @@
 #include <aws/kinesis/KinesisClient.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/BucketLocationConstraint.h>
-#include <aws/transfer/TransferManager.h>
 
 #include <chrono>
 #include <list>
@@ -31,7 +30,7 @@ class S3ReadableFile;
 class AwsS3ClientWrapper {
  public:
   AwsS3ClientWrapper(
-      std::shared_ptr<Aws::S3::S3Client> client,
+      std::unique_ptr<Aws::S3::S3Client> client,
       std::shared_ptr<CloudRequestCallback> cloud_request_callback);
 
   Aws::S3::Model::ListObjectsOutcome ListObjects(
@@ -58,13 +57,11 @@ class AwsS3ClientWrapper {
   Aws::S3::Model::HeadObjectOutcome HeadObject(
       const Aws::S3::Model::HeadObjectRequest& request);
 
-  const std::shared_ptr<Aws::S3::S3Client>& GetClient() const {
-    return client_;
-  }
-
  private:
-  std::shared_ptr<Aws::S3::S3Client> client_;
+  std::unique_ptr<Aws::S3::S3Client> client_;
   std::shared_ptr<CloudRequestCallback> cloud_request_callback_;
+
+  class Timer;
 };
 
 namespace detail {
@@ -270,9 +267,6 @@ class AwsEnv : public CloudEnvImpl {
   // The S3 client
   std::shared_ptr<AwsS3ClientWrapper> s3client_;
 
-  // AWS's utility to help out with uploading and downloading S3 file
-  std::shared_ptr<Aws::Transfer::TransferManager> awsTransferManager_;
-
   // Configurations for this cloud environent
   const CloudEnvOptions cloud_env_options;
 
@@ -375,6 +369,9 @@ class AwsEnv : public CloudEnvImpl {
   bool dest_equal_src_;
 
   Status status();
+
+  void SetEncryptionParameters(
+      Aws::S3::Model::PutObjectRequest& put_request) const;
 
   // Delete the specified path from S3
   Status DeletePathInS3(const std::string& bucket_prefix,
