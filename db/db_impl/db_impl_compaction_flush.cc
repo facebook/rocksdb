@@ -1689,22 +1689,24 @@ Status DBImpl::AtomicFlushMemTables(
     }
   }
   TEST_SYNC_POINT("DBImpl::AtomicFlushMemTables:AfterScheduleFlush");
-
+  TEST_SYNC_POINT("DBImpl::AtomicFlushMemTables:BeforeWaitForBgFlush");
   if (s.ok() && flush_options.wait) {
     autovector<const uint64_t*> flush_memtable_ids;
     for (auto& iter : flush_req) {
       flush_memtable_ids.push_back(&(iter.second));
     }
+    /*
     for (auto* cfd : cfds) {
       cfd->Ref();
-    }
+    }*/
     s = WaitForFlushMemTables(cfds, flush_memtable_ids,
                               (flush_reason == FlushReason::kErrorRecovery));
+    /*
     for (auto* cfd : cfds) {
       if (cfd->Unref()) {
         delete cfd;
       }
-    }
+    }*/
   }
   return s;
 }
@@ -2166,6 +2168,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
     }
     status = FlushMemTablesToOutputFiles(bg_flush_args, made_progress,
                                          job_context, log_buffer, thread_pri);
+    TEST_SYNC_POINT("DBImpl::BackgroundFlush:BeforeFlush");
     // All the CFDs in the FlushReq must have the same flush reason, so just
     // grab the first one
     *reason = bg_flush_args[0].cfd_->GetFlushReason();
