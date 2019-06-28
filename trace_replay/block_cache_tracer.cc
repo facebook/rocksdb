@@ -233,7 +233,7 @@ Status BlockCacheTracer::StartTrace(
     std::unique_ptr<TraceWriter>&& trace_writer) {
   InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
   if (writer_.load()) {
-    return Status::OK();
+    return Status::Busy();
   }
   trace_options_ = trace_options;
   writer_.store(
