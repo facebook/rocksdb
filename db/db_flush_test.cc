@@ -299,7 +299,7 @@ TEST_F(DBFlushTest, CFDropRaceWithWaitForFlushMemTables) {
       {{"DBImpl::FlushMemTable:AfterScheduleFlush",
         "DBFlushTest::CFDropRaceWithWaitForFlushMemTables:BeforeDrop"},
        {"DBFlushTest::CFDropRaceWithWaitForFlushMemTables:AfterFree",
-        "DBImpl::BackgroundFlush:BeforeFlush"},
+        "DBImpl::BackgroundCallFlush:start"},
        {"DBImpl::BackgroundCallFlush:start",
         "DBImpl::FlushMemTable:BeforeWaitForBgFlush"}});
   SyncPoint::GetInstance()->EnableProcessing();
@@ -591,7 +591,7 @@ TEST_P(DBAtomicFlushTest, CFDropRaceWithWaitForFlushMemTables) {
       {{"DBImpl::AtomicFlushMemTables:AfterScheduleFlush",
         "DBAtomicFlushTest::CFDropRaceWithWaitForFlushMemTables:BeforeDrop"},
        {"DBAtomicFlushTest::CFDropRaceWithWaitForFlushMemTables:AfterFree",
-        "DBImpl::BackgroundFlush:BeforeFlush"},
+        "DBImpl::BackgroundCallFlush:start"},
        {"DBImpl::BackgroundCallFlush:start",
         "DBImpl::AtomicFlushMemTables:BeforeWaitForBgFlush"}});
   SyncPoint::GetInstance()->EnableProcessing();
