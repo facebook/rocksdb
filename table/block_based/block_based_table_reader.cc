@@ -3640,6 +3640,16 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           biter = &first_biter;
           idx_in_batch++;
         } else {
+          IndexValue v = iiter->value();
+          if (!v.first_internal_key.empty() && !skip_filters &&
+              UserComparatorWrapper(rep_->internal_comparator.user_comparator())
+                      .Compare(ExtractUserKey(key),
+                               ExtractUserKey(v.first_internal_key)) < 0) {
+            // The requested key falls between highest key in previous block and
+            // lowest key in current block.
+            break;
+          }
+
           next_biter.Invalidate(Status::OK());
           NewDataBlockIterator<DataBlockIter>(
               read_options, iiter->value().handle, &next_biter,
@@ -3732,16 +3742,6 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         }
         first_block = false;
         iiter->Next();
-
-        IndexValue v = iiter->value();
-        if (!v.first_internal_key.empty() && !skip_filters &&
-            UserComparatorWrapper(rep_->internal_comparator.user_comparator())
-                    .Compare(ExtractUserKey(key),
-                             ExtractUserKey(v.first_internal_key)) < 0) {
-          // The requested key falls between highest key in previous block and
-          // lowest key in current block.
-          break;
-        }
       } while (iiter->Valid());
 
       if (matched && filter != nullptr && !filter->IsBlockBased()) {

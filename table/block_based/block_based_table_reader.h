@@ -235,10 +235,9 @@ class BlockBasedTable : public TableReader {
 
   // input_iter: if it is not null, update this one and return it as Iterator
   template <typename TBlockIter>
-  TBlockIter* NewDataBlockIterator(
-      const ReadOptions& ro, CachableEntry<Block>& block,
-      TBlockIter* input_iter, bool key_includes_seq, bool index_key_is_full,
-      Status s) const;
+  TBlockIter* NewDataBlockIterator(const ReadOptions& ro,
+                                   CachableEntry<Block>& block,
+                                   TBlockIter* input_iter, Status s) const;
 
   class PartitionedIndexIteratorState;
 
