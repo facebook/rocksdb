@@ -720,7 +720,7 @@ void BlockCacheTraceAnalyzer::WriteReuseLifetime(
 }
 
 void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
-    uint64_t reuse_window, bool user_access_only) const {
+    uint64_t reuse_window, bool user_access_only, TraceType block_type) const {
   // A map from block key to an array of bools that states whether a block is
   // accessed in a time window.
   std::map<std::string, std::vector<bool>> block_accessed;
@@ -736,6 +736,9 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
     for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
       for (auto const& block_type_aggregates :
            file_aggregates.second.block_type_aggregates_map) {
+        if (block_type_aggregates.first != block_type) {
+          continue;
+        }
         for (auto const& block_access_info :
              block_type_aggregates.second.block_access_info_map) {
           const std::string& block_key = block_access_info.first;
@@ -784,10 +787,11 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
     }
   }
   const std::string user_access_prefix =
-      user_access_only ? "user_access_only_" : "all_access_";
-  const std::string output_path = output_dir_ + "/" + user_access_prefix +
-                                  std::to_string(reuse_window) +
-                                  "_reuse_blocks_timeline";
+      user_access_only ? "_user_access_only_" : "_all_access_";
+  const std::string output_path =
+      output_dir_ + "/" + block_type_to_string(block_type) +
+      user_access_prefix + std::to_string(reuse_window) +
+      "_reuse_blocks_timeline";
   std::ofstream out(output_path);
   if (!out.is_open()) {
     return;
@@ -1819,10 +1823,17 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
   }
 
   if (FLAGS_analyze_blocks_reuse_k_reuse_window != 0) {
-    analyzer.WriteBlockReuseTimeline(FLAGS_analyze_blocks_reuse_k_reuse_window,
-                                     /*user_access_only=*/true);
-    analyzer.WriteBlockReuseTimeline(FLAGS_analyze_blocks_reuse_k_reuse_window,
-                                     /*user_access_only=*/false);
+    std::vector<TraceType> block_types{TraceType::kBlockTraceIndexBlock,
+                                       TraceType::kBlockTraceDataBlock,
+                                       TraceType::kBlockTraceFilterBlock};
+    for (auto block_type : block_types) {
+      analyzer.WriteBlockReuseTimeline(
+          FLAGS_analyze_blocks_reuse_k_reuse_window,
+          /*user_access_only=*/true, block_type);
+      analyzer.WriteBlockReuseTimeline(
+          FLAGS_analyze_blocks_reuse_k_reuse_window,
+          /*user_access_only=*/false, block_type);
+    }
   }
   return 0;
 }

@@ -442,13 +442,16 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
       ASSERT_EQ(1, ncfs);
       ASSERT_OK(env_->DeleteFile(cf_access_count_summary));
     }
-    {
+    std::vector<std::string> block_types{"Index", "Data", "Filter"};
+    for (auto block_type : block_types) {
       // Validate reuse block timeline.
-      const std::string reuse_blocks_timeline =
-          test_path_ + "/" + access_type + "5_reuse_blocks_timeline";
+      const std::string reuse_blocks_timeline = test_path_ + "/" + block_type +
+                                                "_" + access_type +
+                                                "5_reuse_blocks_timeline";
       std::ifstream infile(reuse_blocks_timeline);
       std::string line;
       ASSERT_TRUE(getline(infile, line));
+      uint32_t index = 0;
       while (getline(infile, line)) {
         std::stringstream timeline(line);
         bool start_time = false;
@@ -462,7 +465,8 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
           }
           sum += ParseDouble(value);
         }
-        ASSERT_EQ(100.0, sum);
+        index++;
+        ASSERT_LT(sum, 100.0 * index + 1) << reuse_blocks_timeline;
       }
       ASSERT_OK(env_->DeleteFile(reuse_blocks_timeline));
     }

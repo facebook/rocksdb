@@ -210,11 +210,11 @@ class BlockCacheTraceAnalyzer {
 
   // Write the reuse timeline into a csv file saved in 'output_dir'.
   //
-  // The file is named "user_access_only_reuse_window_reuse_timeline".
-  // The file format is start_time,0,1,...,N where N equals trace_duration /
-  // reuse_window.
-  void WriteBlockReuseTimeline(uint64_t reuse_window,
-                               bool user_access_only) const;
+  // The file is named
+  // "block_type_user_access_only_reuse_window_reuse_timeline". The file format
+  // is start_time,0,1,...,N where N equals trace_duration / reuse_window.
+  void WriteBlockReuseTimeline(uint64_t reuse_window, bool user_access_only,
+                               TraceType block_type) const;
 
   const std::map<std::string, ColumnFamilyAccessInfoAggregate>&
   TEST_cf_aggregates_map() const {
