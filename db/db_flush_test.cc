@@ -555,22 +555,34 @@ TEST_P(DBAtomicFlushTest, CFDropRaceWithWaitForFlushMemTables) {
   options.atomic_flush = atomic_flush;
   CreateAndReopenWithCF({"pikachu"}, options);
   SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->LoadDependency({
-      {"DBImpl::AtomicFlushMemTables:AfterScheduleFlush", "DBAtomicFlushTest::CFDropRaceWithWaitForFlushMemTables:BeforeDrop"},
-      {"DBAtomicFlushTest::CFDropRaceWithWaitForFlushMemTables:AfterFree", "DBImpl::BackgroundFlush:BeforeFlush"},
-      {"DBImpl::BackgroundCallFlush:start", "DBImpl::AtomicFlushMemTables:BeforeWaitForBgFlush"}});
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::AtomicFlushMemTables:AfterScheduleFlush",
+        "DBAtomicFlushTest::CFDropRaceWithWaitForFlushMemTables:BeforeDrop"},
+       {"DBAtomicFlushTest::CFDropRaceWithWaitForFlushMemTables:AfterFree",
+        "DBImpl::BackgroundFlush:BeforeFlush"},
+       {"DBImpl::BackgroundCallFlush:start",
+        "DBImpl::AtomicFlushMemTables:BeforeWaitForBgFlush"}});
   SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_EQ(2, handles_.size());
   ASSERT_OK(Put(0, "key", "value"));
   ASSERT_OK(Put(1, "key", "value"));
-  FlushOptions flush_opts;
+  auto* cfd_default =
+      static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily())
+          ->cfd();
+  auto* cfd_pikachu = static_cast<ColumnFamilyHandleImpl*>(handles_[1])->cfd();
   port::Thread drop_cf_thr([&]() {
-        TEST_SYNC_POINT("DBAtomicFlushTest::CFDropRaceWithWaitForFlushMemTables:BeforeDrop");
-        ASSERT_OK(dbfull()->DropColumnFamily(handles_[1]));
-        delete handles_[1];
-        TEST_SYNC_POINT("DBAtomicFlushTest::CFDropRaceWithWaitForFlushMemTables:AfterFree");
-      });
-  ASSERT_OK(dbfull()->Flush(flush_opts, {handles_[0], handles_[1]}));
+    TEST_SYNC_POINT(
+        "DBAtomicFlushTest::CFDropRaceWithWaitForFlushMemTables:BeforeDrop");
+    ASSERT_OK(dbfull()->DropColumnFamily(handles_[1]));
+    delete handles_[1];
+    handles_.resize(1);
+    TEST_SYNC_POINT(
+        "DBAtomicFlushTest::CFDropRaceWithWaitForFlushMemTables:AfterFree");
+  });
+  FlushOptions flush_opts;
+  flush_opts.allow_write_stall = true;
+  ASSERT_OK(dbfull()->TEST_AtomicFlushMemTables({cfd_default, cfd_pikachu},
+                                                flush_opts));
   drop_cf_thr.join();
   Close();
 }

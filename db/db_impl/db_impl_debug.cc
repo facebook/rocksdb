@@ -122,6 +122,11 @@ Status DBImpl::TEST_FlushMemTable(bool wait, bool allow_write_stall,
   return FlushMemTable(cfd, fo, FlushReason::kTest);
 }
 
+Status DBImpl::TEST_AtomicFlushMemTables(
+    const autovector<ColumnFamilyData*>& cfds, const FlushOptions& flush_opts) {
+  return AtomicFlushMemTables(cfds, flush_opts, FlushReason::kTest);
+}
+
 Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
   ColumnFamilyData* cfd;
   if (column_family == nullptr) {

@@ -1613,6 +1613,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                               (flush_reason == FlushReason::kErrorRecovery));
     for (auto* tmp_cfd : cfds) {
       if (tmp_cfd->Unref()) {
+        // Only one thread can reach here.
+        InstrumentedMutexLock lock_guard(&mutex_);
         delete tmp_cfd;
       }
     }
@@ -1695,18 +1697,18 @@ Status DBImpl::AtomicFlushMemTables(
     for (auto& iter : flush_req) {
       flush_memtable_ids.push_back(&(iter.second));
     }
-    /*
     for (auto* cfd : cfds) {
       cfd->Ref();
-    }*/
+    }
     s = WaitForFlushMemTables(cfds, flush_memtable_ids,
                               (flush_reason == FlushReason::kErrorRecovery));
-    /*
     for (auto* cfd : cfds) {
-      if (cfd->Unref()) {
+      if(cfd->Unref()) {
+        // Only one thread can reach here.
+        InstrumentedMutexLock lock_guard(&mutex_);
         delete cfd;
       }
-    }*/
+    }
   }
   return s;
 }

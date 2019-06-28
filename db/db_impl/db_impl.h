@@ -788,6 +788,9 @@ class DBImpl : public DB {
   Status TEST_FlushMemTable(bool wait = true, bool allow_write_stall = false,
                             ColumnFamilyHandle* cfh = nullptr);
 
+  Status TEST_AtomicFlushMemTables(const autovector<ColumnFamilyData*>& cfds,
+                                   const FlushOptions& flush_opts);
+
   // Wait for memtable compaction
   Status TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family = nullptr);
 
