@@ -54,11 +54,13 @@ Status BlockCacheTraceSimulator::InitializeCaches() {
       if (config.cache_name == "lru") {
         sim_cache = std::make_shared<CacheSimulator>(NewSimCache(
             NewLRUCache(simulate_cache_capacity, config.num_shard_bits,
+                        /*strict_capacity_limit=*/false,
                         /*high_pri_pool_ratio=*/0),
             /*real_cache=*/nullptr, config.num_shard_bits));
       } else if (config.cache_name == "lru_priority") {
         sim_cache = std::make_shared<PrioritizedCacheSimulator>(NewSimCache(
             NewLRUCache(simulate_cache_capacity, config.num_shard_bits,
+                        /*strict_capacity_limit=*/false,
                         /*high_pri_pool_ratio=*/0.5),
             /*real_cache=*/nullptr, config.num_shard_bits));
       } else {
