@@ -1591,6 +1591,16 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         ColumnFamilyData* loop_cfd = elem.first;
         loop_cfd->imm()->FlushRequested();
       }
+      // If the caller wants to wait for this flush to complete, it indicates
+      // that the caller expects the ColumnFamilyData not to be free'ed by
+      // other threads which may drop the column family concurrently.
+      // Therefore, we increase the cfd's ref count.
+      if (flush_options.wait) {
+        for (auto& elem : flush_req) {
+          ColumnFamilyData* loop_cfd = elem.first;
+          loop_cfd->Ref();
+        }
+      }
       SchedulePendingFlush(flush_req, flush_reason);
       MaybeScheduleFlushOrCompaction();
     }
@@ -1605,9 +1615,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     autovector<ColumnFamilyData*> cfds;
     autovector<const uint64_t*> flush_memtable_ids;
     for (auto& iter : flush_req) {
-      ColumnFamilyData* tmp_cfd = iter.first;
-      tmp_cfd->Ref();
-      cfds.push_back(tmp_cfd);
+      cfds.push_back(iter.first);
       flush_memtable_ids.push_back(&(iter.second));
     }
     s = WaitForFlushMemTables(cfds, flush_memtable_ids,
@@ -1682,6 +1690,15 @@ Status DBImpl::AtomicFlushMemTables(
       for (auto cfd : cfds) {
         cfd->imm()->FlushRequested();
       }
+      // If the caller wants to wait for this flush to complete, it indicates
+      // that the caller expects the ColumnFamilyData not to be free'ed by
+      // other threads which may drop the column family concurrently.
+      // Therefore, we increase the cfd's ref count.
+      if (flush_options.wait) {
+        for (auto cfd : cfds) {
+          cfd->Ref();
+        }
+      }
       GenerateFlushRequest(cfds, &flush_req);
       SchedulePendingFlush(flush_req, flush_reason);
       MaybeScheduleFlushOrCompaction();
@@ -1697,9 +1714,6 @@ Status DBImpl::AtomicFlushMemTables(
     autovector<const uint64_t*> flush_memtable_ids;
     for (auto& iter : flush_req) {
       flush_memtable_ids.push_back(&(iter.second));
-    }
-    for (auto* cfd : cfds) {
-      cfd->Ref();
     }
     s = WaitForFlushMemTables(cfds, flush_memtable_ids,
                               (flush_reason == FlushReason::kErrorRecovery));
