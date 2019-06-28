@@ -1967,7 +1967,8 @@ CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     }
   }
 
-  if (block_cache_tracer_ && lookup_context) {
+  if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled() &&
+      lookup_context) {
     // Avoid making copy of block_key and cf_name when constructing the access
     // record.
     BlockCacheTraceRecord access_record(
@@ -2048,7 +2049,8 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
       }
     }
   }
-  if (block_cache_tracer_ && lookup_context) {
+  if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled() &&
+      lookup_context) {
     // Avoid making copy of block_key and cf_name when constructing the access
     // record.
     BlockCacheTraceRecord access_record(
@@ -2273,7 +2275,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
   }
 
   // Fill lookup_context.
-  if (block_cache_tracer_ && lookup_context) {
+  if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled() &&
+      lookup_context) {
     size_t usage = 0;
     uint64_t nkeys = 0;
     if (block_entry->GetValue()) {
@@ -2623,12 +2626,11 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekImpl(
   CheckOutOfBound();
 
   if (target) {
-    assert(
-        !Valid() ||
-        ((block_type_ == BlockType::kIndex &&
-          !table_->get_rep()->index_key_includes_seq)
-             ? (user_comparator_.Compare(ExtractUserKey(*target), key()) <= 0)
-             : (icomp_.Compare(*target, key()) <= 0)));
+    assert(!Valid() || ((block_type_ == BlockType::kIndex &&
+                         !table_->get_rep()->index_key_includes_seq)
+                            ? (user_comparator_.Compare(ExtractUserKey(*target),
+                                                        key()) <= 0)
+                            : (icomp_.Compare(*target, key()) <= 0)));
   }
 }
 
@@ -2951,8 +2953,8 @@ InternalIterator* BlockBasedTable::NewIterator(
             /*input_iter=*/nullptr, /*get_context=*/nullptr, &lookup_context),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        need_upper_bound_check, prefix_extractor, BlockType::kData,
-        caller, compaction_readahead_size);
+        need_upper_bound_check, prefix_extractor, BlockType::kData, caller,
+        compaction_readahead_size);
   } else {
     auto* mem =
         arena->AllocateAligned(sizeof(BlockBasedTableIterator<DataBlockIter>));
@@ -2963,8 +2965,8 @@ InternalIterator* BlockBasedTable::NewIterator(
                          &lookup_context),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        need_upper_bound_check, prefix_extractor, BlockType::kData,
-        caller, compaction_readahead_size);
+        need_upper_bound_check, prefix_extractor, BlockType::kData, caller,
+        compaction_readahead_size);
   }
 }
 
@@ -3122,8 +3124,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       DataBlockIter biter;
       uint64_t referenced_data_size = 0;
       NewDataBlockIterator<DataBlockIter>(
-          read_options, v.handle, &biter, BlockType::kData,
-          get_context, &lookup_data_block_context,
+          read_options, v.handle, &biter, BlockType::kData, get_context,
+          &lookup_data_block_context,
           /*s=*/Status(), /*prefetch_buffer*/ nullptr);
 
       if (no_io && biter.status().IsIncomplete()) {
@@ -3167,7 +3169,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         s = biter.status();
       }
       // Write the block cache access record.
-      if (block_cache_tracer_) {
+      if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {
         // Avoid making copy of block_key, cf_name, and referenced_key when
         // constructing the access record.
         BlockCacheTraceRecord access_record(
@@ -3275,8 +3277,8 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           offset = iiter->value().handle.offset();
           biter.Invalidate(Status::OK());
           NewDataBlockIterator<DataBlockIter>(
-              read_options, v.handle, &biter, BlockType::kData,
-              get_context, &lookup_data_block_context, Status(), nullptr);
+              read_options, v.handle, &biter, BlockType::kData, get_context,
+              &lookup_data_block_context, Status(), nullptr);
           reusing_block = false;
         }
 
@@ -3334,7 +3336,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           s = biter.status();
         }
         // Write the block cache access.
-        if (block_cache_tracer_) {
+        if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {
           // Avoid making copy of block_key, cf_name, and referenced_key when
           // constructing the access record.
           BlockCacheTraceRecord access_record(

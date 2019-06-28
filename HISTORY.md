@@ -1,5 +1,9 @@
 # Rocksdb Change Log
 ## Unreleased
+### Default Option Change
+* LRUCacheOptions.high_pri_pool_ratio is set to 0.5 (previously 0.0) by default, which means that by default midpoint insertion is enabled. The same change is made for the default value of high_pri_pool_ratio argument in NewLRUCache(). When block cache is not explictly created, the small block cache created by BlockBasedTable will still has this option to be 0.0.
+* Change BlockBasedTableOptions.cache_index_and_filter_blocks_with_high_priority's default value from false to true.
+
 ### Public API Change
 * Now DB::Close() will return Aborted() error when there is unreleased snapshot. Users can retry after all snapshots are released.
 * Partitions of partitioned indexes no longer affect the read amplification statistics.
@@ -8,6 +12,7 @@
 * Add initial support for Get/Put with user timestamps. Users can specify timestamps via ReadOptions and WriteOptions when calling DB::Get and DB::Put.
 * Accessing a partition of a partitioned filter or index through a pinned reference is no longer considered a cache hit.
 * The semantics of the per-block-type block read counts in the performance context now match those of the generic block_read_count.
+* Add C bindings for secondary instance, i.e. DBImplSecondary.
 
 ### New Features
 * Add an option `snap_refresh_nanos` (default to 0.1s) to periodically refresh the snapshot list in compaction jobs. Assign to 0 to disable the feature.
