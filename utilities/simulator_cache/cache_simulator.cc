@@ -14,13 +14,13 @@ void CacheSimulator::Access(const BlockCacheTraceRecord& access) {
 
 void PrioritizedCacheSimulator::Access(const BlockCacheTraceRecord& access) {
   auto handle = sim_cache_->Lookup(access.block_key);
-  Cache::Priority priority = Cache::Priority::LOW;
-  if (access.block_type == TraceType::kBlockTraceFilterBlock ||
-      access.block_type == TraceType::kBlockTraceIndexBlock ||
-      access.block_type == TraceType::kBlockTraceUncompressionDictBlock) {
-    priority = Cache::Priority::HIGH;
-  }
   if (handle == nullptr && !access.no_insert) {
+    Cache::Priority priority = Cache::Priority::LOW;
+    if (access.block_type == TraceType::kBlockTraceFilterBlock ||
+        access.block_type == TraceType::kBlockTraceIndexBlock ||
+        access.block_type == TraceType::kBlockTraceUncompressionDictBlock) {
+      priority = Cache::Priority::HIGH;
+    }
     sim_cache_->Insert(access.block_key, /*value=*/nullptr, access.block_size,
                        /*deleter=*/nullptr, /*handle=*/nullptr, priority);
   }
