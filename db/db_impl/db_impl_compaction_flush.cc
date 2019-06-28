@@ -1576,7 +1576,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
           }
           if (stats_cf_flush_needed) {
             ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                           "Force flushing stats CF to avoid holding old logs");
+                           "Force flushing stats CF with manual flush of %s "
+                           "to avoid holding old logs", cfd->GetName().c_str());
             s = SwitchMemtable(cfd_stats, &context);
             flush_memtable_id = cfd_stats->imm()->GetLatestMemTableID();
             flush_req.emplace_back(cfd_stats, flush_memtable_id);

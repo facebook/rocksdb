@@ -1228,6 +1228,7 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
         cfds.push_back(cfd);
       }
     }
+    MaybeFlushStatsCF(&cfds);
   }
   for (const auto cfd : cfds) {
     cfd->Ref();
@@ -1294,6 +1295,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     if (cfd_picked != nullptr) {
       cfds.push_back(cfd_picked);
     }
+    MaybeFlushStatsCF(&cfds);
   }
 
   for (const auto cfd : cfds) {
@@ -1437,6 +1439,28 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
   return Status::OK();
 }
 
+void DBImpl::MaybeFlushStatsCF(autovector<ColumnFamilyData*>* cfds) {
+  if (!cfds->empty() && immutable_db_options_.persist_stats_to_disk) {
+    bool contains_stats_cf = false;
+    ColumnFamilyData* cfd_stats =
+        versions_->GetColumnFamilySet()->GetColumnFamily(
+            kPersistentStatsColumnFamilyName);
+    if (cfd_stats != nullptr && !cfd_stats->mem()->IsEmpty()) {
+      for (auto cfd : *cfds) {
+        if (cfd == cfd_stats) {
+          contains_stats_cf = true;
+        }
+      }
+      if (!contains_stats_cf) {
+        cfds->push_back(cfd_stats);
+        ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                       "Force flushing stats CF with automated flush "
+                       "to avoid holding old logs");
+      }
+    }
+  }
+}
+
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
   autovector<ColumnFamilyData*> cfds;
   if (immutable_db_options_.atomic_flush) {
@@ -1450,18 +1474,7 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
     while ((tmp_cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
       cfds.push_back(tmp_cfd);
     }
-    if (!cfds.empty() && immutable_db_options_.persist_stats_to_disk) {
-      bool contains_stats_cf = false;
-      for (auto cfd : cfds) {
-        if (cfd->GetName().compare(kPersistentStatsColumnFamilyName) == 0) {
-          contains_stats_cf = true;
-        }
-      }
-      if (!contains_stats_cf) {
-        cfds.push_back(versions_->GetColumnFamilySet()->GetColumnFamily(
-            kPersistentStatsColumnFamilyName));
-      }
-    }
+    MaybeFlushStatsCF(&cfds);
   }
   Status status;
   for (auto& cfd : cfds) {
