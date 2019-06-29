@@ -1440,18 +1440,27 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
 }
 
 void DBImpl::MaybeFlushStatsCF(autovector<ColumnFamilyData*>* cfds) {
+  assert(cfds != nullptr);
   if (!cfds->empty() && immutable_db_options_.persist_stats_to_disk) {
-    bool contains_stats_cf = false;
     ColumnFamilyData* cfd_stats =
         versions_->GetColumnFamilySet()->GetColumnFamily(
             kPersistentStatsColumnFamilyName);
     if (cfd_stats != nullptr && !cfd_stats->mem()->IsEmpty()) {
-      for (auto cfd : *cfds) {
-        if (cfd == cfd_stats) {
-          contains_stats_cf = true;
+      bool stats_cf_flush_needed = true;
+      for (auto* loop_cfd : *versions_->GetColumnFamilySet()) {
+        if (loop_cfd == cfd_stats) {
+          continue;
+        }
+        if (loop_cfd->GetLogNumber() <= cfd_stats->GetLogNumber()) {
+          stats_cf_flush_needed = false;
         }
       }
-      if (!contains_stats_cf) {
+      for (ColumnFamilyData* cfd : *cfds) {
+        if (cfd == cfd_stats) {
+          stats_cf_flush_needed = false;
+        }
+      }
+      if (stats_cf_flush_needed) {
         cfds->push_back(cfd_stats);
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "Force flushing stats CF with automated flush "
