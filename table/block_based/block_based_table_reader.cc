@@ -3549,7 +3549,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         const Slice& key = miter->ikey;
         iiter->Seek(miter->ikey);
 
-        IndexValue v = iiter->value();
+        IndexValue v;
+        if (iiter->Valid()) {
+          v = iiter->value();
+        }
         if (!iiter->Valid() ||
             (!v.first_internal_key.empty() && !skip_filters &&
             UserComparatorWrapper(rep_->internal_comparator.user_comparator())
