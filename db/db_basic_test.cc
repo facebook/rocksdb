@@ -1314,7 +1314,8 @@ class DBBasicTestWithParallelIO
     table_options.pin_l0_filter_and_index_blocks_in_cache = true;
     table_options.block_cache = uncompressed_cache_;
     table_options.block_cache_compressed = compressed_cache_;
-    table_options.flush_block_policy_factory.reset(new MyFlushBlockPolicyFactory());
+    table_options.flush_block_policy_factory.reset(
+                      new MyFlushBlockPolicyFactory());
     options.table_factory.reset(new BlockBasedTableFactory(table_options));
     if (!compression_enabled_) {
       options.compression = kNoCompression;
@@ -1363,11 +1364,13 @@ class DBBasicTestWithParallelIO
    public:
     MyFlushBlockPolicyFactory() {}
 
-    virtual const char* Name() const { return "MyFlushBlockPolicyFactory"; }
+    virtual const char* Name() const override {
+      return "MyFlushBlockPolicyFactory";
+    }
 
     virtual FlushBlockPolicy* NewFlushBlockPolicy(
         const BlockBasedTableOptions& /*table_options*/,
-        const BlockBuilder& data_block_builder) const {
+        const BlockBuilder& data_block_builder) const override {
       return new MyFlushBlockPolicy(data_block_builder);
     }
   };
@@ -1375,7 +1378,7 @@ class DBBasicTestWithParallelIO
   class MyFlushBlockPolicy
     : public FlushBlockPolicy {
    public:
-    MyFlushBlockPolicy(const BlockBuilder& data_block_builder)
+    explicit MyFlushBlockPolicy(const BlockBuilder& data_block_builder)
       : num_keys_(0), data_block_builder_(data_block_builder) {}
 
     bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
@@ -1401,20 +1404,21 @@ class DBBasicTestWithParallelIO
   class MyBlockCache
     : public Cache {
    public:
-    MyBlockCache(std::shared_ptr<Cache>& target)
+    explicit MyBlockCache(std::shared_ptr<Cache>& target)
       : target_(target), num_lookups_(0), num_found_(0), num_inserts_(0) {}
 
-    virtual const char* Name() const { return "MyBlockCache"; }
+    virtual const char* Name() const override { return "MyBlockCache"; }
 
     virtual Status Insert(const Slice& key, void* value, size_t charge,
                           void (*deleter)(const Slice& key, void* value),
                           Handle** handle = nullptr,
-                          Priority priority = Priority::LOW) {
+                          Priority priority = Priority::LOW) override {
       num_inserts_++;
       return target_->Insert(key, value, charge, deleter, handle, priority);
     }
 
-    virtual Handle* Lookup(const Slice& key, Statistics* stats = nullptr) {
+    virtual Handle* Lookup(const Slice& key,
+                           Statistics* stats = nullptr) override {
       num_lookups_++;
       Handle* handle = target_->Lookup(key, stats);
       if (handle != nullptr) {
@@ -1423,61 +1427,63 @@ class DBBasicTestWithParallelIO
       return handle;
     }
 
-    virtual bool Ref(Handle* handle) {
+    virtual bool Ref(Handle* handle) override {
       return target_->Ref(handle);
     }
 
-    virtual bool Release(Handle* handle, bool force_erase = false) {
+    virtual bool Release(Handle* handle, bool force_erase = false) override {
       return target_->Release(handle, force_erase);
     }
 
-    virtual void* Value(Handle* handle) {
+    virtual void* Value(Handle* handle) override {
       return target_->Value(handle);
     }
 
-    virtual void Erase(const Slice& key) {
+    virtual void Erase(const Slice& key) override {
       target_->Erase(key);
     }
-    virtual uint64_t NewId() {
+    virtual uint64_t NewId() override {
       return target_->NewId();
     }
 
-    virtual void SetCapacity(size_t capacity) {
+    virtual void SetCapacity(size_t capacity) override {
       target_->SetCapacity(capacity);
     }
 
-    virtual void SetStrictCapacityLimit(bool strict_capacity_limit) {
+    virtual void SetStrictCapacityLimit(bool strict_capacity_limit) override {
       target_->SetStrictCapacityLimit(strict_capacity_limit);
     }
 
-    virtual bool HasStrictCapacityLimit() const {
+    virtual bool HasStrictCapacityLimit() const override {
       return target_->HasStrictCapacityLimit();
     }
 
-    virtual size_t GetCapacity() const {
+    virtual size_t GetCapacity() const override {
       return target_->GetCapacity();
     }
 
-    virtual size_t GetUsage() const {
+    virtual size_t GetUsage() const override {
       return target_->GetUsage();
     }
 
-    virtual size_t GetUsage(Handle* handle) const {
+    virtual size_t GetUsage(Handle* handle) const override {
       return target_->GetUsage(handle);
     }
 
-    virtual size_t GetPinnedUsage() const {
+    virtual size_t GetPinnedUsage() const override {
       return target_->GetPinnedUsage();
     }
 
-    virtual size_t GetCharge(Handle* /*handle*/) const { return 0; }
+    virtual size_t GetCharge(Handle* /*handle*/) const override { return 0; }
 
     virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                                        bool thread_safe) {
+                                        bool thread_safe) override {
       return target_->ApplyToAllCacheEntries(callback, thread_safe);
     }
 
-    virtual void EraseUnRefEntries() {return target_->EraseUnRefEntries(); }
+    virtual void EraseUnRefEntries() override {
+      return target_->EraseUnRefEntries();
+    }
 
     int num_lookups() { return num_lookups_; }
 

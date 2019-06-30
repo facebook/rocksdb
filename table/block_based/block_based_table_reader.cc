@@ -3681,7 +3681,6 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           // the end of the block, i.e. cannot be in the following blocks
           // either. In this case, the seek_key cannot be found, so we break
           // from the top level for-loop.
-          done = true;
           break;
         }
 
