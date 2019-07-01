@@ -160,6 +160,8 @@ class RandomAccessFileReader {
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
 
+  Status MultiRead(ReadRequest* reqs, size_t num_reqs) const;
+
   Status Prefetch(uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n);
   }

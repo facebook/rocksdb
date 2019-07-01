@@ -192,6 +192,49 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
   return s;
 }
 
+Status RandomAccessFileReader::MultiRead(ReadRequest* read_reqs,
+                                         size_t num_reqs) const {
+  Status s;
+  uint64_t elapsed = 0;
+  assert(!use_direct_io());
+  assert(!for_compaction_);
+  {
+    StopWatch sw(env_, stats_, hist_type_,
+                 (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
+                true /*delay_enabled*/);
+    auto prev_perf_level = GetPerfLevel();
+    IOSTATS_TIMER_GUARD(read_nanos);
+
+#ifndef ROCKSDB_LITE
+      FileOperationInfo::TimePoint start_ts;
+      if (ShouldNotifyListeners()) {
+        start_ts = std::chrono::system_clock::now();
+      }
+#endif // ROCKSDB_LITE
+      {
+        IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
+        s = file_->MultiRead(read_reqs, num_reqs);
+      }
+      for (size_t i = 0; i < num_reqs; ++i) {
+#ifndef ROCKSDB_LITE
+        if (ShouldNotifyListeners()) {
+          auto finish_ts = std::chrono::system_clock::now();
+            NotifyOnFileReadFinish(read_reqs[i].offset,
+                read_reqs[i].result.size(), start_ts, finish_ts,
+                read_reqs[i].status);
+        }
+#endif // ROCKSDB_LITE
+        IOSTATS_ADD_IF_POSITIVE(bytes_read, read_reqs[i].result.size());
+      }
+    SetPerfLevel(prev_perf_level);
+  }
+  if (stats_ != nullptr && file_read_hist_ != nullptr) {
+    file_read_hist_->Add(elapsed);
+  }
+
+  return s;
+}
+
 Status WritableFileWriter::Append(const Slice& data) {
   const char* src = data.data();
   size_t left = data.size();
