@@ -10,6 +10,7 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
+#include "table/block_based/block_builder.h"
 #include "test_util/fault_injection_test_env.h"
 #if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
@@ -1284,6 +1285,294 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
     }
   }
 }
+
+class DBBasicTestWithParallelIO
+    : public DBTestBase,
+      public testing::WithParamInterface<std::tuple<bool,bool,bool,bool>> {
+ public:
+  DBBasicTestWithParallelIO()
+      : DBTestBase("/db_basic_test_with_parallel_io") {
+    bool compressed_cache = std::get<0>(GetParam());
+    bool uncompressed_cache = std::get<1>(GetParam());
+    compression_enabled_ = std::get<2>(GetParam());
+    fill_cache_ = std::get<3>(GetParam());
+
+    if (compressed_cache) {
+      std::shared_ptr<Cache> cache = NewLRUCache(1048576);
+      compressed_cache_ = std::make_shared<MyBlockCache>(cache);
+    }
+    if (uncompressed_cache) {
+      std::shared_ptr<Cache> cache = NewLRUCache(1048576);
+      uncompressed_cache_ = std::make_shared<MyBlockCache>(cache);
+    }
+
+    env_->count_random_reads_ = true;
+
+    Options options = CurrentOptions();
+    Random rnd(301);
+    BlockBasedTableOptions table_options;
+    table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+    table_options.block_cache = uncompressed_cache_;
+    table_options.block_cache_compressed = compressed_cache_;
+    table_options.flush_block_policy_factory.reset(
+                      new MyFlushBlockPolicyFactory());
+    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    if (!compression_enabled_) {
+      options.compression = kNoCompression;
+    }
+    Reopen(options);
+
+    std::string zero_str(128, '\0');
+    for (int i = 0; i < 100; ++i) {
+      // Make the value compressible. A purely random string doesn't compress
+      // and the resultant data block will not be compressed
+      values_.emplace_back(RandomString(&rnd, 128) + zero_str);
+      assert(Put(Key(i), values_[i]) == Status::OK());
+    }
+    Flush();
+  }
+
+  bool CheckValue(int i, const std::string& value) {
+    if (values_[i].compare(value) == 0) {
+      return true;
+    }
+    return false;
+  }
+
+  int num_lookups() { return uncompressed_cache_->num_lookups(); }
+  int num_found() { return uncompressed_cache_->num_found(); }
+  int num_inserts() { return uncompressed_cache_->num_inserts(); }
+
+  int num_lookups_compressed() {
+    return compressed_cache_->num_lookups();
+  }
+  int num_found_compressed() {
+    return compressed_cache_->num_found();
+  }
+  int num_inserts_compressed() {
+    return compressed_cache_->num_inserts();
+  }
+
+  bool fill_cache() { return fill_cache_; }
+
+  static void SetUpTestCase() {}
+  static void TearDownTestCase() {}
+
+ private:
+  class MyFlushBlockPolicyFactory
+    : public FlushBlockPolicyFactory {
+   public:
+    MyFlushBlockPolicyFactory() {}
+
+    virtual const char* Name() const override {
+      return "MyFlushBlockPolicyFactory";
+    }
+
+    virtual FlushBlockPolicy* NewFlushBlockPolicy(
+        const BlockBasedTableOptions& /*table_options*/,
+        const BlockBuilder& data_block_builder) const override {
+      return new MyFlushBlockPolicy(data_block_builder);
+    }
+  };
+
+  class MyFlushBlockPolicy
+    : public FlushBlockPolicy {
+   public:
+    explicit MyFlushBlockPolicy(const BlockBuilder& data_block_builder)
+      : num_keys_(0), data_block_builder_(data_block_builder) {}
+
+    bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
+      if (data_block_builder_.empty()) {
+        // First key in this block
+        num_keys_ = 1;
+        return false;
+      }
+      // Flush every 10 keys
+      if (num_keys_ == 10) {
+        num_keys_ = 1;
+        return true;
+      }
+      num_keys_++;
+      return false;
+    }
+
+   private:
+    int num_keys_;
+    const BlockBuilder& data_block_builder_;
+  };
+
+  class MyBlockCache
+    : public Cache {
+   public:
+    explicit MyBlockCache(std::shared_ptr<Cache>& target)
+      : target_(target), num_lookups_(0), num_found_(0), num_inserts_(0) {}
+
+    virtual const char* Name() const override { return "MyBlockCache"; }
+
+    virtual Status Insert(const Slice& key, void* value, size_t charge,
+                          void (*deleter)(const Slice& key, void* value),
+                          Handle** handle = nullptr,
+                          Priority priority = Priority::LOW) override {
+      num_inserts_++;
+      return target_->Insert(key, value, charge, deleter, handle, priority);
+    }
+
+    virtual Handle* Lookup(const Slice& key,
+                           Statistics* stats = nullptr) override {
+      num_lookups_++;
+      Handle* handle = target_->Lookup(key, stats);
+      if (handle != nullptr) {
+        num_found_++;
+      }
+      return handle;
+    }
+
+    virtual bool Ref(Handle* handle) override {
+      return target_->Ref(handle);
+    }
+
+    virtual bool Release(Handle* handle, bool force_erase = false) override {
+      return target_->Release(handle, force_erase);
+    }
+
+    virtual void* Value(Handle* handle) override {
+      return target_->Value(handle);
+    }
+
+    virtual void Erase(const Slice& key) override {
+      target_->Erase(key);
+    }
+    virtual uint64_t NewId() override {
+      return target_->NewId();
+    }
+
+    virtual void SetCapacity(size_t capacity) override {
+      target_->SetCapacity(capacity);
+    }
+
+    virtual void SetStrictCapacityLimit(bool strict_capacity_limit) override {
+      target_->SetStrictCapacityLimit(strict_capacity_limit);
+    }
+
+    virtual bool HasStrictCapacityLimit() const override {
+      return target_->HasStrictCapacityLimit();
+    }
+
+    virtual size_t GetCapacity() const override {
+      return target_->GetCapacity();
+    }
+
+    virtual size_t GetUsage() const override {
+      return target_->GetUsage();
+    }
+
+    virtual size_t GetUsage(Handle* handle) const override {
+      return target_->GetUsage(handle);
+    }
+
+    virtual size_t GetPinnedUsage() const override {
+      return target_->GetPinnedUsage();
+    }
+
+    virtual size_t GetCharge(Handle* /*handle*/) const override { return 0; }
+
+    virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
+                                        bool thread_safe) override {
+      return target_->ApplyToAllCacheEntries(callback, thread_safe);
+    }
+
+    virtual void EraseUnRefEntries() override {
+      return target_->EraseUnRefEntries();
+    }
+
+    int num_lookups() { return num_lookups_; }
+
+    int num_found() { return num_found_; }
+
+    int num_inserts() { return num_inserts_; }
+   private:
+    std::shared_ptr<Cache> target_;
+    int num_lookups_;
+    int num_found_;
+    int num_inserts_;
+  };
+
+  std::shared_ptr<MyBlockCache> compressed_cache_;
+  std::shared_ptr<MyBlockCache> uncompressed_cache_;
+  bool compression_enabled_;
+  std::vector<std::string> values_;
+  bool fill_cache_;
+};
+
+TEST_P(DBBasicTestWithParallelIO, MultiGet) {
+  std::vector<std::string> key_data(10);
+  std::vector<Slice> keys;
+  // We cannot resize a PinnableSlice vector, so just set initial size to
+  // largest we think we will need
+  std::vector<PinnableSlice> values(10);
+  std::vector<Status> statuses;
+  ReadOptions ro;
+  ro.fill_cache = fill_cache();
+
+  // Warm up the cache first
+  key_data.emplace_back(Key(0));
+  keys.emplace_back(Slice(key_data.back()));
+  key_data.emplace_back(Key(50));
+  keys.emplace_back(Slice(key_data.back()));
+  statuses.resize(keys.size());
+
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+           keys.data(), values.data(), statuses.data(), true);
+  ASSERT_TRUE(CheckValue(0, values[0].ToString()));
+  ASSERT_TRUE(CheckValue(50, values[1].ToString()));
+
+  int random_reads = env_->random_read_counter_.Read();
+  key_data[0] = Key(1);
+  key_data[1] = Key(51);
+  keys[0] = Slice(key_data[0]);
+  keys[1] = Slice(key_data[1]);
+  values[0].Reset();
+  values[1].Reset();
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+           keys.data(), values.data(), statuses.data(), true);
+  ASSERT_TRUE(CheckValue(1, values[0].ToString()));
+  ASSERT_TRUE(CheckValue(51, values[1].ToString()));
+
+  int expected_reads = random_reads + (fill_cache() ? 0 : 2);
+  ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
+
+  keys.resize(10);
+  statuses.resize(10);
+  std::vector<int> key_ints{1,2,15,16,55,81,82,83,84,85};
+  for (size_t i = 0; i < key_ints.size(); ++i) {
+    key_data[i] = Key(key_ints[i]);
+    keys[i] = Slice(key_data[i]);
+    statuses[i] = Status::OK();
+    values[i].Reset();
+  }
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+           keys.data(), values.data(), statuses.data(), true);
+  for (size_t i = 0; i < key_ints.size(); ++i) {
+    ASSERT_OK(statuses[i]);
+    ASSERT_TRUE(CheckValue(key_ints[i], values[i].ToString()));
+  }
+  expected_reads += (fill_cache() ? 2 : 4);
+  ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
+}
+
+INSTANTIATE_TEST_CASE_P(
+    ParallelIO, DBBasicTestWithParallelIO,
+    // Params are as follows -
+    // Param 0 - Compressed cache enabled
+    // Param 1 - Uncompressed cache enabled
+    // Param 2 - Data compression enabled
+    // Param 3 - ReadOptions::fill_cache
+    ::testing::Values(std::make_tuple(false, true, true, true),
+                      std::make_tuple(true, true, true, true),
+                      std::make_tuple(false, true, false, true),
+                      std::make_tuple(false, true, true, false),
+                      std::make_tuple(true, true, true, false),
+                      std::make_tuple(false, true, false, false)));
 
 class DBBasicTestWithTimestampWithParam
     : public DBTestBase,
