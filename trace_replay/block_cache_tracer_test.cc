@@ -195,6 +195,17 @@ TEST_F(BlockCacheTracerTest, AtomicWrite) {
   }
 }
 
+TEST_F(BlockCacheTracerTest, ConsecutiveStartTrace) {
+  TraceOptions trace_opt;
+  std::unique_ptr<TraceWriter> trace_writer;
+  ASSERT_OK(
+      NewFileTraceWriter(env_, env_options_, trace_file_path_, &trace_writer));
+  BlockCacheTracer writer;
+  ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
+  ASSERT_NOK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
+  ASSERT_OK(env_->FileExists(trace_file_path_));
+}
+
 TEST_F(BlockCacheTracerTest, AtomicNoWriteAfterEndTrace) {
   BlockCacheTraceRecord record = GenerateAccessRecord();
   {
