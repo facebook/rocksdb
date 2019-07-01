@@ -28,7 +28,7 @@ class CloudEnvImpl : public CloudEnv {
   const LogType& GetLogType() const { return log_type_; }
 
   // Returns the underlying env
-  Env* GetBaseEnv() { return base_env_; }
+  Env* GetBaseEnv() override { return base_env_; }
 
   // The separator used to separate dbids while creating the dbid of a clone
   static constexpr const char* DBID_SEPARATOR = "rockset";

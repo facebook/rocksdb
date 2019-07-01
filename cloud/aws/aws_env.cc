@@ -31,7 +31,7 @@ namespace detail {
 using ScheduledJob =
     std::pair<std::chrono::steady_clock::time_point, std::function<void(void)>>;
 struct Comp {
-  bool operator()(const ScheduledJob& a, const ScheduledJob& b) {
+  bool operator()(const ScheduledJob& a, const ScheduledJob& b) const {
     return a.first < b.first;
   }
 };

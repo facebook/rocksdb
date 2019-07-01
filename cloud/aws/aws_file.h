@@ -122,7 +122,7 @@ class S3WritableFile : public WritableFile {
 
   virtual ~S3WritableFile();
 
-  virtual Status Append(const Slice& data) {
+  virtual Status Append(const Slice& data) override {
     assert(status_.ok());
     // write to temporary file
     return local_file_->Append(data);
@@ -156,16 +156,16 @@ class S3WritableFile : public WritableFile {
     return local_file_->Allocate(offset, len);
   }
 
-  virtual Status Flush() {
+  virtual Status Flush() override {
     assert(status_.ok());
     return local_file_->Flush();
   }
 
-  virtual Status Sync();
+  virtual Status Sync() override ;
 
   virtual Status status() { return status_; }
 
-  virtual Status Close();
+  virtual Status Close() override;
 };
 
 }  // namepace rocksdb

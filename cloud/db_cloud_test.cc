@@ -7,6 +7,7 @@
 #include "rocksdb/cloud/db_cloud.h"
 #include <algorithm>
 #include <chrono>
+#include <inttypes.h>
 #include "cloud/aws/aws_env.h"
 #include "cloud/aws/aws_file.h"
 #include "cloud/db_cloud_impl.h"
@@ -237,10 +238,10 @@ class CloudTest : public testing::Test {
       std::string lpath = dbname_ + "/" + path;
       ASSERT_OK(aenv_->GetBaseEnv()->GetFileSize(lpath, &localSize));
       ASSERT_TRUE(localSize == cloudSize);
-      Log(options_.info_log, "local file %s size %ld\n", lpath.c_str(), localSize);
-      Log(options_.info_log, "cloud file %s size %ld\n", cpath.c_str(), cloudSize);
-      printf("local file %s size %ld\n", lpath.c_str(), localSize);
-      printf("cloud file %s size %ld\n", cpath.c_str(), cloudSize);
+      Log(options_.info_log, "local file %s size %" PRIu64 "\n", lpath.c_str(), localSize);
+      Log(options_.info_log, "cloud file %s size %" PRIu64 "\n", cpath.c_str(), cloudSize);
+      printf("local file %s size %" PRIu64 "\n", lpath.c_str(), localSize);
+      printf("cloud file %s size %" PRIu64 "\n", cpath.c_str(), cloudSize);
     }
   }
 
