@@ -567,7 +567,6 @@ TEST_F(StatsHistoryTest, PersistentStatsReadOnly) {
   // Now check keys in read only mode.
   ASSERT_OK(ReadOnlyReopen(options));
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_F(StatsHistoryTest, ForceManualFlushStatsCF) {
   Options options;
@@ -644,6 +643,7 @@ TEST_F(StatsHistoryTest, ForceManualFlushStatsCF) {
   Close();
 }
 
+#endif  // !ROCKSDB_LITE
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
