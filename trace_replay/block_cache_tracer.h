@@ -16,7 +16,7 @@
 
 namespace rocksdb {
 
-const uint64_t kMicrosInSecond = 1000 * 1000;
+extern const uint64_t kMicrosInSecond;
 
 // Lookup context for tracing block cache accesses.
 // We trace block accesses at five places:
