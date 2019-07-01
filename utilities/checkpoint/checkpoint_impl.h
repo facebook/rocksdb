@@ -28,7 +28,8 @@ class CheckpointImpl : public Checkpoint {
   // The directory will be an absolute path
   using Checkpoint::CreateCheckpoint;
   virtual Status CreateCheckpoint(const std::string& checkpoint_dir,
-                                  uint64_t log_size_for_flush) override;
+                                  uint64_t log_size_for_flush,
+                                  uint64_t* sequence_number_ptr) override;
 
   // Checkpoint logic can be customized by providing callbacks for link, copy,
   // or create.
