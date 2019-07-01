@@ -1547,7 +1547,6 @@ class ReporterAgent {
  private:
   std::string Header() const { return "secs_elapsed,interval_qps"; }
   void SleepAndReport() {
-    uint64_t kMicrosInSecond = 1000 * 1000;
     auto time_started = env_->NowMicros();
     while (true) {
       {

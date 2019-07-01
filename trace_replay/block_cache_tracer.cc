@@ -28,6 +28,7 @@ bool ShouldTrace(const Slice& block_key, const TraceOptions& trace_options) {
 }
 }  // namespace
 
+const uint64_t kMicrosInSecond = 1000 * 1000;
 const std::string BlockCacheTraceHelper::kUnknownColumnFamilyName =
     "UnknownColumnFamily";
 
