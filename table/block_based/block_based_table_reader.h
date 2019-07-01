@@ -233,6 +233,12 @@ class BlockBasedTable : public TableReader {
       BlockCacheLookupContext* lookup_context, Status s,
       FilePrefetchBuffer* prefetch_buffer, bool for_compaction = false) const;
 
+  // input_iter: if it is not null, update this one and return it as Iterator
+  template <typename TBlockIter>
+  TBlockIter* NewDataBlockIterator(const ReadOptions& ro,
+                                   CachableEntry<Block>& block,
+                                   TBlockIter* input_iter, Status s) const;
+
   class PartitionedIndexIteratorState;
 
   friend class PartitionIndexReader;
@@ -276,7 +282,8 @@ class BlockBasedTable : public TableReader {
       FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
       CachableEntry<Block>* block_entry, BlockType block_type,
-      GetContext* get_context, BlockCacheLookupContext* lookup_context) const;
+      GetContext* get_context, BlockCacheLookupContext* lookup_context,
+      BlockContents* contents) const;
 
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the
@@ -288,6 +295,20 @@ class BlockBasedTable : public TableReader {
                        GetContext* get_context,
                        BlockCacheLookupContext* lookup_context,
                        bool for_compaction = false) const;
+
+  Status GetDataBlockFromCache(
+      const ReadOptions& ro, const BlockHandle& handle,
+      const UncompressionDict& uncompression_dict,
+      CachableEntry<Block>* block_entry, BlockType block_type,
+      GetContext* get_context) const;
+
+  void MaybeLoadBlocksToCache(
+      const ReadOptions& options, const MultiGetRange* batch,
+      const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>*  handles,
+      autovector<Status, MultiGetContext::MAX_BATCH_SIZE>* statuses,
+      autovector<
+        CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>* results,
+      char* scratch, const UncompressionDict& uncompression_dict) const;
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file
