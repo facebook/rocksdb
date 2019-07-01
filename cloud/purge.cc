@@ -45,25 +45,25 @@ void CloudEnvImpl::Purger() {
     // delete obsolete dbids
     for (const auto& p : to_be_deleted_dbids) {
       // TODO more unit tests before we delete data
-      // st = DeleteDbid(GetDestBucketPrefix(), p);
+      // st = DeleteDbid(GetDestBucketName(), p);
       Log(InfoLogLevel::WARN_LEVEL, info_log_,
           "[pg] dbid %s non-existent dbpath %s deleted. %s",
-          GetDestBucketPrefix().c_str(), p.c_str(), st.ToString().c_str());
+          GetDestBucketName().c_str(), p.c_str(), st.ToString().c_str());
     }
 
     // delete obsolete paths
     for (const auto& p : to_be_deleted_paths) {
       // TODO more unit tests before we delete data
-      // st = DeleteObject(GetDestBucketPrefix(), p);
+      // st = DeleteObject(GetDestBucketName(), p);
       Log(InfoLogLevel::WARN_LEVEL, info_log_,
           "[pg] bucket prefix %s obsolete dbpath %s deleted. %s",
-          GetDestBucketPrefix().c_str(), p.c_str(), st.ToString().c_str());
+          GetDestBucketName().c_str(), p.c_str(), st.ToString().c_str());
     }
 
     to_be_deleted_paths.clear();
     to_be_deleted_dbids.clear();
-    FindObsoleteFiles(GetDestBucketPrefix(), &to_be_deleted_paths);
-    FindObsoleteDbid(GetDestBucketPrefix(), &to_be_deleted_dbids);
+    FindObsoleteFiles(GetDestBucketName(), &to_be_deleted_paths);
+    FindObsoleteDbid(GetDestBucketName(), &to_be_deleted_dbids);
   }
 }
 
@@ -167,7 +167,7 @@ Status CloudEnvImpl::FindObsoleteDbid(
     for (auto iter = dbid_list.begin(); iter != dbid_list.end(); ++iter) {
       std::unique_ptr<SequentialFile> result;
       std::string path = CloudManifestFile(iter->second);
-      st = ExistsObject(GetDestBucketPrefix(), path);
+      st = ExistsObject(GetDestBucketName(), path);
       // this dbid can be cleaned up
       if (st.IsNotFound()) {
         to_delete_list->push_back(iter->first);

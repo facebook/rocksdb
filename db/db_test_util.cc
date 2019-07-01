@@ -624,19 +624,14 @@ Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix) {
   std::string region;
   CloudEnv* cenv = nullptr;
   Status st = AwsEnv::GetTestCredentials(&coptions.credentials.access_key_id,
-                                         &coptions.credentials.secret_key,
-                                         &region);
+					 &coptions.credentials.secret_key,
+					 &region);
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_, st.ToString().c_str());
     assert(st.ok());
   } else {
+    coptions.TEST_Initialize("dbtest.", prefix, region);
     st = AwsEnv::NewAwsEnv(Env::Default(),
-                           "dbtest." + AwsEnv::GetTestBucketSuffix(),
-                           prefix,  // src object prefix
-                           region, // src region
-                           "dbtest." + AwsEnv::GetTestBucketSuffix(),
-                           prefix,  // dest object prefix
-                           region, // dest region
                            coptions, info_log_, &cenv);
     ((CloudEnvImpl*)cenv)->TEST_DisableCloudManifest();
     ((AwsEnv*)cenv)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
@@ -733,7 +728,7 @@ void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
 #ifdef USE_AWS
   if (s3_env_) {
     AwsEnv* aenv = static_cast<AwsEnv *>(s3_env_);
-    Status st = aenv->EmptyBucket("dbtest." + AwsEnv::GetTestBucketSuffix(), dbname_);
+    Status st = aenv->EmptyBucket(aenv->GetSrcBucketName(), dbname_);
     ASSERT_TRUE(st.ok() || st.IsNotFound());
     for (int r = 0; r < 10; ++r) {
       // The existance is not propagated atomically in S3, so wait until

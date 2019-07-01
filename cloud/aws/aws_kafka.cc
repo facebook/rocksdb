@@ -149,7 +149,7 @@ KafkaController::KafkaController(AwsEnv* env, std::shared_ptr<Logger> info_log,
     : CloudLogController(env, info_log),
       producer_(std::move(producer)),
       consumer_(std::move(consumer)) {
-  const std::string topic_name = GetStreamName(env_->GetSrcBucketPrefix());
+  const std::string topic_name = env_->GetSrcBucketName();
 
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
       "[%s] KafkaController opening stream %s using cachedir '%s'",

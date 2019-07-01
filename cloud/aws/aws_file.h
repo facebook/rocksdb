@@ -41,28 +41,10 @@
 #include <aws/s3/model/PutObjectResult.h>
 #include <aws/s3/model/ServerSideEncryption.h>
 
-// A few local defintions
-namespace {
-
-inline std::string GetBucket(const std::string& bucket_prefix) {
-  return "rockset." + bucket_prefix;
-}
-
-inline std::string GetStreamName(const std::string& bucket_prefix) {
-  return "rockset." + bucket_prefix;
-}
-inline Aws::String GetAwsBucket(const std::string& bucket_prefix) {
-  const std::string dd = GetBucket(bucket_prefix);
-  return Aws::String(dd.c_str(), dd.size());
-}
-inline Aws::String GetAwsStreamName(const std::string& bucket_prefix) {
-  const std::string dd = GetStreamName(bucket_prefix);
-  return Aws::String(dd.c_str(), dd.size());
-}
-
-}  // namespace
-
 namespace rocksdb {
+inline Aws::String ToAwsString(const std::string& s) {
+  return Aws::String(s.data(), s.size());
+}
 
 class S3ReadableFile : virtual public SequentialFile,
                        virtual public RandomAccessFile {
@@ -122,7 +104,7 @@ class S3WritableFile : public WritableFile {
 
   virtual ~S3WritableFile();
 
-  virtual Status Append(const Slice& data) {
+  virtual Status Append(const Slice& data) override {
     assert(status_.ok());
     // write to temporary file
     return local_file_->Append(data);
@@ -156,16 +138,16 @@ class S3WritableFile : public WritableFile {
     return local_file_->Allocate(offset, len);
   }
 
-  virtual Status Flush() {
+  virtual Status Flush() override {
     assert(status_.ok());
     return local_file_->Flush();
   }
 
-  virtual Status Sync();
+  virtual Status Sync() override;
 
   virtual Status status() { return status_; }
 
-  virtual Status Close();
+  virtual Status Close() override;
 };
 
 }  // namepace rocksdb

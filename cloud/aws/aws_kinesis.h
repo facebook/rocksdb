@@ -78,8 +78,8 @@ class KinesisController : public CloudLogController {
 
   virtual const std::string GetTypeName() { return "kinesis"; }
 
-  virtual Status CreateStream(const std::string& bucket_prefix);
-  virtual Status WaitForStreamReady(const std::string& bucket_prefix);
+  virtual Status CreateStream(const std::string& bucket);
+  virtual Status WaitForStreamReady(const std::string& bucket);
   virtual Status TailStream();
 
   virtual CloudLogWritableFile* CreateWritableFile(const std::string& fname,
