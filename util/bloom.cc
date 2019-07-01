@@ -104,7 +104,7 @@ int FullFilterBitsBuilder::CalculateNumEntry(const uint32_t space) {
   assert(bits_per_key_);
   assert(space > 0);
   uint32_t dont_care1, dont_care2;
-  int high = (int) (space * 8 / bits_per_key_ + 1);
+  int high = static_cast<int>(space * 8 / bits_per_key_ + 1);
   int low = 1;
   int n = high;
   for (; n >= low; n--) {
@@ -120,7 +120,7 @@ int FullFilterBitsBuilder::CalculateNumEntry(const uint32_t space) {
 inline void FullFilterBitsBuilder::AddHash(uint32_t h, char* data,
     uint32_t num_lines, uint32_t total_bits) {
 #ifdef NDEBUG
-  (void)total_bits;
+  static_cast<void>(total_bits);
 #endif
   assert(num_lines > 0 && total_bits > 0);
 
@@ -340,7 +340,7 @@ class BloomFilterPolicy : public FilterPolicy {
     dst->resize(init_size + bytes, 0);
     dst->push_back(static_cast<char>(num_probes_));  // Remember # of probes
     char* array = &(*dst)[init_size];
-    for (size_t i = 0; i < (size_t)n; i++) {
+    for (size_t i = 0; i < static_cast<size_t>(n); i++) {
       // Use double-hashing to generate a sequence of hash values.
       // See analysis in [Kirsch,Mitzenmacher 2006].
       uint32_t h = hash_func_(keys[i]);
