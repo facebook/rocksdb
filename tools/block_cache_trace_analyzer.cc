@@ -24,7 +24,7 @@ DEFINE_string(
     "The config file path. One cache configuration per line. The format of a "
     "cache configuration is "
     "cache_name,num_shard_bits,cache_capacity_1,...,cache_capacity_N. "
-    "cache_name is lru, lru_priority. cache_capacity can be xK, xM or xG "
+    "cache_name is lru or lru_priority. cache_capacity can be xK, xM or xG "
     "where x is a positive number.");
 DEFINE_int32(block_cache_trace_downsample_ratio, 1,
              "The trace collected accesses on one in every "
