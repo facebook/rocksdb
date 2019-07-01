@@ -788,6 +788,16 @@ class DBImpl : public DB {
   Status TEST_FlushMemTable(bool wait = true, bool allow_write_stall = false,
                             ColumnFamilyHandle* cfh = nullptr);
 
+  Status TEST_FlushMemTable(ColumnFamilyData* cfd,
+                            const FlushOptions& flush_opts);
+
+  // Flush (multiple) ColumnFamilyData without using ColumnFamilyHandle. This
+  // is because in certain cases, we can flush column families, wait for the
+  // flush to complete, but delete the column family handle before the wait
+  // finishes. For example in CompactRange.
+  Status TEST_AtomicFlushMemTables(const autovector<ColumnFamilyData*>& cfds,
+                                   const FlushOptions& flush_opts);
+
   // Wait for memtable compaction
   Status TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family = nullptr);
 
