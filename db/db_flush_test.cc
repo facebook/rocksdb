@@ -320,6 +320,7 @@ TEST_F(DBFlushTest, CFDropRaceWithWaitForFlushMemTables) {
   ASSERT_NOK(dbfull()->TEST_FlushMemTable(cfd, flush_opts));
   drop_cf_thr.join();
   Close();
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
@@ -617,6 +618,7 @@ TEST_P(DBAtomicFlushTest, CFDropRaceWithWaitForFlushMemTables) {
                                                 flush_opts));
   drop_cf_thr.join();
   Close();
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
