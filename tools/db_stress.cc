@@ -1666,13 +1666,26 @@ class StressTest {
            iter1->Valid() && iter2->Valid(); iter1->Next(), iter2->Next()) {
         if (iter1->key().compare(iter2->key()) != 0 ||
             iter1->value().compare(iter2->value())) {
-          fprintf(stderr, "Secondary contains different data\n");
+          fprintf(stderr,
+                  "Secondary %d contains different data from "
+                  "primary.\nPrimary: %s : %s\nSecondary: %s : %s\n",
+                  static_cast<int>(k),
+                  iter1->key().ToString(/*hex=*/true).c_str(),
+                  iter1->value().ToString(/*hex=*/true).c_str(),
+                  iter2->key().ToString(/*hex=*/true).c_str(),
+                  iter2->value().ToString(/*hex=*/true).c_str());
           return false;
         }
       }
-      if ((iter1->Valid() && !iter2->Valid()) ||
-          (!iter1->Valid() && iter2->Valid())) {
-        fprintf(stderr, "Secondary record count is different from primary\n");
+      if (iter1->Valid() && !iter2->Valid()) {
+        fprintf(stderr,
+                "Secondary %d record count is smaller than that of primary\n",
+                static_cast<int>(k));
+        return false;
+      } else if (!iter1->Valid() && iter2->Valid()) {
+        fprintf(stderr,
+                "Secondary %d record count is larger than that of primary\n",
+                static_cast<int>(k));
         return false;
       }
     }
