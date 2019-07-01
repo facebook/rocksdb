@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace rocksdb {
 
 // Represents the types of blocks used in the block based table format.
@@ -17,8 +19,12 @@ enum class BlockType : uint8_t {
   kProperties,
   kCompressionDictionary,
   kRangeDeletion,
+  kHashIndexPrefixes,
+  kHashIndexMetadata,
   kMetaIndex,
   kIndex,
+  // Note: keep kInvalid the last value when adding new enum values.
+  kInvalid
 };
 
 }  // namespace rocksdb

@@ -3,6 +3,18 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#ifndef ROCKSDB_LITE
+#ifndef GFLAGS
+#include <cstdio>
+int main() {
+  fprintf(stderr,
+          "Please install gflags to run block_cache_trace_analyzer_test\n");
+  return 1;
+}
+#else
+
+#include <fstream>
+#include <iostream>
 #include <map>
 #include <vector>
 
@@ -25,6 +37,8 @@ const uint64_t kSSTStoringEvenKeys = 100;
 const uint64_t kSSTStoringOddKeys = 101;
 const std::string kRefKeyPrefix = "test-get-";
 const uint64_t kNumKeysInBlock = 1024;
+const int kMaxArgCount = 100;
+const size_t kArgBufferSize = 100000;
 }  // namespace
 
 class BlockCacheTracerTest : public testing::Test {
@@ -34,6 +48,14 @@ class BlockCacheTracerTest : public testing::Test {
     env_ = rocksdb::Env::Default();
     EXPECT_OK(env_->CreateDir(test_path_));
     trace_file_path_ = test_path_ + "/block_cache_trace";
+    block_cache_sim_config_path_ = test_path_ + "/block_cache_sim_config";
+    timeline_labels_ =
+        "block,all,cf,sst,level,bt,caller,cf_sst,cf_level,cf_bt,cf_caller";
+    reuse_distance_labels_ =
+        "block,all,cf,sst,level,bt,caller,cf_sst,cf_level,cf_bt,cf_caller";
+    reuse_distance_buckets_ = "1,1K,1M,1G";
+    reuse_interval_labels_ = "block,all,cf,sst,level,bt,cf_sst,cf_level,cf_bt";
+    reuse_interval_buckets_ = "1,10,100,1000";
   }
 
   ~BlockCacheTracerTest() override {
@@ -45,23 +67,23 @@ class BlockCacheTracerTest : public testing::Test {
     EXPECT_OK(env_->DeleteDir(test_path_));
   }
 
-  BlockCacheLookupCaller GetCaller(uint32_t key_id) {
+  TableReaderCaller GetCaller(uint32_t key_id) {
     uint32_t n = key_id % 5;
     switch (n) {
       case 0:
-        return BlockCacheLookupCaller::kPrefetch;
+        return TableReaderCaller::kPrefetch;
       case 1:
-        return BlockCacheLookupCaller::kCompaction;
+        return TableReaderCaller::kCompaction;
       case 2:
-        return BlockCacheLookupCaller::kUserGet;
+        return TableReaderCaller::kUserGet;
       case 3:
-        return BlockCacheLookupCaller::kUserMGet;
+        return TableReaderCaller::kUserMultiGet;
       case 4:
-        return BlockCacheLookupCaller::kUserIterator;
+        return TableReaderCaller::kUserIterator;
     }
     // This cannot happend.
     assert(false);
-    return BlockCacheLookupCaller::kUserGet;
+    return TableReaderCaller::kMaxBlockCacheLookupCaller;
   }
 
   void WriteBlockAccess(BlockCacheTraceWriter* writer, uint32_t from_key_id,
@@ -69,11 +91,12 @@ class BlockCacheTracerTest : public testing::Test {
     assert(writer);
     for (uint32_t i = 0; i < nblocks; i++) {
       uint32_t key_id = from_key_id + i;
+      uint64_t timestamp = (key_id + 1) * kMicrosInSecond;
       BlockCacheTraceRecord record;
       record.block_type = block_type;
       record.block_size = kBlockSize + key_id;
       record.block_key = kBlockKeyPrefix + std::to_string(key_id);
-      record.access_timestamp = env_->NowMicros();
+      record.access_timestamp = timestamp;
       record.cf_id = kCFId;
       record.cf_name = kDefaultColumnFamilyName;
       record.caller = GetCaller(key_id);
@@ -108,15 +131,15 @@ class BlockCacheTracerTest : public testing::Test {
     ASSERT_GT(block_access_info.first_access_time, 0);
     ASSERT_GT(block_access_info.last_access_time, 0);
     ASSERT_EQ(1, block_access_info.caller_num_access_map.size());
-    BlockCacheLookupCaller expected_caller = GetCaller(key_id);
+    TableReaderCaller expected_caller = GetCaller(key_id);
     ASSERT_TRUE(block_access_info.caller_num_access_map.find(expected_caller) !=
                 block_access_info.caller_num_access_map.end());
     ASSERT_EQ(
         1,
         block_access_info.caller_num_access_map.find(expected_caller)->second);
 
-    if ((expected_caller == BlockCacheLookupCaller::kUserGet ||
-         expected_caller == BlockCacheLookupCaller::kUserMGet) &&
+    if ((expected_caller == TableReaderCaller::kUserGet ||
+         expected_caller == TableReaderCaller::kUserMultiGet) &&
         type == TraceType::kBlockTraceDataBlock) {
       ASSERT_EQ(kNumKeysInBlock, block_access_info.num_keys);
       ASSERT_EQ(1, block_access_info.key_num_access_map.size());
@@ -125,11 +148,187 @@ class BlockCacheTracerTest : public testing::Test {
     }
   }
 
+  void RunBlockCacheTraceAnalyzer() {
+    std::vector<std::string> params = {
+        "./block_cache_trace_analyzer",
+        "-block_cache_trace_path=" + trace_file_path_,
+        "-block_cache_sim_config_path=" + block_cache_sim_config_path_,
+        "-block_cache_analysis_result_dir=" + test_path_,
+        "-print_block_size_stats",
+        "-print_access_count_stats",
+        "-print_data_block_access_count_stats",
+        "-cache_sim_warmup_seconds=0",
+        "-timeline_labels=" + timeline_labels_,
+        "-reuse_distance_labels=" + reuse_distance_labels_,
+        "-reuse_distance_buckets=" + reuse_distance_buckets_,
+        "-reuse_interval_labels=" + reuse_interval_labels_,
+        "-reuse_interval_buckets=" + reuse_interval_buckets_,
+    };
+    char arg_buffer[kArgBufferSize];
+    char* argv[kMaxArgCount];
+    int argc = 0;
+    int cursor = 0;
+    for (const auto& arg : params) {
+      ASSERT_LE(cursor + arg.size() + 1, kArgBufferSize);
+      ASSERT_LE(argc + 1, kMaxArgCount);
+      snprintf(arg_buffer + cursor, arg.size() + 1, "%s", arg.c_str());
+
+      argv[argc++] = arg_buffer + cursor;
+      cursor += static_cast<int>(arg.size()) + 1;
+    }
+    ASSERT_EQ(0, rocksdb::block_cache_trace_analyzer_tool(argc, argv));
+  }
+
   Env* env_;
   EnvOptions env_options_;
+  std::string block_cache_sim_config_path_;
   std::string trace_file_path_;
   std::string test_path_;
+  std::string timeline_labels_;
+  std::string reuse_distance_labels_;
+  std::string reuse_distance_buckets_;
+  std::string reuse_interval_labels_;
+  std::string reuse_interval_buckets_;
 };
+
+TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
+  {
+    // Generate a trace file.
+    TraceOptions trace_opt;
+    std::unique_ptr<TraceWriter> trace_writer;
+    ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
+                                 &trace_writer));
+    BlockCacheTraceWriter writer(env_, trace_opt, std::move(trace_writer));
+    ASSERT_OK(writer.WriteHeader());
+    WriteBlockAccess(&writer, 0, TraceType::kBlockTraceDataBlock, 50);
+    ASSERT_OK(env_->FileExists(trace_file_path_));
+  }
+  {
+    // Generate a cache sim config.
+    std::string config = "lru,1,1K,1M,1G";
+    std::ofstream out(block_cache_sim_config_path_);
+    ASSERT_TRUE(out.is_open());
+    out << config << std::endl;
+    out.close();
+  }
+  RunBlockCacheTraceAnalyzer();
+  {
+    // Validate the cache miss ratios.
+    const std::vector<uint64_t> expected_capacities{1024, 1024 * 1024,
+                                                    1024 * 1024 * 1024};
+    const std::string mrc_path = test_path_ + "/mrc";
+    std::ifstream infile(mrc_path);
+    uint32_t config_index = 0;
+    std::string line;
+    // Read header.
+    ASSERT_TRUE(getline(infile, line));
+    while (getline(infile, line)) {
+      std::stringstream ss(line);
+      std::vector<std::string> result_strs;
+      while (ss.good()) {
+        std::string substr;
+        getline(ss, substr, ',');
+        result_strs.push_back(substr);
+      }
+      ASSERT_EQ(5, result_strs.size());
+      ASSERT_LT(config_index, expected_capacities.size());
+      ASSERT_EQ("lru", result_strs[0]);  // cache_name
+      ASSERT_EQ("1", result_strs[1]);    // num_shard_bits
+      ASSERT_EQ(std::to_string(expected_capacities[config_index]),
+                result_strs[2]);         // cache_capacity
+      ASSERT_EQ("100.0000", result_strs[3]);  // miss_ratio
+      ASSERT_EQ("50", result_strs[4]);   // number of accesses.
+      config_index++;
+    }
+    ASSERT_EQ(expected_capacities.size(), config_index);
+    infile.close();
+    ASSERT_OK(env_->DeleteFile(mrc_path));
+  }
+  {
+    // Validate the timeline csv files.
+    const uint32_t expected_num_lines = 50;
+    std::stringstream ss(timeline_labels_);
+    while (ss.good()) {
+      std::string l;
+      ASSERT_TRUE(getline(ss, l, ','));
+      const std::string timeline_file =
+          test_path_ + "/" + l + "_access_timeline";
+      std::ifstream infile(timeline_file);
+      std::string line;
+      uint32_t nlines = 0;
+      ASSERT_TRUE(getline(infile, line));
+      uint64_t expected_time = 1;
+      while (getline(infile, line)) {
+        std::stringstream ss_naccess(line);
+        uint32_t naccesses = 0;
+        std::string substr;
+        uint32_t time = 0;
+        while (ss_naccess.good()) {
+          ASSERT_TRUE(getline(ss_naccess, substr, ','));
+          if (time == 0) {
+            time = ParseUint32(substr);
+            continue;
+          }
+          naccesses += ParseUint32(substr);
+        }
+        nlines++;
+        ASSERT_EQ(1, naccesses);
+        ASSERT_EQ(expected_time, time);
+        expected_time += 1;
+      }
+      ASSERT_EQ(expected_num_lines, nlines);
+      ASSERT_OK(env_->DeleteFile(timeline_file));
+    }
+  }
+  {
+    // Validate the reuse_interval and reuse_distance csv files.
+    std::map<std::string, std::string> test_reuse_csv_files;
+    test_reuse_csv_files["_reuse_interval"] = reuse_interval_labels_;
+    test_reuse_csv_files["_reuse_distance"] = reuse_distance_labels_;
+    for (auto const& test : test_reuse_csv_files) {
+      const std::string& file_suffix = test.first;
+      const std::string& labels = test.second;
+      const uint32_t expected_num_rows = 10;
+      const uint32_t expected_num_rows_absolute_values = 5;
+      const uint32_t expected_reused_blocks = 0;
+      std::stringstream ss(labels);
+      while (ss.good()) {
+        std::string l;
+        ASSERT_TRUE(getline(ss, l, ','));
+        const std::string reuse_csv_file = test_path_ + "/" + l + file_suffix;
+        std::ifstream infile(reuse_csv_file);
+        std::string line;
+        ASSERT_TRUE(getline(infile, line));
+        uint32_t nblocks = 0;
+        double npercentage = 0;
+        uint32_t nrows = 0;
+        while (getline(infile, line)) {
+          std::stringstream ss_naccess(line);
+          bool label_read = false;
+          nrows++;
+          while (ss_naccess.good()) {
+            std::string substr;
+            ASSERT_TRUE(getline(ss_naccess, substr, ','));
+            if (!label_read) {
+              label_read = true;
+              continue;
+            }
+            if (nrows < expected_num_rows_absolute_values) {
+              nblocks += ParseUint32(substr);
+            } else {
+              npercentage += ParseDouble(substr);
+            }
+          }
+        }
+        ASSERT_EQ(expected_num_rows, nrows);
+        ASSERT_EQ(expected_reused_blocks, nblocks);
+        ASSERT_LT(npercentage, 0);
+        ASSERT_OK(env_->DeleteFile(reuse_csv_file));
+      }
+    }
+  }
+  ASSERT_OK(env_->DeleteFile(block_cache_sim_config_path_));
+}
 
 TEST_F(BlockCacheTracerTest, MixedBlocks) {
   {
@@ -164,7 +363,9 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
     ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
     // Read blocks.
-    BlockCacheTraceAnalyzer analyzer(trace_file_path_);
+    BlockCacheTraceAnalyzer analyzer(trace_file_path_,
+                                     /*output_miss_ratio_curve_path=*/"",
+                                     /*simulator=*/nullptr);
     // The analyzer ends when it detects an incomplete access record.
     ASSERT_EQ(Status::Incomplete(""), analyzer.Analyze());
     const uint64_t expected_num_cfs = 1;
@@ -228,3 +429,12 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+#endif  // GFLAG
+#else
+#include <stdio.h>
+int main(int /*argc*/, char** /*argv*/) {
+  fprintf(stderr,
+          "block_cache_trace_analyzer_test is not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+#endif  // ROCKSDB_LITE

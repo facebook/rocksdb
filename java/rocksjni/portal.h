@@ -5902,8 +5902,10 @@ class IndexTypeJni {
        return 0x0;
      case rocksdb::BlockBasedTableOptions::IndexType::kHashSearch:
        return 0x1;
-    case rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch:
+     case rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch:
        return 0x2;
+     case rocksdb::BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey:
+       return 0x3;
      default:
        return 0x7F;  // undefined
    }
@@ -5920,6 +5922,9 @@ class IndexTypeJni {
        return rocksdb::BlockBasedTableOptions::IndexType::kHashSearch;
      case 0x2:
        return rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+     case 0x3:
+       return rocksdb::BlockBasedTableOptions::IndexType::
+           kBinarySearchWithFirstKey;
      default:
        // undefined/default
        return rocksdb::BlockBasedTableOptions::IndexType::kBinarySearch;

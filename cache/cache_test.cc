@@ -90,7 +90,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
                                   bool strict_capacity_limit) {
     auto type = GetParam();
     if (type == kLRU) {
-      return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit);
+      return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit, 0.0);
     }
     if (type == kClock) {
       return NewClockCache(capacity, num_shard_bits, strict_capacity_limit);
@@ -684,6 +684,14 @@ TEST_P(CacheTest, DefaultShardBits) {
   cache = NewLRUCache(1024L * 1024L * 1024L, -1, true);
   sc = dynamic_cast<ShardedCache*>(cache.get());
   ASSERT_EQ(6, sc->GetNumShardBits());
+}
+
+TEST_P(CacheTest, GetCharge) {
+  Insert(1, 2);
+  Cache::Handle* h1 = cache_->Lookup(EncodeKey(1));
+  ASSERT_EQ(2, DecodeValue(cache_->Value(h1)));
+  ASSERT_EQ(1, cache_->GetCharge(h1));
+  cache_->Release(h1);
 }
 
 #ifdef SUPPORT_CLOCK_CACHE

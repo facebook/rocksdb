@@ -725,7 +725,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
 
   /**
    * Set the size of the cache in bytes that will be used by RocksDB.
-   * If cacheSize is non-positive, then cache will not be used.
+   * If cacheSize is negative, then cache will not be used.
    * DEFAULT: 8M
    *
    * @param blockCacheSize block cache size in bytes

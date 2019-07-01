@@ -16,27 +16,27 @@ namespace rocksdb {
 namespace {
 const unsigned int kCharSize = 1;
 
-bool ShouldTrace(const BlockCacheTraceRecord& record,
-                 const TraceOptions& trace_options) {
+bool ShouldTrace(const Slice& block_key, const TraceOptions& trace_options) {
   if (trace_options.sampling_frequency == 0 ||
       trace_options.sampling_frequency == 1) {
     return true;
   }
   // We use spatial downsampling so that we have a complete access history for a
   // block.
-  const uint64_t hash = GetSliceNPHash64(Slice(record.block_key));
+  const uint64_t hash = GetSliceNPHash64(block_key);
   return hash % trace_options.sampling_frequency == 0;
 }
 }  // namespace
 
+const uint64_t kMicrosInSecond = 1000 * 1000;
 const std::string BlockCacheTraceHelper::kUnknownColumnFamilyName =
     "UnknownColumnFamily";
 
-bool BlockCacheTraceHelper::ShouldTraceReferencedKey(
-    TraceType block_type, BlockCacheLookupCaller caller) {
+bool BlockCacheTraceHelper::ShouldTraceReferencedKey(TraceType block_type,
+                                                     TableReaderCaller caller) {
   return (block_type == TraceType::kBlockTraceDataBlock) &&
-         (caller == BlockCacheLookupCaller::kUserGet ||
-          caller == BlockCacheLookupCaller::kUserMGet);
+         (caller == TableReaderCaller::kUserGet ||
+          caller == TableReaderCaller::kUserMultiGet);
 }
 
 BlockCacheTraceWriter::BlockCacheTraceWriter(
@@ -183,7 +183,7 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
     return Status::Incomplete(
         "Incomplete access record: Failed to read caller.");
   }
-  record->caller = static_cast<BlockCacheLookupCaller>(enc_slice[0]);
+  record->caller = static_cast<TableReaderCaller>(enc_slice[0]);
   enc_slice.remove_prefix(kCharSize);
   if (enc_slice.empty()) {
     return Status::Incomplete(
@@ -234,7 +234,7 @@ Status BlockCacheTracer::StartTrace(
     std::unique_ptr<TraceWriter>&& trace_writer) {
   InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
   if (writer_.load()) {
-    return Status::OK();
+    return Status::Busy();
   }
   trace_options_ = trace_options;
   writer_.store(
@@ -255,7 +255,7 @@ Status BlockCacheTracer::WriteBlockAccess(const BlockCacheTraceRecord& record,
                                           const Slice& block_key,
                                           const Slice& cf_name,
                                           const Slice& referenced_key) {
-  if (!writer_.load() || !ShouldTrace(record, trace_options_)) {
+  if (!writer_.load() || !ShouldTrace(block_key, trace_options_)) {
     return Status::OK();
   }
   InstrumentedMutexLock lock_guard(&trace_writer_mutex_);

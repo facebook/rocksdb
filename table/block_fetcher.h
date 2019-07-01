@@ -10,6 +10,7 @@
 #pragma once
 #include "memory/memory_allocator.h"
 #include "table/block_based/block.h"
+#include "table/block_based/block_type.h"
 #include "table/format.h"
 
 namespace rocksdb {
@@ -39,11 +40,12 @@ class BlockFetcher {
                FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                const ReadOptions& read_options, const BlockHandle& handle,
                BlockContents* contents, const ImmutableCFOptions& ioptions,
-               bool do_uncompress, bool maybe_compressed,
+               bool do_uncompress, bool maybe_compressed, BlockType block_type,
                const UncompressionDict& uncompression_dict,
                const PersistentCacheOptions& cache_options,
                MemoryAllocator* memory_allocator = nullptr,
-               MemoryAllocator* memory_allocator_compressed = nullptr)
+               MemoryAllocator* memory_allocator_compressed = nullptr,
+               bool for_compaction = false)
       : file_(file),
         prefetch_buffer_(prefetch_buffer),
         footer_(footer),
@@ -53,10 +55,13 @@ class BlockFetcher {
         ioptions_(ioptions),
         do_uncompress_(do_uncompress),
         maybe_compressed_(maybe_compressed),
+        block_type_(block_type),
         uncompression_dict_(uncompression_dict),
         cache_options_(cache_options),
         memory_allocator_(memory_allocator),
-        memory_allocator_compressed_(memory_allocator_compressed) {}
+        memory_allocator_compressed_(memory_allocator_compressed),
+        for_compaction_(for_compaction) {}
+
   Status ReadBlockContents();
   CompressionType get_compression_type() const { return compression_type_; }
 
@@ -72,6 +77,7 @@ class BlockFetcher {
   const ImmutableCFOptions& ioptions_;
   bool do_uncompress_;
   bool maybe_compressed_;
+  BlockType block_type_;
   const UncompressionDict& uncompression_dict_;
   const PersistentCacheOptions& cache_options_;
   MemoryAllocator* memory_allocator_;
@@ -85,6 +91,7 @@ class BlockFetcher {
   char stack_buf_[kDefaultStackBufferSize];
   bool got_from_prefetch_buffer_ = false;
   rocksdb::CompressionType compression_type_;
+  bool for_compaction_ = false;
 
   // return true if found
   bool TryGetUncompressBlockFromPersistentCache();

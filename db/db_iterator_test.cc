@@ -1049,6 +1049,148 @@ TEST_P(DBIteratorTest, DBIteratorBoundOptimizationTest) {
     ASSERT_EQ(upper_bound_hits, 1);
   }
 }
+
+// Enable kBinarySearchWithFirstKey, do some iterator operations and check that
+// they don't do unnecessary block reads.
+TEST_P(DBIteratorTest, IndexWithFirstKey) {
+  for (int tailing = 0; tailing < 2; ++tailing) {
+    SCOPED_TRACE("tailing = " + std::to_string(tailing));
+    Options options = CurrentOptions();
+    options.env = env_;
+    options.create_if_missing = true;
+    options.prefix_extractor = nullptr;
+    options.merge_operator = MergeOperators::CreateStringAppendOperator();
+    options.statistics = rocksdb::CreateDBStatistics();
+    Statistics* stats = options.statistics.get();
+    BlockBasedTableOptions table_options;
+    table_options.index_type =
+        BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey;
+    table_options.index_shortening =
+        BlockBasedTableOptions::IndexShorteningMode::kNoShortening;
+    table_options.flush_block_policy_factory =
+        std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+    table_options.block_cache = NewLRUCache(1000);  // fits all blocks
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    DestroyAndReopen(options);
+    ASSERT_OK(Merge("a1", "x1"));
+    ASSERT_OK(Merge("b1", "y1"));
+    ASSERT_OK(Merge("c0", "z1"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Merge("a2", "x2"));
+    ASSERT_OK(Merge("b2", "y2"));
+    ASSERT_OK(Merge("c0", "z2"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Merge("a3", "x3"));
+    ASSERT_OK(Merge("b3", "y3"));
+    ASSERT_OK(Merge("c3", "z3"));
+    ASSERT_OK(Flush());
+
+    // Block cache is not important for this test.
+    // We use BLOCK_CACHE_DATA_* counters just because they're the most readily
+    // available way of counting block accesses.
+
+    ReadOptions ropt;
+    ropt.tailing = tailing;
+    std::unique_ptr<Iterator> iter(NewIterator(ropt));
+
+    iter->Seek("b10");
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ("b2", iter->key().ToString());
+    EXPECT_EQ("y2", iter->value().ToString());
+    EXPECT_EQ(1, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ("b3", iter->key().ToString());
+    EXPECT_EQ("y3", iter->value().ToString());
+    EXPECT_EQ(2, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    iter->Seek("c0");
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ("c0", iter->key().ToString());
+    EXPECT_EQ("z1,z2", iter->value().ToString());
+    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ(4, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ("c3", iter->key().ToString());
+    EXPECT_EQ("z3", iter->value().ToString());
+    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ(5, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+
+    iter.reset();
+
+    // Enable iterate_upper_bound and check that iterator is not trying to read
+    // blocks that are fully above upper bound.
+    std::string ub = "b3";
+    Slice ub_slice(ub);
+    ropt.iterate_upper_bound = &ub_slice;
+    iter.reset(NewIterator(ropt));
+
+    iter->Seek("b2");
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ("b2", iter->key().ToString());
+    EXPECT_EQ("y2", iter->value().ToString());
+    EXPECT_EQ(1, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ(5, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    EXPECT_EQ(1, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ(5, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+  }
+}
+
+TEST_P(DBIteratorTest, IndexWithFirstKeyGet) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.prefix_extractor = nullptr;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.statistics = rocksdb::CreateDBStatistics();
+  Statistics* stats = options.statistics.get();
+  BlockBasedTableOptions table_options;
+  table_options.index_type =
+      BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey;
+  table_options.index_shortening =
+      BlockBasedTableOptions::IndexShorteningMode::kNoShortening;
+  table_options.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+  table_options.block_cache = NewLRUCache(1000);  // fits all blocks
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  DestroyAndReopen(options);
+  ASSERT_OK(Merge("a", "x1"));
+  ASSERT_OK(Merge("c", "y1"));
+  ASSERT_OK(Merge("e", "z1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("c", "y2"));
+  ASSERT_OK(Merge("e", "z2"));
+  ASSERT_OK(Flush());
+
+  // Get() between blocks shouldn't read any blocks.
+  ASSERT_EQ("NOT_FOUND", Get("b"));
+  EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+  EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+  // Get() of an existing key shouldn't read any unnecessary blocks when there's
+  // only one key per block.
+
+  ASSERT_EQ("y1,y2", Get("c"));
+  EXPECT_EQ(2, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+  EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+  ASSERT_EQ("x1", Get("a"));
+  EXPECT_EQ(3, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+  EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+  EXPECT_EQ(std::vector<std::string>({"NOT_FOUND", "z1,z2"}),
+            MultiGet({"b", "e"}));
+}
+
 // TODO(3.13): fix the issue of Seek() + Prev() which might not necessary
 //             return the biggest key which is smaller than the seek key.
 TEST_P(DBIteratorTest, PrevAfterAndNextAfterMerge) {
