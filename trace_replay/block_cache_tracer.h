@@ -16,6 +16,8 @@
 
 namespace rocksdb {
 
+extern const uint64_t kMicrosInSecond;
+
 // Lookup context for tracing block cache accesses.
 // We trace block accesses at five places:
 // 1. BlockBasedTable::GetFilter

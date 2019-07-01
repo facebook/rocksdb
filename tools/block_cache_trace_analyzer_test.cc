@@ -91,7 +91,7 @@ class BlockCacheTracerTest : public testing::Test {
     assert(writer);
     for (uint32_t i = 0; i < nblocks; i++) {
       uint32_t key_id = from_key_id + i;
-      uint32_t timestamp = (key_id + 1) * kMicrosInSecond;
+      uint64_t timestamp = (key_id + 1) * kMicrosInSecond;
       BlockCacheTraceRecord record;
       record.block_type = block_type;
       record.block_size = kBlockSize + key_id;
