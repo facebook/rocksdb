@@ -401,6 +401,11 @@ class Env {
   virtual Status NewLogger(const std::string& fname,
                            std::shared_ptr<Logger>* result);
 
+  // Helper method to create and returns an instance of EnvLogger for storing
+  // informational messages.
+  Status NewEnvLogger(const std::string& fname,
+                      std::shared_ptr<Logger>* result);
+
   // Returns the number of micro-seconds since some fixed point in time.
   // It is often used as system time such as in GenericRateLimiter
   // and other places so a port needs to return system time in order to work.

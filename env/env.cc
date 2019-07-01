@@ -25,7 +25,23 @@ Env::~Env() {
 
 Status Env::NewLogger(const std::string& fname,
                       std::shared_ptr<Logger>* result) {
-  return EnvLogger::NewEnvLogger(fname, this, result);
+  return NewEnvLogger(fname, result);
+}
+
+Status Env::NewEnvLogger(const std::string& fname,
+                         std::shared_ptr<Logger>* result) {
+  EnvOptions options;
+  // TODO: Tune the buffer size.
+  options.writable_file_max_buffer_size = 1024 * 1024;
+  std::unique_ptr<WritableFile> writable_file;
+  const auto status = NewWritableFile(fname, &writable_file, options);
+  if (!status.ok()) {
+    return status;
+  }
+
+  *result = std::make_shared<EnvLogger>(std::move(writable_file), fname,
+                                        options, this);
+  return Status::OK();
 }
 
 std::string Env::PriorityToString(Env::Priority priority) {
