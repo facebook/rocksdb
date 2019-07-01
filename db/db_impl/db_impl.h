@@ -1292,6 +1292,8 @@ class DBImpl : public DB {
 
   Status ScheduleFlushes(WriteContext* context);
 
+  void MaybeFlushStatsCF(autovector<ColumnFamilyData*>* cfds);
+
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
   void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds);

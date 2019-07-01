@@ -1551,12 +1551,38 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) {
       s = SwitchMemtable(cfd, &context);
     }
-
     if (s.ok()) {
       if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
           !cached_recoverable_state_empty_.load()) {
         flush_memtable_id = cfd->imm()->GetLatestMemTableID();
         flush_req.emplace_back(cfd, flush_memtable_id);
+      }
+      if (immutable_db_options_.persist_stats_to_disk) {
+        ColumnFamilyData* cfd_stats =
+            versions_->GetColumnFamilySet()->GetColumnFamily(
+                kPersistentStatsColumnFamilyName);
+        if (cfd_stats != nullptr && cfd_stats != cfd &&
+            !cfd_stats->mem()->IsEmpty()) {
+          // only force flush stats CF when it will be the only CF lagging
+          // behind after the current flush
+          bool stats_cf_flush_needed = true;
+          for (auto* loop_cfd : *versions_->GetColumnFamilySet()) {
+            if (loop_cfd == cfd_stats || loop_cfd == cfd) {
+              continue;
+            }
+            if (loop_cfd->GetLogNumber() <= cfd_stats->GetLogNumber()) {
+              stats_cf_flush_needed = false;
+            }
+          }
+          if (stats_cf_flush_needed) {
+            ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                           "Force flushing stats CF with manual flush of %s "
+                           "to avoid holding old logs", cfd->GetName().c_str());
+            s = SwitchMemtable(cfd_stats, &context);
+            flush_memtable_id = cfd_stats->imm()->GetLatestMemTableID();
+            flush_req.emplace_back(cfd_stats, flush_memtable_id);
+          }
+        }
       }
     }
 
