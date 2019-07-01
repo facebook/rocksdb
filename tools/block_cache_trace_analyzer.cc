@@ -118,6 +118,10 @@ DEFINE_int32(analyze_blocks_reuse_k_reuse_window, 0,
              "Analyze the percentage of blocks that are accessed in the "
              "[k, 2*k] seconds are accessed again in the next [2*k, 3*k], "
              "[3*k, 4*k],...,[k*(n-1), k*n] seconds. ");
+DEFINE_string(analyze_get_spatial_locality_labels, "",
+              "Group data blocks using these labels.");
+DEFINE_string(analyze_get_spatial_locality_buckets, "",
+              "Group data blocks by their statistics using these buckets.");
 
 namespace rocksdb {
 namespace {
@@ -321,7 +325,7 @@ std::set<std::string> BlockCacheTraceAnalyzer::ParseLabelStr(
 std::string BlockCacheTraceAnalyzer::BuildLabel(
     const std::set<std::string>& labels, const std::string& cf_name,
     uint64_t fd, uint32_t level, TraceType type, TableReaderCaller caller,
-    const std::string& block_key) const {
+    uint64_t block_key) const {
   std::map<std::string, std::string> label_value_map;
   label_value_map[kGroupbyAll] = kGroupbyAll;
   label_value_map[kGroupbyLevel] = std::to_string(level);
@@ -329,7 +333,7 @@ std::string BlockCacheTraceAnalyzer::BuildLabel(
   label_value_map[kGroupbySSTFile] = std::to_string(fd);
   label_value_map[kGroupbyBlockType] = block_type_to_string(type);
   label_value_map[kGroupbyColumnFamily] = cf_name;
-  label_value_map[kGroupbyBlock] = block_key;
+  label_value_map[kGroupbyBlock] = std::to_string(block_key);
   // Concatenate the label values.
   std::string label;
   for (auto const& l : labels) {
@@ -342,12 +346,11 @@ std::string BlockCacheTraceAnalyzer::BuildLabel(
   return label;
 }
 
-void BlockCacheTraceAnalyzer::WriteAccessTimeline(
-    const std::string& label_str) const {
-  std::set<std::string> labels = ParseLabelStr(label_str);
-  uint64_t start_time = port::kMaxUint64;
-  uint64_t end_time = 0;
-  std::map<std::string, std::map<uint64_t, uint64_t>> label_access_timeline;
+void BlockCacheTraceAnalyzer::TraverseBlocks(
+    std::function<void(const std::string&, uint64_t, uint32_t, TraceType,
+                       const std::string&, uint64_t, const BlockAccessInfo&)>
+        block_callback) const {
+  uint64_t block_id = 0;
   for (auto const& cf_aggregates : cf_aggregates_map_) {
     // Stats per column family.
     const std::string& cf_name = cf_aggregates.first;
@@ -362,42 +365,153 @@ void BlockCacheTraceAnalyzer::WriteAccessTimeline(
         for (auto const& block_access_info :
              block_type_aggregates.second.block_access_info_map) {
           // Stats per block.
-          for (auto const& timeline :
-               block_access_info.second.caller_num_accesses_timeline) {
-            const TableReaderCaller caller = timeline.first;
-            const std::string& block_key = block_access_info.first;
-            const std::string label =
-                BuildLabel(labels, cf_name, fd, level, type, caller, block_key);
-            for (auto const& naccess : timeline.second) {
-              const uint64_t timestamp = naccess.first;
-              const uint64_t num = naccess.second;
-              label_access_timeline[label][timestamp] += num;
-              start_time = std::min(start_time, timestamp);
-              end_time = std::max(end_time, timestamp);
-            }
-          }
+          block_callback(cf_name, fd, level, type, block_access_info.first,
+                         block_id, block_access_info.second);
+          block_id++;
         }
       }
     }
   }
+}
+
+void BlockCacheTraceAnalyzer::WriteGetSpatialLocality(
+    const std::string& label_str,
+    const std::vector<uint64_t>& percent_buckets) const {
+  std::set<std::string> labels = ParseLabelStr(label_str);
+  std::map<std::string, std::map<uint64_t, uint64_t>> label_pnrefkeys_nblocks;
+  std::map<std::string, std::map<uint64_t, uint64_t>> label_pnrefs_nblocks;
+  std::map<std::string, std::map<uint64_t, uint64_t>> label_pndatasize_nblocks;
+  uint64_t nblocks = 0;
+  auto block_callback = [&](const std::string& cf_name, uint64_t fd,
+                            uint32_t level, TraceType, const std::string&,
+                            uint64_t, const BlockAccessInfo& block) {
+    if (block.num_keys == 0) {
+      return;
+    }
+    uint64_t naccesses = 0;
+    for (auto const& key_access : block.key_num_access_map) {
+      for (auto const& caller_access : key_access.second) {
+        if (caller_access.first == TableReaderCaller::kUserGet) {
+          naccesses += caller_access.second;
+        }
+      }
+    }
+    const std::string label =
+        BuildLabel(labels, cf_name, fd, level, TraceType::kBlockTraceDataBlock,
+                   TableReaderCaller::kUserGet, /*block_id=*/0);
+    const uint64_t percent_referenced_for_existing_keys = static_cast<uint64_t>(
+        percent(block.key_num_access_map.size(), block.num_keys));
+    const uint64_t percent_accesses_for_existing_keys = static_cast<uint64_t>(
+        percent(block.num_referenced_key_exist_in_block, naccesses));
+    const uint64_t percent_referenced_data_size = static_cast<uint64_t>(
+        percent(block.referenced_data_size, block.block_size));
+    if (label_pnrefkeys_nblocks.find(label) == label_pnrefkeys_nblocks.end()) {
+      for (auto const& percent_bucket : percent_buckets) {
+        label_pnrefkeys_nblocks[label][percent_bucket] = 0;
+        label_pnrefs_nblocks[label][percent_bucket] = 0;
+        label_pndatasize_nblocks[label][percent_bucket] = 0;
+      }
+    }
+    label_pnrefkeys_nblocks[label]
+        .upper_bound(percent_referenced_for_existing_keys)
+        ->second += 1;
+    label_pnrefs_nblocks[label]
+        .upper_bound(percent_accesses_for_existing_keys)
+        ->second += 1;
+    label_pndatasize_nblocks[label]
+        .upper_bound(percent_referenced_data_size)
+        ->second += 1;
+    nblocks += 1;
+  };
+  TraverseBlocks(block_callback);
+  WriteStatsToFile(label_str, percent_buckets, "_percent_ref_keys",
+                   label_pnrefkeys_nblocks, nblocks);
+  WriteStatsToFile(label_str, percent_buckets, "_percent_accesses_on_ref_keys",
+                   label_pnrefs_nblocks, nblocks);
+  WriteStatsToFile(label_str, percent_buckets, "_percent_data_size_on_ref_keys",
+                   label_pndatasize_nblocks, nblocks);
+}
+
+void BlockCacheTraceAnalyzer::WriteAccessTimeline(const std::string& label_str,
+                                                  uint64_t time_unit,
+                                                  bool user_access_only) const {
+  std::set<std::string> labels = ParseLabelStr(label_str);
+  uint64_t start_time = port::kMaxUint64;
+  uint64_t end_time = 0;
+  std::map<std::string, std::map<uint64_t, uint64_t>> label_access_timeline;
+  std::map<uint64_t, std::vector<std::string>> access_count_block_id_map;
+
+  auto block_callback = [&](const std::string& cf_name, uint64_t fd,
+                            uint32_t level, TraceType type, const std::string&,
+                            uint64_t block_id, const BlockAccessInfo& block) {
+    uint64_t naccesses = 0;
+    for (auto const& timeline : block.caller_num_accesses_timeline) {
+      const TableReaderCaller caller = timeline.first;
+      if (user_access_only && !is_user_access(caller)) {
+        continue;
+      }
+      const std::string label =
+          BuildLabel(labels, cf_name, fd, level, type, caller, block_id);
+      for (auto const& naccess : timeline.second) {
+        const uint64_t timestamp = naccess.first / time_unit;
+        const uint64_t num = naccess.second;
+        label_access_timeline[label][timestamp] += num;
+        start_time = std::min(start_time, timestamp);
+        end_time = std::max(end_time, timestamp);
+        naccesses += num;
+      }
+    }
+    if (naccesses > 0) {
+      access_count_block_id_map[naccesses].push_back(std::to_string(block_id));
+    }
+  };
+  TraverseBlocks(block_callback);
 
   // We have label_access_timeline now. Write them into a file.
-  const std::string output_path =
-      output_dir_ + "/" + label_str + "_access_timeline";
+  const std::string user_access_prefix =
+      user_access_only ? "user_access_only_" : "all_access_";
+  const std::string output_path = output_dir_ + "/" + user_access_prefix +
+                                  label_str + "_access_timeline_" +
+                                  std::to_string(time_unit);
   std::ofstream out(output_path);
   if (!out.is_open()) {
     return;
   }
   std::string header("time");
-  for (auto const& label : label_access_timeline) {
+  if (labels.find("block") != labels.end()) {
+    for (uint64_t now = start_time; now <= end_time; now++) {
+      header += ",";
+      header += std::to_string(now);
+    }
+    out << header << std::endl;
+    // Write the most frequently accessed blocks first.
+    for (auto naccess_it = access_count_block_id_map.rbegin();
+         naccess_it != access_count_block_id_map.rend(); naccess_it++) {
+      for (auto& block_id_it : naccess_it->second) {
+        std::string row(block_id_it);
+        for (uint64_t now = start_time; now <= end_time; now++) {
+          auto it = label_access_timeline[block_id_it].find(now);
+          row += ",";
+          if (it != label_access_timeline[block_id_it].end()) {
+            row += std::to_string(it->second);
+          } else {
+            row += "0";
+          }
+        }
+        out << row << std::endl;
+      }
+    }
+    out.close();
+    return;
+  }
+  for (uint64_t now = start_time; now <= end_time; now++) {
     header += ",";
-    header += label.first;
+    header += std::to_string(now);
   }
   out << header << std::endl;
-  std::string row;
-  for (uint64_t now = start_time; now <= end_time; now++) {
-    row = std::to_string(now);
-    for (auto const& label : label_access_timeline) {
+  for (auto const& label : label_access_timeline) {
+    std::string row(label.first);
+    for (uint64_t now = start_time; now <= end_time; now++) {
       auto it = label.second.find(now);
       row += ",";
       if (it != label.second.end()) {
@@ -408,6 +522,7 @@ void BlockCacheTraceAnalyzer::WriteAccessTimeline(
     }
     out << row << std::endl;
   }
+
   out.close();
 }
 
@@ -417,43 +532,27 @@ void BlockCacheTraceAnalyzer::WriteReuseDistance(
   std::set<std::string> labels = ParseLabelStr(label_str);
   std::map<std::string, std::map<uint64_t, uint64_t>> label_distance_num_reuses;
   uint64_t total_num_reuses = 0;
-  for (auto const& cf_aggregates : cf_aggregates_map_) {
-    // Stats per column family.
-    const std::string& cf_name = cf_aggregates.first;
-    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
-      // Stats per SST file.
-      const uint64_t fd = file_aggregates.first;
-      const uint32_t level = file_aggregates.second.level;
-      for (auto const& block_type_aggregates :
-           file_aggregates.second.block_type_aggregates_map) {
-        // Stats per block type.
-        const TraceType type = block_type_aggregates.first;
-        for (auto const& block_access_info :
-             block_type_aggregates.second.block_access_info_map) {
-          // Stats per block.
-          const std::string& block_key = block_access_info.first;
-          const std::string label = BuildLabel(
-              labels, cf_name, fd, level, type,
-              TableReaderCaller::kMaxBlockCacheLookupCaller, block_key);
-          if (label_distance_num_reuses.find(label) ==
-              label_distance_num_reuses.end()) {
-            // The first time we encounter this label.
-            for (auto const& distance_bucket : distance_buckets) {
-              label_distance_num_reuses[label][distance_bucket] = 0;
-            }
-          }
-          for (auto const& reuse_distance :
-               block_access_info.second.reuse_distance_count) {
-            label_distance_num_reuses[label]
-                .upper_bound(reuse_distance.first)
-                ->second += reuse_distance.second;
-            total_num_reuses += reuse_distance.second;
-          }
-        }
+  auto block_callback = [&](const std::string& cf_name, uint64_t fd,
+                            uint32_t level, TraceType type, const std::string&,
+                            uint64_t block_id, const BlockAccessInfo& block) {
+    const std::string label =
+        BuildLabel(labels, cf_name, fd, level, type,
+                   TableReaderCaller::kMaxBlockCacheLookupCaller, block_id);
+    if (label_distance_num_reuses.find(label) ==
+        label_distance_num_reuses.end()) {
+      // The first time we encounter this label.
+      for (auto const& distance_bucket : distance_buckets) {
+        label_distance_num_reuses[label][distance_bucket] = 0;
       }
     }
-  }
-
+    for (auto const& reuse_distance : block.reuse_distance_count) {
+      label_distance_num_reuses[label]
+          .upper_bound(reuse_distance.first)
+          ->second += reuse_distance.second;
+      total_num_reuses += reuse_distance.second;
+    }
+  };
+  TraverseBlocks(block_callback);
   // We have label_naccesses and label_distance_num_reuses now. Write them into
   // a file.
   const std::string output_path =
@@ -517,132 +616,101 @@ void BlockCacheTraceAnalyzer::UpdateReuseIntervalStats(
   }
 }
 
+void BlockCacheTraceAnalyzer::WriteStatsToFile(
+    const std::string& label_str, const std::vector<uint64_t>& time_buckets,
+    const std::string& filename_suffix,
+    const std::map<std::string, std::map<uint64_t, uint64_t>>& label_data,
+    uint64_t ntotal) const {
+  const std::string output_path =
+      output_dir_ + "/" + label_str + filename_suffix;
+  std::ofstream out(output_path);
+  if (!out.is_open()) {
+    return;
+  }
+  std::string header("bucket");
+  for (auto const& label_it : label_data) {
+    header += ",";
+    header += label_it.first;
+  }
+  out << header << std::endl;
+  for (auto const& bucket : time_buckets) {
+    std::string row(std::to_string(bucket));
+    for (auto const& label_it : label_data) {
+      auto const& it = label_it.second.find(bucket);
+      assert(it != label_it.second.end());
+      row += ",";
+      row += std::to_string(percent(it->second, ntotal));
+    }
+    out << row << std::endl;
+  }
+  out.close();
+}
+
 void BlockCacheTraceAnalyzer::WriteReuseInterval(
     const std::string& label_str,
     const std::vector<uint64_t>& time_buckets) const {
   std::set<std::string> labels = ParseLabelStr(label_str);
   std::map<std::string, std::map<uint64_t, uint64_t>> label_time_num_reuses;
   std::map<std::string, std::map<uint64_t, uint64_t>> label_avg_reuse_nblocks;
+  std::map<std::string, std::map<uint64_t, uint64_t>> label_avg_reuse_naccesses;
+
   uint64_t total_num_reuses = 0;
   uint64_t total_nblocks = 0;
-  for (auto const& cf_aggregates : cf_aggregates_map_) {
-    // Stats per column family.
-    const std::string& cf_name = cf_aggregates.first;
-    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
-      // Stats per SST file.
-      const uint64_t fd = file_aggregates.first;
-      const uint32_t level = file_aggregates.second.level;
-      for (auto const& block_type_aggregates :
-           file_aggregates.second.block_type_aggregates_map) {
-        // Stats per block type.
-        const TraceType type = block_type_aggregates.first;
-        for (auto const& block_access_info :
-             block_type_aggregates.second.block_access_info_map) {
-          // Stats per block.
-          total_nblocks++;
-          uint64_t avg_reuse_interval = 0;
-          if (block_access_info.second.num_accesses > 1) {
-            avg_reuse_interval = ((block_access_info.second.last_access_time -
-                                   block_access_info.second.first_access_time) /
-                                  kMicrosInSecond) /
-                                 block_access_info.second.num_accesses;
-          } else {
-            avg_reuse_interval = port::kMaxUint64 - 1;
-          }
-
-          const std::string& block_key = block_access_info.first;
-          if (labels.find(kGroupbyCaller) != labels.end()) {
-            for (auto const& timeline :
-                 block_access_info.second.caller_num_accesses_timeline) {
-              const TableReaderCaller caller = timeline.first;
-              const std::string label = BuildLabel(labels, cf_name, fd, level,
-                                                   type, caller, block_key);
-              UpdateReuseIntervalStats(label, time_buckets, timeline.second,
-                                       &label_time_num_reuses,
-                                       &total_num_reuses);
-            }
-            continue;
-          }
-          // Does not group by caller so we need to flatten the access timeline.
-          const std::string label = BuildLabel(
-              labels, cf_name, fd, level, type,
-              TableReaderCaller::kMaxBlockCacheLookupCaller, block_key);
-          std::map<uint64_t, uint64_t> timeline;
-          for (auto const& caller_timeline :
-               block_access_info.second.caller_num_accesses_timeline) {
-            for (auto const& time_naccess : caller_timeline.second) {
-              timeline[time_naccess.first] += time_naccess.second;
-            }
-          }
-          UpdateReuseIntervalStats(label, time_buckets, timeline,
-                                   &label_time_num_reuses, &total_num_reuses);
-          if (label_avg_reuse_nblocks.find(label) ==
-              label_avg_reuse_nblocks.end()) {
-            for (auto const& time_bucket : time_buckets) {
-              label_avg_reuse_nblocks[label][time_bucket] = 0;
-            }
-          }
-          label_avg_reuse_nblocks[label]
-              .upper_bound(avg_reuse_interval)
-              ->second += 1;
-        }
-      }
+  uint64_t total_accesses = 0;
+  auto block_callback = [&](const std::string& cf_name, uint64_t fd,
+                            uint32_t level, TraceType type, const std::string&,
+                            uint64_t block_id, const BlockAccessInfo& block) {
+    total_nblocks++;
+    total_accesses += block.num_accesses;
+    uint64_t avg_reuse_interval = 0;
+    if (block.num_accesses > 1) {
+      avg_reuse_interval = ((block.last_access_time - block.first_access_time) /
+                            kMicrosInSecond) /
+                           block.num_accesses;
+    } else {
+      avg_reuse_interval = port::kMaxUint64 - 1;
     }
-  }
-
-  // We have label_naccesses and label_interval_num_reuses now. Write them into
-  // a file.
-  {
-    const std::string output_path =
-        output_dir_ + "/" + label_str + "_reuse_interval";
-    std::ofstream out(output_path);
-    if (!out.is_open()) {
+    if (labels.find(kGroupbyCaller) != labels.end()) {
+      for (auto const& timeline : block.caller_num_accesses_timeline) {
+        const TableReaderCaller caller = timeline.first;
+        const std::string label =
+            BuildLabel(labels, cf_name, fd, level, type, caller, block_id);
+        UpdateReuseIntervalStats(label, time_buckets, timeline.second,
+                                 &label_time_num_reuses, &total_num_reuses);
+      }
       return;
     }
-    std::string header("bucket");
-    for (auto const& label_it : label_time_num_reuses) {
-      header += ",";
-      header += label_it.first;
-    }
-    out << header << std::endl;
-    for (auto const& bucket : time_buckets) {
-      std::string row(std::to_string(bucket));
-      for (auto const& label_it : label_time_num_reuses) {
-        auto const& it = label_it.second.find(bucket);
-        assert(it != label_it.second.end());
-        row += ",";
-        row += std::to_string(percent(it->second, total_num_reuses));
+    // Does not group by caller so we need to flatten the access timeline.
+    const std::string label =
+        BuildLabel(labels, cf_name, fd, level, type,
+                   TableReaderCaller::kMaxBlockCacheLookupCaller, block_id);
+    std::map<uint64_t, uint64_t> timeline;
+    for (auto const& caller_timeline : block.caller_num_accesses_timeline) {
+      for (auto const& time_naccess : caller_timeline.second) {
+        timeline[time_naccess.first] += time_naccess.second;
       }
-      out << row << std::endl;
     }
-    out.close();
-  }
+    UpdateReuseIntervalStats(label, time_buckets, timeline,
+                             &label_time_num_reuses, &total_num_reuses);
+    if (label_avg_reuse_nblocks.find(label) == label_avg_reuse_nblocks.end()) {
+      for (auto const& time_bucket : time_buckets) {
+        label_avg_reuse_nblocks[label][time_bucket] = 0;
+        label_avg_reuse_naccesses[label][time_bucket] = 0;
+      }
+    }
+    label_avg_reuse_nblocks[label].upper_bound(avg_reuse_interval)->second += 1;
+    label_avg_reuse_naccesses[label].upper_bound(avg_reuse_interval)->second +=
+        block.num_accesses;
+  };
+  TraverseBlocks(block_callback);
 
-  {
-    const std::string output_path =
-        output_dir_ + "/" + label_str + "_avg_reuse_interval";
-    std::ofstream out(output_path);
-    if (!out.is_open()) {
-      return;
-    }
-    std::string header("bucket");
-    for (auto const& label_it : label_avg_reuse_nblocks) {
-      header += ",";
-      header += label_it.first;
-    }
-    out << header << std::endl;
-    for (auto const& bucket : time_buckets) {
-      std::string row(std::to_string(bucket));
-      for (auto const& label_it : label_avg_reuse_nblocks) {
-        auto const& it = label_it.second.find(bucket);
-        assert(it != label_it.second.end());
-        row += ",";
-        row += std::to_string(percent(it->second, total_nblocks));
-      }
-      out << row << std::endl;
-    }
-    out.close();
-  }
+  // Write the stats into files.
+  WriteStatsToFile(label_str, time_buckets, "_reuse_interval",
+                   label_time_num_reuses, total_num_reuses);
+  WriteStatsToFile(label_str, time_buckets, "_avg_reuse_interval",
+                   label_avg_reuse_nblocks, total_nblocks);
+  WriteStatsToFile(label_str, time_buckets, "_avg_reuse_interval_naccesses",
+                   label_avg_reuse_naccesses, total_accesses);
 }
 
 void BlockCacheTraceAnalyzer::WriteReuseLifetime(
@@ -651,72 +719,32 @@ void BlockCacheTraceAnalyzer::WriteReuseLifetime(
   std::set<std::string> labels = ParseLabelStr(label_str);
   std::map<std::string, std::map<uint64_t, uint64_t>> label_lifetime_nblocks;
   uint64_t total_nblocks = 0;
-  for (auto const& cf_aggregates : cf_aggregates_map_) {
-    // Stats per column family.
-    const std::string& cf_name = cf_aggregates.first;
-    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
-      // Stats per SST file.
-      const uint64_t fd = file_aggregates.first;
-      const uint32_t level = file_aggregates.second.level;
-      for (auto const& block_type_aggregates :
-           file_aggregates.second.block_type_aggregates_map) {
-        // Stats per block type.
-        const TraceType type = block_type_aggregates.first;
-        for (auto const& block_access_info :
-             block_type_aggregates.second.block_access_info_map) {
-          // Stats per block.
-          const std::string& block_key = block_access_info.first;
-          uint64_t lifetime = 0;
-          if (block_access_info.second.num_accesses > 1) {
-            lifetime = (block_access_info.second.last_access_time -
-                        block_access_info.second.first_access_time) /
-                       kMicrosInSecond;
-          } else {
-            lifetime = port::kMaxUint64 - 1;
-          }
-          const std::string label = BuildLabel(
-              labels, cf_name, fd, level, type,
-              TableReaderCaller::kMaxBlockCacheLookupCaller, block_key);
+  auto block_callback = [&](const std::string& cf_name, uint64_t fd,
+                            uint32_t level, TraceType type, const std::string&,
+                            uint64_t block_id, const BlockAccessInfo& block) {
+    uint64_t lifetime = 0;
+    if (block.num_accesses > 1) {
+      lifetime =
+          (block.last_access_time - block.first_access_time) / kMicrosInSecond;
+    } else {
+      lifetime = port::kMaxUint64 - 1;
+    }
+    const std::string label =
+        BuildLabel(labels, cf_name, fd, level, type,
+                   TableReaderCaller::kMaxBlockCacheLookupCaller, block_id);
 
-          if (label_lifetime_nblocks.find(label) ==
-              label_lifetime_nblocks.end()) {
-            // The first time we encounter this label.
-            for (auto const& time_bucket : time_buckets) {
-              label_lifetime_nblocks[label][time_bucket] = 0;
-            }
-          }
-          label_lifetime_nblocks[label].upper_bound(lifetime)->second += 1;
-          total_nblocks += 1;
-        }
+    if (label_lifetime_nblocks.find(label) == label_lifetime_nblocks.end()) {
+      // The first time we encounter this label.
+      for (auto const& time_bucket : time_buckets) {
+        label_lifetime_nblocks[label][time_bucket] = 0;
       }
     }
-  }
-
-  // We have label_naccesses and label_interval_num_reuses now. Write them into
-  // a file.
-  const std::string output_path =
-      output_dir_ + "/" + label_str + "_reuse_lifetime";
-  std::ofstream out(output_path);
-  if (!out.is_open()) {
-    return;
-  }
-  std::string header("bucket");
-  for (auto const& label_it : label_lifetime_nblocks) {
-    header += ",";
-    header += label_it.first;
-  }
-  out << header << std::endl;
-  for (auto const& bucket : time_buckets) {
-    std::string row(std::to_string(bucket));
-    for (auto const& label_it : label_lifetime_nblocks) {
-      auto const& it = label_it.second.find(bucket);
-      assert(it != label_it.second.end());
-      row += ",";
-      row += std::to_string(percent(it->second, total_nblocks));
-    }
-    out << row << std::endl;
-  }
-  out.close();
+    label_lifetime_nblocks[label].upper_bound(lifetime)->second += 1;
+    total_nblocks += 1;
+  };
+  TraverseBlocks(block_callback);
+  WriteStatsToFile(label_str, time_buckets, "_reuse_lifetime",
+                   label_lifetime_nblocks, total_nblocks);
 }
 
 void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
@@ -732,41 +760,32 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
     // percentage of blocks.
     return;
   }
-  for (auto const& cf_aggregates : cf_aggregates_map_) {
-    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
-      for (auto const& block_type_aggregates :
-           file_aggregates.second.block_type_aggregates_map) {
-        if (block_type_aggregates.first != block_type) {
-          continue;
-        }
-        for (auto const& block_access_info :
-             block_type_aggregates.second.block_access_info_map) {
-          const std::string& block_key = block_access_info.first;
-          if (block_accessed.find(block_key) == block_accessed.end()) {
-            block_accessed[block_key].resize(reuse_vector_size);
-            for (uint64_t i = 0; i < reuse_vector_size; i++) {
-              block_accessed[block_key][i] = false;
-            }
-          }
-          for (auto const& caller_num :
-               block_access_info.second.caller_num_accesses_timeline) {
-            const TableReaderCaller caller = caller_num.first;
-            for (auto const& timeline : caller_num.second) {
-              const uint64_t timestamp = timeline.first;
-              const uint64_t elapsed_time =
-                  timestamp - trace_start_timestamp_in_seconds_;
-              if (!user_access_only ||
-                  (user_access_only && is_user_access(caller))) {
-                uint64_t index = std::min(elapsed_time / reuse_window,
-                                          reuse_vector_size - 1);
-                block_accessed[block_key][index] = true;
-              }
-            }
-          }
+  auto block_callback = [&](const std::string& /*cf_name*/, uint64_t /*fd*/,
+                            uint32_t /*level*/, TraceType /*type*/,
+                            const std::string& block_key, uint64_t /*block_id*/,
+                            const BlockAccessInfo& block) {
+    if (block_accessed.find(block_key) == block_accessed.end()) {
+      block_accessed[block_key].resize(reuse_vector_size);
+      for (uint64_t i = 0; i < reuse_vector_size; i++) {
+        block_accessed[block_key][i] = false;
+      }
+    }
+    for (auto const& caller_num : block.caller_num_accesses_timeline) {
+      const TableReaderCaller caller = caller_num.first;
+      for (auto const& timeline : caller_num.second) {
+        const uint64_t timestamp = timeline.first;
+        const uint64_t elapsed_time =
+            timestamp - trace_start_timestamp_in_seconds_;
+        if (!user_access_only || (user_access_only && is_user_access(caller))) {
+          uint64_t index =
+              std::min(elapsed_time / reuse_window, reuse_vector_size - 1);
+          block_accessed[block_key][index] = true;
         }
       }
     }
-  }
+  };
+  TraverseBlocks(block_callback);
+
   // A cell is the number of blocks accessed in a reuse window.
   uint64_t reuse_table[reuse_vector_size][reuse_vector_size];
   for (uint64_t start_time = 0; start_time < reuse_vector_size; start_time++) {
@@ -839,24 +858,18 @@ void BlockCacheTraceAnalyzer::WritePercentAccessSummaryStats() const {
   std::map<TableReaderCaller, std::map<std::string, uint64_t>>
       caller_cf_accesses;
   uint64_t total_accesses = 0;
-  for (auto const& cf_aggregates : cf_aggregates_map_) {
-    const std::string& cf_name = cf_aggregates.first;
-    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
-      for (auto const& block_type_aggregates :
-           file_aggregates.second.block_type_aggregates_map) {
-        for (auto const& block_access_info :
-             block_type_aggregates.second.block_access_info_map) {
-          for (auto const& caller_num :
-               block_access_info.second.caller_num_access_map) {
-            const TableReaderCaller caller = caller_num.first;
-            const uint64_t naccess = caller_num.second;
-            caller_cf_accesses[caller][cf_name] += naccess;
-            total_accesses += naccess;
-          }
+  auto block_callback =
+      [&](const std::string& cf_name, uint64_t /*fd*/, uint32_t /*level*/,
+          TraceType /*type*/, const std::string& /*block_key*/,
+          uint64_t /*block_id*/, const BlockAccessInfo& block) {
+        for (auto const& caller_num : block.caller_num_access_map) {
+          const TableReaderCaller caller = caller_num.first;
+          const uint64_t naccess = caller_num.second;
+          caller_cf_accesses[caller][cf_name] += naccess;
+          total_accesses += naccess;
         }
-      }
-    }
-  }
+      };
+  TraverseBlocks(block_callback);
 
   const std::string output_path =
       output_dir_ + "/percentage_of_accesses_summary";
@@ -885,30 +898,21 @@ void BlockCacheTraceAnalyzer::WriteDetailedPercentAccessSummaryStats(
   std::map<uint32_t, std::map<std::string, uint64_t>> level_cf_accesses;
   std::map<TraceType, std::map<std::string, uint64_t>> bt_cf_accesses;
   uint64_t total_accesses = 0;
-  for (auto const& cf_aggregates : cf_aggregates_map_) {
-    const std::string& cf_name = cf_aggregates.first;
-    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
-      const uint32_t level = file_aggregates.second.level;
-      for (auto const& block_type_aggregates :
-           file_aggregates.second.block_type_aggregates_map) {
-        const TraceType block_type = block_type_aggregates.first;
-        for (auto const& block_access_info :
-             block_type_aggregates.second.block_access_info_map) {
-          for (auto const& caller_num :
-               block_access_info.second.caller_num_access_map) {
-            const TableReaderCaller caller = caller_num.first;
-            if (caller == analyzing_caller) {
-              const uint64_t naccess = caller_num.second;
-              level_cf_accesses[level][cf_name] += naccess;
-              bt_cf_accesses[block_type][cf_name] += naccess;
-              total_accesses += naccess;
-            }
+  auto block_callback =
+      [&](const std::string& cf_name, uint64_t /*fd*/, uint32_t level,
+          TraceType type, const std::string& /*block_key*/,
+          uint64_t /*block_id*/, const BlockAccessInfo& block) {
+        for (auto const& caller_num : block.caller_num_access_map) {
+          const TableReaderCaller caller = caller_num.first;
+          if (caller == analyzing_caller) {
+            const uint64_t naccess = caller_num.second;
+            level_cf_accesses[level][cf_name] += naccess;
+            bt_cf_accesses[type][cf_name] += naccess;
+            total_accesses += naccess;
           }
         }
-      }
-    }
-  }
-
+      };
+  TraverseBlocks(block_callback);
   {
     const std::string output_path = output_dir_ + "/" +
                                     caller_to_string(analyzing_caller) +
@@ -962,113 +966,49 @@ void BlockCacheTraceAnalyzer::WriteAccessCountSummaryStats(
     bool user_access_only) const {
   // x: buckets.
   // y: # of accesses.
-  std::map<TraceType, std::map<uint64_t, uint64_t>> bt_access_nblocks;
+  std::map<std::string, std::map<uint64_t, uint64_t>> bt_access_nblocks;
   std::map<std::string, std::map<uint64_t, uint64_t>> cf_access_nblocks;
-  std::set<TraceType> block_types;
   uint64_t total_nblocks = 0;
-  for (auto const& cf_aggregates : cf_aggregates_map_) {
-    const std::string& cf_name = cf_aggregates.first;
-    if (cf_access_nblocks.find(cf_name) == cf_access_nblocks.end()) {
-      // initialize.
-      for (auto& access : access_count_buckets) {
-        cf_access_nblocks[cf_name][access] = 0;
-      }
-    }
-    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
-      for (auto const& block_type_aggregates :
-           file_aggregates.second.block_type_aggregates_map) {
-        const TraceType block_type = block_type_aggregates.first;
-        block_types.insert(block_type);
-        if (bt_access_nblocks.find(block_type) == bt_access_nblocks.end()) {
+  auto block_callback =
+      [&](const std::string& cf_name, uint64_t /*fd*/, uint32_t /*level*/,
+          TraceType type, const std::string& /*block_key*/,
+          uint64_t /*block_id*/, const BlockAccessInfo& block) {
+        const std::string type_str = block_type_to_string(type);
+        if (cf_access_nblocks.find(cf_name) == cf_access_nblocks.end()) {
           // initialize.
           for (auto& access : access_count_buckets) {
-            bt_access_nblocks[block_type][access] = 0;
+            cf_access_nblocks[cf_name][access] = 0;
           }
         }
-
-        for (auto const& block_access_info :
-             block_type_aggregates.second.block_access_info_map) {
-          uint64_t naccesses = 0;
-          for (auto const& caller_access :
-               block_access_info.second.caller_num_access_map) {
-            if (!user_access_only ||
-                (user_access_only && is_user_access(caller_access.first))) {
-              naccesses += caller_access.second;
-            }
+        if (bt_access_nblocks.find(type_str) == bt_access_nblocks.end()) {
+          // initialize.
+          for (auto& access : access_count_buckets) {
+            bt_access_nblocks[type_str][access] = 0;
           }
-          if (naccesses == 0) {
-            continue;
-          }
-          total_nblocks += 1;
-          bt_access_nblocks[block_type].upper_bound(naccesses)->second += 1;
-          cf_access_nblocks[cf_name].upper_bound(naccesses)->second += 1;
         }
-      }
-    }
-  }
-
+        uint64_t naccesses = 0;
+        for (auto const& caller_access : block.caller_num_access_map) {
+          if (!user_access_only ||
+              (user_access_only && is_user_access(caller_access.first))) {
+            naccesses += caller_access.second;
+          }
+        }
+        if (naccesses == 0) {
+          return;
+        }
+        total_nblocks += 1;
+        bt_access_nblocks[type_str].upper_bound(naccesses)->second += 1;
+        cf_access_nblocks[cf_name].upper_bound(naccesses)->second += 1;
+      };
+  TraverseBlocks(block_callback);
   const std::string user_access_prefix =
-      user_access_only ? "user_access_only_" : "all_access_";
-  {
-    const std::string output_path =
-        output_dir_ + "/" + user_access_prefix + "cf_access_count_summary";
-    std::ofstream out(output_path);
-    if (!out.is_open()) {
-      return;
-    }
-    std::string header("cf");
-    for (auto const& access_count : access_count_buckets) {
-      header += ",";
-      header += std::to_string(access_count);
-    }
-    out << header << std::endl;
-    for (auto const& cf_access_nblocks_it : cf_access_nblocks) {
-      const std::string& cf_name = cf_access_nblocks_it.first;
-      std::string row;
-      row += cf_name;
-      for (auto const& access_count : access_count_buckets) {
-        const auto& nblocks = cf_access_nblocks_it.second.find(access_count);
-        row += ",";
-        if (nblocks != cf_access_nblocks_it.second.end()) {
-          row += std::to_string(percent(nblocks->second, total_nblocks));
-        } else {
-          row += "0";
-        }
-      }
-      out << row << std::endl;
-    }
-    out.close();
-  }
-  {
-    const std::string output_path =
-        output_dir_ + "/" + user_access_prefix + "bt_access_count_summary";
-    std::ofstream out(output_path);
-    if (!out.is_open()) {
-      return;
-    }
-    std::string header("bt");
-    for (auto const& access_count : access_count_buckets) {
-      header += ",";
-      header += std::to_string(access_count);
-    }
-    out << header << std::endl;
-    for (auto const& bt_access_nblocks_it : bt_access_nblocks) {
-      const TraceType block_type = bt_access_nblocks_it.first;
-      std::string row;
-      row += block_type_to_string(block_type);
-      for (auto const& access_count : access_count_buckets) {
-        const auto& nblocks = bt_access_nblocks_it.second.find(access_count);
-        row += ",";
-        if (nblocks != bt_access_nblocks_it.second.end()) {
-          row += std::to_string(percent(nblocks->second, total_nblocks));
-        } else {
-          row += "0";
-        }
-      }
-      out << row << std::endl;
-    }
-    out.close();
-  }
+      user_access_only ? "_user_access_only_" : "_all_access_";
+  WriteStatsToFile("cf", access_count_buckets,
+                   user_access_prefix + "access_count_summary",
+                   cf_access_nblocks, total_nblocks);
+  WriteStatsToFile("bt", access_count_buckets,
+                   user_access_prefix + "access_count_summary",
+                   bt_access_nblocks, total_nblocks);
 }
 
 BlockCacheTraceAnalyzer::BlockCacheTraceAnalyzer(
@@ -1149,6 +1089,9 @@ Status BlockCacheTraceAnalyzer::Analyze() {
   if (!s.ok()) {
     return s;
   }
+  uint64_t start = env_->NowMicros();
+  uint64_t processed_records = 0;
+  uint64_t time_interval = 0;
   while (s.ok()) {
     BlockCacheTraceRecord access;
     s = reader.ReadAccess(&access);
@@ -1159,6 +1102,17 @@ Status BlockCacheTraceAnalyzer::Analyze() {
     if (cache_simulator_) {
       cache_simulator_->Access(access);
     }
+    processed_records++;
+    uint64_t now = env_->NowMicros();
+    uint64_t duration = (now - start) / kMicrosInSecond;
+    if (duration > 10 * time_interval) {
+      fprintf(stdout,
+              "Running for %" PRIu64 " seconds: Processed %" PRIu64
+              " records/second\n",
+              duration, processed_records / duration);
+      processed_records = 0;
+      time_interval++;
+    }
   }
   return Status::OK();
 }
@@ -1167,32 +1121,21 @@ void BlockCacheTraceAnalyzer::PrintBlockSizeStats() const {
   HistogramStat bs_stats;
   std::map<TraceType, HistogramStat> bt_stats_map;
   std::map<std::string, std::map<TraceType, HistogramStat>> cf_bt_stats_map;
-  for (auto const& cf_aggregates : cf_aggregates_map_) {
-    // Stats per column family.
-    const std::string& cf_name = cf_aggregates.first;
-    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
-      // Stats per SST file.
-      for (auto const& block_type_aggregates :
-           file_aggregates.second.block_type_aggregates_map) {
-        // Stats per block type.
-        const TraceType type = block_type_aggregates.first;
-        for (auto const& block_access_info :
-             block_type_aggregates.second.block_access_info_map) {
-          // Stats per block.
-          if (block_access_info.second.block_size == 0) {
-            // Block size may be 0 when 1) compaction observes a cache miss and
-            // does not insert the missing block into the cache again. 2)
-            // fetching filter blocks in SST files at the last level.
-            continue;
-          }
-          bs_stats.Add(block_access_info.second.block_size);
-          bt_stats_map[type].Add(block_access_info.second.block_size);
-          cf_bt_stats_map[cf_name][type].Add(
-              block_access_info.second.block_size);
+  auto block_callback =
+      [&](const std::string& cf_name, uint64_t /*fd*/, uint32_t /*level*/,
+          TraceType type, const std::string& /*block_key*/,
+          uint64_t /*block_id*/, const BlockAccessInfo& block) {
+        if (block.block_size == 0) {
+          // Block size may be 0 when 1) compaction observes a cache miss and
+          // does not insert the missing block into the cache again. 2)
+          // fetching filter blocks in SST files at the last level.
+          return;
         }
-      }
-    }
-  }
+        bs_stats.Add(block.block_size);
+        bt_stats_map[type].Add(block.block_size);
+        cf_bt_stats_map[cf_name][type].Add(block.block_size);
+      };
+  TraverseBlocks(block_callback);
   fprintf(stdout, "Block size stats: \n%s", bs_stats.ToString().c_str());
   for (auto const& bt_stats : bt_stats_map) {
     print_break_lines(/*num_break_lines=*/1);
@@ -1219,39 +1162,28 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
   std::map<TraceType, HistogramStat> bt_stats_map;
   std::map<std::string, std::map<TraceType, HistogramStat>> cf_bt_stats_map;
   std::map<uint64_t, std::vector<std::string>> access_count_blocks;
-  for (auto const& cf_aggregates : cf_aggregates_map_) {
-    // Stats per column family.
-    const std::string& cf_name = cf_aggregates.first;
-    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
-      // Stats per SST file.
-      for (auto const& block_type_aggregates :
-           file_aggregates.second.block_type_aggregates_map) {
-        // Stats per block type.
-        const TraceType type = block_type_aggregates.first;
-        for (auto const& block_access_info :
-             block_type_aggregates.second.block_access_info_map) {
-          // Stats per block.
-          uint64_t naccesses = 0;
-          for (auto const& caller_access :
-               block_access_info.second.caller_num_access_map) {
-            if (!user_access_only ||
-                (user_access_only && is_user_access(caller_access.first))) {
-              naccesses += caller_access.second;
-            }
-          }
-          if (naccesses == 0) {
-            continue;
-          }
-          if (type == TraceType::kBlockTraceDataBlock) {
-            access_count_blocks[naccesses].push_back(block_access_info.first);
-          }
-          access_stats.Add(naccesses);
-          bt_stats_map[type].Add(naccesses);
-          cf_bt_stats_map[cf_name][type].Add(naccesses);
-        }
+  auto block_callback = [&](const std::string& cf_name, uint64_t /*fd*/,
+                            uint32_t /*level*/, TraceType type,
+                            const std::string& block_key, uint64_t /*block_id*/,
+                            const BlockAccessInfo& block) {
+    uint64_t naccesses = 0;
+    for (auto const& caller_access : block.caller_num_access_map) {
+      if (!user_access_only ||
+          (user_access_only && is_user_access(caller_access.first))) {
+        naccesses += caller_access.second;
       }
     }
-  }
+    if (naccesses == 0) {
+      return;
+    }
+    if (type == TraceType::kBlockTraceDataBlock) {
+      access_count_blocks[naccesses].push_back(block_key);
+    }
+    access_stats.Add(naccesses);
+    bt_stats_map[type].Add(naccesses);
+    cf_bt_stats_map[cf_name][type].Add(naccesses);
+  };
+  TraverseBlocks(block_callback);
   fprintf(stdout,
           "Block access count stats: The number of accesses per block. %s\n%s",
           user_access_only ? "User accesses only" : "All accesses",
@@ -1337,12 +1269,14 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
           }
         }
       }
+      statistics += ",nkeys=";
+      statistics += std::to_string(block->num_keys);
+      statistics += ",block_size=";
+      statistics += std::to_string(block->block_size);
       statistics += ",num_ref_keys=";
       statistics += std::to_string(block->key_num_access_map.size());
       statistics += ",percent_access_ref_keys=";
       statistics += std::to_string(percent(ref_keys_accesses, naccesses));
-      statistics += ",block_size=";
-      statistics += std::to_string(block->block_size);
       statistics += ",num_ref_keys_does_not_exist=";
       statistics += std::to_string(block->non_exist_key_num_access_map.size());
       statistics += ",percent_access_ref_keys_does_not_exist=";
@@ -1354,6 +1288,15 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
               "Top %" PRIu32 " access count blocks access_count=%" PRIu64
               " %s\n",
               top_k, naccess_it->first, statistics.c_str());
+      // if (block->referenced_data_size > block->block_size) {
+      //   for (auto const& ref_key_it : block->key_num_access_map) {
+      //     ParsedInternalKey internal_key;
+      //     ParseInternalKey(ref_key_it.first, &internal_key);
+      //     printf("######%lu %lu %d %s\n", block->referenced_data_size,
+      //     block->block_size, internal_key.type,
+      //     internal_key.user_key.ToString().c_str());
+      //   }
+      // }
     }
   }
 
@@ -1392,64 +1335,49 @@ void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() const {
   HistogramStat stdev_naccesses_per_key_in_a_data_block;
   std::map<std::string, HistogramStat>
       cf_stdev_naccesses_per_key_in_a_data_block;
-
-  for (auto const& cf_aggregates : cf_aggregates_map_) {
-    // Stats per column family.
-    const std::string& cf_name = cf_aggregates.first;
-    for (auto const& file_aggregates : cf_aggregates.second.fd_aggregates_map) {
-      // Stats per SST file.
-      for (auto const& block_type_aggregates :
-           file_aggregates.second.block_type_aggregates_map) {
-        // Stats per block type.
-        for (auto const& block_access_info :
-             block_type_aggregates.second.block_access_info_map) {
-          // Stats per block.
-          if (block_access_info.second.num_keys == 0) {
-            continue;
-          }
-          // Use four decimal points.
-          uint64_t percent_referenced_for_existing_keys = (uint64_t)(
-              ((double)block_access_info.second.key_num_access_map.size() /
-               (double)block_access_info.second.num_keys) *
-              10000.0);
-          uint64_t percent_referenced_for_non_existing_keys =
-              (uint64_t)(((double)block_access_info.second
-                              .non_exist_key_num_access_map.size() /
-                          (double)block_access_info.second.num_keys) *
-                         10000.0);
-          uint64_t percent_accesses_for_existing_keys = (uint64_t)(
-              ((double)
-                   block_access_info.second.num_referenced_key_exist_in_block /
-               (double)block_access_info.second.num_accesses) *
-              10000.0);
-
-          HistogramStat hist_naccess_per_key;
-          for (auto const& key_access :
-               block_access_info.second.key_num_access_map) {
-            for (auto const& caller_access : key_access.second) {
-              hist_naccess_per_key.Add(caller_access.second);
-            }
-          }
-          uint64_t avg_accesses = hist_naccess_per_key.Average();
-          uint64_t stdev_accesses = hist_naccess_per_key.StandardDeviation();
-          avg_naccesses_per_key_in_a_data_block.Add(avg_accesses);
-          cf_avg_naccesses_per_key_in_a_data_block[cf_name].Add(avg_accesses);
-          stdev_naccesses_per_key_in_a_data_block.Add(stdev_accesses);
-          cf_stdev_naccesses_per_key_in_a_data_block[cf_name].Add(
-              stdev_accesses);
-
-          existing_keys_stats.Add(percent_referenced_for_existing_keys);
-          cf_existing_keys_stats_map[cf_name].Add(
-              percent_referenced_for_existing_keys);
-          non_existing_keys_stats.Add(percent_referenced_for_non_existing_keys);
-          cf_non_existing_keys_stats_map[cf_name].Add(
-              percent_referenced_for_non_existing_keys);
-          block_access_stats.Add(percent_accesses_for_existing_keys);
-          cf_block_access_info[cf_name].Add(percent_accesses_for_existing_keys);
+  auto block_callback =
+      [&](const std::string& cf_name, uint64_t /*fd*/, uint32_t /*level*/,
+          TraceType /*type*/, const std::string& /*block_key*/,
+          uint64_t /*block_id*/, const BlockAccessInfo& block) {
+        if (block.num_keys == 0) {
+          return;
         }
-      }
-    }
-  }
+        // Use four decimal points.
+        uint64_t percent_referenced_for_existing_keys = (uint64_t)(
+            ((double)block.key_num_access_map.size() / (double)block.num_keys) *
+            10000.0);
+        uint64_t percent_referenced_for_non_existing_keys =
+            (uint64_t)(((double)block.non_exist_key_num_access_map.size() /
+                        (double)block.num_keys) *
+                       10000.0);
+        uint64_t percent_accesses_for_existing_keys =
+            (uint64_t)(((double)block.num_referenced_key_exist_in_block /
+                        (double)block.num_accesses) *
+                       10000.0);
+
+        HistogramStat hist_naccess_per_key;
+        for (auto const& key_access : block.key_num_access_map) {
+          for (auto const& caller_access : key_access.second) {
+            hist_naccess_per_key.Add(caller_access.second);
+          }
+        }
+        uint64_t avg_accesses = hist_naccess_per_key.Average();
+        uint64_t stdev_accesses = hist_naccess_per_key.StandardDeviation();
+        avg_naccesses_per_key_in_a_data_block.Add(avg_accesses);
+        cf_avg_naccesses_per_key_in_a_data_block[cf_name].Add(avg_accesses);
+        stdev_naccesses_per_key_in_a_data_block.Add(stdev_accesses);
+        cf_stdev_naccesses_per_key_in_a_data_block[cf_name].Add(stdev_accesses);
+
+        existing_keys_stats.Add(percent_referenced_for_existing_keys);
+        cf_existing_keys_stats_map[cf_name].Add(
+            percent_referenced_for_existing_keys);
+        non_existing_keys_stats.Add(percent_referenced_for_non_existing_keys);
+        cf_non_existing_keys_stats_map[cf_name].Add(
+            percent_referenced_for_non_existing_keys);
+        block_access_stats.Add(percent_accesses_for_existing_keys);
+        cf_block_access_info[cf_name].Add(percent_accesses_for_existing_keys);
+      };
+  TraverseBlocks(block_callback);
   fprintf(stdout,
           "Histogram on the number of referenced keys existing in a block over "
           "the total number of keys in a block: \n%s",
@@ -1744,6 +1672,7 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
     fprintf(stderr, "Cannot process the trace %s\n", s.ToString().c_str());
     exit(1);
   }
+  fprintf(stdout, "Status: %s\n", s.ToString().c_str());
 
   analyzer.PrintStatsSummary();
   if (FLAGS_print_access_count_stats) {
@@ -1772,7 +1701,14 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
     while (ss.good()) {
       std::string label;
       getline(ss, label, ',');
-      analyzer.WriteAccessTimeline(label);
+      if (label.find("block") != std::string::npos) {
+        analyzer.WriteAccessTimeline(label, kSecondInMinute, true);
+        analyzer.WriteAccessTimeline(label, kSecondInMinute, false);
+        analyzer.WriteAccessTimeline(label, kSecondInHour, true);
+        analyzer.WriteAccessTimeline(label, kSecondInHour, false);
+      } else {
+        analyzer.WriteAccessTimeline(label, kSecondInMinute, false);
+      }
     }
   }
 
@@ -1836,6 +1772,18 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
       analyzer.WriteBlockReuseTimeline(
           FLAGS_analyze_blocks_reuse_k_reuse_window,
           /*user_access_only=*/false, block_type);
+    }
+  }
+
+  if (!FLAGS_analyze_get_spatial_locality_labels.empty() &&
+      !FLAGS_analyze_get_spatial_locality_buckets.empty()) {
+    std::vector<uint64_t> buckets =
+        parse_buckets(FLAGS_analyze_get_spatial_locality_buckets);
+    std::stringstream ss(FLAGS_analyze_get_spatial_locality_labels);
+    while (ss.good()) {
+      std::string label;
+      getline(ss, label, ',');
+      analyzer.WriteGetSpatialLocality(label, buckets);
     }
   }
   return 0;

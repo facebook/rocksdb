@@ -60,6 +60,8 @@ class BlockCacheTracerTest : public testing::Test {
     reuse_lifetime_buckets_ = "1,10,100,1000";
     analyzing_callers_ = "Get,Iterator";
     access_count_buckets_ = "2,3,4,5,10";
+    analyze_get_spatial_locality_labels_ = "all";
+    analyze_get_spatial_locality_buckets_ = "10,20,30,40,50,60,70,80,90,100";
   }
 
   ~BlockCacheTracerTest() override {
@@ -173,7 +175,11 @@ class BlockCacheTracerTest : public testing::Test {
         "-reuse_lifetime_labels=" + reuse_lifetime_labels_,
         "-reuse_lifetime_buckets=" + reuse_lifetime_buckets_,
         "-analyze_callers=" + analyzing_callers_,
-        "-access_count_buckets=" + access_count_buckets_};
+        "-access_count_buckets=" + access_count_buckets_,
+        "-analyze_get_spatial_locality_labels=" +
+            analyze_get_spatial_locality_labels_,
+        "-analyze_get_spatial_locality_buckets=" +
+            analyze_get_spatial_locality_buckets_};
     char arg_buffer[kArgBufferSize];
     char* argv[kMaxArgCount];
     int argc = 0;
@@ -203,6 +209,8 @@ class BlockCacheTracerTest : public testing::Test {
   std::string reuse_lifetime_buckets_;
   std::string analyzing_callers_;
   std::string access_count_buckets_;
+  std::string analyze_get_spatial_locality_labels_;
+  std::string analyze_get_spatial_locality_buckets_;
 };
 
 TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
@@ -261,38 +269,50 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
   }
   {
     // Validate the timeline csv files.
-    const uint32_t expected_num_lines = 50;
-    std::stringstream ss(timeline_labels_);
-    while (ss.good()) {
-      std::string l;
-      ASSERT_TRUE(getline(ss, l, ','));
-      const std::string timeline_file =
-          test_path_ + "/" + l + "_access_timeline";
-      std::ifstream infile(timeline_file);
-      std::string line;
-      uint32_t nlines = 0;
-      ASSERT_TRUE(getline(infile, line));
-      uint64_t expected_time = 1;
-      while (getline(infile, line)) {
-        std::stringstream ss_naccess(line);
-        uint32_t naccesses = 0;
-        std::string substr;
-        uint32_t time = 0;
-        while (ss_naccess.good()) {
-          ASSERT_TRUE(getline(ss_naccess, substr, ','));
-          if (time == 0) {
-            time = ParseUint32(substr);
-            continue;
+    const std::vector<std::string> time_units{"_60", "_3600"};
+    const std::vector<std::string> user_access_only_flags{"user_access_only_",
+                                                          "all_access_"};
+    for (auto const& user_access_only : user_access_only_flags) {
+      for (auto const& unit : time_units) {
+        std::stringstream ss(timeline_labels_);
+        while (ss.good()) {
+          std::string l;
+          ASSERT_TRUE(getline(ss, l, ','));
+          if (l.find("block") == std::string::npos) {
+            if (unit != "_60" || user_access_only != "all_access_") {
+              continue;
+            }
           }
-          naccesses += ParseUint32(substr);
+          const std::string timeline_file = test_path_ + "/" +
+                                            user_access_only + l +
+                                            "_access_timeline" + unit;
+          std::ifstream infile(timeline_file);
+          std::string line;
+          const uint64_t expected_naccesses = 50;
+          const uint64_t expected_user_accesses = 30;
+          ASSERT_TRUE(getline(infile, line)) << timeline_file;
+          uint32_t naccesses = 0;
+          while (getline(infile, line)) {
+            std::stringstream ss_naccess(line);
+            std::string substr;
+            bool read_label = false;
+            while (ss_naccess.good()) {
+              ASSERT_TRUE(getline(ss_naccess, substr, ','));
+              if (!read_label) {
+                read_label = true;
+                continue;
+              }
+              naccesses += ParseUint32(substr);
+            }
+          }
+          if (user_access_only == "user_access_only_") {
+            ASSERT_EQ(expected_user_accesses, naccesses) << timeline_file;
+          } else {
+            ASSERT_EQ(expected_naccesses, naccesses) << timeline_file;
+          }
+          ASSERT_OK(env_->DeleteFile(timeline_file));
         }
-        nlines++;
-        ASSERT_EQ(1, naccesses);
-        ASSERT_EQ(expected_time, time);
-        expected_time += 1;
       }
-      ASSERT_EQ(expected_num_lines, nlines);
-      ASSERT_OK(env_->DeleteFile(timeline_file));
     }
   }
   {
@@ -302,6 +322,8 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
     test_reuse_csv_files["_reuse_distance"] = reuse_distance_labels_;
     test_reuse_csv_files["_reuse_lifetime"] = reuse_lifetime_labels_;
     test_reuse_csv_files["_avg_reuse_interval"] = reuse_interval_labels_;
+    test_reuse_csv_files["_avg_reuse_interval_naccesses"] =
+        reuse_interval_labels_;
     for (auto const& test : test_reuse_csv_files) {
       const std::string& file_suffix = test.first;
       const std::string& labels = test.second;
@@ -332,7 +354,8 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
         }
         ASSERT_EQ(expected_num_rows, nrows);
         if ("_reuse_lifetime" == test.first ||
-            "_avg_reuse_interval" == test.first) {
+            "_avg_reuse_interval" == test.first ||
+            "_avg_reuse_interval_naccesses" == test.first) {
           ASSERT_EQ(100, npercentage) << reuse_csv_file;
         } else {
           ASSERT_LT(npercentage, 0);
@@ -397,60 +420,42 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
       }
     }
   }
-  const std::vector<std::string> access_types{"user_access_only_",
-                                              "all_access_"};
+  const std::vector<std::string> access_types{"user_access_only",
+                                              "all_access"};
+  const std::vector<std::string> prefix{"bt", "cf"};
+  for (auto const& pre : prefix) {
+    for (auto const& access_type : access_types) {
+      {
+        // Validate the access count summary.
+        const std::string bt_access_count_summary =
+            test_path_ + "/" + pre + "_" + access_type + "_access_count_summary";
+        std::ifstream infile(bt_access_count_summary);
+        std::string line;
+        ASSERT_TRUE(getline(infile, line));
+        double sum_percent = 0;
+        while (getline(infile, line)) {
+          std::stringstream bt_percent(line);
+          std::string bt;
+          ASSERT_TRUE(getline(bt_percent, bt, ','));
+          std::string percent;
+          ASSERT_TRUE(getline(bt_percent, percent, ','));
+          sum_percent += ParseDouble(percent);
+        }
+        ASSERT_EQ(100.0, sum_percent);
+        ASSERT_OK(env_->DeleteFile(bt_access_count_summary));
+      }
+    }
+  }
   for (auto const& access_type : access_types) {
-    {
-      // Validate bt access count summary.
-      const std::string bt_access_count_summary =
-          test_path_ + "/" + access_type + "bt_access_count_summary";
-      std::ifstream infile(bt_access_count_summary);
-      std::string line;
-      ASSERT_TRUE(getline(infile, line));
-      uint64_t nbts = 0;
-      while (getline(infile, line)) {
-        std::stringstream bt_percent(line);
-        std::string bt;
-        ASSERT_TRUE(getline(bt_percent, bt, ','));
-        std::string percent;
-        ASSERT_TRUE(getline(bt_percent, percent, ','));
-        ASSERT_EQ("Data", bt);
-        ASSERT_EQ(100, ParseDouble(percent));
-        nbts++;
-      }
-      ASSERT_EQ(1, nbts);
-      ASSERT_OK(env_->DeleteFile(bt_access_count_summary));
-    }
-    {
-      // Validate bt access count summary.
-      const std::string cf_access_count_summary =
-          test_path_ + "/" + access_type + "cf_access_count_summary";
-      std::ifstream infile(cf_access_count_summary);
-      std::string line;
-      ASSERT_TRUE(getline(infile, line));
-      uint64_t ncfs = 0;
-      while (getline(infile, line)) {
-        std::stringstream cf_percent(line);
-        std::string cf;
-        ASSERT_TRUE(getline(cf_percent, cf, ','));
-        std::string percent;
-        ASSERT_TRUE(getline(cf_percent, percent, ','));
-        ASSERT_EQ("default", cf);
-        ASSERT_EQ(100, ParseDouble(percent));
-        ncfs++;
-      }
-      ASSERT_EQ(1, ncfs);
-      ASSERT_OK(env_->DeleteFile(cf_access_count_summary));
-    }
     std::vector<std::string> block_types{"Index", "Data", "Filter"};
     for (auto block_type : block_types) {
       // Validate reuse block timeline.
       const std::string reuse_blocks_timeline = test_path_ + "/" + block_type +
                                                 "_" + access_type +
-                                                "5_reuse_blocks_timeline";
+                                                "_5_reuse_blocks_timeline";
       std::ifstream infile(reuse_blocks_timeline);
       std::string line;
-      ASSERT_TRUE(getline(infile, line));
+      ASSERT_TRUE(getline(infile, line)) << reuse_blocks_timeline;
       uint32_t index = 0;
       while (getline(infile, line)) {
         std::stringstream timeline(line);
@@ -469,6 +474,35 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
         ASSERT_LT(sum, 100.0 * index + 1) << reuse_blocks_timeline;
       }
       ASSERT_OK(env_->DeleteFile(reuse_blocks_timeline));
+    }
+  }
+
+  std::stringstream ss(analyze_get_spatial_locality_labels_);
+  while (ss.good()) {
+    std::string l;
+    ASSERT_TRUE(getline(ss, l, ','));
+    const std::vector<std::string> spatial_locality_files{
+        "_percent_ref_keys", "_percent_accesses_on_ref_keys",
+        "_percent_data_size_on_ref_keys"};
+    for (auto const& spatial_locality_file : spatial_locality_files) {
+      const std::string filename = test_path_ + "/" + l + spatial_locality_file;
+      std::ifstream infile(filename);
+      std::string line;
+      ASSERT_TRUE(getline(infile, line));
+      double sum_percent = 0;
+      uint32_t nrows = 0;
+      while (getline(infile, line)) {
+        std::stringstream bt_percent(line);
+        std::string bt;
+        ASSERT_TRUE(getline(bt_percent, bt, ','));
+        std::string percent;
+        ASSERT_TRUE(getline(bt_percent, percent, ','));
+        sum_percent += ParseDouble(percent);
+        nrows++;
+      }
+      ASSERT_EQ(11, nrows);
+      ASSERT_EQ(100.0, sum_percent);
+      ASSERT_OK(env_->DeleteFile(filename));
     }
   }
   ASSERT_OK(env_->DeleteFile(block_cache_sim_config_path_));

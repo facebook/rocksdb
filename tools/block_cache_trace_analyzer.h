@@ -9,12 +9,16 @@
 #include <set>
 #include <vector>
 
+#include "db/dbformat.h"
 #include "rocksdb/env.h"
 #include "rocksdb/utilities/sim_cache.h"
 #include "trace_replay/block_cache_tracer.h"
 #include "utilities/simulator_cache/cache_simulator.h"
 
 namespace rocksdb {
+
+const uint64_t kSecondInMinute = 60;
+const uint64_t kSecondInHour = 3600;
 
 // Statistics of a block.
 struct BlockAccessInfo {
@@ -40,6 +44,12 @@ struct BlockAccessInfo {
   std::map<uint64_t, uint64_t> reuse_distance_count;
 
   void AddAccess(const BlockCacheTraceRecord& access) {
+    if (block_size != 0 && access.block_size != 0) {
+      assert(block_size == access.block_size);
+    }
+    if (num_keys != 0 && access.num_keys_in_block != 0) {
+      assert(num_keys == access.num_keys_in_block);
+    }
     if (first_access_time == 0) {
       first_access_time = access.access_timestamp;
     }
@@ -61,6 +71,16 @@ struct BlockAccessInfo {
         }
         key_num_access_map[access.referenced_key][access.caller]++;
         num_referenced_key_exist_in_block++;
+        if (referenced_data_size > block_size && block_size != 0) {
+          ParsedInternalKey internal_key;
+          ParseInternalKey(access.referenced_key, &internal_key);
+          printf(
+              "######cf=%s fd=%lu ads=%lu abs=%lu ds=%lu bs=%lu t=%d uk=%s\n",
+              access.cf_name.c_str(), access.sst_fd_number,
+              access.referenced_data_size, access.block_size,
+              referenced_data_size, block_size, internal_key.type,
+              internal_key.user_key.ToString().c_str());
+        }
       } else {
         non_exist_key_num_access_map[access.referenced_key][access.caller]++;
       }
@@ -179,7 +199,8 @@ class BlockCacheTraceAnalyzer {
   // The file is named "label_access_timeline".The file format is
   // "time,label_1_access_per_second,label_2_access_per_second,...,label_N_access_per_second"
   // where N is the number of unique labels found in the trace.
-  void WriteAccessTimeline(const std::string& label) const;
+  void WriteAccessTimeline(const std::string& label, uint64_t time_unit,
+                           bool user_access_only) const;
 
   // Write the reuse distance into a csv file saved in 'output_dir'. Reuse
   // distance is defined as the cumulated size of unique blocks read between two
@@ -216,6 +237,15 @@ class BlockCacheTraceAnalyzer {
   void WriteBlockReuseTimeline(uint64_t reuse_window, bool user_access_only,
                                TraceType block_type) const;
 
+  // Write the Get spatical locality into csv files saved in 'output_dir'.
+  //
+  // It generates three csv files. label_percent_ref_keys,
+  // label_percent_accesses_on_ref_keys, and
+  // label_percent_data_size_on_ref_keys.
+  void WriteGetSpatialLocality(
+      const std::string& label_str,
+      const std::vector<uint64_t>& percent_buckets) const;
+
   const std::map<std::string, ColumnFamilyAccessInfoAggregate>&
   TEST_cf_aggregates_map() const {
     return cf_aggregates_map_;
@@ -227,8 +257,7 @@ class BlockCacheTraceAnalyzer {
   std::string BuildLabel(const std::set<std::string>& labels,
                          const std::string& cf_name, uint64_t fd,
                          uint32_t level, TraceType type,
-                         TableReaderCaller caller,
-                         const std::string& block_key) const;
+                         TableReaderCaller caller, uint64_t block_key) const;
 
   void ComputeReuseDistance(BlockAccessInfo* info) const;
 
@@ -244,6 +273,17 @@ class BlockCacheTraceAnalyzer {
   std::string OutputPercentAccessStats(
       uint64_t total_accesses,
       const std::map<std::string, uint64_t>& cf_access_count) const;
+
+  void WriteStatsToFile(
+      const std::string& label_str, const std::vector<uint64_t>& time_buckets,
+      const std::string& filename_suffix,
+      const std::map<std::string, std::map<uint64_t, uint64_t>>& label_data,
+      uint64_t ntotal) const;
+
+  void TraverseBlocks(
+      std::function<void(const std::string&, uint64_t, uint32_t, TraceType,
+                         const std::string&, uint64_t, const BlockAccessInfo&)>
+          block_callback) const;
 
   rocksdb::Env* env_;
   const std::string trace_file_path_;
