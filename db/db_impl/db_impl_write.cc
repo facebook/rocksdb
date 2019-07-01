@@ -1446,21 +1446,24 @@ void DBImpl::MaybeFlushStatsCF(autovector<ColumnFamilyData*>* cfds) {
         versions_->GetColumnFamilySet()->GetColumnFamily(
             kPersistentStatsColumnFamilyName);
     if (cfd_stats != nullptr && !cfd_stats->mem()->IsEmpty()) {
-      bool stats_cf_flush_needed = true;
+      for (ColumnFamilyData* cfd : *cfds) {
+        if (cfd == cfd_stats) {
+          // stats CF already included in cfds
+          return;
+        }
+      }
+      // force flush stats CF when its log number is less than all other CF's
+      // log numbers
+      bool force_flush_stats_cf = true;
       for (auto* loop_cfd : *versions_->GetColumnFamilySet()) {
         if (loop_cfd == cfd_stats) {
           continue;
         }
         if (loop_cfd->GetLogNumber() <= cfd_stats->GetLogNumber()) {
-          stats_cf_flush_needed = false;
+          force_flush_stats_cf = false;
         }
       }
-      for (ColumnFamilyData* cfd : *cfds) {
-        if (cfd == cfd_stats) {
-          stats_cf_flush_needed = false;
-        }
-      }
-      if (stats_cf_flush_needed) {
+      if (force_flush_stats_cf) {
         cfds->push_back(cfd_stats);
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "Force flushing stats CF with automated flush "

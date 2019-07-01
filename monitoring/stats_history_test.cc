@@ -573,7 +573,6 @@ TEST_F(StatsHistoryTest, ForceManualFlushStatsCF) {
   Options options;
   options.create_if_missing = true;
   options.write_buffer_size = 1024 * 1024 * 10;  // 10 Mb
-  options.max_background_jobs = 0;
   options.stats_persist_period_sec = 5;
   options.statistics = rocksdb::CreateDBStatistics();
   options.persist_stats_to_disk = true;
