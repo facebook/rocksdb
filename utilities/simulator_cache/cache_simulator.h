@@ -10,8 +10,6 @@
 
 namespace rocksdb {
 
-const uint64_t kMicrosInSecond = 1000000;
-
 // A cache configuration provided by user.
 struct CacheConfiguration {
   std::string cache_name;  // LRU.

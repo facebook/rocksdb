@@ -101,7 +101,6 @@ namespace rocksdb {
 const std::string kDefaultColumnFamilyName("default");
 const std::string kPersistentStatsColumnFamilyName(
     "___rocksdb_stats_history___");
-const int kMicrosInSecond = 1000 * 1000;
 void DumpRocksDBBuildVersion(Logger* log);
 
 CompressionType GetCompressionFlush(
