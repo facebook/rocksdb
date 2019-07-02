@@ -6,40 +6,89 @@
 #include "utilities/simulator_cache/cache_simulator.h"
 
 namespace rocksdb {
-CacheSimulator::CacheSimulator(std::shared_ptr<SimCache> sim_cache)
+
+GhostCache::GhostCache(std::shared_ptr<Cache> sim_cache)
     : sim_cache_(sim_cache) {}
 
+bool GhostCache::Admit(const Slice& lookup_key) {
+  auto handle = sim_cache_->Lookup(lookup_key);
+  if (handle != nullptr) {
+    sim_cache_->Release(handle);
+    return true;
+  }
+  sim_cache_->Insert(lookup_key, /*value=*/nullptr, lookup_key.size(),
+                     /*deleter=*/nullptr, /*handle=*/nullptr);
+  return false;
+}
+
+CacheSimulator::CacheSimulator(std::unique_ptr<GhostCache>&& ghost_cache,
+                               std::shared_ptr<Cache> sim_cache)
+    : ghost_cache_(std::move(ghost_cache)), sim_cache_(sim_cache) {}
+
 void CacheSimulator::Access(const BlockCacheTraceRecord& access) {
+  bool admit = true;
+  const bool is_user_access =
+      BlockCacheTraceHelper::IsUserAccess(access.caller);
+  bool is_cache_miss = true;
+  if (ghost_cache_ && access.no_insert == Boolean::kFalse) {
+    admit = ghost_cache_->Admit(access.block_key);
+  }
   auto handle = sim_cache_->Lookup(access.block_key);
-  if (handle == nullptr && !access.no_insert) {
-    sim_cache_->Insert(access.block_key, /*value=*/nullptr, access.block_size,
-                       /*deleter=*/nullptr, /*handle=*/nullptr);
+  if (handle != nullptr) {
+    sim_cache_->Release(handle);
+    is_cache_miss = false;
+  } else {
+    if (access.no_insert == Boolean::kFalse && admit) {
+      sim_cache_->Insert(access.block_key, /*value=*/nullptr, access.block_size,
+                         /*deleter=*/nullptr, /*handle=*/nullptr);
+    }
+  }
+  UpdateMetrics(is_user_access, is_cache_miss);
+}
+
+void CacheSimulator::UpdateMetrics(bool is_user_access, bool is_cache_miss) {
+  num_accesses_ += 1;
+  if (is_cache_miss) {
+    num_misses_ += 1;
+  }
+  if (is_user_access) {
+    user_accesses_ += 1;
+    if (is_cache_miss) {
+      user_misses_ += 1;
+    }
   }
 }
 
-void PrioritizedCacheSimulator::Access(const BlockCacheTraceRecord& access) {
-  auto handle = sim_cache_->Lookup(access.block_key);
-  if (handle == nullptr && !access.no_insert) {
+bool PrioritizedCacheSimulator::AccessKeyValue(
+    const BlockCacheTraceRecord& access, const Slice& key,
+    uint64_t value_size) {
+  bool admit = true;
+  if (ghost_cache_ && access.no_insert == Boolean::kFalse) {
+    admit = ghost_cache_->Admit(key);
+  }
+  const bool is_user_access =
+      BlockCacheTraceHelper::IsUserAccess(access.caller);
+  bool is_cache_miss = true;
+  auto handle = sim_cache_->Lookup(key);
+  if (handle != nullptr) {
+    sim_cache_->Release(handle);
+    is_cache_miss = false;
+  } else if (access.no_insert == Boolean::kFalse && admit && value_size != 0) {
     Cache::Priority priority = Cache::Priority::LOW;
     if (access.block_type == TraceType::kBlockTraceFilterBlock ||
         access.block_type == TraceType::kBlockTraceIndexBlock ||
         access.block_type == TraceType::kBlockTraceUncompressionDictBlock) {
       priority = Cache::Priority::HIGH;
     }
-    sim_cache_->Insert(access.block_key, /*value=*/nullptr, access.block_size,
+    sim_cache_->Insert(key, /*value=*/nullptr, value_size,
                        /*deleter=*/nullptr, /*handle=*/nullptr, priority);
   }
+  UpdateMetrics(is_user_access, is_cache_miss);
+  return is_cache_miss;
 }
 
-double CacheSimulator::miss_ratio() {
-  uint64_t hits = sim_cache_->get_hit_counter();
-  uint64_t misses = sim_cache_->get_miss_counter();
-  uint64_t accesses = hits + misses;
-  return static_cast<double>(misses * 100.0 / accesses);
-}
-
-uint64_t CacheSimulator::total_accesses() {
-  return sim_cache_->get_hit_counter() + sim_cache_->get_miss_counter();
+void PrioritizedCacheSimulator::Access(const BlockCacheTraceRecord& access) {
+  AccessKeyValue(access, access.block_key, access.block_size);
 }
 
 BlockCacheTraceSimulator::BlockCacheTraceSimulator(
@@ -56,18 +105,25 @@ Status BlockCacheTraceSimulator::InitializeCaches() {
       // 1/'downsample_ratio' blocks.
       uint64_t simulate_cache_capacity = cache_capacity / downsample_ratio_;
       std::shared_ptr<CacheSimulator> sim_cache;
+      std::unique_ptr<GhostCache> ghost_cache;
+      if (config.cache_name.find("ghost") != std::string::npos) {
+        ghost_cache.reset(new GhostCache(
+            NewLRUCache(config.ghost_cache_capacity, /*num_shard_bits=*/1,
+                        /*strict_capacity_limit=*/false,
+                        /*high_pri_pool_ratio=*/0)));
+      }
       if (config.cache_name == "lru") {
-        sim_cache = std::make_shared<CacheSimulator>(NewSimCache(
+        sim_cache = std::make_shared<CacheSimulator>(
+            std::move(ghost_cache),
             NewLRUCache(simulate_cache_capacity, config.num_shard_bits,
                         /*strict_capacity_limit=*/false,
-                        /*high_pri_pool_ratio=*/0),
-            /*real_cache=*/nullptr, config.num_shard_bits));
+                        /*high_pri_pool_ratio=*/0));
       } else if (config.cache_name == "lru_priority") {
-        sim_cache = std::make_shared<PrioritizedCacheSimulator>(NewSimCache(
+        sim_cache = std::make_shared<PrioritizedCacheSimulator>(
+            std::move(ghost_cache),
             NewLRUCache(simulate_cache_capacity, config.num_shard_bits,
                         /*strict_capacity_limit=*/false,
-                        /*high_pri_pool_ratio=*/0.5),
-            /*real_cache=*/nullptr, config.num_shard_bits));
+                        /*high_pri_pool_ratio=*/0.5));
       } else {
         // Not supported.
         return Status::InvalidArgument("Unknown cache name " +

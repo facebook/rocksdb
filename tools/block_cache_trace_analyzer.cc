@@ -23,8 +23,10 @@ DEFINE_string(
     block_cache_sim_config_path, "",
     "The config file path. One cache configuration per line. The format of a "
     "cache configuration is "
-    "cache_name,num_shard_bits,cache_capacity_1,...,cache_capacity_N. "
-    "cache_name is lru or lru_priority. cache_capacity can be xK, xM or xG "
+    "cache_name,num_shard_bits,ghost_capacity,cache_capacity_1,...,cache_"
+    "capacity_N. "
+    "Supported cache names are lru, lru_priority, ghost_lru and "
+    "ghost_lru_priority. ghost_capacity and cache_capacity can be xK, xM or xG "
     "where x is a positive number.");
 DEFINE_int32(block_cache_trace_downsample_ratio, 1,
              "The trace collected accesses on one in every "
@@ -104,6 +106,8 @@ const std::string kGroupbyAll = "all";
 const std::set<std::string> kGroupbyLabels{
     kGroupbyBlock,     kGroupbyColumnFamily, kGroupbySSTFile, kGroupbyLevel,
     kGroupbyBlockType, kGroupbyCaller,       kGroupbyAll};
+const std::string kSupportedCacheNames =
+    " lru lru_priority ghost_lru ghost_lru_priority ";
 
 std::string block_type_to_string(TraceType type) {
   switch (type) {
@@ -993,18 +997,21 @@ std::vector<CacheConfiguration> parse_cache_config_file(
       config_strs.push_back(substr);
     }
     // Sanity checks.
-    if (config_strs.size() < 3) {
+    if (config_strs.size() < 4) {
       fprintf(stderr, "Invalid cache simulator configuration %s\n",
               line.c_str());
       exit(1);
     }
-    if (config_strs[0] != "lru") {
-      fprintf(stderr, "We only support LRU cache %s\n", line.c_str());
+    if (kSupportedCacheNames.find(" " + config_strs[0] + " ") ==
+        std::string::npos) {
+      fprintf(stderr, "Invalid cache name %s. Supported cache names are %s\n",
+              line.c_str(), kSupportedCacheNames.c_str());
       exit(1);
     }
     cache_config.cache_name = config_strs[0];
     cache_config.num_shard_bits = ParseUint32(config_strs[1]);
-    for (uint32_t i = 2; i < config_strs.size(); i++) {
+    cache_config.ghost_cache_capacity = ParseUint64(config_strs[2]);
+    for (uint32_t i = 3; i < config_strs.size(); i++) {
       uint64_t capacity = ParseUint64(config_strs[i]);
       if (capacity == 0) {
         fprintf(stderr, "Invalid cache capacity %s, %s\n",
