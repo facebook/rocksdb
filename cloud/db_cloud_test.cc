@@ -12,6 +12,7 @@
 #include "rocksdb/cloud/db_cloud.h"
 #include <algorithm>
 #include <chrono>
+#include <inttypes.h>
 #include "cloud/aws/aws_env.h"
 #include "cloud/aws/aws_file.h"
 #include "cloud/db_cloud_impl.h"
