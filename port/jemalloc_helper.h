@@ -9,6 +9,7 @@
 #ifdef __FreeBSD__
 #include <malloc_np.h>
 #else
+#define JEMALLOC_MANGLE
 #include <jemalloc/jemalloc.h>
 #endif
 
