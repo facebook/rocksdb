@@ -24,7 +24,7 @@ DEFINE_string(
     "The config file path. One cache configuration per line. The format of a "
     "cache configuration is "
     "cache_name,num_shard_bits,cache_capacity_1,...,cache_capacity_N. "
-    "cache_name is lru. cache_capacity can be xK, xM or xG "
+    "cache_name is lru or lru_priority. cache_capacity can be xK, xM or xG "
     "where x is a positive number.");
 DEFINE_int32(block_cache_trace_downsample_ratio, 1,
              "The trace collected accesses on one in every "
@@ -179,47 +179,6 @@ double percent(uint64_t numerator, uint64_t denomenator) {
 
 }  // namespace
 
-BlockCacheTraceSimulator::BlockCacheTraceSimulator(
-    uint64_t warmup_seconds, uint32_t downsample_ratio,
-    const std::vector<CacheConfiguration>& cache_configurations)
-    : warmup_seconds_(warmup_seconds),
-      downsample_ratio_(downsample_ratio),
-      cache_configurations_(cache_configurations) {
-  for (auto const& config : cache_configurations_) {
-    for (auto cache_capacity : config.cache_capacities) {
-      // Scale down the cache capacity since the trace contains accesses on
-      // 1/'downsample_ratio' blocks.
-      uint64_t simulate_cache_capacity =
-          cache_capacity / downsample_ratio_;
-      sim_caches_.push_back(NewSimCache(
-          NewLRUCache(simulate_cache_capacity, config.num_shard_bits),
-          /*real_cache=*/nullptr, config.num_shard_bits));
-    }
-  }
-}
-
-void BlockCacheTraceSimulator::Access(const BlockCacheTraceRecord& access) {
-  if (trace_start_time_ == 0) {
-    trace_start_time_ = access.access_timestamp;
-  }
-  // access.access_timestamp is in microseconds.
-  if (!warmup_complete_ &&
-      trace_start_time_ + warmup_seconds_ * kMicrosInSecond <=
-          access.access_timestamp) {
-    for (auto& sim_cache : sim_caches_) {
-      sim_cache->reset_counter();
-    }
-    warmup_complete_ = true;
-  }
-  for (auto& sim_cache : sim_caches_) {
-    auto handle = sim_cache->Lookup(access.block_key);
-    if (handle == nullptr && !access.no_insert) {
-      sim_cache->Insert(access.block_key, /*value=*/nullptr, access.block_size,
-                        /*deleter=*/nullptr);
-    }
-  }
-}
-
 void BlockCacheTraceAnalyzer::WriteMissRatioCurves() const {
   if (!cache_simulator_) {
     return;
@@ -237,27 +196,21 @@ void BlockCacheTraceAnalyzer::WriteMissRatioCurves() const {
   const std::string header =
       "cache_name,num_shard_bits,capacity,miss_ratio,total_accesses";
   out << header << std::endl;
-  uint64_t sim_cache_index = 0;
-  for (auto const& config : cache_simulator_->cache_configurations()) {
-    for (auto cache_capacity : config.cache_capacities) {
-      uint64_t hits =
-          cache_simulator_->sim_caches()[sim_cache_index]->get_hit_counter();
-      uint64_t misses =
-          cache_simulator_->sim_caches()[sim_cache_index]->get_miss_counter();
-      uint64_t total_accesses = hits + misses;
-      double miss_ratio = static_cast<double>(misses * 100.0 / total_accesses);
+  for (auto const& config_caches : cache_simulator_->sim_caches()) {
+    const CacheConfiguration& config = config_caches.first;
+    for (uint32_t i = 0; i < config.cache_capacities.size(); i++) {
+      double miss_ratio = config_caches.second[i]->miss_ratio();
       // Write the body.
       out << config.cache_name;
       out << ",";
       out << config.num_shard_bits;
       out << ",";
-      out << cache_capacity;
+      out << config.cache_capacities[i];
       out << ",";
       out << std::fixed << std::setprecision(4) << miss_ratio;
       out << ",";
-      out << total_accesses;
+      out << config_caches.second[i]->total_accesses();
       out << std::endl;
-      sim_cache_index++;
     }
   }
   out.close();
@@ -1095,6 +1048,12 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
   if (!cache_configs.empty()) {
     cache_simulator.reset(new BlockCacheTraceSimulator(
         warmup_seconds, downsample_ratio, cache_configs));
+    Status s = cache_simulator->InitializeCaches();
+    if (!s.ok()) {
+      fprintf(stderr, "Cannot initialize cache simulators %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
   }
   BlockCacheTraceAnalyzer analyzer(FLAGS_block_cache_trace_path,
                                    FLAGS_block_cache_analysis_result_dir,
