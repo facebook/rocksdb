@@ -60,12 +60,48 @@ enum class CloudRequestOpType {
 using CloudRequestCallback =
     std::function<void(CloudRequestOpType, uint64_t, uint64_t, bool)>;
 
+class BucketOptions {
+private:
+  std::string bucket_; // The suffix for the bucket name
+  std::string prefix_; // The prefix for the bucket name.  Defaults to "rockset."
+  std::string object_; // The object path for the bucket
+  std::string region_; // The region for the bucket
+  std::string name_;   // The name of the bucket (prefix_ + bucket_)
+public:
+  BucketOptions();
+  // Sets the name of the bucket to be the new bucket name.
+  // If prefix is specified, the new bucket name will be [prefix][bucket]
+  // If no prefix is specified, the bucket name will use the existing prefix
+  void SetBucketName(const std::string& bucket,
+		     const std::string& prefix = "");
+  const std::string & GetBucketName() const { return name_; }
+  const std::string & GetObjectPath() const { return object_; }
+  void SetObjectPath(const std::string& object) { object_ = object; }
+  const std::string & GetRegion() const { return region_; }
+  void SetRegion(const std::string& region)  { region_ = region; }
+
+  // Initializes the bucket properties for test purposes
+  void TEST_Initialize(const std::string& name_prefix,
+		       const std::string& object_path,
+		       const std::string& region = "");
+  bool IsValid() const {
+    if (object_.empty() || name_.empty()) {
+      return false;
+    } else {
+      return true;
+    }
+  }
+};
+  
 //
 // The cloud environment for rocksdb. It allows configuring the rocksdb
 // Environent used for the cloud.
 //
 class CloudEnvOptions {
+private:
  public:
+  BucketOptions src_bucket;
+  BucketOptions dest_bucket;
   // Specify the type of cloud-service to use.
   CloudType cloud_type;
 
@@ -178,7 +214,7 @@ class CloudEnvOptions {
       bool _skip_dbid_verification = false, bool _use_aws_transfer_manager = false)
       : cloud_type(_cloud_type),
         log_type(_log_type),
-        keep_local_sst_files(_keep_local_sst_files),
+	keep_local_sst_files(_keep_local_sst_files),
         keep_local_log_files(_keep_local_log_files),
         purger_periodicity_millis(_purger_periodicity_millis),
         validate_filesize(_validate_filesize),
@@ -194,6 +230,14 @@ class CloudEnvOptions {
 
   // print out all options to the log
   void Dump(Logger* log) const;
+
+  // Sets result based on the value of name or alt in the environment
+  // Returns true if the name/alt exists in the environment, false otherwise
+  static bool GetNameFromEnvironment(const char *name, const char *alt, std::string * result);
+  void TEST_Initialize(const std::string & name_prefix,
+		       const std::string & object_path,
+		       const std::string & region = "");
+  
 };
 
 // A map of dbid to the pathname where the db is stored
@@ -229,20 +273,19 @@ class CloudEnv : public Env {
   virtual Status DeleteDbid(const std::string& bucket_prefix,
                             const std::string& dbid) = 0;
 
-  // The SrcBucketPrefix identifies the cloud storage bucket and
-  // GetSrcObjectPrefix specifies the path inside that bucket
+  // The SrcBucketName identifies the cloud storage bucket and
+  // GetSrcObjectPath specifies the path inside that bucket
   // where data files reside. The specified bucket is used in
   // a readonly mode by the associated DBCloud instance.
-  virtual const std::string& GetSrcBucketPrefix() = 0;
-  virtual const std::string& GetSrcObjectPrefix() = 0;
+  virtual const std::string& GetSrcBucketName() const = 0;
+  virtual const std::string& GetSrcObjectPath() const = 0;
 
-  // The DestBucketPrefix identifies the cloud storage bucket and
-  // GetDestObjectPrefix specifies the path inside that bucket
+  // The DestBucketName identifies the cloud storage bucket and
+  // GetDestObjectPath specifies the path inside that bucket
   // where data files reside. The associated DBCloud instance
   // writes newly created files to this bucket.
-  virtual const std::string& GetDestBucketPrefix() = 0;
-  virtual const std::string& GetDestObjectPrefix() = 0;
-
+  virtual const std::string& GetDestBucketName() const = 0;
+  virtual const std::string& GetDestObjectPath() const = 0;
   // returns the options used to create this env
   virtual const CloudEnvOptions& GetCloudEnvOptions() = 0;
 
@@ -296,14 +339,20 @@ class CloudEnv : public Env {
   // data from cloud storage.
   // If dest_bucket_name is empty, then the associated db does not write any
   // data to cloud storage.
-  static Status NewAwsEnv(Env* base_env, const std::string& src_bucket_name,
+  static Status NewAwsEnv(Env* base_env,
+			  const std::string& src_bucket_name,
                           const std::string& src_object_prefix,
                           const std::string& src_bucket_region,
                           const std::string& dest_bucket_name,
                           const std::string& dest_object_prefix,
                           const std::string& dest_bucket_region,
                           const CloudEnvOptions& env_options,
-                          std::shared_ptr<Logger> logger, CloudEnv** cenv);
+                          const std::shared_ptr<Logger>& logger,
+			  CloudEnv** cenv);
+  static Status NewAwsEnv(Env* base_env,
+                          const CloudEnvOptions& env_options,
+                          const std::shared_ptr<Logger>& logger,
+			  CloudEnv** cenv);
 };
 
 /*

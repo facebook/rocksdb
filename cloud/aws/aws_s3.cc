@@ -27,13 +27,13 @@ namespace rocksdb {
 
 /******************** Readablefile ******************/
 
-S3ReadableFile::S3ReadableFile(AwsEnv* env, const std::string& bucket_prefix,
+S3ReadableFile::S3ReadableFile(AwsEnv* env, const std::string& bucket,
                                const std::string& fname, uint64_t file_size)
     : env_(env), fname_(fname), offset_(0), file_size_(file_size) {
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
       "[s3] S3ReadableFile opening file %s", fname_.c_str());
-  s3_bucket_ = GetAwsBucket(bucket_prefix);
-  s3_object_ = Aws::String(fname_.c_str(), fname_.size());
+  s3_bucket_ = ToAwsString(bucket);
+  s3_object_ = ToAwsString(fname_);
 }
 
 // sequential access, read data at current offset in file
@@ -170,11 +170,10 @@ size_t S3ReadableFile::GetUniqueId(char* id, size_t max_size) const {
 
 Status S3WritableFile::BucketExistsInS3(
     std::shared_ptr<AwsS3ClientWrapper> client,
-    const std::string& bucket_prefix,
+    const std::string& bucket,
     const Aws::S3::Model::BucketLocationConstraint& location) {
-  Aws::String bucket = GetAwsBucket(bucket_prefix);
   Aws::S3::Model::HeadBucketRequest request;
-  request.SetBucket(bucket);
+  request.SetBucket(Aws::String(bucket.c_str(), bucket.size()));
   Aws::S3::Model::HeadBucketOutcome outcome = client->HeadBucket(request);
   return outcome.IsSuccess() ? Status::OK() : Status::NotFound();
 }
@@ -184,7 +183,7 @@ Status S3WritableFile::BucketExistsInS3(
 //
 Status S3WritableFile::CreateBucketInS3(
     std::shared_ptr<AwsS3ClientWrapper> client,
-    const std::string& bucket_prefix,
+    const std::string& bucket,
     const Aws::S3::Model::BucketLocationConstraint& location) {
   // specify region for the bucket
   Aws::S3::Model::CreateBucketConfiguration conf;
@@ -194,9 +193,8 @@ Status S3WritableFile::CreateBucketInS3(
   }
 
   // create bucket
-  Aws::String bucket = GetAwsBucket(bucket_prefix);
   Aws::S3::Model::CreateBucketRequest request;
-  request.SetBucket(bucket);
+  request.SetBucket(Aws::String(bucket.c_str(), bucket.size()));
   request.SetCreateBucketConfiguration(conf);
   Aws::S3::Model::CreateBucketOutcome outcome = client->CreateBucket(request);
   bool isSuccess = outcome.IsSuccess();

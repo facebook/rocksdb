@@ -54,10 +54,10 @@ class CloudEnvWrapper : public CloudEnvImpl {
     return notsup_;
   }
 
-  virtual const std::string& GetSrcBucketPrefix() override { return empty_; }
-  virtual const std::string& GetSrcObjectPrefix() override { return empty_; }
-  virtual const std::string& GetDestBucketPrefix() override { return empty_; }
-  virtual const std::string& GetDestObjectPrefix() override { return empty_; }
+  virtual const std::string& GetSrcBucketName() const override { return empty_; }
+  virtual const std::string& GetSrcObjectPath() const override { return empty_; }
+  virtual const std::string& GetDestBucketName() const override { return empty_; }
+  virtual const std::string& GetDestObjectPath() const override { return empty_; }
 
   // Ability to read a file directly from cloud storage
   virtual Status NewSequentialFileCloud(const std::string& fname,

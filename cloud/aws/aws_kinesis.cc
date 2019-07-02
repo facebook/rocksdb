@@ -26,7 +26,8 @@ KinesisWritableFile::KinesisWritableFile(
 
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
       "[kinesis] WritableFile opened file %s", fname_.c_str());
-  topic_ = GetAwsStreamName(env_->GetSrcBucketPrefix());
+  std::string bucket = env_->GetSrcBucketName();
+  topic_ = ToAwsString(bucket);
 }
 
 KinesisWritableFile::~KinesisWritableFile() {}
@@ -37,7 +38,7 @@ Status KinesisWritableFile::Append(const Slice& data) {
   // create write request
   PutRecordRequest request;
   request.SetStreamName(topic_);
-  request.SetPartitionKey(Aws::String(fname_.c_str(), fname_.size()));
+  request.SetPartitionKey(ToAwsString(fname_));
 
   // serialize write record
   std::string buffer;
@@ -72,7 +73,7 @@ Status KinesisWritableFile::Close() {
   // create write request
   PutRecordRequest request;
   request.SetStreamName(topic_);
-  request.SetPartitionKey(Aws::String(fname_.c_str(), fname_.size()));
+  request.SetPartitionKey(ToAwsString(fname_));
 
   // serialize write record
   std::string buffer;
@@ -109,7 +110,7 @@ Status KinesisWritableFile::LogDelete() {
   // create write request
   PutRecordRequest request;
   request.SetStreamName(topic_);
-  request.SetPartitionKey(Aws::String(fname_.c_str(), fname_.size()));
+  request.SetPartitionKey(ToAwsString(fname_));
 
   // serialize write record
   std::string buffer;
@@ -140,7 +141,8 @@ KinesisController::KinesisController(
     kinesis_client_(std::move(kinesis_client)) {
 
   // Initialize stream name.
-  topic_ = GetAwsStreamName(env_->GetSrcBucketPrefix());
+  std::string bucket = env_->GetSrcBucketName();
+  topic_ = ToAwsString(bucket);
 
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
       "[%s] KinesisController opening stream %s using cachedir '%s'",
@@ -236,8 +238,8 @@ Status KinesisController::TailStream() {
   return status_;
 }
 
-Status KinesisController::CreateStream(const std::string& bucket_prefix) {
-  Aws::String topic = GetAwsStreamName(bucket_prefix);
+Status KinesisController::CreateStream(const std::string& bucket) {
+  Aws::String topic = ToAwsString(bucket);
 
   // create stream
   CreateStreamRequest create_request;
@@ -254,13 +256,13 @@ Status KinesisController::CreateStream(const std::string& bucket_prefix) {
     }
   }
   if (st.ok()) {
-    st = WaitForStreamReady(bucket_prefix);
+    st = WaitForStreamReady(bucket);
   }
   return st;
 }
 
-Status KinesisController::WaitForStreamReady(const std::string& bucket_prefix) {
-  Aws::String topic = GetAwsStreamName(bucket_prefix);
+Status KinesisController::WaitForStreamReady(const std::string& bucket) {
+  Aws::String topic = ToAwsString(bucket);
 
   // Keep looping if the stream is being initialized
   const std::chrono::microseconds start(env_->NowMicros());
@@ -303,7 +305,7 @@ Status KinesisController::WaitForStreamReady(const std::string& bucket_prefix) {
 Status KinesisController::InitializeShards() {
   // Keep looking for about 10 seconds, in case the stream was newly created
   // and is being initialized.
-  Status st = WaitForStreamReady(env_->GetSrcBucketPrefix());
+  Status st = WaitForStreamReady(env_->GetSrcBucketName());
   if (!st.ok()) {
     return st;
   }

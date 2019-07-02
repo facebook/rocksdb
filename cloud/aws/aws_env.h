@@ -97,14 +97,9 @@ struct JobHandle;
 class AwsEnv : public CloudEnvImpl {
  public:
   // A factory method for creating S3 envs
-  static Status NewAwsEnv(Env* env, const std::string& src_cloud_storage,
-                          const std::string& src_cloud_object_prefix,
-                          const std::string& src_cloud_region,
-                          const std::string& dest_cloud_storage,
-                          const std::string& dest_cloud_object_prefix,
-                          const std::string& dest_cloud_region,
+  static Status NewAwsEnv(Env* env, 
                           const CloudEnvOptions& env_options,
-                          std::shared_ptr<Logger> info_log, CloudEnv** cenv);
+                          const std::shared_ptr<Logger> & info_log, CloudEnv** cenv);
 
   virtual ~AwsEnv();
 
@@ -123,7 +118,7 @@ class AwsEnv : public CloudEnvImpl {
                                    std::unique_ptr<SequentialFile>* result,
                                    const EnvOptions& options) override;
 
-  virtual Status NewSequentialFileCloud(const std::string& bucket_prefix,
+  virtual Status NewSequentialFileCloud(const std::string& bucket,
                                         const std::string& fname,
                                         std::unique_ptr<SequentialFile>* result,
                                         const EnvOptions& options) override;
@@ -238,27 +233,28 @@ class AwsEnv : public CloudEnvImpl {
 
   virtual uint64_t GetThreadID() const override { return AwsEnv::gettid(); }
 
-  virtual Status EmptyBucket(const std::string& bucket_prefix,
-                             const std::string& path_prefix) override;
+  virtual Status EmptyBucket(const std::string& bucket,
+                             const std::string& path) override;
 
   // get the posix env
   Env* GetPosixEnv() const { return base_env_; }
 
   bool IsRunning() const { return running_; }
 
-  const std::string& GetSrcBucketPrefix() override {
-    return src_bucket_prefix_;
+  const std::string& GetSrcBucketName() const override {
+    return cloud_env_options.src_bucket.GetBucketName();
   }
-  const std::string& GetSrcObjectPrefix() override {
-    return src_object_prefix_;
+  const std::string& GetSrcObjectPath() const override {
+    return cloud_env_options.src_bucket.GetObjectPath();
   }
-  const std::string& GetDestBucketPrefix() override {
-    return dest_bucket_prefix_;
+  
+  const std::string& GetDestBucketName() const override {
+    return cloud_env_options.dest_bucket.GetBucketName();
   }
-  const std::string& GetDestObjectPrefix() override {
-    return dest_object_prefix_;
+  const std::string& GetDestObjectPath() const override {
+    return cloud_env_options.dest_bucket.GetObjectPath();
   }
-
+  
   const CloudEnvOptions& GetCloudEnvOptions() override {
     return cloud_env_options;
   }
@@ -274,48 +270,44 @@ class AwsEnv : public CloudEnvImpl {
   std::shared_ptr<Aws::Transfer::TransferManager> awsTransferManager_;
 
   // Configurations for this cloud environent
-  const CloudEnvOptions cloud_env_options;
+  CloudEnvOptions cloud_env_options;
 
   //
   // Get credentials for running unit tests
   //
   static Status GetTestCredentials(std::string* aws_access_key_id,
-                                   std::string* aws_secret_access_key,
-                                   std::string* region);
-
-  // Create a specific bucketname suffix so that all unit tests can
-  // use a single bucket.
-  static std::string GetTestBucketSuffix();
+				   std::string* aws_secret_access_key,
+				   std::string* region);
 
   Status StartTailingStream();
 
   // Saves and retrieves the dbid->dirname mapping in S3
   Status SaveDbid(const std::string& dbid, const std::string& dirname) override;
-  Status GetPathForDbid(const std::string& bucket_prefix,
+  Status GetPathForDbid(const std::string& bucket,
                         const std::string& dbid, std::string* dirname) override;
-  Status GetDbidList(const std::string& bucket_prefix,
+  Status GetDbidList(const std::string& bucket,
                      DbidList* dblist) override;
-  Status DeleteDbid(const std::string& bucket_prefix,
+  Status DeleteDbid(const std::string& bucket,
                     const std::string& dbid) override;
-  Status ListObjects(const std::string& bucket_name_prefix,
-                     const std::string& bucket_object_prefix,
+  Status ListObjects(const std::string& bucket_name,
+                     const std::string& bucket_object,
                      BucketObjectMetadata* meta) override;
-  Status DeleteObject(const std::string& bucket_name_prefix,
+  Status DeleteObject(const std::string& bucket_name,
                       const std::string& bucket_object_path) override;
-  Status ExistsObject(const std::string& bucket_name_prefix,
+  Status ExistsObject(const std::string& bucket_name,
                       const std::string& bucket_object_path) override;
-  Status GetObjectSize(const std::string& bucket_name_prefix,
+  Status GetObjectSize(const std::string& bucket_name,
                        const std::string& bucket_object_path,
                        uint64_t* filesize) override;
-  Status CopyObject(const std::string& bucket_name_prefix_src,
+  Status CopyObject(const std::string& bucket_name_src,
                     const std::string& bucket_object_path_src,
-                    const std::string& bucket_name_prefix_dest,
+                    const std::string& bucket_name_dest,
                     const std::string& bucket_object_path_dest) override;
-  Status GetObject(const std::string& bucket_name_prefix,
+  Status GetObject(const std::string& bucket_name,
                    const std::string& bucket_object_path,
                    const std::string& local_path) override;
   Status PutObject(const std::string& local_path,
-                   const std::string& bucket_name_prefix,
+                   const std::string& bucket_name,
                    const std::string& bucket_object_path) override;
   Status DeleteCloudFileFromDest(const std::string& fname) override;
 
@@ -331,14 +323,9 @@ class AwsEnv : public CloudEnvImpl {
   // The AWS credentials are specified to the constructor via
   // access_key_id and secret_key.
   //
-  explicit AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
-                  const std::string& src_object_prefix,
-                  const std::string& src_bucket_region,
-                  const std::string& dest_bucket_prefix,
-                  const std::string& dest_object_prefix,
-                  const std::string& dest_bucket_region,
+  explicit AwsEnv(Env* underlying_env,
                   const CloudEnvOptions& cloud_options,
-                  std::shared_ptr<Logger> info_log = nullptr);
+                  const std::shared_ptr<Logger> & info_log = nullptr);
 
   struct GetObjectResult {
     bool success{false};
@@ -370,13 +357,6 @@ class AwsEnv : public CloudEnvImpl {
   // The pathname that contains a list of all db's inside a bucket.
   static constexpr const char* dbid_registry_ = "/.rockset/dbid/";
 
-  std::string src_bucket_prefix_;
-  std::string src_object_prefix_;
-  std::string src_bucket_region_;
-  std::string dest_bucket_prefix_;
-  std::string dest_object_prefix_;
-  std::string dest_bucket_region_;
-
   Status create_bucket_status_;
 
   // Background thread to tail stream
@@ -404,7 +384,7 @@ class AwsEnv : public CloudEnvImpl {
   Status status();
 
   // Delete the specified path from S3
-  Status DeletePathInS3(const std::string& bucket_prefix,
+  Status DeletePathInS3(const std::string& bucket,
                         const std::string& fname);
 
   // Validate options
@@ -412,15 +392,15 @@ class AwsEnv : public CloudEnvImpl {
 
   // Return the list of children of the specified path
   Status GetChildrenFromS3(const std::string& path,
-                           const std::string& bucket_prefix,
+                           const std::string& bucket,
                            std::vector<std::string>* result);
 
   // If metadata, size or modtime is non-nullptr, returns requested data
-  Status HeadObject(const std::string& bucket_prefix, const std::string& path,
+  Status HeadObject(const std::string& bucket, const std::string& path,
                     Aws::Map<Aws::String, Aws::String>* metadata = nullptr,
                     uint64_t* size = nullptr, uint64_t* modtime = nullptr);
 
-  Status NewS3ReadableFile(const std::string& bucket_prefix,
+  Status NewS3ReadableFile(const std::string& bucket,
                            const std::string& fname,
                            unique_ptr<S3ReadableFile>* result);
 

@@ -1062,7 +1062,7 @@ enum RepFactory {
 
 // create Factory for creating S3 Envs
 #ifdef USE_AWS
-rocksdb::Env* CreateAwsEnv(const std::string& dbpath,
+rocksdb::Env* CreateAwsEnv(const std::string& dbpath ,
                             std::unique_ptr<rocksdb::Env>* result) {
   fprintf(stderr, "Creating AwsEnv for path %s\n", dbpath.c_str());
   std::shared_ptr<rocksdb::Logger> info_log;
@@ -1072,8 +1072,8 @@ rocksdb::Env* CreateAwsEnv(const std::string& dbpath,
   std::string region;
   if (FLAGS_aws_access_id.size() == 0) {
       rocksdb::Status st = rocksdb::AwsEnv::GetTestCredentials(&coptions.credentials.access_key_id,
-                                                      &coptions.credentials.secret_key,
-                                                      &region);
+							       &coptions.credentials.secret_key,
+							       &region);
       assert(st.ok());
   } else {
     coptions.credentials.access_key_id = FLAGS_aws_access_id;
@@ -1081,17 +1081,12 @@ rocksdb::Env* CreateAwsEnv(const std::string& dbpath,
     region = FLAGS_aws_region;
   }
   coptions.keep_local_sst_files = FLAGS_keep_local_sst_files;
+  coptions.src_TEST_Initialize("dbbench.", "", region);
   rocksdb::CloudEnv* s;
   rocksdb::Status st = rocksdb::AwsEnv::NewAwsEnv(rocksdb::Env::Default(),
-		         "dbbench." + rocksdb::AwsEnv::GetTestBucketSuffix(),
-			 "", // src object prefix
-                         region, // src region
-		         "dbbench." + rocksdb::AwsEnv::GetTestBucketSuffix(),
-			 "", // destination object prefix
-                         region, // dest region
-		         coptions,
-			 std::move(info_log),
-			 &s);
+						  coptions,
+						  std::move(info_log),
+						  &s);
   assert(st.ok());
   ((rocksdb::CloudEnvImpl*)s)->TEST_DisableCloudManifest();
   // If we are keeping wal in cloud storage, then tail it as well.

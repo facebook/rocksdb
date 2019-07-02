@@ -35,7 +35,7 @@ CloudLogController::CloudLogController(
   const std::string uid = trim(env_->GetPosixEnv()->GenerateUniqueId());
 
   // Temporary directory for cache.
-  const std::string bucket_dir = kCacheDir + pathsep + env_->GetSrcBucketPrefix();
+  const std::string bucket_dir = kCacheDir + pathsep + env_->GetSrcBucketName();
   cache_dir_ = bucket_dir + pathsep + uid;
 
   // Create temporary directories.
