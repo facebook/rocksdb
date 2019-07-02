@@ -5,6 +5,19 @@
 
 #pragma once
 
+#if defined(__clang__)
+// glibc's `posix_memalign()` declaration specifies `throw()` while clang's
+// declaration does not. There is a hack in clang to make its re-declaration
+// compatible with glibc's if they are declared consecutively. That hack breaks
+// if yet another `posix_memalign()` declaration comes between glibc's and
+// clang's declarations. Include "mm_malloc.h" here ensures glibc's and clang's
+// declarations both come before "jemalloc.h"'s `posix_memalign()` declaration.
+//
+// This problem could also be avoided if "jemalloc.h"'s `posix_memalign()`
+// declaration did not specify `throw()` when built with clang.
+#include <mm_malloc.h>
+#endif
+
 #ifdef ROCKSDB_JEMALLOC
 #ifdef __FreeBSD__
 #include <malloc_np.h>
