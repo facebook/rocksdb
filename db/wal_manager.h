@@ -42,7 +42,7 @@ class WalManager {
         env_(db_options.env),
         purge_wal_files_last_run_(0),
         seq_per_batch_(seq_per_batch),
-        wal_not_in_db_path_(!IsWalDirSameAsDBPath(&db_options)) {}
+        wal_in_db_path_(IsWalDirSameAsDBPath(&db_options)) {}
 
   Status GetSortedWalFiles(VectorLogPtr& files);
 
@@ -99,7 +99,7 @@ class WalManager {
 
   bool seq_per_batch_;
 
-  bool wal_not_in_db_path_;
+  bool wal_in_db_path_;
 
   // obsolete files will be deleted every this seconds if ttl deletion is
   // enabled and archive size_limit is disabled.

@@ -1894,7 +1894,7 @@ class DBImpl : public DB {
   // installed to MANIFEST first.
   InstrumentedCondVar atomic_flush_install_cv_;
 
-  bool wal_not_in_db_path_;
+  bool wal_in_db_path_;
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src);

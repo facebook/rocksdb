@@ -3137,7 +3137,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
   ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
   Env* env = soptions.env;
   std::vector<std::string> filenames;
-  bool wal_not_in_db_path = !IsWalDirSameAsDBPath(&soptions);
+  bool wal_in_db_path = IsWalDirSameAsDBPath(&soptions);
 
   // Reset the logger because it holds a handle to the
   // log file and prevents cleanup and directory removal
@@ -3162,7 +3162,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         } else if (type == kTableFile || type == kLogFile) {
           del =
               DeleteDBFile(&soptions, path_to_delete, dbname,
-                           /*force_bg=*/false, /*force_fg=*/wal_not_in_db_path);
+                           /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
         } else {
           del = env->DeleteFile(path_to_delete);
         }
@@ -3225,7 +3225,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         if (ParseFileName(file, &number, &type) && type == kLogFile) {
           Status del =
               DeleteDBFile(&soptions, archivedir + "/" + file, archivedir,
-                           /*force_bg=*/false, /*force_fg=*/wal_not_in_db_path);
+                           /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
           if (result.ok() && !del.ok()) {
             result = del;
           }
@@ -3241,7 +3241,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
           Status del =
               DeleteDBFile(&soptions, LogFileName(soptions.wal_dir, number),
                            soptions.wal_dir, /*force_bg=*/false,
-                           /*force_fg=*/wal_not_in_db_path);
+                           /*force_fg=*/!wal_in_db_path);
           if (result.ok() && !del.ok()) {
             result = del;
           }
