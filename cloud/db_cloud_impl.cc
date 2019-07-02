@@ -238,7 +238,7 @@ Status DBCloudImpl::Savepoint() {
   CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(GetEnv());
 
   // If there is no destination bucket, then nothing to do
-  if (cenv->GetDestObjectPath().empty() || cenv->GetDestBucketName().empty()) {
+  if (! cenv->HasDestBucket()) {
     Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
         "Savepoint on cloud dbid %s has no destination bucket, nothing to do.",
         dbid.c_str());
@@ -479,7 +479,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   CloudEnvImpl* cimpl = static_cast<CloudEnvImpl*>(cenv);
 
   // If no buckets are specified, then we cannot reinit anyways
-  if (cenv->GetSrcBucketName().empty() && cenv->GetDestBucketName().empty()) {
+  if (!cenv->HasSrcBucket() && !cenv->HasDestBucket()) {
     Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
         "Both src and dest buckets are empty");
@@ -531,15 +531,15 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
     return st.IsNotFound() ? Status::OK() : st;
   }
   local_dbid = rtrim_if(trim(local_dbid), '\n');
-  auto& src_bucket = cenv->GetSrcBucketName();
-  auto& dest_bucket = cenv->GetDestBucketName();
 
   // We found a dbid in the local dir. Verify that it matches
   // what we found on the cloud.
   std::string src_object_path;
+  auto& src_bucket = cenv->GetSrcBucketName();
+  auto& dest_bucket = cenv->GetDestBucketName();
 
   // If a src bucket is specified, then get src dbid
-  if (!src_bucket.empty()) {
+  if (cenv->HasSrcBucket()) {
     st = cenv->GetPathForDbid(src_bucket, local_dbid, &src_object_path);
     if (!st.ok() && !st.IsNotFound()) {
       // Unable to fetch data from S3. Fail Open request.
@@ -565,7 +565,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   std::string dest_object_path;
 
   // If a dest bucket is specified, then get dest dbid
-  if (!dest_bucket.empty()) {
+  if (cenv->HasDestBucket()) {
     st = cenv->GetPathForDbid(dest_bucket, local_dbid, &dest_object_path);
     if (!st.ok() && !st.IsNotFound()) {
       // Unable to fetch data from S3. Fail Open request.
@@ -640,7 +640,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
           "dbid %s in src bucket %s is same as local dbid",
           src_dbid.c_str(), src_bucket.c_str());
 
-      if (!dest_bucket.empty() && src_bucket != dest_bucket) {
+      if (cenv->HasDestBucket() && !cenv->SrcMatchesDest()) {
         Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
             "[db_cloud_impl] NeedsReinitialization: "
             "local dbid %s in same as src dbid but clone mode specified",
@@ -673,7 +673,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
           "dbid %s in dest bucket %s is same as local dbid",
           dest_dbid.c_str(), dest_bucket.c_str());
 
-      if (!src_bucket.empty() && src_bucket != dest_bucket) {
+      if (cenv->HasSrcBucket() && !cenv->SrcMatchesDest()) {
         Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
             "[db_cloud_impl] NeedsReinitialization: "
             "local dbid %s in same as dest dbid but clone mode specified",
@@ -715,9 +715,9 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
 //
 Status DBCloudImpl::ResyncDir(CloudEnvImpl* cenv, const Options& options,
                               const std::string& local_dir) {
-  auto& src_bucket = cenv->GetSrcBucketName();
-  auto& dest_bucket = cenv->GetDestBucketName();
-  if (!dest_bucket.empty()) {
+  if (cenv->HasDestBucket()) {
+    auto& src_bucket = cenv->GetSrcBucketName();
+    auto& dest_bucket = cenv->GetDestBucketName();
     Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
         "[db_cloud_impl] ResyncDir: "
         "not an ephemeral clone local dir %s "
@@ -754,10 +754,10 @@ Status DBCloudImpl::GetCloudDbid(CloudEnvImpl* cenv, const Options& options,
   env->DeleteFile(tmpfile);
 
   // Read dbid from src bucket if it exists
-  if (!cenv->GetSrcBucketName().empty()) {
-    Status st =
-        cenv->GetObject(cenv->GetSrcBucketName(),
-                        cenv->GetSrcObjectPath() + "/IDENTITY", tmpfile);
+  if (cenv->HasSrcBucket()) {
+    Status st = cenv->GetObject(cenv->GetSrcBucketName(),
+                                cenv->GetSrcObjectPath() + "/IDENTITY",
+                                tmpfile);
     if (!st.ok() && !st.IsNotFound()) {
       return st;
     }
@@ -778,10 +778,10 @@ Status DBCloudImpl::GetCloudDbid(CloudEnvImpl* cenv, const Options& options,
   }
 
   // Read dbid from dest bucket if it exists
-  if (!cenv->GetDestBucketName().empty()) {
-    Status st =
-        cenv->GetObject(cenv->GetDestBucketName(),
-                        cenv->GetDestObjectPath() + "/IDENTITY", tmpfile);
+  if (cenv->HasDestBucket()) {
+    Status st = cenv->GetObject(cenv->GetDestBucketName(),
+                                cenv->GetDestObjectPath() + "/IDENTITY",
+                                tmpfile);
     if (!st.ok() && !st.IsNotFound()) {
       return st;
     }
@@ -842,7 +842,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
   // If there is no destination bucket, then we need to suck in all sst files
   // from source bucket at db startup time. We do this by setting max_open_files
   // = -1
-  if (cenv->GetDestBucketName().empty()) {
+  if (!cenv->HasDestBucket()) {
     if (options.max_open_files != -1) {
       Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] SanitizeDirectory error.  "
@@ -905,16 +905,14 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     return st;
   }
 
-  bool dest_equal_src = cenv->GetSrcBucketName() == cenv->GetDestBucketName() &&
-                        cenv->GetSrcObjectPath() == cenv->GetDestObjectPath();
-
   Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
-      "[db_cloud_impl] SanitizeDirectory dest_equal_src = %d", dest_equal_src);
+      "[db_cloud_impl] SanitizeDirectory dest_equal_src = %d",
+      cenv->SrcMatchesDest());
 
   bool got_identity_from_dest = false, got_identity_from_src = false;
 
   // Download IDENTITY, first try destination, then source
-  if (!cenv->GetDestBucketName().empty()) {
+  if (cenv->HasDestBucket()) {
     // download IDENTITY from dest
     st = cenv->GetObject(cenv->GetDestBucketName(),
                          IdentityFileName(cenv->GetDestObjectPath()),
@@ -925,8 +923,8 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     }
     got_identity_from_dest = st.ok();
   }
-  if (!cenv->GetSrcBucketName().empty() && !dest_equal_src &&
-      !got_identity_from_dest) {
+  if (!got_identity_from_dest &&
+      cenv->HasSrcBucket() && !cenv->SrcMatchesDest()) {
     // download IDENTITY from src
     st = cenv->GetObject(cenv->GetSrcBucketName(),
                          IdentityFileName(cenv->GetSrcObjectPath()),
@@ -949,7 +947,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     return Status::OK();
   }
 
-  if (got_identity_from_src && !dest_equal_src) {
+  if (got_identity_from_src && !cenv->SrcMatchesDest()) {
     // If we got dbid from src but not from dest.
     // Then we are just opening this database as a clone (for the first time).
     // Either as a true clone or as an ephemeral clone.
@@ -1001,12 +999,8 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
 Status DBCloudImpl::FetchCloudManifest(CloudEnv* cenv, const Options& options,
                                        const std::string& local_dbname,
                                        bool force) {
-  bool dest = !cenv->GetDestBucketName().empty();
-  bool src = !cenv->GetSrcBucketName().empty();
-  bool dest_equal_src = cenv->GetSrcBucketName() == cenv->GetDestBucketName() &&
-                        cenv->GetSrcObjectPath() == cenv->GetDestObjectPath();
   std::string cloudmanifest = CloudManifestFile(local_dbname);
-  if (!dest && !force && cenv->GetBaseEnv()->FileExists(cloudmanifest).ok()) {
+  if (!cenv->SrcMatchesDest() && !force && cenv->GetBaseEnv()->FileExists(cloudmanifest).ok()) {
     // nothing to do here, we have our cloud manifest
     Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] FetchCloudManifest: Nothing to do %s exists",
@@ -1014,7 +1008,7 @@ Status DBCloudImpl::FetchCloudManifest(CloudEnv* cenv, const Options& options,
     return Status::OK();
   }
   // first try to get cloudmanifest from dest
-  if (dest) {
+  if (cenv->HasDestBucket()) {
     Status st = cenv->GetObject(cenv->GetDestBucketName(),
                                 CloudManifestFile(cenv->GetDestObjectPath()),
                                 cloudmanifest);
@@ -1036,7 +1030,7 @@ Status DBCloudImpl::FetchCloudManifest(CloudEnv* cenv, const Options& options,
     }
   }
   // we couldn't get cloud manifest from dest, need to try from src?
-  if (src && !dest_equal_src) {
+  if (cenv->HasSrcBucket() && !cenv->SrcMatchesDest()) {
     Status st = cenv->GetObject(cenv->GetSrcBucketName(),
                                 CloudManifestFile(cenv->GetSrcObjectPath()),
                                 cloudmanifest);
@@ -1149,7 +1143,7 @@ Status DBCloudImpl::RollNewEpoch(CloudEnvImpl* cenv,
   // TODO(igor): Compact cloud manifest by looking at live files in the database
   // and removing epochs that don't contain any live files.
 
-  if (!cenv->GetDestBucketName().empty()) {
+  if (cenv->HasDestBucket()) {
     // upload new manifest, only if we have it (i.e. this is not a new
     // database, indicated by maxFileNumber)
     if (maxFileNumber > 0) {

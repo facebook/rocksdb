@@ -166,7 +166,7 @@ std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {
 
 Status CloudEnvImpl::DeleteInvisibleFiles(const std::string& dbname) {
   Status s;
-  if (!GetDestBucketName().empty()) {
+  if (HasDestBucket()) {
     BucketObjectMetadata metadata;
     s = ListObjects(GetDestBucketName(), GetDestObjectPath(), &metadata);
     if (!s.ok()) {

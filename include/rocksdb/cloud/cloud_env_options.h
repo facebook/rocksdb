@@ -92,6 +92,19 @@ public:
     }
   }
 };
+  
+inline bool operator==(const BucketOptions&lhs, const BucketOptions & rhs) {
+  if (lhs.IsValid() && rhs.IsValid()) {
+    return ((lhs.GetBucketName() == rhs.GetBucketName()) &&
+	    (lhs.GetObjectPath() == rhs.GetObjectPath()) &&
+	    (lhs.GetRegion() == rhs.GetRegion()));
+  } else {
+    return false;
+  }
+}
+inline bool operator!=(const BucketOptions&lhs, const BucketOptions & rhs) {
+  return !(lhs == rhs);
+}
 
 //
 // The cloud environment for rocksdb. It allows configuring the rocksdb
@@ -291,6 +304,9 @@ class CloudEnv : public Env {
   const std::string& GetSrcObjectPath() const {
     return cloud_env_options.src_bucket.GetObjectPath();
   }
+  bool HasSrcBucket() const {
+    return cloud_env_options.src_bucket.IsValid();
+  }
 
   // The DestBucketName identifies the cloud storage bucket and
   // GetDestObjectPath specifies the path inside that bucket
@@ -303,6 +319,17 @@ class CloudEnv : public Env {
     return cloud_env_options.dest_bucket.GetObjectPath();
   }
 
+  bool HasDestBucket() const {
+    return cloud_env_options.dest_bucket.IsValid();
+  }
+  bool SrcMatchesDest() const {
+    if (HasSrcBucket() && HasDestBucket()) {
+      return cloud_env_options.src_bucket == cloud_env_options.dest_bucket;
+    } else {
+      return false;
+    }
+  }
+  
   // returns the options used to create this env
   const CloudEnvOptions& GetCloudEnvOptions() const {
     return cloud_env_options;
