@@ -198,7 +198,8 @@ void BlockCacheTraceAnalyzer::WriteMissRatioCurves() const {
   }
   // Write header.
   const std::string header =
-      "cache_name,num_shard_bits,capacity,miss_ratio,total_accesses";
+      "cache_name,num_shard_bits,ghost_capacity,capacity,miss_ratio,total_"
+      "accesses";
   out << header << std::endl;
   for (auto const& config_caches : cache_simulator_->sim_caches()) {
     const CacheConfiguration& config = config_caches.first;
@@ -208,6 +209,8 @@ void BlockCacheTraceAnalyzer::WriteMissRatioCurves() const {
       out << config.cache_name;
       out << ",";
       out << config.num_shard_bits;
+      out << ",";
+      out << config.ghost_cache_capacity;
       out << ",";
       out << config.cache_capacities[i];
       out << ",";

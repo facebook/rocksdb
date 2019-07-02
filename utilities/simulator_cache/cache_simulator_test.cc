@@ -26,7 +26,11 @@ class CacheSimulatorTest : public DBTestBase {
 
   CacheSimulatorTest() : DBTestBase("/cache_simulator_test") {}
 
+<<<<<<< HEAD
   BlockCacheTraceRecord GenerateGetRecord(uint64_t getid) {
+=======
+  BlockCacheTraceRecord GenerateAccessRecord(uint32_t key_id, bool no_insert) {
+>>>>>>> Add more tests
     BlockCacheTraceRecord record;
     record.block_type = TraceType::kBlockTraceDataBlock;
     record.block_size = 4096;
@@ -39,8 +43,13 @@ class CacheSimulatorTest : public DBTestBase {
     record.sst_fd_number = kGetBlockId;
     record.get_id = getid;
     record.is_cache_hit = Boolean::kFalse;
+<<<<<<< HEAD
     record.no_insert = Boolean::kFalse;
     record.referenced_key = kRefKeyPrefix + std::to_string(kGetBlockId);
+=======
+    record.no_insert = no_insert ? Boolean::kTrue : Boolean::kFalse;
+    record.referenced_key = kRefKeyPrefix + std::to_string(key_id);
+>>>>>>> Add more tests
     record.referenced_key_exist_in_block = Boolean::kTrue;
     record.num_keys_in_block = 300;
     return record;
@@ -78,6 +87,7 @@ TEST_F(CacheSimulatorTest, GhostCache) {
 }
 
 TEST_F(CacheSimulatorTest, CacheSimulator) {
+<<<<<<< HEAD
   const BlockCacheTraceRecord& access = GenerateGetRecord(kGetId);
   const BlockCacheTraceRecord& compaction_access = GenerateCompactionRecord();
   std::shared_ptr<Cache> sim_cache =
@@ -86,10 +96,21 @@ TEST_F(CacheSimulatorTest, CacheSimulator) {
                   /*high_pri_pool_ratio=*/0);
   std::unique_ptr<CacheSimulator> cache_simulator(
       new CacheSimulator(nullptr, sim_cache));
+=======
+  const BlockCacheTraceRecord& access =
+      GenerateAccessRecord(/*key_id=*/0, /*no_insert=*/false);
+  const BlockCacheTraceRecord& access_no_insert =
+      GenerateAccessRecord(/*key_id=*/1, /*no_insert=*/true);
+  std::unique_ptr<CacheSimulator> cache_simulator(new CacheSimulator(
+      nullptr, NewLRUCache(/*capacity=*/cache_size, /*num_shard_bits=*/1,
+                           /*strict_capacity_limit=*/false,
+                           /*high_pri_pool_ratio=*/0)));
+>>>>>>> Add more tests
   cache_simulator->Access(access);
   cache_simulator->Access(access);
   ASSERT_EQ(2, cache_simulator->total_accesses());
   ASSERT_EQ(50, cache_simulator->miss_ratio());
+<<<<<<< HEAD
   ASSERT_EQ(2, cache_simulator->user_accesses());
   ASSERT_EQ(50, cache_simulator->user_miss_ratio());
 
@@ -99,6 +120,12 @@ TEST_F(CacheSimulatorTest, CacheSimulator) {
   ASSERT_EQ(75, cache_simulator->miss_ratio());
   ASSERT_EQ(2, cache_simulator->user_accesses());
   ASSERT_EQ(50, cache_simulator->user_miss_ratio());
+=======
+  cache_simulator->Access(access_no_insert);
+  cache_simulator->Access(access_no_insert);
+  ASSERT_EQ(4, cache_simulator->total_accesses());
+  ASSERT_EQ(75, cache_simulator->miss_ratio());
+>>>>>>> Add more tests
 
   cache_simulator->reset_counter();
   ASSERT_EQ(0, cache_simulator->total_accesses());
@@ -111,7 +138,12 @@ TEST_F(CacheSimulatorTest, CacheSimulator) {
 }
 
 TEST_F(CacheSimulatorTest, GhostCacheSimulator) {
+<<<<<<< HEAD
   const BlockCacheTraceRecord& access = GenerateGetRecord(kGetId);
+=======
+  const BlockCacheTraceRecord& access =
+      GenerateAccessRecord(/*key_id=*/0, /*no_insert=*/false);
+>>>>>>> Add more tests
   std::unique_ptr<GhostCache> ghost_cache(new GhostCache(
       NewLRUCache(/*capacity=*/kGhostCacheSize, /*num_shard_bits=*/1,
                   /*strict_capacity_limit=*/false,
@@ -129,17 +161,25 @@ TEST_F(CacheSimulatorTest, GhostCacheSimulator) {
 }
 
 TEST_F(CacheSimulatorTest, PrioritizedCacheSimulator) {
+<<<<<<< HEAD
   const BlockCacheTraceRecord& access = GenerateGetRecord(kGetId);
   std::shared_ptr<Cache> sim_cache =
       NewLRUCache(/*capacity=*/kCacheSize, /*num_shard_bits=*/1,
                   /*strict_capacity_limit=*/false,
                   /*high_pri_pool_ratio=*/0);
+=======
+  const BlockCacheTraceRecord& access =
+      GenerateAccessRecord(/*key_id=*/0, /*no_insert=*/false);
+  const BlockCacheTraceRecord& access_no_insert =
+      GenerateAccessRecord(/*key_id=*/1, /*no_insert=*/true);
+>>>>>>> Add more tests
   std::unique_ptr<PrioritizedCacheSimulator> cache_simulator(
       new PrioritizedCacheSimulator(nullptr, sim_cache));
   cache_simulator->Access(access);
   cache_simulator->Access(access);
   ASSERT_EQ(2, cache_simulator->total_accesses());
   ASSERT_EQ(50, cache_simulator->miss_ratio());
+<<<<<<< HEAD
 
   auto handle = sim_cache->Lookup(access.block_key);
   ASSERT_NE(nullptr, handle);
@@ -148,6 +188,17 @@ TEST_F(CacheSimulatorTest, PrioritizedCacheSimulator) {
 
 TEST_F(CacheSimulatorTest, GhostPrioritizedCacheSimulator) {
   const BlockCacheTraceRecord& access = GenerateGetRecord(kGetId);
+=======
+  cache_simulator->Access(access_no_insert);
+  cache_simulator->Access(access_no_insert);
+  ASSERT_EQ(4, cache_simulator->total_accesses());
+  ASSERT_EQ(75, cache_simulator->miss_ratio());
+}
+
+TEST_F(CacheSimulatorTest, GhostPrioritizedCacheSimulator) {
+  const BlockCacheTraceRecord& access =
+      GenerateAccessRecord(/*key_id=*/0, /*no_insert=*/false);
+>>>>>>> Add more tests
   std::unique_ptr<GhostCache> ghost_cache(new GhostCache(
       NewLRUCache(/*capacity=*/kGhostCacheSize, /*num_shard_bits=*/1,
                   /*strict_capacity_limit=*/false,
