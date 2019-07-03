@@ -38,7 +38,7 @@ class EnvLoggerTest : public testing::Test {
 
   std::shared_ptr<Logger> CreateLogger() {
     std::shared_ptr<Logger> result;
-    assert(env_->NewEnvLogger(kLogFile, &result).ok());
+    assert(NewEnvLogger(kLogFile, env_, &result).ok());
     assert(result);
     result->SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
     return result;
