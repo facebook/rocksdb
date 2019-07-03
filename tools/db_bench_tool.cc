@@ -6285,7 +6285,8 @@ class Benchmark {
     assert(shi);
     while (shi->Valid()) {
       uint64_t stats_time = shi->GetStatsTime();
-      fprintf(stdout, "------ Time : %" PRIu64 " ------\n", stats_time);
+      fprintf(stdout, "------ %s ------\n",
+              TimeToHumanString(static_cast<int>(stats_time)).c_str());
       for (auto& entry : shi->GetStatsMap()) {
         fprintf(stdout, " %" PRIu64 "   %s  %" PRIu64 "\n", stats_time,
                 entry.first.c_str(), entry.second);

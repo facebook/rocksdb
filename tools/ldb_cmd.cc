@@ -859,8 +859,7 @@ void CompactorCommand::DoCommand() {
   delete end;
 }
 
-// ----------------------------------------------------------------------------
-
+// ---------------------------------------------------------------------------
 const std::string DBLoaderCommand::ARG_DISABLE_WAL = "disable_wal";
 const std::string DBLoaderCommand::ARG_BULK_LOAD = "bulk_load";
 const std::string DBLoaderCommand::ARG_COMPACT = "compact";
@@ -1168,18 +1167,7 @@ void DropColumnFamilyCommand::DoCommand() {
 }
 
 // ----------------------------------------------------------------------------
-
 namespace {
-
-std::string ReadableTime(int unixtime) {
-  char time_buffer [80];
-  time_t rawtime = unixtime;
-  struct tm tInfo;
-  struct tm* timeinfo = localtime_r(&rawtime, &tInfo);
-  assert(timeinfo == &tInfo);
-  strftime(time_buffer, 80, "%c", timeinfo);
-  return std::string(time_buffer);
-}
 
 // This function only called when it's the sane case of >1 buckets in time-range
 // Also called only when timekv falls between ttl_start and ttl_end provided
@@ -1202,13 +1190,13 @@ void PrintBucketCounts(const std::vector<uint64_t>& bucket_counts,
   int time_point = ttl_start;
   for(int i = 0; i < num_buckets - 1; i++, time_point += bucket_size) {
     fprintf(stdout, "Keys in range %s to %s : %lu\n",
-            ReadableTime(time_point).c_str(),
-            ReadableTime(time_point + bucket_size).c_str(),
+            TimeToHumanString(time_point).c_str(),
+            TimeToHumanString(time_point + bucket_size).c_str(),
             (unsigned long)bucket_counts[i]);
   }
   fprintf(stdout, "Keys in range %s to %s : %lu\n",
-          ReadableTime(time_point).c_str(),
-          ReadableTime(ttl_end).c_str(),
+          TimeToHumanString(time_point).c_str(),
+          TimeToHumanString(ttl_end).c_str(),
           (unsigned long)bucket_counts[num_buckets - 1]);
 }
 
@@ -1564,7 +1552,8 @@ void DBDumperCommand::DoDumpCommand() {
   std::vector<uint64_t> bucket_counts(num_buckets, 0);
   if (is_db_ttl_ && !count_only_ && timestamp_ && !count_delim_) {
     fprintf(stdout, "Dumping key-values from %s to %s\n",
-            ReadableTime(ttl_start).c_str(), ReadableTime(ttl_end).c_str());
+            TimeToHumanString(ttl_start).c_str(),
+            TimeToHumanString(ttl_end).c_str());
   }
 
   HistogramImpl vsize_hist;
@@ -1619,7 +1608,7 @@ void DBDumperCommand::DoDumpCommand() {
 
     if (!count_only_ && !count_delim_) {
       if (is_db_ttl_ && timestamp_) {
-        fprintf(stdout, "%s ", ReadableTime(rawtime).c_str());
+        fprintf(stdout, "%s ", TimeToHumanString(rawtime).c_str());
       }
       std::string str =
           PrintKeyValue(iter->key().ToString(), iter->value().ToString(),
@@ -2397,7 +2386,8 @@ void ScanCommand::DoCommand() {
   }
   if (is_db_ttl_ && timestamp_) {
     fprintf(stdout, "Scanning key-values from %s to %s\n",
-            ReadableTime(ttl_start).c_str(), ReadableTime(ttl_end).c_str());
+            TimeToHumanString(ttl_start).c_str(),
+            TimeToHumanString(ttl_end).c_str());
   }
   for ( ;
         it->Valid() && (!end_key_specified_ || it->key().ToString() < end_key_);
@@ -2409,7 +2399,7 @@ void ScanCommand::DoCommand() {
         continue;
       }
       if (timestamp_) {
-        fprintf(stdout, "%s ", ReadableTime(rawtime).c_str());
+        fprintf(stdout, "%s ", TimeToHumanString(rawtime).c_str());
       }
     }
 

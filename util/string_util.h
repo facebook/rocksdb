@@ -50,6 +50,8 @@ extern std::string NumberToHumanString(int64_t num);
 // ex: 1048576 -> 1.00 GB
 extern std::string BytesToHumanString(uint64_t bytes);
 
+extern std::string TimeToHumanString(int unixtime);
+
 // Append a human-readable time in micros.
 int AppendHumanMicros(uint64_t micros, char* output, int len,
                       bool fixed_format);

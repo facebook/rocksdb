@@ -139,6 +139,16 @@ std::string BytesToHumanString(uint64_t bytes) {
   return std::string(buf);
 }
 
+std::string TimeToHumanString(int unixtime) {
+  char time_buffer[80];
+  time_t rawtime = unixtime;
+  struct tm tInfo;
+  struct tm* timeinfo = localtime_r(&rawtime, &tInfo);
+  assert(timeinfo == &tInfo);
+  strftime(time_buffer, 80, "%c", timeinfo);
+  return std::string(time_buffer);
+}
+
 std::string EscapeString(const Slice& value) {
   std::string r;
   AppendEscapedStringTo(&r, value);
