@@ -241,24 +241,8 @@ class AwsEnv : public CloudEnvImpl {
 
   bool IsRunning() const { return running_; }
 
-  const std::string& GetSrcBucketName() const override {
-    return cloud_env_options.src_bucket.GetBucketName();
-  }
-  const std::string& GetSrcObjectPath() const override {
-    return cloud_env_options.src_bucket.GetObjectPath();
-  }
   
-  const std::string& GetDestBucketName() const override {
-    return cloud_env_options.dest_bucket.GetBucketName();
-  }
-  const std::string& GetDestObjectPath() const override {
-    return cloud_env_options.dest_bucket.GetObjectPath();
-  }
   
-  const CloudEnvOptions& GetCloudEnvOptions() override {
-    return cloud_env_options;
-  }
-
   std::string GetWALCacheDir();
 
   std::shared_ptr<Logger> info_log_;  // informational messages
@@ -268,9 +252,6 @@ class AwsEnv : public CloudEnvImpl {
 
   // AWS's utility to help out with uploading and downloading S3 file
   std::shared_ptr<Aws::Transfer::TransferManager> awsTransferManager_;
-
-  // Configurations for this cloud environent
-  CloudEnvOptions cloud_env_options;
 
   //
   // Get credentials for running unit tests

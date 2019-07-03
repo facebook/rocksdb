@@ -261,10 +261,9 @@ Aws::S3::Model::HeadObjectOutcome AwsS3ClientWrapper::HeadObject(
 AwsEnv::AwsEnv(Env* underlying_env,
                const CloudEnvOptions& _cloud_env_options,
                const std::shared_ptr<Logger> & info_log)
-    : CloudEnvImpl(_cloud_env_options.cloud_type, _cloud_env_options.log_type,
+    : CloudEnvImpl(_cloud_env_options,
                    underlying_env),
       info_log_(info_log),
-      cloud_env_options(_cloud_env_options),
       running_(true),
       has_src_bucket_(false),
       has_dest_bucket_(false),

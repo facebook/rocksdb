@@ -88,9 +88,8 @@ CloudEnv::~CloudEnv() {}
 
 CloudEnvWrapper::~CloudEnvWrapper() {}
 
-CloudEnvImpl::CloudEnvImpl(
-      CloudType cloud_type, LogType log_type, Env* base_env)
-    : cloud_type_(cloud_type), log_type_(log_type),
+CloudEnvImpl::CloudEnvImpl(const CloudEnvOptions& opts, Env* base_env)
+  : CloudEnv(opts),
       base_env_(base_env), purger_is_running_(true) {}
 
 CloudEnvImpl::~CloudEnvImpl() { StopPurger(); }
@@ -242,7 +241,7 @@ Status CloudEnv::NewAwsEnv(Env* base_env,
   // If the src bucket is not specified, then this is a pass-through cloud env.
   if (! options.dest_bucket.IsValid() &&
       ! options.src_bucket.IsValid()) {
-    *cenv = new CloudEnvWrapper(base_env);
+    *cenv = new CloudEnvWrapper(options, base_env);
     return Status::OK();
   }
 

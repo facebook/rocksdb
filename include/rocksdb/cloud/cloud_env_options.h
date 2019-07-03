@@ -247,6 +247,9 @@ typedef std::map<std::string, std::string> DbidList;
 // The Cloud environment
 //
 class CloudEnv : public Env {
+ protected:
+  CloudEnvOptions cloud_env_options;
+  CloudEnv(const CloudEnvOptions& options) : cloud_env_options(options) { }
  public:
   // Returns the underlying env
   virtual Env* GetBaseEnv() = 0;
@@ -277,17 +280,28 @@ class CloudEnv : public Env {
   // GetSrcObjectPath specifies the path inside that bucket
   // where data files reside. The specified bucket is used in
   // a readonly mode by the associated DBCloud instance.
-  virtual const std::string& GetSrcBucketName() const = 0;
-  virtual const std::string& GetSrcObjectPath() const = 0;
+  const std::string& GetSrcBucketName() const {
+    return cloud_env_options.src_bucket.GetBucketName();
+  }
+  const std::string& GetSrcObjectPath() const {
+    return cloud_env_options.src_bucket.GetObjectPath();
+  }
 
   // The DestBucketName identifies the cloud storage bucket and
   // GetDestObjectPath specifies the path inside that bucket
   // where data files reside. The associated DBCloud instance
   // writes newly created files to this bucket.
-  virtual const std::string& GetDestBucketName() const = 0;
-  virtual const std::string& GetDestObjectPath() const = 0;
+  const std::string& GetDestBucketName() const {
+    return cloud_env_options.dest_bucket.GetBucketName();
+  }
+  const std::string& GetDestObjectPath() const {
+    return cloud_env_options.dest_bucket.GetObjectPath();
+  }
+
   // returns the options used to create this env
-  virtual const CloudEnvOptions& GetCloudEnvOptions() = 0;
+  const CloudEnvOptions& GetCloudEnvOptions() const {
+    return cloud_env_options;
+  }
 
   // returns all the objects that have the specified path prefix and
   // are stored in a cloud bucket
