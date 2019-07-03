@@ -248,6 +248,20 @@ TEST_F(BlockCacheTracerTest, AtomicNoWriteAfterEndTrace) {
   }
 }
 
+TEST_F(BlockCacheTracerTest, NextGetId) {
+  TraceOptions trace_opt;
+  std::unique_ptr<TraceWriter> trace_writer;
+  ASSERT_OK(
+      NewFileTraceWriter(env_, env_options_, trace_file_path_, &trace_writer));
+  BlockCacheTracer writer;
+  // next get id should always return 0 before we call StartTrace.
+  ASSERT_EQ(0, writer.NextGetId());
+  ASSERT_EQ(0, writer.NextGetId());
+  ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
+  ASSERT_EQ(1, writer.NextGetId());
+  ASSERT_EQ(2, writer.NextGetId());
+}
+
 TEST_F(BlockCacheTracerTest, MixedBlocks) {
   {
     // Generate a trace file containing a mix of blocks.
