@@ -18,6 +18,7 @@
 #include <vector>
 #include "rocksdb/env.h"
 #include "port/port.h"
+#include "port/sys_time.h"
 #include "rocksdb/slice.h"
 
 namespace rocksdb {
