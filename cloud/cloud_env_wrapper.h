@@ -19,8 +19,9 @@ namespace rocksdb {
 class CloudEnvWrapper : public CloudEnvImpl {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
-  explicit CloudEnvWrapper(Env* t) : CloudEnvImpl(
-      CloudType::kCloudNone, LogType::kLogNone, t) {
+  explicit CloudEnvWrapper(const CloudEnvOptions& options, Env* t) : CloudEnvImpl(options, t) {
+    cloud_env_options.log_type = LogType::kLogNone;
+    cloud_env_options.cloud_type = CloudType::kCloudNone;
     notsup_ = Status::NotSupported();
   }
 
@@ -53,11 +54,6 @@ class CloudEnvWrapper : public CloudEnvImpl {
                             const std::string& dbid) override {
     return notsup_;
   }
-
-  virtual const std::string& GetSrcBucketName() const override { return empty_; }
-  virtual const std::string& GetSrcObjectPath() const override { return empty_; }
-  virtual const std::string& GetDestBucketName() const override { return empty_; }
-  virtual const std::string& GetDestObjectPath() const override { return empty_; }
 
   // Ability to read a file directly from cloud storage
   virtual Status NewSequentialFileCloud(const std::string& fname,
@@ -208,7 +204,6 @@ class CloudEnvWrapper : public CloudEnvImpl {
 
   uint64_t GetThreadID() const override { return base_env_->GetThreadID(); }
 
-  const CloudEnvOptions& GetCloudEnvOptions() override { return options_; }
 
   Status ListObjects(const std::string& bucket_name_prefix,
                      const std::string& bucket_object_prefix,
@@ -251,7 +246,6 @@ class CloudEnvWrapper : public CloudEnvImpl {
  private:
   Status notsup_;
   std::string empty_;
-  const CloudEnvOptions options_;
 };
 
 #pragma GCC diagnostic pop
