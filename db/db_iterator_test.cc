@@ -2759,6 +2759,68 @@ TEST_P(DBIteratorTest, AvoidReseekChildIterator) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+// MyRocks may change iterate bounds before seek. Simply test to make sure such
+// usage doesn't break iterator.
+TEST_P(DBIteratorTest, IterateBoundChangedBeforeSeek) {
+  Options options = CurrentOptions();
+  options.compression = CompressionType::kNoCompression;
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 100;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  std::string value(50, 'v');
+  Reopen(options);
+  ASSERT_OK(Put("aaa", value));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("bbb", "v"));
+  ASSERT_OK(Put("ccc", "v"));
+  ASSERT_OK(Put("ddd", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("eee", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  std::string ub1 = "e";
+  std::string ub2 = "c";
+  Slice ub(ub1);
+  ReadOptions read_opts1;
+  read_opts1.iterate_upper_bound = &ub;
+  Iterator* iter = NewIterator(read_opts1);
+  // Seek and iterate accross block boundary.
+  iter->Seek("b");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("bbb", iter->key());
+  ub = Slice(ub2);
+  iter->Seek("b");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("bbb", iter->key());
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+  delete iter;
+
+  std::string lb1 = "a";
+  std::string lb2 = "c";
+  Slice lb(lb1);
+  ReadOptions read_opts2;
+  read_opts2.iterate_lower_bound = &lb;
+  iter = NewIterator(read_opts2);
+  iter->SeekForPrev("d");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("ccc", iter->key());
+  lb = Slice(lb2);
+  iter->SeekForPrev("d");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("ccc", iter->key());
+  iter->Prev();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+  delete iter;
+}
+
 INSTANTIATE_TEST_CASE_P(DBIteratorTestInstance, DBIteratorTest,
                         testing::Values(true, false));
 
