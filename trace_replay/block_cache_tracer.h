@@ -225,9 +225,7 @@ class BlockCacheTracer {
   // A mutex protects the writer_.
   InstrumentedMutex trace_writer_mutex_;
   std::atomic<BlockCacheTraceWriter*> writer_;
-  // A mutex protects get_id_counter_.
-  InstrumentedMutex get_id_counter_mutex_;
-  uint64_t get_id_counter_ = 1;
+  std::atomic<uint64_t> get_id_counter_;
 };
 
 }  // namespace rocksdb

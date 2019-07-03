@@ -250,6 +250,7 @@ Status BlockCacheTracer::StartTrace(
   if (writer_.load()) {
     return Status::Busy();
   }
+  get_id_counter_.store(1);
   trace_options_ = trace_options;
   writer_.store(
       new BlockCacheTraceWriter(env, trace_options, std::move(trace_writer)));
@@ -284,12 +285,12 @@ uint64_t BlockCacheTracer::NextGetId() {
   if (!writer_.load(std::memory_order_relaxed)) {
     return 0;
   }
-  InstrumentedMutexLock lock_guard(&get_id_counter_mutex_);
-  if (get_id_counter_ == port::kMaxUint64) {
-    get_id_counter_ = 0;
+  uint64_t prev_value = get_id_counter_.fetch_add(1);
+  if (prev_value == BlockCacheTraceHelper::kReservedGetId) {
+    // fetch and add again.
+    return get_id_counter_.fetch_add(1);
   }
-  get_id_counter_++;
-  return get_id_counter_;
+  return prev_value;
 }
 
 }  // namespace rocksdb
