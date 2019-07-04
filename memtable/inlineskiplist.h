@@ -125,7 +125,7 @@ class InlineSkipList {
 
   bool InsertPrevListCAS(Node* x, Splice* splice, const DecodedKey& key);
 
-  bool InsertPrevList(Node* x, Splice* splice, const DecodedKey& key);
+  bool InsertPrevList(Node* x, Splice* splice);
 
   // Returns true iff an entry that compares equal to key is in the list.
   bool Contains(const char* key) const;
@@ -775,7 +775,7 @@ bool InlineSkipList<Comparator>::InsertPrevListCAS(Node* x, Splice* splice, cons
 
 
 template <class Comparator>
-bool InlineSkipList<Comparator>::InsertPrevList(Node* x, Splice* splice, const DecodedKey& key){
+bool InlineSkipList<Comparator>::InsertPrevList(Node* x, Splice* splice){
   Node* prev = splice->prev_[0];
   Node* next = splice->next_[0];
   if (next != nullptr &&
@@ -957,7 +957,7 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
         FindSpliceForLevel<false>(key_decoded, splice->prev_[i], nullptr, i,
                                   &splice->prev_[i], &splice->next_[i]);
       }
-      if (UNLIKELY(i == 0 && !InsertPrevList(x, splice, key_decoded))) {
+      if (UNLIKELY(i == 0 && !InsertPrevList(x, splice))) {
         return false;
       }
       assert(splice->next_[i] == nullptr ||
