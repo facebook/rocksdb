@@ -18,6 +18,16 @@ namespace rocksdb {
 
 extern const uint64_t kMicrosInSecond;
 
+class BlockCacheTraceHelper {
+ public:
+  static bool ShouldTraceReferencedKey(TraceType block_type,
+                                       TableReaderCaller caller);
+  static bool ShouldTraceGetId(TableReaderCaller caller);
+
+  static const std::string kUnknownColumnFamilyName;
+  static const uint64_t kReservedGetId;
+};
+
 // Lookup context for tracing block cache accesses.
 // We trace block accesses at five places:
 // 1. BlockBasedTable::GetFilter
@@ -38,8 +48,10 @@ extern const uint64_t kMicrosInSecond;
 // 6. BlockBasedTable::ApproximateOffsetOf. (kCompaction or
 // kUserApproximateSize).
 struct BlockCacheLookupContext {
-BlockCacheLookupContext(const TableReaderCaller& _caller) : caller(_caller) {}
-const TableReaderCaller caller;
+  BlockCacheLookupContext(const TableReaderCaller& _caller) : caller(_caller) {}
+  BlockCacheLookupContext(const TableReaderCaller& _caller, uint64_t _get_id)
+      : caller(_caller), get_id(_get_id) {}
+  const TableReaderCaller caller;
   // These are populated when we perform lookup/insert on block cache. The block
   // cache tracer uses these inforation when logging the block access at
   // BlockBasedTable::GET and BlockBasedTable::MultiGet.
@@ -49,6 +61,10 @@ const TableReaderCaller caller;
   uint64_t block_size = 0;
   std::string block_key;
   uint64_t num_keys_in_block = 0;
+  // The unique id associated with Get and MultiGet. This enables us to track
+  // how many blocks a Get/MultiGet request accesses. We can also measure the
+  // impact of row cache vs block cache.
+  uint64_t get_id = 0;
 
   void FillLookupContext(bool _is_cache_hit, bool _no_insert,
                          TraceType _block_type, uint64_t _block_size,
@@ -78,7 +94,8 @@ struct BlockCacheTraceRecord {
   TableReaderCaller caller = TableReaderCaller::kMaxBlockCacheLookupCaller;
   Boolean is_cache_hit = Boolean::kFalse;
   Boolean no_insert = Boolean::kFalse;
-
+  // Required field for Get and MultiGet
+  uint64_t get_id = BlockCacheTraceHelper::kReservedGetId;
   // Required fields for data block and user Get/Multi-Get only.
   std::string referenced_key;
   uint64_t referenced_data_size = 0;
@@ -91,7 +108,7 @@ struct BlockCacheTraceRecord {
                         TraceType _block_type, uint64_t _block_size,
                         uint64_t _cf_id, std::string _cf_name, uint32_t _level,
                         uint64_t _sst_fd_number, TableReaderCaller _caller,
-                        bool _is_cache_hit, bool _no_insert,
+                        bool _is_cache_hit, bool _no_insert, uint64_t _get_id,
                         std::string _referenced_key = "",
                         uint64_t _referenced_data_size = 0,
                         uint64_t _num_keys_in_block = 0,
@@ -107,6 +124,7 @@ struct BlockCacheTraceRecord {
         caller(_caller),
         is_cache_hit(_is_cache_hit ? Boolean::kTrue : Boolean::kFalse),
         no_insert(_no_insert ? Boolean::kTrue : Boolean::kFalse),
+        get_id(_get_id),
         referenced_key(_referenced_key),
         referenced_data_size(_referenced_data_size),
         num_keys_in_block(_num_keys_in_block),
@@ -119,14 +137,6 @@ struct BlockCacheTraceHeader {
   uint64_t start_time;
   uint32_t rocksdb_major_version;
   uint32_t rocksdb_minor_version;
-};
-
-class BlockCacheTraceHelper {
- public:
-  static bool ShouldTraceReferencedKey(TraceType block_type,
-                                       TableReaderCaller caller);
-
-  static const std::string kUnknownColumnFamilyName;
 };
 
 // BlockCacheTraceWriter captures all RocksDB block cache accesses using a
@@ -207,11 +217,15 @@ class BlockCacheTracer {
                           const Slice& block_key, const Slice& cf_name,
                           const Slice& referenced_key);
 
+  // GetId cycles from 1 to port::kMaxUint64.
+  uint64_t NextGetId();
+
  private:
   TraceOptions trace_options_;
   // A mutex protects the writer_.
   InstrumentedMutex trace_writer_mutex_;
   std::atomic<BlockCacheTraceWriter*> writer_;
+  std::atomic<uint64_t> get_id_counter_;
 };
 
 }  // namespace rocksdb

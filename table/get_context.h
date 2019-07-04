@@ -85,7 +85,8 @@ class GetContext {
              SequenceNumber* max_covering_tombstone_seq, Env* env,
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
-             ReadCallback* callback = nullptr, bool* is_blob_index = nullptr);
+             ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
+             uint64_t tracing_get_id = 0);
 
   GetContext() = default;
 
@@ -135,6 +136,8 @@ class GetContext {
 
   void ReportCounters();
 
+  uint64_t tracing_get_id() const { return tracing_get_id_; }
+
  private:
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
@@ -158,6 +161,9 @@ class GetContext {
   ReadCallback* callback_;
   bool sample_;
   bool* is_blob_index_;
+  // Used for block cache tracing only. A tracing get id uniquely identifies a
+  // Get or a MultiGet.
+  const uint64_t tracing_get_id_;
 };
 
 // Call this to replay a log and bring the get_context up to date. The replay
