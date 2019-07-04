@@ -3762,9 +3762,9 @@ Status DBImpl::IngestExternalFiles(
   std::vector<ExternalSstFileIngestionJob> ingestion_jobs;
   for (const auto& arg : args) {
     auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
-    ingestion_jobs.emplace_back(env_, versions_.get(), cfd,
-                                immutable_db_options_, env_options_,
-                                &snapshots_, arg.options, &directories_);
+    ingestion_jobs.emplace_back(
+        env_, versions_.get(), cfd, immutable_db_options_, env_options_,
+        &snapshots_, arg.options, &directories_, &event_logger_);
   }
   std::vector<std::pair<bool, Status>> exec_results;
   for (size_t i = 0; i != num_cfs; ++i) {
@@ -3894,19 +3894,21 @@ Status DBImpl::IngestExternalFiles(
       }
     }
     if (status.ok()) {
-      bool should_increment_last_seqno =
-          ingestion_jobs[0].ShouldIncrementLastSequence();
+        int consumed_seqno_count =
+          ingestion_jobs[0].ConsumedSequenceNumbersCount();
 #ifndef NDEBUG
       for (size_t i = 1; i != num_cfs; ++i) {
-        assert(should_increment_last_seqno ==
-               ingestion_jobs[i].ShouldIncrementLastSequence());
+        assert(!!consumed_seqno_count ==
+               !!ingestion_jobs[i].ConsumedSequenceNumbersCount());
+        consumed_seqno_count +=
+            ingestion_jobs[i].ConsumedSequenceNumbersCount();
       }
 #endif
-      if (should_increment_last_seqno) {
+      if (consumed_seqno_count > 0) {
         const SequenceNumber last_seqno = versions_->LastSequence();
-        versions_->SetLastAllocatedSequence(last_seqno + 1);
-        versions_->SetLastPublishedSequence(last_seqno + 1);
-        versions_->SetLastSequence(last_seqno + 1);
+        versions_->SetLastAllocatedSequence(last_seqno + consumed_seqno_count);
+        versions_->SetLastPublishedSequence(last_seqno + consumed_seqno_count);
+        versions_->SetLastSequence(last_seqno + consumed_seqno_count);
       }
       autovector<ColumnFamilyData*> cfds_to_commit;
       autovector<const MutableCFOptions*> mutable_cf_options_list;
