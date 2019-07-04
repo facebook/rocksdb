@@ -31,12 +31,18 @@ bool ShouldTrace(const Slice& block_key, const TraceOptions& trace_options) {
 const uint64_t kMicrosInSecond = 1000 * 1000;
 const std::string BlockCacheTraceHelper::kUnknownColumnFamilyName =
     "UnknownColumnFamily";
+const uint64_t BlockCacheTraceHelper::kReservedGetId = 0;
 
 bool BlockCacheTraceHelper::ShouldTraceReferencedKey(TraceType block_type,
                                                      TableReaderCaller caller) {
   return (block_type == TraceType::kBlockTraceDataBlock) &&
          (caller == TableReaderCaller::kUserGet ||
           caller == TableReaderCaller::kUserMultiGet);
+}
+
+bool BlockCacheTraceHelper::ShouldTraceGetId(TableReaderCaller caller) {
+  return caller == TableReaderCaller::kUserGet ||
+         caller == TableReaderCaller::kUserMultiGet;
 }
 
 BlockCacheTraceWriter::BlockCacheTraceWriter(
@@ -65,6 +71,9 @@ Status BlockCacheTraceWriter::WriteBlockAccess(
   trace.payload.push_back(record.caller);
   trace.payload.push_back(record.is_cache_hit);
   trace.payload.push_back(record.no_insert);
+  if (BlockCacheTraceHelper::ShouldTraceGetId(record.caller)) {
+    PutFixed64(&trace.payload, record.get_id);
+  }
   if (BlockCacheTraceHelper::ShouldTraceReferencedKey(record.block_type,
                                                       record.caller)) {
     PutLengthPrefixedSlice(&trace.payload, referenced_key);
@@ -197,7 +206,12 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
   }
   record->no_insert = static_cast<Boolean>(enc_slice[0]);
   enc_slice.remove_prefix(kCharSize);
-
+  if (BlockCacheTraceHelper::ShouldTraceGetId(record->caller)) {
+    if (!GetFixed64(&enc_slice, &record->get_id)) {
+      return Status::Incomplete(
+          "Incomplete access record: Failed to read the get id.");
+    }
+  }
   if (BlockCacheTraceHelper::ShouldTraceReferencedKey(record->block_type,
                                                       record->caller)) {
     Slice referenced_key;
@@ -236,6 +250,7 @@ Status BlockCacheTracer::StartTrace(
   if (writer_.load()) {
     return Status::Busy();
   }
+  get_id_counter_.store(1);
   trace_options_ = trace_options;
   writer_.store(
       new BlockCacheTraceWriter(env, trace_options, std::move(trace_writer)));
@@ -264,6 +279,18 @@ Status BlockCacheTracer::WriteBlockAccess(const BlockCacheTraceRecord& record,
   }
   return writer_.load()->WriteBlockAccess(record, block_key, cf_name,
                                           referenced_key);
+}
+
+uint64_t BlockCacheTracer::NextGetId() {
+  if (!writer_.load(std::memory_order_relaxed)) {
+    return BlockCacheTraceHelper::kReservedGetId;
+  }
+  uint64_t prev_value = get_id_counter_.fetch_add(1);
+  if (prev_value == BlockCacheTraceHelper::kReservedGetId) {
+    // fetch and add again.
+    return get_id_counter_.fetch_add(1);
+  }
+  return prev_value;
 }
 
 }  // namespace rocksdb

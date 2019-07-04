@@ -38,15 +38,13 @@ void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
 
 }  // namespace
 
-GetContext::GetContext(const Comparator* ucmp,
-                       const MergeOperator* merge_operator, Logger* logger,
-                       Statistics* statistics, GetState init_state,
-                       const Slice& user_key, PinnableSlice* pinnable_val,
-                       bool* value_found, MergeContext* merge_context,
-                       SequenceNumber* _max_covering_tombstone_seq, Env* env,
-                       SequenceNumber* seq,
-                       PinnedIteratorsManager* _pinned_iters_mgr,
-                       ReadCallback* callback, bool* is_blob_index)
+GetContext::GetContext(
+    const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
+    Statistics* statistics, GetState init_state, const Slice& user_key,
+    PinnableSlice* pinnable_val, bool* value_found, MergeContext* merge_context,
+    SequenceNumber* _max_covering_tombstone_seq, Env* env, SequenceNumber* seq,
+    PinnedIteratorsManager* _pinned_iters_mgr, ReadCallback* callback,
+    bool* is_blob_index, uint64_t tracing_get_id)
     : ucmp_(ucmp),
       merge_operator_(merge_operator),
       logger_(logger),
@@ -62,7 +60,8 @@ GetContext::GetContext(const Comparator* ucmp,
       replay_log_(nullptr),
       pinned_iters_mgr_(_pinned_iters_mgr),
       callback_(callback),
-      is_blob_index_(is_blob_index) {
+      is_blob_index_(is_blob_index),
+      tracing_get_id_(tracing_get_id) {
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }
