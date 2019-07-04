@@ -71,6 +71,9 @@ class BlockCacheTracerTest : public testing::Test {
       record.sst_fd_number = kSSTFDNumber + key_id;
       record.is_cache_hit = Boolean::kFalse;
       record.no_insert = Boolean::kFalse;
+      // Provide get_id for all callers. The writer should only write get_id
+      // when the caller is either GET or MGET.
+      record.get_id = key_id + 1;
       // Provide these fields for all block types.
       // The writer should only write these fields for data blocks and the
       // caller is either GET or MGET.
@@ -120,6 +123,12 @@ class BlockCacheTracerTest : public testing::Test {
       ASSERT_EQ(kSSTFDNumber + key_id, record.sst_fd_number);
       ASSERT_EQ(Boolean::kFalse, record.is_cache_hit);
       ASSERT_EQ(Boolean::kFalse, record.no_insert);
+      if (record.caller == TableReaderCaller::kUserGet ||
+          record.caller == TableReaderCaller::kUserMultiGet) {
+        ASSERT_EQ(key_id + 1, record.get_id);
+      } else {
+        ASSERT_EQ(BlockCacheTraceHelper::kReservedGetId, record.get_id);
+      }
       if (block_type == TraceType::kBlockTraceDataBlock &&
           (record.caller == TableReaderCaller::kUserGet ||
            record.caller == TableReaderCaller::kUserMultiGet)) {
@@ -236,6 +245,35 @@ TEST_F(BlockCacheTracerTest, AtomicNoWriteAfterEndTrace) {
     ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
     VerifyAccess(&reader, 0, TraceType::kBlockTraceDataBlock, 1);
     ASSERT_NOK(reader.ReadAccess(&record));
+  }
+}
+
+TEST_F(BlockCacheTracerTest, NextGetId) {
+  BlockCacheTracer writer;
+  {
+    TraceOptions trace_opt;
+    std::unique_ptr<TraceWriter> trace_writer;
+    ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
+                                 &trace_writer));
+    // next get id should always return 0 before we call StartTrace.
+    ASSERT_EQ(0, writer.NextGetId());
+    ASSERT_EQ(0, writer.NextGetId());
+    ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
+    ASSERT_EQ(1, writer.NextGetId());
+    ASSERT_EQ(2, writer.NextGetId());
+    writer.EndTrace();
+    // next get id should return 0.
+    ASSERT_EQ(0, writer.NextGetId());
+  }
+
+  // Start trace again and next get id should return 1.
+  {
+    TraceOptions trace_opt;
+    std::unique_ptr<TraceWriter> trace_writer;
+    ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
+                                 &trace_writer));
+    ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
+    ASSERT_EQ(1, writer.NextGetId());
   }
 }
 
