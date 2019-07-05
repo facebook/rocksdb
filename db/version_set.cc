@@ -984,7 +984,8 @@ class LevelIterator final : public InternalIterator {
   // Note MyRocks may update iterate bounds between seek. To workaround it,
   // we need to check and update may_be_out_of_lower_bound_ accordingly.
   void CheckMayBeOutOfLowerBound() {
-    if (Valid() && read_options_.iterate_lower_bound != nullptr) {
+    if (read_options_.iterate_lower_bound != nullptr &&
+        file_index_ < flevel_->num_files) {
       may_be_out_of_lower_bound_ =
           user_comparator_.Compare(
               ExtractUserKey(file_smallest_key(file_index_)),

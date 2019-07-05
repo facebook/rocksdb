@@ -2821,6 +2821,32 @@ TEST_P(DBIteratorTest, IterateBoundChangedBeforeSeek) {
   delete iter;
 }
 
+TEST_P(DBIteratorTest, IterateWithLowerBoundAcrossFileBoundary) {
+  ASSERT_OK(Put("aaa", "v"));
+  ASSERT_OK(Put("bbb", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("ccc", "v"));
+  ASSERT_OK(Put("ddd", "v"));
+  ASSERT_OK(Flush());
+  // Move both files to bottom level.
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  Slice lower_bound("b");
+  ReadOptions read_opts;
+  read_opts.iterate_lower_bound = &lower_bound;
+  std::unique_ptr<Iterator> iter(NewIterator(read_opts));
+  iter->SeekForPrev("d");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("ccc", iter->key());
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("bbb", iter->key());
+  iter->Prev();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
 INSTANTIATE_TEST_CASE_P(DBIteratorTestInstance, DBIteratorTest,
                         testing::Values(true, false));
 
