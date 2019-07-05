@@ -14,16 +14,25 @@ namespace rocksdb {
 Status GetAllKeyVersions(DB* db, Slice begin_key, Slice end_key,
                          size_t max_num_ikeys,
                          std::vector<KeyVersion>* key_versions) {
+  assert(nullptr != db);
+  return GetAllKeyVersions(db, db->DefaultColumnFamily(), begin_key, end_key,
+                           max_num_ikeys, key_versions);
+}
+
+Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
+                         Slice end_key, size_t max_num_ikeys,
+                         std::vector<KeyVersion>* key_versions) {
+  assert(nullptr != cfh);
   assert(key_versions != nullptr);
   key_versions->clear();
 
   DBImpl* idb = static_cast<DBImpl*>(db->GetRootDB());
-  auto icmp = InternalKeyComparator(idb->GetOptions().comparator);
+  auto icmp = InternalKeyComparator(idb->GetOptions(cfh).comparator);
   ReadRangeDelAggregator range_del_agg(&icmp,
                                        kMaxSequenceNumber /* upper_bound */);
   Arena arena;
-  ScopedArenaIterator iter(
-      idb->NewInternalIterator(&arena, &range_del_agg, kMaxSequenceNumber));
+  ScopedArenaIterator iter(idb->NewInternalIterator(&arena, &range_del_agg,
+                                                    kMaxSequenceNumber, cfh));
 
   if (!begin_key.empty()) {
     InternalKey ikey;
