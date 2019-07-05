@@ -4285,7 +4285,7 @@ class AtomicFlushStressTest : public StressTest {
             // We should print both of CF 0 and i but GetAllKeyVersions() now
             // only supports default CF.
             std::vector<KeyVersion> versions;
-            size_t kMaxNumIKeys = 8;
+            const size_t kMaxNumIKeys = 8;
             Status s = GetAllKeyVersions(db_, begin_key, end_key, kMaxNumIKeys,
                                          &versions);
             fprintf(stderr,
@@ -4298,7 +4298,7 @@ class AtomicFlushStressTest : public StressTest {
                       Slice(kv.user_key).ToString(true).c_str(), kv.sequence,
                       kv.type);
             }
-            fprintf(stderr, "Lastest Sequence Number: %" PRIu64 "\n",
+            fprintf(stderr, "Latest Sequence Number: %" PRIu64 "\n",
                     db_->GetLatestSequenceNumber());
             shared->SetVerificationFailure();
           }
