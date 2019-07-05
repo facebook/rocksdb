@@ -3335,13 +3335,13 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
                             const SliceTransform* prefix_extractor,
                             bool skip_filters) {
   assert(key.size() >= 8);  // key must be internal key
+  assert(get_context != nullptr);
   Status s;
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   CachableEntry<FilterBlockReader> filter_entry;
   bool may_match;
   FilterBlockReader* filter = nullptr;
-  uint64_t tracing_get_id = get_context ? get_context->tracing_get_id()
-                                        : BlockCacheTraceHelper::kReservedGetId;
+  uint64_t tracing_get_id = get_context->tracing_get_id();
   BlockCacheLookupContext lookup_context{TableReaderCaller::kUserGet,
                                          tracing_get_id};
   {
