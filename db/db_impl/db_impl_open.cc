@@ -122,6 +122,25 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   }
 
 #ifndef ROCKSDB_LITE
+  ImmutableDBOptions immutable_db_options(result);
+  if (!IsWalDirSameAsDBPath(&immutable_db_options)) {
+    // Either the WAL dir and db_paths[0]/db_name are not the same, or we
+    // cannot tell for sure. In either case, assume they're different and
+    // explicitly cleanup the trash log files (bypass DeleteScheduler)
+    // Do this first so even if we end up calling
+    // DeleteScheduler::CleanupDirectory on the same dir later, it will be
+    // safe
+    std::vector<std::string> filenames;
+    result.env->GetChildren(result.wal_dir, &filenames);
+    for (std::string& filename : filenames) {
+      if (filename.find(".log.trash",
+                  filename.length() - std::string(".log.trash").length()) !=
+                  std::string::npos) {
+        std::string trash_file = result.wal_dir + "/" + filename;
+        result.env->DeleteFile(trash_file);
+      }
+    }
+  }
   // When the DB is stopped, it's possible that there are some .trash files that
   // were not deleted yet, when we open the DB we will find these .trash files
   // and schedule them to be deleted (or delete immediately if SstFileManager
@@ -1294,6 +1313,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     delete impl;
     return s;
   }
+
+  impl->wal_in_db_path_ =
+      IsWalDirSameAsDBPath(&impl->immutable_db_options_);
+
   impl->mutex_.Lock();
   // Handles create_if_missing, error_if_exists
   s = impl->Recover(column_families);

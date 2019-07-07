@@ -11,6 +11,7 @@
 * Accessing a partition of a partitioned filter or index through a pinned reference is no longer considered a cache hit.
 * The semantics of the per-block-type block read counts in the performance context now match those of the generic block_read_count.
 * Add C bindings for secondary instance, i.e. DBImplSecondary.
+* Rate limited deletion of WALs is only enabled if DBOptions::wal_dir is not set, or explicitly set to db_name passed to DB::Open and DBOptions::db_paths is empty, or same as db_paths[0].path
 
 ### New Features
 * Add an option `snap_refresh_nanos` (default to 0.1s) to periodically refresh the snapshot list in compaction jobs. Assign to 0 to disable the feature.
@@ -33,6 +34,7 @@
 * Fix flush's/compaction's merge processing logic which allowed `Put`s covered by range tombstones to reappear. Note `Put`s may exist even if the user only ever called `Merge()` due to an internal conversion during compaction to the bottommost level.
 * Fix/improve memtable earliest sequence assignment and WAL replay so that WAL entries of unflushed column families will not be skipped after replaying the MANIFEST and increasing db sequence due to another flushed/compacted column family.
 * Fix a bug caused by secondary not skipping the beginning of new MANIFEST.
+* On DB open, delete WAL trash files left behind in wal_dir
 
 ## 6.2.0 (4/30/2019)
 ### New Features
