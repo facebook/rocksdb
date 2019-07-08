@@ -17,6 +17,7 @@ class ImportColumnFamilyTest : public DBTestBase {
     export_files_dir_ = test::TmpDir(env_) + "/export";
     import_cfh_ = nullptr;
     import_cfh2_ = nullptr;
+    metadata_ptr_ = nullptr;
   }
 
   ~ImportColumnFamilyTest() {
@@ -29,6 +30,10 @@ class ImportColumnFamilyTest : public DBTestBase {
       db_->DropColumnFamily(import_cfh2_);
       db_->DestroyColumnFamilyHandle(import_cfh2_);
       import_cfh2_ = nullptr;
+    }
+    if (metadata_ptr_) {
+      delete metadata_ptr_;
+      metadata_ptr_ = nullptr;
     }
     test::DestroyDir(env_, sst_files_dir_);
     test::DestroyDir(env_, export_files_dir_);
@@ -59,6 +64,7 @@ class ImportColumnFamilyTest : public DBTestBase {
   std::string export_files_dir_;
   ColumnFamilyHandle* import_cfh_;
   ColumnFamilyHandle* import_cfh2_;
+  ExportImportFilesMetaData *metadata_ptr_;
 };
 
 TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFiles) {
@@ -287,23 +293,24 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherCF) {
   // Flush again to create another L0 file. It should have higher sequencer.
   ASSERT_OK(Flush(1));
 
-  ExportImportFilesMetaData* metadata = nullptr;
   Checkpoint* checkpoint;
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
   ASSERT_OK(checkpoint->ExportColumnFamily(handles_[1], export_files_dir_,
-                                           &metadata));
-  ASSERT_NE(metadata, nullptr);
+                                           &metadata_ptr_));
+  ASSERT_NE(metadata_ptr_, nullptr);
 
   ImportColumnFamilyOptions import_options;
   import_options.move_files = false;
   ASSERT_OK(db_->CreateColumnFamilyWithImport(options, "toto", import_options,
-                                              *metadata, &import_cfh_));
+                                              *metadata_ptr_, &import_cfh_));
   ASSERT_NE(import_cfh_, nullptr);
 
   import_options.move_files = true;
   ASSERT_OK(db_->CreateColumnFamilyWithImport(options, "yoyo", import_options,
-                                              *metadata, &import_cfh2_));
+                                              *metadata_ptr_, &import_cfh2_));
   ASSERT_NE(import_cfh2_, nullptr);
+  delete metadata_ptr_;
+  metadata_ptr_ = NULL;
 
   std::string value1, value2;
 
@@ -395,12 +402,11 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherDB) {
   // Flush again to create another L0 file. It should have higher sequencer.
   ASSERT_OK(Flush(1));
 
-  ExportImportFilesMetaData* metadata = nullptr;
   Checkpoint* checkpoint;
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
   ASSERT_OK(checkpoint->ExportColumnFamily(handles_[1], export_files_dir_,
-                                           &metadata));
-  ASSERT_NE(metadata, nullptr);
+                                           &metadata_ptr_));
+  ASSERT_NE(metadata_ptr_, nullptr);
 
   // Create a new db and import the files.
   DB* db_copy;
@@ -409,7 +415,7 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherDB) {
   ColumnFamilyHandle* cfh = nullptr;
   ASSERT_OK(db_copy->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "yoyo",
                                                   ImportColumnFamilyOptions(),
-                                                  *metadata, &cfh));
+                                                  *metadata_ptr_, &cfh));
   ASSERT_NE(cfh, nullptr);
 
   for (int i = 0; i < 100; ++i) {

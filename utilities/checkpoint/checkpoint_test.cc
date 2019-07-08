@@ -47,6 +47,7 @@ class CheckpointTest : public testing::Test {
   std::string snapshot_name_;
   std::string export_path_;
   ColumnFamilyHandle* cfh_reverse_comp_;
+  ExportImportFilesMetaData* metadata_;
 
   CheckpointTest() : env_(Env::Default()) {
     env_->SetBackgroundThreads(1, Env::LOW);
@@ -70,6 +71,7 @@ class CheckpointTest : public testing::Test {
     export_path_ = test::TmpDir(env_) + "/export";
     test::DestroyDir(env_, export_path_);
     cfh_reverse_comp_ = nullptr;
+    metadata_ = nullptr;
   }
 
   ~CheckpointTest() override {
@@ -79,6 +81,10 @@ class CheckpointTest : public testing::Test {
     if (cfh_reverse_comp_) {
       EXPECT_OK(db_->DestroyColumnFamilyHandle(cfh_reverse_comp_));
       cfh_reverse_comp_ = nullptr;
+    }
+    if (metadata_) {
+      delete metadata_;
+      metadata_ = nullptr;
     }
     Close();
     Options options;
@@ -337,23 +343,24 @@ TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
       ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
 
       // Export the Tables and verify
-      ExportImportFilesMetaData* metadata = nullptr;
       ASSERT_OK(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
-                                               export_path_, &metadata));
-      verify_files_exported(*metadata, 1);
-      ASSERT_EQ(metadata->db_comparator_name, options.comparator->Name());
+                                               export_path_, &metadata_));
+      verify_files_exported(*metadata_, 1);
+      ASSERT_EQ(metadata_->db_comparator_name, options.comparator->Name());
       test::DestroyDir(env_, export_path_);
+      delete metadata_;
+      metadata_ = nullptr;
 
       // Check again after compaction
       CompactAll();
       ASSERT_OK(Put(key, "v2"));
-      delete metadata;
-      metadata = nullptr;
       ASSERT_OK(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
-                                               export_path_, &metadata));
-      verify_files_exported(*metadata, 2);
-      ASSERT_EQ(metadata->db_comparator_name, BytewiseComparator()->Name());
+                                               export_path_, &metadata_));
+      verify_files_exported(*metadata_, 2);
+      ASSERT_EQ(metadata_->db_comparator_name, BytewiseComparator()->Name());
       test::DestroyDir(env_, export_path_);
+      delete metadata_;
+      metadata_ = nullptr;
     }
 
     // Test non default column family with non default comparator
@@ -370,11 +377,10 @@ TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
       ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
 
       // Export the Tables and verify
-      ExportImportFilesMetaData* metadata = nullptr;
       ASSERT_OK(checkpoint->ExportColumnFamily(cfh_reverse_comp_, export_path_,
-                                               &metadata));
-      verify_files_exported(*metadata, 1);
-      ASSERT_EQ(metadata->db_comparator_name,
+                                               &metadata_));
+      verify_files_exported(*metadata_, 1);
+      ASSERT_EQ(metadata_->db_comparator_name,
                 ReverseBytewiseComparator()->Name());
     }
 }
@@ -394,16 +400,15 @@ TEST_F(CheckpointTest, ExportColumnFamilyNegativeTest) {
 
     // Export onto existing directory
     env_->CreateDirIfMissing(export_path_);
-    ExportImportFilesMetaData* metadata = nullptr;
     ASSERT_EQ(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
-                                             export_path_, &metadata),
+                                             export_path_, &metadata_),
               Status::InvalidArgument("Specified export_dir exists"));
     test::DestroyDir(env_, export_path_);
 
     // Export with invalid directory specification
     export_path_ = "";
     ASSERT_EQ(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
-                                             export_path_, &metadata),
+                                             export_path_, &metadata_),
               Status::InvalidArgument("Specified export_dir invalid"));
 }
 
