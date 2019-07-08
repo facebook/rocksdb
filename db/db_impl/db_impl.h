@@ -1893,6 +1893,8 @@ class DBImpl : public DB {
   // results sequentially. Flush results of memtables with lower IDs get
   // installed to MANIFEST first.
   InstrumentedCondVar atomic_flush_install_cv_;
+
+  bool wal_in_db_path_;
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src);
