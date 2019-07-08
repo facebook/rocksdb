@@ -4273,6 +4273,7 @@ class AtomicFlushStressTest : public StressTest {
                     column_families_[i]->GetName().c_str(),
                     iters[i]->key().ToString(true /* hex */).c_str(),
                     iters[i]->value().ToString(true /* hex */).c_str());
+#ifndef ROCKSDB_LITE
             Slice begin_key;
             Slice end_key;
             if (cmp < 0) {
@@ -4298,6 +4299,7 @@ class AtomicFlushStressTest : public StressTest {
                       Slice(kv.user_key).ToString(true).c_str(), kv.sequence,
                       kv.type);
             }
+#endif  // ROCKSDB_LITE
             fprintf(stderr, "Latest Sequence Number: %" PRIu64 "\n",
                     db_->GetLatestSequenceNumber());
             shared->SetVerificationFailure();
