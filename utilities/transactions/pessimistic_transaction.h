@@ -64,6 +64,9 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   Status SetName(const TransactionName& name) override;
 
+  virtual Iterator* GetLockingIterator(const ReadOptions& read_options,
+                                       ColumnFamilyHandle* column_family) override;
+
   // Generate a new unique transaction identifier
   static TransactionID GenTxnID();
 
