@@ -37,7 +37,8 @@ class CloudEnvWrapper : public CloudEnvImpl {
                                         const EnvOptions& options) override {
     return notsup_;
   }
-  virtual Status SaveDbid(const std::string& dbid,
+  virtual Status SaveDbid(const std::string& bucket_name,
+                          const std::string& dbid,
                           const std::string& dirname) override {
     return notsup_;
   }

@@ -97,7 +97,7 @@ struct JobHandle;
 class AwsEnv : public CloudEnvImpl {
  public:
   // A factory method for creating S3 envs
-  static Status NewAwsEnv(Env* env, 
+  static Status NewAwsEnv(Env* env,
                           const CloudEnvOptions& env_options,
                           const std::shared_ptr<Logger> & info_log, CloudEnv** cenv);
 
@@ -241,8 +241,8 @@ class AwsEnv : public CloudEnvImpl {
 
   bool IsRunning() const { return running_; }
 
-  
-  
+
+
   std::string GetWALCacheDir();
 
   std::shared_ptr<Logger> info_log_;  // informational messages
@@ -263,7 +263,8 @@ class AwsEnv : public CloudEnvImpl {
   Status StartTailingStream();
 
   // Saves and retrieves the dbid->dirname mapping in S3
-  Status SaveDbid(const std::string& dbid, const std::string& dirname) override;
+  Status SaveDbid(const std::string& bucket_name, const std::string& dbid,
+                  const std::string& dirname) override;
   Status GetPathForDbid(const std::string& bucket,
                         const std::string& dbid, std::string* dirname) override;
   Status GetDbidList(const std::string& bucket,

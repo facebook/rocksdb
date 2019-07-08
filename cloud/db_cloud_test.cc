@@ -31,7 +31,7 @@
 
 namespace rocksdb {
 
-  
+
 class CloudTest : public testing::Test {
  public:
   CloudTest() {
@@ -107,9 +107,7 @@ class CloudTest : public testing::Test {
 				  options_.info_log, &aenv));
     // To catch any possible file deletion bugs, we set file deletion delay to
     // smallest possible
-    if (!aenv->GetSrcBucketName().empty() || ! aenv->GetDestBucketName().empty()) {
-      ((AwsEnv*)aenv)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
-    }
+    ((AwsEnv*)aenv)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
     aenv_.reset(aenv);
   }
 
@@ -142,7 +140,7 @@ class CloudTest : public testing::Test {
   }
 
   // Creates and Opens a clone
-  void CloneDB(const std::string& clone_name, 
+  void CloneDB(const std::string& clone_name,
                const std::string& dest_bucket_name,
                const std::string& dest_object_path,
                std::unique_ptr<DBCloud>* cloud_db,
@@ -900,7 +898,7 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
   // We need to sleep a bit because file deletion happens in a different thread,
   // so it might not be immediately deleted.
   std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  EXPECT_TRUE(aenv_->ExistsObject(aenv_->GetDestBucketName(), 
+  EXPECT_TRUE(aenv_->ExistsObject(aenv_->GetDestBucketName(),
 				  firstManifestFile).IsNotFound());
   CloseDB();
 }
@@ -1273,6 +1271,41 @@ TEST_F(CloudTest, EphemeralResync) {
     ASSERT_OK(cloud_db->Get(ReadOptions(), "Key2", &value));
     ASSERT_EQ(value, "onlyInMainDB");
   }
+}
+
+TEST_F(CloudTest, CheckpointToCloud) {
+  cloud_env_options_.keep_local_sst_files = true;
+  options_.level0_file_num_compaction_trigger = 100; // never compact
+
+  auto checkpoint_bucket = cloud_env_options_.dest_bucket;
+
+  cloud_env_options_.src_bucket = BucketOptions();
+  cloud_env_options_.dest_bucket = BucketOptions();
+
+  // Create a DB with two files
+  OpenDB();
+  ASSERT_OK(db_->Put(WriteOptions(), "a", "b"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Put(WriteOptions(), "c", "d"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  ASSERT_OK(
+      db_->CheckpointToCloud(checkpoint_bucket, CheckpointToCloudOptions()));
+
+  ASSERT_EQ(2, GetSSTFiles(dbname_).size());
+  CloseDB();
+
+  DestroyDir(dbname_);
+
+  cloud_env_options_.src_bucket = checkpoint_bucket;
+
+  OpenDB();
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "a", &value));
+  ASSERT_EQ(value, "b");
+  ASSERT_OK(db_->Get(ReadOptions(), "c", &value));
+  ASSERT_EQ(value, "d");
+  CloseDB();
 }
 
 #ifdef AWS_DO_NOT_RUN

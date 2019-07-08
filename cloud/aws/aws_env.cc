@@ -253,7 +253,7 @@ Aws::S3::Model::HeadObjectOutcome AwsS3ClientWrapper::HeadObject(
   t.SetSuccess(outcome.IsSuccess());
   return outcome;
 }
-  
+
 //
 // The AWS credentials are specified to the constructor via
 // access_key_id and secret_key.
@@ -1459,7 +1459,7 @@ Status AwsEnv::SaveIdentitytoS3(const std::string& localfile,
 
   // Save mapping from ID to cloud pathname
   if (st.ok() && !GetDestObjectPath().empty()) {
-    st = SaveDbid(dbid, GetDestObjectPath());
+    st = SaveDbid(GetDestBucketName(), dbid, GetDestObjectPath());
   }
   return st;
 }
@@ -1468,14 +1468,14 @@ Status AwsEnv::SaveIdentitytoS3(const std::string& localfile,
 // All db in a bucket are stored in path /.rockset/dbid/<dbid>
 // The value of the object is the pathname where the db resides.
 //
-Status AwsEnv::SaveDbid(const std::string& dbid, const std::string& dirname) {
+Status AwsEnv::SaveDbid(const std::string& bucket_name, const std::string& dbid,
+                        const std::string& dirname) {
   assert(status().ok());
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[s3] SaveDbid dbid %s dir '%s'",
       dbid.c_str(), dirname.c_str());
 
   std::string dbidkey = dbid_registry_ + dbid;
-  std::string bucket = GetDestBucketName();
-  Aws::String s3_bucket = ToAwsString(bucket);
+  Aws::String s3_bucket = ToAwsString(bucket_name);
   Aws::String key = ToAwsString(dbidkey);
 
   Aws::Map<Aws::String, Aws::String> metadata;
@@ -1497,11 +1497,11 @@ Status AwsEnv::SaveDbid(const std::string& dbid, const std::string& dirname) {
     std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
         "[s3] Bucket %s SaveDbid error in saving dbid %s dirname %s %s",
-        bucket.c_str(), dbid.c_str(), dirname.c_str(), errmsg.c_str());
+        bucket_name.c_str(), dbid.c_str(), dirname.c_str(), errmsg.c_str());
     return Status::IOError(dirname, errmsg.c_str());
   }
   Log(InfoLogLevel::INFO_LEVEL, info_log_,
-      "[s3] Bucket %s SaveDbid dbid %s dirname %s %s", bucket.c_str(),
+      "[s3] Bucket %s SaveDbid dbid %s dirname %s %s", bucket_name.c_str(),
       dbid.c_str(), dirname.c_str(), "ok");
   return Status::OK();
 };
@@ -1880,7 +1880,7 @@ Status AwsEnv::NewLogger(const std::string& fname, shared_ptr<Logger>* result) {
 }
 
 // The factory method for creating an S3 Env
-Status AwsEnv::NewAwsEnv(Env* base_env, 
+Status AwsEnv::NewAwsEnv(Env* base_env,
                          const CloudEnvOptions& cloud_options,
                          const std::shared_ptr<Logger> & info_log, CloudEnv** cenv) {
   Status status;

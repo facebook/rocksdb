@@ -5,13 +5,15 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include "rocksdb/db.h"
+#include "cloud/db_cloud_impl.h"
+
 #include <inttypes.h>
+
 #include "cloud/aws/aws_env.h"
 #include "cloud/cloud_env_wrapper.h"
-#include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/persistent_cache.h"
@@ -83,7 +85,7 @@ std::string generateNewEpochId(Env* env) {
   snprintf(buf, sizeof buf, "%0" PRIx64, hash);
   return buf;
 }
-};
+};  // namespace
 
 Status DBCloud::PreloadCloudManifest(CloudEnv* env, const Options& options,
                                      const std::string& local_dbname) {
@@ -92,7 +94,8 @@ Status DBCloud::PreloadCloudManifest(CloudEnv* env, const Options& options,
   Env* local_env = cenv->GetBaseEnv();
   local_env->CreateDirIfMissing(local_dbname);
   if (cenv->GetCloudType() != CloudType::kCloudNone) {
-    st = DBCloudImpl::MaybeMigrateManifestFile(local_env, options, local_dbname);
+    st =
+        DBCloudImpl::MaybeMigrateManifestFile(local_env, options, local_dbname);
     if (st.ok()) {
       // Init cloud manifest
       st = DBCloudImpl::FetchCloudManifest(cenv, options, local_dbname, false);
@@ -132,7 +135,8 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   }
 
   if (cenv->GetCloudType() != CloudType::kCloudNone) {
-    st = DBCloudImpl::MaybeMigrateManifestFile(local_env, options, local_dbname);
+    st =
+        DBCloudImpl::MaybeMigrateManifestFile(local_env, options, local_dbname);
     if (st.ok()) {
       // Init cloud manifest
       st = DBCloudImpl::FetchCloudManifest(cenv, options, local_dbname, false);
@@ -234,8 +238,7 @@ Status DBCloudImpl::Savepoint() {
   CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(GetEnv());
 
   // If there is no destination bucket, then nothing to do
-  if (cenv->GetDestObjectPath().empty() ||
-      cenv->GetDestBucketName().empty()) {
+  if (cenv->GetDestObjectPath().empty() || cenv->GetDestBucketName().empty()) {
     Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
         "Savepoint on cloud dbid %s has no destination bucket, nothing to do.",
         dbid.c_str());
@@ -270,17 +273,15 @@ Status DBCloudImpl::Savepoint() {
         break;
       }
       auto& onefile = to_copy[idx];
-      Status s = cenv->CopyObject(cenv->GetSrcBucketName(),
-                                  cenv->GetSrcObjectPath() + "/" + onefile,
-                                  cenv->GetDestBucketName(),
-                                  cenv->GetDestObjectPath() + "/" + onefile);
+      Status s = cenv->CopyObject(
+          cenv->GetSrcBucketName(), cenv->GetSrcObjectPath() + "/" + onefile,
+          cenv->GetDestBucketName(), cenv->GetDestObjectPath() + "/" + onefile);
       if (!s.ok()) {
         Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
             "Savepoint on cloud dbid  %s error in copying srcbucket %s srcpath "
             "%s dest bucket %s dest path %s. %s",
             dbid.c_str(), cenv->GetSrcBucketName().c_str(),
-            cenv->GetSrcObjectPath().c_str(),
-            cenv->GetDestBucketName().c_str(),
+            cenv->GetSrcObjectPath().c_str(), cenv->GetDestBucketName().c_str(),
             cenv->GetDestObjectPath().c_str(), s.ToString().c_str());
         if (st.ok()) {
           st = s;  // save at least one error
@@ -301,6 +302,120 @@ Status DBCloudImpl::Savepoint() {
       t.join();
     }
   }
+  return st;
+}
+
+Status DBCloudImpl::CheckpointToCloud(const BucketOptions& destination,
+                                      const CheckpointToCloudOptions& options) {
+  DisableFileDeletions();
+  auto st = DoCheckpointToCloud(destination, options);
+  EnableFileDeletions(false);
+  return st;
+}
+
+Status DBCloudImpl::DoCheckpointToCloud(
+    const BucketOptions& destination, const CheckpointToCloudOptions& options) {
+  std::vector<std::string> live_files;
+  uint64_t manifest_file_size{0};
+  auto cenv = static_cast<CloudEnvImpl*>(GetEnv());
+  auto base_env = cenv->GetBaseEnv();
+
+  auto st =
+      GetLiveFiles(live_files, &manifest_file_size, options.flush_memtable);
+  if (!st.ok()) {
+    return st;
+  }
+
+  std::vector<std::pair<std::string, std::string>> files_to_copy;
+  for (auto& f : live_files) {
+    uint64_t number = 0;
+    FileType type;
+    auto ok = ParseFileName(f, &number, &type);
+    if (!ok) {
+      return Status::InvalidArgument("Unknown file " + f);
+    }
+    if (type != kTableFile) {
+      // ignore
+      continue;
+    }
+    auto remapped_fname = cenv->RemapFilename(f);
+    files_to_copy.emplace_back(remapped_fname, remapped_fname);
+  }
+
+  // IDENTITY file
+  std::string dbid;
+  st = ReadFileToString(cenv, IdentityFileName(GetName()), &dbid);
+  if (!st.ok()) {
+    return st;
+  }
+  files_to_copy.emplace_back(IdentityFileName(""), IdentityFileName(""));
+
+  // MANIFEST file
+  auto current_epoch = cenv->GetCloudManifest()->GetCurrentEpoch().ToString();
+  auto manifest_fname = ManifestFileWithEpoch("", current_epoch);
+  auto tmp_manifest_fname = manifest_fname + ".tmp";
+  st =
+      CopyFile(base_env, GetName() + "/" + manifest_fname,
+               GetName() + "/" + tmp_manifest_fname, manifest_file_size, false);
+  if (!st.ok()) {
+    return st;
+  }
+  files_to_copy.emplace_back(tmp_manifest_fname, std::move(manifest_fname));
+
+  // CLOUDMANIFEST file
+  files_to_copy.emplace_back(CloudManifestFile(""), CloudManifestFile(""));
+
+  std::atomic<size_t> next_file_to_copy{0};
+  int thread_count = std::max(1, options.thread_count);
+  std::vector<Status> thread_statuses;
+  thread_statuses.resize(thread_count);
+
+  auto do_copy = [&](size_t threadId) {
+    while (true) {
+      size_t idx = next_file_to_copy.fetch_add(1);
+      if (idx >= files_to_copy.size()) {
+        break;
+      }
+
+      auto& f = files_to_copy[idx];
+      auto copy_st =
+          cenv->PutObject(GetName() + "/" + f.first, destination.GetBucketName(),
+                          destination.GetObjectPath() + "/" + f.second);
+      if (!copy_st.ok()) {
+        thread_statuses[threadId] = std::move(copy_st);
+        break;
+      }
+    }
+  };
+
+  if (thread_count == 1) {
+    do_copy(0);
+  } else {
+    std::vector<std::thread> threads;
+    for (int i = 0; i < thread_count; ++i) {
+      threads.emplace_back([&, i]() { do_copy(i); });
+    }
+    for (auto& t : threads) {
+      t.join();
+    }
+  }
+
+  for (auto& s : thread_statuses) {
+    if (!s.ok()) {
+      st = s;
+      break;
+    }
+  }
+
+  if (!st.ok()) {
+      return st;
+  }
+
+  // Ignore errors
+  base_env->DeleteFile(tmp_manifest_fname);
+
+  st = cenv->SaveDbid(destination.GetBucketName(), dbid,
+                      destination.GetObjectPath());
   return st;
 }
 
@@ -364,8 +479,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   CloudEnvImpl* cimpl = static_cast<CloudEnvImpl*>(cenv);
 
   // If no buckets are specified, then we cannot reinit anyways
-  if (cenv->GetSrcBucketName().empty() &&
-      cenv->GetDestBucketName().empty()) {
+  if (cenv->GetSrcBucketName().empty() && cenv->GetDestBucketName().empty()) {
     Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
         "Both src and dest buckets are empty");
@@ -600,7 +714,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
 // otherwise all local data will be erased.
 //
 Status DBCloudImpl::ResyncDir(CloudEnvImpl* cenv, const Options& options,
-                const std::string& local_dir) {
+                              const std::string& local_dir) {
   auto& src_bucket = cenv->GetSrcBucketName();
   auto& dest_bucket = cenv->GetDestBucketName();
   if (!dest_bucket.empty()) {
@@ -627,8 +741,9 @@ Status DBCloudImpl::ResyncDir(CloudEnvImpl* cenv, const Options& options,
 // Extract the src dbid and the dest dbid from the cloud paths
 //
 Status DBCloudImpl::GetCloudDbid(CloudEnvImpl* cenv, const Options& options,
-                    const std::string& local_dir,
-                    std::string* src_dbid, std::string* dest_dbid) {
+                                 const std::string& local_dir,
+                                 std::string* src_dbid,
+                                 std::string* dest_dbid) {
   // get local env
   Env* env = cenv->GetBaseEnv();
 
@@ -640,9 +755,9 @@ Status DBCloudImpl::GetCloudDbid(CloudEnvImpl* cenv, const Options& options,
 
   // Read dbid from src bucket if it exists
   if (!cenv->GetSrcBucketName().empty()) {
-    Status st = cenv->GetObject(cenv->GetSrcBucketName(),
-                                cenv->GetSrcObjectPath() + "/IDENTITY",
-                                tmpfile);
+    Status st =
+        cenv->GetObject(cenv->GetSrcBucketName(),
+                        cenv->GetSrcObjectPath() + "/IDENTITY", tmpfile);
     if (!st.ok() && !st.IsNotFound()) {
       return st;
     }
@@ -664,9 +779,9 @@ Status DBCloudImpl::GetCloudDbid(CloudEnvImpl* cenv, const Options& options,
 
   // Read dbid from dest bucket if it exists
   if (!cenv->GetDestBucketName().empty()) {
-    Status st = cenv->GetObject(cenv->GetDestBucketName(),
-                                cenv->GetDestObjectPath() + "/IDENTITY",
-                                tmpfile);
+    Status st =
+        cenv->GetObject(cenv->GetDestBucketName(),
+                        cenv->GetDestObjectPath() + "/IDENTITY", tmpfile);
     if (!st.ok() && !st.IsNotFound()) {
       return st;
     }
@@ -790,13 +905,11 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     return st;
   }
 
-  bool dest_equal_src =
-      cenv->GetSrcBucketName() == cenv->GetDestBucketName() &&
-      cenv->GetSrcObjectPath() == cenv->GetDestObjectPath();
+  bool dest_equal_src = cenv->GetSrcBucketName() == cenv->GetDestBucketName() &&
+                        cenv->GetSrcObjectPath() == cenv->GetDestObjectPath();
 
   Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
-      "[db_cloud_impl] SanitizeDirectory dest_equal_src = %d",
-      dest_equal_src);
+      "[db_cloud_impl] SanitizeDirectory dest_equal_src = %d", dest_equal_src);
 
   bool got_identity_from_dest = false, got_identity_from_src = false;
 
@@ -832,8 +945,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
         "[db_cloud_impl] No valid dbs in src bucket %s src path %s "
         "or dest bucket %s dest path %s",
         cenv->GetSrcBucketName().c_str(), cenv->GetSrcObjectPath().c_str(),
-        cenv->GetDestBucketName().c_str(),
-        cenv->GetDestObjectPath().c_str());
+        cenv->GetDestBucketName().c_str(), cenv->GetDestObjectPath().c_str());
     return Status::OK();
   }
 
@@ -891,9 +1003,8 @@ Status DBCloudImpl::FetchCloudManifest(CloudEnv* cenv, const Options& options,
                                        bool force) {
   bool dest = !cenv->GetDestBucketName().empty();
   bool src = !cenv->GetSrcBucketName().empty();
-  bool dest_equal_src =
-      cenv->GetSrcBucketName() == cenv->GetDestBucketName() &&
-      cenv->GetSrcObjectPath() == cenv->GetDestObjectPath();
+  bool dest_equal_src = cenv->GetSrcBucketName() == cenv->GetDestBucketName() &&
+                        cenv->GetSrcObjectPath() == cenv->GetDestObjectPath();
   std::string cloudmanifest = CloudManifestFile(local_dbname);
   if (!dest && !force && cenv->GetBaseEnv()->FileExists(cloudmanifest).ok()) {
     // nothing to do here, we have our cloud manifest

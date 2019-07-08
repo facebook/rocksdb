@@ -19,7 +19,7 @@
 namespace rocksdb {
 
 bool CloudEnvOptions::GetNameFromEnvironment(const char *name, const char *alt, std::string * result) {
-  
+
   char *value = getenv(name);               // See if name is set in the environment
   if (value == nullptr && alt != nullptr) { // Not set.  Do we have an alt name?
     value = getenv(alt);                    // See if alt is in the environment
@@ -41,13 +41,13 @@ void CloudEnvOptions::TEST_Initialize(const std::string & bucket,
 BucketOptions::BucketOptions() {
     prefix_ = "rockset.";
 }
-  
+
 void BucketOptions::SetBucketName(const std::string & bucket,
 				  const std::string & prefix) {
   if (!prefix.empty()) {
     prefix_ = prefix;
   }
-  
+
   bucket_ = bucket;
   if (bucket_.empty()) {
     name_.clear();
@@ -55,7 +55,7 @@ void BucketOptions::SetBucketName(const std::string & bucket,
     name_ = prefix_ + bucket_;
   }
 }
-  
+
 
 // Initializes the bucket properties
 
@@ -77,13 +77,13 @@ void BucketOptions::TEST_Initialize(const std::string & bucket,
   if (! CloudEnvOptions::GetNameFromEnvironment("ROCKSDB_CLOUD_TEST_OBECT_PATH",
 						"ROCKSDB_CLOUD_OBJECT_PATH", &object_)) {
     object_ = object;
-  }  
+  }
   if (! CloudEnvOptions::GetNameFromEnvironment("ROCKSDB_CLOUD_TEST_REGION",
 						"ROCKSDB_CLOUD_REGION", &region_)) {
     region_ = region;
   }
 }
-  
+
 CloudEnv::~CloudEnv() {}
 
 CloudEnvWrapper::~CloudEnvWrapper() {}
@@ -228,8 +228,8 @@ Status CloudEnv::NewAwsEnv(Env* base_env,
   if (!dest_cloud_region.empty()) options.dest_bucket.SetRegion(dest_cloud_region);
   return NewAwsEnv(base_env, options, logger, cenv);
 }
-  
-Status CloudEnv::NewAwsEnv(Env* base_env, 
+
+Status CloudEnv::NewAwsEnv(Env* base_env,
                            const CloudEnvOptions& options,
                            const std::shared_ptr<Logger> & logger, CloudEnv** cenv) {
 #ifndef USE_AWS
@@ -237,13 +237,6 @@ Status CloudEnv::NewAwsEnv(Env* base_env,
 #else
   // Dump out cloud env options
   options.Dump(logger.get());
-
-  // If the src bucket is not specified, then this is a pass-through cloud env.
-  if (! options.dest_bucket.IsValid() &&
-      ! options.src_bucket.IsValid()) {
-    *cenv = new CloudEnvWrapper(options, base_env);
-    return Status::OK();
-  }
 
   Status st = AwsEnv::NewAwsEnv(base_env, options, logger, cenv);
   if (st.ok()) {

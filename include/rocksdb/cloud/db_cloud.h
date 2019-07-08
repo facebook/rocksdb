@@ -48,6 +48,13 @@ class DBCloud : public StackableDB {
   // destination cloud storage.
   virtual Status Savepoint() = 0;
 
+  // Synchronously copy all local files to the cloud destination given by
+  // 'destination' parameter.
+  // Important: This will overwrite the database in 'destination', if any.
+  // This feature should be considered experimental.
+  virtual Status CheckpointToCloud(const BucketOptions& destination,
+                                   const CheckpointToCloudOptions& options) = 0;
+
   static Status PreloadCloudManifest(CloudEnv* cenv, const Options& options,
                                      const std::string& dbname);
 

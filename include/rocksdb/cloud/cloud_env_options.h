@@ -92,7 +92,7 @@ public:
     }
   }
 };
-  
+
 //
 // The cloud environment for rocksdb. It allows configuring the rocksdb
 // Environent used for the cloud.
@@ -237,7 +237,11 @@ private:
   void TEST_Initialize(const std::string & name_prefix,
 		       const std::string & object_path,
 		       const std::string & region = "");
-  
+};
+
+struct CheckpointToCloudOptions {
+  int thread_count = 8;
+  bool flush_memtable = false;
 };
 
 // A map of dbid to the pathname where the db is stored
@@ -266,7 +270,8 @@ class CloudEnv : public Env {
                                         const EnvOptions& options) = 0;
 
   // Saves and retrieves the dbid->dirname mapping in cloud storage
-  virtual Status SaveDbid(const std::string& dbid,
+  virtual Status SaveDbid(const std::string& bucket_name,
+                          const std::string& dbid,
                           const std::string& dirname) = 0;
   virtual Status GetPathForDbid(const std::string& bucket_prefix,
                                 const std::string& dbid,

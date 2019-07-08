@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "cloud/cloud_env_impl.h"
 #include "rocksdb/cloud/db_cloud.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -22,13 +23,19 @@ class DBCloudImpl : public DBCloud {
 
  public:
   virtual ~DBCloudImpl();
-  Status Savepoint();
+  Status Savepoint() override;
+
+  Status CheckpointToCloud(const BucketOptions& destination,
+                           const CheckpointToCloudOptions& options) override;
 
  protected:
   // The CloudEnv used by this open instance.
   CloudEnv* cenv_;
 
  private:
+  Status DoCheckpointToCloud(const BucketOptions& destination,
+                             const CheckpointToCloudOptions& options);
+
   // Maximum manifest file size
   static const uint64_t max_manifest_file_size = 4 * 1024L * 1024L;
 

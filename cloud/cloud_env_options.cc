@@ -29,6 +29,8 @@ void CloudEnvOptions::Dump(Logger* log) const {
          ephemeral_resync_on_open ? "true" : "false");
   Header(log, "             COptions.skip_dbid_verification: %s",
          skip_dbid_verification ? "true" : "false");
+  Header(log, "           COptions.use_aws_transfer_manager: %s",
+         use_aws_transfer_manager ? "true" : "false");
 }
 
 }  // namespace rocksdb
