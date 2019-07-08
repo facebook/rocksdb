@@ -621,11 +621,10 @@ Options DBTestBase::GetOptions(
 Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix) {
   // get AWS credentials
   rocksdb::CloudEnvOptions coptions;
-  std::string region;
+  coptions.credentials.Set();
+  std::string region = coptions.credentials.GetRegion();
+  Status st = coptions.credentials.AreValid();
   CloudEnv* cenv = nullptr;
-  Status st = AwsEnv::GetTestCredentials(&coptions.credentials.access_key_id,
-					 &coptions.credentials.secret_key,
-					 &region);
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_, st.ToString().c_str());
     assert(st.ok());

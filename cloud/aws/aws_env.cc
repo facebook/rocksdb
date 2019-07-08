@@ -292,12 +292,11 @@ AwsEnv::AwsEnv(Env* underlying_env,
                     GetSrcObjectPath() == GetDestObjectPath();
 
 
-  unique_ptr<Aws::Auth::AWSCredentials> creds;
-  if (!cloud_env_options.credentials.access_key_id.empty() &&
-      !cloud_env_options.credentials.secret_key.empty()) {
-    creds.reset(new Aws::Auth::AWSCredentials(
-        ToAwsString(cloud_env_options.credentials.access_key_id),
-        ToAwsString(cloud_env_options.credentials.secret_key)));
+  shared_ptr<Aws::Auth::AWSCredentialsProvider> creds;
+  create_bucket_status_ = cloud_env_options.credentials.GetProvider(&creds);
+  if (!create_bucket_status_.ok()) {
+      Log(InfoLogLevel::INFO_LEVEL, info_log,
+          "[aws] NewAwsEnv - Bad AWS credentials");
   }
 
   Header(info_log_, "      AwsEnv.src_bucket_name: %s",
@@ -354,7 +353,7 @@ AwsEnv::AwsEnv(Env* underlying_env,
       GetBucketLocationConstraintForName(config.region);
 
   {
-    auto s3client = creds ? std::make_shared<Aws::S3::S3Client>(*creds, config)
+    auto s3client = creds ? std::make_shared<Aws::S3::S3Client>(creds, config)
                           : std::make_shared<Aws::S3::S3Client>(config);
 
       s3client_ = std::make_shared<AwsS3ClientWrapper>(
@@ -404,7 +403,7 @@ AwsEnv::AwsEnv(Env* underlying_env,
     if (cloud_env_options.log_type == kLogKinesis) {
       std::unique_ptr<Aws::Kinesis::KinesisClient> kinesis_client;
       kinesis_client.reset(creds
-                               ? new Aws::Kinesis::KinesisClient(*creds, config)
+                               ? new Aws::Kinesis::KinesisClient(creds, config)
                                : new Aws::Kinesis::KinesisClient(config));
 
       if (!kinesis_client) {
@@ -1897,47 +1896,6 @@ Status AwsEnv::NewAwsEnv(Env* base_env,
     *cenv = aenv.release();
   }
   return status;
-}
-
-//
-// Retrieves the AWS credentials from two environment variables
-// called "aws_access_key_id" and "aws_secret_access_key".
-//
-Status AwsEnv::GetTestCredentials(std::string* aws_access_key_id,
-                                  std::string* aws_secret_access_key,
-                                  std::string* region) {
-  Status st;
-  char* id = getenv("AWS_ACCESS_KEY_ID");
-  if (id == nullptr) {
-    id = getenv("aws_access_key_id");
-  }
-  char* secret = getenv("AWS_SECRET_ACCESS_KEY");
-  if (secret == nullptr) {
-    secret = getenv("aws_secret_access_key");
-  }
-
-  if (id == nullptr || secret == nullptr) {
-    std::string msg =
-        "Skipping AWS tests. "
-        "AWS credentials should be set "
-        "using environment varaibles AWS_ACCESS_KEY_ID and "
-        "AWS_SECRET_ACCESS_KEY";
-    return Status::IOError(msg);
-  }
-  aws_access_key_id->assign(id);
-  aws_secret_access_key->assign(secret);
-
-  char* reg = getenv("AWS_DEFAULT_REGION");
-  if (reg == nullptr) {
-    reg = getenv("aws_default_region");
-  }
-
-  if (reg != nullptr) {
-    region->assign(reg);
-  } else {
-    region->assign("us-west-2");
-  }
-  return st;
 }
 
 std::string AwsEnv::GetWALCacheDir() {

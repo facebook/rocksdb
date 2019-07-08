@@ -274,10 +274,11 @@ class AwsEnv : public CloudEnvImpl {
 
   //
   // Get credentials for running unit tests
+  // Obsolete: use AwsCloudAccessCredentials::GetProvider()
   //
-  static Status GetTestCredentials(std::string* aws_access_key_id,
-				   std::string* aws_secret_access_key,
-				   std::string* region);
+  // static Status GetTestCredentials(std::string* aws_access_key_id,
+	//			   std::string* aws_secret_access_key,
+	//			   std::string* region);
 
   Status StartTailingStream();
 

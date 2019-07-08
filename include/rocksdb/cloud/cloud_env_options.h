@@ -4,6 +4,9 @@
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 
+#include <aws/core/Aws.h>
+#include <aws/core/auth/AWSCredentialsProvider.h>
+
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -30,11 +33,49 @@ enum LogType : unsigned char {
   kLogEnd = 0x3,
 };
 
+// Type of AWS access credentials
+enum class AwsAccessType {
+  kUndefined,
+  kSimple,
+  kInstance,
+  kTaskRole,
+  kEnvironment,
+  kConfig,
+  kAnonymous,
+};
+
+
 // Credentials needed to access AWS cloud service
 class AwsCloudAccessCredentials {
- public:
+public:
+  AwsCloudAccessCredentials();
+
+public:
+  // functions to support AWS credentials
+  bool Set();
+  bool Set(const std::string& aws_region);
+  bool SetSimple(const std::string& aws_access_key_id, const std::string& aws_secret_key, const std::string& aws_region);
+
+  Status AreValid() const;
+
+  AwsAccessType GetAccessType() const;
+  std::string GetRegion() const;
+  Status GetProvider(std::shared_ptr<Aws::Auth::AWSCredentialsProvider> * result) const;
+
+private:
+  bool SetProvider();
+  bool SetAccessType();
+  void SetRegion();
+  void SetRegion(const std::string& aws_region);
+
+private:
   std::string access_key_id;
   std::string secret_key;
+  std::string config_file;
+  AwsAccessType type;
+  std::string region;
+  std::shared_ptr<Aws::Auth::AWSCredentialsProvider> provider;
+  Status status;
 };
 
 // Defines parameters required to connect to Kafka

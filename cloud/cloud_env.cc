@@ -36,6 +36,7 @@ void CloudEnvOptions::TEST_Initialize(const std::string & bucket,
 				    const std::string & region) {
   src_bucket.TEST_Initialize(bucket, object, region);
   dest_bucket = src_bucket;
+  credentials.Set(region);
 }
 
 BucketOptions::BucketOptions() {

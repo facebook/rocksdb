@@ -1069,19 +1069,15 @@ rocksdb::Env* CreateAwsEnv(const std::string& dbpath ,
   info_log.reset(new rocksdb::StderrLogger(
 		     rocksdb::InfoLogLevel::WARN_LEVEL));
   rocksdb::CloudEnvOptions coptions;
-  std::string region;
   if (FLAGS_aws_access_id.size() == 0) {
-      rocksdb::Status st = rocksdb::AwsEnv::GetTestCredentials(&coptions.credentials.access_key_id,
-							       &coptions.credentials.secret_key,
-							       &region);
-      assert(st.ok());
+    coptions.credentials.Set();
   } else {
-    coptions.credentials.access_key_id = FLAGS_aws_access_id;
-    coptions.credentials.secret_key = FLAGS_aws_secret_key;
-    region = FLAGS_aws_region;
+    coptions.credentials.SetSimple(FLAGS_aws_access_id, FLAGS_aws_secret_key, FLAGS_aws_region);
   }
+  assert(coptions.credentials.AreValid().ok());
+
   coptions.keep_local_sst_files = FLAGS_keep_local_sst_files;
-  coptions.src_TEST_Initialize("dbbench.", "", region);
+  coptions.TEST_Initialize("dbbench.", "", coptions.credentials.GetRegion());
   rocksdb::CloudEnv* s;
   rocksdb::Status st = rocksdb::AwsEnv::NewAwsEnv(rocksdb::Env::Default(),
 						  coptions,
@@ -3126,22 +3122,22 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         }
       case rocksdb::kZlibCompression:
         uncompressed = Zlib_Uncompress(uncompression_ctx, compressed.data(),
-                                       compressed.size(), &decompress_size, 2);
+                                       compressed.size(), &decompress_size, 2).get();
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kBZip2Compression:
         uncompressed = BZip2_Uncompress(compressed.data(), compressed.size(),
-                                        &decompress_size, 2);
+                                        &decompress_size, 2).get();
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kLZ4Compression:
         uncompressed = LZ4_Uncompress(uncompression_ctx, compressed.data(),
-                                      compressed.size(), &decompress_size, 2);
+                                      compressed.size(), &decompress_size, 2).get();
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kLZ4HCCompression:
         uncompressed = LZ4_Uncompress(uncompression_ctx, compressed.data(),
-                                      compressed.size(), &decompress_size, 2);
+                                      compressed.size(), &decompress_size, 2).get();
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kXpressCompression:
@@ -3151,7 +3147,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         break;
       case rocksdb::kZSTD:
         uncompressed = ZSTD_Uncompress(uncompression_ctx, compressed.data(),
-                                       compressed.size(), &decompress_size);
+                                       compressed.size(), &decompress_size).get();
         ok = uncompressed != nullptr;
         break;
       default:
