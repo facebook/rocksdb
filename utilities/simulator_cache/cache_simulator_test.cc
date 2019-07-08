@@ -15,8 +15,8 @@ const std::string kRefKeyPrefix = "test-get-";
 const uint64_t kGetId = 1;
 const uint64_t kGetBlockId = 100;
 const uint64_t kCompactionBlockId = 1000;
-const uint64_t kCacheSize = 1024 * 1024;
-const uint64_t kGhostCacheSize = 1024;
+const uint64_t kCacheSize = 1024 * 1024 * 1024;
+const uint64_t kGhostCacheSize = 1024 * 1024;
 }  // namespace
 
 class CacheSimulatorTest : public DBTestBase {
@@ -26,11 +26,7 @@ class CacheSimulatorTest : public DBTestBase {
 
   CacheSimulatorTest() : DBTestBase("/cache_simulator_test") {}
 
-<<<<<<< HEAD
   BlockCacheTraceRecord GenerateGetRecord(uint64_t getid) {
-=======
-  BlockCacheTraceRecord GenerateAccessRecord(uint32_t key_id, bool no_insert) {
->>>>>>> Add more tests
     BlockCacheTraceRecord record;
     record.block_type = TraceType::kBlockTraceDataBlock;
     record.block_size = 4096;
@@ -43,14 +39,11 @@ class CacheSimulatorTest : public DBTestBase {
     record.sst_fd_number = kGetBlockId;
     record.get_id = getid;
     record.is_cache_hit = Boolean::kFalse;
-<<<<<<< HEAD
     record.no_insert = Boolean::kFalse;
-    record.referenced_key = kRefKeyPrefix + std::to_string(kGetBlockId);
-=======
-    record.no_insert = no_insert ? Boolean::kTrue : Boolean::kFalse;
-    record.referenced_key = kRefKeyPrefix + std::to_string(key_id);
->>>>>>> Add more tests
+    record.referenced_key =
+        kRefKeyPrefix + std::to_string(kGetId) + std::string(8, 'c');
     record.referenced_key_exist_in_block = Boolean::kTrue;
+    record.referenced_data_size = 100;
     record.num_keys_in_block = 300;
     return record;
   }
@@ -87,7 +80,6 @@ TEST_F(CacheSimulatorTest, GhostCache) {
 }
 
 TEST_F(CacheSimulatorTest, CacheSimulator) {
-<<<<<<< HEAD
   const BlockCacheTraceRecord& access = GenerateGetRecord(kGetId);
   const BlockCacheTraceRecord& compaction_access = GenerateCompactionRecord();
   std::shared_ptr<Cache> sim_cache =
@@ -96,21 +88,10 @@ TEST_F(CacheSimulatorTest, CacheSimulator) {
                   /*high_pri_pool_ratio=*/0);
   std::unique_ptr<CacheSimulator> cache_simulator(
       new CacheSimulator(nullptr, sim_cache));
-=======
-  const BlockCacheTraceRecord& access =
-      GenerateAccessRecord(/*key_id=*/0, /*no_insert=*/false);
-  const BlockCacheTraceRecord& access_no_insert =
-      GenerateAccessRecord(/*key_id=*/1, /*no_insert=*/true);
-  std::unique_ptr<CacheSimulator> cache_simulator(new CacheSimulator(
-      nullptr, NewLRUCache(/*capacity=*/cache_size, /*num_shard_bits=*/1,
-                           /*strict_capacity_limit=*/false,
-                           /*high_pri_pool_ratio=*/0)));
->>>>>>> Add more tests
   cache_simulator->Access(access);
   cache_simulator->Access(access);
   ASSERT_EQ(2, cache_simulator->total_accesses());
   ASSERT_EQ(50, cache_simulator->miss_ratio());
-<<<<<<< HEAD
   ASSERT_EQ(2, cache_simulator->user_accesses());
   ASSERT_EQ(50, cache_simulator->user_miss_ratio());
 
@@ -120,12 +101,6 @@ TEST_F(CacheSimulatorTest, CacheSimulator) {
   ASSERT_EQ(75, cache_simulator->miss_ratio());
   ASSERT_EQ(2, cache_simulator->user_accesses());
   ASSERT_EQ(50, cache_simulator->user_miss_ratio());
-=======
-  cache_simulator->Access(access_no_insert);
-  cache_simulator->Access(access_no_insert);
-  ASSERT_EQ(4, cache_simulator->total_accesses());
-  ASSERT_EQ(75, cache_simulator->miss_ratio());
->>>>>>> Add more tests
 
   cache_simulator->reset_counter();
   ASSERT_EQ(0, cache_simulator->total_accesses());
@@ -138,12 +113,7 @@ TEST_F(CacheSimulatorTest, CacheSimulator) {
 }
 
 TEST_F(CacheSimulatorTest, GhostCacheSimulator) {
-<<<<<<< HEAD
   const BlockCacheTraceRecord& access = GenerateGetRecord(kGetId);
-=======
-  const BlockCacheTraceRecord& access =
-      GenerateAccessRecord(/*key_id=*/0, /*no_insert=*/false);
->>>>>>> Add more tests
   std::unique_ptr<GhostCache> ghost_cache(new GhostCache(
       NewLRUCache(/*capacity=*/kGhostCacheSize, /*num_shard_bits=*/1,
                   /*strict_capacity_limit=*/false,
@@ -161,25 +131,17 @@ TEST_F(CacheSimulatorTest, GhostCacheSimulator) {
 }
 
 TEST_F(CacheSimulatorTest, PrioritizedCacheSimulator) {
-<<<<<<< HEAD
   const BlockCacheTraceRecord& access = GenerateGetRecord(kGetId);
   std::shared_ptr<Cache> sim_cache =
       NewLRUCache(/*capacity=*/kCacheSize, /*num_shard_bits=*/1,
                   /*strict_capacity_limit=*/false,
                   /*high_pri_pool_ratio=*/0);
-=======
-  const BlockCacheTraceRecord& access =
-      GenerateAccessRecord(/*key_id=*/0, /*no_insert=*/false);
-  const BlockCacheTraceRecord& access_no_insert =
-      GenerateAccessRecord(/*key_id=*/1, /*no_insert=*/true);
->>>>>>> Add more tests
   std::unique_ptr<PrioritizedCacheSimulator> cache_simulator(
       new PrioritizedCacheSimulator(nullptr, sim_cache));
   cache_simulator->Access(access);
   cache_simulator->Access(access);
   ASSERT_EQ(2, cache_simulator->total_accesses());
   ASSERT_EQ(50, cache_simulator->miss_ratio());
-<<<<<<< HEAD
 
   auto handle = sim_cache->Lookup(access.block_key);
   ASSERT_NE(nullptr, handle);
@@ -188,17 +150,6 @@ TEST_F(CacheSimulatorTest, PrioritizedCacheSimulator) {
 
 TEST_F(CacheSimulatorTest, GhostPrioritizedCacheSimulator) {
   const BlockCacheTraceRecord& access = GenerateGetRecord(kGetId);
-=======
-  cache_simulator->Access(access_no_insert);
-  cache_simulator->Access(access_no_insert);
-  ASSERT_EQ(4, cache_simulator->total_accesses());
-  ASSERT_EQ(75, cache_simulator->miss_ratio());
-}
-
-TEST_F(CacheSimulatorTest, GhostPrioritizedCacheSimulator) {
-  const BlockCacheTraceRecord& access =
-      GenerateAccessRecord(/*key_id=*/0, /*no_insert=*/false);
->>>>>>> Add more tests
   std::unique_ptr<GhostCache> ghost_cache(new GhostCache(
       NewLRUCache(/*capacity=*/kGhostCacheSize, /*num_shard_bits=*/1,
                   /*strict_capacity_limit=*/false,
@@ -214,6 +165,160 @@ TEST_F(CacheSimulatorTest, GhostPrioritizedCacheSimulator) {
   ASSERT_EQ(2, cache_simulator->total_accesses());
   // Both of them will be miss since we have a ghost cache.
   ASSERT_EQ(100, cache_simulator->miss_ratio());
+}
+
+TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
+  uint64_t block_id = 100;
+  BlockCacheTraceRecord first_get = GenerateGetRecord(kGetId);
+  BlockCacheTraceRecord second_get = GenerateGetRecord(kGetId + 1);
+  second_get.referenced_data_size = 0;
+  second_get.referenced_key_exist_in_block = Boolean::kFalse;
+  second_get.referenced_key = kRefKeyPrefix + std::to_string(kGetId);
+  BlockCacheTraceRecord third_get = GenerateGetRecord(kGetId + 2);
+  third_get.referenced_data_size = 0;
+  third_get.referenced_key_exist_in_block = Boolean::kFalse;
+  third_get.referenced_key = kRefKeyPrefix + "third_get";
+  // We didn't find the referenced key in the third get.
+  third_get.referenced_key_exist_in_block = Boolean::kFalse;
+  third_get.referenced_data_size = 0;
+  std::shared_ptr<Cache> sim_cache =
+      NewLRUCache(/*capacity=*/kCacheSize, /*num_shard_bits=*/1,
+                  /*strict_capacity_limit=*/false,
+                  /*high_pri_pool_ratio=*/0);
+  std::unique_ptr<HybridRowBlockCacheSimulator> cache_simulator(
+      new HybridRowBlockCacheSimulator(
+          nullptr, sim_cache, /*insert_blocks_row_kvpair_misses=*/true));
+  // The first get request accesses 9 blocks. We should only report 10 accesses
+  // and 100% miss.
+  for (uint32_t i = 0; i < 9; i++) {
+    first_get.block_key = kBlockKeyPrefix + std::to_string(block_id);
+    cache_simulator->Access(first_get);
+    block_id++;
+  }
+  ASSERT_EQ(10, cache_simulator->total_accesses());
+  ASSERT_EQ(100, cache_simulator->miss_ratio());
+  ASSERT_EQ(10, cache_simulator->user_accesses());
+  ASSERT_EQ(100, cache_simulator->user_miss_ratio());
+  auto handle =
+      sim_cache->Lookup(ExtractUserKey(std::to_string(first_get.sst_fd_number) +
+                                       "_" + first_get.referenced_key));
+  ASSERT_NE(nullptr, handle);
+  sim_cache->Release(handle);
+  for (uint32_t i = 100; i < block_id; i++) {
+    handle = sim_cache->Lookup(kBlockKeyPrefix + std::to_string(i));
+    ASSERT_NE(nullptr, handle);
+    sim_cache->Release(handle);
+  }
+
+  // The second get request accesses the same key. We should report one
+  // access and 90% miss, 10 miss with 11 accesses.
+  for (uint32_t i = 0; i < 4; i++) {
+    second_get.block_key = kBlockKeyPrefix + std::to_string(block_id);
+    cache_simulator->Access(second_get);
+    block_id++;
+  }
+  ASSERT_EQ(11, cache_simulator->total_accesses());
+  ASSERT_EQ(90, static_cast<uint64_t>(cache_simulator->miss_ratio()));
+  ASSERT_EQ(11, cache_simulator->user_accesses());
+  ASSERT_EQ(90, static_cast<uint64_t>(cache_simulator->user_miss_ratio()));
+  handle = sim_cache->Lookup(std::to_string(second_get.sst_fd_number) + "_" +
+                             second_get.referenced_key);
+  ASSERT_NE(nullptr, handle);
+  sim_cache->Release(handle);
+  for (uint32_t i = 100; i < block_id; i++) {
+    handle = sim_cache->Lookup(kBlockKeyPrefix + std::to_string(i));
+    if (i < 109) {
+      ASSERT_NE(nullptr, handle) << i;
+      sim_cache->Release(handle);
+    } else {
+      ASSERT_EQ(nullptr, handle) << i;
+    }
+  }
+
+  // The third get on a different key and does not have a size.
+  for (uint32_t i = 0; i < 4; i++) {
+    third_get.block_key = kBlockKeyPrefix + std::to_string(block_id);
+    cache_simulator->Access(third_get);
+    block_id++;
+  }
+  ASSERT_EQ(16, cache_simulator->total_accesses());
+  ASSERT_EQ(93, static_cast<uint64_t>(cache_simulator->miss_ratio()));
+  ASSERT_EQ(16, cache_simulator->user_accesses());
+  ASSERT_EQ(93, static_cast<uint64_t>(cache_simulator->user_miss_ratio()));
+  handle = sim_cache->Lookup(std::to_string(third_get.sst_fd_number) + "_" +
+                             third_get.referenced_key);
+  ASSERT_EQ(nullptr, handle);
+  for (uint32_t i = 100; i < block_id; i++) {
+    if (i < 109 || i >= 113) {
+      handle = sim_cache->Lookup(kBlockKeyPrefix + std::to_string(i));
+      ASSERT_NE(nullptr, handle) << i;
+      sim_cache->Release(handle);
+    } else {
+      handle = sim_cache->Lookup(kBlockKeyPrefix + std::to_string(i));
+      ASSERT_EQ(nullptr, handle) << i;
+    }
+  }
+}
+
+TEST_F(CacheSimulatorTest, HybridRowBlockNoInsertCacheSimulator) {
+  uint64_t block_id = 100;
+  BlockCacheTraceRecord first_get = GenerateGetRecord(kGetId);
+  std::shared_ptr<Cache> sim_cache =
+      NewLRUCache(/*capacity=*/kCacheSize, /*num_shard_bits=*/1,
+                  /*strict_capacity_limit=*/false,
+                  /*high_pri_pool_ratio=*/0);
+  std::unique_ptr<HybridRowBlockCacheSimulator> cache_simulator(
+      new HybridRowBlockCacheSimulator(
+          nullptr, sim_cache, /*insert_blocks_row_kvpair_misses=*/false));
+  for (uint32_t i = 0; i < 9; i++) {
+    first_get.block_key = kBlockKeyPrefix + std::to_string(block_id);
+    cache_simulator->Access(first_get);
+    block_id++;
+  }
+  auto handle =
+      sim_cache->Lookup(ExtractUserKey(std::to_string(first_get.sst_fd_number) +
+                                       "_" + first_get.referenced_key));
+  ASSERT_NE(nullptr, handle);
+  sim_cache->Release(handle);
+  // All blocks are missing from the cache since insert_blocks_row_kvpair_misses
+  // is set to false.
+  for (uint32_t i = 100; i < block_id; i++) {
+    handle = sim_cache->Lookup(kBlockKeyPrefix + std::to_string(i));
+    ASSERT_EQ(nullptr, handle);
+  }
+}
+
+TEST_F(CacheSimulatorTest, GhostHybridRowBlockCacheSimulator) {
+  std::unique_ptr<GhostCache> ghost_cache(new GhostCache(
+      NewLRUCache(/*capacity=*/kGhostCacheSize, /*num_shard_bits=*/1,
+                  /*strict_capacity_limit=*/false,
+                  /*high_pri_pool_ratio=*/0)));
+  const BlockCacheTraceRecord& first_get = GenerateGetRecord(kGetId);
+  const BlockCacheTraceRecord& second_get = GenerateGetRecord(kGetId + 1);
+  const BlockCacheTraceRecord& third_get = GenerateGetRecord(kGetId + 2);
+  std::unique_ptr<HybridRowBlockCacheSimulator> cache_simulator(
+      new HybridRowBlockCacheSimulator(
+          std::move(ghost_cache),
+          NewLRUCache(/*capacity=*/kCacheSize, /*num_shard_bits=*/1,
+                      /*strict_capacity_limit=*/false,
+                      /*high_pri_pool_ratio=*/0),
+          /*insert_blocks_row_kvpair_misses=*/false));
+  // Two get requests access the same key.
+  cache_simulator->Access(first_get);
+  cache_simulator->Access(second_get);
+  ASSERT_EQ(4, cache_simulator->total_accesses());
+  ASSERT_EQ(100, cache_simulator->miss_ratio());
+  ASSERT_EQ(4, cache_simulator->user_accesses());
+  ASSERT_EQ(100, cache_simulator->user_miss_ratio());
+  // We insert the key-value pair upon the second get request. A third get
+  // request should observe a hit.
+  for (uint32_t i = 0; i < 10; i++) {
+    cache_simulator->Access(third_get);
+  }
+  ASSERT_EQ(5, cache_simulator->total_accesses());
+  ASSERT_EQ(80, static_cast<uint64_t>(cache_simulator->miss_ratio()));
+  ASSERT_EQ(5, cache_simulator->user_accesses());
+  ASSERT_EQ(80, static_cast<uint64_t>(cache_simulator->user_miss_ratio()));
 }
 
 }  // namespace rocksdb

@@ -107,8 +107,56 @@ class PrioritizedCacheSimulator : public CacheSimulator {
 
  protected:
   // Access the key-value pair and returns true upon a cache miss.
-  bool AccessKeyValue(const BlockCacheTraceRecord& access, const Slice& key,
-                      uint64_t value_size);
+  void AccessKVPair(const Slice& key, uint64_t value_size,
+                    Cache::Priority priority, bool no_insert,
+                    bool is_user_access, bool* is_cache_miss, bool* admitted);
+
+  Cache::Priority ComputeBlockPriority(const BlockCacheTraceRecord& access);
+};
+
+// A hybrid row and block cache simulator. It looks up/inserts key-value pairs
+// referenced by Get/MultiGet requests, and not their accessed index/filter/data
+// blocks.
+//
+// Upon a Get/MultiGet request, it looks up the referenced key first.
+// If it observes a cache hit, future block accesses on this key-value pair is
+// skipped since the request is served already. Otherwise, it continues to look
+// up/insert its index/filter/data blocks. It also inserts the referenced
+// key-value pair in the cache for future lookups.
+class HybridRowBlockCacheSimulator : public PrioritizedCacheSimulator {
+ public:
+  HybridRowBlockCacheSimulator(std::unique_ptr<GhostCache>&& ghost_cache,
+                               std::shared_ptr<Cache> sim_cache,
+                               bool insert_blocks_upon_row_kvpair_miss)
+      : PrioritizedCacheSimulator(std::move(ghost_cache), sim_cache),
+        insert_blocks_upon_row_kvpair_miss_(
+            insert_blocks_upon_row_kvpair_miss) {}
+  void Access(const BlockCacheTraceRecord& access) override;
+
+ private:
+  // Row key is a concatenation of the access's fd_number and the referenced
+  // user key.
+  std::string ComputeRowKey(const BlockCacheTraceRecord& access);
+
+  //
+  enum InsertResult : char {
+    INSERTED,
+    ADMITTED,
+    NO_INSERT,
+  };
+
+  // A map stores get_id to a map of row keys. For each row key, it stores a
+  // pair of booleans. The first bool is true when we observe a miss upon the
+  // first time we encounter the row key. The second arg is INSERTED when the
+  // kv-pair has been inserted into the cache, ADMITTED if it should be inserted
+  // but haven't been, NO_INSERT if it should not be inserted.
+  //
+  // A kv-pair is in ADMITTED state when we encounter this kv-pair but do not
+  // know its size. This may happen if the first access on the referenced key is
+  // an index/filter block.
+  std::map<uint64_t, std::map<std::string, std::pair<bool, InsertResult>>>
+      getid_getkeys_map_;
+  bool insert_blocks_upon_row_kvpair_miss_;
 };
 
 // A block cache simulator that reports miss ratio curves given a set of cache

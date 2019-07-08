@@ -24,10 +24,11 @@ DEFINE_string(
     "The config file path. One cache configuration per line. The format of a "
     "cache configuration is "
     "cache_name,num_shard_bits,ghost_capacity,cache_capacity_1,...,cache_"
-    "capacity_N. "
-    "Supported cache names are lru, lru_priority, ghost_lru and "
-    "ghost_lru_priority. ghost_capacity and cache_capacity can be xK, xM or xG "
-    "where x is a positive number.");
+    "capacity_N. Supported cache names are lru, lru_priority, lru_hybrid, and "
+    "lru_hybrid_no_insert_on_row_miss. User may also add a prefix 'ghost_' to "
+    "a cache_name to add a ghost cache in front of the real cache. "
+    "ghost_capacity and cache_capacity can be xK, xM or xG where x is a "
+    "positive number.");
 DEFINE_int32(block_cache_trace_downsample_ratio, 1,
              "The trace collected accesses on one in every "
              "block_cache_trace_downsample_ratio blocks. We scale "
@@ -107,7 +108,9 @@ const std::set<std::string> kGroupbyLabels{
     kGroupbyBlock,     kGroupbyColumnFamily, kGroupbySSTFile, kGroupbyLevel,
     kGroupbyBlockType, kGroupbyCaller,       kGroupbyAll};
 const std::string kSupportedCacheNames =
-    " lru lru_priority ghost_lru ghost_lru_priority ";
+    " lru ghost_lru lru_priority ghost_lru_priority lru_hybrid "
+    "ghost_lru_hybrid lru_hybrid_no_insert_on_row_miss "
+    "ghost_lru_hybrid_no_insert_on_row_miss ";
 
 std::string block_type_to_string(TraceType type) {
   switch (type) {
